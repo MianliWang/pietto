@@ -278,7 +278,7 @@ Use `shape`, not `view`, for data contracts:
 ```pietto
 shape User:
     id: UUID not null
-    email: Text(max = 255, encoding = utf8)?
+    email: Text(max = 255, encoding = utf8) nullable
 ```
 
 ### Source

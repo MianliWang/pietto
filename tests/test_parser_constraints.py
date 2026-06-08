@@ -11,6 +11,7 @@ from pietto.ast_nodes import (
     IsNullExpr,
     LiteralExpr,
     NameExpr,
+    Nullability,
     TypeDef,
 )
 from pietto.parser_api import parse_file, parse_source
@@ -18,7 +19,7 @@ from pietto.parser_api import parse_file, parse_source
 
 def test_constraint_with_nullable_parameter_parses() -> None:
     result = parse_source(
-        "constraint valid_email(x: Text?) -> Bool:\n"
+        "constraint valid_email(x: Text nullable) -> Bool:\n"
         '    x is not null and x like "%@%"\n',
         path=Path("constraints.pie"),
     )
@@ -37,7 +38,7 @@ def test_constraint_with_nullable_parameter_parses() -> None:
     parameter = definition.parameters[0]
     assert parameter.name == "x"
     assert parameter.type.name == "Text"
-    assert parameter.type.nullable is True
+    assert parameter.type.nullability is Nullability.NULLABLE
     assert definition.return_type.name == "Bool"
     assert isinstance(definition.body, BinaryExpr)
     assert definition.body.operator == "and"

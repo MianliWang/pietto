@@ -3,5 +3,5 @@ mode checked
 dialect postgres
 encoding utf8
 
-constraint valid_email(x: Text?) -> Bool:
+constraint valid_email(x: Text nullable) -> Bool:
     x is not null and x like "%@%"

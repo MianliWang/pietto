@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -120,13 +121,21 @@ class TypeArgument(Node):
     value: Expression
 
 
+class Nullability(StrEnum):
+    """Explicit syntax state recorded for a parsed type expression."""
+
+    IMPLICIT = "implicit"
+    NULLABLE = "nullable"
+    NOT_NULL = "not_null"
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class TypeExpr(Node):
-    """A parsed type reference with arguments and nullability."""
+    """A parsed type reference with arguments and three-state nullability."""
 
     name: str
     arguments: tuple[TypeArgument, ...]
-    nullable: bool
+    nullability: Nullability
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -174,7 +183,6 @@ class FieldDef(Node):
 
     name: str
     type_expr: TypeExpr
-    not_null: bool
     annotations: tuple[Annotation, ...]
     ensure_clauses: tuple[EnsureClause, ...]
 

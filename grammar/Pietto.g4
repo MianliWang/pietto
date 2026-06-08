@@ -56,11 +56,17 @@ ensureClause
     ;
 
 typeExpression
-    : typeReference QUESTION?
+    : typeReference nullabilityModifier?
     ;
 
 typeReference
     : IDENTIFIER typeArguments?
+    ;
+
+// Nullability syntax is explicit; absence of a modifier remains implicit.
+nullabilityModifier
+    : NULLABLE
+    | NOT NULL
     ;
 
 typeArguments
@@ -126,11 +132,7 @@ shapeBody
     ;
 
 fieldDefinition
-    : IDENTIFIER COLON fieldTypeExpression fieldModifier* NEWLINE
-    ;
-
-fieldTypeExpression
-    : typeReference (QUESTION | NOT NULL)?
+    : IDENTIFIER COLON typeExpression fieldModifier* NEWLINE
     ;
 
 // Field annotations and ensures are syntax-only until Phase 2 semantic checks.
@@ -227,6 +229,7 @@ CONSTRAINT: 'constraint';
 DERIVE: 'derive';
 SHAPE: 'shape';
 ENSURE: 'ensure';
+NULLABLE: 'nullable';
 AND: 'and';
 OR: 'or';
 IS: 'is';
@@ -250,7 +253,6 @@ MINUS: '-';
 STAR: '*';
 SLASH: '/';
 PERCENT: '%';
-QUESTION: '?';
 AT: '@';
 LPAREN: '(';
 RPAREN: ')';

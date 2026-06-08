@@ -26,6 +26,7 @@ from pietto.ast_nodes import (
     IsNullExpr,
     LiteralExpr,
     NameExpr,
+    Nullability,
     Parameter,
     Script,
     ShapeDef,
@@ -127,7 +128,7 @@ class AstBuilder(PiettoVisitor):
         return self._type_expression(
             ctx.typeReference(),
             span_context=ctx,
-            nullable=ctx.QUESTION() is not None,
+            nullability=self._nullability(ctx.nullabilityModifier()),
         )
 
     def visitTypeArgument(self, ctx: PiettoParser.TypeArgumentContext) -> TypeArgument:
@@ -193,21 +194,12 @@ class AstBuilder(PiettoVisitor):
     ) -> FieldDef:
         """Build one field without resolving modifiers or type semantics."""
 
-        field_type = ctx.fieldTypeExpression()
-        not_null = field_type.NOT() is not None
+        field_type = ctx.typeExpression()
         modifiers = ctx.fieldModifier()
-        # `?` is part of TypeExpr syntax, while explicit `not null` remains on
-        # the field so Phase 2 can distinguish it from implicit nullability.
-        span_context = field_type.typeReference() if not_null else field_type
         return FieldDef(
             span=self._span(ctx),
             name=ctx.IDENTIFIER().getText(),
-            type_expr=self._type_expression(
-                field_type.typeReference(),
-                span_context=span_context,
-                nullable=field_type.QUESTION() is not None,
-            ),
-            not_null=not_null,
+            type_expr=self.visit(field_type),
             # Filtering the ordered modifier contexts preserves source order
             # within each public modifier collection.
             annotations=tuple(
@@ -361,7 +353,7 @@ class AstBuilder(PiettoVisitor):
         ctx: PiettoParser.TypeReferenceContext,
         *,
         span_context: ParserRuleContext,
-        nullable: bool,
+        nullability: Nullability,
     ) -> TypeExpr:
         """Build a TypeExpr shared by declarations and shape fields."""
 
@@ -374,8 +366,20 @@ class AstBuilder(PiettoVisitor):
             span=self._span(span_context),
             name=ctx.IDENTIFIER().getText(),
             arguments=arguments,
-            nullable=nullable,
+            nullability=nullability,
         )
+
+    @staticmethod
+    def _nullability(
+        ctx: PiettoParser.NullabilityModifierContext | None,
+    ) -> Nullability:
+        """Map optional nullability syntax to its AST state."""
+
+        if ctx is None:
+            return Nullability.IMPLICIT
+        if ctx.NULLABLE() is not None:
+            return Nullability.NULLABLE
+        return Nullability.NOT_NULL
 
     def _fold_binary(self, ctx: ParserRuleContext) -> Expression:
         """Fold a flat precedence-rule context into left-associative AST nodes."""

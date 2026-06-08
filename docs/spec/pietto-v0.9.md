@@ -202,7 +202,7 @@ enum OrderStatus:
 Defines a pure Boolean semantic function.
 
 ```pietto
-constraint valid_email(x: Text?) -> Bool:
+constraint valid_email(x: Text nullable) -> Bool:
     x is not null and x like "%@%"
 ```
 
@@ -238,7 +238,7 @@ shape User:
     id: UUID not null
     email: Email @pii
     email_norm: Text(max = 255, encoding = utf8) derive normalized_email(email)
-    age: Age?
+    age: Age nullable
     created_at: Timestamp not null
 
     check valid_created_at:
@@ -321,7 +321,7 @@ Any
 shape Product:
     id: Int64 not null
     name: Text(max = 120, encoding = utf8) not null
-    description: Text(encoding = utf8)?
+    description: Text(encoding = utf8) nullable
     price: Decimal(12, 2) ensure self >= 0
 ```
 
@@ -396,17 +396,17 @@ Rules:
 ```pietto
 shape User:
     id: UUID not null
-    nickname: Text?
-    age: Age?
+    nickname: Text nullable
+    age: Age nullable
 ```
 
 Rules:
 
-- `?` means nullable.
+- `nullable` means nullable.
 - `not null` means non-null.
 - In `loose` mode, implicit nullability is allowed.
 - In `checked` mode, implicit nullability should warn.
-- In `strict` mode, shape fields must explicitly say `?` or `not null`.
+- In `strict` mode, shape fields must explicitly say `nullable` or `not null`.
 
 ---
 
@@ -477,7 +477,7 @@ constraint active_user(u: User) -> Bool:
 
 shape User:
     id: UUID not null
-    deleted_at: Timestamp?
+    deleted_at: Timestamp nullable
 
     index users_active_idx on id when deleted_at is null
 ```
@@ -550,7 +550,7 @@ type Age = Int:
 type Email = Text(max = 255, encoding = utf8):
     ensure valid_email(self)
 
-constraint valid_email(x: Text?) -> Bool:
+constraint valid_email(x: Text nullable) -> Bool:
     x is not null and x like "%@%"
 
 derive normalized_email(x: Text) -> Text:
@@ -560,7 +560,7 @@ shape User:
     id: UUID not null
     email: Email @pii
     email_norm: Text(max = 255, encoding = utf8) derive normalized_email(email)
-    age: Age?
+    age: Age nullable
     created_at: Timestamp not null
 
     check valid_created_at:
@@ -649,7 +649,7 @@ inline_type_constraint
   ::= ensure_clause ;
 
 type_expr
-  ::= IDENTIFIER type_args? nullable_marker? ;
+  ::= IDENTIFIER type_args? nullability_modifier? ;
 
 type_args
   ::= '(' type_arg (',' type_arg)* ')' ;
@@ -658,8 +658,9 @@ type_arg
   ::= expression
    | IDENTIFIER '=' expression ;
 
-nullable_marker
-  ::= '?' ;
+nullability_modifier
+  ::= 'nullable'
+   | 'not' 'null' ;
 
 enum_def
   ::= 'enum' IDENTIFIER ':' NEWLINE INDENT enum_item+ DEDENT ;
@@ -689,8 +690,7 @@ field_def
    | IDENTIFIER ':' type_expr 'derive' expression field_modifier* NEWLINE ;
 
 field_modifier
-  ::= 'not' 'null'
-   | ensure_clause
+  ::= ensure_clause
    | annotation ;
 
 ensure_clause

@@ -6,4 +6,4 @@ encoding utf8
 shape User:
     id: UUID not null
     email: Email @pii @sensitive
-    age: Age? ensure self is null or self between 0 and 130
+    age: Age nullable ensure self is null or self between 0 and 130

@@ -52,7 +52,7 @@ Initial test status:
 Implemented parsing and AST construction for:
 
 ```pietto
-constraint valid_email(x: Text?) -> Bool:
+constraint valid_email(x: Text nullable) -> Bool:
     x is not null and x like "%@%"
 ```
 
@@ -92,8 +92,8 @@ Implemented ordered field parsing and AST construction for:
 ```pietto
 shape User:
     id: UUID not null
-    email: Text(max = 255, encoding = utf8)?
-    age: Age?
+    email: Text(max = 255, encoding = utf8) nullable
+    age: Age nullable
 ```
 
 This slice records field types and explicit nullability syntax only. Field
@@ -114,7 +114,7 @@ Implemented bare field annotations and field-level `ensure` parsing for:
 shape User:
     id: UUID not null
     email: Email @pii
-    age: Age? ensure self is null or self between 0 and 130
+    age: Age nullable ensure self is null or self between 0 and 130
 ```
 
 This slice is syntax-only. Annotation validation, ensure return-type checking,
@@ -124,6 +124,18 @@ Current test status:
 
 ```text
 92 passed
+```
+
+### Nullability Syntax Migration: Completed
+
+Replaced postfix `?` with explicit `nullable` and unified parsed type
+nullability as `IMPLICIT`, `NULLABLE`, or `NOT_NULL`. The old postfix syntax is
+no longer accepted.
+
+Current test status:
+
+```text
+95 passed
 ```
 
 ### Next Slice: Source Parse-Only

@@ -19,6 +19,7 @@ from pietto.ast_nodes import (
     IsNullExpr,
     LiteralExpr,
     NameExpr,
+    Nullability,
     ShapeDef,
     Span,
     TypeDef,
@@ -31,8 +32,8 @@ def test_shape_parses_ordered_fields_and_nullability_syntax() -> None:
     result = parse_source(
         "shape User:\n"
         "    id: UUID not null\n"
-        "    email: Text(max = 255, encoding = utf8)?\n"
-        "    age: Age?\n"
+        "    email: Text(max = 255, encoding = utf8) nullable\n"
+        "    age: Age nullable\n"
     )
 
     assert result.diagnostics == ()
@@ -46,14 +47,12 @@ def test_shape_parses_ordered_fields_and_nullability_syntax() -> None:
     assert isinstance(identifier, FieldDef)
     assert isinstance(identifier.type_expr, TypeExpr)
     assert identifier.type_expr.name == "UUID"
-    assert identifier.type_expr.nullable is False
-    assert identifier.not_null is True
+    assert identifier.type_expr.nullability is Nullability.NOT_NULL
     assert identifier.annotations == ()
     assert identifier.ensure_clauses == ()
 
     assert email.type_expr.name == "Text"
-    assert email.type_expr.nullable is True
-    assert email.not_null is False
+    assert email.type_expr.nullability is Nullability.NULLABLE
     assert [argument.name for argument in email.type_expr.arguments] == [
         "max",
         "encoding",
@@ -64,8 +63,7 @@ def test_shape_parses_ordered_fields_and_nullability_syntax() -> None:
     assert email.type_expr.arguments[1].value.name == "utf8"
 
     assert age.type_expr.name == "Age"
-    assert age.type_expr.nullable is True
-    assert age.not_null is False
+    assert age.type_expr.nullability is Nullability.NULLABLE
 
 
 def test_shape_field_modifiers_parse_only() -> None:
@@ -73,7 +71,7 @@ def test_shape_field_modifiers_parse_only() -> None:
         "shape User:\n"
         "    id: UUID not null\n"
         "    email: Email @pii @sensitive\n"
-        "    age: Age? ensure self is null or self between 0 and 130\n"
+        "    age: Age nullable ensure self is null or self between 0 and 130\n"
     )
 
     assert result.diagnostics == ()
@@ -83,7 +81,7 @@ def test_shape_field_modifiers_parse_only() -> None:
 
     identifier, email, age = definition.fields
     assert identifier.name == "id"
-    assert identifier.not_null is True
+    assert identifier.type_expr.nullability is Nullability.NOT_NULL
 
     assert email.type_expr.name == "Email"
     assert [annotation.name for annotation in email.annotations] == [
@@ -94,7 +92,7 @@ def test_shape_field_modifiers_parse_only() -> None:
     assert email.ensure_clauses == ()
 
     assert age.type_expr.name == "Age"
-    assert age.type_expr.nullable is True
+    assert age.type_expr.nullability is Nullability.NULLABLE
     assert len(age.ensure_clauses) == 1
     expression = age.ensure_clauses[0].expression
     assert isinstance(expression, BinaryExpr)
@@ -133,8 +131,7 @@ def test_shape_bare_field_type_is_parse_only() -> None:
     assert isinstance(definition, ShapeDef)
     field = definition.fields[0]
     assert field.type_expr.name == "MissingType"
-    assert field.type_expr.nullable is False
-    assert field.not_null is False
+    assert field.type_expr.nullability is Nullability.IMPLICIT
     assert field.annotations[0].name == "unknown"
     assert isinstance(field.ensure_clauses[0].expression, LiteralExpr)
 
@@ -147,7 +144,7 @@ def test_shape_allows_blank_lines_and_comments() -> None:
         "    id: UUID not null\n"
         "\n"
         "    # Optional display name.\n"
-        "    display_name: Text?\n"
+        "    display_name: Text nullable\n"
         "\n"
     )
 
@@ -162,7 +159,7 @@ def test_shape_without_final_newline_closes_at_eof() -> None:
     result = parse_source(
         "shape User:\n"
         "    id: UUID not null\n"
-        "    age: Age? ensure self between 0 and 130"
+        "    age: Age nullable ensure self between 0 and 130"
     )
 
     assert result.diagnostics == ()
@@ -170,7 +167,7 @@ def test_shape_without_final_newline_closes_at_eof() -> None:
     definition = result.ast.definitions[0]
     assert isinstance(definition, ShapeDef)
     assert definition.span.end_line == 3
-    assert definition.span.end_column == 44
+    assert definition.span.end_column == 52
     assert [field.name for field in definition.fields] == ["id", "age"]
     assert len(definition.fields[1].ensure_clauses) == 1
 
@@ -180,8 +177,8 @@ def test_shape_and_field_spans_are_one_based_half_open() -> None:
     result = parse_source(
         "shape User:\n"
         "    id: UUID not null\n"
-        "    email: Text(max = 255, encoding = utf8)?\n"
-        "    age: Age?\n",
+        "    email: Text(max = 255, encoding = utf8) nullable\n"
+        "    age: Age nullable\n",
         path=path,
     )
 
@@ -194,7 +191,7 @@ def test_shape_and_field_spans_are_one_based_half_open() -> None:
         line=1,
         column=1,
         end_line=4,
-        end_column=14,
+        end_column=22,
     )
     assert definition.fields[0].span == Span(
         path=str(path),
@@ -208,21 +205,21 @@ def test_shape_and_field_spans_are_one_based_half_open() -> None:
         line=2,
         column=9,
         end_line=2,
-        end_column=13,
+        end_column=22,
     )
     assert definition.fields[1].span == Span(
         path=str(path),
         line=3,
         column=5,
         end_line=3,
-        end_column=45,
+        end_column=53,
     )
     assert definition.fields[1].type_expr.span == Span(
         path=str(path),
         line=3,
         column=12,
         end_line=3,
-        end_column=45,
+        end_column=53,
     )
 
 
@@ -231,7 +228,7 @@ def test_shape_field_modifier_spans_are_one_based_half_open() -> None:
     result = parse_source(
         "shape User:\n"
         "    email: Email @pii @sensitive\n"
-        "    age: Age? ensure self is null or self between 0 and 130\n",
+        "    age: Age nullable ensure self is null or self between 0 and 130\n",
         path=path,
     )
 
@@ -276,21 +273,21 @@ def test_shape_field_modifier_spans_are_one_based_half_open() -> None:
         line=3,
         column=5,
         end_line=3,
-        end_column=60,
+        end_column=68,
     )
     assert age.type_expr.span == Span(
         path=str(path),
         line=3,
         column=10,
         end_line=3,
-        end_column=14,
+        end_column=22,
     )
     assert age.ensure_clauses[0].span == Span(
         path=str(path),
         line=3,
-        column=15,
+        column=23,
         end_line=3,
-        end_column=60,
+        end_column=68,
     )
 
 
@@ -302,7 +299,7 @@ def test_shape_keeps_top_level_definition_order() -> None:
         "derive increment(x: Age) -> Age:\n"
         "    x + 1\n"
         "shape User:\n"
-        "    age: Age?\n"
+        "    age: Age nullable\n"
         "enum Status:\n"
         "    ready\n"
     )
@@ -338,7 +335,7 @@ def test_shape_ast_does_not_expose_antlr_nodes() -> None:
         "shape User:\n"
         "    id: UUID not null\n"
         "    email: Email @pii\n"
-        "    age: Age? ensure self is null or self between 0 and 130\n"
+        "    age: Age nullable ensure self is null or self between 0 and 130\n"
     )
 
     assert result.diagnostics == ()
@@ -358,7 +355,8 @@ def test_shape_ast_does_not_expose_antlr_nodes() -> None:
         "shape User:\n",
         "shape User:\n    id: UUID not\n",
         "shape User:\n    id: UUID null\n",
-        "shape User:\n    id: UUID? not null\n",
+        "shape User:\n    id: UUID nullable not null\n",
+        "shape User:\n    id: UUID?\n",
         "shape User:\n    id: UUID @\n",
         'shape User:\n    id: UUID @pii("yes")\n',
         "shape User:\n    id: UUID ensure\n",

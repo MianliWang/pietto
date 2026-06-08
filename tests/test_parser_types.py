@@ -10,6 +10,7 @@ from pietto.ast_nodes import (
     IsNullExpr,
     LiteralExpr,
     NameExpr,
+    Nullability,
     TypeDef,
     UnaryExpr,
 )
@@ -26,19 +27,19 @@ def test_bare_type_definition_parses() -> None:
     assert definition.name == "UserId"
     assert definition.base.name == "UUID"
     assert definition.base.arguments == ()
-    assert definition.base.nullable is False
+    assert definition.base.nullability is Nullability.IMPLICIT
     assert definition.ensures == ()
 
 
 def test_nullable_parameterized_type_definition_parses() -> None:
-    result = parse_source("type Nickname = Text(max = 32, encoding = utf8)?\n")
+    result = parse_source("type Nickname = Text(max = 32, encoding = utf8) nullable\n")
 
     assert result.diagnostics == ()
     assert result.ast is not None
     definition = result.ast.definitions[0]
     assert isinstance(definition, TypeDef)
     assert definition.base.name == "Text"
-    assert definition.base.nullable is True
+    assert definition.base.nullability is Nullability.NULLABLE
     assert [argument.name for argument in definition.base.arguments] == [
         "max",
         "encoding",
@@ -47,6 +48,23 @@ def test_nullable_parameterized_type_definition_parses() -> None:
     assert definition.base.arguments[0].value.value == 32
     assert isinstance(definition.base.arguments[1].value, NameExpr)
     assert definition.base.arguments[1].value.name == "utf8"
+
+
+def test_nullable_type_alias_parses() -> None:
+    result = parse_source("type MaybeAge = Int nullable\n")
+
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    definition = result.ast.definitions[0]
+    assert isinstance(definition, TypeDef)
+    assert definition.base.nullability is Nullability.NULLABLE
+
+
+def test_old_question_mark_nullability_is_rejected() -> None:
+    result = parse_source("type MaybeAge = Int?\n")
+
+    assert result.ast is None
+    assert any(diagnostic.code == "P1000" for diagnostic in result.diagnostics)
 
 
 def test_inline_ensure_type_parses_between_expression() -> None:

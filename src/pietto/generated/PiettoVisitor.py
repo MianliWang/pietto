@@ -69,6 +69,11 @@ class PiettoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by PiettoParser#nullabilityModifier.
+    def visitNullabilityModifier(self, ctx:PiettoParser.NullabilityModifierContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by PiettoParser#typeArguments.
     def visitTypeArguments(self, ctx:PiettoParser.TypeArgumentsContext):
         return self.visitChildren(ctx)
@@ -141,11 +146,6 @@ class PiettoVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by PiettoParser#fieldDefinition.
     def visitFieldDefinition(self, ctx:PiettoParser.FieldDefinitionContext):
-        return self.visitChildren(ctx)
-
-
-    # Visit a parse tree produced by PiettoParser#fieldTypeExpression.
-    def visitFieldTypeExpression(self, ctx:PiettoParser.FieldTypeExpressionContext):
         return self.visitChildren(ctx)
 
 
