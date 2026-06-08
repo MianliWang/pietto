@@ -1,3 +1,5 @@
+"""Convert generated ANTLR parse trees into Pietto-owned AST dataclasses."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -35,10 +37,16 @@ from pietto.generated.PiettoVisitor import PiettoVisitor
 
 
 class AstBuilder(PiettoVisitor):
+    """Build an ANTLR-independent AST from a successfully parsed script."""
+
     def __init__(self, path: str | Path | None) -> None:
+        """Create a builder whose AST spans use the supplied source path."""
+
         self.path = source_path(path)
 
     def visitScript(self, ctx: PiettoParser.ScriptContext) -> Script:
+        """Build the root script node."""
+
         header = self.visit(ctx.header()) if ctx.header() is not None else None
         definitions = tuple(self.visit(item) for item in ctx.definition())
         return Script(
@@ -146,6 +154,8 @@ class AstBuilder(PiettoVisitor):
                 self.visit(parameter) for parameter in ctx.parameterList().parameter()
             )
 
+        # Phase 1 preserves the declared type verbatim. Enforcing a Bool result
+        # belongs to semantic analysis rather than parse-tree construction.
         return ConstraintDef(
             span=self._span(ctx),
             name=ctx.IDENTIFIER().getText(),
@@ -262,6 +272,8 @@ class AstBuilder(PiettoVisitor):
         return LiteralExpr(span=self._span(ctx), value=value)
 
     def _fold_binary(self, ctx: ParserRuleContext) -> Expression:
+        """Fold a flat precedence-rule context into left-associative AST nodes."""
+
         children = ctx.children or []
         result = cast(Expression, self.visit(children[0]))
         for index in range(1, len(children), 2):
@@ -276,6 +288,8 @@ class AstBuilder(PiettoVisitor):
         return result
 
     def _span(self, ctx: ParserRuleContext) -> Span:
+        """Build a one-based, half-open span excluding layout-only tokens."""
+
         start = ctx.start
         stop = self._last_significant_token(ctx)
         if stop is None:
@@ -293,6 +307,8 @@ class AstBuilder(PiettoVisitor):
 
     @staticmethod
     def _end_position(token: Token) -> tuple[int, int]:
+        """Return the exclusive one-based end position of a token."""
+
         text = token.text or ""
         line_breaks = text.count("\n")
         if line_breaks:
@@ -301,6 +317,8 @@ class AstBuilder(PiettoVisitor):
 
     @staticmethod
     def _last_significant_token(node: Any) -> Token | None:
+        """Find the last token that contributes source text to an AST node."""
+
         if isinstance(node, TerminalNode):
             token = node.getSymbol()
             ignored_types = {
@@ -319,6 +337,8 @@ class AstBuilder(PiettoVisitor):
 
     @staticmethod
     def _decode_string_literal(ctx: PiettoParser.LiteralContext) -> str:
+        """Decode supported escapes and reject invalid escapes as source errors."""
+
         token = ctx.STRING().getSymbol()
         text = token.text or ""
         body = text[1:-1]
@@ -351,6 +371,8 @@ class AstBuilder(PiettoVisitor):
 
             escaped = body[index + 1]
             if escaped not in escapes:
+                # AstBuildError is translated by parser_api into a diagnostic, so
+                # malformed source never leaks a Python decoding exception.
                 raise AstBuildError(
                     f'Unsupported string escape "\\{escaped}".',
                     line=token.line,
@@ -364,6 +386,8 @@ class AstBuilder(PiettoVisitor):
 
     @staticmethod
     def _mode(ctx: PiettoParser.ModeDeclContext) -> str:
+        """Extract the selected mode keyword from a mode declaration."""
+
         for token_type in ("LOOSE", "CHECKED", "STRICT"):
             token = getattr(ctx, token_type)()
             if token is not None:

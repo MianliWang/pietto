@@ -1,3 +1,5 @@
+"""Public Pietto parsing facade that keeps ANTLR objects internal."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -27,6 +29,8 @@ from pietto.indentation import (
 
 @dataclass(frozen=True, slots=True)
 class ParseResult:
+    """The AST and structured diagnostics produced by a parse attempt."""
+
     ast: Script | None
     diagnostics: tuple[Diagnostic, ...]
 
@@ -36,6 +40,11 @@ def parse_source(
     *,
     path: str | Path | None = None,
 ) -> ParseResult:
+    """Parse source text into a Pietto AST without exposing ANTLR objects.
+
+    Ordinary source errors produce ``ast=None`` and structured diagnostics.
+    """
+
     lexer_listener = DiagnosticErrorListener(path)
     lexer = PiettoLexer(InputStream(source))
     lexer.removeErrorListeners()
@@ -109,6 +118,8 @@ def parse_source(
 
 
 def parse_file(path: str | Path) -> ParseResult:
+    """Read and parse a UTF-8 Pietto source file."""
+
     source_path_value = Path(path)
     return parse_source(
         source_path_value.read_text(encoding="utf-8"),
@@ -117,6 +128,8 @@ def parse_file(path: str | Path) -> ParseResult:
 
 
 def _read_tokens(lexer: PiettoLexer) -> list[Token]:
+    """Materialize lexer tokens so indentation and token checks can share them."""
+
     tokens: list[Token] = []
     while True:
         token = lexer.nextToken()
@@ -130,6 +143,8 @@ def _brace_diagnostics(
     *,
     path: str | Path | None,
 ) -> tuple[Diagnostic, ...]:
+    """Report brace tokens while ignoring braces lexed inside strings or comments."""
+
     path_text = source_path(path)
     return tuple(
         Diagnostic(

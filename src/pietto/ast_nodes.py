@@ -1,3 +1,5 @@
+"""ANTLR-independent abstract syntax tree nodes for Pietto source."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -16,11 +18,15 @@ class Span:
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Node:
+    """Base class for source-located Pietto AST nodes."""
+
     span: Span
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Header(Node):
+    """Optional file-level language and backend settings."""
+
     version: str | None = None
     mode: str | None = None
     dialect: str | None = None
@@ -29,38 +35,52 @@ class Header(Node):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Expression(Node):
+    """Base class for parsed expressions without semantic typing."""
+
     pass
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class LiteralExpr(Expression):
+    """A scalar literal expression."""
+
     value: str | int | float | bool | None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class NameExpr(Expression):
+    """A reference to one identifier."""
+
     name: str
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class DottedNameExpr(Expression):
+    """A qualified identifier reference such as ``user.email``."""
+
     parts: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class CallExpr(Expression):
+    """A call whose callee is a name or dotted name."""
+
     callee: NameExpr | DottedNameExpr
     arguments: tuple[Expression, ...]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class UnaryExpr(Expression):
+    """A prefix arithmetic expression."""
+
     operator: str
     operand: Expression
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class BinaryExpr(Expression):
+    """A binary arithmetic or Boolean expression."""
+
     left: Expression
     operator: str
     right: Expression
@@ -68,6 +88,8 @@ class BinaryExpr(Expression):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ComparisonExpr(Expression):
+    """A comparison between two expressions."""
+
     left: Expression
     operator: str
     right: Expression
@@ -75,6 +97,8 @@ class ComparisonExpr(Expression):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class BetweenExpr(Expression):
+    """An inclusive ``between`` comparison."""
+
     value: Expression
     lower: Expression
     upper: Expression
@@ -82,18 +106,24 @@ class BetweenExpr(Expression):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class IsNullExpr(Expression):
+    """An ``is null`` or ``is not null`` predicate."""
+
     value: Expression
     negated: bool
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class TypeArgument(Node):
+    """A positional or named argument in a type expression."""
+
     name: str | None
     value: Expression
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class TypeExpr(Node):
+    """A parsed type reference with arguments and nullability."""
+
     name: str
     arguments: tuple[TypeArgument, ...]
     nullable: bool
@@ -101,17 +131,23 @@ class TypeExpr(Node):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Parameter(Node):
+    """A named parameter with its declared type."""
+
     name: str
     type: TypeExpr
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class EnsureClause(Node):
+    """A parsed value guarantee attached to a type."""
+
     expression: Expression
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class TypeDef(Node):
+    """A named type definition and its parsed guarantees."""
+
     name: str
     base: TypeExpr
     ensures: tuple[EnsureClause, ...]
@@ -119,12 +155,16 @@ class TypeDef(Node):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class EnumDef(Node):
+    """A named enumeration definition."""
+
     name: str
     members: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ConstraintDef(Node):
+    """A parse-only constraint definition with an unchecked return type."""
+
     name: str
     parameters: tuple[Parameter, ...]
     return_type: TypeExpr
@@ -136,5 +176,7 @@ Definition = TypeDef | EnumDef | ConstraintDef
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Script(Node):
+    """The root node for one parsed Pietto source file."""
+
     header: Header | None
     definitions: tuple[Definition, ...]

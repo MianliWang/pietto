@@ -38,6 +38,7 @@ definition
     | constraintDefinition
     ;
 
+// Pietto blocks use ':' plus NEWLINE/INDENT/DEDENT, never brace delimiters.
 typeDefinition
     : TYPE IDENTIFIER ASSIGN typeExpression NEWLINE
     | TYPE IDENTIFIER ASSIGN typeExpression ENSURE expression NEWLINE
@@ -60,6 +61,7 @@ typeArguments
     : LPAREN (typeArgument (COMMA typeArgument)* COMMA?)? RPAREN
     ;
 
+// Assignment is limited to declarations and named arguments, not expressions.
 typeArgument
     : typeArgumentName ASSIGN expression
     | expression
@@ -82,6 +84,7 @@ enumItem
     : IDENTIFIER NEWLINE
     ;
 
+// Phase 1 parses any return TypeExpr; semantic analysis later requires Bool.
 constraintDefinition
     : CONSTRAINT IDENTIFIER LPAREN parameterList? RPAREN ARROW typeExpression COLON NEWLINE NEWLINE* INDENT constraintBody DEDENT
     ;
@@ -98,6 +101,7 @@ constraintBody
     : NEWLINE* expression NEWLINE NEWLINE*
     ;
 
+// Precedence rises from or through and, comparisons, arithmetic, unary, primary.
 expression
     : orExpression
     ;
