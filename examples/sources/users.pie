@@ -1,0 +1,7 @@
+pietto 0.9
+mode checked
+dialect postgres
+encoding utf8
+
+source users: User is postgres.table("public.users")
+source raw_events is postgres.table("public.events")

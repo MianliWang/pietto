@@ -268,7 +268,16 @@ class DeriveDef(Node):
     body: Expression
 
 
-Definition = TypeDef | EnumDef | ConstraintDef | DeriveDef | ShapeDef
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SourceDef(Node):
+    """A parse-only binding from a Pietto name to a connector expression."""
+
+    name: str
+    shape_name: str | None
+    connector: Expression
+
+
+Definition = TypeDef | EnumDef | ConstraintDef | DeriveDef | ShapeDef | SourceDef
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

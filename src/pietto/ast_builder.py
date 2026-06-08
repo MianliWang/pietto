@@ -33,6 +33,7 @@ from pietto.ast_nodes import (
     Script,
     ShapeDef,
     ShapeItem,
+    SourceDef,
     Span,
     TypeArgument,
     TypeDef,
@@ -91,7 +92,7 @@ class AstBuilder(PiettoVisitor):
 
     def visitDefinition(
         self, ctx: PiettoParser.DefinitionContext
-    ) -> TypeDef | EnumDef | ConstraintDef | DeriveDef | ShapeDef:
+    ) -> TypeDef | EnumDef | ConstraintDef | DeriveDef | ShapeDef | SourceDef:
         if ctx.typeDefinition() is not None:
             return self.visit(ctx.typeDefinition())
         if ctx.enumDefinition() is not None:
@@ -100,7 +101,9 @@ class AstBuilder(PiettoVisitor):
             return self.visit(ctx.constraintDefinition())
         if ctx.deriveDefinition() is not None:
             return self.visit(ctx.deriveDefinition())
-        return self.visit(ctx.shapeDefinition())
+        if ctx.shapeDefinition() is not None:
+            return self.visit(ctx.shapeDefinition())
+        return self.visit(ctx.sourceDefinition())
 
     def visitTypeDefinition(self, ctx: PiettoParser.TypeDefinitionContext) -> TypeDef:
         ensures: list[EnsureClause] = []
@@ -288,6 +291,19 @@ class AstBuilder(PiettoVisitor):
             predicate=(
                 self.visit(ctx.expression()) if ctx.expression() is not None else None
             ),
+        )
+
+    def visitSourceDefinition(
+        self, ctx: PiettoParser.SourceDefinitionContext
+    ) -> SourceDef:
+        """Build a source binding without validating or executing its connector."""
+
+        identifiers = ctx.IDENTIFIER()
+        return SourceDef(
+            span=self._span(ctx),
+            name=identifiers[0].getText(),
+            shape_name=identifiers[1].getText() if ctx.COLON() is not None else None,
+            connector=self.visit(ctx.expression()),
         )
 
     def visitParameter(self, ctx: PiettoParser.ParameterContext) -> Parameter:

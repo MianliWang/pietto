@@ -38,6 +38,7 @@ definition
     | constraintDefinition
     | deriveDefinition
     | shapeDefinition
+    | sourceDefinition
     ;
 
 // Pietto blocks use ':' plus NEWLINE/INDENT/DEDENT, never brace delimiters.
@@ -180,6 +181,11 @@ indexDefinition
     : INDEX IDENTIFIER ON IDENTIFIER (COMMA IDENTIFIER)* (WHEN expression)? NEWLINE
     ;
 
+// Source bindings retain connector expressions without validating or executing them.
+sourceDefinition
+    : SOURCE IDENTIFIER (COLON IDENTIFIER)? IS expression NEWLINE
+    ;
+
 // First-slice expressions intentionally omit CASE and general assignment syntax.
 // Precedence rises from or through and, comparisons, arithmetic, unary, primary.
 expression
@@ -242,6 +248,8 @@ namePart
     | ON
     | INDEX
     | WHEN
+    | SOURCE
+    | IS
     ;
 
 callSuffix
@@ -273,6 +281,7 @@ UNIQUE: 'unique';
 ON: 'on';
 INDEX: 'index';
 WHEN: 'when';
+SOURCE: 'source';
 ENSURE: 'ensure';
 NULLABLE: 'nullable';
 AND: 'and';

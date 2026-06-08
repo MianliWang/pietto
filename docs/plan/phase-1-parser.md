@@ -227,9 +227,28 @@ Current test status:
 156 passed
 ```
 
-### Next Slice: Source Parse-Only
+### Source Parse-Only: Completed
 
-Implement `source` parsing and AST construction next.
+Implemented optional shape bindings and connector expressions:
+
+```pietto
+source users: User is postgres.table("public.users")
+source raw_events is postgres.table("public.events")
+```
+
+`SourceDef` stores the source name, optional shape name, and existing expression
+AST for the connector. This slice does not resolve shapes, validate connectors,
+or perform database or file access.
+
+Current test status:
+
+```text
+174 passed
+```
+
+### Next Slice: Table Parse-Only
+
+Implement `table` parsing and AST construction next.
 
 ## Required Directory Structure
 

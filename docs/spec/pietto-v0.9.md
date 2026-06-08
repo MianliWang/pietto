@@ -707,7 +707,7 @@ index_def
       ('when' expression)? NEWLINE ;
 
 source_def
-  ::= 'source' IDENTIFIER (':' IDENTIFIER)? 'is' source_connector NEWLINE ;
+  ::= 'source' IDENTIFIER (':' IDENTIFIER)? 'is' expression NEWLINE ;
 
 table_def
   ::= annotation* 'table' IDENTIFIER ':' NEWLINE INDENT table_body DEDENT ;

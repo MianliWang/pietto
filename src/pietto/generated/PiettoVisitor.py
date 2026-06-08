@@ -194,6 +194,11 @@ class PiettoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by PiettoParser#sourceDefinition.
+    def visitSourceDefinition(self, ctx:PiettoParser.SourceDefinitionContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by PiettoParser#expression.
     def visitExpression(self, ctx:PiettoParser.ExpressionContext):
         return self.visitChildren(ctx)
