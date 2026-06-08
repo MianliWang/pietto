@@ -25,6 +25,41 @@ Implement:
 
 Do not implement SQL generation in this phase.
 
+## Implementation Progress
+
+### First Slice: Completed
+
+Implemented:
+
+- file header parsing;
+- bare, inline, and indentation-block type definitions;
+- enum definitions;
+- limited expressions for type arguments and `ensure` clauses;
+- Pietto AST dataclasses independent of ANTLR;
+- public parser API returning `ParseResult`;
+- structured basic diagnostics;
+- cleanup and hardening for string errors, source spans, indentation edge cases,
+  and ANTLR isolation.
+
+Current test status:
+
+```text
+28 passed
+```
+
+### Next Slice: Constraint Parse-Only
+
+Implement parsing and AST construction for:
+
+```pietto
+constraint valid_email(x: Text?) -> Bool:
+    x is not null and x like "%@%"
+```
+
+This slice is syntax-only. Do not enforce purity, name resolution, type
+correctness, or `Bool` return semantics; those belong to Phase 2 semantic
+checking.
+
 ## Required Directory Structure
 
 ```text
