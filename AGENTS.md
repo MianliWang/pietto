@@ -330,6 +330,15 @@ query recent_adult_users:
 - Use `pathlib.Path`.
 - Keep diagnostics structured.
 
+## Documentation and Comments
+
+- Use English docstrings and code comments.
+- Add docstrings for public APIs, AST nodes, diagnostics, and non-trivial parser helpers.
+- Comment design decisions and tricky logic, not obvious line-by-line behavior.
+- Keep grammar comments concise and focused on language design choices.
+- When adding new syntax, update `docs/spec` or `docs/plan` if relevant.
+- Avoid noisy comments that merely restate code.
+
 ## Diagnostics
 
 Diagnostics should include:
