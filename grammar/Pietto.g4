@@ -134,6 +134,7 @@ shapeBody
 shapeItem
     : fieldDefinition
     | checkDefinition
+    | uniqueDefinition
     ;
 
 fieldDefinition
@@ -166,6 +167,11 @@ checkDefinition
 
 checkBody
     : NEWLINE* expression NEWLINE NEWLINE*
+    ;
+
+// Shape unique clauses record names and target fields only in Phase 1.
+uniqueDefinition
+    : UNIQUE IDENTIFIER ON IDENTIFIER (COMMA IDENTIFIER)* NEWLINE
     ;
 
 // First-slice expressions intentionally omit CASE and general assignment syntax.
@@ -226,6 +232,8 @@ dottedName
 namePart
     : IDENTIFIER
     | CHECK
+    | UNIQUE
+    | ON
     ;
 
 callSuffix
@@ -253,6 +261,8 @@ CONSTRAINT: 'constraint';
 DERIVE: 'derive';
 SHAPE: 'shape';
 CHECK: 'check';
+UNIQUE: 'unique';
+ON: 'on';
 ENSURE: 'ensure';
 NULLABLE: 'nullable';
 AND: 'and';

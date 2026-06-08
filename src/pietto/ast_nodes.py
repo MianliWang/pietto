@@ -196,7 +196,15 @@ class CheckDef(Node):
     expression: Expression
 
 
-ShapeItem = FieldDef | CheckDef
+@dataclass(frozen=True, slots=True, kw_only=True)
+class UniqueDef(Node):
+    """A named, parse-only uniqueness clause over ordered field names."""
+
+    name: str
+    field_names: tuple[str, ...]
+
+
+ShapeItem = FieldDef | CheckDef | UniqueDef
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -217,6 +225,12 @@ class ShapeDef(Node):
         """Return shape checks in source order."""
 
         return tuple(item for item in self.items if isinstance(item, CheckDef))
+
+    @property
+    def uniques(self) -> tuple[UniqueDef, ...]:
+        """Return unique clauses in source order."""
+
+        return tuple(item for item in self.items if isinstance(item, UniqueDef))
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

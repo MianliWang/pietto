@@ -1,0 +1,11 @@
+pietto 0.9
+mode checked
+dialect postgres
+encoding utf8
+
+shape User:
+    tenant_id: UUID not null
+    email: Email not null
+
+    unique user_email on email
+    unique tenant_user_email on tenant_id, email

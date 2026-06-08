@@ -37,6 +37,7 @@ from pietto.ast_nodes import (
     TypeDef,
     TypeExpr,
     UnaryExpr,
+    UniqueDef,
 )
 from pietto.errors import AstBuildError, source_path
 from pietto.generated.PiettoParser import PiettoParser
@@ -190,11 +191,13 @@ class AstBuilder(PiettoVisitor):
         )
 
     def visitShapeItem(self, ctx: PiettoParser.ShapeItemContext) -> ShapeItem:
-        """Build one field or check without losing its position in the shape."""
+        """Build one shape item without losing its source position."""
 
         if ctx.fieldDefinition() is not None:
             return self.visit(ctx.fieldDefinition())
-        return self.visit(ctx.checkDefinition())
+        if ctx.checkDefinition() is not None:
+            return self.visit(ctx.checkDefinition())
+        return self.visit(ctx.uniqueDefinition())
 
     def visitFieldDefinition(
         self, ctx: PiettoParser.FieldDefinitionContext
@@ -255,6 +258,18 @@ class AstBuilder(PiettoVisitor):
             span=self._span(ctx),
             name=ctx.IDENTIFIER().getText(),
             expression=self.visit(ctx.checkBody().expression()),
+        )
+
+    def visitUniqueDefinition(
+        self, ctx: PiettoParser.UniqueDefinitionContext
+    ) -> UniqueDef:
+        """Build a unique clause without resolving or deduplicating fields."""
+
+        identifiers = ctx.IDENTIFIER()
+        return UniqueDef(
+            span=self._span(ctx),
+            name=identifiers[0].getText(),
+            field_names=tuple(identifier.getText() for identifier in identifiers[1:]),
         )
 
     def visitParameter(self, ctx: PiettoParser.ParameterContext) -> Parameter:

@@ -244,7 +244,7 @@ shape User:
     check valid_created_at:
         created_at is not null
 
-    unique email_norm
+    unique user_email_norm on email_norm
     index users_age_idx on age when age is not null
 ```
 
@@ -566,7 +566,7 @@ shape User:
     check valid_created_at:
         created_at is not null
 
-    unique email_norm
+    unique user_email_norm on email_norm
     index users_age_idx on age when age is not null
 
 source users: User is postgres.table("public.users")
@@ -698,6 +698,9 @@ ensure_clause
 
 check_def
   ::= 'check' IDENTIFIER ':' NEWLINE INDENT expression NEWLINE DEDENT ;
+
+unique_def
+  ::= 'unique' IDENTIFIER 'on' IDENTIFIER (',' IDENTIFIER)* NEWLINE ;
 
 source_def
   ::= 'source' IDENTIFIER (':' IDENTIFIER)? 'is' source_connector NEWLINE ;

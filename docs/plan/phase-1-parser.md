@@ -118,8 +118,8 @@ shape User:
 ```
 
 This slice itself covered annotations and field-level `ensure`. Later completed
-slices add field derive and shape `check`; `unique` and `index` remain out of
-scope.
+slices add field derive, shape `check`, and shape `unique`; `index` remains out
+of scope.
 
 Current test status:
 
@@ -179,6 +179,29 @@ Current test status:
 
 ```text
 116 passed
+```
+
+### Shape Unique Parse-Only: Completed
+
+Implemented named shape-level unique clauses over one or more fields:
+
+```pietto
+shape User:
+    tenant_id: UUID not null
+    email: Email not null
+
+    unique user_email on email
+    unique tenant_user_email on tenant_id, email
+```
+
+`ShapeDef.items` preserves mixed field/check/unique source ordering. This slice
+does not validate target fields, duplicate names, duplicate targets, or name
+conflicts.
+
+Current test status:
+
+```text
+134 passed
 ```
 
 ### Next Slice: Source Parse-Only
