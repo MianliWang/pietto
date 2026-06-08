@@ -11,6 +11,7 @@ from pietto.ast_nodes import (
     Annotation,
     BetweenExpr,
     BinaryExpr,
+    CallExpr,
     ComparisonExpr,
     ConstraintDef,
     DeriveDef,
@@ -48,6 +49,7 @@ def test_shape_parses_ordered_fields_and_nullability_syntax() -> None:
     assert isinstance(identifier.type_expr, TypeExpr)
     assert identifier.type_expr.name == "UUID"
     assert identifier.type_expr.nullability is Nullability.NOT_NULL
+    assert identifier.derive_expression is None
     assert identifier.annotations == ()
     assert identifier.ensure_clauses == ()
 
@@ -101,6 +103,37 @@ def test_shape_field_modifiers_parse_only() -> None:
     assert isinstance(expression.right, BetweenExpr)
 
 
+def test_shape_field_derive_precedes_other_modifiers() -> None:
+    result = parse_source(
+        "shape User:\n"
+        "    email: Email nullable\n"
+        "    email_norm: Text not null derive normalized_email(email) "
+        "@sensitive ensure self is not null\n"
+    )
+
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    definition = result.ast.definitions[0]
+    assert isinstance(definition, ShapeDef)
+    assert [field.name for field in definition.fields] == ["email", "email_norm"]
+
+    email, email_norm = definition.fields
+    assert email.type_expr.nullability is Nullability.NULLABLE
+    assert email.derive_expression is None
+
+    assert email_norm.type_expr.nullability is Nullability.NOT_NULL
+    assert isinstance(email_norm.derive_expression, CallExpr)
+    assert isinstance(email_norm.derive_expression.callee, NameExpr)
+    assert email_norm.derive_expression.callee.name == "normalized_email"
+    assert len(email_norm.derive_expression.arguments) == 1
+    argument = email_norm.derive_expression.arguments[0]
+    assert isinstance(argument, NameExpr)
+    assert argument.name == "email"
+    assert [annotation.name for annotation in email_norm.annotations] == ["sensitive"]
+    assert len(email_norm.ensure_clauses) == 1
+    assert isinstance(email_norm.ensure_clauses[0].expression, IsNullExpr)
+
+
 def test_shape_field_modifier_order_is_preserved_within_each_kind() -> None:
     result = parse_source(
         "shape User:\n"
@@ -122,8 +155,11 @@ def test_shape_field_modifier_order_is_preserved_within_each_kind() -> None:
     assert isinstance(field.ensure_clauses[1].expression, ComparisonExpr)
 
 
-def test_shape_bare_field_type_is_parse_only() -> None:
-    result = parse_source("shape External:\n    value: MissingType @unknown ensure 1\n")
+def test_shape_bare_field_type_and_derive_are_parse_only() -> None:
+    result = parse_source(
+        "shape External:\n"
+        "    value: MissingType derive unknown(source) @unknown ensure 1\n"
+    )
 
     assert result.diagnostics == ()
     assert result.ast is not None
@@ -132,6 +168,7 @@ def test_shape_bare_field_type_is_parse_only() -> None:
     field = definition.fields[0]
     assert field.type_expr.name == "MissingType"
     assert field.type_expr.nullability is Nullability.IMPLICIT
+    assert isinstance(field.derive_expression, CallExpr)
     assert field.annotations[0].name == "unknown"
     assert isinstance(field.ensure_clauses[0].expression, LiteralExpr)
 
@@ -159,7 +196,7 @@ def test_shape_without_final_newline_closes_at_eof() -> None:
     result = parse_source(
         "shape User:\n"
         "    id: UUID not null\n"
-        "    age: Age nullable ensure self between 0 and 130"
+        "    email_norm: Text derive normalized_email(email)"
     )
 
     assert result.diagnostics == ()
@@ -168,8 +205,8 @@ def test_shape_without_final_newline_closes_at_eof() -> None:
     assert isinstance(definition, ShapeDef)
     assert definition.span.end_line == 3
     assert definition.span.end_column == 52
-    assert [field.name for field in definition.fields] == ["id", "age"]
-    assert len(definition.fields[1].ensure_clauses) == 1
+    assert [field.name for field in definition.fields] == ["id", "email_norm"]
+    assert isinstance(definition.fields[1].derive_expression, CallExpr)
 
 
 def test_shape_and_field_spans_are_one_based_half_open() -> None:
@@ -291,6 +328,58 @@ def test_shape_field_modifier_spans_are_one_based_half_open() -> None:
     )
 
 
+def test_shape_field_derive_span_is_one_based_half_open() -> None:
+    path = Path("examples/shapes/derive_span.pie")
+    result = parse_source(
+        "shape User:\n"
+        "    email_norm: Text nullable derive normalized_email(email) "
+        "@sensitive ensure self is not null\n",
+        path=path,
+    )
+
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    definition = result.ast.definitions[0]
+    assert isinstance(definition, ShapeDef)
+    field = definition.fields[0]
+    assert field.span == Span(
+        path=str(path),
+        line=2,
+        column=5,
+        end_line=2,
+        end_column=96,
+    )
+    assert field.type_expr.span == Span(
+        path=str(path),
+        line=2,
+        column=17,
+        end_line=2,
+        end_column=30,
+    )
+    assert field.derive_expression is not None
+    assert field.derive_expression.span == Span(
+        path=str(path),
+        line=2,
+        column=38,
+        end_line=2,
+        end_column=61,
+    )
+    assert field.annotations[0].span == Span(
+        path=str(path),
+        line=2,
+        column=62,
+        end_line=2,
+        end_column=72,
+    )
+    assert field.ensure_clauses[0].span == Span(
+        path=str(path),
+        line=2,
+        column=73,
+        end_line=2,
+        end_column=96,
+    )
+
+
 def test_shape_keeps_top_level_definition_order() -> None:
     result = parse_source(
         "type Age = Int\n"
@@ -322,12 +411,18 @@ def test_shape_example_fixture_parses() -> None:
     assert result.ast is not None
     definition = result.ast.definitions[0]
     assert isinstance(definition, ShapeDef)
-    assert [field.name for field in definition.fields] == ["id", "email", "age"]
+    assert [field.name for field in definition.fields] == [
+        "id",
+        "email",
+        "email_norm",
+        "age",
+    ]
     assert [annotation.name for annotation in definition.fields[1].annotations] == [
         "pii",
         "sensitive",
     ]
-    assert len(definition.fields[2].ensure_clauses) == 1
+    assert isinstance(definition.fields[2].derive_expression, CallExpr)
+    assert len(definition.fields[3].ensure_clauses) == 1
 
 
 def test_shape_ast_does_not_expose_antlr_nodes() -> None:
@@ -335,6 +430,7 @@ def test_shape_ast_does_not_expose_antlr_nodes() -> None:
         "shape User:\n"
         "    id: UUID not null\n"
         "    email: Email @pii\n"
+        "    email_norm: Text derive normalized_email(email)\n"
         "    age: Age nullable ensure self is null or self between 0 and 130\n"
     )
 
@@ -360,6 +456,10 @@ def test_shape_ast_does_not_expose_antlr_nodes() -> None:
         "shape User:\n    id: UUID @\n",
         'shape User:\n    id: UUID @pii("yes")\n',
         "shape User:\n    id: UUID ensure\n",
+        "shape User:\n    id: UUID derive\n",
+        "shape User:\n    id: UUID derive normalize(\n",
+        "shape User:\n    id: UUID derive normalize(id) derive normalize(id)\n",
+        "shape User:\n    id: UUID @pii derive normalize(id)\n",
     ],
 )
 def test_malformed_shapes_return_syntax_diagnostic(source: str) -> None:
@@ -372,7 +472,6 @@ def test_malformed_shapes_return_syntax_diagnostic(source: str) -> None:
 @pytest.mark.parametrize(
     "body",
     [
-        "    id: UUID derive normalize(id)\n",
         "    check valid_id:\n        id is not null\n",
         "    unique id\n",
         "    index users_id_idx on id\n",
@@ -387,6 +486,18 @@ def test_shape_rejects_not_yet_supported_body_syntax(body: str) -> None:
 
 def test_shape_brace_block_reports_unsupported_brace() -> None:
     result = parse_source("shape User {\n    id: UUID\n}\n")
+
+    assert result.ast is None
+    assert _has_code(result, "P1005")
+
+
+def test_shape_field_derive_brace_block_reports_unsupported_brace() -> None:
+    result = parse_source(
+        "shape User:\n"
+        "    email_norm: Text derive normalized_email(email) {\n"
+        "        email\n"
+        "    }\n"
+    )
 
     assert result.ast is None
     assert _has_code(result, "P1005")

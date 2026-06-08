@@ -179,10 +179,11 @@ class EnumDef(Node):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class FieldDef(Node):
-    """A parse-only shape field with ordered annotations and ensure clauses."""
+    """A parse-only shape field with an optional derived value expression."""
 
     name: str
     type_expr: TypeExpr
+    derive_expression: Expression | None
     annotations: tuple[Annotation, ...]
     ensure_clauses: tuple[EnsureClause, ...]
 

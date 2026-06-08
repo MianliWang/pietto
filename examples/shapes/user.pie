@@ -6,4 +6,5 @@ encoding utf8
 shape User:
     id: UUID not null
     email: Email @pii @sensitive
+    email_norm: Text derive normalized_email(email)
     age: Age nullable ensure self is null or self between 0 and 130

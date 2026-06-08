@@ -138,6 +138,26 @@ Current test status:
 95 passed
 ```
 
+### Field Derive Parse-Only: Completed
+
+Implemented optional field derive expressions after `TypeExpr` and before field
+annotations or `ensure` clauses:
+
+```pietto
+shape User:
+    email: Email nullable
+    email_norm: Text derive normalized_email(email)
+```
+
+This slice records syntax only. Name resolution, dependency analysis, purity,
+recursion, and type checking remain out of scope.
+
+Current test status:
+
+```text
+102 passed
+```
+
 ### Next Slice: Source Parse-Only
 
 Implement `source` parsing and AST construction next.

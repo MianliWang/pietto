@@ -132,7 +132,12 @@ shapeBody
     ;
 
 fieldDefinition
-    : IDENTIFIER COLON typeExpression fieldModifier* NEWLINE
+    : IDENTIFIER COLON typeExpression fieldDeriveClause? fieldModifier* NEWLINE
+    ;
+
+// Field derive is parse-only and must precede annotations and ensure clauses.
+fieldDeriveClause
+    : DERIVE expression
     ;
 
 // Field annotations and ensures are syntax-only until Phase 2 semantic checks.

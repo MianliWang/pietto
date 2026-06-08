@@ -13,6 +13,7 @@ from pietto.ast_nodes import (
     DeriveDef,
     EnumDef,
     NameExpr,
+    Nullability,
     Parameter,
     Span,
     TypeDef,
@@ -58,6 +59,19 @@ def test_derive_is_parse_only_without_semantic_checks() -> None:
     assert isinstance(definition, DeriveDef)
     assert definition.parameters[0].type.name == "MissingType"
     assert definition.return_type.name == "UnexpectedType"
+
+
+def test_derive_parameter_and_return_types_preserve_nullability() -> None:
+    result = parse_source(
+        "derive normalize(value: Text nullable) -> Text not null:\n    value\n"
+    )
+
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    definition = result.ast.definitions[0]
+    assert isinstance(definition, DeriveDef)
+    assert definition.parameters[0].type.nullability is Nullability.NULLABLE
+    assert definition.return_type.nullability is Nullability.NOT_NULL
 
 
 def test_derive_allows_blank_lines_and_comments() -> None:

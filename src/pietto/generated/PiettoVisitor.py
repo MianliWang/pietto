@@ -149,6 +149,11 @@ class PiettoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by PiettoParser#fieldDeriveClause.
+    def visitFieldDeriveClause(self, ctx:PiettoParser.FieldDeriveClauseContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by PiettoParser#fieldModifier.
     def visitFieldModifier(self, ctx:PiettoParser.FieldModifierContext):
         return self.visitChildren(ctx)

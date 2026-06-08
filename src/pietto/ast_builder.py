@@ -200,6 +200,13 @@ class AstBuilder(PiettoVisitor):
             span=self._span(ctx),
             name=ctx.IDENTIFIER().getText(),
             type_expr=self.visit(field_type),
+            # Grammar placement makes derive singular and keeps it ahead of
+            # repeatable annotations and ensure clauses.
+            derive_expression=(
+                self.visit(ctx.fieldDeriveClause().expression())
+                if ctx.fieldDeriveClause() is not None
+                else None
+            ),
             # Filtering the ordered modifier contexts preserves source order
             # within each public modifier collection.
             annotations=tuple(
