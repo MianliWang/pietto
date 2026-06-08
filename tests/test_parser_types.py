@@ -11,6 +11,7 @@ from pietto.ast_nodes import (
     LiteralExpr,
     NameExpr,
     TypeDef,
+    UnaryExpr,
 )
 from pietto.parser_api import parse_source
 
@@ -80,6 +81,36 @@ def test_block_type_parses_multiple_ensure_clauses() -> None:
     assert isinstance(first.left, CallExpr)
 
 
+def test_block_type_without_final_newline_closes_at_eof() -> None:
+    result = parse_source("type Age = Int:\n    ensure self >= 0")
+
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    definition = result.ast.definitions[0]
+    assert isinstance(definition, TypeDef)
+    assert len(definition.ensures) == 1
+    assert definition.span.end_line == 2
+    assert definition.span.end_column == 21
+
+
+def test_block_type_allows_blank_lines_and_comments() -> None:
+    result = parse_source(
+        "type Age = Int:\n"
+        "\n"
+        "    # lower bound\n"
+        "    ensure self >= 0\n"
+        "\n"
+        "    # upper bound\n"
+        "    ensure self <= 130\n"
+    )
+
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    definition = result.ast.definitions[0]
+    assert isinstance(definition, TypeDef)
+    assert len(definition.ensures) == 2
+
+
 def test_expression_precedence_and_null_tests_parse() -> None:
     result = parse_source(
         "type Score = Int ensure score + 1 * 2 >= min_value "
@@ -101,6 +132,25 @@ def test_expression_precedence_and_null_tests_parse() -> None:
     assert isinstance(expression.right, BetweenExpr)
 
 
+def test_parentheses_unary_is_null_and_dotted_call_parse() -> None:
+    result = parse_source("type Check = Bool ensure (validator.check(-self)) is null\n")
+
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    definition = result.ast.definitions[0]
+    assert isinstance(definition, TypeDef)
+    expression = definition.ensures[0].expression
+    assert isinstance(expression, IsNullExpr)
+    assert expression.negated is False
+    assert isinstance(expression.value, CallExpr)
+    assert isinstance(expression.value.callee, DottedNameExpr)
+    assert expression.value.callee.parts == ("validator", "check")
+    argument = expression.value.arguments[0]
+    assert isinstance(argument, UnaryExpr)
+    assert argument.operator == "-"
+    assert isinstance(argument.operand, NameExpr)
+
+
 def test_enum_definition_parses_members() -> None:
     result = parse_source("enum Status:\n    draft\n    paid\n")
 
@@ -110,3 +160,15 @@ def test_enum_definition_parses_members() -> None:
     assert isinstance(definition, EnumDef)
     assert definition.name == "Status"
     assert definition.members == ("draft", "paid")
+
+
+def test_enum_without_final_newline_closes_at_eof() -> None:
+    result = parse_source("enum Status:\n    draft\n    paid")
+
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    definition = result.ast.definitions[0]
+    assert isinstance(definition, EnumDef)
+    assert definition.members == ("draft", "paid")
+    assert definition.span.end_line == 3
+    assert definition.span.end_column == 9

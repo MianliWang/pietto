@@ -5,6 +5,8 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Span:
+    """A 1-based, half-open source range: [line:column, end_line:end_column)."""
+
     path: str | None
     line: int
     column: int

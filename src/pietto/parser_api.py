@@ -10,6 +10,7 @@ from antlr4.Token import Token
 from pietto.ast_builder import AstBuilder
 from pietto.ast_nodes import Script
 from pietto.errors import (
+    AstBuildError,
     Diagnostic,
     DiagnosticErrorListener,
     Severity,
@@ -77,10 +78,34 @@ def parse_source(
     if any(item.severity is Severity.ERROR for item in ordered_diagnostics):
         return ParseResult(ast=None, diagnostics=ordered_diagnostics)
 
-    return ParseResult(
-        ast=AstBuilder(path).visit(tree),
-        diagnostics=ordered_diagnostics,
-    )
+    try:
+        ast = AstBuilder(path).visit(tree)
+    except AstBuildError as error:
+        build_diagnostic = Diagnostic(
+            code="P1000",
+            severity=Severity.ERROR,
+            message=error.message,
+            location=SourceLocation(
+                path=source_path(path),
+                line=error.line,
+                column=error.column,
+            ),
+        )
+        return ParseResult(
+            ast=None,
+            diagnostics=tuple(
+                sorted(
+                    (*ordered_diagnostics, build_diagnostic),
+                    key=lambda item: (
+                        item.location.line,
+                        item.location.column,
+                        item.code,
+                    ),
+                )
+            ),
+        )
+
+    return ParseResult(ast=ast, diagnostics=ordered_diagnostics)
 
 
 def parse_file(path: str | Path) -> ParseResult:

@@ -30,6 +30,14 @@ class Diagnostic:
     suggestion: str | None = None
 
 
+class AstBuildError(Exception):
+    def __init__(self, message: str, *, line: int, column: int) -> None:
+        super().__init__(message)
+        self.message = message
+        self.line = line
+        self.column = column
+
+
 def source_path(path: str | Path | None) -> str | None:
     return str(path) if path is not None else None
 

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import fields, is_dataclass
+from pathlib import Path
 
 from antlr4 import ParserRuleContext
+from antlr4.Token import Token
 
-from pietto.ast_nodes import EnumDef, Header, Script, TypeDef
+from pietto.ast_nodes import EnumDef, Header, Script, Span, TypeDef
 from pietto.parser_api import parse_file, parse_source
 
 
@@ -63,11 +65,40 @@ def test_public_ast_does_not_expose_antlr_nodes() -> None:
     _assert_no_antlr_nodes(result.ast)
 
 
+def test_spans_are_one_based_half_open_and_exclude_trailing_newline() -> None:
+    path = Path("examples/span.pie")
+    result = parse_source("type UserId = UUID\n", path=path)
+
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    definition = result.ast.definitions[0]
+    assert definition.span == Span(
+        path=str(path),
+        line=1,
+        column=1,
+        end_line=1,
+        end_column=19,
+    )
+    assert definition.base.span == Span(
+        path=str(path),
+        line=1,
+        column=15,
+        end_line=1,
+        end_column=19,
+    )
+
+
 def _assert_no_antlr_nodes(value: object) -> None:
     assert not isinstance(value, ParserRuleContext)
+    assert not isinstance(value, Token)
+    assert not type(value).__module__.startswith("pietto.generated")
     if is_dataclass(value):
         for field in fields(value):
             _assert_no_antlr_nodes(getattr(value, field.name))
-    elif isinstance(value, tuple):
+    elif isinstance(value, (list, tuple)):
         for item in value:
+            _assert_no_antlr_nodes(item)
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            _assert_no_antlr_nodes(key)
             _assert_no_antlr_nodes(item)

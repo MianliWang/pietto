@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from pietto.parser_api import parse_source
 
 
@@ -51,6 +53,44 @@ def test_case_expression_is_not_supported_yet() -> None:
 
 def test_assignment_is_not_a_general_expression() -> None:
     result = parse_source("type Age = Int ensure self = 1\n")
+
+    assert result.ast is None
+    assert _has_code(result, "P1000")
+
+
+def test_invalid_string_escape_returns_diagnostic() -> None:
+    result = parse_source(r'type Pattern = Text(default = "\x")' "\n")
+
+    assert result.ast is None
+    assert _has_code(result, "P1000")
+    assert "escape" in result.diagnostics[0].message.lower()
+
+
+def test_empty_enum_reports_syntax_error() -> None:
+    result = parse_source("enum Status:\n")
+
+    assert result.ast is None
+    assert _has_code(result, "P1000")
+
+
+def test_missing_indentation_after_colon_reports_syntax_error() -> None:
+    result = parse_source("enum Status:\ndraft\n")
+
+    assert result.ast is None
+    assert _has_code(result, "P1000")
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "mode checked\nmode strict\n",
+        "encoding utf8\nmode checked\n",
+    ],
+)
+def test_duplicate_or_out_of_order_header_reports_syntax_error(
+    source: str,
+) -> None:
+    result = parse_source(source)
 
     assert result.ast is None
     assert _has_code(result, "P1000")

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 from pathlib import Path
 from typing import Any, cast
 
@@ -28,7 +27,7 @@ from pietto.ast_nodes import (
     TypeExpr,
     UnaryExpr,
 )
-from pietto.errors import source_path
+from pietto.errors import AstBuildError, source_path
 from pietto.generated.PiettoParser import PiettoParser
 from pietto.generated.PiettoVisitor import PiettoVisitor
 
@@ -221,7 +220,7 @@ class AstBuilder(PiettoVisitor):
         text = ctx.getText()
         value: str | int | float | bool | None
         if ctx.STRING() is not None:
-            value = ast.literal_eval(text)
+            value = self._decode_string_literal(ctx)
         elif ctx.NUMBER() is not None:
             value = float(text) if "." in text else int(text)
         elif ctx.TRUE() is not None:
@@ -248,8 +247,12 @@ class AstBuilder(PiettoVisitor):
 
     def _span(self, ctx: ParserRuleContext) -> Span:
         start = ctx.start
-        stop = ctx.stop or start
-        end_line, end_column = self._end_position(stop)
+        stop = self._last_significant_token(ctx)
+        if stop is None:
+            end_line = start.line
+            end_column = start.column + 1
+        else:
+            end_line, end_column = self._end_position(stop)
         return Span(
             path=self.path,
             line=start.line,
@@ -265,6 +268,69 @@ class AstBuilder(PiettoVisitor):
         if line_breaks:
             return token.line + line_breaks, len(text.rsplit("\n", 1)[-1]) + 1
         return token.line, token.column + len(text) + 1
+
+    @staticmethod
+    def _last_significant_token(node: Any) -> Token | None:
+        if isinstance(node, TerminalNode):
+            token = node.getSymbol()
+            ignored_types = {
+                Token.EOF,
+                PiettoParser.NEWLINE,
+                PiettoParser.INDENT,
+                PiettoParser.DEDENT,
+            }
+            return None if token.type in ignored_types else token
+
+        for child in reversed(getattr(node, "children", None) or ()):
+            token = AstBuilder._last_significant_token(child)
+            if token is not None:
+                return token
+        return None
+
+    @staticmethod
+    def _decode_string_literal(ctx: PiettoParser.LiteralContext) -> str:
+        token = ctx.STRING().getSymbol()
+        text = token.text or ""
+        body = text[1:-1]
+        result: list[str] = []
+        escapes = {
+            "\\": "\\",
+            '"': '"',
+            "'": "'",
+            "n": "\n",
+            "r": "\r",
+            "t": "\t",
+            "b": "\b",
+            "f": "\f",
+        }
+
+        index = 0
+        while index < len(body):
+            character = body[index]
+            if character != "\\":
+                result.append(character)
+                index += 1
+                continue
+
+            if index + 1 >= len(body):
+                raise AstBuildError(
+                    "String literal ends with an incomplete escape sequence.",
+                    line=token.line,
+                    column=token.column + index + 2,
+                )
+
+            escaped = body[index + 1]
+            if escaped not in escapes:
+                raise AstBuildError(
+                    f'Unsupported string escape "\\{escaped}".',
+                    line=token.line,
+                    column=token.column + index + 2,
+                )
+
+            result.append(escapes[escaped])
+            index += 2
+
+        return "".join(result)
 
     @staticmethod
     def _mode(ctx: PiettoParser.ModeDeclContext) -> str:
