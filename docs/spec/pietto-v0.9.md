@@ -702,6 +702,10 @@ check_def
 unique_def
   ::= 'unique' IDENTIFIER 'on' IDENTIFIER (',' IDENTIFIER)* NEWLINE ;
 
+index_def
+  ::= 'index' IDENTIFIER 'on' IDENTIFIER (',' IDENTIFIER)*
+      ('when' expression)? NEWLINE ;
+
 source_def
   ::= 'source' IDENTIFIER (':' IDENTIFIER)? 'is' source_connector NEWLINE ;
 

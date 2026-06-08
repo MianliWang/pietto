@@ -135,6 +135,7 @@ shapeItem
     : fieldDefinition
     | checkDefinition
     | uniqueDefinition
+    | indexDefinition
     ;
 
 fieldDefinition
@@ -172,6 +173,11 @@ checkBody
 // Shape unique clauses record names and target fields only in Phase 1.
 uniqueDefinition
     : UNIQUE IDENTIFIER ON IDENTIFIER (COMMA IDENTIFIER)* NEWLINE
+    ;
+
+// Shape index clauses are parse-only physical-design hints in Phase 1.
+indexDefinition
+    : INDEX IDENTIFIER ON IDENTIFIER (COMMA IDENTIFIER)* (WHEN expression)? NEWLINE
     ;
 
 // First-slice expressions intentionally omit CASE and general assignment syntax.
@@ -234,6 +240,8 @@ namePart
     | CHECK
     | UNIQUE
     | ON
+    | INDEX
+    | WHEN
     ;
 
 callSuffix
@@ -263,6 +271,8 @@ SHAPE: 'shape';
 CHECK: 'check';
 UNIQUE: 'unique';
 ON: 'on';
+INDEX: 'index';
+WHEN: 'when';
 ENSURE: 'ensure';
 NULLABLE: 'nullable';
 AND: 'and';

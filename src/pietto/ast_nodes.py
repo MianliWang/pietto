@@ -204,7 +204,16 @@ class UniqueDef(Node):
     field_names: tuple[str, ...]
 
 
-ShapeItem = FieldDef | CheckDef | UniqueDef
+@dataclass(frozen=True, slots=True, kw_only=True)
+class IndexDef(Node):
+    """A named, parse-only index hint with an optional predicate."""
+
+    name: str
+    field_names: tuple[str, ...]
+    predicate: Expression | None
+
+
+ShapeItem = FieldDef | CheckDef | UniqueDef | IndexDef
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -231,6 +240,12 @@ class ShapeDef(Node):
         """Return unique clauses in source order."""
 
         return tuple(item for item in self.items if isinstance(item, UniqueDef))
+
+    @property
+    def indexes(self) -> tuple[IndexDef, ...]:
+        """Return index clauses in source order."""
+
+        return tuple(item for item in self.items if isinstance(item, IndexDef))
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

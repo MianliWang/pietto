@@ -24,6 +24,7 @@ from pietto.ast_nodes import (
     Expression,
     FieldDef,
     Header,
+    IndexDef,
     IsNullExpr,
     LiteralExpr,
     NameExpr,
@@ -197,7 +198,9 @@ class AstBuilder(PiettoVisitor):
             return self.visit(ctx.fieldDefinition())
         if ctx.checkDefinition() is not None:
             return self.visit(ctx.checkDefinition())
-        return self.visit(ctx.uniqueDefinition())
+        if ctx.uniqueDefinition() is not None:
+            return self.visit(ctx.uniqueDefinition())
+        return self.visit(ctx.indexDefinition())
 
     def visitFieldDefinition(
         self, ctx: PiettoParser.FieldDefinitionContext
@@ -270,6 +273,21 @@ class AstBuilder(PiettoVisitor):
             span=self._span(ctx),
             name=identifiers[0].getText(),
             field_names=tuple(identifier.getText() for identifier in identifiers[1:]),
+        )
+
+    def visitIndexDefinition(
+        self, ctx: PiettoParser.IndexDefinitionContext
+    ) -> IndexDef:
+        """Build an index clause without applying physical or semantic checks."""
+
+        identifiers = ctx.IDENTIFIER()
+        return IndexDef(
+            span=self._span(ctx),
+            name=identifiers[0].getText(),
+            field_names=tuple(identifier.getText() for identifier in identifiers[1:]),
+            predicate=(
+                self.visit(ctx.expression()) if ctx.expression() is not None else None
+            ),
         )
 
     def visitParameter(self, ctx: PiettoParser.ParameterContext) -> Parameter:

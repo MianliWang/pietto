@@ -469,19 +469,6 @@ def test_malformed_shapes_return_syntax_diagnostic(source: str) -> None:
     assert _has_code(result, "P1000")
 
 
-@pytest.mark.parametrize(
-    "body",
-    [
-        "    index users_id_idx on id\n",
-    ],
-)
-def test_shape_rejects_not_yet_supported_body_syntax(body: str) -> None:
-    result = parse_source(f"shape User:\n{body}")
-
-    assert result.ast is None
-    assert _has_code(result, "P1000")
-
-
 def test_shape_brace_block_reports_unsupported_brace() -> None:
     result = parse_source("shape User {\n    id: UUID\n}\n")
 

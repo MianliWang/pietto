@@ -1,0 +1,13 @@
+pietto 0.9
+mode checked
+dialect postgres
+encoding utf8
+
+shape User:
+    tenant_id: UUID not null
+    email: Email not null
+    deleted_at: Timestamp nullable
+
+    index user_email_idx on email
+    index tenant_email_idx on tenant_id, email
+    index active_user_email_idx on email when deleted_at is null

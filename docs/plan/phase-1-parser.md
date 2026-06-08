@@ -118,8 +118,7 @@ shape User:
 ```
 
 This slice itself covered annotations and field-level `ensure`. Later completed
-slices add field derive, shape `check`, and shape `unique`; `index` remains out
-of scope.
+slices add field derive and shape-level `check`, `unique`, and `index`.
 
 Current test status:
 
@@ -202,6 +201,30 @@ Current test status:
 
 ```text
 134 passed
+```
+
+### Shape Index Parse-Only: Completed
+
+Implemented named shape-level index clauses over one or more fields, with an
+optional partial-index predicate:
+
+```pietto
+shape User:
+    email: Email not null
+    deleted_at: Timestamp nullable
+
+    index user_email_idx on email
+    index active_user_email_idx on email when deleted_at is null
+```
+
+`ShapeDef.items` preserves mixed field/check/unique/index source ordering. This
+slice does not validate target fields, duplicate names or targets, name
+conflicts, predicate type, or backend index behavior.
+
+Current test status:
+
+```text
+156 passed
 ```
 
 ### Next Slice: Source Parse-Only
