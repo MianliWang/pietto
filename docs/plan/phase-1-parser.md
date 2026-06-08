@@ -41,15 +41,15 @@ Implemented:
 - cleanup and hardening for string errors, source spans, indentation edge cases,
   and ANTLR isolation.
 
-Current test status:
+Initial test status:
 
 ```text
 28 passed
 ```
 
-### Next Slice: Constraint Parse-Only
+### Constraint Parse-Only: Completed
 
-Implement parsing and AST construction for:
+Implemented parsing and AST construction for:
 
 ```pietto
 constraint valid_email(x: Text?) -> Bool:
@@ -59,6 +59,16 @@ constraint valid_email(x: Text?) -> Bool:
 This slice is syntax-only. Do not enforce purity, name resolution, type
 correctness, or `Bool` return semantics; those belong to Phase 2 semantic
 checking.
+
+Current test status:
+
+```text
+45 passed
+```
+
+### Next Slice: Derive Parse-Only
+
+Implement `derive` parsing and AST construction next.
 
 ## Required Directory Structure
 

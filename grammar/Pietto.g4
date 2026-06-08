@@ -35,6 +35,7 @@ encodingDecl
 definition
     : typeDefinition
     | enumDefinition
+    | constraintDefinition
     ;
 
 typeDefinition
@@ -79,6 +80,22 @@ enumBody
 
 enumItem
     : IDENTIFIER NEWLINE
+    ;
+
+constraintDefinition
+    : CONSTRAINT IDENTIFIER LPAREN parameterList? RPAREN ARROW typeExpression COLON NEWLINE NEWLINE* INDENT constraintBody DEDENT
+    ;
+
+parameterList
+    : parameter (COMMA parameter)* COMMA?
+    ;
+
+parameter
+    : IDENTIFIER COLON typeExpression
+    ;
+
+constraintBody
+    : NEWLINE* expression NEWLINE NEWLINE*
     ;
 
 expression
@@ -155,6 +172,7 @@ CHECKED: 'checked';
 STRICT: 'strict';
 TYPE: 'type';
 ENUM: 'enum';
+CONSTRAINT: 'constraint';
 ENSURE: 'ensure';
 AND: 'and';
 OR: 'or';
@@ -173,6 +191,7 @@ GE: '>=';
 LT: '<';
 GT: '>';
 ASSIGN: '=';
+ARROW: '->';
 PLUS: '+';
 MINUS: '-';
 STAR: '*';

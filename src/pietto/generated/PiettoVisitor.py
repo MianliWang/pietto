@@ -94,6 +94,26 @@ class PiettoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by PiettoParser#constraintDefinition.
+    def visitConstraintDefinition(self, ctx:PiettoParser.ConstraintDefinitionContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#parameterList.
+    def visitParameterList(self, ctx:PiettoParser.ParameterListContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#parameter.
+    def visitParameter(self, ctx:PiettoParser.ParameterContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#constraintBody.
+    def visitConstraintBody(self, ctx:PiettoParser.ConstraintBodyContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by PiettoParser#expression.
     def visitExpression(self, ctx:PiettoParser.ExpressionContext):
         return self.visitChildren(ctx)

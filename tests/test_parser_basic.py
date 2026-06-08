@@ -58,7 +58,10 @@ def test_example_fixture_parses() -> None:
 
 def test_public_ast_does_not_expose_antlr_nodes() -> None:
     result = parse_source(
-        "type Username = Text(max = 32, encoding = utf8):\n    ensure len(self) >= 3\n"
+        "type Username = Text(max = 32, encoding = utf8):\n"
+        "    ensure len(self) >= 3\n"
+        "constraint valid_name(x: Text) -> Bool:\n"
+        "    len(x) >= 3\n"
     )
 
     assert result.ast is not None

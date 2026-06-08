@@ -12,6 +12,7 @@ from pietto.ast_nodes import (
     BinaryExpr,
     CallExpr,
     ComparisonExpr,
+    ConstraintDef,
     DottedNameExpr,
     EnsureClause,
     EnumDef,
@@ -20,6 +21,7 @@ from pietto.ast_nodes import (
     IsNullExpr,
     LiteralExpr,
     NameExpr,
+    Parameter,
     Script,
     Span,
     TypeArgument,
@@ -70,10 +72,14 @@ class AstBuilder(PiettoVisitor):
             encoding=encoding,
         )
 
-    def visitDefinition(self, ctx: PiettoParser.DefinitionContext) -> TypeDef | EnumDef:
+    def visitDefinition(
+        self, ctx: PiettoParser.DefinitionContext
+    ) -> TypeDef | EnumDef | ConstraintDef:
         if ctx.typeDefinition() is not None:
             return self.visit(ctx.typeDefinition())
-        return self.visit(ctx.enumDefinition())
+        if ctx.enumDefinition() is not None:
+            return self.visit(ctx.enumDefinition())
+        return self.visit(ctx.constraintDefinition())
 
     def visitTypeDefinition(self, ctx: PiettoParser.TypeDefinitionContext) -> TypeDef:
         ensures: list[EnsureClause] = []
@@ -129,6 +135,30 @@ class AstBuilder(PiettoVisitor):
             members=tuple(
                 item.IDENTIFIER().getText() for item in ctx.enumBody().enumItem()
             ),
+        )
+
+    def visitConstraintDefinition(
+        self, ctx: PiettoParser.ConstraintDefinitionContext
+    ) -> ConstraintDef:
+        parameters: tuple[Parameter, ...] = ()
+        if ctx.parameterList() is not None:
+            parameters = tuple(
+                self.visit(parameter) for parameter in ctx.parameterList().parameter()
+            )
+
+        return ConstraintDef(
+            span=self._span(ctx),
+            name=ctx.IDENTIFIER().getText(),
+            parameters=parameters,
+            return_type=self.visit(ctx.typeExpression()),
+            body=self.visit(ctx.constraintBody().expression()),
+        )
+
+    def visitParameter(self, ctx: PiettoParser.ParameterContext) -> Parameter:
+        return Parameter(
+            span=self._span(ctx),
+            name=ctx.IDENTIFIER().getText(),
+            type=self.visit(ctx.typeExpression()),
         )
 
     def visitExpression(self, ctx: PiettoParser.ExpressionContext) -> Expression:

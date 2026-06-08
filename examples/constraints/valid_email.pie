@@ -1,0 +1,7 @@
+pietto 0.9
+mode checked
+dialect postgres
+encoding utf8
+
+constraint valid_email(x: Text?) -> Bool:
+    x is not null and x like "%@%"

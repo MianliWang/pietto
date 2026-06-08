@@ -100,6 +100,12 @@ class TypeExpr(Node):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class Parameter(Node):
+    name: str
+    type: TypeExpr
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class EnsureClause(Node):
     expression: Expression
 
@@ -117,7 +123,15 @@ class EnumDef(Node):
     members: tuple[str, ...]
 
 
-Definition = TypeDef | EnumDef
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ConstraintDef(Node):
+    name: str
+    parameters: tuple[Parameter, ...]
+    return_type: TypeExpr
+    body: Expression
+
+
+Definition = TypeDef | EnumDef | ConstraintDef
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
