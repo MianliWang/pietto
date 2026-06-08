@@ -472,7 +472,6 @@ def test_malformed_shapes_return_syntax_diagnostic(source: str) -> None:
 @pytest.mark.parametrize(
     "body",
     [
-        "    check valid_id:\n        id is not null\n",
         "    unique id\n",
         "    index users_id_idx on id\n",
     ],

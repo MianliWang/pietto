@@ -1,0 +1,10 @@
+pietto 0.9
+mode checked
+dialect postgres
+encoding utf8
+
+shape Order:
+    amount: Decimal not null
+
+    check valid_amount:
+        amount >= 0

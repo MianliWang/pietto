@@ -14,6 +14,7 @@ from pietto.ast_nodes import (
     BetweenExpr,
     BinaryExpr,
     CallExpr,
+    CheckDef,
     ComparisonExpr,
     ConstraintDef,
     DeriveDef,
@@ -30,6 +31,7 @@ from pietto.ast_nodes import (
     Parameter,
     Script,
     ShapeDef,
+    ShapeItem,
     Span,
     TypeArgument,
     TypeDef,
@@ -179,15 +181,20 @@ class AstBuilder(PiettoVisitor):
     def visitShapeDefinition(
         self, ctx: PiettoParser.ShapeDefinitionContext
     ) -> ShapeDef:
-        """Build a shape while preserving source field order."""
+        """Build a shape while preserving mixed item source order."""
 
         return ShapeDef(
             span=self._span(ctx),
             name=ctx.IDENTIFIER().getText(),
-            fields=tuple(
-                self.visit(field) for field in ctx.shapeBody().fieldDefinition()
-            ),
+            items=tuple(self.visit(item) for item in ctx.shapeBody().shapeItem()),
         )
+
+    def visitShapeItem(self, ctx: PiettoParser.ShapeItemContext) -> ShapeItem:
+        """Build one field or check without losing its position in the shape."""
+
+        if ctx.fieldDefinition() is not None:
+            return self.visit(ctx.fieldDefinition())
+        return self.visit(ctx.checkDefinition())
 
     def visitFieldDefinition(
         self, ctx: PiettoParser.FieldDefinitionContext
@@ -237,6 +244,17 @@ class AstBuilder(PiettoVisitor):
         return EnsureClause(
             span=self._span(ctx),
             expression=self.visit(ctx.expression()),
+        )
+
+    def visitCheckDefinition(
+        self, ctx: PiettoParser.CheckDefinitionContext
+    ) -> CheckDef:
+        """Build a shape check without validating names or expression type."""
+
+        return CheckDef(
+            span=self._span(ctx),
+            name=ctx.IDENTIFIER().getText(),
+            expression=self.visit(ctx.checkBody().expression()),
         )
 
     def visitParameter(self, ctx: PiettoParser.ParameterContext) -> Parameter:
@@ -312,7 +330,7 @@ class AstBuilder(PiettoVisitor):
         if ctx.expression() is not None:
             return self.visit(ctx.expression())
 
-        parts = tuple(token.getText() for token in ctx.dottedName().IDENTIFIER())
+        parts = tuple(part.getText() for part in ctx.dottedName().namePart())
         callee: NameExpr | DottedNameExpr
         if len(parts) == 1:
             callee = NameExpr(span=self._span(ctx.dottedName()), name=parts[0])

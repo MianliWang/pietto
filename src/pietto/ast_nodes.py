@@ -189,11 +189,34 @@ class FieldDef(Node):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class ShapeDef(Node):
-    """A parse-only shape definition containing ordered fields."""
+class CheckDef(Node):
+    """A named, parse-only shape invariant containing one expression."""
 
     name: str
-    fields: tuple[FieldDef, ...]
+    expression: Expression
+
+
+ShapeItem = FieldDef | CheckDef
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ShapeDef(Node):
+    """A parse-only shape definition containing source-ordered items."""
+
+    name: str
+    items: tuple[ShapeItem, ...]
+
+    @property
+    def fields(self) -> tuple[FieldDef, ...]:
+        """Return fields in source order for compatibility and convenience."""
+
+        return tuple(item for item in self.items if isinstance(item, FieldDef))
+
+    @property
+    def checks(self) -> tuple[CheckDef, ...]:
+        """Return shape checks in source order."""
+
+        return tuple(item for item in self.items if isinstance(item, CheckDef))
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

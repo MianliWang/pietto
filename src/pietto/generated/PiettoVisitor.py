@@ -144,6 +144,11 @@ class PiettoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by PiettoParser#shapeItem.
+    def visitShapeItem(self, ctx:PiettoParser.ShapeItemContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by PiettoParser#fieldDefinition.
     def visitFieldDefinition(self, ctx:PiettoParser.FieldDefinitionContext):
         return self.visitChildren(ctx)
@@ -166,6 +171,16 @@ class PiettoVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by PiettoParser#fieldEnsureClause.
     def visitFieldEnsureClause(self, ctx:PiettoParser.FieldEnsureClauseContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#checkDefinition.
+    def visitCheckDefinition(self, ctx:PiettoParser.CheckDefinitionContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#checkBody.
+    def visitCheckBody(self, ctx:PiettoParser.CheckBodyContext):
         return self.visitChildren(ctx)
 
 
@@ -216,6 +231,11 @@ class PiettoVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by PiettoParser#dottedName.
     def visitDottedName(self, ctx:PiettoParser.DottedNameContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#namePart.
+    def visitNamePart(self, ctx:PiettoParser.NamePartContext):
         return self.visitChildren(ctx)
 
 

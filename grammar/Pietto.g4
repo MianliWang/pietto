@@ -122,13 +122,18 @@ deriveBody
     : NEWLINE* expression NEWLINE NEWLINE*
     ;
 
-// Phase 1 shapes preserve ordered fields only; field semantics come later.
+// Phase 1 shapes preserve ordered items; their semantics come later.
 shapeDefinition
     : SHAPE IDENTIFIER COLON NEWLINE NEWLINE* INDENT shapeBody DEDENT
     ;
 
 shapeBody
-    : NEWLINE* fieldDefinition (fieldDefinition | NEWLINE)*
+    : NEWLINE* shapeItem (shapeItem | NEWLINE)*
+    ;
+
+shapeItem
+    : fieldDefinition
+    | checkDefinition
     ;
 
 fieldDefinition
@@ -152,6 +157,15 @@ annotation
 
 fieldEnsureClause
     : ENSURE expression
+    ;
+
+// Shape checks are named, single-expression blocks parsed only in Phase 1.
+checkDefinition
+    : CHECK IDENTIFIER COLON NEWLINE NEWLINE* INDENT checkBody DEDENT
+    ;
+
+checkBody
+    : NEWLINE* expression NEWLINE NEWLINE*
     ;
 
 // First-slice expressions intentionally omit CASE and general assignment syntax.
@@ -206,7 +220,12 @@ primaryExpression
     ;
 
 dottedName
-    : IDENTIFIER (DOT IDENTIFIER)*
+    : namePart (DOT namePart)*
+    ;
+
+namePart
+    : IDENTIFIER
+    | CHECK
     ;
 
 callSuffix
@@ -233,6 +252,7 @@ ENUM: 'enum';
 CONSTRAINT: 'constraint';
 DERIVE: 'derive';
 SHAPE: 'shape';
+CHECK: 'check';
 ENSURE: 'ensure';
 NULLABLE: 'nullable';
 AND: 'and';

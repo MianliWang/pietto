@@ -117,8 +117,9 @@ shape User:
     age: Age nullable ensure self is null or self between 0 and 130
 ```
 
-This slice is syntax-only. Annotation validation, ensure return-type checking,
-field derive, shape `check`, `unique`, and `index` remain out of scope.
+This slice itself covered annotations and field-level `ensure`. Later completed
+slices add field derive and shape `check`; `unique` and `index` remain out of
+scope.
 
 Current test status:
 
@@ -156,6 +157,28 @@ Current test status:
 
 ```text
 102 passed
+```
+
+### Shape Check Parse-Only: Completed
+
+Implemented named, single-expression shape check blocks while preserving mixed
+field/check source ordering:
+
+```pietto
+shape Order:
+    amount: Decimal not null
+
+    check valid_amount:
+        amount >= 0
+```
+
+This slice records syntax only. Name resolution, field validation, expression
+type checking, purity, and `Bool` validation remain out of scope.
+
+Current test status:
+
+```text
+116 passed
 ```
 
 ### Next Slice: Source Parse-Only
