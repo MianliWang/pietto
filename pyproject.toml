@@ -30,3 +30,6 @@ dev = [
     "pytest-cov>=7.1.0",
     "ruff>=0.15.16",
 ]
+
+[tool.ruff]
+extend-exclude = ["src/pietto/generated"]

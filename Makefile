@@ -15,7 +15,8 @@ help:
 
 generate-parser:
 	mkdir -p $(OUT)
-	java -jar $(ANTLR_JAR) -Dlanguage=Python3 -visitor -o $(OUT) $(GRAMMAR)
+	java -jar $(ANTLR_JAR) -Dlanguage=Python3 -visitor -no-listener -Xexact-output-dir -o $(OUT) $(GRAMMAR)
+	touch $(OUT)/__init__.py
 
 format:
 	uv run ruff format .
