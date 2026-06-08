@@ -151,8 +151,8 @@ class AstBuilder(PiettoVisitor):
     def visitConstraintDefinition(
         self, ctx: PiettoParser.ConstraintDefinitionContext
     ) -> ConstraintDef:
-        # Phase 1 preserves the declared type verbatim. Enforcing a Bool result
-        # belongs to semantic analysis rather than parse-tree construction.
+        # Keep the declared return type as TypeExpr syntax. Enforcing a Bool
+        # result belongs to Phase 2 rather than parse-tree construction.
         return ConstraintDef(
             span=self._span(ctx),
             name=ctx.IDENTIFIER().getText(),
@@ -166,8 +166,8 @@ class AstBuilder(PiettoVisitor):
     ) -> DeriveDef:
         """Build a derive declaration without applying semantic checks."""
 
-        # Names, purity, recursion, and type compatibility are intentionally left
-        # to Phase 2; this node records only the parsed signature and expression.
+        # Keep the return type as TypeExpr syntax. Names, purity, recursion, and
+        # type compatibility are intentionally left to Phase 2.
         return DeriveDef(
             span=self._span(ctx),
             name=ctx.IDENTIFIER().getText(),

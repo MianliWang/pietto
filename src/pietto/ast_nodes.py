@@ -163,7 +163,7 @@ class EnumDef(Node):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ConstraintDef(Node):
-    """A parse-only constraint definition with an unchecked return type."""
+    """A parse-only constraint whose return type remains a syntax-level TypeExpr."""
 
     name: str
     parameters: tuple[Parameter, ...]
@@ -173,7 +173,7 @@ class ConstraintDef(Node):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class DeriveDef(Node):
-    """A parse-only derived expression with an unchecked signature."""
+    """A parse-only derive whose return type remains a syntax-level TypeExpr."""
 
     name: str
     parameters: tuple[Parameter, ...]

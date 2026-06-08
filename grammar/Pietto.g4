@@ -111,6 +111,7 @@ deriveBody
     : NEWLINE* expression NEWLINE NEWLINE*
     ;
 
+// First-slice expressions intentionally omit CASE and general assignment syntax.
 // Precedence rises from or through and, comparisons, arithmetic, unary, primary.
 expression
     : orExpression
