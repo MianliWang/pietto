@@ -106,6 +106,26 @@ Current test status:
 88 passed
 ```
 
+### Shape Field Modifiers Parse-Only: Completed
+
+Implemented bare field annotations and field-level `ensure` parsing for:
+
+```pietto
+shape User:
+    id: UUID not null
+    email: Email @pii
+    age: Age? ensure self is null or self between 0 and 130
+```
+
+This slice is syntax-only. Annotation validation, ensure return-type checking,
+field derive, shape `check`, `unique`, and `index` remain out of scope.
+
+Current test status:
+
+```text
+92 passed
+```
+
 ### Next Slice: Source Parse-Only
 
 Implement `source` parsing and AST construction next.

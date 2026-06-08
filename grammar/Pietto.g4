@@ -126,11 +126,25 @@ shapeBody
     ;
 
 fieldDefinition
-    : IDENTIFIER COLON fieldTypeExpression NEWLINE
+    : IDENTIFIER COLON fieldTypeExpression fieldModifier* NEWLINE
     ;
 
 fieldTypeExpression
     : typeReference (QUESTION | NOT NULL)?
+    ;
+
+// Field annotations and ensures are syntax-only until Phase 2 semantic checks.
+fieldModifier
+    : annotation
+    | fieldEnsureClause
+    ;
+
+annotation
+    : AT IDENTIFIER
+    ;
+
+fieldEnsureClause
+    : ENSURE expression
     ;
 
 // First-slice expressions intentionally omit CASE and general assignment syntax.
@@ -237,6 +251,7 @@ STAR: '*';
 SLASH: '/';
 PERCENT: '%';
 QUESTION: '?';
+AT: '@';
 LPAREN: '(';
 RPAREN: ')';
 COMMA: ',';

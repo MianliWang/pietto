@@ -139,9 +139,16 @@ class Parameter(Node):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class EnsureClause(Node):
-    """A parsed value guarantee attached to a type."""
+    """A parsed value guarantee attached to a type or field."""
 
     expression: Expression
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class Annotation(Node):
+    """A parse-only bare annotation attached to a declaration."""
+
+    name: str
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -163,11 +170,13 @@ class EnumDef(Node):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class FieldDef(Node):
-    """A parse-only shape field with its declared type and nullability syntax."""
+    """A parse-only shape field with ordered annotations and ensure clauses."""
 
     name: str
-    type: TypeExpr
+    type_expr: TypeExpr
     not_null: bool
+    annotations: tuple[Annotation, ...]
+    ensure_clauses: tuple[EnsureClause, ...]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

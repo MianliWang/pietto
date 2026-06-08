@@ -5,5 +5,5 @@ encoding utf8
 
 shape User:
     id: UUID not null
-    email: Text(max = 255, encoding = utf8)?
-    age: Age?
+    email: Email @pii @sensitive
+    age: Age? ensure self is null or self between 0 and 130

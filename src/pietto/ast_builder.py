@@ -10,6 +10,7 @@ from antlr4.Token import Token
 from antlr4.tree.Tree import TerminalNode
 
 from pietto.ast_nodes import (
+    Annotation,
     BetweenExpr,
     BinaryExpr,
     CallExpr,
@@ -190,22 +191,53 @@ class AstBuilder(PiettoVisitor):
     def visitFieldDefinition(
         self, ctx: PiettoParser.FieldDefinitionContext
     ) -> FieldDef:
-        """Build one field without resolving its type or nullability semantics."""
+        """Build one field without resolving modifiers or type semantics."""
 
         field_type = ctx.fieldTypeExpression()
         not_null = field_type.NOT() is not None
+        modifiers = ctx.fieldModifier()
         # `?` is part of TypeExpr syntax, while explicit `not null` remains on
         # the field so Phase 2 can distinguish it from implicit nullability.
         span_context = field_type.typeReference() if not_null else field_type
         return FieldDef(
             span=self._span(ctx),
             name=ctx.IDENTIFIER().getText(),
-            type=self._type_expression(
+            type_expr=self._type_expression(
                 field_type.typeReference(),
                 span_context=span_context,
                 nullable=field_type.QUESTION() is not None,
             ),
             not_null=not_null,
+            # Filtering the ordered modifier contexts preserves source order
+            # within each public modifier collection.
+            annotations=tuple(
+                self.visit(modifier.annotation())
+                for modifier in modifiers
+                if modifier.annotation() is not None
+            ),
+            ensure_clauses=tuple(
+                self.visit(modifier.fieldEnsureClause())
+                for modifier in modifiers
+                if modifier.fieldEnsureClause() is not None
+            ),
+        )
+
+    def visitAnnotation(self, ctx: PiettoParser.AnnotationContext) -> Annotation:
+        """Build a bare field annotation without validating its name."""
+
+        return Annotation(
+            span=self._span(ctx),
+            name=ctx.IDENTIFIER().getText(),
+        )
+
+    def visitFieldEnsureClause(
+        self, ctx: PiettoParser.FieldEnsureClauseContext
+    ) -> EnsureClause:
+        """Reuse EnsureClause for a parse-only field guarantee."""
+
+        return EnsureClause(
+            span=self._span(ctx),
+            expression=self.visit(ctx.expression()),
         )
 
     def visitParameter(self, ctx: PiettoParser.ParameterContext) -> Parameter:
