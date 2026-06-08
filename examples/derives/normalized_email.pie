@@ -1,0 +1,7 @@
+pietto 0.9
+mode checked
+dialect postgres
+encoding utf8
+
+derive normalized_email(x: Text) -> Text:
+    lower(trim(x))

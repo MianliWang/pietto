@@ -36,6 +36,7 @@ definition
     : typeDefinition
     | enumDefinition
     | constraintDefinition
+    | deriveDefinition
     ;
 
 // Pietto blocks use ':' plus NEWLINE/INDENT/DEDENT, never brace delimiters.
@@ -98,6 +99,15 @@ parameter
     ;
 
 constraintBody
+    : NEWLINE* expression NEWLINE NEWLINE*
+    ;
+
+// Derive signatures and bodies are parsed only; Phase 2 checks their semantics.
+deriveDefinition
+    : DERIVE IDENTIFIER LPAREN parameterList? RPAREN ARROW typeExpression COLON NEWLINE NEWLINE* INDENT deriveBody DEDENT
+    ;
+
+deriveBody
     : NEWLINE* expression NEWLINE NEWLINE*
     ;
 
@@ -177,6 +187,7 @@ STRICT: 'strict';
 TYPE: 'type';
 ENUM: 'enum';
 CONSTRAINT: 'constraint';
+DERIVE: 'derive';
 ENSURE: 'ensure';
 AND: 'and';
 OR: 'or';

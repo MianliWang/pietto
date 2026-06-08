@@ -66,9 +66,28 @@ Current test status:
 45 passed
 ```
 
-### Next Slice: Derive Parse-Only
+### Derive Parse-Only: Completed
 
-Implement `derive` parsing and AST construction next.
+Implemented parsing and AST construction for:
+
+```pietto
+derive normalized_email(x: Text) -> Text:
+    lower(trim(x))
+```
+
+This slice is syntax-only. Do not enforce purity, name resolution, type
+correctness, recursion, or return-type semantics; those belong to Phase 2
+semantic checking.
+
+Current test status:
+
+```text
+63 passed
+```
+
+### Next Slice: Shape Parse-Only
+
+Implement `shape` parsing and AST construction next.
 
 ## Required Directory Structure
 

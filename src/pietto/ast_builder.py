@@ -15,6 +15,7 @@ from pietto.ast_nodes import (
     CallExpr,
     ComparisonExpr,
     ConstraintDef,
+    DeriveDef,
     DottedNameExpr,
     EnsureClause,
     EnumDef,
@@ -82,12 +83,14 @@ class AstBuilder(PiettoVisitor):
 
     def visitDefinition(
         self, ctx: PiettoParser.DefinitionContext
-    ) -> TypeDef | EnumDef | ConstraintDef:
+    ) -> TypeDef | EnumDef | ConstraintDef | DeriveDef:
         if ctx.typeDefinition() is not None:
             return self.visit(ctx.typeDefinition())
         if ctx.enumDefinition() is not None:
             return self.visit(ctx.enumDefinition())
-        return self.visit(ctx.constraintDefinition())
+        if ctx.constraintDefinition() is not None:
+            return self.visit(ctx.constraintDefinition())
+        return self.visit(ctx.deriveDefinition())
 
     def visitTypeDefinition(self, ctx: PiettoParser.TypeDefinitionContext) -> TypeDef:
         ensures: list[EnsureClause] = []
@@ -148,20 +151,29 @@ class AstBuilder(PiettoVisitor):
     def visitConstraintDefinition(
         self, ctx: PiettoParser.ConstraintDefinitionContext
     ) -> ConstraintDef:
-        parameters: tuple[Parameter, ...] = ()
-        if ctx.parameterList() is not None:
-            parameters = tuple(
-                self.visit(parameter) for parameter in ctx.parameterList().parameter()
-            )
-
         # Phase 1 preserves the declared type verbatim. Enforcing a Bool result
         # belongs to semantic analysis rather than parse-tree construction.
         return ConstraintDef(
             span=self._span(ctx),
             name=ctx.IDENTIFIER().getText(),
-            parameters=parameters,
+            parameters=self._parameters(ctx.parameterList()),
             return_type=self.visit(ctx.typeExpression()),
             body=self.visit(ctx.constraintBody().expression()),
+        )
+
+    def visitDeriveDefinition(
+        self, ctx: PiettoParser.DeriveDefinitionContext
+    ) -> DeriveDef:
+        """Build a derive declaration without applying semantic checks."""
+
+        # Names, purity, recursion, and type compatibility are intentionally left
+        # to Phase 2; this node records only the parsed signature and expression.
+        return DeriveDef(
+            span=self._span(ctx),
+            name=ctx.IDENTIFIER().getText(),
+            parameters=self._parameters(ctx.parameterList()),
+            return_type=self.visit(ctx.typeExpression()),
+            body=self.visit(ctx.deriveBody().expression()),
         )
 
     def visitParameter(self, ctx: PiettoParser.ParameterContext) -> Parameter:
@@ -270,6 +282,15 @@ class AstBuilder(PiettoVisitor):
         else:
             value = None
         return LiteralExpr(span=self._span(ctx), value=value)
+
+    def _parameters(
+        self, ctx: PiettoParser.ParameterListContext | None
+    ) -> tuple[Parameter, ...]:
+        """Build parameters shared by constraint and derive declarations."""
+
+        if ctx is None:
+            return ()
+        return tuple(self.visit(parameter) for parameter in ctx.parameter())
 
     def _fold_binary(self, ctx: ParserRuleContext) -> Expression:
         """Fold a flat precedence-rule context into left-associative AST nodes."""

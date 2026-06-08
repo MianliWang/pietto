@@ -171,7 +171,17 @@ class ConstraintDef(Node):
     body: Expression
 
 
-Definition = TypeDef | EnumDef | ConstraintDef
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DeriveDef(Node):
+    """A parse-only derived expression with an unchecked signature."""
+
+    name: str
+    parameters: tuple[Parameter, ...]
+    return_type: TypeExpr
+    body: Expression
+
+
+Definition = TypeDef | EnumDef | ConstraintDef | DeriveDef
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
