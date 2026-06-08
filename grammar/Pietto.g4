@@ -37,6 +37,7 @@ definition
     | enumDefinition
     | constraintDefinition
     | deriveDefinition
+    | shapeDefinition
     ;
 
 // Pietto blocks use ':' plus NEWLINE/INDENT/DEDENT, never brace delimiters.
@@ -55,7 +56,11 @@ ensureClause
     ;
 
 typeExpression
-    : IDENTIFIER typeArguments? QUESTION?
+    : typeReference QUESTION?
+    ;
+
+typeReference
+    : IDENTIFIER typeArguments?
     ;
 
 typeArguments
@@ -109,6 +114,23 @@ deriveDefinition
 
 deriveBody
     : NEWLINE* expression NEWLINE NEWLINE*
+    ;
+
+// Phase 1 shapes preserve ordered fields only; field semantics come later.
+shapeDefinition
+    : SHAPE IDENTIFIER COLON NEWLINE NEWLINE* INDENT shapeBody DEDENT
+    ;
+
+shapeBody
+    : NEWLINE* fieldDefinition (fieldDefinition | NEWLINE)*
+    ;
+
+fieldDefinition
+    : IDENTIFIER COLON fieldTypeExpression NEWLINE
+    ;
+
+fieldTypeExpression
+    : typeReference (QUESTION | NOT NULL)?
     ;
 
 // First-slice expressions intentionally omit CASE and general assignment syntax.
@@ -189,6 +211,7 @@ TYPE: 'type';
 ENUM: 'enum';
 CONSTRAINT: 'constraint';
 DERIVE: 'derive';
+SHAPE: 'shape';
 ENSURE: 'ensure';
 AND: 'and';
 OR: 'or';

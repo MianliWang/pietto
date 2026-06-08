@@ -20,12 +20,14 @@ from pietto.ast_nodes import (
     EnsureClause,
     EnumDef,
     Expression,
+    FieldDef,
     Header,
     IsNullExpr,
     LiteralExpr,
     NameExpr,
     Parameter,
     Script,
+    ShapeDef,
     Span,
     TypeArgument,
     TypeDef,
@@ -83,14 +85,16 @@ class AstBuilder(PiettoVisitor):
 
     def visitDefinition(
         self, ctx: PiettoParser.DefinitionContext
-    ) -> TypeDef | EnumDef | ConstraintDef | DeriveDef:
+    ) -> TypeDef | EnumDef | ConstraintDef | DeriveDef | ShapeDef:
         if ctx.typeDefinition() is not None:
             return self.visit(ctx.typeDefinition())
         if ctx.enumDefinition() is not None:
             return self.visit(ctx.enumDefinition())
         if ctx.constraintDefinition() is not None:
             return self.visit(ctx.constraintDefinition())
-        return self.visit(ctx.deriveDefinition())
+        if ctx.deriveDefinition() is not None:
+            return self.visit(ctx.deriveDefinition())
+        return self.visit(ctx.shapeDefinition())
 
     def visitTypeDefinition(self, ctx: PiettoParser.TypeDefinitionContext) -> TypeDef:
         ensures: list[EnsureClause] = []
@@ -119,15 +123,9 @@ class AstBuilder(PiettoVisitor):
         )
 
     def visitTypeExpression(self, ctx: PiettoParser.TypeExpressionContext) -> TypeExpr:
-        arguments: tuple[TypeArgument, ...] = ()
-        if ctx.typeArguments() is not None:
-            arguments = tuple(
-                self.visit(item) for item in ctx.typeArguments().typeArgument()
-            )
-        return TypeExpr(
-            span=self._span(ctx),
-            name=ctx.IDENTIFIER().getText(),
-            arguments=arguments,
+        return self._type_expression(
+            ctx.typeReference(),
+            span_context=ctx,
             nullable=ctx.QUESTION() is not None,
         )
 
@@ -174,6 +172,40 @@ class AstBuilder(PiettoVisitor):
             parameters=self._parameters(ctx.parameterList()),
             return_type=self.visit(ctx.typeExpression()),
             body=self.visit(ctx.deriveBody().expression()),
+        )
+
+    def visitShapeDefinition(
+        self, ctx: PiettoParser.ShapeDefinitionContext
+    ) -> ShapeDef:
+        """Build a shape while preserving source field order."""
+
+        return ShapeDef(
+            span=self._span(ctx),
+            name=ctx.IDENTIFIER().getText(),
+            fields=tuple(
+                self.visit(field) for field in ctx.shapeBody().fieldDefinition()
+            ),
+        )
+
+    def visitFieldDefinition(
+        self, ctx: PiettoParser.FieldDefinitionContext
+    ) -> FieldDef:
+        """Build one field without resolving its type or nullability semantics."""
+
+        field_type = ctx.fieldTypeExpression()
+        not_null = field_type.NOT() is not None
+        # `?` is part of TypeExpr syntax, while explicit `not null` remains on
+        # the field so Phase 2 can distinguish it from implicit nullability.
+        span_context = field_type.typeReference() if not_null else field_type
+        return FieldDef(
+            span=self._span(ctx),
+            name=ctx.IDENTIFIER().getText(),
+            type=self._type_expression(
+                field_type.typeReference(),
+                span_context=span_context,
+                nullable=field_type.QUESTION() is not None,
+            ),
+            not_null=not_null,
         )
 
     def visitParameter(self, ctx: PiettoParser.ParameterContext) -> Parameter:
@@ -291,6 +323,27 @@ class AstBuilder(PiettoVisitor):
         if ctx is None:
             return ()
         return tuple(self.visit(parameter) for parameter in ctx.parameter())
+
+    def _type_expression(
+        self,
+        ctx: PiettoParser.TypeReferenceContext,
+        *,
+        span_context: ParserRuleContext,
+        nullable: bool,
+    ) -> TypeExpr:
+        """Build a TypeExpr shared by declarations and shape fields."""
+
+        arguments: tuple[TypeArgument, ...] = ()
+        if ctx.typeArguments() is not None:
+            arguments = tuple(
+                self.visit(item) for item in ctx.typeArguments().typeArgument()
+            )
+        return TypeExpr(
+            span=self._span(span_context),
+            name=ctx.IDENTIFIER().getText(),
+            arguments=arguments,
+            nullable=nullable,
+        )
 
     def _fold_binary(self, ctx: ParserRuleContext) -> Expression:
         """Fold a flat precedence-rule context into left-associative AST nodes."""

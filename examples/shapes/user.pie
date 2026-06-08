@@ -1,0 +1,9 @@
+pietto 0.9
+mode checked
+dialect postgres
+encoding utf8
+
+shape User:
+    id: UUID not null
+    email: Text(max = 255, encoding = utf8)?
+    age: Age?

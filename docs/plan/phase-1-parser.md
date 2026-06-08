@@ -85,9 +85,30 @@ Current test status:
 63 passed
 ```
 
-### Next Slice: Shape Parse-Only
+### Shape Fields Parse-Only: Completed
 
-Implement `shape` parsing and AST construction next.
+Implemented ordered field parsing and AST construction for:
+
+```pietto
+shape User:
+    id: UUID not null
+    email: Text(max = 255, encoding = utf8)?
+    age: Age?
+```
+
+This slice records field types and explicit nullability syntax only. Field
+annotations, `ensure`, `derive`, `check`, `unique`, `index`, and semantic
+validation remain out of scope.
+
+Current test status:
+
+```text
+88 passed
+```
+
+### Next Slice: Source Parse-Only
+
+Implement `source` parsing and AST construction next.
 
 ## Required Directory Structure
 

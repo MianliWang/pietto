@@ -64,6 +64,11 @@ class PiettoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by PiettoParser#typeReference.
+    def visitTypeReference(self, ctx:PiettoParser.TypeReferenceContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by PiettoParser#typeArguments.
     def visitTypeArguments(self, ctx:PiettoParser.TypeArgumentsContext):
         return self.visitChildren(ctx)
@@ -121,6 +126,26 @@ class PiettoVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by PiettoParser#deriveBody.
     def visitDeriveBody(self, ctx:PiettoParser.DeriveBodyContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#shapeDefinition.
+    def visitShapeDefinition(self, ctx:PiettoParser.ShapeDefinitionContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#shapeBody.
+    def visitShapeBody(self, ctx:PiettoParser.ShapeBodyContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#fieldDefinition.
+    def visitFieldDefinition(self, ctx:PiettoParser.FieldDefinitionContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#fieldTypeExpression.
+    def visitFieldTypeExpression(self, ctx:PiettoParser.FieldTypeExpressionContext):
         return self.visitChildren(ctx)
 
 

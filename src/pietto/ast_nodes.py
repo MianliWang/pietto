@@ -162,6 +162,23 @@ class EnumDef(Node):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class FieldDef(Node):
+    """A parse-only shape field with its declared type and nullability syntax."""
+
+    name: str
+    type: TypeExpr
+    not_null: bool
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ShapeDef(Node):
+    """A parse-only shape definition containing ordered fields."""
+
+    name: str
+    fields: tuple[FieldDef, ...]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ConstraintDef(Node):
     """A parse-only constraint whose return type remains a syntax-level TypeExpr."""
 
@@ -181,7 +198,7 @@ class DeriveDef(Node):
     body: Expression
 
 
-Definition = TypeDef | EnumDef | ConstraintDef | DeriveDef
+Definition = TypeDef | EnumDef | ConstraintDef | DeriveDef | ShapeDef
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
