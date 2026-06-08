@@ -18,6 +18,12 @@ Pietto source
     -> SQL
 ```
 
+## Communication
+
+- Communicate with the user in Chinese by default.
+- Keep code, identifiers, file names, CLI commands, error codes, and commit messages in English.
+- Technical terms may include English when clearer.
+
 ## Primary Goal
 
 Build Pietto as a readable, safe, modular SQL authoring language.
