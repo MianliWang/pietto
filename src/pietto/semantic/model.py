@@ -7,7 +7,7 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import Mapping, TypeVar
 
-from pietto.ast_nodes import Definition, Node, TypeExpr
+from pietto.ast_nodes import Definition, FieldDef, Node, SourceDef, TypeExpr
 from pietto.errors import Diagnostic
 
 _Key = TypeVar("_Key")
@@ -58,6 +58,29 @@ def _readonly_mapping(
 
 
 @dataclass(frozen=True, slots=True)
+class RowField:
+    """A source row field derived from one shape field."""
+
+    name: str
+    resolved_type: ResolvedType
+    nullability: EffectiveNullability
+    definition: FieldDef | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RowSchema:
+    """An ordered readonly row schema, optionally marked unknown."""
+
+    fields: Mapping[str, RowField] = field(default_factory=_readonly_mapping)
+    is_unknown: bool = False
+
+    def __post_init__(self) -> None:
+        """Copy row fields into an immutable mapping."""
+
+        object.__setattr__(self, "fields", _readonly_mapping(self.fields))
+
+
+@dataclass(frozen=True, slots=True)
 class SemanticModel:
     """Readonly semantic state built incrementally across Phase 2."""
 
@@ -73,6 +96,9 @@ class SemanticModel:
         default_factory=_readonly_mapping
     )
     type_nullability: Mapping[TypeExpr, EffectiveNullability] = field(
+        default_factory=_readonly_mapping
+    )
+    source_row_schemas: Mapping[SourceDef, RowSchema] = field(
         default_factory=_readonly_mapping
     )
 
@@ -99,6 +125,11 @@ class SemanticModel:
             self,
             "type_nullability",
             _readonly_mapping(self.type_nullability),
+        )
+        object.__setattr__(
+            self,
+            "source_row_schemas",
+            _readonly_mapping(self.source_row_schemas),
         )
 
 

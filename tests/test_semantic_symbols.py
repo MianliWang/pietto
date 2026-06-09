@@ -21,7 +21,7 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Severity
 from pietto.parser_api import parse_source
-from pietto.semantic import analyze
+from pietto.semantic import CheckMode, analyze
 
 
 def test_unique_definitions_populate_expected_namespaces() -> None:
@@ -91,7 +91,8 @@ def test_source_and_table_names_duplicate_in_relation_namespace() -> None:
             "    from raw_users\n"
             "    select:\n"
             "        id\n"
-        )
+        ),
+        mode_override=CheckMode.LOOSE,
     )
 
     assert [diagnostic.code for diagnostic in result.diagnostics] == ["P2001"]
@@ -149,7 +150,8 @@ def test_multiple_duplicates_follow_source_order() -> None:
             "    from missing\n"
             "    select:\n"
             "        id\n"
-        )
+        ),
+        mode_override=CheckMode.LOOSE,
     )
 
     assert [diagnostic.location.line for diagnostic in result.diagnostics] == [
@@ -198,7 +200,8 @@ def test_forward_reference_order_does_not_affect_collection() -> None:
             "    select:\n"
             "        id\n"
             'source users is postgres.table("public.users")\n'
-        )
+        ),
+        mode_override=CheckMode.LOOSE,
     )
 
     assert result.diagnostics == ()

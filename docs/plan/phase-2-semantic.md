@@ -154,9 +154,9 @@ Implicit nullability has a fixed Phase 2 policy:
 | `checked` | warning |
 | `strict` | error |
 
-The exact severity policy for untyped sources and unnamed computed projections
-is defined when their implementation slices begin. Those decisions must remain
-documented and covered by mode-matrix tests.
+Untyped sources follow the same mode matrix: loose is silent, checked emits a
+warning, and strict emits an error. The exact severity policy for unnamed
+computed projections is defined when its implementation slice begins.
 
 ## Built-in Catalog
 
@@ -276,7 +276,30 @@ Current test status:
 311 passed
 ```
 
-### 5. Minimal Expression Typing
+### 5. Source Checks and Row Schemas: Completed
+
+- Resolve typed source shape names against the type namespace.
+- Require typed source bindings to name a `ShapeDef`.
+- Build ordered readonly source row schemas from shape fields.
+- Represent missing, invalid, and untyped source schemas as Unknown.
+- Apply the documented mode-sensitive policy to untyped sources.
+
+Implemented readonly `RowSchema` and `RowField` models that reuse existing
+resolved types and effective nullability. `SemanticModel.source_row_schemas`
+maps every `SourceDef` to a known or Unknown schema. `P2303` reports missing or
+non-shape bindings and mode-sensitive untyped sources.
+
+Connector expressions are not inspected. Database metadata, table/query
+references, relation schemas, expression fields, and projection types remain
+unchecked.
+
+Current test status:
+
+```text
+326 passed
+```
+
+### 6. Minimal Expression Typing
 
 - Add expression typing incrementally for literals, names, dotted names, basic
   calls, unary arithmetic, basic arithmetic, comparisons, Boolean operators,
@@ -294,7 +317,7 @@ Nullability guard refinement is a later expression sub-slice after basic
 expression typing is stable. It should initially target simple guards such as
 `x is not null and ...` without becoming a general control-flow engine.
 
-### 6. Constraint and Derive Validation
+### 7. Constraint and Derive Validation
 
 - Resolve parameter and return types.
 - Diagnose duplicate parameters and unknown names.
@@ -305,11 +328,8 @@ expression typing is stable. It should initially target simple guards such as
 Purity, recursion, and dependency cycles should be introduced conservatively
 and may be completed in the dependency hardening slice.
 
-### 7. Source, Table, and Query Checks
+### 8. Table and Query Relation Checks
 
-- Resolve typed source shape references.
-- Treat untyped source row schemas as Unknown and apply the documented
-  mode-sensitive policy.
 - Resolve `from` references in the relation namespace.
 - Build table and query row schemas from ordered select items.
 - Require known `where` expressions to be Boolean-compatible.
@@ -318,7 +338,7 @@ and may be completed in the dependency hardening slice.
 
 Do not connect to databases or validate physical connector targets.
 
-### 8. Dependency and Cycle Hardening
+### 9. Dependency and Cycle Hardening
 
 - Detect type-alias cycles.
 - Detect callable recursion and dependency cycles.
@@ -327,7 +347,7 @@ Do not connect to databases or validate physical connector targets.
 - Ensure one primary cycle diagnostic is reported for each relevant cycle.
 - Keep diagnostics deterministic and suppress dependent cascades.
 
-### 9. Phase 2 Examples and Documentation Audit
+### 10. Phase 2 Examples and Documentation Audit
 
 - Make every committed `examples/**/*.pie` file self-contained.
 - Require each normal example to have no semantic errors under the default

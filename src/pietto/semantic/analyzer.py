@@ -29,6 +29,7 @@ from pietto.semantic.model import (
     TypeKind,
 )
 from pietto.semantic.shapes import check_shape_structures
+from pietto.semantic.sources import check_sources
 
 
 def analyze(
@@ -36,7 +37,7 @@ def analyze(
     *,
     mode_override: CheckMode | None = None,
 ) -> SemanticResult:
-    """Collect symbols and resolve declared type expressions."""
+    """Build the incremental semantic model and ordered diagnostics."""
 
     mode = mode_override or _mode_from_script(script)
     type_symbols: dict[str, Definition] = {}
@@ -70,6 +71,14 @@ def analyze(
             diagnostics.append(implicit_diagnostic)
 
     diagnostics.extend(check_shape_structures(script))
+    source_row_schemas, source_diagnostics = check_sources(
+        script,
+        mode=mode,
+        type_symbols=type_symbols,
+        type_resolutions=type_resolutions,
+        type_nullability=type_nullability,
+    )
+    diagnostics.extend(source_diagnostics)
 
     return SemanticResult(
         model=SemanticModel(
@@ -79,6 +88,7 @@ def analyze(
             relation_symbols=relation_symbols,
             type_resolutions=type_resolutions,
             type_nullability=type_nullability,
+            source_row_schemas=source_row_schemas,
         ),
         diagnostics=tuple(sorted(diagnostics, key=_diagnostic_order)),
     )
