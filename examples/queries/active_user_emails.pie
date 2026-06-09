@@ -1,0 +1,15 @@
+source users: User is postgres.table("public.users")
+
+table active_users:
+    from users
+    where deleted_at is null
+    select:
+        id
+        email
+        email_norm = lower(trim(email))
+
+query active_user_emails:
+    from active_users
+    select:
+        email
+        email_norm

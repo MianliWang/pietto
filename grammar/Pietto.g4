@@ -40,6 +40,7 @@ definition
     | shapeDefinition
     | sourceDefinition
     | tableDefinition
+    | queryDefinition
     ;
 
 // Pietto blocks use ':' plus NEWLINE/INDENT/DEDENT, never brace delimiters.
@@ -192,6 +193,11 @@ tableDefinition
     : TABLE IDENTIFIER COLON NEWLINE NEWLINE* INDENT tableBody DEDENT
     ;
 
+// Phase 1 queries reuse the minimal table body without execution semantics.
+queryDefinition
+    : QUERY IDENTIFIER COLON NEWLINE NEWLINE* INDENT tableBody DEDENT
+    ;
+
 tableBody
     : NEWLINE* fromClause NEWLINE* whereClause? NEWLINE* selectClause NEWLINE*
     ;
@@ -286,6 +292,7 @@ namePart
     | FROM
     | WHERE
     | SELECT
+    | QUERY
     ;
 
 callSuffix
@@ -322,6 +329,7 @@ TABLE: 'table';
 FROM: 'from';
 WHERE: 'where';
 SELECT: 'select';
+QUERY: 'query';
 ENSURE: 'ensure';
 NULLABLE: 'nullable';
 AND: 'and';

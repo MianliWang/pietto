@@ -280,11 +280,11 @@ A `table` is usually compiled as a CTE or subquery.
 Defines an executable output.
 
 ```pietto
-@final
-query active_users_output:
+query active_user_emails:
     from active_users
-    order by email
-    limit 100
+    select:
+        email
+        email_norm
 ```
 
 ---
@@ -577,11 +577,11 @@ table active_users:
         email
         email_norm = lower(trim(email))
 
-@final
-query active_users_output:
+query active_user_emails:
     from active_users
-    order by email
-    limit 100
+    select:
+        email
+        email_norm
 ```
 
 ---
@@ -718,7 +718,7 @@ select_item
   ::= (IDENTIFIER '=')? expression NEWLINE ;
 
 query_def
-  ::= annotation* 'query' IDENTIFIER ':' NEWLINE INDENT table_body DEDENT ;
+  ::= 'query' IDENTIFIER ':' NEWLINE INDENT table_body DEDENT ;
 ```
 
 ---

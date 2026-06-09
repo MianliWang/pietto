@@ -204,6 +204,11 @@ class PiettoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by PiettoParser#queryDefinition.
+    def visitQueryDefinition(self, ctx:PiettoParser.QueryDefinitionContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by PiettoParser#tableBody.
     def visitTableBody(self, ctx:PiettoParser.TableBodyContext):
         return self.visitChildren(ctx)

@@ -269,9 +269,28 @@ Current test status:
 205 passed
 ```
 
-### Next Slice: Query Parse-Only
+### Minimal Query Parse-Only: Completed
 
-Implement minimal `query` parsing and AST construction next.
+Implemented required `from`, optional `where`, and an ordered `select` block:
+
+```pietto
+query active_user_emails:
+    from active_users
+    where email is not null
+    select:
+        email
+        email_norm = lower(trim(email))
+```
+
+`QueryDef` reuses `FromClause`, `WhereClause`, and `SelectItem`. This slice
+does not resolve the input relation or fields, check expression types, generate
+SQL, or execute queries.
+
+Current test status:
+
+```text
+239 passed
+```
 
 ## Required Directory Structure
 

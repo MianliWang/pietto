@@ -31,6 +31,7 @@ from pietto.ast_nodes import (
     NameExpr,
     Nullability,
     Parameter,
+    QueryDef,
     Script,
     ShapeDef,
     ShapeItem,
@@ -97,7 +98,14 @@ class AstBuilder(PiettoVisitor):
     def visitDefinition(
         self, ctx: PiettoParser.DefinitionContext
     ) -> (
-        TypeDef | EnumDef | ConstraintDef | DeriveDef | ShapeDef | SourceDef | TableDef
+        TypeDef
+        | EnumDef
+        | ConstraintDef
+        | DeriveDef
+        | ShapeDef
+        | SourceDef
+        | TableDef
+        | QueryDef
     ):
         if ctx.typeDefinition() is not None:
             return self.visit(ctx.typeDefinition())
@@ -111,7 +119,9 @@ class AstBuilder(PiettoVisitor):
             return self.visit(ctx.shapeDefinition())
         if ctx.sourceDefinition() is not None:
             return self.visit(ctx.sourceDefinition())
-        return self.visit(ctx.tableDefinition())
+        if ctx.tableDefinition() is not None:
+            return self.visit(ctx.tableDefinition())
+        return self.visit(ctx.queryDefinition())
 
     def visitTypeDefinition(self, ctx: PiettoParser.TypeDefinitionContext) -> TypeDef:
         ensures: list[EnsureClause] = []
@@ -319,24 +329,31 @@ class AstBuilder(PiettoVisitor):
     ) -> TableDef:
         """Build a minimal table without resolving inputs or projection names."""
 
-        body = ctx.tableBody()
+        from_clause, where_clause, select_items = self._relation_body(ctx.tableBody())
         return TableDef(
             span=self._span(ctx),
             name=ctx.IDENTIFIER().getText(),
-            from_clause=self.visit(body.fromClause()),
-            where_clause=(
-                self.visit(body.whereClause())
-                if body.whereClause() is not None
-                else None
-            ),
-            select_items=tuple(
-                self.visit(item)
-                for item in body.selectClause().selectBody().selectItem()
-            ),
+            from_clause=from_clause,
+            where_clause=where_clause,
+            select_items=select_items,
+        )
+
+    def visitQueryDefinition(
+        self, ctx: PiettoParser.QueryDefinitionContext
+    ) -> QueryDef:
+        """Build a minimal query without resolving or executing its input."""
+
+        from_clause, where_clause, select_items = self._relation_body(ctx.tableBody())
+        return QueryDef(
+            span=self._span(ctx),
+            name=ctx.IDENTIFIER().getText(),
+            from_clause=from_clause,
+            where_clause=where_clause,
+            select_items=select_items,
         )
 
     def visitFromClause(self, ctx: PiettoParser.FromClauseContext) -> FromClause:
-        """Build a table input reference without resolving it."""
+        """Build a relation input reference without resolving it."""
 
         return FromClause(
             span=self._span(ctx),
@@ -344,7 +361,7 @@ class AstBuilder(PiettoVisitor):
         )
 
     def visitWhereClause(self, ctx: PiettoParser.WhereClauseContext) -> WhereClause:
-        """Build a table filter without checking its expression type."""
+        """Build a relation filter without checking its expression type."""
 
         return WhereClause(
             span=self._span(ctx),
@@ -358,6 +375,20 @@ class AstBuilder(PiettoVisitor):
             span=self._span(ctx),
             alias=ctx.IDENTIFIER().getText() if ctx.ASSIGN() is not None else None,
             expression=self.visit(ctx.expression()),
+        )
+
+    def _relation_body(
+        self, ctx: PiettoParser.TableBodyContext
+    ) -> tuple[FromClause, WhereClause | None, tuple[SelectItem, ...]]:
+        """Build clauses shared by minimal table and query definitions."""
+
+        return (
+            self.visit(ctx.fromClause()),
+            self.visit(ctx.whereClause()) if ctx.whereClause() is not None else None,
+            tuple(
+                self.visit(item)
+                for item in ctx.selectClause().selectBody().selectItem()
+            ),
         )
 
     def visitParameter(self, ctx: PiettoParser.ParameterContext) -> Parameter:

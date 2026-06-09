@@ -279,21 +279,21 @@ class SourceDef(Node):
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class FromClause(Node):
-    """A parse-only table input reference."""
+    """A parse-only relation input reference."""
 
     source_name: str
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class WhereClause(Node):
-    """A parse-only table row filter."""
+    """A parse-only relation row filter."""
 
     expression: Expression
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class SelectItem(Node):
-    """An ordered table projection with an optional local alias."""
+    """An ordered relation projection with an optional local alias."""
 
     alias: str | None
     expression: Expression
@@ -309,8 +309,25 @@ class TableDef(Node):
     select_items: tuple[SelectItem, ...]
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class QueryDef(Node):
+    """A minimal parse-only query definition."""
+
+    name: str
+    from_clause: FromClause
+    where_clause: WhereClause | None
+    select_items: tuple[SelectItem, ...]
+
+
 Definition = (
-    TypeDef | EnumDef | ConstraintDef | DeriveDef | ShapeDef | SourceDef | TableDef
+    TypeDef
+    | EnumDef
+    | ConstraintDef
+    | DeriveDef
+    | ShapeDef
+    | SourceDef
+    | TableDef
+    | QueryDef
 )
 
 
