@@ -1,9 +1,20 @@
-"""Structural semantic checks for shape definitions."""
+"""Structural and field-derive semantic checks for shape definitions."""
 
 from __future__ import annotations
 
-from pietto.ast_nodes import IndexDef, Node, Script, ShapeDef, UniqueDef
+from collections.abc import Mapping
+
+from pietto.ast_nodes import (
+    Expression,
+    IndexDef,
+    Node,
+    Script,
+    ShapeDef,
+    TypeExpr,
+    UniqueDef,
+)
 from pietto.errors import Diagnostic, Severity, SourceLocation
+from pietto.semantic.model import ResolvedType, TypeKind, ValueType, ValueTypeKind
 
 
 def check_shape_structures(script: Script) -> list[Diagnostic]:
@@ -13,6 +24,44 @@ def check_shape_structures(script: Script) -> list[Diagnostic]:
     for definition in script.definitions:
         if isinstance(definition, ShapeDef):
             diagnostics.extend(_check_shape(definition))
+    return diagnostics
+
+
+def check_field_derives(
+    script: Script,
+    *,
+    type_expansions: Mapping[TypeExpr, ResolvedType],
+    expression_value_types: Mapping[Expression, ValueType],
+) -> list[Diagnostic]:
+    """Validate known field derive types against canonical field types."""
+
+    diagnostics: list[Diagnostic] = []
+    for definition in script.definitions:
+        if not isinstance(definition, ShapeDef):
+            continue
+        for field in definition.fields:
+            expression = field.derive_expression
+            if expression is None:
+                continue
+            value_type = expression_value_types.get(expression)
+            expected_type = type_expansions[field.type_expr]
+            if (
+                value_type is None
+                or value_type.kind is ValueTypeKind.UNKNOWN
+                or expected_type.kind is TypeKind.UNKNOWN
+            ):
+                continue
+            if value_type.resolved_type != expected_type:
+                diagnostics.append(
+                    _diagnostic(
+                        expression,
+                        code="PIE-S2402",
+                        message=(
+                            "Field derive body type does not match field type: "
+                            f"{field.name}"
+                        ),
+                    )
+                )
     return diagnostics
 
 

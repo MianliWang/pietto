@@ -113,6 +113,39 @@ def type_shape_predicates(
     return value_types, diagnostics
 
 
+def type_shape_field_derives(
+    script: Script,
+    *,
+    type_expansions: Mapping[TypeExpr, ResolvedType],
+    type_nullability: Mapping[TypeExpr, EffectiveNullability],
+) -> tuple[dict[Expression, ValueType], list[Diagnostic]]:
+    """Type field derive expressions against all fields in their shape."""
+
+    value_types: dict[Expression, ValueType] = {}
+    diagnostics: list[Diagnostic] = []
+
+    for definition in script.definitions:
+        if not isinstance(definition, ShapeDef):
+            continue
+        row_schema = _shape_row_schema(
+            definition,
+            type_resolutions=type_expansions,
+            type_nullability=type_nullability,
+        )
+        for field in definition.fields:
+            if field.derive_expression is None:
+                continue
+            _infer(
+                field.derive_expression,
+                row_schema,
+                value_types,
+                diagnostics,
+                report_unknown_name=True,
+            )
+
+    return value_types, diagnostics
+
+
 def type_relation_expressions(
     script: Script,
     *,

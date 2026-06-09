@@ -269,9 +269,9 @@ across all shapes and diagnostics retain deterministic source ordering.
 Unique and index target names are currently stored as strings without
 individual AST spans, so target diagnostics use the containing item's span.
 
-No public shape row schema, field derive validation, dependency analysis, or
-cycle checking is implemented in this structural slice. Shape predicate
-typing and Bool validation are tracked in the expression slice below.
+No public shape row schema, dependency analysis, or cycle checking is
+implemented in this structural slice. Shape predicate and field derive
+validation are tracked in the expression slice below.
 
 Current test status:
 
@@ -331,6 +331,12 @@ this dependent diagnostic.
 Shape check bodies and index predicates use the same `PIE-S2202` policy
 against their enclosing shape's field environment.
 
+Field derive expressions are typed against all fields in their enclosing
+shape. Known canonical types that do not match the declared field type produce
+`PIE-S2402`; Unknown expression or field types suppress the dependent
+diagnostic. Alias expansion is applied to both referenced and target field
+types.
+
 No overloads, generics, arithmetic typing, dotted-name resolution, complex
 projection inference, other consumer validation, or nullability-guard
 refinement is implemented.
@@ -338,7 +344,7 @@ refinement is implemented.
 Current test status:
 
 ```text
-450 passed
+499 passed
 ```
 
 ### 7. Constraint and Derive Validation: Completed
@@ -361,8 +367,9 @@ types that do not match the required canonical return type produce
 Type aliases are expanded before parameter use and body/return comparison.
 
 Only the explicit built-in function catalog is callable in bodies.
-User-defined callable resolution, field derive validation, recursion, purity,
-and dependency analysis are not implemented.
+User-defined callable resolution, recursion, purity, and dependency analysis
+are not implemented. Field derive expressions use the same built-in-only
+expression boundary; dependency cycles are not detected.
 
 Current test status:
 
@@ -470,7 +477,7 @@ Current coverage and test status:
 
 ```text
 10 examples
-489 passed
+499 passed
 ```
 
 ## Diagnostics

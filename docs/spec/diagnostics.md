@@ -46,7 +46,7 @@ stored separately and is never encoded in the code.
 | `PIE-S2304` | Computed projection without an explicit alias |
 | `PIE-S2305` | Duplicate projection output name |
 | `PIE-S2401` | Constraint return type does not expand to `Bool` |
-| `PIE-S2402` | Callable body type does not match its declared return type |
+| `PIE-S2402` | Callable or field derive body type mismatch |
 | `PIE-S2501` | Duplicate shape item name |
 | `PIE-S2502` | Unknown unique or index target field |
 | `PIE-S2503` | Duplicate unique or index target field |

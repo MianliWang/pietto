@@ -194,7 +194,7 @@ def test_shape_checks_continue_after_diagnostics() -> None:
     ] == [(3, "PIE-S2502"), (6, "PIE-S2503")]
 
 
-def test_field_derive_expression_semantics_remain_unchecked() -> None:
+def test_field_derive_unknown_function_reports_pie_s2103() -> None:
     result = analyze(
         _parse(
             "shape User:\n"
@@ -206,7 +206,9 @@ def test_field_derive_expression_semantics_remain_unchecked() -> None:
         )
     )
 
-    assert result.diagnostics == ()
+    assert [
+        (diagnostic.code, diagnostic.message) for diagnostic in result.diagnostics
+    ] == [("PIE-S2103", "Unknown function: unknown_call")]
 
 
 def test_shape_structural_checks_do_not_mutate_input_ast() -> None:

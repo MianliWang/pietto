@@ -68,10 +68,7 @@ def check_callable_bodies(
             expected_type = type_expansions[definition.return_type]
             if expected_type.kind is TypeKind.UNKNOWN:
                 continue
-            matches = _same_canonical_type(
-                value_type.resolved_type,
-                expected_type,
-            )
+            matches = value_type.resolved_type == expected_type
             message = (
                 f"Derive {definition.name} body type does not match "
                 "declared return type"
@@ -86,16 +83,6 @@ def check_callable_bodies(
                 )
             )
     return diagnostics
-
-
-def _same_canonical_type(actual: ResolvedType, expected: ResolvedType) -> bool:
-    """Compare canonical types without introducing casts or subtyping."""
-
-    return (
-        actual.kind is expected.kind
-        and actual.name == expected.name
-        and actual.definition is expected.definition
-    )
 
 
 def _duplicate_parameter_diagnostics(
