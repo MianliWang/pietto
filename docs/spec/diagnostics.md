@@ -59,4 +59,10 @@ stored separately and is never encoded in the code.
 |---|---|
 | `PIE-I1000` | Missing or inconsistent semantic fact required for declaration or expression IR lowering |
 
-No backend or runtime diagnostic codes are currently defined.
+## Backend Diagnostics
+
+| Code | Meaning |
+|---|---|
+| `PIE-B1000` | PostgreSQL emission target is unsupported or not yet implemented |
+
+No runtime diagnostic codes are currently defined.

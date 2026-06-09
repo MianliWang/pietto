@@ -87,30 +87,31 @@ Rules:
 
 ## Current Phase
 
-Current implementation phase: Phase 3 Semantic IR MVP complete. Phase 4 SQL
-generation has not started.
+Current implementation phase: Phase 4 PostgreSQL SQL generation scaffold.
 
 Phase 1 parser and AST work and the Phase 2 Semantic Checker MVP are complete.
-The immutable IR package and public `build_ir(script, semantic_model)` API
-lower all current top-level definitions after parsing and semantic analysis.
-The IR preserves symbols, canonical types, nullability, schemas, dependencies,
-ordering, spans, callable bodies, shape metadata, and minimal table/query
-operations. It contains no parser AST or ANTLR objects.
+The Phase 3 Semantic IR MVP is complete. The Phase 4 public
+`emit_postgres_sql(script_ir)` API consumes `ScriptIR` directly and currently
+provides immutable result models plus ordered `PIE-B1000` diagnostics for
+unsupported emission targets. Empty IR returns an empty successful result.
 
-Phase 3 maintenance focuses on:
+The SQL scaffold must not parse source, run semantic analysis, call
+`build_ir()`, generate real SQL or DDL, import SQLGlot, connect to databases,
+or execute connectors. There is no `compile_to_ir()` wrapper.
 
-- immutable, backend-neutral Semantic IR;
-- lowering from the public AST plus readonly `SemanticModel`;
-- stable symbol, canonical type, nullability, schema, and dependency metadata;
-- deterministic IR diagnostics;
-- IR examples, documentation, and regression tests.
+Current work focuses on:
 
-There is no `compile_to_ir()` wrapper. SQL generation belongs to Phase 4, and
-CLI/developer tooling belongs to Phase 5.
+- immutable PostgreSQL SQL artifacts and results;
+- deterministic backend diagnostics;
+- backend isolation from parser, semantic, and IR construction stages;
+- focused SQL backend tests and planning.
 
-Do not implement in the current phase unless explicitly requested:
+CLI and developer tooling remain Phase 5 work.
 
-- SQL generation;
+Do not implement in the current scaffold unless explicitly requested:
+
+- real SQL or DDL generation;
+- SQLGlot integration;
 - SQL execution;
 - database connections or schema introspection;
 - user-defined callable resolution or call graphs;
@@ -123,8 +124,9 @@ Do not implement in the current phase unless explicitly requested:
 - visualization;
 - concurrency/runtime features.
 
-Phase 3 must not rerun semantic analysis, mutate parser AST or
-`SemanticModel`, expose ANTLR objects, or introduce new grammar syntax.
+Compiler stages must remain isolated: IR construction must not mutate parser
+or semantic inputs, and SQL backends must consume `ScriptIR` without rerunning
+earlier stages or introducing grammar syntax.
 
 ## Required Repository Structure
 
