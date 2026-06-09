@@ -2,15 +2,17 @@
 
 ## Status
 
-Phase 3 is in progress. The package scaffold, immutable `DefinitionIR`,
-`ScriptIR`, `IrResult`, public `build_ir()` entry point, and foundational
-symbol/type/row-schema metadata lowering are implemented. Type, enum, shape,
-and source declarations and the current expression AST surface now lower into
-immutable IR. Minimal table and query relations now lower `from`, optional
-`where`, and ordered `select` projections. Top-level constraint and derive
-declarations lower as callable metadata with typed parameters, return types,
-and expression bodies. User-defined callable calls, advanced relation
-operations, and SQL backends are not implemented yet.
+Phase 3 Semantic IR MVP is complete. The public `build_ir()` API lowers every
+currently supported top-level definition into immutable, parser-independent
+IR while preserving source order, resolved semantic metadata, and useful
+spans. The current expression surface, shape metadata, callable declarations,
+sources, and minimal table/query relations are covered by completion and
+examples audits.
+
+Deferred work includes parser-only type arguments, type and field `ensure`
+clauses, field annotations, user-defined callable calls, advanced relation
+operations, and later backend concerns. SQL and DDL generation are Phase 4
+work, not part of the Phase 3 MVP.
 
 ## Goal
 
@@ -44,7 +46,7 @@ Phase 3 does not implement:
 
 ## Public API
 
-The first core API should be:
+The public Phase 3 API is:
 
 ```python
 def build_ir(
@@ -56,10 +58,10 @@ def build_ir(
 
 The caller must run `analyze()` first and call `build_ir()` only when semantic
 analysis has no `ERROR` diagnostics. `build_ir()` does not rerun semantic
-analysis. A `compile_to_ir()` convenience wrapper is not part of the initial
-slice.
+analysis. The Phase 3 MVP intentionally does not provide a `compile_to_ir()`
+convenience wrapper.
 
-The planned result shape is:
+The public result shape is:
 
 ```python
 @dataclass(frozen=True)
@@ -185,10 +187,10 @@ The builder must not mutate either `Script` or `SemanticModel`.
 - Add AST/model immutability and public-isolation tests.
 - Do not lower definitions yet beyond trivial script metadata.
 
-Implemented the public `build_ir(script, semantic_model)` API. It returns an
-empty immutable `ScriptIR` with no diagnostics and does not parse source,
-rerun semantic analysis, mutate its inputs, or expose parser/ANTLR objects.
-`compile_to_ir()` is intentionally not provided.
+Implemented the public `build_ir(script, semantic_model)` API and immutable
+core models. The builder does not parse source, rerun semantic analysis,
+mutate its inputs, or expose parser/ANTLR objects. `compile_to_ir()` is
+intentionally not provided.
 
 ### 2. Symbol, Type, Nullability, and Schema Lowering: Completed
 
@@ -218,8 +220,8 @@ semantic value and canonical type facts. Known bare fields may carry stable
 Built-in calls carry callable `SymbolId` values. `postgres.table(...)` may be
 lowered as static call metadata without execution. Recorded Unknown value
 types remain Unknown safely; a missing root expression value-type fact
-produces `PIE-I1000`. Expression lowering is not yet wired into declarations
-or relations.
+produces `PIE-I1000`. Expression lowering is wired into callable bodies, shape
+metadata, relation filters, and projections.
 
 ### 4. Declaration Lowering: Completed for Current Top-Level Declarations
 
@@ -269,18 +271,20 @@ A focused integration audit covers source-to-table-to-query dependencies,
 schema and projection ordering, deep immutability, missing semantic facts, and
 all committed examples that contain relations.
 
-### 6. Diagnostic and Unknown Hardening
+### 6. Diagnostic and Unknown Hardening: Completed
 
-- Make missing semantic facts produce deterministic `PIE-Ixxxx` diagnostics.
-- Verify that failures do not leak partial mutable state.
-- Audit Unknown handling and diagnostic cascade suppression.
+Missing required semantic facts produce deterministic `PIE-I1000`
+diagnostics rather than ordinary exceptions. Unknown semantic facts remain
+safe where the SemanticModel intentionally records Unknown, and failures do
+not return a partial `ScriptIR` or leak mutable state.
 
-### 7. Examples and Completion Audit
+### 7. Examples and Completion Audit: Completed
 
-- Parse and analyze every committed example.
-- Build IR for every example without IR `ERROR` diagnostics.
-- Audit docs, diagnostics, spans, ordering, and public API isolation.
-- Confirm that no SQL or runtime behavior entered Phase 3.
+Every committed example is parsed, analyzed, and lowered without IR `ERROR`
+diagnostics. The audit verifies public exports, top-level definition coverage,
+source ordering, immutability, tuple-backed collections, parser/ANTLR
+isolation, diagnostic documentation, and the absence of SQL or runtime
+behavior.
 
 ## Testing Strategy
 
@@ -304,8 +308,8 @@ to databases, execute connectors, or require network access.
 
 - **Phase 2: Semantic Checker MVP** - complete; advanced semantic hardening is
   deferred.
-- **Phase 3: Semantic IR** - lower AST plus `SemanticModel` into immutable,
-  backend-neutral IR.
+- **Phase 3: Semantic IR MVP** - complete; AST plus `SemanticModel` lower into
+  immutable, backend-neutral IR.
 - **Phase 4: PostgreSQL SQL Generation** - compile basic table and query IR
   first; add constraint validation SQL in later backend slices.
 - **Phase 5: CLI and Developer Tooling** - expose check, IR inspection, and
@@ -317,7 +321,7 @@ syntax.
 
 ## Completion Criteria
 
-Phase 3 is complete when:
+The Phase 3 Semantic IR MVP criteria are satisfied:
 
 - `build_ir()` consumes a public `Script` and readonly `SemanticModel`;
 - `IrResult` and all public IR nodes are immutable;
@@ -329,3 +333,7 @@ Phase 3 is complete when:
 - all committed examples build IR without IR errors;
 - no SQL generation, execution, connector runtime, CLI runtime, optimizer,
   UI, grammar, or parser behavior has been added.
+
+Future IR hardening may add semantic representations for type arguments,
+`ensure` clauses, and annotations after those facts exist in the
+`SemanticModel`. Those extensions do not block the current MVP boundary.

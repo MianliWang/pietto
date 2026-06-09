@@ -87,24 +87,26 @@ Rules:
 
 ## Current Phase
 
-Current implementation phase: Phase 3 Semantic IR.
+Current implementation phase: Phase 3 Semantic IR MVP complete. Phase 4 SQL
+generation has not started.
 
 Phase 1 parser and AST work and the Phase 2 Semantic Checker MVP are complete.
-The initial immutable IR package, `build_ir()` scaffold, and foundational
-symbol/type/row-schema metadata lowering are complete. Type, enum, shape, and
-source declaration lowering and minimal expression IR helpers are implemented.
-Top-level constraint and derive declarations lower as immutable callable
-metadata without user-defined call resolution or execution. Minimal
-table/query IR supports `from`, optional `where`, and `select`. Existing shape
-checks, unique declarations, indexes, index predicates, and field derive
-expressions lower as immutable metadata without SQL or DDL generation.
-Current work focuses on:
+The immutable IR package and public `build_ir(script, semantic_model)` API
+lower all current top-level definitions after parsing and semantic analysis.
+The IR preserves symbols, canonical types, nullability, schemas, dependencies,
+ordering, spans, callable bodies, shape metadata, and minimal table/query
+operations. It contains no parser AST or ANTLR objects.
+
+Phase 3 maintenance focuses on:
 
 - immutable, backend-neutral Semantic IR;
 - lowering from the public AST plus readonly `SemanticModel`;
 - stable symbol, canonical type, nullability, schema, and dependency metadata;
 - deterministic IR diagnostics;
 - IR examples, documentation, and regression tests.
+
+There is no `compile_to_ir()` wrapper. SQL generation belongs to Phase 4, and
+CLI/developer tooling belongs to Phase 5.
 
 Do not implement in the current phase unless explicitly requested:
 

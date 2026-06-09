@@ -1,7 +1,7 @@
 # Pietto v0.9 Whitepaper and Language Reference
 
 Version: v0.9 draft
-Status: Phase 1 parser/frontend and Phase 2 Semantic MVP implemented; Phase 3 Semantic IR planned
+Status: Phase 1 parser/frontend, Phase 2 Semantic MVP, and Phase 3 Semantic IR MVP implemented
 Primary implementation target: Python 3.12
 Primary SQL target: PostgreSQL
 Preferred package manager: uv-first
@@ -37,11 +37,11 @@ Pietto source
     -> SQL
 ```
 
-Phase 1 parsing through the Pietto AST and the Phase 2 Semantic MVP are
-implemented. The semantic checker covers the supported single-file syntax
-within documented MVP limits. Phase 3 Semantic IR is planned but not
-implemented. SQL generation, execution, database connections, schema
-introspection, and CLI runtime behavior remain future phases.
+Phase 1 parsing through the Pietto AST, the Phase 2 Semantic MVP, and the Phase
+3 Semantic IR MVP are implemented. The public `build_ir(script,
+semantic_model)` API lowers analyzed programs into immutable,
+parser-independent IR. SQL generation, execution, database connections,
+schema introspection, and CLI runtime behavior remain future phases.
 
 ---
 
@@ -819,13 +819,14 @@ User-defined callable calls and recursion, purity, nullability refinement,
 casts, subtyping, overloads, generics, full SQL type compatibility, and schema
 introspection remain deferred beyond the MVP.
 
-### 9.4 Planned semantic IR
+### 9.4 Semantic IR
 
-Phase 3 will lower the public AST plus readonly `SemanticModel` into an
-immutable, backend-neutral Semantic IR. The detailed design and implementation
-slices are documented in `docs/plan/phase-3-semantic-ir.md`.
+The implemented Phase 3 MVP lowers the public AST plus readonly
+`SemanticModel` into immutable, backend-neutral Semantic IR through
+`build_ir(script, semantic_model)`. Callers must parse and analyze first;
+`build_ir()` does not rerun either stage.
 
-Core planned categories include:
+Core categories include:
 
 ```text
 ScriptIR
@@ -842,7 +843,7 @@ RowSchemaIR
 TypeRefIR
 ```
 
-Phase 3 does not generate SQL directly.
+Phase 3 does not provide `compile_to_ir()` and does not generate SQL directly.
 
 ### 9.5 Planned SQL backend
 
@@ -1045,8 +1046,8 @@ and schema introspection remain deferred.
 
 ### Phase 3: Semantic IR
 
-Goal: lower the public AST plus readonly `SemanticModel` to immutable,
-backend-neutral Semantic IR without generating SQL.
+Status: Semantic IR MVP complete. The public AST plus readonly
+`SemanticModel` lower to immutable, backend-neutral IR without generating SQL.
 
 ### Phase 4: PostgreSQL SQL Generation
 
