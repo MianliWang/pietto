@@ -2,8 +2,9 @@
 
 ## Status
 
-Planning only. No Phase 3 IR classes, builder, diagnostics, or SQL backend are
-implemented yet.
+Phase 3 is in progress. The package scaffold, immutable `DefinitionIR`,
+`ScriptIR`, `IrResult`, and public `build_ir()` entry point are implemented.
+Definition lowering, IR diagnostics, and SQL backends are not implemented yet.
 
 ## Goal
 
@@ -171,12 +172,17 @@ The builder must not mutate either `Script` or `SemanticModel`.
 
 ## Implementation Slices
 
-### 1. Package Scaffold and Readonly Models
+### 1. Package Scaffold and Readonly Models: Completed
 
 - Create the IR package public API.
 - Define immutable core models, `IrResult`, and `build_ir()`.
 - Add AST/model immutability and public-isolation tests.
 - Do not lower definitions yet beyond trivial script metadata.
+
+Implemented the public `build_ir(script, semantic_model)` API. It returns an
+empty immutable `ScriptIR` with no diagnostics and does not parse source,
+rerun semantic analysis, mutate its inputs, or expose parser/ANTLR objects.
+`compile_to_ir()` is intentionally not provided.
 
 ### 2. Symbol, Type, Nullability, and Schema Lowering
 

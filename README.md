@@ -8,7 +8,8 @@ semantic diagnostics, readonly semantic models, type and relation resolution,
 minimal expression typing, callable and shape validation, dependency-cycle
 checks, and static `postgres.table(Text)` connector validation.
 
-Phase 3 Semantic IR is planned but not implemented. SQL generation, database
+Phase 3 Semantic IR has an initial immutable package and `build_ir()` scaffold,
+but definition lowering is not implemented. SQL generation, database
 connections or execution, schema introspection, and CLI runtime behavior are
 also not implemented.
 
