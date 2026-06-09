@@ -50,5 +50,6 @@ stored separately and is never encoded in the code.
 | `PIE-S2501` | Duplicate shape item name |
 | `PIE-S2502` | Unknown unique or index target field |
 | `PIE-S2503` | Duplicate unique or index target field |
+| `PIE-S2504` | Derived field dependency cycle |
 
 No IR, backend, or runtime diagnostic codes are currently defined.

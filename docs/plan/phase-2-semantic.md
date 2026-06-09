@@ -269,9 +269,10 @@ across all shapes and diagnostics retain deterministic source ordering.
 Unique and index target names are currently stored as strings without
 individual AST spans, so target diagnostics use the containing item's span.
 
-No public shape row schema, dependency analysis, or cycle checking is
-implemented in this structural slice. Shape predicate and field derive
-validation are tracked in the expression slice below.
+No public shape row schema or dependency analysis is implemented in this
+structural slice. Shape predicate and field derive validation are tracked in
+the expression slice below; derived-field cycles are tracked in the dependency
+hardening slice.
 
 Current test status:
 
@@ -369,7 +370,7 @@ Type aliases are expanded before parameter use and body/return comparison.
 Only the explicit built-in function catalog is callable in bodies.
 User-defined callable resolution, recursion, purity, and dependency analysis
 are not implemented. Field derive expressions use the same built-in-only
-expression boundary; dependency cycles are not detected.
+expression boundary.
 
 Current test status:
 
@@ -439,8 +440,8 @@ dependencies. Each distinct cycle produces one `PIE-S2302` at the `FromClause`
 edge that closes the cycle. Self-cycles and mixed table/query cycles are
 supported; unknown relations remain covered only by `PIE-S2301`.
 
-Callable and derived-field cycle checks remain unimplemented. Type-alias
-cycles are covered by the type-resolution slice.
+Callable cycle checks remain unimplemented. Type-alias and derived-field
+cycles are covered by their dedicated semantic slices.
 
 Current test status:
 
@@ -448,12 +449,29 @@ Current test status:
 369 passed
 ```
 
-### 11. Remaining Dependency and Cycle Hardening
+### 11. Remaining Dependency and Cycle Hardening: In Progress
 
 - Detect callable recursion and dependency cycles.
 - Detect derived-field dependency cycles.
 - Ensure one primary cycle diagnostic is reported for each relevant cycle.
 - Keep diagnostics deterministic and suppress dependent cascades.
+
+Derived-field cycle detection is complete. Each shape gets an independent
+graph whose edges come from bare same-shape field references inside currently
+supported expression forms. Non-derived fields are leaves, unknown names do
+not create edges, and function call targets are not field dependencies.
+Strongly connected components provide a stable reporting strategy: each
+cyclic component produces one `PIE-S2504` at its earliest field in source
+order.
+
+Top-level callable recursion and dependency cycles remain unimplemented.
+Purity checking is outside this slice.
+
+Current test status:
+
+```text
+513 passed
+```
 
 ### 12. Phase 2 Examples and Documentation Audit: In Progress
 
@@ -477,7 +495,7 @@ Current coverage and test status:
 
 ```text
 10 examples
-499 passed
+513 passed
 ```
 
 ## Diagnostics

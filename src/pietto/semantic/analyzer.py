@@ -30,6 +30,7 @@ from pietto.semantic.expressions import (
     type_shape_field_derives,
     type_shape_predicates,
 )
+from pietto.semantic.field_derive_cycles import check_field_derive_cycles
 from pietto.semantic.model import (
     CheckMode,
     EffectiveNullability,
@@ -94,6 +95,7 @@ def analyze(
     diagnostics.extend(alias_diagnostics)
     diagnostics.extend(check_callable_signatures(script, type_expansions))
     diagnostics.extend(check_shape_structures(script))
+    diagnostics.extend(check_field_derive_cycles(script))
     source_row_schemas, source_diagnostics = check_sources(
         script,
         mode=mode,
