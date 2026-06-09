@@ -338,7 +338,7 @@ Current test status:
 450 passed
 ```
 
-### 7. Constraint and Derive Validation
+### 7. Constraint and Derive Validation: In Progress
 
 - Resolve parameter and return types.
 - Diagnose duplicate parameters and unknown names.
@@ -348,6 +348,22 @@ Current test status:
 
 Purity, recursion, and dependency cycles should be introduced conservatively
 and may be completed in the dependency hardening slice.
+
+Signature validation is complete. Duplicate parameters produce `PIE-S2001` at
+the later parameter, and constraints whose known declared return type is not
+the built-in `Bool` produce `PIE-S2401`. Unknown return types suppress the
+dependent constraint diagnostic. Type aliases are not expanded yet, so an
+alias to `Bool` is not accepted as a direct `Bool` return in this slice.
+
+Constraint and derive bodies remain unchecked. User-defined callable
+resolution, body/return compatibility, recursion, purity, and dependency
+analysis are not implemented.
+
+Current test status:
+
+```text
+463 passed
+```
 
 ### 8. Relation From-Target Resolution: Completed
 
@@ -449,7 +465,7 @@ Current coverage and test status:
 
 ```text
 10 examples
-450 passed
+463 passed
 ```
 
 ## Diagnostics

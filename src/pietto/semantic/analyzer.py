@@ -19,6 +19,7 @@ from pietto.ast_nodes import (
     TypeExpr,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
+from pietto.semantic.callables import check_callable_signatures
 from pietto.semantic.catalog import BUILTIN_TYPE_NAMES
 from pietto.semantic.expressions import (
     type_relation_expressions,
@@ -78,6 +79,7 @@ def analyze(
         if implicit_diagnostic is not None:
             diagnostics.append(implicit_diagnostic)
 
+    diagnostics.extend(check_callable_signatures(script, type_resolutions))
     diagnostics.extend(check_shape_structures(script))
     source_row_schemas, source_diagnostics = check_sources(
         script,
