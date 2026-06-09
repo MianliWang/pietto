@@ -57,6 +57,6 @@ stored separately and is never encoded in the code.
 
 | Code | Meaning |
 |---|---|
-| `PIE-I1000` | Missing or inconsistent semantic fact required for IR lowering |
+| `PIE-I1000` | Missing or inconsistent semantic fact required for declaration or expression IR lowering |
 
 No backend or runtime diagnostic codes are currently defined.

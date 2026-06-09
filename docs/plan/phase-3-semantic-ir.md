@@ -5,8 +5,9 @@
 Phase 3 is in progress. The package scaffold, immutable `DefinitionIR`,
 `ScriptIR`, `IrResult`, public `build_ir()` entry point, and foundational
 symbol/type/row-schema metadata lowering are implemented. Type, enum, shape,
-and source declarations now lower into immutable IR. Constraint, derive,
-relation, and expression lowering and SQL backends are not implemented yet.
+and source declarations and the current expression AST surface now lower into
+immutable IR. Constraint, derive, and relation lowering and SQL backends are
+not implemented yet.
 
 ## Goal
 
@@ -198,12 +199,24 @@ Implemented parser-independent `SymbolId`, `TypeRefIR`, `RowFieldIR`, and
 Declared alias identity, canonical targets, effective nullability, source
 spans, Unknown schemas, and semantic field order are preserved.
 
-### 3. Expression Lowering
+### 3. Expression Lowering: Completed
 
 - Lower the complete minimal expression surface already represented by the
   parser AST.
 - Attach existing semantic value types and resolved references.
 - Keep unsupported or inconsistent semantic facts diagnostic-driven.
+
+Implemented immutable literal, field-reference, call, unary, binary,
+comparison, between, and is-null IR nodes. `lower_expr()` recursively lowers
+the current parser expression surface and copies source spans plus existing
+semantic value and canonical type facts. Known bare fields may carry stable
+`FieldId` values when a row environment and owner symbol are supplied.
+
+Built-in calls carry callable `SymbolId` values. `postgres.table(...)` may be
+lowered as static call metadata without execution. Recorded Unknown value
+types remain Unknown safely; a missing root expression value-type fact
+produces `PIE-I1000`. Expression lowering is not yet wired into declarations
+or relations.
 
 ### 4. Declaration Lowering: In Progress
 

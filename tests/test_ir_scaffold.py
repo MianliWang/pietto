@@ -89,10 +89,20 @@ def test_compile_to_ir_is_not_exported() -> None:
 
 def test_ir_public_exports_are_explicit() -> None:
     assert ir_api.__all__ == [
+        "BetweenIR",
+        "BinaryIR",
+        "CallIR",
+        "ComparisonIR",
         "ConnectorIR",
         "DefinitionIR",
         "EnumIR",
+        "ExpressionIR",
+        "ExpressionLoweringResult",
+        "FieldId",
+        "FieldRefIR",
         "IrResult",
+        "IsNullIR",
+        "LiteralIR",
         "NullabilityIR",
         "RowFieldIR",
         "RowSchemaIR",
@@ -106,6 +116,7 @@ def test_ir_public_exports_are_explicit() -> None:
         "TypeIR",
         "TypeKindIR",
         "TypeRefIR",
+        "UnaryIR",
         "build_ir",
     ]
 

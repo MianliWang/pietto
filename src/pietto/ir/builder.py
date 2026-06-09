@@ -15,7 +15,8 @@ from pietto.ast_nodes import (
     TypeDef,
     TypeExpr,
 )
-from pietto.errors import Diagnostic, Severity, SourceLocation
+from pietto.errors import Diagnostic
+from pietto.ir.diagnostics import missing_semantic_fact_diagnostic
 from pietto.ir.lowering import (
     lower_canonical_type_ref,
     lower_row_schema,
@@ -53,7 +54,9 @@ def build_ir(
         try:
             lowered = _lower_definition(definition, semantic_model)
         except _MissingSemanticFact as error:
-            diagnostics.append(_missing_fact_diagnostic(error.node, error.message))
+            diagnostics.append(
+                missing_semantic_fact_diagnostic(error.node, error.message)
+            )
             continue
         if lowered is not None:
             definitions.append(lowered)
@@ -199,24 +202,6 @@ def _symbol(namespace: SymbolNamespace, name: str) -> SymbolId:
     """Build a stable IR symbol identity."""
 
     return SymbolId(namespace=namespace, name=name)
-
-
-def _missing_fact_diagnostic(node: Node, fact: str) -> Diagnostic:
-    """Report an absent semantic prerequisite at the affected declaration."""
-
-    span = node.span
-    return Diagnostic(
-        code="PIE-I1000",
-        severity=Severity.ERROR,
-        message=f"Missing semantic fact required for IR lowering: {fact}",
-        location=SourceLocation(
-            path=span.path,
-            line=span.line,
-            column=span.column,
-            end_line=span.end_line,
-            end_column=span.end_column,
-        ),
-    )
 
 
 class _MissingSemanticFact(Exception):

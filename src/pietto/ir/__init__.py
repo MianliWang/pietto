@@ -2,10 +2,20 @@
 
 from pietto.ir.builder import build_ir
 from pietto.ir.model import (
+    BetweenIR,
+    BinaryIR,
+    CallIR,
+    ComparisonIR,
     ConnectorIR,
     DefinitionIR,
     EnumIR,
+    ExpressionIR,
+    ExpressionLoweringResult,
+    FieldId,
+    FieldRefIR,
     IrResult,
+    IsNullIR,
+    LiteralIR,
     NullabilityIR,
     RowFieldIR,
     RowSchemaIR,
@@ -19,13 +29,24 @@ from pietto.ir.model import (
     TypeIR,
     TypeKindIR,
     TypeRefIR,
+    UnaryIR,
 )
 
 __all__ = [
+    "BetweenIR",
+    "BinaryIR",
+    "CallIR",
+    "ComparisonIR",
     "ConnectorIR",
     "DefinitionIR",
     "EnumIR",
+    "ExpressionIR",
+    "ExpressionLoweringResult",
+    "FieldId",
+    "FieldRefIR",
     "IrResult",
+    "IsNullIR",
+    "LiteralIR",
     "NullabilityIR",
     "RowFieldIR",
     "RowSchemaIR",
@@ -39,5 +60,6 @@ __all__ = [
     "TypeIR",
     "TypeKindIR",
     "TypeRefIR",
+    "UnaryIR",
     "build_ir",
 ]

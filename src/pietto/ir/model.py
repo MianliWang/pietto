@@ -7,6 +7,8 @@ from enum import StrEnum
 
 from pietto.errors import Diagnostic
 
+StaticValue = str | int | float | bool | None
+
 
 class SymbolNamespace(StrEnum):
     """Semantic namespaces used to form stable IR symbol identities."""
@@ -54,6 +56,14 @@ class SymbolId:
 
 
 @dataclass(frozen=True, slots=True)
+class FieldId:
+    """A stable field identity within an optional owning semantic symbol."""
+
+    owner: SymbolId | None
+    name: str
+
+
+@dataclass(frozen=True, slots=True)
 class TypeRefIR:
     """Declared and canonical type metadata copied from semantic analysis."""
 
@@ -82,6 +92,90 @@ class RowSchemaIR:
 
     fields: tuple[RowFieldIR, ...]
     is_unknown: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ExpressionIR:
+    """Base class for typed, source-located Semantic IR expressions."""
+
+    span: SourceSpan
+    value_type: TypeRefIR
+
+
+@dataclass(frozen=True, slots=True)
+class LiteralIR(ExpressionIR):
+    """A lowered scalar literal."""
+
+    value: StaticValue
+
+
+@dataclass(frozen=True, slots=True)
+class FieldRefIR(ExpressionIR):
+    """A lowered bare or dotted field reference."""
+
+    name: str
+    qualifier: tuple[str, ...]
+    field: FieldId | None
+
+
+@dataclass(frozen=True, slots=True)
+class CallIR(ExpressionIR):
+    """A lowered static call expression without execution behavior."""
+
+    callee: str
+    callee_symbol: SymbolId | None
+    arguments: tuple[ExpressionIR, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class UnaryIR(ExpressionIR):
+    """A lowered unary expression."""
+
+    operator: str
+    operand: ExpressionIR
+
+
+@dataclass(frozen=True, slots=True)
+class BinaryIR(ExpressionIR):
+    """A lowered binary arithmetic or Boolean expression."""
+
+    left: ExpressionIR
+    operator: str
+    right: ExpressionIR
+
+
+@dataclass(frozen=True, slots=True)
+class ComparisonIR(ExpressionIR):
+    """A lowered comparison expression."""
+
+    left: ExpressionIR
+    operator: str
+    right: ExpressionIR
+
+
+@dataclass(frozen=True, slots=True)
+class BetweenIR(ExpressionIR):
+    """A lowered inclusive between expression."""
+
+    value: ExpressionIR
+    lower: ExpressionIR
+    upper: ExpressionIR
+
+
+@dataclass(frozen=True, slots=True)
+class IsNullIR(ExpressionIR):
+    """A lowered is-null predicate, optionally negated."""
+
+    value: ExpressionIR
+    negated: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ExpressionLoweringResult:
+    """A lowered expression and its ordered IR diagnostics."""
+
+    expression: ExpressionIR | None
+    diagnostics: tuple[Diagnostic, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,9 +222,6 @@ class ShapeIR(DefinitionIR):
     name: str
     fields: tuple[ShapeFieldIR, ...]
     span: SourceSpan
-
-
-StaticValue = str | int | float | bool | None
 
 
 @dataclass(frozen=True, slots=True)
