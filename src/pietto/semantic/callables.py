@@ -1,12 +1,19 @@
-"""Signature-only semantic checks for constraints and derives."""
+"""Signature and body semantic checks for top-level callables."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 
-from pietto.ast_nodes import ConstraintDef, DeriveDef, Node, Script, TypeExpr
+from pietto.ast_nodes import (
+    ConstraintDef,
+    DeriveDef,
+    Expression,
+    Node,
+    Script,
+    TypeExpr,
+)
 from pietto.errors import Diagnostic, Severity, SourceLocation
-from pietto.semantic.model import ResolvedType, TypeKind
+from pietto.semantic.model import ResolvedType, TypeKind, ValueType, ValueTypeKind
 
 CallableDefinition = ConstraintDef | DeriveDef
 
@@ -30,6 +37,65 @@ def check_callable_signatures(
             if diagnostic is not None:
                 diagnostics.append(diagnostic)
     return diagnostics
+
+
+def check_callable_bodies(
+    script: Script,
+    *,
+    type_expansions: Mapping[TypeExpr, ResolvedType],
+    expression_value_types: Mapping[Expression, ValueType],
+) -> list[Diagnostic]:
+    """Validate known callable body types against canonical return types."""
+
+    diagnostics: list[Diagnostic] = []
+    for definition in script.definitions:
+        if not isinstance(definition, (ConstraintDef, DeriveDef)):
+            continue
+        value_type = expression_value_types.get(definition.body)
+        if value_type is None or value_type.kind is ValueTypeKind.UNKNOWN:
+            continue
+
+        if isinstance(definition, ConstraintDef):
+            matches = (
+                value_type.resolved_type.kind is TypeKind.BUILTIN
+                and value_type.resolved_type.name == "Bool"
+            )
+            message = (
+                f"Constraint {definition.name} body type does not match "
+                "declared Bool return type"
+            )
+        else:
+            expected_type = type_expansions[definition.return_type]
+            if expected_type.kind is TypeKind.UNKNOWN:
+                continue
+            matches = _same_canonical_type(
+                value_type.resolved_type,
+                expected_type,
+            )
+            message = (
+                f"Derive {definition.name} body type does not match "
+                "declared return type"
+            )
+
+        if not matches:
+            diagnostics.append(
+                _diagnostic(
+                    definition.body,
+                    code="PIE-S2402",
+                    message=message,
+                )
+            )
+    return diagnostics
+
+
+def _same_canonical_type(actual: ResolvedType, expected: ResolvedType) -> bool:
+    """Compare canonical types without introducing casts or subtyping."""
+
+    return (
+        actual.kind is expected.kind
+        and actual.name == expected.name
+        and actual.definition is expected.definition
+    )
 
 
 def _duplicate_parameter_diagnostics(

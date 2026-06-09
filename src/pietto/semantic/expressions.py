@@ -8,6 +8,8 @@ from pietto.ast_nodes import (
     CallExpr,
     CheckDef,
     ComparisonExpr,
+    ConstraintDef,
+    DeriveDef,
     DottedNameExpr,
     Expression,
     FromClause,
@@ -42,6 +44,36 @@ _UNKNOWN_VALUE_TYPE = ValueType(
     nullability=EffectiveNullability.UNKNOWN,
     kind=ValueTypeKind.UNKNOWN,
 )
+
+
+def type_callable_bodies(
+    script: Script,
+    *,
+    type_expansions: Mapping[TypeExpr, ResolvedType],
+    type_nullability: Mapping[TypeExpr, EffectiveNullability],
+) -> tuple[dict[Expression, ValueType], list[Diagnostic]]:
+    """Type top-level callable bodies against their parameter environments."""
+
+    value_types: dict[Expression, ValueType] = {}
+    diagnostics: list[Diagnostic] = []
+
+    for definition in script.definitions:
+        if not isinstance(definition, (ConstraintDef, DeriveDef)):
+            continue
+        row_schema = _callable_row_schema(
+            definition,
+            type_expansions=type_expansions,
+            type_nullability=type_nullability,
+        )
+        _infer(
+            definition.body,
+            row_schema,
+            value_types,
+            diagnostics,
+            report_unknown_name=True,
+        )
+
+    return value_types, diagnostics
 
 
 def type_shape_predicates(
@@ -121,6 +153,26 @@ def type_relation_expressions(
             )
 
     return value_types, diagnostics
+
+
+def _callable_row_schema(
+    definition: ConstraintDef | DeriveDef,
+    *,
+    type_expansions: Mapping[TypeExpr, ResolvedType],
+    type_nullability: Mapping[TypeExpr, EffectiveNullability],
+) -> RowSchema:
+    """Build a local value environment from the first parameter binding."""
+
+    fields: dict[str, RowField] = {}
+    for parameter in definition.parameters:
+        if parameter.name in fields:
+            continue
+        fields[parameter.name] = RowField(
+            name=parameter.name,
+            resolved_type=type_expansions[parameter.type],
+            nullability=type_nullability[parameter.type],
+        )
+    return RowSchema(fields=fields)
 
 
 def _shape_row_schema(

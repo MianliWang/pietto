@@ -341,31 +341,33 @@ Current test status:
 450 passed
 ```
 
-### 7. Constraint and Derive Validation: In Progress
+### 7. Constraint and Derive Validation: Completed
 
 - Resolve parameter and return types.
 - Diagnose duplicate parameters and unknown names.
 - Require constraint return types and bodies to be compatible with `Bool`.
 - Require derive bodies to be compatible with their declared return types.
-- Restrict calls to the explicit built-in and user callable catalogs.
+- Restrict calls to the explicit built-in catalog.
 
 Purity, recursion, and dependency cycles should be introduced conservatively
 and may be completed in the dependency hardening slice.
 
-Signature validation is complete. Duplicate parameters produce `PIE-S2001` at
-the later parameter, and constraints whose known canonical return type is not
-the built-in `Bool` produce `PIE-S2401`. Unknown return types suppress the
-dependent constraint diagnostic. Aliases to `Bool` are accepted through the
-canonical expansion mapping.
+Duplicate parameters produce `PIE-S2001` at the later parameter, and
+constraints whose known canonical return type is not the built-in `Bool`
+produce `PIE-S2401`. Constraint and derive bodies are typed in a local
+parameter environment using the incremental expression checker. Known body
+types that do not match the required canonical return type produce
+`PIE-S2402`; Unknown body or return types suppress this dependent diagnostic.
+Type aliases are expanded before parameter use and body/return comparison.
 
-Constraint and derive bodies remain unchecked. User-defined callable
-resolution, body/return compatibility, recursion, purity, and dependency
-analysis are not implemented.
+Only the explicit built-in function catalog is callable in bodies.
+User-defined callable resolution, field derive validation, recursion, purity,
+and dependency analysis are not implemented.
 
 Current test status:
 
 ```text
-477 passed
+489 passed
 ```
 
 ### 8. Relation From-Target Resolution: Completed
@@ -468,7 +470,7 @@ Current coverage and test status:
 
 ```text
 10 examples
-477 passed
+489 passed
 ```
 
 ## Diagnostics

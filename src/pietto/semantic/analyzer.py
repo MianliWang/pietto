@@ -19,9 +19,13 @@ from pietto.ast_nodes import (
     TypeExpr,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
-from pietto.semantic.callables import check_callable_signatures
+from pietto.semantic.callables import (
+    check_callable_bodies,
+    check_callable_signatures,
+)
 from pietto.semantic.catalog import BUILTIN_TYPE_NAMES
 from pietto.semantic.expressions import (
+    type_callable_bodies,
     type_relation_expressions,
     type_shape_predicates,
 )
@@ -120,6 +124,13 @@ def analyze(
         type_resolutions=type_resolutions,
         type_nullability=type_nullability,
     )
+    callable_value_types, callable_expression_diagnostics = type_callable_bodies(
+        script,
+        type_expansions=type_expansions,
+        type_nullability=type_nullability,
+    )
+    expression_value_types.update(callable_value_types)
+    expression_diagnostics.extend(callable_expression_diagnostics)
     relation_value_types, relation_expression_diagnostics = type_relation_expressions(
         script,
         from_resolutions=from_resolutions,
@@ -130,6 +141,13 @@ def analyze(
     expression_diagnostics.extend(relation_expression_diagnostics)
     diagnostics.extend(expression_diagnostics)
     diagnostics.extend(check_predicates(script, expression_value_types))
+    diagnostics.extend(
+        check_callable_bodies(
+            script,
+            type_expansions=type_expansions,
+            expression_value_types=expression_value_types,
+        )
+    )
 
     return SemanticResult(
         model=SemanticModel(

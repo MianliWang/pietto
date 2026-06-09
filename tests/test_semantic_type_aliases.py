@@ -170,7 +170,7 @@ def test_constraint_returning_text_alias_reports_pie_s2401() -> None:
         _parse(
             "type Label = Text not null\n"
             "constraint label() -> Label not null:\n"
-            '    "value"\n'
+            "    true\n"
         )
     )
 

@@ -26,7 +26,7 @@ def test_constraint_returning_bool_has_no_signature_diagnostic() -> None:
 
 def test_constraint_returning_text_reports_pie_s2401() -> None:
     result = analyze(
-        _parse("constraint label(email: Text not null) -> Text not null:\n    email\n")
+        _parse("constraint label(email: Text not null) -> Text not null:\n    true\n")
     )
 
     assert [
@@ -156,12 +156,12 @@ def test_multiple_callable_diagnostics_follow_source_order() -> None:
     result = analyze(
         _parse(
             "constraint first() -> Text not null:\n"
-            '    "value"\n'
+            "    true\n"
             "derive second(value: Text not null, value: Text not null) "
             "-> Text not null:\n"
             "    value\n"
             "constraint third() -> Int not null:\n"
-            "    1\n"
+            "    true\n"
         )
     )
 
@@ -175,18 +175,23 @@ def test_multiple_callable_diagnostics_follow_source_order() -> None:
     ]
 
 
-def test_callable_bodies_remain_unchecked() -> None:
+def test_user_defined_callable_calls_remain_unsupported() -> None:
     result = analyze(
         _parse(
             "constraint valid(value: Text not null) -> Bool not null:\n"
-            "    unknown_constraint(missing)\n"
+            "    unknown_constraint(value)\n"
             "derive normalize(value: Text not null) -> Text not null:\n"
-            "    unknown_derive(missing)\n"
+            "    unknown_derive(value)\n"
         )
     )
 
-    assert result.diagnostics == ()
-    assert result.model.expression_value_types == {}
+    assert [
+        (diagnostic.code, diagnostic.message) for diagnostic in result.diagnostics
+    ] == [
+        ("PIE-S2103", "Unknown function: unknown_constraint"),
+        ("PIE-S2103", "Unknown function: unknown_derive"),
+    ]
+    assert len(result.model.expression_value_types) == 4
 
 
 def test_callable_signature_validation_does_not_mutate_input_ast() -> None:
