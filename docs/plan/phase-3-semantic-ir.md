@@ -231,10 +231,9 @@ fields preserve field order, type metadata, nullability, and spans. Sources
 preserve shape symbols, analyzed row schemas, and static connector names and
 literal arguments without execution.
 
-Constraint and derive lowering remains deferred until expression IR exists.
-Table and query definitions are also skipped until the relation-lowering
-slice. Missing required semantic facts produce `PIE-I1000` and prevent a
-partial `ScriptIR`.
+Constraint and derive lowering remains deferred. Table and query definitions
+are handled by the relation-lowering slice. Missing required semantic facts
+produce `PIE-I1000` and prevent a partial `ScriptIR`.
 
 ### 5. Relation Lowering: Completed
 
@@ -253,6 +252,10 @@ are preserved.
 This slice supports only `from`, optional `where`, and `select`. It does not
 add joins, grouping, having, ordering, limits, windows, unions, nested queries,
 query parameters, SQL generation, or runtime behavior.
+
+A focused integration audit covers source-to-table-to-query dependencies,
+schema and projection ordering, deep immutability, missing semantic facts, and
+all committed examples that contain relations.
 
 ### 6. Diagnostic and Unknown Hardening
 
