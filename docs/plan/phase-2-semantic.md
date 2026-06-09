@@ -155,8 +155,8 @@ Implicit nullability has a fixed Phase 2 policy:
 | `strict` | error |
 
 Untyped sources follow the same mode matrix: loose is silent, checked emits a
-warning, and strict emits an error. The exact severity policy for unnamed
-computed projections is defined when its implementation slice begins.
+warning, and strict emits an error. Unnamed computed projections follow the
+same mode matrix.
 
 ## Built-in Catalog
 
@@ -363,28 +363,33 @@ Current test status:
 340 passed
 ```
 
-### 9. Minimal Relation Row Schema Propagation: Completed
+### 9. Minimal Relation Row Schema and Projection Names: Completed
 
 - Propagate known source, table, and query input schemas.
-- Build ordered output schemas for bare field projections only.
+- Build ordered output schemas for stable projection names.
 - Diagnose unknown bare fields without cascading through Unknown schemas.
-- Diagnose duplicate bare projection fields.
-- Treat complex or aliased projections as Unknown without expression checks.
+- Diagnose duplicate projection output names.
+- Require aliases for computed projections according to the active mode.
+- Preserve aliased and dotted-name outputs with Unknown value types.
 
 Implemented readonly `SemanticModel.relation_row_schemas` for every table and
 query. `PIE-S2102` reports an unknown field selected from a known input schema;
-`PIE-S2305` reports a duplicate bare projection field. Unknown inputs, unresolved
-relations, unsupported projections, and cyclic relations produce Unknown row
-schemas that suppress dependent field diagnostics.
+`PIE-S2304` reports an unnamed computed projection according to the
+loose/checked/strict mode policy; `PIE-S2305` reports duplicate output names.
+Aliases determine output names, bare fields retain their names, and bare
+dotted names use their final segment. Aliased and dotted-name outputs retain
+Unknown types until expression typing expands.
 
-No expression typing, aliased projection inference, dotted-name resolution,
-`where` validation, or unnamed computed projection policy is implemented.
-Connector and physical database targets remain unchecked.
+Unknown inputs, unresolved relations, unknown bare fields, and cyclic
+relations produce Unknown row schemas that suppress dependent field
+diagnostics. No function checking, complex projection type inference, or
+dotted-name resolution is implemented. Connector and physical database
+targets remain unchecked.
 
 Current test status:
 
 ```text
-356 passed
+428 passed
 ```
 
 ### 10. Relation Cycle Diagnostics: Completed

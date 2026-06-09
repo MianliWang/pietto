@@ -202,7 +202,7 @@ def test_unknown_from_target_produces_unknown_schema_without_field_cascade() -> 
     assert result.model.relation_row_schemas[query].is_unknown is True
 
 
-def test_complex_or_aliased_projection_produces_unknown_schema_without_checks() -> None:
+def test_mixed_projections_validate_names_without_checking_calls() -> None:
     result = analyze(
         _parse(
             SOURCE + "table projected:\n"
@@ -216,8 +216,19 @@ def test_complex_or_aliased_projection_produces_unknown_schema_without_checks() 
     )
     table = _relation(result, "projected", TableDef)
 
-    assert result.diagnostics == ()
+    assert _diagnostics(result) == [
+        (
+            "PIE-S2304",
+            Severity.WARNING,
+            "Computed projection requires an explicit alias",
+        ),
+        ("PIE-S2102", Severity.ERROR, "Unknown field: missing"),
+    ]
     assert result.model.relation_row_schemas[table].is_unknown is True
+    assert list(result.model.relation_row_schemas[table].fields) == [
+        "normalized",
+        "missing",
+    ]
 
 
 def test_unknown_upstream_schema_suppresses_downstream_field_diagnostics() -> None:

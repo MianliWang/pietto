@@ -177,11 +177,11 @@ def test_connector_and_table_query_expressions_remain_unchecked() -> None:
             "    from users\n"
             "    where unknown_predicate(missing_field)\n"
             "    select:\n"
-            "        unknown_call(missing_field)\n"
+            "        computed = unknown_call(missing_field)\n"
             "query output:\n"
             "    from projected\n"
             "    select:\n"
-            "        unknown_call(missing_field)\n"
+            "        recomputed = unknown_call(missing_field)\n"
         )
     )
 

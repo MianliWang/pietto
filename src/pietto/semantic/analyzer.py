@@ -99,6 +99,7 @@ def analyze(
     diagnostics.extend(cycle_diagnostics)
     relation_row_schemas, schema_diagnostics = propagate_relation_schemas(
         script,
+        mode=mode,
         from_resolutions=from_resolutions,
         source_row_schemas=source_row_schemas,
         cyclic_relations=cyclic_relations,

@@ -40,7 +40,8 @@ stored separately and is never encoded in the code.
 | `PIE-S2301` | Unknown relation |
 | `PIE-S2302` | Relation dependency cycle |
 | `PIE-S2303` | Invalid, missing, or untyped source shape |
-| `PIE-S2305` | Duplicate projection field |
+| `PIE-S2304` | Computed projection without an explicit alias |
+| `PIE-S2305` | Duplicate projection output name |
 | `PIE-S2501` | Duplicate shape item name |
 | `PIE-S2502` | Unknown unique or index target field |
 | `PIE-S2503` | Duplicate unique or index target field |

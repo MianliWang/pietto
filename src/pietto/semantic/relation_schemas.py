@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from pietto.ast_nodes import (
+    DottedNameExpr,
     FromClause,
     NameExpr,
     QueryDef,
@@ -14,20 +15,30 @@ from pietto.ast_nodes import (
     TableDef,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
-from pietto.semantic.model import RowField, RowSchema
+from pietto.semantic.model import (
+    CheckMode,
+    EffectiveNullability,
+    ResolvedType,
+    RowField,
+    RowSchema,
+    TypeKind,
+)
 
 RelationDefinition = SourceDef | TableDef | QueryDef
 DerivedRelation = TableDef | QueryDef
+
+_UNKNOWN_RESOLVED_TYPE = ResolvedType(name="<unknown>", kind=TypeKind.UNKNOWN)
 
 
 def propagate_relation_schemas(
     script: Script,
     *,
+    mode: CheckMode,
     from_resolutions: Mapping[FromClause, RelationDefinition],
     source_row_schemas: Mapping[SourceDef, RowSchema],
     cyclic_relations: set[DerivedRelation],
 ) -> tuple[dict[DerivedRelation, RowSchema], list[Diagnostic]]:
-    """Propagate bare field projections through table and query relations."""
+    """Propagate stable projection names through table and query relations."""
 
     schemas: dict[DerivedRelation, RowSchema] = {}
     diagnostics: list[Diagnostic] = []
@@ -37,8 +48,13 @@ def propagate_relation_schemas(
         if definition in schemas:
             return schemas[definition]
         if definition in cyclic_relations:
-            schema = _unknown_schema()
+            schema, relation_diagnostics = _project_schema(
+                definition,
+                _unknown_schema(),
+                mode=mode,
+            )
             schemas[definition] = schema
+            diagnostics.extend(relation_diagnostics)
             return schema
         if definition in visiting:
             return _unknown_schema()
@@ -52,7 +68,11 @@ def propagate_relation_schemas(
         else:
             input_schema = _unknown_schema()
 
-        schema, relation_diagnostics = _project_schema(definition, input_schema)
+        schema, relation_diagnostics = _project_schema(
+            definition,
+            input_schema,
+            mode=mode,
+        )
         visiting.remove(definition)
         schemas[definition] = schema
         diagnostics.extend(relation_diagnostics)
@@ -68,40 +88,76 @@ def propagate_relation_schemas(
 def _project_schema(
     definition: DerivedRelation,
     input_schema: RowSchema,
+    *,
+    mode: CheckMode,
 ) -> tuple[RowSchema, list[Diagnostic]]:
-    """Project simple bare fields or return Unknown for unsupported inputs."""
-
-    if input_schema.is_unknown or any(
-        item.alias is not None or not isinstance(item.expression, NameExpr)
-        for item in definition.select_items
-    ):
-        return _unknown_schema(), []
+    """Build ordered output fields from stable projection names."""
 
     fields: dict[str, RowField] = {}
     seen_names: set[str] = set()
     diagnostics: list[Diagnostic] = []
-    has_unknown_field = False
+    named_items: list[tuple[SelectItem, str]] = []
 
     for item in definition.select_items:
-        expression = item.expression
-        assert isinstance(expression, NameExpr)
-        field_name = expression.name
-
-        if field_name in seen_names:
-            diagnostics.append(_duplicate_projection_diagnostic(item, field_name))
+        output_name = _projection_output_name(item)
+        if output_name is None:
+            diagnostic = _unnamed_projection_diagnostic(item, mode)
+            if diagnostic is not None:
+                diagnostics.append(diagnostic)
             continue
-        seen_names.add(field_name)
 
-        input_field = input_schema.fields.get(field_name)
+        if output_name in seen_names:
+            diagnostics.append(_duplicate_projection_diagnostic(item, output_name))
+            continue
+        seen_names.add(output_name)
+        named_items.append((item, output_name))
+
+    has_unknown_field = False
+    for item, output_name in named_items:
+        expression = item.expression
+        if (
+            input_schema.is_unknown
+            or item.alias is not None
+            or isinstance(expression, DottedNameExpr)
+        ):
+            fields[output_name] = _unknown_row_field(output_name)
+            continue
+
+        assert isinstance(expression, NameExpr)
+        input_field = input_schema.fields.get(expression.name)
         if input_field is None:
             diagnostics.append(_unknown_field_diagnostic(expression))
             has_unknown_field = True
+            fields[output_name] = _unknown_row_field(output_name)
             continue
-        fields[field_name] = input_field
+        fields[output_name] = input_field
 
-    if has_unknown_field:
-        return _unknown_schema(), diagnostics
-    return RowSchema(fields=fields), diagnostics
+    return RowSchema(
+        fields=fields,
+        is_unknown=input_schema.is_unknown or has_unknown_field,
+    ), diagnostics
+
+
+def _projection_output_name(item: SelectItem) -> str | None:
+    """Return a projection's stable public output name, when one exists."""
+
+    if item.alias is not None:
+        return item.alias
+    if isinstance(item.expression, NameExpr):
+        return item.expression.name
+    if isinstance(item.expression, DottedNameExpr):
+        return item.expression.parts[-1]
+    return None
+
+
+def _unknown_row_field(name: str) -> RowField:
+    """Create a named output field whose expression type is not inferred yet."""
+
+    return RowField(
+        name=name,
+        resolved_type=_UNKNOWN_RESOLVED_TYPE,
+        nullability=EffectiveNullability.UNKNOWN,
+    )
 
 
 def _unknown_schema() -> RowSchema:
@@ -128,17 +184,41 @@ def _unknown_field_diagnostic(expression: NameExpr) -> Diagnostic:
     )
 
 
+def _unnamed_projection_diagnostic(
+    item: SelectItem,
+    mode: CheckMode,
+) -> Diagnostic | None:
+    """Apply the mode-sensitive policy for unnamed computed projections."""
+
+    if mode is CheckMode.LOOSE:
+        return None
+    severity = Severity.WARNING if mode is CheckMode.CHECKED else Severity.ERROR
+    span = item.span
+    return Diagnostic(
+        code="PIE-S2304",
+        severity=severity,
+        message="Computed projection requires an explicit alias",
+        location=SourceLocation(
+            path=span.path,
+            line=span.line,
+            column=span.column,
+            end_line=span.end_line,
+            end_column=span.end_column,
+        ),
+    )
+
+
 def _duplicate_projection_diagnostic(
     item: SelectItem,
-    field_name: str,
+    output_name: str,
 ) -> Diagnostic:
-    """Report a repeated bare projection at the later select item."""
+    """Report a repeated projection output name at the later select item."""
 
     span = item.span
     return Diagnostic(
         code="PIE-S2305",
         severity=Severity.ERROR,
-        message=f"Duplicate projection field: {field_name}",
+        message=f"Duplicate projection field: {output_name}",
         location=SourceLocation(
             path=span.path,
             line=span.line,
