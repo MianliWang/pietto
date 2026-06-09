@@ -4,7 +4,9 @@
 
 Phase 4 has started. The PostgreSQL backend scaffold, immutable SQL result
 models, public `emit_postgres_sql(script_ir)` entry point, and structured
-unsupported-target diagnostics are implemented.
+unsupported-target diagnostics are implemented. Internal PostgreSQL rendering
+primitives now provide always-quoted identifiers, qualified identifiers, and
+the initial scalar literal subset for future emitter slices.
 
 No real SQL or DDL emission is implemented yet.
 
@@ -47,10 +49,10 @@ class SqlArtifact:
 ## Planned Slices
 
 1. PostgreSQL package and result scaffold: complete.
-2. Minimal relation dependency and naming preparation.
+2. PostgreSQL identifier and scalar literal rendering primitives: complete.
 3. Minimal expression SQL emission for the supported expression IR.
 4. Basic table/query `SELECT`, `FROM`, `WHERE`, and projection emission.
-5. Identifier quoting and PostgreSQL type mapping.
+5. PostgreSQL type mapping.
 6. Deterministic backend diagnostics and examples audit.
 7. Phase 4 completion audit.
 
@@ -76,5 +78,6 @@ CLI and developer tooling remain Phase 5 work.
 
 Tests cover public exports, immutable tuple-backed results, empty input,
 ordered `PIE-B1000` diagnostics, source spans, frontend-stage isolation, and
-diagnostic documentation. Every slice must continue to run the complete
-parser, semantic, and IR test suite.
+diagnostic documentation. Rendering tests cover identifier escaping, qualified
+names, scalar literals, invalid inputs, and dependency isolation. Every slice
+must continue to run the complete parser, semantic, and IR test suite.
