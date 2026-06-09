@@ -88,7 +88,7 @@ def test_source_and_table_names_duplicate_in_relation_namespace() -> None:
         _parse(
             'source users is postgres.table("public.users")\n'
             "table users:\n"
-            "    from raw_users\n"
+            "    from users\n"
             "    select:\n"
             "        id\n"
         ),
@@ -147,7 +147,7 @@ def test_multiple_duplicates_follow_source_order() -> None:
             "    true\n"
             "source rows is 1\n"
             "query rows:\n"
-            "    from missing\n"
+            "    from rows\n"
             "    select:\n"
             "        id\n"
         ),
@@ -208,11 +208,14 @@ def test_forward_reference_order_does_not_affect_collection() -> None:
     assert list(result.model.relation_symbols) == ["active_users", "users"]
 
 
-def test_unresolved_references_are_not_checked_yet() -> None:
+def test_expression_and_field_references_are_not_checked_yet() -> None:
     result = analyze(
         _parse(
+            "shape Row:\n"
+            "    id: UUID not null\n"
+            "source input: Row is connector()\n"
             "table projected:\n"
-            "    from missing_relation\n"
+            "    from input\n"
             "    where unknown_predicate(missing_field)\n"
             "    select:\n"
             "        missing_field\n"
@@ -224,7 +227,7 @@ def test_unresolved_references_are_not_checked_yet() -> None:
     )
 
     assert result.diagnostics == ()
-    assert list(result.model.relation_symbols) == ["projected", "output"]
+    assert list(result.model.relation_symbols) == ["input", "projected", "output"]
 
 
 def test_semantic_symbols_and_diagnostics_do_not_expose_antlr_nodes() -> None:

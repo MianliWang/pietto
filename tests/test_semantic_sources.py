@@ -167,19 +167,19 @@ def test_source_checking_continues_after_invalid_source() -> None:
     assert result.model.source_row_schemas[_source(result, "raw")].is_unknown
 
 
-def test_connector_and_table_query_relations_remain_unchecked() -> None:
+def test_connector_and_table_query_expressions_remain_unchecked() -> None:
     result = analyze(
         _parse(
             "shape User:\n"
             "    id: UUID not null\n"
             "source users: User is unknown_connector(missing_name)\n"
             "table projected:\n"
-            "    from missing_relation\n"
+            "    from users\n"
             "    where unknown_predicate(missing_field)\n"
             "    select:\n"
             "        missing_field\n"
             "query output:\n"
-            "    from another_missing_relation\n"
+            "    from projected\n"
             "    select:\n"
             "        unknown_call(missing_field)\n"
         )
