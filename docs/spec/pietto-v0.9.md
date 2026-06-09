@@ -1,7 +1,7 @@
 # Pietto v0.9 Whitepaper and Language Reference
 
 Version: v0.9 draft
-Status: Phase 1 parser/frontend implemented; later phases remain design goals
+Status: Phase 1 parser/frontend implemented; Phase 2 semantic checker nearing MVP
 Primary implementation target: Python 3.12
 Primary SQL target: PostgreSQL
 Preferred package manager: uv-first
@@ -37,9 +37,11 @@ Pietto source
     -> SQL
 ```
 
-Only parsing through the Pietto AST is implemented in Phase 1. Semantic
-analysis, IR lowering, SQL generation, execution, and CLI runtime behavior are
-future phases.
+Phase 1 parsing through the Pietto AST is implemented. Phase 2 currently adds
+structured semantic analysis for the supported single-file syntax, with
+documented limitations. IR lowering, SQL generation, execution, database
+connections, schema introspection, and CLI runtime behavior remain future
+phases.
 
 ---
 
@@ -146,8 +148,9 @@ encoding utf8
 | `checked` | default mode | validates names, fields, types, nullability where possible |
 | `strict` | production-like mode | explicit shapes, explicit nullability, privacy/export checks, fewer implicit fallbacks |
 
-Phase 1 records the selected mode in the AST but does not enforce these
-semantic behaviors.
+Phase 1 records the selected mode in the AST. The Phase 2 checker currently
+uses it for implicit nullability, untyped sources, and unnamed computed
+projections. Other strict-mode goals remain future work.
 
 The mode can be declared in the file header:
 
@@ -413,7 +416,9 @@ Rules:
 - In `checked` mode, implicit nullability should warn.
 - In `strict` mode, shape fields must explicitly say `nullable` or `not null`.
 
-Phase 1 records nullability syntax but does not enforce mode-specific rules.
+Phase 1 records nullability syntax. Phase 2 applies the documented
+loose/checked/strict policy to implicit nullability; deeper nullability
+refinement and unsafe nullable-use checks remain future work.
 
 ---
 

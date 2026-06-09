@@ -87,26 +87,30 @@ Rules:
 
 ## Current Phase
 
-Current implementation phase: Phase 1 Parser and AST.
+Current implementation phase: Phase 2 Semantic Checker hardening.
 
-Implement only:
+Phase 1 parser and AST work is complete. Current work focuses on:
 
-- repository structure;
-- ANTLR grammar;
-- generated parser isolation;
-- AST node dataclasses;
-- AST builder;
-- parser API;
-- diagnostics;
-- parser tests.
+- structured semantic diagnostics;
+- readonly semantic models;
+- type, shape, callable, source, and relation checks;
+- minimal expression typing;
+- deterministic dependency-cycle checks;
+- semantic examples and documentation;
+- semantic regression tests.
 
-Do not implement in Phase 1:
+Do not implement in the current phase unless explicitly requested:
 
+- IR generation;
 - SQL generation;
 - SQL execution;
-- database connection;
+- database connections or schema introspection;
+- user-defined callable resolution or call graphs;
+- purity checking;
+- implicit conversions, overloads, or generics;
 - DML;
 - optimizer;
+- CLI runtime behavior;
 - web API;
 - visualization;
 - concurrency/runtime features.
@@ -391,9 +395,10 @@ For non-trivial changes:
 4. Run formatting, linting, and tests.
 5. Summarize changed files and remaining work.
 
-## First Codex Task
+## Historical Phase 1 Bootstrap
 
-Use this as the first implementation prompt:
+The following prompts are retained as Phase 1 project history and are not
+current implementation instructions:
 
 ```text
 Read AGENTS.md, docs/spec/pietto-v0.9.md, and docs/plan/phase-1-parser.md.

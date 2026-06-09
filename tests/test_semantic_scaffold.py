@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from copy import deepcopy
-from dataclasses import fields, is_dataclass
+from dataclasses import FrozenInstanceError, fields, is_dataclass
 
 import pytest
 from antlr4 import ParserRuleContext
@@ -53,6 +53,15 @@ def test_empty_semantic_namespaces_are_readonly() -> None:
     assert model.relation_symbols == {}
     with pytest.raises(TypeError):
         model.type_symbols["Age"] = object()  # type: ignore[index]
+
+
+def test_semantic_result_and_model_are_frozen() -> None:
+    result = analyze(_parse(""))
+
+    with pytest.raises(FrozenInstanceError):
+        result.model.mode = CheckMode.LOOSE  # type: ignore[misc]
+    with pytest.raises(FrozenInstanceError):
+        result.diagnostics = ()  # type: ignore[misc]
 
 
 def test_analyze_does_not_mutate_parser_ast() -> None:

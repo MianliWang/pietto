@@ -26,6 +26,30 @@ Do not implement:
 - cross-file analysis;
 - new grammar or parser AST syntax.
 
+## Current Status
+
+Phase 2 is nearing semantic MVP completion but is not complete. The current
+checker covers the supported single-file namespaces, type alias expansion,
+shape and relation structure, minimal expression typing, callable and field
+body compatibility, relation and derived-field cycles, source row schemas,
+and static `postgres.table(Text)` connector signatures.
+
+The remaining intentional limitations are:
+
+- user-defined callable calls inside expressions;
+- top-level callable recursion and call-graph analysis;
+- purity checking;
+- nullability guard refinement and unsafe nullable-use checking;
+- implicit conversions and subtyping;
+- overload resolution and generics;
+- full SQL type compatibility;
+- database connections and schema introspection;
+- IR and SQL generation;
+- SQL execution and CLI runtime behavior.
+
+These are future slices or later compiler phases. This audit does not add or
+weaken semantic behavior.
+
 ## Public API
 
 The semantic package exposes an AST-based entry point:
@@ -481,7 +505,7 @@ Current test status:
 513 passed
 ```
 
-### 12. Phase 2 Examples and Documentation Audit: In Progress
+### 12. Phase 2 Examples and Documentation Audit: Completed
 
 - Make every committed `examples/**/*.pie` file self-contained.
 - Require each normal example to have no semantic errors under the default
@@ -497,13 +521,15 @@ documented checked-mode behavior.
 Completed the semantic example gate: every committed `examples/**/*.pie` file
 is parsed and analyzed under the default checked mode, and the test suite
 rejects semantic errors with path-specific diagnostic details. Normal examples
-are self-contained; intentional checked-mode warnings may remain.
+are self-contained. The only intentional checked-mode warning is
+`examples/sources/users.pie:11:1`, where untyped `raw_events` produces
+`PIE-S2303`; a regression test fixes this expectation explicitly.
 
 Current coverage and test status:
 
 ```text
 10 examples
-527 passed
+529 passed
 ```
 
 ## Diagnostics
