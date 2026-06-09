@@ -5,8 +5,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from pietto.ast_nodes import (
+    CallExpr,
     CheckDef,
     ComparisonExpr,
+    DottedNameExpr,
     Expression,
     FromClause,
     IndexDef,
@@ -21,6 +23,7 @@ from pietto.ast_nodes import (
     TypeExpr,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
+from pietto.semantic.catalog import BUILTIN_FUNCTIONS, BuiltinFunction
 from pietto.semantic.model import (
     EffectiveNullability,
     ResolvedType,
@@ -181,6 +184,14 @@ def _infer(
             diagnostics,
             report_unknown=report_unknown_name,
         )
+    elif isinstance(expression, CallExpr):
+        value_type = _call_value_type(
+            expression,
+            row_schema,
+            value_types,
+            diagnostics,
+            report_unknown_name=report_unknown_name,
+        )
     elif isinstance(expression, IsNullExpr):
         _infer(
             expression.value,
@@ -219,6 +230,75 @@ def _infer(
 
     value_types[expression] = value_type
     return value_type
+
+
+def _call_value_type(
+    expression: CallExpr,
+    row_schema: RowSchema,
+    value_types: dict[Expression, ValueType],
+    diagnostics: list[Diagnostic],
+    *,
+    report_unknown_name: bool,
+) -> ValueType:
+    """Type one exact built-in call while suppressing Unknown cascades."""
+
+    argument_types = tuple(
+        _infer(
+            argument,
+            row_schema,
+            value_types,
+            diagnostics,
+            report_unknown_name=report_unknown_name,
+        )
+        for argument in expression.arguments
+    )
+    if any(
+        argument_type.kind is ValueTypeKind.UNKNOWN for argument_type in argument_types
+    ):
+        return _UNKNOWN_VALUE_TYPE
+
+    function_name = _callee_name(expression)
+    signature = BUILTIN_FUNCTIONS.get(function_name)
+    if signature is None:
+        diagnostics.append(_unknown_function_diagnostic(expression, function_name))
+        return _UNKNOWN_VALUE_TYPE
+
+    if len(argument_types) != len(signature.parameter_types):
+        diagnostics.append(_wrong_arity_diagnostic(expression, signature))
+        return _UNKNOWN_VALUE_TYPE
+
+    for position, (argument_type, expected_name) in enumerate(
+        zip(argument_types, signature.parameter_types, strict=True),
+        start=1,
+    ):
+        if (
+            argument_type.resolved_type.kind is not TypeKind.BUILTIN
+            or argument_type.resolved_type.name != expected_name
+        ):
+            diagnostics.append(
+                _wrong_argument_type_diagnostic(
+                    expression,
+                    signature,
+                    position=position,
+                    expected_name=expected_name,
+                    actual_name=argument_type.resolved_type.name,
+                )
+            )
+            return _UNKNOWN_VALUE_TYPE
+
+    return _builtin_value_type(
+        signature.return_type,
+        EffectiveNullability.UNKNOWN,
+    )
+
+
+def _callee_name(expression: CallExpr) -> str:
+    """Return a source-level name for a simple or dotted call target."""
+
+    if isinstance(expression.callee, NameExpr):
+        return expression.callee.name
+    assert isinstance(expression.callee, DottedNameExpr)
+    return ".".join(expression.callee.parts)
 
 
 def _literal_value_type(expression: LiteralExpr) -> ValueType:
@@ -282,6 +362,78 @@ def _unknown_field_diagnostic(expression: NameExpr) -> Diagnostic:
         code="PIE-S2102",
         severity=Severity.ERROR,
         message=f"Unknown field: {expression.name}",
+        location=SourceLocation(
+            path=span.path,
+            line=span.line,
+            column=span.column,
+            end_line=span.end_line,
+            end_column=span.end_column,
+        ),
+    )
+
+
+def _unknown_function_diagnostic(
+    expression: CallExpr,
+    function_name: str,
+) -> Diagnostic:
+    """Report a call target absent from the explicit built-in catalog."""
+
+    return _call_diagnostic(
+        expression,
+        code="PIE-S2103",
+        message=f"Unknown function: {function_name}",
+    )
+
+
+def _wrong_arity_diagnostic(
+    expression: CallExpr,
+    signature: BuiltinFunction,
+) -> Diagnostic:
+    """Report a built-in call with the wrong argument count."""
+
+    return _call_diagnostic(
+        expression,
+        code="PIE-S2104",
+        message=(
+            f"Invalid arguments for function {signature.name}: expected "
+            f"{len(signature.parameter_types)}, got {len(expression.arguments)}"
+        ),
+    )
+
+
+def _wrong_argument_type_diagnostic(
+    expression: CallExpr,
+    signature: BuiltinFunction,
+    *,
+    position: int,
+    expected_name: str,
+    actual_name: str,
+) -> Diagnostic:
+    """Report the first incompatible known argument in a built-in call."""
+
+    return _call_diagnostic(
+        expression,
+        code="PIE-S2104",
+        message=(
+            f"Invalid argument type for function {signature.name} at position "
+            f"{position}: expected {expected_name}, got {actual_name}"
+        ),
+    )
+
+
+def _call_diagnostic(
+    expression: CallExpr,
+    *,
+    code: str,
+    message: str,
+) -> Diagnostic:
+    """Create a call diagnostic at the complete call-expression span."""
+
+    span = expression.span
+    return Diagnostic(
+        code=code,
+        severity=Severity.ERROR,
+        message=message,
         location=SourceLocation(
             path=span.path,
             line=span.line,

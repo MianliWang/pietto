@@ -217,11 +217,13 @@ def test_mixed_projections_validate_names_without_checking_calls() -> None:
     table = _relation(result, "projected", TableDef)
 
     assert _diagnostics(result) == [
+        ("PIE-S2102", Severity.ERROR, "Unknown field: missing_field"),
         (
             "PIE-S2304",
             Severity.WARNING,
             "Computed projection requires an explicit alias",
         ),
+        ("PIE-S2102", Severity.ERROR, "Unknown field: missing_field"),
         ("PIE-S2102", Severity.ERROR, "Unknown field: missing"),
     ]
     assert result.model.relation_row_schemas[table].is_unknown is True

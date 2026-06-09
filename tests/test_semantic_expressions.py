@@ -166,7 +166,7 @@ def test_simple_comparison_maps_to_bool_and_types_operands() -> None:
     )
 
 
-def test_unknown_operand_does_not_produce_cascading_diagnostics() -> None:
+def test_unknown_call_argument_suppresses_dependent_call_diagnostic() -> None:
     result = analyze(
         _parse(
             SOURCE + "table projected:\n"
@@ -180,13 +180,16 @@ def test_unknown_operand_does_not_produce_cascading_diagnostics() -> None:
     assert isinstance(expression, ComparisonExpr)
     assert isinstance(expression.left, CallExpr)
 
-    assert result.diagnostics == ()
+    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2102"]
     assert (
         result.model.expression_value_types[expression.left].kind
         is ValueTypeKind.UNKNOWN
     )
     assert result.model.expression_value_types[expression].resolved_type.name == "Bool"
-    assert expression.left.arguments[0] not in result.model.expression_value_types
+    assert (
+        result.model.expression_value_types[expression.left.arguments[0]].kind
+        is ValueTypeKind.UNKNOWN
+    )
 
 
 def test_expression_value_types_mapping_is_readonly() -> None:

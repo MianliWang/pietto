@@ -194,15 +194,15 @@ def test_shape_checks_continue_after_diagnostics() -> None:
     ] == [(3, "PIE-S2502"), (6, "PIE-S2503")]
 
 
-def test_shape_expression_semantics_remain_unchecked() -> None:
+def test_field_derive_expression_semantics_remain_unchecked() -> None:
     result = analyze(
         _parse(
             "shape User:\n"
             "    email: Text not null\n"
             "    normalized: Text not null derive unknown_call(email)\n"
             "    check unchecked:\n"
-            "        unknown_predicate(missing_field)\n"
-            "    index partial_idx on email when unknown_predicate(missing_field)\n"
+            "        email is not null\n"
+            "    index partial_idx on email when email is not null\n"
         )
     )
 

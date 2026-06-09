@@ -304,15 +304,22 @@ Current test status:
 - Record immutable expression value types in `SemanticModel`.
 - Type scalar literals as portable built-in values.
 - Resolve bare field names against known relation input schemas.
+- Type calls to the initial explicit pure built-in function catalog.
 - Type simple comparisons and `is null` predicates as `Bool`.
 - Preserve Unknown values without cascading dependent diagnostics.
 
 Implemented public `ValueTypeKind` and `ValueType` models plus the readonly
 `SemanticModel.expression_value_types` mapping. Typing currently runs for
 shape check bodies, index predicates, and table/query `where` and select
-expressions. Supported recursive forms are literals, bare names, simple
-comparisons, and `is null`/`is not null`. Unsupported forms remain opaque
-Unknown values.
+expressions. Supported recursive forms are literals, bare names, built-in
+calls, simple comparisons, and `is null`/`is not null`. Unsupported forms
+remain opaque Unknown values.
+
+The initial exact-signature function catalog supports `lower(Text) -> Text`,
+`trim(Text) -> Text`, `len(Text) -> Int`, and
+`matches(Text, Text) -> Bool`. Unknown functions produce `PIE-S2103`; wrong
+arity or known incompatible arguments produce `PIE-S2104`. Unknown arguments
+suppress dependent call diagnostics.
 
 Known table/query `where` expressions are validated as `Bool`. A known
 non-Bool expression produces `PIE-S2202`; Unknown expression types suppress
@@ -321,14 +328,14 @@ this dependent diagnostic.
 Shape check bodies and index predicates use the same `PIE-S2202` policy
 against their enclosing shape's field environment.
 
-No function checking, arithmetic typing, dotted-name resolution, complex
+No overloads, generics, arithmetic typing, dotted-name resolution, complex
 projection inference, other consumer validation, or nullability-guard
 refinement is implemented.
 
 Current test status:
 
 ```text
-411 passed
+450 passed
 ```
 
 ### 7. Constraint and Derive Validation
@@ -442,7 +449,7 @@ Current coverage and test status:
 
 ```text
 10 examples
-438 passed
+450 passed
 ```
 
 ## Diagnostics

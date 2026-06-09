@@ -208,7 +208,7 @@ def test_forward_reference_order_does_not_affect_collection() -> None:
     assert list(result.model.relation_symbols) == ["active_users", "users"]
 
 
-def test_expression_and_field_references_are_not_checked_yet() -> None:
+def test_symbol_collection_coexists_with_valid_builtin_calls() -> None:
     result = analyze(
         _parse(
             "shape Row:\n"
@@ -216,13 +216,13 @@ def test_expression_and_field_references_are_not_checked_yet() -> None:
             "source input: Row is connector()\n"
             "table projected:\n"
             "    from input\n"
-            "    where unknown_predicate(missing_field)\n"
+            '    where matches("value", "value")\n'
             "    select:\n"
-            "        computed = unknown_call(missing_field)\n"
+            '        computed = lower("value")\n'
             "query output:\n"
             "    from projected\n"
             "    select:\n"
-            "        recomputed = unknown_call(missing_field)\n"
+            '        recomputed = trim("value")\n'
         )
     )
 

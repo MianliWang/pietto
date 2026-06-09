@@ -166,7 +166,7 @@ def test_known_non_bool_query_where_reports_pie_s2202() -> None:
     assert result.model.expression_value_types[expression].resolved_type.name == "Text"
 
 
-def test_unknown_expression_type_suppresses_bool_diagnostic() -> None:
+def test_unknown_function_suppresses_bool_diagnostic() -> None:
     result = analyze(
         _parse(
             SOURCE + "table filtered:\n"
@@ -178,7 +178,7 @@ def test_unknown_expression_type_suppresses_bool_diagnostic() -> None:
     )
     expression = _table(result).where_clause.expression
 
-    assert result.diagnostics == ()
+    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2103"]
     assert result.model.expression_value_types[expression].kind is ValueTypeKind.UNKNOWN
 
 

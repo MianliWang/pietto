@@ -164,7 +164,7 @@ def test_unknown_field_type_suppresses_bool_cascade() -> None:
     assert result.model.expression_value_types[expression].kind is ValueTypeKind.UNKNOWN
 
 
-def test_unsupported_shape_predicates_remain_unknown_without_bool_diagnostic() -> None:
+def test_unknown_shape_functions_do_not_cascade_to_bool_diagnostic() -> None:
     result = analyze(
         _parse(
             "shape Record:\n"
@@ -177,7 +177,10 @@ def test_unsupported_shape_predicates_remain_unknown_without_bool_diagnostic() -
     shape = _shape(result)
     expressions = (shape.checks[0].expression, _index_predicate(result))
 
-    assert result.diagnostics == ()
+    assert [diagnostic.code for diagnostic in result.diagnostics] == [
+        "PIE-S2103",
+        "PIE-S2103",
+    ]
     assert all(
         result.model.expression_value_types[expression].kind is ValueTypeKind.UNKNOWN
         for expression in expressions

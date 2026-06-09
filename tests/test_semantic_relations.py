@@ -168,7 +168,7 @@ def test_relation_resolution_continues_after_unknown_target() -> None:
     )
 
 
-def test_bare_missing_field_is_checked_without_checking_call_arguments() -> None:
+def test_missing_call_arguments_report_fields_without_call_cascades() -> None:
     result = analyze(
         _parse(
             SOURCE + "table projected:\n"
@@ -180,7 +180,11 @@ def test_bare_missing_field_is_checked_without_checking_call_arguments() -> None
         )
     )
 
-    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2102"]
+    assert [diagnostic.code for diagnostic in result.diagnostics] == [
+        "PIE-S2102",
+        "PIE-S2102",
+        "PIE-S2102",
+    ]
 
 
 def test_duplicate_relation_uses_first_binding_for_from_resolution() -> None:
