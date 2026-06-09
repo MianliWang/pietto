@@ -27,14 +27,14 @@ from pietto.semantic import analyze
 def test_unique_definitions_populate_expected_namespaces() -> None:
     result = analyze(
         _parse(
-            "type Age = Int\n"
+            "type Age = Int not null\n"
             "enum Status:\n"
             "    active\n"
             "shape User:\n"
-            "    id: UUID\n"
-            "derive normalize(value: Text) -> Text:\n"
+            "    id: UUID not null\n"
+            "derive normalize(value: Text not null) -> Text not null:\n"
             "    value\n"
-            "constraint valid(value: Text) -> Bool:\n"
+            "constraint valid(value: Text not null) -> Bool not null:\n"
             "    true\n"
             'source users: User is postgres.table("public.users")\n'
             "table active_users:\n"
@@ -68,7 +68,12 @@ def test_unique_definitions_populate_expected_namespaces() -> None:
 
 def test_duplicate_shape_reports_p2001() -> None:
     result = analyze(
-        _parse("shape User:\n    id: UUID\nshape User:\n    email: Text\n")
+        _parse(
+            "shape User:\n"
+            "    id: UUID not null\n"
+            "shape User:\n"
+            "    email: Text not null\n"
+        )
     )
 
     assert len(result.diagnostics) == 1
@@ -99,9 +104,9 @@ def test_source_and_table_names_duplicate_in_relation_namespace() -> None:
 def test_derive_and_constraint_names_duplicate_in_callable_namespace() -> None:
     result = analyze(
         _parse(
-            "derive normalize_email(email: Text) -> Text:\n"
+            "derive normalize_email(email: Text not null) -> Text not null:\n"
             "    lower(email)\n"
-            "constraint normalize_email(email: Text) -> Bool:\n"
+            "constraint normalize_email(email: Text not null) -> Bool not null:\n"
             "    email is not null\n"
         )
     )
@@ -117,8 +122,8 @@ def test_same_name_across_namespaces_is_allowed() -> None:
     result = analyze(
         _parse(
             "shape User:\n"
-            "    id: UUID\n"
-            "derive User(value: Text) -> Text:\n"
+            "    id: UUID not null\n"
+            "derive User(value: Text not null) -> Text not null:\n"
             "    value\n"
             'source User: User is postgres.table("public.users")\n'
         )
@@ -133,11 +138,11 @@ def test_same_name_across_namespaces_is_allowed() -> None:
 def test_multiple_duplicates_follow_source_order() -> None:
     result = analyze(
         _parse(
-            "type Shared = Int\n"
-            "type Shared = Text\n"
-            "derive normalize(value: Text) -> Text:\n"
+            "type Shared = Int not null\n"
+            "type Shared = Text not null\n"
+            "derive normalize(value: Text not null) -> Text not null:\n"
             "    value\n"
-            "constraint normalize(value: Text) -> Bool:\n"
+            "constraint normalize(value: Text not null) -> Bool not null:\n"
             "    true\n"
             "source rows is 1\n"
             "query rows:\n"
@@ -162,7 +167,7 @@ def test_multiple_duplicates_follow_source_order() -> None:
 def test_duplicate_diagnostic_uses_later_definition_span() -> None:
     path = Path("examples/semantic/duplicate.pie")
     script = _parse(
-        "shape User:\n    id: UUID\nshape User:\n    email: Text\n",
+        "shape User:\n    id: UUID not null\nshape User:\n    email: Text not null\n",
         path=path,
     )
     duplicate = script.definitions[1]
@@ -177,7 +182,7 @@ def test_duplicate_diagnostic_uses_later_definition_span() -> None:
 
 
 def test_first_symbol_remains_bound_after_duplicate() -> None:
-    script = _parse("type Value = Int\ntype Value = Text\n")
+    script = _parse("type Value = Int not null\ntype Value = Text not null\n")
     first = script.definitions[0]
 
     result = analyze(script)
@@ -220,13 +225,13 @@ def test_unresolved_references_are_not_checked_yet() -> None:
 
 
 def test_semantic_symbols_and_diagnostics_do_not_expose_antlr_nodes() -> None:
-    result = analyze(_parse("type Age = Int\ntype Age = Float\n"))
+    result = analyze(_parse("type Age = Int not null\ntype Age = Float not null\n"))
 
     _assert_no_antlr_nodes(result)
 
 
 def test_symbol_collection_does_not_mutate_input_ast() -> None:
-    script = _parse("type Age = Int\ntype Age = Float\n")
+    script = _parse("type Age = Int not null\ntype Age = Float not null\n")
     original = deepcopy(script)
 
     analyze(script)

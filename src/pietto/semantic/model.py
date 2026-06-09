@@ -5,10 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 from types import MappingProxyType
-from typing import Mapping
+from typing import Mapping, TypeVar
 
-from pietto.ast_nodes import Definition
+from pietto.ast_nodes import Definition, Node, TypeExpr
 from pietto.errors import Diagnostic
+
+_Key = TypeVar("_Key")
+_Value = TypeVar("_Value")
 
 
 class CheckMode(StrEnum):
@@ -19,10 +22,37 @@ class CheckMode(StrEnum):
     STRICT = "strict"
 
 
-def _readonly_namespace(
-    values: Mapping[str, Definition] | None = None,
-) -> Mapping[str, Definition]:
-    """Copy namespace values into an immutable public mapping."""
+class TypeKind(StrEnum):
+    """Kinds of type names recognized by minimal semantic resolution."""
+
+    BUILTIN = "builtin"
+    TYPE_ALIAS = "type_alias"
+    ENUM = "enum"
+    SHAPE = "shape"
+    UNKNOWN = "unknown"
+
+
+class EffectiveNullability(StrEnum):
+    """Effective nullability recorded independently from parser syntax."""
+
+    NON_NULL = "non_null"
+    NULLABLE = "nullable"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedType:
+    """A resolved type name and its optional user declaration."""
+
+    name: str
+    kind: TypeKind
+    definition: Node | None = None
+
+
+def _readonly_mapping(
+    values: Mapping[_Key, _Value] | None = None,
+) -> Mapping[_Key, _Value]:
+    """Copy values into an immutable public mapping."""
 
     return MappingProxyType(dict(values or {}))
 
@@ -32,27 +62,43 @@ class SemanticModel:
     """Readonly semantic state built incrementally across Phase 2."""
 
     mode: CheckMode
-    type_symbols: Mapping[str, Definition] = field(default_factory=_readonly_namespace)
+    type_symbols: Mapping[str, Definition] = field(default_factory=_readonly_mapping)
     callable_symbols: Mapping[str, Definition] = field(
-        default_factory=_readonly_namespace
+        default_factory=_readonly_mapping
     )
     relation_symbols: Mapping[str, Definition] = field(
-        default_factory=_readonly_namespace
+        default_factory=_readonly_mapping
+    )
+    type_resolutions: Mapping[TypeExpr, ResolvedType] = field(
+        default_factory=_readonly_mapping
+    )
+    type_nullability: Mapping[TypeExpr, EffectiveNullability] = field(
+        default_factory=_readonly_mapping
     )
 
     def __post_init__(self) -> None:
-        """Copy namespace inputs into immutable public mappings."""
+        """Copy public mapping inputs into immutable mappings."""
 
-        object.__setattr__(self, "type_symbols", _readonly_namespace(self.type_symbols))
+        object.__setattr__(self, "type_symbols", _readonly_mapping(self.type_symbols))
         object.__setattr__(
             self,
             "callable_symbols",
-            _readonly_namespace(self.callable_symbols),
+            _readonly_mapping(self.callable_symbols),
         )
         object.__setattr__(
             self,
             "relation_symbols",
-            _readonly_namespace(self.relation_symbols),
+            _readonly_mapping(self.relation_symbols),
+        )
+        object.__setattr__(
+            self,
+            "type_resolutions",
+            _readonly_mapping(self.type_resolutions),
+        )
+        object.__setattr__(
+            self,
+            "type_nullability",
+            _readonly_mapping(self.type_nullability),
         )
 
 

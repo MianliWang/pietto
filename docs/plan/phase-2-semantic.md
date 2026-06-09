@@ -213,9 +213,9 @@ Current test status:
 Implemented readonly namespace mappings whose values are the existing AST
 definition nodes. Duplicate declarations produce `P2001` at the later
 definition's span, while the first declaration remains bound. Built-in
-registration is deferred to the minimal type and expression slices.
+function registration remains deferred to the minimal expression slice.
 
-No type, expression, field, callable, or relation reference resolution is
+No expression, field-name, callable, or relation reference resolution is
 implemented yet.
 
 Current test status:
@@ -224,16 +224,31 @@ Current test status:
 274 passed
 ```
 
-### 3. Minimal Type Resolution
+### 3. Minimal Type Resolution: Completed
 
 - Resolve built-in and user-defined type names.
-- Resolve type aliases without mutating `TypeExpr`.
+- Resolve type alias names without expanding aliases or mutating `TypeExpr`.
 - Record effective nullability separately from parser nullability syntax.
 - Apply the fixed implicit-nullability mode policy.
 - Introduce Unknown types and suppress dependent cascades.
-- Validate only the initial explicit built-in type argument forms.
+- Defer type argument validation to a later semantic slice.
 
 Do not implement a complete numeric hierarchy, overloads, or generic types.
+
+Implemented an explicit portable built-in type catalog, readonly
+`TypeExpr` resolution and effective-nullability mappings, and user type
+resolution across aliases, enums, and shapes. Unknown types produce `P2002`;
+implicit nullability produces mode-sensitive `P2005`. Resolution currently
+covers type aliases, callable parameters and returns, and shape fields.
+
+Alias expansion, alias cycles, type argument validation, expression typing,
+field-name checks, and relation checks remain unimplemented.
+
+Current test status:
+
+```text
+292 passed
+```
 
 ### 4. Shape Field Checks
 
