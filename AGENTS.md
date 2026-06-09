@@ -93,6 +93,7 @@ Phase 1 parser and AST work and the Phase 2 Semantic Checker MVP are complete.
 The initial immutable IR package, `build_ir()` scaffold, and foundational
 symbol/type/row-schema metadata lowering are complete. Type, enum, shape, and
 source declaration lowering and minimal expression IR helpers are implemented.
+Minimal table/query IR supports `from`, optional `where`, and `select`.
 Current work focuses on:
 
 - immutable, backend-neutral Semantic IR;

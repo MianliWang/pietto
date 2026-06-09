@@ -11,9 +11,10 @@ checks, and static `postgres.table(Text)` connector validation.
 Phase 3 Semantic IR has an initial immutable package and `build_ir()` scaffold,
 plus foundational symbol, type, nullability, and row-schema metadata lowering.
 Type, enum, shape, and source declarations are lowered. Expression IR models
-and helpers cover the current expression AST, but relation lowering does not
-yet use them. SQL generation, database connections or execution, schema
-introspection, and CLI runtime behavior are also not implemented.
+and helpers cover the current expression AST. Minimal table and query IR
+lowering supports `from`, optional `where`, and ordered projections. SQL
+generation, advanced relation operations, database connections or execution,
+schema introspection, and CLI runtime behavior are not implemented.
 
 See [the language specification](docs/spec/pietto-v0.9.md) and
 [the Phase 2 semantic plan](docs/plan/phase-2-semantic.md). The next compiler

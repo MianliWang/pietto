@@ -6,8 +6,9 @@ Phase 3 is in progress. The package scaffold, immutable `DefinitionIR`,
 `ScriptIR`, `IrResult`, public `build_ir()` entry point, and foundational
 symbol/type/row-schema metadata lowering are implemented. Type, enum, shape,
 and source declarations and the current expression AST surface now lower into
-immutable IR. Constraint, derive, and relation lowering and SQL backends are
-not implemented yet.
+immutable IR. Minimal table and query relations now lower `from`, optional
+`where`, and ordered `select` projections. Constraint and derive lowering,
+advanced relation operations, and SQL backends are not implemented yet.
 
 ## Goal
 
@@ -235,12 +236,23 @@ Table and query definitions are also skipped until the relation-lowering
 slice. Missing required semantic facts produce `PIE-I1000` and prevent a
 partial `ScriptIR`.
 
-### 5. Relation Lowering
+### 5. Relation Lowering: Completed
 
 - Lower table and query definitions.
 - Represent filters, projections, output schemas, and resolved dependencies.
 - Preserve projection order and stable output names.
 - Do not generate SQL.
+
+Implemented immutable `RelationIR`, `RelationSourceIR`, `FilterIR`, and
+`ProjectionIR` models for the current minimal table/query syntax. Lowering
+uses resolved `from` targets, semantic input/output row schemas, and the
+existing expression IR helper. Stable projection names, projection order,
+relation dependencies, field references, filters, spans, and Unknown schemas
+are preserved.
+
+This slice supports only `from`, optional `where`, and `select`. It does not
+add joins, grouping, having, ordering, limits, windows, unions, nested queries,
+query parameters, SQL generation, or runtime behavior.
 
 ### 6. Diagnostic and Unknown Hardening
 

@@ -15,6 +15,7 @@ from pietto.ir import (
     ConnectorIR,
     EnumIR,
     NullabilityIR,
+    RelationIR,
     ShapeIR,
     SourceIR,
     SymbolId,
@@ -153,7 +154,7 @@ def test_build_ir_preserves_supported_top_level_source_order() -> None:
     ]
 
 
-def test_unsupported_definitions_are_skipped_without_crashing() -> None:
+def test_constraint_and_derive_definitions_are_skipped_without_crashing() -> None:
     script, model = _analyzed(
         "constraint valid(x: Bool not null) -> Bool not null:\n"
         "    x\n"
@@ -179,6 +180,8 @@ def test_unsupported_definitions_are_skipped_without_crashing() -> None:
     assert [type(definition) for definition in result.ir.definitions] == [
         ShapeIR,
         SourceIR,
+        RelationIR,
+        RelationIR,
     ]
 
 

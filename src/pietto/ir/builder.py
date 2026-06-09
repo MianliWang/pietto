@@ -2,16 +2,22 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from pietto.ast_nodes import (
     CallExpr,
     DottedNameExpr,
     EnumDef,
+    Expression,
     LiteralExpr,
     NameExpr,
     Node,
+    QueryDef,
     Script,
+    SelectItem,
     ShapeDef,
     SourceDef,
+    TableDef,
     TypeDef,
     TypeExpr,
 )
@@ -19,6 +25,7 @@ from pietto.errors import Diagnostic
 from pietto.ir.diagnostics import missing_semantic_fact_diagnostic
 from pietto.ir.lowering import (
     lower_canonical_type_ref,
+    lower_expr,
     lower_row_schema,
     lower_span,
     lower_type_ref,
@@ -27,8 +34,15 @@ from pietto.ir.model import (
     ConnectorIR,
     DefinitionIR,
     EnumIR,
+    ExpressionIR,
+    FilterIR,
     IrResult,
     NullabilityIR,
+    ProjectionIR,
+    RelationIR,
+    RelationKindIR,
+    RelationSourceIR,
+    RowFieldIR,
     ScriptIR,
     ShapeFieldIR,
     ShapeIR,
@@ -38,7 +52,10 @@ from pietto.ir.model import (
     SymbolNamespace,
     TypeIR,
 )
-from pietto.semantic import SemanticModel
+from pietto.semantic import RowField, RowSchema, SemanticModel
+
+DerivedRelation = TableDef | QueryDef
+RelationDefinition = SourceDef | TableDef | QueryDef
 
 
 def build_ir(
@@ -85,6 +102,8 @@ def _lower_definition(
         return _lower_shape(definition, semantic_model)
     if isinstance(definition, SourceDef):
         return _lower_source(definition, semantic_model)
+    if isinstance(definition, (TableDef, QueryDef)):
+        return _lower_relation(definition, semantic_model)
     return None
 
 
@@ -182,6 +201,141 @@ def _lower_connector(definition: SourceDef) -> ConnectorIR:
         arguments=tuple(arguments),
         span=lower_span(connector.span),
     )
+
+
+def _lower_relation(
+    definition: DerivedRelation,
+    semantic_model: SemanticModel,
+) -> RelationIR:
+    """Lower one minimal table or query from existing semantic facts."""
+
+    target = semantic_model.from_resolutions.get(definition.from_clause)
+    if target is None:
+        raise _MissingSemanticFact(definition.from_clause, "resolved relation input")
+    schema = semantic_model.relation_row_schemas.get(definition)
+    if schema is None:
+        raise _MissingSemanticFact(definition, "relation row schema")
+
+    input_schema = _relation_schema(target, semantic_model)
+    target_symbol = _symbol(SymbolNamespace.RELATION, target.name)
+    row_schema = lower_row_schema(schema, semantic_model)
+    output_fields = {field.name: field for field in row_schema.fields}
+
+    filter_ir = None
+    if definition.where_clause is not None:
+        expression = _require_lowered_expression(
+            definition.where_clause.expression,
+            semantic_model,
+            fields=input_schema.fields,
+            field_owner=target_symbol,
+        )
+        filter_ir = FilterIR(
+            expression=expression,
+            span=lower_span(definition.where_clause.span),
+        )
+
+    projections = tuple(
+        _lower_projection(
+            item,
+            semantic_model,
+            input_schema=input_schema,
+            target_symbol=target_symbol,
+            output_fields=output_fields,
+        )
+        for item in definition.select_items
+    )
+    return RelationIR(
+        symbol=_symbol(SymbolNamespace.RELATION, definition.name),
+        name=definition.name,
+        kind=(
+            RelationKindIR.TABLE
+            if isinstance(definition, TableDef)
+            else RelationKindIR.QUERY
+        ),
+        source=RelationSourceIR(
+            target=target_symbol,
+            name=target.name,
+            span=lower_span(definition.from_clause.span),
+        ),
+        filter=filter_ir,
+        projections=projections,
+        row_schema=row_schema,
+        span=lower_span(definition.span),
+    )
+
+
+def _relation_schema(
+    definition: RelationDefinition,
+    semantic_model: SemanticModel,
+) -> RowSchema:
+    """Return the existing semantic row schema for a relation input."""
+
+    if isinstance(definition, SourceDef):
+        schema = semantic_model.source_row_schemas.get(definition)
+    else:
+        schema = semantic_model.relation_row_schemas.get(definition)
+    if schema is None:
+        raise _MissingSemanticFact(definition, "input relation row schema")
+    return schema
+
+
+def _lower_projection(
+    item: SelectItem,
+    semantic_model: SemanticModel,
+    *,
+    input_schema: RowSchema,
+    target_symbol: SymbolId,
+    output_fields: Mapping[str, RowFieldIR],
+) -> ProjectionIR:
+    """Lower one projection using existing semantic output-name behavior."""
+
+    expression = _require_lowered_expression(
+        item.expression,
+        semantic_model,
+        fields=input_schema.fields,
+        field_owner=target_symbol,
+    )
+    output_name = _projection_output_name(item)
+    output_field = output_fields.get(output_name) if output_name is not None else None
+    type_ref = output_field.type_ref if output_field is not None else None
+    return ProjectionIR(
+        name=output_name,
+        expression=expression,
+        type_ref=type_ref,
+        span=lower_span(item.span),
+    )
+
+
+def _projection_output_name(item: SelectItem) -> str | None:
+    """Mirror the stable projection names established by semantic analysis."""
+
+    if item.alias is not None:
+        return item.alias
+    if isinstance(item.expression, NameExpr):
+        return item.expression.name
+    if isinstance(item.expression, DottedNameExpr):
+        return item.expression.parts[-1]
+    return None
+
+
+def _require_lowered_expression(
+    expression: Expression,
+    semantic_model: SemanticModel,
+    *,
+    fields: Mapping[str, RowField],
+    field_owner: SymbolId,
+) -> ExpressionIR:
+    """Lower a relation expression or convert its diagnostic into IR failure."""
+
+    result = lower_expr(
+        expression,
+        semantic_model,
+        fields=fields,
+        field_owner=field_owner,
+    )
+    if result.expression is None:
+        raise _MissingSemanticFact(expression, "expression value type")
+    return result.expression
 
 
 def _require_type_facts(

@@ -245,6 +245,54 @@ class SourceIR(DefinitionIR):
     span: SourceSpan
 
 
+class RelationKindIR(StrEnum):
+    """Kinds of derived relations supported by the minimal IR."""
+
+    TABLE = "table"
+    QUERY = "query"
+
+
+@dataclass(frozen=True, slots=True)
+class RelationSourceIR:
+    """A resolved input relation reference."""
+
+    target: SymbolId
+    name: str
+    span: SourceSpan
+
+
+@dataclass(frozen=True, slots=True)
+class FilterIR:
+    """A lowered relation filter."""
+
+    expression: ExpressionIR
+    span: SourceSpan
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectionIR:
+    """An ordered relation projection and its stable output metadata."""
+
+    name: str | None
+    expression: ExpressionIR
+    type_ref: TypeRefIR | None
+    span: SourceSpan
+
+
+@dataclass(frozen=True, slots=True)
+class RelationIR(DefinitionIR):
+    """A minimal lowered table or query relation."""
+
+    symbol: SymbolId
+    name: str
+    kind: RelationKindIR
+    source: RelationSourceIR
+    filter: FilterIR | None
+    projections: tuple[ProjectionIR, ...]
+    row_schema: RowSchemaIR
+    span: SourceSpan
+
+
 @dataclass(frozen=True, slots=True)
 class ScriptIR:
     """Top-level Semantic IR container preserving definition order."""

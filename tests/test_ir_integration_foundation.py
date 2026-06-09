@@ -15,6 +15,7 @@ from pietto.ir import (
     EnumIR,
     IrResult,
     NullabilityIR,
+    RelationIR,
     ScriptIR,
     ShapeIR,
     SourceIR,
@@ -129,7 +130,7 @@ def test_source_connector_is_static_metadata_only() -> None:
     assert not hasattr(source.connector, "connection")
 
 
-def test_unsupported_definitions_are_skipped_deterministically() -> None:
+def test_constraint_and_derive_definitions_are_skipped_deterministically() -> None:
     source = (
         "constraint valid(x: Bool not null) -> Bool not null:\n"
         "    x\n"
@@ -156,6 +157,8 @@ def test_unsupported_definitions_are_skipped_deterministically() -> None:
     assert [type(definition) for definition in first.ir.definitions] == [
         ShapeIR,
         SourceIR,
+        RelationIR,
+        RelationIR,
     ]
 
 
