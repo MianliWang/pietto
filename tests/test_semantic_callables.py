@@ -41,7 +41,7 @@ def test_constraint_returning_text_reports_pie_s2401() -> None:
     ]
 
 
-def test_constraint_bool_alias_follows_non_expanding_type_resolution() -> None:
+def test_constraint_bool_alias_uses_canonical_expansion() -> None:
     result = analyze(
         _parse(
             "type Predicate = Bool not null\n"
@@ -55,7 +55,8 @@ def test_constraint_bool_alias_follows_non_expanding_type_resolution() -> None:
         result.model.type_resolutions[constraint.return_type].kind
         is TypeKind.TYPE_ALIAS
     )
-    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2401"]
+    assert result.model.type_expansions[constraint.return_type].name == "Bool"
+    assert result.diagnostics == ()
 
 
 def test_unknown_constraint_return_type_suppresses_pie_s2401() -> None:

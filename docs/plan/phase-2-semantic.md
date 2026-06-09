@@ -224,10 +224,11 @@ Current test status:
 274 passed
 ```
 
-### 3. Minimal Type Resolution: Completed
+### 3. Minimal Type Resolution and Alias Expansion: Completed
 
 - Resolve built-in and user-defined type names.
-- Resolve type alias names without expanding aliases or mutating `TypeExpr`.
+- Preserve type alias identity while expanding aliases to canonical targets.
+- Diagnose direct and indirect type alias cycles.
 - Record effective nullability separately from parser nullability syntax.
 - Apply the fixed implicit-nullability mode policy.
 - Introduce Unknown types and suppress dependent cascades.
@@ -236,18 +237,20 @@ Current test status:
 Do not implement a complete numeric hierarchy, overloads, or generic types.
 
 Implemented an explicit portable built-in type catalog, readonly
-`TypeExpr` resolution and effective-nullability mappings, and user type
-resolution across aliases, enums, and shapes. Unknown types produce `PIE-S2002`;
-implicit nullability produces mode-sensitive `PIE-S2005`. Resolution currently
-covers type aliases, callable parameters and returns, and shape fields.
+`TypeExpr` identity resolution, canonical expansion, and effective-nullability
+mappings. `SemanticModel.type_resolutions` preserves alias identity while
+`SemanticModel.type_expansions` exposes the final built-in, enum, shape, or
+Unknown target. Alias chains expand transitively, and direct or indirect cycles
+produce `PIE-S2003`. Unknown types produce `PIE-S2002`; implicit nullability
+produces mode-sensitive `PIE-S2005`.
 
-Alias expansion, alias cycles, type argument validation, expression typing,
-field-name checks, and relation checks remain unimplemented.
+Type argument validation, generics, subtyping, implicit casts, and full type
+compatibility remain unimplemented.
 
 Current test status:
 
 ```text
-292 passed
+477 passed
 ```
 
 ### 4. Shape Structural Checks: Completed
@@ -350,10 +353,10 @@ Purity, recursion, and dependency cycles should be introduced conservatively
 and may be completed in the dependency hardening slice.
 
 Signature validation is complete. Duplicate parameters produce `PIE-S2001` at
-the later parameter, and constraints whose known declared return type is not
+the later parameter, and constraints whose known canonical return type is not
 the built-in `Bool` produce `PIE-S2401`. Unknown return types suppress the
-dependent constraint diagnostic. Type aliases are not expanded yet, so an
-alias to `Bool` is not accepted as a direct `Bool` return in this slice.
+dependent constraint diagnostic. Aliases to `Bool` are accepted through the
+canonical expansion mapping.
 
 Constraint and derive bodies remain unchecked. User-defined callable
 resolution, body/return compatibility, recursion, purity, and dependency
@@ -362,7 +365,7 @@ analysis are not implemented.
 Current test status:
 
 ```text
-463 passed
+477 passed
 ```
 
 ### 8. Relation From-Target Resolution: Completed
@@ -427,7 +430,8 @@ dependencies. Each distinct cycle produces one `PIE-S2302` at the `FromClause`
 edge that closes the cycle. Self-cycles and mixed table/query cycles are
 supported; unknown relations remain covered only by `PIE-S2301`.
 
-No type-alias, callable, or derived-field cycle checks are implemented.
+Callable and derived-field cycle checks remain unimplemented. Type-alias
+cycles are covered by the type-resolution slice.
 
 Current test status:
 
@@ -437,7 +441,6 @@ Current test status:
 
 ### 11. Remaining Dependency and Cycle Hardening
 
-- Detect type-alias cycles.
 - Detect callable recursion and dependency cycles.
 - Detect derived-field dependency cycles.
 - Ensure one primary cycle diagnostic is reported for each relevant cycle.
@@ -465,7 +468,7 @@ Current coverage and test status:
 
 ```text
 10 examples
-463 passed
+477 passed
 ```
 
 ## Diagnostics

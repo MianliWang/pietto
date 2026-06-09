@@ -121,6 +121,9 @@ class SemanticModel:
     type_resolutions: Mapping[TypeExpr, ResolvedType] = field(
         default_factory=_readonly_mapping
     )
+    type_expansions: Mapping[TypeExpr, ResolvedType] = field(
+        default_factory=_readonly_mapping
+    )
     type_nullability: Mapping[TypeExpr, EffectiveNullability] = field(
         default_factory=_readonly_mapping
     )
@@ -156,6 +159,11 @@ class SemanticModel:
             self,
             "type_resolutions",
             _readonly_mapping(self.type_resolutions),
+        )
+        object.__setattr__(
+            self,
+            "type_expansions",
+            _readonly_mapping(self.type_expansions),
         )
         object.__setattr__(
             self,

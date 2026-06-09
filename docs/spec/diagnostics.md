@@ -34,6 +34,7 @@ stored separately and is never encoded in the code.
 |---|---|
 | `PIE-S2001` | Duplicate name in one semantic scope or namespace |
 | `PIE-S2002` | Unknown type |
+| `PIE-S2003` | Type alias cycle |
 | `PIE-S2005` | Implicit nullability |
 | `PIE-S2102` | Unknown field |
 | `PIE-S2103` | Unknown function |
@@ -44,7 +45,7 @@ stored separately and is never encoded in the code.
 | `PIE-S2303` | Invalid, missing, or untyped source shape |
 | `PIE-S2304` | Computed projection without an explicit alias |
 | `PIE-S2305` | Duplicate projection output name |
-| `PIE-S2401` | Constraint return type is not directly resolved as `Bool` |
+| `PIE-S2401` | Constraint return type does not expand to `Bool` |
 | `PIE-S2501` | Duplicate shape item name |
 | `PIE-S2502` | Unknown unique or index target field |
 | `PIE-S2503` | Duplicate unique or index target field |

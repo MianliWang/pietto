@@ -210,6 +210,7 @@ def test_all_supported_type_expression_locations_are_recorded() -> None:
     }
 
     assert set(result.model.type_resolutions) == expected
+    assert set(result.model.type_expansions) == expected
     assert set(result.model.type_nullability) == expected
     assert result.diagnostics == ()
 
@@ -240,6 +241,8 @@ def test_type_resolution_mappings_are_readonly() -> None:
 
     with pytest.raises(TypeError):
         model.type_resolutions[type_expr] = object()  # type: ignore[index]
+    with pytest.raises(TypeError):
+        model.type_expansions[type_expr] = object()  # type: ignore[index]
     with pytest.raises(TypeError):
         model.type_nullability[type_expr] = object()  # type: ignore[index]
 

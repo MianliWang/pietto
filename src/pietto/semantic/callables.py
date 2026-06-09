@@ -13,7 +13,7 @@ CallableDefinition = ConstraintDef | DeriveDef
 
 def check_callable_signatures(
     script: Script,
-    type_resolutions: Mapping[TypeExpr, ResolvedType],
+    type_expansions: Mapping[TypeExpr, ResolvedType],
 ) -> list[Diagnostic]:
     """Validate callable parameters and declared constraint return types."""
 
@@ -25,7 +25,7 @@ def check_callable_signatures(
         if isinstance(definition, ConstraintDef):
             diagnostic = _constraint_return_diagnostic(
                 definition,
-                type_resolutions[definition.return_type],
+                type_expansions[definition.return_type],
             )
             if diagnostic is not None:
                 diagnostics.append(diagnostic)
@@ -63,7 +63,7 @@ def _constraint_return_diagnostic(
     definition: ConstraintDef,
     resolved_type: ResolvedType,
 ) -> Diagnostic | None:
-    """Require a directly resolved built-in Bool constraint return type."""
+    """Require a canonically resolved built-in Bool constraint return type."""
 
     if resolved_type.kind is TypeKind.UNKNOWN:
         return None

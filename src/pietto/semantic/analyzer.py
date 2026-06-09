@@ -39,6 +39,7 @@ from pietto.semantic.relations import resolve_relation_inputs
 from pietto.semantic.shapes import check_shape_structures
 from pietto.semantic.sources import check_sources
 from pietto.semantic.predicate_checks import check_predicates
+from pietto.semantic.type_aliases import expand_type_aliases
 
 
 def analyze(
@@ -53,6 +54,7 @@ def analyze(
     callable_symbols: dict[str, Definition] = {}
     relation_symbols: dict[str, Definition] = {}
     type_resolutions: dict[TypeExpr, ResolvedType] = {}
+    type_expansions: dict[TypeExpr, ResolvedType] = {}
     type_nullability: dict[TypeExpr, EffectiveNullability] = {}
     diagnostics: list[Diagnostic] = []
 
@@ -79,7 +81,13 @@ def analyze(
         if implicit_diagnostic is not None:
             diagnostics.append(implicit_diagnostic)
 
-    diagnostics.extend(check_callable_signatures(script, type_resolutions))
+    type_expansions, alias_diagnostics = expand_type_aliases(
+        script,
+        type_symbols=type_symbols,
+        type_resolutions=type_resolutions,
+    )
+    diagnostics.extend(alias_diagnostics)
+    diagnostics.extend(check_callable_signatures(script, type_expansions))
     diagnostics.extend(check_shape_structures(script))
     source_row_schemas, source_diagnostics = check_sources(
         script,
@@ -130,6 +138,7 @@ def analyze(
             callable_symbols=callable_symbols,
             relation_symbols=relation_symbols,
             type_resolutions=type_resolutions,
+            type_expansions=type_expansions,
             type_nullability=type_nullability,
             source_row_schemas=source_row_schemas,
             from_resolutions=from_resolutions,
