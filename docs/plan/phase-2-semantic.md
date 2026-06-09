@@ -348,14 +348,29 @@ Current test status:
 340 passed
 ```
 
-### 9. Table and Query Row Schema Checks
+### 9. Minimal Relation Row Schema Propagation: Completed
 
-- Build table and query row schemas from ordered select items.
-- Require known `where` expressions to be Boolean-compatible.
-- Resolve relation fields against the input row schema.
-- Apply the documented mode-sensitive policy to unnamed computed projections.
+- Propagate known source, table, and query input schemas.
+- Build ordered output schemas for bare field projections only.
+- Diagnose unknown bare fields without cascading through Unknown schemas.
+- Diagnose duplicate bare projection fields.
+- Treat complex or aliased projections as Unknown without expression checks.
 
-Do not connect to databases or validate physical connector targets.
+Implemented readonly `SemanticModel.relation_row_schemas` for every table and
+query. `P2102` reports an unknown field selected from a known input schema;
+`P2305` reports a duplicate bare projection field. Unknown inputs, unresolved
+relations, unsupported projections, and relation cycles produce Unknown row
+schemas that suppress dependent field diagnostics.
+
+No expression typing, aliased projection inference, dotted-name resolution,
+`where` validation, unnamed computed projection policy, or cycle diagnostics
+is implemented. Connector and physical database targets remain unchecked.
+
+Current test status:
+
+```text
+356 passed
+```
 
 ### 10. Dependency and Cycle Hardening
 

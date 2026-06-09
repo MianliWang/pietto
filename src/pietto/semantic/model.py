@@ -68,7 +68,7 @@ def _readonly_mapping(
 
 @dataclass(frozen=True, slots=True)
 class RowField:
-    """A source row field derived from one shape field."""
+    """A row field carrying resolved type and nullability information."""
 
     name: str
     resolved_type: ResolvedType
@@ -114,6 +114,9 @@ class SemanticModel:
         FromClause,
         SourceDef | TableDef | QueryDef,
     ] = field(default_factory=_readonly_mapping)
+    relation_row_schemas: Mapping[TableDef | QueryDef, RowSchema] = field(
+        default_factory=_readonly_mapping
+    )
 
     def __post_init__(self) -> None:
         """Copy public mapping inputs into immutable mappings."""
@@ -148,6 +151,11 @@ class SemanticModel:
             self,
             "from_resolutions",
             _readonly_mapping(self.from_resolutions),
+        )
+        object.__setattr__(
+            self,
+            "relation_row_schemas",
+            _readonly_mapping(self.relation_row_schemas),
         )
 
 

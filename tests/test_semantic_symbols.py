@@ -218,7 +218,7 @@ def test_expression_and_field_references_are_not_checked_yet() -> None:
             "    from input\n"
             "    where unknown_predicate(missing_field)\n"
             "    select:\n"
-            "        missing_field\n"
+            "        unknown_call(missing_field)\n"
             "query output:\n"
             "    from projected\n"
             "    select:\n"

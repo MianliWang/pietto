@@ -28,6 +28,7 @@ from pietto.semantic.model import (
     SemanticResult,
     TypeKind,
 )
+from pietto.semantic.relation_schemas import propagate_relation_schemas
 from pietto.semantic.relations import resolve_relation_inputs
 from pietto.semantic.shapes import check_shape_structures
 from pietto.semantic.sources import check_sources
@@ -85,6 +86,12 @@ def analyze(
         relation_symbols,
     )
     diagnostics.extend(relation_diagnostics)
+    relation_row_schemas, schema_diagnostics = propagate_relation_schemas(
+        script,
+        from_resolutions=from_resolutions,
+        source_row_schemas=source_row_schemas,
+    )
+    diagnostics.extend(schema_diagnostics)
 
     return SemanticResult(
         model=SemanticModel(
@@ -96,6 +103,7 @@ def analyze(
             type_nullability=type_nullability,
             source_row_schemas=source_row_schemas,
             from_resolutions=from_resolutions,
+            relation_row_schemas=relation_row_schemas,
         ),
         diagnostics=tuple(sorted(diagnostics, key=_diagnostic_order)),
     )
