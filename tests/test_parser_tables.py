@@ -294,28 +294,6 @@ def test_malformed_tables_return_syntax_diagnostic(source: str) -> None:
     assert _has_code(result, "P1000")
 
 
-@pytest.mark.parametrize(
-    "body",
-    [
-        "    join accounts on users.account_id == accounts.id\n",
-        "    group by account_id\n",
-        "    having count(id) > 1\n",
-        "    order by email\n",
-        "    limit 10\n",
-        "    window recent\n",
-        "    expect:\n        id is not null\n",
-        "    union other_users\n",
-    ],
-)
-def test_table_rejects_not_yet_supported_clauses(body: str) -> None:
-    result = parse_source(
-        f"table active_users:\n    from users\n{body}    select:\n        id\n"
-    )
-
-    assert result.ast is None
-    assert _has_code(result, "P1000")
-
-
 def test_select_assignment_remains_local_to_select_items() -> None:
     result = parse_source(
         "table active_users:\n"

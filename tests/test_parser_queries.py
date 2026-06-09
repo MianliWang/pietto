@@ -15,6 +15,7 @@ from pietto.ast_nodes import (
     NameExpr,
     QueryDef,
     SelectItem,
+    ShapeDef,
     SourceDef,
     Span,
     TableDef,
@@ -249,7 +250,8 @@ def test_query_example_fixture_parses() -> None:
 
     assert result.diagnostics == ()
     assert result.ast is not None
-    source, table, query = result.ast.definitions
+    shape, source, table, query = result.ast.definitions
+    assert isinstance(shape, ShapeDef)
     assert isinstance(source, SourceDef)
     assert isinstance(table, TableDef)
     assert isinstance(query, QueryDef)
@@ -313,32 +315,6 @@ def test_query_ast_does_not_expose_antlr_nodes() -> None:
 )
 def test_malformed_queries_return_syntax_diagnostic(source: str) -> None:
     result = parse_source(source)
-
-    assert result.ast is None
-    assert _has_code(result, "P1000")
-
-
-@pytest.mark.parametrize(
-    "body",
-    [
-        "    join accounts on users.account_id == accounts.id\n",
-        "    group by account_id\n",
-        "    having count(email) > 1\n",
-        "    order by email\n",
-        "    limit 10\n",
-        "    window recent\n",
-        "    expect:\n        email is not null\n",
-        "    union other_query\n",
-    ],
-)
-def test_query_rejects_not_yet_supported_clauses(body: str) -> None:
-    result = parse_source(
-        f"query active_user_emails:\n"
-        f"    from active_users\n"
-        f"{body}"
-        f"    select:\n"
-        f"        email\n"
-    )
 
     assert result.ast is None
     assert _has_code(result, "P1000")

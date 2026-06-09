@@ -292,6 +292,21 @@ Current test status:
 239 passed
 ```
 
+### Table/Query Frontend Stabilization: Completed
+
+Kept the shared relation-body builder small while adding cross-definition
+regression coverage for malformed bodies, unsupported clauses, structured
+diagnostics, and the public `Definition` union. The query fixture now forms a
+coherent parse-only `shape` -> `source` -> `table` -> `query` chain.
+
+No syntax or semantic behavior was added.
+
+Current test status:
+
+```text
+244 passed
+```
+
 ## Required Directory Structure
 
 ```text

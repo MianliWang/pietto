@@ -240,6 +240,7 @@ shape User:
     email_norm: Text(max = 255, encoding = utf8) derive normalized_email(email)
     age: Age nullable
     created_at: Timestamp not null
+    deleted_at: Timestamp nullable
 
     check valid_created_at:
         created_at is not null
@@ -559,6 +560,7 @@ shape User:
     email_norm: Text(max = 255, encoding = utf8) derive normalized_email(email)
     age: Age nullable
     created_at: Timestamp not null
+    deleted_at: Timestamp nullable
 
     check valid_created_at:
         created_at is not null
