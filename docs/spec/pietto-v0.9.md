@@ -1,7 +1,7 @@
 # Pietto v0.9 Whitepaper and Language Reference
 
 Version: v0.9 draft
-Status: Phase 1 parser/frontend implemented; Phase 2 semantic checker nearing MVP
+Status: Phase 1 parser/frontend and Phase 2 Semantic MVP implemented; Phase 3 Semantic IR planned
 Primary implementation target: Python 3.12
 Primary SQL target: PostgreSQL
 Preferred package manager: uv-first
@@ -37,11 +37,11 @@ Pietto source
     -> SQL
 ```
 
-Phase 1 parsing through the Pietto AST is implemented. Phase 2 currently adds
-structured semantic analysis for the supported single-file syntax, with
-documented limitations. IR lowering, SQL generation, execution, database
-connections, schema introspection, and CLI runtime behavior remain future
-phases.
+Phase 1 parsing through the Pietto AST and the Phase 2 Semantic MVP are
+implemented. The semantic checker covers the supported single-file syntax
+within documented MVP limits. Phase 3 Semantic IR is planned but not
+implemented. SQL generation, execution, database connections, schema
+introspection, and CLI runtime behavior remain future phases.
 
 ---
 
@@ -800,40 +800,49 @@ QueryDef
 Expression
 ```
 
-### 9.3 Planned semantic analysis
+### 9.3 Phase 2 semantic analysis
 
-Phase 2 will add checks such as:
+The implemented Phase 2 Semantic MVP provides structured checks for:
 
-- unknown identifier;
-- unknown type;
-- unknown field;
-- invalid enum value;
-- invalid `self` usage;
-- invalid constraint return type;
-- unknown source shape;
-- nullable comparison without guard;
-- duplicate names;
-- strict-mode implicit nullability.
+- duplicate and unknown symbols, types, fields, and relations;
+- type alias expansion and cycles;
+- shape structure and field targets;
+- constraint, derive, and field-derive body compatibility for the supported
+  expression subset;
+- source shapes and the static `postgres.table(Text)` connector signature;
+- relation schemas, projection names, and relation cycles;
+- `where`, shape-check, and index-predicate `Bool` requirements;
+- mode-sensitive implicit nullability, untyped sources, and unnamed computed
+  projections.
+
+User-defined callable calls and recursion, purity, nullability refinement,
+casts, subtyping, overloads, generics, full SQL type compatibility, and schema
+introspection remain deferred beyond the MVP.
 
 ### 9.4 Planned semantic IR
 
-Suggested nodes:
+Phase 3 will lower the public AST plus readonly `SemanticModel` into an
+immutable, backend-neutral Semantic IR. The detailed design and implementation
+slices are documented in `docs/plan/phase-3-semantic-ir.md`.
+
+Core planned categories include:
 
 ```text
+ScriptIR
 RelationIR
 SourceIR
 ProjectionIR
 FilterIR
-JoinIR
-AggregateIR
-WindowIR
-SortIR
-LimitIR
+FieldRefIR
+LiteralIR
+CallIR
 ConstraintIR
-MaterializationIR
-IndexIR
 ShapeIR
+RowSchemaIR
+TypeRefIR
 ```
+
+Phase 3 does not generate SQL directly.
 
 ### 9.5 Planned SQL backend
 
@@ -1030,23 +1039,23 @@ uv run pytest
 
 ### Phase 2: Semantic Checker
 
-Goal: implement symbol table, type table, shape checking, and diagnostics.
+Status: Semantic MVP complete. Advanced callable graphs, purity, nullability
+refinement, casts, subtyping, overloads, generics, full SQL type compatibility,
+and schema introspection remain deferred.
 
 ### Phase 3: Semantic IR
 
-Goal: lower AST to relational IR.
+Goal: lower the public AST plus readonly `SemanticModel` to immutable,
+backend-neutral Semantic IR without generating SQL.
 
 ### Phase 4: PostgreSQL SQL Generation
 
-Goal: compile basic `table` and `query` definitions to PostgreSQL SQL.
+Goal: compile basic `table` and `query` IR to PostgreSQL SQL first, then add
+constraint validation SQL in later backend slices.
 
-### Phase 5: Constraint Compilation
+### Phase 5: CLI and Developer Tooling
 
-Goal: compile constraints to validation SQL and optional DDL.
-
-### Phase 6: Tooling and Docs
-
-Commands:
+Goal: expose stable compiler workflows such as:
 
 - `pietto check`;
 - `pietto compile`;

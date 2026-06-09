@@ -28,27 +28,37 @@ Do not implement:
 
 ## Current Status
 
-Phase 2 is nearing semantic MVP completion but is not complete. The current
-checker covers the supported single-file namespaces, type alias expansion,
-shape and relation structure, minimal expression typing, callable and field
-body compatibility, relation and derived-field cycles, source row schemas,
-and static `postgres.table(Text)` connector signatures.
+**Phase 2 Semantic MVP: Complete.**
 
-The remaining intentional limitations are:
+The MVP checker covers the supported single-file namespaces, type alias
+expansion, shape and relation structure, minimal expression typing, callable
+and field body compatibility, relation and derived-field cycles, source row
+schemas, and static `postgres.table(Text)` connector signatures.
+
+Current MVP acceptance status:
+
+```text
+529 passed
+10 committed examples checked
+1 intentional checked-mode warning: PIE-S2303
+```
+
+The following semantic hardening and later compiler work is intentionally
+deferred beyond the Phase 2 MVP:
 
 - user-defined callable calls inside expressions;
-- top-level callable recursion and call-graph analysis;
+- callable call-graph analysis and top-level callable recursion detection;
 - purity checking;
 - nullability guard refinement and unsafe nullable-use checking;
-- implicit conversions and subtyping;
+- casts, implicit conversions, and subtyping;
 - overload resolution and generics;
 - full SQL type compatibility;
-- database connections and schema introspection;
+- database schema introspection;
 - IR and SQL generation;
 - SQL execution and CLI runtime behavior.
 
-These are future slices or later compiler phases. This audit does not add or
-weaken semantic behavior.
+These are future semantic-hardening slices or later compiler phases. MVP
+completion does not mean that Pietto has a complete semantic type system.
 
 ## Public API
 
@@ -90,7 +100,7 @@ the semantic layer.
 ## Semantic Model
 
 `SemanticModel` is immutable from the public API and must not contain ANTLR
-objects. It is built incrementally as Phase 2 slices are completed.
+objects. The Phase 2 MVP built it incrementally across the slices below.
 
 The foundation slice contains only top-level symbol tables. Later slices add:
 
@@ -481,9 +491,8 @@ Current test status:
 369 passed
 ```
 
-### 11. Remaining Dependency and Cycle Hardening: In Progress
+### 11. Derived-Field Dependency Hardening: Completed
 
-- Detect callable recursion and dependency cycles.
 - Detect derived-field dependency cycles.
 - Ensure one primary cycle diagnostic is reported for each relevant cycle.
 - Keep diagnostics deterministic and suppress dependent cascades.
@@ -496,8 +505,8 @@ Strongly connected components provide a stable reporting strategy: each
 cyclic component produces one `PIE-S2504` at its earliest field in source
 order.
 
-Top-level callable recursion and dependency cycles remain unimplemented.
-Purity checking is outside this slice.
+Top-level callable recursion, callable dependency graphs, and purity checking
+are deferred beyond the Phase 2 MVP.
 
 Current test status:
 
@@ -570,9 +579,9 @@ Add focused tests with each slice:
 Tests must not require a database, network access, SQL generation, or SQL
 execution.
 
-## Acceptance Criteria
+## MVP Acceptance Criteria
 
-Phase 2 is complete when:
+The Phase 2 semantic MVP is complete. It satisfies the following criteria:
 
 - `analyze()` accepts a public parser `Script`;
 - `SemanticResult` exposes ordered diagnostics and a readonly
@@ -581,13 +590,18 @@ Phase 2 is complete when:
 - known correctness failures produce structured diagnostics;
 - Unknown placeholders prevent dependent diagnostic cascades;
 - mode-sensitive behavior is documented and tested;
-- implemented AST expressions and definitions have the planned semantic
-  coverage;
-- dependency cycles are diagnosed deterministically;
+- implemented AST expressions and definitions have the documented MVP
+  semantic coverage;
+- implemented relation, type-alias, and derived-field dependency cycles are
+  diagnosed deterministically;
 - every committed normal example is self-contained and has no semantic errors
   in default checked mode;
 - no IR, SQL, execution, database, CLI runtime, UI, optimizer, DML, module,
   import, cross-file, or concurrency behavior has been introduced.
+
+Callable graphs and recursion, purity, nullability refinement, casts,
+subtyping, overloads, generics, full SQL type compatibility, and schema
+introspection remain explicit post-MVP work.
 
 Run after each implementation slice:
 

@@ -87,21 +87,19 @@ Rules:
 
 ## Current Phase
 
-Current implementation phase: Phase 2 Semantic Checker hardening.
+Current implementation phase: Phase 3 Semantic IR planning.
 
-Phase 1 parser and AST work is complete. Current work focuses on:
+Phase 1 parser and AST work and the Phase 2 Semantic Checker MVP are complete.
+Current work focuses on planning:
 
-- structured semantic diagnostics;
-- readonly semantic models;
-- type, shape, callable, source, and relation checks;
-- minimal expression typing;
-- deterministic dependency-cycle checks;
-- semantic examples and documentation;
-- semantic regression tests.
+- immutable, backend-neutral Semantic IR;
+- lowering from the public AST plus readonly `SemanticModel`;
+- stable symbol, canonical type, nullability, schema, and dependency metadata;
+- deterministic IR diagnostics;
+- IR examples, documentation, and regression tests.
 
 Do not implement in the current phase unless explicitly requested:
 
-- IR generation;
 - SQL generation;
 - SQL execution;
 - database connections or schema introspection;
@@ -114,6 +112,9 @@ Do not implement in the current phase unless explicitly requested:
 - web API;
 - visualization;
 - concurrency/runtime features.
+
+Phase 3 must not rerun semantic analysis, mutate parser AST or
+`SemanticModel`, expose ANTLR objects, or introduce new grammar syntax.
 
 ## Required Repository Structure
 
