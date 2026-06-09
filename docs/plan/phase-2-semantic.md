@@ -182,7 +182,7 @@ Unknown built-ins are handled through the normal Unknown diagnostic policy.
 Each slice should be independently testable and should update this plan with
 its completion status and current test count.
 
-### 1. Plan and Package Scaffold
+### 1. Plan and Package Scaffold: Completed
 
 - Create the semantic package structure.
 - Define `CheckMode`, `SemanticResult`, and the initial readonly
@@ -191,6 +191,16 @@ its completion status and current test count.
 - Add `analyze()` without implementing reference or type validation.
 
 This slice must not change parser behavior or AST classes.
+
+Implemented the public AST-based `analyze()` entry point, effective mode
+selection, empty readonly namespace mappings, and empty semantic diagnostics.
+No symbol collection or semantic validation is implemented yet.
+
+Current test status:
+
+```text
+262 passed
+```
 
 ### 2. Symbol Collection
 
