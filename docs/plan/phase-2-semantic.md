@@ -287,20 +287,28 @@ Current test status:
 - Build ordered readonly source row schemas from shape fields.
 - Represent missing, invalid, and untyped source schemas as Unknown.
 - Apply the documented mode-sensitive policy to untyped sources.
+- Validate the static signature of the initial built-in source connector.
 
 Implemented readonly `RowSchema` and `RowField` models that reuse existing
 resolved types and effective nullability. `SemanticModel.source_row_schemas`
 maps every `SourceDef` to a known or Unknown schema. `PIE-S2303` reports missing or
 non-shape bindings and mode-sensitive untyped sources.
 
-Connector expressions are not inspected. Database metadata, table/query
-references, relation schemas, expression fields, and projection types remain
-unchecked.
+The only recognized source connector is `postgres.table(Text)`. Unknown
+connectors, non-call connector expressions, wrong arity, and known non-Text
+arguments produce `PIE-S2306`. Unknown argument types suppress this dependent
+diagnostic. Connector arguments use the incremental expression typer, but the
+connector call itself remains outside the normal built-in function catalog.
+
+No database connection, credential handling, schema introspection, physical
+table validation, or row-schema inference from connector metadata is
+implemented. Typed source row schemas still come exclusively from the
+declared shape.
 
 Current test status:
 
 ```text
-326 passed
+527 passed
 ```
 
 ### 6. Minimal Expression Typing Scaffold: Completed
@@ -314,10 +322,10 @@ Current test status:
 
 Implemented public `ValueTypeKind` and `ValueType` models plus the readonly
 `SemanticModel.expression_value_types` mapping. Typing currently runs for
-shape check bodies, index predicates, and table/query `where` and select
-expressions. Supported recursive forms are literals, bare names, built-in
-calls, simple comparisons, and `is null`/`is not null`. Unsupported forms
-remain opaque Unknown values.
+source connector arguments, shape check bodies, index predicates, and
+table/query `where` and select expressions. Supported recursive forms are
+literals, bare names, built-in calls, simple comparisons, and `is null`/`is
+not null`. Unsupported forms remain opaque Unknown values.
 
 The initial exact-signature function catalog supports `lower(Text) -> Text`,
 `trim(Text) -> Text`, `len(Text) -> Int`, and
@@ -418,9 +426,9 @@ Unknown types until expression typing expands.
 
 Unknown inputs, unresolved relations, unknown bare fields, and cyclic
 relations produce Unknown row schemas that suppress dependent field
-diagnostics. No function checking, complex projection type inference, or
-dotted-name resolution is implemented. Connector and physical database
-targets remain unchecked.
+diagnostics. No complex projection type inference or dotted-name resolution is
+implemented. Connector signatures are checked by the source slice, while
+physical database targets remain unchecked.
 
 Current test status:
 
@@ -495,7 +503,7 @@ Current coverage and test status:
 
 ```text
 10 examples
-513 passed
+527 passed
 ```
 
 ## Diagnostics

@@ -29,6 +29,7 @@ from pietto.semantic.expressions import (
     type_relation_expressions,
     type_shape_field_derives,
     type_shape_predicates,
+    type_source_connector_arguments,
 )
 from pietto.semantic.field_derive_cycles import check_field_derive_cycles
 from pietto.semantic.model import (
@@ -43,6 +44,7 @@ from pietto.semantic.relation_cycles import check_relation_cycles
 from pietto.semantic.relation_schemas import propagate_relation_schemas
 from pietto.semantic.relations import resolve_relation_inputs
 from pietto.semantic.shapes import check_field_derives, check_shape_structures
+from pietto.semantic.source_connectors import check_source_connectors
 from pietto.semantic.sources import check_sources
 from pietto.semantic.predicate_checks import check_predicates
 from pietto.semantic.type_aliases import expand_type_aliases
@@ -127,6 +129,11 @@ def analyze(
         type_resolutions=type_resolutions,
         type_nullability=type_nullability,
     )
+    connector_value_types, connector_expression_diagnostics = (
+        type_source_connector_arguments(script)
+    )
+    expression_value_types.update(connector_value_types)
+    expression_diagnostics.extend(connector_expression_diagnostics)
     field_derive_value_types, field_derive_diagnostics = type_shape_field_derives(
         script,
         type_expansions=type_expansions,
@@ -150,6 +157,7 @@ def analyze(
     expression_value_types.update(relation_value_types)
     expression_diagnostics.extend(relation_expression_diagnostics)
     diagnostics.extend(expression_diagnostics)
+    diagnostics.extend(check_source_connectors(script, expression_value_types))
     diagnostics.extend(check_predicates(script, expression_value_types))
     diagnostics.extend(
         check_callable_bodies(

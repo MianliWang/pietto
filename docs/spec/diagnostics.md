@@ -45,6 +45,7 @@ stored separately and is never encoded in the code.
 | `PIE-S2303` | Invalid, missing, or untyped source shape |
 | `PIE-S2304` | Computed projection without an explicit alias |
 | `PIE-S2305` | Duplicate projection output name |
+| `PIE-S2306` | Invalid source connector or connector arguments |
 | `PIE-S2401` | Constraint return type does not expand to `Bool` |
 | `PIE-S2402` | Callable or field derive body type mismatch |
 | `PIE-S2501` | Duplicate shape item name |

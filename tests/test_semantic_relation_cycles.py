@@ -13,7 +13,9 @@ from pietto.errors import Diagnostic, Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import SemanticResult, analyze
 
-SOURCE = "shape Row:\n    id: UUID not null\nsource rows: Row is connector()\n"
+SOURCE = (
+    'shape Row:\n    id: UUID not null\nsource rows: Row is postgres.table("rows")\n'
+)
 
 
 def test_table_self_cycle_reports_p2302() -> None:

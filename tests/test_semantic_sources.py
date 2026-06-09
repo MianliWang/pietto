@@ -167,12 +167,12 @@ def test_source_checking_continues_after_invalid_source() -> None:
     assert result.model.source_row_schemas[_source(result, "raw")].is_unknown
 
 
-def test_connector_and_table_query_expressions_remain_unchecked() -> None:
+def test_table_and_query_expressions_keep_existing_semantic_behavior() -> None:
     result = analyze(
         _parse(
             "shape User:\n"
             "    id: UUID not null\n"
-            "source users: User is unknown_connector(missing_name)\n"
+            'source users: User is postgres.table("users")\n'
             "table projected:\n"
             "    from users\n"
             '    where matches("value", "value")\n'

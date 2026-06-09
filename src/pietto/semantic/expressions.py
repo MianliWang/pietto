@@ -146,6 +146,33 @@ def type_shape_field_derives(
     return value_types, diagnostics
 
 
+def type_source_connector_arguments(
+    script: Script,
+) -> tuple[dict[Expression, ValueType], list[Diagnostic]]:
+    """Type source connector arguments without typing the connector call."""
+
+    value_types: dict[Expression, ValueType] = {}
+    diagnostics: list[Diagnostic] = []
+    empty_environment = RowSchema()
+
+    for definition in script.definitions:
+        if not isinstance(definition, SourceDef):
+            continue
+        connector = definition.connector
+        if not isinstance(connector, CallExpr):
+            continue
+        for argument in connector.arguments:
+            _infer(
+                argument,
+                empty_environment,
+                value_types,
+                diagnostics,
+                report_unknown_name=True,
+            )
+
+    return value_types, diagnostics
+
+
 def type_relation_expressions(
     script: Script,
     *,

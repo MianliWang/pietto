@@ -14,7 +14,9 @@ from pietto.errors import Diagnostic, Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import SemanticResult, analyze
 
-SOURCE = "shape Row:\n    id: UUID not null\nsource rows: Row is connector()\n"
+SOURCE = (
+    'shape Row:\n    id: UUID not null\nsource rows: Row is postgres.table("rows")\n'
+)
 
 
 def test_table_from_source_resolves_to_source() -> None:
@@ -101,7 +103,7 @@ def test_forward_relation_references_resolve() -> None:
             "        id\n"
             "shape Row:\n"
             "    id: UUID not null\n"
-            "source rows: Row is connector()\n"
+            'source rows: Row is postgres.table("rows")\n'
         )
     )
     query = _relation(result, "output", QueryDef)

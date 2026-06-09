@@ -145,7 +145,7 @@ def test_multiple_duplicates_follow_source_order() -> None:
             "    value\n"
             "constraint normalize(value: Text not null) -> Bool not null:\n"
             "    true\n"
-            "source rows is 1\n"
+            'source rows is postgres.table("rows")\n'
             "query rows:\n"
             "    from rows\n"
             "    select:\n"
@@ -213,7 +213,7 @@ def test_symbol_collection_coexists_with_valid_builtin_calls() -> None:
         _parse(
             "shape Row:\n"
             "    id: UUID not null\n"
-            "source input: Row is connector()\n"
+            'source input: Row is postgres.table("input")\n'
             "table projected:\n"
             "    from input\n"
             '    where matches("value", "value")\n'
