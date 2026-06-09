@@ -7,7 +7,16 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import Mapping, TypeVar
 
-from pietto.ast_nodes import Definition, FieldDef, Node, SourceDef, TypeExpr
+from pietto.ast_nodes import (
+    Definition,
+    FieldDef,
+    FromClause,
+    Node,
+    QueryDef,
+    SourceDef,
+    TableDef,
+    TypeExpr,
+)
 from pietto.errors import Diagnostic
 
 _Key = TypeVar("_Key")
@@ -101,6 +110,10 @@ class SemanticModel:
     source_row_schemas: Mapping[SourceDef, RowSchema] = field(
         default_factory=_readonly_mapping
     )
+    from_resolutions: Mapping[
+        FromClause,
+        SourceDef | TableDef | QueryDef,
+    ] = field(default_factory=_readonly_mapping)
 
     def __post_init__(self) -> None:
         """Copy public mapping inputs into immutable mappings."""
@@ -130,6 +143,11 @@ class SemanticModel:
             self,
             "source_row_schemas",
             _readonly_mapping(self.source_row_schemas),
+        )
+        object.__setattr__(
+            self,
+            "from_resolutions",
+            _readonly_mapping(self.from_resolutions),
         )
 
 

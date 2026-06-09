@@ -328,9 +328,28 @@ expression typing is stable. It should initially target simple guards such as
 Purity, recursion, and dependency cycles should be introduced conservatively
 and may be completed in the dependency hardening slice.
 
-### 8. Table and Query Relation Checks
+### 8. Relation From-Target Resolution: Completed
 
 - Resolve `from` references in the relation namespace.
+- Allow source, table, and query targets, including forward references.
+- Preserve first-binding behavior for duplicate relation symbols.
+- Record successful resolutions without mutating parser AST nodes.
+
+Implemented readonly `SemanticModel.from_resolutions`, keyed by `FromClause`.
+Unknown targets produce `P2301` at the from-clause span. Resolution continues
+after unknown targets, and relation cycles are left resolved but unchecked.
+
+No table/query row schemas, field resolution, expression typing, projection
+checking, or cycle detection is implemented.
+
+Current test status:
+
+```text
+340 passed
+```
+
+### 9. Table and Query Row Schema Checks
+
 - Build table and query row schemas from ordered select items.
 - Require known `where` expressions to be Boolean-compatible.
 - Resolve relation fields against the input row schema.
@@ -338,7 +357,7 @@ and may be completed in the dependency hardening slice.
 
 Do not connect to databases or validate physical connector targets.
 
-### 9. Dependency and Cycle Hardening
+### 10. Dependency and Cycle Hardening
 
 - Detect type-alias cycles.
 - Detect callable recursion and dependency cycles.
@@ -347,7 +366,7 @@ Do not connect to databases or validate physical connector targets.
 - Ensure one primary cycle diagnostic is reported for each relevant cycle.
 - Keep diagnostics deterministic and suppress dependent cascades.
 
-### 10. Phase 2 Examples and Documentation Audit
+### 11. Phase 2 Examples and Documentation Audit
 
 - Make every committed `examples/**/*.pie` file self-contained.
 - Require each normal example to have no semantic errors under the default
