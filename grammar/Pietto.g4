@@ -39,6 +39,7 @@ definition
     | deriveDefinition
     | shapeDefinition
     | sourceDefinition
+    | tableDefinition
     ;
 
 // Pietto blocks use ':' plus NEWLINE/INDENT/DEDENT, never brace delimiters.
@@ -186,6 +187,37 @@ sourceDefinition
     : SOURCE IDENTIFIER (COLON IDENTIFIER)? IS expression NEWLINE
     ;
 
+// Phase 1 tables parse only from, optional where, and ordered select items.
+tableDefinition
+    : TABLE IDENTIFIER COLON NEWLINE NEWLINE* INDENT tableBody DEDENT
+    ;
+
+tableBody
+    : NEWLINE* fromClause NEWLINE* whereClause? NEWLINE* selectClause NEWLINE*
+    ;
+
+fromClause
+    : FROM IDENTIFIER NEWLINE
+    ;
+
+whereClause
+    : WHERE expression NEWLINE
+    ;
+
+selectClause
+    : SELECT COLON NEWLINE NEWLINE* INDENT selectBody DEDENT
+    ;
+
+selectBody
+    : NEWLINE* selectItem (selectItem | NEWLINE)*
+    ;
+
+// Alias assignment is local to select items, never a general expression.
+selectItem
+    : IDENTIFIER ASSIGN expression NEWLINE
+    | expression NEWLINE
+    ;
+
 // First-slice expressions intentionally omit CASE and general assignment syntax.
 // Precedence rises from or through and, comparisons, arithmetic, unary, primary.
 expression
@@ -250,6 +282,10 @@ namePart
     | WHEN
     | SOURCE
     | IS
+    | TABLE
+    | FROM
+    | WHERE
+    | SELECT
     ;
 
 callSuffix
@@ -282,6 +318,10 @@ ON: 'on';
 INDEX: 'index';
 WHEN: 'when';
 SOURCE: 'source';
+TABLE: 'table';
+FROM: 'from';
+WHERE: 'where';
+SELECT: 'select';
 ENSURE: 'ensure';
 NULLABLE: 'nullable';
 AND: 'and';

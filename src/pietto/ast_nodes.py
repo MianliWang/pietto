@@ -277,7 +277,41 @@ class SourceDef(Node):
     connector: Expression
 
 
-Definition = TypeDef | EnumDef | ConstraintDef | DeriveDef | ShapeDef | SourceDef
+@dataclass(frozen=True, slots=True, kw_only=True)
+class FromClause(Node):
+    """A parse-only table input reference."""
+
+    source_name: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class WhereClause(Node):
+    """A parse-only table row filter."""
+
+    expression: Expression
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class SelectItem(Node):
+    """An ordered table projection with an optional local alias."""
+
+    alias: str | None
+    expression: Expression
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class TableDef(Node):
+    """A minimal parse-only table definition."""
+
+    name: str
+    from_clause: FromClause
+    where_clause: WhereClause | None
+    select_items: tuple[SelectItem, ...]
+
+
+Definition = (
+    TypeDef | EnumDef | ConstraintDef | DeriveDef | ShapeDef | SourceDef | TableDef
+)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

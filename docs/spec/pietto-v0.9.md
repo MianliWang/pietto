@@ -263,17 +263,14 @@ source users: User is postgres.table("public.users")
 Defines a reusable logical relation.
 
 ```pietto
-table adult_users:
-    from users as u
-    where u.age >= 18
+table active_users:
+    from users
+    where deleted_at is null
 
     select:
-        id = u.id
-        email = u.email
-        age = u.age
-
-    expect:
-        age >= 18
+        id
+        email
+        email_norm = lower(trim(email))
 ```
 
 A `table` is usually compiled as a CTE or subquery.
@@ -284,9 +281,9 @@ Defines an executable output.
 
 ```pietto
 @final
-query recent_adult_users:
-    from adult_users
-    order by age desc
+query active_users_output:
+    from active_users
+    order by email
     limit 100
 ```
 
@@ -571,22 +568,19 @@ shape User:
 
 source users: User is postgres.table("public.users")
 
-table adult_users:
-    from users as u
-    where u.age >= 18
+table active_users:
+    from users
+    where deleted_at is null
 
     select:
-        id = u.id
-        email = u.email
-        age = u.age
-
-    expect:
-        age >= 18
+        id
+        email
+        email_norm = lower(trim(email))
 
 @final
-query recent_adult_users:
-    from adult_users
-    order by age desc
+query active_users_output:
+    from active_users
+    order by email
     limit 100
 ```
 
@@ -710,7 +704,18 @@ source_def
   ::= 'source' IDENTIFIER (':' IDENTIFIER)? 'is' expression NEWLINE ;
 
 table_def
-  ::= annotation* 'table' IDENTIFIER ':' NEWLINE INDENT table_body DEDENT ;
+  ::= 'table' IDENTIFIER ':' NEWLINE INDENT table_body DEDENT ;
+
+table_body
+  ::= 'from' IDENTIFIER NEWLINE
+      ('where' expression NEWLINE)?
+      select_block ;
+
+select_block
+  ::= 'select' ':' NEWLINE INDENT select_item+ DEDENT ;
+
+select_item
+  ::= (IDENTIFIER '=')? expression NEWLINE ;
 
 query_def
   ::= annotation* 'query' IDENTIFIER ':' NEWLINE INDENT table_body DEDENT ;

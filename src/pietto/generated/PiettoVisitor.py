@@ -199,6 +199,41 @@ class PiettoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by PiettoParser#tableDefinition.
+    def visitTableDefinition(self, ctx:PiettoParser.TableDefinitionContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#tableBody.
+    def visitTableBody(self, ctx:PiettoParser.TableBodyContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#fromClause.
+    def visitFromClause(self, ctx:PiettoParser.FromClauseContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#whereClause.
+    def visitWhereClause(self, ctx:PiettoParser.WhereClauseContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#selectClause.
+    def visitSelectClause(self, ctx:PiettoParser.SelectClauseContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#selectBody.
+    def visitSelectBody(self, ctx:PiettoParser.SelectBodyContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#selectItem.
+    def visitSelectItem(self, ctx:PiettoParser.SelectItemContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by PiettoParser#expression.
     def visitExpression(self, ctx:PiettoParser.ExpressionContext):
         return self.visitChildren(ctx)

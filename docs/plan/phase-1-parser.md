@@ -246,9 +246,32 @@ Current test status:
 174 passed
 ```
 
-### Next Slice: Table Parse-Only
+### Minimal Table Parse-Only: Completed
 
-Implement `table` parsing and AST construction next.
+Implemented required `from`, optional `where`, and an ordered `select` block:
+
+```pietto
+table active_users:
+    from users
+    where deleted_at is null
+    select:
+        id
+        email_norm = lower(trim(email))
+```
+
+`TableDef` stores a `FromClause`, optional `WhereClause`, and ordered
+`SelectItem` values. Alias assignment is confined to select items. This slice
+does not resolve sources or fields, check expression types, or generate SQL.
+
+Current test status:
+
+```text
+205 passed
+```
+
+### Next Slice: Query Parse-Only
+
+Implement minimal `query` parsing and AST construction next.
 
 ## Required Directory Structure
 

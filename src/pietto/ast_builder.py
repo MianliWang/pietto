@@ -23,6 +23,7 @@ from pietto.ast_nodes import (
     EnumDef,
     Expression,
     FieldDef,
+    FromClause,
     Header,
     IndexDef,
     IsNullExpr,
@@ -35,11 +36,14 @@ from pietto.ast_nodes import (
     ShapeItem,
     SourceDef,
     Span,
+    SelectItem,
+    TableDef,
     TypeArgument,
     TypeDef,
     TypeExpr,
     UnaryExpr,
     UniqueDef,
+    WhereClause,
 )
 from pietto.errors import AstBuildError, source_path
 from pietto.generated.PiettoParser import PiettoParser
@@ -92,7 +96,9 @@ class AstBuilder(PiettoVisitor):
 
     def visitDefinition(
         self, ctx: PiettoParser.DefinitionContext
-    ) -> TypeDef | EnumDef | ConstraintDef | DeriveDef | ShapeDef | SourceDef:
+    ) -> (
+        TypeDef | EnumDef | ConstraintDef | DeriveDef | ShapeDef | SourceDef | TableDef
+    ):
         if ctx.typeDefinition() is not None:
             return self.visit(ctx.typeDefinition())
         if ctx.enumDefinition() is not None:
@@ -103,7 +109,9 @@ class AstBuilder(PiettoVisitor):
             return self.visit(ctx.deriveDefinition())
         if ctx.shapeDefinition() is not None:
             return self.visit(ctx.shapeDefinition())
-        return self.visit(ctx.sourceDefinition())
+        if ctx.sourceDefinition() is not None:
+            return self.visit(ctx.sourceDefinition())
+        return self.visit(ctx.tableDefinition())
 
     def visitTypeDefinition(self, ctx: PiettoParser.TypeDefinitionContext) -> TypeDef:
         ensures: list[EnsureClause] = []
@@ -304,6 +312,52 @@ class AstBuilder(PiettoVisitor):
             name=identifiers[0].getText(),
             shape_name=identifiers[1].getText() if ctx.COLON() is not None else None,
             connector=self.visit(ctx.expression()),
+        )
+
+    def visitTableDefinition(
+        self, ctx: PiettoParser.TableDefinitionContext
+    ) -> TableDef:
+        """Build a minimal table without resolving inputs or projection names."""
+
+        body = ctx.tableBody()
+        return TableDef(
+            span=self._span(ctx),
+            name=ctx.IDENTIFIER().getText(),
+            from_clause=self.visit(body.fromClause()),
+            where_clause=(
+                self.visit(body.whereClause())
+                if body.whereClause() is not None
+                else None
+            ),
+            select_items=tuple(
+                self.visit(item)
+                for item in body.selectClause().selectBody().selectItem()
+            ),
+        )
+
+    def visitFromClause(self, ctx: PiettoParser.FromClauseContext) -> FromClause:
+        """Build a table input reference without resolving it."""
+
+        return FromClause(
+            span=self._span(ctx),
+            source_name=ctx.IDENTIFIER().getText(),
+        )
+
+    def visitWhereClause(self, ctx: PiettoParser.WhereClauseContext) -> WhereClause:
+        """Build a table filter without checking its expression type."""
+
+        return WhereClause(
+            span=self._span(ctx),
+            expression=self.visit(ctx.expression()),
+        )
+
+    def visitSelectItem(self, ctx: PiettoParser.SelectItemContext) -> SelectItem:
+        """Build one projection; assignment syntax is confined to this rule."""
+
+        return SelectItem(
+            span=self._span(ctx),
+            alias=ctx.IDENTIFIER().getText() if ctx.ASSIGN() is not None else None,
+            expression=self.visit(ctx.expression()),
         )
 
     def visitParameter(self, ctx: PiettoParser.ParameterContext) -> Parameter:
