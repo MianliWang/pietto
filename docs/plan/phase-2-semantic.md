@@ -313,14 +313,18 @@ table/query `where` and select expressions. Supported recursive forms are
 literals, bare names, simple comparisons, and `is null`/`is not null`.
 Unsupported forms remain opaque Unknown values.
 
-No function checking, arithmetic typing, dotted-name resolution, `where` Bool
-validation, complex projection inference, consumer validation, or
-nullability-guard refinement is implemented.
+Known table/query `where` expressions are validated as `Bool`. A known
+non-Bool expression produces `PIE-S2202`; Unknown expression types suppress
+this dependent diagnostic.
+
+No function checking, arithmetic typing, dotted-name resolution, complex
+projection inference, other consumer validation, or nullability-guard
+refinement is implemented.
 
 Current test status:
 
 ```text
-383 passed
+395 passed
 ```
 
 ### 7. Constraint and Derive Validation

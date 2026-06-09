@@ -34,6 +34,7 @@ from pietto.semantic.relation_schemas import propagate_relation_schemas
 from pietto.semantic.relations import resolve_relation_inputs
 from pietto.semantic.shapes import check_shape_structures
 from pietto.semantic.sources import check_sources
+from pietto.semantic.where_checks import check_where_clauses
 
 
 def analyze(
@@ -107,6 +108,7 @@ def analyze(
         relation_row_schemas=relation_row_schemas,
     )
     diagnostics.extend(expression_diagnostics)
+    diagnostics.extend(check_where_clauses(script, expression_value_types))
 
     return SemanticResult(
         model=SemanticModel(
