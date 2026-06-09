@@ -223,7 +223,8 @@ dialect postgres
 encoding utf8
 ```
 
-Check mode can be declared in the file header and later overridden by CLI:
+Check mode can be declared in the file header. A later CLI phase may allow an
+override such as:
 
 ```bash
 pietto check app.pie --mode strict
@@ -267,7 +268,7 @@ Preserve distinction:
 | `where` | table/query | filters rows |
 | `ensure` | type/field | guarantees value contract |
 | `check` | shape | row-level invariant |
-| `expect` | table/query | validates result expectations |
+| `expect` | table/query | planned result validation; not parsed in Phase 1 |
 
 Do not merge these concepts.
 
@@ -295,27 +296,24 @@ Reusable logical relation:
 
 ```pietto
 table adult_users:
-    from users as u
-    where u.age >= 18
+    from users
+    where age >= 18
 
     select:
-        id = u.id
-        age = u.age
-
-    expect:
-        age >= 18
+        id
+        age
 ```
 
 ### Query
 
-Executable output:
+Minimal parse-only output:
 
 ```pietto
-@final
 query recent_adult_users:
     from adult_users
-    order by age desc
-    limit 100
+    select:
+        id
+        age
 ```
 
 ## Coding Conventions

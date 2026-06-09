@@ -1,10 +1,10 @@
 # Pietto v0.9 Whitepaper and Language Reference
 
-Version: v0.9 draft  
-Status: pre-implementation specification for Codex-assisted development  
-Primary implementation target: Python 3.11+ / 3.12 recommended  
-Primary SQL target: PostgreSQL  
-Preferred package manager: uv-first  
+Version: v0.9 draft
+Status: Phase 1 parser/frontend implemented; later phases remain design goals
+Primary implementation target: Python 3.12
+Primary SQL target: PostgreSQL
+Preferred package manager: uv-first
 Parser strategy: ANTLR4 -> Pietto AST -> Semantic IR -> SQLGlot AST / SQL backend
 
 ---
@@ -15,7 +15,7 @@ Pietto is a gradual, semantic SQL authoring DSL.
 
 It is designed to make SQL easier to write, read, check, document, and compile. Pietto is not a database, not a runtime language, not a scheduler, and not a concurrency framework. The database engine remains responsible for execution, transactions, locks, optimizer behavior, and physical concurrency.
 
-Pietto focuses on:
+The Pietto language design targets:
 
 - readable Python-style block syntax;
 - modular `source`, `shape`, `table`, and `query` definitions;
@@ -37,6 +37,10 @@ Pietto source
     -> SQL
 ```
 
+Only parsing through the Pietto AST is implemented in Phase 1. Semantic
+analysis, IR lowering, SQL generation, execution, and CLI runtime behavior are
+future phases.
+
 ---
 
 ## 1. Design Philosophy
@@ -47,13 +51,13 @@ Pietto should provide a more convenient, readable, safe, and modular way to expr
 
 ```pietto
 table adult_users:
-    from users as u
-    where u.age >= 18
+    from users
+    where age >= 18
 
     select:
-        id = u.id
-        name = u.name
-        age = u.age
+        id
+        name
+        age
 ```
 
 ### 1.2 Non-goals
@@ -142,19 +146,22 @@ encoding utf8
 | `checked` | default mode | validates names, fields, types, nullability where possible |
 | `strict` | production-like mode | explicit shapes, explicit nullability, privacy/export checks, fewer implicit fallbacks |
 
+Phase 1 records the selected mode in the AST but does not enforce these
+semantic behaviors.
+
 The mode can be declared in the file header:
 
 ```pietto
 mode checked
 ```
 
-It can also be overridden from CLI:
+The planned CLI may later override it:
 
 ```bash
 pietto check app.pie --mode strict
 ```
 
-CLI override takes precedence over the file header.
+When implemented, the CLI override will take precedence over the file header.
 
 ---
 
@@ -181,7 +188,6 @@ Block form is preferred for complex definitions:
 type Username = Text(max = 32, encoding = utf8):
     ensure len(self) >= 3
     ensure matches(self, "^[a-zA-Z0-9_]+$")
-    expect len(self) <= 32
 ```
 
 `type` is used instead of `let` because it defines a type-level name, not a value-level binding.
@@ -199,14 +205,14 @@ enum OrderStatus:
 
 ### 3.3 `constraint`
 
-Defines a pure Boolean semantic function.
+Defines a parse-only constraint signature and one expression body in Phase 1.
 
 ```pietto
 constraint valid_email(x: Text nullable) -> Bool:
     x is not null and x like "%@%"
 ```
 
-Rules:
+Planned Phase 2 semantic rules:
 
 - return type must be `Bool`;
 - no side effects;
@@ -220,7 +226,7 @@ Rules:
 
 ### 3.4 `derive`
 
-Defines a pure expression function that can be compiled to SQL.
+Defines a parse-only expression function in Phase 1.
 
 ```pietto
 derive normalized_email(x: Text) -> Text:
@@ -274,11 +280,12 @@ table active_users:
         email_norm = lower(trim(email))
 ```
 
-A `table` is usually compiled as a CTE or subquery.
+A later SQL generation phase may compile a `table` as a CTE or subquery.
 
 ### 3.8 `query`
 
-Defines an executable output.
+Defines a parse-only output relation in Phase 1. Execution belongs to a later
+tooling phase.
 
 ```pietto
 query active_user_emails:
@@ -406,6 +413,8 @@ Rules:
 - In `checked` mode, implicit nullability should warn.
 - In `strict` mode, shape fields must explicitly say `nullable` or `not null`.
 
+Phase 1 records nullability syntax but does not enforce mode-specific rules.
+
 ---
 
 ## 5. Constraint Model
@@ -417,7 +426,7 @@ Pietto distinguishes four related concepts:
 | `where` | query/table | filter rows |
 | `ensure` | type/field | guarantee a value satisfies a condition |
 | `check` | shape | row-level or shape-level invariant |
-| `expect` | table/query | expected property of result data |
+| `expect` | table/query | planned result validation; not parsed in Phase 1 |
 
 ### 5.1 `ensure`
 
@@ -440,24 +449,12 @@ shape Order:
 
 ### 5.3 `expect`
 
-```pietto
-table clean_orders:
-    from orders
-    where status != "cancelled"
+`expect` is reserved for a later parser slice. It is not accepted by the
+current Phase 1 grammar and does not yet generate validation logic.
 
-    select:
-        id
-        final_amount
+### 5.4 Future constraint optimization hooks
 
-    expect:
-        final_amount >= 0
-```
-
-`expect` does not filter rows. It generates validation logic.
-
-### 5.4 Constraint functions as optimization hooks
-
-Pietto constraints can guide:
+In later phases, Pietto constraints may guide:
 
 - `CHECK` constraints;
 - PostgreSQL domains;
@@ -492,6 +489,9 @@ WHERE deleted_at IS NULL;
 
 ## 6. Materialization Model
 
+This section describes future lowering and annotation design. Phase 1 does not
+parse materialization annotations or generate SQL.
+
 ### 6.1 Logical CTE
 
 Default `table`:
@@ -500,36 +500,27 @@ Default `table`:
 table active_users:
     from users
     where deleted_at is null
+    select:
+        id
 ```
 
-Usually compiles to a CTE or inline subquery.
+This may later compile to a CTE or inline subquery.
 
 ### 6.2 Materialized CTE
 
-```pietto
-@cte(materialized = true)
-table expensive_step:
-    from events
-    select:
-        id
-        score = expensive_score(payload)
-```
+Materialized CTE annotations are future syntax and are not accepted by the
+Phase 1 parser.
 
 ### 6.3 Materialized view
 
-```pietto
-@persist(kind = "materialized_view", refresh = "manual")
-table daily_sales:
-    from orders
-    group by order_date:
-        total = sum(amount)
-```
+Materialized-view annotations and aggregate clauses are future syntax and are
+not accepted by the Phase 1 parser.
 
 ### 6.4 Recommended v0.9 behavior
 
-- Parse all materialization annotations.
-- Preserve them in AST and IR.
-- Only implement SQL generation for ordinary CTE first.
+- Add parsing for materialization annotations in a later parser phase.
+- Preserve them in AST and IR once supported.
+- Implement SQL generation for ordinary CTEs in a later backend phase.
 - Add materialized CTE and materialized view generation in a later phase.
 
 ---
@@ -588,16 +579,21 @@ query active_user_emails:
 
 ---
 
-## 8. Grammar Draft
+## 8. Phase 1 Grammar Summary
 
-This is a design-level grammar, not the exact final ANTLR grammar.
+This EBNF summarizes the syntax currently implemented by
+`grammar/Pietto.g4`. Blank lines and comments are accepted around and within
+indentation blocks where the ANTLR grammar permits layout tokens.
 
 ```ebnf
 script
   ::= header? definition* EOF ;
 
 header
-  ::= version_decl? mode_decl? dialect_decl? encoding_decl? ;
+  ::= version_decl mode_decl? dialect_decl? encoding_decl?
+   | mode_decl dialect_decl? encoding_decl?
+   | dialect_decl encoding_decl?
+   | encoding_decl ;
 
 version_decl
   ::= 'pietto' VERSION NEWLINE ;
@@ -612,9 +608,7 @@ encoding_decl
   ::= 'encoding' IDENTIFIER NEWLINE ;
 
 definition
-  ::= module_def
-   | import_stmt
-   | type_def
+  ::= type_def
    | enum_def
    | constraint_def
    | derive_def
@@ -623,54 +617,52 @@ definition
    | table_def
    | query_def ;
 
-module_def
-  ::= 'module' dotted_name ':' NEWLINE INDENT import_stmt* DEDENT ;
-
-import_stmt
-  ::= 'import' import_path ('as' IDENTIFIER)? NEWLINE ;
-
 type_def
-  ::= 'type' IDENTIFIER '=' type_expr type_body? NEWLINE?
-   | 'type' IDENTIFIER '=' type_expr inline_type_constraint NEWLINE ;
+  ::= 'type' IDENTIFIER '=' type_expr NEWLINE
+   | 'type' IDENTIFIER '=' type_expr 'ensure' expression NEWLINE
+   | 'type' IDENTIFIER '=' type_expr ':' NEWLINE
+      INDENT type_body DEDENT ;
 
 type_body
-  ::= ':' NEWLINE INDENT type_body_item+ DEDENT ;
-
-type_body_item
-  ::= ensure_clause NEWLINE
-   | expect_clause_item NEWLINE
-   | annotation NEWLINE ;
-
-inline_type_constraint
-  ::= ensure_clause ;
+  ::= (ensure_clause NEWLINE | NEWLINE)+ ;
 
 type_expr
-  ::= IDENTIFIER type_args? nullability_modifier? ;
+  ::= type_reference nullability_modifier? ;
+
+type_reference
+  ::= IDENTIFIER type_args? ;
 
 type_args
-  ::= '(' type_arg (',' type_arg)* ')' ;
+  ::= '(' (type_arg (',' type_arg)* ','?)? ')' ;
 
 type_arg
-  ::= expression
-   | IDENTIFIER '=' expression ;
+  ::= type_arg_name '=' expression
+   | expression ;
+
+type_arg_name
+  ::= IDENTIFIER | 'encoding' ;
 
 nullability_modifier
   ::= 'nullable'
    | 'not' 'null' ;
 
 enum_def
-  ::= 'enum' IDENTIFIER ':' NEWLINE INDENT enum_item+ DEDENT ;
-
-enum_item
-  ::= IDENTIFIER NEWLINE ;
+  ::= 'enum' IDENTIFIER ':' NEWLINE
+      INDENT (IDENTIFIER NEWLINE | NEWLINE)+ DEDENT ;
 
 constraint_def
-  ::= 'constraint' IDENTIFIER '(' param_list? ')' '->' 'Bool' ':' NEWLINE
+  ::= 'constraint' IDENTIFIER '(' parameter_list? ')' '->' type_expr ':' NEWLINE
       INDENT expression NEWLINE DEDENT ;
 
 derive_def
-  ::= 'derive' IDENTIFIER '(' param_list? ')' '->' type_expr ':' NEWLINE
+  ::= 'derive' IDENTIFIER '(' parameter_list? ')' '->' type_expr ':' NEWLINE
       INDENT expression NEWLINE DEDENT ;
+
+parameter_list
+  ::= parameter (',' parameter)* ','? ;
+
+parameter
+  ::= IDENTIFIER ':' type_expr ;
 
 shape_def
   ::= 'shape' IDENTIFIER ':' NEWLINE INDENT shape_item+ DEDENT ;
@@ -682,15 +674,17 @@ shape_item
    | index_def ;
 
 field_def
-  ::= IDENTIFIER ':' type_expr field_modifier* NEWLINE
-   | IDENTIFIER ':' type_expr 'derive' expression field_modifier* NEWLINE ;
+  ::= IDENTIFIER ':' type_expr ('derive' expression)? field_modifier* NEWLINE ;
 
 field_modifier
-  ::= ensure_clause
-   | annotation ;
+  ::= annotation
+   | ensure_clause ;
 
 ensure_clause
   ::= 'ensure' expression ;
+
+annotation
+  ::= '@' IDENTIFIER ;
 
 check_def
   ::= 'check' IDENTIFIER ':' NEWLINE INDENT expression NEWLINE DEDENT ;
@@ -708,6 +702,9 @@ source_def
 table_def
   ::= 'table' IDENTIFIER ':' NEWLINE INDENT table_body DEDENT ;
 
+query_def
+  ::= 'query' IDENTIFIER ':' NEWLINE INDENT table_body DEDENT ;
+
 table_body
   ::= 'from' IDENTIFIER NEWLINE
       ('where' expression NEWLINE)?
@@ -719,8 +716,55 @@ select_block
 select_item
   ::= (IDENTIFIER '=')? expression NEWLINE ;
 
-query_def
-  ::= 'query' IDENTIFIER ':' NEWLINE INDENT table_body DEDENT ;
+expression
+  ::= or_expression ;
+
+or_expression
+  ::= and_expression ('or' and_expression)* ;
+
+and_expression
+  ::= comparison_expression ('and' comparison_expression)* ;
+
+comparison_expression
+  ::= additive_expression
+      (
+        comparison_operator additive_expression
+        | 'between' additive_expression 'and' additive_expression
+        | 'is' 'not'? 'null'
+      )? ;
+
+comparison_operator
+  ::= '==' | '!=' | '<' | '<=' | '>' | '>=' | 'like' ;
+
+additive_expression
+  ::= multiplicative_expression
+      (('+' | '-') multiplicative_expression)* ;
+
+multiplicative_expression
+  ::= unary_expression (('*' | '/' | '%') unary_expression)* ;
+
+unary_expression
+  ::= ('+' | '-') unary_expression
+   | primary_expression ;
+
+primary_expression
+  ::= literal
+   | dotted_name call_suffix?
+   | '(' expression ')' ;
+
+dotted_name
+  ::= name_part ('.' name_part)* ;
+
+name_part
+  ::= IDENTIFIER
+   | 'check' | 'unique' | 'on' | 'index' | 'when'
+   | 'source' | 'is' | 'table' | 'from' | 'where' | 'select' | 'query' ;
+
+call_suffix
+  ::= '(' (expression (',' expression)* ','?)? ')' ;
+
+literal
+  ::= NUMBER | STRING | 'true' | 'false' | 'null' ;
 ```
 
 ---
@@ -733,27 +777,27 @@ ANTLR generates the parse tree from `grammar/Pietto.g4`.
 
 ### 9.2 Pietto AST
 
-Suggested nodes:
+Implemented public nodes include:
 
 ```text
-ModuleNode
-ImportNode
-TypeDefNode
-EnumDefNode
-ConstraintDefNode
-DeriveDefNode
-ShapeDefNode
-FieldDefNode
-CheckDefNode
-SourceDefNode
-TableDefNode
-QueryDefNode
-ExpressionNode
+TypeDef
+EnumDef
+ConstraintDef
+DeriveDef
+ShapeDef
+FieldDef
+CheckDef
+UniqueDef
+IndexDef
+SourceDef
+TableDef
+QueryDef
+Expression
 ```
 
-### 9.3 Semantic analysis
+### 9.3 Planned semantic analysis
 
-Checks:
+Phase 2 will add checks such as:
 
 - unknown identifier;
 - unknown type;
@@ -766,7 +810,7 @@ Checks:
 - duplicate names;
 - strict-mode implicit nullability.
 
-### 9.4 Semantic IR
+### 9.4 Planned semantic IR
 
 Suggested nodes:
 
@@ -786,9 +830,9 @@ IndexIR
 ShapeIR
 ```
 
-### 9.5 SQL backend
+### 9.5 Planned SQL backend
 
-Pietto should first target PostgreSQL.
+The first SQL backend should target PostgreSQL.
 
 SQL generation should use SQLGlot where useful:
 
@@ -798,7 +842,10 @@ Pietto IR -> SQLGlot expression AST -> dialect SQL
 
 ---
 
-## 10. CLI Reference
+## 10. Planned CLI Reference
+
+These commands describe future tooling. Phase 1 does not implement CLI runtime
+behavior.
 
 ### `pietto check`
 
@@ -946,7 +993,7 @@ Acceptance criteria:
 
 ### Phase 1: Parser and AST
 
-Scope:
+Completed scope:
 
 - ANTLR grammar;
 - generated parser isolation;
@@ -955,6 +1002,9 @@ Scope:
 - parser API;
 - diagnostics;
 - parser tests.
+
+Current parser validation: all committed examples parse and the test suite has
+254 passing tests.
 
 Out of scope:
 

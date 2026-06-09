@@ -307,6 +307,35 @@ Current test status:
 244 passed
 ```
 
+### Phase 1 Completion Audit: Completed
+
+Audited the implemented grammar, AST, builder, diagnostics, examples, and
+public documentation. All committed Pietto examples are covered by a
+parser-only acceptance test. The specification EBNF now describes the current
+Phase 1 grammar rather than planned syntax.
+
+No language syntax or parser behavior was added.
+
+Current test status:
+
+```text
+254 passed
+```
+
+## Remaining Limitations
+
+Phase 1 intentionally does not implement:
+
+- semantic checking, symbol tables, name resolution, or type checking;
+- source, shape, field, table, or query reference validation;
+- purity, recursion, dependency, or `Bool` expression validation;
+- SQL/IR generation, validation SQL, or database execution;
+- CLI runtime behavior, DML, optimizer, UI, or concurrency/runtime features;
+- `join`, `group by`, `having`, `order by`, `limit`, `window`, `expect`,
+  `union`, nested queries, or query parameters.
+
+These are Phase 2 or later concerns unless the project plan explicitly changes.
+
 ## Required Directory Structure
 
 ```text
@@ -321,9 +350,10 @@ tests/test_parser_basic.py
 tests/test_parser_types.py
 tests/test_parser_shapes.py
 tests/test_parser_tables.py
+tests/test_parser_queries.py
+tests/test_examples_parse.py
 tests/test_diagnostics.py
-examples/basic/users.pie
-examples/constraints/orders.pie
+examples/**/*.pie
 ```
 
 ## Syntax Decisions
