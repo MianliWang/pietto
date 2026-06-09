@@ -54,7 +54,7 @@ def test_table_and_query_malformed_body_diagnostics_are_consistent(
     assert table_result.diagnostics == query_result.diagnostics
     assert table_result.diagnostics
     assert all(
-        diagnostic.code == "P1000"
+        diagnostic.code == "PIE-P1000"
         and diagnostic.severity is Severity.ERROR
         and diagnostic.location.path == str(path)
         for diagnostic in table_result.diagnostics
@@ -84,4 +84,4 @@ def test_relations_reject_not_yet_supported_clauses(
     )
 
     assert result.ast is None
-    assert any(diagnostic.code == "P1000" for diagnostic in result.diagnostics)
+    assert any(diagnostic.code == "PIE-P1000" for diagnostic in result.diagnostics)

@@ -466,14 +466,14 @@ def test_malformed_shapes_return_syntax_diagnostic(source: str) -> None:
     result = parse_source(source)
 
     assert result.ast is None
-    assert _has_code(result, "P1000")
+    assert _has_code(result, "PIE-P1000")
 
 
 def test_shape_brace_block_reports_unsupported_brace() -> None:
     result = parse_source("shape User {\n    id: UUID\n}\n")
 
     assert result.ast is None
-    assert _has_code(result, "P1005")
+    assert _has_code(result, "PIE-P1005")
 
 
 def test_shape_field_derive_brace_block_reports_unsupported_brace() -> None:
@@ -485,7 +485,7 @@ def test_shape_field_derive_brace_block_reports_unsupported_brace() -> None:
     )
 
     assert result.ast is None
-    assert _has_code(result, "P1005")
+    assert _has_code(result, "PIE-P1005")
 
 
 def _assert_no_antlr_nodes(value: object) -> None:

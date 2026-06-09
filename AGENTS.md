@@ -348,10 +348,22 @@ Diagnostics should include:
 - line and column if available;
 - optional suggestion.
 
+Use the canonical `PIE-<PHASE><NUMBER>` format documented in
+`docs/spec/diagnostics.md`:
+
+- `PIE-Pxxxx` for parser, lexer, and indentation diagnostics;
+- `PIE-Sxxxx` for semantic diagnostics;
+- `PIE-Ixxxx` for IR and SQL compilation diagnostics;
+- `PIE-Bxxxx` for backend capability diagnostics;
+- `PIE-Rxxxx` for runtime and execution diagnostics.
+
+Severity remains a separate field and must not be encoded in the diagnostic
+code.
+
 Example:
 
 ```text
-ERROR P2102 at examples/basic/users.pie:12:9
+ERROR PIE-S2102 at examples/basic/users.pie:12:9
 Unknown field "emails" on shape "User".
 
 Suggestion:

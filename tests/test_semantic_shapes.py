@@ -35,7 +35,7 @@ def test_duplicate_field_name_reports_p2501() -> None:
         _parse("shape User:\n    email: Text not null\n    email: Text nullable\n")
     )
 
-    assert _diagnostics(result, "P2501") == [
+    assert _diagnostics(result, "PIE-S2501") == [
         (
             Severity.ERROR,
             "Duplicate shape item name in shape User: email",
@@ -58,7 +58,7 @@ def test_field_name_conflicts_with_other_shape_item_kinds(
         _parse(f"shape User:\n    email: Text not null\n{conflicting_item}")
     )
 
-    assert [diagnostic.code for diagnostic in result.diagnostics] == ["P2501"]
+    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2501"]
     assert result.diagnostics[0].message == (
         "Duplicate shape item name in shape User: email"
     )
@@ -75,7 +75,7 @@ def test_field_name_conflicts_with_other_shape_item_kinds(
 def test_duplicate_check_unique_and_index_names_report_p2501(items: str) -> None:
     result = analyze(_parse(f"shape User:\n    email: Text not null\n{items}"))
 
-    assert [diagnostic.code for diagnostic in result.diagnostics] == ["P2501"]
+    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2501"]
 
 
 def test_unique_target_existing_field_succeeds() -> None:
@@ -97,7 +97,7 @@ def test_unique_unknown_target_reports_p2502() -> None:
         )
     )
 
-    assert _diagnostics(result, "P2502") == [
+    assert _diagnostics(result, "PIE-S2502") == [
         (
             Severity.ERROR,
             "Unknown target field in shape User: missing_email",
@@ -124,7 +124,7 @@ def test_index_unknown_target_reports_p2502() -> None:
         )
     )
 
-    assert _diagnostics(result, "P2502") == [
+    assert _diagnostics(result, "PIE-S2502") == [
         (
             Severity.ERROR,
             "Unknown target field in shape User: missing_email",
@@ -148,7 +148,7 @@ def test_index_unknown_target_reports_p2502() -> None:
 def test_repeated_target_field_reports_p2503(item: str, message: str) -> None:
     result = analyze(_parse(f"shape User:\n    email: Text not null\n    {item}\n"))
 
-    assert _diagnostics(result, "P2503") == [(Severity.ERROR, message)]
+    assert _diagnostics(result, "PIE-S2503") == [(Severity.ERROR, message)]
 
 
 def test_shape_diagnostics_use_later_or_containing_item_spans() -> None:
@@ -168,9 +168,9 @@ def test_shape_diagnostics_use_later_or_containing_item_spans() -> None:
     diagnostics = analyze(script).diagnostics
 
     assert [diagnostic.code for diagnostic in diagnostics] == [
-        "P2501",
-        "P2502",
-        "P2503",
+        "PIE-S2501",
+        "PIE-S2502",
+        "PIE-S2503",
     ]
     _assert_location_matches(diagnostics[0], duplicate_field)
     _assert_location_matches(diagnostics[1], missing_unique)
@@ -191,7 +191,7 @@ def test_shape_checks_continue_after_diagnostics() -> None:
 
     assert [
         (diagnostic.location.line, diagnostic.code) for diagnostic in result.diagnostics
-    ] == [(3, "P2502"), (6, "P2503")]
+    ] == [(3, "PIE-S2502"), (6, "PIE-S2503")]
 
 
 def test_shape_expression_semantics_remain_unchecked() -> None:

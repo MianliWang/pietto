@@ -64,7 +64,7 @@ def test_old_question_mark_nullability_is_rejected() -> None:
     result = parse_source("type MaybeAge = Int?\n")
 
     assert result.ast is None
-    assert any(diagnostic.code == "P1000" for diagnostic in result.diagnostics)
+    assert any(diagnostic.code == "PIE-P1000" for diagnostic in result.diagnostics)
 
 
 def test_inline_ensure_type_parses_between_expression() -> None:

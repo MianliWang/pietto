@@ -73,7 +73,7 @@ def test_missing_source_shape_reports_p2303_and_unknown_schema() -> None:
     )
     source = _source(result, "users")
 
-    assert _diagnostics(result, "P2303") == [
+    assert _diagnostics(result, "PIE-S2303") == [
         (Severity.ERROR, "Unknown source shape: Missing")
     ]
     assert result.model.source_row_schemas[source].is_unknown is True
@@ -97,7 +97,7 @@ def test_source_shape_must_refer_to_shape(
     )
     source = _source(result, "users")
 
-    assert _diagnostics(result, "P2303") == [
+    assert _diagnostics(result, "PIE-S2303") == [
         (Severity.ERROR, f"Source shape must refer to a shape: {name}")
     ]
     assert result.model.source_row_schemas[source].is_unknown is True
@@ -107,8 +107,8 @@ def test_source_shape_must_refer_to_shape(
     ("mode", "expected"),
     [
         (CheckMode.LOOSE, ()),
-        (CheckMode.CHECKED, (("P2303", Severity.WARNING),)),
-        (CheckMode.STRICT, (("P2303", Severity.ERROR),)),
+        (CheckMode.CHECKED, (("PIE-S2303", Severity.WARNING),)),
+        (CheckMode.STRICT, (("PIE-S2303", Severity.ERROR),)),
     ],
 )
 def test_untyped_source_mode_policy(
@@ -159,8 +159,8 @@ def test_source_checking_continues_after_invalid_source() -> None:
         (diagnostic.location.line, diagnostic.code, diagnostic.severity)
         for diagnostic in result.diagnostics
     ] == [
-        (3, "P2303", Severity.ERROR),
-        (5, "P2303", Severity.WARNING),
+        (3, "PIE-S2303", Severity.ERROR),
+        (5, "PIE-S2303", Severity.WARNING),
     ]
     assert result.model.source_row_schemas[_source(result, "missing")].is_unknown
     assert not result.model.source_row_schemas[_source(result, "users")].is_unknown

@@ -91,7 +91,7 @@ def parse_source(
         ast = AstBuilder(path).visit(tree)
     except AstBuildError as error:
         build_diagnostic = Diagnostic(
-            code="P1000",
+            code="PIE-P1000",
             severity=Severity.ERROR,
             message=error.message,
             location=SourceLocation(
@@ -148,7 +148,7 @@ def _brace_diagnostics(
     path_text = source_path(path)
     return tuple(
         Diagnostic(
-            code="P1005",
+            code="PIE-P1005",
             severity=Severity.ERROR,
             message="Braces are not supported as Pietto block delimiters.",
             location=SourceLocation(

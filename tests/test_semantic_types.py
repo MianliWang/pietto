@@ -99,7 +99,7 @@ def test_unknown_type_reports_p2002_and_records_placeholder() -> None:
 
     assert [
         (diagnostic.code, diagnostic.severity) for diagnostic in result.diagnostics
-    ] == [("P2002", Severity.ERROR)]
+    ] == [("PIE-S2002", Severity.ERROR)]
     assert result.diagnostics[0].message == "Unknown type: Missing"
     assert result.model.type_resolutions[type_expr].kind is TypeKind.UNKNOWN
     assert result.model.type_resolutions[type_expr].definition is None
@@ -137,15 +137,15 @@ def test_unknown_type_does_not_stop_unrelated_resolution() -> None:
         result.model.type_resolutions[shape.fields[1].type_expr].kind
         is TypeKind.BUILTIN
     )
-    assert [diagnostic.code for diagnostic in result.diagnostics] == ["P2002"]
+    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2002"]
 
 
 @pytest.mark.parametrize(
     ("mode", "expected"),
     [
         (CheckMode.LOOSE, ()),
-        (CheckMode.CHECKED, (("P2005", Severity.WARNING),)),
-        (CheckMode.STRICT, (("P2005", Severity.ERROR),)),
+        (CheckMode.CHECKED, (("PIE-S2005", Severity.WARNING),)),
+        (CheckMode.STRICT, (("PIE-S2005", Severity.ERROR),)),
     ],
 )
 def test_implicit_nullability_mode_policy(
@@ -217,7 +217,7 @@ def test_all_supported_type_expression_locations_are_recorded() -> None:
 def test_duplicate_symbol_diagnostic_still_works_with_type_resolution() -> None:
     result = analyze(_parse("type Value = Int not null\ntype Value = Text not null\n"))
 
-    assert [diagnostic.code for diagnostic in result.diagnostics] == ["P2001"]
+    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2001"]
 
 
 def test_type_and_duplicate_diagnostics_follow_source_order() -> None:
@@ -231,7 +231,7 @@ def test_type_and_duplicate_diagnostics_follow_source_order() -> None:
 
     assert [
         (diagnostic.location.line, diagnostic.code) for diagnostic in result.diagnostics
-    ] == [(1, "P2002"), (2, "P2005"), (3, "P2001")]
+    ] == [(1, "PIE-S2002"), (2, "PIE-S2005"), (3, "PIE-S2001")]
 
 
 def test_type_resolution_mappings_are_readonly() -> None:

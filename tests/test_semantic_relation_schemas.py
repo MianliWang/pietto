@@ -105,8 +105,20 @@ def test_unknown_selected_field_reports_p2102_and_unknown_schema() -> None:
     )
     table = _relation(result, "projected", TableDef)
 
-    assert _diagnostics(result) == [("P2102", Severity.ERROR, "Unknown field: missing")]
+    assert _diagnostics(result) == [
+        ("PIE-S2102", Severity.ERROR, "Unknown field: missing")
+    ]
     assert result.model.relation_row_schemas[table].is_unknown is True
+
+
+def test_semantic_diagnostic_uses_canonical_code_format() -> None:
+    result = analyze(
+        _parse(
+            SOURCE + "table projected:\n    from users\n    select:\n        missing\n"
+        )
+    )
+
+    assert result.diagnostics[0].code == "PIE-S2102"
 
 
 def test_unknown_field_diagnostic_uses_expression_span() -> None:
@@ -136,7 +148,7 @@ def test_duplicate_projection_reports_p2305_and_keeps_first_field() -> None:
     table = _relation(result, "projected", TableDef)
 
     assert _diagnostics(result) == [
-        ("P2305", Severity.ERROR, "Duplicate projection field: email")
+        ("PIE-S2305", Severity.ERROR, "Duplicate projection field: email")
     ]
     assert list(result.model.relation_row_schemas[table].fields) == ["email"]
 
@@ -171,7 +183,7 @@ def test_unknown_input_schema_suppresses_field_diagnostics() -> None:
     )
     table = _relation(result, "projected", TableDef)
 
-    assert [diagnostic.code for diagnostic in result.diagnostics] == ["P2303"]
+    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2303"]
     assert result.model.relation_row_schemas[table].is_unknown is True
 
 
@@ -186,7 +198,7 @@ def test_unknown_from_target_produces_unknown_schema_without_field_cascade() -> 
     )
     query = _relation(result, "output", QueryDef)
 
-    assert [diagnostic.code for diagnostic in result.diagnostics] == ["P2301"]
+    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2301"]
     assert result.model.relation_row_schemas[query].is_unknown is True
 
 
@@ -223,11 +235,11 @@ def test_unknown_upstream_schema_suppresses_downstream_field_diagnostics() -> No
     )
     second = _relation(result, "second", QueryDef)
 
-    assert [diagnostic.code for diagnostic in result.diagnostics] == ["P2102"]
+    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2102"]
     assert result.model.relation_row_schemas[second].is_unknown is True
 
 
-def test_relation_cycles_produce_unknown_schemas_without_cycle_diagnostic() -> None:
+def test_relation_cycles_produce_unknown_schemas_with_cycle_diagnostic() -> None:
     result = analyze(
         _parse(
             "table first:\n"
@@ -245,7 +257,7 @@ def test_relation_cycles_produce_unknown_schemas_without_cycle_diagnostic() -> N
 
     assert result.model.relation_row_schemas[first].is_unknown is True
     assert result.model.relation_row_schemas[second].is_unknown is True
-    assert result.diagnostics == ()
+    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2302"]
 
 
 def test_relation_row_schema_mapping_is_readonly() -> None:

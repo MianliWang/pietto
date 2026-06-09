@@ -35,7 +35,7 @@ def find_leading_tab_diagnostics(
         if tab_column >= 0:
             diagnostics.append(
                 Diagnostic(
-                    code="P1004",
+                    code="PIE-P1004",
                     severity=Severity.ERROR,
                     message="Tabs are not allowed in leading indentation.",
                     location=SourceLocation(
@@ -109,7 +109,7 @@ def inject_indentation(
         if indentation_stack[-1] != width:
             diagnostics.append(
                 Diagnostic(
-                    code="P1003",
+                    code="PIE-P1003",
                     severity=Severity.ERROR,
                     message="Indentation does not match an outer block.",
                     location=SourceLocation(

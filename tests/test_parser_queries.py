@@ -317,7 +317,7 @@ def test_malformed_queries_return_syntax_diagnostic(source: str) -> None:
     result = parse_source(source)
 
     assert result.ast is None
-    assert _has_code(result, "P1000")
+    assert _has_code(result, "PIE-P1000")
 
 
 def test_query_rejects_nested_query_syntax() -> None:
@@ -332,7 +332,7 @@ def test_query_rejects_nested_query_syntax() -> None:
     )
 
     assert result.ast is None
-    assert _has_code(result, "P1000")
+    assert _has_code(result, "PIE-P1000")
 
 
 def test_query_select_assignment_remains_local_to_select_items() -> None:
@@ -345,7 +345,7 @@ def test_query_select_assignment_remains_local_to_select_items() -> None:
     )
 
     assert result.ast is None
-    assert _has_code(result, "P1000")
+    assert _has_code(result, "PIE-P1000")
 
 
 def test_query_rejects_old_postfix_nullability() -> None:
@@ -359,7 +359,7 @@ def test_query_rejects_old_postfix_nullability() -> None:
     )
 
     assert result.ast is None
-    assert _has_code(result, "P1000")
+    assert _has_code(result, "PIE-P1000")
 
 
 def test_query_brace_block_reports_unsupported_brace() -> None:
@@ -372,7 +372,7 @@ def test_query_brace_block_reports_unsupported_brace() -> None:
     )
 
     assert result.ast is None
-    assert _has_code(result, "P1005")
+    assert _has_code(result, "PIE-P1005")
 
 
 def _assert_no_antlr_nodes(value: object) -> None:

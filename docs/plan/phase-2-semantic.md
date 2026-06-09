@@ -211,7 +211,7 @@ Current test status:
 - Verify that forward declarations are visible after collection.
 
 Implemented readonly namespace mappings whose values are the existing AST
-definition nodes. Duplicate declarations produce `P2001` at the later
+definition nodes. Duplicate declarations produce `PIE-S2001` at the later
 definition's span, while the first declaration remains bound. Built-in
 function registration remains deferred to the minimal expression slice.
 
@@ -237,8 +237,8 @@ Do not implement a complete numeric hierarchy, overloads, or generic types.
 
 Implemented an explicit portable built-in type catalog, readonly
 `TypeExpr` resolution and effective-nullability mappings, and user type
-resolution across aliases, enums, and shapes. Unknown types produce `P2002`;
-implicit nullability produces mode-sensitive `P2005`. Resolution currently
+resolution across aliases, enums, and shapes. Unknown types produce `PIE-S2002`;
+implicit nullability produces mode-sensitive `PIE-S2005`. Resolution currently
 covers type aliases, callable parameters and returns, and shape fields.
 
 Alias expansion, alias cycles, type argument validation, expression typing,
@@ -259,8 +259,8 @@ Current test status:
 - Diagnose repeated target fields within one `unique` or `index`.
 - Keep annotations as unvalidated metadata.
 
-Implemented `P2501` for duplicate shape-item names, `P2502` for unknown
-unique/index target fields, and `P2503` for repeated targets. Checks continue
+Implemented `PIE-S2501` for duplicate shape-item names, `PIE-S2502` for unknown
+unique/index target fields, and `PIE-S2503` for repeated targets. Checks continue
 across all shapes and diagnostics retain deterministic source ordering.
 
 Unique and index target names are currently stored as strings without
@@ -286,7 +286,7 @@ Current test status:
 
 Implemented readonly `RowSchema` and `RowField` models that reuse existing
 resolved types and effective nullability. `SemanticModel.source_row_schemas`
-maps every `SourceDef` to a known or Unknown schema. `P2303` reports missing or
+maps every `SourceDef` to a known or Unknown schema. `PIE-S2303` reports missing or
 non-shape bindings and mode-sensitive untyped sources.
 
 Connector expressions are not inspected. Database metadata, table/query
@@ -336,11 +336,12 @@ and may be completed in the dependency hardening slice.
 - Record successful resolutions without mutating parser AST nodes.
 
 Implemented readonly `SemanticModel.from_resolutions`, keyed by `FromClause`.
-Unknown targets produce `P2301` at the from-clause span. Resolution continues
-after unknown targets, and relation cycles are left resolved but unchecked.
+Unknown targets produce `PIE-S2301` at the from-clause span. Resolution continues
+after unknown targets. Relation cycles are diagnosed by the dedicated cycle
+slice.
 
 No table/query row schemas, field resolution, expression typing, projection
-checking, or cycle detection is implemented.
+checking, or schema inference is implemented in this slice.
 
 Current test status:
 
@@ -357,14 +358,14 @@ Current test status:
 - Treat complex or aliased projections as Unknown without expression checks.
 
 Implemented readonly `SemanticModel.relation_row_schemas` for every table and
-query. `P2102` reports an unknown field selected from a known input schema;
-`P2305` reports a duplicate bare projection field. Unknown inputs, unresolved
-relations, unsupported projections, and relation cycles produce Unknown row
+query. `PIE-S2102` reports an unknown field selected from a known input schema;
+`PIE-S2305` reports a duplicate bare projection field. Unknown inputs, unresolved
+relations, unsupported projections, and cyclic relations produce Unknown row
 schemas that suppress dependent field diagnostics.
 
 No expression typing, aliased projection inference, dotted-name resolution,
-`where` validation, unnamed computed projection policy, or cycle diagnostics
-is implemented. Connector and physical database targets remain unchecked.
+`where` validation, or unnamed computed projection policy is implemented.
+Connector and physical database targets remain unchecked.
 
 Current test status:
 
@@ -372,16 +373,35 @@ Current test status:
 356 passed
 ```
 
-### 10. Dependency and Cycle Hardening
+### 10. Relation Cycle Diagnostics: Completed
+
+- Build table/query dependency edges from resolved `from` clauses.
+- Treat source dependencies as leaves.
+- Diagnose direct and indirect table/query cycles.
+- Keep cyclic relation row schemas Unknown to suppress dependent diagnostics.
+
+Implemented deterministic DFS cycle detection over table and query
+dependencies. Each distinct cycle produces one `PIE-S2302` at the `FromClause`
+edge that closes the cycle. Self-cycles and mixed table/query cycles are
+supported; unknown relations remain covered only by `PIE-S2301`.
+
+No type-alias, callable, or derived-field cycle checks are implemented.
+
+Current test status:
+
+```text
+369 passed
+```
+
+### 11. Remaining Dependency and Cycle Hardening
 
 - Detect type-alias cycles.
 - Detect callable recursion and dependency cycles.
 - Detect derived-field dependency cycles.
-- Detect table/query relation cycles.
 - Ensure one primary cycle diagnostic is reported for each relevant cycle.
 - Keep diagnostics deterministic and suppress dependent cascades.
 
-### 11. Phase 2 Examples and Documentation Audit
+### 12. Phase 2 Examples and Documentation Audit
 
 - Make every committed `examples/**/*.pie` file self-contained.
 - Require each normal example to have no semantic errors under the default
@@ -397,8 +417,10 @@ documented checked-mode behavior.
 ## Diagnostics
 
 Semantic diagnostics reuse `Diagnostic`, `Severity`, and `SourceLocation` from
-the existing frontend. They must include stable codes, source locations, and
-suggestions where a useful correction is known.
+the existing frontend. They use the canonical `PIE-Sxxxx` format documented in
+`docs/spec/diagnostics.md` and must include stable source locations and
+suggestions where a useful correction is known. Severity remains a separate
+field.
 
 Diagnostic output is sorted deterministically by:
 

@@ -125,7 +125,7 @@ def test_unknown_relation_reports_p2301() -> None:
     assert [
         (diagnostic.code, diagnostic.severity, diagnostic.message)
         for diagnostic in result.diagnostics
-    ] == [("P2301", Severity.ERROR, "Unknown relation: missing")]
+    ] == [("PIE-S2301", Severity.ERROR, "Unknown relation: missing")]
     assert table.from_clause not in result.model.from_resolutions
 
 
@@ -159,7 +159,7 @@ def test_relation_resolution_continues_after_unknown_target() -> None:
     broken = _relation(result, "broken", TableDef)
     output = _relation(result, "output", QueryDef)
 
-    assert [diagnostic.code for diagnostic in result.diagnostics] == ["P2301"]
+    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2301"]
     assert broken.from_clause not in result.model.from_resolutions
     assert result.model.from_resolutions[output.from_clause] is _relation(
         result,
@@ -198,7 +198,7 @@ def test_duplicate_relation_uses_first_binding_for_from_resolution() -> None:
     )
     output = _relation(result, "output", QueryDef)
 
-    assert [diagnostic.code for diagnostic in result.diagnostics] == ["P2001"]
+    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2001"]
     assert result.model.from_resolutions[output.from_clause] is _relation(
         result,
         "rows",
@@ -206,7 +206,7 @@ def test_duplicate_relation_uses_first_binding_for_from_resolution() -> None:
     )
 
 
-def test_relation_cycles_are_resolved_but_not_diagnosed_yet() -> None:
+def test_relation_cycles_are_resolved_and_diagnosed() -> None:
     result = analyze(
         _parse(
             "table first:\n"
@@ -224,7 +224,7 @@ def test_relation_cycles_are_resolved_but_not_diagnosed_yet() -> None:
 
     assert result.model.from_resolutions[first.from_clause] is second
     assert result.model.from_resolutions[second.from_clause] is first
-    assert result.diagnostics == ()
+    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2302"]
 
 
 def test_from_resolutions_mapping_is_readonly() -> None:

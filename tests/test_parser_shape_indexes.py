@@ -258,7 +258,7 @@ def test_malformed_shape_indexes_return_syntax_diagnostic(source: str) -> None:
     result = parse_source(source)
 
     assert result.ast is None
-    assert _has_code(result, "P1000")
+    assert _has_code(result, "PIE-P1000")
 
 
 def test_shape_index_rejects_old_postfix_nullability() -> None:
@@ -267,7 +267,7 @@ def test_shape_index_rejects_old_postfix_nullability() -> None:
     )
 
     assert result.ast is None
-    assert _has_code(result, "P1000")
+    assert _has_code(result, "PIE-P1000")
 
 
 def test_shape_index_brace_block_reports_unsupported_brace() -> None:
@@ -279,7 +279,7 @@ def test_shape_index_brace_block_reports_unsupported_brace() -> None:
     )
 
     assert result.ast is None
-    assert _has_code(result, "P1005")
+    assert _has_code(result, "PIE-P1005")
 
 
 def _assert_no_antlr_nodes(value: object) -> None:

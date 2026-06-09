@@ -28,6 +28,7 @@ from pietto.semantic.model import (
     SemanticResult,
     TypeKind,
 )
+from pietto.semantic.relation_cycles import check_relation_cycles
 from pietto.semantic.relation_schemas import propagate_relation_schemas
 from pietto.semantic.relations import resolve_relation_inputs
 from pietto.semantic.shapes import check_shape_structures
@@ -86,10 +87,16 @@ def analyze(
         relation_symbols,
     )
     diagnostics.extend(relation_diagnostics)
+    cyclic_relations, cycle_diagnostics = check_relation_cycles(
+        script,
+        from_resolutions,
+    )
+    diagnostics.extend(cycle_diagnostics)
     relation_row_schemas, schema_diagnostics = propagate_relation_schemas(
         script,
         from_resolutions=from_resolutions,
         source_row_schemas=source_row_schemas,
+        cyclic_relations=cyclic_relations,
     )
     diagnostics.extend(schema_diagnostics)
 
@@ -143,7 +150,7 @@ def _duplicate_diagnostic(
 
     span = definition.span
     return Diagnostic(
-        code="P2001",
+        code="PIE-S2001",
         severity=Severity.ERROR,
         message=(
             f"Duplicate symbol name in {namespace_name} namespace: {definition.name}"
@@ -213,7 +220,7 @@ def _unknown_type_diagnostic(type_expr: TypeExpr) -> Diagnostic:
 
     return _type_diagnostic(
         type_expr,
-        code="P2002",
+        code="PIE-S2002",
         severity=Severity.ERROR,
         message=f"Unknown type: {type_expr.name}",
     )
@@ -230,7 +237,7 @@ def _implicit_nullability_diagnostic(
     severity = Severity.WARNING if mode is CheckMode.CHECKED else Severity.ERROR
     return _type_diagnostic(
         type_expr,
-        code="P2005",
+        code="PIE-S2005",
         severity=severity,
         message=(
             f"Implicit nullability for type {type_expr.name}; "

@@ -78,7 +78,7 @@ def test_duplicate_shape_reports_p2001() -> None:
 
     assert len(result.diagnostics) == 1
     diagnostic = result.diagnostics[0]
-    assert diagnostic.code == "P2001"
+    assert diagnostic.code == "PIE-S2001"
     assert diagnostic.severity is Severity.ERROR
     assert diagnostic.message == "Duplicate symbol name in type namespace: User"
 
@@ -95,7 +95,7 @@ def test_source_and_table_names_duplicate_in_relation_namespace() -> None:
         mode_override=CheckMode.LOOSE,
     )
 
-    assert [diagnostic.code for diagnostic in result.diagnostics] == ["P2001"]
+    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2001"]
     assert (
         result.diagnostics[0].message
         == "Duplicate symbol name in relation namespace: users"
@@ -112,7 +112,7 @@ def test_derive_and_constraint_names_duplicate_in_callable_namespace() -> None:
         )
     )
 
-    assert [diagnostic.code for diagnostic in result.diagnostics] == ["P2001"]
+    assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2001"]
     assert (
         result.diagnostics[0].message
         == "Duplicate symbol name in callable namespace: normalize_email"

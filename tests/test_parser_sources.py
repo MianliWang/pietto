@@ -189,21 +189,21 @@ def test_malformed_sources_return_syntax_diagnostic(source: str) -> None:
     result = parse_source(source)
 
     assert result.ast is None
-    assert _has_code(result, "P1000")
+    assert _has_code(result, "PIE-P1000")
 
 
 def test_source_rejects_old_postfix_nullability() -> None:
     result = parse_source('source users: User? is postgres.table("public.users")\n')
 
     assert result.ast is None
-    assert _has_code(result, "P1000")
+    assert _has_code(result, "PIE-P1000")
 
 
 def test_source_brace_block_reports_unsupported_brace() -> None:
     result = parse_source('source users: User is postgres.table("public.users") {\n}\n')
 
     assert result.ast is None
-    assert _has_code(result, "P1005")
+    assert _has_code(result, "PIE-P1005")
 
 
 def _assert_no_antlr_nodes(value: object) -> None:

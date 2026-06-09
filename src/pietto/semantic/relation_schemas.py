@@ -25,6 +25,7 @@ def propagate_relation_schemas(
     *,
     from_resolutions: Mapping[FromClause, RelationDefinition],
     source_row_schemas: Mapping[SourceDef, RowSchema],
+    cyclic_relations: set[DerivedRelation],
 ) -> tuple[dict[DerivedRelation, RowSchema], list[Diagnostic]]:
     """Propagate bare field projections through table and query relations."""
 
@@ -35,6 +36,10 @@ def propagate_relation_schemas(
     def infer(definition: DerivedRelation) -> RowSchema:
         if definition in schemas:
             return schemas[definition]
+        if definition in cyclic_relations:
+            schema = _unknown_schema()
+            schemas[definition] = schema
+            return schema
         if definition in visiting:
             return _unknown_schema()
 
@@ -110,7 +115,7 @@ def _unknown_field_diagnostic(expression: NameExpr) -> Diagnostic:
 
     span = expression.span
     return Diagnostic(
-        code="P2102",
+        code="PIE-S2102",
         severity=Severity.ERROR,
         message=f"Unknown field: {expression.name}",
         location=SourceLocation(
@@ -131,7 +136,7 @@ def _duplicate_projection_diagnostic(
 
     span = item.span
     return Diagnostic(
-        code="P2305",
+        code="PIE-S2305",
         severity=Severity.ERROR,
         message=f"Duplicate projection field: {field_name}",
         location=SourceLocation(

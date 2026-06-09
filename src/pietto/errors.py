@@ -75,7 +75,7 @@ class DiagnosticErrorListener(ErrorListener):
         del recognizer, offendingSymbol, exception
         self.diagnostics.append(
             Diagnostic(
-                code="P1000",
+                code="PIE-P1000",
                 severity=Severity.ERROR,
                 message=msg,
                 location=SourceLocation(

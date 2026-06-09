@@ -145,14 +145,14 @@ def test_malformed_constraints_return_syntax_diagnostic(source: str) -> None:
     result = parse_source(source)
 
     assert result.ast is None
-    assert _has_code(result, "P1000")
+    assert _has_code(result, "PIE-P1000")
 
 
 def test_constraint_brace_block_reports_unsupported_brace() -> None:
     result = parse_source("constraint c() -> Bool {\n    true\n}\n")
 
     assert result.ast is None
-    assert _has_code(result, "P1005")
+    assert _has_code(result, "PIE-P1005")
 
 
 def test_constraint_rejects_multiple_body_expressions() -> None:
@@ -161,7 +161,7 @@ def test_constraint_rejects_multiple_body_expressions() -> None:
     )
 
     assert result.ast is None
-    assert _has_code(result, "P1000")
+    assert _has_code(result, "PIE-P1000")
 
 
 def _has_code(result: object, code: str) -> bool:

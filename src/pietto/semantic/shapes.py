@@ -28,7 +28,7 @@ def _check_shape(shape: ShapeDef) -> list[Diagnostic]:
             diagnostics.append(
                 _diagnostic(
                     item,
-                    code="P2501",
+                    code="PIE-S2501",
                     message=(
                         f"Duplicate shape item name in shape {shape.name}: {item.name}"
                     ),
@@ -61,7 +61,7 @@ def _check_targets(
             diagnostics.append(
                 _diagnostic(
                     item,
-                    code="P2502",
+                    code="PIE-S2502",
                     message=(
                         f"Unknown target field in shape {shape.name}: {field_name}"
                     ),
@@ -71,7 +71,7 @@ def _check_targets(
             diagnostics.append(
                 _diagnostic(
                     item,
-                    code="P2503",
+                    code="PIE-S2503",
                     message=(
                         f"Duplicate target field in {item_kind} "
                         f"{item.name}: {field_name}"

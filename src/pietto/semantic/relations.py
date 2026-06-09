@@ -45,7 +45,7 @@ def _unknown_relation_diagnostic(from_clause: FromClause) -> Diagnostic:
 
     span = from_clause.span
     return Diagnostic(
-        code="P2301",
+        code="PIE-S2301",
         severity=Severity.ERROR,
         message=f"Unknown relation: {from_clause.source_name}",
         location=SourceLocation(

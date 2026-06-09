@@ -117,7 +117,7 @@ def _source_diagnostic(
 
     span = source.span
     return Diagnostic(
-        code="P2303",
+        code="PIE-S2303",
         severity=severity,
         message=message,
         location=SourceLocation(
