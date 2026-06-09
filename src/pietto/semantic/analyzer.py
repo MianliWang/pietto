@@ -20,6 +20,7 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.catalog import BUILTIN_TYPE_NAMES
+from pietto.semantic.expressions import type_relation_expressions
 from pietto.semantic.model import (
     CheckMode,
     EffectiveNullability,
@@ -99,6 +100,13 @@ def analyze(
         cyclic_relations=cyclic_relations,
     )
     diagnostics.extend(schema_diagnostics)
+    expression_value_types, expression_diagnostics = type_relation_expressions(
+        script,
+        from_resolutions=from_resolutions,
+        source_row_schemas=source_row_schemas,
+        relation_row_schemas=relation_row_schemas,
+    )
+    diagnostics.extend(expression_diagnostics)
 
     return SemanticResult(
         model=SemanticModel(
@@ -111,6 +119,7 @@ def analyze(
             source_row_schemas=source_row_schemas,
             from_resolutions=from_resolutions,
             relation_row_schemas=relation_row_schemas,
+            expression_value_types=expression_value_types,
         ),
         diagnostics=tuple(sorted(diagnostics, key=_diagnostic_order)),
     )

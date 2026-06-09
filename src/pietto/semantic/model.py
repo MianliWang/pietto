@@ -9,6 +9,7 @@ from typing import Mapping, TypeVar
 
 from pietto.ast_nodes import (
     Definition,
+    Expression,
     FieldDef,
     FromClause,
     Node,
@@ -49,6 +50,13 @@ class EffectiveNullability(StrEnum):
     UNKNOWN = "unknown"
 
 
+class ValueTypeKind(StrEnum):
+    """Whether an expression value type is known or unavailable."""
+
+    KNOWN = "known"
+    UNKNOWN = "unknown"
+
+
 @dataclass(frozen=True, slots=True)
 class ResolvedType:
     """A resolved type name and its optional user declaration."""
@@ -56,6 +64,15 @@ class ResolvedType:
     name: str
     kind: TypeKind
     definition: Node | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ValueType:
+    """An expression's resolved type and effective nullability."""
+
+    resolved_type: ResolvedType
+    nullability: EffectiveNullability
+    kind: ValueTypeKind = ValueTypeKind.KNOWN
 
 
 def _readonly_mapping(
@@ -117,6 +134,9 @@ class SemanticModel:
     relation_row_schemas: Mapping[TableDef | QueryDef, RowSchema] = field(
         default_factory=_readonly_mapping
     )
+    expression_value_types: Mapping[Expression, ValueType] = field(
+        default_factory=_readonly_mapping
+    )
 
     def __post_init__(self) -> None:
         """Copy public mapping inputs into immutable mappings."""
@@ -156,6 +176,11 @@ class SemanticModel:
             self,
             "relation_row_schemas",
             _readonly_mapping(self.relation_row_schemas),
+        )
+        object.__setattr__(
+            self,
+            "expression_value_types",
+            _readonly_mapping(self.expression_value_types),
         )
 
 

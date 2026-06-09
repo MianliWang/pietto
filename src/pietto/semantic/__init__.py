@@ -10,6 +10,8 @@ from pietto.semantic.model import (
     SemanticModel,
     SemanticResult,
     TypeKind,
+    ValueType,
+    ValueTypeKind,
 )
 
 __all__ = [
@@ -21,5 +23,7 @@ __all__ = [
     "SemanticModel",
     "SemanticResult",
     "TypeKind",
+    "ValueType",
+    "ValueTypeKind",
     "analyze",
 ]

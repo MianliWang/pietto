@@ -299,23 +299,29 @@ Current test status:
 326 passed
 ```
 
-### 6. Minimal Expression Typing
+### 6. Minimal Expression Typing Scaffold: Completed
 
-- Add expression typing incrementally for literals, names, dotted names, basic
-  calls, unary arithmetic, basic arithmetic, comparisons, Boolean operators,
-  `between`, `like`, and `is null`.
-- Start with a small explicit built-in function catalog.
-- Define local scopes for `self`, parameters, shape fields, and relation rows
-  only as required by each consumer.
-- Record expression value types in `SemanticModel`.
+- Record immutable expression value types in `SemanticModel`.
+- Type scalar literals as portable built-in values.
+- Resolve bare field names against known relation input schemas.
+- Type simple comparisons and `is null` predicates as `Bool`.
+- Preserve Unknown values without cascading dependent diagnostics.
 
-This slice does not promise complete expression typing. Numeric promotion,
-function overloads, dialect functions, and advanced nullable-flow analysis
-remain out of scope.
+Implemented public `ValueTypeKind` and `ValueType` models plus the readonly
+`SemanticModel.expression_value_types` mapping. Typing currently runs only for
+table/query `where` and select expressions. Supported recursive forms are
+literals, bare names, simple comparisons, and `is null`/`is not null`.
+Unsupported forms remain opaque Unknown values.
 
-Nullability guard refinement is a later expression sub-slice after basic
-expression typing is stable. It should initially target simple guards such as
-`x is not null and ...` without becoming a general control-flow engine.
+No function checking, arithmetic typing, dotted-name resolution, `where` Bool
+validation, complex projection inference, consumer validation, or
+nullability-guard refinement is implemented.
+
+Current test status:
+
+```text
+383 passed
+```
 
 ### 7. Constraint and Derive Validation
 
