@@ -3,8 +3,9 @@
 ## Status
 
 Phase 3 is in progress. The package scaffold, immutable `DefinitionIR`,
-`ScriptIR`, `IrResult`, and public `build_ir()` entry point are implemented.
-Definition lowering, IR diagnostics, and SQL backends are not implemented yet.
+`ScriptIR`, `IrResult`, public `build_ir()` entry point, and foundational
+symbol/type/row-schema metadata lowering are implemented. Definition lowering,
+IR diagnostics, and SQL backends are not implemented yet.
 
 ## Goal
 
@@ -184,12 +185,19 @@ empty immutable `ScriptIR` with no diagnostics and does not parse source,
 rerun semantic analysis, mutate its inputs, or expose parser/ANTLR objects.
 `compile_to_ir()` is intentionally not provided.
 
-### 2. Symbol, Type, Nullability, and Schema Lowering
+### 2. Symbol, Type, Nullability, and Schema Lowering: Completed
 
 - Introduce stable `SymbolId` values.
 - Lower declared and canonical type references.
 - Lower effective nullability.
 - Lower ordered source and relation row schemas.
+
+Implemented parser-independent `SymbolId`, `TypeRefIR`, `RowFieldIR`, and
+`RowSchemaIR` models plus internal type and row-schema lowering helpers.
+Declared alias identity, canonical targets, effective nullability, source
+spans, Unknown schemas, and semantic field order are preserved. `build_ir()`
+still returns an empty definition tuple; declaration lowering remains a later
+slice.
 
 ### 3. Expression Lowering
 

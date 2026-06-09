@@ -9,9 +9,10 @@ minimal expression typing, callable and shape validation, dependency-cycle
 checks, and static `postgres.table(Text)` connector validation.
 
 Phase 3 Semantic IR has an initial immutable package and `build_ir()` scaffold,
-but definition lowering is not implemented. SQL generation, database
-connections or execution, schema introspection, and CLI runtime behavior are
-also not implemented.
+plus foundational symbol, type, nullability, and row-schema metadata lowering.
+Definition lowering is not implemented. SQL generation, database connections
+or execution, schema introspection, and CLI runtime behavior are also not
+implemented.
 
 See [the language specification](docs/spec/pietto-v0.9.md) and
 [the Phase 2 semantic plan](docs/plan/phase-2-semantic.md). The next compiler

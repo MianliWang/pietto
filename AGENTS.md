@@ -90,8 +90,8 @@ Rules:
 Current implementation phase: Phase 3 Semantic IR.
 
 Phase 1 parser and AST work and the Phase 2 Semantic Checker MVP are complete.
-The initial immutable IR package and `build_ir()` scaffold are complete.
-Current work focuses on:
+The initial immutable IR package, `build_ir()` scaffold, and foundational
+symbol/type/row-schema metadata lowering are complete. Current work focuses on:
 
 - immutable, backend-neutral Semantic IR;
 - lowering from the public AST plus readonly `SemanticModel`;

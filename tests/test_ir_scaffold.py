@@ -91,7 +91,15 @@ def test_ir_public_exports_are_explicit() -> None:
     assert ir_api.__all__ == [
         "DefinitionIR",
         "IrResult",
+        "NullabilityIR",
+        "RowFieldIR",
+        "RowSchemaIR",
         "ScriptIR",
+        "SourceSpan",
+        "SymbolId",
+        "SymbolNamespace",
+        "TypeKindIR",
+        "TypeRefIR",
         "build_ir",
     ]
 
