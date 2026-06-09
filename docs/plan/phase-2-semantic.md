@@ -202,13 +202,27 @@ Current test status:
 262 passed
 ```
 
-### 2. Symbol Collection
+### 2. Symbol Collection: Completed
 
-- Register built-ins and all top-level definitions in the three namespaces.
+- Register all user-defined top-level definitions in the three namespaces.
 - Preserve declaration spans and source ordering in symbol metadata.
 - Diagnose duplicates within a namespace.
 - Allow identical names across different namespaces.
 - Verify that forward declarations are visible after collection.
+
+Implemented readonly namespace mappings whose values are the existing AST
+definition nodes. Duplicate declarations produce `P2001` at the later
+definition's span, while the first declaration remains bound. Built-in
+registration is deferred to the minimal type and expression slices.
+
+No type, expression, field, callable, or relation reference resolution is
+implemented yet.
+
+Current test status:
+
+```text
+274 passed
+```
 
 ### 3. Minimal Type Resolution
 

@@ -45,8 +45,8 @@ def test_analyze_returns_model_and_empty_diagnostics() -> None:
     assert result.diagnostics == ()
 
 
-def test_semantic_namespaces_are_empty_and_readonly() -> None:
-    model = analyze(_parse("type Age = Int\n")).model
+def test_empty_semantic_namespaces_are_readonly() -> None:
+    model = analyze(_parse("")).model
 
     assert model.type_symbols == {}
     assert model.callable_symbols == {}

@@ -7,6 +7,7 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import Mapping
 
+from pietto.ast_nodes import Definition
 from pietto.errors import Diagnostic
 
 
@@ -19,8 +20,8 @@ class CheckMode(StrEnum):
 
 
 def _readonly_namespace(
-    values: Mapping[str, object] | None = None,
-) -> Mapping[str, object]:
+    values: Mapping[str, Definition] | None = None,
+) -> Mapping[str, Definition]:
     """Copy namespace values into an immutable public mapping."""
 
     return MappingProxyType(dict(values or {}))
@@ -31,9 +32,13 @@ class SemanticModel:
     """Readonly semantic state built incrementally across Phase 2."""
 
     mode: CheckMode
-    type_symbols: Mapping[str, object] = field(default_factory=_readonly_namespace)
-    callable_symbols: Mapping[str, object] = field(default_factory=_readonly_namespace)
-    relation_symbols: Mapping[str, object] = field(default_factory=_readonly_namespace)
+    type_symbols: Mapping[str, Definition] = field(default_factory=_readonly_namespace)
+    callable_symbols: Mapping[str, Definition] = field(
+        default_factory=_readonly_namespace
+    )
+    relation_symbols: Mapping[str, Definition] = field(
+        default_factory=_readonly_namespace
+    )
 
     def __post_init__(self) -> None:
         """Copy namespace inputs into immutable public mappings."""
