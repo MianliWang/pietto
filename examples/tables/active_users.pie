@@ -3,6 +3,12 @@ mode checked
 dialect postgres
 encoding utf8
 
+shape User:
+    id: UUID not null
+    email: Text nullable
+    email_norm: Text nullable
+    deleted_at: Timestamp nullable
+
 source users: User is postgres.table("public.users")
 
 table active_users:

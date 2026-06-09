@@ -3,5 +3,5 @@ mode checked
 dialect postgres
 encoding utf8
 
-derive normalized_email(x: Text) -> Text:
+derive normalized_email(x: Text not null) -> Text not null:
     lower(trim(x))

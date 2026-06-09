@@ -155,13 +155,15 @@ def test_source_example_fixture_parses() -> None:
 
     assert result.diagnostics == ()
     assert result.ast is not None
-    assert [definition.name for definition in result.ast.definitions] == [
+    sources = tuple(
+        definition
+        for definition in result.ast.definitions
+        if isinstance(definition, SourceDef)
+    )
+    assert [source.name for source in sources] == [
         "users",
         "raw_events",
     ]
-    assert all(
-        isinstance(definition, SourceDef) for definition in result.ast.definitions
-    )
 
 
 def test_source_ast_does_not_expose_antlr_nodes() -> None:

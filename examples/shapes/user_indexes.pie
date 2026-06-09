@@ -5,7 +5,7 @@ encoding utf8
 
 shape User:
     tenant_id: UUID not null
-    email: Email not null
+    email: Text(max = 255) not null
     deleted_at: Timestamp nullable
 
     index user_email_idx on email

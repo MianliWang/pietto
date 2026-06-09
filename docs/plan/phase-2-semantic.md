@@ -420,7 +420,7 @@ Current test status:
 - Ensure one primary cycle diagnostic is reported for each relevant cycle.
 - Keep diagnostics deterministic and suppress dependent cascades.
 
-### 12. Phase 2 Examples and Documentation Audit
+### 12. Phase 2 Examples and Documentation Audit: In Progress
 
 - Make every committed `examples/**/*.pie` file self-contained.
 - Require each normal example to have no semantic errors under the default
@@ -432,6 +432,18 @@ Current test status:
 
 Warnings may remain in examples only when they intentionally demonstrate
 documented checked-mode behavior.
+
+Completed the semantic example gate: every committed `examples/**/*.pie` file
+is parsed and analyzed under the default checked mode, and the test suite
+rejects semantic errors with path-specific diagnostic details. Normal examples
+are self-contained; intentional checked-mode warnings may remain.
+
+Current coverage and test status:
+
+```text
+10 examples
+438 passed
+```
 
 ## Diagnostics
 

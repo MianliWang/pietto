@@ -232,9 +232,17 @@ def test_table_example_fixture_parses() -> None:
 
     assert result.diagnostics == ()
     assert result.ast is not None
-    source, table = result.ast.definitions
-    assert isinstance(source, SourceDef)
-    assert isinstance(table, TableDef)
+    source = next(
+        definition
+        for definition in result.ast.definitions
+        if isinstance(definition, SourceDef)
+    )
+    table = next(
+        definition
+        for definition in result.ast.definitions
+        if isinstance(definition, TableDef)
+    )
+    assert source.name == "users"
     assert table.name == "active_users"
     assert table.from_clause.source_name == "users"
     assert [item.alias for item in table.select_items] == [

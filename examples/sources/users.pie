@@ -3,5 +3,9 @@ mode checked
 dialect postgres
 encoding utf8
 
+shape User:
+    id: UUID not null
+    email: Text nullable
+
 source users: User is postgres.table("public.users")
 source raw_events is postgres.table("public.events")
