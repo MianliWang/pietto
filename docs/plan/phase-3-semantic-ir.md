@@ -4,8 +4,9 @@
 
 Phase 3 is in progress. The package scaffold, immutable `DefinitionIR`,
 `ScriptIR`, `IrResult`, public `build_ir()` entry point, and foundational
-symbol/type/row-schema metadata lowering are implemented. Definition lowering,
-IR diagnostics, and SQL backends are not implemented yet.
+symbol/type/row-schema metadata lowering are implemented. Type, enum, shape,
+and source declarations now lower into immutable IR. Constraint, derive,
+relation, and expression lowering and SQL backends are not implemented yet.
 
 ## Goal
 
@@ -195,9 +196,7 @@ rerun semantic analysis, mutate its inputs, or expose parser/ANTLR objects.
 Implemented parser-independent `SymbolId`, `TypeRefIR`, `RowFieldIR`, and
 `RowSchemaIR` models plus internal type and row-schema lowering helpers.
 Declared alias identity, canonical targets, effective nullability, source
-spans, Unknown schemas, and semantic field order are preserved. `build_ir()`
-still returns an empty definition tuple; declaration lowering remains a later
-slice.
+spans, Unknown schemas, and semantic field order are preserved.
 
 ### 3. Expression Lowering
 
@@ -206,11 +205,22 @@ slice.
 - Attach existing semantic value types and resolved references.
 - Keep unsupported or inconsistent semantic facts diagnostic-driven.
 
-### 4. Declaration Lowering
+### 4. Declaration Lowering: In Progress
 
 - Lower type, enum, shape, constraint, derive, and source declarations.
 - Preserve declaration order, spans, contracts, and static connector data.
 - Do not execute or validate connectors beyond Phase 2 facts.
+
+Implemented immutable `TypeIR`, `EnumIR`, `ShapeIR`, and `SourceIR` lowering.
+Supported definitions preserve their relative top-level source order. Shape
+fields preserve field order, type metadata, nullability, and spans. Sources
+preserve shape symbols, analyzed row schemas, and static connector names and
+literal arguments without execution.
+
+Constraint and derive lowering remains deferred until expression IR exists.
+Table and query definitions are also skipped until the relation-lowering
+slice. Missing required semantic facts produce `PIE-I1000` and prevent a
+partial `ScriptIR`.
 
 ### 5. Relation Lowering
 

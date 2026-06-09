@@ -90,6 +90,71 @@ class DefinitionIR:
 
 
 @dataclass(frozen=True, slots=True)
+class TypeIR(DefinitionIR):
+    """A lowered type alias with declared and canonical targets."""
+
+    symbol: SymbolId
+    name: str
+    declared_type: TypeRefIR
+    canonical_type: TypeRefIR
+    span: SourceSpan
+
+
+@dataclass(frozen=True, slots=True)
+class EnumIR(DefinitionIR):
+    """A lowered enum preserving member source order."""
+
+    symbol: SymbolId
+    name: str
+    members: tuple[str, ...]
+    span: SourceSpan
+
+
+@dataclass(frozen=True, slots=True)
+class ShapeFieldIR:
+    """A lowered shape field with resolved type metadata."""
+
+    name: str
+    type_ref: TypeRefIR
+    nullability: NullabilityIR
+    span: SourceSpan
+
+
+@dataclass(frozen=True, slots=True)
+class ShapeIR(DefinitionIR):
+    """A lowered shape containing ordered field metadata."""
+
+    symbol: SymbolId
+    name: str
+    fields: tuple[ShapeFieldIR, ...]
+    span: SourceSpan
+
+
+StaticValue = str | int | float | bool | None
+
+
+@dataclass(frozen=True, slots=True)
+class ConnectorIR:
+    """Static source connector metadata without runtime behavior."""
+
+    name: str
+    arguments: tuple[StaticValue, ...]
+    span: SourceSpan
+
+
+@dataclass(frozen=True, slots=True)
+class SourceIR(DefinitionIR):
+    """A lowered source declaration with static connector and row metadata."""
+
+    symbol: SymbolId
+    name: str
+    shape_symbol: SymbolId | None
+    row_schema: RowSchemaIR
+    connector: ConnectorIR
+    span: SourceSpan
+
+
+@dataclass(frozen=True, slots=True)
 class ScriptIR:
     """Top-level Semantic IR container preserving definition order."""
 

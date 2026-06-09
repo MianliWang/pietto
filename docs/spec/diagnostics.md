@@ -53,4 +53,10 @@ stored separately and is never encoded in the code.
 | `PIE-S2503` | Duplicate unique or index target field |
 | `PIE-S2504` | Derived field dependency cycle |
 
-No IR, backend, or runtime diagnostic codes are currently defined.
+## IR Diagnostics
+
+| Code | Meaning |
+|---|---|
+| `PIE-I1000` | Missing or inconsistent semantic fact required for IR lowering |
+
+No backend or runtime diagnostic codes are currently defined.

@@ -43,6 +43,24 @@ def lower_type_ref(
     )
 
 
+def lower_canonical_type_ref(
+    type_expr: TypeExpr,
+    semantic_model: SemanticModel,
+) -> TypeRefIR:
+    """Lower the canonical target of one parsed type reference."""
+
+    type_ref = lower_type_ref(type_expr, semantic_model)
+    return TypeRefIR(
+        symbol=type_ref.canonical_symbol,
+        canonical_symbol=type_ref.canonical_symbol,
+        declared_name=type_ref.canonical_name,
+        canonical_name=type_ref.canonical_name,
+        kind=type_ref.canonical_kind,
+        canonical_kind=type_ref.canonical_kind,
+        nullability=type_ref.nullability,
+    )
+
+
 def lower_row_schema(
     schema: RowSchema,
     semantic_model: SemanticModel,
@@ -65,7 +83,7 @@ def _lower_row_field(
 
     if field.definition is not None:
         type_ref = lower_type_ref(field.definition.type_expr, semantic_model)
-        span = _lower_span(field.definition.span)
+        span = lower_span(field.definition.span)
     else:
         type_ref = _type_ref_from_semantics(
             declared_name=field.resolved_type.name,
@@ -130,7 +148,7 @@ def _lower_nullability(value: EffectiveNullability) -> NullabilityIR:
     return NullabilityIR(value.value)
 
 
-def _lower_span(span: Span) -> SourceSpan:
+def lower_span(span: Span) -> SourceSpan:
     """Copy a parser AST span without retaining the AST object."""
 
     return SourceSpan(

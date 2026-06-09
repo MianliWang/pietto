@@ -24,13 +24,13 @@ def test_build_ir_returns_ir_result() -> None:
     assert isinstance(result, IrResult)
 
 
-def test_build_ir_returns_minimal_script_ir_without_diagnostics() -> None:
+def test_build_ir_returns_script_ir_without_diagnostics() -> None:
     script, semantic_model = _analyzed_script()
 
     result = build_ir(script, semantic_model)
 
     assert isinstance(result.ir, ScriptIR)
-    assert result.ir.definitions == ()
+    assert isinstance(result.ir.definitions, tuple)
     assert result.diagnostics == ()
     assert isinstance(result.diagnostics, tuple)
 
@@ -89,15 +89,21 @@ def test_compile_to_ir_is_not_exported() -> None:
 
 def test_ir_public_exports_are_explicit() -> None:
     assert ir_api.__all__ == [
+        "ConnectorIR",
         "DefinitionIR",
+        "EnumIR",
         "IrResult",
         "NullabilityIR",
         "RowFieldIR",
         "RowSchemaIR",
         "ScriptIR",
+        "ShapeFieldIR",
+        "ShapeIR",
+        "SourceIR",
         "SourceSpan",
         "SymbolId",
         "SymbolNamespace",
+        "TypeIR",
         "TypeKindIR",
         "TypeRefIR",
         "build_ir",
