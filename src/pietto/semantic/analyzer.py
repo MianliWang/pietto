@@ -28,6 +28,7 @@ from pietto.semantic.model import (
     SemanticResult,
     TypeKind,
 )
+from pietto.semantic.shapes import check_shape_structures
 
 
 def analyze(
@@ -67,6 +68,8 @@ def analyze(
         implicit_diagnostic = _implicit_nullability_diagnostic(type_expr, mode)
         if implicit_diagnostic is not None:
             diagnostics.append(implicit_diagnostic)
+
+    diagnostics.extend(check_shape_structures(script))
 
     return SemanticResult(
         model=SemanticModel(

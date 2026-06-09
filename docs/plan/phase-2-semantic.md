@@ -250,17 +250,31 @@ Current test status:
 292 passed
 ```
 
-### 4. Shape Field Checks
+### 4. Shape Structural Checks: Completed
 
-- Build field symbol tables and initial row schemas for shapes.
-- Diagnose duplicate field and shape-item names according to the chosen local
-  namespace policy.
-- Resolve field types.
+- Treat field, check, unique, and index names as one local shape-item
+  namespace.
+- Diagnose duplicate shape-item names.
 - Validate that `unique` and `index` targets name existing fields.
+- Diagnose repeated target fields within one `unique` or `index`.
 - Keep annotations as unvalidated metadata.
 
-Field expressions, derived-field dependencies, predicate types, and cycle
-checks may remain for later slices.
+Implemented `P2501` for duplicate shape-item names, `P2502` for unknown
+unique/index target fields, and `P2503` for repeated targets. Checks continue
+across all shapes and diagnostics retain deterministic source ordering.
+
+Unique and index target names are currently stored as strings without
+individual AST spans, so target diagnostics use the containing item's span.
+
+No shape row schema, expression typing, check/index predicate validation,
+field derive validation, dependency analysis, or cycle checking is
+implemented.
+
+Current test status:
+
+```text
+311 passed
+```
 
 ### 5. Minimal Expression Typing
 
