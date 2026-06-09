@@ -266,9 +266,9 @@ across all shapes and diagnostics retain deterministic source ordering.
 Unique and index target names are currently stored as strings without
 individual AST spans, so target diagnostics use the containing item's span.
 
-No shape row schema, expression typing, check/index predicate validation,
-field derive validation, dependency analysis, or cycle checking is
-implemented.
+No public shape row schema, field derive validation, dependency analysis, or
+cycle checking is implemented in this structural slice. Shape predicate
+typing and Bool validation are tracked in the expression slice below.
 
 Current test status:
 
@@ -308,14 +308,18 @@ Current test status:
 - Preserve Unknown values without cascading dependent diagnostics.
 
 Implemented public `ValueTypeKind` and `ValueType` models plus the readonly
-`SemanticModel.expression_value_types` mapping. Typing currently runs only for
-table/query `where` and select expressions. Supported recursive forms are
-literals, bare names, simple comparisons, and `is null`/`is not null`.
-Unsupported forms remain opaque Unknown values.
+`SemanticModel.expression_value_types` mapping. Typing currently runs for
+shape check bodies, index predicates, and table/query `where` and select
+expressions. Supported recursive forms are literals, bare names, simple
+comparisons, and `is null`/`is not null`. Unsupported forms remain opaque
+Unknown values.
 
 Known table/query `where` expressions are validated as `Bool`. A known
 non-Bool expression produces `PIE-S2202`; Unknown expression types suppress
 this dependent diagnostic.
+
+Shape check bodies and index predicates use the same `PIE-S2202` policy
+against their enclosing shape's field environment.
 
 No function checking, arithmetic typing, dotted-name resolution, complex
 projection inference, other consumer validation, or nullability-guard
@@ -324,7 +328,7 @@ refinement is implemented.
 Current test status:
 
 ```text
-395 passed
+411 passed
 ```
 
 ### 7. Constraint and Derive Validation

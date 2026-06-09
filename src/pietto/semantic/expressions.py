@@ -1,25 +1,30 @@
-"""Minimal expression value typing for relation field environments."""
+"""Minimal expression value typing for supported field environments."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 
 from pietto.ast_nodes import (
+    CheckDef,
     ComparisonExpr,
     Expression,
     FromClause,
+    IndexDef,
     IsNullExpr,
     LiteralExpr,
     NameExpr,
     QueryDef,
     Script,
+    ShapeDef,
     SourceDef,
     TableDef,
+    TypeExpr,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.model import (
     EffectiveNullability,
     ResolvedType,
+    RowField,
     RowSchema,
     TypeKind,
     ValueType,
@@ -34,6 +39,43 @@ _UNKNOWN_VALUE_TYPE = ValueType(
     nullability=EffectiveNullability.UNKNOWN,
     kind=ValueTypeKind.UNKNOWN,
 )
+
+
+def type_shape_predicates(
+    script: Script,
+    *,
+    type_resolutions: Mapping[TypeExpr, ResolvedType],
+    type_nullability: Mapping[TypeExpr, EffectiveNullability],
+) -> tuple[dict[Expression, ValueType], list[Diagnostic]]:
+    """Type shape check bodies and index predicates against shape fields."""
+
+    value_types: dict[Expression, ValueType] = {}
+    diagnostics: list[Diagnostic] = []
+
+    for definition in script.definitions:
+        if not isinstance(definition, ShapeDef):
+            continue
+        row_schema = _shape_row_schema(
+            definition,
+            type_resolutions=type_resolutions,
+            type_nullability=type_nullability,
+        )
+        for item in definition.items:
+            if isinstance(item, CheckDef):
+                expression = item.expression
+            elif isinstance(item, IndexDef) and item.predicate is not None:
+                expression = item.predicate
+            else:
+                continue
+            _infer(
+                expression,
+                row_schema,
+                value_types,
+                diagnostics,
+                report_unknown_name=True,
+            )
+
+    return value_types, diagnostics
 
 
 def type_relation_expressions(
@@ -76,6 +118,27 @@ def type_relation_expressions(
             )
 
     return value_types, diagnostics
+
+
+def _shape_row_schema(
+    shape: ShapeDef,
+    *,
+    type_resolutions: Mapping[TypeExpr, ResolvedType],
+    type_nullability: Mapping[TypeExpr, EffectiveNullability],
+) -> RowSchema:
+    """Build the local field environment used by shape predicates."""
+
+    fields: dict[str, RowField] = {}
+    for field in shape.fields:
+        if field.name in fields:
+            continue
+        fields[field.name] = RowField(
+            name=field.name,
+            resolved_type=type_resolutions[field.type_expr],
+            nullability=type_nullability[field.type_expr],
+            definition=field,
+        )
+    return RowSchema(fields=fields)
 
 
 def _input_schema(
@@ -190,6 +253,8 @@ def _name_value_type(
     if field is None:
         if report_unknown:
             diagnostics.append(_unknown_field_diagnostic(expression))
+        return _UNKNOWN_VALUE_TYPE
+    if field.resolved_type.kind is TypeKind.UNKNOWN:
         return _UNKNOWN_VALUE_TYPE
     return ValueType(
         resolved_type=field.resolved_type,

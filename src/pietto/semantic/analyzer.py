@@ -20,7 +20,10 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.catalog import BUILTIN_TYPE_NAMES
-from pietto.semantic.expressions import type_relation_expressions
+from pietto.semantic.expressions import (
+    type_relation_expressions,
+    type_shape_predicates,
+)
 from pietto.semantic.model import (
     CheckMode,
     EffectiveNullability,
@@ -34,7 +37,7 @@ from pietto.semantic.relation_schemas import propagate_relation_schemas
 from pietto.semantic.relations import resolve_relation_inputs
 from pietto.semantic.shapes import check_shape_structures
 from pietto.semantic.sources import check_sources
-from pietto.semantic.where_checks import check_where_clauses
+from pietto.semantic.predicate_checks import check_predicates
 
 
 def analyze(
@@ -101,14 +104,21 @@ def analyze(
         cyclic_relations=cyclic_relations,
     )
     diagnostics.extend(schema_diagnostics)
-    expression_value_types, expression_diagnostics = type_relation_expressions(
+    expression_value_types, expression_diagnostics = type_shape_predicates(
+        script,
+        type_resolutions=type_resolutions,
+        type_nullability=type_nullability,
+    )
+    relation_value_types, relation_expression_diagnostics = type_relation_expressions(
         script,
         from_resolutions=from_resolutions,
         source_row_schemas=source_row_schemas,
         relation_row_schemas=relation_row_schemas,
     )
+    expression_value_types.update(relation_value_types)
+    expression_diagnostics.extend(relation_expression_diagnostics)
     diagnostics.extend(expression_diagnostics)
-    diagnostics.extend(check_where_clauses(script, expression_value_types))
+    diagnostics.extend(check_predicates(script, expression_value_types))
 
     return SemanticResult(
         model=SemanticModel(

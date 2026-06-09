@@ -36,7 +36,7 @@ stored separately and is never encoded in the code.
 | `PIE-S2002` | Unknown type |
 | `PIE-S2005` | Implicit nullability |
 | `PIE-S2102` | Unknown field |
-| `PIE-S2202` | Non-Bool expression in a `where` clause |
+| `PIE-S2202` | Known non-Bool expression in a predicate context |
 | `PIE-S2301` | Unknown relation |
 | `PIE-S2302` | Relation dependency cycle |
 | `PIE-S2303` | Invalid, missing, or untyped source shape |
