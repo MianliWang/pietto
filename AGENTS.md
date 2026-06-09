@@ -95,7 +95,9 @@ symbol/type/row-schema metadata lowering are complete. Type, enum, shape, and
 source declaration lowering and minimal expression IR helpers are implemented.
 Top-level constraint and derive declarations lower as immutable callable
 metadata without user-defined call resolution or execution. Minimal
-table/query IR supports `from`, optional `where`, and `select`.
+table/query IR supports `from`, optional `where`, and `select`. Existing shape
+checks, unique declarations, indexes, index predicates, and field derive
+expressions lower as immutable metadata without SQL or DDL generation.
 Current work focuses on:
 
 - immutable, backend-neutral Semantic IR;

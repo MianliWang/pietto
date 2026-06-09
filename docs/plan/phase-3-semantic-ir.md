@@ -230,15 +230,22 @@ or relations.
 Implemented immutable `TypeIR`, `EnumIR`, `ShapeIR`, `ConstraintIR`,
 `DeriveIR`, and `SourceIR` lowering. Supported definitions preserve their
 relative top-level source order. Shape fields preserve field order, type
-metadata, nullability, and spans. Sources preserve shape symbols, analyzed row
-schemas, and static connector names and literal arguments without execution.
-Top-level callables preserve parameter order, declared and canonical type
-metadata, stable callable symbols, and typed expression bodies.
+metadata, nullability, spans, and existing field derive expressions. Shape
+items preserve mixed source order for fields, checks, unique declarations, and
+indexes, including typed check and partial-index predicates. Sources preserve
+shape symbols, analyzed row schemas, and static connector names and literal
+arguments without execution. Top-level callables preserve parameter order,
+declared and canonical type metadata, stable callable symbols, and typed
+expression bodies.
 
 Callable lowering does not resolve or execute user-defined calls and does not
 add call graphs, recursion analysis, or purity analysis. Table and query
 definitions are handled by the relation-lowering slice. Missing required
 semantic facts produce `PIE-I1000` and prevent a partial `ScriptIR`.
+
+Field annotations and field-level `ensure` clauses remain outside IR until
+their semantic representation is defined. Shape metadata lowering does not
+generate database constraints, indexes, SQL, or DDL.
 
 ### 5. Relation Lowering: Completed
 

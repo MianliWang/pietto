@@ -205,6 +205,14 @@ class EnumIR(DefinitionIR):
 
 
 @dataclass(frozen=True, slots=True)
+class ShapeFieldDeriveIR:
+    """A lowered field derive expression."""
+
+    expression: ExpressionIR
+    span: SourceSpan
+
+
+@dataclass(frozen=True, slots=True)
 class ShapeFieldIR:
     """A lowered shape field with resolved type metadata."""
 
@@ -212,16 +220,49 @@ class ShapeFieldIR:
     type_ref: TypeRefIR
     nullability: NullabilityIR
     span: SourceSpan
+    derive: ShapeFieldDeriveIR | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ShapeCheckIR:
+    """A lowered named shape predicate."""
+
+    name: str
+    expression: ExpressionIR
+    span: SourceSpan
+
+
+@dataclass(frozen=True, slots=True)
+class ShapeUniqueIR:
+    """A lowered named uniqueness declaration over ordered fields."""
+
+    name: str
+    fields: tuple[str, ...]
+    span: SourceSpan
+
+
+@dataclass(frozen=True, slots=True)
+class ShapeIndexIR:
+    """A lowered named index declaration with an optional predicate."""
+
+    name: str
+    fields: tuple[str, ...]
+    predicate: ExpressionIR | None
+    span: SourceSpan
+
+
+ShapeItemIR = ShapeFieldIR | ShapeCheckIR | ShapeUniqueIR | ShapeIndexIR
 
 
 @dataclass(frozen=True, slots=True)
 class ShapeIR(DefinitionIR):
-    """A lowered shape containing ordered field metadata."""
+    """A lowered shape containing fields and source-ordered metadata."""
 
     symbol: SymbolId
     name: str
     fields: tuple[ShapeFieldIR, ...]
     span: SourceSpan
+    items: tuple[ShapeItemIR, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

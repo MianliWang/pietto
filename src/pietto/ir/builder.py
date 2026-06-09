@@ -6,11 +6,14 @@ from collections.abc import Mapping
 
 from pietto.ast_nodes import (
     CallExpr,
+    CheckDef,
     ConstraintDef,
     DeriveDef,
     DottedNameExpr,
     EnumDef,
     Expression,
+    FieldDef,
+    IndexDef,
     LiteralExpr,
     NameExpr,
     Node,
@@ -23,6 +26,7 @@ from pietto.ast_nodes import (
     TableDef,
     TypeDef,
     TypeExpr,
+    UniqueDef,
 )
 from pietto.errors import Diagnostic
 from pietto.ir.diagnostics import missing_semantic_fact_diagnostic
@@ -50,8 +54,13 @@ from pietto.ir.model import (
     RelationSourceIR,
     RowFieldIR,
     ScriptIR,
+    ShapeCheckIR,
+    ShapeFieldDeriveIR,
     ShapeFieldIR,
+    ShapeIndexIR,
     ShapeIR,
+    ShapeItemIR,
+    ShapeUniqueIR,
     SourceIR,
     StaticValue,
     SymbolId,
@@ -136,26 +145,111 @@ def _lower_shape(
     definition: ShapeDef,
     semantic_model: SemanticModel,
 ) -> ShapeIR:
-    """Lower ordered shape fields without lowering modifiers or predicates."""
+    """Lower fields and existing semantically checked shape metadata."""
 
-    fields: list[ShapeFieldIR] = []
-    for field in definition.fields:
-        _require_type_facts(field.type_expr, semantic_model)
-        type_ref = lower_type_ref(field.type_expr, semantic_model)
-        fields.append(
-            ShapeFieldIR(
-                name=field.name,
-                type_ref=type_ref,
-                nullability=NullabilityIR(type_ref.nullability),
-                span=lower_span(field.span),
-            )
+    symbol = _symbol(SymbolNamespace.TYPE, definition.name)
+    field_environment = _shape_fields(definition, semantic_model)
+    items = tuple(
+        _lower_shape_item(
+            item,
+            semantic_model,
+            fields=field_environment,
+            field_owner=symbol,
         )
+        for item in definition.items
+    )
     return ShapeIR(
-        symbol=_symbol(SymbolNamespace.TYPE, definition.name),
+        symbol=symbol,
         name=definition.name,
-        fields=tuple(fields),
+        fields=tuple(item for item in items if isinstance(item, ShapeFieldIR)),
+        items=items,
         span=lower_span(definition.span),
     )
+
+
+def _lower_shape_item(
+    item: FieldDef | CheckDef | UniqueDef | IndexDef,
+    semantic_model: SemanticModel,
+    *,
+    fields: Mapping[str, RowField],
+    field_owner: SymbolId,
+) -> ShapeItemIR:
+    """Lower one shape item while preserving mixed source order."""
+
+    if isinstance(item, FieldDef):
+        _require_type_facts(item.type_expr, semantic_model)
+        type_ref = lower_type_ref(item.type_expr, semantic_model)
+        derive = None
+        if item.derive_expression is not None:
+            expression = _require_lowered_expression(
+                item.derive_expression,
+                semantic_model,
+                fields=fields,
+                field_owner=field_owner,
+            )
+            derive = ShapeFieldDeriveIR(
+                expression=expression,
+                span=lower_span(item.derive_expression.span),
+            )
+        return ShapeFieldIR(
+            name=item.name,
+            type_ref=type_ref,
+            nullability=NullabilityIR(type_ref.nullability),
+            derive=derive,
+            span=lower_span(item.span),
+        )
+    if isinstance(item, CheckDef):
+        return ShapeCheckIR(
+            name=item.name,
+            expression=_require_lowered_expression(
+                item.expression,
+                semantic_model,
+                fields=fields,
+                field_owner=field_owner,
+            ),
+            span=lower_span(item.span),
+        )
+    if isinstance(item, UniqueDef):
+        return ShapeUniqueIR(
+            name=item.name,
+            fields=item.field_names,
+            span=lower_span(item.span),
+        )
+
+    predicate = None
+    if item.predicate is not None:
+        predicate = _require_lowered_expression(
+            item.predicate,
+            semantic_model,
+            fields=fields,
+            field_owner=field_owner,
+        )
+    return ShapeIndexIR(
+        name=item.name,
+        fields=item.field_names,
+        predicate=predicate,
+        span=lower_span(item.span),
+    )
+
+
+def _shape_fields(
+    definition: ShapeDef,
+    semantic_model: SemanticModel,
+) -> Mapping[str, RowField]:
+    """Rebuild the analyzed shape field environment for expression lowering."""
+
+    fields: dict[str, RowField] = {}
+    for field in definition.fields:
+        if field.name in fields:
+            continue
+        _require_type_facts(field.type_expr, semantic_model)
+        fields[field.name] = RowField(
+            name=field.name,
+            resolved_type=semantic_model.type_resolutions[field.type_expr],
+            nullability=semantic_model.type_nullability[field.type_expr],
+            definition=field,
+        )
+    return fields
 
 
 def _lower_callable(
