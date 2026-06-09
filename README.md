@@ -12,7 +12,9 @@ Phase 3 Semantic IR has an initial immutable package and `build_ir()` scaffold,
 plus foundational symbol, type, nullability, and row-schema metadata lowering.
 Type, enum, shape, and source declarations are lowered. Expression IR models
 and helpers cover the current expression AST. Minimal table and query IR
-lowering supports `from`, optional `where`, and ordered projections. SQL
+lowering supports `from`, optional `where`, and ordered projections. Top-level
+constraint and derive declarations lower as immutable signature and body
+metadata; user-defined callable calls are not resolved or executed. SQL
 generation, advanced relation operations, database connections or execution,
 schema introspection, and CLI runtime behavior are not implemented.
 

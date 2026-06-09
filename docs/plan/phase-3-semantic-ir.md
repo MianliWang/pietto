@@ -7,8 +7,10 @@ Phase 3 is in progress. The package scaffold, immutable `DefinitionIR`,
 symbol/type/row-schema metadata lowering are implemented. Type, enum, shape,
 and source declarations and the current expression AST surface now lower into
 immutable IR. Minimal table and query relations now lower `from`, optional
-`where`, and ordered `select` projections. Constraint and derive lowering,
-advanced relation operations, and SQL backends are not implemented yet.
+`where`, and ordered `select` projections. Top-level constraint and derive
+declarations lower as callable metadata with typed parameters, return types,
+and expression bodies. User-defined callable calls, advanced relation
+operations, and SQL backends are not implemented yet.
 
 ## Goal
 
@@ -219,21 +221,24 @@ types remain Unknown safely; a missing root expression value-type fact
 produces `PIE-I1000`. Expression lowering is not yet wired into declarations
 or relations.
 
-### 4. Declaration Lowering: In Progress
+### 4. Declaration Lowering: Completed for Current Top-Level Declarations
 
 - Lower type, enum, shape, constraint, derive, and source declarations.
 - Preserve declaration order, spans, contracts, and static connector data.
 - Do not execute or validate connectors beyond Phase 2 facts.
 
-Implemented immutable `TypeIR`, `EnumIR`, `ShapeIR`, and `SourceIR` lowering.
-Supported definitions preserve their relative top-level source order. Shape
-fields preserve field order, type metadata, nullability, and spans. Sources
-preserve shape symbols, analyzed row schemas, and static connector names and
-literal arguments without execution.
+Implemented immutable `TypeIR`, `EnumIR`, `ShapeIR`, `ConstraintIR`,
+`DeriveIR`, and `SourceIR` lowering. Supported definitions preserve their
+relative top-level source order. Shape fields preserve field order, type
+metadata, nullability, and spans. Sources preserve shape symbols, analyzed row
+schemas, and static connector names and literal arguments without execution.
+Top-level callables preserve parameter order, declared and canonical type
+metadata, stable callable symbols, and typed expression bodies.
 
-Constraint and derive lowering remains deferred. Table and query definitions
-are handled by the relation-lowering slice. Missing required semantic facts
-produce `PIE-I1000` and prevent a partial `ScriptIR`.
+Callable lowering does not resolve or execute user-defined calls and does not
+add call graphs, recursion analysis, or purity analysis. Table and query
+definitions are handled by the relation-lowering slice. Missing required
+semantic facts produce `PIE-I1000` and prevent a partial `ScriptIR`.
 
 ### 5. Relation Lowering: Completed
 

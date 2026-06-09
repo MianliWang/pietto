@@ -13,6 +13,8 @@ from pietto.ast_nodes import Script
 from pietto.errors import Severity
 from pietto.ir import (
     ConnectorIR,
+    ConstraintIR,
+    DeriveIR,
     EnumIR,
     NullabilityIR,
     RelationIR,
@@ -154,7 +156,7 @@ def test_build_ir_preserves_supported_top_level_source_order() -> None:
     ]
 
 
-def test_constraint_and_derive_definitions_are_skipped_without_crashing() -> None:
+def test_constraint_and_derive_definitions_lower_with_other_declarations() -> None:
     script, model = _analyzed(
         "constraint valid(x: Bool not null) -> Bool not null:\n"
         "    x\n"
@@ -178,6 +180,8 @@ def test_constraint_and_derive_definitions_are_skipped_without_crashing() -> Non
     assert result.diagnostics == ()
     assert result.ir is not None
     assert [type(definition) for definition in result.ir.definitions] == [
+        ConstraintIR,
+        DeriveIR,
         ShapeIR,
         SourceIR,
         RelationIR,

@@ -12,6 +12,8 @@ from antlr4.Token import Token
 
 from pietto.errors import Diagnostic, Severity
 from pietto.ir import (
+    ConstraintIR,
+    DeriveIR,
     EnumIR,
     IrResult,
     NullabilityIR,
@@ -130,7 +132,7 @@ def test_source_connector_is_static_metadata_only() -> None:
     assert not hasattr(source.connector, "connection")
 
 
-def test_constraint_and_derive_definitions_are_skipped_deterministically() -> None:
+def test_constraint_and_derive_definitions_lower_deterministically() -> None:
     source = (
         "constraint valid(x: Bool not null) -> Bool not null:\n"
         "    x\n"
@@ -155,6 +157,8 @@ def test_constraint_and_derive_definitions_are_skipped_deterministically() -> No
     assert first == second
     assert first.ir is not None
     assert [type(definition) for definition in first.ir.definitions] == [
+        ConstraintIR,
+        DeriveIR,
         ShapeIR,
         SourceIR,
         RelationIR,

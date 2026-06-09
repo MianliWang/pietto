@@ -6,12 +6,15 @@ from collections.abc import Mapping
 
 from pietto.ast_nodes import (
     CallExpr,
+    ConstraintDef,
+    DeriveDef,
     DottedNameExpr,
     EnumDef,
     Expression,
     LiteralExpr,
     NameExpr,
     Node,
+    Parameter,
     QueryDef,
     Script,
     SelectItem,
@@ -32,12 +35,15 @@ from pietto.ir.lowering import (
 )
 from pietto.ir.model import (
     ConnectorIR,
+    ConstraintIR,
     DefinitionIR,
+    DeriveIR,
     EnumIR,
     ExpressionIR,
     FilterIR,
     IrResult,
     NullabilityIR,
+    ParameterIR,
     ProjectionIR,
     RelationIR,
     RelationKindIR,
@@ -56,6 +62,7 @@ from pietto.semantic import RowField, RowSchema, SemanticModel
 
 DerivedRelation = TableDef | QueryDef
 RelationDefinition = SourceDef | TableDef | QueryDef
+CallableDefinition = ConstraintDef | DeriveDef
 
 
 def build_ir(
@@ -100,6 +107,8 @@ def _lower_definition(
         )
     if isinstance(definition, ShapeDef):
         return _lower_shape(definition, semantic_model)
+    if isinstance(definition, (ConstraintDef, DeriveDef)):
+        return _lower_callable(definition, semantic_model)
     if isinstance(definition, SourceDef):
         return _lower_source(definition, semantic_model)
     if isinstance(definition, (TableDef, QueryDef)):
@@ -147,6 +156,78 @@ def _lower_shape(
         fields=tuple(fields),
         span=lower_span(definition.span),
     )
+
+
+def _lower_callable(
+    definition: CallableDefinition,
+    semantic_model: SemanticModel,
+) -> ConstraintIR | DeriveIR:
+    """Lower one semantically checked top-level callable declaration."""
+
+    symbol = _symbol(SymbolNamespace.CALLABLE, definition.name)
+    parameters = tuple(
+        _lower_parameter(parameter, semantic_model)
+        for parameter in definition.parameters
+    )
+    _require_type_facts(definition.return_type, semantic_model)
+    body = _require_lowered_expression(
+        definition.body,
+        semantic_model,
+        fields=_callable_fields(definition, semantic_model),
+        field_owner=symbol,
+    )
+    return_type = lower_type_ref(definition.return_type, semantic_model)
+    span = lower_span(definition.span)
+    if isinstance(definition, ConstraintDef):
+        return ConstraintIR(
+            symbol=symbol,
+            name=definition.name,
+            parameters=parameters,
+            return_type=return_type,
+            body=body,
+            span=span,
+        )
+    return DeriveIR(
+        symbol=symbol,
+        name=definition.name,
+        parameters=parameters,
+        return_type=return_type,
+        body=body,
+        span=span,
+    )
+
+
+def _lower_parameter(
+    parameter: Parameter,
+    semantic_model: SemanticModel,
+) -> ParameterIR:
+    """Lower one callable parameter using existing semantic type facts."""
+
+    _require_type_facts(parameter.type, semantic_model)
+    return ParameterIR(
+        name=parameter.name,
+        type_ref=lower_type_ref(parameter.type, semantic_model),
+        span=lower_span(parameter.span),
+    )
+
+
+def _callable_fields(
+    definition: CallableDefinition,
+    semantic_model: SemanticModel,
+) -> Mapping[str, RowField]:
+    """Rebuild the analyzed parameter environment for expression lowering."""
+
+    fields: dict[str, RowField] = {}
+    for parameter in definition.parameters:
+        if parameter.name in fields:
+            continue
+        _require_type_facts(parameter.type, semantic_model)
+        fields[parameter.name] = RowField(
+            name=parameter.name,
+            resolved_type=semantic_model.type_expansions[parameter.type],
+            nullability=semantic_model.type_nullability[parameter.type],
+        )
+    return fields
 
 
 def _lower_source(

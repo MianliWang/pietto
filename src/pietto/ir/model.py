@@ -225,6 +225,39 @@ class ShapeIR(DefinitionIR):
 
 
 @dataclass(frozen=True, slots=True)
+class ParameterIR:
+    """A lowered callable parameter with resolved type metadata."""
+
+    name: str
+    type_ref: TypeRefIR
+    span: SourceSpan
+
+
+@dataclass(frozen=True, slots=True)
+class ConstraintIR(DefinitionIR):
+    """A lowered top-level constraint declaration."""
+
+    symbol: SymbolId
+    name: str
+    parameters: tuple[ParameterIR, ...]
+    return_type: TypeRefIR
+    body: ExpressionIR
+    span: SourceSpan
+
+
+@dataclass(frozen=True, slots=True)
+class DeriveIR(DefinitionIR):
+    """A lowered top-level derive declaration."""
+
+    symbol: SymbolId
+    name: str
+    parameters: tuple[ParameterIR, ...]
+    return_type: TypeRefIR
+    body: ExpressionIR
+    span: SourceSpan
+
+
+@dataclass(frozen=True, slots=True)
 class ConnectorIR:
     """Static source connector metadata without runtime behavior."""
 

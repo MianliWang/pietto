@@ -12,6 +12,8 @@ from antlr4.Token import Token
 from pietto.ast_nodes import QueryDef, Script, TableDef
 from pietto.errors import Diagnostic, Severity
 from pietto.ir import (
+    ConstraintIR,
+    DeriveIR,
     FieldRefIR,
     FilterIR,
     IrResult,
@@ -71,7 +73,9 @@ def test_relation_pipeline_preserves_order_dependencies_and_schemas() -> None:
         (type(definition), definition.name) for definition in result.ir.definitions
     ] == [
         (TypeIR, "Email"),
+        (ConstraintIR, "valid_flag"),
         (ShapeIR, "User"),
+        (DeriveIR, "copy_email"),
         (SourceIR, "users"),
         (RelationIR, "active_users"),
         (RelationIR, "active_user_emails"),
