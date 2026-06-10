@@ -4,10 +4,10 @@
 
 **Phase 7 Developer Workflow & Stability Foundation: In progress.**
 
-Slices 1 and 2 are complete. Readiness Alignment established the post-Phase-6
-documentation baseline, and JSON CLI v1 Stabilization published the normative
-machine-readable CLI contract without changing runtime behavior. Later slices
-remain planned.
+Slices 1 through 3 are complete. Readiness Alignment established the
+post-Phase-6 documentation baseline, JSON CLI v1 Stabilization published the
+normative machine-readable CLI contract, and Golden Output Foundation added a
+small reviewed example-based regression layer. Later slices remain planned.
 
 ## Goal
 
@@ -71,8 +71,9 @@ the artifact.
 2. **JSON CLI v1 Stabilization**: complete. Publish a normative JSON v1
    contract and centralize compatibility expectations without changing the
    current schema or runtime behavior.
-3. **Golden Output Foundation**: add reviewed SQL and JSON fixtures for stable
-   representative examples without replacing focused behavioral tests.
+3. **Golden Output Foundation**: complete. Add reviewed SQL and JSON fixtures
+   for stable representative examples without replacing focused behavioral
+   tests.
 4. **Resource/Depth Budget Design**: define deterministic resource boundaries,
    diagnostics, compatibility requirements, and safe implementation order.
 5. **Small Resource Budget Implementation**: implement only the approved
@@ -113,17 +114,22 @@ use a future schema version rather than silently changing schema version 1.
 Slice 2 does not change or reimplement JSON output, add tests, publish JSON v2,
 or add golden fixtures.
 
-## Golden Output Direction
+## Slice 3: Golden Output Foundation
 
-Golden tests will use committed Pietto examples as stable inputs for a small
-set of representative SQL and JSON outputs. SQL fixtures may use exact text
-comparison where formatting is part of the artifact. JSON fixtures should be
-compared as parsed data so object member order and whitespace are not
-accidentally frozen.
+Slice 3 uses committed Pietto examples as stable inputs for a small set of
+representative SQL and JSON outputs. The manually reviewed fixtures live under
+`tests/fixtures/golden/`; they are a focused compatibility layer, not complete
+snapshots of every compiler or CLI behavior.
+
+SQL fixtures use byte-exact comparison because formatting, artifact separators,
+and the final newline are part of the current text artifact. JSON fixtures use
+structural comparison after `json.loads()` so object member order and ordinary
+whitespace are not accidentally frozen.
 
 Dynamic paths, control characters, compiler failures, and output-write errors
-remain better suited to focused programmatic tests. Phase 7 will not add a
-snapshot dependency or an automatic unreviewed golden-update mechanism.
+remain covered by focused programmatic tests. Fixture changes require
+intentional review; Phase 7 does not add a snapshot dependency or an automatic
+golden-update mechanism.
 
 ## Resource And Depth Budget Direction
 
@@ -202,10 +208,9 @@ Phase 7 does not add:
 
 ## Deferred Items
 
-The following remain deferred beyond Slice 2 and, where noted above, beyond
+The following remain deferred beyond Slice 3 and, where noted above, beyond
 Phase 7 implementation:
 
-- committed golden SQL/JSON fixtures;
 - resource budget design and any approved small implementation;
 - malformed hand-built AST containment review;
 - ANTLR jar checksum automation and trusted-environment secret scanning;

@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "command": "check",
+  "ok": true,
+  "path": "examples/basic/types.pie",
+  "diagnostics": [],
+  "cli_errors": []
+}

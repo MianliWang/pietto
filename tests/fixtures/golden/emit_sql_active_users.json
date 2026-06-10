@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "command": "emit-sql",
+  "ok": true,
+  "path": "examples/tables/active_users.pie",
+  "dialect": "postgres",
+  "diagnostics": [],
+  "cli_errors": [],
+  "artifacts": [
+    {
+      "kind": "relation",
+      "name": "active_users",
+      "sql": "SELECT\n    \"id\" AS \"id\",\n    \"email\" AS \"email\",\n    lower(trim(\"email\")) AS \"email_norm\"\nFROM \"public.users\"\nWHERE \"deleted_at\" IS NULL"
+    }
+  ],
+  "output": null
+}
