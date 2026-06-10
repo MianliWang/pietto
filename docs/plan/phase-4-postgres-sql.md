@@ -6,9 +6,12 @@ Phase 4 has started. The PostgreSQL backend scaffold, immutable SQL result
 models, public `emit_postgres_sql(script_ir)` entry point, and structured
 unsupported-target diagnostics are implemented. Internal PostgreSQL rendering
 primitives now provide always-quoted identifiers, qualified identifiers, and
-the initial scalar literal subset for future emitter slices.
+the initial scalar literal subset for future emitter slices. Minimal internal
+expression SQL rendering now covers literals, field references, the supported
+built-in calls, comparisons, null predicates, between, unary arithmetic, and
+basic arithmetic and Boolean operators.
 
-No real SQL or DDL emission is implemented yet.
+No relation-level `SELECT` SQL or DDL emission is implemented yet.
 
 ## Public API
 
@@ -50,7 +53,7 @@ class SqlArtifact:
 
 1. PostgreSQL package and result scaffold: complete.
 2. PostgreSQL identifier and scalar literal rendering primitives: complete.
-3. Minimal expression SQL emission for the supported expression IR.
+3. Minimal expression SQL emission for the supported expression IR: complete.
 4. Basic table/query `SELECT`, `FROM`, `WHERE`, and projection emission.
 5. PostgreSQL type mapping.
 6. Deterministic backend diagnostics and examples audit.
@@ -61,9 +64,9 @@ parser or semantic analysis.
 
 ## Non-Goals
 
-The scaffold does not implement:
+The backend does not implement:
 
-- real `SELECT`, expression, projection, filter, CTE, or DDL emission;
+- real `SELECT`, projection, relation filter, CTE, or DDL emission;
 - joins, grouping, ordering, limits, windows, or unions;
 - SQLGlot integration;
 - database connections or execution;
@@ -79,5 +82,6 @@ CLI and developer tooling remain Phase 5 work.
 Tests cover public exports, immutable tuple-backed results, empty input,
 ordered `PIE-B1000` diagnostics, source spans, frontend-stage isolation, and
 diagnostic documentation. Rendering tests cover identifier escaping, qualified
-names, scalar literals, invalid inputs, and dependency isolation. Every slice
-must continue to run the complete parser, semantic, and IR test suite.
+names, scalar literals, supported expression mappings, conservative
+parenthesization, invalid inputs, and dependency isolation. Every slice must
+continue to run the complete parser, semantic, and IR test suite.
