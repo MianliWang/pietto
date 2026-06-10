@@ -86,6 +86,10 @@ def test_literal_ir_uses_scalar_literal_rendering(
     assert render_expression_sql(_literal(value)) == expected
 
 
+def test_literal_ir_uses_explicit_escape_string_for_backslashes() -> None:
+    assert render_expression_sql(_literal("\\'; --")) == "E'\\\\''; --'"
+
+
 def test_field_ref_ir_quotes_identifiers_and_qualifiers() -> None:
     assert render_expression_sql(_field('user"name')) == '"user""name"'
     assert render_expression_sql(_field("email", qualifier=("public", "users"))) == (

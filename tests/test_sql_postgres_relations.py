@@ -11,7 +11,15 @@ import pietto.semantic as semantic_api
 import pietto.sql.postgres as postgres_module
 import pietto.sql.relations as relation_module
 from pietto.errors import Severity
-from pietto.ir import CallIR, RelationIR, ScriptIR, SourceIR, build_ir
+from pietto.ir import (
+    CallIR,
+    ComparisonIR,
+    LiteralIR,
+    RelationIR,
+    ScriptIR,
+    SourceIR,
+    build_ir,
+)
 from pietto.sql import SqlArtifactKind, emit_postgres_sql
 from pietto.sql.relations import render_relation_sql
 
@@ -139,6 +147,68 @@ def test_unsupported_source_connector_reports_pie_b1000_without_crashing() -> No
     )
     assert relation_diagnostic.code == "PIE-B1000"
     assert "postgres.table(Text)" in relation_diagnostic.message
+
+
+def test_nul_in_source_table_name_reports_pie_b1000() -> None:
+    script_ir = _compile(
+        SOURCE + "table user_emails:\n    from users\n    select:\n        email\n"
+    )
+    source = _definition(script_ir, SourceIR, "users")
+    bad_source = replace(
+        source,
+        connector=replace(source.connector, arguments=("public.\x00users",)),
+    )
+    definitions = tuple(
+        bad_source if definition is source else definition
+        for definition in script_ir.definitions
+    )
+
+    result = emit_postgres_sql(ScriptIR(definitions=definitions))
+
+    assert result.artifacts == ()
+    assert len(result.diagnostics) == 1
+    diagnostic = result.diagnostics[0]
+    assert diagnostic.code == "PIE-B1000"
+    assert "identifiers must not contain NUL" in diagnostic.message
+    assert "\x00" not in diagnostic.message
+
+
+def test_nul_in_relation_literal_reports_pie_b1000() -> None:
+    script_ir = _compile(
+        SOURCE + "table matching_users:\n"
+        "    from users\n"
+        '    where email == "safe"\n'
+        "    select:\n"
+        "        email\n"
+    )
+    relation = _definition(script_ir, RelationIR, "matching_users")
+    assert relation.filter is not None
+    expression = relation.filter.expression
+    assert isinstance(expression, ComparisonIR)
+    assert isinstance(expression.right, LiteralIR)
+    bad_relation = replace(
+        relation,
+        filter=replace(
+            relation.filter,
+            expression=replace(
+                expression,
+                right=replace(expression.right, value="bad\x00value"),
+            ),
+        ),
+    )
+    definitions = tuple(
+        bad_relation if definition is relation else definition
+        for definition in script_ir.definitions
+    )
+
+    result = emit_postgres_sql(ScriptIR(definitions=definitions))
+
+    assert result.artifacts == ()
+    assert len(result.diagnostics) == 1
+    diagnostic = result.diagnostics[0]
+    assert diagnostic.code == "PIE-B1000"
+    assert "string literals must not contain NUL" in diagnostic.message
+    assert "\x00" not in diagnostic.message
 
 
 def test_unsupported_projection_expression_becomes_pie_b1000() -> None:

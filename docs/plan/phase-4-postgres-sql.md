@@ -72,6 +72,10 @@ class SqlArtifact:
 - Relation definitions are not reordered or topologically sorted.
 - Unsupported expressions, invalid connectors, unresolved inputs, and unknown
   future backend targets produce `PIE-B1000`.
+- String literals containing backslashes use explicit PostgreSQL `E'...'`
+  constants with escaped backslashes and quotes. NUL is rejected in string
+  literals and quoted identifiers and becomes `PIE-B1000` during relation
+  emission.
 - Diagnostics use the definition's existing source span.
 - No SQLGlot objects, database calls, or connector execution are produced.
 

@@ -36,6 +36,11 @@ def test_quote_identifier_rejects_empty_name() -> None:
         quote_identifier("")
 
 
+def test_quote_identifier_rejects_nul() -> None:
+    with pytest.raises(ValueError, match="must not contain NUL"):
+        quote_identifier("bad\x00name")
+
+
 def test_quote_qualified_identifier_quotes_each_part() -> None:
     assert quote_qualified_identifier(("public", "users")) == '"public"."users"'
     assert quote_qualified_identifier(["analytics", "daily users"]) == (
@@ -70,6 +75,26 @@ def test_render_literal_supports_current_scalar_subset(
     expected: str,
 ) -> None:
     assert render_literal(value) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("path\\to\\file", "E'path\\\\to\\\\file'"),
+        ("\\'; DROP TABLE users; --", "E'\\\\''; DROP TABLE users; --'"),
+        ("value'; -- comment", "'value''; -- comment'"),
+    ],
+)
+def test_render_literal_safely_escapes_string_payloads(
+    value: str,
+    expected: str,
+) -> None:
+    assert render_literal(value) == expected
+
+
+def test_render_literal_rejects_nul() -> None:
+    with pytest.raises(ValueError, match="must not contain NUL"):
+        render_literal("bad\x00value")
 
 
 @pytest.mark.parametrize("value", [math.nan, math.inf, -math.inf])

@@ -10,6 +10,8 @@ def quote_identifier(name: str) -> str:
 
     if not name:
         raise ValueError("PostgreSQL identifiers must not be empty")
+    if "\x00" in name:
+        raise ValueError("PostgreSQL identifiers must not contain NUL")
     return f'"{name.replace('"', '""')}"'
 
 
@@ -35,5 +37,11 @@ def render_literal(value: object) -> str:
             raise ValueError("PostgreSQL float literals must be finite")
         return repr(value)
     if isinstance(value, str):
-        return f"'{value.replace("'", "''")}'"
+        if "\x00" in value:
+            raise ValueError("PostgreSQL string literals must not contain NUL")
+        escaped = value.replace("'", "''")
+        if "\\" in value:
+            escaped = escaped.replace("\\", "\\\\")
+            return f"E'{escaped}'"
+        return f"'{escaped}'"
     raise TypeError(f"Unsupported PostgreSQL literal type: {type(value).__name__}")

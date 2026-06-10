@@ -47,6 +47,24 @@ def test_pipeline_emits_quoted_source_backed_relation_sql() -> None:
     )
 
 
+def test_pipeline_uses_escape_string_for_backslash_quote_payload() -> None:
+    result = _compile_and_emit(
+        "shape User:\n"
+        "    email: Text nullable\n"
+        'source users: User is postgres.table("users")\n'
+        "table matching_users:\n"
+        "    from users\n"
+        '    where email == "\\\\\'; DROP TABLE users; --"\n'
+        "    select:\n"
+        "        email\n",
+    )
+
+    sql = result.artifacts[0].sql
+    assert sql.endswith("WHERE \"email\" = E'\\\\''; DROP TABLE users; --'")
+    assert sql.count("E'") == 1
+    assert result.diagnostics == ()
+
+
 def test_pipeline_relation_without_filter_omits_where() -> None:
     result = _compile_and_emit(
         "shape Customer:\n"
