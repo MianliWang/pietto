@@ -14,11 +14,13 @@ callers pass `ScriptIR` to `emit_postgres_sql(script_ir)`.
 
 The backend emits minimal `SELECT` SQL for `RelationIR` definitions, including
 projections and optional `WHERE`. Inputs may reference a static
-`postgres.table(Text)` source or another relation by quoted name. Unsupported
-definitions receive structured `PIE-B1000` diagnostics. CTE expansion,
-inlining, nested subqueries, joins, grouping, ordering, limits, DDL, SQLGlot
-integration, database or connector execution, schema introspection, CLI
-runtime, and a `compile_to_ir()` wrapper are not implemented.
+`postgres.table(Text)` source or another relation by quoted name. Type, enum,
+shape, source, constraint, and derive IR definitions are non-emitting metadata;
+unsupported or invalid relation emission receives structured `PIE-B1000`
+diagnostics. CTE expansion, inlining, nested subqueries, joins, grouping,
+ordering, limits, metadata DDL, SQLGlot integration, database or connector
+execution, schema introspection, CLI runtime, and a `compile_to_ir()` wrapper
+are not implemented.
 
 See [the language specification](docs/spec/pietto-v0.9.md),
 [the Phase 3 Semantic IR plan](docs/plan/phase-3-semantic-ir.md), and

@@ -5,6 +5,7 @@ from __future__ import annotations
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.ir import (
     ConstraintIR,
+    DefinitionIR,
     DeriveIR,
     EnumIR,
     RelationIR,
@@ -16,13 +17,11 @@ from pietto.ir import (
 from pietto.sql.model import SqlArtifact, SqlArtifactKind, SqlResult
 from pietto.sql.relations import render_relation_sql
 
-_PostgresDefinitionIR = (
-    TypeIR | EnumIR | ShapeIR | ConstraintIR | DeriveIR | SourceIR | RelationIR
-)
+_MetadataDefinitionIR = TypeIR | EnumIR | ShapeIR | ConstraintIR | DeriveIR | SourceIR
 
 
 def emit_postgres_sql(script_ir: ScriptIR) -> SqlResult:
-    """Emit supported relation SELECTs and diagnose other definitions."""
+    """Emit relation SELECTs, skip metadata, and diagnose unsupported targets."""
 
     sources = {
         definition.symbol: definition
@@ -61,6 +60,8 @@ def emit_postgres_sql(script_ir: ScriptIR) -> SqlResult:
                 )
             )
             continue
+        if isinstance(definition, _MetadataDefinitionIR):
+            continue
         diagnostics.append(_unsupported_definition_diagnostic(definition))
 
     return SqlResult(
@@ -70,7 +71,7 @@ def emit_postgres_sql(script_ir: ScriptIR) -> SqlResult:
 
 
 def _unsupported_definition_diagnostic(
-    definition: _PostgresDefinitionIR,
+    definition: DefinitionIR,
     *,
     reason: str | None = None,
 ) -> Diagnostic:

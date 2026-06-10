@@ -20,8 +20,9 @@ SQL generation, and DDL are not implemented.
 
 The minimal relation emitter has completed its first hardening and committed
 examples audit. Every example now runs through parse, semantic analysis, IR
-construction, and PostgreSQL emission without ordinary exceptions; unsupported
-definitions remain explicit backend diagnostics.
+construction, and PostgreSQL emission without ordinary exceptions. Type, enum,
+shape, source, constraint, and derive definitions are non-emitting metadata;
+unsupported or invalid relation emission remains diagnostic-driven.
 
 ## Public API
 
@@ -53,17 +54,20 @@ class SqlArtifact:
 ## Current Behavior
 
 - An empty `ScriptIR` returns empty artifacts and diagnostics.
-- A supported source-backed `RelationIR` produces one ordered relation
-  artifact.
+- A supported `RelationIR` produces one ordered relation artifact.
 - Projection expressions use the internal expression renderer and named
   outputs receive explicit aliases.
 - `postgres.table("public.users")` currently treats `public.users` as one
   quoted identifier rather than splitting schema and table components.
-- Metadata definitions remain non-emitting and produce `PIE-B1000`.
+- `TypeIR`, `EnumIR`, `ShapeIR`, `SourceIR`, `ConstraintIR`, and `DeriveIR`
+  are non-emitting metadata and produce neither artifacts nor diagnostics.
+- `SourceIR` supplies static table metadata for relation `FROM` references but
+  does not directly emit an artifact.
 - Relations whose input is another relation use the quoted upstream relation
   name as their `FROM` target without checking upstream artifact success.
 - Relation definitions are not reordered or topologically sorted.
-- Unresolved relation inputs produce `PIE-B1000`.
+- Unsupported expressions, invalid connectors, unresolved inputs, and unknown
+  future backend targets produce `PIE-B1000`.
 - Diagnostics use the definition's existing source span.
 - No SQLGlot objects, database calls, or connector execution are produced.
 
@@ -74,10 +78,12 @@ class SqlArtifact:
 3. Minimal expression SQL emission for the supported expression IR: complete.
 4. Basic table/query `SELECT`, `FROM`, `WHERE`, and projection emission:
    source-backed and relation-name references complete.
-5. PostgreSQL type mapping.
-6. Deterministic backend diagnostics and examples audit: initial relation
+5. Non-emitting metadata classification: complete; metadata DDL remains
+   deferred.
+6. PostgreSQL type mapping.
+7. Deterministic backend diagnostics and examples audit: initial relation
    hardening complete.
-7. Phase 4 completion audit.
+8. Phase 4 completion audit.
 
 Later slices must remain driven by existing Semantic IR and must not rerun
 parser or semantic analysis.
@@ -88,7 +94,8 @@ The backend does not implement:
 
 - relation dependency CTE expansion, SQL inlining, or nested subqueries;
 - materialization or runtime semantics;
-- DDL emission;
+- metadata DDL, including `CREATE TABLE`, `CREATE VIEW`, constraints, or
+  indexes;
 - joins, grouping, ordering, limits, windows, or unions;
 - SQLGlot integration;
 - database connections or execution;

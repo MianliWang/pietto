@@ -94,9 +94,10 @@ The Phase 3 Semantic IR MVP is complete. The Phase 4 public
 `emit_postgres_sql(script_ir)` API consumes `ScriptIR` directly and currently
 emits minimal `SELECT`, projection, `FROM`, and optional `WHERE` SQL for
 `RelationIR` definitions backed by static `postgres.table(Text)` sources or
-another relation referenced by quoted name. Unsupported definitions and
-unresolved inputs receive ordered `PIE-B1000` diagnostics. Empty IR returns an
-empty successful result.
+another relation referenced by quoted name. Type, enum, shape, source,
+constraint, and derive definitions are non-emitting metadata. Unsupported or
+invalid relation emission and unknown future backend targets receive ordered
+`PIE-B1000` diagnostics. Empty IR returns an empty successful result.
 
 The SQL backend must not parse source, run semantic analysis, call `build_ir()`,
 import SQLGlot, connect to databases, or execute connectors. There is no
@@ -106,6 +107,7 @@ Current work focuses on:
 
 - immutable PostgreSQL SQL artifacts and results;
 - conservative source-backed and relation-name SQL generation;
+- explicit non-emitting metadata handling without DDL;
 - deterministic backend diagnostics;
 - backend isolation from parser, semantic, and IR construction stages;
 - focused SQL backend tests and planning.
@@ -114,7 +116,8 @@ CLI and developer tooling remain Phase 5 work.
 
 Do not implement in the current phase unless explicitly requested:
 
-- joins, grouping, ordering, limits, windows, unions, or DDL generation;
+- joins, grouping, ordering, limits, windows, or unions;
+- metadata DDL such as `CREATE TABLE`, `CREATE VIEW`, constraints, or indexes;
 - relation dependency CTE expansion, SQL inlining, or nested subqueries;
 - SQLGlot integration;
 - SQL execution;

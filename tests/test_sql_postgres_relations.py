@@ -46,13 +46,7 @@ def test_source_backed_relation_emits_select_from_where_and_projections() -> Non
         'FROM "public.users"\n'
         'WHERE "deleted_at" IS NULL'
     )
-    assert [diagnostic.code for diagnostic in result.diagnostics] == [
-        "PIE-B1000",
-        "PIE-B1000",
-    ]
-    assert all(
-        diagnostic.severity is Severity.ERROR for diagnostic in result.diagnostics
-    )
+    assert result.diagnostics == ()
 
 
 def test_relation_without_filter_omits_where() -> None:
@@ -179,20 +173,15 @@ def test_unsupported_projection_expression_becomes_pie_b1000() -> None:
     assert "Unsupported PostgreSQL function call" in relation_diagnostic.message
 
 
-def test_unsupported_metadata_definitions_remain_explicit_diagnostics() -> None:
+def test_metadata_definitions_are_non_emitting_without_diagnostics() -> None:
     script_ir = _compile(
         SOURCE + "table user_emails:\n    from users\n    select:\n        email\n"
     )
 
     result = emit_postgres_sql(script_ir)
 
-    assert [
-        diagnostic.message.split(":", maxsplit=1)[0]
-        for diagnostic in result.diagnostics
-    ] == [
-        "PostgreSQL SQL emission is not implemented for ShapeIR",
-        "PostgreSQL SQL emission is not implemented for SourceIR",
-    ]
+    assert [artifact.name for artifact in result.artifacts] == ["user_emails"]
+    assert result.diagnostics == ()
 
 
 def test_relation_emitter_does_not_run_frontend_or_ir_builder(

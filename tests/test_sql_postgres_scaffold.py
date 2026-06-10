@@ -12,7 +12,7 @@ import pietto.semantic as semantic_api
 import pietto.sql as sql_api
 import pietto.sql.postgres as postgres_module
 from pietto.errors import Severity
-from pietto.ir import RelationIR, ScriptIR, build_ir
+from pietto.ir import ScriptIR, build_ir
 from pietto.sql import (
     SqlArtifact,
     SqlArtifactKind,
@@ -40,7 +40,7 @@ def test_empty_script_ir_returns_successful_empty_result() -> None:
     assert isinstance(result.diagnostics, tuple)
 
 
-def test_nonempty_script_ir_emits_supported_relations_and_diagnoses_rest() -> None:
+def test_nonempty_script_ir_emits_relations_and_skips_metadata() -> None:
     script_ir = _all_definition_ir()
 
     result = emit_postgres_sql(script_ir)
@@ -49,50 +49,7 @@ def test_nonempty_script_ir_emits_supported_relations_and_diagnoses_rest() -> No
         "active_users",
         "active_user_emails",
     ]
-    unsupported_definitions = [
-        definition
-        for definition in script_ir.definitions
-        if not isinstance(definition, RelationIR)
-    ]
-    assert len(result.diagnostics) == len(unsupported_definitions)
-    assert [
-        (
-            diagnostic.code,
-            diagnostic.severity,
-            type(definition).__name__,
-            definition.name,
-            diagnostic.location.path,
-            diagnostic.location.line,
-            diagnostic.location.column,
-            diagnostic.location.end_line,
-            diagnostic.location.end_column,
-        )
-        for diagnostic, definition in zip(
-            result.diagnostics,
-            unsupported_definitions,
-            strict=True,
-        )
-    ] == [
-        (
-            "PIE-B1000",
-            Severity.ERROR,
-            type(definition).__name__,
-            definition.name,
-            definition.span.path,
-            definition.span.line,
-            definition.span.column,
-            definition.span.end_line,
-            definition.span.end_column,
-        )
-        for definition in unsupported_definitions
-    ]
-    for diagnostic, definition in zip(
-        result.diagnostics,
-        unsupported_definitions,
-        strict=True,
-    ):
-        assert type(definition).__name__ in diagnostic.message
-        assert definition.name in diagnostic.message
+    assert result.diagnostics == ()
 
 
 def test_sql_models_are_frozen_and_tuple_backed() -> None:
@@ -130,7 +87,7 @@ def test_emitter_does_not_run_frontend_or_ir_builder(
         "active_users",
         "active_user_emails",
     ]
-    assert result.diagnostics
+    assert result.diagnostics == ()
 
 
 def test_emitter_has_no_sqlglot_or_ddl_emission() -> None:

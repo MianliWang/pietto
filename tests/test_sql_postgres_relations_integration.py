@@ -85,19 +85,7 @@ def test_artifacts_and_diagnostics_preserve_their_definition_order() -> None:
         "FirstRelation",
         "SecondRelation",
     ]
-    assert [
-        (
-            diagnostic.code,
-            diagnostic.location.line,
-            _definition_name(diagnostic),
-        )
-        for diagnostic in result.diagnostics
-    ] == [
-        ("PIE-B1000", 1, "Customer"),
-        ("PIE-B1000", 3, "Customers"),
-        ("PIE-B1000", 8, "Status"),
-        ("PIE-B1000", 14, "CustomerEmail"),
-    ]
+    assert result.diagnostics == ()
 
 
 def test_relation_dependency_uses_quoted_upstream_name_without_expansion() -> None:
@@ -161,10 +149,7 @@ def test_committed_examples_complete_postgres_backend_pipeline(path: Path) -> No
     assert all(
         artifact.kind is SqlArtifactKind.RELATION for artifact in sql_result.artifacts
     )
-    assert all(
-        diagnostic.code == "PIE-B1000" and diagnostic.severity is Severity.ERROR
-        for diagnostic in sql_result.diagnostics
-    )
+    assert sql_result.diagnostics == ()
 
 
 def _compile_and_emit(
@@ -200,10 +185,6 @@ def _compile_and_emit(
     )
     assert isinstance(ir_result.ir, ScriptIR)
     return emit_postgres_sql(ir_result.ir)
-
-
-def _definition_name(diagnostic: Diagnostic) -> str:
-    return diagnostic.message.rsplit(": ", maxsplit=1)[-1]
 
 
 def _format_diagnostics(

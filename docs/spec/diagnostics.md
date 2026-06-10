@@ -63,6 +63,6 @@ stored separately and is never encoded in the code.
 
 | Code | Meaning |
 |---|---|
-| `PIE-B1000` | PostgreSQL emission target is unsupported or not yet implemented |
+| `PIE-B1000` | PostgreSQL backend emission case is unsupported or invalid |
 
 No runtime diagnostic codes are currently defined.
