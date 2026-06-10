@@ -120,5 +120,9 @@ The planned explicit-root, containment, glob, file-identity, and deterministic
 ordering contract is in
 [the project root and path semantics version 1 specification](docs/spec/project-path-semantics-v1.md);
 it is not implemented by the current CLI.
+The planned project compile unit, flat namespaces, cross-file dependency,
+stage-gating, diagnostic, and artifact-ordering contract is in
+[the project multi-file semantics version 1 specification](docs/spec/project-multifile-semantics-v1.md);
+multi-file compilation remains unimplemented.
 Diagnostic codes are documented in
 [the diagnostics specification](docs/spec/diagnostics.md).

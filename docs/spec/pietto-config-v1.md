@@ -318,7 +318,8 @@ Before any configuration implementation is approved, Pietto must complete:
 
 - root and path semantics, including project boundaries and file identity;
 - exact include/exclude glob semantics and deterministic ordering;
-- multi-file ownership and failure semantics;
+- multi-file ownership and failure semantics as documented in
+  `docs/spec/project-multifile-semantics-v1.md`;
 - future CLI invocation and configuration precedence;
 - a machine-readable config-error and project-result design;
 - the project resource model and hard ceilings;

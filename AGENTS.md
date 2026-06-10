@@ -172,6 +172,9 @@ repository does not contain or read `pietto.toml`.
 The planned explicit project-root and path contract is documented in
 `docs/spec/project-path-semantics-v1.md`. It is also specification-only; no
 root discovery, path traversal, or glob expansion is implemented.
+The planned project compile-unit and cross-file semantic contract is documented
+in `docs/spec/project-multifile-semantics-v1.md`. It is specification-only; no
+multi-file compiler, module, import, or dependency graph is implemented.
 
 Current strict boundaries remain:
 

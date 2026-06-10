@@ -4,14 +4,15 @@
 
 **Phase 8 planning/specification is in progress.**
 
-Slices 1 through 3 are complete. Readiness And Decision Frame established the
+Slices 1 through 4 are complete. Readiness And Decision Frame established the
 phase boundary and sequence. Configuration Contract defines a strict,
 versioned, non-executable future `pietto.toml` contract. Root And Path
-Semantics now defines the explicit-root, containment, glob, file-identity,
-display-path, and deterministic-ordering contract. Phase 8 is planning-only:
-it defines future project-level contracts before any project configuration,
-root discovery, multi-file compilation, CLI expansion, or JSON schema change
-is implemented.
+Semantics defines the project filesystem contract. Multi-file Semantics now
+defines the project compile unit, flat namespaces, cross-file dependencies,
+stage gates, diagnostics, and artifact ordering. Phase 8 is planning-only: it
+defines future project-level contracts before any project configuration, root
+discovery, multi-file compilation, CLI expansion, or JSON schema change is
+implemented.
 
 ## Goal
 
@@ -75,9 +76,10 @@ relevant contract, compatibility rules, and security model are accepted.
 3. **Root And Path Semantics**: complete. Define project identity, root
    selection, path normalization, symbolic-link and traversal policy, glob
    boundaries, display paths, file identity, and cross-platform behavior.
-4. **Multi-file Semantics**: define source-file membership, namespaces,
-   duplicate symbols, visibility, dependencies, cycles, partial failure,
-   diagnostic attribution, and deterministic traversal and artifact order.
+4. **Multi-file Semantics**: complete. Define source-file membership,
+   namespaces, duplicate symbols, visibility, dependencies, cycles, partial
+   failure, diagnostic attribution, and deterministic traversal and artifact
+   order.
 5. **CLI And JSON Design**: specify future project invocation without
    reinterpreting current single-file commands, and design a machine-readable
    project result without changing JSON v1.
@@ -142,6 +144,29 @@ loading, filesystem traversal, glob expansion, path-normalization runtime,
 project mode, multi-file behavior, CLI/JSON change, dependency, or runtime
 capability.
 
+## Slice 4: Multi-file Semantics
+
+Slice 4 publishes `docs/spec/project-multifile-semantics-v1.md` as the planned
+project compilation contract. It defines:
+
+- one deterministic, non-empty project compile unit;
+- source identity based on normalized project-relative paths after physical
+  containment and duplicate-identity checks;
+- project-wide flat type, callable, and relation namespaces;
+- project-wide visibility with no module, import, include, private, export, or
+  qualified-name syntax;
+- deterministic cross-file dependency and cycle handling;
+- parser, semantic, IR, backend, and output stage gates for the whole project;
+- deterministic diagnostics with project-relative paths and future related
+  locations;
+- stable file, definition, backend artifact, and possible graph tie-breaker
+  ordering;
+- future JSON v2, explicit project CLI, and aggregate resource requirements.
+
+The contract is specification-only. Slice 4 adds no project loader, multi-file
+compiler, dependency graph, grammar, compiler-stage behavior, CLI/JSON change,
+dependency, or runtime capability.
+
 ## Configuration Direction
 
 The accepted configuration direction is strict, versioned, declarative, and
@@ -173,19 +198,17 @@ order. No root discovery or glob expansion is implemented by Phase 8.
 
 ## Multi-file Direction
 
-The multi-file specification must define:
+The accepted first-implementation direction uses one deterministic project
+compile unit with project-wide flat type, callable, and relation namespaces.
+All selected files are visible to each other without import or module syntax.
+Same-namespace duplicates across files are errors, and cross-file references
+and cycles use stable project-relative identity and ordering.
 
-- source membership and file or module identity;
-- whether the initial model uses one project-wide namespace or modules;
-- duplicate symbol, qualification, and visibility behavior;
-- deterministic dependency graph construction and cycle diagnostics;
-- handling of unreadable, unparsable, or semantically invalid files;
-- whether any partial IR or SQL artifacts are allowed after project errors;
-- diagnostic ordering and attribution;
-- deterministic SQL artifact ordering.
-
-Import or include syntax must not be added merely to make the design concrete.
-Any future grammar change requires a separate approved implementation slice.
+Project CLI compilation is stage-gated and all-or-nothing: parser errors block
+semantic analysis, semantic errors block IR, IR errors block SQL emission, and
+backend errors block output writes. Diagnostics may aggregate deterministically
+within a completed stage, but project errors do not produce partial SQL output.
+No multi-file behavior is implemented by Phase 8.
 
 ## JSON v1 Compatibility Risks
 

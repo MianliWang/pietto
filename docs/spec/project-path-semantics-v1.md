@@ -295,9 +295,10 @@ The baseline deterministic order is:
 4. preserve backend artifact order for each deterministically traversed
    definition.
 
-Phase 8 Multi-file Semantics may refine this into a stable topological order.
-Any graph order must use normalized project-relative paths and file-internal
-definition positions as deterministic tie-breakers.
+The project-wide ordering and stage-gating contract is documented in
+`docs/spec/project-multifile-semantics-v1.md`. Any future graph order must use
+normalized project-relative paths and file-internal definition positions as
+deterministic tie-breakers.
 
 Filesystem enumeration order, hash-map order, inode order, modification time,
 and locale must never determine diagnostics or artifacts.
