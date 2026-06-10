@@ -4,12 +4,14 @@
 
 **Phase 8 planning/specification is in progress.**
 
-Slices 1 and 2 are complete. Readiness And Decision Frame established the
-phase boundary and sequence. Configuration Contract now defines a strict,
-versioned, non-executable future `pietto.toml` contract. Phase 8 is
-planning-only: it defines future project-level contracts before any project
-configuration, root discovery, multi-file compilation, CLI expansion, or JSON
-schema change is implemented.
+Slices 1 through 3 are complete. Readiness And Decision Frame established the
+phase boundary and sequence. Configuration Contract defines a strict,
+versioned, non-executable future `pietto.toml` contract. Root And Path
+Semantics now defines the explicit-root, containment, glob, file-identity,
+display-path, and deterministic-ordering contract. Phase 8 is planning-only:
+it defines future project-level contracts before any project configuration,
+root discovery, multi-file compilation, CLI expansion, or JSON schema change
+is implemented.
 
 ## Goal
 
@@ -64,15 +66,15 @@ relevant contract, compatibility rules, and security model are accepted.
 
 ## Slice Sequence
 
-1. **Readiness And Decision Frame**: complete. Establish the post-Phase-7 baseline,
-   Phase 8 planning-only boundary, slice sequence, compatibility constraints,
-   and future SQL roadmap.
-2. **Configuration Contract**: complete. Specify a strict, versioned, non-executable
-   `pietto.toml` contract, including allowed fields, unknown-key policy,
-   precedence, and prohibited sensitive or executable values.
-3. **Root And Path Semantics**: define project identity, root selection, path
-   normalization, symbolic-link and traversal policy, glob boundaries, display
-   paths, file identity, and cross-platform behavior.
+1. **Readiness And Decision Frame**: complete. Establish the post-Phase-7
+   baseline, Phase 8 planning-only boundary, slice sequence, compatibility
+   constraints, and future SQL roadmap.
+2. **Configuration Contract**: complete. Specify a strict, versioned,
+   non-executable `pietto.toml` contract, including allowed fields, unknown-key
+   policy, precedence, and prohibited sensitive or executable values.
+3. **Root And Path Semantics**: complete. Define project identity, root
+   selection, path normalization, symbolic-link and traversal policy, glob
+   boundaries, display paths, file identity, and cross-platform behavior.
 4. **Multi-file Semantics**: define source-file membership, namespaces,
    duplicate symbols, visibility, dependencies, cycles, partial failure,
    diagnostic attribution, and deterministic traversal and artifact order.
@@ -117,6 +119,29 @@ The contract is specification-only. Slice 2 creates no `pietto.toml`, parser,
 loader, root discovery, glob expansion, project mode, multi-file behavior,
 dependency, or runtime capability.
 
+## Slice 3: Root And Path Semantics
+
+Slice 3 publishes `docs/spec/project-path-semantics-v1.md` as the planned
+project filesystem contract. It defines:
+
+- an explicit project root with no implicit parent-directory search;
+- distinct filesystem, canonical, project-relative, display, diagnostic, JSON,
+  and artifact-source path concepts;
+- normalized `/`-separated project-relative configuration paths;
+- lexical and physical root-containment checks;
+- a strict glob subset with include union, exclude precedence, `.pie`
+  filtering, hidden-path rules, and deterministic sorting;
+- no traversal through symlinked directories, rejection of outside-root
+  links, and rejection of duplicate hard-link or symlink identities;
+- stable project-relative diagnostic paths and future JSON v2 requirements;
+- deterministic source and artifact ordering;
+- future path, glob, symlink, file-count, and aggregate resource budgets.
+
+The contract is specification-only. Slice 3 adds no discovery, configuration
+loading, filesystem traversal, glob expansion, path-normalization runtime,
+project mode, multi-file behavior, CLI/JSON change, dependency, or runtime
+capability.
+
 ## Configuration Direction
 
 The accepted configuration direction is strict, versioned, declarative, and
@@ -127,27 +152,24 @@ project-relative source selection.
 
 Configuration contains no command hooks, executable plugins, implicit
 environment expansion, credentials, database URLs, network endpoints, output
-defaults, resource-budget overrides, or runtime instructions. Exact root,
-glob, symbolic-link, and cross-platform path behavior remains for Slice 3.
-Phase 8 does not create a stub `pietto.toml`.
+defaults, resource-budget overrides, or runtime instructions. The accepted
+root, glob, symbolic-link, and cross-platform path direction is documented in
+`docs/spec/project-path-semantics-v1.md`. Phase 8 does not create a stub
+`pietto.toml`.
 
 ## Root And Path Risks
 
 Project discovery and multi-file reads expand Pietto's filesystem trust
-boundary. The path design must resolve:
+boundary. The accepted first-implementation direction requires an explicit
+root, strict project-relative POSIX-style patterns, lexical and physical
+containment, no traversal through symlinked directories, rejection of
+outside-root links and duplicate file identities, and stable project-relative
+display paths.
 
-- explicit root selection versus parent-directory discovery;
-- lexical paths versus physically resolved file identities;
-- `.` and `..` normalization and project-boundary enforcement;
-- symbolic links, hard links, nested projects, and duplicate file identity;
-- case sensitivity, Windows drive and UNC paths, and WSL-mounted paths;
-- whether globs can traverse outside the project root;
-- stable project-relative display paths for diagnostics and tools;
-- races between validation, file reads, and output replacement.
-
-No root discovery or glob expansion should be implemented before these rules
-are accepted. An explicit project root is the conservative starting point for
-future implementation planning.
+Source selection uses a documented `*`, `?`, and whole-segment `**` subset.
+Includes form a union, excludes apply afterward and win, only `.pie` regular
+files are retained, and normalized project-relative paths define deterministic
+order. No root discovery or glob expansion is implemented by Phase 8.
 
 ## Multi-file Direction
 

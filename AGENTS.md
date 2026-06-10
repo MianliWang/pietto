@@ -169,6 +169,9 @@ not authorize project, CLI, JSON, SQL, dependency, or runtime implementation.
 The planned strict, non-executable future configuration contract is documented
 in `docs/spec/pietto-config-v1.md`. It is a specification only; the current
 repository does not contain or read `pietto.toml`.
+The planned explicit project-root and path contract is documented in
+`docs/spec/project-path-semantics-v1.md`. It is also specification-only; no
+root discovery, path traversal, or glob expansion is implemented.
 
 Current strict boundaries remain:
 

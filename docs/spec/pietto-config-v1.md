@@ -35,8 +35,9 @@ pietto.toml
 ```
 
 A future implementation should accept it only at an explicitly selected
-project root. Parent-directory discovery, nested-project behavior, and the
-exact root-selection interface remain for Phase 8 Root And Path Semantics.
+project root. The planned explicit-root and no-upward-search behavior is
+documented in `docs/spec/project-path-semantics-v1.md`. The exact future CLI
+spelling remains for Phase 8 CLI And JSON Design.
 
 This document does not create a real `pietto.toml` file or authorize discovery
 by walking parent directories.
@@ -190,10 +191,10 @@ The path contract is:
 - project file-count and aggregate-byte limits must be enforced before
   unbounded compilation work.
 
-Exact wildcard syntax, matching behavior, exclusion precedence, hidden-file
-behavior, case sensitivity, symlink handling, duplicate identity rules, and
-sort keys remain to be finalized by Phase 8 Root And Path Semantics. No glob
-library or expansion behavior is selected by this contract.
+The planned wildcard subset, exclusion precedence, hidden-file behavior,
+cross-platform sorting, symlink handling, and duplicate-identity rules are
+documented in `docs/spec/project-path-semantics-v1.md`. No glob library or
+expansion behavior is implemented by this contract.
 
 ## Future Precedence
 

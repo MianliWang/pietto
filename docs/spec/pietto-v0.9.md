@@ -1112,7 +1112,10 @@ discovery, multi-file behavior, JSON v2, SQLGlot, another SQL dialect, richer
 SQL features, or runtime/database capabilities. The implemented language,
 single-file CLI, and JSON v1 contracts remain unchanged. The planned strict,
 non-executable configuration contract is documented separately in
-`docs/spec/pietto-config-v1.md`; Pietto does not currently load it.
+`docs/spec/pietto-config-v1.md`, and the planned explicit-root and path
+contract is documented in `docs/spec/project-path-semantics-v1.md`; Pietto
+does not currently load configuration, discover roots, traverse projects, or
+expand globs.
 
 ---
 

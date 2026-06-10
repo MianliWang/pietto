@@ -116,5 +116,9 @@ The current planning direction and slice sequence are in
 The planned strict, non-executable project configuration contract is in
 [the Pietto project configuration schema version 1 specification](docs/spec/pietto-config-v1.md);
 it is not implemented or read by the current CLI.
+The planned explicit-root, containment, glob, file-identity, and deterministic
+ordering contract is in
+[the project root and path semantics version 1 specification](docs/spec/project-path-semantics-v1.md);
+it is not implemented by the current CLI.
 Diagnostic codes are documented in
 [the diagnostics specification](docs/spec/diagnostics.md).
