@@ -2,7 +2,7 @@
 
 ## Status
 
-**Phase 5 single-file check command: Complete.**
+**Phase 5 CLI diagnostic rendering hardening: Complete.**
 
 The initial scaffold provides the `pietto` console entry point, plain
 `argparse` help, package version output, and stable usage exit codes. The
@@ -36,6 +36,10 @@ source-tree environments without metadata.
 path:line:column CODE severity: message
 ```
 
+Diagnostics preserve compiler order and always go to stderr. The current
+`Diagnostic` model always contains line and column coordinates; when its path
+is absent, the CLI uses the checked file path.
+
 It returns `0` when no ERROR diagnostics exist, `1` for parser or semantic
 ERROR diagnostics, and `2` for usage or file-reading errors. A successful
 check prints `OK: path`. It does not build Semantic IR or emit SQL.
@@ -44,7 +48,7 @@ check prints `OK: path`. It does not build Semantic IR or emit SQL.
 
 1. CLI scaffold: complete.
 2. Single-file `check` command using parser and semantic APIs: complete.
-3. Stable plain-text diagnostic rendering.
+3. Stable plain-text diagnostic rendering: complete.
 4. Single-file `emit-sql --dialect postgres` command.
 5. File and output handling hardening.
 6. Phase 5 completion audit.

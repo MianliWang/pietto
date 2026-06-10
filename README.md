@@ -25,7 +25,9 @@ are not implemented.
 Phase 5 CLI and developer tooling now provides `pietto --help`,
 `pietto --version`, and single-file `pietto check file.pie` parser and semantic
 validation. The check command does not build IR or emit SQL; `emit-sql` is not
-implemented yet.
+implemented yet. Check diagnostics use
+`path:line:column CODE severity: message`, with normal success output on stdout
+and diagnostics on stderr.
 
 See [the language specification](docs/spec/pietto-v0.9.md),
 [the Phase 3 Semantic IR plan](docs/plan/phase-3-semantic-ir.md), and

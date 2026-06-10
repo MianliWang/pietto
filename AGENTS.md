@@ -119,7 +119,9 @@ The completed MVP provides:
 Phase 5 currently provides `pietto --help`, `pietto --version`, and
 `pietto check file.pie`. The check command performs parser and semantic
 analysis only; it does not build IR or emit SQL. The `emit-sql` command remains
-planned for a later slice.
+planned for a later slice. CLI diagnostics use
+`path:line:column CODE severity: message`, preserve compiler order, and are
+written to stderr.
 
 Do not implement in the current phase unless explicitly requested:
 

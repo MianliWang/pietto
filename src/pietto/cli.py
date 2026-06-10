@@ -90,14 +90,21 @@ def _render_diagnostics(
     """Render ordered diagnostics as stable single-line stderr records."""
 
     for diagnostic in diagnostics:
-        location = diagnostic.location
-        path = location.path or str(fallback_path)
         print(
-            f"{path}:{location.line}:{location.column} "
-            f"{diagnostic.code} {diagnostic.severity.value}: "
-            f"{diagnostic.message}",
-            file=sys.stderr,
+            _format_diagnostic(diagnostic, fallback_path=fallback_path), file=sys.stderr
         )
+
+
+def _format_diagnostic(diagnostic: Diagnostic, *, fallback_path: Path) -> str:
+    """Format one compiler diagnostic without color or source snippets."""
+
+    location = diagnostic.location
+    path = location.path or str(fallback_path)
+    return (
+        f"{path}:{location.line}:{location.column} "
+        f"{diagnostic.code} {diagnostic.severity.value}: "
+        f"{diagnostic.message}"
+    )
 
 
 def _has_errors(diagnostics: tuple[Diagnostic, ...]) -> bool:
