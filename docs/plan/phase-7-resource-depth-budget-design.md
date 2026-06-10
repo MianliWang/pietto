@@ -40,10 +40,8 @@ Current protections include:
 - there is no SQL, connector, database, schema, network, or runtime execution
   surface.
 
-Current gaps include:
+Remaining gaps include:
 
-- no global UTF-8 source byte limit;
-- no lexer token-count limit;
 - no AST node-count limit;
 - no expression-depth budget independent of Python recursion;
 - no explicit type-alias expansion depth;

@@ -11,7 +11,7 @@ The current implementation status is:
 - Phase 5 CLI MVP: complete;
 - Phase 5.5 Security / Robustness Hardening: complete;
 - Phase 6 JSON / machine-readable CLI output: complete;
-- Phase 7 Developer Workflow & Stability Foundation: current direction.
+- **Phase 7 Developer Workflow & Stability Foundation: complete**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits PostgreSQL SQL, and presents the
@@ -73,16 +73,18 @@ stdout. Text-mode `emit-sql --output` remains supported and unchanged. The
 Phase 6 completion audit covers schema stability, exit codes, stage isolation,
 security regressions, examples, text compatibility, and capability boundaries.
 
-Phase 7 is the Developer Workflow & Stability Foundation. Its goal is to
-stabilize Pietto as a dependable single-file developer tool before introducing
-project-level, runtime, database-facing, watch, or editor/LSP capabilities.
-The first slice aligned documentation, and the second published the normative
-JSON v1 contract without changing runtime behavior. Later accepted slices will
-establish focused golden outputs, design resource budgets, implement only a
-small approved resource boundary, and document future project workflows.
+Phase 7 Developer Workflow & Stability Foundation is complete. It aligned
+post-Phase-6 documentation, stabilized the normative JSON v1 contract, added
+focused example-based golden SQL and JSON outputs, designed resource/depth
+budgets, implemented fixed 1 MiB UTF-8 source and 200,000 raw non-EOF token
+limits, documented future project-workflow prerequisites, and completed a
+cross-slice stability audit.
 
-Pietto still has no full global resource or depth budget and has not rewritten
-recursive compiler algorithms. SQL is generated only and is never executed.
+The implemented source/token limits are deterministic parser/frontend
+containment, not complete denial-of-service protection. Pietto has not added
+full structural depth, semantic graph, diagnostic/output, wall-clock, CPU, or
+memory budgets, and it has not rewritten recursive compiler algorithms. SQL is
+generated only and is never executed.
 There is no database connection, connector execution, schema introspection,
 runtime server, Web UI, project or multi-file support, watch mode, or
 LSP/editor integration. Database or runtime integration remains deferred and

@@ -1095,10 +1095,13 @@ Status: complete. `check` and `emit-sql` support command-local
 
 ### Phase 7: Developer Workflow & Stability Foundation
 
-Status: current direction. Stabilize the existing single-file tool through
-documentation alignment, JSON v1 contract stabilization, focused golden
-outputs, resource-budget design and a small separately reviewed implementation,
-future project-workflow design only, and a completion audit.
+Status: complete. The existing single-file tool now has aligned readiness
+documentation, a normative JSON v1 contract, focused example-based golden
+outputs, an approved resource/depth design, fixed source/token parser budgets,
+future project-workflow design only, and a completion audit. Project
+configuration, multi-file behavior, watch mode, LSP/editor integration,
+runtime, database, connector, schema introspection, and SQL execution remain
+deferred.
 
 ---
 

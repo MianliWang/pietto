@@ -2,16 +2,18 @@
 
 ## Status
 
-**Phase 7 Developer Workflow & Stability Foundation: In progress.**
+**Phase 7 Developer Workflow & Stability Foundation: Complete.**
 
-Slices 1 through 6 are complete. Readiness Alignment established the
+All seven slices are complete. Readiness Alignment established the
 post-Phase-6 documentation baseline, JSON CLI v1 Stabilization published the
 normative machine-readable CLI contract, and Golden Output Foundation added a
 small reviewed example-based regression layer. Resource/Depth Budget Design
 defined the deterministic limits and boundaries; Small Resource Budget
 Implementation now enforces the approved source/token subset. Future Workflow
 Design records the prerequisites and boundaries for later project-level
-capabilities. The completion audit remains planned.
+capabilities. The final audit verifies the combined documentation, JSON,
+golden-output, resource-budget, dependency, diagnostic, and prohibited-feature
+contracts.
 
 ## Goal
 
@@ -85,8 +87,9 @@ the artifact.
    approved bounded source/token protections and focused regressions.
 6. **Future Workflow Design Only**: complete. Design project configuration,
    multi-file, watch, and editor/LSP prerequisites without implementing them.
-7. **Phase 7 Completion Audit**: verify documentation, compatibility,
-   stability, safety boundaries, and unchanged single-file behavior.
+7. **Phase 7 Completion Audit**: complete. Verify documentation,
+   compatibility, stability, safety boundaries, and unchanged single-file
+   behavior.
 
 Each slice is independently reviewable and commit-ready. A later slice must
 not be treated as implemented merely because its direction is documented here.
@@ -189,6 +192,25 @@ No configuration loader, project discovery, module system, file graph, watch
 loop, language server, CLI surface, grammar, dependency, or runtime behavior
 is added.
 
+## Slice 7: Phase 7 Completion Audit
+
+Slice 7 adds a focused cross-slice audit covering:
+
+- Phase 7 documentation status and single-file scope;
+- JSON schema version 1 command, stream, output-file, and package-version
+  boundaries;
+- committed example-based golden SQL and JSON strategy;
+- deterministic 1 MiB UTF-8 source and 200,000 raw non-EOF token limits;
+- canonical `PIE-P1006` and `PIE-P1007` diagnostics;
+- minimal production dependencies and absence of prohibited workflow,
+  database, runtime, and compiler-wrapper capabilities;
+- canonical `PIE-` diagnostic prefixes throughout source, tests, and docs.
+
+The audit does not change the JSON v1 schema, SQL formatting, compiler stages,
+CLI behavior, dependencies, grammar, or generated files. The final validation
+baseline is 1049 passing tests, a valid lockfile, and no known vulnerabilities
+or adverse project statuses reported by `uv audit --locked`.
+
 ## Safety And Robustness
 
 - Existing parser, semantic, IR, SQL backend, and CLI stage boundaries remain
@@ -238,11 +260,12 @@ Phase 7 does not add:
 
 ## Deferred Items
 
-The following remain deferred beyond Slice 6 and, where noted above, beyond
-Phase 7 implementation:
+The following remain deferred beyond Phase 7:
 
 - malformed hand-built AST containment review;
 - ANTLR jar checksum automation and trusted-environment secret scanning;
+- structural AST/expression-depth, semantic graph, diagnostic-count, SQL
+  artifact, JSON output, wall-clock, CPU, and memory budgets;
 - project configuration, multi-file support, watch mode, and LSP/editor
   implementation;
 - database, connector, schema, runtime, Web, and execution capabilities.

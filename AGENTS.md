@@ -86,11 +86,9 @@ Rules:
 
 ## Current Phase
 
-Current direction: Phase 7 Developer Workflow & Stability Foundation. Its goal
-is to stabilize Pietto as a dependable single-file developer tool before
+Current phase: Phase 7 Developer Workflow & Stability Foundation complete.
+It stabilizes Pietto as a dependable single-file developer tool before
 project-level, runtime, database-facing, watch, or editor/LSP capabilities.
-Slice 1 is documentation-only readiness alignment; later Phase 7 slices are
-not implemented merely because they are planned.
 
 Phase 1 parser/frontend, Phase 2 Semantic Checker, Phase 3 Semantic IR, Phase 4
 PostgreSQL SQL, Phase 5 CLI, Phase 5.5 Security / Robustness Hardening, and
@@ -157,12 +155,12 @@ separate threat model before implementation.
 
 The completed Phase 6 design is documented in
 `docs/plan/phase-6-json-output.md`. The normative JSON v1 interface is
-documented in `docs/spec/cli-json-v1.md`. The accepted Phase 7 direction and
-slice sequence are documented in
-`docs/plan/phase-7-developer-workflow-stability.md`. Readiness alignment and
-JSON v1 stabilization are complete. Later Phase 7 work focuses on golden
-outputs, resource-budget design and a small approved implementation, future
-workflow design only, and a completion audit.
+documented in `docs/spec/cli-json-v1.md`. The completed Phase 7 direction,
+slice sequence, and completion audit are documented in
+`docs/plan/phase-7-developer-workflow-stability.md`. Phase 7 also provides
+focused golden outputs, fixed source/token parser budgets, resource/depth
+design, and future workflow design only. Those designs do not implement
+project configuration, multi-file behavior, watch mode, or editor tooling.
 
 Current strict boundaries remain:
 
