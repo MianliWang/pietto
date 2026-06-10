@@ -4,10 +4,12 @@
 
 **Phase 8 planning/specification is in progress.**
 
-Slice 1, Readiness And Decision Frame, is complete. Phase 8 is planning-only:
-it defines future project-level contracts before any project configuration,
-root discovery, multi-file compilation, CLI expansion, or JSON schema change
-is implemented.
+Slices 1 and 2 are complete. Readiness And Decision Frame established the
+phase boundary and sequence. Configuration Contract now defines a strict,
+versioned, non-executable future `pietto.toml` contract. Phase 8 is
+planning-only: it defines future project-level contracts before any project
+configuration, root discovery, multi-file compilation, CLI expansion, or JSON
+schema change is implemented.
 
 ## Goal
 
@@ -62,10 +64,10 @@ relevant contract, compatibility rules, and security model are accepted.
 
 ## Slice Sequence
 
-1. **Readiness And Decision Frame**: establish the post-Phase-7 baseline,
+1. **Readiness And Decision Frame**: complete. Establish the post-Phase-7 baseline,
    Phase 8 planning-only boundary, slice sequence, compatibility constraints,
    and future SQL roadmap.
-2. **Configuration Contract**: specify a strict, versioned, non-executable
+2. **Configuration Contract**: complete. Specify a strict, versioned, non-executable
    `pietto.toml` contract, including allowed fields, unknown-key policy,
    precedence, and prohibited sensitive or executable values.
 3. **Root And Path Semantics**: define project identity, root selection, path
@@ -94,22 +96,40 @@ Slice 1 changes no public API, CLI command, CLI flag, exit code, JSON field,
 diagnostic, grammar rule, generated parser file, compiler stage, SQL artifact,
 dependency, or lockfile entry.
 
+## Slice 2: Configuration Contract
+
+Slice 2 publishes `docs/spec/pietto-config-v1.md` as the planned contract for
+a future project configuration file. It defines:
+
+- required `schema_version = 1` and rejection of unsupported versions;
+- rejection of unknown top-level and nested keys;
+- a conservative `[project]` and `[sources]` candidate shape;
+- literal, non-executable configuration with no hooks, plugins, evaluation,
+  includes, environment expansion, network access, or runtime behavior;
+- exclusion of credentials, database URLs, connector URLs, tokens, and secret
+  references;
+- project-relative source-path boundaries and deterministic file-set
+  requirements, with exact glob and root semantics deferred to Slice 3;
+- future CLI precedence without changing current single-file commands;
+- no budget overrides, implicit output paths, or JSON v1 changes.
+
+The contract is specification-only. Slice 2 creates no `pietto.toml`, parser,
+loader, root discovery, glob expansion, project mode, multi-file behavior,
+dependency, or runtime capability.
+
 ## Configuration Direction
 
-The future configuration contract should be strict, versioned, declarative,
-and non-executable. Later planning must decide:
+The accepted configuration direction is strict, versioned, declarative, and
+non-executable. Schema version 1 requires an explicit integer version and
+rejects unknown keys. Its candidate data is limited to project metadata,
+PostgreSQL as the only future initial default dialect, and bounded
+project-relative source selection.
 
-- the exact schema version field and migration policy;
-- permitted project metadata and source-selection fields;
-- whether unknown keys are rejected or diagnosed;
-- precedence among built-in defaults, configuration, and explicit CLI input;
-- how paths and globs are represented and bounded;
-- whether any resource setting may be configurable beneath fixed hard
-  ceilings.
-
-Configuration must not contain command hooks, executable plugins, implicit
-environment expansion, credentials, database URLs, network endpoints, or
-runtime instructions. Phase 8 does not create a stub `pietto.toml`.
+Configuration contains no command hooks, executable plugins, implicit
+environment expansion, credentials, database URLs, network endpoints, output
+defaults, resource-budget overrides, or runtime instructions. Exact root,
+glob, symbolic-link, and cross-platform path behavior remains for Slice 3.
+Phase 8 does not create a stub `pietto.toml`.
 
 ## Root And Path Risks
 

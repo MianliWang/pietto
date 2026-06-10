@@ -166,6 +166,9 @@ project configuration, multi-file behavior, watch mode, or editor tooling.
 The current Phase 8 direction and planning-only slice sequence are documented
 in `docs/plan/phase-8-project-model-configuration-planning.md`. Phase 8 does
 not authorize project, CLI, JSON, SQL, dependency, or runtime implementation.
+The planned strict, non-executable future configuration contract is documented
+in `docs/spec/pietto-config-v1.md`. It is a specification only; the current
+repository does not contain or read `pietto.toml`.
 
 Current strict boundaries remain:
 

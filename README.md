@@ -113,5 +113,8 @@ The current stability direction and slice sequence are in
 [the Phase 7 Developer Workflow & Stability plan](docs/plan/phase-7-developer-workflow-stability.md).
 The current planning direction and slice sequence are in
 [the Phase 8 Project Model & Configuration Planning plan](docs/plan/phase-8-project-model-configuration-planning.md).
+The planned strict, non-executable project configuration contract is in
+[the Pietto project configuration schema version 1 specification](docs/spec/pietto-config-v1.md);
+it is not implemented or read by the current CLI.
 Diagnostic codes are documented in
 [the diagnostics specification](docs/spec/diagnostics.md).

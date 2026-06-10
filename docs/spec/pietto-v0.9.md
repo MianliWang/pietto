@@ -1110,7 +1110,9 @@ configuration, root/path, multi-file, CLI/JSON, and project resource-model
 semantics before implementation. It does not add `pietto.toml`, project
 discovery, multi-file behavior, JSON v2, SQLGlot, another SQL dialect, richer
 SQL features, or runtime/database capabilities. The implemented language,
-single-file CLI, and JSON v1 contracts remain unchanged.
+single-file CLI, and JSON v1 contracts remain unchanged. The planned strict,
+non-executable configuration contract is documented separately in
+`docs/spec/pietto-config-v1.md`; Pietto does not currently load it.
 
 ---
 
