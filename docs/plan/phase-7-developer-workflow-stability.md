@@ -4,10 +4,12 @@
 
 **Phase 7 Developer Workflow & Stability Foundation: In progress.**
 
-Slices 1 through 3 are complete. Readiness Alignment established the
+Slices 1 through 4 are complete. Readiness Alignment established the
 post-Phase-6 documentation baseline, JSON CLI v1 Stabilization published the
 normative machine-readable CLI contract, and Golden Output Foundation added a
-small reviewed example-based regression layer. Later slices remain planned.
+small reviewed example-based regression layer. Resource/Depth Budget Design
+now defines the deterministic limits and boundaries proposed for Slice 5.
+Later slices remain planned.
 
 ## Goal
 
@@ -74,8 +76,9 @@ the artifact.
 3. **Golden Output Foundation**: complete. Add reviewed SQL and JSON fixtures
    for stable representative examples without replacing focused behavioral
    tests.
-4. **Resource/Depth Budget Design**: define deterministic resource boundaries,
-   diagnostics, compatibility requirements, and safe implementation order.
+4. **Resource/Depth Budget Design**: complete. Define deterministic resource
+   boundaries, diagnostics, compatibility requirements, and safe
+   implementation order.
 5. **Small Resource Budget Implementation**: implement only the approved
    bounded source/token protections and focused regressions.
 6. **Future Workflow Design Only**: design project configuration, multi-file,
@@ -109,8 +112,8 @@ status, compatibility rules, and the boundary between argparse text errors and
 recognized JSON requests.
 
 Object member order and insignificant whitespace are not protocol guarantees.
-Any incompatible field, type, nullability, or semantic change must
-use a future schema version rather than silently changing schema version 1.
+Any incompatible field, type, nullability, or semantic change must use a
+future schema version rather than silently changing schema version 1.
 Slice 2 does not change or reimplement JSON output, add tests, publish JSON v2,
 or add golden fixtures.
 
@@ -131,17 +134,22 @@ remain covered by focused programmatic tests. Fixture changes require
 intentional review; Phase 7 does not add a snapshot dependency or an automatic
 golden-update mechanism.
 
-## Resource And Depth Budget Direction
+## Slice 4: Resource/Depth Budget Design
 
-Current protections include numeric-literal limits, recursion containment, and
-cycle diagnostics, but Pietto has no complete global source, token, node,
-depth, CPU, or memory budget.
+Slice 4 is design-only. The accepted model is documented in
+`docs/plan/phase-7-resource-depth-budget-design.md`. It records the current
+protections and gaps, future budget categories, diagnostic and location
+semantics, API/CLI consistency, JSON v1 compatibility, security boundaries,
+risks, and the future Slice 5 test plan.
 
-Phase 7 will first document units, limits, diagnostics, API/CLI behavior, and
-boundary tests. A later small implementation slice may add deterministic
-source-size and token-count limits. Full structural budgets, CPU or memory
-sandboxing, fuzzing, and recursive algorithm rewrites remain deferred unless a
-separate focused plan is accepted.
+Slice 5 is limited to a fixed 1 MiB UTF-8 source budget and 200,000 raw non-EOF
+lexer tokens, using private constants with no CLI, environment, or config
+overrides. Slice 4 does not implement those limits or add their proposed
+diagnostics.
+
+Full structural depth/node budgets, semantic graph budgets, diagnostic/output
+caps, CPU or memory sandboxing, fuzzing, and recursive algorithm rewrites
+remain deferred.
 
 ## Future Project Workflow Direction
 
@@ -208,10 +216,10 @@ Phase 7 does not add:
 
 ## Deferred Items
 
-The following remain deferred beyond Slice 3 and, where noted above, beyond
+The following remain deferred beyond Slice 4 and, where noted above, beyond
 Phase 7 implementation:
 
-- resource budget design and any approved small implementation;
+- the approved small source/token budget implementation;
 - malformed hand-built AST containment review;
 - ANTLR jar checksum automation and trusted-environment secret scanning;
 - project configuration, multi-file support, watch mode, and LSP/editor
