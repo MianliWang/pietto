@@ -24,6 +24,13 @@ construction, and PostgreSQL emission without ordinary exceptions. Type, enum,
 shape, source, constraint, and derive definitions are non-emitting metadata;
 unsupported or invalid relation emission remains diagnostic-driven.
 
+SQL artifact formatting is stable for the current subset: `SELECT` is on its
+own line, ordered projections use four-space indentation and trailing commas
+except for the final item, `FROM` and optional `WHERE` each occupy one line,
+identifiers and aliases are always quoted, and artifacts have no trailing
+newline. No configurable formatter or pretty-printer framework is planned for
+this MVP.
+
 ## Public API
 
 ```python
@@ -83,7 +90,8 @@ class SqlArtifact:
 6. PostgreSQL type mapping.
 7. Deterministic backend diagnostics and examples audit: initial relation
    hardening complete.
-8. Phase 4 completion audit.
+8. SQL artifact formatting hardening: complete.
+9. Phase 4 completion audit.
 
 Later slices must remain driven by existing Semantic IR and must not rerun
 parser or semantic analysis.
@@ -116,5 +124,6 @@ parenthesization, source-backed relation emission, projection ordering,
 filters, unsupported relation inputs, invalid inputs, and dependency
 isolation. Integration tests cover the full frontend-to-backend pipeline,
 identifier and literal escaping, independent artifact and diagnostic ordering,
-and all committed examples. Every slice must continue to run the complete
-parser, semantic, and IR test suite.
+stable multiline artifact text, supported artifacts coexisting with structured
+backend diagnostics, and all committed examples. Every slice must continue to
+run the complete parser, semantic, and IR test suite.
