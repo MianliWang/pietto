@@ -16,6 +16,11 @@ whose direct input is a `SourceIR` backed by `postgres.table(Text)`.
 Relation dependency expansion, broader SQL generation, and DDL are not
 implemented yet.
 
+The minimal relation emitter has completed its first hardening and committed
+examples audit. Every example now runs through parse, semantic analysis, IR
+construction, and PostgreSQL emission without ordinary exceptions; unsupported
+definitions remain explicit backend diagnostics.
+
 ## Public API
 
 ```python
@@ -66,7 +71,8 @@ class SqlArtifact:
 4. Basic table/query `SELECT`, `FROM`, `WHERE`, and projection emission:
    direct source-backed relations complete.
 5. PostgreSQL type mapping.
-6. Deterministic backend diagnostics and examples audit.
+6. Deterministic backend diagnostics and examples audit: initial relation
+   hardening complete.
 7. Phase 4 completion audit.
 
 Later slices must remain driven by existing Semantic IR and must not rerun
@@ -96,5 +102,7 @@ diagnostic documentation. Rendering tests cover identifier escaping, qualified
 names, scalar literals, supported expression mappings, conservative
 parenthesization, source-backed relation emission, projection ordering,
 filters, unsupported relation inputs, invalid inputs, and dependency
-isolation. Every slice must continue to run the complete parser, semantic, and
-IR test suite.
+isolation. Integration tests cover the full frontend-to-backend pipeline,
+identifier and literal escaping, independent artifact and diagnostic ordering,
+and all committed examples. Every slice must continue to run the complete
+parser, semantic, and IR test suite.
