@@ -2,15 +2,21 @@
 
 Pietto is a gradual, semantic SQL authoring DSL.
 
-The current implementation includes the completed Phase 1 parser/frontend and
-a completed Phase 2 semantic checker MVP. It provides structured
-semantic diagnostics, readonly semantic models, type and relation resolution,
-minimal expression typing, callable and shape validation, dependency-cycle
-checks, and static `postgres.table(Text)` connector validation.
+The current implementation status is:
 
-The Phase 3 Semantic IR MVP and Phase 4 PostgreSQL SQL MVP are complete. After
-parsing, semantic analysis, and IR construction, callers pass `ScriptIR` to
-`emit_postgres_sql(script_ir)`.
+- Phase 1 Parser/frontend MVP: complete;
+- Phase 2 Semantic Checker MVP: complete;
+- Phase 3 Semantic IR MVP: complete;
+- Phase 4 PostgreSQL SQL MVP: complete;
+- Phase 5 CLI MVP: complete;
+- Phase 5.5 Security / Robustness Hardening: complete;
+- Phase 6 JSON / machine-readable CLI output: complete;
+- Phase 7 Developer Workflow & Stability Foundation: current direction.
+
+The current compiler pipeline parses one Pietto file, performs semantic
+analysis, builds immutable Semantic IR, emits PostgreSQL SQL, and presents the
+result through CLI text or JSON output. The public SQL backend consumes
+`ScriptIR` through `emit_postgres_sql(script_ir)`.
 
 The backend emits minimal `SELECT` SQL for `RelationIR` definitions, including
 projections and optional `WHERE`. Inputs may reference a static
@@ -19,29 +25,39 @@ shape, source, constraint, and derive IR definitions are non-emitting metadata;
 unsupported or invalid relation emission receives structured `PIE-B1000`
 diagnostics. CTE expansion, inlining, nested subqueries, joins, grouping,
 ordering, limits, metadata DDL, SQLGlot integration, database or connector
-execution, schema introspection, CLI runtime, and a `compile_to_ir()` wrapper
-are not implemented.
+execution, and schema introspection are not implemented.
 
-The Phase 5 CLI MVP is complete. It provides `pietto --help`,
-`pietto --version`, and single-file `pietto check file.pie` parser and semantic
-validation. It also provides
-`pietto emit-sql file.pie --dialect postgres`, which explicitly runs the
-existing parse, semantic, IR, and PostgreSQL backend phases and prints SQL
-artifacts without executing them. SQL defaults to stdout; `--output path`
-atomically replaces a regular output file after successful rendering. The CLI
-rejects an output that is the input file or a symbolic link. Diagnostics
-remain on stderr, with control characters in paths and diagnostic text shown
-as visible escapes. Check diagnostics use
-`path:line:column CODE severity: message`, with normal success output on stdout
-and diagnostics on stderr.
+The supported single-file CLI commands and forms include:
+
+```bash
+pietto --help
+pietto --version
+pietto check file.pie
+pietto check file.pie --format json
+pietto check file.pie --format=json
+pietto emit-sql file.pie --dialect postgres
+pietto emit-sql file.pie --dialect postgres --output out.sql
+pietto emit-sql file.pie --dialect postgres --format json
+pietto emit-sql file.pie --dialect postgres --format=json
+pietto emit-sql file.pie --dialect postgres --format json --output out.sql
+```
+
+`check` performs parser and semantic validation only. `emit-sql` explicitly
+runs parse, semantic, IR, and PostgreSQL backend stages. SQL defaults to
+stdout; `--output` atomically replaces a safe regular output file after
+successful rendering. Text diagnostics remain on stderr. Recognized JSON
+requests produce one versioned machine-readable document on stdout.
 
 The CLI remains single-file developer tooling. It does not execute SQL,
 connect to databases or connectors, introspect schemas, or provide project
-configuration, watch mode, or compiler convenience wrappers.
+configuration, multi-file support, watch mode, LSP/editor integration, or
+compiler convenience wrappers. There is no `compile_to_ir()` or
+`compile_to_sql()`.
+
 Phase 5.5 Security / Robustness Hardening is complete. PSEC-001 through
 PSEC-007 are fixed or documented at their intended boundaries, the Common
 Vulnerability Category Checklist is complete, and no current vulnerability
-blocks Phase 6. The completed work covers compiler exception containment,
+blocked Phase 6. The completed work covers compiler exception containment,
 PostgreSQL rendering safety, CLI output-path and terminal-text safety, and a
 minimized production dependency set.
 
@@ -57,11 +73,20 @@ stdout. Text-mode `emit-sql --output` remains supported and unchanged. The
 Phase 6 completion audit covers schema stability, exit codes, stage isolation,
 security regressions, examples, text compatibility, and capability boundaries.
 
+Phase 7 is the Developer Workflow & Stability Foundation. Its goal is to
+stabilize Pietto as a dependable single-file developer tool before introducing
+project-level, runtime, database-facing, watch, or editor/LSP capabilities.
+The first slice aligns documentation only; later accepted slices will stabilize
+the JSON v1 contract, establish focused golden outputs, design resource
+budgets, implement only a small approved resource boundary, and document
+future project workflows.
+
 Pietto still has no full global resource or depth budget and has not rewritten
-recursive compiler algorithms. It also has no SQL execution, database
-connection, connector execution, schema introspection, Web UI, runtime,
-project or multi-file support, or LSP/editor integration. Database or runtime
-integration remains deferred and requires a separate threat model.
+recursive compiler algorithms. SQL is generated only and is never executed.
+There is no database connection, connector execution, schema introspection,
+runtime server, Web UI, project or multi-file support, watch mode, or
+LSP/editor integration. Database or runtime integration remains deferred and
+requires a separate threat model.
 
 See [the language specification](docs/spec/pietto-v0.9.md),
 [the Phase 3 Semantic IR plan](docs/plan/phase-3-semantic-ir.md), and
@@ -71,5 +96,7 @@ Security audit details and repeatable tooling commands are in
 [the Phase 5.5 security hardening note](docs/plan/phase-5-5-security-hardening.md).
 The accepted JSON schema and slice sequence are in
 [the Phase 6 JSON output plan](docs/plan/phase-6-json-output.md).
+The current stability direction and slice sequence are in
+[the Phase 7 Developer Workflow & Stability plan](docs/plan/phase-7-developer-workflow-stability.md).
 Diagnostic codes are documented in
 [the diagnostics specification](docs/spec/diagnostics.md).

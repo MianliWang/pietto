@@ -1,0 +1,210 @@
+# Phase 7: Developer Workflow & Stability Foundation
+
+## Status
+
+**Phase 7 Developer Workflow & Stability Foundation: In progress.**
+
+Slice 1, Readiness Alignment, establishes the post-Phase-6 documentation
+baseline. Later slices remain planned and are not implemented by Slice 1.
+
+## Goal
+
+Stabilize Pietto as a dependable single-file developer tool before introducing
+project-level, runtime, database-facing, watch, or editor/LSP capabilities.
+Phase 7 strengthens the existing compiler and CLI contracts rather than
+expanding the language or execution surface.
+
+## Post-Phase-6 Baseline
+
+The completed implementation includes:
+
+- Phase 1 parser/frontend MVP;
+- Phase 2 Semantic Checker MVP;
+- Phase 3 Semantic IR MVP;
+- Phase 4 PostgreSQL SQL generation MVP;
+- Phase 5 single-file CLI MVP;
+- Phase 5.5 Security / Robustness Hardening;
+- Phase 6 JSON / machine-readable CLI output.
+
+The compiler pipeline is:
+
+```text
+Pietto source
+    -> parse
+    -> semantic analysis
+    -> build IR
+    -> emit PostgreSQL SQL
+    -> CLI text or JSON presentation
+```
+
+SQL is generated only. Pietto does not execute SQL, connect to databases,
+execute connectors, introspect schemas, or provide a runtime server.
+
+## Supported CLI
+
+The current single-file CLI supports:
+
+```bash
+pietto --help
+pietto --version
+pietto check file.pie
+pietto check file.pie --format json
+pietto check file.pie --format=json
+pietto emit-sql file.pie --dialect postgres
+pietto emit-sql file.pie --dialect postgres --output out.sql
+pietto emit-sql file.pie --dialect postgres --format json
+pietto emit-sql file.pie --dialect postgres --format=json
+pietto emit-sql file.pie --dialect postgres --format json --output out.sql
+```
+
+Text remains the default presentation. JSON mode emits one versioned document
+on stdout. `emit-sql` can write generated SQL atomically, but it never executes
+the artifact.
+
+## Slice Sequence
+
+1. **Readiness Alignment**: align current docs and the language reference with
+   the completed Phase 6 implementation and accepted Phase 7 boundaries.
+2. **JSON CLI v1 Stabilization**: publish a normative JSON v1 contract and
+   centralize compatibility expectations without changing the current schema.
+3. **Golden Output Foundation**: add reviewed SQL and JSON fixtures for stable
+   representative examples without replacing focused behavioral tests.
+4. **Resource/Depth Budget Design**: define deterministic resource boundaries,
+   diagnostics, compatibility requirements, and safe implementation order.
+5. **Small Resource Budget Implementation**: implement only the approved
+   bounded source/token protections and focused regressions.
+6. **Future Workflow Design Only**: design project configuration, multi-file,
+   watch, and editor/LSP prerequisites without implementing them.
+7. **Phase 7 Completion Audit**: verify documentation, compatibility,
+   stability, safety boundaries, and unchanged single-file behavior.
+
+Each slice is independently reviewable and commit-ready. A later slice must
+not be treated as implemented merely because its direction is documented here.
+
+## Slice 1: Readiness Alignment
+
+Slice 1 is documentation-only. It:
+
+- records the Phase 7 direction and slice sequence;
+- updates README and contributor guidance to the post-Phase-6 state;
+- corrects the language reference where completed SQL and CLI capabilities
+  were still described as future work;
+- annotates the historical Phase 5.5 security audit with its post-Phase-6 JSON
+  status while preserving the original evidence.
+
+Slice 1 does not change source code, tests, examples, dependencies, grammar,
+generated files, or observable behavior.
+
+## JSON CLI v1 Direction
+
+Phase 7 will extract the implemented JSON behavior into a normative v1
+specification. Stabilization will cover field names and types, nullability,
+enumerated values, array ordering, exit codes, stream routing, output-file
+status, and the boundary between argparse text errors and recognized JSON
+requests.
+
+Object member order and insignificant whitespace will not be protocol
+guarantees. Any incompatible field, type, nullability, or semantic change must
+use a future schema version rather than silently changing schema version 1.
+Slice 1 does not change or reimplement JSON output.
+
+## Golden Output Direction
+
+Golden tests will use committed Pietto examples as stable inputs for a small
+set of representative SQL and JSON outputs. SQL fixtures may use exact text
+comparison where formatting is part of the artifact. JSON fixtures should be
+compared as parsed data so object member order and whitespace are not
+accidentally frozen.
+
+Dynamic paths, control characters, compiler failures, and output-write errors
+remain better suited to focused programmatic tests. Phase 7 will not add a
+snapshot dependency or an automatic unreviewed golden-update mechanism.
+
+## Resource And Depth Budget Direction
+
+Current protections include numeric-literal limits, recursion containment, and
+cycle diagnostics, but Pietto has no complete global source, token, node,
+depth, CPU, or memory budget.
+
+Phase 7 will first document units, limits, diagnostics, API/CLI behavior, and
+boundary tests. A later small implementation slice may add deterministic
+source-size and token-count limits. Full structural budgets, CPU or memory
+sandboxing, fuzzing, and recursive algorithm rewrites remain deferred unless a
+separate focused plan is accepted.
+
+## Future Project Workflow Direction
+
+Phase 7 may document future requirements for:
+
+- a non-executable, versioned `pietto.toml` configuration format;
+- project-root discovery and configuration precedence;
+- a multi-file module and dependency model;
+- path and trust boundaries;
+- watch-mode dependency invalidation;
+- stable source ranges, diagnostic identity, cancellation, and project models
+  needed by editor/LSP tooling.
+
+This is design work only. No configuration loader, module system, file graph,
+watch loop, language server, CLI command, or CLI flag is added in Phase 7
+without a later explicit implementation plan.
+
+## Safety And Robustness
+
+- Existing parser, semantic, IR, SQL backend, and CLI stage boundaries remain
+  isolated.
+- JSON continues to use standard-library serialization and structured
+  diagnostics rather than hand-built output.
+- SQL artifact text remains data output and is never treated as executed SQL.
+- Database, connector, runtime, network, and Web capabilities require separate
+  threat models before implementation.
+- Dependencies remain minimal and are added only by a slice that imports,
+  tests, and justifies them.
+
+## Explicit Non-Goals
+
+Phase 7 does not add:
+
+- SQL execution, DML execution, or migration execution;
+- database connections, connector execution, or schema introspection;
+- a runtime server, Web UI, network service, or authentication surface;
+- project configuration or `pietto.toml` implementation;
+- multi-file compilation or a module/import system;
+- watch mode or incremental compilation;
+- LSP/editor integration;
+- new CLI commands or flags unless separately approved;
+- grammar or generated ANTLR changes;
+- SQL feature expansion such as joins, grouping, ordering, limits, windows,
+  unions, DDL, CTE expansion, or SQL inlining;
+- `compile_to_ir()` or `compile_to_sql()`;
+- JSON schema v2 or unversioned JSON contract changes;
+- new dependencies solely for snapshots, configuration, watch mode, or LSP;
+- a complete resource sandbox or recursive algorithm rewrite.
+
+## Scope Creep Risks
+
+- implementing configuration discovery while only documenting future project
+  configuration;
+- introducing import grammar to make multi-file design concrete;
+- treating JSON object key order or whitespace as a compatibility guarantee;
+- expanding golden fixtures into brittle copies of every lower-level test;
+- representing a small source/token limit as complete denial-of-service
+  protection;
+- adding snapshot, config, watch, LSP, SQL, or database dependencies early;
+- expanding SQL capabilities while selecting examples for golden output;
+- rewriting historical phase documents instead of annotating later status;
+- turning developer-workflow stability into packaging, release automation, or
+  runtime integration without a separate accepted scope.
+
+## Deferred Items
+
+The following remain deferred beyond Slice 1 and, where noted above, beyond
+Phase 7 implementation:
+
+- the normative JSON CLI v1 specification and compatibility tests;
+- committed golden SQL/JSON fixtures;
+- resource budget design and any approved small implementation;
+- malformed hand-built AST containment review;
+- ANTLR jar checksum automation and trusted-environment secret scanning;
+- project configuration, multi-file support, watch mode, and LSP/editor
+  implementation;
+- database, connector, schema, runtime, Web, and execution capabilities.

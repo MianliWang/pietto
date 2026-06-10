@@ -11,6 +11,20 @@ boundaries. The Common Vulnerability Category Checklist and focused completion
 audit are complete. No current vulnerability blocks Phase 6. This phase does
 not add runtime or execution behavior.
 
+### Post-Phase-6 Status Note
+
+This document preserves the security evidence and implementation state as they
+were assessed during Phase 5.5. Statements below that JSON output did not yet
+exist are historical findings, not descriptions of the current repository.
+
+Phase 6 later completed JSON / machine-readable CLI output with
+standard-library serialization, schema version 1, structured diagnostics and
+CLI errors, strict handled-result stream separation, malicious-text
+regressions, and a final completion audit. Those Phase 6 changes satisfy the
+JSON follow-up requirements recorded in this audit. The resource-budget,
+malformed hand-built AST, ANTLR checksum, and trusted-environment secret-scan
+items remain future hardening where not otherwise completed.
+
 ## Completed Findings
 
 - PSEC-001: excessively long numeric literals produce parser diagnostics

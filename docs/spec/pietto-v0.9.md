@@ -1,11 +1,11 @@
 # Pietto v0.9 Whitepaper and Language Reference
 
 Version: v0.9 draft
-Status: Phase 1 parser/frontend, Phase 2 Semantic MVP, and Phase 3 Semantic IR MVP implemented
+Status: Phase 1 through Phase 6 MVP and hardening slices implemented
 Primary implementation target: Python 3.12
 Primary SQL target: PostgreSQL
 Preferred package manager: uv-first
-Parser strategy: ANTLR4 -> Pietto AST -> Semantic IR -> SQLGlot AST / SQL backend
+Current pipeline: parse -> analyze -> build IR -> emit PostgreSQL SQL -> CLI text or JSON output
 
 ---
 
@@ -25,23 +25,27 @@ The Pietto language design targets:
 - optional physical-design hints such as indexes, generated columns, and materialization;
 - a clear compiler pipeline suitable for future SQL-to-Pietto research.
 
-The core project direction is:
+The current implemented compiler and CLI pipeline is:
 
 ```text
 Pietto source
-    -> ANTLR parse tree
-    -> Pietto AST
-    -> semantic analysis
-    -> Pietto logical IR
-    -> SQLGlot AST / SQL backend
-    -> SQL
+    -> parse
+    -> analyze
+    -> build IR
+    -> emit PostgreSQL SQL
+    -> CLI text or JSON output
 ```
 
-Phase 1 parsing through the Pietto AST, the Phase 2 Semantic MVP, and the Phase
-3 Semantic IR MVP are implemented. The public `build_ir(script,
-semantic_model)` API lowers analyzed programs into immutable,
-parser-independent IR. SQL generation, execution, database connections,
-schema introspection, and CLI runtime behavior remain future phases.
+Current implementation status after Phase 6: the parser/frontend, Semantic
+Checker, Semantic IR, PostgreSQL SQL backend, single-file CLI, security
+hardening, and JSON / machine-readable CLI presentation are implemented. The
+public `build_ir(script, semantic_model)` API lowers analyzed programs into
+immutable, parser-independent IR, and `emit_postgres_sql(script_ir)` produces
+SQL artifacts from that IR.
+
+SQL is generated only. Database connections, SQL or connector execution,
+schema introspection, runtime services, project or multi-file support, watch
+mode, and LSP/editor integration remain deferred.
 
 ---
 
@@ -845,55 +849,69 @@ TypeRefIR
 
 Phase 3 does not provide `compile_to_ir()` and does not generate SQL directly.
 
-### 9.5 Planned SQL backend
+### 9.5 Implemented PostgreSQL SQL backend
 
-The first SQL backend should target PostgreSQL.
+The Phase 4 backend consumes `ScriptIR` through
+`emit_postgres_sql(script_ir)`. It emits minimal PostgreSQL `SELECT` SQL for
+supported relation definitions, including projections, `FROM`, and optional
+`WHERE`. It returns immutable artifacts and ordered backend diagnostics.
 
-SQL generation should use SQLGlot where useful:
+The current backend does not use SQLGlot. SQLGlot remains only a possible
+future implementation option if a separately scoped backend change justifies
+it. The current backend does not parse source, rerun semantic analysis, build
+IR, connect to databases, execute connectors, or execute SQL.
 
-```text
-Pietto IR -> SQLGlot expression AST -> dialect SQL
-```
+There is no `compile_to_ir()` or `compile_to_sql()` convenience wrapper.
 
 ---
 
-## 10. Planned CLI Reference
+## 10. Current CLI Reference
 
-These commands describe future tooling. Phase 1 does not implement CLI runtime
-behavior.
+The implemented CLI is single-file developer tooling. Text is the default
+format; both compiler commands also support JSON schema version 1.
+
+### General
+
+```bash
+pietto --help
+pietto --version
+```
 
 ### `pietto check`
 
 ```bash
 pietto check app.pie
-pietto check app.pie --mode strict
+pietto check app.pie --format json
+pietto check app.pie --format=json
 ```
 
-### `pietto compile`
+`check` parses and performs semantic analysis only. It does not build IR or
+emit SQL.
+
+### `pietto emit-sql`
 
 ```bash
-pietto compile app.pie --query recent_adult_users --dialect postgres
+pietto emit-sql app.pie --dialect postgres
+pietto emit-sql app.pie --dialect postgres --output out.sql
+pietto emit-sql app.pie --dialect postgres --format json
+pietto emit-sql app.pie --dialect postgres --format=json
+pietto emit-sql app.pie --dialect postgres --format json --output out.sql
 ```
 
-### `pietto validate`
+`emit-sql` explicitly runs parsing, semantic analysis, IR construction, and
+PostgreSQL SQL emission. It prints or writes generated SQL but never executes
+it.
 
-```bash
-pietto validate app.pie --query adult_users
-```
+### Deferred CLI ideas
 
-### `pietto describe`
+Earlier design notes discussed commands such as `compile`, `validate`,
+`describe`, and `explain`, plus a CLI `--mode` override. These are not current
+commands or flags. They remain deferred ideas and require separate accepted
+plans before implementation.
 
-```bash
-pietto describe User
-pietto describe adult_users
-```
-
-### `pietto explain`
-
-```bash
-pietto explain app.pie --query adult_users
-pietto explain app.pie --query adult_users --stage ir
-```
+The CLI does not load project configuration, analyze multiple files, watch the
+filesystem, provide an LSP, connect to a database, introspect schemas, execute
+connectors, or execute SQL.
 
 ---
 
@@ -1018,8 +1036,9 @@ Completed scope:
 - diagnostics;
 - parser tests.
 
-Current parser validation: all committed examples parse and the test suite has
-254 passing tests.
+At Phase 1 completion, all committed examples parsed and the parser-focused
+suite had 254 passing tests. This is historical Phase 1 evidence rather than
+the current repository-wide test count.
 
 Out of scope:
 
@@ -1051,18 +1070,35 @@ Status: Semantic IR MVP complete. The public AST plus readonly
 
 ### Phase 4: PostgreSQL SQL Generation
 
-Goal: compile basic `table` and `query` IR to PostgreSQL SQL first, then add
-constraint validation SQL in later backend slices.
+Status: PostgreSQL SQL MVP complete. The backend consumes `ScriptIR` and emits
+minimal relation `SELECT` artifacts without execution, database access,
+connector execution, schema introspection, or SQLGlot integration.
 
 ### Phase 5: CLI and Developer Tooling
 
-Goal: expose stable compiler workflows such as:
+Status: single-file CLI MVP complete. Implemented commands are:
 
 - `pietto check`;
-- `pietto compile`;
-- `pietto validate`;
-- `pietto describe`;
-- `pietto explain`.
+- `pietto emit-sql`;
+- `pietto --help`;
+- `pietto --version`.
+
+### Phase 5.5: Security / Robustness Hardening
+
+Status: complete. PSEC-001 through PSEC-007 are fixed or documented at their
+intended boundaries. Full global resource/depth budgets remain deferred.
+
+### Phase 6: JSON / Machine-Readable CLI Output
+
+Status: complete. `check` and `emit-sql` support command-local
+`--format {text,json}` with schema version 1 and unchanged text defaults.
+
+### Phase 7: Developer Workflow & Stability Foundation
+
+Status: current direction. Stabilize the existing single-file tool through
+documentation alignment, JSON v1 contract stabilization, focused golden
+outputs, resource-budget design and a small separately reviewed implementation,
+future project-workflow design only, and a completion audit.
 
 ---
 
@@ -1224,17 +1260,17 @@ Rules:
 
 ### 15.3 External skills to consider later
 
-Only consider these after Phase 1 is stable:
+Consider these only when a separately scoped implementation requires them:
 
 | Skill type | When useful | Recommendation |
 |---|---|---|
 | GitHub issue/PR skill | when using GitHub issues heavily | later |
 | Docs skill | when docs become large | later |
-| CLI-builder skill | when CLI grows beyond `check/compile` | later |
-| Database skill | when implementing SQL execution | Phase 4+ |
-| Web/UI skill | when building playground | Phase 6+ |
-| Security review skill | before accepting untrusted Pietto code | Phase 3+ |
-| Performance/profiling skill | after SQL generation exists | Phase 4+ |
+| CLI-builder skill | when the implemented CLI grows beyond `check` and `emit-sql` | later |
+| Database skill | when SQL execution is explicitly planned | deferred |
+| Web/UI skill | when a playground is explicitly planned | deferred |
+| Security review skill | before accepting new untrusted-input surfaces | as needed |
+| Performance/profiling skill | when measured compiler bottlenecks justify it | as needed |
 
 ---
 

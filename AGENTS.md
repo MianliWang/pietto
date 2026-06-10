@@ -10,12 +10,11 @@ Primary compiler pipeline:
 
 ```text
 Pietto source
-    -> ANTLR parse tree
-    -> Pietto AST
-    -> semantic analysis
-    -> Pietto logical IR
-    -> SQLGlot AST / SQL backend
-    -> SQL
+    -> parse
+    -> analyze
+    -> build IR
+    -> emit PostgreSQL SQL
+    -> CLI text or JSON output
 ```
 
 ## Communication
@@ -87,13 +86,15 @@ Rules:
 
 ## Current Phase
 
-Current implementation phase: Phase 6 JSON / machine-readable CLI output
-complete. The completed phase includes schema planning, internal serialization
-helpers, audited `check --format json`, `emit-sql --format json` with final
-output-file interaction, and the Phase 6 completion audit.
+Current direction: Phase 7 Developer Workflow & Stability Foundation. Its goal
+is to stabilize Pietto as a dependable single-file developer tool before
+project-level, runtime, database-facing, watch, or editor/LSP capabilities.
+Slice 1 is documentation-only readiness alignment; later Phase 7 slices are
+not implemented merely because they are planned.
 
-Phase 1 parser and AST work and the Phase 2 Semantic Checker MVP are complete.
-The Phase 3 Semantic IR MVP is complete. The Phase 4 public
+Phase 1 parser/frontend, Phase 2 Semantic Checker, Phase 3 Semantic IR, Phase 4
+PostgreSQL SQL, Phase 5 CLI, Phase 5.5 Security / Robustness Hardening, and
+Phase 6 JSON / machine-readable CLI output are complete. The Phase 4 public
 `emit_postgres_sql(script_ir)` API consumes `ScriptIR` directly and currently
 emits minimal `SELECT`, projection, `FROM`, and optional `WHERE` SQL for
 `RelationIR` definitions backed by static `postgres.table(Text)` sources or
@@ -102,9 +103,9 @@ constraint, and derive definitions are non-emitting metadata. Unsupported or
 invalid relation emission and unknown future backend targets receive ordered
 `PIE-B1000` diagnostics. Empty IR returns an empty successful result.
 
-Phase 4 MVP completion does not include DDL, CTE expansion, SQL inlining,
+The Phase 4 backend itself does not include DDL, CTE expansion, SQL inlining,
 nested subqueries, joins, grouping, ordering, limits, windows, unions,
-database or connector execution, or CLI runtime behavior.
+database or connector execution, or CLI orchestration.
 
 The SQL backend must not parse source, run semantic analysis, call `build_ir()`,
 import SQLGlot, connect to databases, or execute connectors. There is no
@@ -119,7 +120,7 @@ The completed MVP provides:
 - backend isolation from parser, semantic, and IR construction stages;
 - focused SQL backend tests and planning.
 
-Phase 5 currently provides `pietto --help`, `pietto --version`, and
+The current CLI provides `pietto --help`, `pietto --version`, and
 `pietto check file.pie`. The check command performs parser and semantic
 analysis only; it does not build IR or emit SQL. The CLI also provides
 `pietto emit-sql file.pie --dialect postgres`, which explicitly orchestrates
@@ -132,16 +133,17 @@ diagnostics on stderr. CLI diagnostics use
 written to stderr with C0 control characters and DEL rendered as visible
 escapes.
 
-Phase 5 MVP completion does not include project or multi-file support, config
-files, watch mode, JSON or color output, source snippets, LSP/editor
-integration, database or connector execution, schema introspection,
-`compile_to_ir()`, or `compile_to_sql()`.
+Both `check` and `emit-sql` support command-local `--format {text,json}`, with
+text as the default. JSON v1 uses standard-library serialization, structured
+diagnostics and CLI errors, and one complete stdout document. JSON
+`emit-sql --output` retains artifacts in stdout while writing raw SQL
+atomically to the requested file.
 
 Phase 5.5 Security / Robustness Hardening is complete and documented in
 `docs/plan/phase-5-5-security-hardening.md`. PSEC-001 through PSEC-007 are
 fixed or documented at their intended boundaries, the Common Vulnerability
-Category Checklist and focused completion audit are complete, and no current
-vulnerability blocks Phase 6. The current production dependency surface
+Category Checklist and focused completion audit are complete, and no
+vulnerability blocked Phase 6. The current production dependency surface
 contains only the ANTLR Python runtime; planned technologies are not installed
 until an implemented compiler slice requires them.
 
@@ -153,22 +155,22 @@ introspection, Web UI, runtime, project or multi-file support, and LSP/editor
 integration remain out of scope. Database or runtime integration requires a
 separate threat model before implementation.
 
-The accepted Phase 6 design is documented in
-`docs/plan/phase-6-json-output.md`. Supported commands use command-local
-`--format {text,json}` for both `check` and `emit-sql`, defaulting to the
-current text behavior. JSON v1 uses standard-library serialization,
-`"schema_version": 1`, structured diagnostics and CLI errors, and one complete
-stdout document. `check --format json` is implemented; JSON output for
-`emit-sql` is implemented with or without `--output`. JSON plus `--output`
-writes raw SQL atomically to the requested file and reports structured output
-status on stdout, while text-mode `emit-sql --output` remains unchanged. The
-check JSON security audit and the final Phase 6 completion audit are complete.
+The completed Phase 6 design is documented in
+`docs/plan/phase-6-json-output.md`. The accepted Phase 7 direction and slice
+sequence are documented in
+`docs/plan/phase-7-developer-workflow-stability.md`. Phase 7 focuses on current
+single-file stability: readiness alignment, JSON v1 stabilization, focused
+golden outputs, resource-budget design and a later small approved
+implementation, future workflow design only, and a completion audit.
 
-Phase 6 remains CLI presentation work. It must not change parser, semantic,
-IR, or SQL backend models unless a later focused slice proves that strictly
-necessary. It does not add SQL execution, database connections, connector
-execution, schema introspection, runtime behavior, project or multi-file
-support, Web UI, or LSP/editor integration.
+Current strict boundaries remain:
+
+- SQL is generated only and is never executed;
+- no database connection, connector execution, or schema introspection;
+- no runtime server or Web UI;
+- no project configuration or multi-file implementation;
+- no watch mode or LSP/editor implementation;
+- no `compile_to_ir()` or `compile_to_sql()`.
 
 Do not implement in the current phase unless explicitly requested:
 
@@ -184,6 +186,10 @@ Do not implement in the current phase unless explicitly requested:
 - DML;
 - optimizer;
 - CLI behavior beyond the current help/version, check, and emit-sql commands;
+- project configuration or `pietto.toml` implementation;
+- multi-file support;
+- watch mode;
+- LSP/editor integration;
 - web API;
 - visualization;
 - concurrency/runtime features.
