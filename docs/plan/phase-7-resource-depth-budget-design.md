@@ -2,10 +2,11 @@
 
 ## Status
 
-**Design complete; implementation deferred to Phase 7 Slice 5.**
+**Design complete; the Slice 5 source/token subset is implemented.**
 
 This document defines Pietto's deterministic resource-budget direction. It
-does not add limits, diagnostics, tests, configuration, or runtime behavior.
+also records the fixed source/token subset implemented in Slice 5. Broader
+depth, graph, output, CPU, and memory budgets remain deferred.
 
 ## Motivation
 
@@ -152,23 +153,23 @@ deadlines. Such a policy is environment-dependent, nondeterministic, and
 separate from compiler structural budgets. It requires a runtime threat model
 and is not a Phase 7 Slice 5 feature.
 
-## Slice 5 Implementation Subset
+## Implemented Slice 5 Subset
 
-Slice 5 should implement exactly two deterministic limits:
+Slice 5 implements exactly two deterministic limits:
 
 | Budget | Limit | Accepted boundary | Rejected boundary |
 |---|---:|---:|---:|
 | UTF-8 source size | 1 MiB (`1,048,576` bytes) | `<= 1,048,576` bytes | `>= 1,048,577` bytes |
 | Raw lexer tokens | `200,000` non-EOF tokens | `<= 200,000` tokens | the `200,001`st token |
 
-The implementation should use private module constants, for example:
+The implementation uses private module constants equivalent to:
 
 ```text
 _MAX_SOURCE_UTF8_BYTES = 1_048_576
 _MAX_NON_EOF_TOKENS = 200_000
 ```
 
-Slice 5 must not add:
+Slice 5 does not add:
 
 - CLI flags;
 - environment-variable overrides;
@@ -183,7 +184,7 @@ have separate accepted designs.
 
 ## Diagnostic Design
 
-Slice 5 should add two parser diagnostics:
+Slice 5 adds two parser diagnostics:
 
 | Code | Severity | Meaning |
 |---|---|---|
@@ -331,12 +332,12 @@ They do not:
 Any future runtime, database connection, connector execution, or schema
 introspection capability still requires a separate threat model.
 
-## Slice 5 Test Plan
+## Slice 5 Test Coverage
 
-Slice 5 should add small, generated test inputs rather than committing
-megabyte-scale fixtures.
+Slice 5 uses small, generated test inputs rather than committing megabyte-scale
+fixtures.
 
-Parser API tests:
+Parser API coverage includes:
 
 - `parse_source()` accepts exactly the byte limit and rejects one byte over;
 - multi-byte Unicode input is measured in UTF-8 bytes rather than code points;
@@ -346,7 +347,7 @@ Parser API tests:
 - the token diagnostic points to the first over-limit token;
 - no traceback or internal control-flow exception leaks.
 
-CLI tests:
+CLI coverage includes:
 
 - `check` text mode returns `1` and renders the error diagnostic;
 - `check --format json` preserves the JSON v1 shape, has `ok: false`, has empty
@@ -360,9 +361,9 @@ CLI tests:
 - diagnostic codes and severity are exact;
 - the old bare diagnostic-code scan remains clean.
 
-Tests should generate boundary strings and files in `tmp_path`. They should
-avoid adding large repository fixtures and should monkeypatch later compiler
-stages where useful to prove short-circuiting.
+Tests generate boundary strings and files in `tmp_path`, avoid large repository
+fixtures, and monkeypatch later compiler stages where useful to prove
+short-circuiting.
 
 ## Slice 5 Non-Goals
 
@@ -396,7 +397,7 @@ Slice 5 must not implement:
 | Resource limits are presented as complete protection | Document the unbounded categories and retain separate runtime/database threat-model requirements |
 | Diagnostic codes lose their canonical prefix | Use `PIE-P1006` and `PIE-P1007` everywhere and retain the repository scan |
 
-## Acceptance Boundary For Slice 5
+## Slice 5 Completion Boundary
 
 Slice 5 is complete only when the two fixed parser budgets behave consistently
 through the parser APIs and all current CLI presentations, short-circuit later

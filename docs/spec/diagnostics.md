@@ -27,6 +27,8 @@ stored separately and is never encoded in the code.
 | `PIE-P1003` | Invalid indentation or inconsistent dedent |
 | `PIE-P1004` | Tab or mixed indentation |
 | `PIE-P1005` | Unsupported brace-style block |
+| `PIE-P1006` | UTF-8 source byte budget exceeded |
+| `PIE-P1007` | Raw non-EOF lexer token budget exceeded |
 
 ## Semantic Diagnostics
 

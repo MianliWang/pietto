@@ -4,12 +4,13 @@
 
 **Phase 7 Developer Workflow & Stability Foundation: In progress.**
 
-Slices 1 through 4 are complete. Readiness Alignment established the
+Slices 1 through 5 are complete. Readiness Alignment established the
 post-Phase-6 documentation baseline, JSON CLI v1 Stabilization published the
 normative machine-readable CLI contract, and Golden Output Foundation added a
 small reviewed example-based regression layer. Resource/Depth Budget Design
-now defines the deterministic limits and boundaries proposed for Slice 5.
-Later slices remain planned.
+defined the deterministic limits and boundaries; Small Resource Budget
+Implementation now enforces the approved source/token subset. Later slices
+remain planned.
 
 ## Goal
 
@@ -79,8 +80,8 @@ the artifact.
 4. **Resource/Depth Budget Design**: complete. Define deterministic resource
    boundaries, diagnostics, compatibility requirements, and safe
    implementation order.
-5. **Small Resource Budget Implementation**: implement only the approved
-   bounded source/token protections and focused regressions.
+5. **Small Resource Budget Implementation**: complete. Implement only the
+   approved bounded source/token protections and focused regressions.
 6. **Future Workflow Design Only**: design project configuration, multi-file,
    watch, and editor/LSP prerequisites without implementing them.
 7. **Phase 7 Completion Audit**: verify documentation, compatibility,
@@ -151,6 +152,22 @@ Full structural depth/node budgets, semantic graph budgets, diagnostic/output
 caps, CPU or memory sandboxing, fuzzing, and recursive algorithm rewrites
 remain deferred.
 
+## Slice 5: Small Resource Budget Implementation
+
+Slice 5 adds deterministic parser/frontend containment with:
+
+- a fixed 1 MiB UTF-8 source budget;
+- a fixed 200,000 raw non-EOF lexer token budget;
+- `PIE-P1006` and `PIE-P1007` error diagnostics;
+- consistent parser API, text CLI, and JSON v1 behavior;
+- short-circuiting before semantic, IR, and SQL work;
+- output-file preservation on parser budget failure.
+
+The limits are private constants with no CLI, environment, or configuration
+overrides. This is not complete denial-of-service protection. Structural
+depth/node limits, semantic graph work, diagnostic/output caps, wall-clock
+timeouts, and CPU or memory sandboxing remain deferred.
+
 ## Future Project Workflow Direction
 
 Phase 7 may document future requirements for:
@@ -216,10 +233,9 @@ Phase 7 does not add:
 
 ## Deferred Items
 
-The following remain deferred beyond Slice 4 and, where noted above, beyond
+The following remain deferred beyond Slice 5 and, where noted above, beyond
 Phase 7 implementation:
 
-- the approved small source/token budget implementation;
 - malformed hand-built AST containment review;
 - ANTLR jar checksum automation and trusted-environment secret scanning;
 - project configuration, multi-file support, watch mode, and LSP/editor

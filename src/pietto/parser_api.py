@@ -26,6 +26,10 @@ from pietto.indentation import (
     inject_indentation,
 )
 
+_MAX_SOURCE_UTF8_BYTES = 1_048_576
+_MAX_NON_EOF_TOKENS = 200_000
+_SOURCE_SIZE_CHUNK_CHARACTERS = 65_536
+
 
 @dataclass(frozen=True, slots=True)
 class ParseResult:
@@ -42,8 +46,21 @@ def parse_source(
 ) -> ParseResult:
     """Parse source text into a Pietto AST without exposing ANTLR objects.
 
-    Source errors and parser recursion exhaustion produce structured diagnostics.
+    Source errors, budget failures, and parser recursion exhaustion produce
+    structured diagnostics.
     """
+
+    if _source_exceeds_utf8_budget(source):
+        return _budget_failure(
+            code="PIE-P1006",
+            message=(
+                "Source exceeds the maximum supported size of "
+                f"{_MAX_SOURCE_UTF8_BYTES} UTF-8 bytes."
+            ),
+            path=path,
+            line=1,
+            column=1,
+        )
 
     try:
         return _parse_source(source, path=path)
@@ -76,7 +93,9 @@ def _parse_source(
     lexer = PiettoLexer(InputStream(source))
     lexer.removeErrorListeners()
     lexer.addErrorListener(lexer_listener)
-    raw_tokens = _read_tokens(lexer)
+    raw_tokens, token_budget_diagnostic = _read_tokens(lexer, path=path)
+    if token_budget_diagnostic is not None:
+        return ParseResult(ast=None, diagnostics=(token_budget_diagnostic,))
 
     diagnostics = list(lexer_listener.diagnostics)
     diagnostics.extend(find_leading_tab_diagnostics(source, path=path))
@@ -148,21 +167,94 @@ def parse_file(path: str | Path) -> ParseResult:
     """Read and parse a UTF-8 Pietto source file."""
 
     source_path_value = Path(path)
-    return parse_source(
-        source_path_value.read_text(encoding="utf-8"),
-        path=source_path_value,
-    )
+    with source_path_value.open("rb") as source_file:
+        source_bytes = source_file.read(_MAX_SOURCE_UTF8_BYTES + 1)
+    if len(source_bytes) > _MAX_SOURCE_UTF8_BYTES:
+        return _budget_failure(
+            code="PIE-P1006",
+            message=(
+                "Source exceeds the maximum supported size of "
+                f"{_MAX_SOURCE_UTF8_BYTES} UTF-8 bytes."
+            ),
+            path=source_path_value,
+            line=1,
+            column=1,
+        )
+    return parse_source(source_bytes.decode("utf-8"), path=source_path_value)
 
 
-def _read_tokens(lexer: PiettoLexer) -> list[Token]:
+def _read_tokens(
+    lexer: PiettoLexer,
+    *,
+    path: str | Path | None,
+) -> tuple[list[Token], Diagnostic | None]:
     """Materialize lexer tokens so indentation and token checks can share them."""
 
     tokens: list[Token] = []
+    non_eof_count = 0
     while True:
         token = lexer.nextToken()
-        tokens.append(token)
         if token.type == Token.EOF:
-            return tokens
+            tokens.append(token)
+            return tokens, None
+        non_eof_count += 1
+        if non_eof_count > _MAX_NON_EOF_TOKENS:
+            return [], Diagnostic(
+                code="PIE-P1007",
+                severity=Severity.ERROR,
+                message=(
+                    "Token count exceeds the maximum supported limit of "
+                    f"{_MAX_NON_EOF_TOKENS} non-EOF tokens."
+                ),
+                location=SourceLocation(
+                    path=source_path(path),
+                    line=token.line,
+                    column=token.column + 1,
+                ),
+            )
+        tokens.append(token)
+
+
+def _source_exceeds_utf8_budget(source: str) -> bool:
+    """Count UTF-8 bytes in bounded chunks and stop at the configured limit."""
+
+    if len(source) > _MAX_SOURCE_UTF8_BYTES:
+        return True
+
+    encoded_size = 0
+    for offset in range(0, len(source), _SOURCE_SIZE_CHUNK_CHARACTERS):
+        chunk = source[offset : offset + _SOURCE_SIZE_CHUNK_CHARACTERS]
+        encoded_size += len(chunk.encode("utf-8", errors="surrogatepass"))
+        if encoded_size > _MAX_SOURCE_UTF8_BYTES:
+            return True
+    return False
+
+
+def _budget_failure(
+    *,
+    code: str,
+    message: str,
+    path: str | Path | None,
+    line: int,
+    column: int,
+) -> ParseResult:
+    """Build one deterministic parser budget failure."""
+
+    return ParseResult(
+        ast=None,
+        diagnostics=(
+            Diagnostic(
+                code=code,
+                severity=Severity.ERROR,
+                message=message,
+                location=SourceLocation(
+                    path=source_path(path),
+                    line=line,
+                    column=column,
+                ),
+            ),
+        ),
+    )
 
 
 def _brace_diagnostics(
