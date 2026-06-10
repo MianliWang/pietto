@@ -79,6 +79,7 @@ def test_relation_renderer_uses_source_symbol_mapping() -> None:
     assert render_relation_sql(
         relation,
         sources={source.symbol: source},
+        relations={relation.symbol: relation},
     ).endswith('FROM "public.users"')
 
 
@@ -99,7 +100,7 @@ def test_source_backed_relation_artifacts_preserve_definition_order() -> None:
     assert [artifact.name for artifact in result.artifacts] == ["first", "second"]
 
 
-def test_relation_to_relation_input_reports_pie_b1000_without_cte_expansion() -> None:
+def test_relation_to_relation_input_uses_quoted_relation_name() -> None:
     script_ir = _compile(
         SOURCE + "table active_users:\n"
         "    from users\n"
@@ -113,14 +114,11 @@ def test_relation_to_relation_input_reports_pie_b1000_without_cte_expansion() ->
 
     result = emit_postgres_sql(script_ir)
 
-    assert [artifact.name for artifact in result.artifacts] == ["active_users"]
-    query_diagnostic = next(
-        diagnostic
-        for diagnostic in result.diagnostics
-        if "active_user_emails" in diagnostic.message
-    )
-    assert query_diagnostic.code == "PIE-B1000"
-    assert "direct SourceIR input" in query_diagnostic.message
+    assert [artifact.name for artifact in result.artifacts] == [
+        "active_users",
+        "active_user_emails",
+    ]
+    assert result.artifacts[1].sql.endswith('FROM "active_users"')
 
 
 def test_unsupported_source_connector_reports_pie_b1000_without_crashing() -> None:

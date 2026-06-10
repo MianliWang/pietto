@@ -1,4 +1,4 @@
-"""Internal PostgreSQL rendering for minimal source-backed relations."""
+"""Internal PostgreSQL rendering for minimal relation SELECT statements."""
 
 from __future__ import annotations
 
@@ -13,15 +13,15 @@ def render_relation_sql(
     relation: RelationIR,
     *,
     sources: Mapping[SymbolId, SourceIR],
+    relations: Mapping[SymbolId, RelationIR],
 ) -> str:
-    """Render a minimal relation whose input is a PostgreSQL table source."""
+    """Render a minimal relation using a source table or relation-name input."""
 
-    source = sources.get(relation.source.target)
-    if source is None:
-        raise ValueError(
-            "PostgreSQL relation emission currently requires a direct SourceIR input"
-        )
-    table_name = _postgres_table_name(source)
+    input_name = _relation_input_name(
+        relation,
+        sources=sources,
+        relations=relations,
+    )
     if not relation.projections:
         raise ValueError("PostgreSQL relation emission requires projections")
 
@@ -32,11 +32,30 @@ def render_relation_sql(
     lines = [
         "SELECT",
         projection_sql,
-        f"FROM {quote_identifier(table_name)}",
+        f"FROM {quote_identifier(input_name)}",
     ]
     if relation.filter is not None:
         lines.append(f"WHERE {render_expression_sql(relation.filter.expression)}")
     return "\n".join(lines)
+
+
+def _relation_input_name(
+    relation: RelationIR,
+    *,
+    sources: Mapping[SymbolId, SourceIR],
+    relations: Mapping[SymbolId, RelationIR],
+) -> str:
+    """Resolve an input to static table metadata or a relation artifact name."""
+
+    source = sources.get(relation.source.target)
+    if source is not None:
+        return _postgres_table_name(source)
+    upstream = relations.get(relation.source.target)
+    if upstream is not None:
+        return upstream.name
+    raise ValueError(
+        "PostgreSQL relation input does not resolve to SourceIR or RelationIR"
+    )
 
 
 def _postgres_table_name(source: SourceIR) -> str:

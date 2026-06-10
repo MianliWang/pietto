@@ -14,7 +14,10 @@ EXAMPLE_PATHS = tuple(sorted(Path("examples").rglob("*.pie")))
 assert EXAMPLE_PATHS, "Expected at least one committed Pietto example."
 
 EXPECTED_EXAMPLE_ARTIFACTS = {
-    Path("examples/queries/active_user_emails.pie"): ("active_users",),
+    Path("examples/queries/active_user_emails.pie"): (
+        "active_users",
+        "active_user_emails",
+    ),
     Path("examples/tables/active_users.pie"): ("active_users",),
 }
 
@@ -97,7 +100,7 @@ def test_artifacts_and_diagnostics_preserve_their_definition_order() -> None:
     ]
 
 
-def test_relation_dependency_remains_structured_backend_diagnostic() -> None:
+def test_relation_dependency_uses_quoted_upstream_name_without_expansion() -> None:
     result = _compile_and_emit(
         "shape Customer:\n"
         "    Email: Text not null\n"
@@ -112,15 +115,11 @@ def test_relation_dependency_remains_structured_backend_diagnostic() -> None:
         "        Email\n",
     )
 
-    assert [artifact.name for artifact in result.artifacts] == ["CustomerRows"]
-    dependency_diagnostic = next(
-        diagnostic
-        for diagnostic in result.diagnostics
-        if "CustomerEmails" in diagnostic.message
-    )
-    assert dependency_diagnostic.code == "PIE-B1000"
-    assert dependency_diagnostic.severity is Severity.ERROR
-    assert "direct SourceIR input" in dependency_diagnostic.message
+    assert [artifact.name for artifact in result.artifacts] == [
+        "CustomerRows",
+        "CustomerEmails",
+    ]
+    assert result.artifacts[1].sql.endswith('FROM "CustomerRows"')
 
 
 @pytest.mark.parametrize("path", EXAMPLE_PATHS, ids=str)

@@ -22,12 +22,17 @@ _PostgresDefinitionIR = (
 
 
 def emit_postgres_sql(script_ir: ScriptIR) -> SqlResult:
-    """Emit supported source-backed relations and diagnose other definitions."""
+    """Emit supported relation SELECTs and diagnose other definitions."""
 
     sources = {
         definition.symbol: definition
         for definition in script_ir.definitions
         if isinstance(definition, SourceIR)
+    }
+    relations = {
+        definition.symbol: definition
+        for definition in script_ir.definitions
+        if isinstance(definition, RelationIR)
     }
     artifacts: list[SqlArtifact] = []
     diagnostics: list[Diagnostic] = []
@@ -35,7 +40,11 @@ def emit_postgres_sql(script_ir: ScriptIR) -> SqlResult:
     for definition in script_ir.definitions:
         if isinstance(definition, RelationIR):
             try:
-                sql = render_relation_sql(definition, sources=sources)
+                sql = render_relation_sql(
+                    definition,
+                    sources=sources,
+                    relations=relations,
+                )
             except (TypeError, ValueError) as error:
                 diagnostics.append(
                     _unsupported_definition_diagnostic(

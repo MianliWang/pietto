@@ -11,10 +11,12 @@ expression SQL rendering now covers literals, field references, the supported
 built-in calls, comparisons, null predicates, between, unary arithmetic, and
 basic arithmetic and Boolean operators. Minimal `RelationIR` emission now
 produces `SELECT`, projection, `FROM`, and optional `WHERE` SQL for relations
-whose direct input is a `SourceIR` backed by `postgres.table(Text)`.
+whose input is either a `SourceIR` backed by `postgres.table(Text)` or another
+`RelationIR`.
 
-Relation dependency expansion, broader SQL generation, and DDL are not
-implemented yet.
+Relation inputs are referenced only by their quoted relation name. CTE
+expansion, SQL inlining, nested subqueries, materialization semantics, broader
+SQL generation, and DDL are not implemented.
 
 The minimal relation emitter has completed its first hardening and committed
 examples audit. Every example now runs through parse, semantic analysis, IR
@@ -58,8 +60,10 @@ class SqlArtifact:
 - `postgres.table("public.users")` currently treats `public.users` as one
   quoted identifier rather than splitting schema and table components.
 - Metadata definitions remain non-emitting and produce `PIE-B1000`.
-- Relations whose input is another relation produce `PIE-B1000`; CTE or
-  dependency expansion is deferred.
+- Relations whose input is another relation use the quoted upstream relation
+  name as their `FROM` target without checking upstream artifact success.
+- Relation definitions are not reordered or topologically sorted.
+- Unresolved relation inputs produce `PIE-B1000`.
 - Diagnostics use the definition's existing source span.
 - No SQLGlot objects, database calls, or connector execution are produced.
 
@@ -69,7 +73,7 @@ class SqlArtifact:
 2. PostgreSQL identifier and scalar literal rendering primitives: complete.
 3. Minimal expression SQL emission for the supported expression IR: complete.
 4. Basic table/query `SELECT`, `FROM`, `WHERE`, and projection emission:
-   direct source-backed relations complete.
+   source-backed and relation-name references complete.
 5. PostgreSQL type mapping.
 6. Deterministic backend diagnostics and examples audit: initial relation
    hardening complete.
@@ -82,7 +86,8 @@ parser or semantic analysis.
 
 The backend does not implement:
 
-- relation-to-relation CTE or dependency expansion;
+- relation dependency CTE expansion, SQL inlining, or nested subqueries;
+- materialization or runtime semantics;
 - DDL emission;
 - joins, grouping, ordering, limits, windows, or unions;
 - SQLGlot integration;

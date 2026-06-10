@@ -45,13 +45,14 @@ def test_nonempty_script_ir_emits_supported_relations_and_diagnoses_rest() -> No
 
     result = emit_postgres_sql(script_ir)
 
-    assert [artifact.name for artifact in result.artifacts] == ["active_users"]
+    assert [artifact.name for artifact in result.artifacts] == [
+        "active_users",
+        "active_user_emails",
+    ]
     unsupported_definitions = [
         definition
         for definition in script_ir.definitions
-        if not (
-            isinstance(definition, RelationIR) and definition.name == "active_users"
-        )
+        if not isinstance(definition, RelationIR)
     ]
     assert len(result.diagnostics) == len(unsupported_definitions)
     assert [
@@ -125,7 +126,10 @@ def test_emitter_does_not_run_frontend_or_ir_builder(
 
     result = emit_postgres_sql(script_ir)
 
-    assert [artifact.name for artifact in result.artifacts] == ["active_users"]
+    assert [artifact.name for artifact in result.artifacts] == [
+        "active_users",
+        "active_user_emails",
+    ]
     assert result.diagnostics
 
 
@@ -134,7 +138,10 @@ def test_emitter_has_no_sqlglot_or_ddl_emission() -> None:
     result = emit_postgres_sql(_all_definition_ir())
 
     assert "sqlglot" not in source
-    assert [artifact.name for artifact in result.artifacts] == ["active_users"]
+    assert [artifact.name for artifact in result.artifacts] == [
+        "active_users",
+        "active_user_emails",
+    ]
     assert all(
         keyword not in artifact.sql.upper()
         for artifact in result.artifacts
