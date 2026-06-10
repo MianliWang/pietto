@@ -106,6 +106,27 @@ def test_non_finite_decimal_literal_returns_diagnostic() -> None:
     assert "finite" in result.diagnostics[0].message
 
 
+def test_deep_unary_expression_returns_parser_diagnostic() -> None:
+    result = parse_source(
+        "derive deep() -> Int not null:\n    " + "+" * 1500 + "1\n",
+        path="deep-unary.pie",
+    )
+
+    assert result.ast is None
+    assert len(result.diagnostics) == 1
+    diagnostic = result.diagnostics[0]
+    assert diagnostic.code == "PIE-P1000"
+    assert diagnostic.location.path == "deep-unary.pie"
+    assert "recursion limit" in diagnostic.message
+
+
+def test_reasonable_unary_expression_still_parses() -> None:
+    result = parse_source("derive nested() -> Int not null:\n    " + "+" * 20 + "1\n")
+
+    assert result.ast is not None
+    assert result.diagnostics == ()
+
+
 def test_empty_enum_reports_syntax_error() -> None:
     result = parse_source("enum Status:\n")
 

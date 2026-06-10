@@ -192,6 +192,21 @@ def test_unknown_call_argument_suppresses_dependent_call_diagnostic() -> None:
     )
 
 
+def test_deep_binary_expression_returns_semantic_recursion_diagnostic() -> None:
+    expression = " + ".join(["1"] * 1200)
+    script = _parse(f"derive total() -> Int not null:\n    {expression}\n")
+
+    result = analyze(script)
+
+    assert result.model.mode is CheckMode.CHECKED
+    assert result.model.expression_value_types == {}
+    assert len(result.diagnostics) == 1
+    diagnostic = result.diagnostics[0]
+    assert diagnostic.code == "PIE-S2006"
+    assert diagnostic.severity is Severity.ERROR
+    assert "recursion limit" in diagnostic.message
+
+
 def test_expression_value_types_mapping_is_readonly() -> None:
     result = analyze(
         _parse(SOURCE + "table projected:\n    from users\n    select:\n        id\n")

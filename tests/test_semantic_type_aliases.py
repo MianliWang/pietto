@@ -9,8 +9,9 @@ from antlr4 import ParserRuleContext
 from antlr4.Token import Token
 
 from pietto.ast_nodes import ConstraintDef, Script, ShapeDef, TypeDef
+from pietto.errors import Severity
 from pietto.parser_api import parse_source
-from pietto.semantic import SemanticResult, TypeKind, analyze
+from pietto.semantic import CheckMode, SemanticResult, TypeKind, analyze
 
 
 def test_direct_alias_expands_to_builtin_target() -> None:
@@ -175,6 +176,24 @@ def test_constraint_returning_text_alias_reports_pie_s2401() -> None:
     )
 
     assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2401"]
+
+
+def test_deep_alias_chain_returns_semantic_recursion_diagnostic() -> None:
+    aliases = [
+        f"type Alias{index} = Alias{index + 1} not null\n" for index in range(1399)
+    ]
+    aliases.append("type Alias1399 = Int not null\n")
+    script = _parse("".join(aliases))
+
+    result = analyze(script)
+
+    assert result.model.mode is CheckMode.CHECKED
+    assert result.model.type_symbols == {}
+    assert len(result.diagnostics) == 1
+    diagnostic = result.diagnostics[0]
+    assert diagnostic.code == "PIE-S2006"
+    assert diagnostic.severity is Severity.ERROR
+    assert "recursion limit" in diagnostic.message
 
 
 def test_type_expansions_mapping_is_readonly() -> None:

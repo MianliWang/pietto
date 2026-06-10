@@ -79,6 +79,26 @@ def test_check_overly_long_integer_returns_parser_error_without_traceback(
     assert "ValueError" not in captured.err
 
 
+def test_check_deep_unary_returns_parser_error_without_traceback(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _write(
+        tmp_path,
+        "deep-unary.pie",
+        "derive deep() -> Int not null:\n    " + "+" * 1500 + "1\n",
+    )
+
+    assert cli.main(["check", str(path)]) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert f"{path}:1:1 PIE-P1000 error:" in captured.err
+    assert "recursion limit" in captured.err
+    assert "Traceback" not in captured.err
+    assert "RecursionError" not in captured.err
+
+
 def test_check_semantic_error_returns_diagnostic_error(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -94,6 +114,26 @@ def test_check_semantic_error_returns_diagnostic_error(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert f"{path}:2:12 PIE-S2002 error: Unknown type: MissingType" in captured.err
+
+
+def test_check_deep_alias_chain_returns_semantic_error_without_traceback(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    aliases = [
+        f"type Alias{index} = Alias{index + 1} not null\n" for index in range(1399)
+    ]
+    aliases.append("type Alias1399 = Int not null\n")
+    path = _write(tmp_path, "deep-aliases.pie", "".join(aliases))
+
+    assert cli.main(["check", str(path)]) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert f"{path}:1:1 PIE-S2006 error:" in captured.err
+    assert "recursion limit" in captured.err
+    assert "Traceback" not in captured.err
+    assert "RecursionError" not in captured.err
 
 
 def test_check_warnings_do_not_fail(

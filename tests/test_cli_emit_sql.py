@@ -134,6 +134,35 @@ def test_emit_sql_semantic_error_stops_before_ir(
     assert "PIE-S2002 error: Unknown type: MissingType" in captured.err
 
 
+def test_emit_sql_deep_expression_stops_before_ir_without_traceback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    expression = " + ".join(["1"] * 1200)
+    path = _write(
+        tmp_path,
+        "deep-expression.pie",
+        f"derive total() -> Int not null:\n    {expression}\n",
+    )
+
+    def unexpected_call(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        raise AssertionError("IR and SQL must not run after semantic errors")
+
+    monkeypatch.setattr(cli.ir_api, "build_ir", unexpected_call)
+    monkeypatch.setattr(cli.sql_api, "emit_postgres_sql", unexpected_call)
+
+    assert cli.main(["emit-sql", str(path), "--dialect", "postgres"]) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert f"{path}:1:1 PIE-S2006 error:" in captured.err
+    assert "recursion limit" in captured.err
+    assert "Traceback" not in captured.err
+    assert "RecursionError" not in captured.err
+
+
 def test_emit_sql_ir_error_stops_before_backend(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

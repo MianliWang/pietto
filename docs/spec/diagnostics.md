@@ -36,6 +36,7 @@ stored separately and is never encoded in the code.
 | `PIE-S2002` | Unknown type |
 | `PIE-S2003` | Type alias cycle |
 | `PIE-S2005` | Implicit nullability |
+| `PIE-S2006` | Semantic analysis recursion limit exceeded |
 | `PIE-S2102` | Unknown field |
 | `PIE-S2103` | Unknown function |
 | `PIE-S2104` | Invalid built-in function arguments |

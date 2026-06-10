@@ -57,7 +57,37 @@ def analyze(
 ) -> SemanticResult:
     """Build the incremental semantic model and ordered diagnostics."""
 
-    mode = mode_override or _mode_from_script(script)
+    mode = mode_override or CheckMode.CHECKED
+    try:
+        mode = mode_override or _mode_from_script(script)
+        return _analyze(script, mode=mode)
+    except RecursionError:
+        span = script.span
+        return SemanticResult(
+            model=SemanticModel(mode=mode),
+            diagnostics=(
+                Diagnostic(
+                    code="PIE-S2006",
+                    severity=Severity.ERROR,
+                    message=(
+                        "Semantic analysis recursion limit exceeded while "
+                        "processing source."
+                    ),
+                    location=SourceLocation(
+                        path=span.path,
+                        line=span.line,
+                        column=span.column,
+                        end_line=span.end_line,
+                        end_column=span.end_column,
+                    ),
+                ),
+            ),
+        )
+
+
+def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
+    """Implement semantic analysis inside the public recursion boundary."""
+
     type_symbols: dict[str, Definition] = {}
     callable_symbols: dict[str, Definition] = {}
     relation_symbols: dict[str, Definition] = {}

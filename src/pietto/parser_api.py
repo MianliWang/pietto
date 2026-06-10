@@ -42,8 +42,35 @@ def parse_source(
 ) -> ParseResult:
     """Parse source text into a Pietto AST without exposing ANTLR objects.
 
-    Ordinary source errors produce ``ast=None`` and structured diagnostics.
+    Source errors and parser recursion exhaustion produce structured diagnostics.
     """
+
+    try:
+        return _parse_source(source, path=path)
+    except RecursionError:
+        return ParseResult(
+            ast=None,
+            diagnostics=(
+                Diagnostic(
+                    code="PIE-P1000",
+                    severity=Severity.ERROR,
+                    message="Parser recursion limit exceeded while processing source.",
+                    location=SourceLocation(
+                        path=source_path(path),
+                        line=1,
+                        column=1,
+                    ),
+                ),
+            ),
+        )
+
+
+def _parse_source(
+    source: str,
+    *,
+    path: str | Path | None,
+) -> ParseResult:
+    """Implement parsing inside the public recursion containment boundary."""
 
     lexer_listener = DiagnosticErrorListener(path)
     lexer = PiettoLexer(InputStream(source))
