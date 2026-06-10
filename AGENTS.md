@@ -87,7 +87,7 @@ Rules:
 
 ## Current Phase
 
-Current implementation phase: Phase 4 PostgreSQL SQL MVP complete.
+Current implementation phase: Phase 5 CLI scaffold.
 
 Phase 1 parser and AST work and the Phase 2 Semantic Checker MVP are complete.
 The Phase 3 Semantic IR MVP is complete. The Phase 4 public
@@ -116,7 +116,8 @@ The completed MVP provides:
 - backend isolation from parser, semantic, and IR construction stages;
 - focused SQL backend tests and planning.
 
-CLI and developer tooling remain Phase 5 work.
+Phase 5 currently provides only `pietto --help` and `pietto --version`.
+Single-file `check` and `emit-sql` commands remain planned later slices.
 
 Do not implement in the current phase unless explicitly requested:
 
@@ -131,7 +132,7 @@ Do not implement in the current phase unless explicitly requested:
 - implicit conversions, overloads, or generics;
 - DML;
 - optimizer;
-- CLI runtime behavior;
+- CLI behavior beyond the current help/version scaffold;
 - web API;
 - visualization;
 - concurrency/runtime features.

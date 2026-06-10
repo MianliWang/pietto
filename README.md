@@ -22,10 +22,13 @@ ordering, limits, metadata DDL, SQLGlot integration, database or connector
 execution, schema introspection, CLI runtime, and a `compile_to_ir()` wrapper
 are not implemented.
 
-CLI and developer tooling remain planned Phase 5 work.
+Phase 5 CLI and developer tooling has started with an `argparse` scaffold for
+`pietto --help` and `pietto --version`. File checking and SQL emission commands
+are not implemented yet.
 
 See [the language specification](docs/spec/pietto-v0.9.md),
 [the Phase 3 Semantic IR plan](docs/plan/phase-3-semantic-ir.md), and
-[the Phase 4 PostgreSQL SQL plan](docs/plan/phase-4-postgres-sql.md).
+[the Phase 4 PostgreSQL SQL plan](docs/plan/phase-4-postgres-sql.md), and
+[the Phase 5 CLI tooling plan](docs/plan/phase-5-cli-tooling.md).
 Diagnostic codes are documented in
 [the diagnostics specification](docs/spec/diagnostics.md).
