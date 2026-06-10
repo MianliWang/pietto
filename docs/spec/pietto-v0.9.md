@@ -1123,8 +1123,20 @@ project CLI or JSON v2 behavior is implemented, and JSON v1 remains unchanged.
 The planned fixed project ceilings, deterministic budget stage gates, and
 failure classification are documented in
 `docs/spec/project-resource-model-v1.md`; no project-level resource budget is
-implemented. The next recommended phase is Phase 9: SQL Backend Architecture &
-Dialect Strategy, with no SQL execution or database connection.
+implemented.
+
+### Phase 9: SQL Backend Architecture & Dialect Strategy
+
+Status: current architecture and compatibility-planning phase. Phase 9 defines
+the PostgreSQL byte-exact compatibility contract, dialect-sensitive backend
+boundaries, SQLGlot evaluation criteria, and a future MySQL MVP contract.
+Slice 1 changes no language syntax, Semantic IR, public SQL API, CLI, JSON v1,
+PostgreSQL output, dependency, or runtime behavior. The phase is documented in
+`docs/plan/phase-9-sql-backend-architecture-dialect-strategy.md`.
+
+The handwritten `emit_postgres_sql(script_ir)` backend remains authoritative.
+SQLGlot and MySQL are not implemented, and SQL execution, database connection,
+connector execution, and schema introspection remain prohibited.
 
 ---
 

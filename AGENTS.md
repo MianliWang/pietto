@@ -86,11 +86,12 @@ Rules:
 
 ## Current Phase
 
-Current phase: Phase 8 Project Model & Configuration Planning complete.
-Phase 8 was planning/specification-only. It defines future project
-configuration, root/path, multi-file, CLI/JSON, and project resource-model
-semantics without implementing them. The next recommended phase is Phase 9:
-SQL Backend Architecture & Dialect Strategy.
+Current phase: Phase 9 SQL Backend Architecture & Dialect Strategy.
+Phase 8 Project Model & Configuration Planning is complete. Phase 9 is an
+architecture, specification, and compatibility-foundation phase. It may add
+planning documents, manually reviewed PostgreSQL compatibility fixtures, and
+tests that lock existing behavior, but it must not add production SQLGlot,
+MySQL, backend dispatch, CLI/JSON, grammar, runtime, or database behavior.
 
 Phase 1 parser/frontend, Phase 2 Semantic Checker, Phase 3 Semantic IR, Phase 4
 PostgreSQL SQL, Phase 5 CLI, Phase 5.5 Security / Robustness Hardening, and
@@ -168,6 +169,13 @@ The completed Phase 8 direction, planning-only slice sequence, and audit are
 documented in `docs/plan/phase-8-project-model-configuration-planning.md`.
 Phase 8 does not authorize project, CLI, JSON, SQL, dependency, or runtime
 implementation.
+The current Phase 9 direction, PostgreSQL compatibility boundary, SQLGlot
+evaluation criteria, backend abstraction direction, MySQL MVP boundary, and
+slice sequence are documented in
+`docs/plan/phase-9-sql-backend-architecture-dialect-strategy.md`.
+The handwritten PostgreSQL backend and
+`emit_postgres_sql(ScriptIR) -> SqlResult` remain the compatibility baseline.
+Phase 9 does not authorize a production dialect implementation or dependency.
 The planned strict, non-executable future configuration contract is documented
 in `docs/spec/pietto-config-v1.md`. It is a specification only; the current
 repository does not contain or read `pietto.toml`.
@@ -218,10 +226,10 @@ Do not implement in the current phase unless explicitly requested:
 - visualization;
 - concurrency/runtime features.
 
-Phase 8 is complete. Do not begin Phase 9 implementation without an explicit
-request. Phase 9 should evaluate SQL backend architecture, SQLGlot, dependency
-and security impact, PostgreSQL compatibility, and MySQL feasibility only; it
-must not add SQL execution or database connections.
+Phase 9 Slice 1 is complete. Later Phase 9 slices require explicit requests.
+They may add compatibility-only tests and manually reviewed golden fixtures,
+but production SQLGlot, MySQL, backend dispatch, richer SQL, execution, and
+database behavior remain prohibited.
 
 Compiler stages must remain isolated: IR construction must not mutate parser
 or semantic inputs, and SQL backends must consume `ScriptIR` without rerunning

@@ -12,7 +12,8 @@ The current implementation status is:
 - Phase 5.5 Security / Robustness Hardening: complete;
 - Phase 6 JSON / machine-readable CLI output: complete;
 - **Phase 7 Developer Workflow & Stability Foundation: complete**;
-- **Phase 8 Project Model & Configuration Planning: complete**.
+- **Phase 8 Project Model & Configuration Planning: complete**;
+- **Phase 9 SQL Backend Architecture & Dialect Strategy: current**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits PostgreSQL SQL, and presents the
@@ -86,9 +87,14 @@ configuration, project-root and path, multi-file, CLI/JSON, and project
 resource-model semantics without implementation. Phase 8 added no
 `pietto.toml`, project discovery, multi-file behavior, JSON v2, SQLGlot,
 another SQL dialect, richer SQL features, or runtime/database capabilities.
-The next recommended phase is Phase 9: SQL Backend Architecture & Dialect
-Strategy, limited to architecture and dependency/security evaluation without
-SQL execution or database connection.
+
+Phase 9 SQL Backend Architecture & Dialect Strategy is the current
+architecture and compatibility-planning phase. It will define PostgreSQL
+byte-exact compatibility, dialect-sensitive source and rendering contracts,
+SQLGlot adoption criteria, an internal backend abstraction, and a conservative
+future MySQL MVP. Slice 1 adds planning and status documentation only. It adds
+no SQLGlot dependency, MySQL behavior, backend implementation, CLI or JSON
+change, richer SQL feature, SQL execution, or database connection.
 
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added
@@ -114,6 +120,9 @@ The current stability direction and slice sequence are in
 [the Phase 7 Developer Workflow & Stability plan](docs/plan/phase-7-developer-workflow-stability.md).
 The completed planning direction, slice sequence, and audit are in
 [the Phase 8 Project Model & Configuration Planning plan](docs/plan/phase-8-project-model-configuration-planning.md).
+The current SQL backend architecture direction, compatibility frame, and
+seven-slice sequence are in
+[the Phase 9 SQL Backend Architecture & Dialect Strategy plan](docs/plan/phase-9-sql-backend-architecture-dialect-strategy.md).
 The planned strict, non-executable project configuration contract is in
 [the Pietto project configuration schema version 1 specification](docs/spec/pietto-config-v1.md);
 it is not implemented or read by the current CLI.
