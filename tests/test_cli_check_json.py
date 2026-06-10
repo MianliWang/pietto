@@ -165,31 +165,6 @@ def test_unidentified_top_level_error_remains_plain_argparse_error(
     assert "usage: pietto" in captured.err
 
 
-def test_emit_sql_json_is_not_implemented_in_this_slice(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    path = _write(tmp_path, "valid.pie", "")
-
-    assert (
-        cli.main(
-            [
-                "emit-sql",
-                str(path),
-                "--dialect",
-                "postgres",
-                "--format",
-                "json",
-            ]
-        )
-        == 2
-    )
-
-    captured = capsys.readouterr()
-    assert captured.out == ""
-    assert "unrecognized arguments: --format json" in captured.err
-
-
 def test_check_json_uses_raw_fields_and_json_encoding(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

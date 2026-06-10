@@ -45,13 +45,14 @@ blocks Phase 6. The completed work covers compiler exception containment,
 PostgreSQL rendering safety, CLI output-path and terminal-text safety, and a
 minimized production dependency set.
 
-Phase 6 Slices 1-4 have completed the JSON schema plan, internal serialization
-helpers, `pietto check file.pie --format json`, and its focused JSON security
-and completion audit. The check command supports command-local
-`--format {text,json}` with text as the unchanged default. JSON check results
-use a versioned schema, structured diagnostics and CLI errors, and one complete
-stdout document. JSON output for `emit-sql` and JSON plus `--output` remain
-planned; Phase 6 is not complete yet.
+Phase 6 Slices 1-5 have completed the JSON schema plan, internal serialization
+helpers, audited JSON output for `check`, and `emit-sql --format json` without
+output-file interaction. Both commands use command-local
+`--format {text,json}` with text as the unchanged default. JSON results use a
+versioned schema, structured diagnostics and CLI errors, and one complete
+stdout document. JSON combined with `emit-sql --output` is intentionally
+rejected until Slice 6; text-mode `emit-sql --output` remains supported.
+Phase 6 is not complete yet.
 
 Pietto still has no full global resource or depth budget and has not rewritten
 recursive compiler algorithms. It also has no SQL execution, database

@@ -88,9 +88,10 @@ Rules:
 ## Current Phase
 
 Current implementation phase: Phase 6 JSON / machine-readable CLI output
-implementation. Slices 1-4 are complete: schema planning, internal
+implementation. Slices 1-5 are complete: schema planning, internal
 serialization helpers, `check --format json`, and its focused security and
-completion audit.
+completion audit, plus `emit-sql --format json` without output-file
+interaction.
 
 Phase 1 parser and AST work and the Phase 2 Semantic Checker MVP are complete.
 The Phase 3 Semantic IR MVP is complete. The Phase 4 public
@@ -160,8 +161,10 @@ The accepted Phase 6 design is documented in
 current text behavior. JSON v1 uses standard-library serialization,
 `"schema_version": 1`, structured diagnostics and CLI errors, and one complete
 stdout document. `check --format json` is implemented; JSON output for
-`emit-sql` and JSON output-file interaction remain planned. The check JSON
-security and completion audit is complete, but Phase 6 is not complete yet.
+`emit-sql` is implemented without `--output`. JSON plus `--output` remains
+planned and is intentionally rejected until Slice 6, while text-mode
+`emit-sql --output` remains supported. The check JSON security and completion
+audit is complete, but Phase 6 is not complete yet.
 
 Phase 6 remains CLI presentation work. It must not change parser, semantic,
 IR, or SQL backend models unless a later focused slice proves that strictly

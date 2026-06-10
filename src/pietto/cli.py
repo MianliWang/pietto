@@ -25,7 +25,7 @@ _FORMAT_JSON = "json"
 
 
 class _JsonUsageError(Exception):
-    """A check argument error rendered through the JSON result contract."""
+    """A command argument error rendered through a JSON result contract."""
 
 
 class _CliArgumentParser(argparse.ArgumentParser):
@@ -68,6 +68,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             return int(error.code)
         return _run_check(namespace.path, output_format=_FORMAT_JSON)
 
+    if _is_emit_sql_json_request(arguments):
+        return _run_emit_sql_json_command(arguments[1:])
+
     try:
         namespace = parser.parse_args(arguments)
     except SystemExit as error:
@@ -101,18 +104,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "emit-sql",
         help="emit PostgreSQL SQL for one Pietto file",
     )
-    emit_parser.add_argument("path", type=Path, help="Pietto source file")
-    emit_parser.add_argument(
-        "--dialect",
-        choices=("postgres",),
-        required=True,
-        help="SQL dialect",
-    )
-    emit_parser.add_argument(
-        "--output",
-        type=Path,
-        help="write SQL artifacts to this file instead of stdout",
-    )
+    _configure_emit_sql_parser(emit_parser)
     return parser
 
 
@@ -128,10 +120,33 @@ def _configure_check_parser(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _configure_emit_sql_parser(parser: argparse.ArgumentParser) -> None:
+    """Add the text-compatible emit-sql arguments to one parser."""
+
+    parser.add_argument("path", type=Path, help="Pietto source file")
+    parser.add_argument(
+        "--dialect",
+        choices=("postgres",),
+        required=True,
+        help="SQL dialect",
+    )
+    parser.add_argument(
+        "--output",
+        type=Path,
+        help="write SQL artifacts to this file instead of stdout",
+    )
+    parser.add_argument(
+        "--format",
+        choices=(_FORMAT_TEXT, _FORMAT_JSON),
+        default=_FORMAT_TEXT,
+        help="output format",
+    )
+
+
 def _build_check_json_parser() -> argparse.ArgumentParser:
     """Build a check-only parser whose usage errors stay structured."""
 
-    parser = _JsonCheckArgumentParser(
+    parser = _JsonArgumentParser(
         prog="pietto check",
         add_help=True,
     )
@@ -139,11 +154,34 @@ def _build_check_json_parser() -> argparse.ArgumentParser:
     return parser
 
 
-class _JsonCheckArgumentParser(argparse.ArgumentParser):
-    """Raise check usage errors for JSON rendering instead of printing them."""
+def _build_emit_sql_json_parser() -> argparse.ArgumentParser:
+    """Build an emit-sql parser that preserves raw JSON command values."""
+
+    parser = _JsonArgumentParser(
+        prog="pietto emit-sql",
+        add_help=True,
+    )
+    parser.add_argument("path", type=Path, nargs="?", help="Pietto source file")
+    parser.add_argument("--dialect", help="SQL dialect")
+    parser.add_argument(
+        "--output",
+        type=Path,
+        help="write SQL artifacts to this file instead of stdout",
+    )
+    parser.add_argument(
+        "--format",
+        choices=(_FORMAT_TEXT, _FORMAT_JSON),
+        default=_FORMAT_JSON,
+        help="output format",
+    )
+    return parser
+
+
+class _JsonArgumentParser(argparse.ArgumentParser):
+    """Raise command usage errors for JSON rendering instead of printing them."""
 
     def error(self, message: str) -> None:
-        """Raise one structured check usage error."""
+        """Raise one structured command usage error."""
 
         raise _JsonUsageError(message)
 
@@ -162,6 +200,92 @@ def _is_check_json_request(arguments: Sequence[str]) -> bool:
         )
         for index, argument in enumerate(arguments)
     )
+
+
+def _is_emit_sql_json_request(arguments: Sequence[str]) -> bool:
+    """Return whether argv reliably selects emit-sql JSON presentation."""
+
+    if not arguments or arguments[0] != "emit-sql":
+        return False
+    return any(
+        argument == "--format=json"
+        or (
+            argument == "--format"
+            and index + 1 < len(arguments)
+            and arguments[index + 1] == _FORMAT_JSON
+        )
+        for index, argument in enumerate(arguments)
+    )
+
+
+def _run_emit_sql_json_command(arguments: Sequence[str]) -> int:
+    """Validate one emit-sql JSON command before entering compilation."""
+
+    try:
+        namespace = _build_emit_sql_json_parser().parse_args(arguments)
+    except _JsonUsageError as error:
+        _print_emit_sql_json(
+            path=None,
+            dialect=None,
+            cli_errors=(cli_json.CliError(kind="usage", message=str(error)),),
+        )
+        return _EXIT_USAGE_ERROR
+    except SystemExit as error:
+        return int(error.code)
+
+    path: Path | None = namespace.path
+    dialect: str | None = namespace.dialect
+    output_path: Path | None = namespace.output
+    if path is None:
+        _print_emit_sql_json(
+            path=None,
+            dialect=dialect,
+            cli_errors=(
+                cli_json.CliError(
+                    kind="usage",
+                    message="the following arguments are required: path",
+                ),
+            ),
+        )
+        return _EXIT_USAGE_ERROR
+    if dialect is None:
+        _print_emit_sql_json(
+            path=path,
+            dialect=None,
+            cli_errors=(
+                cli_json.CliError(
+                    kind="usage",
+                    message="the following arguments are required: --dialect",
+                ),
+            ),
+        )
+        return _EXIT_USAGE_ERROR
+    if dialect != "postgres":
+        _print_emit_sql_json(
+            path=path,
+            dialect=dialect,
+            cli_errors=(
+                cli_json.CliError(
+                    kind="unsupported_dialect",
+                    message=f"unsupported SQL dialect: {dialect}",
+                ),
+            ),
+        )
+        return _EXIT_USAGE_ERROR
+    if output_path is not None:
+        _print_emit_sql_json(
+            path=path,
+            dialect=dialect,
+            cli_errors=(
+                cli_json.CliError(
+                    kind="usage",
+                    message="JSON output cannot be combined with --output yet",
+                ),
+            ),
+            output=cli_json.OutputStatus(path=output_path, written=False),
+        )
+        return _EXIT_USAGE_ERROR
+    return _run_emit_sql_json(path, dialect=dialect)
 
 
 def _run_check(path: Path, *, output_format: str = _FORMAT_TEXT) -> int:
@@ -246,6 +370,118 @@ def _print_check_json(
         path=path,
         diagnostics=diagnostics,
         cli_errors=cli_errors,
+    )
+    print(cli_json.render_json_document(document), end="")
+
+
+def _run_emit_sql_json(path: Path, *, dialect: str) -> int:
+    """Compile one file and render the ordered emit-sql JSON result."""
+
+    try:
+        parse_result = parser_api.parse_file(path)
+    except (OSError, UnicodeError) as error:
+        _print_emit_sql_json(
+            path=path,
+            dialect=dialect,
+            cli_errors=(
+                cli_json.CliError(
+                    kind="file_read",
+                    message=str(error),
+                    path=path,
+                ),
+            ),
+        )
+        return _EXIT_USAGE_ERROR
+
+    diagnostics = parse_result.diagnostics
+    if _has_errors(diagnostics):
+        _print_emit_sql_json(
+            path=path,
+            dialect=dialect,
+            diagnostics=diagnostics,
+        )
+        return _EXIT_DIAGNOSTIC_ERROR
+
+    if parse_result.ast is None:
+        _print_emit_sql_json(
+            path=path,
+            dialect=dialect,
+            cli_errors=(
+                cli_json.CliError(
+                    kind="usage",
+                    message="parser produced no AST",
+                    path=path,
+                ),
+            ),
+        )
+        return _EXIT_USAGE_ERROR
+
+    semantic_result = semantic_api.analyze(parse_result.ast)
+    diagnostics = (*diagnostics, *semantic_result.diagnostics)
+    if _has_errors(semantic_result.diagnostics):
+        _print_emit_sql_json(
+            path=path,
+            dialect=dialect,
+            diagnostics=diagnostics,
+        )
+        return _EXIT_DIAGNOSTIC_ERROR
+
+    ir_result = ir_api.build_ir(parse_result.ast, semantic_result.model)
+    diagnostics = (*diagnostics, *ir_result.diagnostics)
+    if _has_errors(ir_result.diagnostics):
+        _print_emit_sql_json(
+            path=path,
+            dialect=dialect,
+            diagnostics=diagnostics,
+        )
+        return _EXIT_DIAGNOSTIC_ERROR
+
+    if ir_result.ir is None:
+        _print_emit_sql_json(
+            path=path,
+            dialect=dialect,
+            diagnostics=diagnostics,
+            cli_errors=(
+                cli_json.CliError(
+                    kind="usage",
+                    message="IR builder produced no IR",
+                    path=path,
+                ),
+            ),
+        )
+        return _EXIT_USAGE_ERROR
+
+    sql_result = sql_api.emit_postgres_sql(ir_result.ir)
+    diagnostics = (*diagnostics, *sql_result.diagnostics)
+    _print_emit_sql_json(
+        path=path,
+        dialect=dialect,
+        diagnostics=diagnostics,
+        artifacts=sql_result.artifacts,
+    )
+    if _has_errors(sql_result.diagnostics):
+        return _EXIT_DIAGNOSTIC_ERROR
+    return 0
+
+
+def _print_emit_sql_json(
+    *,
+    path: str | Path | None,
+    dialect: str | None,
+    diagnostics: Sequence[Diagnostic] = (),
+    cli_errors: Sequence[cli_json.CliError] = (),
+    artifacts: Sequence[sql_api.SqlArtifact] = (),
+    output: cli_json.OutputStatus | None = None,
+) -> None:
+    """Print one complete emit-sql JSON document to stdout."""
+
+    document = cli_json.emit_sql_result_to_json_dict(
+        path=path,
+        dialect=dialect,
+        diagnostics=diagnostics,
+        cli_errors=cli_errors,
+        artifacts=artifacts,
+        output=output,
     )
     print(cli_json.render_json_document(document), end="")
 
