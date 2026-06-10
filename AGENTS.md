@@ -226,10 +226,9 @@ Do not implement in the current phase unless explicitly requested:
 - visualization;
 - concurrency/runtime features.
 
-Phase 9 Slice 1 is complete. Later Phase 9 slices require explicit requests.
-They may add compatibility-only tests and manually reviewed golden fixtures,
-but production SQLGlot, MySQL, backend dispatch, richer SQL, execution, and
-database behavior remain prohibited.
+Phase 9 Slices 1 and 2 are complete. Later Phase 9 slices require explicit
+requests. Production SQLGlot, MySQL, backend dispatch, richer SQL, execution,
+and database behavior remain prohibited.
 
 Compiler stages must remain isolated: IR construction must not mutate parser
 or semantic inputs, and SQL backends must consume `ScriptIR` without rerunning

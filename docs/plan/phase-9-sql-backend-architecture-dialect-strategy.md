@@ -4,9 +4,12 @@
 
 **Phase 9 is the current architecture and compatibility-planning phase.**
 
-Slice 1, Readiness And Compatibility Frame, is complete. It establishes the
+Slices 1 and 2 are complete. Readiness And Compatibility Frame establishes the
 post-Phase-8 baseline, compatibility requirements, SQLGlot evaluation rules,
-future MySQL boundary, slice sequence, and explicit non-goals.
+future MySQL boundary, slice sequence, and explicit non-goals. PostgreSQL
+Compatibility Corpus adds reviewed byte-exact pipeline fixtures for literals,
+identifiers, expressions, precedence, metadata no-op behavior, formatting, and
+artifact ordering.
 
 Phase 9 does not authorize production SQL backend implementation. Its allowed
 deliverables are documentation, specifications, compatibility tests, and
@@ -91,9 +94,9 @@ modify `pyproject.toml`, `uv.lock`, source files, tests, or generated files.
 1. **Readiness And Compatibility Frame**: complete. Establish the current
    backend inventory, phase boundary, compatibility requirements, SQLGlot
    evaluation frame, future MySQL boundary, and slice sequence.
-2. **PostgreSQL Compatibility Corpus**: add manually reviewed byte-exact
-   fixtures and focused compatibility tests for the complete implemented SQL
-   surface without changing production output.
+2. **PostgreSQL Compatibility Corpus**: complete. Added manually reviewed
+   byte-exact fixtures and focused compatibility tests for the high-risk
+   implemented SQL surface without changing production output.
 3. **Dialect Capability And Source Contract**: define the dialect-sensitive
    capability matrix, connector policy, table-name model, unsupported-feature
    behavior, and source compatibility rules.
@@ -118,6 +121,33 @@ architecture and compatibility-planning phase.
 Slice 1 changes no public API, CLI command, CLI flag, exit code, JSON field,
 diagnostic, grammar rule, generated parser file, compiler stage, SQL artifact,
 golden fixture, dependency, or lockfile entry.
+
+## Slice 2: PostgreSQL Compatibility Corpus
+
+Slice 2 adds three manually reviewed source and SQL fixture pairs:
+
+- `compatibility_literals_identifiers` covers quote and backslash escaping,
+  Boolean, integer, float, identifier spelling, aliases, dotted source-name
+  treatment, and stable relation formatting;
+- `compatibility_expressions` covers all currently supported PostgreSQL
+  functions, predicates, comparisons, unary and binary operators, nested
+  precedence, parentheses, and one complex filter;
+- `compatibility_ordering_metadata` covers type, enum, constraint, derive,
+  shape, and source metadata remaining non-emitting while two relation
+  artifacts retain definition order and one-blank-line CLI separation.
+
+The fixtures run through the existing CLI parse, semantic, IR, PostgreSQL, and
+text presentation pipeline. Tests compare stdout bytes directly with reviewed
+`.sql` files and require empty stderr.
+
+Backend-only unsupported cases remain covered by focused unit tests. A valid
+Pietto source cannot naturally produce the deliberately malformed or future
+IR nodes used by those tests, so Slice 2 does not manufacture a second
+test-only CLI path for `PIE-B1000`.
+
+Slice 2 adds no fixture generator, snapshot library, automatic rewrite
+command, production source change, CLI behavior, JSON behavior, grammar,
+generated parser, dependency, or lockfile change.
 
 ## PostgreSQL Compatibility Contract
 
@@ -146,25 +176,29 @@ but must not reinterpret or correct existing output.
 
 ## Compatibility Corpus Direction
 
-The existing golden corpus contains two byte-exact SQL fixtures, two
-structural `check` JSON fixtures, and one structural `emit-sql` JSON fixture.
-The broader SQL unit suite locks substantially more behavior, but the golden
-corpus does not independently cover the full backend surface.
+The golden corpus now contains five byte-exact SQL fixtures, two structural
+`check` JSON fixtures, and one structural `emit-sql` JSON fixture. The broader
+SQL unit suite continues to lock invalid and backend-internal behavior that is
+not naturally reachable through valid CLI input.
 
-Slice 2 should add manually reviewed byte-exact PostgreSQL fixtures covering:
+The reviewed PostgreSQL fixtures cover:
 
-- identifier spelling, quoting, reserved words, and embedded quotes;
+- identifier spelling, quoting, reserved words, aliases, and dotted source
+  names;
 - plain strings, quotes, backslashes, Boolean values, `NULL`, integers, and
   finite floats;
 - all supported functions, predicates, comparisons, and operators;
 - nested expression parentheses;
 - filtered and unfiltered relations;
 - relation-to-relation inputs and ordered multiple artifacts;
-- metadata no-op behavior;
-- ordered supported artifacts and backend diagnostics.
+- metadata no-op behavior and ordered supported artifacts.
+
+Embedded quotes in source-language identifiers are not grammar-reachable and
+remain covered by renderer unit tests. Deliberately unsupported connectors,
+IR nodes, calls, and operators remain covered by backend unit tests.
 
 JSON fixtures remain structural through `json.loads()`. SQL fixtures remain
-byte-exact. Phase 9 must not add snapshot dependencies, fixture auto-update
+byte-exact. Phase 9 must not add snapshot dependencies, fixture rewrite
 commands, or generated expected output.
 
 ## Dialect-Sensitive Inventory

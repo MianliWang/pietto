@@ -1,0 +1,35 @@
+pietto 0.9
+mode checked
+dialect postgres
+encoding utf8
+
+type Email = Text not null
+
+enum Status:
+    active
+    inactive
+
+constraint valid_email(value: Text not null) -> Bool not null:
+    matches(value, "@")
+
+derive normalized_email(value: Text not null) -> Text not null:
+    lower(trim(value))
+
+shape User:
+    id: UUID not null
+    email: Text not null
+    active: Bool not null
+
+source users: User is postgres.table("public.users")
+
+table FirstRelation:
+    from users
+    where active == true
+    select:
+        id
+        email
+
+query SecondRelation:
+    from FirstRelation
+    select:
+        normalized_email = lower(trim(email))

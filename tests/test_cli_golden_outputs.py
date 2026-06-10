@@ -47,6 +47,18 @@ def test_check_json_matches_structural_golden(
             "examples/queries/active_user_emails.pie",
             "emit_sql_active_user_emails.sql",
         ),
+        (
+            "tests/fixtures/postgres/compatibility_literals_identifiers.pie",
+            "emit_sql_compatibility_literals_identifiers.sql",
+        ),
+        (
+            "tests/fixtures/postgres/compatibility_expressions.pie",
+            "emit_sql_compatibility_expressions.sql",
+        ),
+        (
+            "tests/fixtures/postgres/compatibility_ordering_metadata.pie",
+            "emit_sql_compatibility_ordering_metadata.sql",
+        ),
     ],
 )
 def test_emit_sql_matches_byte_exact_golden(

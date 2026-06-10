@@ -118,13 +118,15 @@ def test_phase7_json_v1_commands_keep_one_document_contract(
 
 
 def test_phase7_golden_output_strategy_remains_focused_and_dependency_free() -> None:
-    assert {path.name for path in GOLDEN_ROOT.iterdir() if path.is_file()} == {
+    phase7_fixtures = {
         "check_sources_users_warning.json",
         "check_types.json",
         "emit_sql_active_user_emails.sql",
         "emit_sql_active_users.json",
         "emit_sql_active_users.sql",
     }
+    current_fixtures = {path.name for path in GOLDEN_ROOT.iterdir() if path.is_file()}
+    assert phase7_fixtures <= current_fixtures
 
     golden_tests = _read("tests/test_cli_golden_outputs.py")
     assert "examples/" in golden_tests
