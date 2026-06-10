@@ -12,8 +12,7 @@ The current implementation status is:
 - Phase 5.5 Security / Robustness Hardening: complete;
 - Phase 6 JSON / machine-readable CLI output: complete;
 - **Phase 7 Developer Workflow & Stability Foundation: complete**;
-- **Phase 8 Project Model & Configuration Planning: current
-  planning/specification phase**.
+- **Phase 8 Project Model & Configuration Planning: complete**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits PostgreSQL SQL, and presents the
@@ -82,12 +81,14 @@ budgets, implemented fixed 1 MiB UTF-8 source and 200,000 raw non-EOF token
 limits, documented future project-workflow prerequisites, and completed a
 cross-slice stability audit.
 
-Phase 8 Project Model & Configuration Planning is the current
-planning/specification phase. It defines future configuration, project-root
-and path, multi-file, CLI/JSON, and project resource-model semantics before
-any implementation. Phase 8 does not add `pietto.toml`, project discovery,
-multi-file behavior, JSON v2, SQLGlot, another SQL dialect, richer SQL
-features, or runtime/database capabilities.
+Phase 8 Project Model & Configuration Planning is complete. It defines future
+configuration, project-root and path, multi-file, CLI/JSON, and project
+resource-model semantics without implementation. Phase 8 added no
+`pietto.toml`, project discovery, multi-file behavior, JSON v2, SQLGlot,
+another SQL dialect, richer SQL features, or runtime/database capabilities.
+The next recommended phase is Phase 9: SQL Backend Architecture & Dialect
+Strategy, limited to architecture and dependency/security evaluation without
+SQL execution or database connection.
 
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added
@@ -111,7 +112,7 @@ The implementation history and original slice sequence are in
 [the Phase 6 JSON output plan](docs/plan/phase-6-json-output.md).
 The current stability direction and slice sequence are in
 [the Phase 7 Developer Workflow & Stability plan](docs/plan/phase-7-developer-workflow-stability.md).
-The current planning direction and slice sequence are in
+The completed planning direction, slice sequence, and audit are in
 [the Phase 8 Project Model & Configuration Planning plan](docs/plan/phase-8-project-model-configuration-planning.md).
 The planned strict, non-executable project configuration contract is in
 [the Pietto project configuration schema version 1 specification](docs/spec/pietto-config-v1.md);

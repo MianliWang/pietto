@@ -1105,9 +1105,9 @@ deferred.
 
 ### Phase 8: Project Model & Configuration Planning
 
-Status: current planning/specification phase. Phase 8 defines future project
+Status: complete planning/specification phase. Phase 8 defines future project
 configuration, root/path, multi-file, CLI/JSON, and project resource-model
-semantics before implementation. It does not add `pietto.toml`, project
+semantics without implementation. It added no `pietto.toml`, project
 discovery, multi-file behavior, JSON v2, SQLGlot, another SQL dialect, richer
 SQL features, or runtime/database capabilities. The implemented language,
 single-file CLI, and JSON v1 contracts remain unchanged. The planned strict,
@@ -1123,7 +1123,8 @@ project CLI or JSON v2 behavior is implemented, and JSON v1 remains unchanged.
 The planned fixed project ceilings, deterministic budget stage gates, and
 failure classification are documented in
 `docs/spec/project-resource-model-v1.md`; no project-level resource budget is
-implemented.
+implemented. The next recommended phase is Phase 9: SQL Backend Architecture &
+Dialect Strategy, with no SQL execution or database connection.
 
 ---
 

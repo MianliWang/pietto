@@ -2,20 +2,23 @@
 
 ## Status
 
-**Phase 8 planning/specification is in progress.**
+**Phase 8 planning/specification is complete.**
 
-Slices 1 through 6 are complete. Readiness And Decision Frame established the
+All seven slices are complete. Readiness And Decision Frame established the
 phase boundary and sequence. Configuration Contract defines a strict,
 versioned, non-executable future `pietto.toml` contract. Root And Path
-Semantics defines the project filesystem contract. Multi-file Semantics now
+Semantics defines the project filesystem contract. Multi-file Semantics
 defines the project compile unit, flat namespaces, cross-file dependencies,
 stage gates, diagnostics, and artifact ordering. CLI And JSON Design defines
 an explicit future project invocation and a separate project JSON v2 contract.
 Project Resource Model defines fixed planning ceilings, deterministic stage
-gates, and failure classification. Phase 8 is planning-only: it defines future
-project-level contracts before any project configuration, root discovery,
-multi-file compilation, CLI expansion, JSON schema change, or project budget
-is implemented.
+gates, and failure classification. Completion Audit verifies the contracts and
+implementation boundaries.
+
+Phase 8 was planning/specification-only: it defined future project-level
+contracts without implementing project configuration, root discovery,
+multi-file compilation, CLI expansion, JSON schema changes, or project
+budgets.
 
 ## Goal
 
@@ -89,15 +92,15 @@ relevant contract, compatibility rules, and security model are accepted.
 6. **Project Resource Model**: complete. Define deterministic limits for file
    count, aggregate bytes and tokens, compiler graph work, diagnostics,
    artifacts, and output size.
-7. **Completion Audit**: verify that all project-model decisions and
-   compatibility boundaries are documented and that Phase 8 added no
-   project, compiler, CLI, JSON, SQL, dependency, or runtime behavior.
+7. **Completion Audit**: complete. Verify that all project-model decisions and
+   compatibility boundaries are documented and that Phase 8 added no project,
+   compiler, CLI, JSON, SQL, dependency, or runtime behavior.
 
 ## Slice 1: Readiness And Decision Frame
 
 Slice 1 creates this master plan and aligns current project-status
-documentation. It preserves Phase 7 as completed and marks Phase 8 as the
-current planning/specification phase.
+documentation. It preserves Phase 7 as completed and initially marked Phase 8
+as the in-progress planning/specification phase.
 
 Slice 1 changes no public API, CLI command, CLI flag, exit code, JSON field,
 diagnostic, grammar rule, generated parser file, compiler stage, SQL artifact,
@@ -221,6 +224,31 @@ project budget and failure contract. It defines:
 The contract is specification-only. Slice 6 adds no active limit, diagnostic,
 configuration key, project loader, compiler behavior, CLI behavior, JSON v2
 serializer, dependency, or runtime capability.
+
+## Slice 7: Completion Audit
+
+Slice 7 adds `tests/test_phase8_completion_audit.py` as a focused static and
+compatibility audit. It verifies:
+
+- all seven slices and all six Phase 8 planning/spec documents;
+- configuration, root/path, multi-file, CLI/JSON v2, and project-resource
+  decisions;
+- the planning/specification-only boundary and all deferred capabilities;
+- unchanged single-file CLI and JSON v1 runtime key sets and schema version;
+- absence of project loaders, traversal, multi-file orchestration, JSON v2
+  serialization, SQLGlot, MySQL, execution, database, watch, LSP, and compiler
+  convenience wrappers;
+- the minimal dependency surface and the approved package description;
+- unchanged `uv.lock`, grammar, and generated ANTLR file content against the
+  pre-Phase-8 baseline;
+- canonical full diagnostic codes and the Phase 9 through Phase 11+ roadmap.
+
+The Phase 7 completion audit receives one narrow status-assertion update so it
+recognizes Phase 8 as complete rather than permanently requiring the previous
+in-progress status.
+
+Slice 7 adds no runtime fixture, compiler behavior, CLI behavior, JSON schema,
+diagnostic, dependency, grammar, generated parser, or lockfile change.
 
 ## Configuration Direction
 
@@ -436,9 +464,9 @@ Deferred beyond Phase 8 include:
 - mixing project planning with SQLGlot, MySQL, richer SQL, or runtime work;
 - treating a future roadmap as implementation approval.
 
-## Completion Criteria
+## Completion Audit Result
 
-Phase 8 is complete when:
+Phase 8 is complete because:
 
 - all seven planning slices are documented and reviewed;
 - configuration, root/path, multi-file, CLI/JSON, and project-resource
@@ -448,3 +476,39 @@ Phase 8 is complete when:
 - the future SQL roadmap is recorded without implementation;
 - no project, multi-file, grammar, CLI, JSON, SQL, dependency, runtime, or
   database behavior has been added.
+
+The final validation baseline requires:
+
+- Ruff formatting and lint checks;
+- the full pytest suite, including the focused Phase 8 completion audit;
+- lockfile consistency and locked dependency vulnerability review;
+- the repository-wide bare diagnostic-code scan;
+- whitespace and changed-file boundary checks.
+
+The Slice 7 completion run recorded:
+
+- Ruff formatting and lint checks passed;
+- `1,060` pytest tests passed;
+- `uv lock --check` resolved the locked dependency set successfully;
+- `uv audit --locked` found no known vulnerabilities or adverse project
+  statuses in 18 packages;
+- the bare diagnostic-code scan produced no output;
+- `git diff --check` passed;
+- only completion-audit tests and approved status/documentation files changed.
+
+Deferred implementation remains:
+
+- `pietto.toml` parsing and validation;
+- explicit project-root loading, bounded path traversal, and glob expansion;
+- multi-file parser, semantic, IR, and SQL orchestration;
+- JSON v2 serialization and project CLI behavior;
+- project resource-budget enforcement and deferred structural counters;
+- watch mode and editor/LSP behavior;
+- every runtime, database, connector, schema, network, and execution
+  capability.
+
+The next recommended phase is **Phase 9: SQL Backend Architecture & Dialect
+Strategy**. It should evaluate SQLGlot, compare backend architecture options,
+design an IR-to-SQL-AST mapping, review dependency and security impact,
+preserve current PostgreSQL golden output, and assess MySQL MVP feasibility.
+It must add no SQL execution or database connection.
