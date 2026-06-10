@@ -53,8 +53,16 @@ semantic, IR, or backend ERROR diagnostics return `1`; usage, unsupported
 dialect, and file errors return `2`. PostgreSQL is the only supported dialect.
 By default artifacts go to stdout. `--output path` overwrites one file with the
 same ordered, blank-line-separated artifact text and leaves stdout empty.
-Diagnostics remain on stderr. Missing parent directories and file write errors
-return `2`; the CLI does not create project output directories.
+Regular output files are replaced only after a complete same-directory
+temporary write. The input file cannot also be the output, and symbolic-link
+output paths are rejected without following them. Diagnostics remain on
+stderr. Missing parent directories and file write errors return `2`; the CLI
+does not create project output directories.
+
+Diagnostic and CLI error records remain plain text. C0 control characters and
+DEL in user-controlled paths or diagnostic text are rendered as visible
+escapes such as `\n`, `\t`, `\x00`, and `\x1b`, so one compiler record cannot
+forge additional terminal or CI log lines.
 
 ## Planned Slices
 

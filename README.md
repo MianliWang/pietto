@@ -28,8 +28,10 @@ validation. It also provides
 `pietto emit-sql file.pie --dialect postgres`, which explicitly runs the
 existing parse, semantic, IR, and PostgreSQL backend phases and prints SQL
 artifacts without executing them. SQL defaults to stdout; `--output path`
-overwrites a single output file while diagnostics remain on stderr. Check
-diagnostics use
+atomically replaces a regular output file after successful rendering. The CLI
+rejects an output that is the input file or a symbolic link. Diagnostics
+remain on stderr, with control characters in paths and diagnostic text shown
+as visible escapes. Check diagnostics use
 `path:line:column CODE severity: message`, with normal success output on stdout
 and diagnostics on stderr.
 

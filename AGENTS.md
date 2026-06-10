@@ -122,10 +122,12 @@ analysis only; it does not build IR or emit SQL. The CLI also provides
 `pietto emit-sql file.pie --dialect postgres`, which explicitly orchestrates
 parser, semantic, IR, and PostgreSQL SQL APIs. It emits SQL text but never
 executes SQL or connects to a database or connector. SQL defaults to stdout;
-`--output path` overwrites one file while diagnostics remain on stderr. CLI
-diagnostics use
+`--output path` atomically replaces one regular file after successful
+rendering, rejects the input file and symbolic-link outputs, and leaves
+diagnostics on stderr. CLI diagnostics use
 `path:line:column CODE severity: message`, preserve compiler order, and are
-written to stderr.
+written to stderr with C0 control characters and DEL rendered as visible
+escapes.
 
 Phase 5 MVP completion does not include project or multi-file support, config
 files, watch mode, JSON or color output, source snippets, LSP/editor

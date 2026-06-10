@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
+import tempfile
 from collections.abc import Sequence
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -17,6 +19,19 @@ from pietto.errors import Diagnostic, Severity
 _FALLBACK_VERSION = "0.1.0"
 _EXIT_DIAGNOSTIC_ERROR = 1
 _EXIT_USAGE_ERROR = 2
+
+
+class _CliArgumentParser(argparse.ArgumentParser):
+    """Escape control characters in argparse error details."""
+
+    def error(self, message: str) -> None:
+        """Print one safe usage error and terminate argument parsing."""
+
+        self.print_usage(sys.stderr)
+        self.exit(
+            _EXIT_USAGE_ERROR,
+            f"{self.prog}: error: {_escape_cli_text(message)}\n",
+        )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -42,7 +57,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 def _build_parser() -> argparse.ArgumentParser:
     """Build the Phase 5 single-file developer CLI."""
 
-    parser = argparse.ArgumentParser(
+    parser = _CliArgumentParser(
         prog="pietto",
         description="Pietto semantic SQL authoring tools.",
     )
@@ -82,7 +97,7 @@ def _run_check(path: Path) -> int:
     try:
         parse_result = parser_api.parse_file(path)
     except (OSError, UnicodeError) as error:
-        print(f"{path}: error: {error}", file=sys.stderr)
+        _print_cli_error(path, str(error))
         return _EXIT_USAGE_ERROR
 
     _render_diagnostics(parse_result.diagnostics, fallback_path=path)
@@ -90,7 +105,7 @@ def _run_check(path: Path) -> int:
         return _EXIT_DIAGNOSTIC_ERROR
 
     if parse_result.ast is None:
-        print(f"{path}: error: parser produced no AST", file=sys.stderr)
+        _print_cli_error(path, "parser produced no AST")
         return _EXIT_DIAGNOSTIC_ERROR
 
     semantic_result = semantic_api.analyze(parse_result.ast)
@@ -98,17 +113,24 @@ def _run_check(path: Path) -> int:
     if _has_errors(semantic_result.diagnostics):
         return _EXIT_DIAGNOSTIC_ERROR
 
-    print(f"OK: {path}")
+    print(f"OK: {_escape_cli_text(str(path))}")
     return 0
 
 
 def _run_emit_sql(path: Path, *, output_path: Path | None) -> int:
     """Compile one Pietto file and print PostgreSQL SQL artifacts."""
 
+    if output_path is not None:
+        try:
+            _validate_output_path(path, output_path)
+        except (OSError, ValueError) as error:
+            _print_cli_error(output_path, str(error))
+            return _EXIT_USAGE_ERROR
+
     try:
         parse_result = parser_api.parse_file(path)
     except (OSError, UnicodeError) as error:
-        print(f"{path}: error: {error}", file=sys.stderr)
+        _print_cli_error(path, str(error))
         return _EXIT_USAGE_ERROR
 
     _render_diagnostics(parse_result.diagnostics, fallback_path=path)
@@ -116,7 +138,7 @@ def _run_emit_sql(path: Path, *, output_path: Path | None) -> int:
         return _EXIT_DIAGNOSTIC_ERROR
 
     if parse_result.ast is None:
-        print(f"{path}: error: parser produced no AST", file=sys.stderr)
+        _print_cli_error(path, "parser produced no AST")
         return _EXIT_DIAGNOSTIC_ERROR
 
     semantic_result = semantic_api.analyze(parse_result.ast)
@@ -130,7 +152,7 @@ def _run_emit_sql(path: Path, *, output_path: Path | None) -> int:
         return _EXIT_DIAGNOSTIC_ERROR
 
     if ir_result.ir is None:
-        print(f"{path}: error: IR builder produced no IR", file=sys.stderr)
+        _print_cli_error(path, "IR builder produced no IR")
         return _EXIT_DIAGNOSTIC_ERROR
 
     sql_result = sql_api.emit_postgres_sql(ir_result.ir)
@@ -142,7 +164,7 @@ def _run_emit_sql(path: Path, *, output_path: Path | None) -> int:
         try:
             _write_sql_artifacts(sql_result.artifacts, output_path)
         except OSError as error:
-            print(f"{output_path}: error: {error}", file=sys.stderr)
+            _print_cli_error(output_path, str(error))
             return _EXIT_USAGE_ERROR
     if has_backend_errors:
         return _EXIT_DIAGNOSTIC_ERROR
@@ -160,10 +182,50 @@ def _write_sql_artifacts(
     artifacts: tuple[sql_api.SqlArtifact, ...],
     output_path: Path,
 ) -> None:
-    """Overwrite one output file with ordered SQL artifact text."""
+    """Atomically replace one regular output file with rendered SQL text."""
 
     sql = _format_sql_artifacts(artifacts)
-    output_path.write_text(f"{sql}\n" if sql else "", encoding="utf-8")
+    text = f"{sql}\n" if sql else ""
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=output_path.parent,
+            prefix=f".{output_path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            temporary.write(text)
+        os.replace(temporary_path, output_path)
+        temporary_path = None
+    finally:
+        if temporary_path is not None:
+            try:
+                temporary_path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def _validate_output_path(input_path: Path, output_path: Path) -> None:
+    """Reject unsafe output destinations before compilation begins."""
+
+    if output_path.is_symlink():
+        raise ValueError("output path must not be a symbolic link")
+    if _paths_refer_to_same_file(input_path, output_path):
+        raise ValueError("output path must differ from the input file")
+
+
+def _paths_refer_to_same_file(input_path: Path, output_path: Path) -> bool:
+    """Compare existing files and normalized paths without requiring output."""
+
+    if input_path.resolve(strict=False) == output_path.resolve(strict=False):
+        return True
+    try:
+        return input_path.samefile(output_path)
+    except FileNotFoundError:
+        return False
 
 
 def _format_sql_artifacts(artifacts: tuple[sql_api.SqlArtifact, ...]) -> str:
@@ -191,10 +253,43 @@ def _format_diagnostic(diagnostic: Diagnostic, *, fallback_path: Path) -> str:
     location = diagnostic.location
     path = location.path or str(fallback_path)
     return (
-        f"{path}:{location.line}:{location.column} "
-        f"{diagnostic.code} {diagnostic.severity.value}: "
-        f"{diagnostic.message}"
+        f"{_escape_cli_text(path)}:{location.line}:{location.column} "
+        f"{_escape_cli_text(diagnostic.code)} "
+        f"{_escape_cli_text(diagnostic.severity.value)}: "
+        f"{_escape_cli_text(diagnostic.message)}"
     )
+
+
+def _print_cli_error(path: Path, message: str) -> None:
+    """Render one escaped path-prefixed CLI error."""
+
+    print(
+        f"{_escape_cli_text(str(path))}: error: {_escape_cli_text(message)}",
+        file=sys.stderr,
+    )
+
+
+def _escape_cli_text(value: str) -> str:
+    """Escape C0 controls and DEL for single-line terminal output."""
+
+    named_escapes = {
+        "\x00": r"\x00",
+        "\t": r"\t",
+        "\n": r"\n",
+        "\r": r"\r",
+        "\x1b": r"\x1b",
+        "\x7f": r"\x7f",
+    }
+    escaped: list[str] = []
+    for character in value:
+        replacement = named_escapes.get(character)
+        if replacement is not None:
+            escaped.append(replacement)
+        elif ord(character) < 0x20:
+            escaped.append(f"\\x{ord(character):02x}")
+        else:
+            escaped.append(character)
+    return "".join(escaped)
 
 
 def _has_errors(diagnostics: tuple[Diagnostic, ...]) -> bool:
