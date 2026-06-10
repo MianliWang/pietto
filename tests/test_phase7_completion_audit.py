@@ -29,6 +29,7 @@ EMIT_KEYS = CHECK_KEYS | {"dialect", "artifacts", "output"}
 
 def test_phase7_documentation_records_complete_single_file_scope() -> None:
     phase7 = _read("docs/plan/phase-7-developer-workflow-stability.md")
+    phase8 = _read("docs/plan/phase-8-project-model-configuration-planning.md")
     readme = _read("README.md")
     agents = _read("AGENTS.md")
     json_spec = _read("docs/spec/cli-json-v1.md")
@@ -39,17 +40,26 @@ def test_phase7_documentation_records_complete_single_file_scope() -> None:
     for slice_number in range(1, 8):
         assert f"{slice_number}. **" in phase7
     assert "**Phase 7 Developer Workflow & Stability Foundation: complete**" in readme
-    assert (
-        "Current phase: Phase 7 Developer Workflow & Stability Foundation complete."
-        in (agents)
-    )
+    assert "Current phase: Phase 8 Project Model & Configuration Planning." in agents
+    assert "**Phase 8 planning/specification is in progress.**" in phase8
+    assert "Every Phase 8 slice is documentation, specification" in phase8
+    for slice_name in (
+        "Readiness And Decision Frame",
+        "Configuration Contract",
+        "Root And Path Semantics",
+        "Multi-file Semantics",
+        "CLI And JSON Design",
+        "Project Resource Model",
+        "Completion Audit",
+    ):
+        assert slice_name in phase8
     assert "schema version 1" in json_spec
     assert "complete denial-of-service protection" in resource_design
     assert "no global UTF-8 source byte limit" not in resource_design
     assert "no lexer token-count limit" not in resource_design
     assert "no workflow capability is implemented" in workflow_design
 
-    combined = "\n".join((phase7, readme, agents, json_spec, workflow_design))
+    combined = "\n".join((phase7, phase8, readme, agents, json_spec, workflow_design))
     for deferred in (
         "SQL execution",
         "database connection",

@@ -86,13 +86,15 @@ Rules:
 
 ## Current Phase
 
-Current phase: Phase 7 Developer Workflow & Stability Foundation complete.
-It stabilizes Pietto as a dependable single-file developer tool before
-project-level, runtime, database-facing, watch, or editor/LSP capabilities.
+Current phase: Phase 8 Project Model & Configuration Planning.
+Phase 8 is planning/specification-only. It defines future project
+configuration, root/path, multi-file, CLI/JSON, and project resource-model
+semantics before any implementation.
 
 Phase 1 parser/frontend, Phase 2 Semantic Checker, Phase 3 Semantic IR, Phase 4
 PostgreSQL SQL, Phase 5 CLI, Phase 5.5 Security / Robustness Hardening, and
-Phase 6 JSON / machine-readable CLI output are complete. The Phase 4 public
+Phase 6 JSON / machine-readable CLI output are complete. Phase 7 Developer
+Workflow & Stability Foundation is also complete. The Phase 4 public
 `emit_postgres_sql(script_ir)` API consumes `ScriptIR` directly and currently
 emits minimal `SELECT`, projection, `FROM`, and optional `WHERE` SQL for
 `RelationIR` definitions backed by static `postgres.table(Text)` sources or
@@ -161,6 +163,9 @@ slice sequence, and completion audit are documented in
 focused golden outputs, fixed source/token parser budgets, resource/depth
 design, and future workflow design only. Those designs do not implement
 project configuration, multi-file behavior, watch mode, or editor tooling.
+The current Phase 8 direction and planning-only slice sequence are documented
+in `docs/plan/phase-8-project-model-configuration-planning.md`. Phase 8 does
+not authorize project, CLI, JSON, SQL, dependency, or runtime implementation.
 
 Current strict boundaries remain:
 
@@ -192,6 +197,9 @@ Do not implement in the current phase unless explicitly requested:
 - web API;
 - visualization;
 - concurrency/runtime features.
+
+Current Phase 8 work should remain documentation, specification, compatibility
+review, and completion-audit work only.
 
 Compiler stages must remain isolated: IR construction must not mutate parser
 or semantic inputs, and SQL backends must consume `ScriptIR` without rerunning

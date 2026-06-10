@@ -1103,6 +1103,15 @@ configuration, multi-file behavior, watch mode, LSP/editor integration,
 runtime, database, connector, schema introspection, and SQL execution remain
 deferred.
 
+### Phase 8: Project Model & Configuration Planning
+
+Status: current planning/specification phase. Phase 8 defines future project
+configuration, root/path, multi-file, CLI/JSON, and project resource-model
+semantics before implementation. It does not add `pietto.toml`, project
+discovery, multi-file behavior, JSON v2, SQLGlot, another SQL dialect, richer
+SQL features, or runtime/database capabilities. The implemented language,
+single-file CLI, and JSON v1 contracts remain unchanged.
+
 ---
 
 ## 14. Codex Implementation Strategy

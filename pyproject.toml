@@ -1,7 +1,7 @@
 [project]
 name = "pietto"
 version = "0.1.0"
-description = "Add your description here"
+description = "A gradual, semantic SQL authoring DSL"
 readme = "README.md"
 authors = [
     { name = "Mianli Wang", email = "mianli.wang@mail.utoronto.ca" }
