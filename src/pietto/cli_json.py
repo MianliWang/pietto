@@ -1,4 +1,8 @@
-"""Internal JSON serialization helpers for planned CLI machine output."""
+"""Internal serializers for the CLI JSON v1 contract.
+
+The normative machine-readable interface is documented in
+``docs/spec/cli-json-v1.md``.
+"""
 
 from __future__ import annotations
 

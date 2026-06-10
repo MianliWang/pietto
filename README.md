@@ -76,10 +76,10 @@ security regressions, examples, text compatibility, and capability boundaries.
 Phase 7 is the Developer Workflow & Stability Foundation. Its goal is to
 stabilize Pietto as a dependable single-file developer tool before introducing
 project-level, runtime, database-facing, watch, or editor/LSP capabilities.
-The first slice aligns documentation only; later accepted slices will stabilize
-the JSON v1 contract, establish focused golden outputs, design resource
-budgets, implement only a small approved resource boundary, and document
-future project workflows.
+The first slice aligned documentation, and the second published the normative
+JSON v1 contract without changing runtime behavior. Later accepted slices will
+establish focused golden outputs, design resource budgets, implement only a
+small approved resource boundary, and document future project workflows.
 
 Pietto still has no full global resource or depth budget and has not rewritten
 recursive compiler algorithms. SQL is generated only and is never executed.
@@ -94,7 +94,9 @@ See [the language specification](docs/spec/pietto-v0.9.md),
 [the Phase 5 CLI tooling plan](docs/plan/phase-5-cli-tooling.md).
 Security audit details and repeatable tooling commands are in
 [the Phase 5.5 security hardening note](docs/plan/phase-5-5-security-hardening.md).
-The accepted JSON schema and slice sequence are in
+The normative machine-readable interface is documented in
+[the CLI JSON schema version 1 specification](docs/spec/cli-json-v1.md).
+The implementation history and original slice sequence are in
 [the Phase 6 JSON output plan](docs/plan/phase-6-json-output.md).
 The current stability direction and slice sequence are in
 [the Phase 7 Developer Workflow & Stability plan](docs/plan/phase-7-developer-workflow-stability.md).

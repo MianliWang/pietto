@@ -4,8 +4,10 @@
 
 **Phase 7 Developer Workflow & Stability Foundation: In progress.**
 
-Slice 1, Readiness Alignment, establishes the post-Phase-6 documentation
-baseline. Later slices remain planned and are not implemented by Slice 1.
+Slices 1 and 2 are complete. Readiness Alignment established the post-Phase-6
+documentation baseline, and JSON CLI v1 Stabilization published the normative
+machine-readable CLI contract without changing runtime behavior. Later slices
+remain planned.
 
 ## Goal
 
@@ -63,10 +65,12 @@ the artifact.
 
 ## Slice Sequence
 
-1. **Readiness Alignment**: align current docs and the language reference with
-   the completed Phase 6 implementation and accepted Phase 7 boundaries.
-2. **JSON CLI v1 Stabilization**: publish a normative JSON v1 contract and
-   centralize compatibility expectations without changing the current schema.
+1. **Readiness Alignment**: complete. Align current docs and the language
+   reference with the completed Phase 6 implementation and accepted Phase 7
+   boundaries.
+2. **JSON CLI v1 Stabilization**: complete. Publish a normative JSON v1
+   contract and centralize compatibility expectations without changing the
+   current schema or runtime behavior.
 3. **Golden Output Foundation**: add reviewed SQL and JSON fixtures for stable
    representative examples without replacing focused behavioral tests.
 4. **Resource/Depth Budget Design**: define deterministic resource boundaries,
@@ -95,18 +99,19 @@ Slice 1 is documentation-only. It:
 Slice 1 does not change source code, tests, examples, dependencies, grammar,
 generated files, or observable behavior.
 
-## JSON CLI v1 Direction
+## Slice 2: JSON CLI v1 Stabilization
 
-Phase 7 will extract the implemented JSON behavior into a normative v1
-specification. Stabilization will cover field names and types, nullability,
+Slice 2 publishes `docs/spec/cli-json-v1.md` as the normative contract for the
+implemented JSON behavior. It covers field names and types, nullability,
 enumerated values, array ordering, exit codes, stream routing, output-file
-status, and the boundary between argparse text errors and recognized JSON
-requests.
+status, compatibility rules, and the boundary between argparse text errors and
+recognized JSON requests.
 
-Object member order and insignificant whitespace will not be protocol
-guarantees. Any incompatible field, type, nullability, or semantic change must
+Object member order and insignificant whitespace are not protocol guarantees.
+Any incompatible field, type, nullability, or semantic change must
 use a future schema version rather than silently changing schema version 1.
-Slice 1 does not change or reimplement JSON output.
+Slice 2 does not change or reimplement JSON output, add tests, publish JSON v2,
+or add golden fixtures.
 
 ## Golden Output Direction
 
@@ -197,10 +202,9 @@ Phase 7 does not add:
 
 ## Deferred Items
 
-The following remain deferred beyond Slice 1 and, where noted above, beyond
+The following remain deferred beyond Slice 2 and, where noted above, beyond
 Phase 7 implementation:
 
-- the normative JSON CLI v1 specification and compatibility tests;
 - committed golden SQL/JSON fixtures;
 - resource budget design and any approved small implementation;
 - malformed hand-built AST containment review;

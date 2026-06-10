@@ -156,12 +156,13 @@ integration remain out of scope. Database or runtime integration requires a
 separate threat model before implementation.
 
 The completed Phase 6 design is documented in
-`docs/plan/phase-6-json-output.md`. The accepted Phase 7 direction and slice
-sequence are documented in
-`docs/plan/phase-7-developer-workflow-stability.md`. Phase 7 focuses on current
-single-file stability: readiness alignment, JSON v1 stabilization, focused
-golden outputs, resource-budget design and a later small approved
-implementation, future workflow design only, and a completion audit.
+`docs/plan/phase-6-json-output.md`. The normative JSON v1 interface is
+documented in `docs/spec/cli-json-v1.md`. The accepted Phase 7 direction and
+slice sequence are documented in
+`docs/plan/phase-7-developer-workflow-stability.md`. Readiness alignment and
+JSON v1 stabilization are complete. Later Phase 7 work focuses on golden
+outputs, resource-budget design and a small approved implementation, future
+workflow design only, and a completion audit.
 
 Current strict boundaries remain:
 
