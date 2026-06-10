@@ -24,8 +24,10 @@ are not implemented.
 
 Phase 5 CLI and developer tooling now provides `pietto --help`,
 `pietto --version`, and single-file `pietto check file.pie` parser and semantic
-validation. The check command does not build IR or emit SQL; `emit-sql` is not
-implemented yet. Check diagnostics use
+validation. It also provides
+`pietto emit-sql file.pie --dialect postgres`, which explicitly runs the
+existing parse, semantic, IR, and PostgreSQL backend phases and prints SQL
+artifacts without executing them. Check diagnostics use
 `path:line:column CODE severity: message`, with normal success output on stdout
 and diagnostics on stderr.
 

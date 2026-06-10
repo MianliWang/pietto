@@ -130,17 +130,6 @@ def test_check_does_not_build_ir_or_emit_sql(
     assert capsys.readouterr().out == f"OK: {path}\n"
 
 
-def test_emit_sql_remains_unimplemented(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    assert cli.main(["emit-sql", "input.pie"]) == 2
-
-    captured = capsys.readouterr()
-    assert captured.out == ""
-    assert "invalid choice" in captured.err
-    assert "emit-sql" in captured.err
-
-
 def test_check_requires_exactly_one_file(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

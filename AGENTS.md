@@ -87,7 +87,7 @@ Rules:
 
 ## Current Phase
 
-Current implementation phase: Phase 5 single-file CLI check.
+Current implementation phase: Phase 5 single-file CLI SQL emission.
 
 Phase 1 parser and AST work and the Phase 2 Semantic Checker MVP are complete.
 The Phase 3 Semantic IR MVP is complete. The Phase 4 public
@@ -118,8 +118,10 @@ The completed MVP provides:
 
 Phase 5 currently provides `pietto --help`, `pietto --version`, and
 `pietto check file.pie`. The check command performs parser and semantic
-analysis only; it does not build IR or emit SQL. The `emit-sql` command remains
-planned for a later slice. CLI diagnostics use
+analysis only; it does not build IR or emit SQL. The CLI also provides
+`pietto emit-sql file.pie --dialect postgres`, which explicitly orchestrates
+parser, semantic, IR, and PostgreSQL SQL APIs. It emits SQL text but never
+executes SQL or connects to a database or connector. CLI diagnostics use
 `path:line:column CODE severity: message`, preserve compiler order, and are
 written to stderr.
 
@@ -136,7 +138,7 @@ Do not implement in the current phase unless explicitly requested:
 - implicit conversions, overloads, or generics;
 - DML;
 - optimizer;
-- CLI behavior beyond the current help/version and single-file check commands;
+- CLI behavior beyond the current help/version, check, and emit-sql commands;
 - web API;
 - visualization;
 - concurrency/runtime features.

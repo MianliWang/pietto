@@ -70,7 +70,7 @@ def test_version_falls_back_when_package_metadata_is_missing(
     assert captured.err == ""
 
 
-@pytest.mark.parametrize("arguments", [["--unknown"], ["emit-sql"]])
+@pytest.mark.parametrize("arguments", [["--unknown"]])
 def test_unimplemented_or_unknown_arguments_return_usage_error(
     arguments: list[str],
     capsys: pytest.CaptureFixture[str],

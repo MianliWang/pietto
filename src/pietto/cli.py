@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pietto.parser_api as parser_api
 import pietto.semantic as semantic_api
+import pietto.ir as ir_api
+import pietto.sql as sql_api
 from pietto.errors import Diagnostic, Severity
 
 _FALLBACK_VERSION = "0.1.0"
@@ -32,6 +34,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return int(error.code)
     if namespace.command == "check":
         return _run_check(namespace.path)
+    if namespace.command == "emit-sql":
+        return _run_emit_sql(namespace.path)
     return 0
 
 
@@ -53,6 +57,17 @@ def _build_parser() -> argparse.ArgumentParser:
         help="parse and semantically check one Pietto file",
     )
     check_parser.add_argument("path", type=Path, help="Pietto source file")
+    emit_parser = subparsers.add_parser(
+        "emit-sql",
+        help="emit PostgreSQL SQL for one Pietto file",
+    )
+    emit_parser.add_argument("path", type=Path, help="Pietto source file")
+    emit_parser.add_argument(
+        "--dialect",
+        choices=("postgres",),
+        required=True,
+        help="SQL dialect",
+    )
     return parser
 
 
@@ -80,6 +95,52 @@ def _run_check(path: Path) -> int:
 
     print(f"OK: {path}")
     return 0
+
+
+def _run_emit_sql(path: Path) -> int:
+    """Compile one Pietto file and print PostgreSQL SQL artifacts."""
+
+    try:
+        parse_result = parser_api.parse_file(path)
+    except (OSError, UnicodeError) as error:
+        print(f"{path}: error: {error}", file=sys.stderr)
+        return _EXIT_USAGE_ERROR
+
+    _render_diagnostics(parse_result.diagnostics, fallback_path=path)
+    if _has_errors(parse_result.diagnostics):
+        return _EXIT_DIAGNOSTIC_ERROR
+
+    if parse_result.ast is None:
+        print(f"{path}: error: parser produced no AST", file=sys.stderr)
+        return _EXIT_DIAGNOSTIC_ERROR
+
+    semantic_result = semantic_api.analyze(parse_result.ast)
+    _render_diagnostics(semantic_result.diagnostics, fallback_path=path)
+    if _has_errors(semantic_result.diagnostics):
+        return _EXIT_DIAGNOSTIC_ERROR
+
+    ir_result = ir_api.build_ir(parse_result.ast, semantic_result.model)
+    _render_diagnostics(ir_result.diagnostics, fallback_path=path)
+    if _has_errors(ir_result.diagnostics):
+        return _EXIT_DIAGNOSTIC_ERROR
+
+    if ir_result.ir is None:
+        print(f"{path}: error: IR builder produced no IR", file=sys.stderr)
+        return _EXIT_DIAGNOSTIC_ERROR
+
+    sql_result = sql_api.emit_postgres_sql(ir_result.ir)
+    _render_diagnostics(sql_result.diagnostics, fallback_path=path)
+    _print_sql_artifacts(sql_result.artifacts)
+    if _has_errors(sql_result.diagnostics):
+        return _EXIT_DIAGNOSTIC_ERROR
+    return 0
+
+
+def _print_sql_artifacts(artifacts: tuple[sql_api.SqlArtifact, ...]) -> None:
+    """Print ordered SQL artifacts without changing their stored text."""
+
+    if artifacts:
+        print("\n\n".join(artifact.sql for artifact in artifacts))
 
 
 def _render_diagnostics(
