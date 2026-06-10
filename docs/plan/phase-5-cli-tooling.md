@@ -2,7 +2,7 @@
 
 ## Status
 
-**Phase 5 CLI output handling hardening: Complete.**
+**Phase 5 CLI MVP: Complete.**
 
 The initial scaffold provides the `pietto` console entry point, plain
 `argparse` help, package version output, and stable usage exit codes. The
@@ -63,7 +63,7 @@ return `2`; the CLI does not create project output directories.
 3. Stable plain-text diagnostic rendering: complete.
 4. Single-file `emit-sql --dialect postgres` command: complete.
 5. File and output handling hardening: complete.
-6. Phase 5 completion audit.
+6. Phase 5 completion audit: complete.
 
 Each command will explicitly orchestrate existing phase-specific APIs. Phase 5
 will not add `compile_to_ir()`, `compile_to_sql()`, or another public compiler
@@ -73,7 +73,13 @@ convenience wrapper.
 
 The Phase 5 MVP does not include database or SQL execution, connector runtime,
 schema introspection, project configuration, multi-file analysis, watch mode,
-JSON output, LSP/editor integration, a web UI, new grammar syntax, or advanced
-SQL generation. The CLI emits SQL text only. It does not connect to
-PostgreSQL, execute SQL or connectors, inspect schemas, or add compiler
-convenience wrappers.
+JSON output, color output, source snippets, LSP/editor integration, a web UI,
+new grammar syntax, or advanced SQL generation. The CLI emits SQL text only.
+It does not connect to PostgreSQL, execute SQL or connectors, inspect schemas,
+or add `compile_to_ir()`, `compile_to_sql()`, or another compiler convenience
+wrapper.
+
+The completion audit covers the public commands, exit codes, stdout/stderr
+routing, output-file behavior, all committed examples under `check`, supported
+SQL-emitting examples, compiler-stage isolation, legacy diagnostic codes, and
+the absence of runtime or database behavior.

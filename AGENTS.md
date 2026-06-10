@@ -87,7 +87,7 @@ Rules:
 
 ## Current Phase
 
-Current implementation phase: Phase 5 single-file CLI SQL emission.
+Current implementation phase: Phase 5 CLI MVP complete.
 
 Phase 1 parser and AST work and the Phase 2 Semantic Checker MVP are complete.
 The Phase 3 Semantic IR MVP is complete. The Phase 4 public
@@ -126,6 +126,11 @@ executes SQL or connects to a database or connector. SQL defaults to stdout;
 diagnostics use
 `path:line:column CODE severity: message`, preserve compiler order, and are
 written to stderr.
+
+Phase 5 MVP completion does not include project or multi-file support, config
+files, watch mode, JSON or color output, source snippets, LSP/editor
+integration, database or connector execution, schema introspection,
+`compile_to_ir()`, or `compile_to_sql()`.
 
 Do not implement in the current phase unless explicitly requested:
 
