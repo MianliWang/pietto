@@ -70,7 +70,7 @@ def test_version_falls_back_when_package_metadata_is_missing(
     assert captured.err == ""
 
 
-@pytest.mark.parametrize("arguments", [["--unknown"], ["check"], ["emit-sql"]])
+@pytest.mark.parametrize("arguments", [["--unknown"], ["emit-sql"]])
 def test_unimplemented_or_unknown_arguments_return_usage_error(
     arguments: list[str],
     capsys: pytest.CaptureFixture[str],
@@ -80,7 +80,7 @@ def test_unimplemented_or_unknown_arguments_return_usage_error(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "usage: pietto" in captured.err
-    assert "unrecognized arguments" in captured.err
+    assert "error:" in captured.err
 
 
 def test_console_script_targets_cli_main() -> None:

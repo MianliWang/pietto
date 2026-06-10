@@ -87,7 +87,7 @@ Rules:
 
 ## Current Phase
 
-Current implementation phase: Phase 5 CLI scaffold.
+Current implementation phase: Phase 5 single-file CLI check.
 
 Phase 1 parser and AST work and the Phase 2 Semantic Checker MVP are complete.
 The Phase 3 Semantic IR MVP is complete. The Phase 4 public
@@ -116,8 +116,10 @@ The completed MVP provides:
 - backend isolation from parser, semantic, and IR construction stages;
 - focused SQL backend tests and planning.
 
-Phase 5 currently provides only `pietto --help` and `pietto --version`.
-Single-file `check` and `emit-sql` commands remain planned later slices.
+Phase 5 currently provides `pietto --help`, `pietto --version`, and
+`pietto check file.pie`. The check command performs parser and semantic
+analysis only; it does not build IR or emit SQL. The `emit-sql` command remains
+planned for a later slice.
 
 Do not implement in the current phase unless explicitly requested:
 
@@ -132,7 +134,7 @@ Do not implement in the current phase unless explicitly requested:
 - implicit conversions, overloads, or generics;
 - DML;
 - optimizer;
-- CLI behavior beyond the current help/version scaffold;
+- CLI behavior beyond the current help/version and single-file check commands;
 - web API;
 - visualization;
 - concurrency/runtime features.

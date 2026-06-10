@@ -22,9 +22,10 @@ ordering, limits, metadata DDL, SQLGlot integration, database or connector
 execution, schema introspection, CLI runtime, and a `compile_to_ir()` wrapper
 are not implemented.
 
-Phase 5 CLI and developer tooling has started with an `argparse` scaffold for
-`pietto --help` and `pietto --version`. File checking and SQL emission commands
-are not implemented yet.
+Phase 5 CLI and developer tooling now provides `pietto --help`,
+`pietto --version`, and single-file `pietto check file.pie` parser and semantic
+validation. The check command does not build IR or emit SQL; `emit-sql` is not
+implemented yet.
 
 See [the language specification](docs/spec/pietto-v0.9.md),
 [the Phase 3 Semantic IR plan](docs/plan/phase-3-semantic-ir.md), and
