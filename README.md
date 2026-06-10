@@ -37,7 +37,7 @@ and diagnostics on stderr.
 
 The CLI remains single-file developer tooling. It does not execute SQL,
 connect to databases or connectors, introspect schemas, or provide project
-configuration, watch mode, JSON output, or compiler convenience wrappers.
+configuration, watch mode, or compiler convenience wrappers.
 Phase 5.5 Security / Robustness Hardening is complete. PSEC-001 through
 PSEC-007 are fixed or documented at their intended boundaries, the Common
 Vulnerability Category Checklist is complete, and no current vulnerability
@@ -45,12 +45,16 @@ blocks Phase 6. The completed work covers compiler exception containment,
 PostgreSQL rendering safety, CLI output-path and terminal-text safety, and a
 minimized production dependency set.
 
+Phase 6 Slice 1 has completed the docs-only plan for JSON / machine-readable
+CLI output. JSON behavior and `--format` flags are not implemented yet. The
+planned CLI uses command-local `--format {text,json}` for `check` and
+`emit-sql`, a versioned JSON schema, structured diagnostics and CLI errors,
+and strict stdout/stderr contracts.
+
 Pietto still has no full global resource or depth budget and has not rewritten
 recursive compiler algorithms. It also has no SQL execution, database
-connection, connector execution, schema introspection, Web UI, runtime, JSON
-output, project or multi-file support, or LSP/editor integration. The safest
-next Phase 6 direction is JSON or equivalent machine-readable CLI output with
-a versioned schema and strict stdout/stderr contracts. Database or runtime
+connection, connector execution, schema introspection, Web UI, runtime,
+project or multi-file support, or LSP/editor integration. Database or runtime
 integration remains deferred and requires a separate threat model.
 
 See [the language specification](docs/spec/pietto-v0.9.md),
@@ -59,5 +63,7 @@ See [the language specification](docs/spec/pietto-v0.9.md),
 [the Phase 5 CLI tooling plan](docs/plan/phase-5-cli-tooling.md).
 Security audit details and repeatable tooling commands are in
 [the Phase 5.5 security hardening note](docs/plan/phase-5-5-security-hardening.md).
+The accepted JSON schema and slice sequence are in
+[the Phase 6 JSON output plan](docs/plan/phase-6-json-output.md).
 Diagnostic codes are documented in
 [the diagnostics specification](docs/spec/diagnostics.md).

@@ -87,8 +87,8 @@ Rules:
 
 ## Current Phase
 
-Current implementation phase: Phase 5.5 Security / Robustness Hardening
-complete.
+Current implementation phase: Phase 6 JSON / machine-readable CLI output
+planning. Slice 1 documentation is complete; JSON behavior is not implemented.
 
 Phase 1 parser and AST work and the Phase 2 Semantic Checker MVP are complete.
 The Phase 3 Semantic IR MVP is complete. The Phase 4 public
@@ -151,6 +151,19 @@ connections, connector execution, schema introspection, Web UI, runtime,
 project or multi-file support, and LSP/editor integration remain out of scope.
 Database or runtime integration requires a separate threat model before
 implementation.
+
+The accepted Phase 6 design is documented in
+`docs/plan/phase-6-json-output.md`. Planned commands use command-local
+`--format {text,json}` for both `check` and `emit-sql`, defaulting to the
+current text behavior. JSON v1 uses standard-library serialization,
+`"schema_version": 1`, structured diagnostics and CLI errors, and one complete
+stdout document. These flags and behaviors are not implemented in Slice 1.
+
+Phase 6 remains CLI presentation work. It must not change parser, semantic,
+IR, or SQL backend models unless a later focused slice proves that strictly
+necessary. It does not add SQL execution, database connections, connector
+execution, schema introspection, runtime behavior, project or multi-file
+support, Web UI, or LSP/editor integration.
 
 Do not implement in the current phase unless explicitly requested:
 
