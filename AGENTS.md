@@ -87,7 +87,7 @@ Rules:
 
 ## Current Phase
 
-Current implementation phase: Phase 4 PostgreSQL SQL generation.
+Current implementation phase: Phase 4 PostgreSQL SQL MVP complete.
 
 Phase 1 parser and AST work and the Phase 2 Semantic Checker MVP are complete.
 The Phase 3 Semantic IR MVP is complete. The Phase 4 public
@@ -99,11 +99,15 @@ constraint, and derive definitions are non-emitting metadata. Unsupported or
 invalid relation emission and unknown future backend targets receive ordered
 `PIE-B1000` diagnostics. Empty IR returns an empty successful result.
 
+Phase 4 MVP completion does not include DDL, CTE expansion, SQL inlining,
+nested subqueries, joins, grouping, ordering, limits, windows, unions,
+database or connector execution, or CLI runtime behavior.
+
 The SQL backend must not parse source, run semantic analysis, call `build_ir()`,
 import SQLGlot, connect to databases, or execute connectors. There is no
 `compile_to_ir()` wrapper.
 
-Current work focuses on:
+The completed MVP provides:
 
 - immutable PostgreSQL SQL artifacts and results;
 - conservative source-backed and relation-name SQL generation;

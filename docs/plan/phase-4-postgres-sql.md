@@ -2,16 +2,13 @@
 
 ## Status
 
-Phase 4 has started. The PostgreSQL backend scaffold, immutable SQL result
-models, public `emit_postgres_sql(script_ir)` entry point, and structured
-unsupported-target diagnostics are implemented. Internal PostgreSQL rendering
-primitives now provide always-quoted identifiers, qualified identifiers, and
-the initial scalar literal subset for future emitter slices. Minimal internal
-expression SQL rendering now covers literals, field references, the supported
-built-in calls, comparisons, null predicates, between, unary arithmetic, and
-basic arithmetic and Boolean operators. Minimal `RelationIR` emission now
-produces `SELECT`, projection, `FROM`, and optional `WHERE` SQL for relations
-whose input is either a `SourceIR` backed by `postgres.table(Text)` or another
+**Phase 4 PostgreSQL SQL MVP: Complete.**
+
+The MVP includes immutable SQL result models, the public
+`emit_postgres_sql(script_ir)` entry point, structured backend diagnostics,
+PostgreSQL rendering primitives, minimal expression SQL rendering, and stable
+`SELECT`, projection, `FROM`, and optional `WHERE` emission for relations whose
+input is either a `SourceIR` backed by `postgres.table(Text)` or another
 `RelationIR`.
 
 Relation inputs are referenced only by their quoted relation name. CTE
@@ -87,14 +84,23 @@ class SqlArtifact:
    source-backed and relation-name references complete.
 5. Non-emitting metadata classification: complete; metadata DDL remains
    deferred.
-6. PostgreSQL type mapping.
+6. PostgreSQL type mapping: deferred beyond the MVP until casts, DDL, or
+   stricter backend type compatibility require it.
 7. Deterministic backend diagnostics and examples audit: initial relation
    hardening complete.
 8. SQL artifact formatting hardening: complete.
-9. Phase 4 completion audit.
+9. Phase 4 completion audit: complete.
 
 Later slices must remain driven by existing Semantic IR and must not rerun
 parser or semantic analysis.
+
+Items in the non-goals below are deferred beyond the Phase 4 MVP rather than
+partially implemented.
+
+The completion audit confirms the public export boundary, frontend-stage
+isolation, metadata no-op behavior, stable artifact formatting and ordering,
+structured unsupported-case diagnostics, diagnostic documentation, and the
+committed examples pipeline.
 
 ## Non-Goals
 
