@@ -2,7 +2,7 @@
 
 ## Status
 
-**Phase 5 single-file PostgreSQL SQL emission: Complete.**
+**Phase 5 CLI output handling hardening: Complete.**
 
 The initial scaffold provides the `pietto` console entry point, plain
 `argparse` help, package version output, and stable usage exit codes. The
@@ -19,6 +19,7 @@ pietto --help
 pietto --version
 pietto check file.pie
 pietto emit-sql file.pie --dialect postgres
+pietto emit-sql file.pie --dialect postgres --output out.sql
 ```
 
 The console script calls:
@@ -50,6 +51,10 @@ PostgreSQL backend. It writes ordered SQL artifact text to stdout, separated by
 one blank line, and writes every phase's diagnostics to stderr. Parser,
 semantic, IR, or backend ERROR diagnostics return `1`; usage, unsupported
 dialect, and file errors return `2`. PostgreSQL is the only supported dialect.
+By default artifacts go to stdout. `--output path` overwrites one file with the
+same ordered, blank-line-separated artifact text and leaves stdout empty.
+Diagnostics remain on stderr. Missing parent directories and file write errors
+return `2`; the CLI does not create project output directories.
 
 ## Planned Slices
 
@@ -57,7 +62,7 @@ dialect, and file errors return `2`. PostgreSQL is the only supported dialect.
 2. Single-file `check` command using parser and semantic APIs: complete.
 3. Stable plain-text diagnostic rendering: complete.
 4. Single-file `emit-sql --dialect postgres` command: complete.
-5. File and output handling hardening.
+5. File and output handling hardening: complete.
 6. Phase 5 completion audit.
 
 Each command will explicitly orchestrate existing phase-specific APIs. Phase 5

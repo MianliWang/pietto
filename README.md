@@ -27,7 +27,9 @@ Phase 5 CLI and developer tooling now provides `pietto --help`,
 validation. It also provides
 `pietto emit-sql file.pie --dialect postgres`, which explicitly runs the
 existing parse, semantic, IR, and PostgreSQL backend phases and prints SQL
-artifacts without executing them. Check diagnostics use
+artifacts without executing them. SQL defaults to stdout; `--output path`
+overwrites a single output file while diagnostics remain on stderr. Check
+diagnostics use
 `path:line:column CODE severity: message`, with normal success output on stdout
 and diagnostics on stderr.
 

@@ -121,7 +121,9 @@ Phase 5 currently provides `pietto --help`, `pietto --version`, and
 analysis only; it does not build IR or emit SQL. The CLI also provides
 `pietto emit-sql file.pie --dialect postgres`, which explicitly orchestrates
 parser, semantic, IR, and PostgreSQL SQL APIs. It emits SQL text but never
-executes SQL or connects to a database or connector. CLI diagnostics use
+executes SQL or connects to a database or connector. SQL defaults to stdout;
+`--output path` overwrites one file while diagnostics remain on stderr. CLI
+diagnostics use
 `path:line:column CODE severity: message`, preserve compiler order, and are
 written to stderr.
 

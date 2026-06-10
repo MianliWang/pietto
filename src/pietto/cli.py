@@ -35,7 +35,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if namespace.command == "check":
         return _run_check(namespace.path)
     if namespace.command == "emit-sql":
-        return _run_emit_sql(namespace.path)
+        return _run_emit_sql(namespace.path, output_path=namespace.output)
     return 0
 
 
@@ -68,6 +68,11 @@ def _build_parser() -> argparse.ArgumentParser:
         required=True,
         help="SQL dialect",
     )
+    emit_parser.add_argument(
+        "--output",
+        type=Path,
+        help="write SQL artifacts to this file instead of stdout",
+    )
     return parser
 
 
@@ -97,7 +102,7 @@ def _run_check(path: Path) -> int:
     return 0
 
 
-def _run_emit_sql(path: Path) -> int:
+def _run_emit_sql(path: Path, *, output_path: Path | None) -> int:
     """Compile one Pietto file and print PostgreSQL SQL artifacts."""
 
     try:
@@ -130,8 +135,16 @@ def _run_emit_sql(path: Path) -> int:
 
     sql_result = sql_api.emit_postgres_sql(ir_result.ir)
     _render_diagnostics(sql_result.diagnostics, fallback_path=path)
-    _print_sql_artifacts(sql_result.artifacts)
-    if _has_errors(sql_result.diagnostics):
+    has_backend_errors = _has_errors(sql_result.diagnostics)
+    if output_path is None:
+        _print_sql_artifacts(sql_result.artifacts)
+    elif not has_backend_errors:
+        try:
+            _write_sql_artifacts(sql_result.artifacts, output_path)
+        except OSError as error:
+            print(f"{output_path}: error: {error}", file=sys.stderr)
+            return _EXIT_USAGE_ERROR
+    if has_backend_errors:
         return _EXIT_DIAGNOSTIC_ERROR
     return 0
 
@@ -140,7 +153,23 @@ def _print_sql_artifacts(artifacts: tuple[sql_api.SqlArtifact, ...]) -> None:
     """Print ordered SQL artifacts without changing their stored text."""
 
     if artifacts:
-        print("\n\n".join(artifact.sql for artifact in artifacts))
+        print(_format_sql_artifacts(artifacts))
+
+
+def _write_sql_artifacts(
+    artifacts: tuple[sql_api.SqlArtifact, ...],
+    output_path: Path,
+) -> None:
+    """Overwrite one output file with ordered SQL artifact text."""
+
+    sql = _format_sql_artifacts(artifacts)
+    output_path.write_text(f"{sql}\n" if sql else "", encoding="utf-8")
+
+
+def _format_sql_artifacts(artifacts: tuple[sql_api.SqlArtifact, ...]) -> str:
+    """Join ordered artifact text with one blank line."""
+
+    return "\n\n".join(artifact.sql for artifact in artifacts)
 
 
 def _render_diagnostics(
