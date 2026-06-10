@@ -4,13 +4,14 @@
 
 **Phase 7 Developer Workflow & Stability Foundation: In progress.**
 
-Slices 1 through 5 are complete. Readiness Alignment established the
+Slices 1 through 6 are complete. Readiness Alignment established the
 post-Phase-6 documentation baseline, JSON CLI v1 Stabilization published the
 normative machine-readable CLI contract, and Golden Output Foundation added a
 small reviewed example-based regression layer. Resource/Depth Budget Design
 defined the deterministic limits and boundaries; Small Resource Budget
-Implementation now enforces the approved source/token subset. Later slices
-remain planned.
+Implementation now enforces the approved source/token subset. Future Workflow
+Design records the prerequisites and boundaries for later project-level
+capabilities. The completion audit remains planned.
 
 ## Goal
 
@@ -82,8 +83,8 @@ the artifact.
    implementation order.
 5. **Small Resource Budget Implementation**: complete. Implement only the
    approved bounded source/token protections and focused regressions.
-6. **Future Workflow Design Only**: design project configuration, multi-file,
-   watch, and editor/LSP prerequisites without implementing them.
+6. **Future Workflow Design Only**: complete. Design project configuration,
+   multi-file, watch, and editor/LSP prerequisites without implementing them.
 7. **Phase 7 Completion Audit**: verify documentation, compatibility,
    stability, safety boundaries, and unchanged single-file behavior.
 
@@ -168,21 +169,25 @@ overrides. This is not complete denial-of-service protection. Structural
 depth/node limits, semantic graph work, diagnostic/output caps, wall-clock
 timeouts, and CPU or memory sandboxing remain deferred.
 
-## Future Project Workflow Direction
+## Slice 6: Future Workflow Design Only
 
-Phase 7 may document future requirements for:
+Slice 6 is design-only. The accepted direction is documented in
+`docs/plan/phase-7-future-workflow-design.md`. It records:
 
-- a non-executable, versioned `pietto.toml` configuration format;
-- project-root discovery and configuration precedence;
-- a multi-file module and dependency model;
-- path and trust boundaries;
-- watch-mode dependency invalidation;
-- stable source ranges, diagnostic identity, cancellation, and project models
-  needed by editor/LSP tooling.
+- possible goals, non-goals, and open questions for a strict, non-executable
+  `pietto.toml`;
+- project-root discovery, path normalization, symbolic-link, traversal, and
+  cross-platform path questions;
+- namespace, module, dependency, cycle, diagnostic, JSON, and SQL artifact
+  questions for future multi-file support;
+- prerequisites and risks for watch mode and LSP/editor integration;
+- the separate threat model required before any runtime, database, connector,
+  SQL execution, or schema-introspection work;
+- a conservative Phase 8 and later sequencing recommendation.
 
-This is design work only. No configuration loader, module system, file graph,
-watch loop, language server, CLI command, or CLI flag is added in Phase 7
-without a later explicit implementation plan.
+No configuration loader, project discovery, module system, file graph, watch
+loop, language server, CLI surface, grammar, dependency, or runtime behavior
+is added.
 
 ## Safety And Robustness
 
@@ -233,7 +238,7 @@ Phase 7 does not add:
 
 ## Deferred Items
 
-The following remain deferred beyond Slice 5 and, where noted above, beyond
+The following remain deferred beyond Slice 6 and, where noted above, beyond
 Phase 7 implementation:
 
 - malformed hand-built AST containment review;
