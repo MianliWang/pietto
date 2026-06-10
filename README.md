@@ -38,9 +38,20 @@ and diagnostics on stderr.
 The CLI remains single-file developer tooling. It does not execute SQL,
 connect to databases or connectors, introspect schemas, or provide project
 configuration, watch mode, JSON output, or compiler convenience wrappers.
-Phase 5.5 security hardening covers compiler exception containment,
-PostgreSQL rendering safety, CLI output-path and log safety, and a minimized
-production dependency set.
+Phase 5.5 Security / Robustness Hardening is complete. PSEC-001 through
+PSEC-007 are fixed or documented at their intended boundaries, the Common
+Vulnerability Category Checklist is complete, and no current vulnerability
+blocks Phase 6. The completed work covers compiler exception containment,
+PostgreSQL rendering safety, CLI output-path and terminal-text safety, and a
+minimized production dependency set.
+
+Pietto still has no full global resource or depth budget and has not rewritten
+recursive compiler algorithms. It also has no SQL execution, database
+connection, connector execution, schema introspection, Web UI, runtime, JSON
+output, project or multi-file support, or LSP/editor integration. The safest
+next Phase 6 direction is JSON or equivalent machine-readable CLI output with
+a versioned schema and strict stdout/stderr contracts. Database or runtime
+integration remains deferred and requires a separate threat model.
 
 See [the language specification](docs/spec/pietto-v0.9.md),
 [the Phase 3 Semantic IR plan](docs/plan/phase-3-semantic-ir.md), and

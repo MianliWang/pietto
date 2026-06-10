@@ -87,7 +87,8 @@ Rules:
 
 ## Current Phase
 
-Current implementation phase: Phase 5 CLI MVP complete.
+Current implementation phase: Phase 5.5 Security / Robustness Hardening
+complete.
 
 Phase 1 parser and AST work and the Phase 2 Semantic Checker MVP are complete.
 The Phase 3 Semantic IR MVP is complete. The Phase 4 public
@@ -134,10 +135,22 @@ files, watch mode, JSON or color output, source snippets, LSP/editor
 integration, database or connector execution, schema introspection,
 `compile_to_ir()`, or `compile_to_sql()`.
 
-Phase 5.5 security hardening is documented in
-`docs/plan/phase-5-5-security-hardening.md`. The current production dependency
-surface contains only the ANTLR Python runtime; planned technologies are not
-installed until an implemented compiler slice requires them.
+Phase 5.5 Security / Robustness Hardening is complete and documented in
+`docs/plan/phase-5-5-security-hardening.md`. PSEC-001 through PSEC-007 are
+fixed or documented at their intended boundaries, the Common Vulnerability
+Category Checklist and focused completion audit are complete, and no current
+vulnerability blocks Phase 6. The current production dependency surface
+contains only the ANTLR Python runtime; planned technologies are not installed
+until an implemented compiler slice requires them.
+
+The safest next Phase 6 direction is JSON or equivalent machine-readable CLI
+output with a standard encoder, versioned schema, strict stdout/stderr
+separation, and malicious-text tests. Full global resource/depth budgets and
+recursive algorithm rewrites remain future hardening. SQL execution, database
+connections, connector execution, schema introspection, Web UI, runtime,
+project or multi-file support, and LSP/editor integration remain out of scope.
+Database or runtime integration requires a separate threat model before
+implementation.
 
 Do not implement in the current phase unless explicitly requested:
 

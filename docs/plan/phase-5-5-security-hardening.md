@@ -1,12 +1,15 @@
-# Phase 5.5: Security Hardening
+# Phase 5.5: Security / Robustness Hardening
 
 ## Status
 
-**Phase 5.5 security hardening: Complete for PSEC-001 through PSEC-007.**
+**Phase 5.5 Security / Robustness Hardening: Complete.**
 
 This follow-up hardens source-level failure handling, PostgreSQL rendering,
 CLI file output, terminal-facing text, and the production dependency surface.
-It does not add runtime or execution behavior.
+PSEC-001 through PSEC-007 are fixed or documented at their intended
+boundaries. The Common Vulnerability Category Checklist and focused completion
+audit are complete. No current vulnerability blocks Phase 6. This phase does
+not add runtime or execution behavior.
 
 ## Completed Findings
 
@@ -26,6 +29,25 @@ It does not add runtime or execution behavior.
   before writing plain-text terminal or CI output.
 - PSEC-007: unused direct production dependencies were removed after a
   repository-wide usage check.
+
+## Completion Audit
+
+`tests/test_security_completion_audit.py` provides a focused final audit of
+the Phase 5.5 guarantees without replacing the detailed parser, semantic, SQL,
+and CLI regression suites. It covers:
+
+- numeric and recursion failures becoming diagnostics without tracebacks;
+- semantic recursion stopping `emit-sql` before IR and SQL;
+- PostgreSQL backslash/quote rendering and NUL rejection;
+- `PIE-B1000` at the public SQL backend boundary;
+- same-file, hard-link, symbolic-link, and failed-backend output safety;
+- CLI control-character escaping while SQL artifact text remains unchanged;
+- the minimal production dependency and `.env` ignore baseline;
+- existing Phase 5 commands, diagnostic-code conventions, stage isolation,
+  and the absence of execution or convenience compiler wrappers.
+
+The full compiler suite passes with these audit tests. No audit test exposed a
+new implementation bug.
 
 ## Dependency Audit
 
@@ -109,7 +131,7 @@ robustness concern without a malicious `.pie` reproduction.
 | Web vulnerabilities | not currently applicable | There is no Web UI, HTTP server, upload endpoint, browser client, or API route. XSS, CSRF, CORS, auth bypass, upload vulnerabilities, and server-side SSRF therefore have no current surface. | Repository structure and feature-absence audits cover this boundary. | Perform a separate Web threat model before adding any server or browser surface. | No. |
 | Runtime/database execution risks | not currently applicable | Pietto cannot execute emitted SQL, connect to PostgreSQL, run connectors, introspect schemas, apply migrations, or mutate databases. `emit_postgres_sql()` consumes `ScriptIR` and returns text artifacts only. | SQL and CLI completion audits forbid connection/execution APIs and verify frontend/backend stage isolation. | Before runtime work, define parameterization, credentials, least privilege, transaction boundaries, timeouts, cancellation, migration safety, connector sandboxing, and audit logging. | No; a separate threat model is mandatory before such features. |
 | Serialization / machine-readable output risks | future risk | JSON output and structured CLI serialization are absent. Current diagnostics are immutable structured Python data rendered as escaped human text, with SQL artifacts separately routed. There is no schema version, JSON encoder, or machine-output stream contract yet. | Existing tests cover human diagnostics, SQL stdout, stderr separation, and exit codes only. | Phase 6 JSON work must use a real JSON encoder, version its schema, serialize diagnostics structurally, prohibit traceback fields, and keep machine stdout free of human text. | No to starting Phase 6; required before a JSON interface is complete. |
-| Test coverage gaps | confirmed | Current tests cover all PSEC-001 through PSEC-007 regressions and the complete 902-test compiler suite, but no whole-source resource budget, malformed hand-built AST containment, optimized-mode invariant run, ANTLR jar checksum check, trusted secret scan, or JSON contract exists. | Security regressions are distributed across parser, semantic, SQL, CLI, completion-audit, and output-security suites. | Apply the priorities below. | No current gap blocks starting Phase 6. |
+| Test coverage gaps | confirmed | Current tests cover all PSEC-001 through PSEC-007 regressions, including the focused security completion audit, but no whole-source resource budget, malformed hand-built AST containment, optimized-mode invariant run, ANTLR jar checksum check, trusted secret scan, or JSON contract exists. | Security regressions are distributed across parser, semantic, SQL, CLI, completion-audit, and output-security suites. | Apply the priorities below. | No current gap blocks starting Phase 6. |
 
 ### Remaining Test Gaps
 
@@ -151,10 +173,17 @@ No reviewed category blocks starting Phase 6. Any database/runtime, network,
 connector, Web, plugin, or multi-user feature requires a new threat model
 before implementation rather than inheriting this local-compiler assessment.
 
+The safest next Phase 6 direction is JSON or equivalent machine-readable CLI
+output, implemented with a standard encoder, a versioned schema, strict stream
+separation, and malicious-text regression tests. Database, connector, and
+runtime integration remain deferred and require a separate threat model.
+
 ## Non-Goals
 
 Phase 5.5 does not add:
 
+- full global source, token, node, depth, CPU, or memory budgets;
+- recursive algorithm rewrites;
 - SQL execution;
 - database connections;
 - connector execution;
