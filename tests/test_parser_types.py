@@ -50,6 +50,19 @@ def test_nullable_parameterized_type_definition_parses() -> None:
     assert definition.base.arguments[1].value.name == "utf8"
 
 
+def test_maximum_supported_integer_literal_length_parses() -> None:
+    literal = "9" * 4096
+    result = parse_source(f"type Huge = Int(max = {literal}) not null\n")
+
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    definition = result.ast.definitions[0]
+    assert isinstance(definition, TypeDef)
+    argument = definition.base.arguments[0].value
+    assert isinstance(argument, LiteralExpr)
+    assert argument.value == int(literal)
+
+
 def test_nullable_type_alias_parses() -> None:
     result = parse_source("type MaybeAge = Int nullable\n")
 

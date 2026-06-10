@@ -59,6 +59,26 @@ def test_check_parser_error_returns_diagnostic_error(
     ) in captured.err
 
 
+def test_check_overly_long_integer_returns_parser_error_without_traceback(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _write(
+        tmp_path,
+        "huge-integer.pie",
+        "type Huge = Int(max = " + "9" * 5000 + ") not null\n",
+    )
+
+    assert cli.main(["check", str(path)]) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert f"{path}:1:23 PIE-P1000 error:" in captured.err
+    assert "maximum supported length" in captured.err
+    assert "Traceback" not in captured.err
+    assert "ValueError" not in captured.err
+
+
 def test_check_semantic_error_returns_diagnostic_error(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

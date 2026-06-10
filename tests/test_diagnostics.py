@@ -72,6 +72,40 @@ def test_invalid_string_escape_returns_diagnostic() -> None:
     assert "escape" in result.diagnostics[0].message.lower()
 
 
+def test_overly_long_integer_literal_returns_diagnostic() -> None:
+    result = parse_source(
+        "type Huge = Int(max = " + "9" * 5000 + ") not null\n",
+        path="huge-integer.pie",
+    )
+
+    assert result.ast is None
+    assert len(result.diagnostics) == 1
+    diagnostic = result.diagnostics[0]
+    assert diagnostic.code == "PIE-P1000"
+    assert diagnostic.location.path == "huge-integer.pie"
+    assert "maximum supported length" in diagnostic.message
+
+
+def test_overly_long_decimal_literal_returns_diagnostic() -> None:
+    result = parse_source(
+        "type Huge = Float(max = " + "9" * 2500 + "." + "9" * 2500 + ") not null\n"
+    )
+
+    assert result.ast is None
+    assert len(result.diagnostics) == 1
+    assert result.diagnostics[0].code == "PIE-P1000"
+    assert "maximum supported length" in result.diagnostics[0].message
+
+
+def test_non_finite_decimal_literal_returns_diagnostic() -> None:
+    result = parse_source("type Huge = Float(max = " + "9" * 1000 + ".0) not null\n")
+
+    assert result.ast is None
+    assert len(result.diagnostics) == 1
+    assert result.diagnostics[0].code == "PIE-P1000"
+    assert "finite" in result.diagnostics[0].message
+
+
 def test_empty_enum_reports_syntax_error() -> None:
     result = parse_source("enum Status:\n")
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any, cast
 
@@ -49,6 +50,8 @@ from pietto.ast_nodes import (
 from pietto.errors import AstBuildError, source_path
 from pietto.generated.PiettoParser import PiettoParser
 from pietto.generated.PiettoVisitor import PiettoVisitor
+
+_MAX_NUMERIC_LITERAL_LENGTH = 4096
 
 
 class AstBuilder(PiettoVisitor):
@@ -484,12 +487,11 @@ class AstBuilder(PiettoVisitor):
         )
 
     def visitLiteral(self, ctx: PiettoParser.LiteralContext) -> LiteralExpr:
-        text = ctx.getText()
         value: str | int | float | bool | None
         if ctx.STRING() is not None:
             value = self._decode_string_literal(ctx)
         elif ctx.NUMBER() is not None:
-            value = float(text) if "." in text else int(text)
+            value = self._decode_numeric_literal(ctx)
         elif ctx.TRUE() is not None:
             value = True
         elif ctx.FALSE() is not None:
@@ -652,6 +654,37 @@ class AstBuilder(PiettoVisitor):
             index += 2
 
         return "".join(result)
+
+    @staticmethod
+    def _decode_numeric_literal(ctx: PiettoParser.LiteralContext) -> int | float:
+        """Decode a bounded finite numeric literal as an ordinary source value."""
+
+        token = ctx.NUMBER().getSymbol()
+        text = token.text or ""
+        if len(text) > _MAX_NUMERIC_LITERAL_LENGTH:
+            raise AstBuildError(
+                "Numeric literal exceeds the maximum supported length of "
+                f"{_MAX_NUMERIC_LITERAL_LENGTH} characters.",
+                line=token.line,
+                column=token.column + 1,
+            )
+
+        try:
+            value = float(text) if "." in text else int(text)
+        except (OverflowError, ValueError) as error:
+            raise AstBuildError(
+                "Numeric literal cannot be represented safely.",
+                line=token.line,
+                column=token.column + 1,
+            ) from error
+
+        if isinstance(value, float) and not math.isfinite(value):
+            raise AstBuildError(
+                "Numeric literal must be finite.",
+                line=token.line,
+                column=token.column + 1,
+            )
+        return value
 
     @staticmethod
     def _mode(ctx: PiettoParser.ModeDeclContext) -> str:
