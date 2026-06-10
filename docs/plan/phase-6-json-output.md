@@ -2,7 +2,7 @@
 
 ## Status
 
-**Phase 6 Slices 1-6: Complete.**
+**Phase 6 JSON / Machine-Readable CLI Output: Complete.**
 
 The JSON v1 schema plan, internal serialization helpers, and
 `check --format json` are implemented. The check JSON security and completion
@@ -11,8 +11,15 @@ implemented with output status, path validation, atomic writes, and structured
 write failures. Text-mode `emit-sql --output` remains supported and unchanged.
 Phase 6 is machine-readable CLI presentation work; it does not change parser,
 semantic, IR, or SQL backend models and does not add runtime or execution
-behavior. Phase 6 is not complete yet; the final completion audit remains
-Slice 7.
+behavior. The final completion audit is complete.
+
+Final supported JSON commands:
+
+```bash
+pietto check file.pie --format json
+pietto emit-sql file.pie --dialect postgres --format json
+pietto emit-sql file.pie --dialect postgres --format json --output out.sql
+```
 
 ## Boundaries
 
@@ -31,9 +38,9 @@ It does not add SQL execution, database connections, connector execution,
 schema introspection, project or multi-file support, watch mode, Web UI,
 runtime behavior, or LSP/editor integration.
 
-## Planned CLI
+## Supported CLI
 
-Both commands will receive a command-local format option:
+Both commands support a command-local format option:
 
 ```bash
 pietto check file.pie --format json
@@ -299,7 +306,7 @@ atomic writer.
 
 ## Security Acceptance Criteria
 
-Phase 6 is not complete until:
+The Phase 6 completion audit confirms:
 
 - every JSON-mode stdout parses with `json.loads()`;
 - JSON stdout contains no human-readable prefix or suffix;
@@ -316,7 +323,7 @@ Phase 6 is not complete until:
   or perform schema introspection;
 - no `compile_to_ir()` or `compile_to_sql()` is introduced.
 
-## Planned Slices
+## Completed Slices
 
 1. Docs-only JSON schema plan: complete.
 2. JSON serialization helpers, no CLI flag: complete.
@@ -324,7 +331,7 @@ Phase 6 is not complete until:
 4. Check JSON security and completion audit: complete.
 5. `emit-sql --format json`, without output interaction: complete.
 6. JSON plus `--output` interaction hardening: complete.
-7. Phase 6 JSON completion audit.
+7. Phase 6 JSON completion audit: complete.
 
 Slice 2 adds internal pure serialization helpers such as
 `diagnostic_to_json_dict()`, `cli_error_to_json_dict()`,

@@ -88,10 +88,9 @@ Rules:
 ## Current Phase
 
 Current implementation phase: Phase 6 JSON / machine-readable CLI output
-implementation. Slices 1-6 are complete: schema planning, internal
-serialization helpers, `check --format json`, and its focused security and
-completion audit, plus `emit-sql --format json` with final output-file
-interaction.
+complete. The completed phase includes schema planning, internal serialization
+helpers, audited `check --format json`, `emit-sql --format json` with final
+output-file interaction, and the Phase 6 completion audit.
 
 Phase 1 parser and AST work and the Phase 2 Semantic Checker MVP are complete.
 The Phase 3 Semantic IR MVP is complete. The Phase 4 public
@@ -146,17 +145,16 @@ vulnerability blocks Phase 6. The current production dependency surface
 contains only the ANTLR Python runtime; planned technologies are not installed
 until an implemented compiler slice requires them.
 
-The safest next Phase 6 direction is JSON or equivalent machine-readable CLI
-output with a standard encoder, versioned schema, strict stdout/stderr
-separation, and malicious-text tests. Full global resource/depth budgets and
-recursive algorithm rewrites remain future hardening. SQL execution, database
-connections, connector execution, schema introspection, Web UI, runtime,
-project or multi-file support, and LSP/editor integration remain out of scope.
-Database or runtime integration requires a separate threat model before
-implementation.
+The completed Phase 6 JSON output uses a standard encoder, versioned schema,
+strict stdout/stderr separation, and malicious-text tests. Full global
+resource/depth budgets and recursive algorithm rewrites remain future
+hardening. SQL execution, database connections, connector execution, schema
+introspection, Web UI, runtime, project or multi-file support, and LSP/editor
+integration remain out of scope. Database or runtime integration requires a
+separate threat model before implementation.
 
 The accepted Phase 6 design is documented in
-`docs/plan/phase-6-json-output.md`. Planned commands use command-local
+`docs/plan/phase-6-json-output.md`. Supported commands use command-local
 `--format {text,json}` for both `check` and `emit-sql`, defaulting to the
 current text behavior. JSON v1 uses standard-library serialization,
 `"schema_version": 1`, structured diagnostics and CLI errors, and one complete
@@ -164,8 +162,7 @@ stdout document. `check --format json` is implemented; JSON output for
 `emit-sql` is implemented with or without `--output`. JSON plus `--output`
 writes raw SQL atomically to the requested file and reports structured output
 status on stdout, while text-mode `emit-sql --output` remains unchanged. The
-check JSON security and completion audit is complete, but Phase 6 is not
-complete yet; the final completion audit remains Slice 7.
+check JSON security audit and the final Phase 6 completion audit are complete.
 
 Phase 6 remains CLI presentation work. It must not change parser, semantic,
 IR, or SQL backend models unless a later focused slice proves that strictly
