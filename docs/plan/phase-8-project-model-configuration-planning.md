@@ -4,16 +4,18 @@
 
 **Phase 8 planning/specification is in progress.**
 
-Slices 1 through 5 are complete. Readiness And Decision Frame established the
+Slices 1 through 6 are complete. Readiness And Decision Frame established the
 phase boundary and sequence. Configuration Contract defines a strict,
 versioned, non-executable future `pietto.toml` contract. Root And Path
 Semantics defines the project filesystem contract. Multi-file Semantics now
 defines the project compile unit, flat namespaces, cross-file dependencies,
 stage gates, diagnostics, and artifact ordering. CLI And JSON Design defines
 an explicit future project invocation and a separate project JSON v2 contract.
-Phase 8 is planning-only: it defines future project-level contracts before any
-project configuration, root discovery, multi-file compilation, CLI expansion,
-or JSON schema change is implemented.
+Project Resource Model defines fixed planning ceilings, deterministic stage
+gates, and failure classification. Phase 8 is planning-only: it defines future
+project-level contracts before any project configuration, root discovery,
+multi-file compilation, CLI expansion, JSON schema change, or project budget
+is implemented.
 
 ## Goal
 
@@ -84,9 +86,9 @@ relevant contract, compatibility rules, and security model are accepted.
 5. **CLI And JSON Design**: complete. Specify explicit future project
    invocation without reinterpreting current single-file commands, and define
    a machine-readable project result without changing JSON v1.
-6. **Project Resource Model**: define deterministic limits for file count,
-   aggregate bytes and tokens, compiler graph work, diagnostics, artifacts,
-   and output size.
+6. **Project Resource Model**: complete. Define deterministic limits for file
+   count, aggregate bytes and tokens, compiler graph work, diagnostics,
+   artifacts, and output size.
 7. **Completion Audit**: verify that all project-model decisions and
    compatibility boundaries are documented and that Phase 8 added no
    project, compiler, CLI, JSON, SQL, dependency, or runtime behavior.
@@ -194,6 +196,32 @@ The contract is specification-only. Slice 5 adds no `--project` option, CLI
 behavior, JSON v2 serializer, JSON v1 change, configuration loading, project
 filesystem behavior, multi-file compiler, dependency, or runtime capability.
 
+## Slice 6: Project Resource Model
+
+Slice 6 publishes `docs/spec/project-resource-model-v1.md` as the planned
+project budget and failure contract. It defines:
+
+- preservation of the implemented per-file 1 MiB UTF-8 source and 200,000 raw
+  non-EOF token limits and their existing diagnostics;
+- separate discovery/identity, loading/frontend, compiler/artifact, and
+  presentation/output budget layers;
+- conservative planning ceilings including 256 files, 8 MiB total source,
+  1,000,000 total tokens, 10,000 glob candidates, 1,000 diagnostics, 5,000 SQL
+  artifacts, 16 MiB generated SQL, and 32 MiB encoded JSON;
+- required but implementation-blocking counter definitions for AST nodes,
+  expression depth, alias expansion, relation graphs, semantic work, and path
+  identity work;
+- CLI error versus compiler diagnostic ownership and unchanged exit-code
+  classes;
+- deterministic stage gates, failure precedence, capped diagnostics, compact
+  JSON v2 resource failures, and no partial output writes;
+- fixed non-configurable safety ceilings with no initial config overrides;
+- separate watch/LSP and runtime/database threat boundaries.
+
+The contract is specification-only. Slice 6 adds no active limit, diagnostic,
+configuration key, project loader, compiler behavior, CLI behavior, JSON v2
+serializer, dependency, or runtime capability.
+
 ## Configuration Direction
 
 The accepted configuration direction is strict, versioned, declarative, and
@@ -282,18 +310,23 @@ Phase 8 adds no commands or flags.
 
 ## Project Resource Model
 
-The existing source and token budgets apply independently to one input file.
-A future project compiler also needs deterministic aggregate limits for:
+The accepted first-implementation direction preserves the current per-file
+source/token budgets and adds fixed project ceilings. Decision-ready planning
+values cover files, aggregate source and tokens, patterns, glob candidates,
+symlink resolution, definitions, diagnostics, related locations, SQL
+artifacts, generated SQL bytes, and encoded JSON bytes.
 
-- source-file count and total UTF-8 bytes;
-- total tokens, definitions, fields, and graph edges;
-- dependency depth and semantic traversal work;
-- diagnostic count and truncation signaling;
-- SQL artifact count and total SQL bytes;
-- JSON document size.
+AST nodes, expression depth, alias expansion, relation graph size/depth,
+semantic work, and path-identity work remain required counters whose exact
+definitions and limits must be finalized before implementation. Project setup
+and presentation budget failures are future CLI errors with exit `2`;
+compiler-stage budget failures are future full `PIE-...` diagnostics with exit
+`1`. Configuration cannot raise or disable any ceiling.
 
-Phase 8 specifies these categories but implements no limits and exposes no
-configuration knobs. Wall-clock deadlines, cancellation, CPU limits, and
+The complete planning values, stage gates, truncation behavior, JSON v2
+failure policy, and implementation prerequisites are documented in
+`docs/spec/project-resource-model-v1.md`. Phase 8 implements no project limit
+or configuration knob. Wall-clock deadlines, cancellation, CPU limits, and
 memory sandboxing remain separate environment or runtime concerns.
 
 ## Runtime And Database Threat Model
@@ -358,6 +391,7 @@ backend, or SQL feature change.
 
 Phase 8 does not implement:
 
+- project-level resource-budget enforcement or a new active limit;
 - project configuration or `pietto.toml`;
 - project-root discovery, path walking, or glob expansion;
 - project or multi-file compilation;

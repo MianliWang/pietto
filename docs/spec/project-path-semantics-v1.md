@@ -329,8 +329,9 @@ A future project path layer also needs fixed limits for:
 
 Budget checks must stop work at the first defined excess and produce
 deterministic failure behavior. Configuration must not override safety
-ceilings. Exact limits and diagnostics remain for Phase 8 Project Resource
-Model.
+ceilings. Planning values, CLI-error versus diagnostic classification, and
+deferred counter definitions are documented in
+`docs/spec/project-resource-model-v1.md`.
 
 ## Security Risks
 
@@ -397,5 +398,6 @@ cover tests for:
 - path, glob, symlink, file-count, and aggregate resource-budget failures;
 - unchanged single-file CLI and JSON v1 path behavior.
 
-No path, glob, or project discovery code should be written until the remaining
-multi-file, CLI/JSON, and project-resource contracts are decision-complete.
+No path, glob, or project discovery code should be written until the Phase 8
+completion audit is complete and a separately approved implementation phase
+addresses the documented prerequisites.

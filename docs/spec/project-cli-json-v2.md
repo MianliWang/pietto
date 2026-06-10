@@ -392,6 +392,7 @@ The planned v2 project kinds are:
 | `config_schema` | Parsed configuration violates the strict schema |
 | `project_path` | A configured or selected path violates project path policy |
 | `project_glob` | A pattern is invalid or source selection fails |
+| `project_resource` | A project discovery, loading, or presentation budget is exceeded |
 | `source_read` | A selected source cannot be read or decoded |
 | `output_path` | Project output path fails safety validation |
 | `output_write` | Atomic project output write or replacement fails |
@@ -578,8 +579,9 @@ cover tests for:
 - manually reviewed JSON v2 golden fixtures after implementation;
 - no SQL execution, database, connector, schema, network, or runtime behavior.
 
-No project CLI or JSON v2 code should be written until the Phase 8 Project
-Resource Model is decision-complete.
+No project CLI or JSON v2 code should be written until the Phase 8 completion
+audit is complete and a separately approved implementation phase addresses the
+resource counters and tests in `docs/spec/project-resource-model-v1.md`.
 
 ## Related Documents
 
@@ -587,4 +589,5 @@ Resource Model is decision-complete.
 - [Pietto project configuration schema version 1](pietto-config-v1.md)
 - [Project root and path semantics version 1](project-path-semantics-v1.md)
 - [Project multi-file semantics version 1](project-multifile-semantics-v1.md)
+- [Project resource model version 1](project-resource-model-v1.md)
 - [Phase 8 Project Model & Configuration Planning](../plan/phase-8-project-model-configuration-planning.md)

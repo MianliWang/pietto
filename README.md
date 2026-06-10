@@ -128,5 +128,9 @@ The planned explicit project invocation and project JSON schema version 2
 contract is in
 [the project CLI and JSON schema version 2 design](docs/spec/project-cli-json-v2.md);
 no project CLI or JSON v2 behavior is implemented.
+The planned fixed project ceilings, deterministic resource stage gates, and
+failure classification are in
+[the project resource model version 1 specification](docs/spec/project-resource-model-v1.md);
+no project-level budget is implemented.
 Diagnostic codes are documented in
 [the diagnostics specification](docs/spec/diagnostics.md).

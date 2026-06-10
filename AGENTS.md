@@ -179,6 +179,11 @@ The planned explicit project invocation and JSON schema version 2 contract is
 documented in `docs/spec/project-cli-json-v2.md`. It is specification-only; no
 `--project` option, project CLI behavior, or JSON v2 serializer is implemented,
 and JSON v1 remains unchanged.
+The planned project-level resource ceilings, deterministic stage gates, and
+failure classification are documented in
+`docs/spec/project-resource-model-v1.md`. It is specification-only; the
+current implemented limits remain only the per-file source/token parser
+budgets, and no project budget or config override is implemented.
 
 Current strict boundaries remain:
 

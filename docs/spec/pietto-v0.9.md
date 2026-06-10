@@ -1120,6 +1120,10 @@ configuration, discover roots, traverse projects, expand globs, or compile
 multiple files. The planned explicit project invocation and JSON schema
 version 2 contract is documented in `docs/spec/project-cli-json-v2.md`; no
 project CLI or JSON v2 behavior is implemented, and JSON v1 remains unchanged.
+The planned fixed project ceilings, deterministic budget stage gates, and
+failure classification are documented in
+`docs/spec/project-resource-model-v1.md`; no project-level resource budget is
+implemented.
 
 ---
 

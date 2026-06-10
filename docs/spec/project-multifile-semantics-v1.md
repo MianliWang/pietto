@@ -366,8 +366,9 @@ A future project compiler also needs fixed aggregate limits for:
 - future JSON output bytes.
 
 Project limits must be checked deterministically and must not be raised through
-the initial configuration contract. Exact values, diagnostics, and precedence
-remain for Phase 8 Project Resource Model.
+the initial configuration contract. Planning values, diagnostics versus CLI
+error ownership, deterministic precedence, and deferred counters are
+documented in `docs/spec/project-resource-model-v1.md`.
 
 ## Security Risks
 
@@ -435,5 +436,6 @@ tests for:
   failures;
 - unchanged single-file parser, semantic, IR, SQL, CLI, and JSON v1 behavior.
 
-No multi-file code should be written until the remaining CLI/JSON and project
-resource contracts are decision-complete.
+No multi-file code should be written until the Phase 8 completion audit is
+complete and a separately approved implementation phase addresses the
+documented prerequisites.

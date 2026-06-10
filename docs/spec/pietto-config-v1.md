@@ -232,9 +232,10 @@ The current 1 MiB UTF-8 source and 200,000 raw non-EOF token limits are safety
 containment, not user preferences. Allowing projects to raise them could
 weaken deterministic failure behavior.
 
-Project-level file-count, aggregate-byte, token, graph-work, diagnostic,
-artifact, and output-size limits require the separate Phase 8 Project Resource
-Model. Any future configurable limits require:
+The accepted project-level file-count, aggregate-byte, token, graph-work,
+diagnostic, artifact, and output-size direction is documented in
+`docs/spec/project-resource-model-v1.md`. Any future configurable limits
+require:
 
 - fixed non-configurable hard ceilings;
 - trust-boundary and denial-of-service review;
@@ -326,7 +327,8 @@ Before any configuration implementation is approved, Pietto must complete:
   `docs/spec/project-cli-json-v2.md`;
 - the machine-readable config-error and project-result design documented in
   `docs/spec/project-cli-json-v2.md`;
-- the project resource model and hard ceilings;
+- the project resource model and hard ceilings documented in
+  `docs/spec/project-resource-model-v1.md`;
 - a focused configuration threat-model review.
 
 A future implementation plan must include tests for:
