@@ -38,10 +38,15 @@ and diagnostics on stderr.
 The CLI remains single-file developer tooling. It does not execute SQL,
 connect to databases or connectors, introspect schemas, or provide project
 configuration, watch mode, JSON output, or compiler convenience wrappers.
+Phase 5.5 security hardening covers compiler exception containment,
+PostgreSQL rendering safety, CLI output-path and log safety, and a minimized
+production dependency set.
 
 See [the language specification](docs/spec/pietto-v0.9.md),
 [the Phase 3 Semantic IR plan](docs/plan/phase-3-semantic-ir.md), and
 [the Phase 4 PostgreSQL SQL plan](docs/plan/phase-4-postgres-sql.md), and
 [the Phase 5 CLI tooling plan](docs/plan/phase-5-cli-tooling.md).
+Security audit details and repeatable tooling commands are in
+[the Phase 5.5 security hardening note](docs/plan/phase-5-5-security-hardening.md).
 Diagnostic codes are documented in
 [the diagnostics specification](docs/spec/diagnostics.md).

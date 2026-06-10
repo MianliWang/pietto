@@ -134,6 +134,11 @@ files, watch mode, JSON or color output, source snippets, LSP/editor
 integration, database or connector execution, schema introspection,
 `compile_to_ir()`, or `compile_to_sql()`.
 
+Phase 5.5 security hardening is documented in
+`docs/plan/phase-5-5-security-hardening.md`. The current production dependency
+surface contains only the ANTLR Python runtime; planned technologies are not
+installed until an implemented compiler slice requires them.
+
 Do not implement in the current phase unless explicitly requested:
 
 - joins, grouping, ordering, limits, windows, or unions;
@@ -217,7 +222,7 @@ uv python install 3.12
 uv python pin 3.12
 
 uv init --package
-uv add antlr4-python3-runtime sqlglot typer rich pydantic
+uv add antlr4-python3-runtime
 uv add --dev pytest pytest-cov ruff mypy pyright
 ```
 

@@ -15,6 +15,10 @@ htmlcov/
 venv/
 env/
 
+# Local environment and secret files
+.env
+.env.*
+
 # Build artifacts
 build/
 dist/

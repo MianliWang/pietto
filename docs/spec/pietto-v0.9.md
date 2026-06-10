@@ -911,7 +911,7 @@ uv python install 3.12
 uv python pin 3.12
 
 uv init --package
-uv add antlr4-python3-runtime sqlglot typer rich pydantic
+uv add antlr4-python3-runtime
 uv add --dev pytest pytest-cov ruff mypy pyright
 ```
 
