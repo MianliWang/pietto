@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import inspect
 import json
 from pathlib import Path
 from typing import cast
 
 import pytest
 
-import pietto.cli as cli
+import pietto
 from pietto.cli_json import (
     CliError,
     OutputStatus,
@@ -269,11 +268,15 @@ def test_json_document_has_one_newline_and_round_trips_controls_unicode() -> Non
     assert parsed["cli_errors"][0]["message"] == value
 
 
-def test_json_helpers_are_not_wired_into_cli_behavior() -> None:
-    source = inspect.getsource(cli)
-
-    assert "cli_json" not in source
-    assert "--format" not in source
+def test_json_helpers_are_not_exported_from_top_level_package() -> None:
+    for name in (
+        "CliError",
+        "OutputStatus",
+        "check_result_to_json_dict",
+        "emit_sql_result_to_json_dict",
+        "render_json_document",
+    ):
+        assert not hasattr(pietto, name)
 
 
 def _diagnostic(

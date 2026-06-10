@@ -2,12 +2,13 @@
 
 ## Status
 
-**Phase 6 Slice 1, docs-only JSON schema plan: Complete.**
+**Phase 6 Slices 1-3: Complete.**
 
-JSON output is planned but not yet implemented. Phase 6 starts with
-machine-readable CLI presentation for the existing `check` and `emit-sql`
-commands. It does not change parser, semantic, IR, or SQL backend models and
-does not add runtime or execution behavior.
+The JSON v1 schema plan, internal serialization helpers, and
+`check --format json` are implemented. JSON output for `emit-sql` remains
+planned. Phase 6 is machine-readable CLI presentation work; it does not change
+parser, semantic, IR, or SQL backend models and does not add runtime or
+execution behavior.
 
 ## Boundaries
 
@@ -315,8 +316,8 @@ Phase 6 is not complete until:
 ## Planned Slices
 
 1. Docs-only JSON schema plan: complete.
-2. JSON serialization helpers, no CLI flag.
-3. `check --format json`.
+2. JSON serialization helpers, no CLI flag: complete.
+3. `check --format json`: complete.
 4. Check JSON security and completion audit.
 5. `emit-sql --format json`, without output interaction.
 6. JSON plus `--output` interaction hardening.

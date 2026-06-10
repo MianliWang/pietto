@@ -14,11 +14,18 @@ import pietto.parser_api as parser_api
 import pietto.semantic as semantic_api
 import pietto.ir as ir_api
 import pietto.sql as sql_api
+from pietto import cli_json
 from pietto.errors import Diagnostic, Severity
 
 _FALLBACK_VERSION = "0.1.0"
 _EXIT_DIAGNOSTIC_ERROR = 1
 _EXIT_USAGE_ERROR = 2
+_FORMAT_TEXT = "text"
+_FORMAT_JSON = "json"
+
+
+class _JsonUsageError(Exception):
+    """A check argument error rendered through the JSON result contract."""
 
 
 class _CliArgumentParser(argparse.ArgumentParser):
@@ -37,18 +44,36 @@ class _CliArgumentParser(argparse.ArgumentParser):
 def main(argv: Sequence[str] | None = None) -> int:
     """Run Pietto developer tooling and return a process exit code."""
 
-    parser = _build_parser()
     arguments = list(argv) if argv is not None else sys.argv[1:]
+    parser = _build_parser()
     if arguments == []:
         parser.print_help()
         return 0
+
+    if _is_check_json_request(arguments):
+        try:
+            namespace = _build_check_json_parser().parse_args(arguments[1:])
+        except _JsonUsageError as error:
+            _print_check_json(
+                path=None,
+                cli_errors=(
+                    cli_json.CliError(
+                        kind="usage",
+                        message=str(error),
+                    ),
+                ),
+            )
+            return _EXIT_USAGE_ERROR
+        except SystemExit as error:
+            return int(error.code)
+        return _run_check(namespace.path, output_format=_FORMAT_JSON)
 
     try:
         namespace = parser.parse_args(arguments)
     except SystemExit as error:
         return int(error.code)
     if namespace.command == "check":
-        return _run_check(namespace.path)
+        return _run_check(namespace.path, output_format=namespace.format)
     if namespace.command == "emit-sql":
         return _run_emit_sql(namespace.path, output_path=namespace.output)
     return 0
@@ -71,7 +96,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "check",
         help="parse and semantically check one Pietto file",
     )
-    check_parser.add_argument("path", type=Path, help="Pietto source file")
+    _configure_check_parser(check_parser)
     emit_parser = subparsers.add_parser(
         "emit-sql",
         help="emit PostgreSQL SQL for one Pietto file",
@@ -91,14 +116,77 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _run_check(path: Path) -> int:
+def _configure_check_parser(parser: argparse.ArgumentParser) -> None:
+    """Add the single-file check arguments to one parser."""
+
+    parser.add_argument("path", type=Path, help="Pietto source file")
+    parser.add_argument(
+        "--format",
+        choices=(_FORMAT_TEXT, _FORMAT_JSON),
+        default=_FORMAT_TEXT,
+        help="output format",
+    )
+
+
+def _build_check_json_parser() -> argparse.ArgumentParser:
+    """Build a check-only parser whose usage errors stay structured."""
+
+    parser = _JsonCheckArgumentParser(
+        prog="pietto check",
+        add_help=True,
+    )
+    _configure_check_parser(parser)
+    return parser
+
+
+class _JsonCheckArgumentParser(argparse.ArgumentParser):
+    """Raise check usage errors for JSON rendering instead of printing them."""
+
+    def error(self, message: str) -> None:
+        """Raise one structured check usage error."""
+
+        raise _JsonUsageError(message)
+
+
+def _is_check_json_request(arguments: Sequence[str]) -> bool:
+    """Return whether argv reliably selects check JSON presentation."""
+
+    if not arguments or arguments[0] != "check":
+        return False
+    return any(
+        argument == "--format=json"
+        or (
+            argument == "--format"
+            and index + 1 < len(arguments)
+            and arguments[index + 1] == _FORMAT_JSON
+        )
+        for index, argument in enumerate(arguments)
+    )
+
+
+def _run_check(path: Path, *, output_format: str = _FORMAT_TEXT) -> int:
     """Parse and semantically analyze one Pietto source file."""
 
     try:
         parse_result = parser_api.parse_file(path)
     except (OSError, UnicodeError) as error:
+        if output_format == _FORMAT_JSON:
+            _print_check_json(
+                path=path,
+                cli_errors=(
+                    cli_json.CliError(
+                        kind="file_read",
+                        message=str(error),
+                        path=path,
+                    ),
+                ),
+            )
+            return _EXIT_USAGE_ERROR
         _print_cli_error(path, str(error))
         return _EXIT_USAGE_ERROR
+
+    if output_format == _FORMAT_JSON:
+        return _run_check_json(path, parse_result)
 
     _render_diagnostics(parse_result.diagnostics, fallback_path=path)
     if _has_errors(parse_result.diagnostics):
@@ -115,6 +203,51 @@ def _run_check(path: Path) -> int:
 
     print(f"OK: {_escape_cli_text(str(path))}")
     return 0
+
+
+def _run_check_json(path: Path, parse_result: parser_api.ParseResult) -> int:
+    """Complete check and render one JSON result without human output."""
+
+    diagnostics = parse_result.diagnostics
+    if _has_errors(diagnostics):
+        _print_check_json(path=path, diagnostics=diagnostics)
+        return _EXIT_DIAGNOSTIC_ERROR
+
+    if parse_result.ast is None:
+        _print_check_json(
+            path=path,
+            cli_errors=(
+                cli_json.CliError(
+                    kind="usage",
+                    message="parser produced no AST",
+                    path=path,
+                ),
+            ),
+        )
+        return _EXIT_DIAGNOSTIC_ERROR
+
+    semantic_result = semantic_api.analyze(parse_result.ast)
+    diagnostics = (*diagnostics, *semantic_result.diagnostics)
+    _print_check_json(path=path, diagnostics=diagnostics)
+    if _has_errors(semantic_result.diagnostics):
+        return _EXIT_DIAGNOSTIC_ERROR
+    return 0
+
+
+def _print_check_json(
+    *,
+    path: str | Path | None,
+    diagnostics: Sequence[Diagnostic] = (),
+    cli_errors: Sequence[cli_json.CliError] = (),
+) -> None:
+    """Print one complete check JSON document to stdout."""
+
+    document = cli_json.check_result_to_json_dict(
+        path=path,
+        diagnostics=diagnostics,
+        cli_errors=cli_errors,
+    )
+    print(cli_json.render_json_document(document), end="")
 
 
 def _run_emit_sql(path: Path, *, output_path: Path | None) -> int:
