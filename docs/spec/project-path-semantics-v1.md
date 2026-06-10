@@ -29,10 +29,10 @@ The current single-file path behavior remains the compatibility baseline.
 
 ## Project Root Model
 
-The first project implementation should require an explicit project root. A
-future CLI spelling such as `--project ROOT` is a possible direction, but
-Phase 8 CLI And JSON Design must approve the public interface before it is
-implemented.
+The first project implementation should require an explicit project root. The
+accepted future CLI direction is `--project ROOT`, mutually exclusive with
+the existing positional single-file path, as documented in
+`docs/spec/project-cli-json-v2.md`.
 
 The intended root rules are:
 
@@ -258,8 +258,9 @@ Project-mode diagnostics should use stable normalized project-relative paths:
 - canonical absolute paths are not exposed by default.
 
 An error that prevents the project root from being established may need the
-original invocation path because no project-relative path exists yet. Phase 8
-CLI And JSON Design must specify that boundary.
+original invocation path because no project-relative path exists yet. The
+planned JSON v2 contract represents that path on a `project_root` CLI error
+while leaving the logical project root null.
 
 Avoiding absolute paths improves reproducibility and reduces accidental
 filesystem information leakage. Diagnostic messages must still use the
@@ -270,19 +271,20 @@ existing terminal-control escaping rules in text mode.
 JSON schema version 1 remains a single-file contract. Its `path` field and
 diagnostic fallback behavior must not be reinterpreted for projects.
 
-Future project JSON will likely require schema version 2 with explicit:
+The accepted future project JSON schema version 2 design includes:
 
 - project root and configuration path;
 - ordered normalized input paths;
 - configuration and source-read errors;
 - project-relative diagnostic paths;
-- artifact source or module identity;
+- artifact source-file and source-definition identity;
 - path normalization and ordering guarantees;
 - output status and partial-failure semantics.
 
-Whether the project root is represented as the invocation spelling, an
-absolute path, or another structured value remains for Phase 8 CLI And JSON
-Design. This slice implements no JSON changes.
+The project object uses logical root `"."` after root establishment to avoid
+absolute-path leakage; a root failure uses `null` and attributes the invocation
+spelling to its CLI error. The complete unimplemented design is documented in
+`docs/spec/project-cli-json-v2.md`. This slice implements no JSON changes.
 
 ## Deterministic Traversal And Artifact Ordering
 

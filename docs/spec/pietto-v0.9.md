@@ -1117,7 +1117,9 @@ contract is documented in `docs/spec/project-path-semantics-v1.md`. The
 planned project compile unit and cross-file semantics are documented in
 `docs/spec/project-multifile-semantics-v1.md`; Pietto does not currently load
 configuration, discover roots, traverse projects, expand globs, or compile
-multiple files.
+multiple files. The planned explicit project invocation and JSON schema
+version 2 contract is documented in `docs/spec/project-cli-json-v2.md`; no
+project CLI or JSON v2 behavior is implemented, and JSON v1 remains unchanged.
 
 ---
 

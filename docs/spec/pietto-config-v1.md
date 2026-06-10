@@ -36,8 +36,9 @@ pietto.toml
 
 A future implementation should accept it only at an explicitly selected
 project root. The planned explicit-root and no-upward-search behavior is
-documented in `docs/spec/project-path-semantics-v1.md`. The exact future CLI
-spelling remains for Phase 8 CLI And JSON Design.
+documented in `docs/spec/project-path-semantics-v1.md`. The accepted future
+project invocation uses explicit `--project ROOT` as documented in
+`docs/spec/project-cli-json-v2.md`.
 
 This document does not create a real `pietto.toml` file or authorize discovery
 by walking parent directories.
@@ -217,9 +218,11 @@ Configuration must not alter current single-file command interpretation:
 - the current required `--dialect postgres` behavior must not change because a
   nearby configuration file exists.
 
-An explicit future project selector such as `--project ROOT` is a possible
-direction, not finalized CLI syntax. Phase 8 CLI And JSON Design must decide
-the public interface before implementation.
+The accepted future project selector is `--project ROOT`, mutually exclusive
+with the existing positional single-file path. For project `emit-sql`, an
+explicit CLI dialect takes precedence over `project.default_dialect`. The
+complete unimplemented interface is documented in
+`docs/spec/project-cli-json-v2.md`.
 
 ## Resource Budgets
 
@@ -243,14 +246,11 @@ Model. Any future configurable limits require:
 The initial configuration contract has no output table and no output-path
 field. Reading project configuration must not cause an implicit file write.
 
-Output destinations and artifact layout should remain explicit CLI decisions
-until Phase 8 defines:
-
-- whether project SQL is combined or emitted as multiple artifacts;
-- deterministic artifact ordering and naming;
-- collision behavior;
-- output-directory and symbolic-link safety;
-- atomic replacement and partial-failure behavior.
+The accepted first project CLI design permits only one explicitly requested
+combined SQL output file. It requires deterministic artifact ordering,
+configuration/source alias protection, symbolic-link and hard-link safety,
+atomic replacement, and no write after any project compiler error. Artifact
+directory layout remains deferred. See `docs/spec/project-cli-json-v2.md`.
 
 ## JSON Compatibility
 
@@ -258,18 +258,20 @@ CLI JSON schema version 1 remains the single-file contract documented in
 `docs/spec/cli-json-v1.md`. `pietto.toml` must not add fields to it, change the
 meaning of `path`, add a config error kind, or alter existing command behavior.
 
-Future project configuration and multi-file compilation will likely require
-JSON schema version 2. That design must explicitly represent:
+Future project configuration and multi-file compilation use the separately
+planned JSON schema version 2 design, which explicitly represents:
 
 - the project root and configuration path;
 - the ordered input-file set;
 - configuration and source-read errors;
 - per-file diagnostic locations;
-- artifacts with file or module identity;
+- artifacts with source-file and source-definition identity;
 - deterministic diagnostic and artifact ordering;
 - project output status and partial-failure rules.
 
-The future error shape and schema version are not defined by this slice.
+The project result and error shapes are documented in
+`docs/spec/project-cli-json-v2.md`. They remain unimplemented and do not alter
+JSON v1.
 
 ## Security Model
 
@@ -320,8 +322,10 @@ Before any configuration implementation is approved, Pietto must complete:
 - exact include/exclude glob semantics and deterministic ordering;
 - multi-file ownership and failure semantics as documented in
   `docs/spec/project-multifile-semantics-v1.md`;
-- future CLI invocation and configuration precedence;
-- a machine-readable config-error and project-result design;
+- future CLI invocation and configuration precedence as documented in
+  `docs/spec/project-cli-json-v2.md`;
+- the machine-readable config-error and project-result design documented in
+  `docs/spec/project-cli-json-v2.md`;
 - the project resource model and hard ceilings;
 - a focused configuration threat-model review.
 

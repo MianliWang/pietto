@@ -124,5 +124,9 @@ The planned project compile unit, flat namespaces, cross-file dependency,
 stage-gating, diagnostic, and artifact-ordering contract is in
 [the project multi-file semantics version 1 specification](docs/spec/project-multifile-semantics-v1.md);
 multi-file compilation remains unimplemented.
+The planned explicit project invocation and project JSON schema version 2
+contract is in
+[the project CLI and JSON schema version 2 design](docs/spec/project-cli-json-v2.md);
+no project CLI or JSON v2 behavior is implemented.
 Diagnostic codes are documented in
 [the diagnostics specification](docs/spec/diagnostics.md).

@@ -4,15 +4,16 @@
 
 **Phase 8 planning/specification is in progress.**
 
-Slices 1 through 4 are complete. Readiness And Decision Frame established the
+Slices 1 through 5 are complete. Readiness And Decision Frame established the
 phase boundary and sequence. Configuration Contract defines a strict,
 versioned, non-executable future `pietto.toml` contract. Root And Path
 Semantics defines the project filesystem contract. Multi-file Semantics now
 defines the project compile unit, flat namespaces, cross-file dependencies,
-stage gates, diagnostics, and artifact ordering. Phase 8 is planning-only: it
-defines future project-level contracts before any project configuration, root
-discovery, multi-file compilation, CLI expansion, or JSON schema change is
-implemented.
+stage gates, diagnostics, and artifact ordering. CLI And JSON Design defines
+an explicit future project invocation and a separate project JSON v2 contract.
+Phase 8 is planning-only: it defines future project-level contracts before any
+project configuration, root discovery, multi-file compilation, CLI expansion,
+or JSON schema change is implemented.
 
 ## Goal
 
@@ -80,9 +81,9 @@ relevant contract, compatibility rules, and security model are accepted.
    namespaces, duplicate symbols, visibility, dependencies, cycles, partial
    failure, diagnostic attribution, and deterministic traversal and artifact
    order.
-5. **CLI And JSON Design**: specify future project invocation without
-   reinterpreting current single-file commands, and design a machine-readable
-   project result without changing JSON v1.
+5. **CLI And JSON Design**: complete. Specify explicit future project
+   invocation without reinterpreting current single-file commands, and define
+   a machine-readable project result without changing JSON v1.
 6. **Project Resource Model**: define deterministic limits for file count,
    aggregate bytes and tokens, compiler graph work, diagnostics, artifacts,
    and output size.
@@ -167,6 +168,32 @@ The contract is specification-only. Slice 4 adds no project loader, multi-file
 compiler, dependency graph, grammar, compiler-stage behavior, CLI/JSON change,
 dependency, or runtime capability.
 
+## Slice 5: CLI And JSON Design
+
+Slice 5 publishes `docs/spec/project-cli-json-v2.md` as the planned project
+CLI and machine-readable result contract. It defines:
+
+- explicit future project invocation through `--project ROOT`, mutually
+  exclusive with the existing positional single-file path;
+- no implicit project mode from directory arguments and no upward root
+  discovery;
+- preservation of current exit-code classes for project compiler and
+  CLI/configuration/path/output failures;
+- stable project-relative text diagnostics and deterministic SQL artifact
+  ordering;
+- a separate JSON schema version 2 project result with logical root,
+  configuration path, ordered inputs, related diagnostic locations, project
+  CLI error kinds, and artifact source identity;
+- one complete JSON document on stdout with v1-compatible stream guarantees;
+- a first project output model using one optional combined SQL file, atomic
+  replacement, alias protection, and no write after project compiler errors;
+- zero project artifacts after compiler errors, while complete artifacts may
+  remain visible after a later output-path or output-write failure.
+
+The contract is specification-only. Slice 5 adds no `--project` option, CLI
+behavior, JSON v2 serializer, JSON v1 change, configuration loading, project
+filesystem behavior, multi-file compiler, dependency, or runtime capability.
+
 ## Configuration Direction
 
 The accepted configuration direction is strict, versioned, declarative, and
@@ -218,34 +245,38 @@ identify an originating file or module, and output status describes one
 requested SQL file.
 
 Project behavior must not silently reinterpret these fields or add new v1
-fields. The CLI and JSON design slice must decide whether a separate project
-command can use a new schema. A future JSON v2 is likely to be required for:
+fields. The accepted project design uses a separate JSON schema version 2 for:
 
 - an explicit project root;
 - an ordered collection of input files;
 - project-relative diagnostic paths;
-- file or module identity for artifacts;
+- source-file and source-definition identity for artifacts;
 - aggregate and per-file failures;
 - deterministic project artifact and output metadata.
 
 Current single-file JSON v1 behavior, key sets, ordering guarantees, stream
-routing, encoding, and exit-code relationships remain unchanged.
+routing, encoding, and exit-code relationships remain unchanged. The accepted
+project JSON v2 shape and compatibility boundary are documented in
+`docs/spec/project-cli-json-v2.md`; no v2 serializer is implemented.
 
 ## CLI Compatibility Risks
 
 The current positional path means exactly one Pietto source file. Future
 project support must not silently change it to mean "file or directory."
 
-The CLI design must decide:
+The accepted future direction uses `--project ROOT`, mutually exclusive with
+the positional single-file path. It requires `pietto.toml` at the explicit
+root, performs no upward discovery, and gives an explicit CLI dialect
+precedence over the configuration default. Project mode preserves exit `0`
+for success, exit `1` for compiler diagnostics, and exit `2` for usage,
+configuration, root, path, source-read, dialect, and output failures.
 
-- whether project mode uses an explicit command or mutually exclusive flag;
-- how explicit CLI values interact with configuration defaults;
-- how project configuration, source-read, and compiler failures map to exit
-  codes;
-- whether project SQL output is one combined file or an artifact directory;
-- how output safety checks cover every input, the config file, links, and
-  destination paths;
-- how single-file help text and invocation remain backward compatible.
+The first project output design uses one optional combined SQL file rather
+than an artifact directory. Output protection covers the config file, every
+source, symbolic and hard-linked aliases, and the destination. Existing
+single-file help, invocation, positional path meaning, and output behavior
+remain unchanged. The full accepted contract is documented in
+`docs/spec/project-cli-json-v2.md`.
 
 Phase 8 adds no commands or flags.
 

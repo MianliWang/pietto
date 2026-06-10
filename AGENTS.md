@@ -175,6 +175,10 @@ root discovery, path traversal, or glob expansion is implemented.
 The planned project compile-unit and cross-file semantic contract is documented
 in `docs/spec/project-multifile-semantics-v1.md`. It is specification-only; no
 multi-file compiler, module, import, or dependency graph is implemented.
+The planned explicit project invocation and JSON schema version 2 contract is
+documented in `docs/spec/project-cli-json-v2.md`. It is specification-only; no
+`--project` option, project CLI behavior, or JSON v2 serializer is implemented,
+and JSON v1 remains unchanged.
 
 Current strict boundaries remain:
 

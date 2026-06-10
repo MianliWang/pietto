@@ -9,6 +9,11 @@ JSON output is a machine-readable presentation layer for single-file developer
 tooling. It covers `check` and `emit-sql`; it does not add compiler stages or
 change their behavior.
 
+JSON schema version 1 remains exclusively single-file. The planned future
+project-mode interface uses the separate JSON schema version 2 design in
+`docs/spec/project-cli-json-v2.md`; that design is not implemented and does
+not change this contract.
+
 ## Scope And Non-Goals
 
 JSON mode provides structured command results for tools that invoke Pietto. It
@@ -385,4 +390,5 @@ The implemented outcomes are:
 
 - [Phase 6 JSON output plan](../plan/phase-6-json-output.md)
 - [Phase 7 Developer Workflow & Stability plan](../plan/phase-7-developer-workflow-stability.md)
+- [Project CLI and JSON schema version 2 design](project-cli-json-v2.md)
 - [Diagnostic code specification](diagnostics.md)

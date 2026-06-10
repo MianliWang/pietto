@@ -311,29 +311,29 @@ database or connector is contacted.
 JSON schema version 1 remains a single-file contract and must not be overloaded
 for project compilation.
 
-Future project JSON will likely require schema version 2 with explicit:
+The accepted future project JSON schema version 2 design includes:
 
 - project root and configuration path;
 - ordered source-file identities;
 - root, configuration, path, and source-read errors;
 - diagnostics with stable project-relative paths;
 - related diagnostic locations for cross-file errors;
-- artifacts with source file or future module identity;
+- artifacts with source-file and source-definition identity;
 - deterministic artifact order;
 - project output metadata and written status;
 - complete versus partial-result semantics.
 
-This slice does not define the final JSON v2 shape or add a config/project CLI
-error kind.
+The final planned shape and v2-only project CLI error kinds are documented in
+`docs/spec/project-cli-json-v2.md`. This slice adds no JSON implementation.
 
 ## CLI Compatibility
 
 Current positional paths remain single-file inputs. A directory must not be
 silently treated as a project.
 
-Future project invocation must be explicit. Whether it uses a new command or a
-mutually exclusive flag such as `--project ROOT` remains for Phase 8 CLI And
-JSON Design.
+Future project invocation must be explicit. The accepted direction uses
+`--project ROOT`, mutually exclusive with the existing positional single-file
+path, and performs no implicit upward discovery.
 
 The intended exit-code categories remain:
 
@@ -343,8 +343,9 @@ The intended exit-code categories remain:
 | `1` | Parser, semantic, IR, or backend error diagnostics |
 | `2` | Usage, configuration, root, path, source-read, dialect, or output error |
 
-The exact mapping and future machine-readable error kinds require Slice 5
-design. Current single-file exit behavior remains unchanged.
+The exact mapping and future machine-readable error kinds are documented in
+`docs/spec/project-cli-json-v2.md`. Current single-file exit behavior remains
+unchanged.
 
 ## Resource Budget Interaction
 
