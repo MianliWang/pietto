@@ -13,7 +13,8 @@ from pietto.ir import (
     SourceIR,
     TypeIR,
 )
-from pietto.sql.model import SqlResult
+from pietto.sql.model import SqlArtifact, SqlArtifactKind, SqlResult
+from pietto.sql.relations import render_relation_sql
 
 _PostgresDefinitionIR = (
     TypeIR | EnumIR | ShapeIR | ConstraintIR | DeriveIR | SourceIR | RelationIR
@@ -21,30 +22,62 @@ _PostgresDefinitionIR = (
 
 
 def emit_postgres_sql(script_ir: ScriptIR) -> SqlResult:
-    """Return scaffold diagnostics for definitions not yet emitted as SQL."""
+    """Emit supported source-backed relations and diagnose other definitions."""
+
+    sources = {
+        definition.symbol: definition
+        for definition in script_ir.definitions
+        if isinstance(definition, SourceIR)
+    }
+    artifacts: list[SqlArtifact] = []
+    diagnostics: list[Diagnostic] = []
+
+    for definition in script_ir.definitions:
+        if isinstance(definition, RelationIR):
+            try:
+                sql = render_relation_sql(definition, sources=sources)
+            except (TypeError, ValueError) as error:
+                diagnostics.append(
+                    _unsupported_definition_diagnostic(
+                        definition,
+                        reason=str(error),
+                    )
+                )
+                continue
+            artifacts.append(
+                SqlArtifact(
+                    name=definition.name,
+                    kind=SqlArtifactKind.RELATION,
+                    sql=sql,
+                )
+            )
+            continue
+        diagnostics.append(_unsupported_definition_diagnostic(definition))
 
     return SqlResult(
-        artifacts=(),
-        diagnostics=tuple(
-            _unsupported_definition_diagnostic(definition)
-            for definition in script_ir.definitions
-        ),
+        artifacts=tuple(artifacts),
+        diagnostics=tuple(diagnostics),
     )
 
 
 def _unsupported_definition_diagnostic(
     definition: _PostgresDefinitionIR,
+    *,
+    reason: str | None = None,
 ) -> Diagnostic:
     """Report one unsupported PostgreSQL emission target at its IR span."""
 
     span = definition.span
+    message = (
+        "PostgreSQL SQL emission is not implemented for "
+        f"{type(definition).__name__}: {definition.name}"
+    )
+    if reason is not None:
+        message = f"{message}. {reason}"
     return Diagnostic(
         code="PIE-B1000",
         severity=Severity.ERROR,
-        message=(
-            "PostgreSQL SQL emission is not implemented for "
-            f"{type(definition).__name__}: {definition.name}"
-        ),
+        message=message,
         location=SourceLocation(
             path=span.path,
             line=span.line,

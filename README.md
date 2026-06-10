@@ -9,13 +9,15 @@ minimal expression typing, callable and shape validation, dependency-cycle
 checks, and static `postgres.table(Text)` connector validation.
 
 The Phase 3 Semantic IR MVP is complete. Phase 4 has started with an immutable
-PostgreSQL SQL generation scaffold. After parsing, semantic analysis, and IR
-construction, callers pass `ScriptIR` to `emit_postgres_sql(script_ir)`.
+PostgreSQL SQL backend. After parsing, semantic analysis, and IR construction,
+callers pass `ScriptIR` to `emit_postgres_sql(script_ir)`.
 
-The scaffold does not emit real SQL or DDL yet. Empty IR succeeds with an empty
-result; current definitions receive structured `PIE-B1000` unsupported-target
-diagnostics. There is no `compile_to_ir()` wrapper, SQLGlot integration,
-database or connector execution, schema introspection, or CLI runtime.
+The backend emits minimal `SELECT` SQL for `RelationIR` definitions that read
+directly from a static `postgres.table(Text)` source, including projections
+and optional `WHERE`. Unsupported definitions and relation dependencies receive
+structured `PIE-B1000` diagnostics. Joins, grouping, ordering, limits, CTE
+expansion, DDL, SQLGlot integration, database or connector execution, schema
+introspection, CLI runtime, and a `compile_to_ir()` wrapper are not implemented.
 
 See [the language specification](docs/spec/pietto-v0.9.md),
 [the Phase 3 Semantic IR plan](docs/plan/phase-3-semantic-ir.md), and

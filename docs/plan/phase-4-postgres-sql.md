@@ -9,9 +9,12 @@ primitives now provide always-quoted identifiers, qualified identifiers, and
 the initial scalar literal subset for future emitter slices. Minimal internal
 expression SQL rendering now covers literals, field references, the supported
 built-in calls, comparisons, null predicates, between, unary arithmetic, and
-basic arithmetic and Boolean operators.
+basic arithmetic and Boolean operators. Minimal `RelationIR` emission now
+produces `SELECT`, projection, `FROM`, and optional `WHERE` SQL for relations
+whose direct input is a `SourceIR` backed by `postgres.table(Text)`.
 
-No relation-level `SELECT` SQL or DDL emission is implemented yet.
+Relation dependency expansion, broader SQL generation, and DDL are not
+implemented yet.
 
 ## Public API
 
@@ -40,21 +43,28 @@ class SqlArtifact:
     sql: str
 ```
 
-## Scaffold Behavior
+## Current Behavior
 
 - An empty `ScriptIR` returns empty artifacts and diagnostics.
-- A non-empty `ScriptIR` returns no artifacts.
-- Each definition produces one `PIE-B1000` error in definition order.
+- A supported source-backed `RelationIR` produces one ordered relation
+  artifact.
+- Projection expressions use the internal expression renderer and named
+  outputs receive explicit aliases.
+- `postgres.table("public.users")` currently treats `public.users` as one
+  quoted identifier rather than splitting schema and table components.
+- Metadata definitions remain non-emitting and produce `PIE-B1000`.
+- Relations whose input is another relation produce `PIE-B1000`; CTE or
+  dependency expansion is deferred.
 - Diagnostics use the definition's existing source span.
-- No SQLGlot objects, SQL strings, database calls, or connector execution are
-  produced.
+- No SQLGlot objects, database calls, or connector execution are produced.
 
 ## Planned Slices
 
 1. PostgreSQL package and result scaffold: complete.
 2. PostgreSQL identifier and scalar literal rendering primitives: complete.
 3. Minimal expression SQL emission for the supported expression IR: complete.
-4. Basic table/query `SELECT`, `FROM`, `WHERE`, and projection emission.
+4. Basic table/query `SELECT`, `FROM`, `WHERE`, and projection emission:
+   direct source-backed relations complete.
 5. PostgreSQL type mapping.
 6. Deterministic backend diagnostics and examples audit.
 7. Phase 4 completion audit.
@@ -66,7 +76,8 @@ parser or semantic analysis.
 
 The backend does not implement:
 
-- real `SELECT`, projection, relation filter, CTE, or DDL emission;
+- relation-to-relation CTE or dependency expansion;
+- DDL emission;
 - joins, grouping, ordering, limits, windows, or unions;
 - SQLGlot integration;
 - database connections or execution;
@@ -83,5 +94,7 @@ Tests cover public exports, immutable tuple-backed results, empty input,
 ordered `PIE-B1000` diagnostics, source spans, frontend-stage isolation, and
 diagnostic documentation. Rendering tests cover identifier escaping, qualified
 names, scalar literals, supported expression mappings, conservative
-parenthesization, invalid inputs, and dependency isolation. Every slice must
-continue to run the complete parser, semantic, and IR test suite.
+parenthesization, source-backed relation emission, projection ordering,
+filters, unsupported relation inputs, invalid inputs, and dependency
+isolation. Every slice must continue to run the complete parser, semantic, and
+IR test suite.

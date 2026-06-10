@@ -12,7 +12,7 @@ import pietto.semantic as semantic_api
 import pietto.sql as sql_api
 import pietto.sql.postgres as postgres_module
 from pietto.errors import Severity
-from pietto.ir import ScriptIR, build_ir
+from pietto.ir import RelationIR, ScriptIR, build_ir
 from pietto.sql import (
     SqlArtifact,
     SqlArtifactKind,
@@ -40,13 +40,20 @@ def test_empty_script_ir_returns_successful_empty_result() -> None:
     assert isinstance(result.diagnostics, tuple)
 
 
-def test_nonempty_script_ir_reports_each_definition_in_source_order() -> None:
+def test_nonempty_script_ir_emits_supported_relations_and_diagnoses_rest() -> None:
     script_ir = _all_definition_ir()
 
     result = emit_postgres_sql(script_ir)
 
-    assert result.artifacts == ()
-    assert len(result.diagnostics) == len(script_ir.definitions)
+    assert [artifact.name for artifact in result.artifacts] == ["active_users"]
+    unsupported_definitions = [
+        definition
+        for definition in script_ir.definitions
+        if not (
+            isinstance(definition, RelationIR) and definition.name == "active_users"
+        )
+    ]
+    assert len(result.diagnostics) == len(unsupported_definitions)
     assert [
         (
             diagnostic.code,
@@ -61,7 +68,7 @@ def test_nonempty_script_ir_reports_each_definition_in_source_order() -> None:
         )
         for diagnostic, definition in zip(
             result.diagnostics,
-            script_ir.definitions,
+            unsupported_definitions,
             strict=True,
         )
     ] == [
@@ -76,11 +83,11 @@ def test_nonempty_script_ir_reports_each_definition_in_source_order() -> None:
             definition.span.end_line,
             definition.span.end_column,
         )
-        for definition in script_ir.definitions
+        for definition in unsupported_definitions
     ]
     for diagnostic, definition in zip(
         result.diagnostics,
-        script_ir.definitions,
+        unsupported_definitions,
         strict=True,
     ):
         assert type(definition).__name__ in diagnostic.message
@@ -118,20 +125,20 @@ def test_emitter_does_not_run_frontend_or_ir_builder(
 
     result = emit_postgres_sql(script_ir)
 
-    assert result.artifacts == ()
+    assert [artifact.name for artifact in result.artifacts] == ["active_users"]
     assert result.diagnostics
 
 
-def test_scaffold_has_no_sqlglot_or_real_sql_emission() -> None:
+def test_emitter_has_no_sqlglot_or_ddl_emission() -> None:
     source = inspect.getsource(postgres_module)
     result = emit_postgres_sql(_all_definition_ir())
 
     assert "sqlglot" not in source
-    assert result.artifacts == ()
+    assert [artifact.name for artifact in result.artifacts] == ["active_users"]
     assert all(
         keyword not in artifact.sql.upper()
         for artifact in result.artifacts
-        for keyword in ("SELECT", "WHERE", "CREATE", "WITH")
+        for keyword in ("CREATE", "ALTER", "DROP", "WITH")
     )
     assert not hasattr(ir_api, "compile_to_ir")
 
