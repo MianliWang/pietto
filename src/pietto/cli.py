@@ -222,7 +222,7 @@ def _run_emit_sql_json_command(arguments: Sequence[str]) -> int:
     """Validate one emit-sql JSON command before entering compilation."""
 
     try:
-        namespace = _build_emit_sql_json_parser().parse_args(arguments)
+        namespace, unknown = _build_emit_sql_json_parser().parse_known_args(arguments)
     except _JsonUsageError as error:
         _print_emit_sql_json(
             path=None,
@@ -233,9 +233,24 @@ def _run_emit_sql_json_command(arguments: Sequence[str]) -> int:
     except SystemExit as error:
         return int(error.code)
 
+    if unknown:
+        _print_emit_sql_json(
+            path=None,
+            dialect=None,
+            cli_errors=(
+                cli_json.CliError(
+                    kind="usage",
+                    message=f"unrecognized arguments: {' '.join(unknown)}",
+                ),
+            ),
+            output=_unwritten_output(namespace.output),
+        )
+        return _EXIT_USAGE_ERROR
+
     path: Path | None = namespace.path
     dialect: str | None = namespace.dialect
     output_path: Path | None = namespace.output
+    output = _unwritten_output(output_path)
     if path is None:
         _print_emit_sql_json(
             path=None,
@@ -246,6 +261,7 @@ def _run_emit_sql_json_command(arguments: Sequence[str]) -> int:
                     message="the following arguments are required: path",
                 ),
             ),
+            output=output,
         )
         return _EXIT_USAGE_ERROR
     if dialect is None:
@@ -258,6 +274,7 @@ def _run_emit_sql_json_command(arguments: Sequence[str]) -> int:
                     message="the following arguments are required: --dialect",
                 ),
             ),
+            output=output,
         )
         return _EXIT_USAGE_ERROR
     if dialect != "postgres":
@@ -270,22 +287,14 @@ def _run_emit_sql_json_command(arguments: Sequence[str]) -> int:
                     message=f"unsupported SQL dialect: {dialect}",
                 ),
             ),
+            output=output,
         )
         return _EXIT_USAGE_ERROR
-    if output_path is not None:
-        _print_emit_sql_json(
-            path=path,
-            dialect=dialect,
-            cli_errors=(
-                cli_json.CliError(
-                    kind="usage",
-                    message="JSON output cannot be combined with --output yet",
-                ),
-            ),
-            output=cli_json.OutputStatus(path=output_path, written=False),
-        )
-        return _EXIT_USAGE_ERROR
-    return _run_emit_sql_json(path, dialect=dialect)
+    return _run_emit_sql_json(
+        path,
+        dialect=dialect,
+        output_path=output_path,
+    )
 
 
 def _run_check(path: Path, *, output_format: str = _FORMAT_TEXT) -> int:
@@ -374,8 +383,32 @@ def _print_check_json(
     print(cli_json.render_json_document(document), end="")
 
 
-def _run_emit_sql_json(path: Path, *, dialect: str) -> int:
+def _run_emit_sql_json(
+    path: Path,
+    *,
+    dialect: str,
+    output_path: Path | None,
+) -> int:
     """Compile one file and render the ordered emit-sql JSON result."""
+
+    output = _unwritten_output(output_path)
+    if output_path is not None:
+        try:
+            _validate_output_path(path, output_path)
+        except (OSError, ValueError) as error:
+            _print_emit_sql_json(
+                path=path,
+                dialect=dialect,
+                cli_errors=(
+                    cli_json.CliError(
+                        kind="output_path",
+                        message=str(error),
+                        path=output_path,
+                    ),
+                ),
+                output=output,
+            )
+            return _EXIT_USAGE_ERROR
 
     try:
         parse_result = parser_api.parse_file(path)
@@ -390,6 +423,7 @@ def _run_emit_sql_json(path: Path, *, dialect: str) -> int:
                     path=path,
                 ),
             ),
+            output=output,
         )
         return _EXIT_USAGE_ERROR
 
@@ -399,6 +433,7 @@ def _run_emit_sql_json(path: Path, *, dialect: str) -> int:
             path=path,
             dialect=dialect,
             diagnostics=diagnostics,
+            output=output,
         )
         return _EXIT_DIAGNOSTIC_ERROR
 
@@ -413,6 +448,7 @@ def _run_emit_sql_json(path: Path, *, dialect: str) -> int:
                     path=path,
                 ),
             ),
+            output=output,
         )
         return _EXIT_USAGE_ERROR
 
@@ -423,6 +459,7 @@ def _run_emit_sql_json(path: Path, *, dialect: str) -> int:
             path=path,
             dialect=dialect,
             diagnostics=diagnostics,
+            output=output,
         )
         return _EXIT_DIAGNOSTIC_ERROR
 
@@ -433,6 +470,7 @@ def _run_emit_sql_json(path: Path, *, dialect: str) -> int:
             path=path,
             dialect=dialect,
             diagnostics=diagnostics,
+            output=output,
         )
         return _EXIT_DIAGNOSTIC_ERROR
 
@@ -448,19 +486,50 @@ def _run_emit_sql_json(path: Path, *, dialect: str) -> int:
                     path=path,
                 ),
             ),
+            output=output,
         )
         return _EXIT_USAGE_ERROR
 
     sql_result = sql_api.emit_postgres_sql(ir_result.ir)
     diagnostics = (*diagnostics, *sql_result.diagnostics)
+    if _has_errors(sql_result.diagnostics):
+        _print_emit_sql_json(
+            path=path,
+            dialect=dialect,
+            diagnostics=diagnostics,
+            artifacts=sql_result.artifacts,
+            output=output,
+        )
+        return _EXIT_DIAGNOSTIC_ERROR
+
+    if output_path is not None:
+        try:
+            _write_sql_artifacts(sql_result.artifacts, output_path)
+        except OSError as error:
+            _print_emit_sql_json(
+                path=path,
+                dialect=dialect,
+                diagnostics=diagnostics,
+                cli_errors=(
+                    cli_json.CliError(
+                        kind="output_write",
+                        message=str(error),
+                        path=output_path,
+                    ),
+                ),
+                artifacts=sql_result.artifacts,
+                output=output,
+            )
+            return _EXIT_USAGE_ERROR
+        output = cli_json.OutputStatus(path=output_path, written=True)
+
     _print_emit_sql_json(
         path=path,
         dialect=dialect,
         diagnostics=diagnostics,
         artifacts=sql_result.artifacts,
+        output=output,
     )
-    if _has_errors(sql_result.diagnostics):
-        return _EXIT_DIAGNOSTIC_ERROR
     return 0
 
 
@@ -484,6 +553,14 @@ def _print_emit_sql_json(
         output=output,
     )
     print(cli_json.render_json_document(document), end="")
+
+
+def _unwritten_output(output_path: Path | None) -> cli_json.OutputStatus | None:
+    """Return the requested JSON output status before a successful write."""
+
+    if output_path is None:
+        return None
+    return cli_json.OutputStatus(path=output_path, written=False)
 
 
 def _run_emit_sql(path: Path, *, output_path: Path | None) -> int:

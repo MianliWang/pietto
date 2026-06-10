@@ -328,44 +328,6 @@ def test_emit_sql_json_usage_errors_are_structured(
     assert cast(list[dict[str, object]], result["cli_errors"])[0]["kind"] == ("usage")
 
 
-def test_emit_sql_json_output_is_temporarily_rejected_before_compilation(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    path = _write(tmp_path, "valid.pie", SOURCE)
-    output = tmp_path / "out.sql"
-
-    def unexpected_parse(checked_path: Path) -> object:
-        del checked_path
-        raise AssertionError("JSON plus --output must stop before compilation")
-
-    monkeypatch.setattr(cli.parser_api, "parse_file", unexpected_parse)
-
-    assert (
-        cli.main(
-            [
-                "emit-sql",
-                str(path),
-                "--dialect",
-                "postgres",
-                "--format",
-                "json",
-                "--output",
-                str(output),
-            ]
-        )
-        == 2
-    )
-    result = _read_json_document(capsys)
-
-    assert result["ok"] is False
-    assert result["artifacts"] == []
-    assert cast(list[dict[str, object]], result["cli_errors"])[0]["kind"] == ("usage")
-    assert result["output"] == {"path": str(output), "written": False}
-    assert not output.exists()
-
-
 def test_emit_sql_invalid_format_remains_plain_argparse_error(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

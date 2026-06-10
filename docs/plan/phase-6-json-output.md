@@ -2,16 +2,17 @@
 
 ## Status
 
-**Phase 6 Slices 1-5: Complete.**
+**Phase 6 Slices 1-6: Complete.**
 
 The JSON v1 schema plan, internal serialization helpers, and
 `check --format json` are implemented. The check JSON security and completion
-audit is complete. `emit-sql --format json` is implemented without output-file
-interaction. JSON combined with `--output` is intentionally rejected until
-Slice 6, while text-mode `emit-sql --output` remains supported. Phase 6 is
-machine-readable CLI presentation work; it does not change parser, semantic,
-IR, or SQL backend models and does not add runtime or execution behavior.
-Phase 6 is not complete yet.
+audit is complete. `emit-sql --format json` and its `--output` interaction are
+implemented with output status, path validation, atomic writes, and structured
+write failures. Text-mode `emit-sql --output` remains supported and unchanged.
+Phase 6 is machine-readable CLI presentation work; it does not change parser,
+semantic, IR, or SQL backend models and does not add runtime or execution
+behavior. Phase 6 is not complete yet; the final completion audit remains
+Slice 7.
 
 ## Boundaries
 
@@ -292,10 +293,9 @@ Final behavior:
   `cli_errors` empty, and exits `1`;
 - warning-only output writes normally with `ok: true` and exit `0`.
 
-Slice 5 will initially support `emit-sql --format json` while temporarily
-rejecting its combination with `--output` as a JSON `usage` error with
-`written: false` and exit `2`. Slice 6 will enable and harden the final
-interaction above.
+Slices 5 and 6 implement the final interaction above. JSON stdout retains
+artifacts while the requested file receives raw SQL through the existing
+atomic writer.
 
 ## Security Acceptance Criteria
 
@@ -323,7 +323,7 @@ Phase 6 is not complete until:
 3. `check --format json`: complete.
 4. Check JSON security and completion audit: complete.
 5. `emit-sql --format json`, without output interaction: complete.
-6. JSON plus `--output` interaction hardening.
+6. JSON plus `--output` interaction hardening: complete.
 7. Phase 6 JSON completion audit.
 
 Slice 2 adds internal pure serialization helpers such as
