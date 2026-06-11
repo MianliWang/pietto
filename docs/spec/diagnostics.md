@@ -66,6 +66,6 @@ stored separately and is never encoded in the code.
 
 | Code | Meaning |
 |---|---|
-| `PIE-B1000` | PostgreSQL backend emission case is unsupported or invalid |
+| `PIE-B1000` | Selected SQL backend emission case is unsupported or invalid; currently emitted only by PostgreSQL |
 
 No runtime diagnostic codes are currently defined.

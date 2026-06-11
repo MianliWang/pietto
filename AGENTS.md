@@ -173,6 +173,12 @@ The current Phase 9 direction, PostgreSQL compatibility boundary, SQLGlot
 evaluation criteria, backend abstraction direction, MySQL MVP boundary, and
 slice sequence are documented in
 `docs/plan/phase-9-sql-backend-architecture-dialect-strategy.md`.
+The planned dialect-specific connector names, semantic/backend responsibility
+boundary, required capability declaration, physical-name model, and
+unsupported-case policy are documented in
+`docs/spec/sql-dialect-source-contract-v1.md`. The contract is
+specification-only; `mysql.table`, MySQL dispatch, and a dialect abstraction
+remain unimplemented.
 The handwritten PostgreSQL backend and
 `emit_postgres_sql(ScriptIR) -> SqlResult` remain the compatibility baseline.
 Phase 9 does not authorize a production dialect implementation or dependency.
@@ -226,9 +232,10 @@ Do not implement in the current phase unless explicitly requested:
 - visualization;
 - concurrency/runtime features.
 
-Phase 9 Slices 1 and 2 are complete. Later Phase 9 slices require explicit
-requests. Production SQLGlot, MySQL, backend dispatch, richer SQL, execution,
-and database behavior remain prohibited.
+Phase 9 Slices 1 through 3 are complete. Later Phase 9 slices require explicit
+requests. Production SQLGlot, MySQL, backend dispatch, semantic or IR
+implementation changes, richer SQL, execution, and database behavior remain
+prohibited.
 
 Compiler stages must remain isolated: IR construction must not mutate parser
 or semantic inputs, and SQL backends must consume `ScriptIR` without rerunning

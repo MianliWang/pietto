@@ -4,12 +4,12 @@
 
 **Phase 9 is the current architecture and compatibility-planning phase.**
 
-Slices 1 and 2 are complete. Readiness And Compatibility Frame establishes the
-post-Phase-8 baseline, compatibility requirements, SQLGlot evaluation rules,
-future MySQL boundary, slice sequence, and explicit non-goals. PostgreSQL
-Compatibility Corpus adds reviewed byte-exact pipeline fixtures for literals,
-identifiers, expressions, precedence, metadata no-op behavior, formatting, and
-artifact ordering.
+Slices 1 through 3 are complete. Readiness And Compatibility Frame establishes
+the post-Phase-8 baseline and phase boundary. PostgreSQL Compatibility Corpus
+adds reviewed byte-exact pipeline fixtures. Dialect Capability And Source
+Contract defines connector naming, stage ownership, required backend
+capabilities, physical-name compatibility, fail-closed diagnostics, and the
+future MySQL `matches` boundary.
 
 Phase 9 does not authorize production SQL backend implementation. Its allowed
 deliverables are documentation, specifications, compatibility tests, and
@@ -97,9 +97,9 @@ modify `pyproject.toml`, `uv.lock`, source files, tests, or generated files.
 2. **PostgreSQL Compatibility Corpus**: complete. Added manually reviewed
    byte-exact fixtures and focused compatibility tests for the high-risk
    implemented SQL surface without changing production output.
-3. **Dialect Capability And Source Contract**: define the dialect-sensitive
-   capability matrix, connector policy, table-name model, unsupported-feature
-   behavior, and source compatibility rules.
+3. **Dialect Capability And Source Contract**: complete. Defined the
+   dialect-sensitive capability matrix, connector policy, table-name model,
+   unsupported-feature behavior, and source compatibility rules.
 4. **SQLGlot Evaluation**: compare the handwritten backend with an isolated
    IR-to-SQLGlot-AST approach and record a go/no-go decision.
 5. **Backend Abstraction Contract**: specify an internal backend interface,
@@ -148,6 +148,32 @@ test-only CLI path for `PIE-B1000`.
 Slice 2 adds no fixture generator, snapshot library, automatic rewrite
 command, production source change, CLI behavior, JSON behavior, grammar,
 generated parser, dependency, or lockfile change.
+
+## Slice 3: Dialect Capability And Source Contract
+
+Slice 3 publishes `docs/spec/sql-dialect-source-contract-v1.md`. It defines:
+
+- dialect-specific initial physical connectors, preserving
+  `postgres.table(Text)` and reserving `mysql.table(Text)` as a future
+  candidate only;
+- no generic `table(...)` connector for the initial multi-dialect model;
+- semantic ownership of connector catalog names, static signatures, argument
+  typing, and static-value requirements;
+- backend ownership of connector compatibility, expression/function/operator
+  support, identifier and literal policy, physical-name interpretation, and
+  SQL rendering;
+- CLI ownership of implemented dialect selection and usage errors;
+- required backend capability declaration categories without implementing an
+  interface;
+- deterministic `PIE-S2306`, `PIE-I1000`, and `PIE-B1000` stage ownership;
+- fail-closed rejection with no fallback or best-effort SQL generation;
+- preservation of the current opaque dotted PostgreSQL table-name behavior;
+- explicit MySQL rejection of `matches` until regex and collation semantics
+  are accepted.
+
+Slice 3 adds no connector, dialect, backend abstraction, SQLGlot dependency,
+production code, grammar, generated parser, JSON, dependency, lockfile, or
+runtime behavior.
 
 ## PostgreSQL Compatibility Contract
 
@@ -227,25 +253,19 @@ must still be documented. Similar syntax is not proof of identical semantics.
 
 ## Source And Connector Contract
 
-Multi-dialect support cannot be implemented only by changing SQL punctuation.
-The current source model is PostgreSQL-specific in three places:
+The accepted dialect and source contract is documented in
+`docs/spec/sql-dialect-source-contract-v1.md`.
 
-- semantic connector validation recognizes only `postgres.table`;
-- IR expression lowering contains a `postgres.table` exception;
-- PostgreSQL relation rendering requires `postgres.table(Text)`.
+Initial physical connectors are dialect-specific. Semantic analysis owns the
+recognized static connector signature catalog; selected backends own
+connector compatibility and rendering capability. The first MySQL candidate
+uses `mysql.table(Text)` rather than treating `postgres.table(Text)` as
+portable. This direction is specification-only and is not implemented.
 
-Slice 3 must decide how future backends declare and validate connectors while
-preserving the current connector. The conservative Phase 10 direction is a
-parallel static `mysql.table(Text)` connector rather than treating a
-PostgreSQL connector as portable.
-
-No connector performs IO or connects to a database. Connector calls remain
-static source metadata only.
-
-Qualified table names require a separate decision. The first MySQL MVP should
-accept one non-empty opaque table identifier and defer structured
-catalog/schema/table components. Existing PostgreSQL dotted strings must keep
-their current single-identifier meaning.
+No connector performs IO or connects to a database. Existing dotted
+PostgreSQL strings remain one opaque identifier. Structured qualification
+requires a future explicit, versioned connector representation and must not
+split current strings.
 
 ## SQLGlot Evaluation
 
