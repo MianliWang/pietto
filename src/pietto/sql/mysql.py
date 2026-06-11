@@ -17,7 +17,9 @@ from pietto.ir import (
     SourceSpan,
     TypeIR,
 )
-from pietto.sql.model import SqlResult
+from pietto.sql.model import SqlArtifact, SqlArtifactKind, SqlResult
+from pietto.sql.mysql_relations import render_mysql_relation
+from pietto.sql.mysql_render import MySqlRenderError
 
 _EMITTING_DEFINITION_TYPES = (RelationIR,)
 _NON_EMITTING_DEFINITION_TYPES = (
@@ -41,23 +43,52 @@ class _DiagnosticDefinition(Protocol):
 
 
 def emit_mysql_sql(script_ir: ScriptIR) -> SqlResult:
-    """Skip metadata and fail closed until MySQL relation rendering exists."""
+    """Emit approved MySQL relations, skip metadata, and fail closed."""
 
+    sources = {
+        definition.symbol: definition
+        for definition in script_ir.definitions
+        if isinstance(definition, SourceIR)
+    }
+    relations = {
+        definition.symbol: definition
+        for definition in script_ir.definitions
+        if isinstance(definition, RelationIR)
+    }
+    artifacts: list[SqlArtifact] = []
     diagnostics: list[Diagnostic] = []
     for definition in script_ir.definitions:
         if isinstance(definition, _NON_EMITTING_DEFINITION_TYPES):
             continue
         if isinstance(definition, _EMITTING_DEFINITION_TYPES):
-            diagnostics.append(
-                _unsupported_definition_diagnostic(
+            try:
+                sql = render_mysql_relation(
                     definition,
-                    reason="MySQL relation rendering is not implemented",
+                    sources=sources,
+                    relations=relations,
+                )
+            except MySqlRenderError as error:
+                diagnostics.append(
+                    _unsupported_definition_diagnostic(
+                        definition,
+                        reason=str(error),
+                    )
+                )
+                continue
+            artifacts.append(
+                SqlArtifact(
+                    name=definition.name,
+                    kind=SqlArtifactKind.RELATION,
+                    sql=sql,
                 )
             )
             continue
         diagnostics.append(_unsupported_definition_diagnostic(definition))
 
-    return SqlResult(artifacts=(), diagnostics=tuple(diagnostics))
+    return SqlResult(
+        artifacts=tuple(artifacts),
+        diagnostics=tuple(diagnostics),
+    )
 
 
 def _unsupported_definition_diagnostic(

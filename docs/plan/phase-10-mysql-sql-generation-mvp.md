@@ -14,14 +14,17 @@
 
 **Slice 5: MySQL Connector Semantic Surface is complete.**
 
+**Slice 6: MySQL Expression And Relation Rendering MVP is complete.**
+
 Phase 10 is the first implementation phase after the Phase 9 SQL backend
 architecture work. Slices 1 through 3 are documentation and static audit only.
 Slice 2 selects a small handwritten MySQL renderer for the Phase 10 MVP and
 rejects SQLGlot for this MVP. Slice 3 defines closed internal dispatch without
 implementing it. Slice 4 adds only a private, fail-closed MySQL backend
 skeleton. Slice 5 adds static semantic recognition and IR preservation for
-`mysql.table(Text)`. These slices emit no MySQL SQL and do not publicly export
-or CLI-enable MySQL.
+`mysql.table(Text)`. Slice 6 implements the closed handwritten MySQL
+expression and relation renderer. MySQL remains private and is not publicly
+exported or CLI-enabled.
 
 Every later slice requires a separate explicit implementation request. A
 planned capability is not an implemented or approved public interface merely
@@ -69,14 +72,13 @@ The repository currently provides:
 - test Pyright at zero errors and warnings through
   `pyrightconfig.tests.json`;
 - targeted Pyright and Pylance isolation for `src/pietto/generated`;
-- a private fail-closed MySQL backend skeleton that emits no SQL artifacts;
+- a private fail-closed MySQL backend and closed handwritten renderer;
 - static `mysql.table(Text)` semantic validation and `ConnectorIR`
   preservation;
 - only `antlr4-python3-runtime` in the production dependency list.
 
 The following remain unimplemented:
 
-- complete MySQL relation and expression rendering;
 - `--dialect mysql`;
 - an internal backend abstraction or dialect dispatcher;
 - SQLGlot or another SQL-generation dependency;
@@ -140,7 +142,7 @@ Phase 10 does not add:
 5. **MySQL Connector Semantic Surface**: complete. Add the static
    `mysql.table(Text)` semantic signature and preserve it through IR lowering,
    with no connector execution or database behavior.
-6. **MySQL Expression And Relation Rendering MVP**: planned. Implement the
+6. **MySQL Expression And Relation Rendering MVP**: complete. Implement the
    closed approved MySQL expression, literal, identifier, source, relation,
    artifact, and diagnostic surface.
 7. **MySQL Golden Corpus And PostgreSQL Regression Lock**: planned. Add
@@ -294,17 +296,14 @@ The skeleton:
 - avoid parser, semantic, IR-lowering, CLI, JSON, IO, or runtime imports;
 - contain no SQLGlot dependency or types.
 
-`src/pietto/sql/mysql.py` owns the skeleton. Its `emit_mysql_sql` entry point
-is intentionally importable only from the internal module:
+`src/pietto/sql/mysql.py` owns the boundary. Its `emit_mysql_sql` entry point
+remains intentionally importable only from the internal module:
 
 - it is absent from `pietto.sql.__all__`;
 - the CLI does not import or dispatch to it;
-- it does not yet render relations backed by `mysql.table(Text)`;
-- every `RelationIR` currently receives one ordered `PIE-B1000` diagnostic;
-- every returned `SqlResult` contains no MySQL artifact.
+- Slice 6 adds rendering without changing that private API boundary.
 
 Public export of `emit_mysql_sql` remains a separate compatibility decision.
-MySQL expression, source, and relation rendering remain Slice 6 work.
 
 ## Slice 5: MySQL Connector Semantic Surface
 
@@ -335,10 +334,11 @@ The connector argument remains one non-empty opaque physical table
 identifier. It is not split on `.`. Structured qualification remains deferred.
 
 This slice does not change legacy `postgres.table(Text)` behavior. It does not
-select a SQL backend from the connector name, and the private MySQL backend
-skeleton still emits no relation artifacts.
+select a SQL backend from the connector name.
 
 ## Slice 6: MySQL Expression And Relation Rendering MVP
+
+**Slice 6 is complete.**
 
 Slice 6 implements only the closed surface accepted by
 `mysql-sql-generation-mvp-v1.md`.
@@ -382,6 +382,25 @@ The backend must reject, without approximation:
 - any SQLGlot warning or best-effort rewrite.
 
 No failed relation receives a partial artifact.
+
+The handwritten implementation is isolated in private modules:
+
+- `pietto.sql.mysql_render` owns MySQL identifier and literal policies;
+- `pietto.sql.mysql_expressions` owns the closed expression capability;
+- `pietto.sql.mysql_relations` owns source resolution and relation formatting;
+- `pietto.sql.mysql` owns definition ordering, artifacts, and diagnostics.
+
+The implementation preserves opaque dotted physical names, quotes qualified
+field components separately, uses uppercase MySQL functions, and rejects
+unsupported functions, operators, nodes, connectors, identifiers, and
+literals with one ordered `PIE-B1000` per failed relation.
+
+Expected fail-closed rejections use the private `MySqlRenderError` boundary.
+Only that error is converted to `PIE-B1000`; unexpected programming errors
+remain visible.
+
+Slice 6 does not add reviewed golden fixtures, CLI dispatch, JSON MySQL
+success behavior, or a public SQL API. Those remain later gates.
 
 ## Slice 7: MySQL Golden Corpus And PostgreSQL Regression Lock
 
@@ -594,6 +613,6 @@ Phase 10 is complete only when:
   remain unimplemented.
 
 Slices 1 through 3 satisfy none of the MySQL implementation criteria. Slice 4
-establishes only the private fail-closed backend boundary. Slice 5 satisfies
-the static connector and IR-preservation gate, but not the rendering,
-golden-corpus, CLI, or completion criteria.
+establishes the private fail-closed backend boundary, Slice 5 satisfies the
+static connector and IR-preservation gate, and Slice 6 satisfies the closed
+rendering gate. The golden-corpus, CLI, and completion criteria remain open.

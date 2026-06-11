@@ -26,8 +26,8 @@ def test_slice6_contract_and_status_documents_are_complete() -> None:
     _assert_contains_all(
         contract,
         (
-            "**Phase 10 Slices 4 and 5 implement the private skeleton and "
-            "static connector.**",
+            "**Phase 10 Slices 4 through 6 implement the private closed "
+            "MySQL backend.**",
         ),
     )
     for document in documents:

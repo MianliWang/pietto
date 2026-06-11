@@ -25,7 +25,7 @@ METADATA_SOURCE = (
     "    trim(email)\n"
     "shape User:\n"
     "    email: Email not null\n"
-    'source users: User is postgres.table("users")\n'
+    'source users: User is mysql.table("users")\n'
 )
 RELATION_SOURCE = (
     METADATA_SOURCE + "table first:\n"
@@ -78,28 +78,16 @@ def test_all_current_metadata_definitions_are_non_emitting() -> None:
     assert emit_mysql_sql(script_ir) == SqlResult(artifacts=(), diagnostics=())
 
 
-def test_relations_fail_closed_without_partial_artifacts() -> None:
+def test_relations_render_in_definition_order() -> None:
     result = emit_mysql_sql(_compile_ir(RELATION_SOURCE))
 
-    assert result.artifacts == ()
-    assert [diagnostic.code for diagnostic in result.diagnostics] == [
-        "PIE-B1000",
-        "PIE-B1000",
+    assert [artifact.name for artifact in result.artifacts] == [
+        "first",
+        "second",
     ]
-    assert [diagnostic.severity for diagnostic in result.diagnostics] == [
-        Severity.ERROR,
-        Severity.ERROR,
-    ]
-    assert [diagnostic.message for diagnostic in result.diagnostics] == [
-        (
-            "MySQL SQL emission is not implemented for RelationIR: first. "
-            "MySQL relation rendering is not implemented"
-        ),
-        (
-            "MySQL SQL emission is not implemented for RelationIR: second. "
-            "MySQL relation rendering is not implemented"
-        ),
-    ]
+    assert result.artifacts[0].sql.endswith("FROM `users`")
+    assert result.artifacts[1].sql.endswith("FROM `first`")
+    assert result.diagnostics == ()
 
 
 def test_unknown_definition_fails_closed_at_its_span() -> None:
@@ -168,14 +156,12 @@ def test_diagnostics_preserve_definition_order_around_metadata() -> None:
 
     result = emit_mysql_sql(ordered_ir)
 
-    assert result.artifacts == ()
+    assert [artifact.name for artifact in result.artifacts] == ["second", "first"]
     assert [
         diagnostic.message.split(": ", maxsplit=1)[1].split(".", 1)[0]
         for diagnostic in result.diagnostics
     ] == [
-        "second",
         "future_middle",
-        "first",
     ]
 
 
@@ -194,8 +180,8 @@ def test_mysql_skeleton_does_not_run_frontend_or_ir_builder(
 
     result = emit_mysql_sql(script_ir)
 
-    assert result.artifacts == ()
-    assert len(result.diagnostics) == 2
+    assert [artifact.name for artifact in result.artifacts] == ["first", "second"]
+    assert result.diagnostics == ()
 
 
 def test_mysql_skeleton_has_closed_definition_classification() -> None:

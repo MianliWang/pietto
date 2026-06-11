@@ -25,9 +25,9 @@ def test_slice5_status_and_cross_references_are_complete() -> None:
     assert "5. **MySQL Connector Semantic Surface**: complete." in plan
     for document in status_documents:
         normalized = " ".join(document.split())
-        assert "Slices 1 through 5 complete" in normalized
+        assert "Slices 1 through 6 complete" in normalized
         assert "mysql.table(Text)" in normalized
-        assert "MySQL SQL rendering remains unimplemented" in normalized
+        assert "private handwritten MySQL" in normalized
 
 
 def test_connector_catalog_is_exact_and_static() -> None:
@@ -45,6 +45,7 @@ def test_connector_catalog_is_exact_and_static() -> None:
     assert connector_paths == {
         "src/pietto/ir/lowering.py",
         "src/pietto/semantic/source_connectors.py",
+        "src/pietto/sql/mysql_relations.py",
     }
 
 

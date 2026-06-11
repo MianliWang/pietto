@@ -122,7 +122,7 @@ def test_phase10_keeps_mysql_skeleton_private_and_sqlglot_absent() -> None:
     assert cli.main(["emit-sql", "missing.pietto", "--dialect", "mysql"]) == 2
 
 
-def test_phase10_status_documents_describe_only_the_private_skeleton() -> None:
+def test_phase10_status_documents_describe_private_mysql_rendering() -> None:
     combined = "\n".join(
         (
             _read("README.md"),
@@ -133,8 +133,8 @@ def test_phase10_status_documents_describe_only_the_private_skeleton() -> None:
     normalized = " ".join(combined.split())
 
     assert "Phase 10 MySQL SQL Generation MVP" in normalized
-    assert "private MySQL backend skeleton" in normalized
-    assert "MySQL SQL rendering remains unimplemented" in normalized
+    assert "private MySQL backend" in normalized
+    assert "closed renderer" in normalized
 
 
 def _read(path: str) -> str:

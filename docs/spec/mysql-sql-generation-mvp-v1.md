@@ -2,15 +2,16 @@
 
 ## Status
 
-**Phase 10 Slices 4 and 5 implement the private skeleton and static connector.**
+**Phase 10 Slices 4 through 6 implement the private closed MySQL backend.**
 
 It defines the smallest safe MySQL SQL-generation MVP that Phase 10 may
 implement. The current internal `emit_mysql_sql` consumes `ScriptIR`, skips
-metadata definitions, reports `PIE-B1000` for relations and unknown future
-definitions, and emits no artifacts. It does not add `--dialect mysql`,
-SQLGlot, backend dispatch, MySQL SQL rendering, or runtime/database capability.
-Slice 5 recognizes `mysql.table(Text)` as static compiler metadata and
-preserves it in `ConnectorIR`.
+metadata definitions, renders the approved relation/expression subset, and
+reports `PIE-B1000` for unsupported or invalid relations and unknown future
+definitions. It does not add `--dialect mysql`, SQLGlot, backend dispatch, or
+runtime/database capability. Slice 5 recognizes `mysql.table(Text)` as static
+compiler metadata and preserves it in `ConnectorIR`; Slice 6 implements the
+closed handwritten renderer.
 
 The target is Oracle MySQL 8.0 or later SQL generation. MariaDB and other
 MySQL-compatible products are not certified by this contract.
@@ -536,6 +537,10 @@ The MVP emits one primary backend diagnostic per failed emitting definition,
 using the narrowest stable IR span available. It does not emit a partial
 artifact for that definition.
 
+Expected renderer rejections use the private `MySqlRenderError` type. The
+backend converts only that type to `PIE-B1000`; unrelated `TypeError`,
+`ValueError`, and unexpected implementation failures must propagate.
+
 Existing PostgreSQL `PIE-B1000` text, locations, and behavior remain
 unchanged. No MySQL-specific diagnostic code is needed merely to identify the
 dialect.
@@ -547,8 +552,7 @@ Before the complete Phase 10 implementation is accepted:
 - text CLI `--dialect mysql` remains an argparse usage error;
 - JSON `--dialect mysql` remains `unsupported_dialect`;
 - rejection occurs before parsing;
-- the private `emit_mysql_sql` skeleton is not exported or CLI-enabled and
-  emits no SQL artifacts.
+- the private `emit_mysql_sql` renderer is not exported or CLI-enabled.
 
 After all acceptance gates pass, the CLI may add the explicit mapping:
 
