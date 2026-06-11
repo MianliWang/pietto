@@ -15,7 +15,9 @@ The current implementation status is:
 - **Phase 8 Project Model & Configuration Planning: complete**;
 - **Phase 9 SQL Backend Architecture & Dialect Strategy: complete**;
 - **Phase 9.5 Static Typing And Source Extension Hardening: complete**;
-- **Phase 9.6 Test Typing Hygiene: complete**.
+- **Phase 9.6 Test Typing Hygiene: complete**;
+- **Phase 10 MySQL SQL Generation MVP: current planning/readiness slice; no
+  MySQL behavior implemented**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits PostgreSQL SQL, and presents the
@@ -119,6 +121,12 @@ diagnostics through precise test-only narrowing and helper typing. The
 mandatory production Pyright gate remains unchanged; the clean test
 configuration remains an explicit non-blocking command.
 
+Phase 10 MySQL SQL Generation MVP is current. Slice 1 defines the nine-slice
+implementation path and readiness gates only. PostgreSQL remains the
+handwritten byte-exact reference, `--dialect mysql`, `mysql.table`,
+`emit_mysql_sql`, SQLGlot, and MySQL SQL generation are not yet implemented,
+and JSON v1 remains the only runtime CLI JSON schema.
+
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added
 full structural depth, semantic graph, diagnostic/output, wall-clock, CPU, or
@@ -151,6 +159,9 @@ The completed typing and source-extension hardening work is documented in
 The completed test-only typing cleanup and non-blocking test configuration are
 documented in
 [the Phase 9.6 Test Typing Hygiene plan](docs/plan/phase-9-6-test-typing-hygiene.md).
+The current generation-only MySQL implementation sequence and readiness gates
+are documented in
+[the Phase 10 MySQL SQL Generation MVP plan](docs/plan/phase-10-mysql-sql-generation-mvp.md).
 The evidence matrix, rejected roles, dependency and resource risks, and
 conditional Phase 10 spike decision are in
 [the Phase 9 SQLGlot evaluation](docs/plan/phase-9-sqlglot-evaluation.md);

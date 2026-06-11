@@ -1177,6 +1177,22 @@ Generated ANTLR diagnostics remain isolated by the targeted Phase 9.5
 configuration. This phase changes no production behavior, public interface,
 grammar, generated file, dependency, or lockfile.
 
+### Phase 10: MySQL SQL Generation MVP
+
+Status: current, Slice 1 planning/readiness complete. The Phase 10 master plan
+defines nine separately approved slices for a future generation-only MySQL
+8.0+ backend. Slice 1 does not implement SQLGlot, `mysql.table`,
+`emit_mysql_sql`, `--dialect mysql`, dialect dispatch, or MySQL SQL output.
+
+The handwritten PostgreSQL backend remains the byte-exact reference. JSON v1
+remains the only runtime single-file CLI schema; JSON v2 remains reserved for
+future project and multi-file mode. Production and test Pyright validation,
+targeted generated ANTLR isolation, and all execution/database boundaries
+remain required.
+
+The master plan is documented in
+`docs/plan/phase-10-mysql-sql-generation-mvp.md`.
+
 ---
 
 ## 14. Codex Implementation Strategy

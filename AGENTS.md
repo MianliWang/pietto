@@ -86,12 +86,13 @@ Rules:
 
 ## Current Phase
 
-Current phase: Phase 9.6 Test Typing Hygiene complete.
+Current phase: Phase 10 MySQL SQL Generation MVP, Slice 1 planning complete.
 Phases 8 and 9 are complete. Phase 9.5 improved handwritten type safety,
 isolated generated ANTLR typing noise, and migrated official source paths to
 `.pietto`. Phase 9.6 removed test-suite Pyright diagnostics through precise
-test-only typing cleanup. Neither phase changed language, parser, semantic,
-IR, SQL, CLI, JSON, public API, runtime, or database behavior.
+test-only typing cleanup. Phase 10 Slice 1 adds only the master plan and
+readiness audit. MySQL, SQLGlot, dialect dispatch, connector support, and
+production behavior remain unimplemented.
 
 Phase 1 parser/frontend, Phase 2 Semantic Checker, Phase 3 Semantic IR, Phase 4
 PostgreSQL SQL, Phase 5 CLI, Phase 5.5 Security / Robustness Hardening, and
@@ -221,6 +222,10 @@ failure classification are documented in
 `docs/spec/project-resource-model-v1.md`. It is specification-only; the
 current implemented limits remain only the per-file source/token parser
 budgets, and no project budget or config override is implemented.
+The current Phase 10 slice sequence, implementation gates, JSON boundary,
+typing requirements, and generation-only MySQL scope are documented in
+`docs/plan/phase-10-mysql-sql-generation-mvp.md`. Slice 1 is planning and
+static audit only; no Phase 10 production implementation has started.
 
 Current strict boundaries remain:
 
@@ -253,8 +258,9 @@ Do not implement in the current phase unless explicitly requested:
 - visualization;
 - concurrency/runtime features.
 
-All seven Phase 9 slices and Phase 9.5 are complete. No Phase 10
-implementation has started. Production SQLGlot, MySQL, backend dispatch,
+All seven Phase 9 slices, Phase 9.5, and Phase 9.6 are complete. Phase 10
+Slice 1 planning is complete, but production implementation has not started.
+Production SQLGlot, MySQL, backend dispatch,
 semantic or IR implementation changes, richer SQL, execution, and database
 behavior remain prohibited.
 

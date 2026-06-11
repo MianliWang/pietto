@@ -1,0 +1,529 @@
+# Phase 10: MySQL SQL Generation MVP
+
+## Status
+
+**Phase 10 MySQL SQL Generation MVP is the current phase.**
+
+**Slice 1: Phase 10 Master Plan And Readiness Audit is complete.**
+
+Phase 10 is the first implementation phase after the Phase 9 SQL backend
+architecture work. This master-plan slice is documentation and static audit
+only. It does not implement MySQL, SQLGlot, dialect dispatch, a connector, or
+any production behavior.
+
+Every later slice requires a separate explicit implementation request. A
+planned capability is not an implemented or approved public interface merely
+because it appears in this document.
+
+## Goal
+
+Add the smallest safe Oracle MySQL 8.0+ SQL-generation path while preserving
+Pietto as a local, generation-only compiler and CLI developer tool.
+
+The eventual Phase 10 pipeline may become:
+
+```text
+Pietto source
+    -> parse
+    -> analyze
+    -> build IR
+    -> explicitly selected PostgreSQL or MySQL SQL backend
+    -> CLI text or JSON v1 output
+```
+
+The phase must preserve:
+
+- `emit_postgres_sql(ScriptIR) -> SqlResult`;
+- the handwritten PostgreSQL backend as the byte-exact reference;
+- all reviewed PostgreSQL golden output;
+- existing compiler-stage isolation;
+- immutable `SqlArtifact` and `SqlResult` models;
+- the current single-file CLI and JSON v1 contracts;
+- generation-only behavior with no execution or database access;
+- production and test Pyright cleanliness;
+- targeted isolation of generated ANTLR diagnostics.
+
+## Baseline After Phase 9.6
+
+The repository currently provides:
+
+- a single-file parser, semantic checker, Semantic IR builder, and handwritten
+  PostgreSQL emitter;
+- `pietto check file.pietto`;
+- `pietto emit-sql file.pietto --dialect postgres`;
+- CLI text output and the normative single-file JSON schema version 1;
+- five reviewed byte-exact PostgreSQL SQL fixtures;
+- production Pyright at zero errors and warnings;
+- test Pyright at zero errors and warnings through
+  `pyrightconfig.tests.json`;
+- targeted Pyright and Pylance isolation for `src/pietto/generated`;
+- only `antlr4-python3-runtime` in the production dependency list.
+
+The following remain unimplemented:
+
+- `mysql.table(Text)`;
+- `emit_mysql_sql`;
+- `--dialect mysql`;
+- an internal backend abstraction or dialect dispatcher;
+- SQLGlot or another SQL-generation dependency;
+- JSON v2 or project/multi-file behavior;
+- SQL execution, database connections, connector runtime, and schema
+  introspection.
+
+## Planning Authorities
+
+Phase 10 implementation must conform to:
+
+- `docs/plan/phase-9-sql-backend-architecture-dialect-strategy.md`;
+- `docs/plan/phase-9-sqlglot-evaluation.md`;
+- `docs/spec/sql-dialect-source-contract-v1.md`;
+- `docs/spec/sql-backend-abstraction-contract-v1.md`;
+- `docs/spec/mysql-sql-generation-mvp-v1.md`;
+- `docs/spec/cli-json-v1.md`.
+
+If this master plan and a focused contract conflict, the narrower accepted
+contract controls unless a later slice explicitly amends it.
+
+## Phase Boundary
+
+Phase 10 may eventually add:
+
+- one dedicated MySQL 8.0+ generation backend;
+- the static semantic connector `mysql.table(Text)`;
+- a dedicated `emit_mysql_sql(ScriptIR) -> SqlResult` entry point;
+- explicit internal CLI dispatch for `postgres` and `mysql`;
+- manually reviewed MySQL byte-exact golden fixtures;
+- an optional isolated SQLGlot adapter only after its adoption gates pass.
+
+Phase 10 does not add:
+
+- SQL execution or validation against a live server;
+- database drivers, connections, credentials, destinations, or network IO;
+- connector execution or schema introspection;
+- a PostgreSQL rewrite or SQLGlot-backed PostgreSQL path;
+- PostgreSQL-to-MySQL transpilation;
+- a generic public `emit_sql(...)` API;
+- JSON v2, project mode, configuration loading, or multi-file compilation;
+- richer SQL syntax or language features.
+
+## Slice Sequence
+
+1. **Phase 10 Master Plan And Readiness Audit**: complete. Create this master
+   plan, mark Phase 10 as current, record the baseline and gates, and add
+   static planning audits. No production implementation.
+2. **SQLGlot Evaluation And Isolated Adapter Spike**: planned. Re-review an
+   exact SQLGlot release, compare a direct `ScriptIR`-to-SQLGlot-AST MySQL
+   adapter with a small handwritten renderer, measure resource and failure
+   behavior, and make a documented production go/no-go decision.
+3. **Dialect Dispatch Design**: planned. Define the exact internal closed
+   routing contract for dedicated PostgreSQL and MySQL emitters without
+   enabling `--dialect mysql`.
+4. **MySQL Backend Skeleton**: planned. Implement the private, fail-closed
+   `ScriptIR -> SqlResult` MySQL backend boundary and capability declaration,
+   initially without CLI enablement.
+5. **MySQL Connector Semantic Surface**: planned. Add the static
+   `mysql.table(Text)` semantic signature and preserve it through IR lowering,
+   with no connector execution or database behavior.
+6. **MySQL Expression And Relation Rendering MVP**: planned. Implement the
+   closed approved MySQL expression, literal, identifier, source, relation,
+   artifact, and diagnostic surface.
+7. **MySQL Golden Corpus And PostgreSQL Regression Lock**: planned. Add
+   manually reviewed byte-exact MySQL fixtures and prove every PostgreSQL
+   fixture remains unchanged.
+8. **CLI Enablement For `--dialect mysql`**: planned. Enable explicit MySQL
+   CLI text and JSON v1 dispatch only after every backend and compatibility
+   gate passes.
+9. **Completion Audit**: planned. Verify the complete MySQL generation MVP,
+   PostgreSQL compatibility, dependency decision, typing gates, security
+   boundaries, and deferred capabilities.
+
+The order is fixed. In particular, CLI enablement is not an integration
+shortcut for testing an incomplete backend.
+
+## Slice 1: Phase 10 Master Plan And Readiness Audit
+
+Slice 1:
+
+- creates this master plan;
+- records Phase 9, Phase 9.5, and Phase 9.6 as complete;
+- marks Phase 10 as current without claiming MySQL implementation;
+- records the nine-slice sequence and ordering gates;
+- adds static audit coverage for planning boundaries;
+- preserves all production, dependency, grammar, generated-file, CLI, JSON,
+  PostgreSQL, semantic, and IR behavior.
+
+Slice 1 does not add SQLGlot, `emit_mysql_sql`, `mysql.table`,
+`--dialect mysql`, MySQL fixtures, or production source.
+
+## Slice 2: SQLGlot Evaluation And Isolated Adapter Spike
+
+Slice 2 must make a fresh evidence-based choice between:
+
+```text
+Option A: small handwritten MySQL renderer
+Option B: isolated ScriptIR-to-SQLGlot-AST MySQL adapter
+```
+
+The spike is approved only for MySQL generation. It must:
+
+- select and re-review one exact candidate SQLGlot release;
+- use direct AST construction rather than parsing or transpiling SQL text;
+- map only the closed MySQL MVP IR surface;
+- explicitly select the MySQL generator;
+- force strict unsupported behavior and treat warnings as failures;
+- keep SQLGlot types and exceptions private to the adapter;
+- compare reviewed output with a handwritten reference;
+- measure import surface, package size, CPU, memory, depth, output size,
+  warning, exception, and partial-output behavior;
+- review license, provenance, maintainers, artifacts, release policy, hashes,
+  and lockfile impact;
+- prohibit extras, native acceleration, optimizer, executor, lineage,
+  database, and schema modules;
+- prove all PostgreSQL golden fixtures remain byte-exact.
+
+The spike may be temporary and uncommitted when that is sufficient. Adding
+SQLGlot to production dependencies requires a separate explicit decision
+within or after Slice 2, a reviewed `pyproject.toml` and `uv.lock` diff, and
+all mandatory gates from `phase-9-sqlglot-evaluation.md`.
+
+Failure of any mandatory SQLGlot gate selects the handwritten backend or
+defers MySQL. It does not weaken the MySQL contract.
+
+SQLGlot must never become:
+
+- the Pietto parser or semantic analyzer;
+- a PostgreSQL-to-MySQL transpiler;
+- a PostgreSQL backend replacement;
+- an optimizer or executor;
+- a database, connector, or schema integration layer;
+- a type exposed through Semantic IR, public APIs, diagnostics, CLI, or JSON.
+
+## Slice 3: Dialect Dispatch Design
+
+Slice 3 defines the future internal closed mapping:
+
+```text
+postgres -> emit_postgres_sql
+mysql    -> emit_mysql_sql
+```
+
+The design must:
+
+- keep dedicated emitter entry points;
+- preserve the existing PostgreSQL direct path and behavior;
+- avoid a generic public `emit_sql(...)` API;
+- distinguish an unknown CLI dialect from a selected backend capability
+  failure;
+- preserve unsupported-dialect exit `2` and JSON v1 `unsupported_dialect`;
+- preserve backend-diagnostic exit `1`;
+- pass only `ScriptIR` to the selected backend;
+- keep output files, stdout/stderr, and JSON presentation outside backends;
+- avoid inferring the backend from source headers or connector names.
+
+Slice 3 does not yet add `mysql` to CLI choices.
+
+## Slice 4: MySQL Backend Skeleton
+
+Slice 4 may implement a private dedicated boundary:
+
+```python
+emit_mysql_sql(script_ir: ScriptIR) -> SqlResult
+```
+
+The skeleton must:
+
+- consume `ScriptIR` directly;
+- return existing immutable SQL result models;
+- classify every definition kind as emitting, non-emitting, or unsupported;
+- use one closed, reviewable MySQL capability declaration;
+- fail closed with deterministic `PIE-B1000` diagnostics;
+- accept no partial artifact for a failed relation;
+- preserve source definition order for artifacts and diagnostics;
+- avoid parser, semantic, IR-lowering, CLI, JSON, IO, or runtime imports;
+- expose no SQLGlot types if the adapter option is selected.
+
+Public export of `emit_mysql_sql` is a separate compatibility decision. A
+private backend skeleton does not automatically change `pietto.sql.__all__`.
+
+## Slice 5: MySQL Connector Semantic Surface
+
+Slice 5 may add:
+
+```text
+mysql.table(Text)
+```
+
+as a static connector parallel to `postgres.table(Text)`.
+
+Semantic analysis owns:
+
+- exact connector recognition;
+- one-argument arity;
+- `Text` typing;
+- compile-time literal enforcement;
+- source-shape and row-schema validation;
+- deterministic `PIE-S2306` failures.
+
+IR lowering owns preservation of the exact connector name, ordered static
+argument, and source span. It must not add runtime handles, dialect objects,
+credentials, endpoints, schemas, or connections.
+
+The connector argument remains one non-empty opaque physical table
+identifier. It is not split on `.`. Structured qualification remains deferred.
+
+## Slice 6: MySQL Expression And Relation Rendering MVP
+
+Slice 6 implements only the closed surface accepted by
+`mysql-sql-generation-mvp-v1.md`.
+
+### Relation Surface
+
+- `SELECT`;
+- ordered projections and explicit aliases;
+- `FROM`;
+- optional `WHERE`;
+- `mysql.table(Text)` source inputs;
+- quoted relation-name inputs;
+- stable artifact ordering;
+- metadata non-emission.
+
+### Expression Surface
+
+- identifiers and separately quoted qualified field components;
+- scalar literals;
+- field references;
+- comparisons `==`, `!=`, `<`, `<=`, `>`, and `>=`;
+- Boolean `and` and `or`;
+- unary `+` and `-`;
+- arithmetic `+`, `-`, `*`, `/`, and `%`;
+- `BETWEEN`;
+- `IS NULL` and `IS NOT NULL`;
+- `lower/1 -> LOWER`;
+- `trim/1 -> TRIM`;
+- `len/1 -> CHAR_LENGTH`.
+
+MySQL identifiers use backticks and the accepted context-specific length
+limits. Physical source names remain opaque. Literals follow the accepted
+MySQL 8.0 SQL-mode and `utf8mb4` reference contract.
+
+The backend must reject, without approximation:
+
+- `matches/2`;
+- `LIKE`;
+- unknown expressions, functions, operators, predicates, definitions,
+  connectors, identifiers, or literal values;
+- any SQLGlot warning or best-effort rewrite.
+
+No failed relation receives a partial artifact.
+
+## Slice 7: MySQL Golden Corpus And PostgreSQL Regression Lock
+
+Slice 7 adds manually reviewed fixtures only. It must not add snapshot
+libraries, generated expected output, or automatic update commands.
+
+The minimum MySQL corpus is:
+
+1. **Literals And Identifiers**: backticks, escaping, reserved names, scalar
+   literals, Unicode, qualified fields, and one dotted opaque physical name.
+2. **Expressions**: all approved functions, comparisons, predicates, unary,
+   arithmetic, Boolean operators, precedence, and parentheses.
+3. **Ordering And Metadata**: non-emitting metadata, two ordered relation
+   artifacts, relation-name input, and stable CLI artifact separation.
+4. **Structural JSON v1**: successful `emit-sql` output with
+   `"dialect": "mysql"`.
+
+Focused negative tests must cover connector mismatch, `matches`, `LIKE`,
+unknown nodes and operators, identifier limits, invalid literals, NUL,
+failure ordering, no partial artifact, and SQLGlot failure containment if
+used.
+
+All five PostgreSQL byte-exact SQL fixtures and existing PostgreSQL unit tests
+must pass unchanged.
+
+## Slice 8: CLI Enablement For `--dialect mysql`
+
+Slice 8 is the only slice that may enable:
+
+```bash
+pietto emit-sql file.pietto --dialect mysql
+```
+
+Enablement requires:
+
+- the selected implementation technology decision is complete;
+- `mysql.table(Text)` semantic and IR support is stable;
+- the full closed MySQL backend surface is implemented;
+- positive, negative, golden, resource, and isolation tests pass;
+- PostgreSQL output and API remain unchanged;
+- text and JSON v1 behavior, exit codes, artifact ordering, diagnostics, and
+  output-file safety pass for both dialects;
+- dependency and supply-chain review passes if SQLGlot is adopted;
+- no execution, database, connector runtime, or schema path exists.
+
+The CLI remains explicit. Connector names and source headers do not choose the
+backend.
+
+## Slice 9: Completion Audit
+
+The completion audit must verify:
+
+- every Phase 10 slice and acceptance gate;
+- the MySQL capability declaration and fail-closed behavior;
+- `emit_mysql_sql(ScriptIR) -> SqlResult`;
+- `mysql.table(Text)` static semantics;
+- MySQL text and JSON v1 CLI behavior;
+- reviewed MySQL byte-exact fixtures;
+- unchanged PostgreSQL API, output, fixtures, diagnostics, and artifact order;
+- the final SQLGlot adoption or rejection record;
+- production and test Pyright gates;
+- targeted generated ANTLR isolation;
+- dependency, lockfile, grammar, and generated-file boundaries;
+- absence of JSON v2, project mode, execution, database, connector runtime,
+  schema introspection, watch, LSP, and Web UI.
+
+## JSON Compatibility Boundary
+
+JSON schema version 1 remains the only runtime CLI JSON schema in Phase 10.
+The existing top-level fields, diagnostics, artifacts, output metadata, exit
+codes, and stdout/stderr rules remain unchanged.
+
+A successful future MySQL result may set:
+
+```json
+{
+  "schema_version": 1,
+  "command": "emit-sql",
+  "dialect": "mysql"
+}
+```
+
+This is a value within the existing schema, not JSON v2.
+
+JSON schema version 2 remains reserved for future explicit project and
+multi-file mode. Phase 10 must not implement its serializer, CLI invocation,
+root/path behavior, resource model, or project result aggregation.
+
+## Typing And Generated-Code Gates
+
+Every Phase 10 slice must run:
+
+```bash
+uvx pyright
+uvx pyright --project pyrightconfig.tests.json
+```
+
+The first command remains the blocking standard-mode gate for handwritten
+production source. The second preserves the clean test-suite baseline and is
+part of Phase 10 validation.
+
+Generated ANTLR files remain targeted-isolated through `pyrightconfig.json`
+and `.vscode/settings.json`. They must not be hand-edited. Parser generation
+runs only after a separately approved grammar change; Phase 10 does not
+require a grammar change.
+
+## PostgreSQL Compatibility Gate
+
+The handwritten PostgreSQL backend remains the byte-exact reference
+implementation throughout Phase 10.
+
+Phase 10 must not:
+
+- route PostgreSQL through SQLGlot;
+- replace or wrap `emit_postgres_sql`;
+- reinterpret `"public.users"` as a qualified name;
+- change public SQL result models;
+- change PostgreSQL identifiers, literals, expressions, formatting,
+  diagnostics, artifact order, metadata behavior, or relation references.
+
+Any PostgreSQL golden diff blocks the relevant slice unless separately
+approved as a PostgreSQL compatibility change outside this phase.
+
+## Dependency Gate
+
+Slice 1 changes no dependency or lockfile.
+
+If Slice 2 later recommends SQLGlot, adoption requires:
+
+- an exact reviewed version;
+- no extras, native extension, plugin dialect, optimizer, or executor;
+- explicit `pyproject.toml` and `uv.lock` review;
+- license, provenance, artifact, maintainer, release, and vulnerability
+  review;
+- strict failure handling and private adapter types;
+- acceptable measured resource behavior;
+- lower expected maintenance cost than the handwritten option.
+
+SQLGlot support in upstream does not define Pietto capability.
+
+## Security And Runtime Boundary
+
+Phase 10 is SQL generation only. It adds no:
+
+- SQL execution, query validation against a server, or result fetching;
+- database driver, connection, DSN, host, port, credential, or secret;
+- DNS resolution, network access, or destination selection;
+- connector execution, schema introspection, or migration;
+- transaction, retry, timeout, cancellation, or session management;
+- dynamic backend or plugin discovery;
+- optimizer or executor;
+- filesystem behavior beyond the existing protected CLI output path;
+- runtime server or Web UI.
+
+Any future execution, connection, credential, connector, or introspection
+proposal requires a separate threat model and phase.
+
+## Explicit Non-Goals
+
+Phase 10 does not implement:
+
+- PostgreSQL migration or PostgreSQL SQL changes;
+- PostgreSQL-to-MySQL transpilation;
+- a generic public `emit_sql(...)`;
+- regex or `matches` support for MySQL;
+- collation selection or `COLLATE`;
+- structured database/table qualification;
+- alternate MySQL SQL-mode profiles;
+- MariaDB or vendor-fork certification;
+- joins, grouping, aggregates, ordering, limits, windows, unions, CTEs,
+  subqueries, materialization, DDL, DML, or migrations;
+- JSON v2;
+- `pietto.toml`, project discovery, globbing, or multi-file compilation;
+- SQL execution, database access, connector runtime, schema introspection,
+  credentials, or network access;
+- watch mode, LSP/editor integration, Web UI, or runtime server;
+- `compile_to_ir()` or `compile_to_sql()`.
+
+## Risks And Scope Control
+
+- treating Slice 1 planning as MySQL implementation approval;
+- treating the SQLGlot spike as automatic dependency adoption;
+- using PostgreSQL output as a transpilation intermediate;
+- changing PostgreSQL rendering to share code prematurely;
+- enabling the CLI before backend and golden stability;
+- inferring a dialect from `mysql.table` or a source header;
+- splitting opaque dotted source names;
+- silently approximating `matches`, `LIKE`, collation, or string behavior;
+- exposing SQLGlot AST types outside one private adapter;
+- adding richer SQL to justify backend abstraction;
+- conflating generated SQL with executable or validated SQL;
+- allowing JSON v2 or project-mode work into a single-file dialect phase.
+
+## Phase 10 Completion Criteria
+
+Phase 10 is complete only when:
+
+- the SQLGlot go/no-go decision is evidence-based and final for the MVP;
+- a dedicated MySQL backend implements the complete closed MVP;
+- `mysql.table(Text)` is statically validated and preserved in IR;
+- `--dialect mysql` is enabled only after all prior gates;
+- reviewed MySQL byte-exact and JSON v1 fixtures pass;
+- PostgreSQL remains byte-exact and API-compatible;
+- unsupported MySQL cases fail closed with deterministic diagnostics;
+- production and test Pyright gates report zero errors and warnings;
+- dependency, security, resource, grammar, generated-file, and lockfile
+  boundaries pass;
+- JSON v2 and all runtime, database, project, watch, LSP, and Web capabilities
+  remain unimplemented.
+
+Slice 1 satisfies none of the MySQL implementation criteria. It only makes
+the implementation path and its safety gates explicit.
