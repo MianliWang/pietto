@@ -178,6 +178,12 @@ The completed planning-only SQLGlot evaluation is documented in
 Phase 10 MySQL-generation spike. It does not approve a production dependency,
 PostgreSQL migration, transpilation, optimizer, executor, database, connector,
 or runtime use.
+The planning-only internal backend contract is documented in
+`docs/spec/sql-backend-abstraction-contract-v1.md`. It preserves
+`ScriptIR -> SqlResult`, the public `emit_postgres_sql` entry point, explicit
+CLI dispatch, closed capability declarations, ordered partial results,
+`PIE-B1000`, and private SQLGlot isolation. No backend protocol, registry,
+dispatcher, generic public emitter, or MySQL entry point is implemented.
 The planned dialect-specific connector names, semantic/backend responsibility
 boundary, required capability declaration, physical-name model, and
 unsupported-case policy are documented in
@@ -237,7 +243,7 @@ Do not implement in the current phase unless explicitly requested:
 - visualization;
 - concurrency/runtime features.
 
-Phase 9 Slices 1 through 4 are complete. Later Phase 9 slices require explicit
+Phase 9 Slices 1 through 5 are complete. Later Phase 9 slices require explicit
 requests. Production SQLGlot, MySQL, backend dispatch, semantic or IR
 implementation changes, richer SQL, execution, and database behavior remain
 prohibited.

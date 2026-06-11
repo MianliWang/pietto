@@ -1130,17 +1130,21 @@ implemented.
 Status: current architecture and compatibility-planning phase. Phase 9 defines
 the PostgreSQL byte-exact compatibility contract, dialect-sensitive backend
 boundaries, SQLGlot evaluation criteria, and a future MySQL MVP contract.
-Slices 1 through 4 establish the phase frame, PostgreSQL compatibility corpus,
-dialect/source responsibility contract, and SQLGlot evaluation without
-changing language syntax, Semantic IR, public SQL APIs, CLI, JSON v1,
-PostgreSQL output, dependencies, or runtime behavior. The phase is documented
-in `docs/plan/phase-9-sql-backend-architecture-dialect-strategy.md`.
+Slices 1 through 5 establish the phase frame, PostgreSQL compatibility corpus,
+dialect/source responsibility contract, SQLGlot evaluation, and internal
+backend abstraction contract without changing language syntax, Semantic IR,
+public SQL APIs, CLI, JSON v1, PostgreSQL output, dependencies, or runtime
+behavior. The phase is documented in
+`docs/plan/phase-9-sql-backend-architecture-dialect-strategy.md`.
 The planning-only dialect capability and source contract is documented in
 `docs/spec/sql-dialect-source-contract-v1.md`.
 The evidence-based SQLGlot decision is documented in
 `docs/plan/phase-9-sqlglot-evaluation.md`. It approves only a future isolated
 Phase 10 MySQL-generation spike, not a production dependency or PostgreSQL
 replacement.
+The planning-only internal `ScriptIR -> SqlResult` boundary, capability,
+result, explicit-dispatch, diagnostic, and SQLGlot-isolation decisions are
+documented in `docs/spec/sql-backend-abstraction-contract-v1.md`.
 
 The handwritten `emit_postgres_sql(script_ir)` backend remains authoritative.
 SQLGlot and MySQL are not implemented, and SQL execution, database connection,

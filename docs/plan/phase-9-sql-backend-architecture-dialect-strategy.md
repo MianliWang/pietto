@@ -4,7 +4,7 @@
 
 **Phase 9 is the current architecture and compatibility-planning phase.**
 
-Slices 1 through 4 are complete. Readiness And Compatibility Frame establishes
+Slices 1 through 5 are complete. Readiness And Compatibility Frame establishes
 the post-Phase-8 baseline and phase boundary. PostgreSQL Compatibility Corpus
 adds reviewed byte-exact pipeline fixtures. Dialect Capability And Source
 Contract defines connector naming, stage ownership, required backend
@@ -12,6 +12,9 @@ capabilities, physical-name compatibility, fail-closed diagnostics, and the
 future MySQL `matches` boundary. SQLGlot Evaluation records an evidence-based
 decision that permits only a future isolated Phase 10 MySQL-generation spike,
 not a Phase 9 implementation, production dependency, or PostgreSQL migration.
+Backend Abstraction Contract defines the internal `ScriptIR -> SqlResult`
+boundary, closed capability declarations, explicit CLI dispatch, result and
+diagnostic semantics, and SQLGlot isolation without implementation.
 
 Phase 9 does not authorize production SQL backend implementation. Its allowed
 deliverables are documentation, specifications, compatibility tests, and
@@ -105,9 +108,9 @@ modify `pyproject.toml`, `uv.lock`, source files, tests, or generated files.
 4. **SQLGlot Evaluation**: complete. Compared the handwritten backend with an
    isolated IR-to-SQLGlot-AST approach and approved only a future Phase 10
    MySQL-generation spike, subject to strict adoption gates.
-5. **Backend Abstraction Contract**: specify an internal backend interface,
-   dispatch ownership, diagnostics, capability declaration, and dependency
-   isolation without implementing it.
+5. **Backend Abstraction Contract**: complete. Defined the conceptual internal
+   `ScriptIR -> SqlResult` contract, closed capabilities, explicit dispatch,
+   partial-result semantics, diagnostics, and dependency isolation.
 6. **MySQL MVP Contract**: define the exact MySQL 8.0+ generation surface,
    connector semantics, output policy, diagnostics, and Phase 10 acceptance
    criteria.
@@ -211,6 +214,41 @@ The evaluation records:
 Slice 4 adds no SQLGlot dependency, adapter, backend implementation, MySQL
 behavior, CLI or JSON change, PostgreSQL output change, grammar, generated
 file, runtime feature, or lockfile change.
+
+## Slice 5: Backend Abstraction Contract
+
+Slice 5 publishes `docs/spec/sql-backend-abstraction-contract-v1.md`. It
+defines a behavioral internal contract without requiring a Python protocol,
+base class, registry, or production refactor.
+
+The accepted decisions are:
+
+- the internal backend boundary remains `ScriptIR -> SqlResult`;
+- each backend has one immutable, closed, reviewable capability declaration;
+- declarations cover dialect identity, connectors, definitions, expressions,
+  functions, operators and predicates, identifier and literal policy,
+  relation and artifact policy, and diagnostics;
+- a definition fully validates before its artifact is accepted;
+- one failed definition produces no partial artifact for that definition;
+- processing may continue in source order so successful artifacts and ordered
+  diagnostics can coexist;
+- the handwritten PostgreSQL backend and
+  `emit_postgres_sql(ScriptIR) -> SqlResult` remain authoritative;
+- a future approved MySQL backend should use a dedicated
+  `emit_mysql_sql(ScriptIR) -> SqlResult` entry point;
+- public export of that MySQL entry point is a separate Phase 10 decision;
+- CLI dispatch remains an explicit closed mapping to dedicated emitters;
+- no generic public `emit_sql(...)` API is approved;
+- SQLGlot types remain private to a future adapter and never enter Semantic
+  IR, public exports, result models, diagnostics, CLI, or JSON;
+- `PIE-B1000` remains the default selected-backend unsupported or invalid
+  emission code, with new `PIE-Bxxxx` codes requiring distinct semantics and
+  explicit specification.
+
+Slice 5 adds no backend abstraction implementation, capability object,
+registry, dispatcher, SQLGlot dependency, MySQL behavior, public API, CLI or
+JSON change, PostgreSQL output change, grammar, generated file, runtime
+feature, or lockfile change.
 
 ## PostgreSQL Compatibility Contract
 
@@ -365,25 +403,21 @@ PostgreSQL backend.
 
 ## Backend Abstraction Direction
 
-Slice 5 should specify an internal backend contract with these properties:
+The accepted internal contract is documented in
+`docs/spec/sql-backend-abstraction-contract-v1.md`.
 
-- input is `ScriptIR`;
-- output is the existing `SqlResult`;
-- each backend owns source, identifier, literal, expression, relation, and
-  unsupported-feature policies;
-- capability declarations are explicit and testable;
-- diagnostics remain ordered and source-located;
-- compiler stages are not rerun;
-- SQLGlot types, if later approved, do not cross the adapter boundary.
+It preserves `ScriptIR -> SqlResult`, requires closed and testable capability
+declarations, validates each definition before artifact acceptance, preserves
+ordered partial results, and keeps implementation-library types private.
 
 Phase 9 must preserve the public `emit_postgres_sql()` entry point. A future
-`emit_mysql_sql()` may be added in Phase 10. A generic public `emit_sql()` API
-is not required for the first multi-dialect MVP and must not be introduced
-speculatively.
+`emit_mysql_sql()` may be added in Phase 10 through a separately approved
+implementation. Exporting it publicly is a separate compatibility decision. A
+generic public `emit_sql()` API is not approved.
 
-CLI dispatch remains outside the SQL backend. Phase 10 may add internal
-dialect dispatch while preserving the existing PostgreSQL invocation and JSON
-v1 fields.
+CLI dispatch remains outside the SQL backend and explicit by dialect. Phase 10
+may add a closed internal branch or mapping while preserving the existing
+PostgreSQL invocation and JSON v1 fields.
 
 ## MySQL MVP Direction
 

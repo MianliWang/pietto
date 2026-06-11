@@ -255,8 +255,9 @@ This preserves current PostgreSQL behavior.
 ## Capability Declaration Requirements
 
 Every future backend must have one reviewable capability declaration. Slice 3
-specifies its required content; Slice 5 will specify the implementation
-interface.
+specifies its required content. The conceptual internal interface, validation,
+result, dispatch, and diagnostic contract is specified in
+`docs/spec/sql-backend-abstraction-contract-v1.md`.
 
 The declaration must cover:
 

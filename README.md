@@ -92,13 +92,15 @@ Phase 9 SQL Backend Architecture & Dialect Strategy is the current
 architecture and compatibility-planning phase. It will define PostgreSQL
 byte-exact compatibility, dialect-sensitive source and rendering contracts,
 SQLGlot adoption criteria, an internal backend abstraction, and a conservative
-future MySQL MVP. Slices 1 through 4 are complete: the phase frame,
+future MySQL MVP. Slices 1 through 5 are complete: the phase frame,
 PostgreSQL compatibility corpus, and dialect/source responsibility contract
 are documented, and SQLGlot is approved only for a future isolated Phase 10
 MySQL-generation spike. It is not approved as a production dependency or
-PostgreSQL replacement. These slices add no SQLGlot dependency, MySQL
-behavior, backend implementation, CLI or JSON change, richer SQL feature, SQL
-execution, or database connection.
+PostgreSQL replacement. The internal backend contract now preserves
+`ScriptIR -> SqlResult`, dedicated emitters, closed capabilities, explicit CLI
+dispatch, and SQLGlot isolation without implementation. These slices add no
+SQLGlot dependency, MySQL behavior, backend implementation, CLI or JSON
+change, richer SQL feature, SQL execution, or database connection.
 
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added
@@ -131,6 +133,10 @@ The evidence matrix, rejected roles, dependency and resource risks, and
 conditional Phase 10 spike decision are in
 [the Phase 9 SQLGlot evaluation](docs/plan/phase-9-sqlglot-evaluation.md);
 SQLGlot remains uninstalled and unimplemented.
+The planning-only internal backend boundary, capability, result, dispatch,
+diagnostic, and SQLGlot-isolation rules are in
+[the SQL backend abstraction contract](docs/spec/sql-backend-abstraction-contract-v1.md);
+no abstraction layer or generic emitter is implemented.
 The planned connector naming, stage ownership, backend capability, physical
 source-name, and fail-closed diagnostic rules are in
 [the SQL dialect capability and source contract](docs/spec/sql-dialect-source-contract-v1.md);

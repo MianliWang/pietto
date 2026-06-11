@@ -14,7 +14,6 @@ def test_slice4_evaluation_and_status_documents_are_complete() -> None:
     agents = _read("AGENTS.md")
     language_spec = _read("docs/spec/pietto-v0.9.md")
 
-    assert "Slices 1 through 4 are complete." in plan
     assert "4. **SQLGlot Evaluation**: complete." in plan
     assert "## Slice 4: SQLGlot Evaluation" in plan
     _assert_contains_all(
