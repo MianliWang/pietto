@@ -2,9 +2,9 @@
 
 ## Status
 
-**Phase 9 is the current architecture and compatibility-planning phase.**
+**Phase 9 SQL Backend Architecture & Dialect Strategy is complete.**
 
-Slices 1 through 6 are complete. Readiness And Compatibility Frame establishes
+All seven slices are complete. Readiness And Compatibility Frame establishes
 the post-Phase-8 baseline and phase boundary. PostgreSQL Compatibility Corpus
 adds reviewed byte-exact pipeline fixtures. Dialect Capability And Source
 Contract defines connector naming, stage ownership, required backend
@@ -16,7 +16,9 @@ Backend Abstraction Contract defines the internal `ScriptIR -> SqlResult`
 boundary, closed capability declarations, explicit CLI dispatch, result and
 diagnostic semantics, and SQLGlot isolation without implementation. MySQL MVP
 Contract defines the exact MySQL 8.0+ generation surface, connector, SQL mode,
-escaping, capability, golden, and CLI-enablement requirements.
+escaping, capability, golden, and CLI-enablement requirements. Completion
+Audit verifies the contracts, compatibility corpus, production boundaries,
+dependencies, grammar, generated files, and deferred threat model.
 
 Phase 9 does not authorize production SQL backend implementation. Its allowed
 deliverables are documentation, specifications, compatibility tests, and
@@ -116,9 +118,9 @@ modify `pyproject.toml`, `uv.lock`, source files, tests, or generated files.
 6. **MySQL MVP Contract**: complete. Defined the exact MySQL 8.0+ generation
    surface, connector semantics, output policy, diagnostics, golden corpus,
    and Phase 10 acceptance gates.
-7. **Completion Audit**: verify that all decisions are documented, the
-   compatibility corpus is complete, and no production dialect, dependency,
-   CLI, grammar, JSON, runtime, or database behavior was added.
+7. **Completion Audit**: complete. Verified that all decisions are documented,
+   the compatibility corpus is complete, and no production dialect,
+   dependency, CLI, grammar, JSON, runtime, or database behavior was added.
 
 ## Slice 1: Readiness And Compatibility Frame
 
@@ -288,6 +290,37 @@ Slice 6 adds no `mysql.table` runtime support, emitter, CLI dialect, SQLGlot,
 backend abstraction, semantic or IR change, public export, JSON change,
 grammar, generated file, production dependency, runtime feature, or lockfile
 change.
+
+## Slice 7: Completion Audit
+
+Slice 7 adds `tests/test_phase9_completion_audit.py` as a focused static and
+compatibility audit. It verifies:
+
+- all seven slices and all four focused Phase 9 planning/specification
+  documents;
+- consistency of the dialect/source, SQLGlot, backend abstraction, and MySQL
+  MVP decisions;
+- the five manually reviewed PostgreSQL SQL golden fixtures and three
+  structural JSON fixtures;
+- the stable `emit_postgres_sql(ScriptIR) -> SqlResult` public API, explicit
+  PostgreSQL-only CLI dispatch, JSON v1 schema, artifact ordering, diagnostics,
+  metadata no-op behavior, and opaque dotted table-name compatibility;
+- absence of SQLGlot, MySQL, `mysql.table`, `emit_mysql_sql`, a generic public
+  emitter, a backend registry, project behavior, execution, database access,
+  connector execution, schema introspection, watch mode, LSP, and Web UI;
+- the minimal production dependency surface;
+- unchanged `uv.lock`, grammar, and generated ANTLR content against the
+  established pre-Phase-9 baseline;
+- canonical full diagnostic codes and the separate runtime/database threat
+  model requirement.
+
+The Phase 7 and Slice 6 audit tests receive narrow status-assertion updates so
+they verify their completed scopes without permanently requiring Phase 9 to
+remain in progress.
+
+Slice 7 adds no production source, runtime fixture, compiler behavior, CLI
+behavior, JSON schema, diagnostic, dependency, grammar, generated parser,
+golden output, or lockfile change.
 
 ## PostgreSQL Compatibility Contract
 
@@ -584,9 +617,9 @@ Phase 9 does not implement:
 - conflating SQL generation with execution or database access;
 - expanding Phase 9 into project or multi-file implementation.
 
-## Completion Criteria
+## Completion Audit Result
 
-Phase 9 is complete only when:
+Phase 9 is complete because:
 
 - all seven slices are complete;
 - the full implemented PostgreSQL surface has reviewed compatibility coverage;
@@ -600,14 +633,37 @@ Phase 9 is complete only when:
 - formatting, linting, tests, lockfile checks, dependency audit, diagnostic
   scan, and changed-file boundary checks pass.
 
-## Deferred Decisions
+The final validation baseline requires:
 
-The following questions must be resolved by later Phase 9 slices:
+- Ruff formatting and lint checks;
+- the full pytest suite, including the focused Phase 9 completion audit;
+- lockfile consistency and locked dependency vulnerability review;
+- the repository-wide bare diagnostic-code scan;
+- whitespace and changed-file boundary checks.
+
+The Slice 7 completion run recorded:
+
+- Ruff formatting and lint checks passed;
+- `1,098` pytest tests passed;
+- `uv lock --check` resolved 19 locked packages successfully;
+- `uv audit --locked` found no known vulnerabilities or adverse project
+  statuses in 18 packages;
+- the bare diagnostic-code scan produced no output;
+- `git diff --check` passed;
+- only completion-audit tests and approved status/documentation files changed.
+
+No post-Phase-9 implementation phase has started. Phase 9.5 Static Typing And
+Source Extension Hardening is planned separately and requires an explicit
+request.
+
+## Deferred Beyond Phase 9
+
+The following questions remain for later separately approved work:
 
 - future structured qualified source-name representation;
 - the Phase 10 SQLGlot production go/no-go after an isolated spike;
 - any post-MVP MySQL regex and collation contract;
 - whether a much later proposal should reconsider PostgreSQL migration.
 
-Slice 6 does not authorize implementation. PostgreSQL migration is not part
-of the Phase 10 spike.
+Phase 9 completion does not authorize implementation. PostgreSQL migration is
+not part of the Phase 10 spike.

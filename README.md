@@ -13,7 +13,7 @@ The current implementation status is:
 - Phase 6 JSON / machine-readable CLI output: complete;
 - **Phase 7 Developer Workflow & Stability Foundation: complete**;
 - **Phase 8 Project Model & Configuration Planning: complete**;
-- **Phase 9 SQL Backend Architecture & Dialect Strategy: current**.
+- **Phase 9 SQL Backend Architecture & Dialect Strategy: complete**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits PostgreSQL SQL, and presents the
@@ -88,15 +88,16 @@ resource-model semantics without implementation. Phase 8 added no
 `pietto.toml`, project discovery, multi-file behavior, JSON v2, SQLGlot,
 another SQL dialect, richer SQL features, or runtime/database capabilities.
 
-Phase 9 SQL Backend Architecture & Dialect Strategy is the current
-architecture and compatibility-planning phase. It will define PostgreSQL
-byte-exact compatibility, dialect-sensitive source and rendering contracts,
-SQLGlot adoption criteria, an internal backend abstraction, and a conservative
-future MySQL MVP. Slices 1 through 6 are complete: the phase frame,
-PostgreSQL compatibility corpus, and dialect/source responsibility contract
-are documented, and SQLGlot is approved only for a future isolated Phase 10
-MySQL-generation spike. It is not approved as a production dependency or
-PostgreSQL replacement. The internal backend contract now preserves
+Phase 9 SQL Backend Architecture & Dialect Strategy is complete. It defines
+PostgreSQL byte-exact compatibility, dialect-sensitive source and rendering
+contracts, SQLGlot adoption criteria, an internal backend abstraction
+contract, and a conservative future MySQL MVP. All seven slices are complete:
+the phase frame, PostgreSQL compatibility corpus, dialect/source
+responsibility contract, SQLGlot evaluation, backend abstraction contract,
+MySQL MVP contract, and completion audit are documented. SQLGlot is approved
+only for a future isolated Phase 10 MySQL-generation spike. It is not approved
+as a production dependency or PostgreSQL replacement. The internal backend
+contract preserves
 `ScriptIR -> SqlResult`, dedicated emitters, closed capabilities, explicit CLI
 dispatch, and SQLGlot isolation without implementation. These slices add no
 SQLGlot dependency, MySQL behavior, backend implementation, CLI or JSON
@@ -104,6 +105,10 @@ change, richer SQL feature, SQL execution, or database connection. The MySQL
 MVP contract now fixes the future connector, closed SQL surface,
 `len -> CHAR_LENGTH`, SQL-mode and escaping assumptions, diagnostics, golden
 corpus, and CLI enablement gates.
+
+No post-Phase-9 implementation phase has started. Phase 9.5 Static Typing And
+Source Extension Hardening is planned separately and requires an explicit
+request before implementation.
 
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added
@@ -129,8 +134,8 @@ The current stability direction and slice sequence are in
 [the Phase 7 Developer Workflow & Stability plan](docs/plan/phase-7-developer-workflow-stability.md).
 The completed planning direction, slice sequence, and audit are in
 [the Phase 8 Project Model & Configuration Planning plan](docs/plan/phase-8-project-model-configuration-planning.md).
-The current SQL backend architecture direction, compatibility frame, and
-seven-slice sequence are in
+The completed SQL backend architecture direction, compatibility frame,
+seven-slice sequence, and completion audit are in
 [the Phase 9 SQL Backend Architecture & Dialect Strategy plan](docs/plan/phase-9-sql-backend-architecture-dialect-strategy.md).
 The evidence matrix, rejected roles, dependency and resource risks, and
 conditional Phase 10 spike decision are in

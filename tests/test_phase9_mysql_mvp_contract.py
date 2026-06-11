@@ -20,7 +20,7 @@ def test_slice6_contract_and_status_documents_are_complete() -> None:
         _read("docs/plan/phase-9-sqlglot-evaluation.md"),
     )
 
-    assert "Slices 1 through 6 are complete." in plan
+    assert "All seven slices are complete." in plan
     assert "6. **MySQL MVP Contract**: complete." in plan
     assert "## Slice 6: MySQL MVP Contract" in plan
     _assert_contains_all(

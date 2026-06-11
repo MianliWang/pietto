@@ -86,12 +86,12 @@ Rules:
 
 ## Current Phase
 
-Current phase: Phase 9 SQL Backend Architecture & Dialect Strategy.
-Phase 8 Project Model & Configuration Planning is complete. Phase 9 is an
-architecture, specification, and compatibility-foundation phase. It may add
+Current phase: Phase 9 SQL Backend Architecture & Dialect Strategy complete.
+Phase 8 Project Model & Configuration Planning is complete. Phase 9 was an
+architecture, specification, and compatibility-foundation phase. It added
 planning documents, manually reviewed PostgreSQL compatibility fixtures, and
-tests that lock existing behavior, but it must not add production SQLGlot,
-MySQL, backend dispatch, CLI/JSON, grammar, runtime, or database behavior.
+tests that lock existing behavior, but no production SQLGlot, MySQL, backend
+dispatch, CLI/JSON, grammar, runtime, or database behavior.
 
 Phase 1 parser/frontend, Phase 2 Semantic Checker, Phase 3 Semantic IR, Phase 4
 PostgreSQL SQL, Phase 5 CLI, Phase 5.5 Security / Robustness Hardening, and
@@ -169,9 +169,9 @@ The completed Phase 8 direction, planning-only slice sequence, and audit are
 documented in `docs/plan/phase-8-project-model-configuration-planning.md`.
 Phase 8 does not authorize project, CLI, JSON, SQL, dependency, or runtime
 implementation.
-The current Phase 9 direction, PostgreSQL compatibility boundary, SQLGlot
-evaluation criteria, backend abstraction direction, MySQL MVP boundary, and
-slice sequence are documented in
+The completed Phase 9 direction, PostgreSQL compatibility boundary, SQLGlot
+evaluation criteria, backend abstraction direction, MySQL MVP boundary, slice
+sequence, and completion audit are documented in
 `docs/plan/phase-9-sql-backend-architecture-dialect-strategy.md`.
 The completed planning-only SQLGlot evaluation is documented in
 `docs/plan/phase-9-sqlglot-evaluation.md`. It approves only a future isolated
@@ -249,10 +249,11 @@ Do not implement in the current phase unless explicitly requested:
 - visualization;
 - concurrency/runtime features.
 
-Phase 9 Slices 1 through 6 are complete. Later Phase 9 slices require explicit
-requests. Production SQLGlot, MySQL, backend dispatch, semantic or IR
-implementation changes, richer SQL, execution, and database behavior remain
-prohibited.
+All seven Phase 9 slices are complete. No post-Phase-9 implementation phase
+has started. Phase 9.5 Static Typing And Source Extension Hardening is planned
+separately and requires an explicit request. Production SQLGlot, MySQL,
+backend dispatch, semantic or IR implementation changes, richer SQL,
+execution, and database behavior remain prohibited.
 
 Compiler stages must remain isolated: IR construction must not mutate parser
 or semantic inputs, and SQL backends must consume `ScriptIR` without rerunning
