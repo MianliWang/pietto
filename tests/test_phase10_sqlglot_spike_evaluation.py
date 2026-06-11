@@ -146,13 +146,13 @@ def test_slice2_does_not_add_sqlglot_mysql_or_dialect_runtime_behavior() -> None
     assert 'name = "sqlglot"' not in _read("uv.lock")
     for forbidden in (
         "mysql.table",
-        "emit_mysql_sql",
         "def emit_sql(",
         "sqlglot",
         "schema_version = 2",
         '"schema_version": 2',
     ):
         assert forbidden not in runtime_source.lower()
+    assert "def emit_mysql_sql(" in runtime_source
     assert 'choices=("postgres",)' in _read("src/pietto/cli.py")
     assert set(sql_api.__all__) == {
         "SqlArtifact",

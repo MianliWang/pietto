@@ -139,7 +139,6 @@ def test_phase9_contracts_are_consistent_and_fail_closed() -> None:
     for document in (
         _read("docs/spec/sql-dialect-source-contract-v1.md"),
         _read("docs/spec/sql-backend-abstraction-contract-v1.md"),
-        _read("docs/spec/mysql-sql-generation-mvp-v1.md"),
     ):
         assert "planning/specification-only and is not implemented" in document
 
@@ -241,7 +240,6 @@ def test_phase9_prohibited_production_capabilities_remain_absent() -> None:
 
     for forbidden_fragment in (
         "mysql.table",
-        "emit_mysql_sql",
         "def emit_sql(",
         "class SqlBackend",
         "BackendCapabilities",
@@ -255,6 +253,8 @@ def test_phase9_prohibited_production_capabilities_remain_absent() -> None:
         assert forbidden_fragment.lower() not in lowered_source
 
     assert 'choices=("postgres",)' in cli_source
+    assert "def emit_mysql_sql(" in source_text
+    assert "emit_mysql_sql" not in cli_source
     assert "emit_mysql_sql" not in sql_exports
     assert '"emit_sql"' not in sql_exports
 

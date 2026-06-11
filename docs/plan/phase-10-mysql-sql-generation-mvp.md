@@ -10,12 +10,14 @@
 
 **Slice 3: Dialect Dispatch Design is complete.**
 
+**Slice 4: MySQL Backend Skeleton is complete.**
+
 Phase 10 is the first implementation phase after the Phase 9 SQL backend
 architecture work. Slices 1 through 3 are documentation and static audit only.
 Slice 2 selects a small handwritten MySQL renderer for the Phase 10 MVP and
 rejects SQLGlot for this MVP. Slice 3 defines closed internal dispatch without
-implementing it. These slices implement no MySQL backend, CLI dialect,
-connector, or production behavior.
+implementing it. Slice 4 adds only a private, fail-closed MySQL backend
+skeleton. It emits no MySQL SQL and is not publicly exported or CLI-enabled.
 
 Every later slice requires a separate explicit implementation request. A
 planned capability is not an implemented or approved public interface merely
@@ -63,12 +65,13 @@ The repository currently provides:
 - test Pyright at zero errors and warnings through
   `pyrightconfig.tests.json`;
 - targeted Pyright and Pylance isolation for `src/pietto/generated`;
+- a private fail-closed MySQL backend skeleton that emits no SQL artifacts;
 - only `antlr4-python3-runtime` in the production dependency list.
 
 The following remain unimplemented:
 
 - `mysql.table(Text)`;
-- `emit_mysql_sql`;
+- complete MySQL relation and expression rendering;
 - `--dialect mysql`;
 - an internal backend abstraction or dialect dispatcher;
 - SQLGlot or another SQL-generation dependency;
@@ -126,7 +129,7 @@ Phase 10 does not add:
 3. **Dialect Dispatch Design**: complete. Define the exact internal closed
    routing contract for dedicated PostgreSQL and MySQL emitters without
    enabling `--dialect mysql`.
-4. **MySQL Backend Skeleton**: planned. Implement the private, fail-closed
+4. **MySQL Backend Skeleton**: complete. Implement the private, fail-closed
    `ScriptIR -> SqlResult` MySQL backend boundary and capability declaration,
    initially without CLI enablement.
 5. **MySQL Connector Semantic Surface**: planned. Add the static
@@ -265,26 +268,38 @@ or production code.
 
 ## Slice 4: MySQL Backend Skeleton
 
-Slice 4 may implement a private dedicated boundary:
+**Slice 4 is complete.**
+
+Slice 4 implements the private dedicated boundary:
 
 ```python
 emit_mysql_sql(script_ir: ScriptIR) -> SqlResult
 ```
 
-The skeleton must:
+The skeleton:
 
 - consume `ScriptIR` directly;
 - return existing immutable SQL result models;
-- classify every definition kind as emitting, non-emitting, or unsupported;
-- use one closed, reviewable MySQL capability declaration;
+- classify `RelationIR` as emitting and all current metadata definitions as
+  non-emitting;
+- diagnose unknown future definition kinds as unsupported;
 - fail closed with deterministic `PIE-B1000` diagnostics;
-- accept no partial artifact for a failed relation;
-- preserve source definition order for artifacts and diagnostics;
+- emit no partial artifact for a failed relation;
+- preserve source definition order for diagnostics;
 - avoid parser, semantic, IR-lowering, CLI, JSON, IO, or runtime imports;
-- expose no SQLGlot types if the adapter option is selected.
+- contain no SQLGlot dependency or types.
 
-Public export of `emit_mysql_sql` is a separate compatibility decision. A
-private backend skeleton does not automatically change `pietto.sql.__all__`.
+`src/pietto/sql/mysql.py` owns the skeleton. Its `emit_mysql_sql` entry point
+is intentionally importable only from the internal module:
+
+- it is absent from `pietto.sql.__all__`;
+- the CLI does not import or dispatch to it;
+- `mysql.table(Text)` remains unimplemented;
+- every `RelationIR` currently receives one ordered `PIE-B1000` diagnostic;
+- every returned `SqlResult` contains no MySQL artifact.
+
+Public export of `emit_mysql_sql` remains a separate compatibility decision.
+MySQL expression, source, and relation rendering remain Slice 6 work.
 
 ## Slice 5: MySQL Connector Semantic Surface
 
@@ -567,7 +582,6 @@ Phase 10 is complete only when:
 - JSON v2 and all runtime, database, project, watch, LSP, and Web capabilities
   remain unimplemented.
 
-Slices 1 through 3 satisfy none of the MySQL implementation criteria. Slice 1
-makes the implementation path and safety gates explicit, Slice 2 finalizes
-the implementation-technology decision, and Slice 3 finalizes the internal
-dispatch design without adding production behavior.
+Slices 1 through 3 satisfy none of the MySQL implementation criteria. Slice 4
+establishes only the private fail-closed backend boundary. It does not satisfy
+the connector, rendering, golden-corpus, CLI, or completion criteria.

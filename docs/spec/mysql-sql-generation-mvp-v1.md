@@ -2,12 +2,14 @@
 
 ## Status
 
-**This contract is planning/specification-only and is not implemented.**
+**Phase 10 Slice 4 implements only the private fail-closed backend skeleton.**
 
 It defines the smallest safe MySQL SQL-generation MVP that Phase 10 may
-implement. It does not add `mysql.table`, `emit_mysql_sql`,
+implement. The current internal `emit_mysql_sql` consumes `ScriptIR`, skips
+metadata definitions, reports `PIE-B1000` for relations and unknown future
+definitions, and emits no artifacts. It does not add `mysql.table`,
 `--dialect mysql`, SQLGlot, backend dispatch, semantic behavior, IR behavior,
-or runtime/database capability.
+MySQL SQL rendering, or runtime/database capability.
 
 The target is Oracle MySQL 8.0 or later SQL generation. MariaDB and other
 MySQL-compatible products are not certified by this contract.
@@ -59,8 +61,8 @@ The MVP must:
 16. The CLI remains explicitly dispatched by dialect and is enabled only
     after every acceptance gate passes.
 17. JSON schema version 1 remains unchanged.
-18. SQLGlot is optional and unapproved for production until its Phase 10
-    spike gates pass.
+18. Phase 10 selected a small handwritten renderer for the MVP; SQLGlot is
+    not adopted.
 
 ## Target And Compatibility Boundary
 
@@ -547,7 +549,8 @@ Before the complete Phase 10 implementation is accepted:
 - text CLI `--dialect mysql` remains an argparse usage error;
 - JSON `--dialect mysql` remains `unsupported_dialect`;
 - rejection occurs before parsing;
-- `emit_mysql_sql` is absent.
+- the private `emit_mysql_sql` skeleton is not exported or CLI-enabled and
+  emits no SQL artifacts.
 
 After all acceptance gates pass, the CLI may add the explicit mapping:
 

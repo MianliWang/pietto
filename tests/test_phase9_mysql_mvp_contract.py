@@ -25,7 +25,10 @@ def test_slice6_contract_and_status_documents_are_complete() -> None:
     assert "## Slice 6: MySQL MVP Contract" in plan
     _assert_contains_all(
         contract,
-        ("**This contract is planning/specification-only and is not implemented.**",),
+        (
+            "**Phase 10 Slice 4 implements only the private fail-closed "
+            "backend skeleton.**",
+        ),
     )
     for document in documents:
         assert MYSQL_CONTRACT in document
@@ -227,10 +230,11 @@ def test_slice6_does_not_implement_mysql_or_change_dependencies() -> None:
     lockfile = _read("uv.lock")
 
     assert "mysql.table" not in runtime_source
-    assert "emit_mysql_sql" not in runtime_source
+    assert "def emit_mysql_sql(" in runtime_source
     assert "def emit_sql(" not in runtime_source
     assert "sqlglot" not in runtime_source.lower()
     assert 'choices=("postgres",)' in cli_source
+    assert "emit_mysql_sql" not in cli_source
     assert "emit_mysql_sql" not in sql_exports
     assert '"emit_sql"' not in sql_exports
     assert "sqlglot" not in pyproject.lower()

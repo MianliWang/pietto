@@ -88,9 +88,10 @@ def test_slice3_does_not_implement_future_dialects_or_dependencies() -> None:
     cli_source = _read("src/pietto/cli.py")
 
     assert "mysql.table" not in runtime_source
-    assert "emit_mysql_sql" not in runtime_source
+    assert "def emit_mysql_sql(" in runtime_source
     assert "sqlglot" not in runtime_source.lower()
     assert 'choices=("postgres",)' in cli_source
+    assert "emit_mysql_sql" not in cli_source
 
 
 def _read(path: str) -> str:

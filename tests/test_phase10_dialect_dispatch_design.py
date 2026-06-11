@@ -177,7 +177,7 @@ def test_no_header_connector_dynamic_or_public_generic_dispatch_is_allowed() -> 
     )
 
 
-def test_slice3_does_not_implement_mysql_dispatch_or_change_public_sql_api() -> None:
+def test_slice4_keeps_mysql_private_and_does_not_implement_dispatch() -> None:
     project = tomllib.loads(_read("pyproject.toml"))
     runtime_source = "\n".join(
         path.read_text(encoding="utf-8")
@@ -192,7 +192,6 @@ def test_slice3_does_not_implement_mysql_dispatch_or_change_public_sql_api() -> 
     assert 'name = "sqlglot"' not in _read("uv.lock")
     for forbidden in (
         "mysql.table",
-        "emit_mysql_sql",
         "def emit_sql(",
         "_select_sql_emitter",
         "_enabled_sql_dialects",
@@ -201,6 +200,8 @@ def test_slice3_does_not_implement_mysql_dispatch_or_change_public_sql_api() -> 
         '"schema_version": 2',
     ):
         assert forbidden not in runtime_source
+    assert "def emit_mysql_sql(" in runtime_source
+    assert "emit_mysql_sql" not in cli_source
     assert 'choices=("postgres",)' in cli_source
     assert 'if dialect != "postgres":' in cli_source
     assert set(sql_api.__all__) == {

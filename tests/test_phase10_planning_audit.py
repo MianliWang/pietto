@@ -91,7 +91,7 @@ def test_phase10_documents_production_test_and_generated_typing_gates() -> None:
     }
 
 
-def test_phase10_slice1_does_not_implement_mysql_or_sqlglot() -> None:
+def test_phase10_keeps_mysql_skeleton_private_and_sqlglot_absent() -> None:
     project = tomllib.loads(_read("pyproject.toml"))
     runtime_text = "\n".join(
         path.read_text(encoding="utf-8")
@@ -104,13 +104,13 @@ def test_phase10_slice1_does_not_implement_mysql_or_sqlglot() -> None:
     assert 'name = "sqlglot"' not in _read("uv.lock")
     for forbidden in (
         "mysql.table",
-        "emit_mysql_sql",
         "def emit_sql(",
         "sqlglot",
         "schema_version = 2",
         '"schema_version": 2',
     ):
         assert forbidden not in runtime_text
+    assert "def emit_mysql_sql(" in runtime_text
     assert set(sql_api.__all__) == {
         "SqlArtifact",
         "SqlArtifactKind",
@@ -122,7 +122,7 @@ def test_phase10_slice1_does_not_implement_mysql_or_sqlglot() -> None:
     assert cli.main(["emit-sql", "missing.pietto", "--dialect", "mysql"]) == 2
 
 
-def test_phase10_status_documents_do_not_claim_mysql_is_implemented() -> None:
+def test_phase10_status_documents_describe_only_the_private_skeleton() -> None:
     combined = "\n".join(
         (
             _read("README.md"),
@@ -133,8 +133,8 @@ def test_phase10_status_documents_do_not_claim_mysql_is_implemented() -> None:
     normalized = " ".join(combined.split())
 
     assert "Phase 10 MySQL SQL Generation MVP" in normalized
-    assert "no MySQL behavior implemented" in normalized
-    assert "production implementation has not started" in normalized
+    assert "private MySQL backend skeleton" in normalized
+    assert "MySQL SQL rendering remains unimplemented" in normalized
 
 
 def _read(path: str) -> str:

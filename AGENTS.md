@@ -86,7 +86,7 @@ Rules:
 
 ## Current Phase
 
-Current phase: Phase 10 MySQL SQL Generation MVP, Slices 1 through 3 complete.
+Current phase: Phase 10 MySQL SQL Generation MVP, Slices 1 through 4 complete.
 Phases 8 and 9 are complete. Phase 9.5 improved handwritten type safety,
 isolated generated ANTLR typing noise, and migrated official source paths to
 `.pietto`. Phase 9.6 removed test-suite Pyright diagnostics through precise
@@ -94,8 +94,11 @@ test-only typing cleanup. Phase 10 Slice 1 adds the master plan and readiness
 audit. Slice 2 reviews SQLGlot `30.10.0` in an isolated uncommitted spike and
 selects a small handwritten MySQL renderer for the Phase 10 MVP. SQLGlot is not
 adopted. Slice 3 defines a private closed dialect-dispatch contract without
-implementing it. MySQL, dialect dispatch, connector support, and production
-behavior remain unimplemented.
+implementing it. Slice 4 adds a private MySQL backend skeleton that consumes
+`ScriptIR`, treats current metadata as non-emitting, and fails closed with
+ordered `PIE-B1000` diagnostics for relations and unknown future definitions.
+MySQL SQL rendering remains unimplemented. Dialect dispatch, connector
+support, CLI behavior, and MySQL SQL output remain unimplemented.
 
 Phase 1 parser/frontend, Phase 2 Semantic Checker, Phase 3 Semantic IR, Phase 4
 PostgreSQL SQL, Phase 5 CLI, Phase 5.5 Security / Robustness Hardening, and
@@ -201,13 +204,15 @@ The planning-only internal backend contract is documented in
 `ScriptIR -> SqlResult`, the public `emit_postgres_sql` entry point, explicit
 CLI dispatch, closed capability declarations, ordered partial results,
 `PIE-B1000`, and private SQLGlot isolation. No backend protocol, registry,
-dispatcher, generic public emitter, or MySQL entry point is implemented.
-The planning-only MySQL MVP is documented in
+dispatcher, or generic public emitter is implemented. The Slice 4 MySQL entry
+point remains private to `pietto.sql.mysql`.
+The MySQL MVP contract is documented in
 `docs/spec/mysql-sql-generation-mvp-v1.md`. It defines future
 `mysql.table(Text)`, `emit_mysql_sql(ScriptIR) -> SqlResult`, the closed
 MySQL 8.0+ SQL surface, `len -> CHAR_LENGTH`, `matches` rejection, identifier
 and literal policy, SQL-mode assumptions, golden fixtures, and CLI enablement
-gates. None of these are implemented.
+gates. Only the private fail-closed backend skeleton is implemented; it emits
+no MySQL SQL.
 The planned dialect-specific connector names, semantic/backend responsibility
 boundary, required capability declaration, physical-name model, and
 unsupported-case policy are documented in
@@ -238,8 +243,8 @@ budgets, and no project budget or config override is implemented.
 The current Phase 10 slice sequence, implementation gates, JSON boundary,
 typing requirements, and generation-only MySQL scope are documented in
 `docs/plan/phase-10-mysql-sql-generation-mvp.md`. Slices 1 through 3 are
-documentation and static audit only; no Phase 10 production implementation
-has started.
+documentation and static audit only. Slice 4 is the first production slice
+and adds only the private MySQL backend skeleton.
 
 Current strict boundaries remain:
 
@@ -273,10 +278,11 @@ Do not implement in the current phase unless explicitly requested:
 - concurrency/runtime features.
 
 All seven Phase 9 slices, Phase 9.5, and Phase 9.6 are complete. Phase 10
-Slices 1 through 3 are complete, but production implementation has not
-started. SQLGlot is rejected for the Phase 10 MVP. Production SQLGlot, MySQL,
-backend dispatch, semantic or IR implementation changes, richer SQL,
-execution, and database behavior remain prohibited.
+Slices 1 through 4 are complete. SQLGlot is rejected for the Phase 10 MVP.
+The private MySQL backend skeleton is the only MySQL production boundary;
+connector support, SQL rendering, public export, backend dispatch, CLI/JSON
+enablement, semantic or IR changes, richer SQL, execution, and database
+behavior remain prohibited.
 
 Compiler stages must remain isolated: IR construction must not mutate parser
 or semantic inputs, and SQL backends must consume `ScriptIR` without rerunning
