@@ -16,7 +16,7 @@ The current implementation status is:
 - **Phase 9 SQL Backend Architecture & Dialect Strategy: complete**;
 - **Phase 9.5 Static Typing And Source Extension Hardening: complete**;
 - **Phase 9.6 Test Typing Hygiene: complete**;
-- **Phase 10 MySQL SQL Generation MVP: current; Slices 1 through 6 complete**.
+- **Phase 10 MySQL SQL Generation MVP: current; Slices 1 through 7 complete**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits PostgreSQL SQL, and presents the
@@ -137,10 +137,13 @@ Slice 6 implements the private handwritten MySQL expression and relation
 renderer: backtick identifiers, the accepted MySQL literal policy, minimal
 `SELECT`/`FROM`/optional `WHERE`, approved operators and functions, relation
 references, ordered artifacts, and fail-closed `PIE-B1000` diagnostics.
+Slice 7 adds three manually reviewed byte-exact MySQL golden groups covering
+literals/identifiers, expressions, and ordering/metadata, plus explicit locks
+for every existing PostgreSQL SQL golden and public backend module.
 PostgreSQL remains the handwritten byte-exact reference. `--dialect mysql`,
-dialect dispatch, public MySQL exports, CLI MySQL output, and reviewed MySQL
-golden fixtures are still absent. JSON v1 remains the only runtime CLI JSON
-schema.
+dialect dispatch, public MySQL exports, and CLI MySQL output remain absent.
+JSON v1 remains the only runtime CLI JSON schema; MySQL JSON success output is
+deferred to the Slice 8 CLI gate.
 
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added
@@ -196,7 +199,7 @@ The MySQL 8.0+ generation surface, connector, identifier, literal, SQL-mode,
 diagnostic, golden, and CLI-gate rules are in
 [the MySQL SQL generation MVP contract](docs/spec/mysql-sql-generation-mvp-v1.md);
 the private fail-closed backend, static connector/IR surface, and closed
-renderer are implemented.
+renderer are implemented, and the reviewed MySQL golden corpus is locked.
 The planned connector naming, stage ownership, backend capability, physical
 source-name, and fail-closed diagnostic rules are in
 [the SQL dialect capability and source contract](docs/spec/sql-dialect-source-contract-v1.md);

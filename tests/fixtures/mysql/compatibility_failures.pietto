@@ -1,0 +1,31 @@
+pietto 0.9
+mode checked
+dialect mysql
+encoding utf8
+
+shape User:
+    email: Text nullable
+
+source users: User is mysql.table("users")
+
+table first_bad:
+    from users
+    where matches(email, "@")
+    select:
+        email
+
+table first_ok:
+    from users
+    select:
+        email
+
+table second_bad:
+    from users
+    where email like "%@%"
+    select:
+        email
+
+query second_ok:
+    from first_ok
+    select:
+        email

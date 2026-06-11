@@ -1,0 +1,40 @@
+pietto 0.9
+mode checked
+dialect mysql
+encoding utf8
+
+shape MetricRow:
+    email: Text nullable
+    age: Int not null
+    score: Int not null
+    deleted_at: Timestamp nullable
+    active: Bool not null
+
+source metrics: MetricRow is mysql.table("analytics.metrics")
+
+table expression_compatibility:
+    from metrics
+    where (age >= 18 and deleted_at is null) or email is not null
+    select:
+        normalized = lower(trim(email))
+        text_length = len(email)
+        equal = score == 10
+        not_equal = score != 11
+        less = score < 12
+        less_equal = score <= 13
+        greater = score > 8
+        greater_equal = score >= 7
+        ranged = score between 1 and 100
+        is_null = deleted_at is null
+        not_null = email is not null
+        positive = +score
+        negative = -score
+        added = score + 2
+        subtracted = score - 2
+        multiplied = score * 2
+        divided = score / 2
+        modulo = score % 2
+        conjunction = active and true
+        disjunction = active or false
+        precedence = score + 2 * 3
+        grouped = (score + 2) * 3

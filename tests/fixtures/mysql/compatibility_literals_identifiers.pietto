@@ -1,0 +1,26 @@
+pietto 0.9
+mode checked
+dialect mysql
+encoding utf8
+
+shape CompatibilityRow:
+    order: Text not null
+    email: Text not null
+
+source Rows: CompatibilityRow is mysql.table("Sales.Compat`ibilityRows")
+
+table LiteralCompatibility:
+    from Rows
+    where email == "\\'; --"
+    select:
+        QuotedText = "O'Reilly"
+        EscapedText = "\\'; --"
+        ControlText = "\b\n\r\t"
+        UnicodeText = "你好"
+        Nothing = null
+        Truth = true
+        Falsehood = false
+        Count = 42
+        Ratio = 1.5
+        ReservedName = order
+        QualifiedEmail = Rows.email

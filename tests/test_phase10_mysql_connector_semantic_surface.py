@@ -25,7 +25,7 @@ def test_slice5_status_and_cross_references_are_complete() -> None:
     assert "5. **MySQL Connector Semantic Surface**: complete." in plan
     for document in status_documents:
         normalized = " ".join(document.split())
-        assert "Slices 1 through 6 complete" in normalized
+        assert "Slices 1 through 7 complete" in normalized
         assert "mysql.table(Text)" in normalized
         assert "private handwritten MySQL" in normalized
 

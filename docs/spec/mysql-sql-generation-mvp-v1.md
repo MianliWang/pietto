@@ -612,8 +612,9 @@ The smallest useful byte-exact MySQL SQL corpus is:
    - one relation-to-relation reference;
    - CLI artifact separation remains one blank line.
 
-The corpus should also add one structural JSON v1 success fixture with
-`"dialect": "mysql"`.
+The future CLI corpus must also add one structural JSON v1 success fixture
+with `"dialect": "mysql"`. That fixture belongs to Slice 8 because Slice 7
+does not enable MySQL CLI or JSON behavior.
 
 Focused non-golden tests must cover:
 

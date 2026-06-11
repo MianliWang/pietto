@@ -1180,7 +1180,7 @@ grammar, generated file, dependency, or lockfile.
 
 ### Phase 10: MySQL SQL Generation MVP
 
-Status: current, Slices 1 through 6 complete. The Phase 10 master plan defines
+Status: current, Slices 1 through 7 complete. The Phase 10 master plan defines
 nine separately approved slices for a future generation-only MySQL 8.0+
 backend. Slice 1 establishes planning and readiness gates. Slice 2 evaluates
 SQLGlot `30.10.0` in an isolated temporary spike and selects a small
@@ -1195,6 +1195,9 @@ its exact name, non-empty opaque text argument, and source span in
 `ConnectorIR`.
 Slice 6 implements the private handwritten MySQL expression and relation
 renderer under the closed MySQL MVP contract.
+Slice 7 adds three manually reviewed byte-exact MySQL golden groups and
+explicit regression locks for every existing PostgreSQL SQL golden and public
+backend module.
 
 The handwritten PostgreSQL backend remains the byte-exact reference. JSON v1
 remains the only runtime single-file CLI schema; JSON v2 remains reserved for
@@ -1214,8 +1217,9 @@ ownership are documented in `docs/spec/sql-dialect-dispatch-design-v1.md`.
 The `emit_mysql_sql` boundary remains private to `pietto.sql.mysql`; it is not
 publicly exported or CLI-enabled. It now renders the approved MySQL MVP
 surface and fails closed for unsupported relations. `--dialect mysql`,
-dialect dispatch, CLI and JSON changes, reviewed MySQL golden fixtures, and
-CLI MySQL output remain unimplemented.
+dialect dispatch, CLI and JSON changes, and CLI MySQL output remain
+unimplemented. A MySQL JSON v1 success fixture remains deferred until Slice 8
+can enable the corresponding CLI path.
 
 ---
 

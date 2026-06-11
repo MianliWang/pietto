@@ -16,6 +16,8 @@
 
 **Slice 6: MySQL Expression And Relation Rendering MVP is complete.**
 
+**Slice 7: MySQL Golden Corpus And PostgreSQL Regression Lock is complete.**
+
 Phase 10 is the first implementation phase after the Phase 9 SQL backend
 architecture work. Slices 1 through 3 are documentation and static audit only.
 Slice 2 selects a small handwritten MySQL renderer for the Phase 10 MVP and
@@ -23,8 +25,9 @@ rejects SQLGlot for this MVP. Slice 3 defines closed internal dispatch without
 implementing it. Slice 4 adds only a private, fail-closed MySQL backend
 skeleton. Slice 5 adds static semantic recognition and IR preservation for
 `mysql.table(Text)`. Slice 6 implements the closed handwritten MySQL
-expression and relation renderer. MySQL remains private and is not publicly
-exported or CLI-enabled.
+expression and relation renderer. Slice 7 adds manually reviewed MySQL golden
+fixtures and PostgreSQL regression locks. MySQL remains private and is not
+publicly exported or CLI-enabled.
 
 Every later slice requires a separate explicit implementation request. A
 planned capability is not an implemented or approved public interface merely
@@ -145,7 +148,7 @@ Phase 10 does not add:
 6. **MySQL Expression And Relation Rendering MVP**: complete. Implement the
    closed approved MySQL expression, literal, identifier, source, relation,
    artifact, and diagnostic surface.
-7. **MySQL Golden Corpus And PostgreSQL Regression Lock**: planned. Add
+7. **MySQL Golden Corpus And PostgreSQL Regression Lock**: complete. Add
    manually reviewed byte-exact MySQL fixtures and prove every PostgreSQL
    fixture remains unchanged.
 8. **CLI Enablement For `--dialect mysql`**: planned. Enable explicit MySQL
@@ -400,9 +403,12 @@ Only that error is converted to `PIE-B1000`; unexpected programming errors
 remain visible.
 
 Slice 6 does not add reviewed golden fixtures, CLI dispatch, JSON MySQL
-success behavior, or a public SQL API. Those remain later gates.
+success behavior, or a public SQL API. Slice 7 adds only the reviewed fixture
+and regression-test portion of those later gates.
 
 ## Slice 7: MySQL Golden Corpus And PostgreSQL Regression Lock
+
+**Slice 7 is complete.**
 
 Slice 7 adds manually reviewed fixtures only. It must not add snapshot
 libraries, generated expected output, or automatic update commands.
@@ -415,8 +421,9 @@ The minimum MySQL corpus is:
    arithmetic, Boolean operators, precedence, and parentheses.
 3. **Ordering And Metadata**: non-emitting metadata, two ordered relation
    artifacts, relation-name input, and stable CLI artifact separation.
-4. **Structural JSON v1**: successful `emit-sql` output with
-   `"dialect": "mysql"`.
+4. **Structural JSON v1 Planning**: record that future successful output uses
+   `"dialect": "mysql"`. The actual JSON fixture remains Slice 8 work because
+   MySQL CLI dispatch is still disabled.
 
 Focused negative tests must cover connector mismatch, `matches`, `LIKE`,
 unknown nodes and operators, identifier limits, invalid literals, NUL,
@@ -425,6 +432,25 @@ used.
 
 All five PostgreSQL byte-exact SQL fixtures and existing PostgreSQL unit tests
 must pass unchanged.
+
+The reviewed corpus is committed as three `.pietto` inputs and three
+byte-exact SQL outputs:
+
+- `compatibility_literals_identifiers`;
+- `compatibility_expressions`;
+- `compatibility_ordering_metadata`.
+
+The tests compile each input through the normal frontend and IR stages, invoke
+the private `emit_mysql_sql` backend directly, and compare ordered artifacts
+byte-for-byte. A focused failure fixture locks coexistence and source ordering
+of successful artifacts and `PIE-B1000` diagnostics. Existing negative tests
+continue to cover unsupported connectors, `matches`, `LIKE`, unknown
+functions/operators/nodes, invalid identifiers/literals, NUL, no partial
+artifacts, and propagation of unexpected `TypeError`/`ValueError`.
+
+Every existing PostgreSQL SQL golden is both hash-locked and regenerated
+through `emit_postgres_sql`. PostgreSQL public exports and backend module
+hashes are also locked. No existing PostgreSQL fixture is modified.
 
 ## Slice 8: CLI Enablement For `--dialect mysql`
 
@@ -615,4 +641,5 @@ Phase 10 is complete only when:
 Slices 1 through 3 satisfy none of the MySQL implementation criteria. Slice 4
 establishes the private fail-closed backend boundary, Slice 5 satisfies the
 static connector and IR-preservation gate, and Slice 6 satisfies the closed
-rendering gate. The golden-corpus, CLI, and completion criteria remain open.
+rendering gate. Slice 7 satisfies the reviewed golden-corpus and PostgreSQL
+regression-lock gate. The CLI and completion criteria remain open.
