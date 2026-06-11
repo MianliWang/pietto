@@ -15,6 +15,7 @@ from pietto.errors import Severity
 from pietto.ir import (
     CallIR,
     ConstraintIR,
+    DefinitionIR,
     DeriveIR,
     FieldId,
     FieldRefIR,
@@ -45,7 +46,8 @@ def test_constraint_and_derive_lower_in_source_order() -> None:
 
     assert result.ir is not None
     assert [
-        (type(definition), definition.name) for definition in result.ir.definitions
+        (type(definition), _definition_name(definition))
+        for definition in result.ir.definitions
     ] == [
         (TypeIR, "Email"),
         (TypeIR, "Predicate"),
@@ -239,6 +241,11 @@ def _callable(
         for definition in result.ir.definitions
         if isinstance(definition, definition_type)
     )
+
+
+def _definition_name(definition: DefinitionIR) -> str:
+    assert isinstance(definition, (TypeIR, ConstraintIR, DeriveIR))
+    return definition.name
 
 
 def _semantic_snapshot(model: SemanticModel) -> tuple[tuple[str, object], ...]:

@@ -14,7 +14,8 @@ The current implementation status is:
 - **Phase 7 Developer Workflow & Stability Foundation: complete**;
 - **Phase 8 Project Model & Configuration Planning: complete**;
 - **Phase 9 SQL Backend Architecture & Dialect Strategy: complete**;
-- **Phase 9.5 Static Typing And Source Extension Hardening: complete**.
+- **Phase 9.5 Static Typing And Source Extension Hardening: complete**;
+- **Phase 9.6 Test Typing Hygiene: complete**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits PostgreSQL SQL, and presents the
@@ -113,6 +114,11 @@ production source, isolates generated ANTLR typing noise, and makes `.pietto`
 the only official Pietto source extension. The CLI remains path-based and does
 not reject other suffixes.
 
+Phase 9.6 Test Typing Hygiene is complete. It removes test-suite Pyright
+diagnostics through precise test-only narrowing and helper typing. The
+mandatory production Pyright gate remains unchanged; the clean test
+configuration remains an explicit non-blocking command.
+
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added
 full structural depth, semantic graph, diagnostic/output, wall-clock, CPU, or
@@ -142,6 +148,9 @@ seven-slice sequence, and completion audit are in
 [the Phase 9 SQL Backend Architecture & Dialect Strategy plan](docs/plan/phase-9-sql-backend-architecture-dialect-strategy.md).
 The completed typing and source-extension hardening work is documented in
 [the Phase 9.5 Static Typing And Source Extension Hardening plan](docs/plan/phase-9-5-static-typing-source-extension-hardening.md).
+The completed test-only typing cleanup and non-blocking test configuration are
+documented in
+[the Phase 9.6 Test Typing Hygiene plan](docs/plan/phase-9-6-test-typing-hygiene.md).
 The evidence matrix, rejected roles, dependency and resource risks, and
 conditional Phase 10 spike decision are in
 [the Phase 9 SQLGlot evaluation](docs/plan/phase-9-sqlglot-evaluation.md);

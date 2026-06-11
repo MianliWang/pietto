@@ -308,11 +308,11 @@ def _compile(source: str) -> ScriptIR:
     return ir_result.ir
 
 
-def _definition(
+def _definition[DefinitionT: (SourceIR, RelationIR)](
     script_ir: ScriptIR,
-    definition_type: type[SourceIR] | type[RelationIR],
+    definition_type: type[DefinitionT],
     name: str,
-) -> SourceIR | RelationIR:
+) -> DefinitionT:
     return next(
         definition
         for definition in script_ir.definitions

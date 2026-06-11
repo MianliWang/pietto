@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from copy import deepcopy
 from dataclasses import fields, is_dataclass
+from typing import cast
 
 import pytest
 from antlr4 import ParserRuleContext
@@ -11,6 +12,7 @@ from antlr4.Token import Token
 from pietto.ast_nodes import (
     CallExpr,
     ComparisonExpr,
+    Expression,
     IsNullExpr,
     LiteralExpr,
     NameExpr,
@@ -59,7 +61,7 @@ def test_literal_expression_maps_to_builtin_type(
             "        id\n"
         )
     )
-    expression = _table(result).where_clause.expression
+    expression = _where_expression(result)
     assert isinstance(expression, LiteralExpr)
     assert isinstance(expression.value, python_type)
 
@@ -131,7 +133,7 @@ def test_is_null_expression_maps_to_non_null_bool(operator: str) -> None:
             "        id\n"
         )
     )
-    expression = _table(result).where_clause.expression
+    expression = _where_expression(result)
     assert isinstance(expression, IsNullExpr)
 
     value_type = result.model.expression_value_types[expression]
@@ -151,7 +153,7 @@ def test_simple_comparison_maps_to_bool_and_types_operands() -> None:
             "        id\n"
         )
     )
-    expression = _table(result).where_clause.expression
+    expression = _where_expression(result)
     assert isinstance(expression, ComparisonExpr)
 
     value_type = result.model.expression_value_types[expression]
@@ -176,7 +178,7 @@ def test_unknown_call_argument_suppresses_dependent_call_diagnostic() -> None:
             "        id\n"
         )
     )
-    expression = _table(result).where_clause.expression
+    expression = _where_expression(result)
     assert isinstance(expression, ComparisonExpr)
     assert isinstance(expression.left, CallExpr)
 
@@ -213,12 +215,14 @@ def test_expression_value_types_mapping_is_readonly() -> None:
     )
     expression = _table(result).select_items[0].expression
 
+    mutable_value_types = cast(
+        dict[Expression, object],
+        result.model.expression_value_types,
+    )
     with pytest.raises(TypeError):
-        result.model.expression_value_types[expression] = (
-            result.model.expression_value_types[  # type: ignore[index]
-                expression
-            ]
-        )
+        mutable_value_types[expression] = result.model.expression_value_types[
+            expression
+        ]
 
 
 def test_expression_typing_does_not_mutate_input_ast() -> None:
@@ -262,6 +266,12 @@ def _table(result: SemanticResult) -> TableDef:
     assert isinstance(definition, TableDef)
     assert definition.where_clause is not None or definition.select_items
     return definition
+
+
+def _where_expression(result: SemanticResult) -> Expression:
+    table = _table(result)
+    assert table.where_clause is not None
+    return table.where_clause.expression
 
 
 def _assert_no_antlr_nodes(value: object) -> None:

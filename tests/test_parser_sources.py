@@ -17,7 +17,7 @@ from pietto.ast_nodes import (
     Span,
     TypeDef,
 )
-from pietto.parser_api import parse_file, parse_source
+from pietto.parser_api import ParseResult, parse_file, parse_source
 
 
 def test_typed_and_untyped_sources_parse_connector_expressions() -> None:
@@ -141,6 +141,7 @@ def test_source_spans_are_one_based_half_open() -> None:
         end_line=1,
         end_column=53,
     )
+    assert isinstance(definition.connector, CallExpr)
     assert definition.connector.arguments[0].span == Span(
         path=str(path),
         line=1,
@@ -224,5 +225,5 @@ def _assert_no_antlr_nodes(value: object) -> None:
             _assert_no_antlr_nodes(item)
 
 
-def _has_code(result: object, code: str) -> bool:
+def _has_code(result: ParseResult, code: str) -> bool:
     return any(diagnostic.code == code for diagnostic in result.diagnostics)

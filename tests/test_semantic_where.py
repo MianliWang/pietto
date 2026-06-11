@@ -8,7 +8,7 @@ import pytest
 from antlr4 import ParserRuleContext
 from antlr4.Token import Token
 
-from pietto.ast_nodes import QueryDef, Script, TableDef
+from pietto.ast_nodes import Expression, QueryDef, Script, TableDef
 from pietto.errors import Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import CheckMode, SemanticResult, ValueTypeKind, analyze
@@ -33,7 +33,7 @@ def test_is_null_where_expression_is_bool(operator: str) -> None:
             "        text\n"
         )
     )
-    expression = _table(result).where_clause.expression
+    expression = _table_where_expression(result)
 
     assert result.diagnostics == ()
     assert result.model.expression_value_types[expression].resolved_type.name == "Bool"
@@ -49,7 +49,7 @@ def test_simple_comparison_where_expression_is_bool() -> None:
             "        text\n"
         )
     )
-    expression = _table(result).where_clause.expression
+    expression = _table_where_expression(result)
 
     assert result.diagnostics == ()
     assert result.model.expression_value_types[expression].resolved_type.name == "Bool"
@@ -71,7 +71,7 @@ def test_known_non_bool_table_where_reports_pie_s2202(
             "        text\n"
         )
     )
-    expression = _table(result).where_clause.expression
+    expression = _table_where_expression(result)
 
     assert [
         (diagnostic.code, diagnostic.severity, diagnostic.message)
@@ -98,7 +98,7 @@ def test_non_bool_where_diagnostic_uses_expression_span() -> None:
         path="where.pietto",
     )
     result = analyze(script)
-    expression = _table(result).where_clause.expression
+    expression = _table_where_expression(result)
     diagnostic = result.diagnostics[0]
 
     assert diagnostic.code == "PIE-S2202"
@@ -126,7 +126,7 @@ def test_unknown_field_suppresses_bool_cascade() -> None:
             "        text\n"
         )
     )
-    expression = _table(result).where_clause.expression
+    expression = _table_where_expression(result)
 
     assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2102"]
     assert result.model.expression_value_types[expression].kind is ValueTypeKind.UNKNOWN
@@ -144,7 +144,7 @@ def test_unknown_input_schema_suppresses_field_and_bool_diagnostics() -> None:
         ),
         mode_override=CheckMode.LOOSE,
     )
-    expression = _table(result).where_clause.expression
+    expression = _table_where_expression(result)
 
     assert result.diagnostics == ()
     assert result.model.expression_value_types[expression].kind is ValueTypeKind.UNKNOWN
@@ -160,7 +160,7 @@ def test_known_non_bool_query_where_reports_pie_s2202() -> None:
             "        text\n"
         )
     )
-    expression = _query(result).where_clause.expression
+    expression = _query_where_expression(result)
 
     assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2202"]
     assert result.model.expression_value_types[expression].resolved_type.name == "Text"
@@ -176,7 +176,7 @@ def test_unknown_function_suppresses_bool_diagnostic() -> None:
             "        text\n"
         )
     )
-    expression = _table(result).where_clause.expression
+    expression = _table_where_expression(result)
 
     assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-S2103"]
     assert result.model.expression_value_types[expression].kind is ValueTypeKind.UNKNOWN
@@ -230,6 +230,18 @@ def _query(result: SemanticResult) -> QueryDef:
     assert isinstance(definition, QueryDef)
     assert definition.where_clause is not None
     return definition
+
+
+def _table_where_expression(result: SemanticResult) -> Expression:
+    table = _table(result)
+    assert table.where_clause is not None
+    return table.where_clause.expression
+
+
+def _query_where_expression(result: SemanticResult) -> Expression:
+    query = _query(result)
+    assert query.where_clause is not None
+    return query.where_clause.expression
 
 
 def _assert_no_antlr_nodes(value: object) -> None:

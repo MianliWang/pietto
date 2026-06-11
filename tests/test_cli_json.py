@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import cast
+from typing import TypedDict, cast
 
 import pytest
 
@@ -19,6 +19,19 @@ from pietto.cli_json import (
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.sql import SqlArtifact, SqlArtifactKind
+
+
+class _JsonLocation(TypedDict):
+    path: str | None
+
+
+class _JsonDiagnostic(TypedDict):
+    code: str
+    location: _JsonLocation | None
+
+
+class _JsonArtifact(TypedDict):
+    name: str
 
 
 def test_diagnostic_serialization_has_fixed_fields_and_lowercase_severity() -> None:
@@ -210,12 +223,16 @@ def test_emit_sql_result_preserves_artifacts_and_diagnostics_in_order() -> None:
     )
 
     assert result["ok"] is False
-    assert [item["name"] for item in result["artifacts"]] == ["first", "second"]
-    assert [item["code"] for item in result["diagnostics"]] == [
+    artifacts = cast(list[_JsonArtifact], result["artifacts"])
+    diagnostics = cast(list[_JsonDiagnostic], result["diagnostics"])
+    assert [item["name"] for item in artifacts] == ["first", "second"]
+    assert [item["code"] for item in diagnostics] == [
         "PIE-S2005",
         "PIE-B1000",
     ]
-    assert result["diagnostics"][0]["location"]["path"] == "input.pietto"
+    location = diagnostics[0]["location"]
+    assert location is not None
+    assert location["path"] == "input.pietto"
 
 
 @pytest.mark.parametrize("written", [True, False])

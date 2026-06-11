@@ -70,7 +70,8 @@ def test_relation_pipeline_preserves_order_dependencies_and_schemas() -> None:
 
     assert result.ir is not None
     assert [
-        (type(definition), definition.name) for definition in result.ir.definitions
+        (type(definition), _definition_name(definition))
+        for definition in result.ir.definitions
     ] == [
         (TypeIR, "Email"),
         (ConstraintIR, "valid_flag"),
@@ -258,11 +259,11 @@ def _compile(
     return result, parse_result.ast, semantic_result.model
 
 
-def _definition(
+def _definition[DefinitionT: (TypeIR, ShapeIR, SourceIR)](
     result: IrResult,
-    definition_type: type[TypeIR] | type[ShapeIR] | type[SourceIR],
+    definition_type: type[DefinitionT],
     name: str,
-) -> TypeIR | ShapeIR | SourceIR:
+) -> DefinitionT:
     assert result.ir is not None
     return next(
         definition
@@ -278,6 +279,14 @@ def _relation(result: IrResult, name: str) -> RelationIR:
         for definition in result.ir.definitions
         if isinstance(definition, RelationIR) and definition.name == name
     )
+
+
+def _definition_name(definition: object) -> str:
+    assert isinstance(
+        definition,
+        (TypeIR, ConstraintIR, ShapeIR, DeriveIR, SourceIR, RelationIR),
+    )
+    return definition.name
 
 
 def _assert_frontend_independent(value: object) -> None:

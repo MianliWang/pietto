@@ -40,10 +40,7 @@ def test_phase7_documentation_records_complete_single_file_scope() -> None:
     for slice_number in range(1, 8):
         assert f"{slice_number}. **" in phase7
     assert "**Phase 7 Developer Workflow & Stability Foundation: complete**" in readme
-    assert (
-        "Current phase: Phase 9.5 Static Typing And Source Extension Hardening "
-        "complete."
-    ) in agents
+    assert ("Current phase: Phase 9.6 Test Typing Hygiene complete.") in agents
     assert "**Phase 8 planning/specification is complete.**" in phase8
     assert "Every Phase 8 slice is documentation, specification" in phase8
     for slice_name in (

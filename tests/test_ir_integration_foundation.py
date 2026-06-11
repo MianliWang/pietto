@@ -251,10 +251,10 @@ def _compile_foundation(source: str) -> IrResult:
     return build_ir(parse_result.ast, semantic_result.model)
 
 
-def _definition(
+def _definition[DefinitionT: (TypeIR, ShapeIR, SourceIR)](
     script_ir: ScriptIR,
-    definition_type: type[TypeIR] | type[ShapeIR] | type[SourceIR],
-) -> TypeIR | ShapeIR | SourceIR:
+    definition_type: type[DefinitionT],
+) -> DefinitionT:
     return next(
         definition
         for definition in script_ir.definitions

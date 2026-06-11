@@ -227,6 +227,7 @@ def test_current_opaque_expression_forms_lower_with_unknown_types() -> None:
     )
     table = _table(script)
     fields, owner = _input_fields(model, table)
+    assert table.where_clause is not None
     expressions = (
         table.select_items[0].expression,
         table.select_items[1].expression,

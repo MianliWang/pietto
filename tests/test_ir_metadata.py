@@ -56,6 +56,7 @@ from pietto.semantic import SemanticModel, analyze
     ],
 )
 def test_ir_metadata_models_are_frozen(value: object) -> None:
+    assert is_dataclass(value)
     field = fields(value)[0]
 
     with pytest.raises(FrozenInstanceError):
@@ -210,11 +211,11 @@ def _shape(script: Script) -> ShapeDef:
     return _definition(script, ShapeDef, "User")
 
 
-def _definition(
+def _definition[DefinitionT: (ShapeDef, SourceDef, TableDef)](
     script: Script,
-    definition_type: type[ShapeDef] | type[SourceDef] | type[TableDef],
+    definition_type: type[DefinitionT],
     name: str,
-) -> ShapeDef | SourceDef | TableDef:
+) -> DefinitionT:
     return next(
         definition
         for definition in script.definitions

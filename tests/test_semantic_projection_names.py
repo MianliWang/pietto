@@ -149,9 +149,12 @@ def test_unnamed_computed_projection_mode_policy(
         ),
         mode_override=mode,
     )
-    schema = result.model.relation_row_schemas[
-        _relation(result, TableDef if keyword == "table" else QueryDef)
-    ]
+    relation = (
+        _relation(result, TableDef)
+        if keyword == "table"
+        else _relation(result, QueryDef)
+    )
+    schema = result.model.relation_row_schemas[relation]
 
     assert (
         tuple(

@@ -8,7 +8,7 @@ import pytest
 from antlr4 import ParserRuleContext
 from antlr4.Token import Token
 
-from pietto.ast_nodes import CallExpr, Script, TableDef
+from pietto.ast_nodes import CallExpr, Expression, Script, TableDef
 from pietto.errors import Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import (
@@ -90,8 +90,7 @@ def test_matches_returns_bool_and_is_valid_where_predicate() -> None:
             "        email\n"
         )
     )
-    table = _table(result)
-    expression = table.where_clause.expression
+    expression = _where_expression(result)
     assert isinstance(expression, CallExpr)
 
     assert result.diagnostics == ()
@@ -241,6 +240,12 @@ def _table(result: SemanticResult) -> TableDef:
     definition = result.model.relation_symbols["projected"]
     assert isinstance(definition, TableDef)
     return definition
+
+
+def _where_expression(result: SemanticResult) -> Expression:
+    table = _table(result)
+    assert table.where_clause is not None
+    return table.where_clause.expression
 
 
 def _call(result: SemanticResult) -> CallExpr:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from pietto.parser_api import parse_source
+from pietto.parser_api import ParseResult, parse_source
 
 
 def test_malformed_type_reports_generic_syntax_error() -> None:
@@ -157,5 +157,5 @@ def test_duplicate_or_out_of_order_header_reports_syntax_error(
     assert _has_code(result, "PIE-P1000")
 
 
-def _has_code(result: object, code: str) -> bool:
+def _has_code(result: ParseResult, code: str) -> bool:
     return any(diagnostic.code == code for diagnostic in result.diagnostics)

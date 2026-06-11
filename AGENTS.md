@@ -86,12 +86,12 @@ Rules:
 
 ## Current Phase
 
-Current phase: Phase 9.5 Static Typing And Source Extension Hardening complete.
-Phases 8 and 9 are complete. Phase 9.5 was a tooling and
-repository-convention hardening phase. It improved handwritten type safety,
+Current phase: Phase 9.6 Test Typing Hygiene complete.
+Phases 8 and 9 are complete. Phase 9.5 improved handwritten type safety,
 isolated generated ANTLR typing noise, and migrated official source paths to
-`.pietto` without changing language, parser, semantic, IR, SQL, CLI, JSON,
-public API, runtime, or database behavior.
+`.pietto`. Phase 9.6 removed test-suite Pyright diagnostics through precise
+test-only typing cleanup. Neither phase changed language, parser, semantic,
+IR, SQL, CLI, JSON, public API, runtime, or database behavior.
 
 Phase 1 parser/frontend, Phase 2 Semantic Checker, Phase 3 Semantic IR, Phase 4
 PostgreSQL SQL, Phase 5 CLI, Phase 5.5 Security / Robustness Hardening, and

@@ -1166,6 +1166,17 @@ output, CLI contract, JSON schema, public API, dependency, or runtime behavior.
 It is documented in
 `docs/plan/phase-9-5-static-typing-source-extension-hardening.md`.
 
+### Phase 9.6: Test Typing Hygiene
+
+Status: complete. Phase 9.6 removes test-suite Pyright diagnostics with
+test-only narrowing, helper typing, and explicit annotations. The mandatory
+standard-mode Pyright gate remains scoped to handwritten production source;
+the clean test configuration is available as a separate non-blocking command.
+
+Generated ANTLR diagnostics remain isolated by the targeted Phase 9.5
+configuration. This phase changes no production behavior, public interface,
+grammar, generated file, dependency, or lockfile.
+
 ---
 
 ## 14. Codex Implementation Strategy

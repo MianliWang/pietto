@@ -14,7 +14,7 @@ from pietto.ast_nodes import (
     Nullability,
     TypeDef,
 )
-from pietto.parser_api import parse_file, parse_source
+from pietto.parser_api import ParseResult, parse_file, parse_source
 
 
 def test_constraint_with_nullable_parameter_parses() -> None:
@@ -164,5 +164,5 @@ def test_constraint_rejects_multiple_body_expressions() -> None:
     assert _has_code(result, "PIE-P1000")
 
 
-def _has_code(result: object, code: str) -> bool:
+def _has_code(result: ParseResult, code: str) -> bool:
     return any(diagnostic.code == code for diagnostic in result.diagnostics)

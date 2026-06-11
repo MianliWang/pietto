@@ -24,6 +24,7 @@ def test_complete_header_parses() -> None:
 
     assert result.diagnostics == ()
     assert isinstance(result.ast, Script)
+    assert result.ast.header is not None
     assert result.ast.header == Header(
         span=result.ast.header.span,
         version="0.9",
@@ -75,6 +76,7 @@ def test_spans_are_one_based_half_open_and_exclude_trailing_newline() -> None:
     assert result.diagnostics == ()
     assert result.ast is not None
     definition = result.ast.definitions[0]
+    assert isinstance(definition, TypeDef)
     assert definition.span == Span(
         path=str(path),
         line=1,

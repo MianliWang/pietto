@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import importlib
 import tomllib
+from importlib.util import find_spec
 from pathlib import Path
 
 import pytest
@@ -111,4 +111,4 @@ def test_scaffold_does_not_invoke_compiler_stages(
 def test_scaffold_has_no_compile_to_ir_wrapper() -> None:
     assert not hasattr(cli, "compile_to_ir")
     assert not hasattr(ir_api, "compile_to_ir")
-    assert importlib.util.find_spec("pietto.cli") is not None
+    assert find_spec("pietto.cli") is not None

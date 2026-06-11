@@ -17,6 +17,7 @@ from pietto.ir.model import (
     LiteralIR,
     NullabilityIR,
     SourceSpan,
+    StaticValue,
     TypeKindIR,
     TypeRefIR,
     UnaryIR,
@@ -41,7 +42,7 @@ UNKNOWN_TYPE = TypeRefIR(
 )
 
 
-def _literal(value: object) -> LiteralIR:
+def _literal(value: StaticValue) -> LiteralIR:
     return LiteralIR(span=SPAN, value_type=UNKNOWN_TYPE, value=value)
 
 
@@ -80,7 +81,7 @@ def _call(callee: str, *arguments: ExpressionIR) -> CallIR:
     ],
 )
 def test_literal_ir_uses_scalar_literal_rendering(
-    value: object,
+    value: StaticValue,
     expected: str,
 ) -> None:
     assert render_expression_sql(_literal(value)) == expected

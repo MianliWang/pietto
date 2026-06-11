@@ -100,7 +100,7 @@ def test_every_supported_top_level_definition_lowers_in_source_order() -> None:
     assert [
         (
             type(definition),
-            definition.name,
+            _ir_definition_identity(definition)[1],
             definition.kind if isinstance(definition, RelationIR) else None,
         )
         for definition in result.ir.definitions
@@ -122,6 +122,7 @@ def test_complete_public_ir_graph_is_immutable_and_frontend_independent() -> Non
     _assert_frontend_independent(result)
     _assert_tuple_collections(result)
     for value in _dataclass_values(result):
+        assert is_dataclass(value)
         dataclass_fields = fields(value)
         if not dataclass_fields:
             continue

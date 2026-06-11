@@ -147,7 +147,8 @@ def test_build_ir_preserves_supported_top_level_source_order() -> None:
 
     assert result.ir is not None
     assert [
-        (type(definition), definition.name) for definition in result.ir.definitions
+        (type(definition), _definition_name(definition))
+        for definition in result.ir.definitions
     ] == [
         (SourceIR, "users"),
         (EnumIR, "Status"),
@@ -291,6 +292,14 @@ def _semantic_snapshot(model: SemanticModel) -> tuple[tuple[str, object], ...]:
             value = tuple(value.items())
         snapshot.append((field.name, value))
     return tuple(snapshot)
+
+
+def _definition_name(definition: object) -> str:
+    assert isinstance(
+        definition,
+        (TypeIR, EnumIR, ConstraintIR, DeriveIR, ShapeIR, SourceIR, RelationIR),
+    )
+    return definition.name
 
 
 def _assert_no_parser_or_antlr_objects(value: object) -> None:
