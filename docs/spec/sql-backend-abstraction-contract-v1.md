@@ -446,6 +446,9 @@ be:
 emit_mysql_sql(script_ir: ScriptIR) -> SqlResult
 ```
 
+The closed Phase 10 candidate surface and its CLI enablement gates are
+documented in `docs/spec/mysql-sql-generation-mvp-v1.md`.
+
 The function may begin as an internal module entry point while the backend is
 experimental. Exporting it from `pietto.sql` is a separate public API decision
 that Phase 10 must make explicitly.

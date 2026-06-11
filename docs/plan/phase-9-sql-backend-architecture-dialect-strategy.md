@@ -4,7 +4,7 @@
 
 **Phase 9 is the current architecture and compatibility-planning phase.**
 
-Slices 1 through 5 are complete. Readiness And Compatibility Frame establishes
+Slices 1 through 6 are complete. Readiness And Compatibility Frame establishes
 the post-Phase-8 baseline and phase boundary. PostgreSQL Compatibility Corpus
 adds reviewed byte-exact pipeline fixtures. Dialect Capability And Source
 Contract defines connector naming, stage ownership, required backend
@@ -14,7 +14,9 @@ decision that permits only a future isolated Phase 10 MySQL-generation spike,
 not a Phase 9 implementation, production dependency, or PostgreSQL migration.
 Backend Abstraction Contract defines the internal `ScriptIR -> SqlResult`
 boundary, closed capability declarations, explicit CLI dispatch, result and
-diagnostic semantics, and SQLGlot isolation without implementation.
+diagnostic semantics, and SQLGlot isolation without implementation. MySQL MVP
+Contract defines the exact MySQL 8.0+ generation surface, connector, SQL mode,
+escaping, capability, golden, and CLI-enablement requirements.
 
 Phase 9 does not authorize production SQL backend implementation. Its allowed
 deliverables are documentation, specifications, compatibility tests, and
@@ -111,9 +113,9 @@ modify `pyproject.toml`, `uv.lock`, source files, tests, or generated files.
 5. **Backend Abstraction Contract**: complete. Defined the conceptual internal
    `ScriptIR -> SqlResult` contract, closed capabilities, explicit dispatch,
    partial-result semantics, diagnostics, and dependency isolation.
-6. **MySQL MVP Contract**: define the exact MySQL 8.0+ generation surface,
-   connector semantics, output policy, diagnostics, and Phase 10 acceptance
-   criteria.
+6. **MySQL MVP Contract**: complete. Defined the exact MySQL 8.0+ generation
+   surface, connector semantics, output policy, diagnostics, golden corpus,
+   and Phase 10 acceptance gates.
 7. **Completion Audit**: verify that all decisions are documented, the
    compatibility corpus is complete, and no production dialect, dependency,
    CLI, grammar, JSON, runtime, or database behavior was added.
@@ -249,6 +251,43 @@ Slice 5 adds no backend abstraction implementation, capability object,
 registry, dispatcher, SQLGlot dependency, MySQL behavior, public API, CLI or
 JSON change, PostgreSQL output change, grammar, generated file, runtime
 feature, or lockfile change.
+
+## Slice 6: MySQL MVP Contract
+
+Slice 6 publishes `docs/spec/mysql-sql-generation-mvp-v1.md`. It defines the
+smallest safe Phase 10 generation-only target without adding MySQL behavior.
+
+The accepted MySQL MVP is:
+
+- Oracle MySQL 8.0 or later, with no MariaDB compatibility promise;
+- dedicated `emit_mysql_sql(ScriptIR) -> SqlResult`;
+- future static `mysql.table(Text)` with one non-empty compile-time literal;
+- one opaque physical table identifier with no dotted-name decomposition;
+- `RelationIR` emission and current metadata definition no-op behavior;
+- minimal `SELECT`, projection, aliases, `FROM`, and optional `WHERE`;
+- relation-name references without CTEs, inlining, or materialization;
+- literal, field, qualified-field, comparison, null, between, unary,
+  arithmetic, and Boolean expression support;
+- `LOWER`, `TRIM`, and mandatory `len -> CHAR_LENGTH`;
+- explicit rejection of `matches`, `LIKE`, and all undeclared capabilities;
+- backtick identifiers with context-specific MySQL length limits;
+- single-quoted literals under the default MySQL 8.0 SQL-mode reference, with
+  `NO_BACKSLASH_ESCAPES` disabled;
+- `utf8mb4` as the text reference environment without emitted session setup;
+- source-ordered artifacts and `PIE-B1000` diagnostics;
+- three manually reviewed byte-exact MySQL SQL fixture groups and one
+  structural JSON v1 fixture;
+- CLI `--dialect mysql` enablement only after semantic, IR, backend, golden,
+  compatibility, dependency, and security gates pass.
+
+The contract keeps source header metadata and connector names from selecting
+the backend. It preserves explicit CLI dispatch and all PostgreSQL public API
+and byte-exact compatibility.
+
+Slice 6 adds no `mysql.table` runtime support, emitter, CLI dialect, SQLGlot,
+backend abstraction, semantic or IR change, public export, JSON change,
+grammar, generated file, production dependency, runtime feature, or lockfile
+change.
 
 ## PostgreSQL Compatibility Contract
 
@@ -421,7 +460,10 @@ PostgreSQL invocation and JSON v1 fields.
 
 ## MySQL MVP Direction
 
-Phase 10 should target MySQL 8.0+ SQL generation only. Its smallest candidate
+The accepted planning contract is documented in
+`docs/spec/mysql-sql-generation-mvp-v1.md`.
+
+Phase 10 may target MySQL 8.0+ SQL generation only. Its closed candidate
 surface is:
 
 - static `mysql.table(Text)` source metadata;
@@ -436,23 +478,18 @@ surface is:
 - metadata non-emitting behavior;
 - `--dialect mysql` and reviewed MySQL golden fixtures.
 
-`len` should map to `CHAR_LENGTH`, not byte-oriented `LENGTH`, unless a later
-accepted type contract establishes different semantics.
+`len` maps to `CHAR_LENGTH`, not byte-oriented `LENGTH`.
 
 `matches` is excluded from the initial MySQL MVP until regex function,
 collation, case sensitivity, Unicode behavior, and escaping are specified.
 The future backend must diagnose it rather than silently select an
 approximation.
 
-Slice 6 must also define:
-
-- accepted MySQL SQL modes and string-literal assumptions;
-- identifier case and quoting expectations;
-- Boolean literal policy;
-- reserved-word handling;
-- diagnostic messages and codes;
-- JSON v1 and CLI compatibility requirements;
-- golden fixture review procedure.
+The contract fixes backtick identifier quoting, default MySQL 8.0 SQL mode as
+the semantic reference, disabled `NO_BACKSLASH_ESCAPES`, single-quoted and
+canonically escaped text, `utf8mb4` reference text handling, uppercase Boolean
+literals, source-ordered `PIE-B1000`, unchanged JSON v1, and reviewed golden
+fixture requirements.
 
 ## Richer SQL Roadmap
 
@@ -567,11 +604,10 @@ Phase 9 is complete only when:
 
 The following questions must be resolved by later Phase 9 slices:
 
-- exact MySQL string and SQL-mode contract;
 - future structured qualified source-name representation;
-- final MySQL regex policy;
 - the Phase 10 SQLGlot production go/no-go after an isolated spike;
+- any post-MVP MySQL regex and collation contract;
 - whether a much later proposal should reconsider PostgreSQL migration.
 
-Slice 4 does not authorize implementation. PostgreSQL migration is not part
+Slice 6 does not authorize implementation. PostgreSQL migration is not part
 of the Phase 10 spike.

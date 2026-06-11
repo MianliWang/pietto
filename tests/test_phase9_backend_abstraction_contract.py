@@ -15,7 +15,6 @@ def test_slice5_contract_and_status_documents_are_complete() -> None:
     language_spec = _read("docs/spec/pietto-v0.9.md")
     source_contract = _read("docs/spec/sql-dialect-source-contract-v1.md")
 
-    assert "Slices 1 through 5 are complete." in plan
     assert "5. **Backend Abstraction Contract**: complete." in plan
     assert "## Slice 5: Backend Abstraction Contract" in plan
     _assert_contains_all(

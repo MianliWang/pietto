@@ -162,6 +162,9 @@ For a future MySQL spike, the adapter must explicitly select MySQL and test:
 - artifact and diagnostic ordering;
 - deterministic rejection of `matches`.
 
+The accepted candidate surface and SQL-mode contract are documented in
+`docs/spec/mysql-sql-generation-mvp-v1.md`.
+
 SQLGlot's PostgreSQL generator is not needed for that spike.
 
 ## Fail-Closed Requirements
@@ -330,7 +333,7 @@ SQLGlot.
 Slice 4 intentionally leaves these questions open for the Phase 10 spike:
 
 - the exact direct-constructor mapping for each Pietto IR node;
-- MySQL string escaping and SQL mode behavior;
+- SQLGlot compliance with the accepted MySQL string and SQL-mode contract;
 - whether SQLGlot can preserve Pietto's opaque dotted-name contract for the
   MySQL candidate;
 - exact exception and warning surfaces from direct generation;

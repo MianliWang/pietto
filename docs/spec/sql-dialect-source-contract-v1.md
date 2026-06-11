@@ -324,6 +324,10 @@ The initial MySQL 8.0+ candidate may declare:
   semantics;
 - MySQL-specific identifier and literal policies.
 
+The exact closed candidate capability, SQL-mode baseline, escaping policy,
+golden corpus, and implementation gates are documented in
+`docs/spec/mysql-sql-generation-mvp-v1.md`.
+
 `matches/2` must be absent from the initial MySQL capability declaration until
 regex function/operator choice, collation, case sensitivity, Unicode, and
 escaping semantics are accepted.
@@ -432,6 +436,8 @@ and it must define component count, empty values, case rules, diagnostics,
 and IR representation before implementation.
 
 No specific qualified connector spelling is approved by this contract.
+The initial opaque MySQL behavior and its explicit non-qualification meaning
+are further specified in `docs/spec/mysql-sql-generation-mvp-v1.md`.
 
 ## Unsupported-Case Diagnostics
 
