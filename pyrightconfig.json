@@ -1,6 +1,7 @@
 {
     "include": ["src/pietto"],
     "exclude": ["src/pietto/generated"],
+    "ignore": ["src/pietto/generated"],
     "extraPaths": ["src"],
     "venvPath": ".",
     "venv": ".venv",

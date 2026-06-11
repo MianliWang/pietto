@@ -29,6 +29,7 @@ def test_pyright_gate_targets_handwritten_production_source() -> None:
     assert config == {
         "include": ["src/pietto"],
         "exclude": ["src/pietto/generated"],
+        "ignore": ["src/pietto/generated"],
         "extraPaths": ["src"],
         "venvPath": ".",
         "venv": ".venv",
@@ -36,6 +37,17 @@ def test_pyright_gate_targets_handwritten_production_source() -> None:
         "typeCheckingMode": "standard",
     }
     assert "tests" not in config["include"]
+
+
+def test_pylance_ignores_only_generated_antlr_diagnostics() -> None:
+    settings = json.loads(_read(".vscode/settings.json"))
+
+    assert settings == {
+        "python.analysis.exclude": ["src/pietto/generated/**"],
+        "python.analysis.ignore": ["src/pietto/generated/**"],
+    }
+    assert "python.analysis.typeCheckingMode" not in settings
+    assert "python.analysis.diagnosticSeverityOverrides" not in settings
 
 
 def test_official_examples_and_source_fixtures_use_pietto_suffix() -> None:
@@ -67,6 +79,7 @@ def test_repository_contains_no_former_source_suffix() -> None:
     roots = (
         REPO_ROOT / "README.md",
         REPO_ROOT / "AGENTS.md",
+        REPO_ROOT / ".vscode",
         REPO_ROOT / "pyproject.toml",
         REPO_ROOT / "pyrightconfig.json",
         REPO_ROOT / "docs",

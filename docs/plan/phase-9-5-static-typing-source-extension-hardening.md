@@ -33,8 +33,16 @@ under `src/pietto`. Tests remain covered by Ruff and pytest and are not part of
 the first blocking Pyright gate.
 
 `pyrightconfig.json` uses standard mode, Python 3.12, the project virtual
-environment, and `src` import resolution. It excludes only
-`src/pietto/generated`; it does not disable meaningful diagnostics globally.
+environment, and `src` import resolution. It excludes
+`src/pietto/generated` from the blocking file set and ignores diagnostics from
+that same generated directory when imports pull it into the analysis closure.
+It does not disable meaningful diagnostics globally.
+
+Repository VS Code settings apply the same narrow
+`src/pietto/generated/**` exclusion and diagnostic ignore to Pylance. This
+keeps generated ANTLR noise out of the Problems view even when a generated
+module is imported or opened, without lowering standard checking for
+handwritten production source.
 
 The ANTLR boundary remains local to `ast_builder.py`. Runtime code still
 inherits from the generated visitor, while type checking sees only the dynamic
@@ -106,6 +114,7 @@ Phase 9.5 is complete because:
 - the repository contains no references to the former source suffix;
 - path-based CLI behavior is covered with a non-`.pietto` temporary source;
 - static extension and typing-boundary audits pass;
+- generated ANTLR diagnostics are isolated in both Pyright and Pylance;
 - the full formatting, linting, test, lockfile, dependency, diagnostic, and
   diff validation passes.
 

@@ -1,0 +1,4 @@
+{
+    "python.analysis.exclude": ["src/pietto/generated/**"],
+    "python.analysis.ignore": ["src/pietto/generated/**"]
+}
