@@ -16,7 +16,7 @@ The current implementation status is:
 - **Phase 9 SQL Backend Architecture & Dialect Strategy: complete**;
 - **Phase 9.5 Static Typing And Source Extension Hardening: complete**;
 - **Phase 9.6 Test Typing Hygiene: complete**;
-- **Phase 10 MySQL SQL Generation MVP: current planning/readiness slice; no
+- **Phase 10 MySQL SQL Generation MVP: current; Slices 1 and 2 complete, no
   MySQL behavior implemented**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
@@ -98,9 +98,9 @@ contracts, SQLGlot adoption criteria, an internal backend abstraction
 contract, and a conservative future MySQL MVP. All seven slices are complete:
 the phase frame, PostgreSQL compatibility corpus, dialect/source
 responsibility contract, SQLGlot evaluation, backend abstraction contract,
-MySQL MVP contract, and completion audit are documented. SQLGlot is approved
-only for a future isolated Phase 10 MySQL-generation spike. It is not approved
-as a production dependency or PostgreSQL replacement. The internal backend
+MySQL MVP contract, and completion audit are documented. Phase 9 approved
+SQLGlot only for a future isolated Phase 10 MySQL-generation spike, not as a
+production dependency or PostgreSQL replacement. The internal backend
 contract preserves
 `ScriptIR -> SqlResult`, dedicated emitters, closed capabilities, explicit CLI
 dispatch, and SQLGlot isolation without implementation. These slices add no
@@ -122,10 +122,13 @@ mandatory production Pyright gate remains unchanged; the clean test
 configuration remains an explicit non-blocking command.
 
 Phase 10 MySQL SQL Generation MVP is current. Slice 1 defines the nine-slice
-implementation path and readiness gates only. PostgreSQL remains the
-handwritten byte-exact reference, `--dialect mysql`, `mysql.table`,
-`emit_mysql_sql`, SQLGlot, and MySQL SQL generation are not yet implemented,
-and JSON v1 remains the only runtime CLI JSON schema.
+implementation path and readiness gates. Slice 2 reviews SQLGlot `30.10.0`,
+runs an isolated uncommitted adapter spike, and selects a small handwritten
+MySQL renderer for the Phase 10 MVP. SQLGlot is not adopted. PostgreSQL remains
+the handwritten byte-exact reference, `--dialect mysql`, `mysql.table`,
+`emit_mysql_sql`, dialect dispatch, and MySQL SQL generation are not yet
+implemented, production implementation has not started, and JSON v1 remains
+the only runtime CLI JSON schema.
 
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added
@@ -162,6 +165,9 @@ documented in
 The current generation-only MySQL implementation sequence and readiness gates
 are documented in
 [the Phase 10 MySQL SQL Generation MVP plan](docs/plan/phase-10-mysql-sql-generation-mvp.md).
+The exact SQLGlot release evidence, isolated spike findings, handwritten
+renderer decision, and reevaluation conditions are documented in
+[the Phase 10 SQLGlot evaluation and adapter spike](docs/plan/phase-10-sqlglot-evaluation-adapter-spike.md).
 The evidence matrix, rejected roles, dependency and resource risks, and
 conditional Phase 10 spike decision are in
 [the Phase 9 SQLGlot evaluation](docs/plan/phase-9-sqlglot-evaluation.md);

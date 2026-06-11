@@ -1141,7 +1141,8 @@ The planning-only dialect capability and source contract is documented in
 The evidence-based SQLGlot decision is documented in
 `docs/plan/phase-9-sqlglot-evaluation.md`. It approves only a future isolated
 Phase 10 MySQL-generation spike, not a production dependency or PostgreSQL
-replacement.
+replacement. That spike is now complete and its Phase 10 decision is recorded
+separately below.
 The planning-only internal `ScriptIR -> SqlResult` boundary, capability,
 result, explicit-dispatch, diagnostic, and SQLGlot-isolation decisions are
 documented in `docs/spec/sql-backend-abstraction-contract-v1.md`.
@@ -1179,10 +1180,12 @@ grammar, generated file, dependency, or lockfile.
 
 ### Phase 10: MySQL SQL Generation MVP
 
-Status: current, Slice 1 planning/readiness complete. The Phase 10 master plan
-defines nine separately approved slices for a future generation-only MySQL
-8.0+ backend. Slice 1 does not implement SQLGlot, `mysql.table`,
-`emit_mysql_sql`, `--dialect mysql`, dialect dispatch, or MySQL SQL output.
+Status: current, Slices 1 and 2 complete. The Phase 10 master plan defines nine
+separately approved slices for a future generation-only MySQL 8.0+ backend.
+Slice 1 establishes planning and readiness gates. Slice 2 evaluates SQLGlot
+`30.10.0` in an isolated temporary spike and selects a small handwritten MySQL
+renderer for the Phase 10 MVP. SQLGlot is not adopted as a production
+dependency or adapter.
 
 The handwritten PostgreSQL backend remains the byte-exact reference. JSON v1
 remains the only runtime single-file CLI schema; JSON v2 remains reserved for
@@ -1192,6 +1195,14 @@ remain required.
 
 The master plan is documented in
 `docs/plan/phase-10-mysql-sql-generation-mvp.md`.
+The exact release review, spike evidence, implementation comparison, final
+decision, and future reevaluation conditions are documented in
+`docs/plan/phase-10-sqlglot-evaluation-adapter-spike.md`.
+
+Slices 1 and 2 add no MySQL behavior. `mysql.table`, `emit_mysql_sql`,
+`--dialect mysql`, dialect dispatch, CLI and JSON changes, semantic and IR
+changes, and MySQL SQL output remain unimplemented. Phase 10 production
+implementation has not started.
 
 ---
 

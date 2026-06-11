@@ -6,10 +6,13 @@
 
 **Slice 1: Phase 10 Master Plan And Readiness Audit is complete.**
 
+**Slice 2: SQLGlot Evaluation And Isolated Adapter Spike is complete.**
+
 Phase 10 is the first implementation phase after the Phase 9 SQL backend
-architecture work. This master-plan slice is documentation and static audit
-only. It does not implement MySQL, SQLGlot, dialect dispatch, a connector, or
-any production behavior.
+architecture work. Slices 1 and 2 are documentation and static audit only.
+Slice 2 selects a small handwritten MySQL renderer for the Phase 10 MVP and
+rejects SQLGlot for this MVP. Neither slice implements MySQL, dialect dispatch,
+a connector, or any production behavior.
 
 Every later slice requires a separate explicit implementation request. A
 planned capability is not an implemented or approved public interface merely
@@ -76,6 +79,7 @@ Phase 10 implementation must conform to:
 
 - `docs/plan/phase-9-sql-backend-architecture-dialect-strategy.md`;
 - `docs/plan/phase-9-sqlglot-evaluation.md`;
+- `docs/plan/phase-10-sqlglot-evaluation-adapter-spike.md`;
 - `docs/spec/sql-dialect-source-contract-v1.md`;
 - `docs/spec/sql-backend-abstraction-contract-v1.md`;
 - `docs/spec/mysql-sql-generation-mvp-v1.md`;
@@ -93,7 +97,7 @@ Phase 10 may eventually add:
 - a dedicated `emit_mysql_sql(ScriptIR) -> SqlResult` entry point;
 - explicit internal CLI dispatch for `postgres` and `mysql`;
 - manually reviewed MySQL byte-exact golden fixtures;
-- an optional isolated SQLGlot adapter only after its adoption gates pass.
+- a small handwritten MySQL renderer under the closed MVP contract.
 
 Phase 10 does not add:
 
@@ -111,10 +115,10 @@ Phase 10 does not add:
 1. **Phase 10 Master Plan And Readiness Audit**: complete. Create this master
    plan, mark Phase 10 as current, record the baseline and gates, and add
    static planning audits. No production implementation.
-2. **SQLGlot Evaluation And Isolated Adapter Spike**: planned. Re-review an
+2. **SQLGlot Evaluation And Isolated Adapter Spike**: complete. Re-review an
    exact SQLGlot release, compare a direct `ScriptIR`-to-SQLGlot-AST MySQL
    adapter with a small handwritten renderer, measure resource and failure
-   behavior, and make a documented production go/no-go decision.
+   behavior, and select the handwritten renderer for the Phase 10 MVP.
 3. **Dialect Dispatch Design**: planned. Define the exact internal closed
    routing contract for dedicated PostgreSQL and MySQL emitters without
    enabling `--dialect mysql`.
@@ -157,14 +161,16 @@ Slice 1 does not add SQLGlot, `emit_mysql_sql`, `mysql.table`,
 
 ## Slice 2: SQLGlot Evaluation And Isolated Adapter Spike
 
-Slice 2 must make a fresh evidence-based choice between:
+**Slice 2 is complete.**
+
+Slice 2 made a fresh evidence-based choice between:
 
 ```text
 Option A: small handwritten MySQL renderer
 Option B: isolated ScriptIR-to-SQLGlot-AST MySQL adapter
 ```
 
-The spike is approved only for MySQL generation. It must:
+The isolated spike was limited to MySQL generation. It:
 
 - select and re-review one exact candidate SQLGlot release;
 - use direct AST construction rather than parsing or transpiling SQL text;
@@ -181,13 +187,22 @@ The spike is approved only for MySQL generation. It must:
   database, and schema modules;
 - prove all PostgreSQL golden fixtures remain byte-exact.
 
-The spike may be temporary and uncommitted when that is sufficient. Adding
-SQLGlot to production dependencies requires a separate explicit decision
-within or after Slice 2, a reviewed `pyproject.toml` and `uv.lock` diff, and
-all mandatory gates from `phase-9-sqlglot-evaluation.md`.
+The spike used SQLGlot `30.10.0` in a temporary isolated environment. It found
+that direct MySQL AST construction and strict unsupported errors are feasible,
+but exact Pietto formatting, ASCII 26 literal escaping, deterministic
+parentheses, capability validation, diagnostics, and recursive resource
+containment would remain Pietto responsibilities. SQLGlot therefore did not
+demonstrate lower expected maintenance cost for the closed MVP.
 
-Failure of any mandatory SQLGlot gate selects the handwritten backend or
-defers MySQL. It does not weaken the MySQL contract.
+**Decision: Phase 10 will implement a small handwritten MySQL renderer.
+SQLGlot is rejected for this MVP and remains absent from production
+dependencies.** The evidence, measurements, supply-chain review, comparison,
+and future reevaluation conditions are documented in
+`docs/plan/phase-10-sqlglot-evaluation-adapter-spike.md`.
+
+This decision does not weaken the MySQL contract. SQLGlot may be reevaluated
+only in a later phase if a substantially richer SQL or multi-dialect surface
+changes the maintenance tradeoff.
 
 SQLGlot must never become:
 
@@ -440,9 +455,10 @@ approved as a PostgreSQL compatibility change outside this phase.
 
 ## Dependency Gate
 
-Slice 1 changes no dependency or lockfile.
+Slices 1 and 2 change no dependency or lockfile. Slice 2 rejects SQLGlot for
+the Phase 10 MVP, so later Phase 10 slices must not add it.
 
-If Slice 2 later recommends SQLGlot, adoption requires:
+Any future phase that reopens SQLGlot adoption requires:
 
 - an exact reviewed version;
 - no extras, native extension, plugin dialect, optimizer, or executor;
@@ -525,5 +541,6 @@ Phase 10 is complete only when:
 - JSON v2 and all runtime, database, project, watch, LSP, and Web capabilities
   remain unimplemented.
 
-Slice 1 satisfies none of the MySQL implementation criteria. It only makes
-the implementation path and its safety gates explicit.
+Slices 1 and 2 satisfy none of the MySQL implementation criteria. Slice 1
+makes the implementation path and safety gates explicit; Slice 2 finalizes
+the implementation-technology decision without adding production behavior.
