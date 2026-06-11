@@ -1180,12 +1180,13 @@ grammar, generated file, dependency, or lockfile.
 
 ### Phase 10: MySQL SQL Generation MVP
 
-Status: current, Slices 1 and 2 complete. The Phase 10 master plan defines nine
-separately approved slices for a future generation-only MySQL 8.0+ backend.
-Slice 1 establishes planning and readiness gates. Slice 2 evaluates SQLGlot
-`30.10.0` in an isolated temporary spike and selects a small handwritten MySQL
-renderer for the Phase 10 MVP. SQLGlot is not adopted as a production
-dependency or adapter.
+Status: current, Slices 1 through 3 complete. The Phase 10 master plan defines
+nine separately approved slices for a future generation-only MySQL 8.0+
+backend. Slice 1 establishes planning and readiness gates. Slice 2 evaluates
+SQLGlot `30.10.0` in an isolated temporary spike and selects a small
+handwritten MySQL renderer for the Phase 10 MVP. SQLGlot is not adopted as a
+production dependency or adapter. Slice 3 defines the future private closed
+dialect-dispatch contract without implementing it.
 
 The handwritten PostgreSQL backend remains the byte-exact reference. JSON v1
 remains the only runtime single-file CLI schema; JSON v2 remains reserved for
@@ -1198,8 +1199,11 @@ The master plan is documented in
 The exact release review, spike evidence, implementation comparison, final
 decision, and future reevaluation conditions are documented in
 `docs/plan/phase-10-sqlglot-evaluation-adapter-spike.md`.
+The future private selector, dedicated emitter mapping, separate
+CLI-enablement gate, failure classification, stage boundary, and presentation
+ownership are documented in `docs/spec/sql-dialect-dispatch-design-v1.md`.
 
-Slices 1 and 2 add no MySQL behavior. `mysql.table`, `emit_mysql_sql`,
+Slices 1 through 3 add no MySQL behavior. `mysql.table`, `emit_mysql_sql`,
 `--dialect mysql`, dialect dispatch, CLI and JSON changes, semantic and IR
 changes, and MySQL SQL output remain unimplemented. Phase 10 production
 implementation has not started.

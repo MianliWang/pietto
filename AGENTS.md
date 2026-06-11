@@ -86,15 +86,16 @@ Rules:
 
 ## Current Phase
 
-Current phase: Phase 10 MySQL SQL Generation MVP, Slices 1 and 2 complete.
+Current phase: Phase 10 MySQL SQL Generation MVP, Slices 1 through 3 complete.
 Phases 8 and 9 are complete. Phase 9.5 improved handwritten type safety,
 isolated generated ANTLR typing noise, and migrated official source paths to
 `.pietto`. Phase 9.6 removed test-suite Pyright diagnostics through precise
 test-only typing cleanup. Phase 10 Slice 1 adds the master plan and readiness
 audit. Slice 2 reviews SQLGlot `30.10.0` in an isolated uncommitted spike and
 selects a small handwritten MySQL renderer for the Phase 10 MVP. SQLGlot is not
-adopted. MySQL, dialect dispatch, connector support, and production behavior
-remain unimplemented.
+adopted. Slice 3 defines a private closed dialect-dispatch contract without
+implementing it. MySQL, dialect dispatch, connector support, and production
+behavior remain unimplemented.
 
 Phase 1 parser/frontend, Phase 2 Semantic Checker, Phase 3 Semantic IR, Phase 4
 PostgreSQL SQL, Phase 5 CLI, Phase 5.5 Security / Robustness Hardening, and
@@ -190,6 +191,11 @@ are documented in
 `docs/plan/phase-10-sqlglot-evaluation-adapter-spike.md`. SQLGlot `30.10.0`
 was evaluated only in an isolated temporary environment. Phase 10 selects a
 small handwritten MySQL renderer and adds no SQLGlot dependency or adapter.
+The completed Phase 10 dialect dispatch design is documented in
+`docs/spec/sql-dialect-dispatch-design-v1.md`. It defines a future private
+closed selector, separate CLI-enabled dialect gate, dedicated emitters,
+unknown-dialect exit `2`, backend-diagnostic exit `1`, and CLI ownership of
+presentation and output files. It adds no dispatcher or runtime behavior.
 The planning-only internal backend contract is documented in
 `docs/spec/sql-backend-abstraction-contract-v1.md`. It preserves
 `ScriptIR -> SqlResult`, the public `emit_postgres_sql` entry point, explicit
@@ -231,7 +237,7 @@ current implemented limits remain only the per-file source/token parser
 budgets, and no project budget or config override is implemented.
 The current Phase 10 slice sequence, implementation gates, JSON boundary,
 typing requirements, and generation-only MySQL scope are documented in
-`docs/plan/phase-10-mysql-sql-generation-mvp.md`. Slices 1 and 2 are
+`docs/plan/phase-10-mysql-sql-generation-mvp.md`. Slices 1 through 3 are
 documentation and static audit only; no Phase 10 production implementation
 has started.
 
@@ -267,10 +273,10 @@ Do not implement in the current phase unless explicitly requested:
 - concurrency/runtime features.
 
 All seven Phase 9 slices, Phase 9.5, and Phase 9.6 are complete. Phase 10
-Slices 1 and 2 are complete, but production implementation has not started.
-SQLGlot is rejected for the Phase 10 MVP. Production SQLGlot, MySQL, backend
-dispatch, semantic or IR implementation changes, richer SQL, execution, and
-database behavior remain prohibited.
+Slices 1 through 3 are complete, but production implementation has not
+started. SQLGlot is rejected for the Phase 10 MVP. Production SQLGlot, MySQL,
+backend dispatch, semantic or IR implementation changes, richer SQL,
+execution, and database behavior remain prohibited.
 
 Compiler stages must remain isolated: IR construction must not mutate parser
 or semantic inputs, and SQL backends must consume `ScriptIR` without rerunning

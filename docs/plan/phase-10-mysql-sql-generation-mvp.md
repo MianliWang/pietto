@@ -8,11 +8,14 @@
 
 **Slice 2: SQLGlot Evaluation And Isolated Adapter Spike is complete.**
 
+**Slice 3: Dialect Dispatch Design is complete.**
+
 Phase 10 is the first implementation phase after the Phase 9 SQL backend
-architecture work. Slices 1 and 2 are documentation and static audit only.
+architecture work. Slices 1 through 3 are documentation and static audit only.
 Slice 2 selects a small handwritten MySQL renderer for the Phase 10 MVP and
-rejects SQLGlot for this MVP. Neither slice implements MySQL, dialect dispatch,
-a connector, or any production behavior.
+rejects SQLGlot for this MVP. Slice 3 defines closed internal dispatch without
+implementing it. These slices implement no MySQL backend, CLI dialect,
+connector, or production behavior.
 
 Every later slice requires a separate explicit implementation request. A
 planned capability is not an implemented or approved public interface merely
@@ -82,6 +85,7 @@ Phase 10 implementation must conform to:
 - `docs/plan/phase-10-sqlglot-evaluation-adapter-spike.md`;
 - `docs/spec/sql-dialect-source-contract-v1.md`;
 - `docs/spec/sql-backend-abstraction-contract-v1.md`;
+- `docs/spec/sql-dialect-dispatch-design-v1.md`;
 - `docs/spec/mysql-sql-generation-mvp-v1.md`;
 - `docs/spec/cli-json-v1.md`.
 
@@ -119,7 +123,7 @@ Phase 10 does not add:
    exact SQLGlot release, compare a direct `ScriptIR`-to-SQLGlot-AST MySQL
    adapter with a small handwritten renderer, measure resource and failure
    behavior, and select the handwritten renderer for the Phase 10 MVP.
-3. **Dialect Dispatch Design**: planned. Define the exact internal closed
+3. **Dialect Dispatch Design**: complete. Define the exact internal closed
    routing contract for dedicated PostgreSQL and MySQL emitters without
    enabling `--dialect mysql`.
 4. **MySQL Backend Skeleton**: planned. Implement the private, fail-closed
@@ -215,6 +219,8 @@ SQLGlot must never become:
 
 ## Slice 3: Dialect Dispatch Design
 
+**Slice 3 is complete.**
+
 Slice 3 defines the future internal closed mapping:
 
 ```text
@@ -235,7 +241,27 @@ The design must:
 - keep output files, stdout/stderr, and JSON presentation outside backends;
 - avoid inferring the backend from source headers or connector names.
 
-Slice 3 does not yet add `mysql` to CLI choices.
+The design fixes one private, static, exhaustive selector with dedicated
+emitters and a separate immutable CLI-enabled dialect set. The selector
+resolves emitter attributes at call time, receives only the explicit dialect
+name, and later invokes the selected emitter with only `ScriptIR`. Text and
+JSON admission share the enabled set, while presentation, exit codes, and
+output files remain CLI-owned.
+
+Backend availability does not imply CLI enablement. Slices 4 through 7 may
+test a private MySQL emitter directly, but Slice 8 alone may atomically add the
+`mysql` selector branch and enable `mysql` for text and JSON CLI paths.
+
+Unknown or disabled dialects stop before source parsing and retain exit `2`;
+JSON v1 preserves the supplied value and `unsupported_dialect`. Capability
+failures from an already selected backend remain `PIE-B1000` diagnostics and
+exit `1`.
+
+The complete design is documented in
+`docs/spec/sql-dialect-dispatch-design-v1.md`.
+
+Slice 3 does not add a dispatcher, `mysql` to CLI choices, a public emitter,
+or production code.
 
 ## Slice 4: MySQL Backend Skeleton
 
@@ -541,6 +567,7 @@ Phase 10 is complete only when:
 - JSON v2 and all runtime, database, project, watch, LSP, and Web capabilities
   remain unimplemented.
 
-Slices 1 and 2 satisfy none of the MySQL implementation criteria. Slice 1
-makes the implementation path and safety gates explicit; Slice 2 finalizes
-the implementation-technology decision without adding production behavior.
+Slices 1 through 3 satisfy none of the MySQL implementation criteria. Slice 1
+makes the implementation path and safety gates explicit, Slice 2 finalizes
+the implementation-technology decision, and Slice 3 finalizes the internal
+dispatch design without adding production behavior.

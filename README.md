@@ -16,7 +16,7 @@ The current implementation status is:
 - **Phase 9 SQL Backend Architecture & Dialect Strategy: complete**;
 - **Phase 9.5 Static Typing And Source Extension Hardening: complete**;
 - **Phase 9.6 Test Typing Hygiene: complete**;
-- **Phase 10 MySQL SQL Generation MVP: current; Slices 1 and 2 complete, no
+- **Phase 10 MySQL SQL Generation MVP: current; Slices 1 through 3 complete, no
   MySQL behavior implemented**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
@@ -124,11 +124,13 @@ configuration remains an explicit non-blocking command.
 Phase 10 MySQL SQL Generation MVP is current. Slice 1 defines the nine-slice
 implementation path and readiness gates. Slice 2 reviews SQLGlot `30.10.0`,
 runs an isolated uncommitted adapter spike, and selects a small handwritten
-MySQL renderer for the Phase 10 MVP. SQLGlot is not adopted. PostgreSQL remains
-the handwritten byte-exact reference, `--dialect mysql`, `mysql.table`,
-`emit_mysql_sql`, dialect dispatch, and MySQL SQL generation are not yet
-implemented, production implementation has not started, and JSON v1 remains
-the only runtime CLI JSON schema.
+MySQL renderer for the Phase 10 MVP. SQLGlot is not adopted. Slice 3 defines
+the future private closed `postgres -> emit_postgres_sql` and
+`mysql -> emit_mysql_sql` dispatch contract while keeping CLI enablement
+separate. PostgreSQL remains the handwritten byte-exact reference,
+`--dialect mysql`, `mysql.table`, `emit_mysql_sql`, dialect dispatch, and MySQL
+SQL generation are not yet implemented, production implementation has not
+started, and JSON v1 remains the only runtime CLI JSON schema.
 
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added
@@ -168,6 +170,10 @@ are documented in
 The exact SQLGlot release evidence, isolated spike findings, handwritten
 renderer decision, and reevaluation conditions are documented in
 [the Phase 10 SQLGlot evaluation and adapter spike](docs/plan/phase-10-sqlglot-evaluation-adapter-spike.md).
+The future private closed selector, enabled-dialect gate, failure
+classification, stage boundary, and presentation ownership are documented in
+[the SQL dialect dispatch design](docs/spec/sql-dialect-dispatch-design-v1.md);
+no dispatcher or MySQL CLI behavior is implemented.
 The evidence matrix, rejected roles, dependency and resource risks, and
 conditional Phase 10 spike decision are in
 [the Phase 9 SQLGlot evaluation](docs/plan/phase-9-sqlglot-evaluation.md);
