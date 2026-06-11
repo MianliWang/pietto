@@ -16,12 +16,14 @@ The current implementation status is:
 - **Phase 9 SQL Backend Architecture & Dialect Strategy: complete**;
 - **Phase 9.5 Static Typing And Source Extension Hardening: complete**;
 - **Phase 9.6 Test Typing Hygiene: complete**;
-- **Phase 10 MySQL SQL Generation MVP: current; Slices 1 through 8 complete**.
+- **Phase 10 MySQL SQL Generation MVP: complete**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
-analysis, builds immutable Semantic IR, emits PostgreSQL SQL, and presents the
-result through CLI text or JSON output. The public SQL backend consumes
-`ScriptIR` through `emit_postgres_sql(script_ir)`.
+analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
+or MySQL SQL, and presents the result through CLI text or JSON output. The
+public PostgreSQL backend consumes `ScriptIR` through
+`emit_postgres_sql(script_ir)`; the MySQL emitter remains private to CLI
+dispatch.
 
 The backend emits minimal `SELECT` SQL for `RelationIR` definitions, including
 projections and optional `WHERE`. Inputs may reference a static
@@ -124,7 +126,7 @@ diagnostics through precise test-only narrowing and helper typing. The
 mandatory production Pyright gate remains unchanged; the clean test
 configuration remains an explicit non-blocking command.
 
-Phase 10 MySQL SQL Generation MVP is current. Slice 1 defines the nine-slice
+Phase 10 MySQL SQL Generation MVP is complete. Slice 1 defines the nine-slice
 implementation path and readiness gates. Slice 2 reviews SQLGlot `30.10.0`,
 runs an isolated uncommitted adapter spike, and selects a small handwritten
 MySQL renderer for the Phase 10 MVP. SQLGlot is not adopted. Slice 3 defines
@@ -150,7 +152,9 @@ output-file contract. PostgreSQL remains the handwritten byte-exact reference.
 The MySQL emitter remains absent from public `pietto.sql` exports, and no
 generic public emitter is added. JSON v1 remains the only runtime CLI JSON
 schema; `"dialect": "mysql"` is an allowed value within that unchanged schema.
-Phase 10 remains current until the Slice 9 completion audit.
+Slice 9 completes the cross-slice behavioral and static audit, including both
+typing gates, PostgreSQL and MySQL golden equality, dependency and generated
+code locks, output safety, and deferred capability boundaries.
 
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added
@@ -184,7 +188,7 @@ The completed typing and source-extension hardening work is documented in
 The completed test-only typing cleanup and non-blocking test configuration are
 documented in
 [the Phase 9.6 Test Typing Hygiene plan](docs/plan/phase-9-6-test-typing-hygiene.md).
-The current generation-only MySQL implementation sequence and readiness gates
+The completed generation-only MySQL implementation sequence and readiness gates
 are documented in
 [the Phase 10 MySQL SQL Generation MVP plan](docs/plan/phase-10-mysql-sql-generation-mvp.md).
 The exact SQLGlot release evidence, isolated spike findings, handwritten

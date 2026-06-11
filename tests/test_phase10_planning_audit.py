@@ -15,7 +15,7 @@ PHASE10_PLAN = "docs/plan/phase-10-mysql-sql-generation-mvp.md"
 def test_phase10_master_plan_exists_and_records_nine_ordered_slices() -> None:
     plan = _read(PHASE10_PLAN)
 
-    assert "**Phase 10 MySQL SQL Generation MVP is the current phase.**" in plan
+    assert "**Phase 10 MySQL SQL Generation MVP is complete.**" in plan
     assert "**Slice 1: Phase 10 Master Plan And Readiness Audit is complete.**" in (
         plan
     )

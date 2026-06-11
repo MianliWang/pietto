@@ -92,7 +92,7 @@ def test_slice4_status_and_private_boundary_are_documented() -> None:
     assert "4. **MySQL Backend Skeleton**: complete." in plan
     for document in status_documents:
         normalized = " ".join(document.split())
-        assert "Slices 1 through 8 complete" in normalized
+        assert "Phase 10 MySQL SQL Generation MVP is complete" in normalized
         assert "private MySQL backend skeleton" in normalized
 
 

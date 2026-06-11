@@ -1,11 +1,11 @@
 # Pietto v0.9 Whitepaper and Language Reference
 
 Version: v0.9 draft
-Status: Phase 1 through Phase 6 MVP and hardening slices implemented
+Status: Phase 1 through Phase 10 MVP, planning, and hardening slices implemented
 Primary implementation target: Python 3.12
-Primary SQL target: PostgreSQL
+Primary SQL target: PostgreSQL; MySQL 8.0+ generation MVP supported
 Preferred package manager: uv-first
-Current pipeline: parse -> analyze -> build IR -> emit PostgreSQL SQL -> CLI text or JSON output
+Current pipeline: parse -> analyze -> build IR -> emit selected PostgreSQL or MySQL SQL -> CLI text or JSON output
 
 ---
 
@@ -32,16 +32,17 @@ Pietto source
     -> parse
     -> analyze
     -> build IR
-    -> emit PostgreSQL SQL
+    -> emit explicitly selected PostgreSQL or MySQL SQL
     -> CLI text or JSON output
 ```
 
-Current implementation status after Phase 6: the parser/frontend, Semantic
-Checker, Semantic IR, PostgreSQL SQL backend, single-file CLI, security
-hardening, and JSON / machine-readable CLI presentation are implemented. The
-public `build_ir(script, semantic_model)` API lowers analyzed programs into
-immutable, parser-independent IR, and `emit_postgres_sql(script_ir)` produces
-SQL artifacts from that IR.
+Current implementation status after Phase 10: the parser/frontend, Semantic
+Checker, Semantic IR, PostgreSQL and MySQL SQL generation, single-file CLI,
+security hardening, and JSON / machine-readable CLI presentation are
+implemented. The public `build_ir(script, semantic_model)` API lowers analyzed
+programs into immutable, parser-independent IR. The public
+`emit_postgres_sql(script_ir)` API remains the PostgreSQL compatibility
+reference; the MySQL emitter remains private to explicit CLI dispatch.
 
 SQL is generated only. Database connections, SQL or connector execution,
 schema introspection, runtime services, project or multi-file support, watch
@@ -1180,9 +1181,9 @@ grammar, generated file, dependency, or lockfile.
 
 ### Phase 10: MySQL SQL Generation MVP
 
-Status: current, Slices 1 through 8 complete. The Phase 10 master plan defines
-nine separately approved slices for a future generation-only MySQL 8.0+
-backend. Slice 1 establishes planning and readiness gates. Slice 2 evaluates
+Status: complete. Phase 10 MySQL SQL Generation MVP is complete. The Phase 10
+master plan defines nine separately approved slices for a generation-only
+MySQL 8.0+ backend. Slice 1 establishes planning and readiness gates. Slice 2 evaluates
 SQLGlot `30.10.0` in an isolated temporary spike and selects a small
 handwritten MySQL renderer for the Phase 10 MVP. SQLGlot is not adopted as a
 production dependency or adapter. Slice 3 defines the future private closed
@@ -1200,6 +1201,9 @@ explicit regression locks for every existing PostgreSQL SQL golden and public
 backend module.
 Slice 8 enables explicit private CLI dispatch for `--dialect mysql` in text
 and JSON v1 modes, including the existing atomic output-file contract.
+Slice 9 completes the cross-slice behavioral and static audit for SQL output,
+CLI and JSON v1 behavior, typing, dependencies, grammar, generated ANTLR,
+source extensions, security boundaries, and deferred capabilities.
 
 The handwritten PostgreSQL backend remains the byte-exact reference. JSON v1
 remains the only runtime single-file CLI schema; JSON v2 remains reserved for
@@ -1220,7 +1224,8 @@ The `emit_mysql_sql` boundary remains private to `pietto.sql.mysql`; it is not
 publicly exported. It renders the approved MySQL MVP surface and fails closed
 for unsupported relations. Slice 8 dispatches to it only for explicit
 `--dialect mysql`; JSON v1 reports `"dialect": "mysql"` without changing the
-schema. Phase 10 remains current until the Slice 9 completion audit.
+schema. Phase 10 is complete; JSON v2 and runtime, database, project, watch,
+LSP, Web UI, and server capabilities remain unimplemented.
 
 ---
 

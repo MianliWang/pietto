@@ -134,7 +134,7 @@ def test_slice7_status_and_cross_references_are_complete() -> None:
     )
     for document in status_documents:
         normalized = " ".join(document.split())
-        assert "Slices 1 through 8 complete" in normalized
+        assert "Phase 10 MySQL SQL Generation MVP is complete" in normalized
         assert "MySQL golden" in normalized
 
 

@@ -30,7 +30,7 @@ def test_slice6_status_and_cross_references_are_complete() -> None:
     assert "6. **MySQL Expression And Relation Rendering MVP**: complete." in plan
     for document in status_documents:
         normalized = " ".join(document.split())
-        assert "Slices 1 through 8 complete" in normalized
+        assert "Phase 10 MySQL SQL Generation MVP is complete" in normalized
         assert "private handwritten MySQL" in normalized
 
 

@@ -13,7 +13,7 @@ Pietto source
     -> parse
     -> analyze
     -> build IR
-    -> emit PostgreSQL SQL
+    -> emit explicitly selected PostgreSQL or MySQL SQL
     -> CLI text or JSON output
 ```
 
@@ -86,7 +86,7 @@ Rules:
 
 ## Current Phase
 
-Current phase: Phase 10 MySQL SQL Generation MVP, Slices 1 through 8 complete.
+Current phase status: Phase 10 MySQL SQL Generation MVP is complete.
 Phases 8 and 9 are complete. Phase 9.5 improved handwritten type safety,
 isolated generated ANTLR typing noise, and migrated official source paths to
 `.pietto`. Phase 9.6 removed test-suite Pyright diagnostics through precise
@@ -106,6 +106,10 @@ and locks every existing PostgreSQL SQL golden and public backend module.
 Slice 8 enables explicit private CLI dispatch for `--dialect mysql` in text
 and JSON v1 modes while preserving output-file safety. The MySQL emitter
 remains absent from public `pietto.sql` exports.
+Slice 9 completes the cross-slice behavioral and static audit, including
+PostgreSQL and MySQL golden equality, CLI and JSON v1 behavior, typing gates,
+dependency and generated-code locks, and all deferred capability boundaries.
+No later implementation phase is authorized by this completion status.
 
 Phase 1 parser/frontend, Phase 2 Semantic Checker, Phase 3 Semantic IR, Phase 4
 PostgreSQL SQL, Phase 5 CLI, Phase 5.5 Security / Robustness Hardening, and
@@ -273,7 +277,7 @@ Current strict boundaries remain:
 - no watch mode or LSP/editor implementation;
 - no `compile_to_ir()` or `compile_to_sql()`.
 
-Do not implement in the current phase unless explicitly requested:
+Do not implement after the completed phase unless explicitly requested:
 
 - joins, grouping, ordering, limits, windows, or unions;
 - metadata DDL such as `CREATE TABLE`, `CREATE VIEW`, constraints, or indexes;
@@ -296,7 +300,8 @@ Do not implement in the current phase unless explicitly requested:
 - concurrency/runtime features.
 
 All seven Phase 9 slices, Phase 9.5, and Phase 9.6 are complete. Phase 10
-Slices 1 through 8 are complete. SQLGlot is rejected for the Phase 10 MVP.
+is complete with all nine slices audited. SQLGlot is rejected for the Phase
+10 MVP.
 The private MySQL backend, static `mysql.table(Text)` semantic/IR surface, and
 closed renderer are the MySQL compiler boundaries. Explicit private CLI
 dispatch and JSON v1 presentation are enabled. Public emitter export, a

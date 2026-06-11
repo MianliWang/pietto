@@ -2,7 +2,7 @@
 
 ## Status
 
-**Phase 10 MySQL SQL Generation MVP is the current phase.**
+**Phase 10 MySQL SQL Generation MVP is complete.**
 
 **Slice 1: Phase 10 Master Plan And Readiness Audit is complete.**
 
@@ -20,6 +20,10 @@
 
 **Slice 8: CLI Enablement For `--dialect mysql` is complete.**
 
+**Slice 9: Completion Audit is complete.**
+
+All nine slices are complete.
+
 Phase 10 is the first implementation phase after the Phase 9 SQL backend
 architecture work. Slices 1 through 3 are documentation and static audit only.
 Slice 2 selects a small handwritten MySQL renderer for the Phase 10 MVP and
@@ -30,10 +34,12 @@ skeleton. Slice 5 adds static semantic recognition and IR preservation for
 expression and relation renderer. Slice 7 adds manually reviewed MySQL golden
 fixtures and PostgreSQL regression locks. Slice 8 enables explicit private
 CLI dispatch for MySQL text and JSON v1 output. MySQL remains absent from the
-public `pietto.sql` exports.
+public `pietto.sql` exports. Slice 9 audits every slice, implemented behavior,
+compatibility lock, typing gate, generated-code boundary, and deferred
+capability.
 
-Every later slice requires a separate explicit implementation request. A
-planned capability is not an implemented or approved public interface merely
+Each implementation slice required a separate explicit request. A planned or
+deferred capability is not an implemented or approved public interface merely
 because it appears in this document.
 
 ## Goal
@@ -41,7 +47,7 @@ because it appears in this document.
 Add the smallest safe Oracle MySQL 8.0+ SQL-generation path while preserving
 Pietto as a local, generation-only compiler and CLI developer tool.
 
-The eventual Phase 10 pipeline may become:
+The completed Phase 10 pipeline is:
 
 ```text
 Pietto source
@@ -109,7 +115,7 @@ contract controls unless a later slice explicitly amends it.
 
 ## Phase Boundary
 
-Phase 10 may eventually add:
+Phase 10 adds:
 
 - one dedicated MySQL 8.0+ generation backend;
 - the static semantic connector `mysql.table(Text)`;
@@ -156,7 +162,7 @@ Phase 10 does not add:
 8. **CLI Enablement For `--dialect mysql`**: complete. Enable explicit MySQL
    CLI text and JSON v1 dispatch only after every backend and compatibility
    gate passes.
-9. **Completion Audit**: planned. Verify the complete MySQL generation MVP,
+9. **Completion Audit**: complete. Verify the complete MySQL generation MVP,
    PostgreSQL compatibility, dependency decision, typing gates, security
    boundaries, and deferred capabilities.
 
@@ -503,6 +509,8 @@ not infer a backend from source headers, connector names, or file extensions.
 
 ## Slice 9: Completion Audit
 
+**Slice 9 is complete.**
+
 The completion audit must verify:
 
 - every Phase 10 slice and acceptance gate;
@@ -518,6 +526,24 @@ The completion audit must verify:
 - dependency, lockfile, grammar, and generated-file boundaries;
 - absence of JSON v2, project mode, execution, database, connector runtime,
   schema introspection, watch, LSP, and Web UI.
+
+The audit is implemented in `tests/test_phase10_completion_audit.py`. It:
+
+- verifies all nine slice artifacts, status records, and the final handwritten
+  renderer decision;
+- runs both PostgreSQL and MySQL reviewed byte-exact SQL corpora;
+- exercises PostgreSQL and MySQL CLI text output, MySQL JSON v1, unknown
+  dialect handling, backend failure exit behavior, protected output writes,
+  and the unchanged `check` command;
+- locks the PostgreSQL public API and backend modules, JSON v1 serializer,
+  dependency metadata, grammar, and generated ANTLR files;
+- proves the MySQL emitter remains private and no generic public emitter or
+  SQLGlot dependency exists;
+- verifies the standard production and test typing configurations and targeted
+  generated-code isolation;
+- verifies `.pietto` remains the official repository source extension;
+- keeps JSON v2, project mode, execution, database, connector runtime, schema
+  introspection, watch, LSP, Web UI, and runtime server capabilities absent.
 
 ## JSON Compatibility Boundary
 
@@ -664,8 +690,9 @@ Phase 10 is complete only when:
 - JSON v2 and all runtime, database, project, watch, LSP, and Web capabilities
   remain unimplemented.
 
-Slices 1 through 3 satisfy none of the MySQL implementation criteria. Slice 4
-establishes the private fail-closed backend boundary, Slice 5 satisfies the
-static connector and IR-preservation gate, and Slice 6 satisfies the closed
-rendering gate. Slice 7 satisfies the reviewed golden-corpus and PostgreSQL
-regression-lock gate. The CLI and completion criteria remain open.
+Slices 1 through 3 establish the decision and design frame. Slice 4 establishes
+the private fail-closed backend boundary, Slice 5 satisfies the static
+connector and IR-preservation gate, and Slice 6 satisfies the closed rendering
+gate. Slice 7 satisfies the reviewed golden-corpus and PostgreSQL
+regression-lock gate. Slice 8 satisfies the CLI and JSON v1 integration gate.
+Slice 9 verifies every completion criterion. Phase 10 is complete.
