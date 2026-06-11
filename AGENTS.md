@@ -173,6 +173,11 @@ The current Phase 9 direction, PostgreSQL compatibility boundary, SQLGlot
 evaluation criteria, backend abstraction direction, MySQL MVP boundary, and
 slice sequence are documented in
 `docs/plan/phase-9-sql-backend-architecture-dialect-strategy.md`.
+The completed planning-only SQLGlot evaluation is documented in
+`docs/plan/phase-9-sqlglot-evaluation.md`. It approves only a future isolated
+Phase 10 MySQL-generation spike. It does not approve a production dependency,
+PostgreSQL migration, transpilation, optimizer, executor, database, connector,
+or runtime use.
 The planned dialect-specific connector names, semantic/backend responsibility
 boundary, required capability declaration, physical-name model, and
 unsupported-case policy are documented in
@@ -232,7 +237,7 @@ Do not implement in the current phase unless explicitly requested:
 - visualization;
 - concurrency/runtime features.
 
-Phase 9 Slices 1 through 3 are complete. Later Phase 9 slices require explicit
+Phase 9 Slices 1 through 4 are complete. Later Phase 9 slices require explicit
 requests. Production SQLGlot, MySQL, backend dispatch, semantic or IR
 implementation changes, richer SQL, execution, and database behavior remain
 prohibited.

@@ -92,11 +92,13 @@ Phase 9 SQL Backend Architecture & Dialect Strategy is the current
 architecture and compatibility-planning phase. It will define PostgreSQL
 byte-exact compatibility, dialect-sensitive source and rendering contracts,
 SQLGlot adoption criteria, an internal backend abstraction, and a conservative
-future MySQL MVP. Slices 1 through 3 are complete: the phase frame,
+future MySQL MVP. Slices 1 through 4 are complete: the phase frame,
 PostgreSQL compatibility corpus, and dialect/source responsibility contract
-are documented. They add no SQLGlot dependency, MySQL behavior, backend
-implementation, CLI or JSON change, richer SQL feature, SQL execution, or
-database connection.
+are documented, and SQLGlot is approved only for a future isolated Phase 10
+MySQL-generation spike. It is not approved as a production dependency or
+PostgreSQL replacement. These slices add no SQLGlot dependency, MySQL
+behavior, backend implementation, CLI or JSON change, richer SQL feature, SQL
+execution, or database connection.
 
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added
@@ -125,6 +127,10 @@ The completed planning direction, slice sequence, and audit are in
 The current SQL backend architecture direction, compatibility frame, and
 seven-slice sequence are in
 [the Phase 9 SQL Backend Architecture & Dialect Strategy plan](docs/plan/phase-9-sql-backend-architecture-dialect-strategy.md).
+The evidence matrix, rejected roles, dependency and resource risks, and
+conditional Phase 10 spike decision are in
+[the Phase 9 SQLGlot evaluation](docs/plan/phase-9-sqlglot-evaluation.md);
+SQLGlot remains uninstalled and unimplemented.
 The planned connector naming, stage ownership, backend capability, physical
 source-name, and fail-closed diagnostic rules are in
 [the SQL dialect capability and source contract](docs/spec/sql-dialect-source-contract-v1.md);

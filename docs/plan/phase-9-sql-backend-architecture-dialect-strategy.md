@@ -4,12 +4,14 @@
 
 **Phase 9 is the current architecture and compatibility-planning phase.**
 
-Slices 1 through 3 are complete. Readiness And Compatibility Frame establishes
+Slices 1 through 4 are complete. Readiness And Compatibility Frame establishes
 the post-Phase-8 baseline and phase boundary. PostgreSQL Compatibility Corpus
 adds reviewed byte-exact pipeline fixtures. Dialect Capability And Source
 Contract defines connector naming, stage ownership, required backend
 capabilities, physical-name compatibility, fail-closed diagnostics, and the
-future MySQL `matches` boundary.
+future MySQL `matches` boundary. SQLGlot Evaluation records an evidence-based
+decision that permits only a future isolated Phase 10 MySQL-generation spike,
+not a Phase 9 implementation, production dependency, or PostgreSQL migration.
 
 Phase 9 does not authorize production SQL backend implementation. Its allowed
 deliverables are documentation, specifications, compatibility tests, and
@@ -100,8 +102,9 @@ modify `pyproject.toml`, `uv.lock`, source files, tests, or generated files.
 3. **Dialect Capability And Source Contract**: complete. Defined the
    dialect-sensitive capability matrix, connector policy, table-name model,
    unsupported-feature behavior, and source compatibility rules.
-4. **SQLGlot Evaluation**: compare the handwritten backend with an isolated
-   IR-to-SQLGlot-AST approach and record a go/no-go decision.
+4. **SQLGlot Evaluation**: complete. Compared the handwritten backend with an
+   isolated IR-to-SQLGlot-AST approach and approved only a future Phase 10
+   MySQL-generation spike, subject to strict adoption gates.
 5. **Backend Abstraction Contract**: specify an internal backend interface,
    dispatch ownership, diagnostics, capability declaration, and dependency
    isolation without implementing it.
@@ -174,6 +177,40 @@ Slice 3 publishes `docs/spec/sql-dialect-source-contract-v1.md`. It defines:
 Slice 3 adds no connector, dialect, backend abstraction, SQLGlot dependency,
 production code, grammar, generated parser, JSON, dependency, lockfile, or
 runtime behavior.
+
+## Slice 4: SQLGlot Evaluation
+
+Slice 4 publishes `docs/plan/phase-9-sqlglot-evaluation.md`. It reviews
+SQLGlot 30.9.0 using official documentation, repository metadata, tag history,
+and PyPI package metadata without installing or executing the package.
+
+The decision is:
+
+**SQLGlot is approved only for a future isolated Phase 10 MySQL-generation
+spike. It is not approved as a production dependency, PostgreSQL replacement,
+or Phase 9 implementation.**
+
+The evaluation records:
+
+- feasibility of direct Semantic IR to SQLGlot AST construction;
+- official PostgreSQL and MySQL dialect-generator availability;
+- incompatibility between default best-effort behavior and Pietto's
+  fail-closed contract;
+- mandatory Pietto capability prevalidation and strict unsupported handling;
+- SQLGlot type isolation behind an internal adapter;
+- rejection of PostgreSQL-to-MySQL transpilation;
+- rejection of parser, semantic, optimizer, executor, database, connector,
+  and schema roles;
+- failure of the current PostgreSQL byte-exact migration criterion;
+- exact-version pinning and upgrade review requirements;
+- license, provenance, release-cadence, dependency, native-extra, resource,
+  and failure-mode risks;
+- a Phase 10 spike contract comparing SQLGlot with a handwritten MySQL
+  renderer.
+
+Slice 4 adds no SQLGlot dependency, adapter, backend implementation, MySQL
+behavior, CLI or JSON change, PostgreSQL output change, grammar, generated
+file, runtime feature, or lockfile change.
 
 ## PostgreSQL Compatibility Contract
 
@@ -269,8 +306,12 @@ split current strings.
 
 ## SQLGlot Evaluation
 
-SQLGlot should be evaluated in Phase 9 but must not be installed or imported
-by production code during the phase.
+The completed evaluation is documented in
+`docs/plan/phase-9-sqlglot-evaluation.md`.
+
+SQLGlot 30.9.0 was reviewed through official documentation and package
+metadata without installation or execution. SQLGlot remains absent from
+production code and dependencies.
 
 The only candidate role is:
 
@@ -295,48 +336,32 @@ Transpiling generated PostgreSQL text is not an acceptable architecture. It
 would make PostgreSQL syntax the intermediate representation, obscure
 Pietto source and IR attribution, and encourage best-effort translations.
 
-Official evaluation references:
-
-- <https://github.com/tobymao/sqlglot#readme>
-- <https://github.com/tobymao/sqlglot/blob/main/sqlglot/dialects/__init__.py>
-- <https://github.com/tobymao/sqlglot/blob/main/pyproject.toml>
-
-The evaluation must verify, for a specifically reviewed release:
-
-- license and package provenance;
-- supported Python versions and base dependencies;
-- PostgreSQL and MySQL generator coverage;
-- documented versioning and upgrade compatibility;
-- public AST-construction API stability;
-- strict unsupported-feature behavior;
-- identifier and literal rendering control;
-- pretty-printing and byte-exact compatibility limits;
-- import time, package size, and representative generation cost;
-- absence of required optimizer, executor, native-extension, or IO use.
-
-SQLGlot's default or best-effort behavior must never silently approximate a
-Pietto construct. Any future integration must configure or wrap unsupported
-cases so they become deterministic Pietto diagnostics.
+The Phase 9 decision approves only a future isolated Phase 10
+MySQL-generation spike. It does not approve a production dependency or
+PostgreSQL migration. SQLGlot's default best-effort behavior remains
+incompatible with Pietto; a future adapter must combine closed Pietto
+capability validation with strict generator failure handling.
 
 ## SQLGlot Decision Matrix
 
-Slice 4 must record evidence for each criterion:
+Slice 4 records the full evidence matrix in the focused evaluation document.
+The resulting adoption state is:
 
-| Criterion | Required result |
+| Criterion | Slice 4 result |
 |---|---|
-| IR mapping | Every Phase 10 MVP node maps without parsing SQL text |
-| Isolation | SQLGlot types remain behind an internal adapter |
-| PostgreSQL compatibility | Existing output remains byte-exact or handwritten backend remains authoritative |
-| MySQL correctness | Reviewed MySQL output matches the accepted contract |
-| Unsupported behavior | Unsupported constructs fail closed and deterministically |
-| Diagnostics | Failures retain Pietto definition spans and ordering |
-| Dependency review | License, provenance, lockfile, audit, and upgrade policy accepted |
-| Security boundary | No optimizer, executor, database, connector, network, or introspection path |
-| Maintenance | Adapter cost is lower than maintaining equivalent dialect renderers |
+| IR mapping | Feasible in principle; direct mapping remains a Phase 10 spike gate |
+| Isolation | Accepted only behind one internal adapter |
+| PostgreSQL compatibility | Migration not approved; handwritten backend remains authoritative |
+| MySQL correctness | Requires reviewed Phase 10 MySQL output |
+| Unsupported behavior | Default best effort rejected; layered fail-closed handling required |
+| Diagnostics | Must remain Pietto-owned and source-located |
+| Dependency review | Conditional; exact release, lockfile, provenance, and audit remain future gates |
+| Security boundary | Generation-only role accepted; optimizer, executor, IO, and database paths rejected |
+| Maintenance | Open until compared with a handwritten MySQL renderer |
 
-A failed mandatory criterion means SQLGlot is not adopted for Phase 10.
-Approval for MySQL does not imply replacing the handwritten PostgreSQL
-backend.
+Failure of any mandatory Phase 10 spike gate means SQLGlot is not adopted.
+Approval to run that spike does not imply replacing the handwritten
+PostgreSQL backend.
 
 ## Backend Abstraction Direction
 
@@ -508,10 +533,11 @@ Phase 9 is complete only when:
 
 The following questions must be resolved by later Phase 9 slices:
 
-- SQLGlot adoption or rejection against the decision matrix;
 - exact MySQL string and SQL-mode contract;
 - future structured qualified source-name representation;
 - final MySQL regex policy;
-- whether PostgreSQL should ever migrate from the handwritten renderer.
+- the Phase 10 SQLGlot production go/no-go after an isolated spike;
+- whether a much later proposal should reconsider PostgreSQL migration.
 
-These are not blockers for Slice 1 and do not authorize implementation.
+Slice 4 does not authorize implementation. PostgreSQL migration is not part
+of the Phase 10 spike.

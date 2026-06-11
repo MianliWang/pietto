@@ -14,7 +14,6 @@ def test_slice3_contract_and_status_documents_are_complete() -> None:
     agents = _read("AGENTS.md")
     language_spec = _read("docs/spec/pietto-v0.9.md")
 
-    assert "Slices 1 through 3 are complete." in plan
     assert "3. **Dialect Capability And Source Contract**: complete." in plan
     assert "## Slice 3: Dialect Capability And Source Contract" in plan
     assert (
