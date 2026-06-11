@@ -86,7 +86,15 @@ Rules:
 
 ## Current Phase
 
-Current phase status: Phase 10 MySQL SQL Generation MVP is complete.
+Current phase status: Phase 11 Release Readiness & Reproducible Validation is
+in progress. Slice 1 Master Plan And Baseline Audit is complete. Slices 2
+through 7 are planned only and require separate explicit implementation
+requests. Slice 1 adds only the Phase 11 master plan, static planning and
+baseline audit tests, and scope-aware status documentation. It adds no CI,
+scripts, ANTLR checksum file, generated-file guard, golden policy
+implementation, or packaging smoke implementation.
+
+Historical Phase 10 status text: "Current phase status: Phase 10 MySQL SQL Generation MVP is complete."
 Phases 8 and 9 are complete. Phase 9.5 improved handwritten type safety,
 isolated generated ANTLR typing noise, and migrated official source paths to
 `.pietto`. Phase 9.6 removed test-suite Pyright diagnostics through precise
@@ -109,7 +117,16 @@ remains absent from public `pietto.sql` exports.
 Slice 9 completes the cross-slice behavioral and static audit, including
 PostgreSQL and MySQL golden equality, CLI and JSON v1 behavior, typing gates,
 dependency and generated-code locks, and all deferred capability boundaries.
-No later implementation phase is authorized by this completion status.
+Phase 10 completion does not itself authorize later compiler expansion.
+
+Phase 11 is release-readiness work around the unchanged post-Phase-10
+compiler. Its planned seven slices cover the master plan and baseline audit,
+an authoritative non-mutating validation entry point, ANTLR provenance and
+generated-file verification, golden-fixture policy and audit, minimal
+GitHub Actions CI, packaging and installed-CLI smoke tests, and a completion
+audit. `pyproject.toml` remains authoritative with
+`requires-python = ">=3.12"`. The future CI slice must validate Python 3.12
+and Python 3.13; Slice 1 does not create a workflow.
 
 Phase 1 parser/frontend, Phase 2 Semantic Checker, Phase 3 Semantic IR, Phase 4
 PostgreSQL SQL, Phase 5 CLI, Phase 5.5 Security / Robustness Hardening, and
@@ -267,6 +284,11 @@ closed MySQL expression and relation renderer. Slice 7 adds only reviewed
 MySQL fixtures, private-backend golden tests, negative regressions, and
 PostgreSQL compatibility locks. Slice 8 adds only explicit private CLI
 dispatch, MySQL text/JSON v1 coverage, and output-file integration.
+The current Phase 11 release-readiness baseline, fixed seven-slice sequence,
+allowed workflow changes, compatibility gates, and hard non-goals are
+documented in
+`docs/plan/phase-11-release-readiness-reproducible-validation.md`. Slice 1 is
+complete; Slices 2 through 7 remain planned and unimplemented.
 
 Current strict boundaries remain:
 
@@ -301,7 +323,8 @@ Do not implement after the completed phase unless explicitly requested:
 
 All seven Phase 9 slices, Phase 9.5, and Phase 9.6 are complete. Phase 10
 is complete with all nine slices audited. SQLGlot is rejected for the Phase
-10 MVP.
+10 MVP. Phase 11 Slice 1 is complete, while the rest of Phase 11 remains
+planned only.
 The private MySQL backend, static `mysql.table(Text)` semantic/IR surface, and
 closed renderer are the MySQL compiler boundaries. Explicit private CLI
 dispatch and JSON v1 presentation are enabled. Public emitter export, a

@@ -16,7 +16,9 @@ The current implementation status is:
 - **Phase 9 SQL Backend Architecture & Dialect Strategy: complete**;
 - **Phase 9.5 Static Typing And Source Extension Hardening: complete**;
 - **Phase 9.6 Test Typing Hygiene: complete**;
-- **Phase 10 MySQL SQL Generation MVP: complete**.
+- **Phase 10 MySQL SQL Generation MVP: complete**;
+- **Phase 11 Release Readiness & Reproducible Validation: Slice 1 complete,
+  phase in progress**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -156,6 +158,17 @@ Slice 9 completes the cross-slice behavioral and static audit, including both
 typing gates, PostgreSQL and MySQL golden equality, dependency and generated
 code locks, output safety, and deferred capability boundaries.
 
+Phase 11 Release Readiness & Reproducible Validation is in progress. Slice 1
+adds the master plan and post-Phase-10 baseline audit only. It fixes a
+seven-slice sequence for an authoritative local validation entry point, ANTLR
+provenance and generated-file checks, a golden-fixture policy, minimal
+GitHub Actions CI, installed-package smoke tests, and a completion audit.
+Slices 2 through 7 remain planned and unimplemented. Slice 1 changes no
+production code, dependency, grammar, generated file, SQL backend, CLI
+behavior, JSON schema, or public Python API. `pyproject.toml` continues to
+declare Python `>=3.12`; the planned future CI matrix covers Python 3.12 and
+3.13 without changing that compatibility floor.
+
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added
 full structural depth, semantic graph, diagnostic/output, wall-clock, CPU, or
@@ -194,6 +207,9 @@ are documented in
 The exact SQLGlot release evidence, isolated spike findings, handwritten
 renderer decision, and reevaluation conditions are documented in
 [the Phase 10 SQLGlot evaluation and adapter spike](docs/plan/phase-10-sqlglot-evaluation-adapter-spike.md).
+The current release-readiness baseline, seven-slice sequence, compatibility
+gates, and deferred workflow implementations are documented in
+[the Phase 11 Release Readiness & Reproducible Validation plan](docs/plan/phase-11-release-readiness-reproducible-validation.md).
 The future private closed selector, enabled-dialect gate, failure
 classification, stage boundary, and presentation ownership are documented in
 [the SQL dialect dispatch design](docs/spec/sql-dialect-dispatch-design-v1.md);
