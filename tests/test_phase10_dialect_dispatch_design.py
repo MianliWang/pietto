@@ -191,7 +191,6 @@ def test_slice4_keeps_mysql_private_and_does_not_implement_dispatch() -> None:
     assert "sqlglot" not in _read("pyproject.toml").lower()
     assert 'name = "sqlglot"' not in _read("uv.lock")
     for forbidden in (
-        "mysql.table",
         "def emit_sql(",
         "_select_sql_emitter",
         "_enabled_sql_dialects",
@@ -200,6 +199,7 @@ def test_slice4_keeps_mysql_private_and_does_not_implement_dispatch() -> None:
         '"schema_version": 2',
     ):
         assert forbidden not in runtime_source
+    assert "mysql.table" in runtime_source
     assert "def emit_mysql_sql(" in runtime_source
     assert "emit_mysql_sql" not in cli_source
     assert 'choices=("postgres",)' in cli_source

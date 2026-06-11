@@ -25,7 +25,8 @@ mysql    -> emit_mysql_sql
 
 `mysql` remains disabled until Phase 10 Slice 8. Slice 4 subsequently added a
 private fail-closed `emit_mysql_sql` skeleton, but this design still adds no
-dispatcher. `mysql.table` and `--dialect mysql` remain unimplemented.
+dispatcher. Slice 5 subsequently adds static `mysql.table(Text)` semantic and
+IR support. `--dialect mysql` remains unimplemented.
 
 ## Goals
 
@@ -384,7 +385,7 @@ Before Slice 8, repository audits must continue proving:
 - text CLI choices contain only `postgres`;
 - JSON rejects `mysql` as `unsupported_dialect` before parsing;
 - `emit_mysql_sql` remains private until a separate public API decision;
-- `mysql.table` is absent until its own slice;
+- `mysql.table` remains static compiler metadata and does not select a backend;
 - no generic `emit_sql(...)` exists;
 - current public SQL exports are unchanged;
 - SQLGlot is absent from production dependencies and source;

@@ -86,7 +86,7 @@ Rules:
 
 ## Current Phase
 
-Current phase: Phase 10 MySQL SQL Generation MVP, Slices 1 through 4 complete.
+Current phase: Phase 10 MySQL SQL Generation MVP, Slices 1 through 5 complete.
 Phases 8 and 9 are complete. Phase 9.5 improved handwritten type safety,
 isolated generated ANTLR typing noise, and migrated official source paths to
 `.pietto`. Phase 9.6 removed test-suite Pyright diagnostics through precise
@@ -97,8 +97,11 @@ adopted. Slice 3 defines a private closed dialect-dispatch contract without
 implementing it. Slice 4 adds a private MySQL backend skeleton that consumes
 `ScriptIR`, treats current metadata as non-emitting, and fails closed with
 ordered `PIE-B1000` diagnostics for relations and unknown future definitions.
-MySQL SQL rendering remains unimplemented. Dialect dispatch, connector
-support, CLI behavior, and MySQL SQL output remain unimplemented.
+Slice 5 adds static `mysql.table(Text)` recognition with exact name, arity,
+`Text`, non-empty compile-time literal validation, plus exact connector name,
+argument, and span preservation in `ConnectorIR`. MySQL SQL rendering remains
+unimplemented. Dialect dispatch, CLI behavior, and MySQL SQL output remain
+unimplemented.
 
 Phase 1 parser/frontend, Phase 2 Semantic Checker, Phase 3 Semantic IR, Phase 4
 PostgreSQL SQL, Phase 5 CLI, Phase 5.5 Security / Robustness Hardening, and
@@ -207,18 +210,19 @@ CLI dispatch, closed capability declarations, ordered partial results,
 dispatcher, or generic public emitter is implemented. The Slice 4 MySQL entry
 point remains private to `pietto.sql.mysql`.
 The MySQL MVP contract is documented in
-`docs/spec/mysql-sql-generation-mvp-v1.md`. It defines future
+`docs/spec/mysql-sql-generation-mvp-v1.md`. It defines
 `mysql.table(Text)`, `emit_mysql_sql(ScriptIR) -> SqlResult`, the closed
 MySQL 8.0+ SQL surface, `len -> CHAR_LENGTH`, `matches` rejection, identifier
 and literal policy, SQL-mode assumptions, golden fixtures, and CLI enablement
 gates. Only the private fail-closed backend skeleton is implemented; it emits
-no MySQL SQL.
+no MySQL SQL. The static `mysql.table(Text)` semantic and IR surface is also
+implemented without runtime connector behavior.
 The planned dialect-specific connector names, semantic/backend responsibility
 boundary, required capability declaration, physical-name model, and
 unsupported-case policy are documented in
 `docs/spec/sql-dialect-source-contract-v1.md`. The contract is
-specification-only; `mysql.table`, MySQL dispatch, and a dialect abstraction
-remain unimplemented.
+the authority for the implemented `mysql.table(Text)` semantic and IR subset;
+MySQL dispatch and a dialect abstraction remain unimplemented.
 The handwritten PostgreSQL backend and
 `emit_postgres_sql(ScriptIR) -> SqlResult` remain the compatibility baseline.
 Phase 9 does not authorize a production dialect implementation or dependency.
@@ -244,7 +248,8 @@ The current Phase 10 slice sequence, implementation gates, JSON boundary,
 typing requirements, and generation-only MySQL scope are documented in
 `docs/plan/phase-10-mysql-sql-generation-mvp.md`. Slices 1 through 3 are
 documentation and static audit only. Slice 4 is the first production slice
-and adds only the private MySQL backend skeleton.
+and adds only the private MySQL backend skeleton. Slice 5 adds only static
+MySQL connector semantics and IR preservation.
 
 Current strict boundaries remain:
 
@@ -278,11 +283,11 @@ Do not implement in the current phase unless explicitly requested:
 - concurrency/runtime features.
 
 All seven Phase 9 slices, Phase 9.5, and Phase 9.6 are complete. Phase 10
-Slices 1 through 4 are complete. SQLGlot is rejected for the Phase 10 MVP.
-The private MySQL backend skeleton is the only MySQL production boundary;
-connector support, SQL rendering, public export, backend dispatch, CLI/JSON
-enablement, semantic or IR changes, richer SQL, execution, and database
-behavior remain prohibited.
+Slices 1 through 5 are complete. SQLGlot is rejected for the Phase 10 MVP.
+The private MySQL backend skeleton and static `mysql.table(Text)` semantic/IR
+surface are the only MySQL production boundaries. SQL rendering, public
+export, backend dispatch, CLI/JSON enablement, richer SQL, execution, and
+database behavior remain prohibited.
 
 Compiler stages must remain isolated: IR construction must not mutate parser
 or semantic inputs, and SQL backends must consume `ScriptIR` without rerunning

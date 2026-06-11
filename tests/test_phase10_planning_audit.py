@@ -103,13 +103,13 @@ def test_phase10_keeps_mysql_skeleton_private_and_sqlglot_absent() -> None:
     assert "sqlglot" not in _read("pyproject.toml").lower()
     assert 'name = "sqlglot"' not in _read("uv.lock")
     for forbidden in (
-        "mysql.table",
         "def emit_sql(",
         "sqlglot",
         "schema_version = 2",
         '"schema_version": 2',
     ):
         assert forbidden not in runtime_text
+    assert "mysql.table" in runtime_text
     assert "def emit_mysql_sql(" in runtime_text
     assert set(sql_api.__all__) == {
         "SqlArtifact",

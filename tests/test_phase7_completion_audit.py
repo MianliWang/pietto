@@ -41,7 +41,7 @@ def test_phase7_documentation_records_complete_single_file_scope() -> None:
         assert f"{slice_number}. **" in phase7
     assert "**Phase 7 Developer Workflow & Stability Foundation: complete**" in readme
     assert (
-        "Current phase: Phase 10 MySQL SQL Generation MVP, Slices 1 through 4 complete."
+        "Current phase: Phase 10 MySQL SQL Generation MVP, Slices 1 through 5 complete."
     ) in agents
     assert "**Phase 8 planning/specification is complete.**" in phase8
     assert "Every Phase 8 slice is documentation, specification" in phase8

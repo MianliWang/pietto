@@ -17,8 +17,8 @@ def test_slice3_contract_and_status_documents_are_complete() -> None:
     assert "3. **Dialect Capability And Source Contract**: complete." in plan
     assert "## Slice 3: Dialect Capability And Source Contract" in plan
     assert (
-        "**This contract is planning/specification-only and is not implemented.**"
-        in (spec)
+        "**Phase 10 Slice 5 implements the `mysql.table(Text)` semantic/IR subset.**"
+        in spec
     )
     for document in (plan, readme, agents, language_spec):
         assert DIALECT_SOURCE_SPEC in document
@@ -79,7 +79,7 @@ def test_physical_name_and_postgres_compatibility_are_preserved() -> None:
     )
 
 
-def test_slice3_does_not_implement_future_dialects_or_dependencies() -> None:
+def test_later_mysql_connector_slice_preserves_cli_and_dependency_boundaries() -> None:
     runtime_source = "\n".join(
         path.read_text(encoding="utf-8")
         for path in (REPO_ROOT / "src" / "pietto").rglob("*.py")
@@ -87,10 +87,11 @@ def test_slice3_does_not_implement_future_dialects_or_dependencies() -> None:
     )
     cli_source = _read("src/pietto/cli.py")
 
-    assert "mysql.table" not in runtime_source
+    assert "mysql.table" in runtime_source
     assert "def emit_mysql_sql(" in runtime_source
     assert "sqlglot" not in runtime_source.lower()
     assert 'choices=("postgres",)' in cli_source
+    assert "mysql.table" not in cli_source
     assert "emit_mysql_sql" not in cli_source
 
 

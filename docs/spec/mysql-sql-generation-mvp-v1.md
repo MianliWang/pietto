@@ -2,14 +2,15 @@
 
 ## Status
 
-**Phase 10 Slice 4 implements only the private fail-closed backend skeleton.**
+**Phase 10 Slices 4 and 5 implement the private skeleton and static connector.**
 
 It defines the smallest safe MySQL SQL-generation MVP that Phase 10 may
 implement. The current internal `emit_mysql_sql` consumes `ScriptIR`, skips
 metadata definitions, reports `PIE-B1000` for relations and unknown future
-definitions, and emits no artifacts. It does not add `mysql.table`,
-`--dialect mysql`, SQLGlot, backend dispatch, semantic behavior, IR behavior,
-MySQL SQL rendering, or runtime/database capability.
+definitions, and emits no artifacts. It does not add `--dialect mysql`,
+SQLGlot, backend dispatch, MySQL SQL rendering, or runtime/database capability.
+Slice 5 recognizes `mysql.table(Text)` as static compiler metadata and
+preserves it in `ConnectorIR`.
 
 The target is Oracle MySQL 8.0 or later SQL generation. MariaDB and other
 MySQL-compatible products are not certified by this contract.
@@ -39,8 +40,7 @@ The MVP must:
 
 1. The target dialect identifier is `mysql`.
 2. The minimum target is Oracle MySQL 8.0.
-3. The source connector is the future static
-   `mysql.table(Text)` connector.
+3. The source connector is the static `mysql.table(Text)` connector.
 4. The connector takes exactly one non-empty compile-time text literal.
 5. Its value is one opaque physical table identifier, not a qualified-name
    string.
@@ -101,7 +101,7 @@ A generic public `emit_sql(...)` API is not part of the MVP.
 
 ## Static Source Connector
 
-Phase 10 should introduce:
+Phase 10 Slice 5 introduces:
 
 ```pietto
 mysql.table("users")
@@ -128,20 +128,18 @@ The argument must be:
 - free of NUL;
 - valid under the MySQL table-identifier policy.
 
-Semantic analysis owns recognition, arity, type, and static-literal
-validation. IR lowering preserves the exact name `mysql.table`, the one static
-argument, and its span. The MySQL backend owns connector compatibility,
-identifier validation, quoting, and rendering.
+Semantic analysis owns and now implements recognition, arity, type,
+non-empty static-literal validation, and source shape/schema validation. IR
+lowering preserves the exact name `mysql.table`, the one static argument, and
+its span. The MySQL backend owns connector compatibility, identifier
+validation, quoting, and rendering.
 
 The connector remains metadata. It never opens a network connection, loads a
 driver, verifies that a table exists, or introspects a schema.
 
-Until Phase 10 implements the connector catalog change,
-`mysql.table("users")` must continue to receive:
-
-```text
-PIE-S2306 Unknown source connector: mysql.table
-```
+`mysql.table("users")` is now accepted semantically. Unknown connector names
+and invalid MySQL connector arguments continue to receive deterministic
+`PIE-S2306` diagnostics.
 
 ## Connector And Backend Matrix
 

@@ -12,12 +12,16 @@
 
 **Slice 4: MySQL Backend Skeleton is complete.**
 
+**Slice 5: MySQL Connector Semantic Surface is complete.**
+
 Phase 10 is the first implementation phase after the Phase 9 SQL backend
 architecture work. Slices 1 through 3 are documentation and static audit only.
 Slice 2 selects a small handwritten MySQL renderer for the Phase 10 MVP and
 rejects SQLGlot for this MVP. Slice 3 defines closed internal dispatch without
 implementing it. Slice 4 adds only a private, fail-closed MySQL backend
-skeleton. It emits no MySQL SQL and is not publicly exported or CLI-enabled.
+skeleton. Slice 5 adds static semantic recognition and IR preservation for
+`mysql.table(Text)`. These slices emit no MySQL SQL and do not publicly export
+or CLI-enable MySQL.
 
 Every later slice requires a separate explicit implementation request. A
 planned capability is not an implemented or approved public interface merely
@@ -66,11 +70,12 @@ The repository currently provides:
   `pyrightconfig.tests.json`;
 - targeted Pyright and Pylance isolation for `src/pietto/generated`;
 - a private fail-closed MySQL backend skeleton that emits no SQL artifacts;
+- static `mysql.table(Text)` semantic validation and `ConnectorIR`
+  preservation;
 - only `antlr4-python3-runtime` in the production dependency list.
 
 The following remain unimplemented:
 
-- `mysql.table(Text)`;
 - complete MySQL relation and expression rendering;
 - `--dialect mysql`;
 - an internal backend abstraction or dialect dispatcher;
@@ -132,7 +137,7 @@ Phase 10 does not add:
 4. **MySQL Backend Skeleton**: complete. Implement the private, fail-closed
    `ScriptIR -> SqlResult` MySQL backend boundary and capability declaration,
    initially without CLI enablement.
-5. **MySQL Connector Semantic Surface**: planned. Add the static
+5. **MySQL Connector Semantic Surface**: complete. Add the static
    `mysql.table(Text)` semantic signature and preserve it through IR lowering,
    with no connector execution or database behavior.
 6. **MySQL Expression And Relation Rendering MVP**: planned. Implement the
@@ -294,7 +299,7 @@ is intentionally importable only from the internal module:
 
 - it is absent from `pietto.sql.__all__`;
 - the CLI does not import or dispatch to it;
-- `mysql.table(Text)` remains unimplemented;
+- it does not yet render relations backed by `mysql.table(Text)`;
 - every `RelationIR` currently receives one ordered `PIE-B1000` diagnostic;
 - every returned `SqlResult` contains no MySQL artifact.
 
@@ -303,7 +308,9 @@ MySQL expression, source, and relation rendering remain Slice 6 work.
 
 ## Slice 5: MySQL Connector Semantic Surface
 
-Slice 5 may add:
+**Slice 5 is complete.**
+
+Slice 5 adds:
 
 ```text
 mysql.table(Text)
@@ -311,7 +318,7 @@ mysql.table(Text)
 
 as a static connector parallel to `postgres.table(Text)`.
 
-Semantic analysis owns:
+Semantic analysis now enforces:
 
 - exact connector recognition;
 - one-argument arity;
@@ -320,12 +327,16 @@ Semantic analysis owns:
 - source-shape and row-schema validation;
 - deterministic `PIE-S2306` failures.
 
-IR lowering owns preservation of the exact connector name, ordered static
-argument, and source span. It must not add runtime handles, dialect objects,
+IR lowering preserves the exact connector name, ordered static argument, and
+source span in `ConnectorIR`. It adds no runtime handles, dialect objects,
 credentials, endpoints, schemas, or connections.
 
 The connector argument remains one non-empty opaque physical table
 identifier. It is not split on `.`. Structured qualification remains deferred.
+
+This slice does not change legacy `postgres.table(Text)` behavior. It does not
+select a SQL backend from the connector name, and the private MySQL backend
+skeleton still emits no relation artifacts.
 
 ## Slice 6: MySQL Expression And Relation Rendering MVP
 
@@ -583,5 +594,6 @@ Phase 10 is complete only when:
   remain unimplemented.
 
 Slices 1 through 3 satisfy none of the MySQL implementation criteria. Slice 4
-establishes only the private fail-closed backend boundary. It does not satisfy
-the connector, rendering, golden-corpus, CLI, or completion criteria.
+establishes only the private fail-closed backend boundary. Slice 5 satisfies
+the static connector and IR-preservation gate, but not the rendering,
+golden-corpus, CLI, or completion criteria.

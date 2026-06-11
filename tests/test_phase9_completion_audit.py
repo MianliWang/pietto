@@ -136,11 +136,9 @@ def test_phase9_contracts_are_consistent_and_fail_closed() -> None:
         ),
     )
 
-    for document in (
-        _read("docs/spec/sql-dialect-source-contract-v1.md"),
-        _read("docs/spec/sql-backend-abstraction-contract-v1.md"),
-    ):
-        assert "planning/specification-only and is not implemented" in document
+    assert "planning/specification-only and is not implemented" in _read(
+        "docs/spec/sql-backend-abstraction-contract-v1.md"
+    )
 
 
 def test_phase9_postgres_compatibility_corpus_is_complete_and_unchanged() -> None:
@@ -239,7 +237,6 @@ def test_phase9_prohibited_production_capabilities_remain_absent() -> None:
     sql_exports = _read("src/pietto/sql/__init__.py")
 
     for forbidden_fragment in (
-        "mysql.table",
         "def emit_sql(",
         "class SqlBackend",
         "BackendCapabilities",
@@ -253,6 +250,7 @@ def test_phase9_prohibited_production_capabilities_remain_absent() -> None:
         assert forbidden_fragment.lower() not in lowered_source
 
     assert 'choices=("postgres",)' in cli_source
+    assert "mysql.table" in source_text
     assert "def emit_mysql_sql(" in source_text
     assert "emit_mysql_sql" not in cli_source
     assert "emit_mysql_sql" not in sql_exports

@@ -26,8 +26,8 @@ def test_slice6_contract_and_status_documents_are_complete() -> None:
     _assert_contains_all(
         contract,
         (
-            "**Phase 10 Slice 4 implements only the private fail-closed "
-            "backend skeleton.**",
+            "**Phase 10 Slices 4 and 5 implement the private skeleton and "
+            "static connector.**",
         ),
     )
     for document in documents:
@@ -229,11 +229,12 @@ def test_slice6_does_not_implement_mysql_or_change_dependencies() -> None:
     pyproject = _read("pyproject.toml")
     lockfile = _read("uv.lock")
 
-    assert "mysql.table" not in runtime_source
+    assert "mysql.table" in runtime_source
     assert "def emit_mysql_sql(" in runtime_source
     assert "def emit_sql(" not in runtime_source
     assert "sqlglot" not in runtime_source.lower()
     assert 'choices=("postgres",)' in cli_source
+    assert "mysql.table" not in cli_source
     assert "emit_mysql_sql" not in cli_source
     assert "emit_mysql_sql" not in sql_exports
     assert '"emit_sql"' not in sql_exports

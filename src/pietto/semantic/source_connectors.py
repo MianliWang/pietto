@@ -8,6 +8,7 @@ from pietto.ast_nodes import (
     CallExpr,
     DottedNameExpr,
     Expression,
+    LiteralExpr,
     NameExpr,
     Node,
     Script,
@@ -17,6 +18,8 @@ from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.model import TypeKind, ValueType, ValueTypeKind
 
 _POSTGRES_TABLE = "postgres.table"
+_MYSQL_TABLE = "mysql.table"
+_KNOWN_CONNECTORS = (_POSTGRES_TABLE, _MYSQL_TABLE)
 
 
 def check_source_connectors(
@@ -60,7 +63,7 @@ def _check_connector(
         return None
 
     connector_name = _callee_name(expression)
-    if connector_name != _POSTGRES_TABLE:
+    if connector_name not in _KNOWN_CONNECTORS:
         return _connector_diagnostic(
             expression,
             message=f"Unknown source connector: {connector_name}",
@@ -76,6 +79,14 @@ def _check_connector(
         or argument_type.resolved_type.name != "Text"
     ):
         return _invalid_arguments_diagnostic(expression, connector_name)
+    if connector_name == _MYSQL_TABLE:
+        argument = expression.arguments[0]
+        if (
+            not isinstance(argument, LiteralExpr)
+            or not isinstance(argument.value, str)
+            or not argument.value
+        ):
+            return _invalid_arguments_diagnostic(expression, connector_name)
     return None
 
 

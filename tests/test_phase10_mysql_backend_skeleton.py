@@ -92,7 +92,7 @@ def test_slice4_status_and_private_boundary_are_documented() -> None:
     assert "4. **MySQL Backend Skeleton**: complete." in plan
     for document in status_documents:
         normalized = " ".join(document.split())
-        assert "Slices 1 through 4 complete" in normalized
+        assert "Slices 1 through 5 complete" in normalized
         assert "private MySQL backend skeleton" in normalized
 
 
@@ -112,7 +112,7 @@ def test_mysql_entry_point_is_private_and_keeps_existing_models() -> None:
     assert not hasattr(sql_api, "emit_sql")
 
 
-def test_mysql_skeleton_is_not_wired_to_cli_or_connector_semantics() -> None:
+def test_mysql_skeleton_is_not_wired_to_cli_or_dialect_dispatch() -> None:
     cli_source = _read("src/pietto/cli.py")
     runtime_source = "\n".join(
         path.read_text(encoding="utf-8")
@@ -124,7 +124,7 @@ def test_mysql_skeleton_is_not_wired_to_cli_or_connector_semantics() -> None:
     assert "emit_mysql_sql" not in cli_source
     assert 'choices=("postgres",)' in cli_source
     assert 'if dialect != "postgres":' in cli_source
-    assert "mysql.table" not in runtime_source
+    assert "mysql.table" in runtime_source
     assert "def emit_sql(" not in runtime_source
     assert "_select_sql_emitter" not in runtime_source
     assert "_enabled_sql_dialects" not in runtime_source.lower()

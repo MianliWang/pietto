@@ -16,7 +16,7 @@ The current implementation status is:
 - **Phase 9 SQL Backend Architecture & Dialect Strategy: complete**;
 - **Phase 9.5 Static Typing And Source Extension Hardening: complete**;
 - **Phase 9.6 Test Typing Hygiene: complete**;
-- **Phase 10 MySQL SQL Generation MVP: current; Slices 1 through 4 complete**.
+- **Phase 10 MySQL SQL Generation MVP: current; Slices 1 through 5 complete**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits PostgreSQL SQL, and presents the
@@ -130,10 +130,12 @@ separate. Slice 4 adds a private MySQL backend skeleton that consumes
 `ScriptIR`, skips current metadata definitions, and fails closed with ordered
 `PIE-B1000` diagnostics for relations or unknown future definitions. It emits
 no SQL artifacts and is not exported from `pietto.sql` or wired into the CLI.
+Slice 5 adds static semantic recognition for `mysql.table(Text)`, including
+exact name, arity, `Text`, non-empty compile-time literal validation, and
+preservation of the opaque argument and connector span in `ConnectorIR`.
 PostgreSQL remains the handwritten byte-exact reference. MySQL SQL rendering
-remains unimplemented; `--dialect mysql`, `mysql.table`, dialect dispatch, and
-MySQL SQL output are still absent. JSON v1 remains the only runtime CLI JSON
-schema.
+remains unimplemented; `--dialect mysql`, dialect dispatch, and MySQL SQL
+output are still absent. JSON v1 remains the only runtime CLI JSON schema.
 
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added
@@ -185,14 +187,15 @@ The planning-only internal backend boundary, capability, result, dispatch,
 diagnostic, and SQLGlot-isolation rules are in
 [the SQL backend abstraction contract](docs/spec/sql-backend-abstraction-contract-v1.md);
 no abstraction layer or generic emitter is implemented.
-The planning-only MySQL 8.0+ generation surface, connector, identifier,
-literal, SQL-mode, diagnostic, golden, and CLI-gate rules are in
+The MySQL 8.0+ generation surface, connector, identifier, literal, SQL-mode,
+diagnostic, golden, and CLI-gate rules are in
 [the MySQL SQL generation MVP contract](docs/spec/mysql-sql-generation-mvp-v1.md);
-only the private fail-closed backend skeleton is implemented.
+the private fail-closed backend skeleton and static connector/IR surface are
+implemented.
 The planned connector naming, stage ownership, backend capability, physical
 source-name, and fail-closed diagnostic rules are in
 [the SQL dialect capability and source contract](docs/spec/sql-dialect-source-contract-v1.md);
-they are not implemented.
+the `mysql.table(Text)` semantic and IR subset is now implemented.
 The planned strict, non-executable project configuration contract is in
 [the Pietto project configuration schema version 1 specification](docs/spec/pietto-config-v1.md);
 it is not implemented or read by the current CLI.

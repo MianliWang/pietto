@@ -2,16 +2,17 @@
 
 ## Status
 
-**This contract is planning/specification-only and is not implemented.**
+**Phase 10 Slice 5 implements the `mysql.table(Text)` semantic/IR subset.**
 
 It defines the responsibility boundaries required before Pietto adds another
 SQL backend, a dialect abstraction, SQLGlot, or another source connector.
 Current PostgreSQL behavior remains authoritative and byte-exact.
 
-The only implemented source connector is:
+The implemented static source connectors are:
 
 ```pietto
 postgres.table("public.users")
+mysql.table("app.users")
 ```
 
 The only implemented CLI SQL dialect is:
@@ -20,8 +21,9 @@ The only implemented CLI SQL dialect is:
 pietto emit-sql file.pietto --dialect postgres
 ```
 
-`mysql.table`, `--dialect mysql`, backend capability declarations, generic
-connector syntax, and the contracts described below are not runtime features.
+`mysql.table` is static compiler metadata, not a runtime feature.
+`--dialect mysql`, backend capability declarations, and generic connector
+syntax remain unimplemented.
 
 ## Goals
 
@@ -48,10 +50,10 @@ network endpoint, schema lookup, or runtime behavior.
 
 **Source connector**
 : A statically named source-level call that identifies physical source
-  metadata, currently `postgres.table(Text)`.
+  metadata, currently `postgres.table(Text)` or `mysql.table(Text)`.
 
 **Connector signature catalog**
-: The future semantic-stage catalog of recognized connector names, arity,
+: The semantic-stage catalog of recognized connector names, arity,
   argument types, and static-value requirements.
 
 **Backend capability declaration**
@@ -61,13 +63,14 @@ network endpoint, schema lookup, or runtime behavior.
 
 **Physical table name**
 : The connector-provided static value used as a backend relation input. The
-  current `postgres.table(Text)` argument is one opaque identifier.
+  `postgres.table(Text)` and `mysql.table(Text)` arguments are opaque
+  identifiers.
 
 ## Decision Summary
 
 1. Initial physical connectors are dialect-specific.
 2. `postgres.table(Text)` remains unchanged.
-3. A future MySQL MVP should use the distinct connector
+3. The MySQL MVP uses the distinct connector
    `mysql.table(Text)`.
 4. No generic `table(...)` connector is planned for the initial
    multi-dialect implementation.
@@ -91,7 +94,7 @@ multi-dialect model:
 | Connector | Status | Intended backend |
 |---|---|---|
 | `postgres.table(Text)` | Implemented | PostgreSQL |
-| `mysql.table(Text)` | Future candidate only | MySQL 8.0+ |
+| `mysql.table(Text)` | Implemented static metadata | MySQL 8.0+ |
 
 The namespace prefix is a physical-source contract, not an instruction to
 open a database connection. It identifies the static metadata semantics a
@@ -115,12 +118,12 @@ names.
 
 ## Current Compatibility Baseline
 
-Current behavior remains unchanged:
+Current behavior is:
 
-- semantic analysis recognizes only `postgres.table`;
-- `mysql.table("users")` receives `PIE-S2306` as an unknown connector;
+- semantic analysis recognizes `postgres.table` and `mysql.table`;
+- `mysql.table` requires one non-empty compile-time `Text` literal;
 - `postgres.table` requires one argument typed as `Text`;
-- IR lowering preserves the name `postgres.table`, its static argument, and
+- IR lowering preserves either exact connector name, its static argument, and
   source span in `ConnectorIR`;
 - PostgreSQL relation emission accepts only `postgres.table(Text)`;
 - `postgres.table("public.users")` renders `FROM "public.users"`;
@@ -130,8 +133,8 @@ Current behavior remains unchanged:
 - unsupported CLI dialects stop before parsing and use the existing usage
   error and JSON `unsupported_dialect` behavior.
 
-This specification does not change those behaviors or their diagnostic text,
-locations, ordering, exit codes, or JSON representation.
+These are current compatibility requirements. PostgreSQL diagnostic text,
+locations, ordering, exit codes, and JSON representation remain unchanged.
 
 ## Stage Responsibilities
 
@@ -166,14 +169,10 @@ output backend:
 
 `PIE-S2306` remains the connector semantic diagnostic category.
 
-The current implementation already validates call shape, connector name,
-arity, and argument type. Static literal enforcement is a required future
-semantic responsibility; the current IR builder still performs a defensive
-check. Slice 3 does not move or change that behavior.
-
-When a future implementation adds `mysql.table(Text)`, it must first add that
-exact signature to the semantic connector catalog. Until then,
-`mysql.table` remains unknown and must continue to receive `PIE-S2306`.
+The current implementation validates call shape, exact connector name, arity,
+and argument type. `mysql.table(Text)` additionally requires a non-empty
+compile-time text literal. The IR builder retains its defensive literal check.
+Legacy `postgres.table(Text)` semantic behavior remains unchanged.
 
 Semantic analysis does not:
 
@@ -425,9 +424,9 @@ This behavior is a compatibility contract. Neither semantic analysis, IR
 lowering, nor a future backend abstraction may reinterpret the value. They
 must not split on `.`.
 
-The initial future `mysql.table(Text)` candidate must use the same
-one-argument, one-opaque-identifier contract. This defines source metadata
-shape, not shared quoting behavior.
+The implemented `mysql.table(Text)` connector uses the same one-argument,
+one-opaque-identifier metadata contract. This defines source metadata shape,
+not shared quoting behavior.
 
 Structured catalog/schema/table qualification is deferred. It must be added
 through an explicit new or versioned connector signature that supplies
@@ -529,22 +528,20 @@ Later implementation must preserve:
 - metadata non-emitting behavior;
 - no execution or database access.
 
-Adding a future connector or backend requires dedicated semantic, IR,
-backend, CLI, diagnostic, and golden tests in its approved implementation
-phase.
+Adding another connector or backend requires dedicated semantic, IR, backend,
+CLI, diagnostic, and golden tests in its approved implementation phase.
 
 ## Explicit Non-Goals
 
 This contract does not implement or approve:
 
-- `mysql.table`;
 - `--dialect mysql`;
 - SQLGlot or another SQL library;
 - a dialect registry, protocol, class, or dispatch implementation;
 - generic `table(...)` syntax;
 - structured qualified-name syntax;
 - grammar or generated parser changes;
-- semantic catalog or IR lowering changes;
+- connector execution or runtime source resolution;
 - PostgreSQL backend changes;
 - JSON changes;
 - richer SQL features;
@@ -564,5 +561,7 @@ The contract is complete when:
 - the MySQL `matches` rejection policy is explicit;
 - current dotted PostgreSQL names cannot be reinterpreted;
 - unsupported combinations fail closed with stage-owned diagnostics;
-- current PostgreSQL, CLI, JSON, grammar, semantic, IR, dependency, and
-  runtime behavior remain unchanged.
+- current PostgreSQL, CLI, JSON, grammar, dependency, and runtime behavior
+  remain unchanged;
+- the implemented MySQL semantic and IR subset stays static and
+  generation-only.

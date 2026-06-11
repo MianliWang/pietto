@@ -24,6 +24,14 @@ def test_postgres_table_with_text_argument_passes() -> None:
     assert result.diagnostics == ()
 
 
+def test_mysql_table_with_nonempty_text_literal_passes() -> None:
+    result = analyze(
+        _parse(SHAPE + 'source users: UserRow is mysql.table("app.users")\n')
+    )
+
+    assert result.diagnostics == ()
+
+
 @pytest.mark.parametrize(
     "connector",
     [
@@ -49,12 +57,47 @@ def test_invalid_postgres_table_arguments_report_pie_s2306(
     ]
 
 
+@pytest.mark.parametrize(
+    "connector",
+    [
+        "mysql.table()",
+        'mysql.table("users", "extra")',
+        "mysql.table(123)",
+        'mysql.table(trim("users"))',
+        'mysql.table("")',
+    ],
+)
+def test_invalid_mysql_table_arguments_report_pie_s2306(
+    connector: str,
+) -> None:
+    result = analyze(_parse(SHAPE + f"source users: UserRow is {connector}\n"))
+
+    assert [
+        (diagnostic.code, diagnostic.severity, diagnostic.message)
+        for diagnostic in result.diagnostics
+    ] == [
+        (
+            "PIE-S2306",
+            Severity.ERROR,
+            "Invalid source connector arguments for mysql.table",
+        )
+    ]
+
+
 def test_unknown_source_connector_reports_pie_s2306() -> None:
-    result = analyze(_parse(SHAPE + 'source users: UserRow is mysql.table("users")\n'))
+    result = analyze(_parse(SHAPE + 'source users: UserRow is sqlite.table("users")\n'))
 
     assert [
         (diagnostic.code, diagnostic.message) for diagnostic in result.diagnostics
-    ] == [("PIE-S2306", "Unknown source connector: mysql.table")]
+    ] == [("PIE-S2306", "Unknown source connector: sqlite.table")]
+
+
+def test_mysql_connector_name_matching_is_exact() -> None:
+    result = analyze(_parse(SHAPE + 'source users: UserRow is mysql.Table("users")\n'))
+
+    assert [
+        (diagnostic.code, diagnostic.message) for diagnostic in result.diagnostics
+    ] == [("PIE-S2306", "Unknown source connector: mysql.Table")]
 
 
 def test_non_call_source_connector_reports_pie_s2306() -> None:
@@ -65,9 +108,12 @@ def test_non_call_source_connector_reports_pie_s2306() -> None:
     ] == [("PIE-S2306", "Invalid source connector expression")]
 
 
-def test_unknown_argument_suppresses_connector_cascade() -> None:
+@pytest.mark.parametrize("connector_name", ["postgres.table", "mysql.table"])
+def test_unknown_argument_suppresses_connector_cascade(
+    connector_name: str,
+) -> None:
     result = analyze(
-        _parse(SHAPE + "source users: UserRow is postgres.table(missing)\n")
+        _parse(SHAPE + f"source users: UserRow is {connector_name}(missing)\n")
     )
     source = _source(result)
     connector = source.connector
@@ -105,9 +151,12 @@ def test_untyped_source_mode_policy_is_unchanged(
     )
 
 
-def test_typed_source_schema_still_comes_from_declared_shape() -> None:
+@pytest.mark.parametrize("connector_name", ["postgres.table", "mysql.table"])
+def test_typed_source_schema_still_comes_from_declared_shape(
+    connector_name: str,
+) -> None:
     result = analyze(
-        _parse(SHAPE + 'source users: UserRow is postgres.table("public.users")\n')
+        _parse(SHAPE + f'source users: UserRow is {connector_name}("public.users")\n')
     )
     source = _source(result)
     shape = result.model.type_symbols["UserRow"]
@@ -121,7 +170,7 @@ def test_typed_source_schema_still_comes_from_declared_shape() -> None:
 
 def test_connector_diagnostic_uses_connector_expression_span() -> None:
     script = _parse(
-        SHAPE + 'source users: UserRow is mysql.table("users")\n',
+        SHAPE + "source users: UserRow is mysql.table(123)\n",
         path="source-connectors.pietto",
     )
     source = script.definitions[-1]

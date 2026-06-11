@@ -303,8 +303,9 @@ def _callee_name(expression: CallExpr) -> str:
 def _is_static_connector_call(expression: Expression) -> bool:
     """Allow the validated connector call omitted from expression typing."""
 
-    return isinstance(expression, CallExpr) and _callee_name(expression) == (
-        "postgres.table"
+    return isinstance(expression, CallExpr) and _callee_name(expression) in (
+        "postgres.table",
+        "mysql.table",
     )
 
 
