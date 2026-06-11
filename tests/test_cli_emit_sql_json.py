@@ -276,7 +276,7 @@ def test_emit_sql_json_unsupported_dialect_is_structured_and_preserved(
                 "emit-sql",
                 str(path),
                 "--dialect",
-                "mysql",
+                "sqlite",
                 "--format=json",
             ]
         )
@@ -286,7 +286,7 @@ def test_emit_sql_json_unsupported_dialect_is_structured_and_preserved(
 
     assert result["ok"] is False
     assert result["path"] == str(path)
-    assert result["dialect"] == "mysql"
+    assert result["dialect"] == "sqlite"
     error = cast(list[dict[str, object]], result["cli_errors"])[0]
     assert error["kind"] == "unsupported_dialect"
     assert error["path"] is None

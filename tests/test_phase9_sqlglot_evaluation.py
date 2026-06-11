@@ -125,9 +125,9 @@ def test_slice4_does_not_add_sqlglot_or_mysql_runtime_behavior() -> None:
     assert "sqlglot" not in runtime_source.lower()
     assert "def emit_mysql_sql(" in runtime_source
     assert "mysql.table" in runtime_source
-    assert 'choices=("postgres",)' in cli_source
+    assert '_ENABLED_SQL_DIALECTS = ("postgres", "mysql")' in cli_source
     assert "mysql.table" not in cli_source
-    assert "emit_mysql_sql" not in cli_source
+    assert "return mysql_backend.emit_mysql_sql" in cli_source
     assert "sqlglot" not in pyproject.lower()
     assert 'name = "sqlglot"' not in lockfile
 

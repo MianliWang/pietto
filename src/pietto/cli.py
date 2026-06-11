@@ -6,7 +6,7 @@ import argparse
 import os
 import sys
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import NoReturn
@@ -15,6 +15,7 @@ import pietto.parser_api as parser_api
 import pietto.semantic as semantic_api
 import pietto.ir as ir_api
 import pietto.sql as sql_api
+import pietto.sql.mysql as mysql_backend
 from pietto import cli_json
 from pietto.errors import Diagnostic, Severity
 
@@ -23,6 +24,9 @@ _EXIT_DIAGNOSTIC_ERROR = 1
 _EXIT_USAGE_ERROR = 2
 _FORMAT_TEXT = "text"
 _FORMAT_JSON = "json"
+_ENABLED_SQL_DIALECTS = ("postgres", "mysql")
+
+type _SqlEmitter = Callable[[ir_api.ScriptIR], sql_api.SqlResult]
 
 
 class _JsonUsageError(Exception):
@@ -79,7 +83,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     if namespace.command == "check":
         return _run_check(namespace.path, output_format=namespace.format)
     if namespace.command == "emit-sql":
-        return _run_emit_sql(namespace.path, output_path=namespace.output)
+        return _run_emit_sql(
+            namespace.path,
+            dialect=namespace.dialect,
+            output_path=namespace.output,
+        )
     return 0
 
 
@@ -103,7 +111,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _configure_check_parser(check_parser)
     emit_parser = subparsers.add_parser(
         "emit-sql",
-        help="emit PostgreSQL SQL for one Pietto file",
+        help="emit SQL for one Pietto file",
     )
     _configure_emit_sql_parser(emit_parser)
     return parser
@@ -127,7 +135,7 @@ def _configure_emit_sql_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("path", type=Path, help="Pietto source file")
     parser.add_argument(
         "--dialect",
-        choices=("postgres",),
+        choices=_ENABLED_SQL_DIALECTS,
         required=True,
         help="SQL dialect",
     )
@@ -288,7 +296,8 @@ def _run_emit_sql_json_command(arguments: Sequence[str]) -> int:
             output=output,
         )
         return _EXIT_USAGE_ERROR
-    if dialect != "postgres":
+    selected_emitter = _select_sql_emitter(dialect)
+    if selected_emitter is None:
         _print_emit_sql_json(
             path=path,
             dialect=dialect,
@@ -304,8 +313,21 @@ def _run_emit_sql_json_command(arguments: Sequence[str]) -> int:
     return _run_emit_sql_json(
         path,
         dialect=dialect,
+        emitter=selected_emitter,
         output_path=output_path,
     )
+
+
+def _select_sql_emitter(dialect: str) -> _SqlEmitter | None:
+    """Select one dedicated backend from the closed enabled dialect set."""
+
+    if dialect not in _ENABLED_SQL_DIALECTS:
+        return None
+    if dialect == "postgres":
+        return sql_api.emit_postgres_sql
+    if dialect == "mysql":
+        return mysql_backend.emit_mysql_sql
+    raise AssertionError(f"enabled SQL dialect has no emitter: {dialect}")
 
 
 def _run_check(path: Path, *, output_format: str = _FORMAT_TEXT) -> int:
@@ -398,6 +420,7 @@ def _run_emit_sql_json(
     path: Path,
     *,
     dialect: str,
+    emitter: _SqlEmitter,
     output_path: Path | None,
 ) -> int:
     """Compile one file and render the ordered emit-sql JSON result."""
@@ -501,7 +524,7 @@ def _run_emit_sql_json(
         )
         return _EXIT_USAGE_ERROR
 
-    sql_result = sql_api.emit_postgres_sql(ir_result.ir)
+    sql_result = emitter(ir_result.ir)
     diagnostics = (*diagnostics, *sql_result.diagnostics)
     if _has_errors(sql_result.diagnostics):
         _print_emit_sql_json(
@@ -574,8 +597,18 @@ def _unwritten_output(output_path: Path | None) -> cli_json.OutputStatus | None:
     return cli_json.OutputStatus(path=output_path, written=False)
 
 
-def _run_emit_sql(path: Path, *, output_path: Path | None) -> int:
-    """Compile one Pietto file and print PostgreSQL SQL artifacts."""
+def _run_emit_sql(
+    path: Path,
+    *,
+    dialect: str,
+    output_path: Path | None,
+) -> int:
+    """Compile one Pietto file with the explicitly selected SQL backend."""
+
+    emitter = _select_sql_emitter(dialect)
+    if emitter is None:
+        _print_cli_error(path, f"unsupported SQL dialect: {dialect}")
+        return _EXIT_USAGE_ERROR
 
     if output_path is not None:
         try:
@@ -612,7 +645,7 @@ def _run_emit_sql(path: Path, *, output_path: Path | None) -> int:
         _print_cli_error(path, "IR builder produced no IR")
         return _EXIT_DIAGNOSTIC_ERROR
 
-    sql_result = sql_api.emit_postgres_sql(ir_result.ir)
+    sql_result = emitter(ir_result.ir)
     _render_diagnostics(sql_result.diagnostics, fallback_path=path)
     has_backend_errors = _has_errors(sql_result.diagnostics)
     if output_path is None:

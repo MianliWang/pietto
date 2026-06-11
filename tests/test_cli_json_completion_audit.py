@@ -229,14 +229,14 @@ def test_phase_6_emit_json_backend_and_usage_exit_matrix(
                 "emit-sql",
                 str(path),
                 "--dialect",
-                "mysql",
+                "sqlite",
                 "--format=json",
             ]
         )
         == 2
     )
     dialect_error = _read_json_document(capsys, command="emit-sql")
-    assert dialect_error["dialect"] == "mysql"
+    assert dialect_error["dialect"] == "sqlite"
     assert (
         cast(list[dict[str, object]], dialect_error["cli_errors"])[0]["kind"]
         == "unsupported_dialect"

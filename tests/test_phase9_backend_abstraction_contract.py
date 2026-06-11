@@ -161,8 +161,8 @@ def test_slice5_does_not_implement_backend_abstraction_or_dependencies() -> None
     assert "class SqlBackend" not in runtime_source
     assert "BackendCapabilities" not in runtime_source
     assert "sqlglot" not in runtime_source.lower()
-    assert 'choices=("postgres",)' in cli_source
-    assert "emit_mysql_sql" not in cli_source
+    assert '_ENABLED_SQL_DIALECTS = ("postgres", "mysql")' in cli_source
+    assert "return mysql_backend.emit_mysql_sql" in cli_source
     assert "emit_mysql_sql" not in sql_exports
     assert '"emit_sql"' not in sql_exports
     assert "sqlglot" not in pyproject.lower()

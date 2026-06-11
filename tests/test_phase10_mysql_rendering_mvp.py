@@ -30,7 +30,7 @@ def test_slice6_status_and_cross_references_are_complete() -> None:
     assert "6. **MySQL Expression And Relation Rendering MVP**: complete." in plan
     for document in status_documents:
         normalized = " ".join(document.split())
-        assert "Slices 1 through 7 complete" in normalized
+        assert "Slices 1 through 8 complete" in normalized
         assert "private handwritten MySQL" in normalized
 
 
@@ -65,14 +65,13 @@ def test_mysql_backend_catches_only_the_explicit_renderer_error() -> None:
     assert "except Exception" not in source
 
 
-def test_mysql_renderer_is_not_cli_enabled() -> None:
+def test_mysql_renderer_is_cli_enabled_without_public_export() -> None:
     cli_source = _read("src/pietto/cli.py")
 
-    assert "pietto.sql.mysql" not in cli_source
-    assert "emit_mysql_sql" not in cli_source
-    assert 'choices=("postgres",)' in cli_source
-    assert 'if dialect != "postgres":' in cli_source
-    assert cli.main(["emit-sql", "missing.pietto", "--dialect", "mysql"]) == 2
+    assert "import pietto.sql.mysql as mysql_backend" in cli_source
+    assert "return mysql_backend.emit_mysql_sql" in cli_source
+    assert '_ENABLED_SQL_DIALECTS = ("postgres", "mysql")' in cli_source
+    assert cli.main(["emit-sql", "missing.pietto", "--dialect", "sqlite"]) == 2
 
 
 def test_mysql_renderer_has_no_sqlglot_or_runtime_dependencies() -> None:
@@ -113,8 +112,6 @@ def test_slice6_does_not_add_generic_or_public_dispatch() -> None:
 
     for forbidden in (
         "def emit_sql(",
-        "_select_sql_emitter",
-        "_enabled_sql_dialects",
         "schema_version = 2",
         '"schema_version": 2',
     ):

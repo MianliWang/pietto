@@ -18,6 +18,8 @@
 
 **Slice 7: MySQL Golden Corpus And PostgreSQL Regression Lock is complete.**
 
+**Slice 8: CLI Enablement For `--dialect mysql` is complete.**
+
 Phase 10 is the first implementation phase after the Phase 9 SQL backend
 architecture work. Slices 1 through 3 are documentation and static audit only.
 Slice 2 selects a small handwritten MySQL renderer for the Phase 10 MVP and
@@ -26,8 +28,9 @@ implementing it. Slice 4 adds only a private, fail-closed MySQL backend
 skeleton. Slice 5 adds static semantic recognition and IR preservation for
 `mysql.table(Text)`. Slice 6 implements the closed handwritten MySQL
 expression and relation renderer. Slice 7 adds manually reviewed MySQL golden
-fixtures and PostgreSQL regression locks. MySQL remains private and is not
-publicly exported or CLI-enabled.
+fixtures and PostgreSQL regression locks. Slice 8 enables explicit private
+CLI dispatch for MySQL text and JSON v1 output. MySQL remains absent from the
+public `pietto.sql` exports.
 
 Every later slice requires a separate explicit implementation request. A
 planned capability is not an implemented or approved public interface merely
@@ -82,8 +85,7 @@ The repository currently provides:
 
 The following remain unimplemented:
 
-- `--dialect mysql`;
-- an internal backend abstraction or dialect dispatcher;
+- a generic internal backend abstraction or public dialect dispatcher;
 - SQLGlot or another SQL-generation dependency;
 - JSON v2 or project/multi-file behavior;
 - SQL execution, database connections, connector runtime, and schema
@@ -151,7 +153,7 @@ Phase 10 does not add:
 7. **MySQL Golden Corpus And PostgreSQL Regression Lock**: complete. Add
    manually reviewed byte-exact MySQL fixtures and prove every PostgreSQL
    fixture remains unchanged.
-8. **CLI Enablement For `--dialect mysql`**: planned. Enable explicit MySQL
+8. **CLI Enablement For `--dialect mysql`**: complete. Enable explicit MySQL
    CLI text and JSON v1 dispatch only after every backend and compatibility
    gate passes.
 9. **Completion Audit**: planned. Verify the complete MySQL generation MVP,
@@ -273,8 +275,8 @@ exit `1`.
 The complete design is documented in
 `docs/spec/sql-dialect-dispatch-design-v1.md`.
 
-Slice 3 does not add a dispatcher, `mysql` to CLI choices, a public emitter,
-or production code.
+Slice 3 did not add a dispatcher, `mysql` to CLI choices, a public emitter,
+or production code. Slice 8 later implements the accepted private dispatch.
 
 ## Slice 4: MySQL Backend Skeleton
 
@@ -303,7 +305,7 @@ The skeleton:
 remains intentionally importable only from the internal module:
 
 - it is absent from `pietto.sql.__all__`;
-- the CLI does not import or dispatch to it;
+- the CLI does not import or dispatch to it until Slice 8;
 - Slice 6 adds rendering without changing that private API boundary.
 
 Public export of `emit_mysql_sql` remains a separate compatibility decision.
@@ -421,9 +423,9 @@ The minimum MySQL corpus is:
    arithmetic, Boolean operators, precedence, and parentheses.
 3. **Ordering And Metadata**: non-emitting metadata, two ordered relation
    artifacts, relation-name input, and stable CLI artifact separation.
-4. **Structural JSON v1 Planning**: record that future successful output uses
-   `"dialect": "mysql"`. The actual JSON fixture remains Slice 8 work because
-   MySQL CLI dispatch is still disabled.
+4. **Structural JSON v1 Planning**: record that successful output uses
+   `"dialect": "mysql"`. The actual JSON fixture is implemented in Slice 8
+   when MySQL CLI dispatch is enabled.
 
 Focused negative tests must cover connector mismatch, `matches`, `LIKE`,
 unknown nodes and operators, identifier limits, invalid literals, NUL,
@@ -454,6 +456,8 @@ hashes are also locked. No existing PostgreSQL fixture is modified.
 
 ## Slice 8: CLI Enablement For `--dialect mysql`
 
+**Slice 8 is complete.**
+
 Slice 8 is the only slice that may enable:
 
 ```bash
@@ -474,6 +478,28 @@ Enablement requires:
 
 The CLI remains explicit. Connector names and source headers do not choose the
 backend.
+
+The implementation adds one private closed selector:
+
+```text
+postgres -> emit_postgres_sql
+mysql    -> emit_mysql_sql
+```
+
+Text argparse and the JSON v1 command path admit the same exact dialect set.
+Unknown dialects still stop before parsing with exit `2`; JSON preserves the
+supplied value and reports `unsupported_dialect`. A selected MySQL backend
+failure remains an ordered `PIE-B1000` compiler diagnostic with exit `1`.
+
+Successful MySQL text output, JSON v1 artifacts, and atomic output-file writes
+reuse the existing presentation and safety paths. Backend errors never write
+the requested file, although JSON preserves any successful earlier artifacts
+returned in source order.
+
+The selector passes only `ScriptIR` to the chosen dedicated emitter. It does
+not infer a backend from source headers, connector names, or file extensions.
+`emit_mysql_sql` remains private to `pietto.sql.mysql`; no generic public
+`emit_sql(...)` API is added.
 
 ## Slice 9: Completion Audit
 
@@ -499,7 +525,7 @@ JSON schema version 1 remains the only runtime CLI JSON schema in Phase 10.
 The existing top-level fields, diagnostics, artifacts, output metadata, exit
 codes, and stdout/stderr rules remain unchanged.
 
-A successful future MySQL result may set:
+A successful MySQL result may set:
 
 ```json
 {

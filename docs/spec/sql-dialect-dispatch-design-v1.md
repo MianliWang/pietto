@@ -4,29 +4,22 @@
 
 **Phase 10 Slice 3 is complete.**
 
-**This design is specification-only and is not implemented.**
+**Phase 10 Slice 8 implements this design.**
 
-It defines Pietto's future internal closed SQL dialect selection and dispatch
-boundary. It does not add a dispatcher, MySQL backend, source connector, CLI
-dialect, public API, JSON behavior, or production code.
+Slice 3 originally defined Pietto's internal closed SQL dialect selection and
+dispatch boundary without production changes. Slice 8 now implements that
+private CLI boundary without adding a public generic emitter.
 
-The only implemented SQL path remains:
-
-```text
-postgres -> emit_postgres_sql
-```
-
-The future Phase 10 mapping is:
+The implemented CLI mapping is:
 
 ```text
 postgres -> emit_postgres_sql
 mysql    -> emit_mysql_sql
 ```
 
-`mysql` remains disabled until Phase 10 Slice 8. Slice 4 subsequently added a
-private fail-closed `emit_mysql_sql` skeleton, but this design still adds no
-dispatcher. Slice 5 subsequently adds static `mysql.table(Text)` semantic and
-IR support. `--dialect mysql` remains unimplemented.
+Slice 4 added the private fail-closed `emit_mysql_sql` boundary, Slice 5 added
+static `mysql.table(Text)` semantic and IR support, and Slices 6 and 7 completed
+and locked the renderer. Slice 8 enables explicit `--dialect mysql`.
 
 ## Goals
 
@@ -55,7 +48,7 @@ reference and the Slice 2 decision to use a small handwritten MySQL renderer.
    `emit_mysql_sql(ScriptIR) -> SqlResult`.
 6. No generic public `emit_sql(...)` API is added.
 7. Backend implementation and CLI enablement are separate gates.
-8. Until Slice 8, the only CLI-enabled dialect is `postgres`.
+8. The CLI-enabled dialects are exactly `postgres` and `mysql`.
 9. Unknown or disabled dialects are rejected before source reading or parsing.
 10. Unknown dialects remain CLI errors with exit code `2`.
 11. JSON v1 preserves the supplied value and uses
@@ -72,18 +65,19 @@ reference and the Slice 2 decision to use a small handwritten MySQL renderer.
     variables, project configuration, or network discovery.
 18. SQLGlot remains absent from the Phase 10 MVP.
 
-## Current Baseline
+## Implemented Baseline
 
 The current text CLI declares:
 
 ```python
-choices=("postgres",)
+_ENABLED_SQL_DIALECTS = ("postgres", "mysql")
 ```
 
-Argparse rejects `--dialect mysql` before source parsing and exits `2`.
+Argparse accepts those two exact values and rejects every unknown dialect
+before source parsing with exit `2`.
 
 The JSON command path intentionally accepts the raw dialect string long enough
-to serialize a structured error. A non-`postgres` value:
+to serialize a structured error. An unknown value:
 
 - is preserved in the top-level `dialect` field;
 - produces `unsupported_dialect`;
@@ -91,8 +85,8 @@ to serialize a structured error. A non-`postgres` value:
 - exits `2`;
 - writes no requested output file.
 
-Both successful text and JSON PostgreSQL paths currently call
-`emit_postgres_sql` only after parser, semantic, and IR stages succeed.
+Successful text and JSON paths call the selected dedicated emitter only after
+parser, semantic, and IR stages succeed.
 
 The current public `pietto.sql` exports remain:
 
@@ -122,7 +116,8 @@ def _select_sql_emitter(dialect: str) -> _SqlEmitter | None:
     return None
 ```
 
-This is a design sketch, not production code added by Slice 3.
+This was the Slice 3 design sketch and is the private shape implemented by
+Slice 8.
 
 The implementation may use an equivalent private exhaustive branch. It should
 not use a mutable registry or expose a mapping as public API.
@@ -159,13 +154,13 @@ Conceptually, CLI admission uses one private immutable value:
 _ENABLED_SQL_DIALECTS = ("postgres",)
 ```
 
-Slice 8 may atomically change it to:
+Slice 8 atomically changes it to:
 
 ```python
 _ENABLED_SQL_DIALECTS = ("postgres", "mysql")
 ```
 
-only after every MySQL backend, connector, golden, compatibility, typing, and
+after every MySQL backend, connector, golden, compatibility, typing, and
 security gate passes.
 
 Text argparse choices and JSON dialect admission must derive from the same
@@ -367,8 +362,6 @@ project mode, watch mode, LSP, or Web UI.
 
 ## Implementation Sequence
 
-This design does not authorize dispatch implementation now.
-
 1. Slice 4 implements and directly tests a private MySQL backend skeleton.
 2. Slice 5 adds the static semantic `mysql.table(Text)` surface.
 3. Slice 6 completes the closed handwritten MySQL rendering MVP.
@@ -376,14 +369,15 @@ This design does not authorize dispatch implementation now.
 5. Slice 8 adds the private selector branch and enables `mysql` in text and
    JSON CLI admission together.
 
-Until Slice 8, current PostgreSQL dispatch remains direct and unchanged.
+Slice 8 completes this sequence while preserving the dedicated PostgreSQL
+emitter and byte-exact output.
 
 ## Static Audit Requirements
 
-Before Slice 8, repository audits must continue proving:
+After Slice 8, repository audits must prove:
 
-- text CLI choices contain only `postgres`;
-- JSON rejects `mysql` as `unsupported_dialect` before parsing;
+- text and JSON CLI admission contains exactly `postgres` and `mysql`;
+- JSON rejects unknown dialects as `unsupported_dialect` before parsing;
 - `emit_mysql_sql` remains private until a separate public API decision;
 - `mysql.table` remains static compiler metadata and does not select a backend;
 - no generic `emit_sql(...)` exists;
@@ -392,7 +386,7 @@ Before Slice 8, repository audits must continue proving:
 - PostgreSQL golden hashes are unchanged;
 - grammar and generated ANTLR files are unchanged.
 
-Slice 8 must add focused tests for:
+Slice 8 adds focused tests for:
 
 - both enabled dialects selecting exactly one dedicated emitter;
 - text and JSON paths using the same enabled set;

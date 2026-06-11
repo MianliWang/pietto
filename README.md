@@ -16,7 +16,7 @@ The current implementation status is:
 - **Phase 9 SQL Backend Architecture & Dialect Strategy: complete**;
 - **Phase 9.5 Static Typing And Source Extension Hardening: complete**;
 - **Phase 9.6 Test Typing Hygiene: complete**;
-- **Phase 10 MySQL SQL Generation MVP: current; Slices 1 through 7 complete**.
+- **Phase 10 MySQL SQL Generation MVP: current; Slices 1 through 8 complete**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits PostgreSQL SQL, and presents the
@@ -45,13 +45,17 @@ pietto emit-sql file.pietto --dialect postgres --output out.sql
 pietto emit-sql file.pietto --dialect postgres --format json
 pietto emit-sql file.pietto --dialect postgres --format=json
 pietto emit-sql file.pietto --dialect postgres --format json --output out.sql
+pietto emit-sql file.pietto --dialect mysql
+pietto emit-sql file.pietto --dialect mysql --format json
+pietto emit-sql file.pietto --dialect mysql --output out.sql
 ```
 
 `check` performs parser and semantic validation only. `emit-sql` explicitly
-runs parse, semantic, IR, and PostgreSQL backend stages. SQL defaults to
-stdout; `--output` atomically replaces a safe regular output file after
-successful rendering. Text diagnostics remain on stderr. Recognized JSON
-requests produce one versioned machine-readable document on stdout.
+runs parse, semantic, IR, and the explicitly selected PostgreSQL or MySQL
+backend. SQL defaults to stdout; `--output` atomically replaces a safe regular
+output file after successful rendering. Text diagnostics remain on stderr.
+Recognized JSON requests produce one versioned machine-readable document on
+stdout.
 
 The CLI remains single-file developer tooling. It does not execute SQL,
 connect to databases or connectors, introspect schemas, or provide project
@@ -140,10 +144,13 @@ references, ordered artifacts, and fail-closed `PIE-B1000` diagnostics.
 Slice 7 adds three manually reviewed byte-exact MySQL golden groups covering
 literals/identifiers, expressions, and ordering/metadata, plus explicit locks
 for every existing PostgreSQL SQL golden and public backend module.
-PostgreSQL remains the handwritten byte-exact reference. `--dialect mysql`,
-dialect dispatch, public MySQL exports, and CLI MySQL output remain absent.
-JSON v1 remains the only runtime CLI JSON schema; MySQL JSON success output is
-deferred to the Slice 8 CLI gate.
+Slice 8 enables the private closed CLI dispatch for explicit
+`--dialect mysql` in text and JSON v1 modes, including the existing atomic
+output-file contract. PostgreSQL remains the handwritten byte-exact reference.
+The MySQL emitter remains absent from public `pietto.sql` exports, and no
+generic public emitter is added. JSON v1 remains the only runtime CLI JSON
+schema; `"dialect": "mysql"` is an allowed value within that unchanged schema.
+Phase 10 remains current until the Slice 9 completion audit.
 
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added
@@ -186,7 +193,7 @@ renderer decision, and reevaluation conditions are documented in
 The future private closed selector, enabled-dialect gate, failure
 classification, stage boundary, and presentation ownership are documented in
 [the SQL dialect dispatch design](docs/spec/sql-dialect-dispatch-design-v1.md);
-no dispatcher or MySQL CLI behavior is implemented.
+Slice 8 implements that private selector and explicit CLI enablement.
 The evidence matrix, rejected roles, dependency and resource risks, and
 conditional Phase 10 spike decision are in
 [the Phase 9 SQLGlot evaluation](docs/plan/phase-9-sqlglot-evaluation.md);
@@ -199,7 +206,8 @@ The MySQL 8.0+ generation surface, connector, identifier, literal, SQL-mode,
 diagnostic, golden, and CLI-gate rules are in
 [the MySQL SQL generation MVP contract](docs/spec/mysql-sql-generation-mvp-v1.md);
 the private fail-closed backend, static connector/IR surface, and closed
-renderer are implemented, and the reviewed MySQL golden corpus is locked.
+renderer are implemented, the reviewed MySQL golden corpus is locked, and
+explicit MySQL CLI generation is enabled.
 The planned connector naming, stage ownership, backend capability, physical
 source-name, and fail-closed diagnostic rules are in
 [the SQL dialect capability and source contract](docs/spec/sql-dialect-source-contract-v1.md);

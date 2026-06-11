@@ -159,9 +159,10 @@ def test_mysql_artifact_diagnostic_cli_and_json_rules_are_explicit() -> None:
             "Artifact order and diagnostic order each follow source definition order.",
             "The MySQL MVP uses `PIE-B1000`",
             "one primary backend diagnostic per failed emitting definition",
-            "text CLI `--dialect mysql` remains an argparse usage error",
-            "JSON `--dialect mysql` remains `unsupported_dialect`",
-            "rejection occurs before parsing",
+            "Phase 10 Slice 8 passes the backend, golden, compatibility, typing, "
+            "and security gates",
+            "mysql -> emit_mysql_sql",
+            "connector, source header, or file extension",
             "JSON schema version 1 requires no new field.",
             '"dialect": "mysql"',
             "backend errors do not write the requested output file",
@@ -233,9 +234,9 @@ def test_slice6_does_not_implement_mysql_or_change_dependencies() -> None:
     assert "def emit_mysql_sql(" in runtime_source
     assert "def emit_sql(" not in runtime_source
     assert "sqlglot" not in runtime_source.lower()
-    assert 'choices=("postgres",)' in cli_source
+    assert '_ENABLED_SQL_DIALECTS = ("postgres", "mysql")' in cli_source
     assert "mysql.table" not in cli_source
-    assert "emit_mysql_sql" not in cli_source
+    assert "return mysql_backend.emit_mysql_sql" in cli_source
     assert "emit_mysql_sql" not in sql_exports
     assert '"emit_sql"' not in sql_exports
     assert "sqlglot" not in pyproject.lower()

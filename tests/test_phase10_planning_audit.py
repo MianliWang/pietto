@@ -118,8 +118,8 @@ def test_phase10_keeps_mysql_skeleton_private_and_sqlglot_absent() -> None:
         "emit_postgres_sql",
     }
     assert not hasattr(sql_api, "emit_mysql_sql")
-    assert 'choices=("postgres",)' in _read("src/pietto/cli.py")
-    assert cli.main(["emit-sql", "missing.pietto", "--dialect", "mysql"]) == 2
+    assert '_ENABLED_SQL_DIALECTS = ("postgres", "mysql")' in _read("src/pietto/cli.py")
+    assert cli.main(["emit-sql", "missing.pietto", "--dialect", "sqlite"]) == 2
 
 
 def test_phase10_status_documents_describe_private_mysql_rendering() -> None:

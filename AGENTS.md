@@ -86,7 +86,7 @@ Rules:
 
 ## Current Phase
 
-Current phase: Phase 10 MySQL SQL Generation MVP, Slices 1 through 7 complete.
+Current phase: Phase 10 MySQL SQL Generation MVP, Slices 1 through 8 complete.
 Phases 8 and 9 are complete. Phase 9.5 improved handwritten type safety,
 isolated generated ANTLR typing noise, and migrated official source paths to
 `.pietto`. Phase 9.6 removed test-suite Pyright diagnostics through precise
@@ -103,8 +103,9 @@ argument, and span preservation in `ConnectorIR`. Slice 6 adds the private
 handwritten MySQL expression and relation renderer under the closed MVP
 contract. Slice 7 adds three manually reviewed byte-exact MySQL golden groups
 and locks every existing PostgreSQL SQL golden and public backend module.
-Dialect dispatch, public export, CLI behavior, and JSON MySQL success behavior
-remain unimplemented.
+Slice 8 enables explicit private CLI dispatch for `--dialect mysql` in text
+and JSON v1 modes while preserving output-file safety. The MySQL emitter
+remains absent from public `pietto.sql` exports.
 
 Phase 1 parser/frontend, Phase 2 Semantic Checker, Phase 3 Semantic IR, Phase 4
 PostgreSQL SQL, Phase 5 CLI, Phase 5.5 Security / Robustness Hardening, and
@@ -138,9 +139,11 @@ The completed MVP provides:
 The current CLI provides `pietto --help`, `pietto --version`, and
 `pietto check file.pietto`. The check command performs parser and semantic
 analysis only; it does not build IR or emit SQL. The CLI also provides
-`pietto emit-sql file.pietto --dialect postgres`, which explicitly orchestrates
-parser, semantic, IR, and PostgreSQL SQL APIs. It emits SQL text but never
-executes SQL or connects to a database or connector. SQL defaults to stdout;
+`pietto emit-sql file.pietto --dialect postgres` and
+`pietto emit-sql file.pietto --dialect mysql`, which explicitly orchestrate
+parser, semantic, IR, and one closed selected SQL backend. They emit SQL text
+but never execute SQL or connect to a database or connector. SQL defaults to
+stdout;
 `--output path` atomically replaces one regular file after successful
 rendering, rejects the input file and symbolic-link outputs, and leaves
 diagnostics on stderr. CLI diagnostics use
@@ -204,7 +207,8 @@ The completed Phase 10 dialect dispatch design is documented in
 `docs/spec/sql-dialect-dispatch-design-v1.md`. It defines a future private
 closed selector, separate CLI-enabled dialect gate, dedicated emitters,
 unknown-dialect exit `2`, backend-diagnostic exit `1`, and CLI ownership of
-presentation and output files. It adds no dispatcher or runtime behavior.
+presentation and output files. Slice 8 implements that private selector and
+enables only the explicit `postgres` and `mysql` dialect values.
 The planning-only internal backend contract is documented in
 `docs/spec/sql-backend-abstraction-contract-v1.md`. It preserves
 `ScriptIR -> SqlResult`, the public `emit_postgres_sql` entry point, explicit
@@ -220,13 +224,14 @@ and literal policy, SQL-mode assumptions, golden fixtures, and CLI enablement
 gates. The private fail-closed backend, closed handwritten renderer, and static
 `mysql.table(Text)` semantic/IR surface are implemented without runtime
 connector behavior. The reviewed MySQL golden corpus is implemented without
-CLI or JSON enablement.
+public emitter export; Slice 8 enables text and JSON v1 CLI generation.
 The planned dialect-specific connector names, semantic/backend responsibility
 boundary, required capability declaration, physical-name model, and
 unsupported-case policy are documented in
 `docs/spec/sql-dialect-source-contract-v1.md`. The contract is
 the authority for the implemented `mysql.table(Text)` semantic and IR subset;
-MySQL dispatch and a dialect abstraction remain unimplemented.
+the private closed CLI dispatch is implemented, while a generic dialect
+abstraction remains unimplemented.
 The handwritten PostgreSQL backend and
 `emit_postgres_sql(ScriptIR) -> SqlResult` remain the compatibility baseline.
 Phase 9 does not authorize a production dialect implementation or dependency.
@@ -256,7 +261,8 @@ and adds only the private MySQL backend skeleton. Slice 5 adds only static
 MySQL connector semantics and IR preservation. Slice 6 adds only the private
 closed MySQL expression and relation renderer. Slice 7 adds only reviewed
 MySQL fixtures, private-backend golden tests, negative regressions, and
-PostgreSQL compatibility locks.
+PostgreSQL compatibility locks. Slice 8 adds only explicit private CLI
+dispatch, MySQL text/JSON v1 coverage, and output-file integration.
 
 Current strict boundaries remain:
 
@@ -290,11 +296,12 @@ Do not implement in the current phase unless explicitly requested:
 - concurrency/runtime features.
 
 All seven Phase 9 slices, Phase 9.5, and Phase 9.6 are complete. Phase 10
-Slices 1 through 7 are complete. SQLGlot is rejected for the Phase 10 MVP.
+Slices 1 through 8 are complete. SQLGlot is rejected for the Phase 10 MVP.
 The private MySQL backend, static `mysql.table(Text)` semantic/IR surface, and
-closed renderer are the only MySQL production boundaries. Public export,
-backend dispatch, CLI/JSON enablement, richer SQL, execution, and database
-behavior remain prohibited.
+closed renderer are the MySQL compiler boundaries. Explicit private CLI
+dispatch and JSON v1 presentation are enabled. Public emitter export, a
+generic backend abstraction, richer SQL, execution, and database behavior
+remain prohibited.
 
 Compiler stages must remain isolated: IR construction must not mutate parser
 or semantic inputs, and SQL backends must consume `ScriptIR` without rerunning

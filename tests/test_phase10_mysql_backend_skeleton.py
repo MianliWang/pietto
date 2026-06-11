@@ -92,7 +92,7 @@ def test_slice4_status_and_private_boundary_are_documented() -> None:
     assert "4. **MySQL Backend Skeleton**: complete." in plan
     for document in status_documents:
         normalized = " ".join(document.split())
-        assert "Slices 1 through 7 complete" in normalized
+        assert "Slices 1 through 8 complete" in normalized
         assert "private MySQL backend skeleton" in normalized
 
 
@@ -112,7 +112,7 @@ def test_mysql_entry_point_is_private_and_keeps_existing_models() -> None:
     assert not hasattr(sql_api, "emit_sql")
 
 
-def test_mysql_skeleton_is_not_wired_to_cli_or_dialect_dispatch() -> None:
+def test_mysql_skeleton_remains_private_after_cli_dispatch() -> None:
     cli_source = _read("src/pietto/cli.py")
     runtime_source = "\n".join(
         path.read_text(encoding="utf-8")
@@ -120,15 +120,13 @@ def test_mysql_skeleton_is_not_wired_to_cli_or_dialect_dispatch() -> None:
         if "generated" not in path.parts
     )
 
-    assert "from pietto.sql.mysql" not in cli_source
-    assert "emit_mysql_sql" not in cli_source
-    assert 'choices=("postgres",)' in cli_source
-    assert 'if dialect != "postgres":' in cli_source
+    assert "import pietto.sql.mysql as mysql_backend" in cli_source
+    assert "return mysql_backend.emit_mysql_sql" in cli_source
+    assert '_ENABLED_SQL_DIALECTS = ("postgres", "mysql")' in cli_source
     assert "mysql.table" in runtime_source
     assert "def emit_sql(" not in runtime_source
-    assert "_select_sql_emitter" not in runtime_source
-    assert "_enabled_sql_dialects" not in runtime_source.lower()
-    assert cli.main(["emit-sql", "missing.pietto", "--dialect", "mysql"]) == 2
+    assert "def _select_sql_emitter(" in runtime_source
+    assert cli.main(["emit-sql", "missing.pietto", "--dialect", "sqlite"]) == 2
 
 
 def test_mysql_skeleton_has_no_dependency_or_forbidden_stage_imports() -> None:

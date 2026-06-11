@@ -222,7 +222,7 @@ def test_emit_sql_json_unsupported_dialect_reports_unwritten_output(
                 "emit-sql",
                 str(path),
                 "--dialect",
-                "mysql",
+                "sqlite",
                 "--format=json",
                 "--output",
                 str(output),
@@ -232,7 +232,7 @@ def test_emit_sql_json_unsupported_dialect_reports_unwritten_output(
     )
     result = _read_json_document(capsys)
 
-    assert result["dialect"] == "mysql"
+    assert result["dialect"] == "sqlite"
     assert result["output"] == {"path": str(output), "written": False}
     error = cast(list[dict[str, object]], result["cli_errors"])[0]
     assert error["kind"] == "unsupported_dialect"

@@ -547,21 +547,16 @@ dialect.
 
 ## CLI And JSON Contract
 
-Before the complete Phase 10 implementation is accepted:
-
-- text CLI `--dialect mysql` remains an argparse usage error;
-- JSON `--dialect mysql` remains `unsupported_dialect`;
-- rejection occurs before parsing;
-- the private `emit_mysql_sql` renderer is not exported or CLI-enabled.
-
-After all acceptance gates pass, the CLI may add the explicit mapping:
+Phase 10 Slice 8 passes the backend, golden, compatibility, typing, and
+security gates and adds the explicit mapping:
 
 ```text
 mysql -> emit_mysql_sql
 ```
 
 The PostgreSQL mapping remains unchanged. The CLI does not infer MySQL from a
-connector or source header.
+connector, source header, or file extension. The private `emit_mysql_sql`
+renderer remains absent from public `pietto.sql` exports.
 
 JSON schema version 1 requires no new field. A successful future MySQL result
 uses:
@@ -612,9 +607,9 @@ The smallest useful byte-exact MySQL SQL corpus is:
    - one relation-to-relation reference;
    - CLI artifact separation remains one blank line.
 
-The future CLI corpus must also add one structural JSON v1 success fixture
-with `"dialect": "mysql"`. That fixture belongs to Slice 8 because Slice 7
-does not enable MySQL CLI or JSON behavior.
+The CLI corpus includes one structural JSON v1 success fixture with
+`"dialect": "mysql"`. Slice 8 implements that fixture when it enables MySQL
+CLI and JSON behavior.
 
 Focused non-golden tests must cover:
 

@@ -80,7 +80,7 @@ def test_slice3_status_and_cross_references_are_complete() -> None:
         design,
         (
             "**Phase 10 Slice 3 is complete.**",
-            "**This design is specification-only and is not implemented.**",
+            "**Phase 10 Slice 8 implements this design.**",
         ),
     )
     for document in status_documents:
@@ -177,7 +177,7 @@ def test_no_header_connector_dynamic_or_public_generic_dispatch_is_allowed() -> 
     )
 
 
-def test_slice4_keeps_mysql_private_and_does_not_implement_dispatch() -> None:
+def test_slice8_implements_private_dispatch_without_public_api() -> None:
     project = tomllib.loads(_read("pyproject.toml"))
     runtime_source = "\n".join(
         path.read_text(encoding="utf-8")
@@ -192,8 +192,6 @@ def test_slice4_keeps_mysql_private_and_does_not_implement_dispatch() -> None:
     assert 'name = "sqlglot"' not in _read("uv.lock")
     for forbidden in (
         "def emit_sql(",
-        "_select_sql_emitter",
-        "_enabled_sql_dialects",
         "sqlglot",
         "schema_version = 2",
         '"schema_version": 2',
@@ -201,9 +199,9 @@ def test_slice4_keeps_mysql_private_and_does_not_implement_dispatch() -> None:
         assert forbidden not in runtime_source
     assert "mysql.table" in runtime_source
     assert "def emit_mysql_sql(" in runtime_source
-    assert "emit_mysql_sql" not in cli_source
-    assert 'choices=("postgres",)' in cli_source
-    assert 'if dialect != "postgres":' in cli_source
+    assert "def _select_sql_emitter(" in cli_source
+    assert "return mysql_backend.emit_mysql_sql" in cli_source
+    assert '_ENABLED_SQL_DIALECTS = ("postgres", "mysql")' in cli_source
     assert set(sql_api.__all__) == {
         "SqlArtifact",
         "SqlArtifactKind",

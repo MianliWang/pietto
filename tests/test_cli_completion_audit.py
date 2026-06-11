@@ -117,10 +117,10 @@ def test_cli_usage_and_file_errors_return_two(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     example = Path("examples/tables/active_users.pietto")
-    assert cli.main(["emit-sql", str(example), "--dialect", "mysql"]) == 2
+    assert cli.main(["emit-sql", str(example), "--dialect", "sqlite"]) == 2
     dialect_output = capsys.readouterr()
     assert dialect_output.out == ""
-    assert "invalid choice: 'mysql'" in dialect_output.err
+    assert "invalid choice: 'sqlite'" in dialect_output.err
 
     missing = tmp_path / "missing.pietto"
     assert cli.main(["check", str(missing)]) == 2

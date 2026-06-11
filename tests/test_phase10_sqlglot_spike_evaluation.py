@@ -153,7 +153,7 @@ def test_slice2_does_not_add_sqlglot_mysql_or_dialect_runtime_behavior() -> None
         assert forbidden not in runtime_source.lower()
     assert "mysql.table" in runtime_source.lower()
     assert "def emit_mysql_sql(" in runtime_source
-    assert 'choices=("postgres",)' in _read("src/pietto/cli.py")
+    assert '_ENABLED_SQL_DIALECTS = ("postgres", "mysql")' in _read("src/pietto/cli.py")
     assert set(sql_api.__all__) == {
         "SqlArtifact",
         "SqlArtifactKind",

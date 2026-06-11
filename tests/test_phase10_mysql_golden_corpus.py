@@ -134,7 +134,7 @@ def test_slice7_status_and_cross_references_are_complete() -> None:
     )
     for document in status_documents:
         normalized = " ".join(document.split())
-        assert "Slices 1 through 7 complete" in normalized
+        assert "Slices 1 through 8 complete" in normalized
         assert "MySQL golden" in normalized
 
 
@@ -206,24 +206,25 @@ def test_mysql_failures_preserve_artifact_and_diagnostic_order() -> None:
     assert all(diagnostic.code == "PIE-B1000" for diagnostic in result.diagnostics)
 
 
-def test_slice7_keeps_mysql_private_and_cli_disabled() -> None:
+def test_slice7_keeps_mysql_private_after_cli_enablement() -> None:
     cli_source = _read("src/pietto/cli.py")
 
     assert not hasattr(sql_api, "emit_mysql_sql")
-    assert "emit_mysql_sql" not in cli_source
-    assert 'choices=("postgres",)' in cli_source
-    assert 'if dialect != "postgres":' in cli_source
-    assert cli.main(["emit-sql", "missing.pietto", "--dialect", "mysql"]) == 2
+    assert "return mysql_backend.emit_mysql_sql" in cli_source
+    assert '_ENABLED_SQL_DIALECTS = ("postgres", "mysql")' in cli_source
+    assert cli.main(["emit-sql", "missing.pietto", "--dialect", "sqlite"]) == 2
 
 
-def test_mysql_json_v1_success_fixture_remains_a_slice8_gate() -> None:
+def test_mysql_json_v1_success_fixture_is_added_by_slice8() -> None:
     plan = _read("docs/plan/phase-10-mysql-sql-generation-mvp.md")
     contract = _read("docs/spec/mysql-sql-generation-mvp-v1.md")
 
     assert '"dialect": "mysql"' in plan
-    assert "actual JSON fixture remains Slice 8 work" in plan
-    assert "That fixture belongs to Slice 8" in contract
-    assert not tuple(GOLDEN_ROOT.glob("emit_mysql_*.json"))
+    assert "actual JSON fixture is implemented in Slice 8" in plan
+    assert "Slice 8 implements that fixture" in contract
+    assert tuple(GOLDEN_ROOT.glob("emit_mysql_*.json")) == (
+        GOLDEN_ROOT / "emit_mysql_compatibility_ordering_metadata.json",
+    )
 
 
 def test_negative_mysql_regression_matrix_remains_executable() -> None:

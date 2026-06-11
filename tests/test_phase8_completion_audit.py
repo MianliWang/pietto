@@ -293,7 +293,6 @@ def test_phase8_prohibited_runtime_capabilities_remain_absent() -> None:
         "compile_to_ir",
         "compile_to_sql",
         "sqlglot",
-        '"mysql"',
     ):
         assert forbidden_fragment not in source_text
 

@@ -210,7 +210,7 @@ def test_phase9_public_postgres_api_cli_and_json_v1_are_unchanged(
                 "emit-sql",
                 "examples/tables/active_users.pietto",
                 "--dialect",
-                "mysql",
+                "sqlite",
                 "--format=json",
             ]
         )
@@ -223,7 +223,7 @@ def test_phase9_public_postgres_api_cli_and_json_v1_are_unchanged(
     assert errors == [
         {
             "kind": "unsupported_dialect",
-            "message": "unsupported SQL dialect: mysql",
+            "message": "unsupported SQL dialect: sqlite",
             "path": None,
         }
     ]
@@ -249,10 +249,10 @@ def test_phase9_prohibited_production_capabilities_remain_absent() -> None:
     ):
         assert forbidden_fragment.lower() not in lowered_source
 
-    assert 'choices=("postgres",)' in cli_source
+    assert '_ENABLED_SQL_DIALECTS = ("postgres", "mysql")' in cli_source
     assert "mysql.table" in source_text
     assert "def emit_mysql_sql(" in source_text
-    assert "emit_mysql_sql" not in cli_source
+    assert "return mysql_backend.emit_mysql_sql" in cli_source
     assert "emit_mysql_sql" not in sql_exports
     assert '"emit_sql"' not in sql_exports
 

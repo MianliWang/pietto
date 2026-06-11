@@ -90,9 +90,9 @@ def test_later_mysql_connector_slice_preserves_cli_and_dependency_boundaries() -
     assert "mysql.table" in runtime_source
     assert "def emit_mysql_sql(" in runtime_source
     assert "sqlglot" not in runtime_source.lower()
-    assert 'choices=("postgres",)' in cli_source
+    assert '_ENABLED_SQL_DIALECTS = ("postgres", "mysql")' in cli_source
     assert "mysql.table" not in cli_source
-    assert "emit_mysql_sql" not in cli_source
+    assert "return mysql_backend.emit_mysql_sql" in cli_source
 
 
 def _read(path: str) -> str:

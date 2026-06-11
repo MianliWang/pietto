@@ -25,7 +25,7 @@ def test_slice5_status_and_cross_references_are_complete() -> None:
     assert "5. **MySQL Connector Semantic Surface**: complete." in plan
     for document in status_documents:
         normalized = " ".join(document.split())
-        assert "Slices 1 through 7 complete" in normalized
+        assert "Slices 1 through 8 complete" in normalized
         assert "mysql.table(Text)" in normalized
         assert "private handwritten MySQL" in normalized
 
@@ -72,7 +72,7 @@ def test_connector_modules_have_no_runtime_or_database_surface() -> None:
         assert forbidden not in source
 
 
-def test_mysql_backend_remains_private_and_cli_disabled() -> None:
+def test_mysql_backend_remains_private_when_cli_enabled() -> None:
     signature = inspect.signature(emit_mysql_sql)
     cli_source = _read("src/pietto/cli.py")
 
@@ -86,11 +86,10 @@ def test_mysql_backend_remains_private_and_cli_disabled() -> None:
     }
     assert not hasattr(sql_api, "emit_mysql_sql")
     assert not hasattr(sql_api, "emit_sql")
-    assert "emit_mysql_sql" not in cli_source
     assert "mysql.table" not in cli_source
-    assert 'choices=("postgres",)' in cli_source
-    assert 'if dialect != "postgres":' in cli_source
-    assert cli.main(["emit-sql", "missing.pietto", "--dialect", "mysql"]) == 2
+    assert "return mysql_backend.emit_mysql_sql" in cli_source
+    assert '_ENABLED_SQL_DIALECTS = ("postgres", "mysql")' in cli_source
+    assert cli.main(["emit-sql", "missing.pietto", "--dialect", "sqlite"]) == 2
 
 
 def test_dependencies_and_sqlglot_boundary_are_unchanged() -> None:

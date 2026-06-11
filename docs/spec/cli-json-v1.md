@@ -42,6 +42,9 @@ pietto check file.pietto --format=json
 pietto emit-sql file.pietto --dialect postgres --format json
 pietto emit-sql file.pietto --dialect postgres --format=json
 pietto emit-sql file.pietto --dialect postgres --format json --output out.sql
+pietto emit-sql file.pietto --dialect mysql --format json
+pietto emit-sql file.pietto --dialect mysql --format=json
+pietto emit-sql file.pietto --dialect mysql --format json --output out.sql
 ```
 
 `--format` is command-local. Text remains the default format.
@@ -169,7 +172,7 @@ emit SQL.
 | `command` | string | Always `"emit-sql"` |
 | `ok` | Boolean | Computed using the rules below |
 | `path` | string or null | Input path, or `null` when unavailable |
-| `dialect` | string or null | Selected dialect; an unsupported supplied value is preserved |
+| `dialect` | string or null | Selected dialect; successful values are `"postgres"` or `"mysql"`, and an unsupported supplied value is preserved |
 | `diagnostics` | array | Ordered parser, semantic, IR, and backend diagnostics |
 | `cli_errors` | array | Handled command, file, dialect, or output errors |
 | `artifacts` | array | SQL artifacts in backend order |
@@ -177,6 +180,9 @@ emit SQL.
 
 Backend artifacts remain in their original order, including artifacts returned
 alongside backend diagnostics.
+
+MySQL support changes only the allowed value of the existing `dialect` field.
+It adds no field and does not change JSON schema version 1.
 
 ## Diagnostic Object
 

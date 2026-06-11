@@ -290,7 +290,7 @@ def test_emit_sql_unsupported_dialect_still_returns_two(
                 "emit-sql",
                 str(path),
                 "--dialect",
-                "mysql",
+                "sqlite",
                 "--output",
                 str(output),
             ]
@@ -300,7 +300,7 @@ def test_emit_sql_unsupported_dialect_still_returns_two(
 
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert "invalid choice: 'mysql'" in captured.err
+    assert "invalid choice: 'sqlite'" in captured.err
     assert not output.exists()
 
 

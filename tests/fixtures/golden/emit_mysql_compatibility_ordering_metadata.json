@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "command": "emit-sql",
+  "ok": true,
+  "path": "tests/fixtures/mysql/compatibility_ordering_metadata.pietto",
+  "dialect": "mysql",
+  "diagnostics": [],
+  "cli_errors": [],
+  "artifacts": [
+    {
+      "kind": "relation",
+      "name": "FirstRelation",
+      "sql": "SELECT\n    `id` AS `id`,\n    `email` AS `email`\nFROM `app.users`\nWHERE `active` = TRUE"
+    },
+    {
+      "kind": "relation",
+      "name": "SecondRelation",
+      "sql": "SELECT\n    LOWER(TRIM(`email`)) AS `normalized_email`\nFROM `FirstRelation`"
+    }
+  ],
+  "output": null
+}

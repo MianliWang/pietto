@@ -1180,7 +1180,7 @@ grammar, generated file, dependency, or lockfile.
 
 ### Phase 10: MySQL SQL Generation MVP
 
-Status: current, Slices 1 through 7 complete. The Phase 10 master plan defines
+Status: current, Slices 1 through 8 complete. The Phase 10 master plan defines
 nine separately approved slices for a future generation-only MySQL 8.0+
 backend. Slice 1 establishes planning and readiness gates. Slice 2 evaluates
 SQLGlot `30.10.0` in an isolated temporary spike and selects a small
@@ -1198,6 +1198,8 @@ renderer under the closed MySQL MVP contract.
 Slice 7 adds three manually reviewed byte-exact MySQL golden groups and
 explicit regression locks for every existing PostgreSQL SQL golden and public
 backend module.
+Slice 8 enables explicit private CLI dispatch for `--dialect mysql` in text
+and JSON v1 modes, including the existing atomic output-file contract.
 
 The handwritten PostgreSQL backend remains the byte-exact reference. JSON v1
 remains the only runtime single-file CLI schema; JSON v2 remains reserved for
@@ -1210,16 +1212,15 @@ The master plan is documented in
 The exact release review, spike evidence, implementation comparison, final
 decision, and future reevaluation conditions are documented in
 `docs/plan/phase-10-sqlglot-evaluation-adapter-spike.md`.
-The future private selector, dedicated emitter mapping, separate
+The private selector, dedicated emitter mapping, separate
 CLI-enablement gate, failure classification, stage boundary, and presentation
 ownership are documented in `docs/spec/sql-dialect-dispatch-design-v1.md`.
 
 The `emit_mysql_sql` boundary remains private to `pietto.sql.mysql`; it is not
-publicly exported or CLI-enabled. It now renders the approved MySQL MVP
-surface and fails closed for unsupported relations. `--dialect mysql`,
-dialect dispatch, CLI and JSON changes, and CLI MySQL output remain
-unimplemented. A MySQL JSON v1 success fixture remains deferred until Slice 8
-can enable the corresponding CLI path.
+publicly exported. It renders the approved MySQL MVP surface and fails closed
+for unsupported relations. Slice 8 dispatches to it only for explicit
+`--dialect mysql`; JSON v1 reports `"dialect": "mysql"` without changing the
+schema. Phase 10 remains current until the Slice 9 completion audit.
 
 ---
 
