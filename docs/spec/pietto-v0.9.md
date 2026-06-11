@@ -165,7 +165,7 @@ mode checked
 The planned CLI may later override it:
 
 ```bash
-pietto check app.pie --mode strict
+pietto check app.pietto --mode strict
 ```
 
 When implemented, the CLI override will take precedence over the file header.
@@ -880,9 +880,9 @@ pietto --version
 ### `pietto check`
 
 ```bash
-pietto check app.pie
-pietto check app.pie --format json
-pietto check app.pie --format=json
+pietto check app.pietto
+pietto check app.pietto --format json
+pietto check app.pietto --format=json
 ```
 
 `check` parses and performs semantic analysis only. It does not build IR or
@@ -891,11 +891,11 @@ emit SQL.
 ### `pietto emit-sql`
 
 ```bash
-pietto emit-sql app.pie --dialect postgres
-pietto emit-sql app.pie --dialect postgres --output out.sql
-pietto emit-sql app.pie --dialect postgres --format json
-pietto emit-sql app.pie --dialect postgres --format=json
-pietto emit-sql app.pie --dialect postgres --format json --output out.sql
+pietto emit-sql app.pietto --dialect postgres
+pietto emit-sql app.pietto --dialect postgres --output out.sql
+pietto emit-sql app.pietto --dialect postgres --format json
+pietto emit-sql app.pietto --dialect postgres --format=json
+pietto emit-sql app.pietto --dialect postgres --format json --output out.sql
 ```
 
 `emit-sql` explicitly runs parsing, semantic analysis, IR construction, and
@@ -976,9 +976,9 @@ pietto/
 
     examples/
         basic/
-            users.pie
+            users.pietto
         constraints/
-            orders.pie
+            orders.pietto
 
     src/
         pietto/
@@ -1012,8 +1012,8 @@ Deliverables:
 ```text
 docs/spec/pietto-v0.9.md
 docs/plan/phase-1-parser.md
-examples/basic/users.pie
-examples/constraints/orders.pie
+examples/basic/users.pietto
+examples/constraints/orders.pietto
 AGENTS.md
 ```
 
@@ -1153,8 +1153,18 @@ The handwritten `emit_postgres_sql(script_ir)` backend remains authoritative.
 SQLGlot and MySQL are not implemented, and SQL execution, database connection,
 connector execution, and schema introspection remain prohibited.
 
-No post-Phase-9 implementation phase has started. Phase 9.5 Static Typing And
-Source Extension Hardening is planned separately.
+### Phase 9.5: Static Typing And Source Extension Hardening
+
+Status: complete. Phase 9.5 establishes a zero-error Pyright gate for
+handwritten production source, isolates generated ANTLR typing noise, and
+makes `.pietto` the only official Pietto source extension. The extension
+remains a repository and documentation convention: parsing and CLI commands
+continue to accept explicit paths without suffix validation.
+
+This phase changes no language syntax, parser semantics, Semantic IR, SQL
+output, CLI contract, JSON schema, public API, dependency, or runtime behavior.
+It is documented in
+`docs/plan/phase-9-5-static-typing-source-extension-hardening.md`.
 
 ---
 

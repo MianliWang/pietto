@@ -24,7 +24,7 @@ from pietto.ir.model import (
 from pietto.sql.expressions import render_expression_sql
 
 SPAN = SourceSpan(
-    path="expressions.pie",
+    path="expressions.pietto",
     line=1,
     column=1,
     end_line=1,

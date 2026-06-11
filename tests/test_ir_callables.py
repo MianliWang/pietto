@@ -81,7 +81,7 @@ def test_constraint_ir_preserves_signature_and_expression_body() -> None:
 
 
 def test_derive_parameters_preserve_order_types_spans_and_body_references() -> None:
-    result, _, _ = _build(CALLABLE_SOURCE, path="callables-ir.pie")
+    result, _, _ = _build(CALLABLE_SOURCE, path="callables-ir.pietto")
     derive = _callable(result, DeriveIR)
 
     assert [parameter.name for parameter in derive.parameters] == [
@@ -95,7 +95,7 @@ def test_derive_parameters_preserve_order_types_spans_and_body_references() -> N
         "Email",
     )
     assert derive.parameters[1].type_ref.canonical_name == "Text"
-    assert derive.parameters[0].span.path == "callables-ir.pie"
+    assert derive.parameters[0].span.path == "callables-ir.pietto"
     assert derive.return_type.symbol == SymbolId(SymbolNamespace.TYPE, "Email")
     assert derive.return_type.canonical_name == "Text"
 
@@ -183,8 +183,8 @@ def test_callable_lowering_does_not_mutate_inputs() -> None:
 @pytest.mark.parametrize(
     "path",
     [
-        Path("examples/constraints/valid_email.pie"),
-        Path("examples/derives/normalized_email.pie"),
+        Path("examples/constraints/valid_email.pietto"),
+        Path("examples/derives/normalized_email.pietto"),
     ],
     ids=str,
 )

@@ -9,6 +9,7 @@ import tempfile
 from collections.abc import Sequence
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
+from typing import NoReturn
 
 import pietto.parser_api as parser_api
 import pietto.semantic as semantic_api
@@ -31,7 +32,7 @@ class _JsonUsageError(Exception):
 class _CliArgumentParser(argparse.ArgumentParser):
     """Escape control characters in argparse error details."""
 
-    def error(self, message: str) -> None:
+    def error(self, message: str) -> NoReturn:
         """Print one safe usage error and terminate argument parsing."""
 
         self.print_usage(sys.stderr)
@@ -65,7 +66,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             return _EXIT_USAGE_ERROR
         except SystemExit as error:
-            return int(error.code)
+            return _system_exit_code(error)
         return _run_check(namespace.path, output_format=_FORMAT_JSON)
 
     if _is_emit_sql_json_request(arguments):
@@ -74,7 +75,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         namespace = parser.parse_args(arguments)
     except SystemExit as error:
-        return int(error.code)
+        return _system_exit_code(error)
     if namespace.command == "check":
         return _run_check(namespace.path, output_format=namespace.format)
     if namespace.command == "emit-sql":
@@ -180,10 +181,20 @@ def _build_emit_sql_json_parser() -> argparse.ArgumentParser:
 class _JsonArgumentParser(argparse.ArgumentParser):
     """Raise command usage errors for JSON rendering instead of printing them."""
 
-    def error(self, message: str) -> None:
+    def error(self, message: str) -> NoReturn:
         """Raise one structured command usage error."""
 
         raise _JsonUsageError(message)
+
+
+def _system_exit_code(error: SystemExit) -> int:
+    """Normalize a caught SystemExit using Python's process-exit semantics."""
+
+    if error.code is None:
+        return 0
+    if isinstance(error.code, int):
+        return error.code
+    return 1
 
 
 def _is_check_json_request(arguments: Sequence[str]) -> bool:
@@ -231,7 +242,7 @@ def _run_emit_sql_json_command(arguments: Sequence[str]) -> int:
         )
         return _EXIT_USAGE_ERROR
     except SystemExit as error:
-        return int(error.code)
+        return _system_exit_code(error)
 
     if unknown:
         _print_emit_sql_json(

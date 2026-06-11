@@ -13,7 +13,8 @@ The current implementation status is:
 - Phase 6 JSON / machine-readable CLI output: complete;
 - **Phase 7 Developer Workflow & Stability Foundation: complete**;
 - **Phase 8 Project Model & Configuration Planning: complete**;
-- **Phase 9 SQL Backend Architecture & Dialect Strategy: complete**.
+- **Phase 9 SQL Backend Architecture & Dialect Strategy: complete**;
+- **Phase 9.5 Static Typing And Source Extension Hardening: complete**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits PostgreSQL SQL, and presents the
@@ -34,14 +35,14 @@ The supported single-file CLI commands and forms include:
 ```bash
 pietto --help
 pietto --version
-pietto check file.pie
-pietto check file.pie --format json
-pietto check file.pie --format=json
-pietto emit-sql file.pie --dialect postgres
-pietto emit-sql file.pie --dialect postgres --output out.sql
-pietto emit-sql file.pie --dialect postgres --format json
-pietto emit-sql file.pie --dialect postgres --format=json
-pietto emit-sql file.pie --dialect postgres --format json --output out.sql
+pietto check file.pietto
+pietto check file.pietto --format json
+pietto check file.pietto --format=json
+pietto emit-sql file.pietto --dialect postgres
+pietto emit-sql file.pietto --dialect postgres --output out.sql
+pietto emit-sql file.pietto --dialect postgres --format json
+pietto emit-sql file.pietto --dialect postgres --format=json
+pietto emit-sql file.pietto --dialect postgres --format json --output out.sql
 ```
 
 `check` performs parser and semantic validation only. `emit-sql` explicitly
@@ -106,9 +107,11 @@ MVP contract now fixes the future connector, closed SQL surface,
 `len -> CHAR_LENGTH`, SQL-mode and escaping assumptions, diagnostics, golden
 corpus, and CLI enablement gates.
 
-No post-Phase-9 implementation phase has started. Phase 9.5 Static Typing And
-Source Extension Hardening is planned separately and requires an explicit
-request before implementation.
+Phase 9.5 Static Typing And Source Extension Hardening is complete. It
+establishes a zero-error Pyright gate for handwritten
+production source, isolates generated ANTLR typing noise, and makes `.pietto`
+the only official Pietto source extension. The CLI remains path-based and does
+not reject other suffixes.
 
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added
@@ -137,6 +140,8 @@ The completed planning direction, slice sequence, and audit are in
 The completed SQL backend architecture direction, compatibility frame,
 seven-slice sequence, and completion audit are in
 [the Phase 9 SQL Backend Architecture & Dialect Strategy plan](docs/plan/phase-9-sql-backend-architecture-dialect-strategy.md).
+The completed typing and source-extension hardening work is documented in
+[the Phase 9.5 Static Typing And Source Extension Hardening plan](docs/plan/phase-9-5-static-typing-source-extension-hardening.md).
 The evidence matrix, rejected roles, dependency and resource risks, and
 conditional Phase 10 spike decision are in
 [the Phase 9 SQLGlot evaluation](docs/plan/phase-9-sqlglot-evaluation.md);

@@ -2,7 +2,7 @@
   "schema_version": 1,
   "command": "emit-sql",
   "ok": true,
-  "path": "examples/tables/active_users.pie",
+  "path": "examples/tables/active_users.pietto",
   "dialect": "postgres",
   "diagnostics": [],
   "cli_errors": [],

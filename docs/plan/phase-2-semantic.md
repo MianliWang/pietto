@@ -516,7 +516,7 @@ Current test status:
 
 ### 12. Phase 2 Examples and Documentation Audit: Completed
 
-- Make every committed `examples/**/*.pie` file self-contained.
+- Make every committed `examples/**/*.pietto` file self-contained.
 - Require each normal example to have no semantic errors under the default
   checked mode.
 - Keep negative semantic programs in test fixtures rather than normal
@@ -527,11 +527,11 @@ Current test status:
 Warnings may remain in examples only when they intentionally demonstrate
 documented checked-mode behavior.
 
-Completed the semantic example gate: every committed `examples/**/*.pie` file
+Completed the semantic example gate: every committed `examples/**/*.pietto` file
 is parsed and analyzed under the default checked mode, and the test suite
 rejects semantic errors with path-specific diagnostic details. Normal examples
 are self-contained. The only intentional checked-mode warning is
-`examples/sources/users.pie:11:1`, where untyped `raw_events` produces
+`examples/sources/users.pietto:11:1`, where untyped `raw_events` produces
 `PIE-S2303`; a regression test fixes this expectation explicitly.
 
 Current coverage and test status:

@@ -38,17 +38,17 @@ _CLI_ERROR_KEYS = {"kind", "message", "path"}
 @pytest.mark.parametrize(
     ("name", "source", "expected_exit", "expected_ok", "expected_code"),
     [
-        ("valid.pie", "", 0, True, None),
+        ("valid.pietto", "", 0, True, None),
         (
-            "warning.pie",
+            "warning.pietto",
             "shape User:\n    email: Text\n",
             0,
             True,
             "PIE-S2005",
         ),
-        ("parser.pie", "shape User {\n", 1, False, "PIE-P1005"),
+        ("parser.pietto", "shape User {\n", 1, False, "PIE-P1005"),
         (
-            "semantic.pie",
+            "semantic.pietto",
             "shape User:\n    email: MissingType not null\n",
             1,
             False,
@@ -102,7 +102,7 @@ def test_check_json_audit_cli_errors_are_structured(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     if case == "file_read":
-        path = tmp_path / "missing.pie"
+        path = tmp_path / "missing.pietto"
         arguments = ["check", str(path), "--format=json"]
         expected_path: str | None = str(path)
     else:
@@ -127,7 +127,7 @@ def test_check_json_audit_location_can_be_null(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = tmp_path / "location-null.pie"
+    path = tmp_path / "location-null.pietto"
     diagnostic = Diagnostic(
         code="PIE-P1000",
         severity=Severity.ERROR,
@@ -190,17 +190,17 @@ def test_check_json_audit_controls_and_unicode_round_trip_as_raw_values(
     ("name", "source", "expected_code"),
     [
         (
-            "huge-integer.pie",
+            "huge-integer.pietto",
             "type Huge = Int(max = " + "9" * 5000 + ") not null\n",
             "PIE-P1000",
         ),
         (
-            "deep-parser.pie",
+            "deep-parser.pietto",
             "derive deep() -> Int not null:\n    " + "+" * 1500 + "1\n",
             "PIE-P1000",
         ),
         (
-            "deep-semantic.pie",
+            "deep-semantic.pietto",
             "".join(
                 [
                     *(
@@ -239,7 +239,7 @@ def test_check_json_audit_parser_error_short_circuits_later_stages(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "parser-error.pie", "shape User {\n")
+    path = _write(tmp_path, "parser-error.pietto", "shape User {\n")
 
     def unexpected_call(*args: object, **kwargs: object) -> object:
         del args, kwargs
@@ -260,7 +260,7 @@ def test_check_json_audit_semantic_error_never_enters_ir_or_sql(
 ) -> None:
     path = _write(
         tmp_path,
-        "semantic-error.pie",
+        "semantic-error.pietto",
         "shape User:\n    email: MissingType not null\n",
     )
 
@@ -279,7 +279,7 @@ def test_check_json_audit_text_modes_keep_plain_text_escaping(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "valid\nname.pie", "")
+    path = _write(tmp_path, "valid\nname.pietto", "")
     escaped_path = str(path).replace("\n", r"\n")
 
     assert cli.main(["check", str(path)]) == 0

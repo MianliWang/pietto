@@ -110,7 +110,7 @@ def test_shape_predicate_diagnostic_uses_expression_span(item_kind: str) -> None
     result = analyze(
         _parse(
             f"shape Record:\n    label: Text not null\n{item}",
-            path="shape-predicate.pie",
+            path="shape-predicate.pietto",
         )
     )
     shape = _shape(result)
@@ -120,7 +120,7 @@ def test_shape_predicate_diagnostic_uses_expression_span(item_kind: str) -> None
     diagnostic = result.diagnostics[0]
 
     assert diagnostic.code == "PIE-S2202"
-    assert diagnostic.location.path == expression.span.path == "shape-predicate.pie"
+    assert diagnostic.location.path == expression.span.path == "shape-predicate.pietto"
     assert (
         diagnostic.location.line,
         diagnostic.location.column,

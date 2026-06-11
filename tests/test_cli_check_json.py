@@ -17,7 +17,7 @@ def test_check_json_valid_file_returns_one_document(
 ) -> None:
     path = _write(
         tmp_path,
-        "valid.pie",
+        "valid.pietto",
         "shape User:\n    email: Text not null\n",
     )
 
@@ -44,7 +44,7 @@ def test_check_json_equals_form_is_supported(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "valid.pie", "")
+    path = _write(tmp_path, "valid.pietto", "")
 
     assert cli.main(["check", str(path), "--format=json"]) == 0
 
@@ -56,7 +56,7 @@ def test_check_json_warning_is_successful_and_structured(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "warning.pie", "shape User:\n    email: Text\n")
+    path = _write(tmp_path, "warning.pietto", "shape User:\n    email: Text\n")
 
     assert cli.main(["check", str(path), "--format", "json"]) == 0
 
@@ -71,9 +71,9 @@ def test_check_json_warning_is_successful_and_structured(
 @pytest.mark.parametrize(
     ("name", "source", "expected_code"),
     [
-        ("parser.pie", "shape User {\n", "PIE-P1005"),
+        ("parser.pietto", "shape User {\n", "PIE-P1005"),
         (
-            "semantic.pie",
+            "semantic.pietto",
             "shape User:\n    email: MissingType not null\n",
             "PIE-S2002",
         ),
@@ -102,7 +102,7 @@ def test_check_json_file_read_error_returns_two(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = tmp_path / "missing.pie"
+    path = tmp_path / "missing.pietto"
 
     assert cli.main(["check", str(path), "--format", "json"]) == 2
 
@@ -122,8 +122,8 @@ def test_check_json_file_read_error_returns_two(
     "arguments",
     [
         ["check", "--format", "json"],
-        ["check", "first.pie", "second.pie", "--format=json"],
-        ["check", "input.pie", "--unknown", "--format", "json"],
+        ["check", "first.pietto", "second.pietto", "--format=json"],
+        ["check", "input.pietto", "--unknown", "--format", "json"],
     ],
 )
 def test_check_json_command_usage_errors_are_structured(
@@ -146,7 +146,7 @@ def test_invalid_format_remains_plain_argparse_error(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "valid.pie", "")
+    path = _write(tmp_path, "valid.pietto", "")
 
     assert cli.main(["check", str(path), "--format", "yaml"]) == 2
 
@@ -170,7 +170,7 @@ def test_check_json_uses_raw_fields_and_json_encoding(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = tmp_path / "line\nesc\x1bdel\x7fsnow雪.pie"
+    path = tmp_path / "line\nesc\x1bdel\x7fsnow雪.pietto"
     diagnostic = Diagnostic(
         code="PIE-S2002",
         severity=Severity.ERROR,
@@ -201,12 +201,12 @@ def test_check_json_uses_raw_fields_and_json_encoding(
     ("name", "source", "message_fragment"),
     [
         (
-            "huge-integer.pie",
+            "huge-integer.pietto",
             "type Huge = Int(max = " + "9" * 5000 + ") not null\n",
             "maximum supported length",
         ),
         (
-            "deep-unary.pie",
+            "deep-unary.pietto",
             "derive deep() -> Int not null:\n    " + "+" * 1500 + "1\n",
             "recursion limit",
         ),
@@ -238,7 +238,7 @@ def test_check_json_semantic_recursion_has_no_traceback(
         f"type Alias{index} = Alias{index + 1} not null\n" for index in range(1399)
     ]
     aliases.append("type Alias1399 = Int not null\n")
-    path = _write(tmp_path, "deep-aliases.pie", "".join(aliases))
+    path = _write(tmp_path, "deep-aliases.pietto", "".join(aliases))
 
     assert cli.main(["check", str(path), "--format", "json"]) == 1
 
@@ -254,7 +254,7 @@ def test_check_json_stops_before_ir_and_sql(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "valid.pie", "")
+    path = _write(tmp_path, "valid.pietto", "")
 
     def unexpected_call(*args: object, **kwargs: object) -> object:
         del args, kwargs
@@ -272,7 +272,7 @@ def test_check_json_preserves_parser_then_semantic_diagnostic_order(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "ordered.pie", "")
+    path = _write(tmp_path, "ordered.pietto", "")
     parser_warning = Diagnostic(
         code="PIE-P1000",
         severity=Severity.WARNING,
@@ -317,7 +317,7 @@ def test_explicit_text_and_default_check_behavior_are_unchanged(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "valid.pie", "")
+    path = _write(tmp_path, "valid.pietto", "")
 
     assert cli.main(["check", str(path), "--format", "text"]) == 0
     explicit = capsys.readouterr()

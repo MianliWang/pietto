@@ -14,9 +14,9 @@ GOLDEN_ROOT = REPO_ROOT / "tests" / "fixtures" / "golden"
 @pytest.mark.parametrize(
     ("example", "fixture"),
     [
-        ("examples/basic/types.pie", "check_types.json"),
+        ("examples/basic/types.pietto", "check_types.json"),
         (
-            "examples/sources/users.pie",
+            "examples/sources/users.pietto",
             "check_sources_users_warning.json",
         ),
     ],
@@ -40,23 +40,23 @@ def test_check_json_matches_structural_golden(
     ("example", "fixture"),
     [
         (
-            "examples/tables/active_users.pie",
+            "examples/tables/active_users.pietto",
             "emit_sql_active_users.sql",
         ),
         (
-            "examples/queries/active_user_emails.pie",
+            "examples/queries/active_user_emails.pietto",
             "emit_sql_active_user_emails.sql",
         ),
         (
-            "tests/fixtures/postgres/compatibility_literals_identifiers.pie",
+            "tests/fixtures/postgres/compatibility_literals_identifiers.pietto",
             "emit_sql_compatibility_literals_identifiers.sql",
         ),
         (
-            "tests/fixtures/postgres/compatibility_expressions.pie",
+            "tests/fixtures/postgres/compatibility_expressions.pietto",
             "emit_sql_compatibility_expressions.sql",
         ),
         (
-            "tests/fixtures/postgres/compatibility_ordering_metadata.pie",
+            "tests/fixtures/postgres/compatibility_ordering_metadata.pietto",
             "emit_sql_compatibility_ordering_metadata.sql",
         ),
     ],
@@ -86,7 +86,7 @@ def test_emit_sql_json_matches_structural_golden(
         cli.main(
             [
                 "emit-sql",
-                "examples/tables/active_users.pie",
+                "examples/tables/active_users.pietto",
                 "--dialect",
                 "postgres",
                 "--format",

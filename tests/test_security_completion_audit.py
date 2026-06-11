@@ -36,13 +36,13 @@ def test_psec_001_long_numeric_literal_is_diagnosed_without_cli_traceback(
 ) -> None:
     source = "type Huge = Int(max = " + "9" * 5000 + ") not null\n"
 
-    result = parse_source(source, path="huge-integer.pie")
+    result = parse_source(source, path="huge-integer.pietto")
 
     assert result.ast is None
     assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-P1000"]
     assert "maximum supported length" in result.diagnostics[0].message
 
-    path = _write(tmp_path, "huge-integer.pie", source)
+    path = _write(tmp_path, "huge-integer.pietto", source)
     assert cli.main(["check", str(path)]) == 1
 
     captured = capsys.readouterr()
@@ -58,13 +58,13 @@ def test_psec_002_deep_parser_input_is_diagnosed_without_cli_traceback(
 ) -> None:
     source = "derive deep() -> Int not null:\n    " + "+" * 1500 + "1\n"
 
-    result = parse_source(source, path="deep-parser.pie")
+    result = parse_source(source, path="deep-parser.pietto")
 
     assert result.ast is None
     assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-P1000"]
     assert "recursion limit" in result.diagnostics[0].message
 
-    path = _write(tmp_path, "deep-parser.pie", source)
+    path = _write(tmp_path, "deep-parser.pietto", source)
     assert cli.main(["check", str(path)]) == 1
 
     captured = capsys.readouterr()
@@ -81,7 +81,7 @@ def test_psec_002_semantic_recursion_stops_emit_sql_before_ir_and_backend(
 ) -> None:
     expression = " + ".join(["1"] * 1200)
     source = f"derive total() -> Int not null:\n    {expression}\n"
-    parse_result = parse_source(source, path="deep-semantic.pie")
+    parse_result = parse_source(source, path="deep-semantic.pietto")
     assert parse_result.diagnostics == ()
     assert parse_result.ast is not None
 
@@ -98,7 +98,7 @@ def test_psec_002_semantic_recursion_stops_emit_sql_before_ir_and_backend(
 
     monkeypatch.setattr(cli.ir_api, "build_ir", unexpected_call)
     monkeypatch.setattr(cli.sql_api, "emit_postgres_sql", unexpected_call)
-    path = _write(tmp_path, "deep-semantic.pie", source)
+    path = _write(tmp_path, "deep-semantic.pietto", source)
 
     assert cli.main(["emit-sql", str(path), "--dialect", "postgres"]) == 1
 
@@ -154,14 +154,14 @@ def test_psec_005_output_aliases_are_rejected_without_modifying_targets(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    input_path = _write(tmp_path, "input.pie", SOURCE)
+    input_path = _write(tmp_path, "input.pietto", SOURCE)
     input_bytes = input_path.read_bytes()
 
     if alias_kind == "same-file":
         output_path = input_path
         target_path = input_path
     elif alias_kind == "hard-link":
-        output_path = tmp_path / "hard-link.pie"
+        output_path = tmp_path / "hard-link.pietto"
         os.link(input_path, output_path)
         target_path = input_path
     else:
@@ -187,7 +187,7 @@ def test_psec_005_backend_error_neither_creates_nor_truncates_output(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    input_path = _write(tmp_path, "input.pie", SOURCE)
+    input_path = _write(tmp_path, "input.pietto", SOURCE)
     existing_output = _write(tmp_path, "existing.sql", "original SQL\n")
     missing_output = tmp_path / "missing.sql"
     diagnostic = Diagnostic(
@@ -220,15 +220,15 @@ def test_psec_006_cli_text_is_escaped_but_sql_artifacts_are_unchanged(
         code="PIE-P1000",
         severity=Severity.ERROR,
         message="line\nescape\x1bnul\x00delete\x7f",
-        location=SourceLocation(path="bad\npath.pie", line=1, column=2),
+        location=SourceLocation(path="bad\npath.pietto", line=1, column=2),
     )
 
-    cli._render_diagnostics((diagnostic,), fallback_path=Path("fallback.pie"))
+    cli._render_diagnostics((diagnostic,), fallback_path=Path("fallback.pietto"))
 
     diagnostic_output = capsys.readouterr()
     assert diagnostic_output.out == ""
     assert diagnostic_output.err == (
-        "bad\\npath.pie:1:2 PIE-P1000 error: line\\nescape\\x1bnul\\x00delete\\x7f\n"
+        "bad\\npath.pietto:1:2 PIE-P1000 error: line\\nescape\\x1bnul\\x00delete\\x7f\n"
     )
 
     sql = "SELECT '\n\x1b\x00\x7f'"
@@ -267,7 +267,7 @@ def test_phase_5_cli_commands_work_without_runtime_or_compiler_wrappers(
     assert cli.main(["--version"]) == 0
     assert capsys.readouterr().out.startswith("pietto ")
 
-    path = _write(tmp_path, "valid.pie", SOURCE)
+    path = _write(tmp_path, "valid.pietto", SOURCE)
     assert cli.main(["check", str(path)]) == 0
     assert capsys.readouterr().out == f"OK: {path}\n"
 
@@ -307,7 +307,12 @@ def test_security_completion_audit_contains_no_legacy_diagnostic_codes() -> None
     for root in roots:
         paths = root.rglob("*") if root.is_dir() else (root,)
         for path in paths:
-            if not path.is_file() or path.suffix not in {".md", ".pie", ".py", ".txt"}:
+            if not path.is_file() or path.suffix not in {
+                ".md",
+                ".pietto",
+                ".py",
+                ".txt",
+            }:
                 continue
             for match in re.finditer(
                 r"(?<!PIE-)\bP[0-9]{4}\b",
@@ -319,7 +324,7 @@ def test_security_completion_audit_contains_no_legacy_diagnostic_codes() -> None
 
 
 def _compile_ir(source: str) -> ScriptIR:
-    parse_result = parse_source(source, path="security-completion-audit.pie")
+    parse_result = parse_source(source, path="security-completion-audit.pietto")
     assert parse_result.diagnostics == ()
     assert parse_result.ast is not None
 

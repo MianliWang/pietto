@@ -132,7 +132,7 @@ def test_unknown_relation_reports_p2301() -> None:
 
 
 def test_unknown_relation_diagnostic_uses_from_clause_span() -> None:
-    path = Path("examples/semantic/unknown-relation.pie")
+    path = Path("examples/semantic/unknown-relation.pietto")
     script = _parse(
         "query output:\n    from missing\n    select:\n        id\n",
         path=path,

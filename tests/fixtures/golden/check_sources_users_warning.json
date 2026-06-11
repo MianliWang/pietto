@@ -2,14 +2,14 @@
   "schema_version": 1,
   "command": "check",
   "ok": true,
-  "path": "examples/sources/users.pie",
+  "path": "examples/sources/users.pietto",
   "diagnostics": [
     {
       "code": "PIE-S2303",
       "severity": "warning",
       "message": "Source raw_events has no bound shape; row schema is unknown",
       "location": {
-        "path": "examples/sources/users.pie",
+        "path": "examples/sources/users.pietto",
         "line": 11,
         "column": 1,
         "end_line": 11,

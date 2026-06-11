@@ -15,7 +15,7 @@ def test_check_valid_file_returns_success(
 ) -> None:
     path = _write(
         tmp_path,
-        "valid.pie",
+        "valid.pietto",
         "shape User:\n"
         "    email: Text not null\n"
         'source users: User is postgres.table("users")\n',
@@ -32,7 +32,7 @@ def test_check_missing_file_returns_file_error(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = tmp_path / "missing.pie"
+    path = tmp_path / "missing.pietto"
 
     assert cli.main(["check", str(path)]) == 2
 
@@ -47,7 +47,7 @@ def test_check_parser_error_returns_diagnostic_error(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "syntax.pie", "shape User {\n")
+    path = _write(tmp_path, "syntax.pietto", "shape User {\n")
 
     assert cli.main(["check", str(path)]) == 1
 
@@ -65,7 +65,7 @@ def test_check_overly_long_integer_returns_parser_error_without_traceback(
 ) -> None:
     path = _write(
         tmp_path,
-        "huge-integer.pie",
+        "huge-integer.pietto",
         "type Huge = Int(max = " + "9" * 5000 + ") not null\n",
     )
 
@@ -85,7 +85,7 @@ def test_check_deep_unary_returns_parser_error_without_traceback(
 ) -> None:
     path = _write(
         tmp_path,
-        "deep-unary.pie",
+        "deep-unary.pietto",
         "derive deep() -> Int not null:\n    " + "+" * 1500 + "1\n",
     )
 
@@ -105,7 +105,7 @@ def test_check_semantic_error_returns_diagnostic_error(
 ) -> None:
     path = _write(
         tmp_path,
-        "semantic.pie",
+        "semantic.pietto",
         "shape User:\n    email: MissingType not null\n",
     )
 
@@ -124,7 +124,7 @@ def test_check_deep_alias_chain_returns_semantic_error_without_traceback(
         f"type Alias{index} = Alias{index + 1} not null\n" for index in range(1399)
     ]
     aliases.append("type Alias1399 = Int not null\n")
-    path = _write(tmp_path, "deep-aliases.pie", "".join(aliases))
+    path = _write(tmp_path, "deep-aliases.pietto", "".join(aliases))
 
     assert cli.main(["check", str(path)]) == 1
 
@@ -142,7 +142,7 @@ def test_check_warnings_do_not_fail(
 ) -> None:
     path = _write(
         tmp_path,
-        "warning.pie",
+        "warning.pietto",
         "shape User:\n    email: Text\n",
     )
 
@@ -157,7 +157,7 @@ def test_check_stops_before_semantic_analysis_after_parser_error(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    path = _write(tmp_path, "syntax.pie", "shape User {\n")
+    path = _write(tmp_path, "syntax.pietto", "shape User {\n")
 
     def unexpected_analyze(script: object) -> object:
         del script
@@ -175,7 +175,7 @@ def test_check_does_not_build_ir_or_emit_sql(
 ) -> None:
     path = _write(
         tmp_path,
-        "valid.pie",
+        "valid.pietto",
         "shape User:\n    email: Text not null\n",
     )
 
@@ -194,8 +194,8 @@ def test_check_requires_exactly_one_file(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    first = _write(tmp_path, "first.pie", "")
-    second = _write(tmp_path, "second.pie", "")
+    first = _write(tmp_path, "first.pietto", "")
+    second = _write(tmp_path, "second.pietto", "")
 
     assert cli.main(["check"]) == 2
     missing = capsys.readouterr()

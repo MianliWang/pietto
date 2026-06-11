@@ -15,16 +15,16 @@ def test_parser_diagnostic_uses_stable_plain_text_format(
         code="PIE-P1000",
         severity=Severity.ERROR,
         message="unexpected token",
-        path="parser.pie",
+        path="parser.pietto",
         line=3,
         column=7,
     )
 
-    cli._render_diagnostics((diagnostic,), fallback_path=Path("fallback.pie"))
+    cli._render_diagnostics((diagnostic,), fallback_path=Path("fallback.pietto"))
 
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert captured.err == "parser.pie:3:7 PIE-P1000 error: unexpected token\n"
+    assert captured.err == "parser.pietto:3:7 PIE-P1000 error: unexpected token\n"
 
 
 def test_semantic_diagnostic_uses_stable_plain_text_format(
@@ -34,16 +34,18 @@ def test_semantic_diagnostic_uses_stable_plain_text_format(
         code="PIE-S2002",
         severity=Severity.ERROR,
         message="Unknown type: Missing",
-        path="semantic.pie",
+        path="semantic.pietto",
         line=5,
         column=12,
     )
 
-    cli._render_diagnostics((diagnostic,), fallback_path=Path("fallback.pie"))
+    cli._render_diagnostics((diagnostic,), fallback_path=Path("fallback.pietto"))
 
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert captured.err == "semantic.pie:5:12 PIE-S2002 error: Unknown type: Missing\n"
+    assert (
+        captured.err == "semantic.pietto:5:12 PIE-S2002 error: Unknown type: Missing\n"
+    )
 
 
 def test_diagnostic_without_path_uses_checked_file_path(
@@ -58,11 +60,13 @@ def test_diagnostic_without_path_uses_checked_file_path(
         column=9,
     )
 
-    cli._render_diagnostics((diagnostic,), fallback_path=Path("checked.pie"))
+    cli._render_diagnostics((diagnostic,), fallback_path=Path("checked.pietto"))
 
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert captured.err == ("checked.pie:2:9 PIE-S2005 warning: Implicit nullability\n")
+    assert captured.err == (
+        "checked.pietto:2:9 PIE-S2005 warning: Implicit nullability\n"
+    )
 
 
 def test_multiple_diagnostics_preserve_input_order(
@@ -73,7 +77,7 @@ def test_multiple_diagnostics_preserve_input_order(
             code="PIE-S2005",
             severity=Severity.WARNING,
             message="first",
-            path="ordered.pie",
+            path="ordered.pietto",
             line=8,
             column=4,
         ),
@@ -81,7 +85,7 @@ def test_multiple_diagnostics_preserve_input_order(
             code="PIE-S2002",
             severity=Severity.ERROR,
             message="second",
-            path="ordered.pie",
+            path="ordered.pietto",
             line=2,
             column=1,
         ),
@@ -89,20 +93,20 @@ def test_multiple_diagnostics_preserve_input_order(
             code="PIE-S2501",
             severity=Severity.ERROR,
             message="third",
-            path="ordered.pie",
+            path="ordered.pietto",
             line=5,
             column=3,
         ),
     )
 
-    cli._render_diagnostics(diagnostics, fallback_path=Path("fallback.pie"))
+    cli._render_diagnostics(diagnostics, fallback_path=Path("fallback.pietto"))
 
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err.splitlines() == [
-        "ordered.pie:8:4 PIE-S2005 warning: first",
-        "ordered.pie:2:1 PIE-S2002 error: second",
-        "ordered.pie:5:3 PIE-S2501 error: third",
+        "ordered.pietto:8:4 PIE-S2005 warning: first",
+        "ordered.pietto:2:1 PIE-S2002 error: second",
+        "ordered.pietto:5:3 PIE-S2501 error: third",
     ]
 
 
@@ -110,7 +114,7 @@ def test_warning_only_check_writes_diagnostic_to_stderr_and_succeeds(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "warning.pie", "shape User:\n    email: Text\n")
+    path = _write(tmp_path, "warning.pietto", "shape User:\n    email: Text\n")
 
     assert cli.main(["check", str(path)]) == 0
 
@@ -125,7 +129,7 @@ def test_multiple_check_diagnostics_remain_ordered_and_off_stdout(
 ) -> None:
     path = _write(
         tmp_path,
-        "multiple.pie",
+        "multiple.pietto",
         "shape User:\n"
         "    first: MissingOne not null\n"
         "    second: MissingTwo not null\n",
@@ -147,7 +151,7 @@ def test_valid_check_keeps_stderr_empty(
 ) -> None:
     path = _write(
         tmp_path,
-        "valid.pie",
+        "valid.pietto",
         "shape User:\n    email: Text not null\n",
     )
 
@@ -165,7 +169,7 @@ def test_usage_and_file_errors_keep_exit_code_two(
     assert cli.main(["check"]) == 2
     assert "the following arguments are required: path" in capsys.readouterr().err
 
-    missing = tmp_path / "missing.pie"
+    missing = tmp_path / "missing.pietto"
     assert cli.main(["check", str(missing)]) == 2
     captured = capsys.readouterr()
     assert captured.out == ""

@@ -8,12 +8,12 @@ import pytest
 
 import pietto.cli as cli
 
-EXAMPLE_PATHS = tuple(sorted(Path("examples").rglob("*.pie")))
+EXAMPLE_PATHS = tuple(sorted(Path("examples").rglob("*.pietto")))
 assert len(EXAMPLE_PATHS) == 10
 
 SQL_EXAMPLES = (
-    (Path("examples/tables/active_users.pie"), 1),
-    (Path("examples/queries/active_user_emails.pie"), 2),
+    (Path("examples/tables/active_users.pietto"), 1),
+    (Path("examples/queries/active_user_emails.pietto"), 2),
 )
 
 
@@ -51,7 +51,7 @@ def test_cli_check_reports_parser_and_semantic_errors(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    parser_error = _write(tmp_path, "parser-error.pie", "shape User {\n")
+    parser_error = _write(tmp_path, "parser-error.pietto", "shape User {\n")
     assert cli.main(["check", str(parser_error)]) == 1
     parser_output = capsys.readouterr()
     assert parser_output.out == ""
@@ -59,7 +59,7 @@ def test_cli_check_reports_parser_and_semantic_errors(
 
     semantic_error = _write(
         tmp_path,
-        "semantic-error.pie",
+        "semantic-error.pietto",
         "shape User:\n    email: MissingType not null\n",
     )
     assert cli.main(["check", str(semantic_error)]) == 1
@@ -86,7 +86,7 @@ def test_committed_query_example_emits_ordered_sql_to_file(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    source = Path("examples/queries/active_user_emails.pie")
+    source = Path("examples/queries/active_user_emails.pietto")
     output = tmp_path / "active_user_emails.sql"
 
     assert (
@@ -116,13 +116,13 @@ def test_cli_usage_and_file_errors_return_two(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    example = Path("examples/tables/active_users.pie")
+    example = Path("examples/tables/active_users.pietto")
     assert cli.main(["emit-sql", str(example), "--dialect", "mysql"]) == 2
     dialect_output = capsys.readouterr()
     assert dialect_output.out == ""
     assert "invalid choice: 'mysql'" in dialect_output.err
 
-    missing = tmp_path / "missing.pie"
+    missing = tmp_path / "missing.pietto"
     assert cli.main(["check", str(missing)]) == 2
     file_output = capsys.readouterr()
     assert file_output.out == ""
@@ -140,7 +140,7 @@ def test_check_remains_isolated_from_ir_and_sql(
     monkeypatch.setattr(cli.ir_api, "build_ir", unexpected_call)
     monkeypatch.setattr(cli.sql_api, "emit_postgres_sql", unexpected_call)
 
-    path = Path("examples/sources/users.pie")
+    path = Path("examples/sources/users.pietto")
     assert cli.main(["check", str(path)]) == 0
     captured = capsys.readouterr()
     assert captured.out == f"OK: {path}\n"
@@ -158,9 +158,9 @@ def test_exit_codes_and_cli_boundaries_are_documented() -> None:
     for command in (
         "pietto --help",
         "pietto --version",
-        "pietto check file.pie",
-        "pietto emit-sql file.pie --dialect postgres",
-        "pietto emit-sql file.pie --dialect postgres --output out.sql",
+        "pietto check file.pietto",
+        "pietto emit-sql file.pietto --dialect postgres",
+        "pietto emit-sql file.pietto --dialect postgres --output out.sql",
     ):
         assert command in plan
 
@@ -195,7 +195,12 @@ def test_repository_contains_no_legacy_diagnostic_codes() -> None:
     for root in roots:
         paths = root.rglob("*") if root.is_dir() else (root,)
         for path in paths:
-            if not path.is_file() or path.suffix not in {".md", ".pie", ".py", ".txt"}:
+            if not path.is_file() or path.suffix not in {
+                ".md",
+                ".pietto",
+                ".py",
+                ".txt",
+            }:
                 continue
             for match in re.finditer(
                 r"(?<!PIE-)\bP[0-9]{4}\b",

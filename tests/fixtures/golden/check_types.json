@@ -2,7 +2,7 @@
   "schema_version": 1,
   "command": "check",
   "ok": true,
-  "path": "examples/basic/types.pie",
+  "path": "examples/basic/types.pietto",
   "diagnostics": [],
   "cli_errors": []
 }

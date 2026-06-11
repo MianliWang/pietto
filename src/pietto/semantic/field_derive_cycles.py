@@ -63,11 +63,13 @@ def _check_shape(shape: ShapeDef) -> list[Diagnostic]:
         dependencies[field] = tuple(targets)
 
     components = _strongly_connected_components(derived_fields, dependencies)
-    cyclic_components = [
-        component
-        for component in components
-        if len(component) > 1 or component[0] in dependencies[component[0]]
-    ]
+    cyclic_components: list[tuple[FieldDef, ...]] = []
+    for component in components:
+        if not component:
+            continue
+        first = component[0]
+        if len(component) > 1 or first in dependencies[first]:
+            cyclic_components.append(component)
     anchors = sorted(
         (
             min(component, key=source_order.__getitem__)

@@ -65,7 +65,7 @@ def test_build_ir_lowers_minimal_query() -> None:
 def test_relation_source_uses_resolved_symbol_and_span() -> None:
     result, _, _ = _build(
         SOURCE + "table projected:\n    from users\n    select:\n        email\n",
-        path="relations.pie",
+        path="relations.pietto",
     )
 
     relation = _relation_ir(result, "projected")
@@ -74,7 +74,7 @@ def test_relation_source_uses_resolved_symbol_and_span() -> None:
         name="users",
         span=relation.source.span,
     )
-    assert relation.source.span.path == "relations.pie"
+    assert relation.source.span.path == "relations.pietto"
     assert relation.source.span.line == 7
 
 

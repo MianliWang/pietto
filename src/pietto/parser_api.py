@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, cast
 
 from antlr4 import CommonTokenStream, InputStream
 from antlr4.ListTokenSource import ListTokenSource
@@ -111,9 +112,9 @@ def _parse_source(
     diagnostics.extend(indentation.diagnostics)
 
     parser_listener = DiagnosticErrorListener(path)
-    token_stream = CommonTokenStream(
-        ListTokenSource(list(indentation.tokens), source_path(path))
-    )
+    token_source = ListTokenSource(list(indentation.tokens), source_path(path))
+    # ANTLR accepts any token source here, but its runtime annotation names Lexer.
+    token_stream = CommonTokenStream(cast(Any, token_source))
     parser = PiettoParser(token_stream)
     parser.removeErrorListeners()
     parser.addErrorListener(parser_listener)
@@ -194,6 +195,7 @@ def _read_tokens(
     non_eof_count = 0
     while True:
         token = lexer.nextToken()
+        assert token is not None
         if token.type == Token.EOF:
             tokens.append(token)
             return tokens, None

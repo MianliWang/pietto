@@ -244,7 +244,7 @@ def test_phase8_json_v1_runtime_contract_is_unchanged(
         "unsupported_dialect",
     }
 
-    assert cli.main(["check", "examples/basic/types.pie", "--format=json"]) == 0
+    assert cli.main(["check", "examples/basic/types.pietto", "--format=json"]) == 0
     checked = _read_json_document(capsys)
     assert set(checked) == CHECK_KEYS
     assert checked["schema_version"] == 1
@@ -254,7 +254,7 @@ def test_phase8_json_v1_runtime_contract_is_unchanged(
         cli.main(
             [
                 "emit-sql",
-                "examples/tables/active_users.pie",
+                "examples/tables/active_users.pietto",
                 "--dialect",
                 "postgres",
                 "--format=json",
@@ -434,7 +434,12 @@ def _legacy_diagnostic_codes(
     for root in roots:
         paths = root.rglob("*") if root.is_dir() else (root,)
         for path in paths:
-            if not path.is_file() or path.suffix not in {".md", ".pie", ".py", ".txt"}:
+            if not path.is_file() or path.suffix not in {
+                ".md",
+                ".pietto",
+                ".py",
+                ".txt",
+            }:
                 continue
             matches.extend(
                 (path.relative_to(REPO_ROOT), match.group())

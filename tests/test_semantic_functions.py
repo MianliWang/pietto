@@ -182,14 +182,14 @@ def test_call_diagnostic_uses_call_span() -> None:
         "    from users\n"
         "    select:\n"
         "        value = normalize(email)\n",
-        path="functions.pie",
+        path="functions.pietto",
     )
     result = analyze(script)
     expression = _call(result)
     diagnostic = result.diagnostics[0]
 
     assert diagnostic.code == "PIE-S2103"
-    assert diagnostic.location.path == expression.span.path == "functions.pie"
+    assert diagnostic.location.path == expression.span.path == "functions.pietto"
     assert (
         diagnostic.location.line,
         diagnostic.location.column,

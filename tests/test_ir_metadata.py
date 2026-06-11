@@ -102,7 +102,7 @@ def test_source_row_schema_lowers_in_field_order_with_copied_spans() -> None:
         "    id: UUID not null\n"
         "    email: Text nullable\n"
         'source users: User is postgres.table("public.users")\n',
-        path="metadata.pie",
+        path="metadata.pietto",
     )
     source = _definition(script, SourceDef, "users")
 
@@ -115,7 +115,7 @@ def test_source_row_schema_lowers_in_field_order_with_copied_spans() -> None:
     ]
     assert schema.is_unknown is False
     assert schema.fields[0].span == SourceSpan(
-        path="metadata.pie",
+        path="metadata.pietto",
         line=2,
         column=5,
         end_line=2,

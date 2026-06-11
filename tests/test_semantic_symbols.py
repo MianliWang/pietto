@@ -167,7 +167,7 @@ def test_multiple_duplicates_follow_source_order() -> None:
 
 
 def test_duplicate_diagnostic_uses_later_definition_span() -> None:
-    path = Path("examples/semantic/duplicate.pie")
+    path = Path("examples/semantic/duplicate.pietto")
     script = _parse(
         "shape User:\n    id: UUID not null\nshape User:\n    email: Text not null\n",
         path=path,

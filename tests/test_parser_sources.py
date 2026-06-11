@@ -117,7 +117,7 @@ def test_source_and_is_remain_available_in_dotted_expressions() -> None:
 
 
 def test_source_spans_are_one_based_half_open() -> None:
-    path = Path("examples/sources/span.pie")
+    path = Path("examples/sources/span.pietto")
     result = parse_source(
         'source users: User is postgres.table("public.users")\n',
         path=path,
@@ -151,7 +151,7 @@ def test_source_spans_are_one_based_half_open() -> None:
 
 
 def test_source_example_fixture_parses() -> None:
-    result = parse_file("examples/sources/users.pie")
+    result = parse_file("examples/sources/users.pietto")
 
     assert result.diagnostics == ()
     assert result.ast is not None

@@ -122,7 +122,7 @@ def test_semantic_diagnostic_uses_canonical_code_format() -> None:
 
 
 def test_unknown_field_diagnostic_uses_expression_span() -> None:
-    path = Path("examples/semantic/unknown-field.pie")
+    path = Path("examples/semantic/unknown-field.pietto")
     script = _parse(
         SOURCE + "query output:\n    from users\n    select:\n        missing\n",
         path=path,
@@ -154,7 +154,7 @@ def test_duplicate_projection_reports_p2305_and_keeps_first_field() -> None:
 
 
 def test_duplicate_projection_diagnostic_uses_later_item_span() -> None:
-    path = Path("examples/semantic/duplicate-projection.pie")
+    path = Path("examples/semantic/duplicate-projection.pietto")
     script = _parse(
         SOURCE + "table projected:\n"
         "    from users\n"

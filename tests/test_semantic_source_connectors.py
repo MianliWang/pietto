@@ -122,7 +122,7 @@ def test_typed_source_schema_still_comes_from_declared_shape() -> None:
 def test_connector_diagnostic_uses_connector_expression_span() -> None:
     script = _parse(
         SHAPE + 'source users: UserRow is mysql.table("users")\n',
-        path="source-connectors.pie",
+        path="source-connectors.pietto",
     )
     source = script.definitions[-1]
     assert isinstance(source, SourceDef)
@@ -131,7 +131,7 @@ def test_connector_diagnostic_uses_connector_expression_span() -> None:
     span = source.connector.span
 
     assert diagnostic.code == "PIE-S2306"
-    assert diagnostic.location.path == span.path == "source-connectors.pie"
+    assert diagnostic.location.path == span.path == "source-connectors.pietto"
     assert (
         diagnostic.location.line,
         diagnostic.location.column,

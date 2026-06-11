@@ -300,7 +300,7 @@ Each slice should add focused tests for:
 - deterministic structured diagnostics for missing semantic facts;
 - no ordinary exceptions for expected lowering failures.
 
-By Phase 3 completion, all committed `examples/**/*.pie` files should parse,
+By Phase 3 completion, all committed `examples/**/*.pietto` files should parse,
 analyze, and build IR without IR errors. Tests must not generate SQL, connect
 to databases, execute connectors, or require network access.
 

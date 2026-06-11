@@ -33,14 +33,14 @@ The future project interface must:
 The currently supported forms remain:
 
 ```bash
-pietto check file.pie
-pietto check file.pie --format json
-pietto check file.pie --format=json
-pietto emit-sql file.pie --dialect postgres
-pietto emit-sql file.pie --dialect postgres --output out.sql
-pietto emit-sql file.pie --dialect postgres --format json
-pietto emit-sql file.pie --dialect postgres --format=json
-pietto emit-sql file.pie --dialect postgres --format json --output out.sql
+pietto check file.pietto
+pietto check file.pietto --format json
+pietto check file.pietto --format=json
+pietto emit-sql file.pietto --dialect postgres
+pietto emit-sql file.pietto --dialect postgres --output out.sql
+pietto emit-sql file.pietto --dialect postgres --format json
+pietto emit-sql file.pietto --dialect postgres --format=json
+pietto emit-sql file.pietto --dialect postgres --format json --output out.sql
 ```
 
 Their compatibility rules are:
@@ -230,7 +230,7 @@ The planned project check shape is:
   },
   "inputs": [
     {
-      "path": "models/users.pie",
+      "path": "models/users.pietto",
       "status": "parsed"
     }
   ],
@@ -259,7 +259,7 @@ The planned project emit shape is:
   "dialect": "postgres",
   "inputs": [
     {
-      "path": "models/users.pie",
+      "path": "models/users.pietto",
       "status": "parsed"
     }
   ],
@@ -269,7 +269,7 @@ The planned project emit shape is:
     {
       "kind": "relation",
       "name": "active_users",
-      "source_path": "queries/active_users.pie",
+      "source_path": "queries/active_users.pietto",
       "source_definition": "active_users",
       "sql": "SELECT ..."
     }
@@ -287,7 +287,7 @@ Every selected project source has:
 
 ```json
 {
-  "path": "models/users.pie",
+  "path": "models/users.pietto",
   "status": "parsed"
 }
 ```
@@ -322,7 +322,7 @@ JSON v2 preserves the v1 diagnostic fields and adds one required array:
   "severity": "error",
   "message": "Duplicate symbol",
   "location": {
-    "path": "models/b.pie",
+    "path": "models/b.pietto",
     "line": 1,
     "column": 1,
     "end_line": null,
@@ -333,7 +333,7 @@ JSON v2 preserves the v1 diagnostic fields and adds one required array:
     {
       "message": "First declared here.",
       "location": {
-        "path": "models/a.pie",
+        "path": "models/a.pietto",
         "line": 1,
         "column": 1,
         "end_line": null,
@@ -410,7 +410,7 @@ Every project artifact uses:
 {
   "kind": "relation",
   "name": "active_users",
-  "source_path": "queries/active_users.pie",
+  "source_path": "queries/active_users.pietto",
   "source_definition": "active_users",
   "sql": "SELECT ..."
 }

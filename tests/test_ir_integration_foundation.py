@@ -29,7 +29,7 @@ from pietto.ir import (
 from pietto.parser_api import parse_file, parse_source
 from pietto.semantic import analyze
 
-EXAMPLE_PATHS = tuple(sorted(Path("examples").rglob("*.pie")))
+EXAMPLE_PATHS = tuple(sorted(Path("examples").rglob("*.pietto")))
 assert EXAMPLE_PATHS, "Expected at least one committed Pietto example."
 
 
@@ -239,7 +239,7 @@ def test_implemented_ir_diagnostic_codes_are_documented() -> None:
 
 
 def _compile_foundation(source: str) -> IrResult:
-    parse_result = parse_source(source, path="integration.pie")
+    parse_result = parse_source(source, path="integration.pietto")
     assert parse_result.diagnostics == ()
     assert parse_result.ast is not None
 

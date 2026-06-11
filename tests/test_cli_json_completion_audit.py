@@ -49,7 +49,7 @@ def test_phase_6_check_json_schema_and_document_contract(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "warning.pie", "shape User:\n    email: Text\n")
+    path = _write(tmp_path, "warning.pietto", "shape User:\n    email: Text\n")
 
     assert cli.main(["check", str(path), "--format=json"]) == 0
     result = _read_json_document(capsys, command="check")
@@ -69,7 +69,7 @@ def test_phase_6_emit_json_schema_artifact_and_output_contract(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "relation.pie", RELATION)
+    path = _write(tmp_path, "relation.pietto", RELATION)
     output = tmp_path / "relation.sql"
 
     assert _emit_json(path, output=output) == 0
@@ -92,7 +92,7 @@ def test_phase_6_cli_error_schema_is_stable(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    missing = tmp_path / "missing.pie"
+    missing = tmp_path / "missing.pietto"
 
     assert cli.main(["check", str(missing), "--format=json"]) == 2
     result = _read_json_document(capsys, command="check")
@@ -107,17 +107,17 @@ def test_phase_6_cli_error_schema_is_stable(
 @pytest.mark.parametrize(
     ("name", "source", "expected_exit", "expected_ok", "expected_code"),
     [
-        ("valid.pie", "", 0, True, None),
+        ("valid.pietto", "", 0, True, None),
         (
-            "warning.pie",
+            "warning.pietto",
             "shape User:\n    email: Text\n",
             0,
             True,
             "PIE-S2005",
         ),
-        ("parser.pie", "shape User {\n", 1, False, "PIE-P1005"),
+        ("parser.pietto", "shape User {\n", 1, False, "PIE-P1005"),
         (
-            "semantic.pie",
+            "semantic.pietto",
             "shape User:\n    email: MissingType not null\n",
             1,
             False,
@@ -153,10 +153,10 @@ def test_phase_6_check_json_exit_matrix(
 @pytest.mark.parametrize(
     ("name", "source", "expected_exit", "expected_ok", "expected_code"),
     [
-        ("valid.pie", RELATION, 0, True, None),
-        ("parser.pie", "shape User {\n", 1, False, "PIE-P1005"),
+        ("valid.pietto", RELATION, 0, True, None),
+        ("parser.pietto", "shape User {\n", 1, False, "PIE-P1005"),
         (
-            "semantic.pie",
+            "semantic.pietto",
             "shape User:\n    email: MissingType not null\n",
             1,
             False,
@@ -195,7 +195,7 @@ def test_phase_6_emit_json_backend_and_usage_exit_matrix(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "backend.pie", SOURCE)
+    path = _write(tmp_path, "backend.pietto", SOURCE)
     output = tmp_path / "backend.sql"
     diagnostic = _diagnostic(path, "PIE-B1000", "unsupported backend case")
     artifact = _artifact("partial", "SELECT 1")
@@ -216,7 +216,7 @@ def test_phase_6_emit_json_backend_and_usage_exit_matrix(
     assert backend["output"] == {"path": str(output), "written": False}
     assert not output.exists()
 
-    missing = tmp_path / "missing.pie"
+    missing = tmp_path / "missing.pietto"
     assert _emit_json(missing) == 2
     file_error = _read_json_document(capsys, command="emit-sql")
     assert cast(list[dict[str, object]], file_error["cli_errors"])[0]["kind"] == (
@@ -248,7 +248,7 @@ def test_phase_6_json_output_failure_matrix(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "input.pie", RELATION)
+    path = _write(tmp_path, "input.pietto", RELATION)
     same_bytes = path.read_bytes()
 
     assert _emit_json(path, output=path) == 2
@@ -282,7 +282,7 @@ def test_phase_6_json_stage_short_circuiting(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    valid = _write(tmp_path, "valid.pie", SOURCE)
+    valid = _write(tmp_path, "valid.pietto", SOURCE)
 
     def unexpected_late_stage(*args: object, **kwargs: object) -> object:
         del args, kwargs
@@ -293,7 +293,7 @@ def test_phase_6_json_stage_short_circuiting(
     assert cli.main(["check", str(valid), "--format=json"]) == 0
     assert _read_json_document(capsys, command="check")["ok"] is True
 
-    parser_error = _write(tmp_path, "parser.pie", "shape User {\n")
+    parser_error = _write(tmp_path, "parser.pietto", "shape User {\n")
     monkeypatch.setattr(cli.semantic_api, "analyze", unexpected_late_stage)
     assert _emit_json(parser_error) == 1
     assert _read_json_document(capsys, command="emit-sql")["ok"] is False
@@ -304,7 +304,7 @@ def test_phase_6_emit_json_ir_error_stops_backend_and_output(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "ir-error.pie", SOURCE)
+    path = _write(tmp_path, "ir-error.pietto", SOURCE)
     output = tmp_path / "ir-error.sql"
     diagnostic = _diagnostic(path, "PIE-I1000", "missing semantic fact")
     monkeypatch.setattr(
@@ -332,7 +332,7 @@ def test_phase_6_emit_json_semantic_error_stops_ir_and_sql(
 ) -> None:
     path = _write(
         tmp_path,
-        "semantic-error.pie",
+        "semantic-error.pietto",
         "shape User:\n    email: MissingType not null\n",
     )
 
@@ -354,17 +354,17 @@ def test_phase_6_emit_json_semantic_error_stops_ir_and_sql(
     ("name", "source", "expected_code"),
     [
         (
-            "huge-integer.pie",
+            "huge-integer.pietto",
             "type Huge = Int(max = " + "9" * 5000 + ") not null\n",
             "PIE-P1000",
         ),
         (
-            "deep-parser.pie",
+            "deep-parser.pietto",
             "derive deep() -> Int not null:\n    " + "+" * 1500 + "1\n",
             "PIE-P1000",
         ),
         (
-            "deep-semantic.pie",
+            "deep-semantic.pietto",
             "".join(
                 [
                     *(
@@ -442,8 +442,8 @@ def test_phase_6_default_text_cli_remains_compatible(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    check_path = _write(tmp_path, "check.pie", "")
-    relation_path = _write(tmp_path, "relation.pie", RELATION)
+    check_path = _write(tmp_path, "check.pietto", "")
+    relation_path = _write(tmp_path, "relation.pietto", RELATION)
 
     assert cli.main(["check", str(check_path)]) == 0
     default_check = capsys.readouterr()
@@ -501,8 +501,8 @@ def test_phase_6_committed_examples_work_in_json_modes(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    check_example = Path("examples/basic/types.pie")
-    relation_example = Path("examples/tables/active_users.pie")
+    check_example = Path("examples/basic/types.pietto")
+    relation_example = Path("examples/tables/active_users.pietto")
     output = tmp_path / "active_users.sql"
 
     assert cli.main(["check", str(check_example), "--format=json"]) == 0
@@ -557,7 +557,12 @@ def test_phase_6_boundaries_dependencies_and_diagnostic_codes_remain_clean() -> 
     for root in roots:
         paths = root.rglob("*") if root.is_dir() else (root,)
         for path in paths:
-            if not path.is_file() or path.suffix not in {".md", ".pie", ".py", ".txt"}:
+            if not path.is_file() or path.suffix not in {
+                ".md",
+                ".pietto",
+                ".py",
+                ".txt",
+            }:
                 continue
             for match in re.finditer(
                 r"(?<!PIE-)\bP[0-9]{4}\b",

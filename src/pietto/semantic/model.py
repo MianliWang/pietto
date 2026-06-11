@@ -97,7 +97,7 @@ class RowField:
 class RowSchema:
     """An ordered readonly row schema, optionally marked unknown."""
 
-    fields: Mapping[str, RowField] = field(default_factory=_readonly_mapping)
+    fields: Mapping[str, RowField] = field(default_factory=lambda: _readonly_mapping())
     is_unknown: bool = False
 
     def __post_init__(self) -> None:
@@ -111,34 +111,36 @@ class SemanticModel:
     """Readonly semantic state built incrementally across Phase 2."""
 
     mode: CheckMode
-    type_symbols: Mapping[str, Definition] = field(default_factory=_readonly_mapping)
+    type_symbols: Mapping[str, Definition] = field(
+        default_factory=lambda: _readonly_mapping()
+    )
     callable_symbols: Mapping[str, Definition] = field(
-        default_factory=_readonly_mapping
+        default_factory=lambda: _readonly_mapping()
     )
     relation_symbols: Mapping[str, Definition] = field(
-        default_factory=_readonly_mapping
+        default_factory=lambda: _readonly_mapping()
     )
     type_resolutions: Mapping[TypeExpr, ResolvedType] = field(
-        default_factory=_readonly_mapping
+        default_factory=lambda: _readonly_mapping()
     )
     type_expansions: Mapping[TypeExpr, ResolvedType] = field(
-        default_factory=_readonly_mapping
+        default_factory=lambda: _readonly_mapping()
     )
     type_nullability: Mapping[TypeExpr, EffectiveNullability] = field(
-        default_factory=_readonly_mapping
+        default_factory=lambda: _readonly_mapping()
     )
     source_row_schemas: Mapping[SourceDef, RowSchema] = field(
-        default_factory=_readonly_mapping
+        default_factory=lambda: _readonly_mapping()
     )
     from_resolutions: Mapping[
         FromClause,
         SourceDef | TableDef | QueryDef,
-    ] = field(default_factory=_readonly_mapping)
+    ] = field(default_factory=lambda: _readonly_mapping())
     relation_row_schemas: Mapping[TableDef | QueryDef, RowSchema] = field(
-        default_factory=_readonly_mapping
+        default_factory=lambda: _readonly_mapping()
     )
     expression_value_types: Mapping[Expression, ValueType] = field(
-        default_factory=_readonly_mapping
+        default_factory=lambda: _readonly_mapping()
     )
 
     def __post_init__(self) -> None:

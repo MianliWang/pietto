@@ -86,12 +86,12 @@ Rules:
 
 ## Current Phase
 
-Current phase: Phase 9 SQL Backend Architecture & Dialect Strategy complete.
-Phase 8 Project Model & Configuration Planning is complete. Phase 9 was an
-architecture, specification, and compatibility-foundation phase. It added
-planning documents, manually reviewed PostgreSQL compatibility fixtures, and
-tests that lock existing behavior, but no production SQLGlot, MySQL, backend
-dispatch, CLI/JSON, grammar, runtime, or database behavior.
+Current phase: Phase 9.5 Static Typing And Source Extension Hardening complete.
+Phases 8 and 9 are complete. Phase 9.5 was a tooling and
+repository-convention hardening phase. It improved handwritten type safety,
+isolated generated ANTLR typing noise, and migrated official source paths to
+`.pietto` without changing language, parser, semantic, IR, SQL, CLI, JSON,
+public API, runtime, or database behavior.
 
 Phase 1 parser/frontend, Phase 2 Semantic Checker, Phase 3 Semantic IR, Phase 4
 PostgreSQL SQL, Phase 5 CLI, Phase 5.5 Security / Robustness Hardening, and
@@ -123,9 +123,9 @@ The completed MVP provides:
 - focused SQL backend tests and planning.
 
 The current CLI provides `pietto --help`, `pietto --version`, and
-`pietto check file.pie`. The check command performs parser and semantic
+`pietto check file.pietto`. The check command performs parser and semantic
 analysis only; it does not build IR or emit SQL. The CLI also provides
-`pietto emit-sql file.pie --dialect postgres`, which explicitly orchestrates
+`pietto emit-sql file.pietto --dialect postgres`, which explicitly orchestrates
 parser, semantic, IR, and PostgreSQL SQL APIs. It emits SQL text but never
 executes SQL or connects to a database or connector. SQL defaults to stdout;
 `--output path` atomically replaces one regular file after successful
@@ -173,6 +173,10 @@ The completed Phase 9 direction, PostgreSQL compatibility boundary, SQLGlot
 evaluation criteria, backend abstraction direction, MySQL MVP boundary, slice
 sequence, and completion audit are documented in
 `docs/plan/phase-9-sql-backend-architecture-dialect-strategy.md`.
+The completed Phase 9.5 typing and source-extension boundary is documented in
+`docs/plan/phase-9-5-static-typing-source-extension-hardening.md`. `.pietto` is
+the only official source extension, but the CLI remains path-based and does
+not validate suffixes.
 The completed planning-only SQLGlot evaluation is documented in
 `docs/plan/phase-9-sqlglot-evaluation.md`. It approves only a future isolated
 Phase 10 MySQL-generation spike. It does not approve a production dependency,
@@ -249,11 +253,10 @@ Do not implement in the current phase unless explicitly requested:
 - visualization;
 - concurrency/runtime features.
 
-All seven Phase 9 slices are complete. No post-Phase-9 implementation phase
-has started. Phase 9.5 Static Typing And Source Extension Hardening is planned
-separately and requires an explicit request. Production SQLGlot, MySQL,
-backend dispatch, semantic or IR implementation changes, richer SQL,
-execution, and database behavior remain prohibited.
+All seven Phase 9 slices and Phase 9.5 are complete. No Phase 10
+implementation has started. Production SQLGlot, MySQL, backend dispatch,
+semantic or IR implementation changes, richer SQL, execution, and database
+behavior remain prohibited.
 
 Compiler stages must remain isolated: IR construction must not mutate parser
 or semantic inputs, and SQL backends must consume `ScriptIR` without rerunning
@@ -375,7 +378,7 @@ Check mode can be declared in the file header. A later CLI phase may allow an
 override such as:
 
 ```bash
-pietto check app.pie --mode strict
+pietto check app.pietto --mode strict
 ```
 
 ### Type
@@ -511,7 +514,7 @@ code.
 Example:
 
 ```text
-ERROR PIE-S2102 at examples/basic/users.pie:12:9
+ERROR PIE-S2102 at examples/basic/users.pietto:12:9
 Unknown field "emails" on shape "User".
 
 Suggestion:

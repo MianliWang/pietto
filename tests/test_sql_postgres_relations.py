@@ -293,7 +293,7 @@ def test_relation_sql_modules_have_no_runtime_or_sqlglot_dependencies() -> None:
 
 
 def _compile(source: str) -> ScriptIR:
-    parse_result = parser_api.parse_source(source, path="postgres-relations.pie")
+    parse_result = parser_api.parse_source(source, path="postgres-relations.pietto")
     assert parse_result.diagnostics == ()
     assert parse_result.ast is not None
 

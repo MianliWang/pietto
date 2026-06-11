@@ -62,7 +62,7 @@ def test_direct_field_derive_cycle_reports_pie_s2504() -> None:
 def test_two_field_derive_cycle_reports_once_at_earliest_field() -> None:
     script = _parse(
         "shape User:\n    a: Text not null derive b\n    b: Text not null derive a\n",
-        path="field-cycles.pie",
+        path="field-cycles.pietto",
     )
     shape = script.definitions[0]
     assert isinstance(shape, ShapeDef)
@@ -214,7 +214,7 @@ def _diagnostics(
 
 def _assert_location_matches(diagnostic: Diagnostic, field: FieldDef) -> None:
     span = field.span
-    assert diagnostic.location.path == span.path == "field-cycles.pie"
+    assert diagnostic.location.path == span.path == "field-cycles.pietto"
     assert diagnostic.location.line == span.line
     assert diagnostic.location.column == span.column
     assert diagnostic.location.end_line == span.end_line

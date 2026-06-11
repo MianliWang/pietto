@@ -43,7 +43,7 @@ def test_partial_header_without_final_newline_parses() -> None:
 
 
 def test_example_fixture_parses() -> None:
-    result = parse_file("examples/basic/types.pie")
+    result = parse_file("examples/basic/types.pietto")
 
     assert result.diagnostics == ()
     assert result.ast is not None
@@ -69,7 +69,7 @@ def test_public_ast_does_not_expose_antlr_nodes() -> None:
 
 
 def test_spans_are_one_based_half_open_and_exclude_trailing_newline() -> None:
-    path = Path("examples/span.pie")
+    path = Path("examples/span.pietto")
     result = parse_source("type UserId = UUID\n", path=path)
 
     assert result.diagnostics == ()

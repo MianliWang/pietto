@@ -51,8 +51,8 @@ implementation. The current repository provides:
 
 - a single-file parser, semantic checker, Semantic IR builder, and PostgreSQL
   SQL emitter;
-- `pietto check file.pie` and
-  `pietto emit-sql file.pie --dialect postgres`;
+- `pietto check file.pietto` and
+  `pietto emit-sql file.pietto --dialect postgres`;
 - text output and the normative single-file JSON schema version 1;
 - immutable `SqlArtifact` and `SqlResult` models;
 - reviewed example-based SQL and JSON golden fixtures;
@@ -652,9 +652,9 @@ The Slice 7 completion run recorded:
 - `git diff --check` passed;
 - only completion-audit tests and approved status/documentation files changed.
 
-No post-Phase-9 implementation phase has started. Phase 9.5 Static Typing And
-Source Extension Hardening is planned separately and requires an explicit
-request.
+Phase 9.5 Static Typing And Source Extension Hardening follows Phase 9 as a
+separate tooling and repository-convention phase. It does not alter any Phase
+9 backend decision or authorize Phase 10 implementation.
 
 ## Deferred Beyond Phase 9
 

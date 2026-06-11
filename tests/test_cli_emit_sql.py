@@ -24,7 +24,7 @@ def test_emit_sql_valid_file_prints_postgres_sql(
 ) -> None:
     path = _write(
         tmp_path,
-        "active_users.pie",
+        "active_users.pietto",
         SOURCE + "table active_users:\n"
         "    from users\n"
         "    where active == true\n"
@@ -52,7 +52,7 @@ def test_emit_sql_preserves_multiple_artifact_order(
 ) -> None:
     path = _write(
         tmp_path,
-        "relations.pie",
+        "relations.pietto",
         SOURCE + "table active_users:\n"
         "    from users\n"
         "    select:\n"
@@ -79,7 +79,7 @@ def test_emit_sql_parser_error_stops_before_later_stages(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "syntax.pie", "shape User {\n")
+    path = _write(tmp_path, "syntax.pietto", "shape User {\n")
     _forbid_later_stages(monkeypatch)
 
     assert cli.main(["emit-sql", str(path), "--dialect", "postgres"]) == 1
@@ -95,7 +95,7 @@ def test_emit_sql_overly_long_integer_returns_parser_error_without_traceback(
 ) -> None:
     path = _write(
         tmp_path,
-        "huge-integer.pie",
+        "huge-integer.pietto",
         "type Huge = Int(max = " + "9" * 5000 + ") not null\n",
     )
 
@@ -116,7 +116,7 @@ def test_emit_sql_semantic_error_stops_before_ir(
 ) -> None:
     path = _write(
         tmp_path,
-        "semantic.pie",
+        "semantic.pietto",
         "shape User:\n    email: MissingType not null\n",
     )
 
@@ -142,7 +142,7 @@ def test_emit_sql_deep_expression_stops_before_ir_without_traceback(
     expression = " + ".join(["1"] * 1200)
     path = _write(
         tmp_path,
-        "deep-expression.pie",
+        "deep-expression.pietto",
         f"derive total() -> Int not null:\n    {expression}\n",
     )
 
@@ -168,7 +168,7 @@ def test_emit_sql_ir_error_stops_before_backend(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "ir-error.pie", SOURCE)
+    path = _write(tmp_path, "ir-error.pietto", SOURCE)
     diagnostic = _diagnostic(path, "PIE-I1000", "missing semantic fact")
 
     monkeypatch.setattr(
@@ -195,7 +195,7 @@ def test_emit_sql_backend_error_returns_one_and_stays_on_stderr(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "backend-error.pie", SOURCE)
+    path = _write(tmp_path, "backend-error.pietto", SOURCE)
     diagnostic = _diagnostic(path, "PIE-B1000", "unsupported backend case")
     monkeypatch.setattr(
         cli.sql_api,
@@ -215,7 +215,7 @@ def test_emit_sql_can_print_artifacts_and_backend_diagnostics_together(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "mixed-result.pie", SOURCE)
+    path = _write(tmp_path, "mixed-result.pietto", SOURCE)
     diagnostic = _diagnostic(path, "PIE-B1000", "one relation unsupported")
     artifact = SqlArtifact(
         name="supported",
@@ -244,7 +244,7 @@ def test_emit_sql_warning_does_not_prevent_later_stages(
 ) -> None:
     path = _write(
         tmp_path,
-        "warning.pie",
+        "warning.pietto",
         "shape User:\n"
         "    email: Text\n"
         'source users: User is postgres.table("users")\n'
@@ -266,7 +266,7 @@ def test_emit_sql_unsupported_dialect_is_usage_error(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "valid.pie", SOURCE)
+    path = _write(tmp_path, "valid.pietto", SOURCE)
 
     def unexpected_parse(path: Path) -> object:
         del path
@@ -285,7 +285,7 @@ def test_emit_sql_requires_explicit_dialect(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "valid.pie", SOURCE)
+    path = _write(tmp_path, "valid.pietto", SOURCE)
 
     assert cli.main(["emit-sql", str(path)]) == 2
 
@@ -298,7 +298,7 @@ def test_emit_sql_missing_file_returns_two(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = tmp_path / "missing.pie"
+    path = tmp_path / "missing.pietto"
 
     assert cli.main(["emit-sql", str(path), "--dialect", "postgres"]) == 2
 
@@ -313,7 +313,7 @@ def test_check_still_does_not_build_ir_or_emit_sql(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "valid-check.pie", SOURCE)
+    path = _write(tmp_path, "valid-check.pietto", SOURCE)
 
     def unexpected_call(*args: object, **kwargs: object) -> object:
         del args, kwargs

@@ -127,7 +127,7 @@ name = "example"
 default_dialect = "postgres"
 
 [sources]
-include = ["examples/**/*.pie"]
+include = ["examples/**/*.pietto"]
 exclude = []
 ```
 

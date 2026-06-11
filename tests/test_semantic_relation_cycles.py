@@ -119,7 +119,7 @@ def test_cyclic_relations_have_unknown_row_schemas() -> None:
 
 
 def test_cycle_diagnostics_are_deterministic_and_use_closing_from_spans() -> None:
-    path = Path("examples/semantic/relation-cycles.pie")
+    path = Path("examples/semantic/relation-cycles.pietto")
     script = _parse(
         "table first:\n"
         "    from second\n"

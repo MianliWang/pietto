@@ -35,7 +35,7 @@ def test_parse_source_accepts_exact_utf8_byte_budget() -> None:
 def test_parse_source_rejects_utf8_bytes_over_budget() -> None:
     source = "#" + "雪" * (_SOURCE_LIMIT // 3 + 1)
 
-    result = parse_source(source, path="oversized-unicode.pie")
+    result = parse_source(source, path="oversized-unicode.pietto")
 
     assert result.ast is None
     assert len(source) < _SOURCE_LIMIT
@@ -43,14 +43,14 @@ def test_parse_source_rejects_utf8_bytes_over_budget() -> None:
     diagnostic = result.diagnostics[0]
     assert diagnostic.code == "PIE-P1006"
     assert diagnostic.severity is Severity.ERROR
-    assert diagnostic.location.path == "oversized-unicode.pie"
+    assert diagnostic.location.path == "oversized-unicode.pietto"
     assert (diagnostic.location.line, diagnostic.location.column) == (1, 1)
 
 
 def test_parse_file_rejects_oversized_source_as_parser_diagnostic(
     tmp_path: Path,
 ) -> None:
-    path = tmp_path / "oversized.pie"
+    path = tmp_path / "oversized.pietto"
     path.write_bytes(b"#" + b"a" * _SOURCE_LIMIT)
 
     result = parse_file(path)
@@ -63,7 +63,7 @@ def test_parse_file_rejects_oversized_source_as_parser_diagnostic(
 def test_token_budget_stops_at_first_excess_non_eof_token() -> None:
     result = parse_source(
         "+" * (_TOKEN_LIMIT + 1),
-        path="too-many-tokens.pie",
+        path="too-many-tokens.pietto",
     )
 
     assert result.ast is None
@@ -71,7 +71,7 @@ def test_token_budget_stops_at_first_excess_non_eof_token() -> None:
     diagnostic = result.diagnostics[0]
     assert diagnostic.code == "PIE-P1007"
     assert diagnostic.severity is Severity.ERROR
-    assert diagnostic.location.path == "too-many-tokens.pie"
+    assert diagnostic.location.path == "too-many-tokens.pietto"
     assert (diagnostic.location.line, diagnostic.location.column) == (
         1,
         _TOKEN_LIMIT + 1,
@@ -198,7 +198,7 @@ def test_emit_sql_json_token_budget_preserves_v1_and_output_safety(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = tmp_path / "too-many-tokens.pie"
+    path = tmp_path / "too-many-tokens.pietto"
     path.write_text("+" * (_TOKEN_LIMIT + 1), encoding="utf-8")
     output = tmp_path / "out.sql"
     _forbid_later_stages(monkeypatch)
@@ -234,7 +234,7 @@ def test_emit_sql_json_token_budget_preserves_v1_and_output_safety(
 
 
 def _write_oversized_source(tmp_path: Path) -> Path:
-    path = tmp_path / "oversized.pie"
+    path = tmp_path / "oversized.pietto"
     path.write_bytes(b"#" + b"a" * _SOURCE_LIMIT)
     return path
 

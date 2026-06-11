@@ -68,11 +68,11 @@ class DiagnosticErrorListener(ErrorListener):
         line: int,
         column: int,
         msg: str,
-        exception: Exception | None,
+        e: Exception | None,
     ) -> None:
         """Record an ANTLR syntax callback as a generic Phase 1 error."""
 
-        del recognizer, offendingSymbol, exception
+        del recognizer, offendingSymbol, e
         self.diagnostics.append(
             Diagnostic(
                 code="PIE-P1000",

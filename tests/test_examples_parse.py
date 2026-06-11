@@ -5,7 +5,7 @@ import pytest
 from pietto.parser_api import parse_file
 
 
-EXAMPLE_PATHS = tuple(sorted(Path("examples").rglob("*.pie")))
+EXAMPLE_PATHS = tuple(sorted(Path("examples").rglob("*.pietto")))
 assert EXAMPLE_PATHS, "Expected at least one committed Pietto example."
 
 

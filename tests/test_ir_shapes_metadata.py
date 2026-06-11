@@ -190,10 +190,10 @@ def test_shape_metadata_lowering_does_not_mutate_inputs() -> None:
 @pytest.mark.parametrize(
     ("path", "expected_type"),
     [
-        (Path("examples/shapes/order.pie"), ShapeCheckIR),
-        (Path("examples/shapes/user.pie"), ShapeFieldDeriveIR),
-        (Path("examples/shapes/user_indexes.pie"), ShapeIndexIR),
-        (Path("examples/shapes/user_uniques.pie"), ShapeUniqueIR),
+        (Path("examples/shapes/order.pietto"), ShapeCheckIR),
+        (Path("examples/shapes/user.pietto"), ShapeFieldDeriveIR),
+        (Path("examples/shapes/user_indexes.pietto"), ShapeIndexIR),
+        (Path("examples/shapes/user_uniques.pietto"), ShapeUniqueIR),
     ],
     ids=lambda value: str(value),
 )
@@ -222,7 +222,7 @@ def test_shape_metadata_examples_build_without_ir_errors(
 
 
 def _build(source: str) -> tuple[IrResult, Script, SemanticModel]:
-    parse_result = parse_source(source, path="shape-metadata.pie")
+    parse_result = parse_source(source, path="shape-metadata.pietto")
     assert parse_result.diagnostics == ()
     assert parse_result.ast is not None
 

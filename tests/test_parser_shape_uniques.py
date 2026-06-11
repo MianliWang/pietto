@@ -147,7 +147,7 @@ def test_unique_and_on_remain_available_in_dotted_expressions() -> None:
 
 
 def test_shape_unique_span_is_one_based_half_open() -> None:
-    path = Path("examples/shapes/unique_span.pie")
+    path = Path("examples/shapes/unique_span.pietto")
     result = parse_source(
         "shape User:\n"
         "    tenant_id: UUID not null\n"
@@ -178,7 +178,7 @@ def test_shape_unique_span_is_one_based_half_open() -> None:
 
 
 def test_shape_unique_example_fixture_parses() -> None:
-    result = parse_file("examples/shapes/user_uniques.pie")
+    result = parse_file("examples/shapes/user_uniques.pietto")
 
     assert result.diagnostics == ()
     assert result.ast is not None

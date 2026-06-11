@@ -49,7 +49,7 @@ def test_emit_sql_json_output_success_writes_raw_sql_and_keeps_artifacts(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "active_users.pie", RELATION)
+    path = _write(tmp_path, "active_users.pietto", RELATION)
     output = tmp_path / "out.sql"
     output.write_text("stale SQL\n", encoding="utf-8")
     arguments = ["emit-sql", str(path), "--dialect", "postgres"]
@@ -80,7 +80,7 @@ def test_emit_sql_json_warning_writes_output_and_stays_ok(
 ) -> None:
     path = _write(
         tmp_path,
-        "warning.pie",
+        "warning.pietto",
         "shape User:\n"
         "    email: Text\n"
         'source users: User is postgres.table("users")\n'
@@ -104,9 +104,9 @@ def test_emit_sql_json_warning_writes_output_and_stays_ok(
 @pytest.mark.parametrize(
     ("name", "source", "expected_code"),
     [
-        ("parser.pie", "shape User {\n", "PIE-P1005"),
+        ("parser.pietto", "shape User {\n", "PIE-P1005"),
         (
-            "semantic.pie",
+            "semantic.pietto",
             "shape User:\n    email: MissingType not null\n",
             "PIE-S2002",
         ),
@@ -140,7 +140,7 @@ def test_emit_sql_json_ir_error_does_not_write_or_call_backend(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "ir-error.pie", SOURCE)
+    path = _write(tmp_path, "ir-error.pietto", SOURCE)
     output = tmp_path / "ir-error.sql"
     diagnostic = _diagnostic(path, "PIE-I1000", "missing semantic fact")
     monkeypatch.setattr(
@@ -170,7 +170,7 @@ def test_emit_sql_json_backend_error_preserves_artifacts_and_old_output(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "backend-error.pie", SOURCE)
+    path = _write(tmp_path, "backend-error.pietto", SOURCE)
     output = _write(tmp_path, "backend-error.sql", "original SQL\n")
     artifact = _artifact("partial", "SELECT 1")
     diagnostic = _diagnostic(path, "PIE-B1000", "unsupported backend case")
@@ -197,7 +197,7 @@ def test_emit_sql_json_file_read_error_reports_unwritten_output(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = tmp_path / "missing.pie"
+    path = tmp_path / "missing.pietto"
     output = tmp_path / "out.sql"
 
     assert _emit_json_output(path, output) == 2
@@ -213,7 +213,7 @@ def test_emit_sql_json_unsupported_dialect_reports_unwritten_output(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "valid.pie", SOURCE)
+    path = _write(tmp_path, "valid.pietto", SOURCE)
     output = tmp_path / "out.sql"
 
     assert (
@@ -243,7 +243,7 @@ def test_emit_sql_json_usage_error_reports_unwritten_output(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "valid.pie", SOURCE)
+    path = _write(tmp_path, "valid.pietto", SOURCE)
     output = tmp_path / "out.sql"
 
     assert (
@@ -270,7 +270,7 @@ def test_emit_sql_json_same_input_output_is_rejected_before_compilation(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "input.pie", RELATION)
+    path = _write(tmp_path, "input.pietto", RELATION)
     original = path.read_bytes()
 
     def unexpected_parse(checked_path: Path) -> object:
@@ -293,7 +293,7 @@ def test_emit_sql_json_hardlink_output_is_rejected_without_truncation(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "input.pie", RELATION)
+    path = _write(tmp_path, "input.pietto", RELATION)
     output = tmp_path / "hardlink.sql"
     os.link(path, output)
     original = path.read_bytes()
@@ -313,7 +313,7 @@ def test_emit_sql_json_symlink_output_is_rejected_and_target_is_unchanged(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "input.pie", RELATION)
+    path = _write(tmp_path, "input.pietto", RELATION)
     target = _write(tmp_path, "target.sql", "original SQL\n")
     output = tmp_path / "output.sql"
     output.symlink_to(target)
@@ -333,7 +333,7 @@ def test_emit_sql_json_missing_parent_reports_output_write_with_artifacts(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "input.pie", RELATION)
+    path = _write(tmp_path, "input.pietto", RELATION)
     output = tmp_path / "missing" / "out.sql"
 
     assert _emit_json_output(path, output) == 2
@@ -352,7 +352,7 @@ def test_emit_sql_json_replace_failure_preserves_old_output_and_cleans_temp(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "input.pie", RELATION)
+    path = _write(tmp_path, "input.pietto", RELATION)
     output = _write(tmp_path, "out.sql", "original SQL\n")
 
     def fail_replace(source: Path, destination: Path) -> None:
@@ -378,7 +378,7 @@ def test_emit_sql_text_output_and_check_json_remain_unchanged(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "input.pie", RELATION)
+    path = _write(tmp_path, "input.pietto", RELATION)
     output = tmp_path / "out.sql"
 
     assert (

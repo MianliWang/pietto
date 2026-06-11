@@ -17,7 +17,7 @@ postgres.table("public.users")
 The only implemented CLI SQL dialect is:
 
 ```bash
-pietto emit-sql file.pie --dialect postgres
+pietto emit-sql file.pietto --dialect postgres
 ```
 
 `mysql.table`, `--dialect mysql`, backend capability declarations, generic

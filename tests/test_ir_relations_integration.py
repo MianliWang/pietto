@@ -56,7 +56,7 @@ PIPELINE_SOURCE = (
     "        email\n"
 )
 
-EXAMPLE_PATHS = tuple(sorted(Path("examples").rglob("*.pie")))
+EXAMPLE_PATHS = tuple(sorted(Path("examples").rglob("*.pietto")))
 RELATION_EXAMPLE_PATHS = tuple(
     path
     for path in EXAMPLE_PATHS
@@ -175,7 +175,7 @@ def test_missing_query_schema_reports_deterministic_pie_i1000() -> None:
         (
             "PIE-I1000",
             Severity.ERROR,
-            "relations-integration.pie",
+            "relations-integration.pietto",
             query.span.line,
             "Missing semantic fact required for IR lowering: relation row schema",
         )
@@ -238,7 +238,7 @@ def _compile(
     *,
     mode: CheckMode | None = None,
 ) -> tuple[IrResult, Script, SemanticModel]:
-    parse_result = parse_source(source, path="relations-integration.pie")
+    parse_result = parse_source(source, path="relations-integration.pietto")
     assert parse_result.diagnostics == ()
     assert parse_result.ast is not None
 

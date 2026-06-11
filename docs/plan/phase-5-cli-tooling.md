@@ -17,9 +17,9 @@ The current public surface is:
 ```bash
 pietto --help
 pietto --version
-pietto check file.pie
-pietto emit-sql file.pie --dialect postgres
-pietto emit-sql file.pie --dialect postgres --output out.sql
+pietto check file.pietto
+pietto emit-sql file.pietto --dialect postgres
+pietto emit-sql file.pietto --dialect postgres --output out.sql
 ```
 
 The console script calls:

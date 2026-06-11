@@ -95,14 +95,14 @@ def test_non_bool_where_diagnostic_uses_expression_span() -> None:
         "    where text\n"
         "    select:\n"
         "        text\n",
-        path="where.pie",
+        path="where.pietto",
     )
     result = analyze(script)
     expression = _table(result).where_clause.expression
     diagnostic = result.diagnostics[0]
 
     assert diagnostic.code == "PIE-S2202"
-    assert diagnostic.location.path == expression.span.path == "where.pie"
+    assert diagnostic.location.path == expression.span.path == "where.pietto"
     assert (
         diagnostic.location.line,
         diagnostic.location.column,

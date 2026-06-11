@@ -131,7 +131,7 @@ def test_untyped_source_mode_policy(
 
 
 def test_untyped_source_diagnostic_uses_source_span() -> None:
-    path = Path("examples/semantic/untyped-source.pie")
+    path = Path("examples/semantic/untyped-source.pietto")
     script = _parse(
         'source events is postgres.table("public.events")\n',
         path=path,

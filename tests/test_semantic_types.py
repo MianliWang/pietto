@@ -106,7 +106,7 @@ def test_unknown_type_reports_p2002_and_records_placeholder() -> None:
 
 
 def test_unknown_type_diagnostic_uses_type_expression_span() -> None:
-    path = Path("examples/semantic/unknown-type.pie")
+    path = Path("examples/semantic/unknown-type.pietto")
     script = _parse("type Value = Missing not null\n", path=path)
     definition = script.definitions[0]
     assert isinstance(definition, TypeDef)

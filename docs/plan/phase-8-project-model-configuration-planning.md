@@ -40,8 +40,8 @@ repository provides:
 
 - a single-file parser, semantic checker, Semantic IR builder, and PostgreSQL
   SQL emitter;
-- `pietto check file.pie` and
-  `pietto emit-sql file.pie --dialect postgres`;
+- `pietto check file.pietto` and
+  `pietto emit-sql file.pietto --dialect postgres`;
 - text output and the normative single-file JSON schema version 1;
 - reviewed example-based SQL and JSON golden outputs;
 - fixed per-file limits of 1 MiB of UTF-8 source and 200,000 raw non-EOF lexer
@@ -137,7 +137,7 @@ project filesystem contract. It defines:
   and artifact-source path concepts;
 - normalized `/`-separated project-relative configuration paths;
 - lexical and physical root-containment checks;
-- a strict glob subset with include union, exclude precedence, `.pie`
+- a strict glob subset with include union, exclude precedence, `.pietto`
   filtering, hidden-path rules, and deterministic sorting;
 - no traversal through symlinked directories, rejection of outside-root
   links, and rejection of duplicate hard-link or symlink identities;
@@ -275,7 +275,7 @@ outside-root links and duplicate file identities, and stable project-relative
 display paths.
 
 Source selection uses a documented `*`, `?`, and whole-segment `**` subset.
-Includes form a union, excludes apply afterward and win, only `.pie` regular
+Includes form a union, excludes apply afterward and win, only `.pietto` regular
 files are retained, and normalized project-relative paths define deterministic
 order. No root discovery or glob expansion is implemented by Phase 8.
 

@@ -210,7 +210,7 @@ def test_shape_without_final_newline_closes_at_eof() -> None:
 
 
 def test_shape_and_field_spans_are_one_based_half_open() -> None:
-    path = Path("examples/shapes/span.pie")
+    path = Path("examples/shapes/span.pietto")
     result = parse_source(
         "shape User:\n"
         "    id: UUID not null\n"
@@ -261,7 +261,7 @@ def test_shape_and_field_spans_are_one_based_half_open() -> None:
 
 
 def test_shape_field_modifier_spans_are_one_based_half_open() -> None:
-    path = Path("examples/shapes/modifier_span.pie")
+    path = Path("examples/shapes/modifier_span.pietto")
     result = parse_source(
         "shape User:\n"
         "    email: Email @pii @sensitive\n"
@@ -329,7 +329,7 @@ def test_shape_field_modifier_spans_are_one_based_half_open() -> None:
 
 
 def test_shape_field_derive_span_is_one_based_half_open() -> None:
-    path = Path("examples/shapes/derive_span.pie")
+    path = Path("examples/shapes/derive_span.pietto")
     result = parse_source(
         "shape User:\n"
         "    email_norm: Text nullable derive normalized_email(email) "
@@ -405,7 +405,7 @@ def test_shape_keeps_top_level_definition_order() -> None:
 
 
 def test_shape_example_fixture_parses() -> None:
-    result = parse_file("examples/shapes/user.pie")
+    result = parse_file("examples/shapes/user.pietto")
 
     assert result.diagnostics == ()
     assert result.ast is not None

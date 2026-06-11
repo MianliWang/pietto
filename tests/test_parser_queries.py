@@ -192,7 +192,7 @@ def test_query_keyword_remains_available_in_dotted_expressions() -> None:
 
 
 def test_query_spans_are_one_based_half_open() -> None:
-    path = Path("examples/queries/span.pie")
+    path = Path("examples/queries/span.pietto")
     result = parse_source(
         "query active_user_emails:\n"
         "    from active_users\n"
@@ -246,7 +246,7 @@ def test_query_spans_are_one_based_half_open() -> None:
 
 
 def test_query_example_fixture_parses() -> None:
-    result = parse_file("examples/queries/active_user_emails.pie")
+    result = parse_file("examples/queries/active_user_emails.pietto")
 
     assert result.diagnostics == ()
     assert result.ast is not None

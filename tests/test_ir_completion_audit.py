@@ -42,7 +42,7 @@ from pietto.ir import (
 from pietto.parser_api import parse_file, parse_source
 from pietto.semantic import SemanticModel, analyze
 
-EXAMPLE_PATHS = tuple(sorted(Path("examples").rglob("*.pie")))
+EXAMPLE_PATHS = tuple(sorted(Path("examples").rglob("*.pietto")))
 assert EXAMPLE_PATHS, "Expected committed Pietto examples."
 
 ALL_DEFINITIONS_SOURCE = (
@@ -228,7 +228,7 @@ def test_implemented_ir_diagnostics_match_documented_codes() -> None:
 
 
 def _build(source: str) -> tuple[IrResult, Script, SemanticModel]:
-    parse_result = parse_source(source, path="ir-completion-audit.pie")
+    parse_result = parse_source(source, path="ir-completion-audit.pietto")
     assert parse_result.diagnostics == ()
     assert parse_result.ast is not None
 

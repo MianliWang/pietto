@@ -16,9 +16,9 @@ behavior. The final completion audit is complete.
 Final supported JSON commands:
 
 ```bash
-pietto check file.pie --format json
-pietto emit-sql file.pie --dialect postgres --format json
-pietto emit-sql file.pie --dialect postgres --format json --output out.sql
+pietto check file.pietto --format json
+pietto emit-sql file.pietto --dialect postgres --format json
+pietto emit-sql file.pietto --dialect postgres --format json --output out.sql
 ```
 
 ## Boundaries
@@ -43,9 +43,9 @@ runtime behavior, or LSP/editor integration.
 Both commands support a command-local format option:
 
 ```bash
-pietto check file.pie --format json
-pietto emit-sql file.pie --dialect postgres --format json
-pietto emit-sql file.pie --dialect postgres --output out.sql --format json
+pietto check file.pietto --format json
+pietto emit-sql file.pietto --dialect postgres --format json
+pietto emit-sql file.pietto --dialect postgres --output out.sql --format json
 ```
 
 The option is `--format {text,json}`, defaults to `text`, and applies to both
@@ -115,7 +115,7 @@ Parser, semantic, IR, and backend diagnostics share this fixed shape:
   "severity": "warning",
   "message": "Implicit nullability",
   "location": {
-    "path": "example.pie",
+    "path": "example.pietto",
     "line": 2,
     "column": 12,
     "end_line": null,
@@ -159,7 +159,7 @@ CLI errors remain separate from Pietto compiler diagnostics:
 {
   "kind": "file_read",
   "message": "...",
-  "path": "missing.pie"
+  "path": "missing.pietto"
 }
 ```
 
@@ -191,15 +191,15 @@ subcommand-local options, and unsupported dialects.
 These commands produce JSON:
 
 ```bash
-pietto check missing.pie --format json
-pietto emit-sql file.pie --dialect mysql --format json
+pietto check missing.pietto --format json
+pietto emit-sql file.pietto --dialect mysql --format json
 ```
 
 These may retain argparse text on stderr:
 
 ```bash
 pietto --unknown --format json
-pietto check file.pie --format yaml
+pietto check file.pietto --format yaml
 ```
 
 Implementing this boundary requires careful command-local argparse handling;
@@ -214,7 +214,7 @@ this docs-only slice does not add that behavior.
   "schema_version": 1,
   "command": "check",
   "ok": true,
-  "path": "example.pie",
+  "path": "example.pietto",
   "diagnostics": [],
   "cli_errors": []
 }
@@ -235,7 +235,7 @@ with `2`.
   "schema_version": 1,
   "command": "emit-sql",
   "ok": true,
-  "path": "example.pie",
+  "path": "example.pietto",
   "dialect": "postgres",
   "diagnostics": [],
   "cli_errors": [],

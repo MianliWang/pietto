@@ -24,7 +24,7 @@ def test_output_same_as_input_is_rejected_without_truncation(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "same-file.pie", SOURCE)
+    path = _write(tmp_path, "same-file.pietto", SOURCE)
     original = path.read_bytes()
 
     assert _emit(path, path) == 2
@@ -39,8 +39,8 @@ def test_hard_link_to_input_is_rejected_without_truncation(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "input.pie", SOURCE)
-    output = tmp_path / "hard-link.pie"
+    path = _write(tmp_path, "input.pietto", SOURCE)
+    output = tmp_path / "hard-link.pietto"
     os.link(path, output)
     original = path.read_bytes()
 
@@ -55,7 +55,7 @@ def test_symlink_output_is_rejected_and_target_is_unchanged(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "input.pie", SOURCE)
+    path = _write(tmp_path, "input.pietto", SOURCE)
     target = _write(tmp_path, "target.sql", "original SQL\n")
     output = tmp_path / "output.sql"
     output.symlink_to(target)
@@ -73,7 +73,7 @@ def test_successful_output_atomically_overwrites_regular_file(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "input.pie", SOURCE)
+    path = _write(tmp_path, "input.pietto", SOURCE)
     output = _write(tmp_path, "output.sql", "stale SQL\n")
 
     assert _emit(path, output) == 0
@@ -92,7 +92,7 @@ def test_atomic_replace_failure_preserves_existing_output_and_cleans_temp(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "input.pie", SOURCE)
+    path = _write(tmp_path, "input.pietto", SOURCE)
     output = _write(tmp_path, "output.sql", "original SQL\n")
 
     def fail_replace(source: Path, destination: Path) -> None:
@@ -115,7 +115,7 @@ def test_backend_error_does_not_truncate_existing_output(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "input.pie", SOURCE)
+    path = _write(tmp_path, "input.pietto", SOURCE)
     output = _write(tmp_path, "output.sql", "original SQL\n")
     diagnostic = Diagnostic(
         code="PIE-B1000",
@@ -141,7 +141,7 @@ def test_newline_in_path_is_escaped_in_diagnostic_record(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "forged\nPIE-S9999 error.pie", "type = Int\n")
+    path = _write(tmp_path, "forged\nPIE-S9999 error.pietto", "type = Int\n")
 
     assert cli.main(["check", str(path)]) == 1
 
@@ -156,14 +156,14 @@ def test_newline_in_missing_path_is_escaped_in_cli_error(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = tmp_path / "missing\nforged-error.pie"
+    path = tmp_path / "missing\nforged-error.pietto"
 
     assert cli.main(["check", str(path)]) == 2
 
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert "\\nforged-error.pie" in captured.err
-    assert "\nforged-error.pie" not in captured.err
+    assert "\\nforged-error.pietto" in captured.err
+    assert "\nforged-error.pietto" not in captured.err
     assert len(captured.err.splitlines()) == 1
 
 
@@ -171,7 +171,7 @@ def test_escape_in_path_is_not_emitted_as_raw_ansi(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "color\x1b[31m.pie", "shape User {\n")
+    path = _write(tmp_path, "color\x1b[31m.pietto", "shape User {\n")
 
     assert cli.main(["check", str(path)]) == 1
 
@@ -189,18 +189,18 @@ def test_control_characters_in_diagnostic_text_are_escaped(
         severity=Severity.ERROR,
         message="first\nsecond\r\t\x1b\x00\x7f",
         location=SourceLocation(
-            path="bad\npath\x1b.pie",
+            path="bad\npath\x1b.pietto",
             line=1,
             column=2,
         ),
     )
 
-    cli._render_diagnostics((diagnostic,), fallback_path=Path("fallback.pie"))
+    cli._render_diagnostics((diagnostic,), fallback_path=Path("fallback.pietto"))
 
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err == (
-        "bad\\npath\\x1b.pie:1:2 PIE-P1000 error: first\\nsecond\\r\\t\\x1b\\x00\\x7f\n"
+        "bad\\npath\\x1b.pietto:1:2 PIE-P1000 error: first\\nsecond\\r\\t\\x1b\\x00\\x7f\n"
     )
 
 
@@ -208,7 +208,9 @@ def test_success_path_with_newline_is_escaped_on_stdout(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "valid\nname.pie", "shape User:\n    id: UUID not null\n")
+    path = _write(
+        tmp_path, "valid\nname.pietto", "shape User:\n    id: UUID not null\n"
+    )
 
     assert cli.main(["check", str(path)]) == 0
 

@@ -55,14 +55,14 @@ The current single-file CLI supports:
 ```bash
 pietto --help
 pietto --version
-pietto check file.pie
-pietto check file.pie --format json
-pietto check file.pie --format=json
-pietto emit-sql file.pie --dialect postgres
-pietto emit-sql file.pie --dialect postgres --output out.sql
-pietto emit-sql file.pie --dialect postgres --format json
-pietto emit-sql file.pie --dialect postgres --format=json
-pietto emit-sql file.pie --dialect postgres --format json --output out.sql
+pietto check file.pietto
+pietto check file.pietto --format json
+pietto check file.pietto --format=json
+pietto emit-sql file.pietto --dialect postgres
+pietto emit-sql file.pietto --dialect postgres --output out.sql
+pietto emit-sql file.pietto --dialect postgres --format json
+pietto emit-sql file.pietto --dialect postgres --format=json
+pietto emit-sql file.pietto --dialect postgres --format json --output out.sql
 ```
 
 Text remains the default presentation. JSON mode emits one versioned document

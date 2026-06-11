@@ -35,7 +35,7 @@ def test_derive_body_type_mismatch_reports_pie_s2402() -> None:
     script = _parse(
         "derive normalized_email(email: Text not null) -> Text not null:\n"
         '    matches(email, ".+@.+")\n',
-        path="callable-bodies.pie",
+        path="callable-bodies.pietto",
     )
     derive = script.definitions[0]
     assert isinstance(derive, DeriveDef)
@@ -53,7 +53,7 @@ def test_derive_body_type_mismatch_reports_pie_s2402() -> None:
         )
     ]
     diagnostic = result.diagnostics[0]
-    assert diagnostic.location.path == derive.body.span.path == "callable-bodies.pie"
+    assert diagnostic.location.path == derive.body.span.path == "callable-bodies.pietto"
     assert (
         diagnostic.location.line,
         diagnostic.location.column,

@@ -89,7 +89,7 @@ def test_emit_sql_output_file_preserves_multiple_artifact_formatting(
 ) -> None:
     path = _write(
         tmp_path,
-        "relations.pie",
+        "relations.pietto",
         SOURCE + "table active_users:\n"
         "    from users\n"
         "    select:\n"
@@ -131,7 +131,7 @@ def test_emit_sql_output_keeps_warnings_on_stderr(
 ) -> None:
     path = _write(
         tmp_path,
-        "warning.pie",
+        "warning.pietto",
         "shape User:\n"
         "    email: Text\n"
         'source users: User is postgres.table("users")\n'
@@ -194,7 +194,7 @@ def test_emit_sql_backend_error_does_not_create_output_file(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "backend-error.pie", SOURCE)
+    path = _write(tmp_path, "backend-error.pietto", SOURCE)
     output = tmp_path / "backend-error.sql"
     artifact = SqlArtifact(
         name="partial",
@@ -239,9 +239,9 @@ def test_emit_sql_backend_error_does_not_create_output_file(
 @pytest.mark.parametrize(
     ("name", "source", "expected_code"),
     [
-        ("syntax.pie", "shape User {\n", "PIE-P1005"),
+        ("syntax.pietto", "shape User {\n", "PIE-P1005"),
         (
-            "semantic.pie",
+            "semantic.pietto",
             "shape User:\n    email: MissingType not null\n",
             "PIE-S2002",
         ),
@@ -309,7 +309,7 @@ def test_check_behavior_remains_unchanged(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "valid-check.pie", SOURCE)
+    path = _write(tmp_path, "valid-check.pietto", SOURCE)
 
     def unexpected_call(*args: object, **kwargs: object) -> object:
         del args, kwargs
@@ -327,7 +327,7 @@ def test_check_behavior_remains_unchanged(
 def _relation_file(tmp_path: Path) -> Path:
     return _write(
         tmp_path,
-        "active_users.pie",
+        "active_users.pietto",
         SOURCE + "table active_users:\n"
         "    from users\n"
         "    where active == true\n"

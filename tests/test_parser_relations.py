@@ -45,7 +45,7 @@ def test_definition_union_matches_top_level_grammar() -> None:
 def test_table_and_query_malformed_body_diagnostics_are_consistent(
     body: str,
 ) -> None:
-    path = Path("examples/relations/malformed.pie")
+    path = Path("examples/relations/malformed.pietto")
     table_result = parse_source(f"table broken:\n{body}", path=path)
     query_result = parse_source(f"query broken:\n{body}", path=path)
 

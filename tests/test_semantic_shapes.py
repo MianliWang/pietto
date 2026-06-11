@@ -152,7 +152,7 @@ def test_repeated_target_field_reports_p2503(item: str, message: str) -> None:
 
 
 def test_shape_diagnostics_use_later_or_containing_item_spans() -> None:
-    path = Path("examples/semantic/shape-errors.pie")
+    path = Path("examples/semantic/shape-errors.pietto")
     script = _parse(
         "shape User:\n"
         "    email: Text not null\n"

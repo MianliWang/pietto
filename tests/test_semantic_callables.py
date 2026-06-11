@@ -130,7 +130,7 @@ def test_duplicate_parameter_diagnostic_uses_later_parameter_span() -> None:
         "derive choose(value: Text not null, value: Text not null) "
         "-> Text not null:\n"
         "    value\n",
-        path="callables.pie",
+        path="callables.pietto",
     )
     derive = _derive(script.definitions[0])
     duplicate = derive.parameters[1]
@@ -138,7 +138,7 @@ def test_duplicate_parameter_diagnostic_uses_later_parameter_span() -> None:
     diagnostic = analyze(script).diagnostics[0]
 
     assert diagnostic.code == "PIE-S2001"
-    assert diagnostic.location.path == duplicate.span.path == "callables.pie"
+    assert diagnostic.location.path == duplicate.span.path == "callables.pietto"
     assert (
         diagnostic.location.line,
         diagnostic.location.column,

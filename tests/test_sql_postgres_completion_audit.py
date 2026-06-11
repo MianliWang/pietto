@@ -17,7 +17,7 @@ from pietto.parser_api import parse_file, parse_source
 from pietto.semantic import analyze
 from pietto.sql import SqlArtifactKind, SqlResult, emit_postgres_sql
 
-EXAMPLE_PATHS = tuple(sorted(Path("examples").rglob("*.pie")))
+EXAMPLE_PATHS = tuple(sorted(Path("examples").rglob("*.pietto")))
 assert len(EXAMPLE_PATHS) == 10
 
 PIPELINE_SOURCE = (
@@ -262,7 +262,12 @@ def test_repository_contains_no_legacy_diagnostic_codes() -> None:
     for root in roots:
         paths = root.rglob("*") if root.is_dir() else (root,)
         for path in paths:
-            if not path.is_file() or path.suffix not in {".md", ".pie", ".py", ".txt"}:
+            if not path.is_file() or path.suffix not in {
+                ".md",
+                ".pietto",
+                ".py",
+                ".txt",
+            }:
                 continue
             for match in re.finditer(
                 r"(?<!PIE-)\bP[0-9]{4}\b",
@@ -306,7 +311,7 @@ def test_sql_public_entry_point_type_contract_uses_script_ir() -> None:
 
 
 def _compile_ir(source: str) -> ScriptIR:
-    parse_result = parse_source(source, path="sql-completion-audit.pie")
+    parse_result = parse_source(source, path="sql-completion-audit.pietto")
     assert parse_result.diagnostics == ()
     assert parse_result.ast is not None
 

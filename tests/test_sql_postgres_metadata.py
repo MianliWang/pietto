@@ -136,7 +136,7 @@ def test_unknown_future_definition_reports_pie_b1000_at_its_span() -> None:
     definition = FutureDefinitionIR(
         name="future_target",
         span=SourceSpan(
-            path="future.pie",
+            path="future.pietto",
             line=7,
             column=3,
             end_line=7,
@@ -159,11 +159,11 @@ def test_unknown_future_definition_reports_pie_b1000_at_its_span() -> None:
         diagnostic.location.column,
         diagnostic.location.end_line,
         diagnostic.location.end_column,
-    ) == ("future.pie", 7, 3, 7, 16)
+    ) == ("future.pietto", 7, 3, 7, 16)
 
 
 def _compile_ir(source: str) -> ScriptIR:
-    parse_result = parse_source(source, path="postgres-metadata.pie")
+    parse_result = parse_source(source, path="postgres-metadata.pietto")
     assert parse_result.diagnostics == ()
     assert parse_result.ast is not None
 

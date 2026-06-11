@@ -24,7 +24,7 @@ from pietto.sql import SqlArtifact, SqlArtifactKind
 def test_diagnostic_serialization_has_fixed_fields_and_lowercase_severity() -> None:
     diagnostic = _diagnostic(
         severity=Severity.WARNING,
-        path="example.pie",
+        path="example.pietto",
         end_line=3,
         end_column=8,
         suggestion="Add explicit nullability.",
@@ -35,7 +35,7 @@ def test_diagnostic_serialization_has_fixed_fields_and_lowercase_severity() -> N
         "severity": "warning",
         "message": "Implicit nullability",
         "location": {
-            "path": "example.pie",
+            "path": "example.pietto",
             "line": 2,
             "column": 12,
             "end_line": 3,
@@ -53,11 +53,11 @@ def test_diagnostic_location_uses_fallback_and_preserves_null_fields() -> None:
 
     result = diagnostic_to_json_dict(
         diagnostic,
-        fallback_path=Path("fallback.pie"),
+        fallback_path=Path("fallback.pietto"),
     )
 
     assert result["location"] == {
-        "path": "fallback.pie",
+        "path": "fallback.pietto",
         "line": 2,
         "column": 12,
         "end_line": None,
@@ -76,7 +76,7 @@ def test_diagnostic_location_can_be_null_without_fake_coordinates() -> None:
 
     result = diagnostic_to_json_dict(
         diagnostic,
-        fallback_path="fallback.pie",
+        fallback_path="fallback.pietto",
     )
 
     assert result["location"] is None
@@ -104,12 +104,12 @@ def test_cli_error_serialization_has_fixed_fields_and_nullable_path() -> None:
         CliError(
             kind="file_read",
             message="not found",
-            path=Path("missing.pie"),
+            path=Path("missing.pietto"),
         )
     ) == {
         "kind": "file_read",
         "message": "not found",
-        "path": "missing.pie",
+        "path": "missing.pietto",
     }
 
 
@@ -140,14 +140,14 @@ def test_check_result_ok_is_computed_from_diagnostics_and_cli_errors() -> None:
     assert check_result_to_json_dict(path=None)["ok"] is True
     assert (
         check_result_to_json_dict(
-            path="example.pie",
+            path="example.pietto",
             diagnostics=(warning,),
         )["ok"]
         is True
     )
     assert (
         check_result_to_json_dict(
-            path="example.pie",
+            path="example.pietto",
             diagnostics=(error,),
         )["ok"]
         is False
@@ -162,13 +162,13 @@ def test_check_result_ok_is_computed_from_diagnostics_and_cli_errors() -> None:
 
 
 def test_check_result_has_stable_top_level_schema_and_no_package_version() -> None:
-    result = check_result_to_json_dict(path=Path("example.pie"))
+    result = check_result_to_json_dict(path=Path("example.pietto"))
 
     assert result == {
         "schema_version": 1,
         "command": "check",
         "ok": True,
-        "path": "example.pie",
+        "path": "example.pietto",
         "diagnostics": [],
         "cli_errors": [],
     }
@@ -197,13 +197,13 @@ def test_emit_sql_result_preserves_artifacts_and_diagnostics_in_order() -> None:
     )
     error = _diagnostic(
         severity=Severity.ERROR,
-        path="backend.pie",
+        path="backend.pietto",
         code="PIE-B1000",
         message="backend error",
     )
 
     result = emit_sql_result_to_json_dict(
-        path=Path("input.pie"),
+        path=Path("input.pietto"),
         dialect="postgres",
         diagnostics=(warning, error),
         artifacts=(first, second),
@@ -215,13 +215,13 @@ def test_emit_sql_result_preserves_artifacts_and_diagnostics_in_order() -> None:
         "PIE-S2005",
         "PIE-B1000",
     ]
-    assert result["diagnostics"][0]["location"]["path"] == "input.pie"
+    assert result["diagnostics"][0]["location"]["path"] == "input.pietto"
 
 
 @pytest.mark.parametrize("written", [True, False])
 def test_emit_sql_result_serializes_output_status(written: bool) -> None:
     result = emit_sql_result_to_json_dict(
-        path="input.pie",
+        path="input.pietto",
         dialect="postgres",
         output=OutputStatus(path=Path("out.sql"), written=written),
     )

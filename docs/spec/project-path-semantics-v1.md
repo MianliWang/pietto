@@ -152,7 +152,7 @@ The planned `[sources]` selection pipeline is:
 
 1. validate every include and exclude pattern;
 2. expand all include patterns within the root;
-3. retain only regular files whose normalized path ends in `.pie`;
+3. retain only regular files whose normalized path ends in `.pietto`;
 4. form the union of include matches;
 5. remove every path matched by an exclude pattern;
 6. resolve containment and physical file identity;
@@ -180,11 +180,11 @@ The following are unsupported and should be rejected rather than ignored:
 - `.` or `..` segments;
 - malformed uses of `**` inside another segment.
 
-An include may name an individual `.pie` file or use a pattern. A bare
+An include may name an individual `.pietto` file or use a pattern. A bare
 directory name has no implicit recursive meaning; recursive selection requires
-an explicit pattern such as `models/**/*.pie`.
+an explicit pattern such as `models/**/*.pietto`.
 
-Only `.pie` regular files are accepted. Matching directories, sockets,
+Only `.pietto` regular files are accepted. Matching directories, sockets,
 devices, FIFOs, or unrelated file extensions does not create source inputs.
 
 An include list that produces no final source files is a project
@@ -194,8 +194,8 @@ configuration/input error. There are no implicit default include patterns.
 
 A path segment beginning with `.` is hidden. Wildcards do not match a leading
 `.` unless the corresponding pattern segment also begins with `.`. Thus,
-`**/*.pie` does not silently select `.cache/hidden.pie`, while
-`.generated/**/*.pie` may select an explicitly named hidden tree.
+`**/*.pietto` does not silently select `.cache/hidden.pietto`, while
+`.generated/**/*.pietto` may select an explicitly named hidden tree.
 
 Pietto does not implicitly exclude `vendor`, `generated`, `build`, or similar
 directory names. Hidden defaults and tool-specific conventions reduce
@@ -384,7 +384,7 @@ cover tests for:
 - configured separator, absolute, drive, UNC, `.`, `..`, empty-segment, and
   malformed-pattern rejection;
 - `*`, `?`, and whole-segment `**` matching;
-- individual-file selection and `.pie` filtering;
+- individual-file selection and `.pietto` filtering;
 - include union, exclude precedence, and empty final sets;
 - explicit hidden-path behavior and absence of implicit vendor exclusions;
 - root escape and symbolic-link escape rejection;

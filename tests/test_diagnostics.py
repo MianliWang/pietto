@@ -75,14 +75,14 @@ def test_invalid_string_escape_returns_diagnostic() -> None:
 def test_overly_long_integer_literal_returns_diagnostic() -> None:
     result = parse_source(
         "type Huge = Int(max = " + "9" * 5000 + ") not null\n",
-        path="huge-integer.pie",
+        path="huge-integer.pietto",
     )
 
     assert result.ast is None
     assert len(result.diagnostics) == 1
     diagnostic = result.diagnostics[0]
     assert diagnostic.code == "PIE-P1000"
-    assert diagnostic.location.path == "huge-integer.pie"
+    assert diagnostic.location.path == "huge-integer.pietto"
     assert "maximum supported length" in diagnostic.message
 
 
@@ -109,14 +109,14 @@ def test_non_finite_decimal_literal_returns_diagnostic() -> None:
 def test_deep_unary_expression_returns_parser_diagnostic() -> None:
     result = parse_source(
         "derive deep() -> Int not null:\n    " + "+" * 1500 + "1\n",
-        path="deep-unary.pie",
+        path="deep-unary.pietto",
     )
 
     assert result.ast is None
     assert len(result.diagnostics) == 1
     diagnostic = result.diagnostics[0]
     assert diagnostic.code == "PIE-P1000"
-    assert diagnostic.location.path == "deep-unary.pie"
+    assert diagnostic.location.path == "deep-unary.pietto"
     assert "recursion limit" in diagnostic.message
 
 

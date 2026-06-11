@@ -194,7 +194,7 @@ def test_phase9_public_postgres_api_cli_and_json_v1_are_unchanged(
         cli.main(
             [
                 "emit-sql",
-                "examples/tables/active_users.pie",
+                "examples/tables/active_users.pietto",
                 "--dialect",
                 "postgres",
                 "--format=json",
@@ -211,7 +211,7 @@ def test_phase9_public_postgres_api_cli_and_json_v1_are_unchanged(
         cli.main(
             [
                 "emit-sql",
-                "examples/tables/active_users.pie",
+                "examples/tables/active_users.pietto",
                 "--dialect",
                 "mysql",
                 "--format=json",
@@ -310,7 +310,7 @@ def test_phase9_diagnostics_and_runtime_threat_boundary_are_audited() -> None:
             "parameterization, least privilege",
             "transactions, cancellation, retries",
             "driver, connector, and plugin supply-chain risk",
-            "No post-Phase-9 implementation phase has started.",
+            "Phase 9.5 Static Typing And Source Extension Hardening follows Phase 9",
         ),
     )
 
@@ -387,7 +387,12 @@ def _legacy_diagnostic_codes(
     for root in roots:
         paths = root.rglob("*") if root.is_dir() else (root,)
         for path in paths:
-            if not path.is_file() or path.suffix not in {".md", ".pie", ".py", ".txt"}:
+            if not path.is_file() or path.suffix not in {
+                ".md",
+                ".pietto",
+                ".py",
+                ".txt",
+            }:
                 continue
             matches.extend(
                 (path.relative_to(REPO_ROOT), match.group())

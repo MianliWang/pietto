@@ -41,7 +41,8 @@ def test_phase7_documentation_records_complete_single_file_scope() -> None:
         assert f"{slice_number}. **" in phase7
     assert "**Phase 7 Developer Workflow & Stability Foundation: complete**" in readme
     assert (
-        "Current phase: Phase 9 SQL Backend Architecture & Dialect Strategy complete."
+        "Current phase: Phase 9.5 Static Typing And Source Extension Hardening "
+        "complete."
     ) in agents
     assert "**Phase 8 planning/specification is complete.**" in phase8
     assert "Every Phase 8 slice is documentation, specification" in phase8
@@ -80,7 +81,7 @@ def test_phase7_json_v1_commands_keep_one_document_contract(
 ) -> None:
     monkeypatch.chdir(REPO_ROOT)
 
-    assert cli.main(["check", "examples/basic/types.pie", "--format=json"]) == 0
+    assert cli.main(["check", "examples/basic/types.pietto", "--format=json"]) == 0
     checked = _read_json_document(capsys)
     assert set(checked) == CHECK_KEYS
     assert checked["schema_version"] == 1
@@ -93,7 +94,7 @@ def test_phase7_json_v1_commands_keep_one_document_contract(
         cli.main(
             [
                 "emit-sql",
-                "examples/tables/active_users.pie",
+                "examples/tables/active_users.pietto",
                 "--dialect",
                 "postgres",
                 "--format",
@@ -145,11 +146,11 @@ def test_phase7_resource_budget_contract_and_diagnostics_are_stable() -> None:
 
     oversized = parser_api.parse_source(
         "#" + "a" * parser_api._MAX_SOURCE_UTF8_BYTES,
-        path="oversized.pie",
+        path="oversized.pietto",
     )
     too_many_tokens = parser_api.parse_source(
         "+" * (parser_api._MAX_NON_EOF_TOKENS + 1),
-        path="too-many-tokens.pie",
+        path="too-many-tokens.pietto",
     )
 
     assert oversized.ast is None
@@ -231,7 +232,7 @@ def test_phase7_diagnostic_codes_use_canonical_prefix() -> None:
 
     for root_name in ("src", "tests", "docs"):
         for path in (REPO_ROOT / root_name).rglob("*"):
-            if path.is_file() and path.suffix in {".md", ".pie", ".py", ".txt"}:
+            if path.is_file() and path.suffix in {".md", ".pietto", ".py", ".txt"}:
                 legacy_codes.extend(
                     (path.relative_to(REPO_ROOT), match.group())
                     for match in legacy_pattern.finditer(

@@ -11,7 +11,7 @@ from pietto.parser_api import parse_file, parse_source
 from pietto.semantic import analyze
 from pietto.sql import SqlArtifactKind, SqlResult, emit_postgres_sql
 
-EXAMPLE_PATHS = tuple(sorted(Path("examples").rglob("*.pie")))
+EXAMPLE_PATHS = tuple(sorted(Path("examples").rglob("*.pietto")))
 assert EXAMPLE_PATHS, "Expected at least one committed Pietto example."
 
 BASE_SOURCE = (
@@ -221,7 +221,7 @@ def _emit(source: str) -> SqlResult:
 
 
 def _compile_ir(source: str) -> ScriptIR:
-    parse_result = parse_source(source, path="artifact-formatting.pie")
+    parse_result = parse_source(source, path="artifact-formatting.pietto")
     assert parse_result.diagnostics == ()
     assert parse_result.ast is not None
 

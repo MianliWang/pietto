@@ -165,7 +165,7 @@ def test_index_and_when_remain_available_in_dotted_expressions() -> None:
 
 
 def test_shape_index_spans_are_one_based_half_open() -> None:
-    path = Path("examples/shapes/index_span.pie")
+    path = Path("examples/shapes/index_span.pietto")
     result = parse_source(
         "shape User:\n"
         "    tenant_id: UUID not null\n"
@@ -206,7 +206,7 @@ def test_shape_index_spans_are_one_based_half_open() -> None:
 
 
 def test_shape_index_example_fixture_parses() -> None:
-    result = parse_file("examples/shapes/user_indexes.pie")
+    result = parse_file("examples/shapes/user_indexes.pietto")
 
     assert result.diagnostics == ()
     assert result.ast is not None

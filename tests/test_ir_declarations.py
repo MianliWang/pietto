@@ -77,7 +77,7 @@ def test_build_ir_lowers_shape_fields_with_type_nullability_and_spans() -> None:
         "shape User:\n"
         "    id: UUID not null\n"
         "    email: Email nullable\n",
-        path="declarations.pie",
+        path="declarations.pietto",
     )
 
     result = build_ir(script, model)
@@ -97,7 +97,7 @@ def test_build_ir_lowers_shape_fields_with_type_nullability_and_spans() -> None:
     )
     assert shape.fields[1].type_ref.canonical_name == "Text"
     assert shape.fields[1].nullability is NullabilityIR.NULLABLE
-    assert shape.fields[0].span.path == "declarations.pie"
+    assert shape.fields[0].span.path == "declarations.pietto"
     assert (
         shape.fields[0].span.line,
         shape.fields[0].span.column,

@@ -10,15 +10,15 @@ from pietto.parser_api import parse_file, parse_source
 from pietto.semantic import analyze
 from pietto.sql import SqlArtifactKind, SqlResult, emit_postgres_sql
 
-EXAMPLE_PATHS = tuple(sorted(Path("examples").rglob("*.pie")))
+EXAMPLE_PATHS = tuple(sorted(Path("examples").rglob("*.pietto")))
 assert EXAMPLE_PATHS, "Expected at least one committed Pietto example."
 
 EXPECTED_EXAMPLE_ARTIFACTS = {
-    Path("examples/queries/active_user_emails.pie"): (
+    Path("examples/queries/active_user_emails.pietto"): (
         "active_users",
         "active_user_emails",
     ),
-    Path("examples/tables/active_users.pie"): ("active_users",),
+    Path("examples/tables/active_users.pietto"): ("active_users",),
 }
 
 
@@ -32,7 +32,7 @@ def test_pipeline_emits_quoted_source_backed_relation_sql() -> None:
         '    where Email == "O\'Reilly"\n'
         "    select:\n"
         "        ContactEmail = Email\n",
-        path="postgres-integration.pie",
+        path="postgres-integration.pietto",
     )
 
     assert len(result.artifacts) == 1
@@ -96,7 +96,7 @@ def test_artifacts_and_diagnostics_preserve_their_definition_order() -> None:
         "    select:\n"
         "        Email\n"
         "type CustomerEmail = Text not null\n",
-        path="postgres-ordering.pie",
+        path="postgres-ordering.pietto",
     )
 
     assert [artifact.name for artifact in result.artifacts] == [
@@ -173,7 +173,7 @@ def test_committed_examples_complete_postgres_backend_pipeline(path: Path) -> No
 def _compile_and_emit(
     source: str,
     *,
-    path: str = "postgres-integration.pie",
+    path: str = "postgres-integration.pietto",
 ) -> SqlResult:
     parse_result = parse_source(source, path=path)
     assert parse_result.diagnostics == (), _format_diagnostics(

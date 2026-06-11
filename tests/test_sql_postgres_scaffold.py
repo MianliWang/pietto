@@ -133,7 +133,7 @@ def _all_definition_ir() -> ScriptIR:
         "    from active_users\n"
         "    select:\n"
         "        email\n",
-        path="postgres-scaffold.pie",
+        path="postgres-scaffold.pietto",
     )
     assert parse_result.diagnostics == ()
     assert parse_result.ast is not None

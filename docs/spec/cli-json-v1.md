@@ -37,11 +37,11 @@ writes SQL text to a local file and does not execute it.
 The supported JSON forms are:
 
 ```bash
-pietto check file.pie --format json
-pietto check file.pie --format=json
-pietto emit-sql file.pie --dialect postgres --format json
-pietto emit-sql file.pie --dialect postgres --format=json
-pietto emit-sql file.pie --dialect postgres --format json --output out.sql
+pietto check file.pietto --format json
+pietto check file.pietto --format=json
+pietto emit-sql file.pietto --dialect postgres --format json
+pietto emit-sql file.pietto --dialect postgres --format=json
+pietto emit-sql file.pietto --dialect postgres --format json --output out.sql
 ```
 
 `--format` is command-local. Text remains the default format.
@@ -121,7 +121,7 @@ Object member order is not significant.
   "schema_version": 1,
   "command": "check",
   "ok": true,
-  "path": "example.pie",
+  "path": "example.pietto",
   "diagnostics": [],
   "cli_errors": []
 }
@@ -148,7 +148,7 @@ emit SQL.
   "schema_version": 1,
   "command": "emit-sql",
   "ok": true,
-  "path": "example.pie",
+  "path": "example.pietto",
   "dialect": "postgres",
   "diagnostics": [],
   "cli_errors": [],
@@ -188,7 +188,7 @@ Every compiler diagnostic uses:
   "severity": "warning",
   "message": "Implicit nullability",
   "location": {
-    "path": "example.pie",
+    "path": "example.pietto",
     "line": 2,
     "column": 12,
     "end_line": null,
@@ -218,7 +218,7 @@ When non-null, `location` has this complete shape:
 
 ```json
 {
-  "path": "example.pie",
+  "path": "example.pietto",
   "line": 2,
   "column": 12,
   "end_line": null,
@@ -245,7 +245,7 @@ Handled CLI errors are separate from compiler diagnostics:
 {
   "kind": "file_read",
   "message": "...",
-  "path": "missing.pie"
+  "path": "missing.pietto"
 }
 ```
 
@@ -348,7 +348,7 @@ Invalid format values also retain plain argparse output.
 For:
 
 ```bash
-pietto emit-sql file.pie --dialect postgres --format json --output out.sql
+pietto emit-sql file.pietto --dialect postgres --format json --output out.sql
 ```
 
 stdout still contains the complete JSON result, including generated

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Protocol, cast
+
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.ir import (
     ConstraintIR,
@@ -12,12 +14,23 @@ from pietto.ir import (
     ScriptIR,
     ShapeIR,
     SourceIR,
+    SourceSpan,
     TypeIR,
 )
 from pietto.sql.model import SqlArtifact, SqlArtifactKind, SqlResult
 from pietto.sql.relations import render_relation_sql
 
 _MetadataDefinitionIR = TypeIR | EnumIR | ShapeIR | ConstraintIR | DeriveIR | SourceIR
+
+
+class _DiagnosticDefinition(Protocol):
+    """Minimum future-definition data needed for a backend diagnostic."""
+
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def span(self) -> SourceSpan: ...
 
 
 def emit_postgres_sql(script_ir: ScriptIR) -> SqlResult:
@@ -77,10 +90,11 @@ def _unsupported_definition_diagnostic(
 ) -> Diagnostic:
     """Report one unsupported PostgreSQL emission target at its IR span."""
 
-    span = definition.span
+    diagnostic_definition = cast(_DiagnosticDefinition, definition)
+    span = diagnostic_definition.span
     message = (
         "PostgreSQL SQL emission is not implemented for "
-        f"{type(definition).__name__}: {definition.name}"
+        f"{type(definition).__name__}: {diagnostic_definition.name}"
     )
     if reason is not None:
         message = f"{message}. {reason}"

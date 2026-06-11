@@ -21,7 +21,7 @@ def test_constraint_with_nullable_parameter_parses() -> None:
     result = parse_source(
         "constraint valid_email(x: Text nullable) -> Bool:\n"
         '    x is not null and x like "%@%"\n',
-        path=Path("constraints.pie"),
+        path=Path("constraints.pietto"),
     )
 
     assert result.diagnostics == ()
@@ -29,7 +29,7 @@ def test_constraint_with_nullable_parameter_parses() -> None:
     definition = result.ast.definitions[0]
     assert isinstance(definition, ConstraintDef)
     assert definition.name == "valid_email"
-    assert definition.span.path == "constraints.pie"
+    assert definition.span.path == "constraints.pietto"
     assert definition.span.line == 1
     assert definition.span.column == 1
     assert definition.span.end_line == 2
@@ -108,7 +108,7 @@ def test_constraint_keeps_top_level_definition_order() -> None:
 
 
 def test_constraint_example_fixture_parses() -> None:
-    result = parse_file("examples/constraints/valid_email.pie")
+    result = parse_file("examples/constraints/valid_email.pietto")
 
     assert result.diagnostics == ()
     assert result.ast is not None

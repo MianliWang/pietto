@@ -169,7 +169,7 @@ def test_unnamed_computed_projection_diagnostic_uses_item_span() -> None:
         "    from users\n"
         "    select:\n"
         "        lower(email)\n",
-        path="projection.pie",
+        path="projection.pietto",
     )
     table = script.definitions[-1]
     assert isinstance(table, TableDef)
@@ -178,7 +178,7 @@ def test_unnamed_computed_projection_diagnostic_uses_item_span() -> None:
     item = table.select_items[0]
 
     assert diagnostic.code == "PIE-S2304"
-    assert diagnostic.location.path == item.span.path == "projection.pie"
+    assert diagnostic.location.path == item.span.path == "projection.pietto"
     assert (
         diagnostic.location.line,
         diagnostic.location.column,

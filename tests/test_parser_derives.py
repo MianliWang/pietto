@@ -102,7 +102,7 @@ def test_derive_without_final_newline_closes_at_eof() -> None:
 
 
 def test_derive_span_is_one_based_half_open() -> None:
-    path = Path("examples/derives/span.pie")
+    path = Path("examples/derives/span.pietto")
     result = parse_source(
         "derive normalized_email(x: Text) -> Text:\n    lower(trim(x))\n",
         path=path,
@@ -164,7 +164,7 @@ def test_derive_keeps_top_level_definition_order() -> None:
 
 
 def test_derive_example_fixture_parses() -> None:
-    result = parse_file("examples/derives/normalized_email.pie")
+    result = parse_file("examples/derives/normalized_email.pietto")
 
     assert result.diagnostics == ()
     assert result.ast is not None

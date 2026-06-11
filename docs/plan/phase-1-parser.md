@@ -353,7 +353,7 @@ tests/test_parser_tables.py
 tests/test_parser_queries.py
 tests/test_examples_parse.py
 tests/test_diagnostics.py
-examples/**/*.pie
+examples/**/*.pietto
 ```
 
 ## Syntax Decisions

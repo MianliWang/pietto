@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 
 from antlr4 import ParserRuleContext
 from antlr4.Token import Token
@@ -49,9 +49,29 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import AstBuildError, source_path
 from pietto.generated.PiettoParser import PiettoParser
-from pietto.generated.PiettoVisitor import PiettoVisitor
+
+if TYPE_CHECKING:
+
+    class PiettoVisitor:
+        """Typing boundary for the dynamically typed generated visitor."""
+
+        def visit(self, tree: Any) -> Any: ...
+
+        def visitChildren(self, node: Any) -> Any: ...
+
+else:
+    from pietto.generated.PiettoVisitor import PiettoVisitor
 
 _MAX_NUMERIC_LITERAL_LENGTH = 4096
+_AntlrContext = Any
+
+
+class _TerminalNode(Protocol):
+    """ANTLR terminal operations used by the handwritten AST boundary."""
+
+    def getText(self) -> str: ...
+
+    def getSymbol(self) -> Token: ...
 
 
 class AstBuilder(PiettoVisitor):
@@ -62,7 +82,7 @@ class AstBuilder(PiettoVisitor):
 
         self.path = source_path(path)
 
-    def visitScript(self, ctx: PiettoParser.ScriptContext) -> Script:
+    def visitScript(self, ctx: _AntlrContext) -> Script:
         """Build the root script node."""
 
         header = self.visit(ctx.header()) if ctx.header() is not None else None
@@ -73,7 +93,7 @@ class AstBuilder(PiettoVisitor):
             definitions=definitions,
         )
 
-    def visitHeader(self, ctx: PiettoParser.HeaderContext) -> Header:
+    def visitHeader(self, ctx: _AntlrContext) -> Header:
         version = (
             ctx.versionDecl().NUMBER().getText()
             if ctx.versionDecl() is not None
@@ -99,7 +119,7 @@ class AstBuilder(PiettoVisitor):
         )
 
     def visitDefinition(
-        self, ctx: PiettoParser.DefinitionContext
+        self, ctx: _AntlrContext
     ) -> (
         TypeDef
         | EnumDef
@@ -126,7 +146,7 @@ class AstBuilder(PiettoVisitor):
             return self.visit(ctx.tableDefinition())
         return self.visit(ctx.queryDefinition())
 
-    def visitTypeDefinition(self, ctx: PiettoParser.TypeDefinitionContext) -> TypeDef:
+    def visitTypeDefinition(self, ctx: _AntlrContext) -> TypeDef:
         ensures: list[EnsureClause] = []
         if ctx.expression() is not None:
             expression = cast(Expression, self.visit(ctx.expression()))
@@ -146,20 +166,20 @@ class AstBuilder(PiettoVisitor):
             ensures=tuple(ensures),
         )
 
-    def visitEnsureClause(self, ctx: PiettoParser.EnsureClauseContext) -> EnsureClause:
+    def visitEnsureClause(self, ctx: _AntlrContext) -> EnsureClause:
         return EnsureClause(
             span=self._span(ctx),
             expression=self.visit(ctx.expression()),
         )
 
-    def visitTypeExpression(self, ctx: PiettoParser.TypeExpressionContext) -> TypeExpr:
+    def visitTypeExpression(self, ctx: _AntlrContext) -> TypeExpr:
         return self._type_expression(
             ctx.typeReference(),
             span_context=ctx,
             nullability=self._nullability(ctx.nullabilityModifier()),
         )
 
-    def visitTypeArgument(self, ctx: PiettoParser.TypeArgumentContext) -> TypeArgument:
+    def visitTypeArgument(self, ctx: _AntlrContext) -> TypeArgument:
         name = ctx.typeArgumentName().getText() if ctx.ASSIGN() is not None else None
         return TypeArgument(
             span=self._span(ctx),
@@ -167,7 +187,7 @@ class AstBuilder(PiettoVisitor):
             value=self.visit(ctx.expression()),
         )
 
-    def visitEnumDefinition(self, ctx: PiettoParser.EnumDefinitionContext) -> EnumDef:
+    def visitEnumDefinition(self, ctx: _AntlrContext) -> EnumDef:
         return EnumDef(
             span=self._span(ctx),
             name=ctx.IDENTIFIER().getText(),
@@ -176,9 +196,7 @@ class AstBuilder(PiettoVisitor):
             ),
         )
 
-    def visitConstraintDefinition(
-        self, ctx: PiettoParser.ConstraintDefinitionContext
-    ) -> ConstraintDef:
+    def visitConstraintDefinition(self, ctx: _AntlrContext) -> ConstraintDef:
         # Keep the declared return type as TypeExpr syntax. Enforcing a Bool
         # result belongs to Phase 2 rather than parse-tree construction.
         return ConstraintDef(
@@ -189,9 +207,7 @@ class AstBuilder(PiettoVisitor):
             body=self.visit(ctx.constraintBody().expression()),
         )
 
-    def visitDeriveDefinition(
-        self, ctx: PiettoParser.DeriveDefinitionContext
-    ) -> DeriveDef:
+    def visitDeriveDefinition(self, ctx: _AntlrContext) -> DeriveDef:
         """Build a derive declaration without applying semantic checks."""
 
         # Keep the return type as TypeExpr syntax. Names, purity, recursion, and
@@ -204,9 +220,7 @@ class AstBuilder(PiettoVisitor):
             body=self.visit(ctx.deriveBody().expression()),
         )
 
-    def visitShapeDefinition(
-        self, ctx: PiettoParser.ShapeDefinitionContext
-    ) -> ShapeDef:
+    def visitShapeDefinition(self, ctx: _AntlrContext) -> ShapeDef:
         """Build a shape while preserving mixed item source order."""
 
         return ShapeDef(
@@ -215,7 +229,7 @@ class AstBuilder(PiettoVisitor):
             items=tuple(self.visit(item) for item in ctx.shapeBody().shapeItem()),
         )
 
-    def visitShapeItem(self, ctx: PiettoParser.ShapeItemContext) -> ShapeItem:
+    def visitShapeItem(self, ctx: _AntlrContext) -> ShapeItem:
         """Build one shape item without losing its source position."""
 
         if ctx.fieldDefinition() is not None:
@@ -226,9 +240,7 @@ class AstBuilder(PiettoVisitor):
             return self.visit(ctx.uniqueDefinition())
         return self.visit(ctx.indexDefinition())
 
-    def visitFieldDefinition(
-        self, ctx: PiettoParser.FieldDefinitionContext
-    ) -> FieldDef:
+    def visitFieldDefinition(self, ctx: _AntlrContext) -> FieldDef:
         """Build one field without resolving modifiers or type semantics."""
 
         field_type = ctx.typeExpression()
@@ -258,7 +270,7 @@ class AstBuilder(PiettoVisitor):
             ),
         )
 
-    def visitAnnotation(self, ctx: PiettoParser.AnnotationContext) -> Annotation:
+    def visitAnnotation(self, ctx: _AntlrContext) -> Annotation:
         """Build a bare field annotation without validating its name."""
 
         return Annotation(
@@ -266,9 +278,7 @@ class AstBuilder(PiettoVisitor):
             name=ctx.IDENTIFIER().getText(),
         )
 
-    def visitFieldEnsureClause(
-        self, ctx: PiettoParser.FieldEnsureClauseContext
-    ) -> EnsureClause:
+    def visitFieldEnsureClause(self, ctx: _AntlrContext) -> EnsureClause:
         """Reuse EnsureClause for a parse-only field guarantee."""
 
         return EnsureClause(
@@ -276,9 +286,7 @@ class AstBuilder(PiettoVisitor):
             expression=self.visit(ctx.expression()),
         )
 
-    def visitCheckDefinition(
-        self, ctx: PiettoParser.CheckDefinitionContext
-    ) -> CheckDef:
+    def visitCheckDefinition(self, ctx: _AntlrContext) -> CheckDef:
         """Build a shape check without validating names or expression type."""
 
         return CheckDef(
@@ -287,9 +295,7 @@ class AstBuilder(PiettoVisitor):
             expression=self.visit(ctx.checkBody().expression()),
         )
 
-    def visitUniqueDefinition(
-        self, ctx: PiettoParser.UniqueDefinitionContext
-    ) -> UniqueDef:
+    def visitUniqueDefinition(self, ctx: _AntlrContext) -> UniqueDef:
         """Build a unique clause without resolving or deduplicating fields."""
 
         identifiers = ctx.IDENTIFIER()
@@ -299,9 +305,7 @@ class AstBuilder(PiettoVisitor):
             field_names=tuple(identifier.getText() for identifier in identifiers[1:]),
         )
 
-    def visitIndexDefinition(
-        self, ctx: PiettoParser.IndexDefinitionContext
-    ) -> IndexDef:
+    def visitIndexDefinition(self, ctx: _AntlrContext) -> IndexDef:
         """Build an index clause without applying physical or semantic checks."""
 
         identifiers = ctx.IDENTIFIER()
@@ -314,9 +318,7 @@ class AstBuilder(PiettoVisitor):
             ),
         )
 
-    def visitSourceDefinition(
-        self, ctx: PiettoParser.SourceDefinitionContext
-    ) -> SourceDef:
+    def visitSourceDefinition(self, ctx: _AntlrContext) -> SourceDef:
         """Build a source binding without validating or executing its connector."""
 
         identifiers = ctx.IDENTIFIER()
@@ -327,9 +329,7 @@ class AstBuilder(PiettoVisitor):
             connector=self.visit(ctx.expression()),
         )
 
-    def visitTableDefinition(
-        self, ctx: PiettoParser.TableDefinitionContext
-    ) -> TableDef:
+    def visitTableDefinition(self, ctx: _AntlrContext) -> TableDef:
         """Build a minimal table without resolving inputs or projection names."""
 
         from_clause, where_clause, select_items = self._relation_body(ctx.tableBody())
@@ -341,9 +341,7 @@ class AstBuilder(PiettoVisitor):
             select_items=select_items,
         )
 
-    def visitQueryDefinition(
-        self, ctx: PiettoParser.QueryDefinitionContext
-    ) -> QueryDef:
+    def visitQueryDefinition(self, ctx: _AntlrContext) -> QueryDef:
         """Build a minimal query without resolving or executing its input."""
 
         from_clause, where_clause, select_items = self._relation_body(ctx.tableBody())
@@ -355,7 +353,7 @@ class AstBuilder(PiettoVisitor):
             select_items=select_items,
         )
 
-    def visitFromClause(self, ctx: PiettoParser.FromClauseContext) -> FromClause:
+    def visitFromClause(self, ctx: _AntlrContext) -> FromClause:
         """Build a relation input reference without resolving it."""
 
         return FromClause(
@@ -363,7 +361,7 @@ class AstBuilder(PiettoVisitor):
             source_name=ctx.IDENTIFIER().getText(),
         )
 
-    def visitWhereClause(self, ctx: PiettoParser.WhereClauseContext) -> WhereClause:
+    def visitWhereClause(self, ctx: _AntlrContext) -> WhereClause:
         """Build a relation filter without checking its expression type."""
 
         return WhereClause(
@@ -371,7 +369,7 @@ class AstBuilder(PiettoVisitor):
             expression=self.visit(ctx.expression()),
         )
 
-    def visitSelectItem(self, ctx: PiettoParser.SelectItemContext) -> SelectItem:
+    def visitSelectItem(self, ctx: _AntlrContext) -> SelectItem:
         """Build one projection; assignment syntax is confined to this rule."""
 
         return SelectItem(
@@ -381,7 +379,7 @@ class AstBuilder(PiettoVisitor):
         )
 
     def _relation_body(
-        self, ctx: PiettoParser.TableBodyContext
+        self, ctx: _AntlrContext
     ) -> tuple[FromClause, WhereClause | None, tuple[SelectItem, ...]]:
         """Build clauses shared by minimal table and query definitions."""
 
@@ -394,25 +392,23 @@ class AstBuilder(PiettoVisitor):
             ),
         )
 
-    def visitParameter(self, ctx: PiettoParser.ParameterContext) -> Parameter:
+    def visitParameter(self, ctx: _AntlrContext) -> Parameter:
         return Parameter(
             span=self._span(ctx),
             name=ctx.IDENTIFIER().getText(),
             type=self.visit(ctx.typeExpression()),
         )
 
-    def visitExpression(self, ctx: PiettoParser.ExpressionContext) -> Expression:
+    def visitExpression(self, ctx: _AntlrContext) -> Expression:
         return self.visit(ctx.orExpression())
 
-    def visitOrExpression(self, ctx: PiettoParser.OrExpressionContext) -> Expression:
+    def visitOrExpression(self, ctx: _AntlrContext) -> Expression:
         return self._fold_binary(ctx)
 
-    def visitAndExpression(self, ctx: PiettoParser.AndExpressionContext) -> Expression:
+    def visitAndExpression(self, ctx: _AntlrContext) -> Expression:
         return self._fold_binary(ctx)
 
-    def visitComparisonExpression(
-        self, ctx: PiettoParser.ComparisonExpressionContext
-    ) -> Expression:
+    def visitComparisonExpression(self, ctx: _AntlrContext) -> Expression:
         operands = ctx.additiveExpression()
         left = cast(Expression, self.visit(operands[0]))
 
@@ -438,19 +434,13 @@ class AstBuilder(PiettoVisitor):
             )
         return left
 
-    def visitAdditiveExpression(
-        self, ctx: PiettoParser.AdditiveExpressionContext
-    ) -> Expression:
+    def visitAdditiveExpression(self, ctx: _AntlrContext) -> Expression:
         return self._fold_binary(ctx)
 
-    def visitMultiplicativeExpression(
-        self, ctx: PiettoParser.MultiplicativeExpressionContext
-    ) -> Expression:
+    def visitMultiplicativeExpression(self, ctx: _AntlrContext) -> Expression:
         return self._fold_binary(ctx)
 
-    def visitUnaryExpression(
-        self, ctx: PiettoParser.UnaryExpressionContext
-    ) -> Expression:
+    def visitUnaryExpression(self, ctx: _AntlrContext) -> Expression:
         if ctx.primaryExpression() is not None:
             return self.visit(ctx.primaryExpression())
         return UnaryExpr(
@@ -459,9 +449,7 @@ class AstBuilder(PiettoVisitor):
             operand=self.visit(ctx.unaryExpression()),
         )
 
-    def visitPrimaryExpression(
-        self, ctx: PiettoParser.PrimaryExpressionContext
-    ) -> Expression:
+    def visitPrimaryExpression(self, ctx: _AntlrContext) -> Expression:
         if ctx.literal() is not None:
             return self.visit(ctx.literal())
         if ctx.expression() is not None:
@@ -486,7 +474,7 @@ class AstBuilder(PiettoVisitor):
             ),
         )
 
-    def visitLiteral(self, ctx: PiettoParser.LiteralContext) -> LiteralExpr:
+    def visitLiteral(self, ctx: _AntlrContext) -> LiteralExpr:
         value: str | int | float | bool | None
         if ctx.STRING() is not None:
             value = self._decode_string_literal(ctx)
@@ -500,9 +488,7 @@ class AstBuilder(PiettoVisitor):
             value = None
         return LiteralExpr(span=self._span(ctx), value=value)
 
-    def _parameters(
-        self, ctx: PiettoParser.ParameterListContext | None
-    ) -> tuple[Parameter, ...]:
+    def _parameters(self, ctx: _AntlrContext | None) -> tuple[Parameter, ...]:
         """Build parameters shared by constraint and derive declarations."""
 
         if ctx is None:
@@ -511,7 +497,7 @@ class AstBuilder(PiettoVisitor):
 
     def _type_expression(
         self,
-        ctx: PiettoParser.TypeReferenceContext,
+        ctx: _AntlrContext,
         *,
         span_context: ParserRuleContext,
         nullability: Nullability,
@@ -532,7 +518,7 @@ class AstBuilder(PiettoVisitor):
 
     @staticmethod
     def _nullability(
-        ctx: PiettoParser.NullabilityModifierContext | None,
+        ctx: _AntlrContext | None,
     ) -> Nullability:
         """Map optional nullability syntax to its AST state."""
 
@@ -548,7 +534,7 @@ class AstBuilder(PiettoVisitor):
         children = ctx.children or []
         result = cast(Expression, self.visit(children[0]))
         for index in range(1, len(children), 2):
-            operator = cast(TerminalNode, children[index]).getText()
+            operator = cast(_TerminalNode, children[index]).getText()
             right = cast(Expression, self.visit(children[index + 1]))
             result = BinaryExpr(
                 span=self._span(ctx),
@@ -562,6 +548,7 @@ class AstBuilder(PiettoVisitor):
         """Build a one-based, half-open span excluding layout-only tokens."""
 
         start = ctx.start
+        assert start is not None
         stop = self._last_significant_token(ctx)
         if stop is None:
             end_line = start.line
@@ -591,7 +578,7 @@ class AstBuilder(PiettoVisitor):
         """Find the last token that contributes source text to an AST node."""
 
         if isinstance(node, TerminalNode):
-            token = node.getSymbol()
+            token = cast(_TerminalNode, node).getSymbol()
             ignored_types = {
                 Token.EOF,
                 PiettoParser.NEWLINE,
@@ -607,7 +594,7 @@ class AstBuilder(PiettoVisitor):
         return None
 
     @staticmethod
-    def _decode_string_literal(ctx: PiettoParser.LiteralContext) -> str:
+    def _decode_string_literal(ctx: _AntlrContext) -> str:
         """Decode supported escapes and reject invalid escapes as source errors."""
 
         token = ctx.STRING().getSymbol()
@@ -656,7 +643,7 @@ class AstBuilder(PiettoVisitor):
         return "".join(result)
 
     @staticmethod
-    def _decode_numeric_literal(ctx: PiettoParser.LiteralContext) -> int | float:
+    def _decode_numeric_literal(ctx: _AntlrContext) -> int | float:
         """Decode a bounded finite numeric literal as an ordinary source value."""
 
         token = ctx.NUMBER().getSymbol()
@@ -687,7 +674,7 @@ class AstBuilder(PiettoVisitor):
         return value
 
     @staticmethod
-    def _mode(ctx: PiettoParser.ModeDeclContext) -> str:
+    def _mode(ctx: _AntlrContext) -> str:
         """Extract the selected mode keyword from a mode declaration."""
 
         for token_type in ("LOOSE", "CHECKED", "STRICT"):

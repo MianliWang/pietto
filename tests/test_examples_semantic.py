@@ -7,11 +7,11 @@ from pietto.parser_api import parse_file
 from pietto.semantic import analyze
 
 
-EXAMPLE_PATHS = tuple(sorted(Path("examples").rglob("*.pie")))
+EXAMPLE_PATHS = tuple(sorted(Path("examples").rglob("*.pietto")))
 assert EXAMPLE_PATHS, "Expected at least one committed Pietto example."
 
 EXPECTED_WARNINGS = {
-    Path("examples/sources/users.pie"): (
+    Path("examples/sources/users.pietto"): (
         (
             "PIE-S2303",
             Severity.WARNING,

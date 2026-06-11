@@ -139,7 +139,7 @@ def test_shape_check_preserves_top_level_definition_order() -> None:
 
 
 def test_shape_check_spans_are_one_based_half_open() -> None:
-    path = Path("examples/shapes/check_span.pie")
+    path = Path("examples/shapes/check_span.pietto")
     result = parse_source(
         "shape Order:\n"
         "    amount: Decimal not null\n"
@@ -178,7 +178,7 @@ def test_shape_check_spans_are_one_based_half_open() -> None:
 
 
 def test_shape_check_example_fixture_parses() -> None:
-    result = parse_file("examples/shapes/order.pie")
+    result = parse_file("examples/shapes/order.pietto")
 
     assert result.diagnostics == ()
     assert result.ast is not None

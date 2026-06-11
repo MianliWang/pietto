@@ -134,7 +134,7 @@ def _chain_ir() -> ScriptIR:
 
 
 def _compile_ir(source: str) -> ScriptIR:
-    parse_result = parse_source(source, path="relation-dependencies.pie")
+    parse_result = parse_source(source, path="relation-dependencies.pietto")
     assert parse_result.diagnostics == ()
     assert parse_result.ast is not None
 

@@ -167,7 +167,7 @@ def test_table_keywords_remain_available_in_dotted_expressions() -> None:
 
 
 def test_table_spans_are_one_based_half_open() -> None:
-    path = Path("examples/tables/span.pie")
+    path = Path("examples/tables/span.pietto")
     result = parse_source(
         "table active_users:\n"
         "    from users\n"
@@ -228,7 +228,7 @@ def test_table_spans_are_one_based_half_open() -> None:
 
 
 def test_table_example_fixture_parses() -> None:
-    result = parse_file("examples/tables/active_users.pie")
+    result = parse_file("examples/tables/active_users.pietto")
 
     assert result.diagnostics == ()
     assert result.ast is not None

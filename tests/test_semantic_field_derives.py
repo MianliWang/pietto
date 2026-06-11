@@ -48,7 +48,7 @@ def test_field_derive_type_mismatch_reports_pie_s2402_at_expression() -> None:
         "shape User:\n"
         "    email: Text not null\n"
         "    is_valid: Bool not null derive lower(email)\n",
-        path="field-derives.pie",
+        path="field-derives.pietto",
     )
     shape = script.definitions[0]
     assert isinstance(shape, ShapeDef)
@@ -68,7 +68,7 @@ def test_field_derive_type_mismatch_reports_pie_s2402_at_expression() -> None:
         )
     ]
     diagnostic = result.diagnostics[0]
-    assert diagnostic.location.path == expression.span.path == "field-derives.pie"
+    assert diagnostic.location.path == expression.span.path == "field-derives.pietto"
     assert (
         diagnostic.location.line,
         diagnostic.location.column,

@@ -44,7 +44,7 @@ def test_emit_sql_json_valid_file_returns_one_document(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "active_users.pie", RELATION)
+    path = _write(tmp_path, "active_users.pietto", RELATION)
 
     assert (
         cli.main(
@@ -95,7 +95,7 @@ def test_emit_sql_json_equals_form_preserves_artifact_order(
 ) -> None:
     path = _write(
         tmp_path,
-        "relations.pie",
+        "relations.pietto",
         SOURCE + "table first:\n"
         "    from users\n"
         "    select:\n"
@@ -130,7 +130,7 @@ def test_emit_sql_json_warning_is_successful_and_preserved(
 ) -> None:
     path = _write(
         tmp_path,
-        "warning.pie",
+        "warning.pietto",
         "shape User:\n"
         "    email: Text\n"
         'source users: User is postgres.table("users")\n'
@@ -152,9 +152,9 @@ def test_emit_sql_json_warning_is_successful_and_preserved(
 @pytest.mark.parametrize(
     ("name", "source", "expected_code"),
     [
-        ("parser.pie", "shape User {\n", "PIE-P1005"),
+        ("parser.pietto", "shape User {\n", "PIE-P1005"),
         (
-            "semantic.pie",
+            "semantic.pietto",
             "shape User:\n    email: MissingType not null\n",
             "PIE-S2002",
         ),
@@ -186,7 +186,7 @@ def test_emit_sql_json_ir_error_stops_before_backend(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "ir-error.pie", SOURCE)
+    path = _write(tmp_path, "ir-error.pietto", SOURCE)
     diagnostic = _diagnostic(path, "PIE-I1000", "missing semantic fact")
     monkeypatch.setattr(
         cli.ir_api,
@@ -215,7 +215,7 @@ def test_emit_sql_json_preserves_backend_artifacts_with_diagnostics(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "mixed-result.pie", SOURCE)
+    path = _write(tmp_path, "mixed-result.pietto", SOURCE)
     diagnostic = _diagnostic(path, "PIE-B1000", "one relation unsupported")
     artifacts = (
         _artifact("first", "SELECT 1"),
@@ -245,7 +245,7 @@ def test_emit_sql_json_missing_file_returns_file_read_error(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = tmp_path / "missing.pie"
+    path = tmp_path / "missing.pietto"
 
     assert _emit_json(path) == 2
     result = _read_json_document(capsys)
@@ -262,7 +262,7 @@ def test_emit_sql_json_unsupported_dialect_is_structured_and_preserved(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "valid.pie", SOURCE)
+    path = _write(tmp_path, "valid.pietto", SOURCE)
 
     def unexpected_parse(checked_path: Path) -> object:
         del checked_path
@@ -296,11 +296,11 @@ def test_emit_sql_json_unsupported_dialect_is_structured_and_preserved(
     ("arguments", "expected_path", "expected_dialect"),
     [
         (["emit-sql", "--format=json"], None, None),
-        (["emit-sql", "input.pie", "--format", "json"], "input.pie", None),
+        (["emit-sql", "input.pietto", "--format", "json"], "input.pietto", None),
         (
             [
                 "emit-sql",
-                "input.pie",
+                "input.pietto",
                 "--dialect",
                 "postgres",
                 "--unknown",
@@ -332,7 +332,7 @@ def test_emit_sql_invalid_format_remains_plain_argparse_error(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "valid.pie", SOURCE)
+    path = _write(tmp_path, "valid.pietto", SOURCE)
 
     assert (
         cli.main(
@@ -357,7 +357,7 @@ def test_emit_sql_text_modes_and_output_remain_unchanged(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "active_users.pie", RELATION)
+    path = _write(tmp_path, "active_users.pietto", RELATION)
     expected = (
         "SELECT\n"
         '    "id" AS "id",\n'
@@ -459,17 +459,17 @@ def test_emit_sql_json_uses_raw_fields_and_json_encoding(
     ("name", "source", "expected_code"),
     [
         (
-            "huge-integer.pie",
+            "huge-integer.pietto",
             "type Huge = Int(max = " + "9" * 5000 + ") not null\n",
             "PIE-P1000",
         ),
         (
-            "deep-parser.pie",
+            "deep-parser.pietto",
             "derive deep() -> Int not null:\n    " + "+" * 1500 + "1\n",
             "PIE-P1000",
         ),
         (
-            "deep-semantic.pie",
+            "deep-semantic.pietto",
             "".join(
                 [
                     *(
@@ -506,7 +506,7 @@ def test_emit_sql_json_parser_error_stops_all_later_stages(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "parser-error.pie", "shape User {\n")
+    path = _write(tmp_path, "parser-error.pietto", "shape User {\n")
     _forbid_later_stages(monkeypatch, include_semantic=True)
 
     assert _emit_json(path) == 1
@@ -520,7 +520,7 @@ def test_emit_sql_json_semantic_error_stops_ir_and_backend(
 ) -> None:
     path = _write(
         tmp_path,
-        "semantic-error.pie",
+        "semantic-error.pietto",
         "shape User:\n    email: MissingType not null\n",
     )
     _forbid_later_stages(monkeypatch, include_semantic=False)
