@@ -8,7 +8,9 @@
 
 **Slice 2: Authoritative Validation Entry Point is complete.**
 
-Slices 3 through 7 are planned only. They are not implemented or authorized
+**Slice 3: ANTLR Provenance And Generated-File Guard is complete.**
+
+Slices 4 through 7 are planned only. They are not implemented or authorized
 merely because they appear in this plan. Each later slice requires a separate
 explicit implementation request.
 
@@ -84,9 +86,10 @@ uv lock --check
 The entry result was 1290 passing tests, zero Ruff findings, zero production
 or test Pyright diagnostics, and a valid lock resolving 19 packages.
 
-Slice 2 implements the repository validation entry point. CI, an ANTLR
-checksum gate, a generated-file regeneration guard, a formal golden policy,
-and an installed-package smoke test remain unimplemented.
+Slice 2 implements the repository validation entry point. Slice 3 implements
+the reviewed ANTLR jar checksum and an independent generated-file guard. CI,
+a formal golden policy, and an installed-package smoke test remain
+unimplemented.
 
 ## Phase Boundary
 
@@ -132,7 +135,7 @@ attestations, and automated version changes remain outside Phase 11.
 2. **Authoritative Validation Entry Point**: complete. Add one non-mutating
    standard-library Python validation script for lock, format, lint, typing,
    and tests.
-3. **ANTLR Provenance And Generated-File Guard**: planned only. Verify the
+3. **ANTLR Provenance And Generated-File Guard**: complete. Verify the
    tracked ANTLR jar checksum, regenerate into a temporary directory, and
    compare the complete tracked generated output.
 4. **Golden Fixture Policy And Audit**: planned only. Publish the reviewed
@@ -265,6 +268,8 @@ git diff --check
 
 ## Slice 3: ANTLR Provenance And Generated-File Guard
 
+**Slice 3 is complete.**
+
 ### Goal
 
 Prove that parser generation uses the reviewed ANTLR 4.13.2 jar and that a
@@ -272,7 +277,7 @@ clean regeneration exactly reproduces every tracked generated parser file.
 
 ### Allowed Changes
 
-Slice 3 may add:
+Slice 3 adds:
 
 - `tools/antlr-4.13.2-complete.jar.sha256`;
 - `scripts/check_generated.py`;
@@ -281,15 +286,24 @@ Slice 3 may add:
 Slice 3 must not add or modify Makefile targets unless separately and
 explicitly authorized under the Phase 11 Makefile policy.
 
-The checksum file will record the currently reviewed SHA-256:
+The checksum file records the currently reviewed SHA-256:
 
 ```text
 eae2dfa119a64327444672aff63e9ec35a20180dc5b8090b7a6ab85125df4d76
 ```
 
-The guard must verify the jar before invoking Java, generate into a temporary
-directory, create the generated package marker consistently, compare the
-exact tracked file inventory and bytes, and leave the repository untouched.
+The guard verifies the jar before invoking Java, generates into a temporary
+directory, creates the generated package marker consistently, compares the
+exact tracked file inventory and bytes, and leaves the repository untouched.
+
+The authoritative independent command is:
+
+```bash
+uv run python scripts/check_generated.py
+```
+
+It is intentionally not part of `scripts/validate.py`; CI orchestration
+remains deferred to Slice 5.
 
 ### Hard Boundaries
 

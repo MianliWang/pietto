@@ -139,20 +139,22 @@ def test_validation_fails_fast_and_returns_the_failing_exit_code(
     assert calls == [command for _, command in EXPECTED_GATES[:3]]
 
 
-def test_slice2_adds_no_unapproved_workflow_or_makefile_integration() -> None:
+def test_slice2_validation_stays_separate_from_later_workflows() -> None:
     scripts = tuple(
         path.relative_to(REPO_ROOT).as_posix()
         for path in sorted((REPO_ROOT / "scripts").glob("*.py"))
     )
 
-    assert scripts == ("scripts/validate.py",)
+    assert scripts == (
+        "scripts/check_generated.py",
+        "scripts/validate.py",
+    )
+    assert all("check_generated.py" not in command for _, command in validate.GATES)
     assert _sha256(REPO_ROOT / "Makefile") == (
         "dbd38c41e2af5275c379de0b88c92f3861efb90724c7de1a291e0aa007ce2db7"
     )
     assert not (REPO_ROOT / ".github" / "workflows").exists()
-    assert not (REPO_ROOT / "tools" / "antlr-4.13.2-complete.jar.sha256").exists()
     for deferred_script in (
-        "check_generated.py",
         "check_goldens.py",
         "package_smoke.py",
     ):

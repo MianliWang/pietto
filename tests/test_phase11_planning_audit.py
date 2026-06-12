@@ -38,7 +38,8 @@ def test_phase11_master_plan_records_completed_slices_and_order() -> None:
     )
     assert "**Slice 1: Master Plan And Baseline Audit is complete.**" in plan
     assert "**Slice 2: Authoritative Validation Entry Point is complete.**" in plan
-    assert "Slices 3 through 7 are planned only." in plan
+    assert "**Slice 3: ANTLR Provenance And Generated-File Guard is complete.**" in plan
+    assert "Slices 4 through 7 are planned only." in plan
 
     slice_names = (
         "Master Plan And Baseline Audit",
@@ -70,12 +71,12 @@ def test_phase11_status_documents_are_scope_aware() -> None:
     for document in documents.values():
         normalized = " ".join(document.split())
         assert "Phase 11 Release Readiness & Reproducible Validation" in normalized
-        assert "Slice 2" in normalized
+        assert "Slice 3" in normalized
         assert PHASE11_PLAN in document
 
     combined = "\n".join(documents.values())
     assert "Phase 10 MySQL SQL Generation MVP is complete" in combined
-    assert "Slices 3 through 7" in combined
+    assert "Slices 4 through 7" in combined
     assert "planned" in combined
 
 
@@ -91,18 +92,23 @@ def test_python_floor_and_future_ci_matrix_are_explicit() -> None:
     assert "does not by itself change" in normalized_plan
 
 
-def test_slice2_adds_only_the_validation_workflow_artifact() -> None:
+def test_slice3_adds_only_the_generated_guard_workflow_artifacts() -> None:
     assert not (REPO_ROOT / ".github" / "workflows").exists()
     assert tuple(
         path.relative_to(REPO_ROOT).as_posix()
         for path in sorted((REPO_ROOT / "scripts").glob("*.py"))
-    ) == ("scripts/validate.py",)
-    assert not (REPO_ROOT / "tools" / "antlr-4.13.2-complete.jar.sha256").exists()
+    ) == (
+        "scripts/check_generated.py",
+        "scripts/validate.py",
+    )
+    assert (REPO_ROOT / "tools" / "antlr-4.13.2-complete.jar.sha256").read_text(
+        encoding="ascii"
+    ) == ("eae2dfa119a64327444672aff63e9ec35a20180dc5b8090b7a6ab85125df4d76\n")
 
     plan = " ".join(_read(PHASE11_PLAN).split())
     for required in (
-        "CI, an ANTLR checksum gate",
-        "a generated-file regeneration guard",
+        "Slice 3 implements the reviewed ANTLR jar checksum",
+        "an independent generated-file guard",
         "a formal golden policy",
         "an installed-package smoke test remain unimplemented",
     ):

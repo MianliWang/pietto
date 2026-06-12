@@ -17,7 +17,7 @@ The current implementation status is:
 - **Phase 9.5 Static Typing And Source Extension Hardening: complete**;
 - **Phase 9.6 Test Typing Hygiene: complete**;
 - **Phase 10 MySQL SQL Generation MVP: complete**;
-- **Phase 11 Release Readiness & Reproducible Validation: Slices 1–2 complete,
+- **Phase 11 Release Readiness & Reproducible Validation: Slices 1–3 complete,
   phase in progress**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
@@ -169,11 +169,22 @@ uv run python scripts/validate.py
 The standard-library script runs lock validation, Ruff format checking,
 linting, production and test Pyright, and the full pytest suite in fail-fast
 order from the repository root. It can also run directly with
-`python scripts/validate.py`. Slices 3 through 7 remain planned and
-unimplemented; CI, ANTLR checksum and generated-file guards, golden policy
-automation, and packaging smoke tests are not yet implemented. Slices 1 and 2
-change no production code, dependency, grammar, generated file, SQL backend,
-CLI behavior, JSON schema, public Python API, or Makefile.
+`python scripts/validate.py`.
+
+Slice 3 adds the reviewed ANTLR 4.13.2 jar checksum and an independent,
+non-mutating generated-file reproducibility guard:
+
+```bash
+uv run python scripts/check_generated.py
+```
+
+The guard verifies the local jar, regenerates into a temporary directory, and
+compares the complete tracked generated inventory and bytes. It does not
+download tools, update generated files, or join `scripts/validate.py`. Slices
+4 through 7 remain planned and unimplemented; CI, golden policy automation,
+and packaging smoke tests are not yet implemented. Slices 1 through 3 change
+no production code, dependency, grammar, generated file, SQL backend, CLI
+behavior, JSON schema, public Python API, or Makefile.
 `pyproject.toml` continues to declare Python `>=3.12`; the planned future CI
 matrix covers Python 3.12 and 3.13 without changing that compatibility floor.
 
