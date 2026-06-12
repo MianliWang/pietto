@@ -1,7 +1,7 @@
 # Pietto v0.9 Whitepaper and Language Reference
 
 Version: v0.9 draft
-Status: Phase 1 through Phase 10 complete; Phase 11 Slice 1 implemented
+Status: Phase 1 through Phase 10 complete; Phase 11 Slices 1 and 2 implemented
 Supported Python baseline: Python >=3.12; planned Phase 11 CI: Python 3.12/3.13
 Primary SQL target: PostgreSQL; MySQL 8.0+ generation MVP supported
 Preferred package manager: uv-first
@@ -36,11 +36,12 @@ Pietto source
     -> CLI text or JSON output
 ```
 
-Current implementation status after Phase 11 Slice 1: the parser/frontend,
+Current implementation status after Phase 11 Slice 2: the parser/frontend,
 Semantic Checker, Semantic IR, PostgreSQL and MySQL SQL generation,
 single-file CLI, security hardening, and JSON / machine-readable CLI
-presentation are implemented. Phase 11 Slice 1 adds release-readiness planning
-and static baseline audits only. The public
+presentation are implemented. Phase 11 Slices 1 and 2 add release-readiness
+planning, static baseline audits, and one non-mutating local validation entry
+point only. The public
 `build_ir(script, semantic_model)` API lowers analyzed programs into
 immutable, parser-independent IR. The public
 `emit_postgres_sql(script_ir)` API remains the PostgreSQL compatibility
@@ -1231,8 +1232,9 @@ LSP, Web UI, and server capabilities remain unimplemented.
 
 ### Phase 11: Release Readiness & Reproducible Validation
 
-Status: in progress. Slice 1 Master Plan And Baseline Audit is complete.
-Slices 2 through 7 are planned and unimplemented.
+Status: in progress. Slice 1 Master Plan And Baseline Audit and Slice 2
+Authoritative Validation Entry Point are complete. Slices 3 through 7 are
+planned and unimplemented.
 
 Phase 11 Release Readiness & Reproducible Validation hardens release and
 developer validation around the unchanged post-Phase-10 compiler. The fixed
@@ -1241,12 +1243,18 @@ ANTLR jar provenance and exact generated-file comparison, a reviewed
 golden-fixture policy, minimal GitHub Actions CI, packaging and installed-CLI
 smoke tests, and a final completion audit.
 
-Slice 1 changes no language syntax, grammar, generated ANTLR file, AST,
+Slice 2 provides `uv run python scripts/validate.py`, also directly runnable
+as `python scripts/validate.py`. It checks the lock, Ruff formatting without
+rewriting files, lint, production and test Pyright, and the full pytest suite
+in fail-fast order from the repository root.
+
+Slices 1 and 2 change no language syntax, grammar, generated ANTLR file, AST,
 semantic behavior, Semantic IR, PostgreSQL or MySQL SQL output, CLI behavior,
-JSON schema, public Python API, dependency, or lockfile. It does not implement
-CI, scripts, an ANTLR checksum file, package smoke tests, SQL features,
-execution, database access, project mode, watch mode, LSP/editor integration,
-Web UI, or an online playground.
+JSON schema, public Python API, dependency, lockfile, or Makefile. They do not
+implement CI, an ANTLR checksum file, a generated-file guard, golden policy
+automation, package smoke tests, SQL features, execution, database access,
+project mode, watch mode, LSP/editor integration, Web UI, or an online
+playground.
 
 `pyproject.toml` remains authoritative with `requires-python = ">=3.12"`.
 Python 3.12 is the compatibility floor. The planned future CI slice validates

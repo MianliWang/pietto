@@ -28,7 +28,7 @@ GROUP_HASHES = {
 }
 
 
-def test_phase11_master_plan_records_slice1_and_seven_ordered_slices() -> None:
+def test_phase11_master_plan_records_completed_slices_and_order() -> None:
     plan = _read(PHASE11_PLAN)
 
     assert "# Phase 11: Release Readiness & Reproducible Validation" in plan
@@ -37,7 +37,8 @@ def test_phase11_master_plan_records_slice1_and_seven_ordered_slices() -> None:
         in plan
     )
     assert "**Slice 1: Master Plan And Baseline Audit is complete.**" in plan
-    assert "Slices 2 through 7 are planned only." in plan
+    assert "**Slice 2: Authoritative Validation Entry Point is complete.**" in plan
+    assert "Slices 3 through 7 are planned only." in plan
 
     slice_names = (
         "Master Plan And Baseline Audit",
@@ -69,12 +70,12 @@ def test_phase11_status_documents_are_scope_aware() -> None:
     for document in documents.values():
         normalized = " ".join(document.split())
         assert "Phase 11 Release Readiness & Reproducible Validation" in normalized
-        assert "Slice 1" in normalized
+        assert "Slice 2" in normalized
         assert PHASE11_PLAN in document
 
     combined = "\n".join(documents.values())
     assert "Phase 10 MySQL SQL Generation MVP is complete" in combined
-    assert "Slices 2 through 7" in combined
+    assert "Slices 3 through 7" in combined
     assert "planned" in combined
 
 
@@ -90,20 +91,41 @@ def test_python_floor_and_future_ci_matrix_are_explicit() -> None:
     assert "does not by itself change" in normalized_plan
 
 
-def test_slice1_does_not_implement_later_workflow_artifacts() -> None:
+def test_slice2_adds_only_the_validation_workflow_artifact() -> None:
     assert not (REPO_ROOT / ".github" / "workflows").exists()
-    assert not (REPO_ROOT / "scripts").exists()
+    assert tuple(
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in sorted((REPO_ROOT / "scripts").glob("*.py"))
+    ) == ("scripts/validate.py",)
     assert not (REPO_ROOT / "tools" / "antlr-4.13.2-complete.jar.sha256").exists()
 
     plan = " ".join(_read(PHASE11_PLAN).split())
     for required in (
-        "This baseline does not claim that CI",
-        "an ANTLR checksum gate",
+        "CI, an ANTLR checksum gate",
         "a generated-file regeneration guard",
         "a formal golden policy",
-        "an installed-package smoke test is implemented",
+        "an installed-package smoke test remain unimplemented",
     ):
         assert required in plan
+
+
+def test_phase11_does_not_authorize_makefile_integration_by_default() -> None:
+    plan = " ".join(_read(PHASE11_PLAN).split())
+
+    assert "does not add or modify Makefile targets by default" in plan
+    assert (
+        "Makefile integration is allowed only when the repository already "
+        "contains a Makefile and that integration receives separate explicit "
+        "authorization, or when the user explicitly requests it in a later slice"
+        in plan
+    )
+    assert (
+        plan.count(
+            "must not add or modify Makefile targets unless separately and explicitly "
+            "authorized under the Phase 11 Makefile policy"
+        )
+        == 2
+    )
 
 
 def test_slice1_locks_configuration_and_compiler_boundaries() -> None:

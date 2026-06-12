@@ -87,12 +87,15 @@ Rules:
 ## Current Phase
 
 Current phase status: Phase 11 Release Readiness & Reproducible Validation is
-in progress. Slice 1 Master Plan And Baseline Audit is complete. Slices 2
-through 7 are planned only and require separate explicit implementation
-requests. Slice 1 adds only the Phase 11 master plan, static planning and
-baseline audit tests, and scope-aware status documentation. It adds no CI,
-scripts, ANTLR checksum file, generated-file guard, golden policy
-implementation, or packaging smoke implementation.
+in progress. Slice 1 Master Plan And Baseline Audit and Slice 2 Authoritative
+Validation Entry Point are complete. Slices 3 through 7 are planned only and
+require separate explicit implementation requests. Slice 2 adds only
+`scripts/validate.py`, focused tests, and scope-aware documentation. The
+authoritative non-mutating command is
+`uv run python scripts/validate.py`; direct
+`python scripts/validate.py` is also supported. It adds no CI, ANTLR checksum
+file, generated-file guard, golden policy implementation, packaging smoke
+implementation, or Makefile integration.
 
 Historical Phase 10 status text: "Current phase status: Phase 10 MySQL SQL Generation MVP is complete."
 Phases 8 and 9 are complete. Phase 9.5 improved handwritten type safety,
@@ -287,8 +290,8 @@ dispatch, MySQL text/JSON v1 coverage, and output-file integration.
 The current Phase 11 release-readiness baseline, fixed seven-slice sequence,
 allowed workflow changes, compatibility gates, and hard non-goals are
 documented in
-`docs/plan/phase-11-release-readiness-reproducible-validation.md`. Slice 1 is
-complete; Slices 2 through 7 remain planned and unimplemented.
+`docs/plan/phase-11-release-readiness-reproducible-validation.md`. Slices 1
+and 2 are complete; Slices 3 through 7 remain planned and unimplemented.
 
 Current strict boundaries remain:
 
@@ -323,7 +326,7 @@ Do not implement after the completed phase unless explicitly requested:
 
 All seven Phase 9 slices, Phase 9.5, and Phase 9.6 are complete. Phase 10
 is complete with all nine slices audited. SQLGlot is rejected for the Phase
-10 MVP. Phase 11 Slice 1 is complete, while the rest of Phase 11 remains
+10 MVP. Phase 11 Slices 1 and 2 are complete, while Slices 3 through 7 remain
 planned only.
 The private MySQL backend, static `mysql.table(Text)` semantic/IR surface, and
 closed renderer are the MySQL compiler boundaries. Explicit private CLI

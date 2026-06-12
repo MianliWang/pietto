@@ -6,7 +6,9 @@
 
 **Slice 1: Master Plan And Baseline Audit is complete.**
 
-Slices 2 through 7 are planned only. They are not implemented or authorized
+**Slice 2: Authoritative Validation Entry Point is complete.**
+
+Slices 3 through 7 are planned only. They are not implemented or authorized
 merely because they appear in this plan. Each later slice requires a separate
 explicit implementation request.
 
@@ -82,9 +84,9 @@ uv lock --check
 The entry result was 1290 passing tests, zero Ruff findings, zero production
 or test Pyright diagnostics, and a valid lock resolving 19 packages.
 
-This baseline does not claim that CI, a repository validation script, an
-ANTLR checksum gate, a generated-file regeneration guard, a formal golden
-policy, or an installed-package smoke test is implemented.
+Slice 2 implements the repository validation entry point. CI, an ANTLR
+checksum gate, a generated-file regeneration guard, a formal golden policy,
+and an installed-package smoke test remain unimplemented.
 
 ## Phase Boundary
 
@@ -114,6 +116,11 @@ Phase 11 does not add or change:
 - project or multi-file mode, `pietto.toml`, watch mode, LSP/editor support,
   Web UI, online playground, or runtime server.
 
+Phase 11 does not add or modify Makefile targets by default. Makefile
+integration is allowed only when the repository already contains a Makefile
+and that integration receives separate explicit authorization, or when the
+user explicitly requests it in a later slice.
+
 Actual package publication, registry credentials, release signing, provenance
 attestations, and automated version changes remain outside Phase 11.
 
@@ -122,9 +129,9 @@ attestations, and automated version changes remain outside Phase 11.
 1. **Master Plan And Baseline Audit**: complete. Record the post-Phase-10
    baseline, seven-slice sequence, Python compatibility policy, hard
    boundaries, validation commands, and static planning locks.
-2. **Authoritative Validation Entry Point**: planned only. Add one
-   non-mutating standard-library Python validation script for lock, format,
-   lint, typing, and tests.
+2. **Authoritative Validation Entry Point**: complete. Add one non-mutating
+   standard-library Python validation script for lock, format, lint, typing,
+   and tests.
 3. **ANTLR Provenance And Generated-File Guard**: planned only. Verify the
    tracked ANTLR jar checksum, regenerate into a temporary directory, and
    compare the complete tracked generated output.
@@ -193,6 +200,8 @@ git diff --check
 
 ## Slice 2: Authoritative Validation Entry Point
 
+**Slice 2 is complete.**
+
 ### Goal
 
 Provide one local command that runs the accepted non-mutating repository
@@ -200,10 +209,12 @@ quality gates in a deterministic fail-fast order.
 
 ### Allowed Changes
 
-Slice 2 may add `scripts/validate.py`, focused script tests, Makefile
-integration, and usage documentation. The script must use only the Python
-standard library and subprocesses already provided by the locked developer
-environment.
+Slice 2 adds `scripts/validate.py`, focused script tests, and usage
+documentation. The script uses only the Python standard library and
+subprocesses already provided by the locked developer environment. It must
+not add or modify Makefile targets unless separately and explicitly
+authorized under the Phase 11 Makefile policy. No such authorization was
+given, so Slice 2 leaves the Makefile unchanged.
 
 The authoritative command will be:
 
@@ -211,7 +222,19 @@ The authoritative command will be:
 uv run python scripts/validate.py
 ```
 
-It will run:
+The same entry point also supports direct invocation:
+
+```bash
+python scripts/validate.py
+```
+
+The script resolves the repository root from its own file path, so child
+commands do not depend on the caller's current directory. Before each gate it
+prints the gate name and shell-readable command, leaves child stdout and
+stderr attached normally, stops after the first failure, and returns that
+gate's exit code. On success it returns `0`.
+
+It runs:
 
 ```bash
 uv lock --check
@@ -228,6 +251,9 @@ The validation path must not format or rewrite files, install tools, download
 unlocked dependencies, regenerate parsers, build packages, update goldens, or
 change compiler behavior. It must preserve child exit status and stop at the
 first failed gate.
+
+Slice 2 does not add CI, an ANTLR checksum file, a generated-file guard, a
+golden policy or audit script, packaging smoke tests, or Makefile integration.
 
 ### Validation
 
@@ -250,7 +276,10 @@ Slice 3 may add:
 
 - `tools/antlr-4.13.2-complete.jar.sha256`;
 - `scripts/check_generated.py`;
-- focused tests, Makefile integration, and documentation.
+- focused tests and documentation.
+
+Slice 3 must not add or modify Makefile targets unless separately and
+explicitly authorized under the Phase 11 Makefile policy.
 
 The checksum file will record the currently reviewed SHA-256:
 

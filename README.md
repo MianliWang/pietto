@@ -17,7 +17,7 @@ The current implementation status is:
 - **Phase 9.5 Static Typing And Source Extension Hardening: complete**;
 - **Phase 9.6 Test Typing Hygiene: complete**;
 - **Phase 10 MySQL SQL Generation MVP: complete**;
-- **Phase 11 Release Readiness & Reproducible Validation: Slice 1 complete,
+- **Phase 11 Release Readiness & Reproducible Validation: Slices 1–2 complete,
   phase in progress**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
@@ -159,15 +159,23 @@ typing gates, PostgreSQL and MySQL golden equality, dependency and generated
 code locks, output safety, and deferred capability boundaries.
 
 Phase 11 Release Readiness & Reproducible Validation is in progress. Slice 1
-adds the master plan and post-Phase-10 baseline audit only. It fixes a
-seven-slice sequence for an authoritative local validation entry point, ANTLR
-provenance and generated-file checks, a golden-fixture policy, minimal
-GitHub Actions CI, installed-package smoke tests, and a completion audit.
-Slices 2 through 7 remain planned and unimplemented. Slice 1 changes no
-production code, dependency, grammar, generated file, SQL backend, CLI
-behavior, JSON schema, or public Python API. `pyproject.toml` continues to
-declare Python `>=3.12`; the planned future CI matrix covers Python 3.12 and
-3.13 without changing that compatibility floor.
+adds the master plan and post-Phase-10 baseline audit. Slice 2 adds the
+authoritative non-mutating local validation command:
+
+```bash
+uv run python scripts/validate.py
+```
+
+The standard-library script runs lock validation, Ruff format checking,
+linting, production and test Pyright, and the full pytest suite in fail-fast
+order from the repository root. It can also run directly with
+`python scripts/validate.py`. Slices 3 through 7 remain planned and
+unimplemented; CI, ANTLR checksum and generated-file guards, golden policy
+automation, and packaging smoke tests are not yet implemented. Slices 1 and 2
+change no production code, dependency, grammar, generated file, SQL backend,
+CLI behavior, JSON schema, public Python API, or Makefile.
+`pyproject.toml` continues to declare Python `>=3.12`; the planned future CI
+matrix covers Python 3.12 and 3.13 without changing that compatibility floor.
 
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added
