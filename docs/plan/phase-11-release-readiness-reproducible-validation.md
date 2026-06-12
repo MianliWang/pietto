@@ -2,7 +2,7 @@
 
 ## Status
 
-**Phase 11 Release Readiness & Reproducible Validation is in progress.**
+**Phase 11 Release Readiness & Reproducible Validation is complete.**
 
 **Slice 1: Master Plan And Baseline Audit is complete.**
 
@@ -16,9 +16,7 @@
 
 **Slice 6: Packaging And Installed CLI Smoke is complete.**
 
-Slice 7 is planned only. It is not implemented or authorized merely because
-it appears in this plan. The final slice requires a separate explicit
-implementation request.
+**Slice 7: Completion Audit And Documentation is complete.**
 
 Phase 10 MySQL SQL Generation MVP is complete. Phase 11 strengthens the
 release, validation, generated-code, golden-fixture, CI, and packaging
@@ -98,7 +96,8 @@ Slice 4 implements the golden fixture policy and independent inventory,
 ownership, and JSON-validity audit. Slice 5 implements minimal-permission
 GitHub Actions orchestration for the accepted local commands. Slice 6
 implements the independent package build, archive inspection, clean-install,
-and installed-CLI smoke. Slice 7 remains planned only.
+and installed-CLI smoke. Slice 7 completes the cross-slice workflow,
+compatibility, scope, and deferred-capability audit.
 
 ## Phase Boundary
 
@@ -155,7 +154,7 @@ attestations, and automated version changes remain outside Phase 11.
 6. **Packaging And Installed CLI Smoke**: complete. Build sdist and wheel,
    install the wheel into a clean temporary environment, and exercise the
    installed CLI outside the repository.
-7. **Completion Audit And Documentation**: planned only. Verify all Phase 11
+7. **Completion Audit And Documentation**: complete. Verify all Phase 11
    workflow contracts and prove compiler, API, SQL, CLI, JSON, dependency,
    grammar, and runtime boundaries remain unchanged.
 
@@ -520,6 +519,8 @@ git diff --check
 
 ## Slice 7: Completion Audit And Documentation
 
+**Slice 7 is complete.**
+
 ### Goal
 
 Prove that the seven slices form one reproducible release-readiness contract
@@ -543,6 +544,14 @@ The completion audit must verify:
 - unchanged JSON v1, CLI, public API, dependency, grammar, generated, and
   compiler-stage boundaries;
 - absence of every deferred runtime and project capability.
+
+The implemented `tests/test_phase11_completion_audit.py` locks the four
+independent workflow scripts and CI workflow to their reviewed committed
+bytes. It also locks package metadata, lockfile, Makefile, grammar, generated
+ANTLR files, compiler groups, PostgreSQL and MySQL reviewed goldens, JSON v1,
+and the public SQL API. Static negative checks confirm that deferred SQL,
+runtime, database, project, editor, Web, publication, and credential
+capabilities remain absent.
 
 ### Hard Boundaries
 
@@ -612,4 +621,6 @@ Phase 11 does not implement:
   versioning;
 - automatic golden or generated-file updates.
 
-SQL Feature Expansion I should be planned only after Phase 11 completes.
+Phase 11 completion does not start another phase. Phase 12 / SQL Feature
+Expansion I may be considered as future planning, but it is not authorized by
+this audit.

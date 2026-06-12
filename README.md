@@ -17,8 +17,7 @@ The current implementation status is:
 - **Phase 9.5 Static Typing And Source Extension Hardening: complete**;
 - **Phase 9.6 Test Typing Hygiene: complete**;
 - **Phase 10 MySQL SQL Generation MVP: complete**;
-- **Phase 11 Release Readiness & Reproducible Validation: Slices 1–6 complete,
-  phase in progress**.
+- **Phase 11 Release Readiness & Reproducible Validation: complete**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -158,7 +157,7 @@ Slice 9 completes the cross-slice behavioral and static audit, including both
 typing gates, PostgreSQL and MySQL golden equality, dependency and generated
 code locks, output safety, and deferred capability boundaries.
 
-Phase 11 Release Readiness & Reproducible Validation is in progress. Slice 1
+Phase 11 Release Readiness & Reproducible Validation is complete. Slice 1
 adds the master plan and post-Phase-10 baseline audit. Slice 2 adds the
 authoritative non-mutating local validation command:
 
@@ -223,12 +222,23 @@ runs the installed `pietto` executable from outside the repository. The smoke
 checks `--version`, `--help`, one successful `check`, PostgreSQL byte-exact
 text, and MySQL JSON v1 structural compatibility. It does not publish, upload,
 sign, change package metadata or version, or join the other three validation
-scripts. Slice 7 remains planned and unimplemented. Slices 1 through 6 change
-no production code, dependency, grammar, generated file, existing golden
-content, SQL backend, CLI behavior, JSON schema, public Python API, package
-metadata, or Makefile.
+scripts.
+
+Slice 7 adds the final static completion audit and closes Phase 11. It proves
+that the four independent commands, minimal-permission CI, package metadata,
+compiler stages, reviewed SQL and JSON outputs, and deferred capability
+boundaries remain intact. Slices 1 through 7 change no production compiler
+behavior, dependency, grammar, generated file, existing golden content, SQL
+backend, CLI behavior, JSON schema, public Python API, package metadata,
+version, or Makefile.
 `pyproject.toml` continues to declare Python `>=3.12`; the current CI matrix
 covers Python 3.12 and 3.13 without changing that compatibility floor.
+
+Phase 11 is release-readiness and reproducible-validation hardening, not an
+actual package release. Package publication, PyPI or other registry
+credentials, release signing, provenance attestations, and automated
+versioning remain unimplemented. Phase 12 / SQL Feature Expansion I is a
+possible future planning direction and is not authorized or started here.
 
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added

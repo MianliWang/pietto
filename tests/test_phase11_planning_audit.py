@@ -33,8 +33,7 @@ def test_phase11_master_plan_records_completed_slices_and_order() -> None:
 
     assert "# Phase 11: Release Readiness & Reproducible Validation" in plan
     assert (
-        "**Phase 11 Release Readiness & Reproducible Validation is in progress.**"
-        in plan
+        "**Phase 11 Release Readiness & Reproducible Validation is complete.**" in plan
     )
     assert "**Slice 1: Master Plan And Baseline Audit is complete.**" in plan
     assert "**Slice 2: Authoritative Validation Entry Point is complete.**" in plan
@@ -42,7 +41,7 @@ def test_phase11_master_plan_records_completed_slices_and_order() -> None:
     assert "**Slice 4: Golden Fixture Policy And Audit is complete.**" in plan
     assert "**Slice 5: GitHub Actions CI is complete.**" in plan
     assert "**Slice 6: Packaging And Installed CLI Smoke is complete.**" in plan
-    assert "Slice 7 is planned only." in plan
+    assert "**Slice 7: Completion Audit And Documentation is complete.**" in plan
 
     slice_names = (
         "Master Plan And Baseline Audit",
@@ -74,13 +73,13 @@ def test_phase11_status_documents_are_scope_aware() -> None:
     for document in documents.values():
         normalized = " ".join(document.split())
         assert "Phase 11 Release Readiness & Reproducible Validation" in normalized
-        assert "Slice 6" in normalized
+        assert "complete" in normalized
         assert PHASE11_PLAN in document
 
     combined = "\n".join(documents.values())
     assert "Phase 10 MySQL SQL Generation MVP is complete" in combined
-    assert "Slice 7" in combined
-    assert "planned" in combined
+    assert "Phase 12 / SQL Feature Expansion I" in combined
+    assert "not authorized" in combined
 
 
 def test_python_floor_and_future_ci_matrix_are_explicit() -> None:
@@ -119,7 +118,7 @@ def test_slice6_adds_only_the_independent_packaging_smoke_artifact() -> None:
         "Slice 6 implements the independent package build, archive inspection, "
         "clean-install, and installed-CLI smoke",
         "uv run python scripts/package_smoke.py",
-        "Slice 7 remains planned only",
+        "Slice 7 completes the cross-slice workflow",
         "does not publish, upload, sign, or change package metadata",
     ):
         assert required in plan

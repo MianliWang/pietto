@@ -1,7 +1,7 @@
 # Pietto v0.9 Whitepaper and Language Reference
 
 Version: v0.9 draft
-Status: Phase 1 through Phase 10 complete; Phase 11 Slices 1 through 6 implemented
+Status: Phase 1 through Phase 11 complete
 Supported Python baseline: Python >=3.12; Phase 11 CI: Python 3.12/3.13
 Primary SQL target: PostgreSQL; MySQL 8.0+ generation MVP supported
 Preferred package manager: uv-first
@@ -36,15 +36,15 @@ Pietto source
     -> CLI text or JSON output
 ```
 
-Current implementation status after Phase 11 Slice 6: the parser/frontend,
+Current implementation status after Phase 11 completion: the parser/frontend,
 Semantic Checker, Semantic IR, PostgreSQL and MySQL SQL generation,
 single-file CLI, security hardening, and JSON / machine-readable CLI
-presentation are implemented. Phase 11 Slices 1 through 6 add release-readiness
+presentation are implemented. Phase 11 adds release-readiness
 planning, static baseline audits, one non-mutating local validation entry
 point, an independent ANTLR provenance and generated-file reproducibility
 guard, an independent golden fixture policy and audit, and minimal GitHub
 Actions orchestration, plus an independent packaging and installed-CLI smoke
-only. The public
+and a final completion audit only. The public
 `build_ir(script, semantic_model)` API lowers analyzed programs into
 immutable, parser-independent IR. The public
 `emit_postgres_sql(script_ir)` API remains the PostgreSQL compatibility
@@ -1235,11 +1235,8 @@ LSP, Web UI, and server capabilities remain unimplemented.
 
 ### Phase 11: Release Readiness & Reproducible Validation
 
-Status: in progress. Slice 1 Master Plan And Baseline Audit, Slice 2
-Authoritative Validation Entry Point, and Slice 3 ANTLR Provenance And
-Generated-File Guard, and Slice 4 Golden Fixture Policy And Audit are
-complete. Slice 5 GitHub Actions CI and Slice 6 Packaging And Installed CLI
-Smoke are also complete. Slice 7 is planned and unimplemented.
+Status: complete. All seven slices, including Slice 7 Completion Audit And
+Documentation, are complete.
 
 Phase 11 Release Readiness & Reproducible Validation hardens release and
 developer validation around the unchanged post-Phase-10 compiler. The fixed
@@ -1278,7 +1275,12 @@ clean temporary virtual environment, and exercises the installed console
 script from outside the repository. It checks `--version`, `--help`, `check`,
 PostgreSQL byte-exact text, and MySQL JSON v1 structural compatibility.
 
-Slices 1 through 6 change no language syntax, grammar, generated ANTLR file,
+Slice 7 adds the final static completion audit. It locks the four workflow
+scripts and CI orchestration, package metadata, compiler stages, reviewed
+PostgreSQL and MySQL outputs, JSON v1, public SQL API, and all deferred
+capability boundaries.
+
+Slices 1 through 7 change no language syntax, grammar, generated ANTLR file,
 AST, semantic behavior, Semantic IR, PostgreSQL or MySQL SQL output, CLI
 behavior, JSON schema, public Python API, dependency, lockfile, package
 metadata, version, or Makefile. They do not publish or upload packages, create
@@ -1293,6 +1295,13 @@ static-analysis target.
 
 The Phase 11 master plan is documented in
 `docs/plan/phase-11-release-readiness-reproducible-validation.md`.
+
+Phase 11 completion means the release-readiness and reproducible-validation
+contract is complete; it does not mean Pietto has been published. Actual
+package publication, PyPI or other registry credentials, release signing,
+provenance attestations, and automated versioning remain unimplemented.
+Phase 12 / SQL Feature Expansion I may be considered as future planning, but
+it is not authorized or started by this specification.
 
 ---
 
