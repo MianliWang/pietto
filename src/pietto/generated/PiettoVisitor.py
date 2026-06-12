@@ -239,6 +239,21 @@ class PiettoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by PiettoParser#orderByClause.
+    def visitOrderByClause(self, ctx:PiettoParser.OrderByClauseContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#orderByBody.
+    def visitOrderByBody(self, ctx:PiettoParser.OrderByBodyContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#orderItem.
+    def visitOrderItem(self, ctx:PiettoParser.OrderItemContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by PiettoParser#limitClause.
     def visitLimitClause(self, ctx:PiettoParser.LimitClauseContext):
         return self.visitChildren(ctx)
@@ -296,6 +311,11 @@ class PiettoVisitor(ParseTreeVisitor):
 
     # Visit a parse tree produced by PiettoParser#namePart.
     def visitNamePart(self, ctx:PiettoParser.NamePartContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#identifier.
+    def visitIdentifier(self, ctx:PiettoParser.IdentifierContext):
         return self.visitChildren(ctx)
 
 

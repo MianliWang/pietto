@@ -19,7 +19,7 @@ FILE_HASHES = {
     "uv.lock": "996f7bcb04c380c2b3855167d33ffbd462c902245e63bee6e626ab1789d65071",
     "Makefile": "dbd38c41e2af5275c379de0b88c92f3861efb90724c7de1a291e0aa007ce2db7",
     "grammar/Pietto.g4": (
-        "a6174030b3857ca006a1b55f1001acd4a9733aa2379fc26916a7c680474d30fb"
+        "faa2e0885fb01f28c3d7cc26ef96bdc2c29e2d8a70f844be62a2a88a354a0ec6"
     ),
     ".github/workflows/ci.yml": (
         "2b6536660cd84cb99d04afaf940372120c51ea11f3805fb21856e82ff5c4949c"
@@ -39,11 +39,11 @@ FILE_HASHES = {
 }
 
 GROUP_HASHES = {
-    "frontend": "7b04d8662ff58035904dae1fceec9b7d16c3c2087a114f91b08c25a14ab92597",
-    "semantic": "5424625b7a5ddcd30c37aaba9eaeeca81a5d0f80f31485a5e3951f391138e01b",
-    "ir": "aa2253673d188c2f870687978baf576816489c9685c59a47172013508279c7c5",
-    "sql": "b2e6915e4d41109058a34b8cf9f41fcd09bc62736e37ddc1ed6b8874c24677b3",
-    "generated": "adca4d1d01d2101c78d81d9537d46cc8cb9e073e898309dddb415577b5a02677",
+    "frontend": "01f7e66c9c8f15e10cacd5a8527fa108316a26df2abedcdc645388eabdd445f6",
+    "semantic": "3e95b5ae09fe22746214910bcc5a453f23a81b3664768ce5a9822693fd2abcfd",
+    "ir": "b29ccb7bf6df2a168059698446631664b02393a5e99382c9c109cdb022fbd846",
+    "sql": "87b3f0a6baee9990f22fa01ff18a545274525006bc1c95ed5f37ccfdcf3e0c5c",
+    "generated": "0b69b4e6462f066a753203b5e5552855637ccc4dd40a74dda819be76a445ddb2",
     "cli": "235d4e50c3474306253dfc6b118e2518b3e300e90f7fbe9903263a39cbdc42a0",
 }
 
@@ -67,7 +67,8 @@ def test_phase12_master_plan_records_exact_slice_order_and_status() -> None:
     assert "**Slice 1: Master Plan And Baseline Audit is complete.**" in plan
     assert "**Slice 2: ORDER BY / LIMIT Language Contract is complete.**" in plan
     assert "**Slice 3: LIMIT Vertical Slice is complete.**" in plan
-    for number, name in enumerate(slice_names[3:], start=4):
+    assert "**Slice 4: ORDER BY Vertical Slice is complete.**" in plan
+    for number, name in enumerate(slice_names[4:], start=5):
         assert f"**Slice {number}: {name} is planned only.**" in plan
 
     offsets = [
@@ -75,8 +76,8 @@ def test_phase12_master_plan_records_exact_slice_order_and_status() -> None:
         for number, name in enumerate(slice_names, start=1)
     ]
     assert offsets == sorted(offsets)
-    assert len(re.findall(r"\*\*Slice \d+:[^*]+ is complete\.\*\*", plan)) == 3
-    assert len(re.findall(r"\*\*Slice \d+:[^*]+ is planned only\.\*\*", plan)) == 3
+    assert len(re.findall(r"\*\*Slice \d+:[^*]+ is complete\.\*\*", plan)) == 4
+    assert len(re.findall(r"\*\*Slice \d+:[^*]+ is planned only\.\*\*", plan)) == 2
     assert "each requires a separate explicit implementation request" in normalized_plan
 
 
@@ -99,13 +100,14 @@ def test_phase12_status_documents_are_scope_aware() -> None:
         "Phase 11 Release Readiness & Reproducible Validation is complete" in combined
     )
     assert "Phase 12 SQL Feature Expansion I is in progress" in combined
-    assert "Slices 1 through 3 are complete" in combined
-    assert "Slices 4 through 6 are planned only" in combined
+    assert "Slices 1 through 4 are complete" in combined
+    assert "Slices 5 and 6 are planned only" in combined
     assert "Slice 3 implements only static `LIMIT`" in combined
-    assert "`ORDER BY` remains unimplemented" in combined
+    assert "Slice 4 implements only input-scope `ORDER BY`" in combined
+    assert "Projection aliases are not available to ordering" in combined
 
 
-def test_slice3_locks_configuration_workflow_and_compiler_boundaries() -> None:
+def test_slice4_locks_configuration_workflow_and_compiler_boundaries() -> None:
     for path, expected_hash in FILE_HASHES.items():
         assert _sha256(REPO_ROOT / path) == expected_hash
 
@@ -137,11 +139,14 @@ def test_slice3_locks_configuration_workflow_and_compiler_boundaries() -> None:
     assert _aggregate_paths(REPO_ROOT / "tests/fixtures/golden") == GOLDENS_HASH
 
 
-def test_limit_is_implemented_and_order_by_remains_deferred() -> None:
+def test_limit_and_order_by_are_implemented_with_fixed_clause_order() -> None:
     grammar = _read("grammar/Pietto.g4")
     parser_tests = _read("tests/test_parser_relations.py")
 
-    assert "ORDER:" not in grammar
+    assert "ORDER: 'order';" in grammar
+    assert "BY: 'by';" in grammar
+    assert "ASC: 'asc';" in grammar
+    assert "DESC: 'desc';" in grammar
     assert "LIMIT: 'limit';" in grammar
     assert '"    order by id\\n"' in parser_tests
 
@@ -159,15 +164,15 @@ def test_limit_is_implemented_and_order_by_remains_deferred() -> None:
     order_result = parse_source(
         "query projected:\n"
         "    from input_relation\n"
-        "    order by id\n"
         "    select:\n"
-        "        id\n",
-        path="phase12-slice3.pietto",
+        "        id\n"
+        "    order by:\n"
+        "        id desc\n"
+        "    limit 10\n",
+        path="phase12-slice4.pietto",
     )
-    assert order_result.ast is None
-    assert any(
-        diagnostic.code == "PIE-P1000" for diagnostic in order_result.diagnostics
-    )
+    assert order_result.diagnostics == ()
+    assert order_result.ast is not None
 
 
 def test_public_api_json_dependency_and_package_contracts_are_unchanged() -> None:

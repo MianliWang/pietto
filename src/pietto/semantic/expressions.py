@@ -211,6 +211,15 @@ def type_relation_expressions(
                 # Bare projection diagnostics are owned by schema propagation.
                 report_unknown_name=not isinstance(item.expression, NameExpr),
             )
+        if definition.order_by_clause is not None:
+            for item in definition.order_by_clause.items:
+                _infer(
+                    item.expression,
+                    input_schema,
+                    value_types,
+                    diagnostics,
+                    report_unknown_name=True,
+                )
 
     return value_types, diagnostics
 

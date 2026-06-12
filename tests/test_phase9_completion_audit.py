@@ -36,28 +36,28 @@ EMIT_KEYS = CHECK_KEYS | {"dialect", "artifacts", "output"}
 BASELINE_HASHES = {
     "uv.lock": "996f7bcb04c380c2b3855167d33ffbd462c902245e63bee6e626ab1789d65071",
     "grammar/Pietto.g4": (
-        "a6174030b3857ca006a1b55f1001acd4a9733aa2379fc26916a7c680474d30fb"
+        "faa2e0885fb01f28c3d7cc26ef96bdc2c29e2d8a70f844be62a2a88a354a0ec6"
     ),
     "src/pietto/generated/Pietto.interp": (
-        "9fc7816fa8b5e3a9a17f6917bf04e1f4606f7689d4999df134ccf2b754ca7f37"
+        "3750ea00f527426aa78f25d61fea8f7f1198b15c7f43f259f916eda959e8cffa"
     ),
     "src/pietto/generated/Pietto.tokens": (
-        "eb7da1013893440b62e1a223ee4dc90d8f34483a2be62bc0c469d0f95ee70526"
+        "117146fd7874fb8681749ab39b8d9fedeb50d110cb14751335ae40e3fb064e37"
     ),
     "src/pietto/generated/PiettoLexer.interp": (
-        "508bb22ae60d046c7392789c7c8e8b46efc99a1ec8fb9d070b50315b9a0476a9"
+        "51feb8c226948a7ebf5159c29f33e294e48206e61113bb6b8efe2b7b45abf6ed"
     ),
     "src/pietto/generated/PiettoLexer.py": (
-        "cc78a188d3f92d12126fce9f47b05906f8126f4222dd6da81b1c5b2567583e1a"
+        "60270ec701d59a72dde8cc1259926e8c8798e93d533a791e7fb9486e02c3fa1a"
     ),
     "src/pietto/generated/PiettoLexer.tokens": (
-        "deca161ec91f44d4e60d986f4faf3cdad20a31de0a27e1ad213987c42ba728f8"
+        "d7149e77cc25ca2c290688b4e772ada2ae45a54bea9630f0a7638e44732267b3"
     ),
     "src/pietto/generated/PiettoParser.py": (
-        "fc9fe1372199f5c1d18714dec754bdbec3c83350f1e65fb75df283aef584401e"
+        "e6187ec169c20ed1034f85f95d235cc174ea3b99cb4628fa63cc2a0983aba913"
     ),
     "src/pietto/generated/PiettoVisitor.py": (
-        "68c1a3548cadd220d954871b06ca686bbf86ac68574203f555002bcc7cfa0b23"
+        "cd6986075e00f3cb5d8043d2987b486907d710d14d4c497177c3516e012416f5"
     ),
     "src/pietto/generated/__init__.py": (
         "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"

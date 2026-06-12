@@ -25,11 +25,11 @@ modeDecl
     ;
 
 dialectDecl
-    : DIALECT IDENTIFIER NEWLINE
+    : DIALECT identifier NEWLINE
     ;
 
 encodingDecl
-    : ENCODING IDENTIFIER NEWLINE
+    : ENCODING identifier NEWLINE
     ;
 
 definition
@@ -45,9 +45,9 @@ definition
 
 // Pietto blocks use ':' plus NEWLINE/INDENT/DEDENT, never brace delimiters.
 typeDefinition
-    : TYPE IDENTIFIER ASSIGN typeExpression NEWLINE
-    | TYPE IDENTIFIER ASSIGN typeExpression ENSURE expression NEWLINE
-    | TYPE IDENTIFIER ASSIGN typeExpression COLON NEWLINE NEWLINE* INDENT typeBody DEDENT
+    : TYPE identifier ASSIGN typeExpression NEWLINE
+    | TYPE identifier ASSIGN typeExpression ENSURE expression NEWLINE
+    | TYPE identifier ASSIGN typeExpression COLON NEWLINE NEWLINE* INDENT typeBody DEDENT
     ;
 
 typeBody
@@ -63,7 +63,7 @@ typeExpression
     ;
 
 typeReference
-    : IDENTIFIER typeArguments?
+    : identifier typeArguments?
     ;
 
 // Nullability syntax is explicit; absence of a modifier remains implicit.
@@ -83,12 +83,12 @@ typeArgument
     ;
 
 typeArgumentName
-    : IDENTIFIER
+    : identifier
     | ENCODING
     ;
 
 enumDefinition
-    : ENUM IDENTIFIER COLON NEWLINE NEWLINE* INDENT enumBody DEDENT
+    : ENUM identifier COLON NEWLINE NEWLINE* INDENT enumBody DEDENT
     ;
 
 enumBody
@@ -96,12 +96,12 @@ enumBody
     ;
 
 enumItem
-    : IDENTIFIER NEWLINE
+    : identifier NEWLINE
     ;
 
 // Phase 1 parses any return TypeExpr; semantic analysis later requires Bool.
 constraintDefinition
-    : CONSTRAINT IDENTIFIER LPAREN parameterList? RPAREN ARROW typeExpression COLON NEWLINE NEWLINE* INDENT constraintBody DEDENT
+    : CONSTRAINT identifier LPAREN parameterList? RPAREN ARROW typeExpression COLON NEWLINE NEWLINE* INDENT constraintBody DEDENT
     ;
 
 parameterList
@@ -109,7 +109,7 @@ parameterList
     ;
 
 parameter
-    : IDENTIFIER COLON typeExpression
+    : identifier COLON typeExpression
     ;
 
 constraintBody
@@ -118,7 +118,7 @@ constraintBody
 
 // Derive signatures and bodies are parsed only; Phase 2 checks their semantics.
 deriveDefinition
-    : DERIVE IDENTIFIER LPAREN parameterList? RPAREN ARROW typeExpression COLON NEWLINE NEWLINE* INDENT deriveBody DEDENT
+    : DERIVE identifier LPAREN parameterList? RPAREN ARROW typeExpression COLON NEWLINE NEWLINE* INDENT deriveBody DEDENT
     ;
 
 deriveBody
@@ -127,7 +127,7 @@ deriveBody
 
 // Phase 1 shapes preserve ordered items; their semantics come later.
 shapeDefinition
-    : SHAPE IDENTIFIER COLON NEWLINE NEWLINE* INDENT shapeBody DEDENT
+    : SHAPE identifier COLON NEWLINE NEWLINE* INDENT shapeBody DEDENT
     ;
 
 shapeBody
@@ -142,7 +142,7 @@ shapeItem
     ;
 
 fieldDefinition
-    : IDENTIFIER COLON typeExpression fieldDeriveClause? fieldModifier* NEWLINE
+    : identifier COLON typeExpression fieldDeriveClause? fieldModifier* NEWLINE
     ;
 
 // Field derive is parse-only and must precede annotations and ensure clauses.
@@ -157,7 +157,7 @@ fieldModifier
     ;
 
 annotation
-    : AT IDENTIFIER
+    : AT identifier
     ;
 
 fieldEnsureClause
@@ -166,7 +166,7 @@ fieldEnsureClause
 
 // Shape checks are named, single-expression blocks parsed only in Phase 1.
 checkDefinition
-    : CHECK IDENTIFIER COLON NEWLINE NEWLINE* INDENT checkBody DEDENT
+    : CHECK identifier COLON NEWLINE NEWLINE* INDENT checkBody DEDENT
     ;
 
 checkBody
@@ -175,35 +175,35 @@ checkBody
 
 // Shape unique clauses record names and target fields only in Phase 1.
 uniqueDefinition
-    : UNIQUE IDENTIFIER ON IDENTIFIER (COMMA IDENTIFIER)* NEWLINE
+    : UNIQUE identifier ON identifier (COMMA identifier)* NEWLINE
     ;
 
 // Shape index clauses are parse-only physical-design hints in Phase 1.
 indexDefinition
-    : INDEX IDENTIFIER ON IDENTIFIER (COMMA IDENTIFIER)* (WHEN expression)? NEWLINE
+    : INDEX identifier ON identifier (COMMA identifier)* (WHEN expression)? NEWLINE
     ;
 
 // Source bindings retain connector expressions without validating or executing them.
 sourceDefinition
-    : SOURCE IDENTIFIER (COLON IDENTIFIER)? IS expression NEWLINE
+    : SOURCE identifier (COLON identifier)? IS expression NEWLINE
     ;
 
-// Relations support from, optional where, ordered select items, and static limit.
+// Relations support from, optional where, ordered select/order items, and limit.
 tableDefinition
-    : TABLE IDENTIFIER COLON NEWLINE NEWLINE* INDENT tableBody DEDENT
+    : TABLE identifier COLON NEWLINE NEWLINE* INDENT tableBody DEDENT
     ;
 
 // Phase 1 queries reuse the minimal table body without execution semantics.
 queryDefinition
-    : QUERY IDENTIFIER COLON NEWLINE NEWLINE* INDENT tableBody DEDENT
+    : QUERY identifier COLON NEWLINE NEWLINE* INDENT tableBody DEDENT
     ;
 
 tableBody
-    : NEWLINE* fromClause NEWLINE* whereClause? NEWLINE* selectClause NEWLINE* limitClause? NEWLINE*
+    : NEWLINE* fromClause NEWLINE* whereClause? NEWLINE* selectClause NEWLINE* orderByClause? NEWLINE* limitClause? NEWLINE*
     ;
 
 fromClause
-    : FROM IDENTIFIER NEWLINE
+    : FROM identifier NEWLINE
     ;
 
 whereClause
@@ -220,8 +220,20 @@ selectBody
 
 // Alias assignment is local to select items, never a general expression.
 selectItem
-    : IDENTIFIER ASSIGN expression NEWLINE
+    : identifier ASSIGN expression NEWLINE
     | expression NEWLINE
+    ;
+
+orderByClause
+    : ORDER BY COLON NEWLINE NEWLINE* INDENT orderByBody DEDENT
+    ;
+
+orderByBody
+    : NEWLINE* orderItem (orderItem | NEWLINE)*
+    ;
+
+orderItem
+    : expression (ASC | DESC)? NEWLINE
     ;
 
 // Semantic analysis restricts the captured operand to a bounded static integer.
@@ -285,7 +297,7 @@ dottedName
     ;
 
 namePart
-    : IDENTIFIER
+    : identifier
     | CHECK
     | UNIQUE
     | ON
@@ -299,6 +311,15 @@ namePart
     | SELECT
     | QUERY
     | LIMIT
+    ;
+
+// New relation keywords remain valid in identifier positions for compatibility.
+identifier
+    : IDENTIFIER
+    | ORDER
+    | BY
+    | ASC
+    | DESC
     ;
 
 callSuffix
@@ -336,6 +357,10 @@ FROM: 'from';
 WHERE: 'where';
 SELECT: 'select';
 QUERY: 'query';
+ORDER: 'order';
+BY: 'by';
+ASC: 'asc';
+DESC: 'desc';
 LIMIT: 'limit';
 ENSURE: 'ensure';
 NULLABLE: 'nullable';

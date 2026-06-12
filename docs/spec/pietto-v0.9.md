@@ -1,7 +1,7 @@
 # Pietto v0.9 Whitepaper and Language Reference
 
 Version: v0.9 draft
-Status: Phase 1 through Phase 11 complete; Phase 12 Slices 1 through 3 complete
+Status: Phase 1 through Phase 11 complete; Phase 12 Slices 1 through 4 complete
 Supported Python baseline: Python >=3.12; Phase 11 CI: Python 3.12/3.13
 Primary SQL target: PostgreSQL; MySQL 8.0+ generation MVP supported
 Preferred package manager: uv-first
@@ -36,7 +36,7 @@ Pietto source
     -> CLI text or JSON output
 ```
 
-Current implementation status after Phase 11 completion and Phase 12 Slice 2:
+Current implementation status after Phase 11 completion and Phase 12 Slice 4:
 the parser/frontend,
 Semantic Checker, Semantic IR, PostgreSQL and MySQL SQL generation,
 single-file CLI, security hardening, and JSON / machine-readable CLI
@@ -1303,7 +1303,7 @@ package publication, PyPI or other registry credentials, release signing,
 provenance attestations, and automated versioning remain unimplemented.
 ### Phase 12: SQL Feature Expansion I
 
-Status: in progress. Slices 1 through 3 are complete. Slices 4 through 6 are
+Status: in progress. Slices 1 through 4 are complete. Slices 5 and 6 are
 planned only and require separate explicit
 implementation requests.
 
@@ -1316,7 +1316,15 @@ Slice 3 implements one optional `limit <integer>` relation clause after
 9223372036854775807; invalid captured operands receive `PIE-S2307` without
 general expression-resolution cascades. Semantic IR stores the validated
 integer, and PostgreSQL and MySQL append canonical `LIMIT <value>` SQL.
-`ORDER BY` remains unimplemented and reserved for Slice 4.
+
+Slice 4 implements an optional `order by:` block after `select` and before an
+optional `limit`. Sorting expressions use the relation input row schema, not
+projection aliases, retain source order, and normalize omitted directions to
+explicit `ASC` in Semantic IR. PostgreSQL and MySQL emit the same multiline
+clause shape with their existing expression and identifier rendering.
+Projection-alias/output-schema ordering, ordinal ordering, null ordering, and
+collation remain unimplemented. Slice 5 owns reviewed composition goldens and
+broader CLI/JSON composition coverage.
 
 JSON schema version 1 remains the only implemented runtime JSON contract.
 `emit_postgres_sql(ScriptIR) -> SqlResult` remains public,

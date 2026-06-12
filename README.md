@@ -18,7 +18,7 @@ The current implementation status is:
 - **Phase 9.6 Test Typing Hygiene: complete**;
 - **Phase 10 MySQL SQL Generation MVP: complete**;
 - **Phase 11 Release Readiness & Reproducible Validation: complete**;
-- **Phase 12 SQL Feature Expansion I: in progress, Slices 1 through 3 complete**.
+- **Phase 12 SQL Feature Expansion I: in progress, Slices 1 through 4 complete**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -28,14 +28,15 @@ public PostgreSQL backend consumes `ScriptIR` through
 dispatch.
 
 The backend emits minimal `SELECT` SQL for `RelationIR` definitions, including
-projections, optional `WHERE`, and an optional validated static `LIMIT`.
-Inputs may reference a static
+projections, optional `WHERE`, optional source-ordered `ORDER BY`, and an
+optional validated static `LIMIT`. Inputs may reference a static
 `postgres.table(Text)` source or another relation by quoted name. Type, enum,
 shape, source, constraint, and derive IR definitions are non-emitting metadata;
 unsupported or invalid relation emission receives structured `PIE-B1000`
 diagnostics. CTE expansion, inlining, nested subqueries, joins, grouping,
-ordering, offsets, metadata DDL, SQLGlot integration, database or connector
-execution, and schema introspection are not implemented.
+projection-alias/output-schema/ordinal ordering, offsets, metadata DDL,
+SQLGlot integration, database or connector execution, and schema introspection
+are not implemented.
 
 The supported single-file CLI commands and forms include:
 
@@ -241,15 +242,18 @@ actual package release. Package publication, PyPI or other registry
 credentials, release signing, provenance attestations, and automated
 versioning remain unimplemented.
 
-Phase 12 SQL Feature Expansion I is in progress. Slices 1 through 3 are
-complete. Slices 4 through 6 are planned only and require separate explicit
+Phase 12 SQL Feature Expansion I is in progress. Slices 1 through 4 are
+complete. Slices 5 and 6 are planned only and require separate explicit
 authorization. Slice 2 defines the normative
 [ORDER BY / LIMIT Contract v1](docs/spec/order-limit-contract-v1.md), including
 static limit bounds, ordering scope, diagnostics, IR expectations, and dual
 backend formatting. Slice 3 implements only static `LIMIT` for PostgreSQL and
-MySQL. `ORDER BY` remains unimplemented and reserved for Slice 4. CLI options,
-JSON v1, public Python APIs, dependencies, package metadata, version, and all
-existing golden fixtures remain unchanged.
+MySQL. Slice 4 implements input-scope `ORDER BY` for both backends, with
+source-ordered expressions and normalized explicit directions. Projection
+aliases are not available to ordering. CLI options, JSON v1, public Python
+APIs, dependencies, package metadata, version, and all existing golden
+fixtures remain unchanged. Slice 5 owns reviewed composition goldens and
+broader CLI/JSON composition coverage.
 
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added

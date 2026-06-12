@@ -48,6 +48,8 @@ from pietto.ir.model import (
     IrResult,
     LimitIR,
     NullabilityIR,
+    OrderDirectionIR,
+    OrderItemIR,
     ParameterIR,
     ProjectionIR,
     RelationIR,
@@ -420,6 +422,12 @@ def _lower_relation(
         )
         for item in definition.select_items
     )
+    order_by = _lower_order_by(
+        definition,
+        semantic_model,
+        input_schema=input_schema,
+        target_symbol=target_symbol,
+    )
     limit = _lower_limit(definition)
     return RelationIR(
         symbol=_symbol(SymbolNamespace.RELATION, definition.name),
@@ -438,7 +446,37 @@ def _lower_relation(
         projections=projections,
         row_schema=row_schema,
         span=lower_span(definition.span),
+        order_by=order_by,
         limit=limit,
+    )
+
+
+def _lower_order_by(
+    definition: DerivedRelation,
+    semantic_model: SemanticModel,
+    *,
+    input_schema: RowSchema,
+    target_symbol: SymbolId,
+) -> tuple[OrderItemIR, ...]:
+    """Lower sorting expressions against the relation input row."""
+
+    clause = definition.order_by_clause
+    if clause is None:
+        return ()
+    return tuple(
+        OrderItemIR(
+            expression=_require_lowered_expression(
+                item.expression,
+                semantic_model,
+                fields=input_schema.fields,
+                field_owner=target_symbol,
+            ),
+            direction=OrderDirectionIR(
+                "ASC" if item.direction is None else item.direction.upper()
+            ),
+            span=lower_span(item.span),
+        )
+        for item in clause.items
     )
 
 

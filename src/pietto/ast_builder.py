@@ -32,6 +32,8 @@ from pietto.ast_nodes import (
     LiteralExpr,
     NameExpr,
     Nullability,
+    OrderByClause,
+    OrderItem,
     Parameter,
     QueryDef,
     Script,
@@ -102,12 +104,12 @@ class AstBuilder(PiettoVisitor):
         )
         mode = self._mode(ctx.modeDecl()) if ctx.modeDecl() is not None else None
         dialect = (
-            ctx.dialectDecl().IDENTIFIER().getText()
+            ctx.dialectDecl().identifier().getText()
             if ctx.dialectDecl() is not None
             else None
         )
         encoding = (
-            ctx.encodingDecl().IDENTIFIER().getText()
+            ctx.encodingDecl().identifier().getText()
             if ctx.encodingDecl() is not None
             else None
         )
@@ -162,7 +164,7 @@ class AstBuilder(PiettoVisitor):
 
         return TypeDef(
             span=self._span(ctx),
-            name=ctx.IDENTIFIER().getText(),
+            name=ctx.identifier().getText(),
             base=self.visit(ctx.typeExpression()),
             ensures=tuple(ensures),
         )
@@ -191,9 +193,9 @@ class AstBuilder(PiettoVisitor):
     def visitEnumDefinition(self, ctx: _AntlrContext) -> EnumDef:
         return EnumDef(
             span=self._span(ctx),
-            name=ctx.IDENTIFIER().getText(),
+            name=ctx.identifier().getText(),
             members=tuple(
-                item.IDENTIFIER().getText() for item in ctx.enumBody().enumItem()
+                item.identifier().getText() for item in ctx.enumBody().enumItem()
             ),
         )
 
@@ -202,7 +204,7 @@ class AstBuilder(PiettoVisitor):
         # result belongs to Phase 2 rather than parse-tree construction.
         return ConstraintDef(
             span=self._span(ctx),
-            name=ctx.IDENTIFIER().getText(),
+            name=ctx.identifier().getText(),
             parameters=self._parameters(ctx.parameterList()),
             return_type=self.visit(ctx.typeExpression()),
             body=self.visit(ctx.constraintBody().expression()),
@@ -215,7 +217,7 @@ class AstBuilder(PiettoVisitor):
         # type compatibility are intentionally left to Phase 2.
         return DeriveDef(
             span=self._span(ctx),
-            name=ctx.IDENTIFIER().getText(),
+            name=ctx.identifier().getText(),
             parameters=self._parameters(ctx.parameterList()),
             return_type=self.visit(ctx.typeExpression()),
             body=self.visit(ctx.deriveBody().expression()),
@@ -226,7 +228,7 @@ class AstBuilder(PiettoVisitor):
 
         return ShapeDef(
             span=self._span(ctx),
-            name=ctx.IDENTIFIER().getText(),
+            name=ctx.identifier().getText(),
             items=tuple(self.visit(item) for item in ctx.shapeBody().shapeItem()),
         )
 
@@ -248,7 +250,7 @@ class AstBuilder(PiettoVisitor):
         modifiers = ctx.fieldModifier()
         return FieldDef(
             span=self._span(ctx),
-            name=ctx.IDENTIFIER().getText(),
+            name=ctx.identifier().getText(),
             type_expr=self.visit(field_type),
             # Grammar placement makes derive singular and keeps it ahead of
             # repeatable annotations and ensure clauses.
@@ -276,7 +278,7 @@ class AstBuilder(PiettoVisitor):
 
         return Annotation(
             span=self._span(ctx),
-            name=ctx.IDENTIFIER().getText(),
+            name=ctx.identifier().getText(),
         )
 
     def visitFieldEnsureClause(self, ctx: _AntlrContext) -> EnsureClause:
@@ -292,14 +294,14 @@ class AstBuilder(PiettoVisitor):
 
         return CheckDef(
             span=self._span(ctx),
-            name=ctx.IDENTIFIER().getText(),
+            name=ctx.identifier().getText(),
             expression=self.visit(ctx.checkBody().expression()),
         )
 
     def visitUniqueDefinition(self, ctx: _AntlrContext) -> UniqueDef:
         """Build a unique clause without resolving or deduplicating fields."""
 
-        identifiers = ctx.IDENTIFIER()
+        identifiers = ctx.identifier()
         return UniqueDef(
             span=self._span(ctx),
             name=identifiers[0].getText(),
@@ -309,7 +311,7 @@ class AstBuilder(PiettoVisitor):
     def visitIndexDefinition(self, ctx: _AntlrContext) -> IndexDef:
         """Build an index clause without applying physical or semantic checks."""
 
-        identifiers = ctx.IDENTIFIER()
+        identifiers = ctx.identifier()
         return IndexDef(
             span=self._span(ctx),
             name=identifiers[0].getText(),
@@ -322,7 +324,7 @@ class AstBuilder(PiettoVisitor):
     def visitSourceDefinition(self, ctx: _AntlrContext) -> SourceDef:
         """Build a source binding without validating or executing its connector."""
 
-        identifiers = ctx.IDENTIFIER()
+        identifiers = ctx.identifier()
         return SourceDef(
             span=self._span(ctx),
             name=identifiers[0].getText(),
@@ -333,30 +335,40 @@ class AstBuilder(PiettoVisitor):
     def visitTableDefinition(self, ctx: _AntlrContext) -> TableDef:
         """Build a minimal table without resolving inputs or projection names."""
 
-        from_clause, where_clause, select_items, limit_clause = self._relation_body(
-            ctx.tableBody()
-        )
+        (
+            from_clause,
+            where_clause,
+            select_items,
+            order_by_clause,
+            limit_clause,
+        ) = self._relation_body(ctx.tableBody())
         return TableDef(
             span=self._span(ctx),
-            name=ctx.IDENTIFIER().getText(),
+            name=ctx.identifier().getText(),
             from_clause=from_clause,
             where_clause=where_clause,
             select_items=select_items,
+            order_by_clause=order_by_clause,
             limit_clause=limit_clause,
         )
 
     def visitQueryDefinition(self, ctx: _AntlrContext) -> QueryDef:
         """Build a minimal query without resolving or executing its input."""
 
-        from_clause, where_clause, select_items, limit_clause = self._relation_body(
-            ctx.tableBody()
-        )
+        (
+            from_clause,
+            where_clause,
+            select_items,
+            order_by_clause,
+            limit_clause,
+        ) = self._relation_body(ctx.tableBody())
         return QueryDef(
             span=self._span(ctx),
-            name=ctx.IDENTIFIER().getText(),
+            name=ctx.identifier().getText(),
             from_clause=from_clause,
             where_clause=where_clause,
             select_items=select_items,
+            order_by_clause=order_by_clause,
             limit_clause=limit_clause,
         )
 
@@ -365,7 +377,7 @@ class AstBuilder(PiettoVisitor):
 
         return FromClause(
             span=self._span(ctx),
-            source_name=ctx.IDENTIFIER().getText(),
+            source_name=ctx.identifier().getText(),
         )
 
     def visitWhereClause(self, ctx: _AntlrContext) -> WhereClause:
@@ -381,8 +393,38 @@ class AstBuilder(PiettoVisitor):
 
         return SelectItem(
             span=self._span(ctx),
-            alias=ctx.IDENTIFIER().getText() if ctx.ASSIGN() is not None else None,
+            alias=ctx.identifier().getText() if ctx.ASSIGN() is not None else None,
             expression=self.visit(ctx.expression()),
+        )
+
+    def visitOrderByClause(self, ctx: _AntlrContext) -> OrderByClause:
+        """Build a non-empty sorting block without resolving its expressions."""
+
+        return OrderByClause(
+            span=self._span(ctx),
+            items=tuple(self.visit(item) for item in ctx.orderByBody().orderItem()),
+        )
+
+    def visitOrderItem(self, ctx: _AntlrContext) -> OrderItem:
+        """Build one sorting item while keeping omitted direction explicit."""
+
+        expression = cast(Expression, self.visit(ctx.expression()))
+        if isinstance(expression, LiteralExpr) and type(expression.value) is int:
+            span = expression.span
+            raise AstBuildError(
+                "Ordinal ORDER BY expressions are not supported.",
+                line=span.line,
+                column=span.column,
+            )
+        direction = None
+        if ctx.ASC() is not None:
+            direction = "asc"
+        elif ctx.DESC() is not None:
+            direction = "desc"
+        return OrderItem(
+            span=self._span(ctx),
+            expression=expression,
+            direction=direction,
         )
 
     def visitLimitClause(self, ctx: _AntlrContext) -> LimitClause:
@@ -399,6 +441,7 @@ class AstBuilder(PiettoVisitor):
         FromClause,
         WhereClause | None,
         tuple[SelectItem, ...],
+        OrderByClause | None,
         LimitClause | None,
     ]:
         """Build clauses shared by minimal table and query definitions."""
@@ -410,13 +453,18 @@ class AstBuilder(PiettoVisitor):
                 self.visit(item)
                 for item in ctx.selectClause().selectBody().selectItem()
             ),
+            (
+                self.visit(ctx.orderByClause())
+                if ctx.orderByClause() is not None
+                else None
+            ),
             self.visit(ctx.limitClause()) if ctx.limitClause() is not None else None,
         )
 
     def visitParameter(self, ctx: _AntlrContext) -> Parameter:
         return Parameter(
             span=self._span(ctx),
-            name=ctx.IDENTIFIER().getText(),
+            name=ctx.identifier().getText(),
             type=self.visit(ctx.typeExpression()),
         )
 
@@ -532,7 +580,7 @@ class AstBuilder(PiettoVisitor):
             )
         return TypeExpr(
             span=self._span(span_context),
-            name=ctx.IDENTIFIER().getText(),
+            name=ctx.identifier().getText(),
             arguments=arguments,
             nullability=nullability,
         )

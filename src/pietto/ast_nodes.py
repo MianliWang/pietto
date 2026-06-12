@@ -300,6 +300,21 @@ class SelectItem(Node):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class OrderItem(Node):
+    """One source-ordered sorting expression and optional direction."""
+
+    expression: Expression
+    direction: str | None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class OrderByClause(Node):
+    """A non-empty relation sorting block."""
+
+    items: tuple[OrderItem, ...]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class LimitClause(Node):
     """A relation row-count clause whose operand awaits semantic validation."""
 
@@ -314,6 +329,7 @@ class TableDef(Node):
     from_clause: FromClause
     where_clause: WhereClause | None
     select_items: tuple[SelectItem, ...]
+    order_by_clause: OrderByClause | None = None
     limit_clause: LimitClause | None = None
 
 
@@ -325,6 +341,7 @@ class QueryDef(Node):
     from_clause: FromClause
     where_clause: WhereClause | None
     select_items: tuple[SelectItem, ...]
+    order_by_clause: OrderByClause | None = None
     limit_clause: LimitClause | None = None
 
 

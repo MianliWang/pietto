@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from pietto.ir.model import ExpressionIR, RelationIR, SourceIR, SymbolId
+from pietto.ir.model import (
+    ExpressionIR,
+    OrderDirectionIR,
+    OrderItemIR,
+    RelationIR,
+    SourceIR,
+    SymbolId,
+)
 from pietto.sql.mysql_expressions import render_mysql_expression
 from pietto.sql.mysql_render import (
     MYSQL_ALIAS_MAX_CHARACTERS,
@@ -41,6 +48,15 @@ def render_mysql_relation(
     ]
     if relation.filter is not None:
         lines.append(f"WHERE {render_mysql_expression(relation.filter.expression)}")
+    if relation.order_by:
+        lines.extend(
+            (
+                "ORDER BY",
+                ",\n".join(
+                    f"    {_render_order_item(item)}" for item in relation.order_by
+                ),
+            )
+        )
     if relation.limit is not None:
         lines.append(f"LIMIT {_render_limit(relation.limit.value)}")
     return "\n".join(lines)
@@ -94,3 +110,9 @@ def _render_limit(value: int) -> str:
     if type(value) is not int or not 0 <= value <= 9_223_372_036_854_775_807:
         raise MySqlRenderError("MySQL relation limit is outside the supported range")
     return str(value)
+
+
+def _render_order_item(item: OrderItemIR) -> str:
+    if not isinstance(item.direction, OrderDirectionIR):
+        raise MySqlRenderError("MySQL relation order direction is invalid")
+    return f"{render_mysql_expression(item.expression)} {item.direction.value}"

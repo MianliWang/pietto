@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from pietto.ir.model import ExpressionIR, RelationIR, SourceIR, SymbolId
+from pietto.ir.model import (
+    ExpressionIR,
+    OrderDirectionIR,
+    OrderItemIR,
+    RelationIR,
+    SourceIR,
+    SymbolId,
+)
 from pietto.sql.expressions import render_expression_sql
 from pietto.sql.render import quote_identifier
 
@@ -36,6 +43,15 @@ def render_relation_sql(
     ]
     if relation.filter is not None:
         lines.append(f"WHERE {render_expression_sql(relation.filter.expression)}")
+    if relation.order_by:
+        lines.extend(
+            (
+                "ORDER BY",
+                ",\n".join(
+                    f"    {_render_order_item(item)}" for item in relation.order_by
+                ),
+            )
+        )
     if relation.limit is not None:
         lines.append(f"LIMIT {_render_limit(relation.limit.value)}")
     return "\n".join(lines)
@@ -89,3 +105,11 @@ def _render_limit(value: int) -> str:
     if type(value) is not int or not 0 <= value <= 9_223_372_036_854_775_807:
         raise ValueError("PostgreSQL relation limit is outside the supported range")
     return str(value)
+
+
+def _render_order_item(item: OrderItemIR) -> str:
+    """Render one validated sorting item without dropping its direction."""
+
+    if not isinstance(item.direction, OrderDirectionIR):
+        raise ValueError("PostgreSQL relation order direction is invalid")
+    return f"{render_expression_sql(item.expression)} {item.direction.value}"

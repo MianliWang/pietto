@@ -10,7 +10,7 @@
 
 **Slice 3: LIMIT Vertical Slice is complete.**
 
-**Slice 4: ORDER BY Vertical Slice is planned only.**
+**Slice 4: ORDER BY Vertical Slice is complete.**
 
 **Slice 5: Composition, CLI/JSON And Goldens is planned only.**
 
@@ -22,11 +22,12 @@ no language syntax, grammar, generated ANTLR content, AST, semantic behavior,
 IR, SQL generation, CLI behavior, JSON schema, public API, dependency,
 package metadata, or release behavior.
 
-Slice 3 implements only the approved static `LIMIT` contract through grammar,
-AST, semantic validation, Semantic IR, and both SQL backends. `ORDER BY`
-remains unimplemented. Slices 4 through 6 are not authorized merely because
-they appear in this plan; each requires a separate explicit implementation
-request.
+Slice 3 implements only the approved static `LIMIT` contract. Slice 4
+implements only the approved `ORDER BY` contract through grammar, AST,
+semantic expression typing, Semantic IR, and both SQL backends. Projection
+aliases are not in the ordering name-resolution scope. Slices 5 and 6 are not
+authorized merely because they appear in this plan; each requires a separate
+explicit implementation request.
 
 ## Goal
 
@@ -45,7 +46,7 @@ Pietto source
 The approved implementation order is a small static `LIMIT` feature followed
 by `ORDER BY`. Slice 2 defines the exact language and compiler contract in
 `docs/spec/order-limit-contract-v1.md`. Slice 3 implements `LIMIT`, and Slice
-4 remains the only authorized `ORDER BY` implementation slice.
+4 implements `ORDER BY`.
 
 Simple projection aliases are already implemented through `alias =
 expression`, Semantic IR projection names, and both SQL backends. They are a
@@ -70,9 +71,9 @@ At Slice 1 entry, Pietto provides:
 - package version `0.1.0` and Python compatibility floor `>=3.12`.
 
 At Slice 1 entry, the baseline did not support `ORDER BY` or `LIMIT`. Slice 3
-now supports one static `limit <integer>` clause after `select`; `ORDER BY`
-remains absent and continues to receive canonical `PIE-P1000` parser
-diagnostics.
+adds one static `limit <integer>` clause after `select`. Slice 4 adds one
+source-ordered `order by:` block after `select` and before optional `limit`,
+with explicit or default ascending and descending directions.
 
 ## Compatibility Contract
 
@@ -105,7 +106,7 @@ explicitly says otherwise:
    formatting, and compatibility rules without implementing production code.
 3. **LIMIT Vertical Slice**: complete. Implement the approved static
    `LIMIT` contract end to end for both PostgreSQL and MySQL.
-4. **ORDER BY Vertical Slice**: planned only. Implement the approved
+4. **ORDER BY Vertical Slice**: complete. Implement the approved
    `ORDER BY` contract end to end for both PostgreSQL and MySQL.
 5. **Composition, CLI/JSON And Goldens**: planned only. Add reviewed
    cross-feature fixtures and verify unchanged CLI and JSON v1 presentation.

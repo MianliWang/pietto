@@ -75,7 +75,7 @@ def test_malformed_or_misplaced_limit_remains_parser_error(body: str) -> None:
     assert all(diagnostic.code == "PIE-P1000" for diagnostic in result.diagnostics)
 
 
-def test_order_by_remains_rejected_and_has_no_grammar_tokens() -> None:
+def test_order_by_tokens_are_present_without_changing_limit_contract() -> None:
     grammar = (REPO_ROOT / "grammar/Pietto.g4").read_text(encoding="utf-8")
     result = parse_source(
         "query selected:\n"
@@ -88,10 +88,15 @@ def test_order_by_remains_rejected_and_has_no_grammar_tokens() -> None:
     )
 
     assert "LIMIT: 'limit';" in grammar
-    for token in ("ORDER:", "BY:", "ASC:", "DESC:"):
-        assert token not in grammar
-    assert result.ast is None
-    assert any(diagnostic.code == "PIE-P1000" for diagnostic in result.diagnostics)
+    for token in (
+        "ORDER: 'order';",
+        "BY: 'by';",
+        "ASC: 'asc';",
+        "DESC: 'desc';",
+    ):
+        assert token in grammar
+    assert result.diagnostics == ()
+    assert result.ast is not None
 
 
 @pytest.mark.parametrize("source_value", ["0", "0007", str(MAX_LIMIT)])

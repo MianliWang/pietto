@@ -353,6 +353,22 @@ class ProjectionIR:
     span: SourceSpan
 
 
+class OrderDirectionIR(StrEnum):
+    """Normalized SQL sorting directions."""
+
+    ASC = "ASC"
+    DESC = "DESC"
+
+
+@dataclass(frozen=True, slots=True)
+class OrderItemIR:
+    """A typed sorting expression with an explicit direction."""
+
+    expression: ExpressionIR
+    direction: OrderDirectionIR
+    span: SourceSpan
+
+
 @dataclass(frozen=True, slots=True)
 class LimitIR:
     """A validated static relation row-count limit."""
@@ -373,6 +389,7 @@ class RelationIR(DefinitionIR):
     projections: tuple[ProjectionIR, ...]
     row_schema: RowSchemaIR
     span: SourceSpan
+    order_by: tuple[OrderItemIR, ...] = ()
     limit: LimitIR | None = None
 
 

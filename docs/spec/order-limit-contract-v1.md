@@ -2,22 +2,21 @@
 
 ## Status
 
-Status: Phase 12 Slice 3 static `LIMIT` implementation complete; `ORDER BY`
-implementation not started.
+Status: Phase 12 Slice 3 static `LIMIT` and Slice 4 `ORDER BY`
+implementations complete.
 
 This document is the decision authority for the Phase 12 `LIMIT` and
-`ORDER BY` MVP. Slice 3 implements the `LIMIT` portions of this contract;
-the `ORDER BY` portions remain future behavior.
+`ORDER BY` MVP. Slice 3 implements the `LIMIT` portions of this contract, and
+Slice 4 implements the `ORDER BY` portions.
 
-The grammar now contains only the approved `LIMIT` keyword from this contract.
-It still has no `ORDER`, `BY`, `ASC`, or `DESC` tokens, and the parser still
-rejects `order by` with `PIE-P1000`. Slice 3 is the completed `LIMIT`
-implementation slice. Slice 4 is the only authorized `ORDER BY`
-implementation slice.
+The grammar contains only the approved `LIMIT`, `ORDER`, `BY`, `ASC`, and
+`DESC` keywords from this contract. Invalid block shape, direction,
+placement, duplication, and ordinal forms use the existing `PIE-P1000`
+parser diagnostic.
 
 ## Goals
 
-The MVP will add two small relation clauses:
+The MVP adds two small relation clauses:
 
 - a static row-count limit;
 - deterministic source-ordered sorting over existing input-scope expressions.
@@ -60,8 +59,7 @@ query recent_users:
     limit 100
 ```
 
-This example is contractual future syntax. It is not accepted by the current
-Slice 2 parser.
+This example is accepted by the completed Slice 3 and Slice 4 implementation.
 
 ### LIMIT
 

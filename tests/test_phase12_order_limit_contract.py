@@ -20,7 +20,7 @@ FILE_HASHES = {
     "uv.lock": "996f7bcb04c380c2b3855167d33ffbd462c902245e63bee6e626ab1789d65071",
     "Makefile": "dbd38c41e2af5275c379de0b88c92f3861efb90724c7de1a291e0aa007ce2db7",
     "grammar/Pietto.g4": (
-        "a6174030b3857ca006a1b55f1001acd4a9733aa2379fc26916a7c680474d30fb"
+        "faa2e0885fb01f28c3d7cc26ef96bdc2c29e2d8a70f844be62a2a88a354a0ec6"
     ),
     ".github/workflows/ci.yml": (
         "2b6536660cd84cb99d04afaf940372120c51ea11f3805fb21856e82ff5c4949c"
@@ -40,30 +40,32 @@ FILE_HASHES = {
 }
 
 GROUP_HASHES = {
-    "frontend": "7b04d8662ff58035904dae1fceec9b7d16c3c2087a114f91b08c25a14ab92597",
-    "semantic": "5424625b7a5ddcd30c37aaba9eaeeca81a5d0f80f31485a5e3951f391138e01b",
-    "ir": "aa2253673d188c2f870687978baf576816489c9685c59a47172013508279c7c5",
-    "sql": "b2e6915e4d41109058a34b8cf9f41fcd09bc62736e37ddc1ed6b8874c24677b3",
-    "generated": "adca4d1d01d2101c78d81d9537d46cc8cb9e073e898309dddb415577b5a02677",
+    "frontend": "01f7e66c9c8f15e10cacd5a8527fa108316a26df2abedcdc645388eabdd445f6",
+    "semantic": "3e95b5ae09fe22746214910bcc5a453f23a81b3664768ce5a9822693fd2abcfd",
+    "ir": "b29ccb7bf6df2a168059698446631664b02393a5e99382c9c109cdb022fbd846",
+    "sql": "87b3f0a6baee9990f22fa01ff18a545274525006bc1c95ed5f37ccfdcf3e0c5c",
+    "generated": "0b69b4e6462f066a753203b5e5552855637ccc4dd40a74dda819be76a445ddb2",
     "cli": "235d4e50c3474306253dfc6b118e2518b3e300e90f7fbe9903263a39cbdc42a0",
 }
 
 GOLDENS_HASH = "fc6ad37ee6bfdfb5a2cff2487618e471186841787042f150a369eaeab2fd2db4"
 
 
-def test_contract_exists_and_slice3_status_is_exact() -> None:
+def test_contract_exists_and_slice4_status_is_exact() -> None:
     contract = _read(CONTRACT_PATH)
     normalized_contract = " ".join(contract.split())
     plan = _read(PLAN_PATH)
 
     assert "# ORDER BY / LIMIT Contract Version 1" in contract
-    assert "Slice 3 static `LIMIT` implementation complete" in normalized_contract
-    assert "`ORDER BY` implementation not started" in normalized_contract
+    assert (
+        "Slice 3 static `LIMIT` and Slice 4 `ORDER BY` implementations complete"
+        in normalized_contract
+    )
     assert "**Slice 1: Master Plan And Baseline Audit is complete.**" in plan
     assert "**Slice 2: ORDER BY / LIMIT Language Contract is complete.**" in plan
     assert "**Slice 3: LIMIT Vertical Slice is complete.**" in plan
+    assert "**Slice 4: ORDER BY Vertical Slice is complete.**" in plan
     for number, name in (
-        (4, "ORDER BY Vertical Slice"),
         (5, "Composition, CLI/JSON And Goldens"),
         (6, "Completion Audit And Documentation"),
     ):
@@ -207,12 +209,17 @@ def test_deferred_capabilities_are_explicit() -> None:
         assert required in contract
 
 
-def test_limit_is_implemented_while_order_by_remains_rejected() -> None:
+def test_limit_and_order_by_are_implemented_while_ordinals_are_rejected() -> None:
     grammar = _read("grammar/Pietto.g4")
 
     assert "LIMIT: 'limit';" in grammar
-    for token in ("ORDER:", "BY:", "ASC:", "DESC:"):
-        assert token not in grammar
+    for token in (
+        "ORDER: 'order';",
+        "BY: 'by';",
+        "ASC: 'asc';",
+        "DESC: 'desc';",
+    ):
+        assert token in grammar
 
     limit_result = parse_source(
         "query projected:\n"
@@ -220,7 +227,7 @@ def test_limit_is_implemented_while_order_by_remains_rejected() -> None:
         "    select:\n"
         "        id\n"
         "    limit 10\n",
-        path="phase12-slice3.pietto",
+        path="phase12-slice4.pietto",
     )
     assert limit_result.diagnostics == ()
     assert limit_result.ast is not None
@@ -234,13 +241,25 @@ def test_limit_is_implemented_while_order_by_remains_rejected() -> None:
         "        id\n",
         path="phase12-slice3.pietto",
     )
-    assert order_result.ast is None
-    assert any(
-        diagnostic.code == "PIE-P1000" for diagnostic in order_result.diagnostics
+    assert order_result.diagnostics == ()
+    assert order_result.ast is not None
+
+    ordinal_result = parse_source(
+        "query projected:\n"
+        "    from input_relation\n"
+        "    select:\n"
+        "        id\n"
+        "    order by:\n"
+        "        1\n",
+        path="phase12-slice4.pietto",
     )
+    assert ordinal_result.ast is None
+    assert [diagnostic.code for diagnostic in ordinal_result.diagnostics] == [
+        "PIE-P1000"
+    ]
 
 
-def test_slice3_preserves_configuration_cli_and_golden_boundaries() -> None:
+def test_slice4_preserves_configuration_cli_and_golden_boundaries() -> None:
     for path, expected_hash in FILE_HASHES.items():
         assert _sha256(REPO_ROOT / path) == expected_hash
 
