@@ -208,7 +208,7 @@ def test_slice4_keeps_prior_commands_independent_and_later_slices_absent() -> No
     assert _sha256(REPO_ROOT / "Makefile") == (
         "dbd38c41e2af5275c379de0b88c92f3861efb90724c7de1a291e0aa007ce2db7"
     )
-    assert not (REPO_ROOT / ".github" / "workflows").exists()
+    assert (REPO_ROOT / ".github/workflows/ci.yml").is_file()
     assert not (REPO_ROOT / "scripts" / "package_smoke.py").exists()
 
 

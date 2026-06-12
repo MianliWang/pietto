@@ -12,7 +12,9 @@
 
 **Slice 4: Golden Fixture Policy And Audit is complete.**
 
-Slices 5 through 7 are planned only. They are not implemented or authorized
+**Slice 5: GitHub Actions CI is complete.**
+
+Slices 6 and 7 are planned only. They are not implemented or authorized
 merely because they appear in this plan. Each later slice requires a separate
 explicit implementation request.
 
@@ -91,8 +93,9 @@ or test Pyright diagnostics, and a valid lock resolving 19 packages.
 Slice 2 implements the repository validation entry point. Slice 3 implements
 the reviewed ANTLR jar checksum and an independent generated-file guard.
 Slice 4 implements the golden fixture policy and independent inventory,
-ownership, and JSON-validity audit. CI and an installed-package smoke test
-remain unimplemented.
+ownership, and JSON-validity audit. Slice 5 implements minimal-permission
+GitHub Actions orchestration for the three accepted local commands. An
+installed-package smoke test remains unimplemented.
 
 ## Phase Boundary
 
@@ -144,7 +147,7 @@ attestations, and automated version changes remain outside Phase 11.
 4. **Golden Fixture Policy And Audit**: complete. Publish the reviewed
    fixture policy and add deterministic inventory and orphan checks without
    automatic fixture updates.
-5. **GitHub Actions CI**: planned only. Run the accepted validation contracts
+5. **GitHub Actions CI**: complete. Run the accepted validation contracts
    with minimal permissions on Python 3.12 and 3.13 and Java 21.
 6. **Packaging And Installed CLI Smoke**: planned only. Build sdist and wheel,
    install the wheel into a clean temporary environment, and exercise the
@@ -377,6 +380,8 @@ git diff --check
 
 ## Slice 5: GitHub Actions CI
 
+**Slice 5 is complete.**
+
 ### Goal
 
 Run the accepted local release-readiness gates on every supported pull request
@@ -385,15 +390,40 @@ logic.
 
 ### Allowed Changes
 
-Slice 5 may add `.github/workflows/ci.yml`, focused static workflow audits,
-and CI documentation. The workflow must:
+Slice 5 adds `.github/workflows/ci.yml`, focused static workflow audits, and
+CI documentation. The workflow:
 
 - declare `permissions: contents: read`;
 - use Python 3.12 and Python 3.13;
 - use Java 21 for the generated-file guard;
 - invoke the authoritative local validation and audit commands;
-- pin third-party actions to reviewed full commit SHAs;
+- pin every action to a reviewed full commit SHA;
 - avoid secrets, publishing, artifact signing, deployment, and write tokens.
+
+The reviewed action pins are:
+
+- `actions/checkout` v4.3.1 at
+  `34e114876b0b11c390a56381ad16ebd13914f8d5`;
+- `actions/setup-python` v6.2.0 at
+  `a309ff8b426b58ec0e2a45f0f869d46889d02405`;
+- `actions/setup-java` v5.2.0 at
+  `be666c2fcd27ec809703dec50e508c2fdc7f6654`;
+- `astral-sh/setup-uv` v7.6.0 at
+  `37802adc94f370d6bfd71619e3f0bf239e1f3b78`.
+
+The workflow installs the locally reviewed uv version `0.11.19`, disables
+setup-uv cache persistence, keeps uv's project environment and cache under
+the runner temporary directory, and runs:
+
+```bash
+uv run python scripts/validate.py
+uv run python scripts/check_generated.py
+uv run python scripts/check_goldens.py
+```
+
+It triggers for pull requests and pushes to `main`. Checkout credential
+persistence is disabled, and Java setup does not create Maven publishing
+settings.
 
 Python 3.12 is required because `pyproject.toml` declares it as the package
 compatibility floor. Python 3.13 is required as the newer interpreter target.

@@ -286,7 +286,7 @@ def test_slice3_guard_stays_independent_from_later_workflows() -> None:
     assert _sha256(REPO_ROOT / "Makefile") == (
         "dbd38c41e2af5275c379de0b88c92f3861efb90724c7de1a291e0aa007ce2db7"
     )
-    assert not (REPO_ROOT / ".github" / "workflows").exists()
+    assert (REPO_ROOT / ".github/workflows/ci.yml").is_file()
     for deferred_script in ("package_smoke.py",):
         assert not (REPO_ROOT / "scripts" / deferred_script).exists()
 

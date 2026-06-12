@@ -40,7 +40,8 @@ def test_phase11_master_plan_records_completed_slices_and_order() -> None:
     assert "**Slice 2: Authoritative Validation Entry Point is complete.**" in plan
     assert "**Slice 3: ANTLR Provenance And Generated-File Guard is complete.**" in plan
     assert "**Slice 4: Golden Fixture Policy And Audit is complete.**" in plan
-    assert "Slices 5 through 7 are planned only." in plan
+    assert "**Slice 5: GitHub Actions CI is complete.**" in plan
+    assert "Slices 6 and 7 are planned only." in plan
 
     slice_names = (
         "Master Plan And Baseline Audit",
@@ -72,12 +73,12 @@ def test_phase11_status_documents_are_scope_aware() -> None:
     for document in documents.values():
         normalized = " ".join(document.split())
         assert "Phase 11 Release Readiness & Reproducible Validation" in normalized
-        assert "Slice 4" in normalized
+        assert "Slice 5" in normalized
         assert PHASE11_PLAN in document
 
     combined = "\n".join(documents.values())
     assert "Phase 10 MySQL SQL Generation MVP is complete" in combined
-    assert "Slices 5 through 7" in combined
+    assert "Slices 6 and 7" in combined
     assert "planned" in combined
 
 
@@ -93,8 +94,12 @@ def test_python_floor_and_future_ci_matrix_are_explicit() -> None:
     assert "does not by itself change" in normalized_plan
 
 
-def test_slice4_adds_only_the_golden_audit_workflow_artifacts() -> None:
-    assert not (REPO_ROOT / ".github" / "workflows").exists()
+def test_slice5_adds_only_the_ci_workflow_artifact() -> None:
+    assert tuple(
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in sorted((REPO_ROOT / ".github/workflows").glob("*"))
+        if path.is_file()
+    ) == (".github/workflows/ci.yml",)
     assert tuple(
         path.relative_to(REPO_ROOT).as_posix()
         for path in sorted((REPO_ROOT / "scripts").glob("*.py"))
@@ -109,9 +114,10 @@ def test_slice4_adds_only_the_golden_audit_workflow_artifacts() -> None:
 
     plan = " ".join(_read(PHASE11_PLAN).split())
     for required in (
-        "Slice 4 implements the golden fixture policy",
-        "independent inventory, ownership, and JSON-validity audit",
-        "an installed-package smoke test remain unimplemented",
+        "Slice 5 implements minimal-permission GitHub Actions orchestration",
+        "Python 3.12 and Python 3.13",
+        "Java 21",
+        "installed-package smoke test remains unimplemented",
     ):
         assert required in plan
     assert (REPO_ROOT / "docs/spec/golden-fixture-policy-v1.md").is_file()

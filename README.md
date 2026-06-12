@@ -17,7 +17,7 @@ The current implementation status is:
 - **Phase 9.5 Static Typing And Source Extension Hardening: complete**;
 - **Phase 9.6 Test Typing Hygiene: complete**;
 - **Phase 10 MySQL SQL Generation MVP: complete**;
-- **Phase 11 Release Readiness & Reproducible Validation: Slices 1–4 complete,
+- **Phase 11 Release Readiness & Reproducible Validation: Slices 1–5 complete,
   phase in progress**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
@@ -192,11 +192,26 @@ uv run python scripts/check_goldens.py
 The audit validates fixture classification, test references, paired Pietto
 inputs, and JSON decoding without invoking the compiler or changing fixtures.
 The policy is documented in
-[Golden Fixture Policy v1](docs/spec/golden-fixture-policy-v1.md). Slices 5
-through 7 remain planned and unimplemented; CI and packaging smoke tests are
-not yet implemented. Slices 1 through 4 change no production code,
-dependency, grammar, generated file, existing golden content, SQL backend,
-CLI behavior, JSON schema, public Python API, or Makefile.
+[Golden Fixture Policy v1](docs/spec/golden-fixture-policy-v1.md).
+
+Slice 5 adds minimal-permission GitHub Actions CI for pull requests and pushes
+to `main`. The Python 3.12/3.13 matrix uses Java 21 and pinned action SHAs,
+installs uv `0.11.19`, and invokes the three accepted local commands without
+duplicating their logic:
+
+```bash
+uv run python scripts/validate.py
+uv run python scripts/check_generated.py
+uv run python scripts/check_goldens.py
+```
+
+The workflow has only `contents: read`, disables persisted checkout
+credentials and uv cache upload, and performs no publishing, deployment,
+artifact upload, or release creation. Slices 6 and 7 remain planned and
+unimplemented; packaging smoke tests are not yet implemented. Slices 1
+through 5 change no production code, dependency, grammar, generated file,
+existing golden content, SQL backend, CLI behavior, JSON schema, public
+Python API, or Makefile.
 `pyproject.toml` continues to declare Python `>=3.12`; the planned future CI
 matrix covers Python 3.12 and 3.13 without changing that compatibility floor.
 
