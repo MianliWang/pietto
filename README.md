@@ -18,7 +18,7 @@ The current implementation status is:
 - **Phase 9.6 Test Typing Hygiene: complete**;
 - **Phase 10 MySQL SQL Generation MVP: complete**;
 - **Phase 11 Release Readiness & Reproducible Validation: complete**;
-- **Phase 12 SQL Feature Expansion I: in progress, Slice 1 complete**.
+- **Phase 12 SQL Feature Expansion I: in progress, Slices 1 and 2 complete**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -240,16 +240,17 @@ actual package release. Package publication, PyPI or other registry
 credentials, release signing, provenance attestations, and automated
 versioning remain unimplemented.
 
-Phase 12 SQL Feature Expansion I is in progress as planning only. Slice 1
-Master Plan And Baseline Audit is complete; Slices 2 through 6 are planned
-only and require separate explicit authorization. Slice 1 records the
-post-Phase-11 baseline and six-slice sequence. It does not implement `LIMIT`
-or `ORDER BY`, and it changes no language syntax, compiler behavior, SQL
-output, CLI behavior, JSON v1 schema, public Python API, dependency, package
-metadata, or version.
+Phase 12 SQL Feature Expansion I is in progress as contract and planning work
+only. Slices 1 and 2 are complete. Slices 3 through 6 are planned only and
+require separate explicit authorization. Slice 2 defines the normative
+[ORDER BY / LIMIT Contract v1](docs/spec/order-limit-contract-v1.md), including
+static limit bounds, ordering scope, diagnostics, IR expectations, and dual
+backend formatting. It does not implement `LIMIT` or `ORDER BY`, and it
+changes no language syntax, compiler behavior, SQL output, CLI behavior, JSON
+v1 schema, public Python API, dependency, package metadata, or version.
 The earlier Phase 11 placeholder name, "Phase 12 / SQL Feature Expansion I",
-now refers only to this authorized planning slice; feature implementation is
-not authorized by Slice 1.
+now refers only to these authorized planning and contract slices; feature
+implementation is not authorized by Slice 1 or Slice 2.
 
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added

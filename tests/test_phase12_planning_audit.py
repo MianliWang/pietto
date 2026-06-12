@@ -65,7 +65,8 @@ def test_phase12_master_plan_records_exact_slice_order_and_status() -> None:
     assert "# Phase 12: SQL Feature Expansion I" in plan
     assert "**Phase 12 SQL Feature Expansion I is in progress.**" in plan
     assert "**Slice 1: Master Plan And Baseline Audit is complete.**" in plan
-    for number, name in enumerate(slice_names[1:], start=2):
+    assert "**Slice 2: ORDER BY / LIMIT Language Contract is complete.**" in plan
+    for number, name in enumerate(slice_names[2:], start=3):
         assert f"**Slice {number}: {name} is planned only.**" in plan
 
     offsets = [
@@ -73,8 +74,8 @@ def test_phase12_master_plan_records_exact_slice_order_and_status() -> None:
         for number, name in enumerate(slice_names, start=1)
     ]
     assert offsets == sorted(offsets)
-    assert len(re.findall(r"\*\*Slice \d+:[^*]+ is complete\.\*\*", plan)) == 1
-    assert len(re.findall(r"\*\*Slice \d+:[^*]+ is planned only\.\*\*", plan)) == 5
+    assert len(re.findall(r"\*\*Slice \d+:[^*]+ is complete\.\*\*", plan)) == 2
+    assert len(re.findall(r"\*\*Slice \d+:[^*]+ is planned only\.\*\*", plan)) == 4
     assert (
         "Each slice requires a separate explicit implementation request"
         in normalized_plan
@@ -92,7 +93,7 @@ def test_phase12_status_documents_are_scope_aware() -> None:
         normalized = " ".join(document.split())
         assert "Phase 11 Release Readiness & Reproducible Validation" in normalized
         assert "Phase 12" in normalized
-        assert "Slice 1" in normalized
+        assert "Slice 2" in normalized
         assert PHASE12_PLAN in document
 
     combined = " ".join("\n".join(documents.values()).split())
@@ -100,7 +101,8 @@ def test_phase12_status_documents_are_scope_aware() -> None:
         "Phase 11 Release Readiness & Reproducible Validation is complete" in combined
     )
     assert "Phase 12 SQL Feature Expansion I is in progress" in combined
-    assert "Slices 2 through 6 are planned only" in combined
+    assert "Slices 1 and 2 are complete" in combined
+    assert "Slices 3 through 6 are planned only" in combined
     assert "does not implement `LIMIT` or `ORDER BY`" in combined
 
 

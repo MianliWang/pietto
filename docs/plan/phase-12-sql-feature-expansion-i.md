@@ -6,7 +6,7 @@
 
 **Slice 1: Master Plan And Baseline Audit is complete.**
 
-**Slice 2: ORDER BY / LIMIT Language Contract is planned only.**
+**Slice 2: ORDER BY / LIMIT Language Contract is complete.**
 
 **Slice 3: LIMIT Vertical Slice is planned only.**
 
@@ -39,11 +39,11 @@ Pietto source
     -> CLI text or JSON v1 output
 ```
 
-The candidate implementation order is a small static `LIMIT` feature followed
-by `ORDER BY`. Slice 2 must define and approve the exact language and compiler
-contract before either feature may be implemented. Slice 3 is the only slice
-that may implement `LIMIT`, and Slice 4 is the only slice that may implement
-`ORDER BY`.
+The approved implementation order is a small static `LIMIT` feature followed
+by `ORDER BY`. Slice 2 defines the exact language and compiler contract in
+`docs/spec/order-limit-contract-v1.md` without implementing either feature.
+Slice 3 is the only slice that may implement `LIMIT`, and Slice 4 is the only
+slice that may implement `ORDER BY`.
 
 Simple projection aliases are already implemented through `alias =
 expression`, Semantic IR projection names, and both SQL backends. They are a
@@ -97,7 +97,7 @@ explicitly says otherwise:
 1. **Master Plan And Baseline Audit**: complete. Record the post-Phase-11
    baseline, fixed six-slice sequence, hard boundaries, validation commands,
    and planning-only audit.
-2. **ORDER BY / LIMIT Language Contract**: planned only. Define the exact
+2. **ORDER BY / LIMIT Language Contract**: complete. Define the exact
    source syntax, semantic scope, IR representation, diagnostics, backend
    formatting, and compatibility rules without implementing production code.
 3. **LIMIT Vertical Slice**: planned only. Implement the approved static
@@ -170,12 +170,21 @@ git diff --check
 
 ## Slice 2: ORDER BY / LIMIT Language Contract
 
+**Slice 2 is complete as contract-only work.**
+
 ### Goal
 
 Define a decision-complete contract for both candidate features before
 production implementation. The contract must settle syntax, clause order,
 semantic name resolution, accepted limit values, diagnostics, AST and IR
 shape, backend formatting, and cross-dialect behavior.
+
+The normative contract is
+`docs/spec/order-limit-contract-v1.md`. It fixes static integer limits in the
+inclusive range `0..9223372036854775807`, `PIE-S2307`, indented source-ordered
+sorting with explicit SQL directions, input-scope expression resolution, and
+dual-backend delivery. Current grammar and compiler behavior remain
+unchanged.
 
 ### Allowed Changes
 
