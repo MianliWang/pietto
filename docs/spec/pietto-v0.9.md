@@ -1,7 +1,7 @@
 # Pietto v0.9 Whitepaper and Language Reference
 
 Version: v0.9 draft
-Status: Phase 1 through Phase 10 complete; Phase 11 Slices 1 through 3 implemented
+Status: Phase 1 through Phase 10 complete; Phase 11 Slices 1 through 4 implemented
 Supported Python baseline: Python >=3.12; planned Phase 11 CI: Python 3.12/3.13
 Primary SQL target: PostgreSQL; MySQL 8.0+ generation MVP supported
 Preferred package manager: uv-first
@@ -36,13 +36,13 @@ Pietto source
     -> CLI text or JSON output
 ```
 
-Current implementation status after Phase 11 Slice 3: the parser/frontend,
+Current implementation status after Phase 11 Slice 4: the parser/frontend,
 Semantic Checker, Semantic IR, PostgreSQL and MySQL SQL generation,
 single-file CLI, security hardening, and JSON / machine-readable CLI
-presentation are implemented. Phase 11 Slices 1 through 3 add release-readiness
+presentation are implemented. Phase 11 Slices 1 through 4 add release-readiness
 planning, static baseline audits, one non-mutating local validation entry
-point, and one independent ANTLR provenance and generated-file
-reproducibility guard only. The public
+point, an independent ANTLR provenance and generated-file reproducibility
+guard, and an independent golden fixture policy and audit only. The public
 `build_ir(script, semantic_model)` API lowers analyzed programs into
 immutable, parser-independent IR. The public
 `emit_postgres_sql(script_ir)` API remains the PostgreSQL compatibility
@@ -1235,7 +1235,8 @@ LSP, Web UI, and server capabilities remain unimplemented.
 
 Status: in progress. Slice 1 Master Plan And Baseline Audit, Slice 2
 Authoritative Validation Entry Point, and Slice 3 ANTLR Provenance And
-Generated-File Guard are complete. Slices 4 through 7 are planned and
+Generated-File Guard, and Slice 4 Golden Fixture Policy And Audit are
+complete. Slices 5 through 7 are planned and
 unimplemented.
 
 Phase 11 Release Readiness & Reproducible Validation hardens release and
@@ -1257,12 +1258,19 @@ compares the complete tracked generated inventory and file bytes. It does not
 change the grammar, generated files, language, parser behavior, or runtime
 behavior, and it is not part of `scripts/validate.py`.
 
-Slices 1 through 3 change no language syntax, grammar, generated ANTLR file, AST,
+Slice 4 provides the independent
+`uv run python scripts/check_goldens.py` command and the normative
+`docs/spec/golden-fixture-policy-v1.md` policy. SQL fixtures remain byte-exact
+contracts; JSON fixtures remain structural contracts after standard-library
+decoding. The audit checks inventory, ownership, paired Pietto inputs, and JSON
+validity without invoking the compiler or modifying fixtures.
+
+Slices 1 through 4 change no language syntax, grammar, generated ANTLR file, AST,
 semantic behavior, Semantic IR, PostgreSQL or MySQL SQL output, CLI behavior,
 JSON schema, public Python API, dependency, lockfile, or Makefile. They do not
-implement CI, golden policy automation, package smoke tests, SQL features,
-execution, database access, project mode, watch mode, LSP/editor integration,
-Web UI, or an online playground.
+implement CI, package smoke tests, SQL features, execution, database access,
+project mode, watch mode, LSP/editor integration, Web UI, or an online
+playground.
 
 `pyproject.toml` remains authoritative with `requires-python = ">=3.12"`.
 Python 3.12 is the compatibility floor. The planned future CI slice validates

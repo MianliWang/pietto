@@ -10,7 +10,9 @@
 
 **Slice 3: ANTLR Provenance And Generated-File Guard is complete.**
 
-Slices 4 through 7 are planned only. They are not implemented or authorized
+**Slice 4: Golden Fixture Policy And Audit is complete.**
+
+Slices 5 through 7 are planned only. They are not implemented or authorized
 merely because they appear in this plan. Each later slice requires a separate
 explicit implementation request.
 
@@ -87,9 +89,10 @@ The entry result was 1290 passing tests, zero Ruff findings, zero production
 or test Pyright diagnostics, and a valid lock resolving 19 packages.
 
 Slice 2 implements the repository validation entry point. Slice 3 implements
-the reviewed ANTLR jar checksum and an independent generated-file guard. CI,
-a formal golden policy, and an installed-package smoke test remain
-unimplemented.
+the reviewed ANTLR jar checksum and an independent generated-file guard.
+Slice 4 implements the golden fixture policy and independent inventory,
+ownership, and JSON-validity audit. CI and an installed-package smoke test
+remain unimplemented.
 
 ## Phase Boundary
 
@@ -138,7 +141,7 @@ attestations, and automated version changes remain outside Phase 11.
 3. **ANTLR Provenance And Generated-File Guard**: complete. Verify the
    tracked ANTLR jar checksum, regenerate into a temporary directory, and
    compare the complete tracked generated output.
-4. **Golden Fixture Policy And Audit**: planned only. Publish the reviewed
+4. **Golden Fixture Policy And Audit**: complete. Publish the reviewed
    fixture policy and add deterministic inventory and orphan checks without
    automatic fixture updates.
 5. **GitHub Actions CI**: planned only. Run the accepted validation contracts
@@ -322,6 +325,8 @@ git diff --check
 
 ## Slice 4: Golden Fixture Policy And Audit
 
+**Slice 4 is complete.**
+
 ### Goal
 
 Make fixture ownership, comparison semantics, review requirements, and
@@ -329,10 +334,11 @@ inventory completeness explicit and mechanically auditable.
 
 ### Allowed Changes
 
-Slice 4 may add one golden policy document, a standard-library audit script,
-focused tests, and documentation links. It may add a manifest only if the
-slice proves that the manifest reduces ambiguity without duplicating existing
-test case ownership.
+Slice 4 adds one golden policy document, a standard-library audit script,
+focused tests, and documentation links. It does not add a separate manifest;
+the script's explicit classification and fixture-to-input map make the
+current inventory auditable without duplicating test case ownership in
+another data file.
 
 The policy must preserve:
 
@@ -342,6 +348,17 @@ The policy must preserve:
 - explicit human review for every fixture change;
 - focused behavioral tests for dynamic paths and failures;
 - no snapshot dependency and no automatic update command.
+
+The authoritative independent command is:
+
+```bash
+uv run python scripts/check_goldens.py
+```
+
+The command checks complete fixture classification, missing and orphan
+references, paired Pietto inputs, and standard-library JSON decoding. It reads
+SQL fixtures as bytes without normalization. It does not invoke the compiler,
+`scripts/validate.py`, or `scripts/check_generated.py`.
 
 ### Hard Boundaries
 

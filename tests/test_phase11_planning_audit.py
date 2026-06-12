@@ -39,7 +39,8 @@ def test_phase11_master_plan_records_completed_slices_and_order() -> None:
     assert "**Slice 1: Master Plan And Baseline Audit is complete.**" in plan
     assert "**Slice 2: Authoritative Validation Entry Point is complete.**" in plan
     assert "**Slice 3: ANTLR Provenance And Generated-File Guard is complete.**" in plan
-    assert "Slices 4 through 7 are planned only." in plan
+    assert "**Slice 4: Golden Fixture Policy And Audit is complete.**" in plan
+    assert "Slices 5 through 7 are planned only." in plan
 
     slice_names = (
         "Master Plan And Baseline Audit",
@@ -71,12 +72,12 @@ def test_phase11_status_documents_are_scope_aware() -> None:
     for document in documents.values():
         normalized = " ".join(document.split())
         assert "Phase 11 Release Readiness & Reproducible Validation" in normalized
-        assert "Slice 3" in normalized
+        assert "Slice 4" in normalized
         assert PHASE11_PLAN in document
 
     combined = "\n".join(documents.values())
     assert "Phase 10 MySQL SQL Generation MVP is complete" in combined
-    assert "Slices 4 through 7" in combined
+    assert "Slices 5 through 7" in combined
     assert "planned" in combined
 
 
@@ -92,13 +93,14 @@ def test_python_floor_and_future_ci_matrix_are_explicit() -> None:
     assert "does not by itself change" in normalized_plan
 
 
-def test_slice3_adds_only_the_generated_guard_workflow_artifacts() -> None:
+def test_slice4_adds_only_the_golden_audit_workflow_artifacts() -> None:
     assert not (REPO_ROOT / ".github" / "workflows").exists()
     assert tuple(
         path.relative_to(REPO_ROOT).as_posix()
         for path in sorted((REPO_ROOT / "scripts").glob("*.py"))
     ) == (
         "scripts/check_generated.py",
+        "scripts/check_goldens.py",
         "scripts/validate.py",
     )
     assert (REPO_ROOT / "tools" / "antlr-4.13.2-complete.jar.sha256").read_text(
@@ -107,12 +109,12 @@ def test_slice3_adds_only_the_generated_guard_workflow_artifacts() -> None:
 
     plan = " ".join(_read(PHASE11_PLAN).split())
     for required in (
-        "Slice 3 implements the reviewed ANTLR jar checksum",
-        "an independent generated-file guard",
-        "a formal golden policy",
+        "Slice 4 implements the golden fixture policy",
+        "independent inventory, ownership, and JSON-validity audit",
         "an installed-package smoke test remain unimplemented",
     ):
         assert required in plan
+    assert (REPO_ROOT / "docs/spec/golden-fixture-policy-v1.md").is_file()
 
 
 def test_phase11_does_not_authorize_makefile_integration_by_default() -> None:

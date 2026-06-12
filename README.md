@@ -17,7 +17,7 @@ The current implementation status is:
 - **Phase 9.5 Static Typing And Source Extension Hardening: complete**;
 - **Phase 9.6 Test Typing Hygiene: complete**;
 - **Phase 10 MySQL SQL Generation MVP: complete**;
-- **Phase 11 Release Readiness & Reproducible Validation: Slices 1–3 complete,
+- **Phase 11 Release Readiness & Reproducible Validation: Slices 1–4 complete,
   phase in progress**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
@@ -180,11 +180,23 @@ uv run python scripts/check_generated.py
 
 The guard verifies the local jar, regenerates into a temporary directory, and
 compares the complete tracked generated inventory and bytes. It does not
-download tools, update generated files, or join `scripts/validate.py`. Slices
-4 through 7 remain planned and unimplemented; CI, golden policy automation,
-and packaging smoke tests are not yet implemented. Slices 1 through 3 change
-no production code, dependency, grammar, generated file, SQL backend, CLI
-behavior, JSON schema, public Python API, or Makefile.
+download tools, update generated files, or join `scripts/validate.py`.
+
+Slice 4 defines the reviewed SQL byte-exact and JSON structural golden policy
+and adds an independent, non-mutating inventory and orphan audit:
+
+```bash
+uv run python scripts/check_goldens.py
+```
+
+The audit validates fixture classification, test references, paired Pietto
+inputs, and JSON decoding without invoking the compiler or changing fixtures.
+The policy is documented in
+[Golden Fixture Policy v1](docs/spec/golden-fixture-policy-v1.md). Slices 5
+through 7 remain planned and unimplemented; CI and packaging smoke tests are
+not yet implemented. Slices 1 through 4 change no production code,
+dependency, grammar, generated file, existing golden content, SQL backend,
+CLI behavior, JSON schema, public Python API, or Makefile.
 `pyproject.toml` continues to declare Python `>=3.12`; the planned future CI
 matrix covers Python 3.12 and 3.13 without changing that compatibility floor.
 

@@ -147,17 +147,16 @@ def test_slice2_validation_stays_separate_from_later_workflows() -> None:
 
     assert scripts == (
         "scripts/check_generated.py",
+        "scripts/check_goldens.py",
         "scripts/validate.py",
     )
     assert all("check_generated.py" not in command for _, command in validate.GATES)
+    assert all("check_goldens.py" not in command for _, command in validate.GATES)
     assert _sha256(REPO_ROOT / "Makefile") == (
         "dbd38c41e2af5275c379de0b88c92f3861efb90724c7de1a291e0aa007ce2db7"
     )
     assert not (REPO_ROOT / ".github" / "workflows").exists()
-    for deferred_script in (
-        "check_goldens.py",
-        "package_smoke.py",
-    ):
+    for deferred_script in ("package_smoke.py",):
         assert not (REPO_ROOT / "scripts" / deferred_script).exists()
 
 
