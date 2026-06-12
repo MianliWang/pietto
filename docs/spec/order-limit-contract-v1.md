@@ -2,8 +2,9 @@
 
 ## Status
 
-Status: Phase 12 Slice 3 static `LIMIT`, Slice 4 `ORDER BY`, and Slice 5
-composition and presentation coverage complete.
+Status: Phase 12 is complete. Slice 3 static `LIMIT`, Slice 4 input-scope
+`ORDER BY`, and Slice 5 composition and presentation coverage are complete.
+Slice 6 verifies the contract without changing language or runtime behavior.
 
 This document is the decision authority for the Phase 12 `LIMIT` and
 `ORDER BY` MVP. Slice 3 implements the `LIMIT` portions of this contract, and

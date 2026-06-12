@@ -273,7 +273,7 @@ def test_suffix_diagnostics_and_slice_status_remain_canonical() -> None:
     assert re.search(r"\." + "pie" + r"\b", repository_text) is None
     assert re.search(r"(?<!PIE-)\b[PSIB][0-9]{4}\b", repository_text) is None
     assert "**Slice 5: Composition, CLI/JSON And Goldens is complete.**" in plan
-    assert "**Slice 6: Completion Audit And Documentation is planned only.**" in plan
+    assert "**Slice 6: Completion Audit And Documentation is complete.**" in plan
 
 
 def _compile(input_path: Path) -> ScriptIR:

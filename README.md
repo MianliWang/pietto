@@ -18,7 +18,7 @@ The current implementation status is:
 - **Phase 9.6 Test Typing Hygiene: complete**;
 - **Phase 10 MySQL SQL Generation MVP: complete**;
 - **Phase 11 Release Readiness & Reproducible Validation: complete**;
-- **Phase 12 SQL Feature Expansion I: in progress, Slices 1 through 5 complete**.
+- **Phase 12 SQL Feature Expansion I: complete**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -242,9 +242,8 @@ actual package release. Package publication, PyPI or other registry
 credentials, release signing, provenance attestations, and automated
 versioning remain unimplemented.
 
-Phase 12 SQL Feature Expansion I is in progress. Slices 1 through 5 are
-complete. Slice 6 is planned only and requires separate explicit
-authorization. Slice 2 defines the normative
+Phase 12 SQL Feature Expansion I is complete. Slices 1 through 6 are complete.
+Slice 2 defines the normative
 [ORDER BY / LIMIT Contract v1](docs/spec/order-limit-contract-v1.md), including
 static limit bounds, ordering scope, diagnostics, IR expectations, and dual
 backend formatting. Slice 3 implements only static `LIMIT` for PostgreSQL and
@@ -254,8 +253,14 @@ aliases are not available to ordering. CLI options, JSON v1, public Python
 APIs, dependencies, package metadata, version, and all existing golden
 fixtures remain unchanged. Slice 5 adds reviewed PostgreSQL and MySQL
 composition goldens plus coverage of the unchanged CLI text, atomic
-output-file, and JSON v1 paths. JSON schema version 1 remains unchanged, and
-Slice 6 is the only remaining completion-audit and documentation slice.
+output-file, and JSON v1 paths. Slice 6 completes the cross-slice audit and
+documentation without production changes. JSON schema version 1 remains
+unchanged.
+
+Phase 12 completion is not an actual package release. Package publication,
+registry upload, signing, attestations, automated versioning, and a version
+bump remain unimplemented. Future phases require separate explicit
+authorization. Unrequested future work is not authorized.
 
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added
@@ -298,8 +303,8 @@ renderer decision, and reevaluation conditions are documented in
 The current release-readiness baseline, seven-slice sequence, compatibility
 gates, and deferred workflow implementations are documented in
 [the Phase 11 Release Readiness & Reproducible Validation plan](docs/plan/phase-11-release-readiness-reproducible-validation.md).
-The current Phase 12 planning baseline, fixed six-slice sequence, compatibility
-gates, and hard non-goals are documented in
+The completed Phase 12 six-slice sequence, compatibility gates, and hard
+non-goals are documented in
 [the Phase 12 SQL Feature Expansion I plan](docs/plan/phase-12-sql-feature-expansion-i.md).
 The future private closed selector, enabled-dialect gate, failure
 classification, stage boundary, and presentation ownership are documented in

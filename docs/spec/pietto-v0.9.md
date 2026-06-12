@@ -1,7 +1,7 @@
 # Pietto v0.9 Whitepaper and Language Reference
 
 Version: v0.9 draft
-Status: Phase 1 through Phase 11 complete; Phase 12 Slices 1 through 5 complete
+Status: Phase 1 through Phase 12 complete
 Supported Python baseline: Python >=3.12; Phase 11 CI: Python 3.12/3.13
 Primary SQL target: PostgreSQL; MySQL 8.0+ generation MVP supported
 Preferred package manager: uv-first
@@ -36,7 +36,7 @@ Pietto source
     -> CLI text or JSON output
 ```
 
-Current implementation status after Phase 11 completion and Phase 12 Slice 5:
+Current implementation status after Phase 12 completion:
 the parser/frontend,
 Semantic Checker, Semantic IR, PostgreSQL and MySQL SQL generation,
 single-file CLI, security hardening, and JSON / machine-readable CLI
@@ -1301,10 +1301,11 @@ Phase 11 completion means the release-readiness and reproducible-validation
 contract is complete; it does not mean Pietto has been published. Actual
 package publication, PyPI or other registry credentials, release signing,
 provenance attestations, and automated versioning remain unimplemented.
+The phrase "Phase 11 complete" remains the historical release-readiness
+milestone; Phase 12 completion does not change that contract.
 ### Phase 12: SQL Feature Expansion I
 
-Status: in progress. Slices 1 through 5 are complete. Slice 6 is planned only
-and requires a separate explicit implementation request.
+Status: complete. Slices 1 through 6 are complete.
 
 Slice 1 records the post-Phase-11 baseline and the fixed six-slice sequence in
 `docs/plan/phase-12-sql-feature-expansion-i.md`. Slice 2 defines the
@@ -1326,8 +1327,15 @@ collation remain unimplemented. Slice 5 adds reviewed PostgreSQL and MySQL
 composition inputs and byte-exact SQL goldens, one structural MySQL JSON v1
 golden, and focused coverage of the unchanged CLI text and atomic output-file
 paths. All historical golden bytes, CLI options, JSON schema version 1, and
-production compiler behavior remain unchanged. Slice 6 is the only remaining
-completion-audit and documentation slice.
+production compiler behavior remain unchanged.
+
+Slice 6 completes the cross-slice audit and documentation without changing
+the grammar, generated parser, production compiler, SQL backends, CLI, JSON
+schema, public API, dependencies, package metadata, or version. Phase 12
+completion is not an actual package release. Package publication, registry
+upload, signing, attestations, automated versioning, and a version bump remain
+unimplemented. Future implementation work requires separate explicit
+authorization.
 
 JSON schema version 1 remains the only implemented runtime JSON contract.
 `emit_postgres_sql(ScriptIR) -> SqlResult` remains public,

@@ -2,7 +2,7 @@
 
 ## Status
 
-**Phase 12 SQL Feature Expansion I is in progress.**
+**Phase 12 SQL Feature Expansion I is complete.**
 
 **Slice 1: Master Plan And Baseline Audit is complete.**
 
@@ -14,7 +14,7 @@
 
 **Slice 5: Composition, CLI/JSON And Goldens is complete.**
 
-**Slice 6: Completion Audit And Documentation is planned only.**
+**Slice 6: Completion Audit And Documentation is complete.**
 
 Phases 1 through 11 are complete. Slice 1 records the post-Phase-11 compiler
 and release-readiness baseline and fixes the Phase 12 slice sequence. It adds
@@ -27,10 +27,14 @@ implements only the approved `ORDER BY` contract through grammar, AST,
 semantic expression typing, Semantic IR, and both SQL backends. Slice 5 adds
 only manually reviewed composition inputs and goldens, golden ownership, and
 focused coverage of the unchanged CLI text, output-file, and JSON v1 paths.
-Projection aliases are not in the ordering name-resolution scope. Slice 6 is
-not authorized merely because it appears in this plan and requires a separate
-explicit implementation request. Future implementation requests require
+Slice 6 completes the cross-slice behavioral, compatibility, workflow, and
+documentation audit without production changes. Projection aliases are not in
+the ordering name-resolution scope. Future implementation work requires
 separate explicit authorization.
+
+Phase 12 completion is not an actual package release. Package publication,
+registry upload, release signing, provenance attestations, automated
+versioning, and a package version bump remain unimplemented.
 
 ## Goal
 
@@ -113,7 +117,7 @@ explicitly says otherwise:
    `ORDER BY` contract end to end for both PostgreSQL and MySQL.
 5. **Composition, CLI/JSON And Goldens**: complete. Add reviewed
    cross-feature fixtures and verify unchanged CLI and JSON v1 presentation.
-6. **Completion Audit And Documentation**: planned only. Complete the
+6. **Completion Audit And Documentation**: complete. Complete the
    cross-slice compatibility, workflow, scope, and documentation audit.
 
 The order is fixed. Phase 12 uses vertical feature slices rather than exposing
@@ -212,7 +216,8 @@ unchanged.
 - PostgreSQL/MySQL parity requirements;
 - existing projection-alias behavior distinguished from new ordering scope;
 - explicit rejection of unapproved syntax and capabilities;
-- At Slice 2 completion, Slices 3 through 6 remained planned only.
+- At Slice 2 completion, implementation authorization had not yet been
+  granted for Slices 3 through 6.
 
 ### Validation
 
@@ -368,10 +373,19 @@ git diff --check
 
 ## Slice 6: Completion Audit And Documentation
 
+**Slice 6 is complete.**
+
 ### Goal
 
 Close Phase 12 only after all approved feature, compatibility, workflow, and
 scope contracts pass together.
+
+The completed audit locks the approved grammar and parser surface, static
+limit diagnostics, input-scope ordering semantics, IR defaults and direction
+normalization, PostgreSQL/MySQL byte-exact composition output, the fifteen
+reviewed golden fixtures, the twelve historical golden bytes, JSON v1, CLI
+options, public/private emitter boundaries, dependency and package metadata,
+and all Phase 11 release-readiness gates. It adds no production behavior.
 
 ### Allowed Changes
 
@@ -439,6 +453,5 @@ audit tests. The later phase has moderate overall risk:
   absence checks that later authorized slices must migrate explicitly;
 - golden inventory changes require manual review and ownership updates.
 
-The Phase 11 release-readiness gates are expected to remain unchanged. They
-must validate each later slice rather than be weakened, bypassed, or folded
-into new scripts.
+The Phase 11 release-readiness gates remain unchanged and validate the
+completed phase without being weakened, bypassed, or folded into new scripts.

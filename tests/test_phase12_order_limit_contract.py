@@ -51,22 +51,23 @@ GROUP_HASHES = {
 GOLDENS_HASH = "66190fd279c318c33bc85fbe877a73fefc05791c922c64a4ca7b733b4e53c502"
 
 
-def test_contract_exists_and_slice5_status_is_exact() -> None:
+def test_contract_exists_and_phase12_status_is_exact() -> None:
     contract = _read(CONTRACT_PATH)
     normalized_contract = " ".join(contract.split())
     plan = _read(PLAN_PATH)
 
     assert "# ORDER BY / LIMIT Contract Version 1" in contract
     assert (
-        "Slice 3 static `LIMIT`, Slice 4 `ORDER BY`, and Slice 5 composition "
-        "and presentation coverage complete" in normalized_contract
+        "Phase 12 is complete. Slice 3 static `LIMIT`, Slice 4 input-scope "
+        "`ORDER BY`, and Slice 5 composition and presentation coverage are "
+        "complete" in normalized_contract
     )
     assert "**Slice 1: Master Plan And Baseline Audit is complete.**" in plan
     assert "**Slice 2: ORDER BY / LIMIT Language Contract is complete.**" in plan
     assert "**Slice 3: LIMIT Vertical Slice is complete.**" in plan
     assert "**Slice 4: ORDER BY Vertical Slice is complete.**" in plan
     assert "**Slice 5: Composition, CLI/JSON And Goldens is complete.**" in plan
-    assert "**Slice 6: Completion Audit And Documentation is planned only.**" in plan
+    assert "**Slice 6: Completion Audit And Documentation is complete.**" in plan
 
 
 def test_limit_literal_range_and_diagnostic_contract_are_fixed() -> None:
@@ -256,7 +257,7 @@ def test_limit_and_order_by_are_implemented_while_ordinals_are_rejected() -> Non
     ]
 
 
-def test_slice5_preserves_configuration_cli_and_golden_boundaries() -> None:
+def test_slice6_preserves_configuration_cli_and_golden_boundaries() -> None:
     for path, expected_hash in FILE_HASHES.items():
         assert _sha256(REPO_ROOT / path) == expected_hash
 

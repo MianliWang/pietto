@@ -50,7 +50,7 @@ GROUP_HASHES = {
 GOLDENS_HASH = "66190fd279c318c33bc85fbe877a73fefc05791c922c64a4ca7b733b4e53c502"
 
 
-def test_phase12_master_plan_records_exact_slice_order_and_status() -> None:
+def test_phase12_master_plan_records_final_slice_order_and_status() -> None:
     plan = _read(PHASE12_PLAN)
     normalized_plan = " ".join(plan.split())
     slice_names = (
@@ -63,22 +63,25 @@ def test_phase12_master_plan_records_exact_slice_order_and_status() -> None:
     )
 
     assert "# Phase 12: SQL Feature Expansion I" in plan
-    assert "**Phase 12 SQL Feature Expansion I is in progress.**" in plan
+    assert "**Phase 12 SQL Feature Expansion I is complete.**" in plan
     assert "**Slice 1: Master Plan And Baseline Audit is complete.**" in plan
     assert "**Slice 2: ORDER BY / LIMIT Language Contract is complete.**" in plan
     assert "**Slice 3: LIMIT Vertical Slice is complete.**" in plan
     assert "**Slice 4: ORDER BY Vertical Slice is complete.**" in plan
     assert "**Slice 5: Composition, CLI/JSON And Goldens is complete.**" in plan
-    assert "**Slice 6: Completion Audit And Documentation is planned only.**" in plan
+    assert "**Slice 6: Completion Audit And Documentation is complete.**" in plan
 
     offsets = [
         plan.index(f"{number}. **{name}**")
         for number, name in enumerate(slice_names, start=1)
     ]
     assert offsets == sorted(offsets)
-    assert len(re.findall(r"\*\*Slice \d+:[^*]+ is complete\.\*\*", plan)) == 5
-    assert len(re.findall(r"\*\*Slice \d+:[^*]+ is planned only\.\*\*", plan)) == 1
-    assert "requires a separate explicit implementation request" in normalized_plan
+    assert len(re.findall(r"\*\*Slice \d+:[^*]+ is complete\.\*\*", plan)) == 6
+    assert "planned only" not in normalized_plan
+    assert (
+        "Future implementation work requires separate explicit authorization"
+        in normalized_plan
+    )
 
 
 def test_phase12_status_documents_are_scope_aware() -> None:
@@ -99,15 +102,14 @@ def test_phase12_status_documents_are_scope_aware() -> None:
     assert (
         "Phase 11 Release Readiness & Reproducible Validation is complete" in combined
     )
-    assert "Phase 12 SQL Feature Expansion I is in progress" in combined
-    assert "Slices 1 through 5 are complete" in combined
-    assert "Slice 6 is planned only" in combined
+    assert "Phase 12 SQL Feature Expansion I is complete" in combined
+    assert "Slices 1 through 6 are complete" in combined
     assert "Slice 3 implements only static `LIMIT`" in combined
     assert "Slice 4 implements only input-scope `ORDER BY`" in combined
     assert "Projection aliases are not available to ordering" in combined
 
 
-def test_slice5_locks_configuration_workflow_and_compiler_boundaries() -> None:
+def test_slice6_locks_configuration_workflow_and_compiler_boundaries() -> None:
     for path, expected_hash in FILE_HASHES.items():
         assert _sha256(REPO_ROOT / path) == expected_hash
 

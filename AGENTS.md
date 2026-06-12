@@ -86,9 +86,8 @@ Rules:
 
 ## Current Phase
 
-Current phase status: Phase 12 SQL Feature Expansion I is in progress. Slices
-1 through 5 are complete. Slice 6 is planned only and requires a separate
-explicit implementation request. Slice 1 adds only the master plan,
+Current phase status: Phase 12 SQL Feature Expansion I is complete. Slices 1
+through 6 are complete. Slice 1 adds only the master plan,
 a focused planning audit, and scope-aware status documentation. Slice 2 adds
 only `docs/spec/order-limit-contract-v1.md`, focused static contract tests,
 and scope-aware documentation. Slice 3 implements only static `LIMIT` through
@@ -101,7 +100,11 @@ v1 paths. Projection aliases, output-schema lookup, ordinal ordering, null
 ordering, and collation remain unimplemented. CLI options, JSON v1 schema,
 public Python APIs, dependencies, package metadata, version, and all
 historical golden bytes remain unchanged.
-Future implementation slices require separate explicit authorization.
+Slice 6 adds only `tests/test_phase12_completion_audit.py` and final
+scope-aware documentation. It locks the language, compiler, dual-backend,
+golden, CLI/JSON v1, API, dependency, package, and Phase 11 workflow
+boundaries without production changes. Future implementation work requires
+separate explicit authorization.
 Phase 11 Release Readiness & Reproducible Validation is complete. All seven
 slices are complete, including Slice 7 Completion Audit And Documentation.
 Historical Phase 11 status text: "Current phase status: Phase 11 Release
@@ -326,11 +329,10 @@ allowed workflow changes, compatibility gates, and hard non-goals are
 documented in
 `docs/plan/phase-11-release-readiness-reproducible-validation.md`. Slices 1
 through 7 are complete.
-The current Phase 12 planning baseline, fixed six-slice sequence,
-compatibility gates, and hard non-goals are documented in
-`docs/plan/phase-12-sql-feature-expansion-i.md`. Slices 1 through 3 are
-complete, and Slices 4 and 5 are complete. Slice 6 is planned only and is not
-authorized by its inclusion in the plan. The normative contract is
+The completed Phase 12 fixed six-slice sequence, compatibility gates, and hard
+non-goals are documented in
+`docs/plan/phase-12-sql-feature-expansion-i.md`. Slices 1 through 6 are
+complete. The normative contract is
 documented in
 `docs/spec/order-limit-contract-v1.md`.
 
@@ -369,11 +371,11 @@ Do not implement after the completed phase unless explicitly requested:
 All seven Phase 9 slices, Phase 9.5, and Phase 9.6 are complete. Phase 10
 is complete with all nine slices audited. SQLGlot is rejected for the Phase
 10 MVP. Phase 11 is complete with all seven slices audited.
-Phase 12 Slices 1 through 5 are complete. Slice 3 adds only the approved
+Phase 12 Slices 1 through 6 are complete. Slice 3 adds only the approved
 static `LIMIT` vertical slice, Slice 4 adds only the approved input-scope
 `ORDER BY` vertical slice, and Slice 5 adds only reviewed composition
-fixtures, goldens, and unchanged CLI/JSON v1 coverage. Slice 6 remains planned
-and unimplemented.
+fixtures, goldens, and unchanged CLI/JSON v1 coverage. Slice 6 adds only the
+completion audit and final documentation.
 The private MySQL backend, static `mysql.table(Text)` semantic/IR surface, and
 closed renderer are the MySQL compiler boundaries. Explicit private CLI
 dispatch and JSON v1 presentation are enabled. Public emitter export, a
@@ -389,7 +391,10 @@ hardening, not an actual release. Package publication, registry credentials,
 release signing, provenance attestations, and automated versioning remain
 unimplemented. Phase 12 SQL Feature Expansion I has implemented only the
 Slice 3 static `LIMIT`, Slice 4 input-scope `ORDER BY`, and Slice 5 reviewed
-composition coverage. Slice 6 still requires a separate explicit request.
+composition coverage. Slice 6 completes the audit without production changes.
+Phase 12 completion is not an actual package release; publication, registry
+upload, signing, attestations, automated versioning, and version bump remain
+unimplemented.
 
 ## Required Repository Structure
 
