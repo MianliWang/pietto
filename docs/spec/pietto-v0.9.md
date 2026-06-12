@@ -1,7 +1,7 @@
 # Pietto v0.9 Whitepaper and Language Reference
 
 Version: v0.9 draft
-Status: Phase 1 through Phase 11 complete
+Status: Phase 1 through Phase 11 complete; Phase 12 Slice 1 planning complete
 Supported Python baseline: Python >=3.12; Phase 11 CI: Python 3.12/3.13
 Primary SQL target: PostgreSQL; MySQL 8.0+ generation MVP supported
 Preferred package manager: uv-first
@@ -36,7 +36,8 @@ Pietto source
     -> CLI text or JSON output
 ```
 
-Current implementation status after Phase 11 completion: the parser/frontend,
+Current implementation status after Phase 11 completion and Phase 12 Slice 1:
+the parser/frontend,
 Semantic Checker, Semantic IR, PostgreSQL and MySQL SQL generation,
 single-file CLI, security hardening, and JSON / machine-readable CLI
 presentation are implemented. Phase 11 adds release-readiness
@@ -1300,8 +1301,25 @@ Phase 11 completion means the release-readiness and reproducible-validation
 contract is complete; it does not mean Pietto has been published. Actual
 package publication, PyPI or other registry credentials, release signing,
 provenance attestations, and automated versioning remain unimplemented.
-Phase 12 / SQL Feature Expansion I may be considered as future planning, but
-it is not authorized or started by this specification.
+### Phase 12: SQL Feature Expansion I
+
+Status: in progress as planning only. Slice 1 Master Plan And Baseline Audit is
+complete. Slices 2 through 6 are planned only and require separate explicit
+implementation requests.
+
+Slice 1 records the post-Phase-11 baseline and the fixed six-slice sequence in
+`docs/plan/phase-12-sql-feature-expansion-i.md`. It does not implement `LIMIT`
+or `ORDER BY`. It changes no language syntax, grammar, generated ANTLR,
+runtime behavior, AST, semantic analysis, Semantic IR, PostgreSQL or MySQL SQL
+generation, CLI behavior, JSON schema, public Python API, dependency, package
+metadata, or version.
+
+JSON schema version 1 remains the only implemented runtime JSON contract.
+`emit_postgres_sql(ScriptIR) -> SqlResult` remains public,
+`pietto.sql.mysql.emit_mysql_sql` remains private, and no generic public
+`emit_sql(...)` exists. SQLGlot remains uninstalled. `.pietto` remains the
+only official source suffix, and diagnostics retain canonical
+`PIE-P/S/I/Bxxxx` families.
 
 ---
 

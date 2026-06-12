@@ -17,7 +17,8 @@ The current implementation status is:
 - **Phase 9.5 Static Typing And Source Extension Hardening: complete**;
 - **Phase 9.6 Test Typing Hygiene: complete**;
 - **Phase 10 MySQL SQL Generation MVP: complete**;
-- **Phase 11 Release Readiness & Reproducible Validation: complete**.
+- **Phase 11 Release Readiness & Reproducible Validation: complete**;
+- **Phase 12 SQL Feature Expansion I: in progress, Slice 1 complete**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -237,8 +238,18 @@ covers Python 3.12 and 3.13 without changing that compatibility floor.
 Phase 11 is release-readiness and reproducible-validation hardening, not an
 actual package release. Package publication, PyPI or other registry
 credentials, release signing, provenance attestations, and automated
-versioning remain unimplemented. Phase 12 / SQL Feature Expansion I is a
-possible future planning direction and is not authorized or started here.
+versioning remain unimplemented.
+
+Phase 12 SQL Feature Expansion I is in progress as planning only. Slice 1
+Master Plan And Baseline Audit is complete; Slices 2 through 6 are planned
+only and require separate explicit authorization. Slice 1 records the
+post-Phase-11 baseline and six-slice sequence. It does not implement `LIMIT`
+or `ORDER BY`, and it changes no language syntax, compiler behavior, SQL
+output, CLI behavior, JSON v1 schema, public Python API, dependency, package
+metadata, or version.
+The earlier Phase 11 placeholder name, "Phase 12 / SQL Feature Expansion I",
+now refers only to this authorized planning slice; feature implementation is
+not authorized by Slice 1.
 
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added
@@ -281,6 +292,9 @@ renderer decision, and reevaluation conditions are documented in
 The current release-readiness baseline, seven-slice sequence, compatibility
 gates, and deferred workflow implementations are documented in
 [the Phase 11 Release Readiness & Reproducible Validation plan](docs/plan/phase-11-release-readiness-reproducible-validation.md).
+The current Phase 12 planning baseline, fixed six-slice sequence, compatibility
+gates, and hard non-goals are documented in
+[the Phase 12 SQL Feature Expansion I plan](docs/plan/phase-12-sql-feature-expansion-i.md).
 The future private closed selector, enabled-dialect gate, failure
 classification, stage boundary, and presentation ownership are documented in
 [the SQL dialect dispatch design](docs/spec/sql-dialect-dispatch-design-v1.md);

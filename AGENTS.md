@@ -86,9 +86,16 @@ Rules:
 
 ## Current Phase
 
-Current phase status: Phase 11 Release Readiness & Reproducible Validation is
-complete. All seven slices are complete, including Slice 7 Completion Audit
-And Documentation. No next phase is authorized or in progress.
+Current phase status: Phase 12 SQL Feature Expansion I is in progress. Slice 1
+Master Plan And Baseline Audit is complete. Slices 2 through 6 are planned
+only and require separate explicit implementation requests. Slice 1 adds only
+`docs/plan/phase-12-sql-feature-expansion-i.md`, a focused planning audit, and
+scope-aware status documentation. It does not implement `LIMIT` or `ORDER BY`
+and changes no production behavior.
+Phase 11 Release Readiness & Reproducible Validation is complete. All seven
+slices are complete, including Slice 7 Completion Audit And Documentation.
+Historical Phase 11 status text: "Current phase status: Phase 11 Release
+Readiness & Reproducible Validation is complete."
 Slice 2 adds only `scripts/validate.py`, focused tests, and scope-aware
 documentation. Its authoritative non-mutating command is
 `uv run python scripts/validate.py`; direct
@@ -309,6 +316,11 @@ allowed workflow changes, compatibility gates, and hard non-goals are
 documented in
 `docs/plan/phase-11-release-readiness-reproducible-validation.md`. Slices 1
 through 7 are complete.
+The current Phase 12 planning baseline, fixed six-slice sequence,
+compatibility gates, and hard non-goals are documented in
+`docs/plan/phase-12-sql-feature-expansion-i.md`. Slice 1 is complete. Slices 2
+through 6 are planned only and are not authorized by their inclusion in the
+plan.
 
 Current strict boundaries remain:
 
@@ -344,6 +356,8 @@ Do not implement after the completed phase unless explicitly requested:
 All seven Phase 9 slices, Phase 9.5, and Phase 9.6 are complete. Phase 10
 is complete with all nine slices audited. SQLGlot is rejected for the Phase
 10 MVP. Phase 11 is complete with all seven slices audited.
+Phase 12 Slice 1 is complete as planning and baseline audit only. Slices 2
+through 6 remain planned and unimplemented.
 The private MySQL backend, static `mysql.table(Text)` semantic/IR surface, and
 closed renderer are the MySQL compiler boundaries. Explicit private CLI
 dispatch and JSON v1 presentation are enabled. Public emitter export, a
@@ -357,8 +371,9 @@ earlier stages or introducing grammar syntax.
 Phase 11 completion is release-readiness and reproducible-validation
 hardening, not an actual release. Package publication, registry credentials,
 release signing, provenance attestations, and automated versioning remain
-unimplemented. Phase 12 / SQL Feature Expansion I may be considered in future
-planning, but it is not authorized or started.
+unimplemented. Phase 12 SQL Feature Expansion I is now planning-only at Slice
+1. No SQL feature implementation is authorized until its corresponding later
+slice receives a separate explicit request.
 
 ## Required Repository Structure
 
