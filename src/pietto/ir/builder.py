@@ -46,6 +46,7 @@ from pietto.ir.model import (
     ExpressionIR,
     FilterIR,
     IrResult,
+    LimitIR,
     NullabilityIR,
     ParameterIR,
     ProjectionIR,
@@ -419,6 +420,7 @@ def _lower_relation(
         )
         for item in definition.select_items
     )
+    limit = _lower_limit(definition)
     return RelationIR(
         symbol=_symbol(SymbolNamespace.RELATION, definition.name),
         name=definition.name,
@@ -436,6 +438,26 @@ def _lower_relation(
         projections=projections,
         row_schema=row_schema,
         span=lower_span(definition.span),
+        limit=limit,
+    )
+
+
+def _lower_limit(definition: DerivedRelation) -> LimitIR | None:
+    """Copy one semantically validated static limit into relation IR."""
+
+    clause = definition.limit_clause
+    if clause is None:
+        return None
+    expression = clause.expression
+    if (
+        not isinstance(expression, LiteralExpr)
+        or type(expression.value) is not int
+        or not 0 <= expression.value <= 9_223_372_036_854_775_807
+    ):
+        raise _MissingSemanticFact(expression, "validated static relation limit")
+    return LimitIR(
+        value=expression.value,
+        span=lower_span(expression.span),
     )
 
 

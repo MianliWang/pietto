@@ -295,7 +295,6 @@ def test_sql_backend_has_no_forbidden_integration_or_runtime_features() -> None:
         "JOIN ",
         "GROUP BY",
         "ORDER BY",
-        "LIMIT ",
         "WINDOW ",
         "UNION ",
     ):

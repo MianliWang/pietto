@@ -84,9 +84,11 @@ def test_all_public_ir_model_types_are_exported_without_internal_helpers() -> No
         for name, value in vars(ir_model).items()
         if _is_public_model_type(name, value)
     }
+    model_types.remove("LimitIR")
 
     assert set(ir_api.__all__) == model_types | {"ShapeItemIR", "build_ir"}
     assert all(hasattr(ir_api, name) for name in ir_api.__all__)
+    assert not hasattr(ir_api, "LimitIR")
     for helper in ("lower_expr", "lower_row_schema", "lower_type_ref"):
         assert not hasattr(ir_api, helper)
         assert helper not in ir_api.__all__

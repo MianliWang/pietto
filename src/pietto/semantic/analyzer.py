@@ -41,6 +41,7 @@ from pietto.semantic.model import (
     TypeKind,
 )
 from pietto.semantic.relation_cycles import check_relation_cycles
+from pietto.semantic.relation_limits import check_relation_limits
 from pietto.semantic.relation_schemas import propagate_relation_schemas
 from pietto.semantic.relations import resolve_relation_inputs
 from pietto.semantic.shapes import check_field_derives, check_shape_structures
@@ -187,6 +188,7 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
     expression_value_types.update(relation_value_types)
     expression_diagnostics.extend(relation_expression_diagnostics)
     diagnostics.extend(expression_diagnostics)
+    diagnostics.extend(check_relation_limits(script))
     diagnostics.extend(check_source_connectors(script, expression_value_types))
     diagnostics.extend(check_predicates(script, expression_value_types))
     diagnostics.extend(

@@ -28,6 +28,7 @@ from pietto.ast_nodes import (
     Header,
     IndexDef,
     IsNullExpr,
+    LimitClause,
     LiteralExpr,
     NameExpr,
     Nullability,
@@ -332,25 +333,31 @@ class AstBuilder(PiettoVisitor):
     def visitTableDefinition(self, ctx: _AntlrContext) -> TableDef:
         """Build a minimal table without resolving inputs or projection names."""
 
-        from_clause, where_clause, select_items = self._relation_body(ctx.tableBody())
+        from_clause, where_clause, select_items, limit_clause = self._relation_body(
+            ctx.tableBody()
+        )
         return TableDef(
             span=self._span(ctx),
             name=ctx.IDENTIFIER().getText(),
             from_clause=from_clause,
             where_clause=where_clause,
             select_items=select_items,
+            limit_clause=limit_clause,
         )
 
     def visitQueryDefinition(self, ctx: _AntlrContext) -> QueryDef:
         """Build a minimal query without resolving or executing its input."""
 
-        from_clause, where_clause, select_items = self._relation_body(ctx.tableBody())
+        from_clause, where_clause, select_items, limit_clause = self._relation_body(
+            ctx.tableBody()
+        )
         return QueryDef(
             span=self._span(ctx),
             name=ctx.IDENTIFIER().getText(),
             from_clause=from_clause,
             where_clause=where_clause,
             select_items=select_items,
+            limit_clause=limit_clause,
         )
 
     def visitFromClause(self, ctx: _AntlrContext) -> FromClause:
@@ -378,9 +385,22 @@ class AstBuilder(PiettoVisitor):
             expression=self.visit(ctx.expression()),
         )
 
+    def visitLimitClause(self, ctx: _AntlrContext) -> LimitClause:
+        """Build a limit clause without accepting its operand semantically."""
+
+        return LimitClause(
+            span=self._span(ctx),
+            expression=self.visit(ctx.expression()),
+        )
+
     def _relation_body(
         self, ctx: _AntlrContext
-    ) -> tuple[FromClause, WhereClause | None, tuple[SelectItem, ...]]:
+    ) -> tuple[
+        FromClause,
+        WhereClause | None,
+        tuple[SelectItem, ...],
+        LimitClause | None,
+    ]:
         """Build clauses shared by minimal table and query definitions."""
 
         return (
@@ -390,6 +410,7 @@ class AstBuilder(PiettoVisitor):
                 self.visit(item)
                 for item in ctx.selectClause().selectBody().selectItem()
             ),
+            self.visit(ctx.limitClause()) if ctx.limitClause() is not None else None,
         )
 
     def visitParameter(self, ctx: _AntlrContext) -> Parameter:

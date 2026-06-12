@@ -54,16 +54,16 @@ EXPECTED_FILES = {
     "pyproject.toml": "021682ef880fe748f1655d4d70fcc549db4336ac39db2b29a835762ab1723d50",
     "uv.lock": "996f7bcb04c380c2b3855167d33ffbd462c902245e63bee6e626ab1789d65071",
     "grammar/Pietto.g4": (
-        "af3e312593182f37e9d434677b4018a2aa3690cd337a51ef0b7b4f4c9d822caf"
+        "a6174030b3857ca006a1b55f1001acd4a9733aa2379fc26916a7c680474d30fb"
     ),
     "Makefile": "dbd38c41e2af5275c379de0b88c92f3861efb90724c7de1a291e0aa007ce2db7",
 }
 EXPECTED_GROUPS = {
-    "frontend": "7629023467e3a81fb9c1380315a4590bf1ded00373beb203f02a86c5e881c379",
-    "semantic": "a3b346207b5804ebed4116cb5a4b1f2521216feb5eaeb4af1b3a05fa8904fa8a",
-    "ir": "2bc3466eb4ecda401f4736859707dc2006cd6154b9e01e39184f6563dc90f7f5",
-    "sql": "edbe63a6b48ff20becf926589bfd5ff86cc9debdbf249c0d67842d52b8e56cb0",
-    "generated": "3995ef8be0cad120dbfde44e6af79ca6f84769d96a8673606e4dfb9b06c70c28",
+    "frontend": "7b04d8662ff58035904dae1fceec9b7d16c3c2087a114f91b08c25a14ab92597",
+    "semantic": "5424625b7a5ddcd30c37aaba9eaeeca81a5d0f80f31485a5e3951f391138e01b",
+    "ir": "aa2253673d188c2f870687978baf576816489c9685c59a47172013508279c7c5",
+    "sql": "b2e6915e4d41109058a34b8cf9f41fcd09bc62736e37ddc1ed6b8874c24677b3",
+    "generated": "adca4d1d01d2101c78d81d9537d46cc8cb9e073e898309dddb415577b5a02677",
     "cli": "235d4e50c3474306253dfc6b118e2518b3e300e90f7fbe9903263a39cbdc42a0",
 }
 POSTGRES_GOLDENS = {
@@ -98,7 +98,7 @@ MYSQL_GOLDENS = {
     ),
 }
 ALL_GOLDENS_HASH = "fc6ad37ee6bfdfb5a2cff2487618e471186841787042f150a369eaeab2fd2db4"
-BOUNDARY_HASH = "4c4d7423a8353ce9552e031045c0daf5cf51e9b39e545a6cfb7464e07569f3d9"
+BOUNDARY_HASH = "3bcce28aa65c9b936e48b3651dd0cbb519c682d39583e01a8ac266a2a850487e"
 
 
 def _load_module(name: str, path: Path) -> ModuleType:
@@ -392,7 +392,6 @@ def test_deferred_sql_runtime_project_and_web_capabilities_remain_absent() -> No
 
     for token in (
         "ORDER:",
-        "LIMIT:",
         "JOIN:",
         "GROUP:",
         "WINDOW:",

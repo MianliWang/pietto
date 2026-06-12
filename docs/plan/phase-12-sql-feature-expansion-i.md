@@ -8,7 +8,7 @@
 
 **Slice 2: ORDER BY / LIMIT Language Contract is complete.**
 
-**Slice 3: LIMIT Vertical Slice is planned only.**
+**Slice 3: LIMIT Vertical Slice is complete.**
 
 **Slice 4: ORDER BY Vertical Slice is planned only.**
 
@@ -22,8 +22,11 @@ no language syntax, grammar, generated ANTLR content, AST, semantic behavior,
 IR, SQL generation, CLI behavior, JSON schema, public API, dependency,
 package metadata, or release behavior.
 
-Later slices are not authorized merely because they appear in this plan. Each
-slice requires a separate explicit implementation request.
+Slice 3 implements only the approved static `LIMIT` contract through grammar,
+AST, semantic validation, Semantic IR, and both SQL backends. `ORDER BY`
+remains unimplemented. Slices 4 through 6 are not authorized merely because
+they appear in this plan; each requires a separate explicit implementation
+request.
 
 ## Goal
 
@@ -41,9 +44,8 @@ Pietto source
 
 The approved implementation order is a small static `LIMIT` feature followed
 by `ORDER BY`. Slice 2 defines the exact language and compiler contract in
-`docs/spec/order-limit-contract-v1.md` without implementing either feature.
-Slice 3 is the only slice that may implement `LIMIT`, and Slice 4 is the only
-slice that may implement `ORDER BY`.
+`docs/spec/order-limit-contract-v1.md`. Slice 3 implements `LIMIT`, and Slice
+4 remains the only authorized `ORDER BY` implementation slice.
 
 Simple projection aliases are already implemented through `alias =
 expression`, Semantic IR projection names, and both SQL backends. They are a
@@ -67,9 +69,10 @@ At Slice 1 entry, Pietto provides:
 - one production dependency, `antlr4-python3-runtime`;
 - package version `0.1.0` and Python compatibility floor `>=3.12`.
 
-The baseline does not support `ORDER BY` or `LIMIT`. The grammar contains no
-corresponding keywords, and relation parser tests reject both clauses with
-canonical `PIE-P1000` parser diagnostics.
+At Slice 1 entry, the baseline did not support `ORDER BY` or `LIMIT`. Slice 3
+now supports one static `limit <integer>` clause after `select`; `ORDER BY`
+remains absent and continues to receive canonical `PIE-P1000` parser
+diagnostics.
 
 ## Compatibility Contract
 
@@ -100,7 +103,7 @@ explicitly says otherwise:
 2. **ORDER BY / LIMIT Language Contract**: complete. Define the exact
    source syntax, semantic scope, IR representation, diagnostics, backend
    formatting, and compatibility rules without implementing production code.
-3. **LIMIT Vertical Slice**: planned only. Implement the approved static
+3. **LIMIT Vertical Slice**: complete. Implement the approved static
    `LIMIT` contract end to end for both PostgreSQL and MySQL.
 4. **ORDER BY Vertical Slice**: planned only. Implement the approved
    `ORDER BY` contract end to end for both PostgreSQL and MySQL.
@@ -205,7 +208,7 @@ unchanged.
 - PostgreSQL/MySQL parity requirements;
 - existing projection-alias behavior distinguished from new ordering scope;
 - explicit rejection of unapproved syntax and capabilities;
-- Slices 3 through 6 remain planned only.
+- At Slice 2 completion, Slices 3 through 6 remained planned only.
 
 ### Validation
 

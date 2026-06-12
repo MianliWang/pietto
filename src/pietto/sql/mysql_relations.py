@@ -41,6 +41,8 @@ def render_mysql_relation(
     ]
     if relation.filter is not None:
         lines.append(f"WHERE {render_mysql_expression(relation.filter.expression)}")
+    if relation.limit is not None:
+        lines.append(f"LIMIT {_render_limit(relation.limit.value)}")
     return "\n".join(lines)
 
 
@@ -86,3 +88,9 @@ def _render_projection(expression: ExpressionIR, name: str | None) -> str:
         context="select-list alias",
     )
     return f"{sql} AS {alias}"
+
+
+def _render_limit(value: int) -> str:
+    if type(value) is not int or not 0 <= value <= 9_223_372_036_854_775_807:
+        raise MySqlRenderError("MySQL relation limit is outside the supported range")
+    return str(value)

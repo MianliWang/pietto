@@ -354,8 +354,16 @@ class ProjectionIR:
 
 
 @dataclass(frozen=True, slots=True)
+class LimitIR:
+    """A validated static relation row-count limit."""
+
+    value: int
+    span: SourceSpan
+
+
+@dataclass(frozen=True, slots=True)
 class RelationIR(DefinitionIR):
-    """A minimal lowered table or query relation."""
+    """A lowered table or query relation."""
 
     symbol: SymbolId
     name: str
@@ -365,6 +373,7 @@ class RelationIR(DefinitionIR):
     projections: tuple[ProjectionIR, ...]
     row_schema: RowSchemaIR
     span: SourceSpan
+    limit: LimitIR | None = None
 
 
 @dataclass(frozen=True, slots=True)

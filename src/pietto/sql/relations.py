@@ -36,6 +36,8 @@ def render_relation_sql(
     ]
     if relation.filter is not None:
         lines.append(f"WHERE {render_expression_sql(relation.filter.expression)}")
+    if relation.limit is not None:
+        lines.append(f"LIMIT {_render_limit(relation.limit.value)}")
     return "\n".join(lines)
 
 
@@ -79,3 +81,11 @@ def _render_projection(expression: ExpressionIR, name: str | None) -> str:
     if name is None:
         return sql
     return f"{sql} AS {quote_identifier(name)}"
+
+
+def _render_limit(value: int) -> str:
+    """Render a validated static limit and fail closed for malformed IR."""
+
+    if type(value) is not int or not 0 <= value <= 9_223_372_036_854_775_807:
+        raise ValueError("PostgreSQL relation limit is outside the supported range")
+    return str(value)

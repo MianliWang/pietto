@@ -1,7 +1,7 @@
 # Pietto v0.9 Whitepaper and Language Reference
 
 Version: v0.9 draft
-Status: Phase 1 through Phase 11 complete; Phase 12 Slices 1 and 2 complete
+Status: Phase 1 through Phase 11 complete; Phase 12 Slices 1 through 3 complete
 Supported Python baseline: Python >=3.12; Phase 11 CI: Python 3.12/3.13
 Primary SQL target: PostgreSQL; MySQL 8.0+ generation MVP supported
 Preferred package manager: uv-first
@@ -1303,25 +1303,20 @@ package publication, PyPI or other registry credentials, release signing,
 provenance attestations, and automated versioning remain unimplemented.
 ### Phase 12: SQL Feature Expansion I
 
-Status: in progress as planning and contract work only. Slices 1 and 2 are
-complete. Slices 3 through 6 are planned only and require separate explicit
+Status: in progress. Slices 1 through 3 are complete. Slices 4 through 6 are
+planned only and require separate explicit
 implementation requests.
 
 Slice 1 records the post-Phase-11 baseline and the fixed six-slice sequence in
-`docs/plan/phase-12-sql-feature-expansion-i.md`. It does not implement `LIMIT`
-or `ORDER BY`. It changes no language syntax, grammar, generated ANTLR,
-runtime behavior, AST, semantic analysis, Semantic IR, PostgreSQL or MySQL SQL
-generation, CLI behavior, JSON schema, public Python API, dependency, package
-metadata, or version.
+`docs/plan/phase-12-sql-feature-expansion-i.md`. Slice 2 defines the
+decision-complete `docs/spec/order-limit-contract-v1.md` language contract.
 
-Slice 2 defines the decision-complete
-`docs/spec/order-limit-contract-v1.md` language contract. It fixes static
-integer limits, `PIE-S2307`, the indented `order by:` block, input-scope
-sorting expressions, explicit SQL directions, and same-slice PostgreSQL/MySQL
-delivery. Slice 2 is contract-only and does not modify grammar, generated
-ANTLR, compiler behavior, SQL output, CLI behavior, JSON schema, public API,
-goldens, dependencies, package metadata, or version. `LIMIT` and `ORDER BY`
-are not yet usable.
+Slice 3 implements one optional `limit <integer>` relation clause after
+`select`. The operand must be a static integer from 0 through
+9223372036854775807; invalid captured operands receive `PIE-S2307` without
+general expression-resolution cascades. Semantic IR stores the validated
+integer, and PostgreSQL and MySQL append canonical `LIMIT <value>` SQL.
+`ORDER BY` remains unimplemented and reserved for Slice 4.
 
 JSON schema version 1 remains the only implemented runtime JSON contract.
 `emit_postgres_sql(ScriptIR) -> SqlResult` remains public,

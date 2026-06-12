@@ -87,13 +87,15 @@ Rules:
 ## Current Phase
 
 Current phase status: Phase 12 SQL Feature Expansion I is in progress. Slices
-1 and 2 are complete. Slices 3 through 6 are planned only and require
+1 through 3 are complete. Slices 4 through 6 are planned only and require
 separate explicit implementation requests. Slice 1 adds only the master plan,
 a focused planning audit, and scope-aware status documentation. Slice 2 adds
 only `docs/spec/order-limit-contract-v1.md`, focused static contract tests,
-and scope-aware documentation. It does not implement `LIMIT` or `ORDER BY`
-and changes no production behavior, grammar, generated ANTLR, AST, semantic
-analysis, IR, SQL backend, CLI, JSON schema, or public Python API.
+and scope-aware documentation. Slice 3 implements only static `LIMIT` through
+grammar, regenerated ANTLR, AST, semantic validation, Semantic IR, and both
+SQL backends. `ORDER BY` remains unimplemented. CLI options, JSON v1, public
+Python APIs, dependencies, package metadata, version, and existing golden
+fixtures remain unchanged.
 Phase 11 Release Readiness & Reproducible Validation is complete. All seven
 slices are complete, including Slice 7 Completion Audit And Documentation.
 Historical Phase 11 status text: "Current phase status: Phase 11 Release
@@ -320,8 +322,8 @@ documented in
 through 7 are complete.
 The current Phase 12 planning baseline, fixed six-slice sequence,
 compatibility gates, and hard non-goals are documented in
-`docs/plan/phase-12-sql-feature-expansion-i.md`. Slices 1 and 2 are complete.
-Slices 3 through 6 are planned only and are not authorized by their inclusion
+`docs/plan/phase-12-sql-feature-expansion-i.md`. Slices 1 through 3 are
+complete. Slices 4 through 6 are planned only and are not authorized by their inclusion
 in the plan. The normative contract-only decisions are documented in
 `docs/spec/order-limit-contract-v1.md`.
 
@@ -336,7 +338,7 @@ Current strict boundaries remain:
 
 Do not implement after the completed phase unless explicitly requested:
 
-- joins, grouping, ordering, limits, windows, or unions;
+- joins, grouping, ordering, offsets, windows, or unions;
 - metadata DDL such as `CREATE TABLE`, `CREATE VIEW`, constraints, or indexes;
 - relation dependency CTE expansion, SQL inlining, or nested subqueries;
 - SQLGlot integration;
@@ -359,8 +361,9 @@ Do not implement after the completed phase unless explicitly requested:
 All seven Phase 9 slices, Phase 9.5, and Phase 9.6 are complete. Phase 10
 is complete with all nine slices audited. SQLGlot is rejected for the Phase
 10 MVP. Phase 11 is complete with all seven slices audited.
-Phase 12 Slices 1 and 2 are complete as planning, baseline audit, and language
-contract only. Slices 3 through 6 remain planned and unimplemented.
+Phase 12 Slices 1 through 3 are complete. Slice 3 adds only the approved
+static `LIMIT` vertical slice. Slices 4 through 6 remain planned and
+unimplemented.
 The private MySQL backend, static `mysql.table(Text)` semantic/IR surface, and
 closed renderer are the MySQL compiler boundaries. Explicit private CLI
 dispatch and JSON v1 presentation are enabled. Public emitter export, a

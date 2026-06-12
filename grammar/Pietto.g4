@@ -188,7 +188,7 @@ sourceDefinition
     : SOURCE IDENTIFIER (COLON IDENTIFIER)? IS expression NEWLINE
     ;
 
-// Phase 1 tables parse only from, optional where, and ordered select items.
+// Relations support from, optional where, ordered select items, and static limit.
 tableDefinition
     : TABLE IDENTIFIER COLON NEWLINE NEWLINE* INDENT tableBody DEDENT
     ;
@@ -199,7 +199,7 @@ queryDefinition
     ;
 
 tableBody
-    : NEWLINE* fromClause NEWLINE* whereClause? NEWLINE* selectClause NEWLINE*
+    : NEWLINE* fromClause NEWLINE* whereClause? NEWLINE* selectClause NEWLINE* limitClause? NEWLINE*
     ;
 
 fromClause
@@ -222,6 +222,11 @@ selectBody
 selectItem
     : IDENTIFIER ASSIGN expression NEWLINE
     | expression NEWLINE
+    ;
+
+// Semantic analysis restricts the captured operand to a bounded static integer.
+limitClause
+    : LIMIT expression NEWLINE
     ;
 
 // First-slice expressions intentionally omit CASE and general assignment syntax.
@@ -293,6 +298,7 @@ namePart
     | WHERE
     | SELECT
     | QUERY
+    | LIMIT
     ;
 
 callSuffix
@@ -330,6 +336,7 @@ FROM: 'from';
 WHERE: 'where';
 SELECT: 'select';
 QUERY: 'query';
+LIMIT: 'limit';
 ENSURE: 'ensure';
 NULLABLE: 'nullable';
 AND: 'and';

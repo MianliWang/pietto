@@ -300,23 +300,32 @@ class SelectItem(Node):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class LimitClause(Node):
+    """A relation row-count clause whose operand awaits semantic validation."""
+
+    expression: Expression
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class TableDef(Node):
-    """A minimal parse-only table definition."""
+    """A parse-only table definition."""
 
     name: str
     from_clause: FromClause
     where_clause: WhereClause | None
     select_items: tuple[SelectItem, ...]
+    limit_clause: LimitClause | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class QueryDef(Node):
-    """A minimal parse-only query definition."""
+    """A parse-only query definition."""
 
     name: str
     from_clause: FromClause
     where_clause: WhereClause | None
     select_items: tuple[SelectItem, ...]
+    limit_clause: LimitClause | None = None
 
 
 Definition = (

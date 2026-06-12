@@ -2,17 +2,18 @@
 
 ## Status
 
-Status: Phase 12 Slice 2 contract complete; production implementation not
-started.
+Status: Phase 12 Slice 3 static `LIMIT` implementation complete; `ORDER BY`
+implementation not started.
 
 This document is the decision authority for the Phase 12 `LIMIT` and
-`ORDER BY` MVP. It defines future parser, semantic, IR, PostgreSQL, and MySQL
-behavior without implementing that behavior.
+`ORDER BY` MVP. Slice 3 implements the `LIMIT` portions of this contract;
+the `ORDER BY` portions remain future behavior.
 
-The current grammar still has no `ORDER`, `BY`, `ASC`, `DESC`, or `LIMIT`
-tokens. The current parser still rejects `order by` and `limit` clauses with
-`PIE-P1000`. Slice 3 is the only authorized `LIMIT` implementation slice.
-Slice 4 is the only authorized `ORDER BY` implementation slice.
+The grammar now contains only the approved `LIMIT` keyword from this contract.
+It still has no `ORDER`, `BY`, `ASC`, or `DESC` tokens, and the parser still
+rejects `order by` with `PIE-P1000`. Slice 3 is the completed `LIMIT`
+implementation slice. Slice 4 is the only authorized `ORDER BY`
+implementation slice.
 
 ## Goals
 

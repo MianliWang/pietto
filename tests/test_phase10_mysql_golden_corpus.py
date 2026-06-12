@@ -94,7 +94,7 @@ POSTGRES_LOCKS = {
         "9b89550ddaf1759e8066d02590288f545eace484e4633f6f6e37b1fa8c194790"
     ),
     "src/pietto/sql/relations.py": (
-        "42ce3653e9710374f92202cdccd87f087d5f2cbde2b3c10a3cc51ba89fe23ea0"
+        "820fa08b5f949d348665899d1418ea24f9860491764fb5d9eb210337fbfd258a"
     ),
     "src/pietto/sql/render.py": (
         "199a8c019331d2dc0d4112bca449268c34d9ba5688c976dd4194b8502c5daed5"

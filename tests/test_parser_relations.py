@@ -69,7 +69,6 @@ def test_table_and_query_malformed_body_diagnostics_are_consistent(
         "    group by account_id\n",
         "    having count(id) > 1\n",
         "    order by id\n",
-        "    limit 10\n",
         "    window recent\n",
         "    expect:\n        id is not null\n",
         "    union other_relation\n",
