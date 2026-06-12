@@ -16,7 +16,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 AUDIT_PATH = REPO_ROOT / "scripts" / "check_goldens.py"
 POLICY_PATH = REPO_ROOT / "docs" / "spec" / "golden-fixture-policy-v1.md"
 GOLDEN_ROOT = REPO_ROOT / "tests" / "fixtures" / "golden"
-GOLDEN_HASH = "fc6ad37ee6bfdfb5a2cff2487618e471186841787042f150a369eaeab2fd2db4"
+GOLDEN_HASH = "66190fd279c318c33bc85fbe877a73fefc05791c922c64a4ca7b733b4e53c502"
 BOUNDARY_HASH = "ef26a9d4bd8c93d42f529fa44cdc53aab0f4e3982bd58fadaa5dcf3e22f2ff2c"
 VALIDATION_GATES = (
     ("lockfile", ("uv", "lock", "--check")),
@@ -183,9 +183,9 @@ def test_real_audit_runs_from_outside_the_repository(tmp_path: Path) -> None:
     )
 
     assert result.returncode == 0, result.stderr
-    assert "verified 12 fixtures" in result.stdout
-    assert "8 SQL byte-exact" in result.stdout
-    assert "4 JSON structural" in result.stdout
+    assert "verified 15 fixtures" in result.stdout
+    assert "10 SQL byte-exact" in result.stdout
+    assert "5 JSON structural" in result.stdout
 
 
 def test_slice4_keeps_prior_commands_independent_and_later_slices_absent() -> None:

@@ -2,8 +2,8 @@
 
 ## Status
 
-Status: Phase 12 Slice 3 static `LIMIT` and Slice 4 `ORDER BY`
-implementations complete.
+Status: Phase 12 Slice 3 static `LIMIT`, Slice 4 `ORDER BY`, and Slice 5
+composition and presentation coverage complete.
 
 This document is the decision authority for the Phase 12 `LIMIT` and
 `ORDER BY` MVP. Slice 3 implements the `LIMIT` portions of this contract, and
@@ -316,8 +316,11 @@ Each production slice must:
 - keep Phase 11 validation, generated-file, golden, and packaging gates green;
 - avoid CLI, JSON v1, public emitter, dependency, package, and release changes.
 
-Slice 5 owns new manually reviewed composition goldens. Slice 2 creates or
-changes no golden fixture.
+Slice 5 adds new manually reviewed PostgreSQL and MySQL composition inputs,
+byte-exact SQL goldens, and structural JSON v1 coverage. It verifies the
+unchanged CLI text and atomic output-file paths. It changes no historical
+golden, CLI option, JSON schema, ordering scope, or SQL semantics. Slice 2
+creates or changes no golden fixture.
 
 ## Deferred Capabilities
 

@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "command": "emit-sql",
+  "ok": true,
+  "path": "tests/fixtures/phase12/mysql_order_limit_composition.pietto",
+  "dialect": "mysql",
+  "diagnostics": [],
+  "cli_errors": [],
+  "artifacts": [
+    {
+      "kind": "relation",
+      "name": "recent_active_users",
+      "sql": "SELECT\n    `id` AS `id`,\n    LOWER(`email`) AS `normalized`\nFROM `users`\nWHERE `active` = TRUE\nORDER BY\n    `created_at` DESC,\n    `id` ASC\nLIMIT 100"
+    }
+  ],
+  "output": null
+}

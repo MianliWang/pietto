@@ -15,11 +15,13 @@ SQL_FIXTURES = frozenset(
         "emit_mysql_compatibility_expressions.sql",
         "emit_mysql_compatibility_literals_identifiers.sql",
         "emit_mysql_compatibility_ordering_metadata.sql",
+        "emit_mysql_order_limit_composition.sql",
         "emit_sql_active_user_emails.sql",
         "emit_sql_active_users.sql",
         "emit_sql_compatibility_expressions.sql",
         "emit_sql_compatibility_literals_identifiers.sql",
         "emit_sql_compatibility_ordering_metadata.sql",
+        "emit_sql_order_limit_composition.sql",
     }
 )
 JSON_FIXTURES = frozenset(
@@ -28,6 +30,7 @@ JSON_FIXTURES = frozenset(
         "check_types.json",
         "emit_mysql_compatibility_ordering_metadata.json",
         "emit_sql_active_users.json",
+        "phase12_mysql_order_limit_composition.json",
     }
 )
 CLASSIFIED_FIXTURES = SQL_FIXTURES | JSON_FIXTURES
@@ -47,6 +50,9 @@ FIXTURE_INPUTS: dict[str, tuple[str, ...]] = {
     "emit_mysql_compatibility_ordering_metadata.sql": (
         "tests/fixtures/mysql/compatibility_ordering_metadata.pietto",
     ),
+    "emit_mysql_order_limit_composition.sql": (
+        "tests/fixtures/phase12/mysql_order_limit_composition.pietto",
+    ),
     "emit_sql_active_user_emails.sql": ("examples/queries/active_user_emails.pietto",),
     "emit_sql_active_users.json": ("examples/tables/active_users.pietto",),
     "emit_sql_active_users.sql": ("examples/tables/active_users.pietto",),
@@ -59,12 +65,19 @@ FIXTURE_INPUTS: dict[str, tuple[str, ...]] = {
     "emit_sql_compatibility_ordering_metadata.sql": (
         "tests/fixtures/postgres/compatibility_ordering_metadata.pietto",
     ),
+    "emit_sql_order_limit_composition.sql": (
+        "tests/fixtures/phase12/postgres_order_limit_composition.pietto",
+    ),
+    "phase12_mysql_order_limit_composition.json": (
+        "tests/fixtures/phase12/mysql_order_limit_composition.pietto",
+    ),
 }
 
 REFERENCE_TESTS = (
     Path("tests/test_cli_golden_outputs.py"),
     Path("tests/test_phase10_mysql_cli_enablement.py"),
     Path("tests/test_phase10_mysql_golden_corpus.py"),
+    Path("tests/test_phase12_composition_cli_json_goldens.py"),
 )
 
 

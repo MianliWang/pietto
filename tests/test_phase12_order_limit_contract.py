@@ -32,7 +32,7 @@ FILE_HASHES = {
         "b126059cd0aebe9535fceb9b0a1b1c09ee1ba22af13f70d276d7e013c49c60e7"
     ),
     "scripts/check_goldens.py": (
-        "29f12e2cc90e98b1b748012d01f79016ea161cecb6165a6011042147545a2791"
+        "f25c22282e443e0ade67fab3eebef0606137f6aacb4918b0fd0c7847bf160ec2"
     ),
     "scripts/package_smoke.py": (
         "61de7eec8f26476e39d05305642ecde0a55d1030513ce91f627cac45517c1131"
@@ -48,28 +48,25 @@ GROUP_HASHES = {
     "cli": "235d4e50c3474306253dfc6b118e2518b3e300e90f7fbe9903263a39cbdc42a0",
 }
 
-GOLDENS_HASH = "fc6ad37ee6bfdfb5a2cff2487618e471186841787042f150a369eaeab2fd2db4"
+GOLDENS_HASH = "66190fd279c318c33bc85fbe877a73fefc05791c922c64a4ca7b733b4e53c502"
 
 
-def test_contract_exists_and_slice4_status_is_exact() -> None:
+def test_contract_exists_and_slice5_status_is_exact() -> None:
     contract = _read(CONTRACT_PATH)
     normalized_contract = " ".join(contract.split())
     plan = _read(PLAN_PATH)
 
     assert "# ORDER BY / LIMIT Contract Version 1" in contract
     assert (
-        "Slice 3 static `LIMIT` and Slice 4 `ORDER BY` implementations complete"
-        in normalized_contract
+        "Slice 3 static `LIMIT`, Slice 4 `ORDER BY`, and Slice 5 composition "
+        "and presentation coverage complete" in normalized_contract
     )
     assert "**Slice 1: Master Plan And Baseline Audit is complete.**" in plan
     assert "**Slice 2: ORDER BY / LIMIT Language Contract is complete.**" in plan
     assert "**Slice 3: LIMIT Vertical Slice is complete.**" in plan
     assert "**Slice 4: ORDER BY Vertical Slice is complete.**" in plan
-    for number, name in (
-        (5, "Composition, CLI/JSON And Goldens"),
-        (6, "Completion Audit And Documentation"),
-    ):
-        assert f"**Slice {number}: {name} is planned only.**" in plan
+    assert "**Slice 5: Composition, CLI/JSON And Goldens is complete.**" in plan
+    assert "**Slice 6: Completion Audit And Documentation is planned only.**" in plan
 
 
 def test_limit_literal_range_and_diagnostic_contract_are_fixed() -> None:
@@ -259,7 +256,7 @@ def test_limit_and_order_by_are_implemented_while_ordinals_are_rejected() -> Non
     ]
 
 
-def test_slice4_preserves_configuration_cli_and_golden_boundaries() -> None:
+def test_slice5_preserves_configuration_cli_and_golden_boundaries() -> None:
     for path, expected_hash in FILE_HASHES.items():
         assert _sha256(REPO_ROOT / path) == expected_hash
 

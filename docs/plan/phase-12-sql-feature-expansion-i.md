@@ -12,7 +12,7 @@
 
 **Slice 4: ORDER BY Vertical Slice is complete.**
 
-**Slice 5: Composition, CLI/JSON And Goldens is planned only.**
+**Slice 5: Composition, CLI/JSON And Goldens is complete.**
 
 **Slice 6: Completion Audit And Documentation is planned only.**
 
@@ -24,10 +24,13 @@ package metadata, or release behavior.
 
 Slice 3 implements only the approved static `LIMIT` contract. Slice 4
 implements only the approved `ORDER BY` contract through grammar, AST,
-semantic expression typing, Semantic IR, and both SQL backends. Projection
-aliases are not in the ordering name-resolution scope. Slices 5 and 6 are not
-authorized merely because they appear in this plan; each requires a separate
-explicit implementation request.
+semantic expression typing, Semantic IR, and both SQL backends. Slice 5 adds
+only manually reviewed composition inputs and goldens, golden ownership, and
+focused coverage of the unchanged CLI text, output-file, and JSON v1 paths.
+Projection aliases are not in the ordering name-resolution scope. Slice 6 is
+not authorized merely because it appears in this plan and requires a separate
+explicit implementation request. Future implementation requests require
+separate explicit authorization.
 
 ## Goal
 
@@ -108,7 +111,7 @@ explicitly says otherwise:
    `LIMIT` contract end to end for both PostgreSQL and MySQL.
 4. **ORDER BY Vertical Slice**: complete. Implement the approved
    `ORDER BY` contract end to end for both PostgreSQL and MySQL.
-5. **Composition, CLI/JSON And Goldens**: planned only. Add reviewed
+5. **Composition, CLI/JSON And Goldens**: complete. Add reviewed
    cross-feature fixtures and verify unchanged CLI and JSON v1 presentation.
 6. **Completion Audit And Documentation**: planned only. Complete the
    cross-slice compatibility, workflow, scope, and documentation audit.
@@ -313,11 +316,20 @@ git diff --check
 
 ## Slice 5: Composition, CLI/JSON And Goldens
 
+**Slice 5 is complete.**
+
 ### Goal
 
 Add manually reviewed combined-feature fixtures and verify that existing CLI
 text, output-file, and JSON v1 presentation carry the new SQL without schema
 or orchestration changes.
+
+The completed slice adds one PostgreSQL and one MySQL composition input,
+byte-exact SQL goldens for both dialects, one structural MySQL JSON v1 golden,
+explicit inventory ownership, and focused direct-emitter and CLI coverage.
+The fixtures combine `WHERE`, projections, the existing projection-alias
+syntax, input-scope `ORDER BY`, and static `LIMIT`. All twelve historical
+goldens remain byte-for-byte unchanged.
 
 ### Allowed Changes
 

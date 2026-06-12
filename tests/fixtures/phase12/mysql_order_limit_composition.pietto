@@ -1,0 +1,23 @@
+pietto 0.9
+mode checked
+dialect mysql
+encoding utf8
+
+shape User:
+    id: Int not null
+    created_at: Int not null
+    email: Text not null
+    active: Bool not null
+
+source users: User is mysql.table("users")
+
+query recent_active_users:
+    from users
+    where active == true
+    select:
+        id
+        normalized = lower(email)
+    order by:
+        created_at desc
+        id
+    limit 100

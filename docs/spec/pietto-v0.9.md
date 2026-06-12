@@ -1,7 +1,7 @@
 # Pietto v0.9 Whitepaper and Language Reference
 
 Version: v0.9 draft
-Status: Phase 1 through Phase 11 complete; Phase 12 Slices 1 through 4 complete
+Status: Phase 1 through Phase 11 complete; Phase 12 Slices 1 through 5 complete
 Supported Python baseline: Python >=3.12; Phase 11 CI: Python 3.12/3.13
 Primary SQL target: PostgreSQL; MySQL 8.0+ generation MVP supported
 Preferred package manager: uv-first
@@ -36,7 +36,7 @@ Pietto source
     -> CLI text or JSON output
 ```
 
-Current implementation status after Phase 11 completion and Phase 12 Slice 4:
+Current implementation status after Phase 11 completion and Phase 12 Slice 5:
 the parser/frontend,
 Semantic Checker, Semantic IR, PostgreSQL and MySQL SQL generation,
 single-file CLI, security hardening, and JSON / machine-readable CLI
@@ -1303,9 +1303,8 @@ package publication, PyPI or other registry credentials, release signing,
 provenance attestations, and automated versioning remain unimplemented.
 ### Phase 12: SQL Feature Expansion I
 
-Status: in progress. Slices 1 through 4 are complete. Slices 5 and 6 are
-planned only and require separate explicit
-implementation requests.
+Status: in progress. Slices 1 through 5 are complete. Slice 6 is planned only
+and requires a separate explicit implementation request.
 
 Slice 1 records the post-Phase-11 baseline and the fixed six-slice sequence in
 `docs/plan/phase-12-sql-feature-expansion-i.md`. Slice 2 defines the
@@ -1323,8 +1322,12 @@ projection aliases, retain source order, and normalize omitted directions to
 explicit `ASC` in Semantic IR. PostgreSQL and MySQL emit the same multiline
 clause shape with their existing expression and identifier rendering.
 Projection-alias/output-schema ordering, ordinal ordering, null ordering, and
-collation remain unimplemented. Slice 5 owns reviewed composition goldens and
-broader CLI/JSON composition coverage.
+collation remain unimplemented. Slice 5 adds reviewed PostgreSQL and MySQL
+composition inputs and byte-exact SQL goldens, one structural MySQL JSON v1
+golden, and focused coverage of the unchanged CLI text and atomic output-file
+paths. All historical golden bytes, CLI options, JSON schema version 1, and
+production compiler behavior remain unchanged. Slice 6 is the only remaining
+completion-audit and documentation slice.
 
 JSON schema version 1 remains the only implemented runtime JSON contract.
 `emit_postgres_sql(ScriptIR) -> SqlResult` remains public,

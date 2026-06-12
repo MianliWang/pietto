@@ -18,7 +18,7 @@ The current implementation status is:
 - **Phase 9.6 Test Typing Hygiene: complete**;
 - **Phase 10 MySQL SQL Generation MVP: complete**;
 - **Phase 11 Release Readiness & Reproducible Validation: complete**;
-- **Phase 12 SQL Feature Expansion I: in progress, Slices 1 through 4 complete**.
+- **Phase 12 SQL Feature Expansion I: in progress, Slices 1 through 5 complete**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -242,8 +242,8 @@ actual package release. Package publication, PyPI or other registry
 credentials, release signing, provenance attestations, and automated
 versioning remain unimplemented.
 
-Phase 12 SQL Feature Expansion I is in progress. Slices 1 through 4 are
-complete. Slices 5 and 6 are planned only and require separate explicit
+Phase 12 SQL Feature Expansion I is in progress. Slices 1 through 5 are
+complete. Slice 6 is planned only and requires separate explicit
 authorization. Slice 2 defines the normative
 [ORDER BY / LIMIT Contract v1](docs/spec/order-limit-contract-v1.md), including
 static limit bounds, ordering scope, diagnostics, IR expectations, and dual
@@ -252,8 +252,10 @@ MySQL. Slice 4 implements input-scope `ORDER BY` for both backends, with
 source-ordered expressions and normalized explicit directions. Projection
 aliases are not available to ordering. CLI options, JSON v1, public Python
 APIs, dependencies, package metadata, version, and all existing golden
-fixtures remain unchanged. Slice 5 owns reviewed composition goldens and
-broader CLI/JSON composition coverage.
+fixtures remain unchanged. Slice 5 adds reviewed PostgreSQL and MySQL
+composition goldens plus coverage of the unchanged CLI text, atomic
+output-file, and JSON v1 paths. JSON schema version 1 remains unchanged, and
+Slice 6 is the only remaining completion-audit and documentation slice.
 
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added
