@@ -89,9 +89,9 @@ Rules:
 Current phase status: Phase 11 Release Readiness & Reproducible Validation is
 in progress. Slice 1 Master Plan And Baseline Audit, Slice 2 Authoritative
 Validation Entry Point, and Slice 3 ANTLR Provenance And Generated-File Guard
-and Slice 4 Golden Fixture Policy And Audit, and Slice 5 GitHub Actions CI are
-complete. Slices 6 and 7 are planned only and require separate explicit
-implementation requests.
+and Slice 4 Golden Fixture Policy And Audit, Slice 5 GitHub Actions CI, and
+Slice 6 Packaging And Installed CLI Smoke are complete. Slice 7 is planned
+only and requires a separate explicit implementation request.
 Slice 2 adds only `scripts/validate.py`, focused tests, and scope-aware
 documentation. Its authoritative non-mutating command is
 `uv run python scripts/validate.py`; direct
@@ -106,8 +106,12 @@ documentation. It changes no existing golden content and invokes no compiler.
 Slice 5 adds only `.github/workflows/ci.yml`, focused static tests, and
 scope-aware documentation. CI uses Python 3.12/3.13, Java 21, uv `0.11.19`,
 minimal read-only permissions, and reviewed full action SHAs to invoke the
-three independent local commands. Phase 11 still adds no packaging smoke
-implementation, publication, signing, deployment, or Makefile integration.
+independent local commands. Slice 6 adds only the independent
+`uv run python scripts/package_smoke.py` command, focused tests, one CI
+invocation, and scope-aware documentation. It builds and installs only in
+temporary directories, runs the installed console script outside the
+repository, and performs no publication, upload, signing, deployment, package
+metadata change, or Makefile integration.
 
 Historical Phase 10 status text: "Current phase status: Phase 10 MySQL SQL Generation MVP is complete."
 Phases 8 and 9 are complete. Phase 9.5 improved handwritten type safety,
@@ -140,8 +144,8 @@ an authoritative non-mutating validation entry point, ANTLR provenance and
 generated-file verification, golden-fixture policy and audit, minimal
 GitHub Actions CI, packaging and installed-CLI smoke tests, and a completion
 audit. `pyproject.toml` remains authoritative with
-`requires-python = ">=3.12"`. The future CI slice must validate Python 3.12
-and Python 3.13; Slice 1 does not create a workflow.
+`requires-python = ">=3.12"`. The implemented CI validates Python 3.12 and
+Python 3.13; Slice 1 itself did not create a workflow.
 
 Phase 1 parser/frontend, Phase 2 Semantic Checker, Phase 3 Semantic IR, Phase 4
 PostgreSQL SQL, Phase 5 CLI, Phase 5.5 Security / Robustness Hardening, and
@@ -303,7 +307,7 @@ The current Phase 11 release-readiness baseline, fixed seven-slice sequence,
 allowed workflow changes, compatibility gates, and hard non-goals are
 documented in
 `docs/plan/phase-11-release-readiness-reproducible-validation.md`. Slices 1
-through 5 are complete; Slices 6 and 7 remain planned and unimplemented.
+through 6 are complete; Slice 7 remains planned and unimplemented.
 
 Current strict boundaries remain:
 
@@ -338,7 +342,7 @@ Do not implement after the completed phase unless explicitly requested:
 
 All seven Phase 9 slices, Phase 9.5, and Phase 9.6 are complete. Phase 10
 is complete with all nine slices audited. SQLGlot is rejected for the Phase
-10 MVP. Phase 11 Slices 1 through 5 are complete, while Slices 6 and 7 remain
+10 MVP. Phase 11 Slices 1 through 6 are complete, while Slice 7 remains
 planned only.
 The private MySQL backend, static `mysql.table(Text)` semantic/IR surface, and
 closed renderer are the MySQL compiler boundaries. Explicit private CLI

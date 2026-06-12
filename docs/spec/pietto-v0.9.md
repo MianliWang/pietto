@@ -1,8 +1,8 @@
 # Pietto v0.9 Whitepaper and Language Reference
 
 Version: v0.9 draft
-Status: Phase 1 through Phase 10 complete; Phase 11 Slices 1 through 5 implemented
-Supported Python baseline: Python >=3.12; planned Phase 11 CI: Python 3.12/3.13
+Status: Phase 1 through Phase 10 complete; Phase 11 Slices 1 through 6 implemented
+Supported Python baseline: Python >=3.12; Phase 11 CI: Python 3.12/3.13
 Primary SQL target: PostgreSQL; MySQL 8.0+ generation MVP supported
 Preferred package manager: uv-first
 Current pipeline: parse -> analyze -> build IR -> emit selected PostgreSQL or MySQL SQL -> CLI text or JSON output
@@ -36,14 +36,15 @@ Pietto source
     -> CLI text or JSON output
 ```
 
-Current implementation status after Phase 11 Slice 5: the parser/frontend,
+Current implementation status after Phase 11 Slice 6: the parser/frontend,
 Semantic Checker, Semantic IR, PostgreSQL and MySQL SQL generation,
 single-file CLI, security hardening, and JSON / machine-readable CLI
-presentation are implemented. Phase 11 Slices 1 through 5 add release-readiness
+presentation are implemented. Phase 11 Slices 1 through 6 add release-readiness
 planning, static baseline audits, one non-mutating local validation entry
 point, an independent ANTLR provenance and generated-file reproducibility
 guard, an independent golden fixture policy and audit, and minimal GitHub
-Actions orchestration only. The public
+Actions orchestration, plus an independent packaging and installed-CLI smoke
+only. The public
 `build_ir(script, semantic_model)` API lowers analyzed programs into
 immutable, parser-independent IR. The public
 `emit_postgres_sql(script_ir)` API remains the PostgreSQL compatibility
@@ -1237,8 +1238,8 @@ LSP, Web UI, and server capabilities remain unimplemented.
 Status: in progress. Slice 1 Master Plan And Baseline Audit, Slice 2
 Authoritative Validation Entry Point, and Slice 3 ANTLR Provenance And
 Generated-File Guard, and Slice 4 Golden Fixture Policy And Audit are
-complete. Slice 5 GitHub Actions CI is also complete. Slices 6 and 7 are
-planned and unimplemented.
+complete. Slice 5 GitHub Actions CI and Slice 6 Packaging And Installed CLI
+Smoke are also complete. Slice 7 is planned and unimplemented.
 
 Phase 11 Release Readiness & Reproducible Validation hardens release and
 developer validation around the unchanged post-Phase-10 compiler. The fixed
@@ -1267,22 +1268,28 @@ decoding. The audit checks inventory, ownership, paired Pietto inputs, and JSON
 validity without invoking the compiler or modifying fixtures.
 
 Slice 5 adds `.github/workflows/ci.yml` as orchestration only. It runs the
-three existing local commands on Python 3.12 and Python 3.13 with Java 21,
+existing local commands on Python 3.12 and Python 3.13 with Java 21,
 uv `0.11.19`, minimal `contents: read` permission, and reviewed full action
-SHAs. It adds no release publication, artifact upload, deployment, signing, or
-packaging smoke behavior.
+SHAs. Slice 6 adds the independent
+`uv run python scripts/package_smoke.py` command and one CI invocation. It
+builds sdist and wheel files under a temporary directory, validates runtime
+and generated ANTLR inventory plus package metadata, installs the wheel into a
+clean temporary virtual environment, and exercises the installed console
+script from outside the repository. It checks `--version`, `--help`, `check`,
+PostgreSQL byte-exact text, and MySQL JSON v1 structural compatibility.
 
-Slices 1 through 5 change no language syntax, grammar, generated ANTLR file, AST,
-semantic behavior, Semantic IR, PostgreSQL or MySQL SQL output, CLI behavior,
-JSON schema, public Python API, dependency, lockfile, or Makefile. They do not
-implement package smoke tests, SQL features, execution, database access,
-project mode, watch mode, LSP/editor integration, Web UI, or an online
+Slices 1 through 6 change no language syntax, grammar, generated ANTLR file,
+AST, semantic behavior, Semantic IR, PostgreSQL or MySQL SQL output, CLI
+behavior, JSON schema, public Python API, dependency, lockfile, package
+metadata, version, or Makefile. They do not publish or upload packages, create
+releases, sign artifacts, or implement SQL features, execution, database
+access, project mode, watch mode, LSP/editor integration, Web UI, or an online
 playground.
 
 `pyproject.toml` remains authoritative with `requires-python = ">=3.12"`.
-Python 3.12 is the compatibility floor. The planned future CI slice validates
-Python 3.12 and Python 3.13 without changing the package floor or the Python
-3.12 static-analysis target.
+Python 3.12 is the compatibility floor. The current CI validates Python 3.12
+and Python 3.13 without changing the package floor or the Python 3.12
+static-analysis target.
 
 The Phase 11 master plan is documented in
 `docs/plan/phase-11-release-readiness-reproducible-validation.md`.

@@ -29,6 +29,7 @@ EXPECTED_COMMANDS = (
     "uv run python scripts/validate.py",
     "uv run python scripts/check_generated.py",
     "uv run python scripts/check_goldens.py",
+    "uv run python scripts/package_smoke.py",
 )
 BOUNDARY_HASH = "4c4d7423a8353ce9552e031045c0daf5cf51e9b39e545a6cfb7464e07569f3d9"
 GOLDEN_HASH = "fc6ad37ee6bfdfb5a2cff2487618e471186841787042f150a369eaeab2fd2db4"
@@ -139,7 +140,7 @@ def test_ci_does_not_rewrite_repository_outputs() -> None:
     assert "-o src/pietto/generated" not in workflow
     assert "git commit" not in workflow
     assert "git push" not in workflow
-    assert "package_smoke" not in workflow
+    assert "run: uv build" not in workflow
 
 
 def test_existing_release_readiness_scripts_remain_independent() -> None:
@@ -152,17 +153,20 @@ def test_existing_release_readiness_scripts_remain_independent() -> None:
 
     assert "check_generated" not in script_sources["scripts/validate.py"]
     assert "check_goldens" not in script_sources["scripts/validate.py"]
+    assert "package_smoke" not in script_sources["scripts/validate.py"]
     assert "check_goldens" not in script_sources["scripts/check_generated.py"]
+    assert "package_smoke" not in script_sources["scripts/check_generated.py"]
     assert "check_generated" not in script_sources["scripts/check_goldens.py"]
+    assert "package_smoke" not in script_sources["scripts/check_goldens.py"]
     assert "scripts/validate.py" not in script_sources["scripts/check_goldens.py"]
     assert "scripts/validate.py" not in script_sources["scripts/check_generated.py"]
 
 
-def test_ci_slice_preserves_makefile_packaging_and_compiler_boundaries() -> None:
+def test_ci_and_package_smoke_preserve_metadata_and_compiler_boundaries() -> None:
     assert _sha256(REPO_ROOT / "Makefile") == (
         "dbd38c41e2af5275c379de0b88c92f3861efb90724c7de1a291e0aa007ce2db7"
     )
-    assert not (REPO_ROOT / "scripts" / "package_smoke.py").exists()
+    assert (REPO_ROOT / "scripts" / "package_smoke.py").is_file()
     for path in ("package.json", "setup.py", "setup.cfg", "MANIFEST.in"):
         assert not (REPO_ROOT / path).exists()
 

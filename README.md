@@ -17,7 +17,7 @@ The current implementation status is:
 - **Phase 9.5 Static Typing And Source Extension Hardening: complete**;
 - **Phase 9.6 Test Typing Hygiene: complete**;
 - **Phase 10 MySQL SQL Generation MVP: complete**;
-- **Phase 11 Release Readiness & Reproducible Validation: Slices 1–5 complete,
+- **Phase 11 Release Readiness & Reproducible Validation: Slices 1–6 complete,
   phase in progress**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
@@ -196,24 +196,39 @@ The policy is documented in
 
 Slice 5 adds minimal-permission GitHub Actions CI for pull requests and pushes
 to `main`. The Python 3.12/3.13 matrix uses Java 21 and pinned action SHAs,
-installs uv `0.11.19`, and invokes the three accepted local commands without
+installs uv `0.11.19`, and invokes the accepted local commands without
 duplicating their logic:
 
 ```bash
 uv run python scripts/validate.py
 uv run python scripts/check_generated.py
 uv run python scripts/check_goldens.py
+uv run python scripts/package_smoke.py
 ```
 
 The workflow has only `contents: read`, disables persisted checkout
 credentials and uv cache upload, and performs no publishing, deployment,
-artifact upload, or release creation. Slices 6 and 7 remain planned and
-unimplemented; packaging smoke tests are not yet implemented. Slices 1
-through 5 change no production code, dependency, grammar, generated file,
-existing golden content, SQL backend, CLI behavior, JSON schema, public
-Python API, or Makefile.
-`pyproject.toml` continues to declare Python `>=3.12`; the planned future CI
-matrix covers Python 3.12 and 3.13 without changing that compatibility floor.
+artifact upload, or release creation.
+
+Slice 6 adds an independent standard-library package smoke command:
+
+```bash
+uv run python scripts/package_smoke.py
+```
+
+It builds sdist and wheel artifacts only in a temporary directory, checks
+runtime and generated ANTLR inventory plus metadata and the console entry
+point, installs the wheel into a clean temporary virtual environment, and
+runs the installed `pietto` executable from outside the repository. The smoke
+checks `--version`, `--help`, one successful `check`, PostgreSQL byte-exact
+text, and MySQL JSON v1 structural compatibility. It does not publish, upload,
+sign, change package metadata or version, or join the other three validation
+scripts. Slice 7 remains planned and unimplemented. Slices 1 through 6 change
+no production code, dependency, grammar, generated file, existing golden
+content, SQL backend, CLI behavior, JSON schema, public Python API, package
+metadata, or Makefile.
+`pyproject.toml` continues to declare Python `>=3.12`; the current CI matrix
+covers Python 3.12 and 3.13 without changing that compatibility floor.
 
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added

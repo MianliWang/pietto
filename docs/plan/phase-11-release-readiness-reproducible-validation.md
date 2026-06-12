@@ -14,9 +14,11 @@
 
 **Slice 5: GitHub Actions CI is complete.**
 
-Slices 6 and 7 are planned only. They are not implemented or authorized
-merely because they appear in this plan. Each later slice requires a separate
-explicit implementation request.
+**Slice 6: Packaging And Installed CLI Smoke is complete.**
+
+Slice 7 is planned only. It is not implemented or authorized merely because
+it appears in this plan. The final slice requires a separate explicit
+implementation request.
 
 Phase 10 MySQL SQL Generation MVP is complete. Phase 11 strengthens the
 release, validation, generated-code, golden-fixture, CI, and packaging
@@ -46,7 +48,7 @@ contracts. The phase must preserve:
 
 - `requires-python = ">=3.12"`;
 - Python 3.12 as the declared compatibility floor;
-- planned CI validation on Python 3.12 and Python 3.13;
+- CI validation on Python 3.12 and Python 3.13;
 - the handwritten PostgreSQL backend as the byte-exact reference;
 - every existing PostgreSQL and MySQL reviewed golden output;
 - `emit_postgres_sql(ScriptIR) -> SqlResult` as the public SQL emitter;
@@ -94,8 +96,9 @@ Slice 2 implements the repository validation entry point. Slice 3 implements
 the reviewed ANTLR jar checksum and an independent generated-file guard.
 Slice 4 implements the golden fixture policy and independent inventory,
 ownership, and JSON-validity audit. Slice 5 implements minimal-permission
-GitHub Actions orchestration for the three accepted local commands. An
-installed-package smoke test remains unimplemented.
+GitHub Actions orchestration for the accepted local commands. Slice 6
+implements the independent package build, archive inspection, clean-install,
+and installed-CLI smoke. Slice 7 remains planned only.
 
 ## Phase Boundary
 
@@ -149,7 +152,7 @@ attestations, and automated version changes remain outside Phase 11.
    automatic fixture updates.
 5. **GitHub Actions CI**: complete. Run the accepted validation contracts
    with minimal permissions on Python 3.12 and 3.13 and Java 21.
-6. **Packaging And Installed CLI Smoke**: planned only. Build sdist and wheel,
+6. **Packaging And Installed CLI Smoke**: complete. Build sdist and wheel,
    install the wheel into a clean temporary environment, and exercise the
    installed CLI outside the repository.
 7. **Completion Audit And Documentation**: planned only. Verify all Phase 11
@@ -449,6 +452,8 @@ git diff --check
 
 ## Slice 6: Packaging And Installed CLI Smoke
 
+**Slice 6 is complete.**
+
 ### Goal
 
 Verify that release artifacts contain the required runtime package, generated
@@ -461,6 +466,12 @@ Slice 6 may add one standard-library packaging smoke script, focused tests,
 CI integration, and documentation. It must use temporary build and virtual
 environment directories and remove them through normal temporary-directory
 lifecycle.
+
+The authoritative independent command is:
+
+```bash
+uv run python scripts/package_smoke.py
+```
 
 The smoke path must:
 
@@ -475,11 +486,28 @@ The smoke path must:
 - compare installed MySQL JSON v1 output structurally with its reviewed
   golden.
 
+The implemented command builds one sdist and one wheel under a temporary
+directory, checks package and generated ANTLR inventory, validates core
+metadata, the declared ANTLR runtime dependency, README metadata, and the
+`pietto = pietto.cli:main` console entry point, and installs the wheel into a
+clean temporary `venv`. It removes `PYTHONPATH` and `PYTHONHOME` from the
+installed-process environment and invokes the installed console script from a
+temporary cwd outside the repository.
+
+The existing CI workflow invokes this command after validation, generated-file
+verification, and golden audit. The package smoke remains independent from
+`scripts/validate.py`, `scripts/check_generated.py`, and
+`scripts/check_goldens.py`.
+
 ### Hard Boundaries
 
 Slice 6 must not publish artifacts, change package version, alter build
 metadata, add dependencies, execute SQL, connect to a database, or treat a
 source-tree import as an installed-package test.
+
+The implementation does not publish, upload, sign, or change package metadata,
+version, dependencies, credentials, or workflow permissions. It writes build,
+environment, and scratch files only under `tempfile.TemporaryDirectory`.
 
 ### Validation
 

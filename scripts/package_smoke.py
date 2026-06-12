@@ -1,0 +1,457 @@
+"""Build, inspect, install, and smoke test Pietto release artifacts."""
+
+from __future__ import annotations
+
+import configparser
+import json
+import os
+import shlex
+import shutil
+import subprocess
+import sys
+import tarfile
+import tempfile
+import tomllib
+import zipfile
+from dataclasses import dataclass
+from email import policy
+from email.parser import BytesParser
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+CHECK_INPUT = Path("examples/basic/types.pietto")
+POSTGRES_INPUT = Path("tests/fixtures/postgres/compatibility_ordering_metadata.pietto")
+POSTGRES_GOLDEN = Path(
+    "tests/fixtures/golden/emit_sql_compatibility_ordering_metadata.sql"
+)
+MYSQL_INPUT = Path("tests/fixtures/mysql/compatibility_ordering_metadata.pietto")
+MYSQL_GOLDEN = Path(
+    "tests/fixtures/golden/emit_mysql_compatibility_ordering_metadata.json"
+)
+
+GENERATED_FILES = frozenset(
+    {
+        "Pietto.interp",
+        "Pietto.tokens",
+        "PiettoLexer.interp",
+        "PiettoLexer.py",
+        "PiettoLexer.tokens",
+        "PiettoParser.py",
+        "PiettoVisitor.py",
+        "__init__.py",
+    }
+)
+
+
+@dataclass(frozen=True)
+class ProjectContract:
+    """Packaging values declared by the current project metadata."""
+
+    name: str
+    version: str
+    requires_python: str
+    dependencies: tuple[str, ...]
+    console_entry: str
+    readme: str | None
+
+
+class SmokeFailure(Exception):
+    """A packaging smoke failure with a process-compatible exit code."""
+
+    def __init__(self, message: str, exit_code: int = 1) -> None:
+        super().__init__(message)
+        self.exit_code = exit_code
+
+
+def _project_contract() -> ProjectContract:
+    try:
+        document = tomllib.loads(
+            (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        )
+        project = document["project"]
+        scripts = project["scripts"]
+        return ProjectContract(
+            name=project["name"],
+            version=project["version"],
+            requires_python=project["requires-python"],
+            dependencies=tuple(project.get("dependencies", ())),
+            console_entry=scripts["pietto"],
+            readme=project.get("readme"),
+        )
+    except (OSError, KeyError, TypeError, tomllib.TOMLDecodeError) as error:
+        raise SmokeFailure(f"cannot read packaging contract: {error}") from error
+
+
+def _run_command(
+    stage: str,
+    command: tuple[str, ...],
+    *,
+    cwd: Path,
+    capture_output: bool = False,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[bytes]:
+    print(f"[package-smoke] {stage}: {shlex.join(command)}", flush=True)
+    try:
+        result = subprocess.run(
+            command,
+            cwd=cwd,
+            check=False,
+            capture_output=capture_output,
+            env=env,
+        )
+    except OSError as error:
+        raise SmokeFailure(f"{stage} could not start: {error}") from error
+
+    if result.returncode == 0:
+        return result
+
+    if capture_output:
+        if result.stdout:
+            print(result.stdout.decode("utf-8", errors="replace"), end="")
+        if result.stderr:
+            print(
+                result.stderr.decode("utf-8", errors="replace"),
+                end="",
+                file=sys.stderr,
+            )
+    raise SmokeFailure(
+        f"{stage} failed with exit code {result.returncode}",
+        result.returncode,
+    )
+
+
+def _find_artifacts(dist_dir: Path) -> tuple[Path, Path]:
+    sdists = tuple(sorted(dist_dir.glob("*.tar.gz")))
+    wheels = tuple(sorted(dist_dir.glob("*.whl")))
+    if len(sdists) != 1 or len(wheels) != 1:
+        raise SmokeFailure(
+            "build must produce exactly one sdist and one wheel; "
+            f"found {len(sdists)} sdist and {len(wheels)} wheel files"
+        )
+    return sdists[0], wheels[0]
+
+
+def _required_runtime_files(prefix: str) -> frozenset[str]:
+    required = {
+        f"{prefix}/__init__.py",
+        f"{prefix}/cli.py",
+        f"{prefix}/parser_api.py",
+        f"{prefix}/semantic/__init__.py",
+        f"{prefix}/ir/__init__.py",
+        f"{prefix}/sql/postgres.py",
+        f"{prefix}/sql/mysql.py",
+    }
+    required.update(f"{prefix}/generated/{name}" for name in GENERATED_FILES)
+    return frozenset(required)
+
+
+def _missing_files(inventory: set[str], required: frozenset[str]) -> tuple[str, ...]:
+    return tuple(sorted(required - inventory))
+
+
+def _validate_core_metadata(metadata_bytes: bytes, contract: ProjectContract) -> None:
+    metadata = BytesParser(policy=policy.default).parsebytes(metadata_bytes)
+    expected = {
+        "Name": contract.name,
+        "Version": contract.version,
+        "Requires-Python": contract.requires_python,
+    }
+    for field, value in expected.items():
+        if metadata.get(field) != value:
+            raise SmokeFailure(
+                f"artifact metadata {field} is {metadata.get(field)!r}, "
+                f"expected {value!r}"
+            )
+
+    declared_dependencies = tuple(metadata.get_all("Requires-Dist", ()))
+    for dependency in contract.dependencies:
+        if dependency not in declared_dependencies:
+            raise SmokeFailure(
+                f"artifact metadata is missing runtime dependency {dependency!r}"
+            )
+
+    if contract.readme is not None:
+        if metadata.get("Description-Content-Type") != "text/markdown":
+            raise SmokeFailure("artifact metadata is missing Markdown README metadata")
+        payload = metadata.get_payload()
+        if not isinstance(payload, str) or "# Pietto" not in payload:
+            raise SmokeFailure("artifact metadata is missing the declared README body")
+
+
+def _inspect_wheel(wheel: Path, contract: ProjectContract) -> None:
+    dist_info = f"{contract.name.replace('-', '_')}-{contract.version}.dist-info"
+    metadata_path = f"{dist_info}/METADATA"
+    entry_points_path = f"{dist_info}/entry_points.txt"
+
+    try:
+        with zipfile.ZipFile(wheel) as archive:
+            inventory = set(archive.namelist())
+            required = _required_runtime_files(contract.name) | frozenset(
+                {metadata_path, entry_points_path, f"{dist_info}/WHEEL"}
+            )
+            missing = _missing_files(inventory, required)
+            if missing:
+                raise SmokeFailure(
+                    f"wheel is missing required files: {', '.join(missing)}"
+                )
+            metadata_bytes = archive.read(metadata_path)
+            entry_points_text = archive.read(entry_points_path).decode("utf-8")
+    except (OSError, UnicodeError, zipfile.BadZipFile, KeyError) as error:
+        raise SmokeFailure(f"cannot inspect wheel {wheel.name}: {error}") from error
+
+    _validate_core_metadata(metadata_bytes, contract)
+    parser = configparser.ConfigParser()
+    try:
+        parser.read_string(entry_points_text)
+    except configparser.Error as error:
+        raise SmokeFailure(f"invalid console entry point metadata: {error}") from error
+    if parser.get("console_scripts", "pietto", fallback=None) != contract.console_entry:
+        raise SmokeFailure(
+            "wheel console entry point does not match "
+            f"pietto = {contract.console_entry}"
+        )
+
+
+def _read_tar_member(archive: tarfile.TarFile, name: str) -> bytes:
+    member = archive.extractfile(name)
+    if member is None:
+        raise SmokeFailure(f"sdist member is not a regular file: {name}")
+    return member.read()
+
+
+def _inspect_sdist(sdist: Path, contract: ProjectContract) -> None:
+    prefix = f"{contract.name}-{contract.version}"
+    metadata_path = f"{prefix}/PKG-INFO"
+    required = _required_runtime_files(f"{prefix}/src/{contract.name}") | frozenset(
+        {
+            metadata_path,
+            f"{prefix}/pyproject.toml",
+        }
+    )
+    if contract.readme is not None:
+        required |= frozenset({f"{prefix}/{contract.readme}"})
+
+    try:
+        with tarfile.open(sdist, mode="r:gz") as archive:
+            inventory = set(archive.getnames())
+            missing = _missing_files(inventory, required)
+            if missing:
+                raise SmokeFailure(
+                    f"sdist is missing required files: {', '.join(missing)}"
+                )
+            metadata_bytes = _read_tar_member(archive, metadata_path)
+    except (OSError, tarfile.TarError, KeyError) as error:
+        raise SmokeFailure(f"cannot inspect sdist {sdist.name}: {error}") from error
+
+    _validate_core_metadata(metadata_bytes, contract)
+
+
+def _venv_python(venv_dir: Path) -> Path:
+    executable = Path("Scripts/python.exe") if os.name == "nt" else Path("bin/python")
+    return venv_dir / executable
+
+
+def _venv_cli(venv_dir: Path) -> Path:
+    executable = Path("Scripts/pietto.exe") if os.name == "nt" else Path("bin/pietto")
+    return venv_dir / executable
+
+
+def _clean_environment() -> dict[str, str]:
+    environment = os.environ.copy()
+    environment.pop("PYTHONPATH", None)
+    environment.pop("PYTHONHOME", None)
+    environment["PYTHONNOUSERSITE"] = "1"
+    return environment
+
+
+def _copy_smoke_inputs(scratch_dir: Path) -> None:
+    for relative_path in (CHECK_INPUT, POSTGRES_INPUT, MYSQL_INPUT):
+        destination = scratch_dir / relative_path
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(REPO_ROOT / relative_path, destination)
+
+
+def _run_installed_cli(
+    cli_path: Path,
+    arguments: tuple[str, ...],
+    *,
+    scratch_dir: Path,
+    stage: str,
+    environment: dict[str, str],
+) -> subprocess.CompletedProcess[bytes]:
+    return _run_command(
+        stage,
+        (str(cli_path), *arguments),
+        cwd=scratch_dir,
+        capture_output=True,
+        env=environment,
+    )
+
+
+def _smoke_installed_cli(
+    venv_dir: Path,
+    scratch_dir: Path,
+    contract: ProjectContract,
+) -> None:
+    try:
+        scratch_dir.relative_to(REPO_ROOT)
+    except ValueError:
+        pass
+    else:
+        raise SmokeFailure("installed CLI scratch directory must be outside repository")
+
+    cli_path = _venv_cli(venv_dir)
+    if not cli_path.is_file():
+        raise SmokeFailure(f"installed console script is missing: {cli_path}")
+
+    _copy_smoke_inputs(scratch_dir)
+    environment = _clean_environment()
+
+    version = _run_installed_cli(
+        cli_path,
+        ("--version",),
+        scratch_dir=scratch_dir,
+        stage="installed CLI version",
+        environment=environment,
+    )
+    expected_version = f"pietto {contract.version}\n".encode()
+    if version.stdout != expected_version or version.stderr:
+        raise SmokeFailure("installed CLI --version output is unexpected")
+
+    help_result = _run_installed_cli(
+        cli_path,
+        ("--help",),
+        scratch_dir=scratch_dir,
+        stage="installed CLI help",
+        environment=environment,
+    )
+    for marker in (b"usage: pietto", b"check", b"emit-sql"):
+        if marker not in help_result.stdout:
+            raise SmokeFailure(f"installed CLI --help is missing {marker!r}")
+    if help_result.stderr:
+        raise SmokeFailure("installed CLI --help wrote unexpected stderr")
+
+    _run_installed_cli(
+        cli_path,
+        ("check", CHECK_INPUT.as_posix()),
+        scratch_dir=scratch_dir,
+        stage="installed CLI check",
+        environment=environment,
+    )
+
+    postgres = _run_installed_cli(
+        cli_path,
+        (
+            "emit-sql",
+            POSTGRES_INPUT.as_posix(),
+            "--dialect",
+            "postgres",
+        ),
+        scratch_dir=scratch_dir,
+        stage="installed PostgreSQL text",
+        environment=environment,
+    )
+    expected_postgres = (REPO_ROOT / POSTGRES_GOLDEN).read_bytes()
+    if postgres.stdout != expected_postgres or postgres.stderr:
+        raise SmokeFailure(
+            "installed PostgreSQL text output differs from reviewed golden bytes"
+        )
+
+    mysql = _run_installed_cli(
+        cli_path,
+        (
+            "emit-sql",
+            MYSQL_INPUT.as_posix(),
+            "--dialect",
+            "mysql",
+            "--format",
+            "json",
+        ),
+        scratch_dir=scratch_dir,
+        stage="installed MySQL JSON v1",
+        environment=environment,
+    )
+    try:
+        actual_mysql = json.loads(mysql.stdout)
+        expected_mysql = json.loads((REPO_ROOT / MYSQL_GOLDEN).read_bytes())
+    except (UnicodeError, json.JSONDecodeError) as error:
+        raise SmokeFailure(
+            f"cannot decode MySQL JSON v1 smoke output: {error}"
+        ) from error
+    if actual_mysql != expected_mysql or mysql.stderr:
+        raise SmokeFailure(
+            "installed MySQL JSON v1 output differs structurally from reviewed golden"
+        )
+
+    print(f"[package-smoke] installed CLI version: {version.stdout.decode().strip()}")
+    print(
+        "[package-smoke] installed CLI verified: --help, check, "
+        "PostgreSQL byte-exact text, MySQL JSON v1 structure",
+        flush=True,
+    )
+
+
+def main() -> int:
+    """Run the independent packaging and installed-CLI smoke validation."""
+
+    try:
+        contract = _project_contract()
+        with tempfile.TemporaryDirectory(prefix="pietto-package-smoke-") as temporary:
+            temporary_root = Path(temporary)
+            dist_dir = temporary_root / "dist"
+            venv_dir = temporary_root / "venv"
+            scratch_dir = temporary_root / "scratch"
+            dist_dir.mkdir()
+            scratch_dir.mkdir()
+
+            _run_command(
+                "build sdist and wheel",
+                (
+                    "uv",
+                    "build",
+                    "--sdist",
+                    "--wheel",
+                    "--out-dir",
+                    str(dist_dir),
+                ),
+                cwd=REPO_ROOT,
+            )
+            sdist, wheel = _find_artifacts(dist_dir)
+            print(f"[package-smoke] built sdist: {sdist.name}")
+            print(f"[package-smoke] built wheel: {wheel.name}")
+
+            _inspect_sdist(sdist, contract)
+            _inspect_wheel(wheel, contract)
+            print("[package-smoke] artifact inventory and metadata verified")
+
+            _run_command(
+                "create clean virtual environment",
+                (sys.executable, "-m", "venv", str(venv_dir)),
+                cwd=temporary_root,
+            )
+            venv_python = _venv_python(venv_dir)
+            _run_command(
+                "install wheel",
+                (
+                    "uv",
+                    "pip",
+                    "install",
+                    "--python",
+                    str(venv_python),
+                    str(wheel),
+                ),
+                cwd=temporary_root,
+                env=_clean_environment(),
+            )
+            _smoke_installed_cli(venv_dir, scratch_dir, contract)
+    except SmokeFailure as error:
+        print(f"[package-smoke] error: {error}", file=sys.stderr)
+        return error.exit_code
+
+    print("[package-smoke] packaging and installed CLI smoke passed", flush=True)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

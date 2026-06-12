@@ -57,3 +57,6 @@ jobs:
 
       - name: Audit golden fixtures
         run: uv run python scripts/check_goldens.py
+
+      - name: Smoke test installed package
+        run: uv run python scripts/package_smoke.py
