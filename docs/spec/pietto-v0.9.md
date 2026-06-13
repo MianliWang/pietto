@@ -1,7 +1,7 @@
 # Pietto v0.9 Whitepaper and Language Reference
 
 Version: v0.9 draft
-Status: Phase 1 through Phase 13 complete; Phase 14 Slice 1 readiness planning complete; implementation has not started
+Status: Phase 1 through Phase 13 complete; Phase 14 Slices 1 and 2 readiness and candidate decision complete; implementation has not started
 Supported Python baseline: Python >=3.12; Phase 11 CI: Python 3.12/3.13
 Primary SQL target: PostgreSQL; MySQL 8.0+ generation MVP supported
 Preferred package manager: uv-first
@@ -92,6 +92,25 @@ relation-role syntax, permission gates, runtime security, threat model,
 diagnostic code, database connection, SQL execution, schema introspection,
 JSON v2, project mode, LSP, Web UI, playground, SQLGlot, release, publish,
 signing, upload, and attestation behavior remain not implemented.
+
+Phase 14 Slice 2 is complete as a candidate decision only. It selected the
+Relationship and endpoint metadata syntax foundation as the first real
+implementation candidate and deferred the Ambiguity and name-ownership
+foundation. The exact proposed Slice 3 boundary is parse-only and AST-only,
+with a separately reviewed syntax contract, minimal grammar and regenerated
+ANTLR changes, immutable AST metadata, parser tests, necessary fixed-hash
+updates, and scope-aware documentation.
+
+Phase 14 implementation has not started, and Slice 3 remains unauthorized
+until separately reviewed and approved. Slice 2 changes no production code,
+grammar, generated ANTLR, parser, AST, semantic analysis, IR, SQL backend,
+CLI, JSON v1, public API, dependency, package metadata, version, CI, fixture,
+or golden. No relationship syntax implementation, relation composition,
+JOIN, SQL shape implementation, relation-role semantics, permission gate,
+runtime security, threat model, diagnostic code, database connection, SQL
+execution, schema introspection, JSON v2, project mode, LSP, Web UI,
+playground, SQLGlot, release, publish, signing, upload, or attestation
+behavior is implemented.
 
 SQL is generated only. Database connections, SQL or connector execution,
 schema introspection, runtime services, project or multi-file support, watch
@@ -1467,8 +1486,9 @@ explicit phase and authorization.
 
 ### Phase 14: Relation Composition Implementation Readiness
 
-Status: Slice 1 Final Transition Readiness Gate is complete as
-planning/readiness work only. Phase 14 implementation has not started.
+Status: Slices 1 and 2 are complete as readiness and candidate decision work
+only. Phase 14 implementation has not started, and Slice 3 remains
+unauthorized.
 
 Slice 1 adds
 `docs/plan/phase-14-relation-composition-implementation-readiness.md`, one
@@ -1478,21 +1498,24 @@ fixed four-slice transition and narrows Slice 2 to a concrete choice between
 the relationship and endpoint metadata syntax foundation and the ambiguity
 and name-ownership foundation.
 
-Slice 2 must choose exactly one candidate, defer the other, name the exact
-files a later implementation may touch, name the files and compiler stages
-that remain untouched, and decide grammar, AST, semantic, IR, SQL, CLI, and
-JSON impact. Slice 2 must not implement either candidate and must not become
-another open-ended readiness or risk audit. Slice 3 remains separately
-unauthorized.
+Slice 2 adds
+`docs/plan/phase-14-first-implementation-candidate-decision.md`, focused
+static audit coverage, readiness-plan updates, and scope-aware documentation.
+It chose the Relationship and endpoint metadata syntax foundation, deferred
+the Ambiguity and name-ownership foundation, and defined an exact proposed
+parse-only and AST-only Slice 3 allowlist. The decision covers grammar,
+generated ANTLR, AST, semantic, IR, SQL, CLI, JSON, test, documentation, and
+untouched-file boundaries.
 
 Slice 1 changes no grammar, generated ANTLR, production compiler, SQL output,
 CLI, JSON v1, public API, dependency, package metadata, version, CI, or golden
 fixture. It does not implement relation composition, JOIN, SQL shapes, CTEs,
-subqueries, relationship syntax, relation-role syntax, permission gates,
-runtime security, threat model, diagnostic codes, database connection, SQL
-execution, schema introspection, JSON v2, project mode, LSP, Web UI,
-playground, SQLGlot, release, publish, signing, upload, or attestation
-behavior.
+subqueries, relationship syntax, relation-role semantics, endpoint-role
+enforcement, cardinality or fanout behavior, permission gates, runtime
+security, threat model, diagnostic codes, database connection, SQL execution,
+schema introspection, JSON v2, project mode, LSP, Web UI, playground, SQLGlot,
+release, publish, signing, upload, or attestation behavior. Slice 3 remains
+unauthorized until separately reviewed and approved.
 
 ---
 

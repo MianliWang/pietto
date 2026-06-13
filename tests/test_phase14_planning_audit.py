@@ -8,6 +8,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLAN_PATH = "docs/plan/phase-14-relation-composition-implementation-readiness.md"
+DECISION_PATH = "docs/plan/phase-14-first-implementation-candidate-decision.md"
 PHASE13_INPUTS = (
     "docs/plan/phase-13-relation-composition-planning.md",
     "docs/spec/relationship-relation-role-contract-v1.md",
@@ -90,10 +91,15 @@ def test_phase14_plan_records_final_transition_status_and_slice_order() -> None:
 
     assert "# Phase 14: Relation Composition Implementation Readiness" in plan
     assert "**Phase 14 Slice 1: Final Transition Readiness Gate is complete.**" in plan
+    assert (
+        "**Phase 14 Slice 2: First Implementation Candidate Decision is complete.**"
+        in plan
+    )
     assert "**Phase 14 implementation has not started.**" in plan
-    assert "**Slices 2 through 4 require separate explicit authorization.**" in plan
+    assert "**Slices 3 through 4 require separate explicit authorization.**" in plan
     assert "Slice 1 is planning-only" in plan
     assert "Phase 14 must not become another broad planning phase" in plan
+    assert DECISION_PATH in plan
 
     offsets = [
         plan.index(f"{number}. **{name}**")
@@ -117,7 +123,7 @@ def test_phase13_inputs_are_referenced_and_byte_locked() -> None:
     assert "not accepted syntax" in normalized
 
 
-def test_two_candidates_and_concrete_slice2_decision_are_required() -> None:
+def test_two_candidates_and_concrete_slice2_decision_are_recorded() -> None:
     plan = _read(PLAN_PATH)
     normalized = " ".join(plan.split())
 
@@ -130,11 +136,14 @@ def test_two_candidates_and_concrete_slice2_decision_are_required() -> None:
     for dimension in ("Value", "Risk", "Surface area", "Testability"):
         assert dimension in plan
 
-    assert "Slice 1 does not choose between these candidates" in normalized
-    assert "Slice 2 must choose exactly one" in normalized
+    assert "Slice 1 did not choose between these candidates" in normalized
+    assert (
+        "Slice 2 chose the relationship and endpoint metadata syntax foundation"
+        in normalized
+    )
+    assert "deferred the ambiguity and name-ownership foundation" in normalized
     assert "not a continuation of general planning" in normalized
-    assert "must not become another open-ended readiness or risk audit" in normalized
-    assert "must not implement the candidate" in normalized
+    assert "did not implement either candidate" in normalized
 
     for decision in (
         "First real implementation candidate",
@@ -332,10 +341,14 @@ def test_status_documents_record_phase14_readiness_without_implementation() -> N
         assert "Phase 13" in normalized
         assert "planning, contract, and audit work only" in normalized
         assert "Phase 14 Slice 1" in normalized
+        assert "Phase 14 Slice 2" in normalized
         assert "planning/readiness work only" in normalized
         assert "Phase 14 implementation has not started" in normalized
-        assert "Slice 2" in normalized
-        assert "choose" in normalized
+        assert (
+            "relationship and endpoint metadata syntax foundation" in normalized.lower()
+        )
+        assert "Slice 3" in normalized
+        assert "separate explicit authorization" in normalized
 
     combined = " ".join("\n".join(documents.values()).split())
     for boundary in (

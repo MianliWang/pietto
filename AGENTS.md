@@ -86,14 +86,13 @@ Rules:
 
 ## Current Phase
 
-Current phase status: Phase 14 Slice 1 Final Transition Readiness Gate is
-complete as planning/readiness work only. Phase 14 implementation has not
-started. Slice 1 is the final broad readiness slice. Slice 2 must choose
-exactly one first implementation candidate between the relationship and
-endpoint metadata syntax foundation and the ambiguity and name-ownership
-foundation, then define an exact Slice 3 file and compiler-stage boundary.
-Slice 2 must not continue as an open-ended readiness or risk audit, and Slice
-3 requires separate explicit authorization.
+Current phase status: Phase 14 Slices 1 and 2 are complete as readiness and
+candidate decision work only. Phase 14 Slice 2 selected the Relationship and
+endpoint metadata syntax foundation as the first real implementation
+candidate and deferred the Ambiguity and name-ownership foundation. The
+proposed Slice 3 boundary is parse-only and AST-only. Phase 14 implementation
+has not started, and Slice 3 remains unauthorized until separately reviewed
+and approved.
 
 Phase 13 Relation Composition And Relationship Planning is complete as
 planning, contract, and audit work only. Slices 1 through 6 are complete.
@@ -134,6 +133,17 @@ syntax, relation-role syntax, permission gates, runtime security, threat
 model, diagnostic code, database connection, SQL execution, schema
 introspection, JSON v2, project mode, LSP, Web UI, playground, SQLGlot,
 release, publish, signing, upload, or attestation behavior.
+Phase 14 Slice 2 adds only
+`docs/plan/phase-14-first-implementation-candidate-decision.md`, focused
+static audit coverage, readiness-plan updates, and scope-aware status
+documentation. It changes no production code, grammar, generated ANTLR,
+parser, AST, semantic analysis, IR, SQL backend, CLI, JSON v1, public API,
+dependency, package metadata, version, CI, fixture, or golden. It implements
+no relationship syntax, relation composition, JOIN, SQL shape, relation-role
+semantics, permission gate, runtime security, threat model, diagnostic code,
+database connection, SQL execution, schema introspection, JSON v2, project
+mode, LSP, Web UI, playground, SQLGlot, release, publish, signing, upload, or
+attestation behavior.
 
 Phase 12 SQL Feature Expansion I is complete. Slices 1 through 6 are complete.
 Slice 1 adds only the master plan,
@@ -408,6 +418,12 @@ decision are documented in
 `docs/plan/phase-14-relation-composition-implementation-readiness.md`. Slice 1
 is complete as planning/readiness work only, and Phase 14 implementation has
 not started.
+The Slice 2 chosen candidate, deferred candidate, exact proposed Slice 3
+allowlist, compiler-stage impacts, readiness gates, and hard non-goals are
+documented in
+`docs/plan/phase-14-first-implementation-candidate-decision.md`. Slice 2 is
+complete as a candidate decision only. Phase 14 implementation has not
+started, and Slice 3 remains unauthorized pending separate approval.
 
 Current strict boundaries remain:
 
@@ -456,10 +472,11 @@ runtime security, threat model, or diagnostic code. They do not implement
 relation composition, JOIN, SQL shapes, relationship syntax, relation-role
 syntax, relation gates, permission matching, runtime security, database
 connection, SQL execution, schema introspection, or SQLGlot.
-Phase 14 Slice 1 is complete as planning/readiness work only. It is the final
-broad transition planning slice. Phase 14 implementation has not started, and
-Slice 2 must choose one concrete foundation and define the exact authorized
-boundary for a later Slice 3 implementation.
+Phase 14 Slices 1 and 2 are complete as readiness and candidate decision work
+only. Slice 2 chose the Relationship and endpoint metadata syntax foundation,
+deferred the Ambiguity and name-ownership foundation, and defined an exact
+proposed parse-only and AST-only Slice 3 boundary. Phase 14 implementation has
+not started, and Slice 3 remains unauthorized.
 The private MySQL backend, static `mysql.table(Text)` semantic/IR surface, and
 closed renderer are the MySQL compiler boundaries. Explicit private CLI
 dispatch and JSON v1 presentation are enabled. Public emitter export, a

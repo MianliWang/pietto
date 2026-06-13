@@ -4,9 +4,11 @@
 
 **Phase 14 Slice 1: Final Transition Readiness Gate is complete.**
 
+**Phase 14 Slice 2: First Implementation Candidate Decision is complete.**
+
 **Phase 14 implementation has not started.**
 
-**Slices 2 through 4 require separate explicit authorization.**
+**Slices 3 through 4 require separate explicit authorization.**
 
 Slice 1 is planning-only. It creates the final broad readiness gate between
 the completed Phase 13 planning contracts and a future narrowly authorized
@@ -17,8 +19,10 @@ golden behavior.
 
 Phase 14 must not become another broad planning phase. Phase 13 already
 completed the major relation-composition planning, contract, and audit work.
-The next slice must choose one concrete first implementation candidate and
-define the exact boundary for the following implementation slice.
+Slice 2 chose the relationship and endpoint metadata syntax foundation and
+defined the exact proposed boundary for Slice 3. The candidate decision is
+documented in
+`docs/plan/phase-14-first-implementation-candidate-decision.md`.
 
 ## Inputs And Preserved Baseline
 
@@ -74,10 +78,10 @@ Phase 14 has four slices. Slice 1 is the only broad readiness slice.
 1. **Final Transition Readiness Gate**: complete. Record the immutable Phase
    13 inputs, two concrete candidate directions, required decision output,
    implementation gates, compatibility locks, and hard non-goals.
-2. **First Implementation Candidate Decision**: planned and unauthorized.
-   Choose exactly one of the two candidates in this plan and produce a
-   decision-complete boundary for Slice 3. This slice must not become another
-   open-ended readiness or risk audit and must not implement the candidate.
+2. **First Implementation Candidate Decision**: complete. Slice 2 chose the
+   relationship and endpoint metadata syntax foundation, deferred the
+   ambiguity and name-ownership foundation, and fixed a decision-complete
+   proposed boundary for Slice 3 without implementing the candidate.
 3. **Explicitly Authorized Minimal Vertical Slice**: planned and
    unauthorized. Implement only the candidate and file boundary approved
    after Slice 2 review. Authorization for Slice 1 or Slice 2 does not
@@ -91,8 +95,9 @@ and the explicitly authorized implementation decision.
 
 ## Two Candidate Directions
 
-Slice 1 does not choose between these candidates. Slice 2 must choose exactly
-one and reject the other for the first implementation slice.
+Slice 1 did not choose between these candidates. Slice 2 chose the
+relationship and endpoint metadata syntax foundation and deferred the
+ambiguity and name-ownership foundation for the first implementation slice.
 
 | Candidate | Value | Risk | Surface area | Testability |
 |---|---|---|---|---|
@@ -105,8 +110,9 @@ runtime authorization, or database enforcement.
 
 ## Required Slice 2 Decision
 
-Slice 2 is a concrete decision slice, not a continuation of general planning.
-Its output must answer every question below for the selected candidate.
+Slice 2 is complete as a concrete decision slice, not a continuation of
+general planning. Its decision document answers every question below for the
+selected candidate.
 
 | Required decision | Required output |
 |---|---|
@@ -121,8 +127,8 @@ Its output must answer every question below for the selected candidate.
 | CLI and JSON impact | State whether CLI behavior or JSON v1 changes; the default expectation is no change. |
 | Deferred behavior | Enumerate the syntax, semantics, diagnostics, composition, backend, runtime, and security behavior that remains unimplemented. |
 
-Slice 2 must also define positive, negative, compatibility, and absence tests
-for Slice 3. It may not use an undecided prototype, generic risk register, or
+Slice 2 also defines positive, negative, compatibility, and absence tests for
+Slice 3. It does not use an undecided prototype, generic risk register, or
 future follow-up as a substitute for these answers.
 
 ## Gates Before Slice 3
@@ -193,13 +199,12 @@ explicit implementation authorization.
 
 ## Handoff
 
-After Slice 1 review and commit, Slice 2 must inspect the Phase 13 contracts
-and choose between the relationship and endpoint metadata syntax foundation
-and the ambiguity and name-ownership foundation. It must produce the complete
-implementation boundary listed above for Slice 3.
+Slice 2 selected the relationship and endpoint metadata syntax foundation and
+deferred the ambiguity and name-ownership foundation. The exact proposed
+Slice 3 allowlist, stage impacts, tests, and untouched boundaries are in
+`docs/plan/phase-14-first-implementation-candidate-decision.md`.
 
-Slice 2 must not implement either candidate. Slice 3 remains unauthorized
+Slice 2 did not implement either candidate. Slice 3 remains unauthorized
 until its exact boundary is reviewed and explicitly approved. Relation
 composition, JOIN, SQL shape lowering, runtime security, database behavior,
-and all other hard non-goals remain deferred regardless of which foundation
-is selected.
+and all other hard non-goals remain deferred.
