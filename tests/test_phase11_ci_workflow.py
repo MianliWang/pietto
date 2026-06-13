@@ -63,8 +63,13 @@ def test_ci_sets_java_21_and_pins_the_local_uv_version() -> None:
     assert "overwrite-settings: false" in workflow
     assert 'version: "0.11.19"' in workflow
     assert "enable-cache: false" in workflow
-    assert "UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/pietto-venv" in workflow
-    assert "UV_CACHE_DIR: ${{ runner.temp }}/uv-cache" in workflow
+    assert "${{ runner.temp }}" not in workflow
+    assert (
+        'echo "UV_PROJECT_ENVIRONMENT=$RUNNER_TEMP/pietto-venv" >> "$GITHUB_ENV"'
+        in workflow
+    )
+    assert 'echo "UV_CACHE_DIR=$RUNNER_TEMP/uv-cache" >> "$GITHUB_ENV"' in workflow
+    assert workflow.count('>> "$GITHUB_ENV"') == 2
     assert "run: uv sync --locked" in workflow
 
 
