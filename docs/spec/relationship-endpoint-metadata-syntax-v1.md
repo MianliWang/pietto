@@ -5,6 +5,11 @@
 This contract is implemented by Phase 14 Slice 3 as a parse-only and AST-only
 language surface.
 
+Phase 14 Slice 4 completes backend compatibility and completion audit work
+only. It adds no language, semantic, IR, SQL, CLI, JSON, runtime, connector,
+or database behavior. Phase 14 is complete. Phase 15 has not started and
+remains unauthorized.
+
 Relationship declarations are accepted only as source metadata. Successful
 parsing does not establish that referenced relations exist, endpoint names
 are unique, a relationship is valid, relations can be composed, or any query
@@ -166,3 +171,5 @@ This contract does not implement or authorize:
 - SQLGlot or another dependency;
 - a public MySQL emitter or generic public SQL emitter;
 - release, publish, deployment, signing, upload, or attestation behavior.
+
+Any Phase 15 work requires separate explicit authorization.

@@ -1,7 +1,7 @@
 # Pietto v0.9 Whitepaper and Language Reference
 
 Version: v0.9 draft
-Status: Phase 1 through Phase 13 complete; Phase 14 Slices 1 through 3 complete, including parse-only relationship metadata AST
+Status: Phase 1 through Phase 14 complete; Phase 14 includes parse-only relationship metadata AST and final compatibility audit
 Supported Python baseline: Python >=3.12; Phase 11 CI: Python 3.12/3.13
 Primary SQL target: PostgreSQL; MySQL 8.0+ generation MVP supported
 Preferred package manager: uv-first
@@ -100,20 +100,25 @@ updates, and scope-aware documentation.
 Phase 14 Slice 3 is complete as the first implementation slice. The normative
 syntax is documented in
 `docs/spec/relationship-endpoint-metadata-syntax-v1.md`. Slice 3 adds only a
-top-level relationship metadata block with exactly two source-ordered
+top-level parse-only and AST-only relationship metadata block with exactly two
+source-ordered
 endpoints, regenerated ANTLR artifacts, immutable relationship metadata AST
 nodes, and an empty-by-default `Script.relationships` tuple. The metadata is
 not part of `Script.definitions`.
 
 Semantic analysis, Semantic IR, PostgreSQL and MySQL SQL, CLI, JSON v1, public
 APIs, dependencies, package metadata, version, CI, fixtures, and goldens
-remain unchanged. Slice 4 remains unauthorized. No relation composition,
-JOIN, SQL shape implementation, relationship semantic validation,
-relation-role semantics, endpoint-role enforcement, cardinality or fanout
-behavior, permission gate, runtime security, threat model, diagnostic code,
-database connection, SQL execution, schema introspection, JSON v2, project
-mode, LSP, Web UI, playground, SQLGlot, release, publish, signing, upload, or
-attestation behavior is implemented.
+remain unchanged. Slice 4 adds only backend compatibility and completion audit
+coverage plus status documentation; it adds no language, runtime, or database
+behavior. Phase 14 is complete.
+
+Phase 15 has not started and remains unauthorized. No relation composition,
+JOIN, SQL shape implementation or SQL lowering, relationship semantic
+validation, relation-role semantics, endpoint-role enforcement, cardinality
+or fanout behavior, permission gate, runtime security, threat model,
+diagnostic code, database connection, SQL execution, schema introspection,
+JSON v2, project mode, LSP, Web UI, playground, SQLGlot, release, publish,
+signing, upload, or attestation behavior is implemented.
 
 SQL is generated only. Database connections, SQL or connector execution,
 schema introspection, runtime services, project or multi-file support, watch
@@ -1489,8 +1494,10 @@ explicit phase and authorization.
 
 ### Phase 14: Relation Composition Implementation Readiness
 
-Status: Slices 1 through 3 are complete. Slice 3 implements only parse-only
-and AST-only relationship metadata. Slice 4 remains unauthorized.
+Status: Phase 14 is complete. Slices 1 through 4 cover readiness planning,
+candidate decision, parse-only and AST-only relationship metadata, and the
+backend compatibility and completion audit. Phase 15 has not started and
+remains unauthorized.
 
 Slice 1 adds
 `docs/plan/phase-14-relation-composition-implementation-readiness.md`, one
@@ -1517,13 +1524,18 @@ grammar, regenerated ANTLR artifacts, immutable `RelationshipMetadata` and
 Semantic IR, SQL output, CLI, JSON v1, public API, dependency, package
 metadata, version, CI, fixture, or golden.
 
-Slice 3 does not implement relation composition, JOIN, SQL shapes, CTEs,
+Slice 4 adds only `tests/test_phase14_completion_audit.py` and scope-aware
+status documentation. It locks backend compatibility and all unchanged
+compiler, API, dependency, workflow, example, fixture, and golden boundaries
+without adding runtime or database behavior.
+
+Phase 14 does not implement relation composition, JOIN, SQL shapes, CTEs,
 subqueries, relationship semantic validation, relation-role semantics,
 endpoint-role enforcement, cardinality or fanout behavior, permission gates,
 runtime security, threat model, diagnostic codes, database connection, SQL
 execution, schema introspection, JSON v2, project mode, LSP, Web UI,
 playground, SQLGlot, release, publish, signing, upload, or attestation
-behavior. Slice 4 remains unauthorized.
+behavior. Any Phase 15 work requires separate explicit authorization.
 
 ---
 

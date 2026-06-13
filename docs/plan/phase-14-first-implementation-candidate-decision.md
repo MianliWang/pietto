@@ -9,13 +9,25 @@ Implementation is complete.**
 
 **Phase 14 implementation has started only at the parser and AST boundary.**
 
-**Slice 4 remains unauthorized until separately reviewed and approved.**
+**Phase 14 Slice 4: Backend Compatibility And Completion Audit is complete.**
+
+**Phase 14 is complete. Implemented behavior remains limited to the parser and
+AST boundary.**
+
+**Phase 15 has not started and remains unauthorized.**
+
+Historical Slice 3 authorization-gate text retained for audit compatibility:
+**Slice 4 remains unauthorized until separately reviewed and approved.** That
+review and approval have now completed; the current Slice 4 status above is
+authoritative.
 
 Slice 2 changed no grammar, generated ANTLR content, parser, AST, semantic
 analysis, IR, SQL backend, CLI, JSON, runtime, dependency, public API, package
 metadata, version, CI, or golden behavior. Slice 3 implements the selected
 candidate only as specified by
 `docs/spec/relationship-endpoint-metadata-syntax-v1.md`.
+Slice 4 adds only static audit and status documentation; it adds no language,
+semantic, IR, SQL, CLI, JSON, runtime, or database behavior.
 
 ## Inputs
 
@@ -276,8 +288,11 @@ Neither this decision slice nor the implemented Slice 3 includes or authorizes:
 ## Handoff
 
 Slice 3 is complete as the chosen relationship and endpoint metadata syntax
-foundation and remains parse-only and AST-only. Slice 4 remains unauthorized
-until separately reviewed and approved.
+foundation and remains parse-only and AST-only. Slice 4 is complete as backend
+compatibility and completion audit work only. Phase 14 is complete.
+
+Phase 15 has not started and remains unauthorized. Any further implementation
+requires separate explicit authorization.
 
 Any need for semantic, IR, SQL, CLI, JSON, runtime, database, dependency,
 public API, fixture, golden, CI, or unlisted file changes is a scope expansion

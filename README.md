@@ -21,8 +21,9 @@ The current implementation status is:
 - **Phase 12 SQL Feature Expansion I: complete**;
 - **Phase 13 Relation Composition And Relationship Planning: complete as
   planning, contract, and audit work only**;
-- **Phase 14 Slices 1 through 3: readiness, candidate decision, and parse-only
-  relationship metadata AST implementation complete**.
+- **Phase 14: complete; Slices 1 through 4 cover readiness, candidate
+  decision, parse-only relationship metadata AST implementation, and backend
+  compatibility/completion audit**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -319,7 +320,8 @@ separately reviewed exact syntax contract, minimal grammar and regenerated
 ANTLR changes, immutable AST metadata, parser tests, necessary fixed-hash
 updates, and scope-aware documentation.
 
-Phase 14 Slice 3 is complete. It implements only the exact parse-only
+Phase 14 Slice 3 is complete. It implements only the exact parse-only and
+AST-only
 relationship metadata syntax in
 [Relationship Endpoint Metadata Syntax v1](docs/spec/relationship-endpoint-metadata-syntax-v1.md),
 regenerated ANTLR artifacts, immutable `RelationshipMetadata` and
@@ -329,13 +331,21 @@ regenerated ANTLR artifacts, immutable `RelationshipMetadata` and
 SQL, CLI, JSON v1, public APIs, dependencies, package metadata, version, CI,
 fixtures, and goldens remain unchanged.
 
-Slice 4 remains unauthorized. No relation composition, JOIN, SQL shape
-implementation, relationship semantic validation, relation-role semantics,
-endpoint-role enforcement, cardinality or fanout behavior, permission gate,
-runtime security, threat model, diagnostic code, database connection, SQL
-execution, schema introspection, JSON v2, project mode, LSP, Web UI,
-playground, SQLGlot, release, publish, signing, upload, or attestation
-behavior is implemented.
+Phase 14 Slice 4 is complete and adds only
+`tests/test_phase14_completion_audit.py` plus status documentation. The
+backend compatibility and completion audit locks the parse-only and AST-only
+relationship metadata boundary; semantic analysis, Semantic IR, PostgreSQL
+and MySQL SQL, CLI, JSON v1, runtime, database behavior, public APIs,
+dependencies, package metadata, version, CI, examples, fixtures, and goldens
+remain unchanged. Phase 14 is complete.
+
+Phase 15 has not started and remains unauthorized. No relation composition,
+JOIN, SQL shape implementation or SQL lowering, relationship semantic
+validation, relation-role semantics, endpoint-role enforcement, cardinality
+or fanout behavior, permission gate, runtime security, threat model,
+diagnostic code, database connection, SQL execution, schema introspection,
+JSON v2, project mode, LSP, Web UI, playground, SQLGlot, release, publish,
+signing, upload, or attestation behavior is implemented.
 
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added
@@ -385,8 +395,8 @@ The completed planning-only relation-composition direction, six-slice
 sequence, completion audit, SQL-lowering invariant, and security boundaries
 are documented in
 [the Phase 13 Relation Composition And Relationship Planning plan](docs/plan/phase-13-relation-composition-planning.md).
-The final broad readiness gate, two concrete candidate directions, fixed
-four-slice transition, and mandatory Slice 2 decision output are documented
+The completed broad readiness gate, two concrete candidate directions,
+four-slice transition, and final compatibility audit are documented
 in
 [the Phase 14 Relation Composition Implementation Readiness plan](docs/plan/phase-14-relation-composition-implementation-readiness.md).
 The selected first implementation candidate, deferred candidate, implemented

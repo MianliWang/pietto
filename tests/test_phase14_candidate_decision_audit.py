@@ -25,7 +25,7 @@ STATUS_PATHS = (
 
 INPUT_HASHES = {
     READINESS_PATH: (
-        "a58f42447c0920c580f04c39303b4f4e8623f86affe23ab4da5efe577708d0de"
+        "b47cf0ccaaaf19960bc9c31c5f57d0952c47a2abef0dc42abdedf19f8dcd8fb9"
     ),
     "docs/plan/phase-13-relation-composition-planning.md": (
         "fe2518aa3837fa99b942fc3bf7bf05bfccdc8e2e3e66de9a12ce99d66949ead6"

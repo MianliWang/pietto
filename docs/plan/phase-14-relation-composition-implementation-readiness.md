@@ -11,7 +11,21 @@ Implementation is complete.**
 
 **Phase 14 implementation has started only at the parser and AST boundary.**
 
-**Slice 4 requires separate explicit authorization.**
+**Phase 14 Slice 4: Backend Compatibility And Completion Audit is complete.**
+
+**Phase 14 is complete. Implemented behavior remains limited to the parser and
+AST boundary.**
+
+**Phase 15 has not started and remains unauthorized.**
+
+Phase 14 is complete as readiness planning, candidate decision, parse-only and
+AST-only relationship metadata, and backend compatibility and completion
+audit.
+
+Historical Slice 3 authorization-gate text retained for audit compatibility:
+**Slice 4 requires separate explicit authorization.** That authorization has
+now been granted and completed; the current Slice 4 status above is
+authoritative.
 
 Slice 1 is planning-only. It creates the final broad readiness gate between
 the completed Phase 13 planning contracts and a future narrowly authorized
@@ -30,7 +44,9 @@ decision is
 documented in
 `docs/plan/phase-14-first-implementation-candidate-decision.md`.
 Slice 2 did not implement either candidate; implementation began only after
-the separate Slice 3 authorization.
+the separate Slice 3 authorization. Slice 4 adds only static audit and status
+documentation; it adds no language, compiler, backend, runtime, or database
+behavior.
 
 ## Inputs And Preserved Baseline
 
@@ -94,9 +110,10 @@ Phase 14 has four slices. Slice 1 is the only broad readiness slice.
    the relationship metadata syntax contract, regenerated ANTLR artifacts,
    immutable AST metadata, parser tests, fixed-hash updates, and scope-aware
    documentation.
-4. **Backend Compatibility And Completion Audit**: planned and unauthorized.
-   Verify the resulting narrow implementation, unchanged backend behavior
-   where required, compatibility locks, and all still-deferred capabilities.
+4. **Backend Compatibility And Completion Audit**: complete. Adds only the
+   final static completion audit and status documentation, verifying the
+   narrow implementation, unchanged backend behavior, compatibility locks,
+   and all still-deferred capabilities.
 
 No additional broad planning-only slices should be inserted between Slice 2
 and the explicitly authorized implementation decision.
@@ -187,7 +204,7 @@ security, masking, policy isolation, or safe data sharing.
 
 ## Compatibility Locks
 
-For Slices 1 through 3:
+For Slices 1 through 4:
 
 - handwritten production changes are limited to AST nodes and AST building;
 - grammar and the seven generated ANTLR files change only for the exact
@@ -215,5 +232,7 @@ exact approved allowlist, stage impacts, tests, and untouched boundaries in
 
 Slice 3 is complete as parse-only and AST-only relationship metadata.
 Relation composition, JOIN, SQL shape lowering, runtime security, database
-behavior, and all other hard non-goals remain deferred. Slice 4 remains
-unauthorized.
+behavior, and all other hard non-goals remain deferred. Slice 4 is complete
+as backend compatibility and completion audit work only. Phase 14 is
+complete. Phase 15 has not started and remains unauthorized; any further
+implementation requires separate explicit authorization.

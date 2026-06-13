@@ -86,17 +86,20 @@ Rules:
 
 ## Current Phase
 
-Current phase status: Phase 14 Slices 1 through 3 are complete. Slice 1 is the
-final broad readiness planning slice. Slice 2 selected the Relationship and
-endpoint metadata syntax foundation and deferred the Ambiguity and
-name-ownership foundation. Phase 14 Slice 3 implements only the exact
-parse-only metadata syntax in
+Current phase status: Phase 14 is complete. Slice 1 is the final broad
+readiness planning slice. Slice 2 selected the Relationship and endpoint
+metadata syntax foundation and deferred the Ambiguity and name-ownership
+foundation. Phase 14 Slice 3 implements only the exact parse-only and AST-only
+metadata syntax in
 `docs/spec/relationship-endpoint-metadata-syntax-v1.md`, regenerated ANTLR
 artifacts, immutable relationship endpoint metadata AST nodes, and an
 empty-by-default `Script.relationships` tuple. Relationship metadata remains
 outside semantic definitions. Semantic analysis, Semantic IR, SQL, CLI, JSON
 v1, runtime, database behavior, public APIs, dependencies, version, CI,
-fixtures, and goldens remain unchanged. Slice 4 remains unauthorized.
+fixtures, and goldens remain unchanged. Slice 4 adds only backend
+compatibility and completion audit coverage plus status documentation. It
+adds no runtime or database behavior. Phase 15 has not started and remains
+unauthorized.
 
 Phase 13 Relation Composition And Relationship Planning is complete as
 planning, contract, and audit work only. Slices 1 through 6 are complete.
@@ -426,7 +429,9 @@ allowlist, compiler-stage impacts, gate outcome, and hard non-goals are
 documented in
 `docs/plan/phase-14-first-implementation-candidate-decision.md`. Slice 2 is
 complete as a candidate decision only. Slice 3 is complete as parse-only and
-AST-only relationship metadata, and Slice 4 remains unauthorized.
+AST-only relationship metadata. Slice 4 is complete as backend compatibility
+and completion audit work only. Phase 14 is complete; Phase 15 has not started
+and remains unauthorized.
 
 Current strict boundaries remain:
 
@@ -475,10 +480,12 @@ behavior, runtime security, threat model, or diagnostic code and implemented
 no relation composition, JOIN, SQL shapes, relation-role syntax, relation
 gates, permission matching, runtime security, database connection, SQL
 execution, schema introspection, or SQLGlot.
-Phase 14 Slices 1 through 3 are complete. Slice 2 chose the Relationship and
+Phase 14 Slices 1 through 4 are complete. Slice 2 chose the Relationship and
 endpoint metadata syntax foundation and deferred the Ambiguity and
 name-ownership foundation. Slice 3 implements only parse-only and AST-only
-relationship metadata. Slice 4 remains unauthorized.
+relationship metadata. Slice 4 adds only backend compatibility and completion
+audit coverage plus status documentation. Phase 15 has not started and
+remains unauthorized.
 The private MySQL backend, static `mysql.table(Text)` semantic/IR surface, and
 closed renderer are the MySQL compiler boundaries. Explicit private CLI
 dispatch and JSON v1 presentation are enabled. Public emitter export, a
