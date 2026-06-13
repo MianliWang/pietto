@@ -1,7 +1,7 @@
 # Pietto v0.9 Whitepaper and Language Reference
 
 Version: v0.9 draft
-Status: Phase 1 through Phase 14 complete; Phase 14 includes parse-only relationship metadata AST and final compatibility audit
+Status: Phase 1 through Phase 14 complete; Phase 15 Slice 1 relationship metadata semantic validation complete
 Supported Python baseline: Python >=3.12; Phase 11 CI: Python 3.12/3.13
 Primary SQL target: PostgreSQL; MySQL 8.0+ generation MVP supported
 Preferred package manager: uv-first
@@ -112,13 +112,18 @@ remain unchanged. Slice 4 adds only backend compatibility and completion audit
 coverage plus status documentation; it adds no language, runtime, or database
 behavior. Phase 14 is complete.
 
-Phase 15 has not started and remains unauthorized. No relation composition,
-JOIN, SQL shape implementation or SQL lowering, relationship semantic
-validation, relation-role semantics, endpoint-role enforcement, cardinality
-or fanout behavior, permission gate, runtime security, threat model,
-diagnostic code, database connection, SQL execution, schema introspection,
-JSON v2, project mode, LSP, Web UI, playground, SQLGlot, release, publish,
-signing, upload, or attestation behavior is implemented.
+Historical Phase 14 checkpoint: Phase 15 has not started and remains
+unauthorized.
+
+Phase 15 Slice 1 is complete as relationship metadata semantic validation
+only. Endpoint relation references must resolve to existing source, table, or
+query symbols; relationship names must be unique among relationships; and
+endpoint local names must be unique within one relationship. Relationship
+metadata remains outside Semantic IR and SQL. Relation composition, JOIN, SQL
+lowering, relation-role semantics, additional endpoint-role enforcement,
+cardinality, fanout, permission gates, runtime security, database behavior,
+JSON v2, project mode, SQLGlot, release, publish, signing, upload, and
+attestation remain unimplemented.
 
 SQL is generated only. Database connections, SQL or connector execution,
 schema introspection, runtime services, project or multi-file support, watch
@@ -1496,8 +1501,8 @@ explicit phase and authorization.
 
 Status: Phase 14 is complete. Slices 1 through 4 cover readiness planning,
 candidate decision, parse-only and AST-only relationship metadata, and the
-backend compatibility and completion audit. Phase 15 has not started and
-remains unauthorized.
+backend compatibility and completion audit. Historical Phase 14 checkpoint:
+Phase 15 has not started and remains unauthorized.
 
 Slice 1 adds
 `docs/plan/phase-14-relation-composition-implementation-readiness.md`, one
@@ -1536,6 +1541,27 @@ runtime security, threat model, diagnostic codes, database connection, SQL
 execution, schema introspection, JSON v2, project mode, LSP, Web UI,
 playground, SQLGlot, release, publish, signing, upload, or attestation
 behavior. Any Phase 15 work requires separate explicit authorization.
+
+### Phase 15: Relationship Metadata Semantics
+
+Status: Slice 1 Relationship Metadata Semantic Validation is complete.
+
+Slice 1 validates endpoint relation references, relationship-name uniqueness
+among relationship declarations, and endpoint local-name uniqueness within
+one relationship. Self-relationships remain valid when local endpoint names
+differ. Relationship and endpoint names do not enter existing type, callable,
+or relation namespaces.
+
+The normative boundary is documented in
+`docs/spec/relationship-metadata-semantic-validation-v1.md`; the implemented
+slice and compatibility gates are documented in
+`docs/plan/phase-15-relationship-metadata-semantics.md`.
+
+Slice 1 adds no Semantic IR representation, SQL lowering, CLI or JSON format
+change, runtime behavior, database behavior, relation composition, JOIN,
+relation-role semantics, cardinality, fanout, permission gate, security
+claim, JSON v2, SQLGlot, project mode, or release behavior. Later Phase 15
+work requires separate explicit authorization.
 
 ---
 

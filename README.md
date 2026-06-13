@@ -23,7 +23,8 @@ The current implementation status is:
   planning, contract, and audit work only**;
 - **Phase 14: complete; Slices 1 through 4 cover readiness, candidate
   decision, parse-only relationship metadata AST implementation, and backend
-  compatibility/completion audit**.
+  compatibility/completion audit**;
+- **Phase 15 Slice 1 Relationship Metadata Semantic Validation: complete**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -339,13 +340,19 @@ and MySQL SQL, CLI, JSON v1, runtime, database behavior, public APIs,
 dependencies, package metadata, version, CI, examples, fixtures, and goldens
 remain unchanged. Phase 14 is complete.
 
-Phase 15 has not started and remains unauthorized. No relation composition,
-JOIN, SQL shape implementation or SQL lowering, relationship semantic
-validation, relation-role semantics, endpoint-role enforcement, cardinality
-or fanout behavior, permission gate, runtime security, threat model,
-diagnostic code, database connection, SQL execution, schema introspection,
-JSON v2, project mode, LSP, Web UI, playground, SQLGlot, release, publish,
-signing, upload, or attestation behavior is implemented.
+Historical Phase 14 checkpoint: Phase 15 has not started and remains
+unauthorized.
+
+Phase 15 Slice 1 is complete as relationship metadata semantic validation
+only. Semantic analysis now requires endpoint references to name existing
+relations, relationship declaration names to be unique among relationships,
+and endpoint local names to be unique within one relationship. Relationship
+metadata remains outside semantic definitions and Semantic IR, and produces
+no SQL. JOIN, relation composition, SQL lowering, relation-role semantics,
+additional endpoint-role enforcement, cardinality or fanout behavior,
+permission gates, runtime security, threat models, database behavior, JSON
+v2, project mode, SQLGlot, release, publish, signing, upload, and attestation
+remain unimplemented.
 
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added
@@ -403,6 +410,10 @@ The selected first implementation candidate, deferred candidate, implemented
 Slice 3 allowlist, stage impacts, readiness gates, and hard non-goals are
 documented in
 [the Phase 14 First Implementation Candidate Decision](docs/plan/phase-14-first-implementation-candidate-decision.md).
+The implemented Phase 15 Slice 1 semantic boundary is documented in
+[the Phase 15 Relationship Metadata Semantics plan](docs/plan/phase-15-relationship-metadata-semantics.md)
+and
+[the Relationship Metadata Semantic Validation v1 specification](docs/spec/relationship-metadata-semantic-validation-v1.md).
 The conceptual relationship, endpoint-role, relation-role, cardinality,
 authority, and compiler-versus-runtime boundary is documented in
 [the Relationship And Relation Role Contract v1](docs/spec/relationship-relation-role-contract-v1.md).

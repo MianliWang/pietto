@@ -7,8 +7,13 @@ language surface.
 
 Phase 14 Slice 4 completes backend compatibility and completion audit work
 only. It adds no language, semantic, IR, SQL, CLI, JSON, runtime, connector,
-or database behavior. Phase 14 is complete. Phase 15 has not started and
-remains unauthorized.
+or database behavior. Phase 14 is complete. Historical Phase 14 checkpoint:
+Phase 15 has not started and remains unauthorized.
+
+Phase 15 Slice 1 is now complete as semantic validation only. The accepted
+syntax and AST mapping in this contract remain unchanged. The semantic rules
+are defined separately in
+`docs/spec/relationship-metadata-semantic-validation-v1.md`.
 
 Relationship declarations are accepted only as source metadata. Successful
 parsing does not establish that referenced relations exist, endpoint names
@@ -173,3 +178,7 @@ This contract does not implement or authorize:
 - release, publish, deployment, signing, upload, or attestation behavior.
 
 Any Phase 15 work requires separate explicit authorization.
+
+Phase 15 Slice 1 subsequently received that authorization and implements only
+the semantic validation described in the separate Phase 15 contract. This
+Phase 14 syntax contract remains the authority for grammar and AST shape.

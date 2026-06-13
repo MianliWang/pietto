@@ -225,7 +225,7 @@ def test_relationship_metadata_does_not_change_semantic_ir_or_sql() -> None:
     metadata = (
         "relationship membership:\n"
         "    endpoint member: users\n"
-        "    endpoint group: groups\n"
+        "    endpoint group: users\n"
     )
 
     baseline_parse = parse_source(program)

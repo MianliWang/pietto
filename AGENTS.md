@@ -98,8 +98,16 @@ outside semantic definitions. Semantic analysis, Semantic IR, SQL, CLI, JSON
 v1, runtime, database behavior, public APIs, dependencies, version, CI,
 fixtures, and goldens remain unchanged. Slice 4 adds only backend
 compatibility and completion audit coverage plus status documentation. It
-adds no runtime or database behavior. Phase 15 has not started and remains
-unauthorized.
+adds no runtime or database behavior. Historical Phase 14 checkpoint:
+Phase 15 has not started and remains unauthorized.
+
+Phase 15 Slice 1 Relationship Metadata Semantic Validation is complete. It
+adds only semantic validation that endpoint relation references exist,
+relationship metadata names are unique among relationships, and endpoint
+local names are unique within one relationship. Relationship metadata remains
+outside semantic definitions and Semantic IR. Grammar, generated ANTLR, AST,
+parser API, SQL, CLI formatting, JSON v1, runtime, database behavior, public
+APIs, dependencies, version, CI, fixtures, and goldens remain unchanged.
 
 Phase 13 Relation Composition And Relationship Planning is complete as
 planning, contract, and audit work only. Slices 1 through 6 are complete.
@@ -430,8 +438,11 @@ documented in
 `docs/plan/phase-14-first-implementation-candidate-decision.md`. Slice 2 is
 complete as a candidate decision only. Slice 3 is complete as parse-only and
 AST-only relationship metadata. Slice 4 is complete as backend compatibility
-and completion audit work only. Phase 14 is complete; Phase 15 has not started
-and remains unauthorized.
+and completion audit work only. Phase 14 is complete. Historical Phase 14
+checkpoint: Phase 15 has not started and remains unauthorized. Phase 15 Slice
+1 is complete as semantic validation only, as documented in
+`docs/plan/phase-15-relationship-metadata-semantics.md` and
+`docs/spec/relationship-metadata-semantic-validation-v1.md`.
 
 Current strict boundaries remain:
 
@@ -484,8 +495,10 @@ Phase 14 Slices 1 through 4 are complete. Slice 2 chose the Relationship and
 endpoint metadata syntax foundation and deferred the Ambiguity and
 name-ownership foundation. Slice 3 implements only parse-only and AST-only
 relationship metadata. Slice 4 adds only backend compatibility and completion
-audit coverage plus status documentation. Phase 15 has not started and
-remains unauthorized.
+audit coverage plus status documentation. Historical Phase 14 checkpoint:
+Phase 15 has not started and remains unauthorized. Phase 15 Slice 1 validates
+relationship metadata only; it adds no Semantic IR, SQL, CLI/JSON format,
+runtime, or database behavior.
 The private MySQL backend, static `mysql.table(Text)` semantic/IR surface, and
 closed renderer are the MySQL compiler boundaries. Explicit private CLI
 dispatch and JSON v1 presentation are enabled. Public emitter export, a

@@ -37,7 +37,7 @@ LOCKED_FILE_HASHES = {
         "ab0caca933dcdf2b74bd5db2413d7f1487efb7055dde2d1268be1da584b7b007"
     ),
     PARSER_TEST_PATH: (
-        "1a4fdae7923fde0ece5f764ef0022065e04ad36e907ce19c079db348172622c5"
+        "6eed94ebf3820c65dee54f1200048ca6e7b0fbea29f622c5ba5081122df708d6"
     ),
     "src/pietto/parser_api.py": (
         "aa744c3ee334c8729917ae2aed2ee906874f927d47e99542d5accb8a98aa456b"
@@ -69,8 +69,8 @@ LOCKED_GROUP_HASHES = {
         "44dad9dc2fced336b8e102a558be94786fb7618fd860a3ef6f6d56e49fdebf1f",
     ),
     "semantic": (
-        16,
-        "3e95b5ae09fe22746214910bcc5a453f23a81b3664768ce5a9822693fd2abcfd",
+        17,
+        "6ebe460bd8a7603d9b1e34df4bf398ff36400d3499fabb81f1ed07253087ea80",
     ),
     "ir": (
         5,

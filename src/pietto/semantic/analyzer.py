@@ -43,6 +43,7 @@ from pietto.semantic.model import (
 from pietto.semantic.relation_cycles import check_relation_cycles
 from pietto.semantic.relation_limits import check_relation_limits
 from pietto.semantic.relation_schemas import propagate_relation_schemas
+from pietto.semantic.relationship_metadata import check_relationship_metadata
 from pietto.semantic.relations import resolve_relation_inputs
 from pietto.semantic.shapes import check_field_derives, check_shape_structures
 from pietto.semantic.source_connectors import check_source_connectors
@@ -108,6 +109,8 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
             diagnostics.append(_duplicate_diagnostic(definition, namespace_name))
             continue
         namespace[definition.name] = definition
+
+    diagnostics.extend(check_relationship_metadata(script, relation_symbols))
 
     for type_expr in _iter_type_expressions(script):
         resolved_type = _resolve_type(type_expr, type_symbols)

@@ -55,6 +55,9 @@ stored separately and is never encoded in the code.
 | `PIE-S2502` | Unknown unique or index target field |
 | `PIE-S2503` | Duplicate unique or index target field |
 | `PIE-S2504` | Derived field dependency cycle |
+| `PIE-S2601` | Unknown relationship endpoint relation |
+| `PIE-S2602` | Duplicate relationship metadata name |
+| `PIE-S2603` | Duplicate endpoint local name within one relationship |
 
 ## IR Diagnostics
 
