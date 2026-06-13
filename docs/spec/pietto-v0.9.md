@@ -1,7 +1,7 @@
 # Pietto v0.9 Whitepaper and Language Reference
 
 Version: v0.9 draft
-Status: Phase 1 through Phase 13 complete; Phase 13 is planning, contract, and audit work only
+Status: Phase 1 through Phase 13 complete; Phase 14 Slice 1 readiness planning complete; implementation has not started
 Supported Python baseline: Python >=3.12; Phase 11 CI: Python 3.12/3.13
 Primary SQL target: PostgreSQL; MySQL 8.0+ generation MVP supported
 Preferred package manager: uv-first
@@ -74,6 +74,24 @@ connection, SQL execution, schema introspection, JSON v2, project mode, LSP,
 Web UI, playground, SQLGlot, release, publish, signing, upload, and attestation
 behavior are not implemented. Future implementation work requires a new
 explicit phase and authorization.
+
+Phase 14 Slice 1 is complete as planning/readiness work only. It is the final
+broad transition planning slice, and Phase 14 implementation has not started.
+The next slice must choose exactly one first implementation candidate between
+a relationship and endpoint metadata syntax foundation and an ambiguity and
+name-ownership foundation. It must define the exact files and grammar, AST,
+semantic, IR, SQL, CLI, and JSON impact for a later explicitly authorized
+implementation slice rather than continue as an open-ended readiness or risk
+audit.
+
+Slice 1 changes no production code, grammar, generated ANTLR, parser, AST,
+semantic analysis, IR, SQL backend, CLI, JSON v1, public API, dependency,
+package metadata, version, CI, or golden fixture. Relation composition, JOIN,
+SQL shape implementation, CTEs, subqueries, relationship syntax,
+relation-role syntax, permission gates, runtime security, threat model,
+diagnostic code, database connection, SQL execution, schema introspection,
+JSON v2, project mode, LSP, Web UI, playground, SQLGlot, release, publish,
+signing, upload, and attestation behavior remain not implemented.
 
 SQL is generated only. Database connections, SQL or connector execution,
 schema introspection, runtime services, project or multi-file support, watch
@@ -1446,6 +1464,35 @@ Phase 13 completion does not authorize implementation. JSON v2, project mode,
 LSP, Web UI, playground, release, publish, signing, upload, and attestation
 behavior also remain unimplemented. Future implementation work requires a new
 explicit phase and authorization.
+
+### Phase 14: Relation Composition Implementation Readiness
+
+Status: Slice 1 Final Transition Readiness Gate is complete as
+planning/readiness work only. Phase 14 implementation has not started.
+
+Slice 1 adds
+`docs/plan/phase-14-relation-composition-implementation-readiness.md`, one
+focused static audit, and scope-aware status documentation. It is the final
+broad readiness slice after the completed Phase 13 contracts. It records a
+fixed four-slice transition and narrows Slice 2 to a concrete choice between
+the relationship and endpoint metadata syntax foundation and the ambiguity
+and name-ownership foundation.
+
+Slice 2 must choose exactly one candidate, defer the other, name the exact
+files a later implementation may touch, name the files and compiler stages
+that remain untouched, and decide grammar, AST, semantic, IR, SQL, CLI, and
+JSON impact. Slice 2 must not implement either candidate and must not become
+another open-ended readiness or risk audit. Slice 3 remains separately
+unauthorized.
+
+Slice 1 changes no grammar, generated ANTLR, production compiler, SQL output,
+CLI, JSON v1, public API, dependency, package metadata, version, CI, or golden
+fixture. It does not implement relation composition, JOIN, SQL shapes, CTEs,
+subqueries, relationship syntax, relation-role syntax, permission gates,
+runtime security, threat model, diagnostic codes, database connection, SQL
+execution, schema introspection, JSON v2, project mode, LSP, Web UI,
+playground, SQLGlot, release, publish, signing, upload, or attestation
+behavior.
 
 ---
 

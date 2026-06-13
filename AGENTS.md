@@ -86,9 +86,18 @@ Rules:
 
 ## Current Phase
 
-Current phase status: Phase 13 Relation Composition And Relationship Planning
-is complete as planning, contract, and audit work only. Slices 1 through 6 are
-complete. Slice 1 Master Plan And Baseline Audit, Slice 2 Relationship /
+Current phase status: Phase 14 Slice 1 Final Transition Readiness Gate is
+complete as planning/readiness work only. Phase 14 implementation has not
+started. Slice 1 is the final broad readiness slice. Slice 2 must choose
+exactly one first implementation candidate between the relationship and
+endpoint metadata syntax foundation and the ambiguity and name-ownership
+foundation, then define an exact Slice 3 file and compiler-stage boundary.
+Slice 2 must not continue as an open-ended readiness or risk audit, and Slice
+3 requires separate explicit authorization.
+
+Phase 13 Relation Composition And Relationship Planning is complete as
+planning, contract, and audit work only. Slices 1 through 6 are complete.
+Slice 1 Master Plan And Baseline Audit, Slice 2 Relationship /
 Relation Role Contract, Slice 3 Composition Scope And Name Resolution
 Contract, Slice 4 Join / Composition SQL Shape Contract, and Slice 5 Security
 Boundary And Diagnostics Contract are complete.
@@ -117,6 +126,14 @@ mode, LSP, Web UI, playground, SQLGlot, release, publish, signing, upload, and
 attestation behavior are not implemented. The Phase 13 terms are conceptual
 planning vocabulary, not keywords, reserved words, or accepted Pietto syntax.
 Future implementation work requires a new explicit phase and authorization.
+The Phase 14 Slice 1 readiness gate changes no grammar, generated ANTLR,
+production compiler, SQL output, CLI, JSON v1, public API, dependency, package
+metadata, version, CI, or golden fixture. It does not implement relation
+composition, JOIN, SQL shape implementation, CTEs, subqueries, relationship
+syntax, relation-role syntax, permission gates, runtime security, threat
+model, diagnostic code, database connection, SQL execution, schema
+introspection, JSON v2, project mode, LSP, Web UI, playground, SQLGlot,
+release, publish, signing, upload, or attestation behavior.
 
 Phase 12 SQL Feature Expansion I is complete. Slices 1 through 6 are complete.
 Slice 1 adds only the master plan,
@@ -385,6 +402,12 @@ compiler-versus-runtime boundary, current security non-claims, threat-model
 prerequisites, diagnostic-family ownership, source-span, ordering, cascade,
 and fail-closed planning are documented in
 `docs/spec/composition-security-diagnostics-contract-v1.md`.
+The Phase 14 final broad readiness gate, fixed four-slice transition, two
+candidate directions, implementation gates, and mandatory concrete Slice 2
+decision are documented in
+`docs/plan/phase-14-relation-composition-implementation-readiness.md`. Slice 1
+is complete as planning/readiness work only, and Phase 14 implementation has
+not started.
 
 Current strict boundaries remain:
 
@@ -433,6 +456,10 @@ runtime security, threat model, or diagnostic code. They do not implement
 relation composition, JOIN, SQL shapes, relationship syntax, relation-role
 syntax, relation gates, permission matching, runtime security, database
 connection, SQL execution, schema introspection, or SQLGlot.
+Phase 14 Slice 1 is complete as planning/readiness work only. It is the final
+broad transition planning slice. Phase 14 implementation has not started, and
+Slice 2 must choose one concrete foundation and define the exact authorized
+boundary for a later Slice 3 implementation.
 The private MySQL backend, static `mysql.table(Text)` semantic/IR surface, and
 closed renderer are the MySQL compiler boundaries. Explicit private CLI
 dispatch and JSON v1 presentation are enabled. Public emitter export, a

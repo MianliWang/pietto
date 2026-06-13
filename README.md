@@ -20,7 +20,9 @@ The current implementation status is:
 - **Phase 11 Release Readiness & Reproducible Validation: complete**;
 - **Phase 12 SQL Feature Expansion I: complete**;
 - **Phase 13 Relation Composition And Relationship Planning: complete as
-  planning, contract, and audit work only**.
+  planning, contract, and audit work only**;
+- **Phase 14 Slice 1 Final Transition Readiness Gate: complete as
+  planning/readiness work only; implementation has not started**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -295,6 +297,24 @@ Future implementation work requires a new explicit phase and authorization.
 Changes outside that phase require separate explicit authorization.
 Unrequested future work is not authorized.
 
+Phase 14 Slice 1 is complete as planning/readiness work only. It is the final
+broad transition planning slice, and Phase 14 implementation has not started.
+The readiness plan narrows the next decision to either a relationship and
+endpoint metadata syntax foundation or an ambiguity and name-ownership
+foundation. Slice 2 must choose exactly one candidate and define the precise
+files and grammar, AST, semantic, IR, SQL, CLI, and JSON impact for a later
+explicitly authorized implementation slice; it must not continue as a vague
+readiness or risk audit.
+
+Slice 1 changes no production code, grammar, generated ANTLR, parser, AST,
+semantic analysis, IR, SQL backend, CLI, JSON v1, public API, dependency,
+package metadata, version, CI, or golden fixture. Relation composition, JOIN,
+SQL shape implementation, CTEs, subqueries, relationship syntax,
+relation-role syntax, permission gates, runtime security, threat model,
+diagnostic code, database connection, SQL execution, schema introspection,
+JSON v2, project mode, LSP, Web UI, playground, SQLGlot, release, publish,
+signing, upload, and attestation behavior remain not implemented.
+
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added
 full structural depth, semantic graph, diagnostic/output, wall-clock, CPU, or
@@ -343,6 +363,10 @@ The completed planning-only relation-composition direction, six-slice
 sequence, completion audit, SQL-lowering invariant, and security boundaries
 are documented in
 [the Phase 13 Relation Composition And Relationship Planning plan](docs/plan/phase-13-relation-composition-planning.md).
+The final broad readiness gate, two concrete candidate directions, fixed
+four-slice transition, and mandatory Slice 2 decision output are documented
+in
+[the Phase 14 Relation Composition Implementation Readiness plan](docs/plan/phase-14-relation-composition-implementation-readiness.md).
 The conceptual relationship, endpoint-role, relation-role, cardinality,
 authority, and compiler-versus-runtime boundary is documented in
 [the Relationship And Relation Role Contract v1](docs/spec/relationship-relation-role-contract-v1.md).
