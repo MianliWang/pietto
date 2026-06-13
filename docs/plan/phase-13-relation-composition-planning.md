@@ -8,12 +8,18 @@
 
 **Slice 2: Relationship / Relation Role Contract is complete.**
 
-Slices 3 through 6 are planned only and are not authorized for production
-implementation. Phase 12 SQL Feature Expansion I is complete. Slices 1 and 2
-add only planning documents, focused static audits, and scope-aware status
+**Slice 3: Composition Scope And Name Resolution Contract is complete.**
+
+Slices 4 through 6 are planned only and are not authorized for production
+implementation. Phase 12 SQL Feature Expansion I is complete. Slices 1 through
+3 add only planning documents, focused static audits, and scope-aware status
 documentation. They change no grammar, generated ANTLR content, production
 compiler code, SQL output, CLI behavior, JSON schema, public API, dependency,
-package metadata, version, or golden fixture.
+package metadata, version, CI, or golden fixture.
+
+For the historical Slice 2 checkpoint, the retained audit statement is:
+"Slices 3 through 6 are planned only." The current status above supersedes
+that checkpoint by completing Slice 3 without production implementation.
 
 Phase 13 is planning-only unless a later slice receives separate explicit
 authorization that changes that boundary. The current phase does not
@@ -162,9 +168,12 @@ keywords, reserved words, or a public interface.
    conceptual terminology, cardinality, authority, SQL-lowering, and explicit
    non-enforcement boundaries. It defines no currently accepted Pietto syntax
    and adds no implementation.
-3. **Composition Scope And Name Resolution Contract**: planned only. Define
-   future input/output schemas, qualification, ambiguity handling, and
-   deterministic scope rules without implementation.
+3. **Composition Scope And Name Resolution Contract**: complete. The normative
+   planning-only contract is
+   `docs/spec/composition-scope-name-resolution-contract-v1.md`. It defines
+   future input/output scopes, clause visibility, qualification, ambiguity,
+   projection-alias boundaries, endpoint naming, and deterministic diagnostic
+   ownership without defining current source syntax or implementation.
 4. **Join / Composition SQL Shape Contract**: planned only. Define possible
    explicit SQL-lowering shapes, dialect parity, fanout treatment, and
    fail-closed cases without implementing JOIN.
@@ -216,7 +225,7 @@ families:
 - `PIE-Ixxxx` for IR construction diagnostics;
 - `PIE-Bxxxx` for backend capability diagnostics.
 
-Phase 13 Slices 1 and 2 introduce no diagnostic codes. Later contracts may
+Phase 13 Slices 1 through 3 introduce no diagnostic codes. Later contracts may
 reserve or describe future diagnostics only after assigning responsibility to
 the correct compiler stage, defining source-span ownership, avoiding cascades,
 and preserving deterministic order.
@@ -251,12 +260,12 @@ Each future Phase 13 slice must verify:
 - JSON v1, CLI, golden, and compiler-stage boundaries remain unchanged unless
   separately authorized.
 
-Slice 2 validation includes:
+Slice 3 validation includes:
 
 ```bash
 uv run ruff format --check .
 uv run ruff check .
-uv run pytest tests/test_phase13_planning_audit.py tests/test_phase13_relationship_role_contract.py
+uv run pytest tests/test_phase13_planning_audit.py tests/test_phase13_composition_scope_contract.py
 uv run pytest
 uv run python scripts/validate.py
 uv run python scripts/check_generated.py

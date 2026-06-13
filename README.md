@@ -19,7 +19,7 @@ The current implementation status is:
 - **Phase 10 MySQL SQL Generation MVP: complete**;
 - **Phase 11 Release Readiness & Reproducible Validation: complete**;
 - **Phase 12 SQL Feature Expansion I: complete**;
-- **Phase 13 Relation Composition And Relationship Planning: Slices 1 and 2
+- **Phase 13 Relation Composition And Relationship Planning: Slices 1 through 3
   complete; remaining slices planned only**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
@@ -266,13 +266,17 @@ bump remain unimplemented.
 Phase 13 planning has started. Slice 1 completes the master plan and baseline
 audit. Slice 2 completes the planning-only
 [Relationship And Relation Role Contract v1](docs/spec/relationship-relation-role-contract-v1.md).
-The contract defines conceptual vocabulary and future semantic boundaries; it
-defines no currently accepted Pietto syntax, keywords, reserved words, or
-runtime behavior. Relationship declarations, relation roles, permission
-gates, runtime security, JOIN, and SQL execution are not implemented. Pietto
+Slice 3 completes the planning-only
+[Composition Scope And Name Resolution Contract v1](docs/spec/composition-scope-name-resolution-contract-v1.md).
+The contracts define conceptual vocabulary and future semantic boundaries;
+they define no currently accepted Pietto syntax, keywords, reserved words, or
+runtime behavior. The Slice 2 baseline described Slices 3 through 6 as
+planning-only; Slice 3 is now complete, while Slices 4 through 6
+require separate explicit authorization and remain planning-only. Relation
+composition, JOIN, relationship syntax, relation-role syntax, permission
+gates, runtime security, and SQL execution are not implemented. Pietto
 currently provides no access-control, privacy, authorization, row-level
-security, masking, policy-isolation, or safe-sharing guarantee. Slices 3
-through 6 require separate explicit authorization and remain planning-only.
+security, masking, policy-isolation, or safe-sharing guarantee.
 
 Future implementation work requires separate explicit authorization.
 Unrequested future work is not authorized.
@@ -327,6 +331,9 @@ SQL-lowering invariant, and security boundaries are documented in
 The conceptual relationship, endpoint-role, relation-role, cardinality,
 authority, and compiler-versus-runtime boundary is documented in
 [the Relationship And Relation Role Contract v1](docs/spec/relationship-relation-role-contract-v1.md).
+The future composition input/output scope, clause visibility, qualification,
+ambiguity, projection-alias, and endpoint-naming boundaries are documented in
+[the Composition Scope And Name Resolution Contract v1](docs/spec/composition-scope-name-resolution-contract-v1.md).
 The future private closed selector, enabled-dialect gate, failure
 classification, stage boundary, and presentation ownership are documented in
 [the SQL dialect dispatch design](docs/spec/sql-dialect-dispatch-design-v1.md);
