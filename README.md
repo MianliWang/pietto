@@ -19,7 +19,7 @@ The current implementation status is:
 - **Phase 10 MySQL SQL Generation MVP: complete**;
 - **Phase 11 Release Readiness & Reproducible Validation: complete**;
 - **Phase 12 SQL Feature Expansion I: complete**;
-- **Phase 13 Relation Composition And Relationship Planning: Slices 1 through 4
+- **Phase 13 Relation Composition And Relationship Planning: Slices 1 through 5
   complete; remaining slices planned only**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
@@ -270,20 +270,24 @@ Slice 3 completes the planning-only
 [Composition Scope And Name Resolution Contract v1](docs/spec/composition-scope-name-resolution-contract-v1.md).
 Slice 4 completes the planning-only
 [Composition SQL Shape Contract v1](docs/spec/composition-sql-shape-contract-v1.md).
+Slice 5 completes the planning-only
+[Composition Security And Diagnostics Contract v1](docs/spec/composition-security-diagnostics-contract-v1.md).
 The contracts define conceptual vocabulary and future semantic and backend
-boundaries; they define no currently accepted Pietto syntax, SQL shape, or
-runtime behavior. The Slice 2 baseline described Slices 3 through 6 as
+boundaries; they define no currently accepted Pietto syntax, SQL shape,
+runtime security, threat model, or diagnostic code. The Slice 2 baseline
+described Slices 3 through 6 as
 planning-only. The Slice 3 baseline described Slices 4 through 6 as
-planning-only. Slices 3 and 4 are now complete, while Slices 5 through 6
-require separate explicit authorization and remain planning-only. Relation
-composition, JOIN, SQL shape implementation, relationship syntax,
-relation-role syntax, permission gates, runtime security, database connection,
-SQL execution, schema introspection, and SQLGlot integration are not
-implemented. Pietto currently provides no access-control, privacy,
+planning-only. The Slice 4 baseline described Slices 5 through 6 as
+planning-only. Slices 3 through 5 are now complete. Slice 6 remains planned
+only and requires separate explicit authorization. Relation composition,
+JOIN, SQL shape implementation, relationship syntax, relation-role syntax,
+permission gates, runtime security, threat model, diagnostic code, database
+connection, SQL execution, schema introspection, and SQLGlot integration are
+not implemented. Pietto currently provides no access-control, privacy,
 authorization, row-level security, masking, policy-isolation, or safe-sharing
 guarantee.
 
-Future implementation work requires separate explicit authorization.
+Future implementation phases require separate explicit authorization.
 Unrequested future work is not authorized.
 
 The implemented source/token limits are deterministic parser/frontend
@@ -343,6 +347,10 @@ The future selected-dialect composition shapes, qualification preservation,
 dialect parity, cardinality, fanout, deterministic artifact, and fail-closed
 backend boundaries are documented in
 [the Composition SQL Shape Contract v1](docs/spec/composition-sql-shape-contract-v1.md).
+The compiler-versus-runtime security boundary, current security non-claims,
+threat-model prerequisites, diagnostic-family ownership, source-span,
+ordering, cascade, and fail-closed planning are documented in
+[the Composition Security And Diagnostics Contract v1](docs/spec/composition-security-diagnostics-contract-v1.md).
 The future private closed selector, enabled-dialect gate, failure
 classification, stage boundary, and presentation ownership are documented in
 [the SQL dialect dispatch design](docs/spec/sql-dialect-dispatch-design-v1.md);
