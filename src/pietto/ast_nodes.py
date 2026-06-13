@@ -278,6 +278,22 @@ class SourceDef(Node):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class RelationshipEndpoint(Node):
+    """One parse-only endpoint in a relationship metadata declaration."""
+
+    local_name: str
+    relation_name: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RelationshipMetadata(Node):
+    """Parse-only relationship metadata containing exactly two endpoints."""
+
+    name: str
+    endpoints: tuple[RelationshipEndpoint, RelationshipEndpoint]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class FromClause(Node):
     """A parse-only relation input reference."""
 
@@ -363,3 +379,4 @@ class Script(Node):
 
     header: Header | None
     definitions: tuple[Definition, ...]
+    relationships: tuple[RelationshipMetadata, ...] = ()

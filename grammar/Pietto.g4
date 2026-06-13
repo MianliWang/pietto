@@ -6,7 +6,7 @@ tokens {
 }
 
 script
-    : NEWLINE* header? NEWLINE* (definition NEWLINE*)* EOF
+    : NEWLINE* header? NEWLINE* ((definition | relationshipDefinition) NEWLINE*)* EOF
     ;
 
 header
@@ -41,6 +41,19 @@ definition
     | sourceDefinition
     | tableDefinition
     | queryDefinition
+    ;
+
+// Relationship declarations are parse-only metadata outside semantic definitions.
+relationshipDefinition
+    : RELATIONSHIP identifier COLON NEWLINE NEWLINE* INDENT relationshipBody DEDENT
+    ;
+
+relationshipBody
+    : NEWLINE* relationshipEndpoint NEWLINE* relationshipEndpoint NEWLINE*
+    ;
+
+relationshipEndpoint
+    : ENDPOINT identifier COLON identifier NEWLINE
     ;
 
 // Pietto blocks use ':' plus NEWLINE/INDENT/DEDENT, never brace delimiters.
@@ -311,15 +324,19 @@ namePart
     | SELECT
     | QUERY
     | LIMIT
+    | RELATIONSHIP
+    | ENDPOINT
     ;
 
-// New relation keywords remain valid in identifier positions for compatibility.
+// New language keywords remain valid in identifier positions for compatibility.
 identifier
     : IDENTIFIER
     | ORDER
     | BY
     | ASC
     | DESC
+    | RELATIONSHIP
+    | ENDPOINT
     ;
 
 callSuffix
@@ -362,6 +379,8 @@ BY: 'by';
 ASC: 'asc';
 DESC: 'desc';
 LIMIT: 'limit';
+RELATIONSHIP: 'relationship';
+ENDPOINT: 'endpoint';
 ENSURE: 'ensure';
 NULLABLE: 'nullable';
 AND: 'and';

@@ -44,6 +44,21 @@ class PiettoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by PiettoParser#relationshipDefinition.
+    def visitRelationshipDefinition(self, ctx:PiettoParser.RelationshipDefinitionContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#relationshipBody.
+    def visitRelationshipBody(self, ctx:PiettoParser.RelationshipBodyContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#relationshipEndpoint.
+    def visitRelationshipEndpoint(self, ctx:PiettoParser.RelationshipEndpointContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by PiettoParser#typeDefinition.
     def visitTypeDefinition(self, ctx:PiettoParser.TypeDefinitionContext):
         return self.visitChildren(ctx)

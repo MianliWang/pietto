@@ -1,7 +1,7 @@
 # Pietto v0.9 Whitepaper and Language Reference
 
 Version: v0.9 draft
-Status: Phase 1 through Phase 13 complete; Phase 14 Slices 1 and 2 readiness and candidate decision complete; implementation has not started
+Status: Phase 1 through Phase 13 complete; Phase 14 Slices 1 through 3 complete, including parse-only relationship metadata AST
 Supported Python baseline: Python >=3.12; Phase 11 CI: Python 3.12/3.13
 Primary SQL target: PostgreSQL; MySQL 8.0+ generation MVP supported
 Preferred package manager: uv-first
@@ -76,13 +76,9 @@ behavior are not implemented. Future implementation work requires a new
 explicit phase and authorization.
 
 Phase 14 Slice 1 is complete as planning/readiness work only. It is the final
-broad transition planning slice, and Phase 14 implementation has not started.
-The next slice must choose exactly one first implementation candidate between
-a relationship and endpoint metadata syntax foundation and an ambiguity and
-name-ownership foundation. It must define the exact files and grammar, AST,
-semantic, IR, SQL, CLI, and JSON impact for a later explicitly authorized
-implementation slice rather than continue as an open-ended readiness or risk
-audit.
+broad transition planning slice. Slice 2 selected the relationship and
+endpoint metadata syntax foundation and deferred the ambiguity and
+name-ownership foundation.
 
 Slice 1 changes no production code, grammar, generated ANTLR, parser, AST,
 semantic analysis, IR, SQL backend, CLI, JSON v1, public API, dependency,
@@ -101,16 +97,23 @@ with a separately reviewed syntax contract, minimal grammar and regenerated
 ANTLR changes, immutable AST metadata, parser tests, necessary fixed-hash
 updates, and scope-aware documentation.
 
-Phase 14 implementation has not started, and Slice 3 remains unauthorized
-until separately reviewed and approved. Slice 2 changes no production code,
-grammar, generated ANTLR, parser, AST, semantic analysis, IR, SQL backend,
-CLI, JSON v1, public API, dependency, package metadata, version, CI, fixture,
-or golden. No relationship syntax implementation, relation composition,
-JOIN, SQL shape implementation, relation-role semantics, permission gate,
-runtime security, threat model, diagnostic code, database connection, SQL
-execution, schema introspection, JSON v2, project mode, LSP, Web UI,
-playground, SQLGlot, release, publish, signing, upload, or attestation
-behavior is implemented.
+Phase 14 Slice 3 is complete as the first implementation slice. The normative
+syntax is documented in
+`docs/spec/relationship-endpoint-metadata-syntax-v1.md`. Slice 3 adds only a
+top-level relationship metadata block with exactly two source-ordered
+endpoints, regenerated ANTLR artifacts, immutable relationship metadata AST
+nodes, and an empty-by-default `Script.relationships` tuple. The metadata is
+not part of `Script.definitions`.
+
+Semantic analysis, Semantic IR, PostgreSQL and MySQL SQL, CLI, JSON v1, public
+APIs, dependencies, package metadata, version, CI, fixtures, and goldens
+remain unchanged. Slice 4 remains unauthorized. No relation composition,
+JOIN, SQL shape implementation, relationship semantic validation,
+relation-role semantics, endpoint-role enforcement, cardinality or fanout
+behavior, permission gate, runtime security, threat model, diagnostic code,
+database connection, SQL execution, schema introspection, JSON v2, project
+mode, LSP, Web UI, playground, SQLGlot, release, publish, signing, upload, or
+attestation behavior is implemented.
 
 SQL is generated only. Database connections, SQL or connector execution,
 schema introspection, runtime services, project or multi-file support, watch
@@ -1486,9 +1489,8 @@ explicit phase and authorization.
 
 ### Phase 14: Relation Composition Implementation Readiness
 
-Status: Slices 1 and 2 are complete as readiness and candidate decision work
-only. Phase 14 implementation has not started, and Slice 3 remains
-unauthorized.
+Status: Slices 1 through 3 are complete. Slice 3 implements only parse-only
+and AST-only relationship metadata. Slice 4 remains unauthorized.
 
 Slice 1 adds
 `docs/plan/phase-14-relation-composition-implementation-readiness.md`, one
@@ -1507,15 +1509,21 @@ parse-only and AST-only Slice 3 allowlist. The decision covers grammar,
 generated ANTLR, AST, semantic, IR, SQL, CLI, JSON, test, documentation, and
 untouched-file boundaries.
 
-Slice 1 changes no grammar, generated ANTLR, production compiler, SQL output,
-CLI, JSON v1, public API, dependency, package metadata, version, CI, or golden
-fixture. It does not implement relation composition, JOIN, SQL shapes, CTEs,
-subqueries, relationship syntax, relation-role semantics, endpoint-role
-enforcement, cardinality or fanout behavior, permission gates, runtime
-security, threat model, diagnostic codes, database connection, SQL execution,
-schema introspection, JSON v2, project mode, LSP, Web UI, playground, SQLGlot,
-release, publish, signing, upload, or attestation behavior. Slice 3 remains
-unauthorized until separately reviewed and approved.
+Slice 3 implements the normative
+`docs/spec/relationship-endpoint-metadata-syntax-v1.md` contract, minimal
+grammar, regenerated ANTLR artifacts, immutable `RelationshipMetadata` and
+`RelationshipEndpoint` nodes, and an empty-by-default
+`Script.relationships` tuple. It changes no parser API, semantic analysis,
+Semantic IR, SQL output, CLI, JSON v1, public API, dependency, package
+metadata, version, CI, fixture, or golden.
+
+Slice 3 does not implement relation composition, JOIN, SQL shapes, CTEs,
+subqueries, relationship semantic validation, relation-role semantics,
+endpoint-role enforcement, cardinality or fanout behavior, permission gates,
+runtime security, threat model, diagnostic codes, database connection, SQL
+execution, schema introspection, JSON v2, project mode, LSP, Web UI,
+playground, SQLGlot, release, publish, signing, upload, or attestation
+behavior. Slice 4 remains unauthorized.
 
 ---
 

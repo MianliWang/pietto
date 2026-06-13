@@ -30,28 +30,28 @@ POSTGRES_GOLDEN_HASHES = {
 BOUNDARY_HASHES = {
     "uv.lock": "996f7bcb04c380c2b3855167d33ffbd462c902245e63bee6e626ab1789d65071",
     "grammar/Pietto.g4": (
-        "faa2e0885fb01f28c3d7cc26ef96bdc2c29e2d8a70f844be62a2a88a354a0ec6"
+        "6a5f6bc45d4f66011a7898fe783b6600beaf73f3b984d6539f975cf0cd7f3110"
     ),
     "src/pietto/generated/Pietto.interp": (
-        "3750ea00f527426aa78f25d61fea8f7f1198b15c7f43f259f916eda959e8cffa"
+        "49ad078721e71d07656487a5e490e1ebedea2d3a6c84b09be7605f3f4eb86118"
     ),
     "src/pietto/generated/Pietto.tokens": (
-        "117146fd7874fb8681749ab39b8d9fedeb50d110cb14751335ae40e3fb064e37"
+        "11f91d90681a86473edff1a2f5fb2d48f9404885c75640fdc2f44d81897e74c0"
     ),
     "src/pietto/generated/PiettoLexer.interp": (
-        "51feb8c226948a7ebf5159c29f33e294e48206e61113bb6b8efe2b7b45abf6ed"
+        "802178225bebaa8f1e54721a1f4c70b44ca396b961f65d6c748df07be38e6461"
     ),
     "src/pietto/generated/PiettoLexer.py": (
-        "60270ec701d59a72dde8cc1259926e8c8798e93d533a791e7fb9486e02c3fa1a"
+        "a746193cc401cf6c024f6b4da8d1c0d4e977bc39099dab8e04d72c1cf7840dbb"
     ),
     "src/pietto/generated/PiettoLexer.tokens": (
-        "d7149e77cc25ca2c290688b4e772ada2ae45a54bea9630f0a7638e44732267b3"
+        "b3eee41e95d95c729964916440568412aaddfcfe7779c32bc96958151ae3ff65"
     ),
     "src/pietto/generated/PiettoParser.py": (
-        "e6187ec169c20ed1034f85f95d235cc174ea3b99cb4628fa63cc2a0983aba913"
+        "d3392753fe2110d20e6b41618a9bd8a1e6f571eb217f98ec4fb7decb60520888"
     ),
     "src/pietto/generated/PiettoVisitor.py": (
-        "cd6986075e00f3cb5d8043d2987b486907d710d14d4c497177c3516e012416f5"
+        "b99732e2583e7c7f178baceca965fa6716a7be122a7c132d09dc96bd6b41bb2d"
     ),
     "src/pietto/generated/__init__.py": (
         "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"

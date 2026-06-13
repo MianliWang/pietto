@@ -21,8 +21,8 @@ The current implementation status is:
 - **Phase 12 SQL Feature Expansion I: complete**;
 - **Phase 13 Relation Composition And Relationship Planning: complete as
   planning, contract, and audit work only**;
-- **Phase 14 Slices 1 and 2: readiness gate and candidate decision complete;
-  implementation has not started**.
+- **Phase 14 Slices 1 through 3: readiness, candidate decision, and parse-only
+  relationship metadata AST implementation complete**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -300,8 +300,7 @@ Unrequested future work is not authorized.
 Phase 14 Slice 1 is complete as the final broad transition and
 planning/readiness work only. Slice 2 is complete as candidate decision work:
 it selected the Relationship and endpoint metadata syntax foundation and
-deferred the Ambiguity and name-ownership foundation. Phase 14 implementation
-has not started, and Slice 3 remains unauthorized.
+deferred the Ambiguity and name-ownership foundation.
 
 Slice 1 changes no production code, grammar, generated ANTLR, parser, AST,
 semantic analysis, IR, SQL backend, CLI, JSON v1, public API, dependency,
@@ -320,12 +319,19 @@ separately reviewed exact syntax contract, minimal grammar and regenerated
 ANTLR changes, immutable AST metadata, parser tests, necessary fixed-hash
 updates, and scope-aware documentation.
 
-Phase 14 implementation has not started, and Slice 3 remains unauthorized
-until separately reviewed and approved. Slice 2 changes no production code,
-grammar, generated ANTLR, parser, AST, semantic analysis, IR, SQL backend,
-CLI, JSON v1, public API, dependency, package metadata, version, CI, fixture,
-or golden. No relationship syntax implementation, relation composition,
-JOIN, SQL shape implementation, relation-role semantics, permission gate,
+Phase 14 Slice 3 is complete. It implements only the exact parse-only
+relationship metadata syntax in
+[Relationship Endpoint Metadata Syntax v1](docs/spec/relationship-endpoint-metadata-syntax-v1.md),
+regenerated ANTLR artifacts, immutable `RelationshipMetadata` and
+`RelationshipEndpoint` AST nodes, and the backward-compatible
+`Script.relationships` tuple. Relationship metadata remains outside
+`Script.definitions`; semantic analysis, Semantic IR, PostgreSQL and MySQL
+SQL, CLI, JSON v1, public APIs, dependencies, package metadata, version, CI,
+fixtures, and goldens remain unchanged.
+
+Slice 4 remains unauthorized. No relation composition, JOIN, SQL shape
+implementation, relationship semantic validation, relation-role semantics,
+endpoint-role enforcement, cardinality or fanout behavior, permission gate,
 runtime security, threat model, diagnostic code, database connection, SQL
 execution, schema introspection, JSON v2, project mode, LSP, Web UI,
 playground, SQLGlot, release, publish, signing, upload, or attestation
@@ -383,9 +389,9 @@ The final broad readiness gate, two concrete candidate directions, fixed
 four-slice transition, and mandatory Slice 2 decision output are documented
 in
 [the Phase 14 Relation Composition Implementation Readiness plan](docs/plan/phase-14-relation-composition-implementation-readiness.md).
-The selected first implementation candidate, deferred candidate, exact
-proposed Slice 3 allowlist, stage impacts, readiness gates, and hard non-goals
-are documented in
+The selected first implementation candidate, deferred candidate, implemented
+Slice 3 allowlist, stage impacts, readiness gates, and hard non-goals are
+documented in
 [the Phase 14 First Implementation Candidate Decision](docs/plan/phase-14-first-implementation-candidate-decision.md).
 The conceptual relationship, endpoint-role, relation-role, cardinality,
 authority, and compiler-versus-runtime boundary is documented in

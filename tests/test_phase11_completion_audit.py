@@ -54,16 +54,16 @@ EXPECTED_FILES = {
     "pyproject.toml": "021682ef880fe748f1655d4d70fcc549db4336ac39db2b29a835762ab1723d50",
     "uv.lock": "996f7bcb04c380c2b3855167d33ffbd462c902245e63bee6e626ab1789d65071",
     "grammar/Pietto.g4": (
-        "faa2e0885fb01f28c3d7cc26ef96bdc2c29e2d8a70f844be62a2a88a354a0ec6"
+        "6a5f6bc45d4f66011a7898fe783b6600beaf73f3b984d6539f975cf0cd7f3110"
     ),
     "Makefile": "dbd38c41e2af5275c379de0b88c92f3861efb90724c7de1a291e0aa007ce2db7",
 }
 EXPECTED_GROUPS = {
-    "frontend": "01f7e66c9c8f15e10cacd5a8527fa108316a26df2abedcdc645388eabdd445f6",
+    "frontend": "4af1382a5d1e4464f492f0c267d500fbeb667bff819dcbcad11b346f33d87e8b",
     "semantic": "3e95b5ae09fe22746214910bcc5a453f23a81b3664768ce5a9822693fd2abcfd",
     "ir": "b29ccb7bf6df2a168059698446631664b02393a5e99382c9c109cdb022fbd846",
     "sql": "87b3f0a6baee9990f22fa01ff18a545274525006bc1c95ed5f37ccfdcf3e0c5c",
-    "generated": "0b69b4e6462f066a753203b5e5552855637ccc4dd40a74dda819be76a445ddb2",
+    "generated": "44dad9dc2fced336b8e102a558be94786fb7618fd860a3ef6f6d56e49fdebf1f",
     "cli": "235d4e50c3474306253dfc6b118e2518b3e300e90f7fbe9903263a39cbdc42a0",
 }
 POSTGRES_GOLDENS = {
@@ -98,7 +98,7 @@ MYSQL_GOLDENS = {
     ),
 }
 ALL_GOLDENS_HASH = "66190fd279c318c33bc85fbe877a73fefc05791c922c64a4ca7b733b4e53c502"
-BOUNDARY_HASH = "ef26a9d4bd8c93d42f529fa44cdc53aab0f4e3982bd58fadaa5dcf3e22f2ff2c"
+BOUNDARY_HASH = "51ecfa8edeb107e3e3c272023ca6a75e0c33532f72e95cf72470bb52c16801c4"
 
 
 def _load_module(name: str, path: Path) -> ModuleType:

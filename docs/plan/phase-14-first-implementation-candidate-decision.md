@@ -4,15 +4,18 @@
 
 **Phase 14 Slice 2 is complete as a candidate decision only.**
 
-**Phase 14 implementation has not started.**
+**Phase 14 Slice 3: Relationship Metadata Syntax Contract And Parse-Only AST
+Implementation is complete.**
 
-**Slice 3 remains unauthorized until separately reviewed and approved.**
+**Phase 14 implementation has started only at the parser and AST boundary.**
 
-This slice changes no grammar, generated ANTLR content, parser, AST, semantic
+**Slice 4 remains unauthorized until separately reviewed and approved.**
+
+Slice 2 changed no grammar, generated ANTLR content, parser, AST, semantic
 analysis, IR, SQL backend, CLI, JSON, runtime, dependency, public API, package
-metadata, version, CI, or golden behavior. It defines the exact proposed
-boundary for a future implementation slice without implementing that
-boundary.
+metadata, version, CI, or golden behavior. Slice 3 implements the selected
+candidate only as specified by
+`docs/spec/relationship-endpoint-metadata-syntax-v1.md`.
 
 ## Inputs
 
@@ -70,19 +73,16 @@ composition slice introduces a concrete multi-scope requirement.
 | Future nested semantics usefulness | Provides metadata that can later describe relation boundaries without implementing nested tables. | Could later support nested ownership, but current nested table semantics are absent. |
 | Future semantic query core usefulness | Gives a concrete syntax-to-AST input for later semantic contracts while preserving stage isolation. | Gives an internal lookup primitive but not the language facts that populate it. |
 
-The choice does not mean relationship syntax is implemented in this slice.
-It selects only the boundary that a separately authorized Slice 3 should
-implement.
+The choice did not itself implement relationship syntax. Slice 3 subsequently
+implemented only the authorized metadata syntax and AST boundary.
 
-## Proposed Slice 3 Behavior
+## Implemented Slice 3 Behavior
 
-The future Slice 3 should add one minimal relationship metadata declaration
-surface and preserve it in immutable parse-only AST nodes. The exact accepted
-surface must first be fixed in a normative syntax contract. This decision
-document does not define final spelling, keywords, punctuation, clauses, or
-reserved words.
+Slice 3 adds one minimal relationship metadata declaration surface and
+preserves it in immutable parse-only AST nodes. The exact accepted syntax is
+fixed in `docs/spec/relationship-endpoint-metadata-syntax-v1.md`.
 
-The future AST boundary should:
+The implemented AST boundary:
 
 - preserve one declaration name;
 - preserve exactly two source-ordered endpoints;
@@ -94,19 +94,19 @@ The future AST boundary should:
 - preserve an empty default for scripts that contain no relationship
   metadata.
 
-The future parser should accept only the syntax fixed by the Slice 3 syntax
-contract and reject malformed declarations deterministically through existing
-parser behavior. Slice 3 should not reserve or add a new diagnostic code.
+The parser accepts only the syntax fixed by the Slice 3 syntax contract and
+rejects malformed declarations through existing parser behavior. Slice 3
+reserves and adds no diagnostic code.
 
-The future `check` and `emit-sql` pipelines must retain their current behavior
+The `check` and `emit-sql` pipelines retain their current behavior
 for all existing programs. Relationship metadata receives no semantic
 validation, no Semantic IR representation, and no SQL artifact. Slice 3 must
 not claim that successfully parsing metadata makes a relationship valid,
 composable, authorized, cardinality-safe, or executable.
 
-## Exact Proposed Slice 3 Allowlist
+## Implemented Slice 3 Allowlist
 
-Slice 3 may modify only the following files after separate authorization.
+Slice 3 modifies only the separately authorized files below.
 
 ### Production And Grammar
 
@@ -227,9 +227,9 @@ expanding the allowlist.
 | JSON | No schema or serialization change; JSON v1 remains the only runtime contract. |
 | Runtime and database | No execution, connection, introspection, authorization, or enforcement behavior. |
 
-## Readiness Gates Before Slice 3
+## Slice 3 Gate Outcome
 
-Slice 3 may begin only after explicit approval and review of:
+Slice 3 began only after explicit approval and review of:
 
 - a normative exact syntax contract;
 - keyword, contextual-token, and reserved-word impact;
@@ -251,7 +251,7 @@ Slice 3 may begin only after explicit approval and review of:
 
 ## Hard Non-Goals
 
-Neither this decision slice nor the recommended future Slice 3 authorizes:
+Neither this decision slice nor the implemented Slice 3 includes or authorizes:
 
 - JOIN or relation composition;
 - multiple relation inputs, composition predicates, CTEs, or subqueries;
@@ -275,10 +275,9 @@ Neither this decision slice nor the recommended future Slice 3 authorizes:
 
 ## Handoff
 
-Slice 3 remains unauthorized until this decision and its exact proposed
-allowlist are reviewed and separately approved. If approved, Slice 3 must
-follow the chosen relationship and endpoint metadata syntax foundation and
-remain parse-only and AST-only.
+Slice 3 is complete as the chosen relationship and endpoint metadata syntax
+foundation and remains parse-only and AST-only. Slice 4 remains unauthorized
+until separately reviewed and approved.
 
 Any need for semantic, IR, SQL, CLI, JSON, runtime, database, dependency,
 public API, fixture, golden, CI, or unlisted file changes is a scope expansion

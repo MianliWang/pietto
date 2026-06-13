@@ -36,6 +36,8 @@ from pietto.ast_nodes import (
     OrderItem,
     Parameter,
     QueryDef,
+    RelationshipEndpoint,
+    RelationshipMetadata,
     Script,
     ShapeDef,
     ShapeItem,
@@ -90,10 +92,12 @@ class AstBuilder(PiettoVisitor):
 
         header = self.visit(ctx.header()) if ctx.header() is not None else None
         definitions = tuple(self.visit(item) for item in ctx.definition())
+        relationships = tuple(self.visit(item) for item in ctx.relationshipDefinition())
         return Script(
             span=self._span(ctx),
             header=cast(Header | None, header),
             definitions=definitions,
+            relationships=relationships,
         )
 
     def visitHeader(self, ctx: _AntlrContext) -> Header:
@@ -330,6 +334,29 @@ class AstBuilder(PiettoVisitor):
             name=identifiers[0].getText(),
             shape_name=identifiers[1].getText() if ctx.COLON() is not None else None,
             connector=self.visit(ctx.expression()),
+        )
+
+    def visitRelationshipDefinition(self, ctx: _AntlrContext) -> RelationshipMetadata:
+        """Build parse-only relationship metadata outside semantic definitions."""
+
+        endpoints = tuple(
+            self.visit(item) for item in ctx.relationshipBody().relationshipEndpoint()
+        )
+        assert len(endpoints) == 2
+        return RelationshipMetadata(
+            span=self._span(ctx),
+            name=ctx.identifier().getText(),
+            endpoints=(endpoints[0], endpoints[1]),
+        )
+
+    def visitRelationshipEndpoint(self, ctx: _AntlrContext) -> RelationshipEndpoint:
+        """Build one endpoint without resolving either metadata name."""
+
+        identifiers = ctx.identifier()
+        return RelationshipEndpoint(
+            span=self._span(ctx),
+            local_name=identifiers[0].getText(),
+            relation_name=identifiers[1].getText(),
         )
 
     def visitTableDefinition(self, ctx: _AntlrContext) -> TableDef:

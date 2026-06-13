@@ -25,7 +25,7 @@ STATUS_PATHS = (
 
 INPUT_HASHES = {
     READINESS_PATH: (
-        "9c95edf56bed31a41c71b01159887a6ce4e93c7510dae64288ecedae1d93b38d"
+        "a58f42447c0920c580f04c39303b4f4e8623f86affe23ab4da5efe577708d0de"
     ),
     "docs/plan/phase-13-relation-composition-planning.md": (
         "fe2518aa3837fa99b942fc3bf7bf05bfccdc8e2e3e66de9a12ce99d66949ead6"
@@ -43,7 +43,7 @@ INPUT_HASHES = {
         "2383731c2b9d78f8cf73da8e9d47f973b6eef93eb20e0f03d8f045307b788534"
     ),
     "tests/test_phase13_completion_audit.py": (
-        "d3fdb0bf9ef15d11a9813dd4dcb04d4cc3a85f2f37bc8c2a676936bc73493557"
+        "b8e979676a668c91542415123b5017219ed878059236e0c63e266806e39a8d25"
     ),
 }
 
@@ -52,7 +52,7 @@ FILE_HASHES = {
     "uv.lock": "996f7bcb04c380c2b3855167d33ffbd462c902245e63bee6e626ab1789d65071",
     "Makefile": "dbd38c41e2af5275c379de0b88c92f3861efb90724c7de1a291e0aa007ce2db7",
     "grammar/Pietto.g4": (
-        "faa2e0885fb01f28c3d7cc26ef96bdc2c29e2d8a70f844be62a2a88a354a0ec6"
+        "6a5f6bc45d4f66011a7898fe783b6600beaf73f3b984d6539f975cf0cd7f3110"
     ),
     ".github/workflows/ci.yml": (
         "c2ba73d04dab3331ca19577f2cf4250274671aa37ec4f84f293429e118b6c4c5"
@@ -72,11 +72,11 @@ FILE_HASHES = {
 }
 
 GROUP_HASHES = {
-    "frontend": "01f7e66c9c8f15e10cacd5a8527fa108316a26df2abedcdc645388eabdd445f6",
+    "frontend": "4af1382a5d1e4464f492f0c267d500fbeb667bff819dcbcad11b346f33d87e8b",
     "semantic": "3e95b5ae09fe22746214910bcc5a453f23a81b3664768ce5a9822693fd2abcfd",
     "ir": "b29ccb7bf6df2a168059698446631664b02393a5e99382c9c109cdb022fbd846",
     "sql": "87b3f0a6baee9990f22fa01ff18a545274525006bc1c95ed5f37ccfdcf3e0c5c",
-    "generated": "0b69b4e6462f066a753203b5e5552855637ccc4dd40a74dda819be76a445ddb2",
+    "generated": "44dad9dc2fced336b8e102a558be94786fb7618fd860a3ef6f6d56e49fdebf1f",
     "cli": "235d4e50c3474306253dfc6b118e2518b3e300e90f7fbe9903263a39cbdc42a0",
 }
 
@@ -88,9 +88,16 @@ def test_slice2_status_inputs_and_single_candidate_decision() -> None:
 
     assert "# Phase 14 Slice 2: First Implementation Candidate Decision" in decision
     assert "**Phase 14 Slice 2 is complete as a candidate decision only.**" in decision
-    assert "**Phase 14 implementation has not started.**" in decision
     assert (
-        "**Slice 3 remains unauthorized until separately reviewed and approved.**"
+        "**Phase 14 Slice 3: Relationship Metadata Syntax Contract And Parse-Only "
+        "AST\nImplementation is complete.**" in decision
+    )
+    assert (
+        "**Phase 14 implementation has started only at the parser and AST boundary.**"
+        in decision
+    )
+    assert (
+        "**Slice 4 remains unauthorized until separately reviewed and approved.**"
         in decision
     )
 
@@ -215,8 +222,8 @@ def test_slice3_stage_impacts_are_decision_complete() -> None:
         "preserve the full declaration span and each endpoint span",
         "separately from the existing semantic definition stream",
         "empty default for scripts that contain no relationship metadata",
-        "does not define final spelling, keywords, punctuation, clauses, or "
-        "reserved words",
+        "exact accepted syntax is fixed in "
+        "`docs/spec/relationship-endpoint-metadata-syntax-v1.md`",
     ):
         assert expected in normalized
 
@@ -378,7 +385,7 @@ def test_runtime_has_no_phase14_implementation_markers() -> None:
         assert marker not in runtime
 
 
-def test_status_documents_record_decision_without_implementation() -> None:
+def test_status_documents_record_slice3_parse_only_implementation() -> None:
     documents = {path: _read(path) for path in STATUS_PATHS}
 
     for document in documents.values():
@@ -388,15 +395,19 @@ def test_status_documents_record_decision_without_implementation() -> None:
         assert "candidate decision" in normalized
         assert "Relationship and endpoint metadata syntax foundation" in normalized
         assert "Ambiguity and name-ownership foundation" in normalized
-        assert "Phase 14 implementation has not started" in normalized
-        assert "Slice 3 remains unauthorized" in normalized
+        assert "Phase 14 Slice 3" in normalized
+        assert "parse-only" in normalized
+        assert "AST" in normalized
+        assert "Slice 4" in normalized
+        assert "unauthorized" in normalized
+        assert "docs/spec/relationship-endpoint-metadata-syntax-v1.md" in document
 
     combined = " ".join("\n".join(documents.values()).split())
     for boundary in (
         "relation composition",
         "JOIN",
         "SQL shape implementation",
-        "relationship syntax",
+        "relationship semantic validation",
         "relation-role syntax",
         "permission gate",
         "runtime security",

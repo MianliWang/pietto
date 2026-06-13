@@ -6,9 +6,12 @@
 
 **Phase 14 Slice 2: First Implementation Candidate Decision is complete.**
 
-**Phase 14 implementation has not started.**
+**Phase 14 Slice 3: Relationship Metadata Syntax Contract And Parse-Only AST
+Implementation is complete.**
 
-**Slices 3 through 4 require separate explicit authorization.**
+**Phase 14 implementation has started only at the parser and AST boundary.**
+
+**Slice 4 requires separate explicit authorization.**
 
 Slice 1 is planning-only. It creates the final broad readiness gate between
 the completed Phase 13 planning contracts and a future narrowly authorized
@@ -20,9 +23,14 @@ golden behavior.
 Phase 14 must not become another broad planning phase. Phase 13 already
 completed the major relation-composition planning, contract, and audit work.
 Slice 2 chose the relationship and endpoint metadata syntax foundation and
-defined the exact proposed boundary for Slice 3. The candidate decision is
+defined the exact boundary for Slice 3. Slice 3 implements that boundary only
+as parse-only metadata in grammar and immutable AST nodes. The syntax contract
+is `docs/spec/relationship-endpoint-metadata-syntax-v1.md`. The candidate
+decision is
 documented in
 `docs/plan/phase-14-first-implementation-candidate-decision.md`.
+Slice 2 did not implement either candidate; implementation began only after
+the separate Slice 3 authorization.
 
 ## Inputs And Preserved Baseline
 
@@ -82,10 +90,10 @@ Phase 14 has four slices. Slice 1 is the only broad readiness slice.
    relationship and endpoint metadata syntax foundation, deferred the
    ambiguity and name-ownership foundation, and fixed a decision-complete
    proposed boundary for Slice 3 without implementing the candidate.
-3. **Explicitly Authorized Minimal Vertical Slice**: planned and
-   unauthorized. Implement only the candidate and file boundary approved
-   after Slice 2 review. Authorization for Slice 1 or Slice 2 does not
-   authorize this slice.
+3. **Explicitly Authorized Minimal Vertical Slice**: complete. Implements only
+   the relationship metadata syntax contract, regenerated ANTLR artifacts,
+   immutable AST metadata, parser tests, fixed-hash updates, and scope-aware
+   documentation.
 4. **Backend Compatibility And Completion Audit**: planned and unauthorized.
    Verify the resulting narrow implementation, unchanged backend behavior
    where required, compatibility locks, and all still-deferred capabilities.
@@ -131,9 +139,9 @@ Slice 2 also defines positive, negative, compatibility, and absence tests for
 Slice 3. It does not use an undecided prototype, generic risk register, or
 future follow-up as a substitute for these answers.
 
-## Gates Before Slice 3
+## Slice 3 Gate Outcome
 
-No implementation may start until all of the following are reviewed:
+Slice 3 started only after all of the following were reviewed:
 
 - one candidate is selected and the other is explicitly deferred;
 - the exact Slice 3 file allowlist and untouched-file boundary are fixed;
@@ -179,11 +187,12 @@ security, masking, policy isolation, or safe data sharing.
 
 ## Compatibility Locks
 
-For Slice 1:
+For Slices 1 through 3:
 
-- production code is unchanged;
-- grammar and generated ANTLR files are unchanged;
-- parser, AST, semantic, IR, and both SQL backends are unchanged;
+- handwritten production changes are limited to AST nodes and AST building;
+- grammar and the seven generated ANTLR files change only for the exact
+  relationship metadata syntax;
+- parser API, semantic analysis, IR, and both SQL backends are unchanged;
 - SQL artifacts and all golden bytes are unchanged;
 - CLI behavior and JSON schema version 1 are unchanged;
 - dependencies, `pyproject.toml`, and `uv.lock` are unchanged;
@@ -193,18 +202,18 @@ For Slice 1:
 - CI and workflow permissions are unchanged;
 - `.pietto` remains the only official source suffix.
 
-The Slice 1 static audit locks these bytes and boundaries. A later Slice 3 may
-change only the exact surfaces approved by the Slice 2 decision and a new
-explicit implementation authorization.
+The Slice 1 and Slice 2 static audits lock their historical boundaries. Slice
+3 changes only the exact surfaces approved by the Slice 2 decision and the
+explicit Slice 3 authorization.
 
 ## Handoff
 
 Slice 2 selected the relationship and endpoint metadata syntax foundation and
-deferred the ambiguity and name-ownership foundation. The exact proposed
-Slice 3 allowlist, stage impacts, tests, and untouched boundaries are in
+deferred the ambiguity and name-ownership foundation. Slice 3 implements the
+exact approved allowlist, stage impacts, tests, and untouched boundaries in
 `docs/plan/phase-14-first-implementation-candidate-decision.md`.
 
-Slice 2 did not implement either candidate. Slice 3 remains unauthorized
-until its exact boundary is reviewed and explicitly approved. Relation
-composition, JOIN, SQL shape lowering, runtime security, database behavior,
-and all other hard non-goals remain deferred.
+Slice 3 is complete as parse-only and AST-only relationship metadata.
+Relation composition, JOIN, SQL shape lowering, runtime security, database
+behavior, and all other hard non-goals remain deferred. Slice 4 remains
+unauthorized.
