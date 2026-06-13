@@ -66,7 +66,8 @@ def test_phase13_master_plan_records_planning_status_and_slice_order() -> None:
         in plan
     )
     assert "**Slice 1: Master Plan And Baseline Audit is complete.**" in plan
-    assert "Slices 2 through 6 are planned only" in plan
+    assert "**Slice 2: Relationship / Relation Role Contract is complete.**" in plan
+    assert "Slices 3 through 6 are planned only" in plan
     assert "Phase 12 SQL Feature Expansion I is complete" in plan
 
     offsets = [
@@ -88,8 +89,8 @@ def test_phase13_plan_defines_required_concepts_and_hard_boundaries() -> None:
         "Query context matching",
         "Input relation versus output relation",
         "Cardinality",
-        "one_to_many",
-        "many_to_one",
+        "one-to-many",
+        "many-to-one",
         "Semantic versus runtime permission",
         "SQL-lowerable invariant",
         "Fail-closed backend behavior",
@@ -165,10 +166,12 @@ def test_phase13_status_documents_are_scope_aware() -> None:
         assert "relation composition" in normalized.lower()
         assert PHASE13_PLAN in document
         assert "Slice 1" in normalized
+        assert "Slice 2" in normalized
 
     combined = " ".join("\n".join(documents.values()).split())
     assert "Phase 12 SQL Feature Expansion I is complete" in combined
     assert "Phase 13 planning has started" in combined
+    assert "Slices 3 through 6" in combined
     assert "JOIN" in combined
     assert "relation roles" in combined
     assert "runtime security" in combined

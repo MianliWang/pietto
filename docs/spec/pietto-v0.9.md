@@ -1,7 +1,7 @@
 # Pietto v0.9 Whitepaper and Language Reference
 
 Version: v0.9 draft
-Status: Phase 1 through Phase 12 complete; Phase 13 planning Slice 1 complete
+Status: Phase 1 through Phase 12 complete; Phase 13 planning Slices 1 and 2 complete
 Supported Python baseline: Python >=3.12; Phase 11 CI: Python 3.12/3.13
 Primary SQL target: PostgreSQL; MySQL 8.0+ generation MVP supported
 Preferred package manager: uv-first
@@ -51,12 +51,13 @@ immutable, parser-independent IR. The public
 `emit_postgres_sql(script_ir)` API remains the PostgreSQL compatibility
 reference; the MySQL emitter remains private to explicit CLI dispatch.
 
-Phase 13 planning has started with Slice 1: Master Plan And Baseline Audit.
-It plans future relation composition, relationship roles,
-relation-as-gateway concepts, scope, SQL lowering, diagnostics, and security
-boundaries without changing the implemented language or compiler. JOIN,
-relationship declarations, relation roles, permission gates, runtime
-security, and SQL execution are not implemented.
+Phase 13 planning has started. Slices 1 and 2 establish the master plan,
+baseline audit, and the planning-only
+`docs/spec/relationship-relation-role-contract-v1.md` contract. The contract
+defines conceptual vocabulary, not currently accepted Pietto syntax,
+keywords, reserved words, or runtime behavior. JOIN, relationship
+declarations, relation roles, permission gates, runtime security, and SQL
+execution are not implemented.
 
 SQL is generated only. Database connections, SQL or connector execution,
 schema introspection, runtime services, project or multi-file support, watch
@@ -1353,8 +1354,8 @@ only official source suffix, and diagnostics retain canonical
 
 ### Phase 13: Relation Composition And Relationship Planning
 
-Status: planning started. Slice 1 is complete; Slices 2 through 6 are planned
-only and are not authorized for production implementation.
+Status: planning started. Slices 1 and 2 are complete; Slices 3 through 6 are
+planned only and are not authorized for production implementation.
 
 Slice 1 adds
 `docs/plan/phase-13-relation-composition-planning.md`, one focused planning
@@ -1362,6 +1363,15 @@ audit, and scope-aware status documentation. It records the Phase 12
 single-file relation baseline, current 15-golden inventory, PostgreSQL/MySQL
 supported-feature parity, JSON v1 and CLI boundaries, public PostgreSQL
 emitter, and private MySQL emitter.
+
+Slice 2 adds the normative planning-only
+`docs/spec/relationship-relation-role-contract-v1.md` contract and focused
+static audits. It distinguishes relationship endpoints from relation roles,
+defines future cardinality and fanout vocabulary, preserves the
+SQL-lowerable invariant, and separates compiler semantic planning from
+runtime and database enforcement. These are conceptual terms only, not final
+keywords, reserved words, source syntax, public interfaces, or implemented
+security behavior.
 
 Phase 13 is planning-first because relation composition affects name
 resolution, row schemas, cardinality, fanout, SQL lowering, diagnostics,
@@ -1376,7 +1386,10 @@ post-processing. Unsupported or unsafe lowering should fail closed. Slice 1
 does not change grammar, generated ANTLR, production code, SQL output, CLI,
 JSON, public API, dependencies, package metadata, version, or goldens. It does
 not implement JOIN, relationship declarations, relation roles, permission
-gates, capability tokens, runtime security, database access, or SQL execution.
+gates, authorization-bearing tokens, runtime security, database access, or
+SQL execution. Pietto currently does not provide access control, privacy
+enforcement, authorization, row-level security, masking, policy isolation, or
+safe data sharing.
 
 ---
 

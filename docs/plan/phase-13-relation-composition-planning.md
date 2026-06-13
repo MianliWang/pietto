@@ -6,10 +6,12 @@
 
 **Slice 1: Master Plan And Baseline Audit is complete.**
 
-Slices 2 through 6 are planned only and are not authorized for production
-implementation. Phase 12 SQL Feature Expansion I is complete. Slice 1 adds
-only this master plan, one focused planning audit, and scope-aware status
-documentation. It changes no grammar, generated ANTLR content, production
+**Slice 2: Relationship / Relation Role Contract is complete.**
+
+Slices 3 through 6 are planned only and are not authorized for production
+implementation. Phase 12 SQL Feature Expansion I is complete. Slices 1 and 2
+add only planning documents, focused static audits, and scope-aware status
+documentation. They change no grammar, generated ANTLR content, production
 compiler code, SQL output, CLI behavior, JSON schema, public API, dependency,
 package metadata, version, or golden fixture.
 
@@ -38,10 +40,10 @@ The design must:
 - settle name resolution, row-schema, cardinality, diagnostics, backend, and
   security boundaries before implementation.
 
-Relationship declarations, relation roles, relation-as-gateway semantics,
-authority, purpose, and safe composition are future semantic design areas.
-They are not current Pietto syntax, runtime capabilities, or security
-guarantees.
+Relationship declarations, relationship endpoints, endpoint roles, relation
+roles, relation-as-gateway semantics, authority, purpose, and query context
+are conceptual planning vocabulary only. They are not current Pietto syntax,
+keywords, reserved words, runtime capabilities, or security guarantees.
 
 ## Non-goals And Hard Boundaries
 
@@ -132,14 +134,14 @@ The following are planning concepts only:
 - **Relation as gateway or checkpoint**: whether composition could be required
   to pass through reviewed semantic relations, while recognizing that this is
   not database enforcement.
-- **Safe composition**: how future contracts could restrict ambiguous,
+- **Composition risk controls**: how future contracts could reject ambiguous,
   fanout-prone, or unsupported combinations and fail closed.
 - **Query context matching**: how a future query's context could be checked
   against relationship authority or purpose at compile time.
 - **Input relation versus output relation**: how field visibility and schema
   ownership change across a composition boundary.
-- **Cardinality**: how `one`, `many`, and possible future `one_to_many` or
-  `many_to_one` concepts affect schema and fanout analysis.
+- **Cardinality**: how one, many, one-to-many, and many-to-one concepts affect
+  schema and fanout analysis.
 - **Semantic versus runtime permission**: which guarantees belong to the
   compiler and which require database or deployment enforcement.
 - **SQL-lowerable invariant**: how every executable core semantic operation
@@ -147,15 +149,19 @@ The following are planning concepts only:
 - **Fail-closed backend behavior**: how unsupported or unsafe lowering
   eventually produces diagnostics rather than partial or approximate SQL.
 
-No names in this section define accepted Pietto syntax or a public interface.
+No names in this section define accepted Pietto syntax, final grammar terms,
+keywords, reserved words, or a public interface.
 
 ## Proposed Phase 13 Slices
 
 1. **Master Plan And Baseline Audit**: complete. Record the Phase 12 baseline,
    planning-only boundary, six-slice sequence, and static compatibility locks.
-2. **Relationship / Relation Role Contract**: planned only. Define future
-   concepts, terminology, ownership, cardinality, authority, and explicit
-   non-enforcement boundaries without grammar or production implementation.
+2. **Relationship / Relation Role Contract**: complete. The normative
+   planning-only contract is
+   `docs/spec/relationship-relation-role-contract-v1.md`. It defines
+   conceptual terminology, cardinality, authority, SQL-lowering, and explicit
+   non-enforcement boundaries. It defines no currently accepted Pietto syntax
+   and adds no implementation.
 3. **Composition Scope And Name Resolution Contract**: planned only. Define
    future input/output schemas, qualification, ambiguity handling, and
    deterministic scope rules without implementation.
@@ -189,7 +195,9 @@ only the supported subset of a relation.
 
 A relationship gate, relation gate, or relation-as-checkpoint model is a
 future design possibility only. Compiler planning is not database
-enforcement, and runtime authorization is not implemented.
+enforcement, and runtime authorization is not implemented. Pietto currently
+does not provide access control, privacy enforcement, authorization,
+row-level security, masking, policy isolation, or safe data sharing.
 
 Database roles, row-level security, safe views, masking, security barriers,
 capability tokens, deployment policy, and runtime identity are future areas.
@@ -208,9 +216,9 @@ families:
 - `PIE-Ixxxx` for IR construction diagnostics;
 - `PIE-Bxxxx` for backend capability diagnostics.
 
-Phase 13 Slice 1 introduces no diagnostic codes. Later contracts may reserve
-or describe future diagnostics only after assigning responsibility to the
-correct compiler stage, defining source-span ownership, avoiding cascades,
+Phase 13 Slices 1 and 2 introduce no diagnostic codes. Later contracts may
+reserve or describe future diagnostics only after assigning responsibility to
+the correct compiler stage, defining source-span ownership, avoiding cascades,
 and preserving deterministic order.
 
 ## Backend Planning
@@ -243,12 +251,12 @@ Each future Phase 13 slice must verify:
 - JSON v1, CLI, golden, and compiler-stage boundaries remain unchanged unless
   separately authorized.
 
-Slice 1 validation includes:
+Slice 2 validation includes:
 
 ```bash
 uv run ruff format --check .
 uv run ruff check .
-uv run pytest tests/test_phase13_planning_audit.py
+uv run pytest tests/test_phase13_planning_audit.py tests/test_phase13_relationship_role_contract.py
 uv run pytest
 uv run python scripts/validate.py
 uv run python scripts/check_generated.py
