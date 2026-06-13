@@ -62,8 +62,8 @@ def test_phase13_master_plan_records_planning_status_and_slice_order() -> None:
 
     assert "# Phase 13: Relation Composition And Relationship Planning" in plan
     assert (
-        "**Phase 13 relation composition and relationship planning has started.**"
-        in plan
+        "**Phase 13 Relation Composition And Relationship Planning is complete.**"
+        in (plan)
     )
     assert "**Slice 1: Master Plan And Baseline Audit is complete.**" in plan
     assert "**Slice 2: Relationship / Relation Role Contract is complete.**" in plan
@@ -75,7 +75,9 @@ def test_phase13_master_plan_records_planning_status_and_slice_order() -> None:
     assert (
         "**Slice 5: Security Boundary And Diagnostics Contract is complete.**" in plan
     )
-    assert "Slice 6 remains planned only" in plan
+    assert "**Slice 6: Completion Audit And Documentation is complete.**" in plan
+    assert "Slices 1 through 6 are complete" in plan
+    assert "planning, contract, and audit work only" in " ".join(plan.split())
     assert "Phase 12 SQL Feature Expansion I is complete" in plan
 
     offsets = [
@@ -90,7 +92,8 @@ def test_phase13_plan_defines_required_concepts_and_hard_boundaries() -> None:
     normalized = " ".join(plan.split())
 
     for required in (
-        "planning-only unless a later slice receives separate explicit authorization",
+        "planning-only throughout all six slices",
+        "Future implementation work requires a new explicit phase",
         "generic SQL builder",
         "relation-as-gateway",
         "relation-as-checkpoint",
@@ -178,6 +181,7 @@ def test_phase13_status_documents_are_scope_aware() -> None:
         assert "Slice 3" in normalized
         assert "Slice 4" in normalized
         assert "Slice 5" in normalized
+        assert "Slice 6" in normalized
         assert "docs/spec/composition-scope-name-resolution-contract-v1.md" in (
             document
         )
@@ -186,8 +190,9 @@ def test_phase13_status_documents_are_scope_aware() -> None:
 
     combined = " ".join("\n".join(documents.values()).split())
     assert "Phase 12 SQL Feature Expansion I is complete" in combined
-    assert "Phase 13 planning has started" in combined
-    assert "Slice 6 remains planned only" in combined
+    assert "Phase 13 is complete" in combined
+    assert "Slices 1 through 6 are complete" in combined
+    assert "planning, contract, and audit work only" in combined
     assert "JOIN" in combined
     assert "relation roles" in combined
     assert "runtime security" in combined
@@ -318,6 +323,7 @@ def _new_phase13_text() -> str:
         "tests/test_phase13_composition_scope_contract.py",
         "tests/test_phase13_composition_sql_shape_contract.py",
         "tests/test_phase13_security_diagnostics_contract.py",
+        "tests/test_phase13_completion_audit.py",
         "README.md",
         "AGENTS.md",
         "docs/spec/pietto-v0.9.md",

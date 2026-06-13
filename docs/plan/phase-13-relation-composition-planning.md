@@ -2,7 +2,7 @@
 
 ## Status
 
-**Phase 13 relation composition and relationship planning has started.**
+**Phase 13 Relation Composition And Relationship Planning is complete.**
 
 **Slice 1: Master Plan And Baseline Audit is complete.**
 
@@ -14,25 +14,33 @@
 
 **Slice 5: Security Boundary And Diagnostics Contract is complete.**
 
-Slice 6 remains planned only and is not authorized for production
-implementation. Phase 12 SQL Feature Expansion I is complete. Slices 1 through
-5 add only planning documents, focused static audits, and scope-aware status
-documentation. They change no grammar, generated ANTLR content, production
-compiler code, SQL output, CLI behavior, JSON schema, public API, dependency,
-package metadata, version, CI, or golden fixture.
+**Slice 6: Completion Audit And Documentation is complete.**
+
+Slices 1 through 6 are complete. Phase 13 is complete as planning, contract,
+and audit work only. Slice 6 adds only
+`tests/test_phase13_completion_audit.py`, the final static compatibility
+audit, and scope-aware completion documentation. The phase changes no grammar,
+generated ANTLR content, production compiler code, SQL output, CLI behavior,
+JSON schema, public API, dependency, package metadata, version, CI, or golden
+fixture. Phase 12 SQL Feature Expansion I is complete.
 
 For the historical Slice 2 checkpoint, the retained audit statement is:
 "Slices 3 through 6 are planned only." The current status above supersedes
-that checkpoint by completing Slices 3 through 5 without production
+that checkpoint by completing Slices 3 through 6 without production
 implementation. For the historical Slice 3 checkpoint, the retained audit
 statement is: "Slices 4 through 6 are planned only." For the historical Slice
 4 checkpoint, the retained audit statement is: "Slices 5 through 6 are planned
-only."
+only." For the historical Slice 5 checkpoint, the retained audit statement is:
+"Slice 6 remains planned only."
 
-Phase 13 is planning-only unless a later slice receives separate explicit
-authorization that changes that boundary. The current phase does not
-implement JOIN, relationship declarations, relation roles, permission gates,
-or runtime security behavior.
+Phase 13 was planning-only throughout all six slices. Completion does not
+authorize production implementation. Future implementation work requires a
+new explicit phase and authorization. The completed phase does not implement
+relation composition, JOIN, SQL shape implementation, CTEs, subqueries,
+relationship syntax, relation-role syntax, permission gates, runtime security,
+a threat model, diagnostic codes, database connection, SQL execution, schema
+introspection, JSON v2, project mode, LSP, Web UI, a playground, SQLGlot,
+release, publish, signing, upload, or attestation behavior.
 
 ## Phase 13 Goal
 
@@ -80,10 +88,9 @@ Phase 13 Slice 1 must not:
 - turn Pietto into a generic SQL builder;
 - change golden fixtures, package metadata, package version, or public APIs.
 
-Future Phase 13 slices remain planning and contract slices unless a separate
-explicit decision authorizes production work. A slice title that discusses a
-relationship, JOIN, security boundary, or SQL shape does not itself authorize
-that capability.
+All Phase 13 slices remained planning, contract, or audit work. A slice title
+that discusses a relationship, JOIN, security boundary, or SQL shape did not
+itself authorize that capability.
 
 ## Current Baseline
 
@@ -195,13 +202,15 @@ keywords, reserved words, or a public interface.
    non-claims, threat-model prerequisites, diagnostic-family ownership,
    source-span planning, deterministic ordering, cascade suppression, and
    fail-closed semantics without implementing security or diagnostics.
-6. **Completion Audit And Documentation**: planned only. Audit the planning
-   contracts, status documents, compatibility boundaries, and continued
-   absence of production implementation.
+6. **Completion Audit And Documentation**: complete. Add the static completion
+   audit, update final status documentation, lock all planning contracts and
+   compatibility boundaries, and verify the continued absence of production
+   implementation.
 
-These are planning and contract slices. A future explicit decision must
-authorize any grammar, compiler, backend, CLI, JSON, dependency, public API,
-runtime, or database change.
+These are completed planning, contract, and audit slices. Future
+implementation work requires a new explicit phase and authorization for any
+grammar, compiler, backend, CLI, JSON, dependency, public API, runtime, or
+database change.
 
 ## SQL-Lowerable Invariant
 
@@ -240,11 +249,11 @@ families:
 - `PIE-Ixxxx` for IR construction diagnostics;
 - `PIE-Bxxxx` for backend capability diagnostics.
 
-Phase 13 Slices 1 through 5 introduce and reserve no diagnostic codes. Slice 6
-may audit the family-level planning only; any future concrete code requires a
-separate explicit implementation decision after assigning responsibility to
-the correct compiler stage, defining source-span ownership, avoiding
-cascades, and preserving deterministic order.
+Phase 13 Slices 1 through 6 introduce and reserve no diagnostic codes. Slice 6
+audits the family-level planning only. Any future concrete code requires a new
+explicit implementation phase after assigning responsibility to the correct
+compiler stage, defining source-span ownership, avoiding cascades, and
+preserving deterministic order.
 
 ## Backend Planning
 
@@ -260,7 +269,7 @@ dependency.
 
 ## Audit Checklist
 
-Each future Phase 13 slice must verify:
+The Phase 13 slice audits verify:
 
 - no grammar or generated-file change unless explicitly authorized;
 - no production implementation unless explicitly authorized;
@@ -276,12 +285,12 @@ Each future Phase 13 slice must verify:
 - JSON v1, CLI, golden, and compiler-stage boundaries remain unchanged unless
   separately authorized.
 
-Slice 5 validation includes:
+Slice 6 validation includes:
 
 ```bash
 uv run ruff format --check .
 uv run ruff check .
-uv run pytest tests/test_phase13_planning_audit.py tests/test_phase13_security_diagnostics_contract.py
+uv run pytest tests/test_phase13_planning_audit.py tests/test_phase13_completion_audit.py
 uv run pytest
 uv run python scripts/validate.py
 uv run python scripts/check_generated.py

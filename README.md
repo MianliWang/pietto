@@ -19,8 +19,8 @@ The current implementation status is:
 - **Phase 10 MySQL SQL Generation MVP: complete**;
 - **Phase 11 Release Readiness & Reproducible Validation: complete**;
 - **Phase 12 SQL Feature Expansion I: complete**;
-- **Phase 13 Relation Composition And Relationship Planning: Slices 1 through 5
-  complete; remaining slices planned only**.
+- **Phase 13 Relation Composition And Relationship Planning: complete as
+  planning, contract, and audit work only**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -263,8 +263,9 @@ Phase 12 completion is not an actual package release. Package publication,
 registry upload, signing, attestations, automated versioning, and a version
 bump remain unimplemented.
 
-Phase 13 planning has started. Slice 1 completes the master plan and baseline
-audit. Slice 2 completes the planning-only
+Phase 13 is complete as planning, contract, and audit work only. Slices 1
+through 6 are complete. Slice 1 completes the master plan and baseline audit.
+Slice 2 completes the planning-only
 [Relationship And Relation Role Contract v1](docs/spec/relationship-relation-role-contract-v1.md).
 Slice 3 completes the planning-only
 [Composition Scope And Name Resolution Contract v1](docs/spec/composition-scope-name-resolution-contract-v1.md).
@@ -278,16 +279,20 @@ runtime security, threat model, or diagnostic code. The Slice 2 baseline
 described Slices 3 through 6 as
 planning-only. The Slice 3 baseline described Slices 4 through 6 as
 planning-only. The Slice 4 baseline described Slices 5 through 6 as
-planning-only. Slices 3 through 5 are now complete. Slice 6 remains planned
-only and requires separate explicit authorization. Relation composition,
-JOIN, SQL shape implementation, relationship syntax, relation-role syntax,
-permission gates, runtime security, threat model, diagnostic code, database
-connection, SQL execution, schema introspection, and SQLGlot integration are
-not implemented. Pietto currently provides no access-control, privacy,
+planning-only. The historical Slice 5 checkpoint statement, "Slice 6 remains
+planned only", is retained for audit compatibility. Slice 6 adds only
+`tests/test_phase13_completion_audit.py` and final scope-aware documentation.
+Relation composition, JOIN, SQL shape implementation, CTEs, subqueries,
+relationship syntax, relation-role syntax, permission gates, runtime security,
+threat model, diagnostic code, database connection, SQL execution, schema
+introspection, JSON v2, project mode, LSP, Web UI, playground, SQLGlot,
+release, publish, signing, upload, and attestation behavior are not
+implemented. Pietto currently provides no access-control, privacy,
 authorization, row-level security, masking, policy-isolation, or safe-sharing
 guarantee.
 
-Future implementation phases require separate explicit authorization.
+Future implementation work requires a new explicit phase and authorization.
+Changes outside that phase require separate explicit authorization.
 Unrequested future work is not authorized.
 
 The implemented source/token limits are deterministic parser/frontend
@@ -334,8 +339,9 @@ gates, and deferred workflow implementations are documented in
 The completed Phase 12 six-slice sequence, compatibility gates, and hard
 non-goals are documented in
 [the Phase 12 SQL Feature Expansion I plan](docs/plan/phase-12-sql-feature-expansion-i.md).
-The current planning-only relation-composition direction, six-slice sequence,
-SQL-lowering invariant, and security boundaries are documented in
+The completed planning-only relation-composition direction, six-slice
+sequence, completion audit, SQL-lowering invariant, and security boundaries
+are documented in
 [the Phase 13 Relation Composition And Relationship Planning plan](docs/plan/phase-13-relation-composition-planning.md).
 The conceptual relationship, endpoint-role, relation-role, cardinality,
 authority, and compiler-versus-runtime boundary is documented in

@@ -86,11 +86,12 @@ Rules:
 
 ## Current Phase
 
-Current phase status: Phase 13 relation composition and relationship planning
-has started. Slice 1 Master Plan And Baseline Audit and Slice 2 Relationship /
-Relation Role Contract are complete. Slice 3 Composition Scope And Name
-Resolution Contract and Slice 4 Join / Composition SQL Shape Contract are also
-complete. Slice 5 Security Boundary And Diagnostics Contract is complete.
+Current phase status: Phase 13 Relation Composition And Relationship Planning
+is complete as planning, contract, and audit work only. Slices 1 through 6 are
+complete. Slice 1 Master Plan And Baseline Audit, Slice 2 Relationship /
+Relation Role Contract, Slice 3 Composition Scope And Name Resolution
+Contract, Slice 4 Join / Composition SQL Shape Contract, and Slice 5 Security
+Boundary And Diagnostics Contract are complete.
 Slice 2 adds only
 `docs/spec/relationship-relation-role-contract-v1.md`, focused static audit
 coverage, and scope-aware documentation. Slice 3 adds only
@@ -99,19 +100,23 @@ audit coverage, and scope-aware documentation. Slice 4 adds only
 `docs/spec/composition-sql-shape-contract-v1.md`, focused static audit
 coverage, and scope-aware documentation. Slice 5 adds only
 `docs/spec/composition-security-diagnostics-contract-v1.md`, focused static
-audit coverage, and scope-aware documentation. The Slice 2 baseline described
+audit coverage, and scope-aware documentation. Slice 6 adds only
+`tests/test_phase13_completion_audit.py` and final scope-aware documentation.
+The Slice 2 baseline described
 Slices 3 through 6 as planned only. The Slice 3 baseline described Slices 4
 through 6 as planned only. The Slice 4 baseline described Slices 5 through 6
-as planned only. Slices 3 through 5 are now complete. Slice 6 remains planned
-only and is not authorized for production implementation. Phase 13 Slices 1
-through 5 change no grammar, generated
+as planned only. The historical Slice 5 checkpoint statement, "Slice 6 remains
+planned only", is retained for audit compatibility. Phase 13 Slices 1 through
+6 change no grammar, generated
 ANTLR, production compiler, SQL output, CLI, JSON v1, public API, dependency,
 package metadata, version, CI, or golden fixture. Relation composition, JOIN,
-SQL shape implementation, relationship syntax, relation-role syntax,
-permission gates, runtime security, threat model, diagnostic code, database
-connection, SQL execution, schema introspection, and SQLGlot integration are
-not implemented. The Phase 13 terms are conceptual planning vocabulary, not
-keywords, reserved words, or accepted Pietto syntax.
+SQL shape implementation, CTEs, subqueries, relationship syntax, relation-role
+syntax, permission gates, runtime security, threat model, diagnostic code,
+database connection, SQL execution, schema introspection, JSON v2, project
+mode, LSP, Web UI, playground, SQLGlot, release, publish, signing, upload, and
+attestation behavior are not implemented. The Phase 13 terms are conceptual
+planning vocabulary, not keywords, reserved words, or accepted Pietto syntax.
+Future implementation work requires a new explicit phase and authorization.
 
 Phase 12 SQL Feature Expansion I is complete. Slices 1 through 6 are complete.
 Slice 1 adds only the master plan,
@@ -362,10 +367,11 @@ non-goals are documented in
 complete. The normative contract is
 documented in
 `docs/spec/order-limit-contract-v1.md`.
-The current Phase 13 planning-only relation-composition direction, fixed
-six-slice sequence, SQL-lowering invariant, and security boundaries are
-documented in `docs/plan/phase-13-relation-composition-planning.md`. Slices 1
-through 5 are complete; Slice 6 remains planned only. The Slice 2
+The completed Phase 13 planning-only relation-composition direction, fixed
+six-slice sequence, completion audit, SQL-lowering invariant, and security
+boundaries are documented in
+`docs/plan/phase-13-relation-composition-planning.md`. Slices 1 through 6 are
+complete as planning, contract, and audit work only. The Slice 2
 conceptual terminology and compiler-versus-runtime boundary are documented in
 `docs/spec/relationship-relation-role-contract-v1.md`. The Slice 3
 input/output scope, name-resolution, qualification, ambiguity, projection
@@ -420,13 +426,13 @@ static `LIMIT` vertical slice, Slice 4 adds only the approved input-scope
 `ORDER BY` vertical slice, and Slice 5 adds only reviewed composition
 fixtures, goldens, and unchanged CLI/JSON v1 coverage. Slice 6 adds only the
 completion audit and final documentation.
-Phase 13 planning has started. Slices 1 through 5 add only planning contracts,
-static audits, and status documentation. Slices 3 through 5 define no current
-source syntax, SQL backend behavior, runtime security, threat model, or
-diagnostic code. They do not implement relation composition, JOIN, SQL
-shapes, relationship syntax, relation-role syntax, relation gates, permission
-matching, runtime security, database connection, SQL execution, schema
-introspection, or SQLGlot.
+Phase 13 is complete as planning, contract, and audit work only. Slices 1
+through 6 add only planning contracts, static audits, and status
+documentation. They define no current source syntax, SQL backend behavior,
+runtime security, threat model, or diagnostic code. They do not implement
+relation composition, JOIN, SQL shapes, relationship syntax, relation-role
+syntax, relation gates, permission matching, runtime security, database
+connection, SQL execution, schema introspection, or SQLGlot.
 The private MySQL backend, static `mysql.table(Text)` semantic/IR surface, and
 closed renderer are the MySQL compiler boundaries. Explicit private CLI
 dispatch and JSON v1 presentation are enabled. Public emitter export, a
