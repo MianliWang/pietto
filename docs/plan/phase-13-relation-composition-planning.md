@@ -10,16 +10,20 @@
 
 **Slice 3: Composition Scope And Name Resolution Contract is complete.**
 
-Slices 4 through 6 are planned only and are not authorized for production
+**Slice 4: Join / Composition SQL Shape Contract is complete.**
+
+Slices 5 through 6 are planned only and are not authorized for production
 implementation. Phase 12 SQL Feature Expansion I is complete. Slices 1 through
-3 add only planning documents, focused static audits, and scope-aware status
+4 add only planning documents, focused static audits, and scope-aware status
 documentation. They change no grammar, generated ANTLR content, production
 compiler code, SQL output, CLI behavior, JSON schema, public API, dependency,
 package metadata, version, CI, or golden fixture.
 
 For the historical Slice 2 checkpoint, the retained audit statement is:
 "Slices 3 through 6 are planned only." The current status above supersedes
-that checkpoint by completing Slice 3 without production implementation.
+that checkpoint by completing Slices 3 and 4 without production
+implementation. For the historical Slice 3 checkpoint, the retained audit
+statement is: "Slices 4 through 6 are planned only."
 
 Phase 13 is planning-only unless a later slice receives separate explicit
 authorization that changes that boundary. The current phase does not
@@ -174,9 +178,12 @@ keywords, reserved words, or a public interface.
    future input/output scopes, clause visibility, qualification, ambiguity,
    projection-alias boundaries, endpoint naming, and deterministic diagnostic
    ownership without defining current source syntax or implementation.
-4. **Join / Composition SQL Shape Contract**: planned only. Define possible
-   explicit SQL-lowering shapes, dialect parity, fanout treatment, and
-   fail-closed cases without implementing JOIN.
+4. **Join / Composition SQL Shape Contract**: complete. The normative
+   planning-only contract is
+   `docs/spec/composition-sql-shape-contract-v1.md`. It defines possible
+   selected-dialect shape families, qualification preservation, dialect
+   parity, cardinality and fanout treatment, deterministic artifacts, and
+   fail-closed backend ownership without implementing JOIN or SQL shapes.
 5. **Security Boundary And Diagnostics Contract**: planned only. Define the
    separation between compiler semantics and runtime enforcement plus future
    diagnostic ownership without security implementation.
@@ -225,7 +232,7 @@ families:
 - `PIE-Ixxxx` for IR construction diagnostics;
 - `PIE-Bxxxx` for backend capability diagnostics.
 
-Phase 13 Slices 1 through 3 introduce no diagnostic codes. Later contracts may
+Phase 13 Slices 1 through 4 introduce no diagnostic codes. Later contracts may
 reserve or describe future diagnostics only after assigning responsibility to
 the correct compiler stage, defining source-span ownership, avoiding cascades,
 and preserving deterministic order.
@@ -260,12 +267,12 @@ Each future Phase 13 slice must verify:
 - JSON v1, CLI, golden, and compiler-stage boundaries remain unchanged unless
   separately authorized.
 
-Slice 3 validation includes:
+Slice 4 validation includes:
 
 ```bash
 uv run ruff format --check .
 uv run ruff check .
-uv run pytest tests/test_phase13_planning_audit.py tests/test_phase13_composition_scope_contract.py
+uv run pytest tests/test_phase13_planning_audit.py tests/test_phase13_composition_sql_shape_contract.py
 uv run pytest
 uv run python scripts/validate.py
 uv run python scripts/check_generated.py

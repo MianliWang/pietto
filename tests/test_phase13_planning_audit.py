@@ -71,7 +71,8 @@ def test_phase13_master_plan_records_planning_status_and_slice_order() -> None:
         "**Slice 3: Composition Scope And Name Resolution Contract is complete.**"
         in plan
     )
-    assert "Slices 4 through 6 are planned only" in plan
+    assert "**Slice 4: Join / Composition SQL Shape Contract is complete.**" in plan
+    assert "Slices 5 through 6 are planned only" in plan
     assert "Phase 12 SQL Feature Expansion I is complete" in plan
 
     offsets = [
@@ -172,14 +173,16 @@ def test_phase13_status_documents_are_scope_aware() -> None:
         assert "Slice 1" in normalized
         assert "Slice 2" in normalized
         assert "Slice 3" in normalized
+        assert "Slice 4" in normalized
         assert "docs/spec/composition-scope-name-resolution-contract-v1.md" in (
             document
         )
+        assert "docs/spec/composition-sql-shape-contract-v1.md" in document
 
     combined = " ".join("\n".join(documents.values()).split())
     assert "Phase 12 SQL Feature Expansion I is complete" in combined
     assert "Phase 13 planning has started" in combined
-    assert "Slices 4 through 6" in combined
+    assert "Slices 5 through 6" in combined
     assert "JOIN" in combined
     assert "relation roles" in combined
     assert "runtime security" in combined
@@ -304,8 +307,10 @@ def _new_phase13_text() -> str:
     paths = (
         PHASE13_PLAN,
         "docs/spec/composition-scope-name-resolution-contract-v1.md",
+        "docs/spec/composition-sql-shape-contract-v1.md",
         "tests/test_phase13_planning_audit.py",
         "tests/test_phase13_composition_scope_contract.py",
+        "tests/test_phase13_composition_sql_shape_contract.py",
         "README.md",
         "AGENTS.md",
         "docs/spec/pietto-v0.9.md",

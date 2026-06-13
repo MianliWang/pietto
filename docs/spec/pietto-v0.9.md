@@ -1,7 +1,7 @@
 # Pietto v0.9 Whitepaper and Language Reference
 
 Version: v0.9 draft
-Status: Phase 1 through Phase 12 complete; Phase 13 planning Slices 1 through 3 complete
+Status: Phase 1 through Phase 12 complete; Phase 13 planning Slices 1 through 4 complete
 Supported Python baseline: Python >=3.12; Phase 11 CI: Python 3.12/3.13
 Primary SQL target: PostgreSQL; MySQL 8.0+ generation MVP supported
 Preferred package manager: uv-first
@@ -51,16 +51,20 @@ immutable, parser-independent IR. The public
 `emit_postgres_sql(script_ir)` API remains the PostgreSQL compatibility
 reference; the MySQL emitter remains private to explicit CLI dispatch.
 
-Phase 13 planning has started. Slices 1 through 3 establish the master plan,
+Phase 13 planning has started. Slices 1 through 4 establish the master plan,
 baseline audit, the planning-only
 `docs/spec/relationship-relation-role-contract-v1.md` contract, and the
 planning-only `docs/spec/composition-scope-name-resolution-contract-v1.md`
-contract. The contracts define conceptual vocabulary, not currently accepted
-Pietto syntax, keywords, reserved words, or runtime behavior. The Slice 2
-baseline described Slices 3 through 6 as planning-only; Slice 3 is now
-complete, while Slices 4 through 6 remain planned only. Relation composition,
-JOIN, relationship syntax, relation-role syntax, permission gates, runtime
-security, and SQL execution are not implemented.
+contract, plus the planning-only
+`docs/spec/composition-sql-shape-contract-v1.md` contract. The contracts
+define conceptual vocabulary, not currently accepted Pietto syntax, SQL
+backend behavior, keywords, reserved words, or runtime behavior. The Slice 2
+baseline described Slices 3 through 6 as planning-only. The Slice 3 baseline
+described Slices 4 through 6 as planning-only. Slices 3 and 4 are now
+complete, while Slices 5 through 6 remain planned only. Relation composition,
+JOIN, SQL shape implementation, relationship syntax, relation-role syntax,
+permission gates, runtime security, database connection, SQL execution,
+schema introspection, and SQLGlot integration are not implemented.
 
 SQL is generated only. Database connections, SQL or connector execution,
 schema introspection, runtime services, project or multi-file support, watch
@@ -1357,7 +1361,7 @@ only official source suffix, and diagnostics retain canonical
 
 ### Phase 13: Relation Composition And Relationship Planning
 
-Status: planning started. Slices 1 through 3 are complete; Slices 4 through 6 are
+Status: planning started. Slices 1 through 4 are complete; Slices 5 through 6 are
 planned only and are not authorized for production implementation.
 
 Slice 1 adds
@@ -1384,6 +1388,15 @@ naming, and deterministic diagnostic ownership. It defines no current source
 syntax and adds no relation composition, JOIN, relationship syntax,
 relation-role syntax, permission gate, runtime security, or SQL execution.
 
+Slice 4 adds the normative planning-only
+`docs/spec/composition-sql-shape-contract-v1.md` contract and focused static
+audits. It defines future selected-dialect SQL shape families, qualification
+preservation, PostgreSQL/MySQL parity, cardinality and fanout effects,
+deterministic artifacts, and fail-closed backend diagnostic ownership. It
+defines no current source syntax or SQL backend behavior and adds no relation
+composition, JOIN, CTE, subquery, relationship syntax, relation-role syntax,
+permission gate, runtime security, database access, or SQL execution.
+
 Phase 13 is planning-first because relation composition affects name
 resolution, row schemas, cardinality, fanout, SQL lowering, diagnostics,
 backend parity, and future security boundaries. The plan treats relationship
@@ -1394,14 +1407,15 @@ planning is not database enforcement.
 Every future executable core query semantic must remain lowerable to explicit
 SQL artifacts for the selected dialect, without hidden runtime
 post-processing. Unsupported or unsafe lowering should fail closed. Slices 1
-through 3 do not change grammar, generated ANTLR, production code, SQL output,
+through 4 do not change grammar, generated ANTLR, production code, SQL output,
 CLI, JSON, public API, dependencies, package metadata, version, CI, or
-goldens. They do not implement relation composition, JOIN, relationship
-declarations, relationship syntax, relation roles, relation-role syntax,
-permission gates, authorization-bearing tokens, runtime security, database
-access, or SQL execution. Pietto currently does not provide access control,
-privacy enforcement, authorization, row-level security, masking, policy
-isolation, or safe data sharing.
+goldens. They do not implement relation composition, JOIN, SQL shapes, CTEs,
+subqueries, relationship declarations, relationship syntax, relation roles,
+relation-role syntax, permission gates, authorization-bearing tokens, runtime
+security, database connection, schema introspection, SQLGlot, or SQL
+execution. Pietto currently does not provide access control, privacy
+enforcement, authorization, row-level security, masking, policy isolation, or
+safe data sharing.
 
 ---
 
