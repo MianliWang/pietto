@@ -18,7 +18,9 @@ The current implementation status is:
 - **Phase 9.6 Test Typing Hygiene: complete**;
 - **Phase 10 MySQL SQL Generation MVP: complete**;
 - **Phase 11 Release Readiness & Reproducible Validation: complete**;
-- **Phase 12 SQL Feature Expansion I: complete**.
+- **Phase 12 SQL Feature Expansion I: complete**;
+- **Phase 13 Relation Composition And Relationship Planning: Slice 1
+  planning audit complete; remaining slices planned only**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -259,8 +261,20 @@ unchanged.
 
 Phase 12 completion is not an actual package release. Package publication,
 registry upload, signing, attestations, automated versioning, and a version
-bump remain unimplemented. Future phases require separate explicit
-authorization. Unrequested future work is not authorized.
+bump remain unimplemented.
+
+Phase 13 planning has started with Slice 1: Master Plan And Baseline Audit.
+The phase defines a planning-first direction for future relation composition,
+relationship roles, relation-as-gateway concepts, scope, SQL lowering,
+diagnostics, and security boundaries. Slice 1 changes no grammar, production
+compiler code, SQL output, CLI or JSON behavior, public API, dependency,
+package metadata, version, or golden fixture. JOIN, relationship declarations,
+relation roles, permission gates, runtime security, and SQL execution are not
+implemented. Slices 2 through 6 require separate explicit authorization and
+remain planning-only.
+
+Future implementation work requires separate explicit authorization.
+Unrequested future work is not authorized.
 
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added
@@ -306,6 +320,9 @@ gates, and deferred workflow implementations are documented in
 The completed Phase 12 six-slice sequence, compatibility gates, and hard
 non-goals are documented in
 [the Phase 12 SQL Feature Expansion I plan](docs/plan/phase-12-sql-feature-expansion-i.md).
+The current planning-only relation-composition direction, six-slice sequence,
+SQL-lowering invariant, and security boundaries are documented in
+[the Phase 13 Relation Composition And Relationship Planning plan](docs/plan/phase-13-relation-composition-planning.md).
 The future private closed selector, enabled-dialect gate, failure
 classification, stage boundary, and presentation ownership are documented in
 [the SQL dialect dispatch design](docs/spec/sql-dialect-dispatch-design-v1.md);

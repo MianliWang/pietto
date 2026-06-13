@@ -1,7 +1,7 @@
 # Pietto v0.9 Whitepaper and Language Reference
 
 Version: v0.9 draft
-Status: Phase 1 through Phase 12 complete
+Status: Phase 1 through Phase 12 complete; Phase 13 planning Slice 1 complete
 Supported Python baseline: Python >=3.12; Phase 11 CI: Python 3.12/3.13
 Primary SQL target: PostgreSQL; MySQL 8.0+ generation MVP supported
 Preferred package manager: uv-first
@@ -37,7 +37,7 @@ Pietto source
 ```
 
 Current implementation status after Phase 12 completion:
-the parser/frontend,
+Phase 12 SQL Feature Expansion I is complete. The parser/frontend,
 Semantic Checker, Semantic IR, PostgreSQL and MySQL SQL generation,
 single-file CLI, security hardening, and JSON / machine-readable CLI
 presentation are implemented. Phase 11 adds release-readiness
@@ -50,6 +50,13 @@ and a final completion audit only. The public
 immutable, parser-independent IR. The public
 `emit_postgres_sql(script_ir)` API remains the PostgreSQL compatibility
 reference; the MySQL emitter remains private to explicit CLI dispatch.
+
+Phase 13 planning has started with Slice 1: Master Plan And Baseline Audit.
+It plans future relation composition, relationship roles,
+relation-as-gateway concepts, scope, SQL lowering, diagnostics, and security
+boundaries without changing the implemented language or compiler. JOIN,
+relationship declarations, relation roles, permission gates, runtime
+security, and SQL execution are not implemented.
 
 SQL is generated only. Database connections, SQL or connector execution,
 schema introspection, runtime services, project or multi-file support, watch
@@ -1343,6 +1350,33 @@ JSON schema version 1 remains the only implemented runtime JSON contract.
 `emit_sql(...)` exists. SQLGlot remains uninstalled. `.pietto` remains the
 only official source suffix, and diagnostics retain canonical
 `PIE-P/S/I/Bxxxx` families.
+
+### Phase 13: Relation Composition And Relationship Planning
+
+Status: planning started. Slice 1 is complete; Slices 2 through 6 are planned
+only and are not authorized for production implementation.
+
+Slice 1 adds
+`docs/plan/phase-13-relation-composition-planning.md`, one focused planning
+audit, and scope-aware status documentation. It records the Phase 12
+single-file relation baseline, current 15-golden inventory, PostgreSQL/MySQL
+supported-feature parity, JSON v1 and CLI boundaries, public PostgreSQL
+emitter, and private MySQL emitter.
+
+Phase 13 is planning-first because relation composition affects name
+resolution, row schemas, cardinality, fanout, SQL lowering, diagnostics,
+backend parity, and future security boundaries. The plan treats relationship
+roles, relation-as-gateway or checkpoint semantics, query-context matching,
+and permission concepts as future semantic design areas only. Compiler
+planning is not database enforcement.
+
+Every future executable core query semantic must remain lowerable to explicit
+SQL artifacts for the selected dialect, without hidden runtime
+post-processing. Unsupported or unsafe lowering should fail closed. Slice 1
+does not change grammar, generated ANTLR, production code, SQL output, CLI,
+JSON, public API, dependencies, package metadata, version, or goldens. It does
+not implement JOIN, relationship declarations, relation roles, permission
+gates, capability tokens, runtime security, database access, or SQL execution.
 
 ---
 

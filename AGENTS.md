@@ -86,8 +86,18 @@ Rules:
 
 ## Current Phase
 
-Current phase status: Phase 12 SQL Feature Expansion I is complete. Slices 1
-through 6 are complete. Slice 1 adds only the master plan,
+Current phase status: Phase 13 relation composition and relationship planning
+has started. Slice 1 Master Plan And Baseline Audit is complete. It adds only
+`docs/plan/phase-13-relation-composition-planning.md`, one focused planning
+audit, and scope-aware status documentation. Slices 2 through 6 are planned
+only and are not authorized for production implementation. Phase 13 Slice 1
+changes no grammar, generated ANTLR, production compiler, SQL output, CLI,
+JSON v1, public API, dependency, package metadata, version, or golden
+fixture. JOIN, relationship declarations, relation roles, permission gates,
+runtime security, and SQL execution are not implemented.
+
+Phase 12 SQL Feature Expansion I is complete. Slices 1 through 6 are complete.
+Slice 1 adds only the master plan,
 a focused planning audit, and scope-aware status documentation. Slice 2 adds
 only `docs/spec/order-limit-contract-v1.md`, focused static contract tests,
 and scope-aware documentation. Slice 3 implements only static `LIMIT` through
@@ -335,6 +345,11 @@ non-goals are documented in
 complete. The normative contract is
 documented in
 `docs/spec/order-limit-contract-v1.md`.
+The current Phase 13 planning-only relation-composition direction, fixed
+six-slice sequence, SQL-lowering invariant, security boundaries, and Slice 1
+audit are documented in
+`docs/plan/phase-13-relation-composition-planning.md`. Slice 1 is complete;
+Slices 2 through 6 remain planned only.
 
 Current strict boundaries remain:
 
@@ -376,6 +391,9 @@ static `LIMIT` vertical slice, Slice 4 adds only the approved input-scope
 `ORDER BY` vertical slice, and Slice 5 adds only reviewed composition
 fixtures, goldens, and unchanged CLI/JSON v1 coverage. Slice 6 adds only the
 completion audit and final documentation.
+Phase 13 planning has started. Slice 1 adds only the master plan, planning
+audit, and status documentation. It does not implement JOIN, relationship
+roles, relation gates, permission matching, or runtime security.
 The private MySQL backend, static `mysql.table(Text)` semantic/IR surface, and
 closed renderer are the MySQL compiler boundaries. Explicit private CLI
 dispatch and JSON v1 presentation are enabled. Public emitter export, a
