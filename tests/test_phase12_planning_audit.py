@@ -22,7 +22,7 @@ FILE_HASHES = {
         "faa2e0885fb01f28c3d7cc26ef96bdc2c29e2d8a70f844be62a2a88a354a0ec6"
     ),
     ".github/workflows/ci.yml": (
-        "18151f25a9e174ac5b2cc709d794e7e64d7659c429d96cf448135e2121196f1f"
+        "c2ba73d04dab3331ca19577f2cf4250274671aa37ec4f84f293429e118b6c4c5"
     ),
     "scripts/validate.py": (
         "6a52494385d5c010101e2304b554ff76afcd9bb44d101783c43b205af688e6a4"

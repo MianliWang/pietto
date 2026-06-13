@@ -38,7 +38,7 @@ EXPECTED_GATES = (
     ("tests", ("uv", "run", "pytest")),
 )
 EXPECTED_ACTIONS = {
-    "actions/checkout": "34e114876b0b11c390a56381ad16ebd13914f8d5",
+    "actions/checkout": "df4cb1c069e1874edd31b4311f1884172cec0e10",
     "actions/setup-python": "a309ff8b426b58ec0e2a45f0f869d46889d02405",
     "actions/setup-java": "be666c2fcd27ec809703dec50e508c2fdc7f6654",
     "astral-sh/setup-uv": "37802adc94f370d6bfd71619e3f0bf239e1f3b78",
@@ -48,7 +48,7 @@ EXPECTED_BLOBS = {
     "scripts/check_generated.py": "51081d5337e0659e73f8666ba639c0d4c3fe3a4b",
     "scripts/check_goldens.py": "8adcf436b65fa90eae290dacd68d3d821d439a9e",
     "scripts/package_smoke.py": "a8f191cb52fbaf4c2c1a2dac4a500fd6a107e859",
-    ".github/workflows/ci.yml": "8b509de876f4409a7b90f8aa285b220a50ac5b1b",
+    ".github/workflows/ci.yml": "bd8fb78e0c491041906d13865b8267bf5d7e7050",
 }
 EXPECTED_FILES = {
     "pyproject.toml": "021682ef880fe748f1655d4d70fcc549db4336ac39db2b29a835762ab1723d50",

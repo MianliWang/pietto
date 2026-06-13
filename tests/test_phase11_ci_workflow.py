@@ -9,8 +9,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 EXPECTED_ACTIONS = {
     "actions/checkout": (
-        "34e114876b0b11c390a56381ad16ebd13914f8d5",
-        "v4.3.1",
+        "df4cb1c069e1874edd31b4311f1884172cec0e10",
+        "v6.0.3",
     ),
     "actions/setup-python": (
         "a309ff8b426b58ec0e2a45f0f869d46889d02405",
