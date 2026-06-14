@@ -1,7 +1,7 @@
 # Pietto v0.9 Whitepaper and Language Reference
 
 Version: v0.9 draft
-Status: Phase 1 through Phase 15 complete; Phase 16 Slices 1 through 3 complete as design, specification, and audit work only
+Status: Phase 1 through Phase 16 complete; Phase 16 is design, specification, and audit work only
 Supported Python baseline: Python >=3.12; Phase 11 CI: Python 3.12/3.13
 Primary SQL target: PostgreSQL; MySQL 8.0+ generation MVP supported
 Preferred package manager: uv-first
@@ -166,8 +166,17 @@ Phase 16 Slice 3 is complete as syntax-surface audit only. The normative
 accepted header, definition, relation, relationship metadata, and expression
 syntax. Existing `mode strict` remains compile-time checking vocabulary,
 typed source connector syntax continues to use `is`, and speculative forms
-remain deferred. Slice 4 remains planned only. No syntax, compiler, runtime,
-database, public API, dependency, or output-format behavior changes.
+remain deferred.
+
+Phase 16 Slice 4 is complete as the final completion audit and status update.
+`tests/test_phase16_completion_audit.py` locks all prior Phase 16
+specifications and focused audits plus unchanged grammar, generated ANTLR,
+AST, parser, semantic analysis, Semantic IR, SQL, CLI, JSON version 1,
+examples, fixtures, goldens, public API, dependencies, package metadata,
+version, CI, runtime, database, release, and publication boundaries. Phase 16
+is complete as design, specification, and audit work only and introduced no
+accepted syntax changes. Phase 16 introduced no compiler, runtime, or
+database behavior changes.
 
 SQL is generated only. Database connections, SQL or connector execution,
 schema introspection, runtime services, project or multi-file support, watch
@@ -1637,7 +1646,9 @@ Status: Slice 1 Language Direction and Syntax Philosophy is complete as
 design, specification, and audit work only. Slice 2 Safety Surface Deferral
 and SQL Portability Contract is complete as design, specification, and audit
 work only. Slice 3 Current Syntax Surface Audit is complete as syntax-surface
-audit only. Slice 4 Phase 16 Completion Audit is planned only.
+audit only. Slice 4 Phase 16 Completion Audit is complete as final audit and
+status work only. Phase 16 is complete as design, specification, and audit
+work only.
 
 Slice 1 adds `docs/spec/language-direction-v1.md`,
 `docs/plan/phase-16-language-direction-safety-mode.md`, focused static audit
@@ -1664,6 +1675,12 @@ Rust-like evidence, permission, authority, capability-token, JOIN,
 composition, endpoint-qualified, and runtime/security forms unaccepted and
 deferred.
 
+Slice 4 adds only `tests/test_phase16_completion_audit.py` and completion
+status documentation. It locks all three Phase 16 specifications, all three
+focused audits, the unchanged accepted syntax, and every unchanged compiler,
+repository, API, JSON version 1, dependency, package, version, CI, runtime,
+database, release, and publication boundary.
+
 Relationship metadata remains secondary descriptive metadata rather than the
 center of normal query authoring and is frozen as read-only metadata. Slices 1
 through 3 add no relationship-aware querying, JOIN, composition, SQL lowering,
@@ -1676,7 +1693,9 @@ documented in `docs/spec/language-direction-v1.md` and
 deferral contract is
 `docs/spec/safety-deferral-and-sql-portability-v1.md`; the current accepted
 syntax inventory is `docs/spec/current-syntax-surface-audit-v1.md`. No Phase
-16 slice authorizes a later slice or production implementation automatically.
+16 slice or Phase 16 completion authorizes Phase 17, a later slice, syntax
+change, or production implementation automatically. Future work requires
+separate explicit authorization.
 
 ---
 

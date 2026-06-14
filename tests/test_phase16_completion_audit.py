@@ -11,17 +11,43 @@ import pietto.cli_json as cli_json
 import pietto.sql as sql_api
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SPEC_PATH = "docs/spec/language-direction-v1.md"
 PLAN_PATH = "docs/plan/phase-16-language-direction-safety-mode.md"
+LANGUAGE_SPEC_PATH = "docs/spec/language-direction-v1.md"
+PORTABILITY_SPEC_PATH = "docs/spec/safety-deferral-and-sql-portability-v1.md"
+SYNTAX_SPEC_PATH = "docs/spec/current-syntax-surface-audit-v1.md"
+SLICE1_AUDIT_PATH = "tests/test_phase16_language_direction_audit.py"
+SLICE2_AUDIT_PATH = "tests/test_phase16_safety_deferral_sql_portability.py"
+SLICE3_AUDIT_PATH = "tests/test_phase16_current_syntax_surface_audit.py"
 STATUS_PATHS = (
     "README.md",
     "AGENTS.md",
     "docs/spec/pietto-v0.9.md",
+    PLAN_PATH,
 )
 
-LOCKED_FILE_HASHES = {
-    SPEC_PATH: "6fb738d3ec275f92762b83a2a9f469bcf66be204a7ac762ee5aa8e2780ea307c",
+PHASE16_ARTIFACT_HASHES = {
+    LANGUAGE_SPEC_PATH: (
+        "6fb738d3ec275f92762b83a2a9f469bcf66be204a7ac762ee5aa8e2780ea307c"
+    ),
+    PORTABILITY_SPEC_PATH: (
+        "cc37df490ed1adf646883d166bc85055552e1a2bf664d65ff5e29c3978bc8570"
+    ),
+    SYNTAX_SPEC_PATH: (
+        "580ebcfcc78102d902110d864eb80c7f1a57ffcb6b4b33e1160c9abd17ba07a6"
+    ),
+    SLICE1_AUDIT_PATH: (
+        "f8a18f3605dc9ea944ad811693eac2a9cd18e163f87918bc59dd3a1e1e188e8b"
+    ),
+    SLICE2_AUDIT_PATH: (
+        "10f745cf27bf267f249a9322cedc671bdcc16a3f23ba82934f07f47a9c738a17"
+    ),
+    SLICE3_AUDIT_PATH: (
+        "75ea2d80c530a3012e34f1a9fa7ad5cfcd544aa1ac7e133b4d8cbb7efebac4c9"
+    ),
     PLAN_PATH: "adfb0d99075299049c790f465fab7453e0ed73b985e9cff19c6aeb38f94c7f5a",
+}
+
+LOCKED_FILE_HASHES = {
     "grammar/Pietto.g4": (
         "6a5f6bc45d4f66011a7898fe783b6600beaf73f3b984d6539f975cf0cd7f3110"
     ),
@@ -106,116 +132,103 @@ LOCKED_GROUP_HASHES = {
 }
 
 
-def test_phase16_documents_and_four_slice_status_are_exact() -> None:
-    spec = _read(SPEC_PATH)
-    plan = _read(PLAN_PATH)
-    normalized = " ".join(plan.split())
+def test_four_slice_sequence_and_phase16_completion_are_explicit() -> None:
+    plan = _normalized(PLAN_PATH)
 
-    assert (REPO_ROOT / SPEC_PATH).is_file()
-    assert (REPO_ROOT / PLAN_PATH).is_file()
-    assert (
-        "**Phase 16 Slice 1: Language Direction and Syntax Philosophy is "
-        "complete as design, specification, and audit work only.**" in normalized
-    )
     for required in (
-        "**Phase 16 Slice 2: Safety Surface Deferral and SQL Portability "
-        "Contract is complete as design, specification, and audit work only.**",
-        "**Phase 16 Slice 3: Current Syntax Surface Audit is complete as "
-        "syntax-surface audit only.**",
-        "**Phase 16 Slice 4: Phase 16 Completion Audit is complete as final "
-        "audit and status work only.**",
-        "**Phase 16 Language Direction And Safety Mode is complete as design, "
-        "specification, and audit work only.**",
-        "Phase 16 introduced no accepted syntax changes",
-        "Phase 16 introduced no compiler, runtime, or database behavior changes",
+        "Phase 16 Slice 1: Language Direction and Syntax Philosophy is complete",
+        "Phase 16 Slice 2: Safety Surface Deferral and SQL Portability Contract "
+        "is complete",
+        "Phase 16 Slice 3: Current Syntax Surface Audit is complete",
+        "Phase 16 Slice 4: Phase 16 Completion Audit is complete",
+        "Phase 16 Language Direction And Safety Mode is complete as design, "
+        "specification, and audit work only",
         "Phase 16 completion does not authorize Phase 17 or any production "
         "implementation automatically",
     ):
-        assert required in normalized
+        assert required in plan
 
-    assert SPEC_PATH in plan
-    assert "defines no new accepted Pietto syntax" in spec
-
-
-def test_language_identity_slogan_and_syntax_philosophy_are_locked() -> None:
-    spec = " ".join(_read(SPEC_PATH).split())
-
-    for required in (
-        "Pietto is a typed SQL authoring DSL",
-        "readable, indentation-based source with colon-delimited blocks",
-        "small core language",
-        "diagnostic-first failure reporting",
-        "explicit syntax at dangerous or ambiguous boundaries",
-        "familiar and concise path for normal single-relation queries",
-        "compile-time guarantees and runtime/database security",
-        "Simple by default, explicit when dangerous, fail closed on ambiguity.",
-        "Use colon plus indentation for blocks",
-        "Do not introduce braces as block delimiters",
-        "Keep the keyword and punctuation vocabulary small",
-        "Reject ambiguity with source-located diagnostics instead of guessing",
-        "Add syntax only through a separately reviewed contract",
-    ):
-        assert required in spec
+    assert "planned only" not in plan
+    assert "tests/test_phase16_completion_audit.py" in plan
 
 
-def test_relationship_metadata_position_and_security_boundary_are_explicit() -> None:
-    spec = " ".join(_read(SPEC_PATH).split())
+def test_all_phase16_specs_and_focused_audits_are_byte_locked() -> None:
+    for path, expected_hash in PHASE16_ARTIFACT_HASHES.items():
+        assert (REPO_ROOT / path).is_file()
+        assert _sha256(REPO_ROOT / path) == expected_hash
 
-    for required in (
-        "Relationship metadata is secondary descriptive metadata",
-        "It is not the center of ordinary Pietto query authoring",
-        "Pietto is not a relationship-graph language first",
-        "remains outside Semantic IR and SQL generation",
-        "does not create a JOIN or relation-composition operation",
-        "does not authorize endpoint-qualified lookup or multi-input queries",
-        "does not perform SQL lowering",
-        "does not enforce runtime authorization, access control, privacy, or "
-        "database security",
-        "Existing metadata must not be treated as implicit query behavior",
-        "database authentication or authorization",
-        "row-level security, masking, privacy, or policy isolation",
-        "connector or database execution",
-        "schema introspection or validation against a live database",
-        "Pietto must not claim runtime security or privacy guarantees unless "
-        "separately implemented",
-    ):
-        assert required in spec
-
-
-def test_future_candidates_and_explicit_non_goals_are_locked() -> None:
-    spec = " ".join(_read(SPEC_PATH).split())
-    candidates = (
-        "core SQL authoring improvements",
-        "aggregates and measures planning",
-        "relationship-aware querying",
-        "strict mode design",
-        "project workflow",
+    assert {
+        "test_language_identity_slogan_and_syntax_philosophy_are_locked",
+        "test_sql_portability_and_lossless_lowering_contract_is_explicit",
+        "test_spec_lists_the_current_accepted_syntax_surface",
+    } <= (
+        _test_names(_read(SLICE1_AUDIT_PATH))
+        | _test_names(_read(SLICE2_AUDIT_PATH))
+        | _test_names(_read(SLICE3_AUDIT_PATH))
     )
 
-    assert "The following are equal candidates for later planning" in spec
-    assert "Their order does not express priority" in spec
-    assert "none is an automatic next step or implementation authorization" in spec
-    assert [spec.index(candidate) for candidate in candidates] == sorted(
-        spec.index(candidate) for candidate in candidates
+
+def test_language_portability_and_unchanged_syntax_contracts_remain_exact() -> None:
+    language = _normalized(LANGUAGE_SPEC_PATH)
+    portability = _normalized(PORTABILITY_SPEC_PATH)
+    syntax = _normalized(SYNTAX_SPEC_PATH)
+
+    assert "Pietto is a typed SQL authoring DSL" in language
+    assert (
+        "Simple by default, explicit when dangerous, fail closed on ambiguity."
+        in language
     )
-
-    for non_goal in (
-        "not a runtime database framework",
-        "not an access-control system",
-        "not a relationship graph language first",
-        "not a Malloy clone",
-        "not a security-policy DSL",
-        "makes no runtime authorization, access-control, privacy, isolation, "
-        "database-execution, or safe-sharing guarantee",
+    for required in (
+        "prioritize SQL portability, explicit dialect contracts, deterministic "
+        "SQL lowering, and fail-closed diagnostics",
+        "deterministic lowering within the documented supported subset",
+        "no silent semantic approximation when dialects differ",
+        "Unsupported or dialect-specific behavior must fail closed",
     ):
-        assert non_goal in spec
+        assert required in portability
 
-    docs = _read(SPEC_PATH) + _read(PLAN_PATH)
-    assert re.findall(r"\bPIE-[PSIBR]\d{4}\b", docs) == []
-    assert "reserves no diagnostic code" in spec
+    for required in (
+        "The accepted syntax is unchanged by Phase 16",
+        "`source name: Shape is connector`",
+        "`source name: Shape = connector` is not accepted syntax",
+        "The existing header form `mode strict` remains compile-time checking",
+    ):
+        assert required in syntax
 
 
-def test_compiler_repository_and_document_contracts_are_byte_locked() -> None:
+def test_relationship_metadata_and_speculative_syntax_remain_frozen() -> None:
+    language = _normalized(LANGUAGE_SPEC_PATH)
+    portability = _normalized(PORTABILITY_SPEC_PATH)
+    syntax = _normalized(SYNTAX_SPEC_PATH)
+    combined = " ".join((language, portability, syntax))
+
+    for required in (
+        "secondary read-only metadata",
+        "JOIN lowering",
+        "relationship composition",
+        "endpoint-qualified lookup",
+        "relation-role or endpoint-role enforcement",
+        "SQL lowering",
+        "security model",
+    ):
+        assert required in combined
+
+    for required in (
+        "`exposure`",
+        "`purpose`",
+        "`for <purpose>`",
+        "Rust-like `impl` or evidence",
+        "Permission, authority, or capability-token forms",
+        "JOIN forms",
+        "Relationship composition forms",
+        "Endpoint-qualified lookup forms",
+        "Runtime, policy, privacy, or security forms",
+        "A new safety/policy strict mode",
+    ):
+        assert required in syntax
+
+
+def test_frontend_compiler_cli_and_repository_surfaces_are_byte_locked() -> None:
     for path, expected_hash in LOCKED_FILE_HASHES.items():
         assert _sha256(REPO_ROOT / path) == expected_hash
 
@@ -238,7 +251,9 @@ def test_compiler_repository_and_document_contracts_are_byte_locked() -> None:
         assert _aggregate_files(paths) == expected_hash
 
 
-def test_public_sql_json_dependency_package_and_ci_boundaries_are_locked() -> None:
+def test_public_sql_mysql_json_dependency_package_and_ci_boundaries_are_locked() -> (
+    None
+):
     project = tomllib.loads(_read("pyproject.toml"))
     sql_source = _read("src/pietto/sql/__init__.py")
     mysql_source = _read("src/pietto/sql/mysql.py")
@@ -264,15 +279,58 @@ def test_public_sql_json_dependency_package_and_ci_boundaries_are_locked() -> No
     assert project["project"]["dependencies"] == ["antlr4-python3-runtime>=4.13.2"]
     assert "sqlglot" not in _read("uv.lock").lower()
     assert re.search(r"(?m)^permissions:\n  contents: read$", workflow)
+    for marker in (
+        "contents: write",
+        "id-token:",
+        "upload-artifact",
+        "release",
+        "publish",
+        "deploy",
+        "attestation",
+    ):
+        assert marker not in workflow.lower()
 
 
-def test_deferred_runtime_composition_and_security_capabilities_are_absent() -> None:
-    semantic = _runtime_text("src/pietto/semantic")
+def test_no_new_diagnostic_or_deferred_grammar_syntax_exists() -> None:
+    docs = "\n".join(
+        (
+            _read(LANGUAGE_SPEC_PATH),
+            _read(PORTABILITY_SPEC_PATH),
+            _read(SYNTAX_SPEC_PATH),
+            _read(PLAN_PATH),
+        )
+    )
+    grammar = _read("grammar/Pietto.g4")
+
+    assert re.findall(r"\bPIE-[PSIBR]\d{4}\b", docs) == []
+    assert docs.count("reserves no diagnostic code") >= 2
+    assert "introduces no diagnostic code and reserves no diagnostic code" in docs
+
+    for token_or_rule in (
+        "EXPOSURE:",
+        "PURPOSE:",
+        "FOR:",
+        "PERMISSION:",
+        "AUTHORITY:",
+        "CAPABILITY:",
+        "IMPL:",
+        "JOIN:",
+        "exposureClause",
+        "purposeClause",
+        "permissionClause",
+        "implEvidence",
+        "joinClause",
+        "endpointQualified",
+    ):
+        assert token_or_rule not in grammar
+
+
+def test_runtime_database_composition_and_policy_behavior_remain_absent() -> None:
     ir = _runtime_text("src/pietto/ir")
     sql = _runtime_text("src/pietto/sql")
     runtime = "\n".join(
         (
-            semantic,
+            _runtime_text("src/pietto/semantic"),
             ir,
             sql,
             _read("src/pietto/parser_api.py"),
@@ -286,17 +344,22 @@ def test_deferred_runtime_composition_and_security_capabilities_are_absent() -> 
         "resolve_composition",
         "relationshipir",
         "endpoint_qualified",
-        "multi_input",
+        "permission_gate",
+        "authority_token",
+        "capability_token",
+        "safety_strict_mode",
+        "policy_strict_mode",
         "join lowering",
         "relationship lowering",
-        "permission gate",
         "runtime authorization",
         "runtime security",
         "database connection",
         "schema introspection",
         "execute sql",
+        "grant statement",
+        "row-level security generation",
+        "policy engine",
         "json v2",
-        "sqlglot",
         "compile_to_sql",
     ):
         assert marker not in runtime
@@ -312,24 +375,43 @@ def test_deferred_runtime_composition_and_security_capabilities_are_absent() -> 
     assert '"JOIN "' not in sql
 
 
-def test_status_docs_record_slice1_without_implementation_authorization() -> None:
+def test_status_docs_record_phase16_completion_without_expanding_scope() -> None:
     for path in STATUS_PATHS:
-        normalized = " ".join(_read(path).split())
+        normalized = _normalized(path)
         assert "Phase 16" in normalized
-        assert "Slice 1" in normalized
+        assert "complete" in normalized
         assert "design, specification, and audit work only" in normalized
-        assert "Phase 16 is complete" in normalized
+        assert "introduced no accepted syntax" in normalized
+        assert "compiler, runtime, or database behavior" in normalized
         assert "Future work requires separate explicit authorization" in normalized
-        assert SPEC_PATH in normalized
-        assert PLAN_PATH in normalized
+
+    combined = " ".join(_normalized(path) for path in STATUS_PATHS)
+    for required in (
+        "SQL portability",
+        "lossless lowering",
+        "unchanged accepted",
+        "speculative",
+        "deferred",
+        "Phase 17",
+        "does not authorize",
+    ):
+        assert required in combined
 
 
 def _read(path: str) -> str:
     return (REPO_ROOT / path).read_text(encoding="utf-8")
 
 
+def _normalized(path: str) -> str:
+    return " ".join(_read(path).split())
+
+
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _test_names(source: str) -> set[str]:
+    return set(re.findall(r"^def (test_[a-z0-9_]+)", source, re.MULTILINE))
 
 
 def _python_files(root: str) -> tuple[Path, ...]:

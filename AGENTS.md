@@ -151,9 +151,14 @@ audit only. It adds `docs/spec/current-syntax-surface-audit-v1.md`, focused
 static audit coverage, and minimal status documentation. It records the
 unchanged accepted grammar/parser surface, existing `mode strict` checking
 vocabulary, current `source ... is ...` form, and deferred speculative forms.
-Slice 4 remains planned only. Phase 16 adds no syntax, compiler, runtime,
-database, public API, dependency, or output-format behavior unless separately
-authorized.
+
+Phase 16 Slice 4 Phase 16 Completion Audit is complete as final audit and
+status work only. It adds only `tests/test_phase16_completion_audit.py` and
+completion status documentation. Phase 16 is complete as design,
+specification, and audit work only. It introduced no accepted syntax,
+public API, dependency, or output-format behavior. Phase 16 introduced no
+compiler, runtime, or database behavior changes. Future work requires
+separate explicit authorization.
 
 Phase 13 Relation Composition And Relationship Planning is complete as
 planning, contract, and audit work only. Slices 1 through 6 are complete.
@@ -498,8 +503,9 @@ Slice 1 adds only the language-direction specification, four-slice
 design/audit plan, static audit, and status documentation. Phase 16 Slice 2
 adds only the safety-deferral and SQL-portability contract, static audit, and
 status documentation. Phase 16 Slice 3 adds only the current syntax-surface
-audit, static audit coverage, and status documentation. Phase 16 Slice 4
-remains planned only.
+audit, static audit coverage, and status documentation. Phase 16 Slice 4 adds
+only the final completion audit and status documentation. Phase 16 is complete
+as design, specification, and audit work only.
 
 Current strict boundaries remain:
 
@@ -564,8 +570,9 @@ semantic-only phase with a strict audit and no compiler or runtime behavior.
 Phase 16 Slice 1 is complete as language-direction design, specification, and
 audit work only. Phase 16 Slice 2 is complete as safety-deferral and
 SQL-portability design, specification, and audit work only. Phase 16 Slice 3
-is complete as syntax-surface audit only. Slice 4 remains planned only, with
-no production implementation authorization.
+is complete as syntax-surface audit only. Phase 16 Slice 4 completes the final
+audit and status work only. Phase 16 is complete with no production
+implementation authorization.
 The private MySQL backend, static `mysql.table(Text)` semantic/IR surface, and
 closed renderer are the MySQL compiler boundaries. Explicit private CLI
 dispatch and JSON v1 presentation are enabled. Public emitter export, a

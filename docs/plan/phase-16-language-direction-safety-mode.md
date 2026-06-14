@@ -11,11 +11,16 @@ complete as design, specification, and audit work only.**
 **Phase 16 Slice 3: Current Syntax Surface Audit is complete as
 syntax-surface audit only.**
 
-**Phase 16 Slice 4: Phase 16 Completion Audit is planned only.**
+**Phase 16 Slice 4: Phase 16 Completion Audit is complete as final audit and
+status work only.**
 
-Phase 16 is design and audit work only unless a later request grants separate
-explicit implementation authorization. Completion of a planning slice does
-not authorize the next slice or any production change.
+**Phase 16 Language Direction And Safety Mode is complete as design,
+specification, and audit work only.**
+
+Phase 16 introduced no accepted syntax changes. Phase 16 introduced no
+compiler, runtime, or database behavior changes. Future work requires
+separate explicit authorization; Phase 16 completion does not authorize Phase
+17 or any production implementation automatically.
 
 ## Direction
 
@@ -104,11 +109,17 @@ CI, version, package metadata, runtime, or database behavior.
 
 ## Slice 4: Phase 16 Completion Audit
 
-Slice 4 is planned as final static audit and status work only. It will lock
-the Phase 16 documents, prior-slice audit results, unchanged production
-surfaces, public API, JSON version 1, dependencies, package metadata, version,
-CI, examples, fixtures, and goldens. It will not implement any language,
-compiler, runtime, or database behavior.
+Slice 4 is complete as final audit and status work only. It adds only
+`tests/test_phase16_completion_audit.py` and completion status documentation.
+
+The final audit byte-locks all three Phase 16 specifications and focused audit
+tests. It locks the unchanged grammar, generated ANTLR, AST, parser, semantic
+analysis, Semantic IR, SQL backends, CLI, JSON version 1, examples, fixtures,
+goldens, public API, dependencies, package metadata, version, CI, runtime,
+database, release, and publication boundaries.
+
+Slice 4 adds no language, compiler, runtime, database, diagnostic, dependency,
+package, version, or workflow behavior.
 
 ## Compatibility Boundary
 
@@ -123,7 +134,7 @@ machine-readable CLI interface.
 
 ## Deferred Work
 
-Phase 16 Slices 1 through 3 do not implement or authorize strict-mode changes,
+Phase 16 Slices 1 through 4 do not implement or authorize strict-mode changes,
 relationship-aware querying, JOIN, relation composition, SQL lowering,
 aggregates, measures, project workflow, runtime authorization, access control,
 privacy enforcement, database connections, connector or SQL execution,
@@ -131,4 +142,5 @@ schema introspection, JSON version 2, SQLGlot, a public MySQL emitter, a
 generic SQL emitter, release, publication, signing, upload, deployment, or
 attestation behavior.
 
-Every future implementation requires separate explicit authorization.
+Phase 16 is complete. Every future phase, slice, syntax change, or production
+implementation requires separate explicit authorization.

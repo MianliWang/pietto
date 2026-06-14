@@ -27,8 +27,8 @@ The current implementation status is:
 - **Phase 15 Relationship Metadata Semantics: complete; Slices 1 through 4
   cover validation, read-only semantic storage, name-ownership contract, and
   completion audit**;
-- **Phase 16 Language Direction And Safety Mode: Slices 1 through 3 complete
-  as design, specification, and audit work only; Slice 4 planned only**.
+- **Phase 16 Language Direction And Safety Mode: complete as design,
+  specification, and audit work only; Slices 1 through 4 complete**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -395,9 +395,16 @@ Phase 16 Slice 3 is complete as syntax-surface audit only. It records the
 currently accepted header, definition, relation, relationship metadata, and
 expression syntax without changing it. Existing `mode strict` remains
 compile-time checking vocabulary, typed source connectors continue to use
-`is`, speculative syntax remains deferred, and Slice 4 remains planned only.
-This slice adds no syntax, compiler, runtime, database, public API, dependency,
-or output-format behavior.
+`is`, and speculative syntax remains deferred.
+
+Phase 16 Slice 4 is complete as the final completion audit and status update.
+It locks all three prior specifications and focused audits plus the unchanged
+language, compiler, SQL, CLI, JSON version 1, repository, runtime, database,
+dependency, package, version, CI, release, and publication boundaries. Phase
+16 is complete as design, specification, and audit work only. It introduced
+no accepted syntax changes. Phase 16 introduced no compiler, runtime, or
+database behavior changes. Future work requires separate explicit
+authorization.
 
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added

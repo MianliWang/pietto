@@ -29,7 +29,7 @@ LOCKED_FILE_HASHES = {
     PORTABILITY_SPEC_PATH: (
         "cc37df490ed1adf646883d166bc85055552e1a2bf664d65ff5e29c3978bc8570"
     ),
-    PLAN_PATH: "a4c4d3d2b9a0b9e54bbed0106caac5935752af814687977c7d5ef8edf4dbf9c6",
+    PLAN_PATH: "adfb0d99075299049c790f465fab7453e0ed73b985e9cff19c6aeb38f94c7f5a",
     "grammar/Pietto.g4": (
         "6a5f6bc45d4f66011a7898fe783b6600beaf73f3b984d6539f975cf0cd7f3110"
     ),
@@ -112,7 +112,14 @@ def test_slice3_spec_and_plan_status_are_exact() -> None:
         "Phase 16 Slice 3: Current Syntax Surface Audit is complete as "
         "syntax-surface audit only"
     ) in plan
-    assert "Phase 16 Slice 4: Phase 16 Completion Audit is planned only" in plan
+    assert (
+        "Phase 16 Slice 4: Phase 16 Completion Audit is complete as final audit "
+        "and status work only"
+    ) in plan
+    assert (
+        "Phase 16 Language Direction And Safety Mode is complete as design, "
+        "specification, and audit work only"
+    ) in plan
     assert SPEC_PATH in plan
     assert "The accepted syntax is unchanged by Phase 16" in spec
 
@@ -312,8 +319,8 @@ def test_status_and_diagnostic_boundaries_are_exact() -> None:
         normalized = _normalized(path)
         assert "Phase 16 Slice 3" in normalized
         assert "syntax-surface audit only" in normalized
-        assert "Slice 4" in normalized
-        assert "planned only" in normalized
+        assert "Phase 16 is complete" in normalized
+        assert "Future work requires separate explicit authorization" in normalized
         assert SPEC_PATH in normalized
         assert PLAN_PATH in normalized
 
