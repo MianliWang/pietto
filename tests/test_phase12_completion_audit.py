@@ -32,11 +32,11 @@ POSTGRES_INPUT = Path("tests/fixtures/phase12/postgres_order_limit_composition.p
 MYSQL_INPUT = Path("tests/fixtures/phase12/mysql_order_limit_composition.pietto")
 POSTGRES_GOLDEN = "emit_sql_order_limit_composition.sql"
 MYSQL_GOLDEN = "emit_mysql_order_limit_composition.sql"
-ALL_GOLDENS_HASH = "66190fd279c318c33bc85fbe877a73fefc05791c922c64a4ca7b733b4e53c502"
+ALL_GOLDENS_HASH = "95cfa63b29c70b4d26fcc4d8123cc6c99051b08897368245ae851315de2b6b72"
 HISTORICAL_GOLDENS_HASH = (
-    "fc6ad37ee6bfdfb5a2cff2487618e471186841787042f150a369eaeab2fd2db4"
+    "11d4343245dc18fd574999cbef5bff7c316d90975b3856ed729e8d2c1d579cf0"
 )
-BOUNDARY_HASH = "98d0912fcffb1785ad826e3d1abf2dfa7f358b9ed63213a10c5bdb189d7c55dc"
+BOUNDARY_HASH = "e882a2ccf8222c161b46ffcdd7c7291f478cc9ac0e4d1f210d8b1fc57e84a225"
 GENERATED_HASH = "44dad9dc2fced336b8e102a558be94786fb7618fd860a3ef6f6d56e49fdebf1f"
 EXPECTED_BLOBS = {
     "scripts/validate.py": "4387101bc68e13539c74c45b595ba742ca17c9c0",

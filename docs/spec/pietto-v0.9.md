@@ -178,6 +178,18 @@ is complete as design, specification, and audit work only and introduced no
 accepted syntax changes. Phase 16 introduced no compiler, runtime, or
 database behavior changes.
 
+Phase 17 Slice 1 Single-Input Qualified Field Binding is complete as a narrow
+compiler implementation slice. It treats this document as high-level language
+philosophy and treats the latest grammar plus the Phase 16 syntax-surface
+audit as authoritative for accepted syntax. The slice adds only semantic,
+Semantic IR, and PostgreSQL/MySQL SQL handling for existing two-part dotted
+field references in single-input relation `where`, `select`, and input-scope
+`order by` contexts. It adds no grammar, generated ANTLR, source `=`
+connectors, Pietto source `as`, relation alias syntax, JOIN, relation
+composition, endpoint-qualified lookup, relationship-aware querying, runtime
+security, database behavior, JSON version 2, new public SQL API, dependency,
+package, version, or CI change.
+
 SQL is generated only. Database connections, SQL or connector execution,
 schema introspection, runtime services, project or multi-file support, watch
 mode, and LSP/editor integration remain deferred.
@@ -1696,6 +1708,39 @@ syntax inventory is `docs/spec/current-syntax-surface-audit-v1.md`. No Phase
 16 slice or Phase 16 completion authorizes Phase 17, a later slice, syntax
 change, or production implementation automatically. Future work requires
 separate explicit authorization.
+
+### Phase 17: Core SQL MVP Expansion
+
+Status: Slice 1 Single-Input Qualified Field Binding is complete. Later Phase
+17 slices remain planned only and require separate explicit authorization.
+
+Slice 1 implements only semantic, Semantic IR, and SQL backend binding for
+already-accepted dotted expressions in existing single-input relation
+contexts. A two-part dotted expression such as `users.email` binds as a field
+reference only when `users` is the current `from` input name and `email`
+exists on that input schema. The behavior applies in `where`, `select`, and
+input-scope `order by` expressions.
+
+Invalid qualified references reuse the existing `PIE-S2102` unknown-field
+diagnostic on the complete dotted expression span. No new diagnostic code is
+introduced or reserved.
+
+PostgreSQL and MySQL SQL backends emit a narrow SQL input alias only when a
+qualified field reference requires one. That backend `AS` is emitted SQL, not
+Pietto source syntax. The current accepted typed source connector syntax
+remains `source name: Shape is connector`; `source name: Shape = connector`
+and Pietto source `as` aliases remain unaccepted.
+
+Relationship metadata remains secondary read-only metadata and does not
+participate in field lookup. Slice 1 does not implement relationship-aware
+querying, endpoint-qualified lookup, multi-input relations, JOIN, relation
+composition, SQL lowering from relationships, runtime authorization,
+database security, database connections, connector execution, SQL execution,
+JSON version 2, a public MySQL API, a generic SQL API, or a new dependency.
+
+The normative contract is
+`docs/spec/single-input-qualified-field-binding-v1.md`; the phase plan is
+`docs/plan/phase-17-core-sql-mvp-expansion.md`.
 
 ---
 

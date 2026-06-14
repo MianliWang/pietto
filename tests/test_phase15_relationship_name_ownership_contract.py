@@ -21,11 +21,11 @@ LOCKED_GROUP_HASHES = {
     ),
     "fixtures": (
         24,
-        "c4925671a27971036cc05c001e0029870ab5ae630a672cab88d6d0e45372398f",
+        "28e568ae827898aae4e3f052a74d5f1f5f0c301b252f83cd8afdc3ca1f3339b1",
     ),
     "goldens": (
         15,
-        "66190fd279c318c33bc85fbe877a73fefc05791c922c64a4ca7b733b4e53c502",
+        "95cfa63b29c70b4d26fcc4d8123cc6c99051b08897368245ae851315de2b6b72",
     ),
 }
 

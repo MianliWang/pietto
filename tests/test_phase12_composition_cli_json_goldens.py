@@ -45,9 +45,9 @@ HISTORICAL_GOLDENS = (
     "emit_sql_compatibility_ordering_metadata.sql",
 )
 HISTORICAL_GOLDENS_HASH = (
-    "fc6ad37ee6bfdfb5a2cff2487618e471186841787042f150a369eaeab2fd2db4"
+    "11d4343245dc18fd574999cbef5bff7c316d90975b3856ed729e8d2c1d579cf0"
 )
-BOUNDARY_HASH = "98d0912fcffb1785ad826e3d1abf2dfa7f358b9ed63213a10c5bdb189d7c55dc"
+BOUNDARY_HASH = "e882a2ccf8222c161b46ffcdd7c7291f478cc9ac0e4d1f210d8b1fc57e84a225"
 
 
 def _load_module(name: str, path: Path) -> ModuleType:

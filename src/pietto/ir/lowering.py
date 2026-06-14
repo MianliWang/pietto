@@ -125,6 +125,7 @@ def lower_expr(
     *,
     fields: Mapping[str, RowField] | None = None,
     field_owner: SymbolId | None = None,
+    field_qualifier: str | None = None,
 ) -> ExpressionLoweringResult:
     """Lower one typed expression without re-running semantic analysis."""
 
@@ -148,6 +149,7 @@ def lower_expr(
             semantic_model,
             fields=fields or {},
             field_owner=field_owner,
+            field_qualifier=field_qualifier,
         ),
         diagnostics=(),
     )
@@ -159,6 +161,7 @@ def _lower_expr_node(
     *,
     fields: Mapping[str, RowField],
     field_owner: SymbolId | None,
+    field_qualifier: str | None,
 ) -> ExpressionIR:
     """Recursively copy one expression into parser-independent IR."""
 
@@ -186,10 +189,17 @@ def _lower_expr_node(
             **common,
         )
     if isinstance(expression, DottedNameExpr):
+        field = None
+        if (
+            len(expression.parts) == 2
+            and expression.parts[0] == field_qualifier
+            and expression.parts[1] in fields
+        ):
+            field = FieldId(owner=field_owner, name=expression.parts[1])
         return FieldRefIR(
             name=expression.parts[-1],
             qualifier=expression.parts[:-1],
-            field=None,
+            field=field,
             **common,
         )
     if isinstance(expression, CallExpr):
@@ -206,6 +216,7 @@ def _lower_expr_node(
                     semantic_model,
                     fields=fields,
                     field_owner=field_owner,
+                    field_qualifier=field_qualifier,
                 )
                 for argument in expression.arguments
             ),
@@ -219,6 +230,7 @@ def _lower_expr_node(
                 semantic_model,
                 fields=fields,
                 field_owner=field_owner,
+                field_qualifier=field_qualifier,
             ),
             **common,
         )
@@ -229,6 +241,7 @@ def _lower_expr_node(
                 semantic_model,
                 fields=fields,
                 field_owner=field_owner,
+                field_qualifier=field_qualifier,
             ),
             operator=expression.operator,
             right=_lower_expr_node(
@@ -236,6 +249,7 @@ def _lower_expr_node(
                 semantic_model,
                 fields=fields,
                 field_owner=field_owner,
+                field_qualifier=field_qualifier,
             ),
             **common,
         )
@@ -246,6 +260,7 @@ def _lower_expr_node(
                 semantic_model,
                 fields=fields,
                 field_owner=field_owner,
+                field_qualifier=field_qualifier,
             ),
             operator=expression.operator,
             right=_lower_expr_node(
@@ -253,6 +268,7 @@ def _lower_expr_node(
                 semantic_model,
                 fields=fields,
                 field_owner=field_owner,
+                field_qualifier=field_qualifier,
             ),
             **common,
         )
@@ -263,18 +279,21 @@ def _lower_expr_node(
                 semantic_model,
                 fields=fields,
                 field_owner=field_owner,
+                field_qualifier=field_qualifier,
             ),
             lower=_lower_expr_node(
                 expression.lower,
                 semantic_model,
                 fields=fields,
                 field_owner=field_owner,
+                field_qualifier=field_qualifier,
             ),
             upper=_lower_expr_node(
                 expression.upper,
                 semantic_model,
                 fields=fields,
                 field_owner=field_owner,
+                field_qualifier=field_qualifier,
             ),
             **common,
         )
@@ -285,6 +304,7 @@ def _lower_expr_node(
                 semantic_model,
                 fields=fields,
                 field_owner=field_owner,
+                field_qualifier=field_qualifier,
             ),
             negated=expression.negated,
             **common,

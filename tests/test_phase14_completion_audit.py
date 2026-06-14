@@ -70,15 +70,15 @@ LOCKED_GROUP_HASHES = {
     ),
     "semantic": (
         17,
-        "9beea62ce31125079207b30471dcccc1a08a3eb39bbc3a67a1b767f46faaa014",
+        "c4b15ed465d3c278b0f5c2a3e09b6a2c416fc6ada71324ffbff51ea0cc0d58f8",
     ),
     "ir": (
         5,
-        "b29ccb7bf6df2a168059698446631664b02393a5e99382c9c109cdb022fbd846",
+        "4a608a9c96e0e53ccdaa388b73a66974b49668faacd88a97048af9081e9acbb0",
     ),
     "sql": (
         10,
-        "87b3f0a6baee9990f22fa01ff18a545274525006bc1c95ed5f37ccfdcf3e0c5c",
+        "2c50aea07e584085c246a40274974ba337ef81fec6d986090878e1452fd5dc4d",
     ),
     "examples": (
         10,
@@ -86,11 +86,11 @@ LOCKED_GROUP_HASHES = {
     ),
     "fixtures": (
         24,
-        "c4925671a27971036cc05c001e0029870ab5ae630a672cab88d6d0e45372398f",
+        "28e568ae827898aae4e3f052a74d5f1f5f0c301b252f83cd8afdc3ca1f3339b1",
     ),
     "goldens": (
         15,
-        "66190fd279c318c33bc85fbe877a73fefc05791c922c64a4ca7b733b4e53c502",
+        "95cfa63b29c70b4d26fcc4d8123cc6c99051b08897368245ae851315de2b6b72",
     ),
 }
 

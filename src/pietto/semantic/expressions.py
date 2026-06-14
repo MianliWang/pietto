@@ -201,6 +201,7 @@ def type_relation_expressions(
                 value_types,
                 diagnostics,
                 report_unknown_name=True,
+                field_qualifier=definition.from_clause.source_name,
             )
         for item in definition.select_items:
             _infer(
@@ -210,6 +211,7 @@ def type_relation_expressions(
                 diagnostics,
                 # Bare projection diagnostics are owned by schema propagation.
                 report_unknown_name=not isinstance(item.expression, NameExpr),
+                field_qualifier=definition.from_clause.source_name,
             )
         if definition.order_by_clause is not None:
             for item in definition.order_by_clause.items:
@@ -219,6 +221,7 @@ def type_relation_expressions(
                     value_types,
                     diagnostics,
                     report_unknown_name=True,
+                    field_qualifier=definition.from_clause.source_name,
                 )
 
     return value_types, diagnostics
@@ -289,6 +292,7 @@ def _infer(
     diagnostics: list[Diagnostic],
     *,
     report_unknown_name: bool,
+    field_qualifier: str | None = None,
 ) -> ValueType:
     """Infer only the expression forms supported by this scaffold."""
 
@@ -305,6 +309,14 @@ def _infer(
             diagnostics,
             report_unknown=report_unknown_name,
         )
+    elif isinstance(expression, DottedNameExpr) and field_qualifier is not None:
+        value_type = _qualified_name_value_type(
+            expression,
+            row_schema,
+            diagnostics,
+            field_qualifier=field_qualifier,
+            report_unknown=report_unknown_name,
+        )
     elif isinstance(expression, CallExpr):
         value_type = _call_value_type(
             expression,
@@ -312,6 +324,7 @@ def _infer(
             value_types,
             diagnostics,
             report_unknown_name=report_unknown_name,
+            field_qualifier=field_qualifier,
         )
     elif isinstance(expression, IsNullExpr):
         _infer(
@@ -320,6 +333,7 @@ def _infer(
             value_types,
             diagnostics,
             report_unknown_name=report_unknown_name,
+            field_qualifier=field_qualifier,
         )
         value_type = _builtin_value_type(
             "Bool",
@@ -332,6 +346,7 @@ def _infer(
             value_types,
             diagnostics,
             report_unknown_name=report_unknown_name,
+            field_qualifier=field_qualifier,
         )
         _infer(
             expression.right,
@@ -339,6 +354,7 @@ def _infer(
             value_types,
             diagnostics,
             report_unknown_name=report_unknown_name,
+            field_qualifier=field_qualifier,
         )
         value_type = _builtin_value_type(
             "Bool",
@@ -360,6 +376,7 @@ def _call_value_type(
     diagnostics: list[Diagnostic],
     *,
     report_unknown_name: bool,
+    field_qualifier: str | None,
 ) -> ValueType:
     """Type one exact built-in call while suppressing Unknown cascades."""
 
@@ -370,6 +387,7 @@ def _call_value_type(
             value_types,
             diagnostics,
             report_unknown_name=report_unknown_name,
+            field_qualifier=field_qualifier,
         )
         for argument in expression.arguments
     )
@@ -463,6 +481,36 @@ def _name_value_type(
     )
 
 
+def _qualified_name_value_type(
+    expression: DottedNameExpr,
+    row_schema: RowSchema,
+    diagnostics: list[Diagnostic],
+    *,
+    field_qualifier: str,
+    report_unknown: bool,
+) -> ValueType:
+    """Resolve one two-part field reference against the sole relation input."""
+
+    if row_schema.is_unknown:
+        return _UNKNOWN_VALUE_TYPE
+    if len(expression.parts) != 2 or expression.parts[0] != field_qualifier:
+        if report_unknown:
+            diagnostics.append(_unknown_field_diagnostic(expression))
+        return _UNKNOWN_VALUE_TYPE
+
+    field = row_schema.fields.get(expression.parts[1])
+    if field is None:
+        if report_unknown:
+            diagnostics.append(_unknown_field_diagnostic(expression))
+        return _UNKNOWN_VALUE_TYPE
+    if field.resolved_type.kind is TypeKind.UNKNOWN:
+        return _UNKNOWN_VALUE_TYPE
+    return ValueType(
+        resolved_type=field.resolved_type,
+        nullability=field.nullability,
+    )
+
+
 def _builtin_value_type(
     name: str,
     nullability: EffectiveNullability,
@@ -475,14 +523,19 @@ def _builtin_value_type(
     )
 
 
-def _unknown_field_diagnostic(expression: NameExpr) -> Diagnostic:
+def _unknown_field_diagnostic(expression: NameExpr | DottedNameExpr) -> Diagnostic:
     """Report an unknown field reference at its expression span."""
 
     span = expression.span
+    name = (
+        expression.name
+        if isinstance(expression, NameExpr)
+        else ".".join(expression.parts)
+    )
     return Diagnostic(
         code="PIE-S2102",
         severity=Severity.ERROR,
-        message=f"Unknown field: {expression.name}",
+        message=f"Unknown field: {name}",
         location=SourceLocation(
             path=span.path,
             line=span.line,

@@ -23,7 +23,7 @@ from pietto.semantic import analyze
 from pietto.sql.mysql import emit_mysql_sql
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-GOLDENS_HASH = "66190fd279c318c33bc85fbe877a73fefc05791c922c64a4ca7b733b4e53c502"
+GOLDENS_HASH = "95cfa63b29c70b4d26fcc4d8123cc6c99051b08897368245ae851315de2b6b72"
 
 POSTGRES_PREFIX = (
     "shape User:\n"

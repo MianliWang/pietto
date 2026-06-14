@@ -10,5 +10,5 @@ SELECT
     1.5 AS `Ratio`,
     `order` AS `ReservedName`,
     `Rows`.`email` AS `QualifiedEmail`
-FROM `Sales.Compat``ibilityRows`
+FROM `Sales.Compat``ibilityRows` AS `Rows`
 WHERE `email` = '\\''; --'

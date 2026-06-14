@@ -40,14 +40,14 @@ FILE_HASHES = {
 
 GROUP_HASHES = {
     "frontend": "4af1382a5d1e4464f492f0c267d500fbeb667bff819dcbcad11b346f33d87e8b",
-    "semantic": "9beea62ce31125079207b30471dcccc1a08a3eb39bbc3a67a1b767f46faaa014",
-    "ir": "b29ccb7bf6df2a168059698446631664b02393a5e99382c9c109cdb022fbd846",
-    "sql": "87b3f0a6baee9990f22fa01ff18a545274525006bc1c95ed5f37ccfdcf3e0c5c",
+    "semantic": "c4b15ed465d3c278b0f5c2a3e09b6a2c416fc6ada71324ffbff51ea0cc0d58f8",
+    "ir": "4a608a9c96e0e53ccdaa388b73a66974b49668faacd88a97048af9081e9acbb0",
+    "sql": "2c50aea07e584085c246a40274974ba337ef81fec6d986090878e1452fd5dc4d",
     "generated": "44dad9dc2fced336b8e102a558be94786fb7618fd860a3ef6f6d56e49fdebf1f",
     "cli": "235d4e50c3474306253dfc6b118e2518b3e300e90f7fbe9903263a39cbdc42a0",
 }
 
-GOLDENS_HASH = "66190fd279c318c33bc85fbe877a73fefc05791c922c64a4ca7b733b4e53c502"
+GOLDENS_HASH = "95cfa63b29c70b4d26fcc4d8123cc6c99051b08897368245ae851315de2b6b72"
 
 
 def test_phase12_master_plan_records_final_slice_order_and_status() -> None:

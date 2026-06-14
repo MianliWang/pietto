@@ -28,7 +28,9 @@ The current implementation status is:
   cover validation, read-only semantic storage, name-ownership contract, and
   completion audit**;
 - **Phase 16 Language Direction And Safety Mode: complete as design,
-  specification, and audit work only; Slices 1 through 4 complete**.
+  specification, and audit work only; Slices 1 through 4 complete**;
+- **Phase 17 Core SQL MVP Expansion: Slice 1 Single-Input Qualified Field
+  Binding complete**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -47,6 +49,15 @@ diagnostics. CTE expansion, inlining, nested subqueries, joins, grouping,
 projection-alias/output-schema/ordinal ordering, offsets, metadata DDL,
 SQLGlot integration, database or connector execution, and schema introspection
 are not implemented.
+
+Phase 17 Slice 1 adds only single-input qualified field binding for existing
+dotted expressions in relation `where`, `select`, and input-scope `order by`
+contexts. It preserves current grammar and parser behavior, reuses existing
+unknown-field diagnostics for invalid qualified references, ignores
+relationship metadata, and emits a narrow SQL input alias only when qualified
+field SQL requires one. It does not add relation alias syntax, JOIN, relation
+composition, endpoint-qualified lookup, relationship-aware querying, runtime
+security, database behavior, JSON v2, new public SQL APIs, or dependencies.
 
 The supported single-file CLI commands and forms include:
 
@@ -477,6 +488,10 @@ relationship-freeze boundary is documented in
 The unchanged accepted grammar/parser inventory and deferred syntax boundary
 are documented in
 [the Current Syntax Surface Audit v1](docs/spec/current-syntax-surface-audit-v1.md).
+The implemented Phase 17 Slice 1 qualified-field boundary is documented in
+[the Phase 17 Core SQL MVP Expansion plan](docs/plan/phase-17-core-sql-mvp-expansion.md)
+and
+[the Single-Input Qualified Field Binding v1 specification](docs/spec/single-input-qualified-field-binding-v1.md).
 The conceptual relationship, endpoint-role, relation-role, cardinality,
 authority, and compiler-versus-runtime boundary is documented in
 [the Relationship And Relation Role Contract v1](docs/spec/relationship-relation-role-contract-v1.md).

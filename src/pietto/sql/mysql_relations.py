@@ -12,6 +12,7 @@ from pietto.ir.model import (
     SourceIR,
     SymbolId,
 )
+from pietto.sql.expressions import expression_uses_qualified_field
 from pietto.sql.mysql_expressions import render_mysql_expression
 from pietto.sql.mysql_render import (
     MYSQL_ALIAS_MAX_CHARACTERS,
@@ -44,7 +45,7 @@ def render_mysql_relation(
     lines = [
         "SELECT",
         projection_sql,
-        f"FROM {input_sql}",
+        f"FROM {_render_input(input_sql, relation)}",
     ]
     if relation.filter is not None:
         lines.append(f"WHERE {render_mysql_expression(relation.filter.expression)}")
@@ -60,6 +61,25 @@ def render_mysql_relation(
     if relation.limit is not None:
         lines.append(f"LIMIT {_render_limit(relation.limit.value)}")
     return "\n".join(lines)
+
+
+def _render_input(input_sql: str, relation: RelationIR) -> str:
+    """Alias an input only when qualified field SQL needs its logical name."""
+
+    if not _relation_uses_qualified_fields(relation):
+        return input_sql
+    alias = quote_identifier(relation.source.name, context="relation identifier")
+    return f"{input_sql} AS {alias}"
+
+
+def _relation_uses_qualified_fields(relation: RelationIR) -> bool:
+    expressions = [projection.expression for projection in relation.projections]
+    if relation.filter is not None:
+        expressions.append(relation.filter.expression)
+    expressions.extend(item.expression for item in relation.order_by)
+    return any(
+        expression_uses_qualified_field(expression) for expression in expressions
+    )
 
 
 def _relation_input_sql(

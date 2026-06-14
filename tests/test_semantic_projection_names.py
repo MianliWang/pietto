@@ -70,7 +70,8 @@ def test_bare_dotted_name_uses_last_segment_as_output_name() -> None:
     schema = result.model.relation_row_schemas[_relation(result, TableDef)]
 
     assert list(schema.fields) == ["email"]
-    assert schema.fields["email"].resolved_type.kind is TypeKind.UNKNOWN
+    assert schema.fields["email"].resolved_type.name == "Text"
+    assert schema.fields["email"].nullability is EffectiveNullability.NULLABLE
     assert result.diagnostics == ()
 
 

@@ -59,6 +59,33 @@ def render_expression_sql(expression: ExpressionIR) -> str:
     return _render_expression_sql(expression, nested=False)
 
 
+def expression_uses_qualified_field(expression: ExpressionIR) -> bool:
+    """Return whether an expression contains a qualified field reference."""
+
+    if isinstance(expression, FieldRefIR):
+        return bool(expression.qualifier)
+    if isinstance(expression, CallIR):
+        return any(
+            expression_uses_qualified_field(argument)
+            for argument in expression.arguments
+        )
+    if isinstance(expression, (ComparisonIR, BinaryIR)):
+        return expression_uses_qualified_field(
+            expression.left
+        ) or expression_uses_qualified_field(expression.right)
+    if isinstance(expression, IsNullIR):
+        return expression_uses_qualified_field(expression.value)
+    if isinstance(expression, BetweenIR):
+        return (
+            expression_uses_qualified_field(expression.value)
+            or expression_uses_qualified_field(expression.lower)
+            or expression_uses_qualified_field(expression.upper)
+        )
+    if isinstance(expression, UnaryIR):
+        return expression_uses_qualified_field(expression.operand)
+    return False
+
+
 def _render_expression_sql(expression: ExpressionIR, *, nested: bool) -> str:
     if isinstance(expression, LiteralIR):
         return render_literal(expression.value)

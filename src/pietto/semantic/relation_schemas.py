@@ -115,27 +115,76 @@ def _project_schema(
     has_unknown_field = False
     for item, output_name in named_items:
         expression = item.expression
-        if (
-            input_schema.is_unknown
-            or item.alias is not None
-            or isinstance(expression, DottedNameExpr)
-        ):
+        if input_schema.is_unknown:
             fields[output_name] = _unknown_row_field(output_name)
             continue
 
-        assert isinstance(expression, NameExpr)
-        input_field = input_schema.fields.get(expression.name)
+        input_field = _projection_input_field(
+            definition,
+            item,
+            input_schema,
+        )
         if input_field is None:
-            diagnostics.append(_unknown_field_diagnostic(expression))
-            has_unknown_field = True
+            if item.alias is None and isinstance(expression, NameExpr):
+                diagnostics.append(_unknown_field_diagnostic(expression))
+                has_unknown_field = True
+            elif isinstance(expression, DottedNameExpr):
+                has_unknown_field = True
             fields[output_name] = _unknown_row_field(output_name)
             continue
-        fields[output_name] = input_field
+        fields[output_name] = _projected_row_field(output_name, input_field)
 
     return RowSchema(
         fields=fields,
         is_unknown=input_schema.is_unknown or has_unknown_field,
     ), diagnostics
+
+
+def _projection_input_field(
+    definition: DerivedRelation,
+    item: SelectItem,
+    input_schema: RowSchema,
+) -> RowField | None:
+    """Return the input field referenced by a simple projection, if any."""
+
+    expression = item.expression
+    if item.alias is None and isinstance(expression, NameExpr):
+        return input_schema.fields.get(expression.name)
+    if isinstance(expression, DottedNameExpr):
+        return _qualified_projection_input_field(
+            definition,
+            expression,
+            input_schema,
+        )
+    return None
+
+
+def _qualified_projection_input_field(
+    definition: DerivedRelation,
+    expression: DottedNameExpr,
+    input_schema: RowSchema,
+) -> RowField | None:
+    """Resolve a two-part projection against the sole relation input."""
+
+    if (
+        len(expression.parts) != 2
+        or expression.parts[0] != definition.from_clause.source_name
+    ):
+        return None
+    return input_schema.fields.get(expression.parts[1])
+
+
+def _projected_row_field(output_name: str, input_field: RowField) -> RowField:
+    """Preserve input field facts while honoring the projection output name."""
+
+    if output_name == input_field.name:
+        return input_field
+    return RowField(
+        name=output_name,
+        resolved_type=input_field.resolved_type,
+        nullability=input_field.nullability,
+        definition=input_field.definition,
+    )
 
 
 def _projection_output_name(item: SelectItem) -> str | None:

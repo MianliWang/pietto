@@ -406,6 +406,7 @@ def _lower_relation(
             semantic_model,
             fields=input_schema.fields,
             field_owner=target_symbol,
+            field_qualifier=target.name,
         )
         filter_ir = FilterIR(
             expression=expression,
@@ -470,6 +471,7 @@ def _lower_order_by(
                 semantic_model,
                 fields=input_schema.fields,
                 field_owner=target_symbol,
+                field_qualifier=target_symbol.name,
             ),
             direction=OrderDirectionIR(
                 "ASC" if item.direction is None else item.direction.upper()
@@ -529,6 +531,7 @@ def _lower_projection(
         semantic_model,
         fields=input_schema.fields,
         field_owner=target_symbol,
+        field_qualifier=target_symbol.name,
     )
     output_name = _projection_output_name(item)
     output_field = output_fields.get(output_name) if output_name is not None else None
@@ -559,6 +562,7 @@ def _require_lowered_expression(
     *,
     fields: Mapping[str, RowField],
     field_owner: SymbolId,
+    field_qualifier: str | None = None,
 ) -> ExpressionIR:
     """Lower a relation expression or convert its diagnostic into IR failure."""
 
@@ -567,6 +571,7 @@ def _require_lowered_expression(
         semantic_model,
         fields=fields,
         field_owner=field_owner,
+        field_qualifier=field_qualifier,
     )
     if result.expression is None:
         raise _MissingSemanticFact(expression, "expression value type")
