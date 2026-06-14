@@ -8,7 +8,8 @@ design, specification, and audit work only.**
 **Phase 16 Slice 2: Safety Surface Deferral and SQL Portability Contract is
 complete as design, specification, and audit work only.**
 
-**Phase 16 Slice 3: Current Syntax Surface Audit is planned only.**
+**Phase 16 Slice 3: Current Syntax Surface Audit is complete as
+syntax-surface audit only.**
 
 **Phase 16 Slice 4: Phase 16 Completion Audit is planned only.**
 
@@ -35,6 +36,10 @@ The Slice 2 portability and deferral contract is
 `docs/spec/safety-deferral-and-sql-portability-v1.md`. It re-centers future
 design on lossless lowering within explicit dialect subsets and keeps
 speculative safety and policy syntax deferred.
+
+The Slice 3 syntax inventory is
+`docs/spec/current-syntax-surface-audit-v1.md`. It records the accepted
+grammar and parser surface without changing or authorizing syntax.
 
 ## Slice 1: Language Direction and Syntax Philosophy
 
@@ -78,11 +83,24 @@ rule, diagnostic code, runtime guarantee, or database behavior.
 
 ## Slice 3: Current Syntax Surface Audit
 
-Slice 3 is planned as audit work only. It will compare the currently accepted
-syntax with the language-direction contract, identify consistent and
-inconsistent areas, and record candidates for future separately authorized
-work. It may not modify grammar, generated ANTLR, AST, parser, semantic
-analysis, IR, SQL, CLI, JSON, examples, fixtures, or goldens.
+Slice 3 is complete as syntax-surface audit only. It adds only:
+
+- `docs/spec/current-syntax-surface-audit-v1.md`;
+- `tests/test_phase16_current_syntax_surface_audit.py`;
+- this plan and minimal status-document updates;
+- necessary fixed plan hash and Slice 3 status adjustments in the prior
+  Phase 16 audits.
+
+The audit inventories the existing header, definition, relation, relationship
+metadata, and expression syntax. It confirms that typed source connector
+syntax still uses `is`, existing `mode strict` remains compile-time checking
+vocabulary, relationship metadata remains secondary read-only metadata, and
+all speculative safety, policy, JOIN, composition, and endpoint-qualified
+forms remain deferred and unimplemented.
+
+Slice 3 changes no grammar, generated ANTLR, AST, parser, semantic analysis,
+IR, SQL, CLI, JSON, example, fixture, golden, diagnostic code, dependency,
+CI, version, package metadata, runtime, or database behavior.
 
 ## Slice 4: Phase 16 Completion Audit
 
@@ -105,7 +123,7 @@ machine-readable CLI interface.
 
 ## Deferred Work
 
-Phase 16 Slices 1 and 2 do not implement or authorize strict mode,
+Phase 16 Slices 1 through 3 do not implement or authorize strict-mode changes,
 relationship-aware querying, JOIN, relation composition, SQL lowering,
 aggregates, measures, project workflow, runtime authorization, access control,
 privacy enforcement, database connections, connector or SQL execution,

@@ -27,8 +27,8 @@ The current implementation status is:
 - **Phase 15 Relationship Metadata Semantics: complete; Slices 1 through 4
   cover validation, read-only semantic storage, name-ownership contract, and
   completion audit**;
-- **Phase 16 Language Direction And Safety Mode: Slices 1 and 2 complete as
-  design, specification, and audit work only; Slices 3 and 4 planned only**.
+- **Phase 16 Language Direction And Safety Mode: Slices 1 through 3 complete
+  as design, specification, and audit work only; Slice 4 planned only**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -389,9 +389,15 @@ Phase 16 Slice 2 is complete as design, specification, and audit work only.
 It prioritizes SQL portability, explicit dialect contracts, deterministic
 lossless lowering within supported subsets, and fail-closed unsupported
 behavior. Speculative safety and policy syntax remains deferred, relationship
-metadata remains secondary read-only metadata, and Slices 3 and 4 remain
-planned only. This slice adds no syntax, compiler, runtime, database, public
-API, dependency, or output-format behavior.
+metadata remains secondary read-only metadata.
+
+Phase 16 Slice 3 is complete as syntax-surface audit only. It records the
+currently accepted header, definition, relation, relationship metadata, and
+expression syntax without changing it. Existing `mode strict` remains
+compile-time checking vocabulary, typed source connectors continue to use
+`is`, speculative syntax remains deferred, and Slice 4 remains planned only.
+This slice adds no syntax, compiler, runtime, database, public API, dependency,
+or output-format behavior.
 
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added
@@ -461,6 +467,9 @@ and
 The Slice 2 lossless-lowering, dialect-contract, safety-deferral, and
 relationship-freeze boundary is documented in
 [the Safety Deferral And SQL Portability v1 specification](docs/spec/safety-deferral-and-sql-portability-v1.md).
+The unchanged accepted grammar/parser inventory and deferred syntax boundary
+are documented in
+[the Current Syntax Surface Audit v1](docs/spec/current-syntax-surface-audit-v1.md).
 The conceptual relationship, endpoint-role, relation-role, cardinality,
 authority, and compiler-versus-runtime boundary is documented in
 [the Relationship And Relation Role Contract v1](docs/spec/relationship-relation-role-contract-v1.md).

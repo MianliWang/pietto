@@ -21,7 +21,7 @@ STATUS_PATHS = (
 
 LOCKED_FILE_HASHES = {
     SPEC_PATH: "6fb738d3ec275f92762b83a2a9f469bcf66be204a7ac762ee5aa8e2780ea307c",
-    PLAN_PATH: "745b7a18059f1eaebb160778b7c2af94b4d421c63387ed858803264fc331ca41",
+    PLAN_PATH: "a4c4d3d2b9a0b9e54bbed0106caac5935752af814687977c7d5ef8edf4dbf9c6",
     "grammar/Pietto.g4": (
         "6a5f6bc45d4f66011a7898fe783b6600beaf73f3b984d6539f975cf0cd7f3110"
     ),
@@ -120,7 +120,8 @@ def test_phase16_documents_and_four_slice_status_are_exact() -> None:
     for required in (
         "**Phase 16 Slice 2: Safety Surface Deferral and SQL Portability "
         "Contract is complete as design, specification, and audit work only.**",
-        "**Phase 16 Slice 3: Current Syntax Surface Audit is planned only.**",
+        "**Phase 16 Slice 3: Current Syntax Surface Audit is complete as "
+        "syntax-surface audit only.**",
         "**Phase 16 Slice 4: Phase 16 Completion Audit is planned only.**",
         "Phase 16 is design and audit work only unless a later request grants "
         "separate explicit implementation authorization",
@@ -313,7 +314,7 @@ def test_status_docs_record_slice1_without_implementation_authorization() -> Non
         assert "Phase 16" in normalized
         assert "Slice 1" in normalized
         assert "design, specification, and audit work only" in normalized
-        assert "Slices 3 and 4" in normalized
+        assert "Slice 4" in normalized
         assert "planned only" in normalized
         assert SPEC_PATH in normalized
         assert PLAN_PATH in normalized

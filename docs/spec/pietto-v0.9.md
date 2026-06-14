@@ -1,7 +1,7 @@
 # Pietto v0.9 Whitepaper and Language Reference
 
 Version: v0.9 draft
-Status: Phase 1 through Phase 15 complete; Phase 16 Slices 1 and 2 complete as design, specification, and audit work only
+Status: Phase 1 through Phase 15 complete; Phase 16 Slices 1 through 3 complete as design, specification, and audit work only
 Supported Python baseline: Python >=3.12; Phase 11 CI: Python 3.12/3.13
 Primary SQL target: PostgreSQL; MySQL 8.0+ generation MVP supported
 Preferred package manager: uv-first
@@ -159,9 +159,15 @@ The normative `docs/spec/safety-deferral-and-sql-portability-v1.md` contract
 prioritizes SQL portability, deterministic lossless lowering within supported
 dialect subsets, explicit backend contracts, and fail-closed unsupported
 behavior. It defers speculative safety and policy syntax and freezes
-relationship metadata as secondary read-only metadata. Slices 3 and 4 remain
-planned only. No syntax, compiler, runtime, database, public API, dependency,
-or output-format behavior changes.
+relationship metadata as secondary read-only metadata.
+
+Phase 16 Slice 3 is complete as syntax-surface audit only. The normative
+`docs/spec/current-syntax-surface-audit-v1.md` inventory records the unchanged
+accepted header, definition, relation, relationship metadata, and expression
+syntax. Existing `mode strict` remains compile-time checking vocabulary,
+typed source connector syntax continues to use `is`, and speculative forms
+remain deferred. Slice 4 remains planned only. No syntax, compiler, runtime,
+database, public API, dependency, or output-format behavior changes.
 
 SQL is generated only. Database connections, SQL or connector execution,
 schema introspection, runtime services, project or multi-file support, watch
@@ -1630,8 +1636,8 @@ Future implementation requires separate explicit authorization.
 Status: Slice 1 Language Direction and Syntax Philosophy is complete as
 design, specification, and audit work only. Slice 2 Safety Surface Deferral
 and SQL Portability Contract is complete as design, specification, and audit
-work only. Slice 3 Current Syntax Surface Audit and Slice 4 Phase 16
-Completion Audit are planned only.
+work only. Slice 3 Current Syntax Surface Audit is complete as syntax-surface
+audit only. Slice 4 Phase 16 Completion Audit is planned only.
 
 Slice 1 adds `docs/spec/language-direction-v1.md`,
 `docs/plan/phase-16-language-direction-safety-mode.md`, focused static audit
@@ -1650,18 +1656,27 @@ strict-mode syntax or implementation remain deferred. Existing compile-time
 `mode strict` behavior remains unchanged and is not a policy or runtime
 security mode.
 
+Slice 3 adds `docs/spec/current-syntax-surface-audit-v1.md`, focused static
+audit coverage, and minimal status updates. It inventories the current
+accepted syntax without changing it, confirms typed source connectors retain
+the `is` form, and keeps source `=`, exposure, purpose, purpose-like,
+Rust-like evidence, permission, authority, capability-token, JOIN,
+composition, endpoint-qualified, and runtime/security forms unaccepted and
+deferred.
+
 Relationship metadata remains secondary descriptive metadata rather than the
 center of normal query authoring and is frozen as read-only metadata. Slices 1
-and 2 add no relationship-aware querying, JOIN, composition, SQL lowering,
-strict mode, runtime authorization, database behavior, JSON version 2, public
-API, dependency, version, package, or CI change.
+through 3 add no relationship-aware querying, JOIN, composition, SQL lowering,
+strict-mode change, runtime authorization, database behavior, JSON version 2,
+public API, dependency, version, package, or CI change.
 
 The normative direction and the four-slice design/audit sequence are
 documented in `docs/spec/language-direction-v1.md` and
 `docs/plan/phase-16-language-direction-safety-mode.md`. The portability and
 deferral contract is
-`docs/spec/safety-deferral-and-sql-portability-v1.md`. No Phase 16 slice
-authorizes a later slice or production implementation automatically.
+`docs/spec/safety-deferral-and-sql-portability-v1.md`; the current accepted
+syntax inventory is `docs/spec/current-syntax-surface-audit-v1.md`. No Phase
+16 slice authorizes a later slice or production implementation automatically.
 
 ---
 
