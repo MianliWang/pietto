@@ -116,6 +116,15 @@ resolved existing source/table/query definition. Relationship metadata still
 does not enter type, callable, or relation namespaces, Semantic IR, SQL,
 CLI/JSON formats, runtime, or database behavior.
 
+Phase 15 Slice 3 Relationship Name Ownership And Ambiguity Contract is
+complete as contract and audit work only. The contract at
+`docs/spec/relationship-name-ownership-contract-v1.md` records the separate
+relationship metadata namespace, relationship-local endpoint names, and
+unchanged relation-only `from` lookup. It adds no runtime resolver, relation
+composition, JOIN, SQL lowering, endpoint-qualified field lookup, multi-input
+query semantics, or ambiguity diagnostics. Future implementation requires
+separate authorization.
+
 Phase 13 Relation Composition And Relationship Planning is complete as
 planning, contract, and audit work only. Slices 1 through 6 are complete.
 Slice 1 Master Plan And Baseline Audit, Slice 2 Relationship /
@@ -451,7 +460,9 @@ checkpoint: Phase 15 has not started and remains unauthorized. Phase 15 Slice
 `docs/plan/phase-15-relationship-metadata-semantics.md` and
 `docs/spec/relationship-metadata-semantic-validation-v1.md`. Phase 15 Slice 2
 adds only read-only semantic model storage for validated relationship
-metadata.
+metadata. Phase 15 Slice 3 adds only
+`docs/spec/relationship-name-ownership-contract-v1.md` and static audit
+coverage; it adds no runtime behavior.
 
 Current strict boundaries remain:
 
@@ -508,7 +519,10 @@ audit coverage plus status documentation. Historical Phase 14 checkpoint:
 Phase 15 has not started and remains unauthorized. Phase 15 Slice 1 validates
 relationship metadata only; it adds no Semantic IR, SQL, CLI/JSON format,
 runtime, or database behavior. Phase 15 Slice 2 stores validated metadata only
-in the read-only semantic model and preserves those same boundaries.
+in the read-only semantic model and preserves those same boundaries. Phase 15
+Slice 3 documents name ownership and future ambiguity boundaries only; it
+implements no relation composition, endpoint-qualified lookup, multi-input
+query semantics, or ambiguity diagnostic.
 The private MySQL backend, static `mysql.table(Text)` semantic/IR surface, and
 closed renderer are the MySQL compiler boundaries. Explicit private CLI
 dispatch and JSON v1 presentation are enabled. Public emitter export, a

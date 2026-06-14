@@ -1,7 +1,7 @@
 # Pietto v0.9 Whitepaper and Language Reference
 
 Version: v0.9 draft
-Status: Phase 1 through Phase 14 complete; Phase 15 Slices 1 and 2 relationship metadata semantics complete
+Status: Phase 1 through Phase 14 complete; Phase 15 Slices 1 through 3 relationship metadata semantics complete
 Supported Python baseline: Python >=3.12; Phase 11 CI: Python 3.12/3.13
 Primary SQL target: PostgreSQL; MySQL 8.0+ generation MVP supported
 Preferred package manager: uv-first
@@ -132,6 +132,14 @@ referenced relation name, and resolved existing source, table, or query
 definition. Invalid metadata is not stored, and no existing semantic
 namespace, Semantic IR, SQL, CLI/JSON format, runtime, or database behavior
 changes.
+
+Phase 15 Slice 3 is complete as contract and audit work only. The
+`docs/spec/relationship-name-ownership-contract-v1.md` contract records the
+separate relationship metadata namespace, relationship-local endpoint names,
+and unchanged relation-only `from` lookup. It adds no runtime resolver,
+relation composition, JOIN, SQL lowering, endpoint-qualified field lookup,
+multi-input query semantics, or ambiguity diagnostics; future implementation
+requires separate authorization.
 
 SQL is generated only. Database connections, SQL or connector execution,
 schema introspection, runtime services, project or multi-file support, watch
@@ -1554,6 +1562,8 @@ behavior. Any Phase 15 work requires separate explicit authorization.
 
 Status: Slice 1 Relationship Metadata Semantic Validation is complete.
 Slice 2 Relationship Semantic Model Storage is complete.
+Slice 3 Relationship Name Ownership And Ambiguity Contract is complete as
+contract and audit work only.
 
 Slice 1 validates endpoint relation references, relationship-name uniqueness
 among relationship declarations, and endpoint local-name uniqueness within
@@ -1567,13 +1577,20 @@ their endpoints preserve source order, and each endpoint references the
 already resolved existing relation definition. Scripts without relationship
 metadata retain an empty tuple.
 
+Slice 3 documents the current separate relationship metadata namespace,
+relationship-local endpoint-name scope, unchanged relation-only `from`
+lookup, and deferred future ambiguity boundary. The normative contract is
+`docs/spec/relationship-name-ownership-contract-v1.md`. It adds no runtime
+resolver, relation composition, JOIN, SQL lowering, endpoint-qualified field
+lookup, multi-input query semantics, or ambiguity diagnostics.
+
 The normative boundary is documented in
 `docs/spec/relationship-metadata-semantic-validation-v1.md`; the implemented
 slice and compatibility gates are documented in
 `docs/plan/phase-15-relationship-metadata-semantics.md`.
 
-Slice 1 adds no Semantic IR representation, SQL lowering, CLI or JSON format
-change, runtime behavior, database behavior, relation composition, JOIN,
+Slices 1 through 3 add no Semantic IR representation, SQL lowering, CLI or
+JSON format change, runtime behavior, database behavior, relation composition, JOIN,
 relation-role semantics, cardinality, fanout, permission gate, security
 claim, JSON v2, SQLGlot, project mode, or release behavior. Later Phase 15
 work requires separate explicit authorization.

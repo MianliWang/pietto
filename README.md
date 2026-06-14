@@ -26,6 +26,8 @@ The current implementation status is:
   compatibility/completion audit**;
 - **Phase 15 Slice 1 Relationship Metadata Semantic Validation: complete**.
 - **Phase 15 Slice 2 Relationship Semantic Model Storage: complete**.
+- **Phase 15 Slice 3 Relationship Name Ownership And Ambiguity Contract:
+  complete as contract and audit work only**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -360,6 +362,14 @@ relationships are preserved in source order in `SemanticModel.relationships`;
 their endpoints preserve source order, local names, referenced relation names,
 and resolved source/table/query definitions. This adds no semantic namespace,
 Semantic IR, SQL, CLI/JSON format, runtime, or database behavior.
+
+Phase 15 Slice 3 is complete as contract and audit work only. The
+`docs/spec/relationship-name-ownership-contract-v1.md` contract records the
+separate relationship metadata namespace, relationship-local endpoint names,
+and unchanged relation-only `from` lookup. It adds no runtime resolver,
+relation composition, JOIN, SQL lowering, endpoint-qualified field lookup,
+multi-input query semantics, or ambiguity diagnostics; those capabilities
+require separately authorized work.
 
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added

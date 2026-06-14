@@ -15,6 +15,8 @@ SPEC_PATH = "docs/spec/relationship-metadata-semantic-validation-v1.md"
 PLAN_PATH = "docs/plan/phase-15-relationship-metadata-semantics.md"
 SEMANTIC_TEST_PATH = "tests/test_phase15_relationship_metadata_semantics.py"
 MODEL_TEST_PATH = "tests/test_phase15_semantic_model_relationships.py"
+OWNERSHIP_CONTRACT_PATH = "docs/spec/relationship-name-ownership-contract-v1.md"
+OWNERSHIP_TEST_PATH = "tests/test_phase15_relationship_name_ownership_contract.py"
 RELATIONSHIP_MODULE = "src/pietto/semantic/relationship_metadata.py"
 
 LOCKED_FILE_HASHES = {
@@ -103,6 +105,10 @@ def test_phase15_slice1_status_and_semantic_contract_are_explicit() -> None:
     assert (
         "**Phase 15 Slice 2: Relationship Semantic Model Storage is complete.**" in plan
     )
+    assert (
+        "**Phase 15 Slice 3: Relationship Name Ownership And Ambiguity Contract "
+        "is complete as contract and audit work only.**"
+    ) in normalized
     for required in (
         "semantic-validation-only",
         "Every endpoint `relation_name` must name an existing source, table, or query",
@@ -118,8 +124,28 @@ def test_phase15_slice1_status_and_semantic_contract_are_explicit() -> None:
         "`RelationshipSemanticInfo`",
         "`RelationshipSemanticEndpointInfo`",
         "resolved existing source, table, or query definition",
+        OWNERSHIP_CONTRACT_PATH,
     ):
         assert required in normalized
+
+
+def test_phase15_slice3_contract_and_audit_completion_are_recorded() -> None:
+    contract = _read(OWNERSHIP_CONTRACT_PATH)
+    normalized = " ".join(contract.split())
+    audit = _read(OWNERSHIP_TEST_PATH)
+
+    assert "# Relationship Name Ownership And Ambiguity Contract v1" in contract
+    assert "Relationship names live in a relationship metadata namespace" in normalized
+    assert "scoped only inside its owning relationship" in normalized
+    assert (
+        "ambiguity diagnostics for actual queries are explicitly deferred" in normalized
+    )
+    assert "changes no runtime semantic behavior" in normalized
+    assert (
+        "test_relationship_namespace_ownership_is_explicit" in audit
+        and "test_endpoint_local_names_are_relationship_local_only" in audit
+    )
+    assert "test_composition_resolution_and_future_ambiguity_remain_deferred" in audit
 
 
 def test_relationship_checker_uses_only_three_canonical_semantic_diagnostics() -> None:

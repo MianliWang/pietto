@@ -6,6 +6,9 @@
 
 **Phase 15 Slice 2: Relationship Semantic Model Storage is complete.**
 
+**Phase 15 Slice 3: Relationship Name Ownership And Ambiguity Contract is
+complete as contract and audit work only.**
+
 This is a narrow production implementation slice. It moves the relationship
 metadata introduced by Phase 14 from parse-only AST storage to semantic
 validation only.
@@ -40,6 +43,19 @@ retain the Slice 1 diagnostics and do not produce partial semantic facts.
 Relationship names remain absent from type, callable, and relation
 namespaces, and cannot be used as relation inputs.
 
+## Slice 3 Contract
+
+The relationship metadata namespace, relationship-local endpoint names,
+existing relation-input lookup, and future ambiguity boundary are documented
+in `docs/spec/relationship-name-ownership-contract-v1.md`.
+
+Slice 3 adds no runtime semantic resolver behavior. It records that
+relationship names remain separate from relation, type, and callable
+namespaces; endpoint local names remain scoped to one relationship; and
+`from` continues to use only the relation namespace. Future relation
+composition, endpoint-qualified field lookup, multi-input query semantics,
+and ambiguity diagnostics require separate authorization.
+
 ## Compatibility Boundary
 
 Slice 1 changes no grammar, generated ANTLR file, AST node, AST builder,
@@ -70,7 +86,7 @@ Slice 1 completion requires:
 
 ## Deferred Work
 
-Later Phase 15 work requires separate authorization. Slices 1 and 2 do not
+Later Phase 15 work requires separate authorization. Slices 1 through 3 do not
 implement JOIN, relation composition, SQL lowering, relation-role semantics,
 additional endpoint-role rules, cardinality, fanout, permission gates,
 runtime security, database behavior, JSON version 2, project mode, SQLGlot,
