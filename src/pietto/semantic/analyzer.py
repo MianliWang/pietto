@@ -110,7 +110,11 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
             continue
         namespace[definition.name] = definition
 
-    diagnostics.extend(check_relationship_metadata(script, relation_symbols))
+    relationships, relationship_diagnostics = check_relationship_metadata(
+        script,
+        relation_symbols,
+    )
+    diagnostics.extend(relationship_diagnostics)
 
     for type_expr in _iter_type_expressions(script):
         resolved_type = _resolve_type(type_expr, type_symbols)
@@ -222,6 +226,7 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
             from_resolutions=from_resolutions,
             relation_row_schemas=relation_row_schemas,
             expression_value_types=expression_value_types,
+            relationships=relationships,
         ),
         diagnostics=tuple(sorted(diagnostics, key=_diagnostic_order)),
     )

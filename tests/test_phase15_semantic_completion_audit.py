@@ -14,6 +14,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SPEC_PATH = "docs/spec/relationship-metadata-semantic-validation-v1.md"
 PLAN_PATH = "docs/plan/phase-15-relationship-metadata-semantics.md"
 SEMANTIC_TEST_PATH = "tests/test_phase15_relationship_metadata_semantics.py"
+MODEL_TEST_PATH = "tests/test_phase15_semantic_model_relationships.py"
 RELATIONSHIP_MODULE = "src/pietto/semantic/relationship_metadata.py"
 
 LOCKED_FILE_HASHES = {
@@ -56,8 +57,8 @@ LOCKED_GROUP_HASHES = {
         "44dad9dc2fced336b8e102a558be94786fb7618fd860a3ef6f6d56e49fdebf1f",
     ),
     "unchanged_semantic": (
-        15,
-        "2a1afb64d45b845b244cca2cb719e480685f140994f2377585abaf2ff7181f85",
+        14,
+        "9f225535803ac15e1775bf85bdf43494ac33ef0c770a1d3997156ad0ccf82fca",
     ),
     "ir": (
         5,
@@ -99,6 +100,9 @@ def test_phase15_slice1_status_and_semantic_contract_are_explicit() -> None:
         "**Phase 15 Slice 1: Relationship Metadata Semantic Validation is complete.**"
         in plan
     )
+    assert (
+        "**Phase 15 Slice 2: Relationship Semantic Model Storage is complete.**" in plan
+    )
     for required in (
         "semantic-validation-only",
         "Every endpoint `relation_name` must name an existing source, table, or query",
@@ -110,6 +114,10 @@ def test_phase15_slice1_status_and_semantic_contract_are_explicit() -> None:
         "PostgreSQL and MySQL SQL | Unchanged",
         "JSON version 1",
         "No additional diagnostic code is reserved",
+        "`SemanticModel.relationships`",
+        "`RelationshipSemanticInfo`",
+        "`RelationshipSemanticEndpointInfo`",
+        "resolved existing source, table, or query definition",
     ):
         assert required in normalized
 
@@ -128,7 +136,7 @@ def test_relationship_checker_uses_only_three_canonical_semantic_diagnostics() -
     assert "SourceLocation(" in source
 
 
-def test_semantic_integration_is_private_validation_only() -> None:
+def test_semantic_integration_stores_only_readonly_validated_facts() -> None:
     analyzer = _read("src/pietto/semantic/analyzer.py")
     module = _read(RELATIONSHIP_MODULE)
     semantic_api = _read("src/pietto/semantic/__init__.py")
@@ -138,13 +146,17 @@ def test_semantic_integration_is_private_validation_only() -> None:
         "from pietto.semantic.relationship_metadata import check_relationship_metadata"
     ) in analyzer
     assert (
-        "diagnostics.extend(check_relationship_metadata(script, relation_symbols))"
+        "relationships, relationship_diagnostics = check_relationship_metadata("
         in analyzer
     )
+    assert "relationships=relationships" in analyzer
     assert "def check_relationship_metadata(" in module
     assert "relation_symbols: Mapping[str, Definition]" in module
     assert "check_relationship_metadata" not in semantic_api
-    assert "relationship" not in semantic_model.lower()
+    assert "class RelationshipSemanticEndpointInfo:" in semantic_model
+    assert "class RelationshipSemanticInfo:" in semantic_model
+    assert "relationships: tuple[RelationshipSemanticInfo, ...] = ()" in semantic_model
+    assert "@dataclass(frozen=True, slots=True)" in semantic_model
 
 
 def test_frontend_ir_sql_cli_json_dependency_and_ci_boundaries_are_locked() -> None:
@@ -162,7 +174,11 @@ def test_frontend_ir_sql_cli_json_dependency_and_ci_boundaries_are_locked() -> N
             for path in _all_files("src/pietto/semantic")
             if path.suffix == ".py"
             and path.relative_to(REPO_ROOT).as_posix()
-            not in {"src/pietto/semantic/analyzer.py", RELATIONSHIP_MODULE}
+            not in {
+                "src/pietto/semantic/analyzer.py",
+                "src/pietto/semantic/model.py",
+                RELATIONSHIP_MODULE,
+            }
         ),
         "ir": _python_files("src/pietto/ir"),
         "sql": _python_files("src/pietto/sql"),
@@ -204,8 +220,12 @@ def test_public_sql_api_remains_postgres_only_and_mysql_private() -> None:
 
 def test_phase15_behavioral_coverage_and_phase14_fixture_repair_are_locked() -> None:
     tests = _read(SEMANTIC_TEST_PATH)
+    model_tests = _read(MODEL_TEST_PATH)
     phase14_test = _read("tests/test_phase14_relationship_metadata_parser.py")
     test_names = set(re.findall(r"^def (test_[a-z0-9_]+)", tests, re.MULTILINE))
+    model_test_names = set(
+        re.findall(r"^def (test_[a-z0-9_]+)", model_tests, re.MULTILINE)
+    )
 
     assert {
         "test_valid_relationship_references_existing_relations",
@@ -220,6 +240,16 @@ def test_phase15_behavioral_coverage_and_phase14_fixture_repair_are_locked() -> 
         "test_program_without_relationship_metadata_keeps_semantic_behavior",
         "test_multiple_valid_relationships_may_reference_the_same_relations",
     } <= test_names
+    assert {
+        "test_valid_relationship_is_stored_in_semantic_model",
+        "test_relationship_and_endpoint_source_order_are_preserved",
+        "test_endpoints_resolve_to_existing_source_table_and_query_symbols",
+        "test_self_relationship_resolves_both_endpoints_to_same_relation",
+        "test_multiple_relationships_may_share_resolved_relations",
+        "test_relationship_semantic_facts_are_immutable",
+        "test_invalid_relationships_are_not_stored",
+        "test_program_without_relationship_metadata_has_empty_semantic_tuple",
+    } <= model_test_names
 
     compatibility_test = phase14_test[
         phase14_test.index(
@@ -227,7 +257,17 @@ def test_phase15_behavioral_coverage_and_phase14_fixture_repair_are_locked() -> 
         ) :
     ]
     assert "endpoint group: users" in compatibility_test
-    assert "baseline_semantic == metadata_semantic" in compatibility_test
+    assert (
+        "Phase 15 Slice 2 replaces baseline_semantic == metadata_semantic"
+        in compatibility_test
+    )
+    assert (
+        "baseline_semantic.diagnostics == metadata_semantic.diagnostics == ()"
+        in compatibility_test
+    )
+    assert "baseline_semantic.model.type_symbols" in compatibility_test
+    assert "baseline_semantic.model.callable_symbols" in compatibility_test
+    assert "baseline_semantic.model.relation_symbols" in compatibility_test
     assert "baseline_ir == metadata_ir" in compatibility_test
     assert "emit_postgres_sql(baseline_ir.ir)" in compatibility_test
     assert "emit_mysql_sql(baseline_ir.ir)" in compatibility_test

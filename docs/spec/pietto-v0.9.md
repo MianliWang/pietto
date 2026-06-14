@@ -1,7 +1,7 @@
 # Pietto v0.9 Whitepaper and Language Reference
 
 Version: v0.9 draft
-Status: Phase 1 through Phase 14 complete; Phase 15 Slice 1 relationship metadata semantic validation complete
+Status: Phase 1 through Phase 14 complete; Phase 15 Slices 1 and 2 relationship metadata semantics complete
 Supported Python baseline: Python >=3.12; Phase 11 CI: Python 3.12/3.13
 Primary SQL target: PostgreSQL; MySQL 8.0+ generation MVP supported
 Preferred package manager: uv-first
@@ -124,6 +124,14 @@ lowering, relation-role semantics, additional endpoint-role enforcement,
 cardinality, fanout, permission gates, runtime security, database behavior,
 JSON v2, project mode, SQLGlot, release, publish, signing, upload, and
 attestation remain unimplemented.
+
+Phase 15 Slice 2 is complete as read-only semantic model storage. Valid
+relationship metadata is preserved in source order in
+`SemanticModel.relationships`. Each endpoint preserves its local name,
+referenced relation name, and resolved existing source, table, or query
+definition. Invalid metadata is not stored, and no existing semantic
+namespace, Semantic IR, SQL, CLI/JSON format, runtime, or database behavior
+changes.
 
 SQL is generated only. Database connections, SQL or connector execution,
 schema introspection, runtime services, project or multi-file support, watch
@@ -1545,12 +1553,19 @@ behavior. Any Phase 15 work requires separate explicit authorization.
 ### Phase 15: Relationship Metadata Semantics
 
 Status: Slice 1 Relationship Metadata Semantic Validation is complete.
+Slice 2 Relationship Semantic Model Storage is complete.
 
 Slice 1 validates endpoint relation references, relationship-name uniqueness
 among relationship declarations, and endpoint local-name uniqueness within
 one relationship. Self-relationships remain valid when local endpoint names
 differ. Relationship and endpoint names do not enter existing type, callable,
 or relation namespaces.
+
+Slice 2 adds immutable `RelationshipSemanticInfo` and
+`RelationshipSemanticEndpointInfo` semantic facts. Valid relationships and
+their endpoints preserve source order, and each endpoint references the
+already resolved existing relation definition. Scripts without relationship
+metadata retain an empty tuple.
 
 The normative boundary is documented in
 `docs/spec/relationship-metadata-semantic-validation-v1.md`; the implemented

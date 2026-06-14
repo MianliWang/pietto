@@ -3,6 +3,8 @@
 ## Status
 
 Phase 15 Slice 1 is complete as a semantic-validation-only implementation.
+Phase 15 Slice 2 is complete as read-only semantic model storage for validated
+relationship metadata.
 
 Phase 14 introduced relationship metadata as parse-only AST storage. Phase 15
 Slice 1 makes semantic analysis validate that metadata without adding it to
@@ -25,6 +27,24 @@ same file:
 Relationship declarations remain outside `Script.definitions`. Their names
 are not added to the type, callable, or relation namespace, and a relationship
 name cannot be used as a relation input.
+
+## Semantic Model Storage
+
+For each valid relationship, semantic analysis appends one immutable
+`RelationshipSemanticInfo` to `SemanticModel.relationships` in source order.
+Each relationship preserves its name and two source-ordered immutable
+`RelationshipSemanticEndpointInfo` values.
+
+Each endpoint semantic value records:
+
+- its local endpoint metadata name;
+- its referenced relation name;
+- the resolved existing `SourceDef`, `TableDef`, or `QueryDef` relation
+  definition from the relation symbol table.
+
+Invalid relationship declarations still produce the Slice 1 diagnostics and
+are not stored as semantic facts. A script without relationship metadata has
+`SemanticModel.relationships == ()`.
 
 ## Diagnostics
 
@@ -60,7 +80,7 @@ This slice does not introduce broader name ownership or ambiguity rules.
 |---|---|
 | Grammar, generated ANTLR, parser, and AST | Unchanged from Phase 14. |
 | Semantic analysis | Validates relationship metadata using existing relation symbols. |
-| Semantic model | Relationship metadata is not stored as a symbol or new semantic fact. |
+| Semantic model | Stores validated relationship metadata as an immutable source-ordered tuple without adding symbols. |
 | Semantic IR | Unchanged; relationship metadata is not lowered. |
 | PostgreSQL and MySQL SQL | Unchanged; no relationship SQL is emitted. |
 | CLI text and JSON | Formatting and schema are unchanged; JSON version 1 remains authoritative. |

@@ -25,6 +25,7 @@ The current implementation status is:
   decision, parse-only relationship metadata AST implementation, and backend
   compatibility/completion audit**;
 - **Phase 15 Slice 1 Relationship Metadata Semantic Validation: complete**.
+- **Phase 15 Slice 2 Relationship Semantic Model Storage: complete**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -353,6 +354,12 @@ additional endpoint-role enforcement, cardinality or fanout behavior,
 permission gates, runtime security, threat models, database behavior, JSON
 v2, project mode, SQLGlot, release, publish, signing, upload, and attestation
 remain unimplemented.
+
+Phase 15 Slice 2 is complete as read-only semantic model storage. Validated
+relationships are preserved in source order in `SemanticModel.relationships`;
+their endpoints preserve source order, local names, referenced relation names,
+and resolved source/table/query definitions. This adds no semantic namespace,
+Semantic IR, SQL, CLI/JSON format, runtime, or database behavior.
 
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added

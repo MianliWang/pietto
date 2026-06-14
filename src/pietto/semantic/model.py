@@ -107,6 +107,26 @@ class RowSchema:
 
 
 @dataclass(frozen=True, slots=True)
+class RelationshipSemanticEndpointInfo:
+    """One relationship endpoint resolved to an existing relation definition."""
+
+    local_name: str
+    relation_name: str
+    relation: SourceDef | TableDef | QueryDef
+
+
+@dataclass(frozen=True, slots=True)
+class RelationshipSemanticInfo:
+    """One validated relationship preserving source-ordered endpoints."""
+
+    name: str
+    endpoints: tuple[
+        RelationshipSemanticEndpointInfo,
+        RelationshipSemanticEndpointInfo,
+    ]
+
+
+@dataclass(frozen=True, slots=True)
 class SemanticModel:
     """Readonly semantic state built incrementally across Phase 2."""
 
@@ -142,6 +162,7 @@ class SemanticModel:
     expression_value_types: Mapping[Expression, ValueType] = field(
         default_factory=lambda: _readonly_mapping()
     )
+    relationships: tuple[RelationshipSemanticInfo, ...] = ()
 
     def __post_init__(self) -> None:
         """Copy public mapping inputs into immutable mappings."""

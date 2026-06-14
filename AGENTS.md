@@ -109,6 +109,13 @@ outside semantic definitions and Semantic IR. Grammar, generated ANTLR, AST,
 parser API, SQL, CLI formatting, JSON v1, runtime, database behavior, public
 APIs, dependencies, version, CI, fixtures, and goldens remain unchanged.
 
+Phase 15 Slice 2 Relationship Semantic Model Storage is complete. It adds only
+immutable, source-ordered `SemanticModel.relationships` facts for validated
+metadata. Each endpoint stores its local name, referenced relation name, and
+resolved existing source/table/query definition. Relationship metadata still
+does not enter type, callable, or relation namespaces, Semantic IR, SQL,
+CLI/JSON formats, runtime, or database behavior.
+
 Phase 13 Relation Composition And Relationship Planning is complete as
 planning, contract, and audit work only. Slices 1 through 6 are complete.
 Slice 1 Master Plan And Baseline Audit, Slice 2 Relationship /
@@ -442,7 +449,9 @@ and completion audit work only. Phase 14 is complete. Historical Phase 14
 checkpoint: Phase 15 has not started and remains unauthorized. Phase 15 Slice
 1 is complete as semantic validation only, as documented in
 `docs/plan/phase-15-relationship-metadata-semantics.md` and
-`docs/spec/relationship-metadata-semantic-validation-v1.md`.
+`docs/spec/relationship-metadata-semantic-validation-v1.md`. Phase 15 Slice 2
+adds only read-only semantic model storage for validated relationship
+metadata.
 
 Current strict boundaries remain:
 
@@ -498,7 +507,8 @@ relationship metadata. Slice 4 adds only backend compatibility and completion
 audit coverage plus status documentation. Historical Phase 14 checkpoint:
 Phase 15 has not started and remains unauthorized. Phase 15 Slice 1 validates
 relationship metadata only; it adds no Semantic IR, SQL, CLI/JSON format,
-runtime, or database behavior.
+runtime, or database behavior. Phase 15 Slice 2 stores validated metadata only
+in the read-only semantic model and preserves those same boundaries.
 The private MySQL backend, static `mysql.table(Text)` semantic/IR surface, and
 closed renderer are the MySQL compiler boundaries. Explicit private CLI
 dispatch and JSON v1 presentation are enabled. Public emitter export, a

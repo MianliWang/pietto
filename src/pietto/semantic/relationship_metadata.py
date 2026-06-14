@@ -4,21 +4,35 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from pietto.ast_nodes import Definition, Node, Script
+from pietto.ast_nodes import (
+    Definition,
+    Node,
+    QueryDef,
+    Script,
+    SourceDef,
+    TableDef,
+)
 from pietto.errors import Diagnostic, Severity, SourceLocation
+from pietto.semantic.model import (
+    RelationshipSemanticEndpointInfo,
+    RelationshipSemanticInfo,
+)
 
 
 def check_relationship_metadata(
     script: Script,
     relation_symbols: Mapping[str, Definition],
-) -> tuple[Diagnostic, ...]:
-    """Validate relationship names, endpoints, and referenced relations."""
+) -> tuple[tuple[RelationshipSemanticInfo, ...], tuple[Diagnostic, ...]]:
+    """Validate relationship metadata and build readonly semantic facts."""
 
+    relationships: list[RelationshipSemanticInfo] = []
     diagnostics: list[Diagnostic] = []
     relationship_names: set[str] = set()
 
     for relationship in script.relationships:
+        is_valid = True
         if relationship.name in relationship_names:
+            is_valid = False
             diagnostics.append(
                 _diagnostic(
                     relationship,
@@ -32,8 +46,10 @@ def check_relationship_metadata(
             relationship_names.add(relationship.name)
 
         endpoint_names: set[str] = set()
+        endpoints: list[RelationshipSemanticEndpointInfo] = []
         for endpoint in relationship.endpoints:
             if endpoint.local_name in endpoint_names:
+                is_valid = False
                 diagnostics.append(
                     _diagnostic(
                         endpoint,
@@ -47,7 +63,9 @@ def check_relationship_metadata(
             else:
                 endpoint_names.add(endpoint.local_name)
 
-            if endpoint.relation_name not in relation_symbols:
+            relation = relation_symbols.get(endpoint.relation_name)
+            if not isinstance(relation, (SourceDef, TableDef, QueryDef)):
+                is_valid = False
                 diagnostics.append(
                     _diagnostic(
                         endpoint,
@@ -58,8 +76,25 @@ def check_relationship_metadata(
                         ),
                     )
                 )
+                continue
+            endpoints.append(
+                RelationshipSemanticEndpointInfo(
+                    local_name=endpoint.local_name,
+                    relation_name=endpoint.relation_name,
+                    relation=relation,
+                )
+            )
 
-    return tuple(diagnostics)
+        if is_valid:
+            assert len(endpoints) == 2
+            relationships.append(
+                RelationshipSemanticInfo(
+                    name=relationship.name,
+                    endpoints=(endpoints[0], endpoints[1]),
+                )
+            )
+
+    return tuple(relationships), tuple(diagnostics)
 
 
 def _diagnostic(node: Node, *, code: str, message: str) -> Diagnostic:

@@ -238,7 +238,17 @@ def test_relationship_metadata_does_not_change_semantic_ir_or_sql() -> None:
 
     baseline_semantic = analyze(baseline_parse.ast)
     metadata_semantic = analyze(metadata_parse.ast)
-    assert baseline_semantic == metadata_semantic
+    # Phase 15 Slice 2 replaces baseline_semantic == metadata_semantic.
+    assert baseline_semantic.diagnostics == metadata_semantic.diagnostics == ()
+    assert baseline_semantic.model.type_symbols == metadata_semantic.model.type_symbols
+    assert (
+        baseline_semantic.model.callable_symbols
+        == metadata_semantic.model.callable_symbols
+    )
+    assert (
+        baseline_semantic.model.relation_symbols
+        == metadata_semantic.model.relation_symbols
+    )
     assert "membership" not in metadata_semantic.model.type_symbols
     assert "membership" not in metadata_semantic.model.callable_symbols
     assert "membership" not in metadata_semantic.model.relation_symbols

@@ -208,7 +208,18 @@ def test_valid_relationship_metadata_does_not_change_semantic_ir_or_sql() -> Non
     baseline_semantic = analyze(baseline_script)
     metadata_semantic = analyze(metadata_script)
 
-    assert baseline_semantic == metadata_semantic
+    assert baseline_semantic.diagnostics == metadata_semantic.diagnostics == ()
+    assert baseline_semantic.model.type_symbols == metadata_semantic.model.type_symbols
+    assert (
+        baseline_semantic.model.callable_symbols
+        == metadata_semantic.model.callable_symbols
+    )
+    assert (
+        baseline_semantic.model.relation_symbols
+        == metadata_semantic.model.relation_symbols
+    )
+    assert baseline_semantic.model.relationships == ()
+    assert len(metadata_semantic.model.relationships) == 1
     assert isinstance(metadata_semantic.model.relation_symbols["users"], SourceDef)
     assert isinstance(metadata_semantic.model.relation_symbols["selected"], TableDef)
     assert isinstance(metadata_semantic.model.relation_symbols["output"], QueryDef)
@@ -231,6 +242,7 @@ def test_program_without_relationship_metadata_keeps_semantic_behavior() -> None
     loose = analyze(script, mode_override=CheckMode.LOOSE)
 
     assert script.relationships == ()
+    assert checked.model.relationships == loose.model.relationships == ()
     assert checked.diagnostics == loose.diagnostics == ()
     assert checked.model.relation_symbols == loose.model.relation_symbols
 
