@@ -173,7 +173,12 @@ as a narrow semantic row-schema propagation slice for named computed
 projection aliases with known expression value types. It keeps unknown or
 invalid computed aliases unknown, keeps projection aliases out of
 same-relation `where` and input-scope `order by`, and adds no diagnostic code.
-These slices keep relationship metadata outside lookup and add no grammar,
+Phase 17 Slice 4 Relation-to-Relation Schema Hardening and Completion Audit
+is complete as audit and status work only. It locks mixed relation schema
+chains, semantic/IR row-schema consistency, diagnostic stability, SQL byte
+stability, cycle fail-closed behavior, and the relationship metadata read-only
+boundary. Phase 17 is complete. These slices keep relationship metadata
+outside lookup and add no grammar,
 generated ANTLR, parser, AST, relation alias syntax, JOIN, relation
 composition, endpoint-qualified lookup, relationship-aware querying, runtime
 security, database behavior, JSON v2, new public SQL API, dependency, package,
@@ -532,7 +537,9 @@ no grammar, generated ANTLR, SQL renderer, SQL golden, CLI, JSON, dependency,
 package, version, or CI behavior. Phase 17 Slice 3 adds only computed
 projection schema propagation for named aliases and changes no grammar,
 generated ANTLR, SQL renderer, SQL golden, CLI, JSON, dependency, package,
-version, or CI behavior.
+version, or CI behavior. Phase 17 Slice 4 adds only relation-to-relation
+schema hardening audit coverage and completion status documentation. Phase 17
+is complete.
 
 Current strict boundaries remain:
 
@@ -600,11 +607,13 @@ SQL-portability design, specification, and audit work only. Phase 16 Slice 3
 is complete as syntax-surface audit only. Phase 16 Slice 4 completes the final
 audit and status work only. Phase 16 is complete with no production
 implementation authorization.
-Phase 17 Slices 1 through 3 are complete as narrow implementation slices for
-single-input qualified field binding, core scalar expression semantic typing,
-and computed projection schema propagation. They do not authorize grammar
-changes, JOIN, relation composition, endpoint-qualified lookup,
-aggregate/grouping work, runtime behavior, or public API expansion.
+Phase 17 Slices 1 through 4 are complete. Slices 1 through 3 are narrow
+implementation slices for single-input qualified field binding, core scalar
+expression semantic typing, and computed projection schema propagation. Slice
+4 is audit and status work only. They do not authorize grammar changes, JOIN,
+relation composition, endpoint-qualified lookup, aggregate/grouping work,
+runtime behavior, or public API expansion. Phase 17 completion does not
+authorize Phase 18.
 The private MySQL backend, static `mysql.table(Text)` semantic/IR surface, and
 closed renderer are the MySQL compiler boundaries. Explicit private CLI
 dispatch and JSON v1 presentation are enabled. Public emitter export, a

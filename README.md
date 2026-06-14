@@ -29,9 +29,10 @@ The current implementation status is:
   completion audit**;
 - **Phase 16 Language Direction And Safety Mode: complete as design,
   specification, and audit work only; Slices 1 through 4 complete**;
-- **Phase 17 Core SQL MVP Expansion: Slices 1 through 3 complete;
+- **Phase 17 Core SQL MVP Expansion: complete; Slices 1 through 4 cover
   single-input qualified field binding, core scalar expression semantics, and
-  computed projection schema propagation are implemented**.
+  computed projection schema propagation plus relation-to-relation schema
+  hardening/completion audit**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -73,6 +74,13 @@ unknown or invalid computed aliases as unknown typed output fields, keeps
 projection aliases out of same-relation `where` and input-scope `order by`,
 adds no diagnostic code, and changes no grammar, generated ANTLR, SQL
 renderer, SQL golden, CLI, JSON, dependency, package, version, or CI behavior.
+
+Phase 17 Slice 4 adds only relation-to-relation schema hardening and
+completion audit coverage plus status documentation. It locks mixed simple,
+qualified, and computed projection chains, semantic/IR row-schema consistency,
+cycle and diagnostic stability, SQL byte stability, and the relationship
+metadata read-only boundary. Phase 17 is complete and no Phase 18 work is
+authorized by completion.
 
 The supported single-file CLI commands and forms include:
 
@@ -512,6 +520,9 @@ The implemented Phase 17 Slice 2 scalar-expression boundary is documented in
 The implemented Phase 17 Slice 3 computed-projection schema boundary is
 documented in
 [the Computed Projection Schema Propagation v1 specification](docs/spec/computed-projection-schema-propagation-v1.md).
+The completed Phase 17 Slice 4 relation-schema hardening boundary is
+documented in
+[the Relation-to-Relation Schema Hardening v1 specification](docs/spec/relation-to-relation-schema-hardening-v1.md).
 The conceptual relationship, endpoint-role, relation-role, cardinality,
 authority, and compiler-versus-runtime boundary is documented in
 [the Relationship And Relation Role Contract v1](docs/spec/relationship-relation-role-contract-v1.md).

@@ -182,9 +182,11 @@ Phase 17 Slice 1 Single-Input Qualified Field Binding is complete as a narrow
 compiler implementation slice. Phase 17 Slice 2 Core Scalar Expression
 Semantics is complete as a narrow semantic typing slice. Phase 17 Slice 3
 Computed Projection Schema Propagation is complete as a narrow semantic
-row-schema propagation slice. These slices treat this document as high-level
-language philosophy and treat the latest grammar plus the Phase 16
-syntax-surface audit as authoritative for accepted syntax.
+row-schema propagation slice. Phase 17 Slice 4 Relation-to-Relation Schema
+Hardening and Completion Audit is complete as audit and status work only.
+Phase 17 is complete. These slices treat this document as high-level language
+philosophy and treat the latest grammar plus the Phase 16 syntax-surface audit
+as authoritative for accepted syntax.
 Slice 1 adds only semantic, Semantic IR, and PostgreSQL/MySQL SQL handling for
 existing two-part dotted field references in single-input relation `where`,
 `select`, and input-scope `order by` contexts. Slice 2 adds only semantic
@@ -200,6 +202,12 @@ Pietto source `as`, relation alias syntax, JOIN, relation composition,
 endpoint-qualified lookup, relationship-aware querying, runtime security,
 database behavior, JSON version 2, new public SQL API, dependency, package,
 version, or CI change.
+Slice 4 adds only focused relation-to-relation schema hardening audit
+coverage and completion status documentation. It locks mixed simple,
+qualified, and computed projection chains, semantic/IR row-schema
+consistency, cycle and diagnostic stability, SQL byte stability, and the
+relationship metadata read-only boundary. It adds no production behavior and
+does not authorize Phase 18.
 
 SQL is generated only. Database connections, SQL or connector execution,
 schema introspection, runtime services, project or multi-file support, watch
@@ -1723,9 +1731,9 @@ separate explicit authorization.
 ### Phase 17: Core SQL MVP Expansion
 
 Status: Slice 1 Single-Input Qualified Field Binding, Slice 2 Core Scalar
-Expression Semantics, and Slice 3 Computed Projection Schema Propagation are
-complete. Later Phase 17 slices remain planned only and require separate
-explicit authorization.
+Expression Semantics, Slice 3 Computed Projection Schema Propagation, and
+Slice 4 Relation-to-Relation Schema Hardening and Completion Audit are
+complete. Phase 17 is complete.
 
 Slice 1 implements only semantic, Semantic IR, and SQL backend binding for
 already-accepted dotted expressions in existing single-input relation
@@ -1758,6 +1766,14 @@ Unaliased computed expressions remain unnamed and preserve the existing
 first-field-wins behavior. Projection aliases remain unavailable to the same
 relation's `where` and input-scope `order by` lookup.
 
+Slice 4 adds only relation-to-relation schema hardening and completion audit
+coverage. It locks source-to-relation-to-relation propagation, mixed simple
+field, qualified field, and computed alias chains, semantic model versus
+Semantic IR row-schema consistency, unknown and invalid computed alias
+fail-closed behavior, duplicate projection first-field-wins behavior,
+relation-cycle stability, final-only diagnostic collection, SQL byte
+stability, and the relationship metadata read-only boundary.
+
 PostgreSQL and MySQL SQL backends emit a narrow SQL input alias only when a
 qualified field reference requires one. That backend `AS` is emitted SQL, not
 Pietto source syntax. The current accepted typed source connector syntax
@@ -1765,16 +1781,18 @@ remains `source name: Shape is connector`; `source name: Shape = connector`
 and Pietto source `as` aliases remain unaccepted.
 
 Relationship metadata remains secondary read-only metadata and does not
-participate in field lookup. Slice 1 does not implement relationship-aware
+participate in field lookup. Phase 17 does not implement relationship-aware
 querying, endpoint-qualified lookup, multi-input relations, JOIN, relation
 composition, SQL lowering from relationships, runtime authorization,
 database security, database connections, connector execution, SQL execution,
-JSON version 2, a public MySQL API, a generic SQL API, or a new dependency.
+JSON version 2, a public MySQL API, a generic SQL API, a new dependency, or
+Phase 18 work.
 
 The normative contracts are
 `docs/spec/single-input-qualified-field-binding-v1.md`,
 `docs/spec/core-scalar-expression-semantics-v1.md`, and
-`docs/spec/computed-projection-schema-propagation-v1.md`; the phase plan is
+`docs/spec/computed-projection-schema-propagation-v1.md`, and
+`docs/spec/relation-to-relation-schema-hardening-v1.md`; the phase plan is
 `docs/plan/phase-17-core-sql-mvp-expansion.md`.
 
 ---

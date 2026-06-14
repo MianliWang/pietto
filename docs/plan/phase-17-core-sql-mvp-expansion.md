@@ -3,9 +3,9 @@
 ## Status
 
 Phase 17 Slice 1 Single-Input Qualified Field Binding, Slice 2 Core Scalar
-Expression Semantics, and Slice 3 Computed Projection Schema Propagation are
-complete. Later slices remain planned only and require separate explicit
-authorization before implementation.
+Expression Semantics, Slice 3 Computed Projection Schema Propagation, and
+Slice 4 Relation-to-Relation Schema Hardening and Completion Audit are
+complete. Phase 17 is complete.
 
 ## Direction
 
@@ -107,20 +107,38 @@ The implementation:
 The normative contract is
 `docs/spec/computed-projection-schema-propagation-v1.md`.
 
-## Planned Slices
+## Slice 4: Relation-to-Relation Schema Hardening and Completion Audit
 
-The remaining Phase 17 slices are placeholders for future explicitly
-authorized work:
+Status: complete.
 
-1. Slice 4: Core SQL MVP completion audit.
+Slice 4 adds only focused audit coverage and status documentation for the
+combined relation schema propagation pipeline after Slices 1 through 3.
 
-The planned slices do not authorize implementation by themselves. Each future
-slice needs its own concrete scope, compatibility boundary, diagnostics plan,
-test plan, and explicit approval.
+The audit locks:
+
+- source-to-relation-to-relation schema propagation across table and query
+  chains;
+- mixed simple field, qualified field, and named computed alias projections;
+- semantic model row schema and Semantic IR row schema consistency;
+- unknown and invalid computed aliases staying local unknown typed fields
+  without fake downstream precision;
+- duplicate projection `PIE-S2305` and first-field-wins behavior;
+- relation cycles remaining fail-closed under the refinement loop;
+- source-order diagnostics and suppression of temporary refinement
+  diagnostics;
+- representative PostgreSQL and MySQL SQL byte stability;
+- relationship metadata remaining read-only metadata outside query, schema,
+  IR, and SQL behavior.
+
+Slice 4 changes no production compiler behavior by itself and adds no
+diagnostic code.
+
+The normative contract is
+`docs/spec/relation-to-relation-schema-hardening-v1.md`.
 
 ## Boundaries
 
-Phase 17 Slices 1 and 2 do not implement or authorize:
+Phase 17 Slices 1 through 4 do not implement or authorize:
 
 - grammar changes or generated parser changes;
 - source `=` connector syntax;
@@ -135,7 +153,8 @@ Phase 17 Slices 1 and 2 do not implement or authorize:
 - aggregate functions;
 - `GROUP BY` or `HAVING`;
 - scalar `/` portability semantics;
-- projection row-schema behavior beyond Slice 3's named computed aliases;
+- projection row-schema behavior beyond Slice 3's named computed aliases and
+  Slice 4's audit of that behavior;
 - runtime authorization, policy, privacy, or database security;
 - database connection, connector execution, SQL execution, or schema
   introspection;
