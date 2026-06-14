@@ -125,6 +125,14 @@ composition, JOIN, SQL lowering, endpoint-qualified field lookup, multi-input
 query semantics, or ambiguity diagnostics. Future implementation requires
 separate authorization.
 
+Phase 15 Slice 4 Relationship Metadata Semantics Completion Audit is complete.
+It adds only `tests/test_phase15_completion_audit.py` and status
+documentation. Phase 15 is complete as a semantic-only relationship metadata
+phase. The final audit locks Slices 1 through 3 and confirms that no runtime
+resolver, relation composition, JOIN, SQL lowering, endpoint-qualified field
+lookup, multi-input query semantics, ambiguity diagnostics, runtime security,
+database behavior, or new public API was added.
+
 Phase 13 Relation Composition And Relationship Planning is complete as
 planning, contract, and audit work only. Slices 1 through 6 are complete.
 Slice 1 Master Plan And Baseline Audit, Slice 2 Relationship /
@@ -462,7 +470,8 @@ checkpoint: Phase 15 has not started and remains unauthorized. Phase 15 Slice
 adds only read-only semantic model storage for validated relationship
 metadata. Phase 15 Slice 3 adds only
 `docs/spec/relationship-name-ownership-contract-v1.md` and static audit
-coverage; it adds no runtime behavior.
+coverage; it adds no runtime behavior. Phase 15 Slice 4 adds only the final
+completion audit and status documentation. Phase 15 is complete.
 
 Current strict boundaries remain:
 
@@ -522,7 +531,8 @@ runtime, or database behavior. Phase 15 Slice 2 stores validated metadata only
 in the read-only semantic model and preserves those same boundaries. Phase 15
 Slice 3 documents name ownership and future ambiguity boundaries only; it
 implements no relation composition, endpoint-qualified lookup, multi-input
-query semantics, or ambiguity diagnostic.
+query semantics, or ambiguity diagnostic. Phase 15 Slice 4 completes the
+semantic-only phase with a strict audit and no compiler or runtime behavior.
 The private MySQL backend, static `mysql.table(Text)` semantic/IR surface, and
 closed renderer are the MySQL compiler boundaries. Explicit private CLI
 dispatch and JSON v1 presentation are enabled. Public emitter export, a

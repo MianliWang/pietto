@@ -9,9 +9,15 @@
 **Phase 15 Slice 3: Relationship Name Ownership And Ambiguity Contract is
 complete as contract and audit work only.**
 
-This is a narrow production implementation slice. It moves the relationship
-metadata introduced by Phase 14 from parse-only AST storage to semantic
-validation only.
+**Phase 15 Slice 4: Relationship Metadata Semantics Completion Audit is
+complete.**
+
+**Phase 15 Relationship Metadata Semantics is complete.**
+
+Phase 15 is a narrow semantic-only phase. It moves the relationship metadata
+introduced by Phase 14 from parse-only AST storage to semantic validation and
+read-only semantic facts, then locks the ownership and compatibility
+boundaries without adding composition or runtime behavior.
 
 ## Slice 1 Implementation
 
@@ -56,6 +62,25 @@ namespaces; endpoint local names remain scoped to one relationship; and
 composition, endpoint-qualified field lookup, multi-input query semantics,
 and ambiguity diagnostics require separate authorization.
 
+## Slice 4 Completion Audit
+
+Slice 4 adds only `tests/test_phase15_completion_audit.py` and completion
+status documentation. The final audit locks the Slice 1 validation behavior,
+Slice 2 read-only semantic model, Slice 3 ownership contract, exact
+diagnostics, unchanged frontend and compiler stages, public API, JSON version
+1, examples, fixtures, goldens, dependencies, package metadata, version, and
+CI boundaries.
+
+The authoritative Phase 15 artifacts are:
+
+- `docs/spec/relationship-metadata-semantic-validation-v1.md`;
+- `docs/spec/relationship-name-ownership-contract-v1.md`;
+- `tests/test_phase15_relationship_metadata_semantics.py`;
+- `tests/test_phase15_semantic_model_relationships.py`;
+- `tests/test_phase15_relationship_name_ownership_contract.py`;
+- `tests/test_phase15_semantic_completion_audit.py`;
+- `tests/test_phase15_completion_audit.py`.
+
 ## Compatibility Boundary
 
 Slice 1 changes no grammar, generated ANTLR file, AST node, AST builder,
@@ -68,12 +93,12 @@ and JSON version 1 continue to present ordinary semantic diagnostics through
 their unchanged formatting paths.
 
 One Phase 14 compatibility test fixture changes an unknown endpoint reference
-to a valid self-relationship. Its original AST-definition, semantic-model,
-IR, PostgreSQL SQL, and MySQL SQL equality assertions remain intact.
+to a valid self-relationship. Its AST-definition, semantic-namespace, IR,
+PostgreSQL SQL, and MySQL SQL compatibility assertions remain intact.
 
 ## Completion Gates
 
-Slice 1 completion requires:
+Phase 15 completion requires:
 
 - focused positive, negative, source-span, namespace, IR, and dual-backend
   tests;
@@ -81,13 +106,16 @@ Slice 1 completion requires:
   boundary;
 - fixed-hash updates only where the new private semantic module or the
   authorized Phase 14 fixture repair changes the reviewed bytes;
+- a final strict completion audit covering all four slices and deferred
+  capability boundaries;
 - the complete local validation, generated-code, golden, packaging, typing,
   lockfile, and diff checks.
 
 ## Deferred Work
 
-Later Phase 15 work requires separate authorization. Slices 1 through 3 do not
-implement JOIN, relation composition, SQL lowering, relation-role semantics,
-additional endpoint-role rules, cardinality, fanout, permission gates,
-runtime security, database behavior, JSON version 2, project mode, SQLGlot,
-public MySQL APIs, a generic SQL emitter, or release and publication behavior.
+Phase 15 is complete. Future implementation requires separate explicit
+authorization. Slices 1 through 4 do not implement JOIN, relation composition,
+SQL lowering, relation-role semantics, additional endpoint-role rules,
+cardinality, fanout, permission gates, runtime security, database behavior,
+JSON version 2, project mode, SQLGlot, public MySQL APIs, a generic SQL
+emitter, or release and publication behavior.

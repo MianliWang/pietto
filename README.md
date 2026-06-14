@@ -24,10 +24,9 @@ The current implementation status is:
 - **Phase 14: complete; Slices 1 through 4 cover readiness, candidate
   decision, parse-only relationship metadata AST implementation, and backend
   compatibility/completion audit**;
-- **Phase 15 Slice 1 Relationship Metadata Semantic Validation: complete**.
-- **Phase 15 Slice 2 Relationship Semantic Model Storage: complete**.
-- **Phase 15 Slice 3 Relationship Name Ownership And Ambiguity Contract:
-  complete as contract and audit work only**.
+- **Phase 15 Relationship Metadata Semantics: complete; Slices 1 through 4
+  cover validation, read-only semantic storage, name-ownership contract, and
+  completion audit**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -370,6 +369,13 @@ and unchanged relation-only `from` lookup. It adds no runtime resolver,
 relation composition, JOIN, SQL lowering, endpoint-qualified field lookup,
 multi-input query semantics, or ambiguity diagnostics; those capabilities
 require separately authorized work.
+
+Phase 15 Slice 4 is complete as the final completion audit and status update.
+`tests/test_phase15_completion_audit.py` locks all three prior slices and the
+unchanged frontend, Semantic IR, PostgreSQL/MySQL SQL, CLI, JSON version 1,
+public API, example, fixture, golden, dependency, package, version, CI,
+runtime, and database boundaries. Phase 15 is complete as a semantic-only
+relationship metadata phase and adds no runtime or composition behavior.
 
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added

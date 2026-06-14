@@ -1,7 +1,7 @@
 # Pietto v0.9 Whitepaper and Language Reference
 
 Version: v0.9 draft
-Status: Phase 1 through Phase 14 complete; Phase 15 Slices 1 through 3 relationship metadata semantics complete
+Status: Phase 1 through Phase 15 complete; Phase 15 is a semantic-only relationship metadata phase
 Supported Python baseline: Python >=3.12; Phase 11 CI: Python 3.12/3.13
 Primary SQL target: PostgreSQL; MySQL 8.0+ generation MVP supported
 Preferred package manager: uv-first
@@ -140,6 +140,13 @@ and unchanged relation-only `from` lookup. It adds no runtime resolver,
 relation composition, JOIN, SQL lowering, endpoint-qualified field lookup,
 multi-input query semantics, or ambiguity diagnostics; future implementation
 requires separate authorization.
+
+Phase 15 Slice 4 is complete as the final completion audit and status update.
+`tests/test_phase15_completion_audit.py` locks the prior semantic validation,
+read-only model storage, ownership contract, exact diagnostics, and unchanged
+compiler, API, JSON version 1, fixture, golden, dependency, package, version,
+CI, runtime, and database boundaries. Phase 15 is complete as a semantic-only
+relationship metadata phase.
 
 SQL is generated only. Database connections, SQL or connector execution,
 schema introspection, runtime services, project or multi-file support, watch
@@ -1564,6 +1571,8 @@ Status: Slice 1 Relationship Metadata Semantic Validation is complete.
 Slice 2 Relationship Semantic Model Storage is complete.
 Slice 3 Relationship Name Ownership And Ambiguity Contract is complete as
 contract and audit work only.
+Slice 4 Relationship Metadata Semantics Completion Audit is complete.
+Phase 15 is complete.
 
 Slice 1 validates endpoint relation references, relationship-name uniqueness
 among relationship declarations, and endpoint local-name uniqueness within
@@ -1584,16 +1593,22 @@ lookup, and deferred future ambiguity boundary. The normative contract is
 resolver, relation composition, JOIN, SQL lowering, endpoint-qualified field
 lookup, multi-input query semantics, or ambiguity diagnostics.
 
+Slice 4 adds only `tests/test_phase15_completion_audit.py` and completion
+status documentation. It locks all prior Phase 15 artifacts and unchanged
+grammar, generated ANTLR, AST, parser, Semantic IR, PostgreSQL/MySQL SQL, CLI,
+JSON version 1, public API, examples, fixtures, goldens, dependency, package,
+version, CI, runtime, and database boundaries.
+
 The normative boundary is documented in
 `docs/spec/relationship-metadata-semantic-validation-v1.md`; the implemented
 slice and compatibility gates are documented in
 `docs/plan/phase-15-relationship-metadata-semantics.md`.
 
-Slices 1 through 3 add no Semantic IR representation, SQL lowering, CLI or
-JSON format change, runtime behavior, database behavior, relation composition, JOIN,
-relation-role semantics, cardinality, fanout, permission gate, security
-claim, JSON v2, SQLGlot, project mode, or release behavior. Later Phase 15
-work requires separate explicit authorization.
+Slices 1 through 4 add no Semantic IR representation, SQL lowering, CLI or
+JSON format change, runtime behavior, database behavior, relation
+composition, JOIN, relation-role semantics, cardinality, fanout, permission
+gate, security claim, JSON v2, SQLGlot, project mode, or release behavior.
+Future implementation requires separate explicit authorization.
 
 ---
 
