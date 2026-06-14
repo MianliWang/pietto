@@ -26,7 +26,9 @@ The current implementation status is:
   compatibility/completion audit**;
 - **Phase 15 Relationship Metadata Semantics: complete; Slices 1 through 4
   cover validation, read-only semantic storage, name-ownership contract, and
-  completion audit**.
+  completion audit**;
+- **Phase 16 Language Direction And Safety Mode: Slice 1 complete as design,
+  specification, and audit work only; Slices 2 through 4 planned only**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -377,6 +379,14 @@ public API, example, fixture, golden, dependency, package, version, CI,
 runtime, and database boundaries. Phase 15 is complete as a semantic-only
 relationship metadata phase and adds no runtime or composition behavior.
 
+Phase 16 Slice 1 is complete as design, specification, and audit work only.
+It records Pietto's typed SQL authoring identity, syntax philosophy,
+relationship-metadata position, and compile-time versus runtime security
+boundary in
+[Language Direction v1](docs/spec/language-direction-v1.md). Slices 2 through
+4 remain planned only, and this slice adds no syntax, compiler, runtime,
+database, public API, dependency, or output-format behavior.
+
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added
 full structural depth, semantic graph, diagnostic/output, wall-clock, CPU, or
@@ -437,6 +447,11 @@ The implemented Phase 15 Slice 1 semantic boundary is documented in
 [the Phase 15 Relationship Metadata Semantics plan](docs/plan/phase-15-relationship-metadata-semantics.md)
 and
 [the Relationship Metadata Semantic Validation v1 specification](docs/spec/relationship-metadata-semantic-validation-v1.md).
+The Phase 16 language identity, syntax philosophy, safety boundary, and
+planned four-slice design/audit sequence are documented in
+[the Phase 16 Language Direction And Safety Mode plan](docs/plan/phase-16-language-direction-safety-mode.md)
+and
+[the Language Direction v1 specification](docs/spec/language-direction-v1.md).
 The conceptual relationship, endpoint-role, relation-role, cardinality,
 authority, and compiler-versus-runtime boundary is documented in
 [the Relationship And Relation Role Contract v1](docs/spec/relationship-relation-role-contract-v1.md).

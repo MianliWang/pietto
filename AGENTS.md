@@ -133,6 +133,14 @@ resolver, relation composition, JOIN, SQL lowering, endpoint-qualified field
 lookup, multi-input query semantics, ambiguity diagnostics, runtime security,
 database behavior, or new public API was added.
 
+Phase 16 Slice 1 Language Direction and Syntax Philosophy is complete as
+design, specification, and audit work only. It adds
+`docs/spec/language-direction-v1.md`,
+`docs/plan/phase-16-language-direction-safety-mode.md`, focused static audit
+coverage, and minimal status documentation. Slices 2 through 4 remain planned
+only. Phase 16 adds no syntax, compiler, runtime, database, public API,
+dependency, or output-format behavior unless separately authorized.
+
 Phase 13 Relation Composition And Relationship Planning is complete as
 planning, contract, and audit work only. Slices 1 through 6 are complete.
 Slice 1 Master Plan And Baseline Audit, Slice 2 Relationship /
@@ -471,7 +479,10 @@ adds only read-only semantic model storage for validated relationship
 metadata. Phase 15 Slice 3 adds only
 `docs/spec/relationship-name-ownership-contract-v1.md` and static audit
 coverage; it adds no runtime behavior. Phase 15 Slice 4 adds only the final
-completion audit and status documentation. Phase 15 is complete.
+completion audit and status documentation. Phase 15 is complete. Phase 16
+Slice 1 adds only the language-direction specification, four-slice
+design/audit plan, static audit, and status documentation. Phase 16 Slices 2
+through 4 remain planned only.
 
 Current strict boundaries remain:
 
@@ -533,6 +544,9 @@ Slice 3 documents name ownership and future ambiguity boundaries only; it
 implements no relation composition, endpoint-qualified lookup, multi-input
 query semantics, or ambiguity diagnostic. Phase 15 Slice 4 completes the
 semantic-only phase with a strict audit and no compiler or runtime behavior.
+Phase 16 Slice 1 is complete as language-direction design, specification, and
+audit work only; Slices 2 through 4 remain planned only, with no production
+implementation authorization.
 The private MySQL backend, static `mysql.table(Text)` semantic/IR surface, and
 closed renderer are the MySQL compiler boundaries. Explicit private CLI
 dispatch and JSON v1 presentation are enabled. Public emitter export, a

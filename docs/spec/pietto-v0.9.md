@@ -1,7 +1,7 @@
 # Pietto v0.9 Whitepaper and Language Reference
 
 Version: v0.9 draft
-Status: Phase 1 through Phase 15 complete; Phase 15 is a semantic-only relationship metadata phase
+Status: Phase 1 through Phase 15 complete; Phase 16 Slice 1 complete as design, specification, and audit work only
 Supported Python baseline: Python >=3.12; Phase 11 CI: Python 3.12/3.13
 Primary SQL target: PostgreSQL; MySQL 8.0+ generation MVP supported
 Preferred package manager: uv-first
@@ -147,6 +147,13 @@ read-only model storage, ownership contract, exact diagnostics, and unchanged
 compiler, API, JSON version 1, fixture, golden, dependency, package, version,
 CI, runtime, and database boundaries. Phase 15 is complete as a semantic-only
 relationship metadata phase.
+
+Phase 16 Slice 1 is complete as design, specification, and audit work only.
+The normative `docs/spec/language-direction-v1.md` contract records Pietto's
+typed SQL authoring identity, indentation-based syntax philosophy,
+relationship-metadata position, and compile-time versus runtime security
+boundary. Slices 2 through 4 remain planned only. No syntax, compiler,
+runtime, database, public API, dependency, or output-format behavior changes.
 
 SQL is generated only. Database connections, SQL or connector execution,
 schema introspection, runtime services, project or multi-file support, watch
@@ -1609,6 +1616,31 @@ JSON format change, runtime behavior, database behavior, relation
 composition, JOIN, relation-role semantics, cardinality, fanout, permission
 gate, security claim, JSON v2, SQLGlot, project mode, or release behavior.
 Future implementation requires separate explicit authorization.
+
+### Phase 16: Language Direction And Safety Mode
+
+Status: Slice 1 Language Direction and Syntax Philosophy is complete as
+design, specification, and audit work only. Slice 2 Safety Surface and Strict
+Mode Contract, Slice 3 Current Syntax Surface Audit, and Slice 4 Phase 16
+Completion Audit are planned only.
+
+Slice 1 adds `docs/spec/language-direction-v1.md`,
+`docs/plan/phase-16-language-direction-safety-mode.md`, focused static audit
+coverage, and minimal status documentation. It defines Pietto as a readable,
+indentation-based, typed SQL authoring DSL with a small compiler-safe core,
+diagnostic-first failures, and explicit handling of dangerous or ambiguous
+operations.
+
+Relationship metadata remains secondary descriptive metadata rather than the
+center of normal query authoring. This slice adds no relationship-aware
+querying, JOIN, composition, SQL lowering, strict mode, runtime authorization,
+database behavior, JSON version 2, public API, dependency, version, package,
+or CI change.
+
+The normative direction and the four-slice design/audit sequence are
+documented in `docs/spec/language-direction-v1.md` and
+`docs/plan/phase-16-language-direction-safety-mode.md`. No Phase 16 slice
+authorizes a later slice or production implementation automatically.
 
 ---
 
