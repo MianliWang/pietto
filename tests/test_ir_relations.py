@@ -127,7 +127,8 @@ def test_bare_and_aliased_projections_preserve_names_and_order() -> None:
     assert isinstance(aliased.expression, CallIR)
     assert aliased.expression.callee == "lower"
     assert aliased.type_ref is not None
-    assert aliased.type_ref.kind is TypeKindIR.UNKNOWN
+    assert aliased.type_ref.kind is TypeKindIR.BUILTIN
+    assert aliased.type_ref.canonical_name == "Text"
 
 
 def test_relation_row_schema_preserves_semantic_field_order() -> None:

@@ -2,9 +2,10 @@
 
 ## Status
 
-Phase 17 Slice 1 Single-Input Qualified Field Binding and Slice 2 Core Scalar
-Expression Semantics are complete. Later slices remain planned only and require
-separate explicit authorization before implementation.
+Phase 17 Slice 1 Single-Input Qualified Field Binding, Slice 2 Core Scalar
+Expression Semantics, and Slice 3 Computed Projection Schema Propagation are
+complete. Later slices remain planned only and require separate explicit
+authorization before implementation.
 
 ## Direction
 
@@ -73,13 +74,45 @@ The implementation:
 The normative contract is
 `docs/spec/core-scalar-expression-semantics-v1.md`.
 
+## Slice 3: Computed Projection Schema Propagation
+
+Status: complete.
+
+Slice 3 propagates semantic value types from named computed projection aliases
+into relation output schemas. It covers aliases such as `value = count + 1`,
+`label = lower(text)`, and `active = count > 0`.
+
+The implementation:
+
+- keeps grammar, generated ANTLR, AST nodes, parser API, SQL renderers, SQL
+  goldens, CLI, JSON, dependencies, package metadata, version, and CI
+  unchanged;
+- preserves existing behavior for unaliased field projections and Slice 1
+  qualified field projections;
+- preserves the existing `PIE-S2304` unnamed computed projection policy;
+- preserves the existing `PIE-S2305` duplicate projection diagnostic and
+  first-field-wins behavior;
+- records known aliased computed expressions in relation output schemas using
+  their semantic type and nullability;
+- keeps unknown or invalid computed aliases as unknown typed output fields
+  without poisoning the entire relation schema;
+- uses a bounded deterministic relation schema refinement loop so downstream
+  relations can read precise computed alias types;
+- emits only final diagnostics from the final refined schemas;
+- keeps projection aliases out of the same relation's `where` and input-scope
+  `order by` lookup;
+- ignores relationship metadata for expression and schema binding;
+- changes no SQL output bytes.
+
+The normative contract is
+`docs/spec/computed-projection-schema-propagation-v1.md`.
+
 ## Planned Slices
 
 The remaining Phase 17 slices are placeholders for future explicitly
 authorized work:
 
-1. Slice 3: Aggregate and grouping readiness decision.
-2. Slice 4: Core SQL MVP completion audit.
+1. Slice 4: Core SQL MVP completion audit.
 
 The planned slices do not authorize implementation by themselves. Each future
 slice needs its own concrete scope, compatibility boundary, diagnostics plan,
@@ -102,8 +135,7 @@ Phase 17 Slices 1 and 2 do not implement or authorize:
 - aggregate functions;
 - `GROUP BY` or `HAVING`;
 - scalar `/` portability semantics;
-- projection row-schema propagation for computed aliases beyond existing
-  behavior;
+- projection row-schema behavior beyond Slice 3's named computed aliases;
 - runtime authorization, policy, privacy, or database security;
 - database connection, connector execution, SQL execution, or schema
   introspection;

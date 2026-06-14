@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 
 from pietto.ast_nodes import (
     ConstraintDef,
     Definition,
     DeriveDef,
     EnumDef,
+    Expression,
+    FromClause,
     Nullability,
     QueryDef,
     Script,
@@ -36,9 +38,11 @@ from pietto.semantic.model import (
     CheckMode,
     EffectiveNullability,
     ResolvedType,
+    RowSchema,
     SemanticModel,
     SemanticResult,
     TypeKind,
+    ValueType,
 )
 from pietto.semantic.relation_cycles import check_relation_cycles
 from pietto.semantic.relation_limits import check_relation_limits
@@ -154,7 +158,12 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
         from_resolutions,
     )
     diagnostics.extend(cycle_diagnostics)
-    relation_row_schemas, schema_diagnostics = propagate_relation_schemas(
+    (
+        relation_row_schemas,
+        schema_diagnostics,
+        relation_value_types,
+        relation_expression_diagnostics,
+    ) = _analyze_relation_schema_expressions(
         script,
         mode=mode,
         from_resolutions=from_resolutions,
@@ -186,12 +195,6 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
     )
     expression_value_types.update(callable_value_types)
     expression_diagnostics.extend(callable_expression_diagnostics)
-    relation_value_types, relation_expression_diagnostics = type_relation_expressions(
-        script,
-        from_resolutions=from_resolutions,
-        source_row_schemas=source_row_schemas,
-        relation_row_schemas=relation_row_schemas,
-    )
     expression_value_types.update(relation_value_types)
     expression_diagnostics.extend(relation_expression_diagnostics)
     diagnostics.extend(expression_diagnostics)
@@ -229,6 +232,117 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
             relationships=relationships,
         ),
         diagnostics=tuple(sorted(diagnostics, key=_diagnostic_order)),
+    )
+
+
+RelationDefinition = SourceDef | TableDef | QueryDef
+DerivedRelation = TableDef | QueryDef
+
+
+def _analyze_relation_schema_expressions(
+    script: Script,
+    *,
+    mode: CheckMode,
+    from_resolutions: Mapping[FromClause, RelationDefinition],
+    source_row_schemas: Mapping[SourceDef, RowSchema],
+    cyclic_relations: set[DerivedRelation],
+) -> tuple[
+    dict[DerivedRelation, RowSchema],
+    list[Diagnostic],
+    dict[Expression, ValueType],
+    list[Diagnostic],
+]:
+    """Refine relation schemas from computed projection expression types."""
+
+    relation_row_schemas, _ = propagate_relation_schemas(
+        script,
+        mode=mode,
+        from_resolutions=from_resolutions,
+        source_row_schemas=source_row_schemas,
+        cyclic_relations=cyclic_relations,
+    )
+    derived_relation_count = sum(
+        isinstance(definition, (TableDef, QueryDef))
+        for definition in script.definitions
+    )
+    iteration_limit = derived_relation_count + 1
+    stabilized = False
+
+    for _ in range(iteration_limit):
+        temporary_value_types, _ = type_relation_expressions(
+            script,
+            from_resolutions=from_resolutions,
+            source_row_schemas=source_row_schemas,
+            relation_row_schemas=relation_row_schemas,
+        )
+        refined_schemas, _ = propagate_relation_schemas(
+            script,
+            mode=mode,
+            from_resolutions=from_resolutions,
+            source_row_schemas=source_row_schemas,
+            cyclic_relations=cyclic_relations,
+            expression_value_types=temporary_value_types,
+        )
+        if _relation_schema_fingerprint(refined_schemas) == (
+            _relation_schema_fingerprint(relation_row_schemas)
+        ):
+            relation_row_schemas = refined_schemas
+            stabilized = True
+            break
+        relation_row_schemas = refined_schemas
+
+    relation_value_types, relation_expression_diagnostics = type_relation_expressions(
+        script,
+        from_resolutions=from_resolutions,
+        source_row_schemas=source_row_schemas,
+        relation_row_schemas=relation_row_schemas,
+    )
+    final_schemas, schema_diagnostics = propagate_relation_schemas(
+        script,
+        mode=mode,
+        from_resolutions=from_resolutions,
+        source_row_schemas=source_row_schemas,
+        cyclic_relations=cyclic_relations,
+        expression_value_types=relation_value_types,
+    )
+    if stabilized:
+        relation_row_schemas = final_schemas
+
+    return (
+        relation_row_schemas,
+        schema_diagnostics,
+        relation_value_types,
+        relation_expression_diagnostics,
+    )
+
+
+def _relation_schema_fingerprint(
+    relation_row_schemas: Mapping[DerivedRelation, RowSchema],
+) -> tuple[
+    tuple[
+        str,
+        bool,
+        tuple[tuple[str, str, TypeKind, EffectiveNullability], ...],
+    ],
+    ...,
+]:
+    """Compare relation schemas by stable semantic facts instead of identity."""
+
+    return tuple(
+        (
+            definition.name,
+            schema.is_unknown,
+            tuple(
+                (
+                    name,
+                    field.resolved_type.name,
+                    field.resolved_type.kind,
+                    field.nullability,
+                )
+                for name, field in schema.fields.items()
+            ),
+        )
+        for definition, schema in relation_row_schemas.items()
     )
 
 

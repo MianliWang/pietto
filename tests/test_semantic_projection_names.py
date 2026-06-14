@@ -41,7 +41,7 @@ def test_bare_field_projection_keeps_field_name_and_type() -> None:
     assert result.diagnostics == ()
 
 
-def test_explicit_alias_becomes_output_name_with_unknown_type() -> None:
+def test_explicit_alias_becomes_output_name_with_expression_type() -> None:
     result = analyze(
         _parse(
             SOURCE + "query projected:\n"
@@ -53,7 +53,7 @@ def test_explicit_alias_becomes_output_name_with_unknown_type() -> None:
     schema = result.model.relation_row_schemas[_relation(result, QueryDef)]
 
     assert list(schema.fields) == ["email_norm"]
-    assert schema.fields["email_norm"].resolved_type.kind is TypeKind.UNKNOWN
+    assert schema.fields["email_norm"].resolved_type.name == "Text"
     assert schema.fields["email_norm"].nullability is EffectiveNullability.UNKNOWN
     assert result.diagnostics == ()
 

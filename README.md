@@ -29,9 +29,9 @@ The current implementation status is:
   completion audit**;
 - **Phase 16 Language Direction And Safety Mode: complete as design,
   specification, and audit work only; Slices 1 through 4 complete**;
-- **Phase 17 Core SQL MVP Expansion: Slices 1 and 2 complete; single-input
-  qualified field binding and core scalar expression semantics are
-  implemented**.
+- **Phase 17 Core SQL MVP Expansion: Slices 1 through 3 complete;
+  single-input qualified field binding, core scalar expression semantics, and
+  computed projection schema propagation are implemented**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -66,6 +66,13 @@ operator operands, keeps `/` semantically deferred, uses existing `%` SQL
 renderer support, suppresses cascades from unknown children, and changes no
 grammar, generated ANTLR, SQL renderer, SQL golden, CLI, JSON, dependency,
 package, version, or CI behavior.
+
+Phase 17 Slice 3 adds only semantic row-schema propagation for named computed
+projection aliases that already have known expression value types. It keeps
+unknown or invalid computed aliases as unknown typed output fields, keeps
+projection aliases out of same-relation `where` and input-scope `order by`,
+adds no diagnostic code, and changes no grammar, generated ANTLR, SQL
+renderer, SQL golden, CLI, JSON, dependency, package, version, or CI behavior.
 
 The supported single-file CLI commands and forms include:
 
@@ -502,6 +509,9 @@ and
 [the Single-Input Qualified Field Binding v1 specification](docs/spec/single-input-qualified-field-binding-v1.md).
 The implemented Phase 17 Slice 2 scalar-expression boundary is documented in
 [the Core Scalar Expression Semantics v1 specification](docs/spec/core-scalar-expression-semantics-v1.md).
+The implemented Phase 17 Slice 3 computed-projection schema boundary is
+documented in
+[the Computed Projection Schema Propagation v1 specification](docs/spec/computed-projection-schema-propagation-v1.md).
 The conceptual relationship, endpoint-role, relation-role, cardinality,
 authority, and compiler-versus-runtime boundary is documented in
 [the Relationship And Relation Role Contract v1](docs/spec/relationship-relation-role-contract-v1.md).

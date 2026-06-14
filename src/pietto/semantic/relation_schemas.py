@@ -6,6 +6,7 @@ from collections.abc import Mapping
 
 from pietto.ast_nodes import (
     DottedNameExpr,
+    Expression,
     FromClause,
     NameExpr,
     QueryDef,
@@ -22,6 +23,8 @@ from pietto.semantic.model import (
     RowField,
     RowSchema,
     TypeKind,
+    ValueType,
+    ValueTypeKind,
 )
 
 RelationDefinition = SourceDef | TableDef | QueryDef
@@ -37,6 +40,7 @@ def propagate_relation_schemas(
     from_resolutions: Mapping[FromClause, RelationDefinition],
     source_row_schemas: Mapping[SourceDef, RowSchema],
     cyclic_relations: set[DerivedRelation],
+    expression_value_types: Mapping[Expression, ValueType] | None = None,
 ) -> tuple[dict[DerivedRelation, RowSchema], list[Diagnostic]]:
     """Propagate stable projection names through table and query relations."""
 
@@ -52,6 +56,7 @@ def propagate_relation_schemas(
                 definition,
                 _unknown_schema(),
                 mode=mode,
+                expression_value_types=expression_value_types,
             )
             schemas[definition] = schema
             diagnostics.extend(relation_diagnostics)
@@ -72,6 +77,7 @@ def propagate_relation_schemas(
             definition,
             input_schema,
             mode=mode,
+            expression_value_types=expression_value_types,
         )
         visiting.remove(definition)
         schemas[definition] = schema
@@ -90,6 +96,7 @@ def _project_schema(
     input_schema: RowSchema,
     *,
     mode: CheckMode,
+    expression_value_types: Mapping[Expression, ValueType] | None,
 ) -> tuple[RowSchema, list[Diagnostic]]:
     """Build ordered output fields from stable projection names."""
 
@@ -130,7 +137,11 @@ def _project_schema(
                 has_unknown_field = True
             elif isinstance(expression, DottedNameExpr):
                 has_unknown_field = True
-            fields[output_name] = _unknown_row_field(output_name)
+            fields[output_name] = _computed_row_field(
+                output_name,
+                expression,
+                expression_value_types=expression_value_types,
+            )
             continue
         fields[output_name] = _projected_row_field(output_name, input_field)
 
@@ -206,6 +217,28 @@ def _unknown_row_field(name: str) -> RowField:
         name=name,
         resolved_type=_UNKNOWN_RESOLVED_TYPE,
         nullability=EffectiveNullability.UNKNOWN,
+    )
+
+
+def _computed_row_field(
+    output_name: str,
+    expression: Expression,
+    *,
+    expression_value_types: Mapping[Expression, ValueType] | None,
+) -> RowField:
+    """Create an alias field from a known computed expression when available."""
+
+    value_type = (
+        None
+        if expression_value_types is None
+        else expression_value_types.get(expression)
+    )
+    if value_type is None or value_type.kind is ValueTypeKind.UNKNOWN:
+        return _unknown_row_field(output_name)
+    return RowField(
+        name=output_name,
+        resolved_type=value_type.resolved_type,
+        nullability=value_type.nullability,
     )
 
 
