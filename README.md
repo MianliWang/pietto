@@ -29,8 +29,9 @@ The current implementation status is:
   completion audit**;
 - **Phase 16 Language Direction And Safety Mode: complete as design,
   specification, and audit work only; Slices 1 through 4 complete**;
-- **Phase 17 Core SQL MVP Expansion: Slice 1 Single-Input Qualified Field
-  Binding complete**.
+- **Phase 17 Core SQL MVP Expansion: Slices 1 and 2 complete; single-input
+  qualified field binding and core scalar expression semantics are
+  implemented**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -58,6 +59,13 @@ relationship metadata, and emits a narrow SQL input alias only when qualified
 field SQL requires one. It does not add relation alias syntax, JOIN, relation
 composition, endpoint-qualified lookup, relationship-aware querying, runtime
 security, database behavior, JSON v2, new public SQL APIs, or dependencies.
+
+Phase 17 Slice 2 adds only semantic value typing for existing unary, binary,
+and `between` scalar expressions. It introduces `PIE-S2105` for invalid known
+operator operands, keeps `/` semantically deferred, uses existing `%` SQL
+renderer support, suppresses cascades from unknown children, and changes no
+grammar, generated ANTLR, SQL renderer, SQL golden, CLI, JSON, dependency,
+package, version, or CI behavior.
 
 The supported single-file CLI commands and forms include:
 
@@ -492,6 +500,8 @@ The implemented Phase 17 Slice 1 qualified-field boundary is documented in
 [the Phase 17 Core SQL MVP Expansion plan](docs/plan/phase-17-core-sql-mvp-expansion.md)
 and
 [the Single-Input Qualified Field Binding v1 specification](docs/spec/single-input-qualified-field-binding-v1.md).
+The implemented Phase 17 Slice 2 scalar-expression boundary is documented in
+[the Core Scalar Expression Semantics v1 specification](docs/spec/core-scalar-expression-semantics-v1.md).
 The conceptual relationship, endpoint-role, relation-role, cardinality,
 authority, and compiler-versus-runtime boundary is documented in
 [the Relationship And Relation Role Contract v1](docs/spec/relationship-relation-role-contract-v1.md).

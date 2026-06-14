@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from pietto.ast_nodes import (
+    BetweenExpr,
+    BinaryExpr,
     CallExpr,
     CheckDef,
     ComparisonExpr,
@@ -23,6 +25,7 @@ from pietto.ast_nodes import (
     SourceDef,
     TableDef,
     TypeExpr,
+    UnaryExpr,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.catalog import BUILTIN_FUNCTIONS, BuiltinFunction
@@ -339,6 +342,24 @@ def _infer(
             "Bool",
             EffectiveNullability.NON_NULL,
         )
+    elif isinstance(expression, UnaryExpr):
+        value_type = _unary_value_type(
+            expression,
+            row_schema,
+            value_types,
+            diagnostics,
+            report_unknown_name=report_unknown_name,
+            field_qualifier=field_qualifier,
+        )
+    elif isinstance(expression, BinaryExpr):
+        value_type = _binary_value_type(
+            expression,
+            row_schema,
+            value_types,
+            diagnostics,
+            report_unknown_name=report_unknown_name,
+            field_qualifier=field_qualifier,
+        )
     elif isinstance(expression, ComparisonExpr):
         _infer(
             expression.left,
@@ -360,6 +381,15 @@ def _infer(
             "Bool",
             EffectiveNullability.UNKNOWN,
         )
+    elif isinstance(expression, BetweenExpr):
+        value_type = _between_value_type(
+            expression,
+            row_schema,
+            value_types,
+            diagnostics,
+            report_unknown_name=report_unknown_name,
+            field_qualifier=field_qualifier,
+        )
     else:
         # Unsupported forms remain opaque so calls and arithmetic are not
         # accidentally checked through their child expressions.
@@ -367,6 +397,144 @@ def _infer(
 
     value_types[expression] = value_type
     return value_type
+
+
+def _unary_value_type(
+    expression: UnaryExpr,
+    row_schema: RowSchema,
+    value_types: dict[Expression, ValueType],
+    diagnostics: list[Diagnostic],
+    *,
+    report_unknown_name: bool,
+    field_qualifier: str | None,
+) -> ValueType:
+    """Type one prefix arithmetic expression."""
+
+    operand_type = _infer(
+        expression.operand,
+        row_schema,
+        value_types,
+        diagnostics,
+        report_unknown_name=report_unknown_name,
+        field_qualifier=field_qualifier,
+    )
+    if operand_type.kind is ValueTypeKind.UNKNOWN:
+        return _UNKNOWN_VALUE_TYPE
+    if not _is_numeric(operand_type):
+        diagnostics.append(
+            _invalid_operator_operands_diagnostic(
+                expression,
+                expected="numeric operand",
+            )
+        )
+        return _UNKNOWN_VALUE_TYPE
+    return ValueType(
+        resolved_type=operand_type.resolved_type,
+        nullability=operand_type.nullability,
+    )
+
+
+def _binary_value_type(
+    expression: BinaryExpr,
+    row_schema: RowSchema,
+    value_types: dict[Expression, ValueType],
+    diagnostics: list[Diagnostic],
+    *,
+    report_unknown_name: bool,
+    field_qualifier: str | None,
+) -> ValueType:
+    """Type one arithmetic or Boolean binary expression."""
+
+    left_type = _infer(
+        expression.left,
+        row_schema,
+        value_types,
+        diagnostics,
+        report_unknown_name=report_unknown_name,
+        field_qualifier=field_qualifier,
+    )
+    right_type = _infer(
+        expression.right,
+        row_schema,
+        value_types,
+        diagnostics,
+        report_unknown_name=report_unknown_name,
+        field_qualifier=field_qualifier,
+    )
+    if expression.operator == "/":
+        return _UNKNOWN_VALUE_TYPE
+    if (
+        left_type.kind is ValueTypeKind.UNKNOWN
+        or right_type.kind is ValueTypeKind.UNKNOWN
+    ):
+        return _UNKNOWN_VALUE_TYPE
+
+    if expression.operator in {"and", "or"}:
+        if _is_builtin(left_type, "Bool") and _is_builtin(right_type, "Bool"):
+            return _builtin_value_type("Bool", EffectiveNullability.UNKNOWN)
+        diagnostics.append(
+            _invalid_operator_operands_diagnostic(
+                expression,
+                expected="Bool operands",
+            )
+        )
+        return _UNKNOWN_VALUE_TYPE
+
+    if expression.operator == "%":
+        if _is_builtin(left_type, "Int") and _is_builtin(right_type, "Int"):
+            return _builtin_value_type("Int", EffectiveNullability.UNKNOWN)
+        diagnostics.append(
+            _invalid_operator_operands_diagnostic(
+                expression,
+                expected="Int operands",
+            )
+        )
+        return _UNKNOWN_VALUE_TYPE
+
+    if expression.operator in {"+", "-", "*"}:
+        if _is_numeric(left_type) and _is_numeric(right_type):
+            return_type = (
+                "Float"
+                if _is_builtin(left_type, "Float") or _is_builtin(right_type, "Float")
+                else "Int"
+            )
+            return _builtin_value_type(return_type, EffectiveNullability.UNKNOWN)
+        diagnostics.append(
+            _invalid_operator_operands_diagnostic(
+                expression,
+                expected="numeric operands",
+            )
+        )
+        return _UNKNOWN_VALUE_TYPE
+
+    return _UNKNOWN_VALUE_TYPE
+
+
+def _between_value_type(
+    expression: BetweenExpr,
+    row_schema: RowSchema,
+    value_types: dict[Expression, ValueType],
+    diagnostics: list[Diagnostic],
+    *,
+    report_unknown_name: bool,
+    field_qualifier: str | None,
+) -> ValueType:
+    """Type an inclusive between predicate without compatibility checks."""
+
+    child_types = tuple(
+        _infer(
+            child,
+            row_schema,
+            value_types,
+            diagnostics,
+            report_unknown_name=report_unknown_name,
+            field_qualifier=field_qualifier,
+        )
+        for child in (expression.value, expression.lower, expression.upper)
+    )
+    if any(child_type.kind is ValueTypeKind.UNKNOWN for child_type in child_types):
+        return _UNKNOWN_VALUE_TYPE
+    return _builtin_value_type("Bool", EffectiveNullability.UNKNOWN)
 
 
 def _call_value_type(
@@ -511,6 +679,21 @@ def _qualified_name_value_type(
     )
 
 
+def _is_numeric(value_type: ValueType) -> bool:
+    """Return whether a known value type is one of Pietto's numeric scalars."""
+
+    return _is_builtin(value_type, "Int") or _is_builtin(value_type, "Float")
+
+
+def _is_builtin(value_type: ValueType, name: str) -> bool:
+    """Return whether a known value type names one exact built-in type."""
+
+    return (
+        value_type.resolved_type.kind is TypeKind.BUILTIN
+        and value_type.resolved_type.name == name
+    )
+
+
 def _builtin_value_type(
     name: str,
     nullability: EffectiveNullability,
@@ -520,6 +703,30 @@ def _builtin_value_type(
     return ValueType(
         resolved_type=ResolvedType(name=name, kind=TypeKind.BUILTIN),
         nullability=nullability,
+    )
+
+
+def _invalid_operator_operands_diagnostic(
+    expression: UnaryExpr | BinaryExpr,
+    *,
+    expected: str,
+) -> Diagnostic:
+    """Report incompatible known operands at the full operator expression span."""
+
+    span = expression.span
+    return Diagnostic(
+        code="PIE-S2105",
+        severity=Severity.ERROR,
+        message=(
+            f"Invalid operands for operator {expression.operator}: expected {expected}"
+        ),
+        location=SourceLocation(
+            path=span.path,
+            line=span.line,
+            column=span.column,
+            end_line=span.end_line,
+            end_column=span.end_column,
+        ),
     )
 
 

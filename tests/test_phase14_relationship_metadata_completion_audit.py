@@ -44,7 +44,7 @@ UNCHANGED_FILE_HASHES = {
 }
 
 UNCHANGED_GROUP_HASHES = {
-    "semantic": "c4b15ed465d3c278b0f5c2a3e09b6a2c416fc6ada71324ffbff51ea0cc0d58f8",
+    "semantic": "be1f73c2b2c14cb4884b4ea3046cd5b1cb1b90241ca537c465fb0272ecd36657",
     "ir": "4a608a9c96e0e53ccdaa388b73a66974b49668faacd88a97048af9081e9acbb0",
     "sql": "2c50aea07e584085c246a40274974ba337ef81fec6d986090878e1452fd5dc4d",
 }

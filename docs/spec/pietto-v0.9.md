@@ -179,16 +179,21 @@ accepted syntax changes. Phase 16 introduced no compiler, runtime, or
 database behavior changes.
 
 Phase 17 Slice 1 Single-Input Qualified Field Binding is complete as a narrow
-compiler implementation slice. It treats this document as high-level language
-philosophy and treats the latest grammar plus the Phase 16 syntax-surface
-audit as authoritative for accepted syntax. The slice adds only semantic,
-Semantic IR, and PostgreSQL/MySQL SQL handling for existing two-part dotted
-field references in single-input relation `where`, `select`, and input-scope
-`order by` contexts. It adds no grammar, generated ANTLR, source `=`
-connectors, Pietto source `as`, relation alias syntax, JOIN, relation
-composition, endpoint-qualified lookup, relationship-aware querying, runtime
-security, database behavior, JSON version 2, new public SQL API, dependency,
-package, version, or CI change.
+compiler implementation slice. Phase 17 Slice 2 Core Scalar Expression
+Semantics is complete as a narrow semantic typing slice. These slices treat
+this document as high-level language philosophy and treat the latest grammar
+plus the Phase 16 syntax-surface audit as authoritative for accepted syntax.
+Slice 1 adds only semantic, Semantic IR, and PostgreSQL/MySQL SQL handling for
+existing two-part dotted field references in single-input relation `where`,
+`select`, and input-scope `order by` contexts. Slice 2 adds only semantic
+value typing for already-parsed unary, binary, and `between` scalar
+expressions, including `PIE-S2105` for invalid known operator operands. It
+keeps `/` semantically deferred and uses pre-existing `%` SQL renderer support.
+The slices add no grammar, generated ANTLR, source `=` connectors, Pietto
+source `as`, relation alias syntax, JOIN, relation composition,
+endpoint-qualified lookup, relationship-aware querying, runtime security,
+database behavior, JSON version 2, new public SQL API, dependency, package,
+version, or CI change.
 
 SQL is generated only. Database connections, SQL or connector execution,
 schema introspection, runtime services, project or multi-file support, watch
@@ -1711,8 +1716,9 @@ separate explicit authorization.
 
 ### Phase 17: Core SQL MVP Expansion
 
-Status: Slice 1 Single-Input Qualified Field Binding is complete. Later Phase
-17 slices remain planned only and require separate explicit authorization.
+Status: Slice 1 Single-Input Qualified Field Binding and Slice 2 Core Scalar
+Expression Semantics are complete. Later Phase 17 slices remain planned only
+and require separate explicit authorization.
 
 Slice 1 implements only semantic, Semantic IR, and SQL backend binding for
 already-accepted dotted expressions in existing single-input relation
@@ -1724,6 +1730,16 @@ input-scope `order by` expressions.
 Invalid qualified references reuse the existing `PIE-S2102` unknown-field
 diagnostic on the complete dotted expression span. No new diagnostic code is
 introduced or reserved.
+
+Slice 2 implements semantic value typing for existing parsed unary, binary,
+and `between` scalar expression nodes. Unary `+`/`-` require known numeric
+operands and preserve operand type/nullability. Arithmetic `+`, `-`, and `*`
+require known numeric operands and return `Float` if either side is `Float`,
+otherwise `Int`; `%` requires known `Int` operands and returns `Int`; `/`
+remains semantically unknown and deferred. Boolean `and`/`or` require known
+`Bool` operands. `between` returns `Bool` only when value, lower, and upper are
+known, without adding compatibility checks. Invalid known operator operands
+emit `PIE-S2105`; unknown children suppress `PIE-S2105` cascades.
 
 PostgreSQL and MySQL SQL backends emit a narrow SQL input alias only when a
 qualified field reference requires one. That backend `AS` is emitted SQL, not
@@ -1738,8 +1754,9 @@ composition, SQL lowering from relationships, runtime authorization,
 database security, database connections, connector execution, SQL execution,
 JSON version 2, a public MySQL API, a generic SQL API, or a new dependency.
 
-The normative contract is
-`docs/spec/single-input-qualified-field-binding-v1.md`; the phase plan is
+The normative contracts are
+`docs/spec/single-input-qualified-field-binding-v1.md` and
+`docs/spec/core-scalar-expression-semantics-v1.md`; the phase plan is
 `docs/plan/phase-17-core-sql-mvp-expansion.md`.
 
 ---

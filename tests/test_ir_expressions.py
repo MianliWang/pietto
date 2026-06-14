@@ -216,7 +216,7 @@ def test_is_null_forms_lower_with_negation(
     assert result.expression.value_type.nullability is NullabilityIR.NON_NULL
 
 
-def test_current_opaque_expression_forms_lower_with_unknown_types() -> None:
+def test_scalar_expression_forms_lower_with_semantic_types() -> None:
     script, model = _analyzed(
         SOURCE + "table projected:\n"
         "    from users\n"
@@ -242,10 +242,13 @@ def test_current_opaque_expression_forms_lower_with_unknown_types() -> None:
     assert isinstance(lowered[0], UnaryIR)
     assert isinstance(lowered[1], BinaryIR)
     assert isinstance(lowered[2], BetweenIR)
-    assert all(
-        expression is not None and expression.value_type.kind is TypeKindIR.UNKNOWN
-        for expression in lowered
-    )
+    assert lowered[0] is not None
+    assert lowered[0].value_type.canonical_name == "Int"
+    assert lowered[0].value_type.nullability is NullabilityIR.NON_NULL
+    assert lowered[1] is not None
+    assert lowered[1].value_type.canonical_name == "Int"
+    assert lowered[2] is not None
+    assert lowered[2].value_type.canonical_name == "Bool"
 
 
 def test_unknown_expression_value_type_lowers_without_crashing() -> None:

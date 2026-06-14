@@ -164,11 +164,15 @@ Phase 17 Slice 1 Single-Input Qualified Field Binding is complete as a narrow
 compiler slice. It adds only semantic, Semantic IR, and PostgreSQL/MySQL SQL
 handling for already-parsed two-part dotted field references in existing
 single-input relation `where`, `select`, and input-scope `order by` contexts.
-It reuses existing unknown-field diagnostics, keeps relationship metadata
-outside lookup, and adds no grammar, generated ANTLR, parser, AST, relation
-alias syntax, JOIN, relation composition, endpoint-qualified lookup,
-relationship-aware querying, runtime security, database behavior, JSON v2,
-new public SQL API, dependency, package, version, or CI change.
+Phase 17 Slice 2 Core Scalar Expression Semantics is complete as a narrow
+semantic typing slice for already-parsed unary, binary, and `between`
+expressions. It adds only `PIE-S2105` for invalid known operator operands,
+keeps `/` semantically deferred, and uses pre-existing `%` SQL renderer
+support. These slices keep relationship metadata outside lookup and add no
+grammar, generated ANTLR, parser, AST, relation alias syntax, JOIN, relation
+composition, endpoint-qualified lookup, relationship-aware querying, runtime
+security, database behavior, JSON v2, new public SQL API, dependency, package,
+version, or CI change.
 
 Phase 13 Relation Composition And Relationship Planning is complete as
 planning, contract, and audit work only. Slices 1 through 6 are complete.
@@ -517,7 +521,10 @@ audit, static audit coverage, and status documentation. Phase 16 Slice 4 adds
 only the final completion audit and status documentation. Phase 16 is complete
 as design, specification, and audit work only. Phase 17 Slice 1 adds only
 single-input qualified field binding for existing dotted expressions and the
-corresponding narrow Semantic IR and SQL backend handling.
+corresponding narrow Semantic IR and SQL backend handling. Phase 17 Slice 2
+adds only core scalar expression semantic typing and `PIE-S2105`; it changes
+no grammar, generated ANTLR, SQL renderer, SQL golden, CLI, JSON, dependency,
+package, version, or CI behavior.
 
 Current strict boundaries remain:
 
@@ -585,10 +592,11 @@ SQL-portability design, specification, and audit work only. Phase 16 Slice 3
 is complete as syntax-surface audit only. Phase 16 Slice 4 completes the final
 audit and status work only. Phase 16 is complete with no production
 implementation authorization.
-Phase 17 Slice 1 is complete as a narrow single-input qualified field binding
-implementation and does not authorize grammar changes, JOIN, relation
-composition, endpoint-qualified lookup, runtime behavior, or public API
-expansion.
+Phase 17 Slices 1 and 2 are complete as narrow implementation slices for
+single-input qualified field binding and core scalar expression semantic
+typing. They do not authorize grammar changes, JOIN, relation composition,
+endpoint-qualified lookup, aggregate/grouping work, runtime behavior, or
+public API expansion.
 The private MySQL backend, static `mysql.table(Text)` semantic/IR surface, and
 closed renderer are the MySQL compiler boundaries. Explicit private CLI
 dispatch and JSON v1 presentation are enabled. Public emitter export, a
