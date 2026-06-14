@@ -1,7 +1,7 @@
 # Pietto v0.9 Whitepaper and Language Reference
 
 Version: v0.9 draft
-Status: Phase 1 through Phase 15 complete; Phase 16 Slice 1 complete as design, specification, and audit work only
+Status: Phase 1 through Phase 15 complete; Phase 16 Slices 1 and 2 complete as design, specification, and audit work only
 Supported Python baseline: Python >=3.12; Phase 11 CI: Python 3.12/3.13
 Primary SQL target: PostgreSQL; MySQL 8.0+ generation MVP supported
 Preferred package manager: uv-first
@@ -152,8 +152,16 @@ Phase 16 Slice 1 is complete as design, specification, and audit work only.
 The normative `docs/spec/language-direction-v1.md` contract records Pietto's
 typed SQL authoring identity, indentation-based syntax philosophy,
 relationship-metadata position, and compile-time versus runtime security
-boundary. Slices 2 through 4 remain planned only. No syntax, compiler,
-runtime, database, public API, dependency, or output-format behavior changes.
+boundary.
+
+Phase 16 Slice 2 is complete as design, specification, and audit work only.
+The normative `docs/spec/safety-deferral-and-sql-portability-v1.md` contract
+prioritizes SQL portability, deterministic lossless lowering within supported
+dialect subsets, explicit backend contracts, and fail-closed unsupported
+behavior. It defers speculative safety and policy syntax and freezes
+relationship metadata as secondary read-only metadata. Slices 3 and 4 remain
+planned only. No syntax, compiler, runtime, database, public API, dependency,
+or output-format behavior changes.
 
 SQL is generated only. Database connections, SQL or connector execution,
 schema introspection, runtime services, project or multi-file support, watch
@@ -1620,8 +1628,9 @@ Future implementation requires separate explicit authorization.
 ### Phase 16: Language Direction And Safety Mode
 
 Status: Slice 1 Language Direction and Syntax Philosophy is complete as
-design, specification, and audit work only. Slice 2 Safety Surface and Strict
-Mode Contract, Slice 3 Current Syntax Surface Audit, and Slice 4 Phase 16
+design, specification, and audit work only. Slice 2 Safety Surface Deferral
+and SQL Portability Contract is complete as design, specification, and audit
+work only. Slice 3 Current Syntax Surface Audit and Slice 4 Phase 16
 Completion Audit are planned only.
 
 Slice 1 adds `docs/spec/language-direction-v1.md`,
@@ -1631,15 +1640,27 @@ indentation-based, typed SQL authoring DSL with a small compiler-safe core,
 diagnostic-first failures, and explicit handling of dangerous or ambiguous
 operations.
 
+Slice 2 adds `docs/spec/safety-deferral-and-sql-portability-v1.md`, focused
+static audit coverage, and minimal status updates. It defines lossless
+lowering as deterministic lowering within a supported subset, explicit
+dialect contracts, reviewed SQL goldens, no silent semantic approximation,
+and fail-closed unsupported behavior. Exposure, purpose, permission,
+authority, capability-token, Rust-like `impl`/evidence, and new safety/policy
+strict-mode syntax or implementation remain deferred. Existing compile-time
+`mode strict` behavior remains unchanged and is not a policy or runtime
+security mode.
+
 Relationship metadata remains secondary descriptive metadata rather than the
-center of normal query authoring. This slice adds no relationship-aware
-querying, JOIN, composition, SQL lowering, strict mode, runtime authorization,
-database behavior, JSON version 2, public API, dependency, version, package,
-or CI change.
+center of normal query authoring and is frozen as read-only metadata. Slices 1
+and 2 add no relationship-aware querying, JOIN, composition, SQL lowering,
+strict mode, runtime authorization, database behavior, JSON version 2, public
+API, dependency, version, package, or CI change.
 
 The normative direction and the four-slice design/audit sequence are
 documented in `docs/spec/language-direction-v1.md` and
-`docs/plan/phase-16-language-direction-safety-mode.md`. No Phase 16 slice
+`docs/plan/phase-16-language-direction-safety-mode.md`. The portability and
+deferral contract is
+`docs/spec/safety-deferral-and-sql-portability-v1.md`. No Phase 16 slice
 authorizes a later slice or production implementation automatically.
 
 ---

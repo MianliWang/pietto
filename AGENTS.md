@@ -137,7 +137,14 @@ Phase 16 Slice 1 Language Direction and Syntax Philosophy is complete as
 design, specification, and audit work only. It adds
 `docs/spec/language-direction-v1.md`,
 `docs/plan/phase-16-language-direction-safety-mode.md`, focused static audit
-coverage, and minimal status documentation. Slices 2 through 4 remain planned
+coverage, and minimal status documentation.
+
+Phase 16 Slice 2 Safety Surface Deferral and SQL Portability Contract is
+complete as design, specification, and audit work only. It adds
+`docs/spec/safety-deferral-and-sql-portability-v1.md` and focused static audit
+coverage. It prioritizes explicit dialect contracts, deterministic lossless
+lowering within supported subsets, and fail-closed unsupported behavior while
+deferring speculative safety and policy syntax. Slices 3 and 4 remain planned
 only. Phase 16 adds no syntax, compiler, runtime, database, public API,
 dependency, or output-format behavior unless separately authorized.
 
@@ -481,8 +488,9 @@ metadata. Phase 15 Slice 3 adds only
 coverage; it adds no runtime behavior. Phase 15 Slice 4 adds only the final
 completion audit and status documentation. Phase 15 is complete. Phase 16
 Slice 1 adds only the language-direction specification, four-slice
-design/audit plan, static audit, and status documentation. Phase 16 Slices 2
-through 4 remain planned only.
+design/audit plan, static audit, and status documentation. Phase 16 Slice 2
+adds only the safety-deferral and SQL-portability contract, static audit, and
+status documentation. Phase 16 Slices 3 and 4 remain planned only.
 
 Current strict boundaries remain:
 
@@ -545,8 +553,9 @@ implements no relation composition, endpoint-qualified lookup, multi-input
 query semantics, or ambiguity diagnostic. Phase 15 Slice 4 completes the
 semantic-only phase with a strict audit and no compiler or runtime behavior.
 Phase 16 Slice 1 is complete as language-direction design, specification, and
-audit work only; Slices 2 through 4 remain planned only, with no production
-implementation authorization.
+audit work only. Phase 16 Slice 2 is complete as safety-deferral and
+SQL-portability design, specification, and audit work only. Slices 3 and 4
+remain planned only, with no production implementation authorization.
 The private MySQL backend, static `mysql.table(Text)` semantic/IR surface, and
 closed renderer are the MySQL compiler boundaries. Explicit private CLI
 dispatch and JSON v1 presentation are enabled. Public emitter export, a

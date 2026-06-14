@@ -27,8 +27,8 @@ The current implementation status is:
 - **Phase 15 Relationship Metadata Semantics: complete; Slices 1 through 4
   cover validation, read-only semantic storage, name-ownership contract, and
   completion audit**;
-- **Phase 16 Language Direction And Safety Mode: Slice 1 complete as design,
-  specification, and audit work only; Slices 2 through 4 planned only**.
+- **Phase 16 Language Direction And Safety Mode: Slices 1 and 2 complete as
+  design, specification, and audit work only; Slices 3 and 4 planned only**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -383,9 +383,15 @@ Phase 16 Slice 1 is complete as design, specification, and audit work only.
 It records Pietto's typed SQL authoring identity, syntax philosophy,
 relationship-metadata position, and compile-time versus runtime security
 boundary in
-[Language Direction v1](docs/spec/language-direction-v1.md). Slices 2 through
-4 remain planned only, and this slice adds no syntax, compiler, runtime,
-database, public API, dependency, or output-format behavior.
+[Language Direction v1](docs/spec/language-direction-v1.md).
+
+Phase 16 Slice 2 is complete as design, specification, and audit work only.
+It prioritizes SQL portability, explicit dialect contracts, deterministic
+lossless lowering within supported subsets, and fail-closed unsupported
+behavior. Speculative safety and policy syntax remains deferred, relationship
+metadata remains secondary read-only metadata, and Slices 3 and 4 remain
+planned only. This slice adds no syntax, compiler, runtime, database, public
+API, dependency, or output-format behavior.
 
 The implemented source/token limits are deterministic parser/frontend
 containment, not complete denial-of-service protection. Pietto has not added
@@ -452,6 +458,9 @@ planned four-slice design/audit sequence are documented in
 [the Phase 16 Language Direction And Safety Mode plan](docs/plan/phase-16-language-direction-safety-mode.md)
 and
 [the Language Direction v1 specification](docs/spec/language-direction-v1.md).
+The Slice 2 lossless-lowering, dialect-contract, safety-deferral, and
+relationship-freeze boundary is documented in
+[the Safety Deferral And SQL Portability v1 specification](docs/spec/safety-deferral-and-sql-portability-v1.md).
 The conceptual relationship, endpoint-role, relation-role, cardinality,
 authority, and compiler-versus-runtime boundary is documented in
 [the Relationship And Relation Role Contract v1](docs/spec/relationship-relation-role-contract-v1.md).

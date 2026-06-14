@@ -5,7 +5,8 @@
 **Phase 16 Slice 1: Language Direction and Syntax Philosophy is complete as
 design, specification, and audit work only.**
 
-**Phase 16 Slice 2: Safety Surface and Strict Mode Contract is planned only.**
+**Phase 16 Slice 2: Safety Surface Deferral and SQL Portability Contract is
+complete as design, specification, and audit work only.**
 
 **Phase 16 Slice 3: Current Syntax Surface Audit is planned only.**
 
@@ -30,6 +31,11 @@ The phase keeps compile-time checking separate from runtime and database
 security claims. It does not turn relationship metadata into the center of
 query authoring or authorize relationship-aware query behavior.
 
+The Slice 2 portability and deferral contract is
+`docs/spec/safety-deferral-and-sql-portability-v1.md`. It re-centers future
+design on lossless lowering within explicit dialect subsets and keeps
+speculative safety and policy syntax deferred.
+
 ## Slice 1: Language Direction and Syntax Philosophy
 
 Slice 1 adds only:
@@ -46,14 +52,29 @@ candidate directions, and explicit non-goals. It adds no accepted source
 syntax, compiler behavior, diagnostic code, public API, dependency, runtime,
 or database capability.
 
-## Slice 2: Safety Surface and Strict Mode Contract
+## Slice 2: Safety Surface Deferral and SQL Portability Contract
 
-Slice 2 is planned as contract and audit work only. It will inventory the
-current safety surface and distinguish existing check-mode behavior from any
-future strict-mode concept. It may define design criteria for explicitness,
-ambiguity rejection, diagnostic escalation, and compatibility, but it may not
-add a mode, CLI option, parser form, semantic rule, diagnostic code, or
-runtime guarantee without separate authorization.
+Slice 2 is complete as design, specification, and audit work only. It adds
+only:
+
+- `docs/spec/safety-deferral-and-sql-portability-v1.md`;
+- `tests/test_phase16_safety_deferral_sql_portability.py`;
+- this plan and minimal status-document updates;
+- the necessary fixed plan hash and Slice 2 status adjustment in the Slice 1
+  audit.
+
+The contract prioritizes deterministic, lossless lowering within documented
+dialect subsets, explicit backend contracts, reviewed SQL goldens, no silent
+semantic approximation, and fail-closed unsupported behavior. It defers
+exposure, purpose, permission, authority, capability-token, Rust-like
+`impl`/evidence, and new safety/policy strict-mode syntax or implementation.
+The existing compile-time `mode strict` vocabulary remains unchanged and is
+not redefined as policy or runtime security.
+
+Relationship metadata remains frozen as secondary read-only metadata. Slice 2
+adds no relationship composition, JOIN lowering, endpoint-qualified lookup,
+role enforcement, security model, mode, CLI option, parser form, semantic
+rule, diagnostic code, runtime guarantee, or database behavior.
 
 ## Slice 3: Current Syntax Surface Audit
 
@@ -84,7 +105,7 @@ machine-readable CLI interface.
 
 ## Deferred Work
 
-Phase 16 Slice 1 does not implement or authorize strict mode,
+Phase 16 Slices 1 and 2 do not implement or authorize strict mode,
 relationship-aware querying, JOIN, relation composition, SQL lowering,
 aggregates, measures, project workflow, runtime authorization, access control,
 privacy enforcement, database connections, connector or SQL execution,
