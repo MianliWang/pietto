@@ -103,6 +103,14 @@ class ExpressionIR:
 
 
 @dataclass(frozen=True, slots=True)
+class AggregateCallIR(ExpressionIR):
+    """A lowered aggregate call expression without SQL rendering behavior."""
+
+    function: str
+    arguments: tuple[ExpressionIR, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class LiteralIR(ExpressionIR):
     """A lowered scalar literal."""
 

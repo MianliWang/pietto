@@ -21,6 +21,7 @@ from pietto.ast_nodes import (
 )
 from pietto.ir.diagnostics import missing_semantic_fact_diagnostic
 from pietto.ir.model import (
+    AggregateCallIR,
     BetweenIR,
     BinaryIR,
     CallIR,
@@ -42,6 +43,10 @@ from pietto.ir.model import (
     UnaryIR,
 )
 from pietto.semantic.catalog import BUILTIN_FUNCTIONS
+from pietto.semantic.aggregates import (
+    COUNT_AGGREGATE_NAME,
+    is_count_aggregate_call,
+)
 from pietto.semantic import (
     EffectiveNullability,
     ResolvedType,
@@ -165,15 +170,16 @@ def _lower_expr_node(
 ) -> ExpressionIR:
     """Recursively copy one expression into parser-independent IR."""
 
+    value_type = lower_value_type(
+        semantic_model.expression_value_types.get(
+            expression,
+            _UNKNOWN_VALUE_TYPE,
+        ),
+        semantic_model,
+    )
     common = {
         "span": lower_span(expression.span),
-        "value_type": lower_value_type(
-            semantic_model.expression_value_types.get(
-                expression,
-                _UNKNOWN_VALUE_TYPE,
-            ),
-            semantic_model,
-        ),
+        "value_type": value_type,
     }
 
     if isinstance(expression, LiteralExpr):
@@ -204,6 +210,20 @@ def _lower_expr_node(
         )
     if isinstance(expression, CallExpr):
         callee = _callee_name(expression)
+        if (
+            is_count_aggregate_call(expression)
+            and not expression.arguments
+            and _is_valid_count_aggregate_projection(
+                expression,
+                semantic_model,
+                value_type,
+            )
+        ):
+            return AggregateCallIR(
+                function=COUNT_AGGREGATE_NAME,
+                arguments=(),
+                **common,
+            )
         callee_symbol = None
         if callee in BUILTIN_FUNCTIONS:
             callee_symbol = SymbolId(SymbolNamespace.CALLABLE, callee)
@@ -318,6 +338,40 @@ def _callee_name(expression: CallExpr) -> str:
     if isinstance(expression.callee, NameExpr):
         return expression.callee.name
     return ".".join(expression.callee.parts)
+
+
+def _is_precise_count_aggregate_type(value_type: TypeRefIR) -> bool:
+    """Return whether semantics accepted the no-GROUP count() result type."""
+
+    return (
+        value_type.canonical_kind is TypeKindIR.BUILTIN
+        and value_type.canonical_name == "Int"
+        and value_type.nullability is NullabilityIR.NON_NULL
+    )
+
+
+def _is_valid_count_aggregate_projection(
+    expression: CallExpr,
+    semantic_model: SemanticModel,
+    value_type: TypeRefIR,
+) -> bool:
+    """Return whether this call is a precise output projection aggregate."""
+
+    if not _is_precise_count_aggregate_type(value_type):
+        return False
+
+    for relation, schema in semantic_model.relation_row_schemas.items():
+        for item in relation.select_items:
+            if item.expression is not expression or item.alias is None:
+                continue
+            field = schema.fields.get(item.alias)
+            return (
+                field is not None
+                and field.resolved_type.kind is TypeKind.BUILTIN
+                and field.resolved_type.name == "Int"
+                and field.nullability is EffectiveNullability.NON_NULL
+            )
+    return False
 
 
 def _is_static_connector_call(expression: Expression) -> bool:

@@ -2,6 +2,7 @@
 
 from pietto.ir.builder import build_ir
 from pietto.ir.model import (
+    AggregateCallIR,
     BetweenIR,
     BinaryIR,
     CallIR,
@@ -46,6 +47,7 @@ from pietto.ir.model import (
 )
 
 __all__ = [
+    "AggregateCallIR",
     "BetweenIR",
     "BinaryIR",
     "CallIR",

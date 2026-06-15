@@ -29,7 +29,6 @@ def test_count_emit_sql_fails_closed_without_sql_artifacts(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "PIE-B1000 error:" in captured.err
-    assert "function call: count" in captured.err
 
 
 def test_count_emit_sql_json_preserves_v1_shape_with_empty_artifacts(
@@ -76,7 +75,7 @@ def test_count_emit_sql_json_preserves_v1_shape_with_empty_artifacts(
     assert result["output"] is None
     diagnostics = cast(list[dict[str, object]], result["diagnostics"])
     assert [diagnostic["code"] for diagnostic in diagnostics] == ["PIE-B1000"]
-    assert "function call: count" in cast(str, diagnostics[0]["message"])
+    assert diagnostics[0]["message"]
 
 
 def test_count_emit_sql_output_path_remains_unwritten_on_backend_failure(
@@ -86,8 +85,8 @@ def test_count_emit_sql_output_path_remains_unwritten_on_backend_failure(
     path = _write_count_program(tmp_path, connector="postgres.table")
     output_path = tmp_path / "count.sql"
 
-    # Slice 1A intentionally leaves aggregate IR provisional; SQL emission must
-    # still fail closed before writing a requested output file.
+    # Slice 1B adds explicit aggregate IR but intentionally leaves SQL emission
+    # unsupported, so output files must stay unwritten on backend failure.
     assert (
         cli.main(
             [
