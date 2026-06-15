@@ -43,7 +43,7 @@ INPUT_HASHES = {
         "2383731c2b9d78f8cf73da8e9d47f973b6eef93eb20e0f03d8f045307b788534"
     ),
     "tests/test_phase13_completion_audit.py": (
-        "fba1faf1c0d2fd1335af03fd53d804c81872d4df675365d555eeded65cef9c64"
+        "0d420b329f30b005042493caa7a1dbbcd5d15c35f1d7fb85f0635c72f02ed59c"
     ),
 }
 
@@ -64,7 +64,7 @@ FILE_HASHES = {
         "b126059cd0aebe9535fceb9b0a1b1c09ee1ba22af13f70d276d7e013c49c60e7"
     ),
     "scripts/check_goldens.py": (
-        "f25c22282e443e0ade67fab3eebef0606137f6aacb4918b0fd0c7847bf160ec2"
+        "be2be3b23e3e12db7a3beb0458f0c774fa3d14a06435177514da07813646fc4f"
     ),
     "scripts/package_smoke.py": (
         "61de7eec8f26476e39d05305642ecde0a55d1030513ce91f627cac45517c1131"
@@ -75,12 +75,12 @@ GROUP_HASHES = {
     "frontend": "4af1382a5d1e4464f492f0c267d500fbeb667bff819dcbcad11b346f33d87e8b",
     "semantic": "985dfb91724eebebca4f4f47fcd7398eed783afacf1ed1712d656fb476e6ac5b",
     "ir": "f8f6501262c48cd047f940e80811465f076397b564a1c999c5cc04bda9011b41",
-    "sql": "2c50aea07e584085c246a40274974ba337ef81fec6d986090878e1452fd5dc4d",
+    "sql": "0f5c5bd51481c667cc48f202978baad4b0800a4813ec9cc3203f2d58fc2a2229",
     "generated": "44dad9dc2fced336b8e102a558be94786fb7618fd860a3ef6f6d56e49fdebf1f",
     "cli": "235d4e50c3474306253dfc6b118e2518b3e300e90f7fbe9903263a39cbdc42a0",
 }
 
-GOLDENS_HASH = "95cfa63b29c70b4d26fcc4d8123cc6c99051b08897368245ae851315de2b6b72"
+GOLDENS_HASH = "8dc2b3200718f9b84bc5a40f166d7bdff760d44a7b78f5f0e01b5799bdba9e62"
 
 
 def test_slice2_status_inputs_and_single_candidate_decision() -> None:
@@ -351,7 +351,7 @@ def test_production_generated_dependency_api_json_golden_and_ci_are_locked() -> 
     assert "def emit_sql(" not in _runtime_text()
     assert "_SCHEMA_VERSION = 1" in cli_json
     assert "_SCHEMA_VERSION = 2" not in cli_json
-    assert len(goldens) == 15
+    assert len(goldens) == 17
     assert _aggregate_files(goldens) == GOLDENS_HASH
     assert re.search(r"(?m)^permissions:\n  contents: read$", workflow)
     assert '"3.12"' in workflow

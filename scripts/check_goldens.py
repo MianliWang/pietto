@@ -12,12 +12,14 @@ GOLDEN_ROOT = Path("tests/fixtures/golden")
 
 SQL_FIXTURES = frozenset(
     {
+        "emit_mysql_count_aggregate.sql",
         "emit_mysql_compatibility_expressions.sql",
         "emit_mysql_compatibility_literals_identifiers.sql",
         "emit_mysql_compatibility_ordering_metadata.sql",
         "emit_mysql_order_limit_composition.sql",
         "emit_sql_active_user_emails.sql",
         "emit_sql_active_users.sql",
+        "emit_sql_count_aggregate.sql",
         "emit_sql_compatibility_expressions.sql",
         "emit_sql_compatibility_literals_identifiers.sql",
         "emit_sql_compatibility_ordering_metadata.sql",
@@ -50,12 +52,18 @@ FIXTURE_INPUTS: dict[str, tuple[str, ...]] = {
     "emit_mysql_compatibility_ordering_metadata.sql": (
         "tests/fixtures/mysql/compatibility_ordering_metadata.pietto",
     ),
+    "emit_mysql_count_aggregate.sql": (
+        "tests/fixtures/phase19/mysql_count_aggregate.pietto",
+    ),
     "emit_mysql_order_limit_composition.sql": (
         "tests/fixtures/phase12/mysql_order_limit_composition.pietto",
     ),
     "emit_sql_active_user_emails.sql": ("examples/queries/active_user_emails.pietto",),
     "emit_sql_active_users.json": ("examples/tables/active_users.pietto",),
     "emit_sql_active_users.sql": ("examples/tables/active_users.pietto",),
+    "emit_sql_count_aggregate.sql": (
+        "tests/fixtures/phase19/postgres_count_aggregate.pietto",
+    ),
     "emit_sql_compatibility_expressions.sql": (
         "tests/fixtures/postgres/compatibility_expressions.pietto",
     ),
@@ -78,6 +86,7 @@ REFERENCE_TESTS = (
     Path("tests/test_phase10_mysql_cli_enablement.py"),
     Path("tests/test_phase10_mysql_golden_corpus.py"),
     Path("tests/test_phase12_composition_cli_json_goldens.py"),
+    Path("tests/test_phase19_count_sql.py"),
 )
 
 

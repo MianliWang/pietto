@@ -247,7 +247,7 @@ def test_api_json_dependency_golden_ci_version_and_source_boundaries_hold() -> N
     assert "_SCHEMA_VERSION = 1" in cli_json
     assert "sqlglot" not in _read("pyproject.toml").lower()
     assert "sqlglot" not in _read("uv.lock").lower()
-    assert len(tuple((REPO_ROOT / "tests/fixtures/golden").iterdir())) == 15
+    assert len(tuple((REPO_ROOT / "tests/fixtures/golden").iterdir())) == 17
 
 
 def test_runtime_has_no_security_composition_or_diagnostic_implementation_markers() -> (

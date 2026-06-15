@@ -46,7 +46,7 @@ EXPECTED_ACTIONS = {
 EXPECTED_BLOBS = {
     "scripts/validate.py": "4387101bc68e13539c74c45b595ba742ca17c9c0",
     "scripts/check_generated.py": "51081d5337e0659e73f8666ba639c0d4c3fe3a4b",
-    "scripts/check_goldens.py": "8adcf436b65fa90eae290dacd68d3d821d439a9e",
+    "scripts/check_goldens.py": "167f96a48b698caa2c878639897f4d9cf9652b01",
     "scripts/package_smoke.py": "a8f191cb52fbaf4c2c1a2dac4a500fd6a107e859",
     ".github/workflows/ci.yml": "bd8fb78e0c491041906d13865b8267bf5d7e7050",
 }
@@ -62,7 +62,7 @@ EXPECTED_GROUPS = {
     "frontend": "4af1382a5d1e4464f492f0c267d500fbeb667bff819dcbcad11b346f33d87e8b",
     "semantic": "985dfb91724eebebca4f4f47fcd7398eed783afacf1ed1712d656fb476e6ac5b",
     "ir": "f8f6501262c48cd047f940e80811465f076397b564a1c999c5cc04bda9011b41",
-    "sql": "2c50aea07e584085c246a40274974ba337ef81fec6d986090878e1452fd5dc4d",
+    "sql": "0f5c5bd51481c667cc48f202978baad4b0800a4813ec9cc3203f2d58fc2a2229",
     "generated": "44dad9dc2fced336b8e102a558be94786fb7618fd860a3ef6f6d56e49fdebf1f",
     "cli": "235d4e50c3474306253dfc6b118e2518b3e300e90f7fbe9903263a39cbdc42a0",
 }
@@ -97,8 +97,8 @@ MYSQL_GOLDENS = {
         "d3f9d327725f9f37ac931a48d80a69462ddd99a193cf8b868833d1350302bbab"
     ),
 }
-ALL_GOLDENS_HASH = "95cfa63b29c70b4d26fcc4d8123cc6c99051b08897368245ae851315de2b6b72"
-BOUNDARY_HASH = "9f8f242307a02abc4a3c8a6b9fdff45a9d9902086ac7528d6d55de1955fe282b"
+ALL_GOLDENS_HASH = "8dc2b3200718f9b84bc5a40f166d7bdff760d44a7b78f5f0e01b5799bdba9e62"
+BOUNDARY_HASH = "13d828dbca6bec91d32b9fbbfbb2c9f5d5fc06717fff17959bd3d43eea0ae67e"
 
 
 def _load_module(name: str, path: Path) -> ModuleType:

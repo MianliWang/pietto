@@ -10,28 +10,40 @@ import pietto.cli as cli
 
 
 @pytest.mark.parametrize(
-    ("dialect", "connector"),
+    ("dialect", "connector", "expected_sql"),
     [
-        ("postgres", "postgres.table"),
-        ("mysql", "mysql.table"),
+        (
+            "postgres",
+            "postgres.table",
+            "SELECT\n"
+            '    COUNT(*) AS "total"\n'
+            'FROM "orders"\n'
+            "WHERE \"status\" = 'paid'\n",
+        ),
+        (
+            "mysql",
+            "mysql.table",
+            "SELECT\n    COUNT(*) AS `total`\nFROM `orders`\nWHERE `status` = 'paid'\n",
+        ),
     ],
 )
-def test_count_emit_sql_fails_closed_without_sql_artifacts(
+def test_count_emit_sql_succeeds_with_sql_artifact(
     dialect: str,
     connector: str,
+    expected_sql: str,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     path = _write_count_program(tmp_path, connector=connector)
 
-    assert cli.main(["emit-sql", str(path), "--dialect", dialect]) == 1
+    assert cli.main(["emit-sql", str(path), "--dialect", dialect]) == 0
 
     captured = capsys.readouterr()
-    assert captured.out == ""
-    assert "PIE-B1000 error:" in captured.err
+    assert captured.out == expected_sql
+    assert captured.err == ""
 
 
-def test_count_emit_sql_json_preserves_v1_shape_with_empty_artifacts(
+def test_count_emit_sql_json_preserves_v1_success_shape(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -48,7 +60,7 @@ def test_count_emit_sql_json_preserves_v1_shape_with_empty_artifacts(
                 "json",
             ]
         )
-        == 1
+        == 0
     )
 
     captured = capsys.readouterr()
@@ -68,25 +80,33 @@ def test_count_emit_sql_json_preserves_v1_shape_with_empty_artifacts(
     }
     assert result["schema_version"] == 1
     assert result["command"] == "emit-sql"
-    assert result["ok"] is False
+    assert result["ok"] is True
     assert result["dialect"] == "postgres"
+    assert result["diagnostics"] == []
     assert result["cli_errors"] == []
-    assert result["artifacts"] == []
     assert result["output"] is None
-    diagnostics = cast(list[dict[str, object]], result["diagnostics"])
-    assert [diagnostic["code"] for diagnostic in diagnostics] == ["PIE-B1000"]
-    assert diagnostics[0]["message"]
+    artifacts = cast(list[dict[str, object]], result["artifacts"])
+    assert artifacts == [
+        {
+            "kind": "relation",
+            "name": "paid_order_stats",
+            "sql": (
+                "SELECT\n"
+                '    COUNT(*) AS "total"\n'
+                'FROM "orders"\n'
+                "WHERE \"status\" = 'paid'"
+            ),
+        }
+    ]
 
 
-def test_count_emit_sql_output_path_remains_unwritten_on_backend_failure(
+def test_count_emit_sql_output_path_is_written_on_success(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     path = _write_count_program(tmp_path, connector="postgres.table")
     output_path = tmp_path / "count.sql"
 
-    # Slice 1B adds explicit aggregate IR but intentionally leaves SQL emission
-    # unsupported, so output files must stay unwritten on backend failure.
     assert (
         cli.main(
             [
@@ -100,16 +120,18 @@ def test_count_emit_sql_output_path_remains_unwritten_on_backend_failure(
                 str(output_path),
             ]
         )
-        == 1
+        == 0
     )
 
     captured = capsys.readouterr()
     result = cast(dict[str, object], json.loads(captured.out))
 
     assert captured.err == ""
-    assert result["artifacts"] == []
-    assert result["output"] == {"path": str(output_path), "written": False}
-    assert not output_path.exists()
+    assert result["diagnostics"] == []
+    assert result["output"] == {"path": str(output_path), "written": True}
+    assert output_path.read_text(encoding="utf-8") == (
+        'SELECT\n    COUNT(*) AS "total"\nFROM "orders"\nWHERE "status" = \'paid\'\n'
+    )
 
 
 def _write_count_program(

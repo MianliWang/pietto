@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pietto.ir.model import (
+    AggregateCallIR,
     BetweenIR,
     BinaryIR,
     CallIR,
@@ -64,6 +65,11 @@ def expression_uses_qualified_field(expression: ExpressionIR) -> bool:
 
     if isinstance(expression, FieldRefIR):
         return bool(expression.qualifier)
+    if isinstance(expression, AggregateCallIR):
+        return any(
+            expression_uses_qualified_field(argument)
+            for argument in expression.arguments
+        )
     if isinstance(expression, CallIR):
         return any(
             expression_uses_qualified_field(argument)
@@ -93,6 +99,8 @@ def _render_expression_sql(expression: ExpressionIR, *, nested: bool) -> str:
         if expression.qualifier:
             return quote_qualified_identifier((*expression.qualifier, expression.name))
         return quote_identifier(expression.name)
+    if isinstance(expression, AggregateCallIR):
+        return _render_aggregate_call(expression)
     if isinstance(expression, CallIR):
         sql = _render_call(expression)
         return f"({sql})" if nested and expression.callee == "matches" else sql
@@ -138,6 +146,16 @@ def _render_expression_sql(expression: ExpressionIR, *, nested: bool) -> str:
         )
 
     return f"({sql})" if nested else sql
+
+
+def _render_aggregate_call(expression: AggregateCallIR) -> str:
+    if expression.function != "count":
+        raise ValueError(
+            f"Unsupported PostgreSQL aggregate call: {expression.function}"
+        )
+    if expression.arguments:
+        raise ValueError("PostgreSQL aggregate count expects 0 argument(s)")
+    return "COUNT(*)"
 
 
 def _render_call(expression: CallIR) -> str:

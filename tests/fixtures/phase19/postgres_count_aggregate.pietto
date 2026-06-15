@@ -1,0 +1,10 @@
+shape Order:
+    status: Text not null
+
+source orders: Order is postgres.table("orders")
+
+table paid_order_stats:
+    from orders
+    where status == "paid"
+    select:
+        total = count()

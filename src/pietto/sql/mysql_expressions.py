@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pietto.ir.model import (
+    AggregateCallIR,
     BetweenIR,
     BinaryIR,
     CallIR,
@@ -63,6 +64,8 @@ def _render_mysql_expression(expression: ExpressionIR, *, nested: bool) -> str:
         if expression.qualifier:
             return quote_qualified_identifier((*expression.qualifier, expression.name))
         return quote_identifier(expression.name, context="column identifier")
+    if isinstance(expression, AggregateCallIR):
+        return _render_aggregate_call(expression)
     if isinstance(expression, CallIR):
         return _render_call(expression)
     if isinstance(expression, ComparisonIR):
@@ -107,6 +110,16 @@ def _render_mysql_expression(expression: ExpressionIR, *, nested: bool) -> str:
         )
 
     return f"({sql})" if nested else sql
+
+
+def _render_aggregate_call(expression: AggregateCallIR) -> str:
+    if expression.function != "count":
+        raise MySqlRenderError(
+            f"Unsupported MySQL aggregate call: {expression.function}"
+        )
+    if expression.arguments:
+        raise MySqlRenderError("MySQL aggregate count expects 0 argument(s)")
+    return "COUNT(*)"
 
 
 def _render_call(expression: CallIR) -> str:

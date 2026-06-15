@@ -46,10 +46,10 @@ UNCHANGED_FILE_HASHES = {
 UNCHANGED_GROUP_HASHES = {
     "semantic": "985dfb91724eebebca4f4f47fcd7398eed783afacf1ed1712d656fb476e6ac5b",
     "ir": "f8f6501262c48cd047f940e80811465f076397b564a1c999c5cc04bda9011b41",
-    "sql": "2c50aea07e584085c246a40274974ba337ef81fec6d986090878e1452fd5dc4d",
+    "sql": "0f5c5bd51481c667cc48f202978baad4b0800a4813ec9cc3203f2d58fc2a2229",
 }
 
-GOLDENS_HASH = "95cfa63b29c70b4d26fcc4d8123cc6c99051b08897368245ae851315de2b6b72"
+GOLDENS_HASH = "8dc2b3200718f9b84bc5a40f166d7bdff760d44a7b78f5f0e01b5799bdba9e62"
 
 
 def test_slice3_contract_and_status_are_parse_only_and_ast_only() -> None:
@@ -173,7 +173,7 @@ def test_forbidden_compiler_layers_and_repository_surfaces_are_byte_locked() -> 
         )
         == GOLDENS_HASH
     )
-    assert len(tuple((REPO_ROOT / "tests/fixtures/golden").iterdir())) == 15
+    assert len(tuple((REPO_ROOT / "tests/fixtures/golden").iterdir())) == 17
 
 
 def test_public_sql_api_json_v1_and_private_mysql_boundary_are_unchanged() -> None:
