@@ -110,11 +110,12 @@ Future aggregate typing should start from this provisional contract:
 `count()` over empty input returns `0`, so it is non-null. `sum` and `avg`
 over empty input are conservatively nullable.
 
-Pietto currently has no Decimal type. PostgreSQL and MySQL concrete return
-types for aggregate functions may differ, especially for numeric widening and
-average return types. A future implementation must make an explicit
-portability decision before accepting `sum` and `avg` as stable Pietto
-semantics.
+Decimal exists in Pietto's built-in type catalog, but Decimal aggregate
+semantics are out of scope for this future MVP. PostgreSQL and MySQL concrete
+return types for aggregate functions may differ, especially for numeric
+widening and average return types. A future implementation must make an
+explicit portability decision before accepting `sum` and `avg` as stable
+Pietto semantics.
 
 ## Diagnostics Guidance
 
