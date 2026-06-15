@@ -200,3 +200,35 @@ behavior.
 Later Phase 18 slices, if separately approved, may add contracts for
 aggregate semantic scope, aggregate IR and backend readiness, and final
 completion audit. Those later slices are not implemented by Slice 1.
+
+## Slice 4 Completion Audit
+
+Phase 18 Slice 4 is complete as result-predicate deferral and completion audit
+work only. It adds no aggregate behavior, grammar, Semantic IR, SQL
+generation, CLI behavior, JSON behavior, runtime behavior, database behavior,
+dependency, CI, script, or golden fixture change.
+
+Phase 18 is complete as audit/contract-only aggregate readiness work. Its
+owned artifacts are the aggregate readiness master plan, the aggregate
+semantic contract, the aggregate IR and SQL readiness contract, and focused
+static audit tests.
+
+`satisfying` remains provisional, unparsed, unimplemented, and outside any
+Phase 19 no-GROUP aggregate MVP unless separately approved. `where` remains
+input row-level filtering. Result-level predicate design remains open, and
+Pietto should not expose SQL HAVING as user syntax.
+
+`satisfying`, post-select `where`, `such that`, and `filter` remain future
+design discussion only. `filter` should not be introduced casually because it
+is too dataframe-like for the current Pietto language style.
+
+Relationship metadata remains read-only metadata and does not become query
+behavior. Relationship-driven query behavior, JOIN, GROUP BY, result
+predicates, and SQL HAVING user syntax remain deferred unless separately
+approved.
+
+Future aggregate implementation should start with no-GROUP `count()` first.
+`sum` and `avg` may follow in later slices only after the aggregate framework
+is stable. GROUP BY, result predicates, JOIN, relationship-driven behavior,
+runtime behavior, and database execution remain deferred unless separately
+approved.
