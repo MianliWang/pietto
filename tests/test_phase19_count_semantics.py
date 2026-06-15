@@ -55,27 +55,26 @@ def test_count_sum_and_avg_are_not_scalar_builtin_functions() -> None:
     assert "avg" not in BUILTIN_FUNCTIONS
 
 
-@pytest.mark.parametrize(
-    ("projection", "expected_message"),
-    [
-        ("revenue = sum(amount)", "Unknown function: sum"),
-        ("average = avg(amount)", "Unknown function: avg"),
-    ],
-)
-def test_sum_and_avg_remain_unknown_functions(
-    projection: str,
-    expected_message: str,
-) -> None:
-    result = analyze(
-        _parse(
-            SOURCE_PREFIX + "table paid_order_stats:\n"
-            "    from orders\n"
-            "    select:\n"
-            f"        {projection}\n"
-        )
+def test_sum_and_avg_are_no_group_aggregates_not_scalar_functions() -> None:
+    script = _parse(
+        SOURCE_PREFIX + "table paid_order_stats:\n"
+        "    from orders\n"
+        "    select:\n"
+        "        revenue = sum(amount)\n"
+        "        average = avg(amount)\n"
     )
+    relation = _relation(script)
 
-    assert _errors(result) == [("PIE-S2103", expected_message)]
+    result = analyze(script)
+    schema = result.model.relation_row_schemas[relation]
+
+    assert _errors(result) == []
+    assert schema.fields["revenue"].resolved_type.name == "Int"
+    assert schema.fields["revenue"].nullability is EffectiveNullability.NULLABLE
+    assert schema.fields["average"].resolved_type.name == "Float"
+    assert schema.fields["average"].nullability is EffectiveNullability.NULLABLE
+    assert "sum" not in BUILTIN_FUNCTIONS
+    assert "avg" not in BUILTIN_FUNCTIONS
 
 
 @pytest.mark.parametrize(

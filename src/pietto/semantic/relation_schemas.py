@@ -18,14 +18,20 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
+    aggregate_call_name,
     aggregate_alias_required_diagnostic,
-    contains_count_aggregate,
+    contains_aggregate,
     deferred_composition_diagnostic,
-    is_count_aggregate_call,
+    deferred_argument_expression_diagnostic,
+    expected_aggregate_arity,
+    is_aggregate_call,
+    is_direct_field_argument,
+    is_supported_numeric_argument,
     mixed_projection_diagnostic,
     nested_aggregate_diagnostic,
-    nested_count_aggregate,
+    nested_aggregate,
     wrong_arity_diagnostic,
+    wrong_argument_type_diagnostic,
 )
 from pietto.semantic.model import (
     CheckMode,
@@ -126,7 +132,7 @@ def _project_schema(
         if output_name is None:
             diagnostic = (
                 None
-                if contains_count_aggregate(item.expression)
+                if contains_aggregate(item.expression)
                 else _unnamed_projection_diagnostic(item, mode)
             )
             if diagnostic is not None:
@@ -179,7 +185,7 @@ def _aggregate_projection_diagnostics(
     *,
     expression_value_types: Mapping[Expression, ValueType] | None,
 ) -> tuple[list[Diagnostic], set[SelectItem]]:
-    """Validate the Slice 1A direct aliased count aggregate projection shape."""
+    """Validate the direct aliased no-GROUP aggregate projection shape."""
 
     diagnostics: list[Diagnostic] = []
     invalid_items: set[SelectItem] = set()
@@ -187,27 +193,29 @@ def _aggregate_projection_diagnostics(
 
     for item in definition.select_items:
         expression = item.expression
-        if not contains_count_aggregate(expression):
+        if not contains_aggregate(expression):
             continue
 
-        nested = nested_count_aggregate(expression)
+        nested = nested_aggregate(expression)
         if nested is not None:
             diagnostics.append(nested_aggregate_diagnostic(nested))
             invalid_items.add(item)
             continue
 
-        if not is_count_aggregate_call(expression):
+        if not is_aggregate_call(expression):
             diagnostics.append(deferred_composition_diagnostic(expression))
             invalid_items.add(item)
             continue
 
         assert isinstance(expression, CallExpr)
+        function_name = aggregate_call_name(expression)
+        assert function_name is not None
         if item.alias is None:
             diagnostics.append(aggregate_alias_required_diagnostic(expression))
             invalid_items.add(item)
             continue
 
-        if expression.arguments:
+        if len(expression.arguments) != expected_aggregate_arity(function_name):
             if not _has_unknown_argument(
                 expression,
                 expression_value_types=expression_value_types,
@@ -216,11 +224,42 @@ def _aggregate_projection_diagnostics(
             invalid_items.add(item)
             continue
 
+        if expression.arguments:
+            argument = expression.arguments[0]
+            has_unknown_argument = _has_unknown_argument(
+                expression,
+                expression_value_types=expression_value_types,
+            )
+            if not is_direct_field_argument(argument):
+                if not has_unknown_argument:
+                    diagnostics.append(
+                        deferred_argument_expression_diagnostic(expression)
+                    )
+                invalid_items.add(item)
+                continue
+
+            argument_type = (
+                None
+                if expression_value_types is None
+                else expression_value_types.get(argument)
+            )
+            if argument_type is None or argument_type.kind is ValueTypeKind.UNKNOWN:
+                invalid_items.add(item)
+                continue
+            if not is_supported_numeric_argument(argument_type):
+                diagnostics.append(
+                    wrong_argument_type_diagnostic(
+                        expression,
+                        actual_name=argument_type.resolved_type.name,
+                    )
+                )
+                invalid_items.add(item)
+                continue
+
         valid_aggregate_items.append(item)
 
     has_non_aggregate_projection = any(
-        not contains_count_aggregate(item.expression)
-        for item in definition.select_items
+        not contains_aggregate(item.expression) for item in definition.select_items
     )
     if valid_aggregate_items and has_non_aggregate_projection:
         diagnostics.append(

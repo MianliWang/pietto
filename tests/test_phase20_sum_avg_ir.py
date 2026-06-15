@@ -13,6 +13,7 @@ from pietto.ir import (
     CallIR,
     ComparisonIR,
     ExpressionIR,
+    FieldRefIR,
     IsNullIR,
     NullabilityIR,
     RelationIR,
@@ -29,15 +30,17 @@ SOURCE_PREFIX = (
     "shape Order:\n"
     "    status: Text not null\n"
     "    amount: Int not null\n"
+    "    score: Float not null\n"
+    "    price: Decimal not null\n"
     'source orders: Order is postgres.table("orders")\n'
 )
 
 
 @pytest.mark.parametrize("relation_kind", ["table", "query"])
-def test_valid_count_projection_lowers_to_aggregate_call_ir(
+def test_valid_sum_avg_projections_lower_to_aggregate_call_ir(
     relation_kind: str,
 ) -> None:
-    script = _parse_count_program(relation_kind)
+    script = _parse_sum_avg_program(relation_kind)
     semantic_result = analyze(script)
 
     ir_result = build_ir(script, semantic_result.model)
@@ -46,38 +49,100 @@ def test_valid_count_projection_lowers_to_aggregate_call_ir(
     assert ir_result.diagnostics == ()
     assert ir_result.ir is not None
     relation_ir = _relation_ir(ir_result.ir)
-    projection = relation_ir.projections[0]
-    expression = projection.expression
-    row_field = relation_ir.row_schema.fields[0]
+    projections = {
+        projection.name: projection for projection in relation_ir.projections
+    }
 
-    assert isinstance(expression, AggregateCallIR)
-    assert not isinstance(expression, CallIR)
-    assert expression.function == "count"
-    assert expression.arguments == ()
-    assert expression.value_type.canonical_name == "Int"
-    assert expression.value_type.nullability is NullabilityIR.NON_NULL
-    assert projection.name == "total"
-    assert projection.type_ref is not None
-    assert projection.type_ref.canonical_name == "Int"
-    assert projection.type_ref.nullability is NullabilityIR.NON_NULL
-    assert row_field.name == "total"
-    assert row_field.type_ref.canonical_name == "Int"
-    assert row_field.nullability is NullabilityIR.NON_NULL
+    total = projections["total"].expression
+    revenue = projections["revenue"].expression
+    score_total = projections["score_total"].expression
+    average_amount = projections["average_amount"].expression
+    average_score = projections["average_score"].expression
+
+    _assert_aggregate(total, "count", "Int", NullabilityIR.NON_NULL, ())
+    _assert_aggregate(revenue, "sum", "Int", NullabilityIR.NULLABLE, ("amount",))
+    _assert_aggregate(
+        score_total,
+        "sum",
+        "Float",
+        NullabilityIR.NULLABLE,
+        ("score",),
+    )
+    _assert_aggregate(
+        average_amount,
+        "avg",
+        "Float",
+        NullabilityIR.NULLABLE,
+        ("amount",),
+    )
+    _assert_aggregate(
+        average_score,
+        "avg",
+        "Float",
+        NullabilityIR.NULLABLE,
+        ("score",),
+    )
+    assert projections["revenue"].type_ref is not None
+    assert projections["revenue"].type_ref.canonical_name == "Int"
+    assert projections["revenue"].type_ref.nullability is NullabilityIR.NULLABLE
+    assert relation_ir.row_schema.fields[1].name == "revenue"
+    assert relation_ir.row_schema.fields[1].type_ref.canonical_name == "Int"
+    assert relation_ir.row_schema.fields[1].nullability is NullabilityIR.NULLABLE
 
 
-def test_direct_lower_expr_for_valid_count_no_longer_uses_generic_call_ir() -> None:
-    script = _parse_count_program("table")
+def test_qualified_sum_avg_arguments_lower_to_qualified_field_refs() -> None:
+    script = _parse(
+        SOURCE_PREFIX + "table paid_order_stats:\n"
+        "    from orders\n"
+        "    select:\n"
+        "        revenue = sum(orders.amount)\n"
+        "        average = avg(orders.score)\n"
+    )
+    semantic_result = analyze(script)
+
+    ir_result = build_ir(script, semantic_result.model)
+
+    assert _error_codes(semantic_result) == []
+    assert ir_result.diagnostics == ()
+    assert ir_result.ir is not None
+    relation_ir = _relation_ir(ir_result.ir)
+    revenue = relation_ir.projections[0].expression
+    average = relation_ir.projections[1].expression
+
+    _assert_aggregate(
+        revenue,
+        "sum",
+        "Int",
+        NullabilityIR.NULLABLE,
+        ("orders.amount",),
+    )
+    _assert_aggregate(
+        average,
+        "avg",
+        "Float",
+        NullabilityIR.NULLABLE,
+        ("orders.score",),
+    )
+
+
+def test_direct_lower_expr_for_valid_sum_avg_no_longer_uses_generic_call_ir() -> None:
+    script = _parse_sum_avg_program("table")
     relation = _relation_ast(script)
     semantic_result = analyze(script)
-    expression = relation.select_items[0].expression
 
-    lowered = lower_expr(expression, semantic_result.model)
+    lowered_sum = lower_expr(relation.select_items[1].expression, semantic_result.model)
+    lowered_avg = lower_expr(relation.select_items[3].expression, semantic_result.model)
 
-    assert lowered.diagnostics == ()
-    assert isinstance(lowered.expression, AggregateCallIR)
-    assert not isinstance(lowered.expression, CallIR)
-    assert lowered.expression.function == "count"
-    assert lowered.expression.arguments == ()
+    assert lowered_sum.diagnostics == ()
+    assert isinstance(lowered_sum.expression, AggregateCallIR)
+    assert not isinstance(lowered_sum.expression, CallIR)
+    assert lowered_sum.expression.function == "sum"
+    assert len(lowered_sum.expression.arguments) == 1
+    assert lowered_avg.diagnostics == ()
+    assert isinstance(lowered_avg.expression, AggregateCallIR)
+    assert not isinstance(lowered_avg.expression, CallIR)
+    assert lowered_avg.expression.function == "avg"
+    assert len(lowered_avg.expression.arguments) == 1
 
 
 @pytest.mark.parametrize(
@@ -87,43 +152,28 @@ def test_direct_lower_expr_for_valid_count_no_longer_uses_generic_call_ir() -> N
             SOURCE_PREFIX + "table paid_order_stats:\n"
             "    from orders\n"
             "    select:\n"
-            "        total = count(amount)\n",
-            "PIE-S2309",
-        ),
-        (
-            SOURCE_PREFIX + "table paid_order_stats:\n"
-            "    from orders\n"
-            "    where count() > 0\n"
-            "    select:\n"
-            "        status\n",
-            "PIE-S2308",
+            "        revenue = sum(status)\n",
+            "PIE-S2314",
         ),
         (
             SOURCE_PREFIX + "table paid_order_stats:\n"
             "    from orders\n"
             "    select:\n"
-            "        total = count() + 1\n",
-            "PIE-S2310",
+            "        revenue = sum(amount + amount)\n",
+            "PIE-S2315",
         ),
         (
             SOURCE_PREFIX + "table paid_order_stats:\n"
             "    from orders\n"
             "    select:\n"
-            "        total = count(count())\n",
+            "        revenue = sum(avg(amount))\n",
             "PIE-S2311",
         ),
         (
             SOURCE_PREFIX + "table paid_order_stats:\n"
             "    from orders\n"
             "    select:\n"
-            "        total = count(lower(count()))\n",
-            "PIE-S2311",
-        ),
-        (
-            SOURCE_PREFIX + "table paid_order_stats:\n"
-            "    from orders\n"
-            "    select:\n"
-            "        total = lower(count())\n",
+            "        revenue = sum(amount) + 1\n",
             "PIE-S2310",
         ),
         (
@@ -131,12 +181,12 @@ def test_direct_lower_expr_for_valid_count_no_longer_uses_generic_call_ir() -> N
             "    from orders\n"
             "    select:\n"
             "        status\n"
-            "        total = count()\n",
+            "        revenue = sum(amount)\n",
             "PIE-S2312",
         ),
     ],
 )
-def test_invalid_count_shapes_do_not_emit_aggregate_call_ir(
+def test_invalid_sum_avg_shapes_do_not_emit_aggregate_call_ir(
     source: str,
     expected_code: str,
 ) -> None:
@@ -150,49 +200,23 @@ def test_invalid_count_shapes_do_not_emit_aggregate_call_ir(
         assert _aggregate_expressions(ir_result.ir) == ()
 
 
-@pytest.mark.parametrize(
-    ("projection", "function"),
-    [
-        ("revenue = sum(amount)", "sum"),
-        ("average = avg(amount)", "avg"),
-    ],
-)
-def test_sum_and_avg_lower_to_aggregate_ir_after_count_mvp(
-    projection: str,
-    function: str,
-) -> None:
-    script = _parse(
-        SOURCE_PREFIX + "table paid_order_stats:\n"
-        "    from orders\n"
-        "    select:\n"
-        f"        {projection}\n"
-    )
-    semantic_result = analyze(script)
-
-    ir_result = build_ir(script, semantic_result.model)
-
-    assert _error_codes(semantic_result) == []
-    assert ir_result.diagnostics == ()
-    assert ir_result.ir is not None
-    aggregates = _aggregate_expressions(ir_result.ir)
-    assert len(aggregates) == 1
-    assert aggregates[0].function == function
-    assert len(aggregates[0].arguments) == 1
-
-
-def test_count_sum_and_avg_are_still_absent_from_scalar_builtins() -> None:
+def test_count_sum_and_avg_remain_absent_from_scalar_builtins() -> None:
     assert "count" not in BUILTIN_FUNCTIONS
     assert "sum" not in BUILTIN_FUNCTIONS
     assert "avg" not in BUILTIN_FUNCTIONS
 
 
-def _parse_count_program(relation_kind: str) -> Script:
+def _parse_sum_avg_program(relation_kind: str) -> Script:
     return _parse(
         SOURCE_PREFIX + f"{relation_kind} paid_order_stats:\n"
         "    from orders\n"
         '    where status == "paid"\n'
         "    select:\n"
         "        total = count()\n"
+        "        revenue = sum(amount)\n"
+        "        score_total = sum(score)\n"
+        "        average_amount = avg(amount)\n"
+        "        average_score = avg(score)\n"
     )
 
 
@@ -217,6 +241,28 @@ def _relation_ir(script_ir: ScriptIR) -> RelationIR:
     ]
     assert len(relations) == 1
     return relations[0]
+
+
+def _assert_aggregate(
+    expression: ExpressionIR,
+    function: str,
+    expected_type: str,
+    expected_nullability: NullabilityIR,
+    expected_arguments: tuple[str, ...],
+) -> None:
+    assert isinstance(expression, AggregateCallIR)
+    assert not isinstance(expression, CallIR)
+    assert expression.function == function
+    assert expression.value_type.canonical_name == expected_type
+    assert expression.value_type.nullability is expected_nullability
+    assert tuple(_field_name(argument) for argument in expression.arguments) == (
+        expected_arguments
+    )
+
+
+def _field_name(expression: ExpressionIR) -> str:
+    assert isinstance(expression, FieldRefIR)
+    return ".".join((*expression.qualifier, expression.name))
 
 
 def _aggregate_expressions(script_ir: ScriptIR) -> tuple[AggregateCallIR, ...]:

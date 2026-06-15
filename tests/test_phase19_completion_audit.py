@@ -104,6 +104,8 @@ def test_aggregate_diagnostics_are_registered() -> None:
         "PIE-S2311",
         "PIE-S2312",
         "PIE-S2313",
+        "PIE-S2314",
+        "PIE-S2315",
     ):
         assert f"| `{code}` |" in diagnostics
     assert "Aggregate used in an invalid context" in diagnostics
@@ -115,9 +117,11 @@ def test_aggregate_diagnostics_are_registered() -> None:
         in diagnostics
     )
     assert "Aggregate projection without an explicit alias" in diagnostics
+    assert "Aggregate field argument has an unsupported type" in diagnostics
+    assert "Aggregate expression argument is deferred" in diagnostics
 
 
-def test_semantic_count_mvp_and_sum_avg_deferral_are_locked() -> None:
+def test_semantic_count_sum_avg_mvp_is_locked() -> None:
     script = _parse(COUNT_SOURCE)
     relation = _relation_ast(script)
 
@@ -138,19 +142,26 @@ def test_semantic_count_mvp_and_sum_avg_deferral_are_locked() -> None:
     assert "sum" not in BUILTIN_FUNCTIONS
     assert "avg" not in BUILTIN_FUNCTIONS
 
-    for projection, expected_message in (
-        ("revenue = sum(amount)", "Unknown function: sum"),
-        ("average = avg(amount)", "Unknown function: avg"),
-    ):
-        deferred = analyze(
-            _parse(
-                SOURCE_PREFIX + "table paid_order_stats:\n"
-                "    from orders\n"
-                "    select:\n"
-                f"        {projection}\n"
-            )
-        )
-        assert _errors(deferred) == [("PIE-S2103", expected_message)]
+    sum_avg = _parse(
+        SOURCE_PREFIX + "table paid_order_stats:\n"
+        "    from orders\n"
+        "    select:\n"
+        "        revenue = sum(amount)\n"
+        "        average = avg(amount)\n"
+    )
+    sum_avg_relation = _relation_ast(sum_avg)
+    sum_avg_result = analyze(sum_avg)
+    sum_avg_schema = sum_avg_result.model.relation_row_schemas[sum_avg_relation]
+
+    assert _errors(sum_avg_result) == []
+    assert sum_avg_schema.fields["revenue"].resolved_type.name == "Int"
+    assert sum_avg_schema.fields["revenue"].nullability is (
+        EffectiveNullability.NULLABLE
+    )
+    assert sum_avg_schema.fields["average"].resolved_type.name == "Float"
+    assert sum_avg_schema.fields["average"].nullability is (
+        EffectiveNullability.NULLABLE
+    )
 
 
 def test_invalid_count_shapes_fail_semantically_before_sql() -> None:

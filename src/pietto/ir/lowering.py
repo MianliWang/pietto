@@ -44,8 +44,9 @@ from pietto.ir.model import (
 )
 from pietto.semantic.catalog import BUILTIN_FUNCTIONS
 from pietto.semantic.aggregates import (
-    COUNT_AGGREGATE_NAME,
-    is_count_aggregate_call,
+    aggregate_call_name,
+    aggregate_result_value_type,
+    is_direct_field_argument,
 )
 from pietto.semantic import (
     EffectiveNullability,
@@ -210,18 +211,19 @@ def _lower_expr_node(
         )
     if isinstance(expression, CallExpr):
         callee = _callee_name(expression)
-        if (
-            is_count_aggregate_call(expression)
-            and not expression.arguments
-            and _is_valid_count_aggregate_projection(
-                expression,
-                semantic_model,
-                value_type,
-            )
-        ):
+        if _is_valid_aggregate_projection(expression, semantic_model, value_type):
             return AggregateCallIR(
-                function=COUNT_AGGREGATE_NAME,
-                arguments=(),
+                function=callee,
+                arguments=tuple(
+                    _lower_expr_node(
+                        argument,
+                        semantic_model,
+                        fields=fields,
+                        field_owner=field_owner,
+                        field_qualifier=field_qualifier,
+                    )
+                    for argument in expression.arguments
+                ),
                 **common,
             )
         callee_symbol = None
@@ -340,24 +342,26 @@ def _callee_name(expression: CallExpr) -> str:
     return ".".join(expression.callee.parts)
 
 
-def _is_precise_count_aggregate_type(value_type: TypeRefIR) -> bool:
-    """Return whether semantics accepted the no-GROUP count() result type."""
-
-    return (
-        value_type.canonical_kind is TypeKindIR.BUILTIN
-        and value_type.canonical_name == "Int"
-        and value_type.nullability is NullabilityIR.NON_NULL
-    )
-
-
-def _is_valid_count_aggregate_projection(
+def _is_valid_aggregate_projection(
     expression: CallExpr,
     semantic_model: SemanticModel,
     value_type: TypeRefIR,
 ) -> bool:
     """Return whether this call is a precise output projection aggregate."""
 
-    if not _is_precise_count_aggregate_type(value_type):
+    function_name = aggregate_call_name(expression)
+    if function_name is None:
+        return False
+    semantic_value_type = semantic_model.expression_value_types.get(expression)
+    if semantic_value_type is None:
+        return False
+    if not _aggregate_type_matches_ir(
+        function_name,
+        expression,
+        semantic_model,
+        semantic_value_type,
+        value_type,
+    ):
         return False
 
     for relation, schema in semantic_model.relation_row_schemas.items():
@@ -367,11 +371,42 @@ def _is_valid_count_aggregate_projection(
             field = schema.fields.get(item.alias)
             return (
                 field is not None
-                and field.resolved_type.kind is TypeKind.BUILTIN
-                and field.resolved_type.name == "Int"
-                and field.nullability is EffectiveNullability.NON_NULL
+                and field.resolved_type.kind is semantic_value_type.resolved_type.kind
+                and field.resolved_type.name == semantic_value_type.resolved_type.name
+                and field.nullability is semantic_value_type.nullability
             )
     return False
+
+
+def _aggregate_type_matches_ir(
+    function_name: str,
+    expression: CallExpr,
+    semantic_model: SemanticModel,
+    semantic_value_type: ValueType,
+    value_type: TypeRefIR,
+) -> bool:
+    if not expression.arguments:
+        expected = aggregate_result_value_type(function_name)
+    elif len(expression.arguments) == 1 and is_direct_field_argument(
+        expression.arguments[0]
+    ):
+        argument_type = semantic_model.expression_value_types.get(
+            expression.arguments[0]
+        )
+        expected = (
+            None
+            if argument_type is None
+            else aggregate_result_value_type(function_name, argument_type)
+        )
+    else:
+        expected = None
+    return (
+        expected is not None
+        and semantic_value_type == expected
+        and value_type.canonical_kind is TypeKindIR.BUILTIN
+        and value_type.canonical_name == expected.resolved_type.name
+        and value_type.nullability.value == expected.nullability.value
+    )
 
 
 def _is_static_connector_call(expression: Expression) -> bool:

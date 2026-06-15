@@ -30,11 +30,12 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
-    COUNT_AGGREGATE_NAME,
-    COUNT_VALUE_TYPE,
-    contains_count_aggregate,
+    aggregate_call_name,
+    aggregate_result_value_type,
+    contains_aggregate,
     invalid_context_diagnostic,
-    is_count_aggregate_call,
+    is_aggregate_call,
+    is_direct_field_argument,
 )
 from pietto.semantic.catalog import BUILTIN_FUNCTIONS, BuiltinFunction
 from pietto.semantic.model import (
@@ -254,7 +255,7 @@ def type_relation_expressions(
                 # Bare projection diagnostics are owned by schema propagation.
                 report_unknown_name=not isinstance(item.expression, NameExpr),
                 field_qualifier=definition.from_clause.source_name,
-                allow_count_aggregate=_is_allowed_count_aggregate_projection(item),
+                allow_aggregate_projection=_is_direct_aggregate_projection(item),
             )
         if definition.order_by_clause is not None:
             for item in definition.order_by_clause.items:
@@ -333,13 +334,12 @@ def _input_schema(
     return RowSchema(is_unknown=True)
 
 
-def _is_allowed_count_aggregate_projection(item: SelectItem) -> bool:
+def _is_direct_aggregate_projection(item: SelectItem) -> bool:
     expression = item.expression
     return (
         item.alias is not None
         and isinstance(expression, CallExpr)
-        and is_count_aggregate_call(expression)
-        and not expression.arguments
+        and is_aggregate_call(expression)
     )
 
 
@@ -351,7 +351,7 @@ def _infer(
     *,
     report_unknown_name: bool,
     field_qualifier: str | None = None,
-    allow_count_aggregate: bool = False,
+    allow_aggregate_projection: bool = False,
 ) -> ValueType:
     """Infer only the expression forms supported by this scaffold."""
 
@@ -384,7 +384,7 @@ def _infer(
             diagnostics,
             report_unknown_name=report_unknown_name,
             field_qualifier=field_qualifier,
-            allow_count_aggregate=allow_count_aggregate,
+            allow_aggregate_projection=allow_aggregate_projection,
         )
     elif isinstance(expression, IsNullExpr):
         _infer(
@@ -602,7 +602,7 @@ def _call_value_type(
     *,
     report_unknown_name: bool,
     field_qualifier: str | None,
-    allow_count_aggregate: bool,
+    allow_aggregate_projection: bool,
 ) -> ValueType:
     """Type one exact built-in call while suppressing Unknown cascades."""
 
@@ -623,9 +623,11 @@ def _call_value_type(
     ):
         return _UNKNOWN_VALUE_TYPE
 
-    if function_name == COUNT_AGGREGATE_NAME and is_count_aggregate_call(expression):
-        if allow_count_aggregate and not expression.arguments:
-            return COUNT_VALUE_TYPE
+    if is_aggregate_call(expression):
+        if allow_aggregate_projection:
+            result_type = _aggregate_value_type(expression, argument_types)
+            if result_type is not None:
+                return result_type
         return _UNKNOWN_VALUE_TYPE
 
     signature = BUILTIN_FUNCTIONS.get(function_name)
@@ -671,15 +673,34 @@ def _callee_name(expression: CallExpr) -> str:
     return ".".join(expression.callee.parts)
 
 
+def _aggregate_value_type(
+    expression: CallExpr,
+    argument_types: tuple[ValueType, ...],
+) -> ValueType | None:
+    """Return a precise aggregate type only for approved direct projections."""
+
+    function_name = aggregate_call_name(expression)
+    if function_name is None:
+        return None
+    if not expression.arguments:
+        return aggregate_result_value_type(function_name)
+    if len(expression.arguments) != 1:
+        return None
+    argument = expression.arguments[0]
+    if not is_direct_field_argument(argument):
+        return None
+    return aggregate_result_value_type(function_name, argument_types[0])
+
+
 def _append_invalid_count_context_diagnostic(
     expression: Expression,
     diagnostics: list[Diagnostic],
     *,
     context: str,
 ) -> None:
-    """Report count aggregate use where aggregate semantics are not admitted."""
+    """Report aggregate use where aggregate semantics are not admitted."""
 
-    if contains_count_aggregate(expression):
+    if contains_aggregate(expression):
         diagnostics.append(invalid_context_diagnostic(expression, context=context))
 
 
