@@ -50,6 +50,12 @@ stored separately and is never encoded in the code.
 | `PIE-S2304` | Computed projection without an explicit alias |
 | `PIE-S2305` | Duplicate projection output name |
 | `PIE-S2306` | Invalid source connector or connector arguments |
+| `PIE-S2308` | Aggregate used in an invalid context |
+| `PIE-S2309` | Aggregate called with the wrong arity |
+| `PIE-S2310` | Aggregate composition is deferred |
+| `PIE-S2311` | Nested aggregate is unsupported |
+| `PIE-S2312` | Aggregate projection mixed with non-aggregate projection without `GROUP BY` |
+| `PIE-S2313` | Aggregate projection without an explicit alias |
 | `PIE-S2401` | Constraint return type does not expand to `Bool` |
 | `PIE-S2402` | Callable or field derive body type mismatch |
 | `PIE-S2501` | Duplicate shape item name |

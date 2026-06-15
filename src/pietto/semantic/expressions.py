@@ -21,6 +21,7 @@ from pietto.ast_nodes import (
     NameExpr,
     QueryDef,
     Script,
+    SelectItem,
     ShapeDef,
     SourceDef,
     TableDef,
@@ -28,6 +29,13 @@ from pietto.ast_nodes import (
     UnaryExpr,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
+from pietto.semantic.aggregates import (
+    COUNT_AGGREGATE_NAME,
+    COUNT_VALUE_TYPE,
+    contains_count_aggregate,
+    invalid_context_diagnostic,
+    is_count_aggregate_call,
+)
 from pietto.semantic.catalog import BUILTIN_FUNCTIONS, BuiltinFunction
 from pietto.semantic.model import (
     EffectiveNullability,
@@ -68,6 +76,15 @@ def type_callable_bodies(
             type_expansions=type_expansions,
             type_nullability=type_nullability,
         )
+        _append_invalid_count_context_diagnostic(
+            definition.body,
+            diagnostics,
+            context=(
+                "constraint body"
+                if isinstance(definition, ConstraintDef)
+                else "derive body"
+            ),
+        )
         _infer(
             definition.body,
             row_schema,
@@ -101,10 +118,17 @@ def type_shape_predicates(
         for item in definition.items:
             if isinstance(item, CheckDef):
                 expression = item.expression
+                context = "shape check"
             elif isinstance(item, IndexDef) and item.predicate is not None:
                 expression = item.predicate
+                context = "index predicate"
             else:
                 continue
+            _append_invalid_count_context_diagnostic(
+                expression,
+                diagnostics,
+                context=context,
+            )
             _infer(
                 expression,
                 row_schema,
@@ -138,6 +162,11 @@ def type_shape_field_derives(
         for field in definition.fields:
             if field.derive_expression is None:
                 continue
+            _append_invalid_count_context_diagnostic(
+                field.derive_expression,
+                diagnostics,
+                context="field derive body",
+            )
             _infer(
                 field.derive_expression,
                 row_schema,
@@ -165,6 +194,11 @@ def type_source_connector_arguments(
         if not isinstance(connector, CallExpr):
             continue
         for argument in connector.arguments:
+            _append_invalid_count_context_diagnostic(
+                argument,
+                diagnostics,
+                context="source connector argument",
+            )
             _infer(
                 argument,
                 empty_environment,
@@ -198,6 +232,11 @@ def type_relation_expressions(
             relation_row_schemas=relation_row_schemas,
         )
         if definition.where_clause is not None:
+            _append_invalid_count_context_diagnostic(
+                definition.where_clause.expression,
+                diagnostics,
+                context="where clause",
+            )
             _infer(
                 definition.where_clause.expression,
                 input_schema,
@@ -215,9 +254,15 @@ def type_relation_expressions(
                 # Bare projection diagnostics are owned by schema propagation.
                 report_unknown_name=not isinstance(item.expression, NameExpr),
                 field_qualifier=definition.from_clause.source_name,
+                allow_count_aggregate=_is_allowed_count_aggregate_projection(item),
             )
         if definition.order_by_clause is not None:
             for item in definition.order_by_clause.items:
+                _append_invalid_count_context_diagnostic(
+                    item.expression,
+                    diagnostics,
+                    context="order by",
+                )
                 _infer(
                     item.expression,
                     input_schema,
@@ -288,6 +333,16 @@ def _input_schema(
     return RowSchema(is_unknown=True)
 
 
+def _is_allowed_count_aggregate_projection(item: SelectItem) -> bool:
+    expression = item.expression
+    return (
+        item.alias is not None
+        and isinstance(expression, CallExpr)
+        and is_count_aggregate_call(expression)
+        and not expression.arguments
+    )
+
+
 def _infer(
     expression: Expression,
     row_schema: RowSchema,
@@ -296,6 +351,7 @@ def _infer(
     *,
     report_unknown_name: bool,
     field_qualifier: str | None = None,
+    allow_count_aggregate: bool = False,
 ) -> ValueType:
     """Infer only the expression forms supported by this scaffold."""
 
@@ -328,6 +384,7 @@ def _infer(
             diagnostics,
             report_unknown_name=report_unknown_name,
             field_qualifier=field_qualifier,
+            allow_count_aggregate=allow_count_aggregate,
         )
     elif isinstance(expression, IsNullExpr):
         _infer(
@@ -545,9 +602,11 @@ def _call_value_type(
     *,
     report_unknown_name: bool,
     field_qualifier: str | None,
+    allow_count_aggregate: bool,
 ) -> ValueType:
     """Type one exact built-in call while suppressing Unknown cascades."""
 
+    function_name = _callee_name(expression)
     argument_types = tuple(
         _infer(
             argument,
@@ -564,7 +623,11 @@ def _call_value_type(
     ):
         return _UNKNOWN_VALUE_TYPE
 
-    function_name = _callee_name(expression)
+    if function_name == COUNT_AGGREGATE_NAME and is_count_aggregate_call(expression):
+        if allow_count_aggregate and not expression.arguments:
+            return COUNT_VALUE_TYPE
+        return _UNKNOWN_VALUE_TYPE
+
     signature = BUILTIN_FUNCTIONS.get(function_name)
     if signature is None:
         diagnostics.append(_unknown_function_diagnostic(expression, function_name))
@@ -606,6 +669,18 @@ def _callee_name(expression: CallExpr) -> str:
         return expression.callee.name
     assert isinstance(expression.callee, DottedNameExpr)
     return ".".join(expression.callee.parts)
+
+
+def _append_invalid_count_context_diagnostic(
+    expression: Expression,
+    diagnostics: list[Diagnostic],
+    *,
+    context: str,
+) -> None:
+    """Report count aggregate use where aggregate semantics are not admitted."""
+
+    if contains_count_aggregate(expression):
+        diagnostics.append(invalid_context_diagnostic(expression, context=context))
 
 
 def _literal_value_type(expression: LiteralExpr) -> ValueType:

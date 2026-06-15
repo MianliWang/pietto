@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from pietto.ast_nodes import (
+    CallExpr,
     DottedNameExpr,
     Expression,
     FromClause,
@@ -16,6 +17,16 @@ from pietto.ast_nodes import (
     TableDef,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
+from pietto.semantic.aggregates import (
+    aggregate_alias_required_diagnostic,
+    contains_count_aggregate,
+    deferred_composition_diagnostic,
+    is_count_aggregate_call,
+    mixed_projection_diagnostic,
+    nested_aggregate_diagnostic,
+    nested_count_aggregate,
+    wrong_arity_diagnostic,
+)
 from pietto.semantic.model import (
     CheckMode,
     EffectiveNullability,
@@ -104,11 +115,20 @@ def _project_schema(
     seen_names: set[str] = set()
     diagnostics: list[Diagnostic] = []
     named_items: list[tuple[SelectItem, str]] = []
+    aggregate_diagnostics, invalid_aggregate_items = _aggregate_projection_diagnostics(
+        definition,
+        expression_value_types=expression_value_types,
+    )
+    diagnostics.extend(aggregate_diagnostics)
 
     for item in definition.select_items:
         output_name = _projection_output_name(item)
         if output_name is None:
-            diagnostic = _unnamed_projection_diagnostic(item, mode)
+            diagnostic = (
+                None
+                if contains_count_aggregate(item.expression)
+                else _unnamed_projection_diagnostic(item, mode)
+            )
             if diagnostic is not None:
                 diagnostics.append(diagnostic)
             continue
@@ -131,6 +151,9 @@ def _project_schema(
             item,
             input_schema,
         )
+        if item in invalid_aggregate_items:
+            fields[output_name] = _unknown_row_field(output_name)
+            continue
         if input_field is None:
             if item.alias is None and isinstance(expression, NameExpr):
                 diagnostics.append(_unknown_field_diagnostic(expression))
@@ -149,6 +172,77 @@ def _project_schema(
         fields=fields,
         is_unknown=input_schema.is_unknown or has_unknown_field,
     ), diagnostics
+
+
+def _aggregate_projection_diagnostics(
+    definition: DerivedRelation,
+    *,
+    expression_value_types: Mapping[Expression, ValueType] | None,
+) -> tuple[list[Diagnostic], set[SelectItem]]:
+    """Validate the Slice 1A direct aliased count aggregate projection shape."""
+
+    diagnostics: list[Diagnostic] = []
+    invalid_items: set[SelectItem] = set()
+    valid_aggregate_items: list[SelectItem] = []
+
+    for item in definition.select_items:
+        expression = item.expression
+        if not contains_count_aggregate(expression):
+            continue
+
+        nested = nested_count_aggregate(expression)
+        if nested is not None:
+            diagnostics.append(nested_aggregate_diagnostic(nested))
+            invalid_items.add(item)
+            continue
+
+        if not is_count_aggregate_call(expression):
+            diagnostics.append(deferred_composition_diagnostic(expression))
+            invalid_items.add(item)
+            continue
+
+        assert isinstance(expression, CallExpr)
+        if item.alias is None:
+            diagnostics.append(aggregate_alias_required_diagnostic(expression))
+            invalid_items.add(item)
+            continue
+
+        if expression.arguments:
+            if not _has_unknown_argument(
+                expression,
+                expression_value_types=expression_value_types,
+            ):
+                diagnostics.append(wrong_arity_diagnostic(expression))
+            invalid_items.add(item)
+            continue
+
+        valid_aggregate_items.append(item)
+
+    has_non_aggregate_projection = any(
+        not contains_count_aggregate(item.expression)
+        for item in definition.select_items
+    )
+    if valid_aggregate_items and has_non_aggregate_projection:
+        diagnostics.append(
+            mixed_projection_diagnostic(valid_aggregate_items[0].expression)
+        )
+        invalid_items.update(valid_aggregate_items)
+
+    return diagnostics, invalid_items
+
+
+def _has_unknown_argument(
+    expression: CallExpr,
+    *,
+    expression_value_types: Mapping[Expression, ValueType] | None,
+) -> bool:
+    if expression_value_types is None:
+        return False
+    return any(
+        (value_type := expression_value_types.get(argument)) is None
+        or value_type.kind is ValueTypeKind.UNKNOWN
+        for argument in expression.arguments
+    )
 
 
 def _projection_input_field(
