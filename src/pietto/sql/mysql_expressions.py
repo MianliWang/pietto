@@ -12,8 +12,10 @@ from pietto.ir.model import (
     FieldRefIR,
     IsNullIR,
     LiteralIR,
+    NullabilityIR,
     SymbolId,
     SymbolNamespace,
+    TypeKindIR,
     UnaryIR,
 )
 from pietto.sql.mysql_render import (
@@ -49,6 +51,11 @@ _FUNCTION_NAMES = {
     "trim": "TRIM",
     "len": "CHAR_LENGTH",
 }
+_NUMERIC_AGGREGATE_NAMES = {
+    "sum": "SUM",
+    "avg": "AVG",
+}
+_SUPPORTED_NUMERIC_AGGREGATE_ARGUMENT_TYPES = frozenset({"Int", "Float"})
 
 
 def render_mysql_expression(expression: ExpressionIR) -> str:
@@ -113,13 +120,73 @@ def _render_mysql_expression(expression: ExpressionIR, *, nested: bool) -> str:
 
 
 def _render_aggregate_call(expression: AggregateCallIR) -> str:
-    if expression.function != "count":
+    if expression.function == "count":
+        return _render_count_aggregate(expression)
+    function_name = _NUMERIC_AGGREGATE_NAMES.get(expression.function)
+    if function_name is None:
         raise MySqlRenderError(
             f"Unsupported MySQL aggregate call: {expression.function}"
         )
+    return _render_numeric_aggregate(expression, function_name=function_name)
+
+
+def _render_count_aggregate(expression: AggregateCallIR) -> str:
     if expression.arguments:
         raise MySqlRenderError("MySQL aggregate count expects 0 argument(s)")
+    if not _has_builtin_type(expression, "Int", NullabilityIR.NON_NULL):
+        raise MySqlRenderError("MySQL aggregate count expects Int non-null result")
     return "COUNT(*)"
+
+
+def _render_numeric_aggregate(
+    expression: AggregateCallIR,
+    *,
+    function_name: str,
+) -> str:
+    if len(expression.arguments) != 1:
+        raise MySqlRenderError(
+            f"MySQL aggregate {expression.function} expects 1 argument(s)"
+        )
+    argument = expression.arguments[0]
+    if not isinstance(argument, FieldRefIR) or argument.field is None:
+        raise MySqlRenderError(
+            f"MySQL aggregate {expression.function} expects a direct field argument"
+        )
+    argument_type = argument.value_type.canonical_name
+    if (
+        argument.value_type.canonical_kind is not TypeKindIR.BUILTIN
+        or argument_type not in _SUPPORTED_NUMERIC_AGGREGATE_ARGUMENT_TYPES
+    ):
+        raise MySqlRenderError(
+            f"MySQL aggregate {expression.function} supports only Int or Float "
+            "field arguments"
+        )
+
+    expected_result_type = (
+        "Int" if expression.function == "sum" and argument_type == "Int" else "Float"
+    )
+    if not _has_builtin_type(
+        expression,
+        expected_result_type,
+        NullabilityIR.NULLABLE,
+    ):
+        raise MySqlRenderError(
+            f"MySQL aggregate {expression.function} result type does not match "
+            "approved logical shape"
+        )
+    return f"{function_name}({_render_mysql_expression(argument, nested=True)})"
+
+
+def _has_builtin_type(
+    expression: ExpressionIR,
+    canonical_name: str,
+    nullability: NullabilityIR,
+) -> bool:
+    return (
+        expression.value_type.canonical_kind is TypeKindIR.BUILTIN
+        and expression.value_type.canonical_name == canonical_name
+        and expression.value_type.nullability is nullability
+    )
 
 
 def _render_call(expression: CallIR) -> str:

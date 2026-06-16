@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
@@ -16,6 +17,7 @@ from pietto.ir import (
     FieldRefIR,
     LiteralIR,
     NullabilityIR,
+    RelationIR,
     ScriptIR,
     SourceSpan,
     SymbolId,
@@ -28,34 +30,23 @@ from pietto.ir.model import StaticValue
 from pietto.parser_api import parse_file
 from pietto.semantic import analyze
 from pietto.sql import SqlResult, emit_postgres_sql
-from pietto.sql.expressions import render_expression_sql
 from pietto.sql.mysql import emit_mysql_sql
-from pietto.sql.mysql_expressions import render_mysql_expression
-from pietto.sql.mysql_render import MySqlRenderError
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GOLDEN_ROOT = REPO_ROOT / "tests" / "fixtures" / "golden"
-POSTGRES_INPUT = Path("tests/fixtures/phase19/postgres_count_aggregate.pietto")
-MYSQL_INPUT = Path("tests/fixtures/phase19/mysql_count_aggregate.pietto")
-POSTGRES_GOLDEN = "emit_sql_count_aggregate.sql"
-MYSQL_GOLDEN = "emit_mysql_count_aggregate.sql"
+POSTGRES_INPUT = Path("tests/fixtures/phase20/postgres_sum_avg_aggregate.pietto")
+MYSQL_INPUT = Path("tests/fixtures/phase20/mysql_sum_avg_aggregate.pietto")
+POSTGRES_GOLDEN = "emit_sql_sum_avg_aggregate.sql"
+MYSQL_GOLDEN = "emit_mysql_sum_avg_aggregate.sql"
 
 SPAN = SourceSpan(
-    path="aggregate.pietto",
+    path="phase20-sum-avg-sql.pietto",
     line=1,
     column=1,
     end_line=1,
     end_column=2,
 )
-UNKNOWN_TYPE = TypeRefIR(
-    symbol=None,
-    canonical_symbol=None,
-    declared_name="<unknown>",
-    canonical_name="<unknown>",
-    kind=TypeKindIR.UNKNOWN,
-    canonical_kind=TypeKindIR.UNKNOWN,
-    nullability=NullabilityIR.UNKNOWN,
-)
+OWNER = SymbolId(SymbolNamespace.RELATION, "orders")
 INT_NON_NULL = TypeRefIR(
     symbol=None,
     canonical_symbol=None,
@@ -92,7 +83,6 @@ DECIMAL_NON_NULL = TypeRefIR(
     canonical_kind=TypeKindIR.BUILTIN,
     nullability=NullabilityIR.NON_NULL,
 )
-OWNER = SymbolId(SymbolNamespace.RELATION, "orders")
 
 
 @pytest.mark.parametrize(
@@ -102,7 +92,7 @@ OWNER = SymbolId(SymbolNamespace.RELATION, "orders")
         (MYSQL_INPUT, MYSQL_GOLDEN, emit_mysql_sql),
     ],
 )
-def test_direct_backend_count_sql_matches_reviewed_golden(
+def test_direct_backend_sum_avg_sql_matches_reviewed_golden(
     input_path: Path,
     golden_name: str,
     emitter: Callable[[ScriptIR], SqlResult],
@@ -122,7 +112,7 @@ def test_direct_backend_count_sql_matches_reviewed_golden(
         (MYSQL_INPUT, "mysql", MYSQL_GOLDEN),
     ],
 )
-def test_cli_text_count_sql_matches_reviewed_golden(
+def test_cli_text_sum_avg_sql_matches_reviewed_golden(
     input_path: Path,
     dialect: str,
     golden_name: str,
@@ -145,7 +135,7 @@ def test_cli_text_count_sql_matches_reviewed_golden(
         (MYSQL_INPUT, "mysql", MYSQL_GOLDEN),
     ],
 )
-def test_cli_json_count_sql_success_preserves_v1_shape(
+def test_cli_json_sum_avg_sql_success_preserves_v1_shape(
     input_path: Path,
     dialect: str,
     golden_name: str,
@@ -205,7 +195,7 @@ def test_cli_json_count_sql_success_preserves_v1_shape(
         (MYSQL_INPUT, "mysql", MYSQL_GOLDEN),
     ],
 )
-def test_cli_json_count_sql_output_writes_exact_sql(
+def test_cli_json_sum_avg_sql_output_writes_exact_sql(
     input_path: Path,
     dialect: str,
     golden_name: str,
@@ -213,7 +203,7 @@ def test_cli_json_count_sql_output_writes_exact_sql(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    output_path = tmp_path / f"{dialect}-count.sql"
+    output_path = tmp_path / f"{dialect}-sum-avg.sql"
     monkeypatch.chdir(REPO_ROOT)
 
     assert (
@@ -242,19 +232,35 @@ def test_cli_json_count_sql_output_writes_exact_sql(
     assert output_path.read_bytes() == _golden_bytes(golden_name)
 
 
-def test_invalid_count_shape_stops_before_sql_without_artifacts(
+@pytest.mark.parametrize(
+    ("select_body", "expected_code"),
+    [
+        ("        revenue = sum(amount + amount)\n", "PIE-S2315"),
+        ("        average = avg(1)\n", "PIE-S2315"),
+        ("        revenue = sum(status)\n", "PIE-S2314"),
+        ("        average = avg(price)\n", "PIE-S2314"),
+        ("        revenue = sum(avg(amount))\n", "PIE-S2311"),
+        ("        revenue = sum(amount) + 1\n", "PIE-S2310"),
+        ("        status\n        revenue = sum(amount)\n", "PIE-S2312"),
+    ],
+)
+def test_invalid_sum_avg_shapes_stop_before_sql_without_artifacts(
+    select_body: str,
+    expected_code: str,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = tmp_path / "invalid-count.pietto"
+    path = tmp_path / "invalid-sum-avg.pietto"
     path.write_text(
         "shape Order:\n"
         "    status: Text not null\n"
+        "    amount: Int not null\n"
+        "    price: Decimal not null\n"
         'source orders: Order is postgres.table("orders")\n'
         "table paid_order_stats:\n"
         "    from orders\n"
         "    select:\n"
-        "        total = count() + 1\n",
+        f"{select_body}",
         encoding="utf-8",
     )
 
@@ -274,94 +280,53 @@ def test_invalid_count_shape_stops_before_sql_without_artifacts(
 
     result = _read_json(capsys)
     diagnostics = cast(list[dict[str, object]], result["diagnostics"])
+    codes = [diagnostic["code"] for diagnostic in diagnostics]
 
     assert result["ok"] is False
-    assert [diagnostic["code"] for diagnostic in diagnostics] == ["PIE-S2310"]
+    assert codes == [expected_code]
+    assert "PIE-B1000" not in codes
     assert result["artifacts"] == []
 
 
-def test_supported_aggregate_ir_shapes_render_without_changing_count_sql() -> None:
-    assert render_expression_sql(_aggregate("count", INT_NON_NULL)) == "COUNT(*)"
-    assert render_mysql_expression(_aggregate("count", INT_NON_NULL)) == "COUNT(*)"
-    assert (
-        render_expression_sql(
-            _aggregate("sum", INT_NULLABLE, _field("amount", INT_NON_NULL))
-        )
-        == 'SUM("amount")'
+@pytest.mark.parametrize(
+    ("input_path", "emitter"),
+    [
+        (POSTGRES_INPUT, emit_postgres_sql),
+        (MYSQL_INPUT, emit_mysql_sql),
+    ],
+)
+@pytest.mark.parametrize(
+    "case",
+    [
+        "unsupported_function",
+        "wrong_arity",
+        "non_field_argument",
+        "decimal_argument",
+        "malformed_result_type",
+    ],
+)
+def test_malformed_hand_built_sum_avg_ir_fails_closed_with_pie_b1000(
+    input_path: Path,
+    emitter: Callable[[ScriptIR], SqlResult],
+    case: str,
+) -> None:
+    script_ir = _compile(input_path)
+    relation = _relation_ir(script_ir)
+    projection = relation.projections[1]
+    bad_relation = replace(
+        relation,
+        projections=(replace(projection, expression=_malformed_aggregate(case)),),
     )
-    assert (
-        render_mysql_expression(
-            _aggregate("sum", INT_NULLABLE, _field("amount", INT_NON_NULL))
-        )
-        == "SUM(`amount`)"
-    )
-    assert (
-        render_expression_sql(
-            _aggregate("avg", FLOAT_NULLABLE, _field("amount", INT_NON_NULL))
-        )
-        == 'AVG("amount")'
-    )
-    assert (
-        render_mysql_expression(
-            _aggregate("avg", FLOAT_NULLABLE, _field("amount", INT_NON_NULL))
-        )
-        == "AVG(`amount`)"
-    )
-
-
-def test_malformed_aggregate_ir_shapes_still_fail_closed() -> None:
-    count_with_argument = _aggregate("count", INT_NON_NULL, _literal(1))
-    count_with_unknown_type = _aggregate("count", UNKNOWN_TYPE)
-    unsupported_name = _aggregate(
-        "median",
-        FLOAT_NULLABLE,
-        _field("amount", INT_NON_NULL),
-    )
-    sum_wrong_arity = _aggregate("sum", INT_NULLABLE)
-    sum_non_field = _aggregate("sum", INT_NULLABLE, _literal(1))
-    sum_decimal_argument = _aggregate(
-        "sum",
-        INT_NULLABLE,
-        _field("price", DECIMAL_NON_NULL),
-    )
-    sum_bad_result_type = _aggregate(
-        "sum",
-        FLOAT_NULLABLE,
-        _field("amount", INT_NON_NULL),
+    definitions = tuple(
+        bad_relation if definition is relation else definition
+        for definition in script_ir.definitions
     )
 
-    with pytest.raises(ValueError, match="PostgreSQL aggregate count expects 0"):
-        render_expression_sql(count_with_argument)
-    with pytest.raises(ValueError, match="PostgreSQL aggregate count expects Int"):
-        render_expression_sql(count_with_unknown_type)
-    with pytest.raises(
-        ValueError,
-        match="Unsupported PostgreSQL aggregate call: median",
-    ):
-        render_expression_sql(unsupported_name)
-    with pytest.raises(ValueError, match="PostgreSQL aggregate sum expects 1"):
-        render_expression_sql(sum_wrong_arity)
-    with pytest.raises(ValueError, match="direct field argument"):
-        render_expression_sql(sum_non_field)
-    with pytest.raises(ValueError, match="supports only Int or Float"):
-        render_expression_sql(sum_decimal_argument)
-    with pytest.raises(ValueError, match="approved logical shape"):
-        render_expression_sql(sum_bad_result_type)
+    result = emitter(ScriptIR(definitions=definitions))
 
-    with pytest.raises(MySqlRenderError, match="MySQL aggregate count expects 0"):
-        render_mysql_expression(count_with_argument)
-    with pytest.raises(MySqlRenderError, match="MySQL aggregate count expects Int"):
-        render_mysql_expression(count_with_unknown_type)
-    with pytest.raises(MySqlRenderError, match="Unsupported MySQL aggregate call"):
-        render_mysql_expression(unsupported_name)
-    with pytest.raises(MySqlRenderError, match="MySQL aggregate sum expects 1"):
-        render_mysql_expression(sum_wrong_arity)
-    with pytest.raises(MySqlRenderError, match="direct field argument"):
-        render_mysql_expression(sum_non_field)
-    with pytest.raises(MySqlRenderError, match="supports only Int or Float"):
-        render_mysql_expression(sum_decimal_argument)
-    with pytest.raises(MySqlRenderError, match="approved logical shape"):
-        render_mysql_expression(sum_bad_result_type)
+    assert result.artifacts == ()
+    assert len(result.diagnostics) == 1
+    assert result.diagnostics[0].code == "PIE-B1000"
 
 
 def _compile(path: Path) -> ScriptIR:
@@ -379,6 +344,30 @@ def _compile(path: Path) -> ScriptIR:
     assert ir_result.diagnostics == ()
     assert ir_result.ir is not None
     return ir_result.ir
+
+
+def _relation_ir(script_ir: ScriptIR) -> RelationIR:
+    relations = [
+        definition
+        for definition in script_ir.definitions
+        if isinstance(definition, RelationIR)
+    ]
+    assert len(relations) == 1
+    return relations[0]
+
+
+def _malformed_aggregate(case: str) -> AggregateCallIR:
+    if case == "unsupported_function":
+        return _aggregate("median", FLOAT_NULLABLE, _field("amount", INT_NON_NULL))
+    if case == "wrong_arity":
+        return _aggregate("sum", INT_NULLABLE)
+    if case == "non_field_argument":
+        return _aggregate("sum", INT_NULLABLE, _literal(1, INT_NON_NULL))
+    if case == "decimal_argument":
+        return _aggregate("sum", INT_NULLABLE, _field("price", DECIMAL_NON_NULL))
+    if case == "malformed_result_type":
+        return _aggregate("sum", FLOAT_NULLABLE, _field("amount", INT_NON_NULL))
+    raise AssertionError(f"Unknown malformed aggregate case: {case}")
 
 
 def _aggregate(
@@ -404,8 +393,8 @@ def _field(name: str, value_type: TypeRefIR) -> FieldRefIR:
     )
 
 
-def _literal(value: StaticValue) -> LiteralIR:
-    return LiteralIR(span=SPAN, value_type=INT_NON_NULL, value=value)
+def _literal(value: StaticValue, value_type: TypeRefIR) -> LiteralIR:
+    return LiteralIR(span=SPAN, value_type=value_type, value=value)
 
 
 def _golden_text(name: str) -> str:

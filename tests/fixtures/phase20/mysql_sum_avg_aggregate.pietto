@@ -1,0 +1,16 @@
+shape Order:
+    status: Text not null
+    amount: Int not null
+    score: Float not null
+
+source orders: Order is mysql.table("orders")
+
+table paid_order_stats:
+    from orders
+    where status == "paid"
+    select:
+        total = count()
+        revenue = sum(amount)
+        score_total = sum(score)
+        average_amount = avg(amount)
+        average_score = avg(score)

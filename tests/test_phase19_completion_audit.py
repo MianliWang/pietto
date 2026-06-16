@@ -15,11 +15,16 @@ from pietto.errors import Severity
 from pietto.ir import (
     AggregateCallIR,
     CallIR,
+    ExpressionIR,
+    FieldId,
+    FieldRefIR,
     LiteralIR,
     NullabilityIR,
     RelationIR,
     ScriptIR,
     SourceSpan,
+    SymbolId,
+    SymbolNamespace,
     TypeKindIR,
     TypeRefIR,
     build_ir,
@@ -87,6 +92,43 @@ UNKNOWN_TYPE = TypeRefIR(
     canonical_kind=TypeKindIR.UNKNOWN,
     nullability=NullabilityIR.UNKNOWN,
 )
+INT_NON_NULL = TypeRefIR(
+    symbol=None,
+    canonical_symbol=None,
+    declared_name="Int",
+    canonical_name="Int",
+    kind=TypeKindIR.BUILTIN,
+    canonical_kind=TypeKindIR.BUILTIN,
+    nullability=NullabilityIR.NON_NULL,
+)
+INT_NULLABLE = TypeRefIR(
+    symbol=None,
+    canonical_symbol=None,
+    declared_name="Int",
+    canonical_name="Int",
+    kind=TypeKindIR.BUILTIN,
+    canonical_kind=TypeKindIR.BUILTIN,
+    nullability=NullabilityIR.NULLABLE,
+)
+FLOAT_NULLABLE = TypeRefIR(
+    symbol=None,
+    canonical_symbol=None,
+    declared_name="Float",
+    canonical_name="Float",
+    kind=TypeKindIR.BUILTIN,
+    canonical_kind=TypeKindIR.BUILTIN,
+    nullability=NullabilityIR.NULLABLE,
+)
+DECIMAL_NON_NULL = TypeRefIR(
+    symbol=None,
+    canonical_symbol=None,
+    declared_name="Decimal",
+    canonical_name="Decimal",
+    kind=TypeKindIR.BUILTIN,
+    canonical_kind=TypeKindIR.BUILTIN,
+    nullability=NullabilityIR.NON_NULL,
+)
+OWNER = SymbolId(SymbolNamespace.RELATION, "orders")
 
 
 def test_phase19_count_mvp_artifacts_exist() -> None:
@@ -249,23 +291,74 @@ def test_count_sql_goldens_cli_json_coverage_and_inventory_are_locked() -> None:
     assert _check_goldens().audit(REPO_ROOT) == ()
 
 
-def test_sql_renderers_support_only_zero_argument_count_aggregate() -> None:
-    count_with_argument = _aggregate("count", _literal(1))
+def test_sql_renderers_preserve_count_and_support_direct_sum_avg_aggregates() -> None:
+    assert render_expression_sql(_aggregate("count", INT_NON_NULL)) == "COUNT(*)"
+    assert render_mysql_expression(_aggregate("count", INT_NON_NULL)) == "COUNT(*)"
+    assert (
+        render_expression_sql(
+            _aggregate("sum", INT_NULLABLE, _field("amount", INT_NON_NULL))
+        )
+        == 'SUM("amount")'
+    )
+    assert (
+        render_mysql_expression(
+            _aggregate("sum", INT_NULLABLE, _field("amount", INT_NON_NULL))
+        )
+        == "SUM(`amount`)"
+    )
+    assert (
+        render_expression_sql(
+            _aggregate("avg", FLOAT_NULLABLE, _field("score", FLOAT_NULLABLE))
+        )
+        == 'AVG("score")'
+    )
+    assert (
+        render_mysql_expression(
+            _aggregate("avg", FLOAT_NULLABLE, _field("score", FLOAT_NULLABLE))
+        )
+        == "AVG(`score`)"
+    )
 
-    assert render_expression_sql(_aggregate("count")) == "COUNT(*)"
-    assert render_mysql_expression(_aggregate("count")) == "COUNT(*)"
-    with pytest.raises(ValueError, match="Unsupported PostgreSQL aggregate call: sum"):
-        render_expression_sql(_aggregate("sum"))
-    with pytest.raises(ValueError, match="Unsupported PostgreSQL aggregate call: avg"):
-        render_expression_sql(_aggregate("avg"))
+
+def test_sql_renderers_keep_malformed_aggregate_ir_fail_closed() -> None:
+    count_with_argument = _aggregate("count", INT_NON_NULL, _literal(1))
+    unsupported_function = _aggregate(
+        "median",
+        FLOAT_NULLABLE,
+        _field("amount", INT_NON_NULL),
+    )
+    sum_wrong_arity = _aggregate("sum", INT_NULLABLE)
+    sum_non_field = _aggregate("sum", INT_NULLABLE, _literal(1))
+    sum_decimal_argument = _aggregate(
+        "sum",
+        INT_NULLABLE,
+        _field("price", DECIMAL_NON_NULL),
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="Unsupported PostgreSQL aggregate call: median",
+    ):
+        render_expression_sql(unsupported_function)
     with pytest.raises(ValueError, match="PostgreSQL aggregate count expects 0"):
         render_expression_sql(count_with_argument)
-    with pytest.raises(MySqlRenderError, match="Unsupported MySQL aggregate call: sum"):
-        render_mysql_expression(_aggregate("sum"))
-    with pytest.raises(MySqlRenderError, match="Unsupported MySQL aggregate call: avg"):
-        render_mysql_expression(_aggregate("avg"))
+    with pytest.raises(ValueError, match="PostgreSQL aggregate sum expects 1"):
+        render_expression_sql(sum_wrong_arity)
+    with pytest.raises(ValueError, match="direct field argument"):
+        render_expression_sql(sum_non_field)
+    with pytest.raises(ValueError, match="supports only Int or Float"):
+        render_expression_sql(sum_decimal_argument)
+
+    with pytest.raises(MySqlRenderError, match="Unsupported MySQL aggregate call"):
+        render_mysql_expression(unsupported_function)
     with pytest.raises(MySqlRenderError, match="MySQL aggregate count expects 0"):
         render_mysql_expression(count_with_argument)
+    with pytest.raises(MySqlRenderError, match="MySQL aggregate sum expects 1"):
+        render_mysql_expression(sum_wrong_arity)
+    with pytest.raises(MySqlRenderError, match="direct field argument"):
+        render_mysql_expression(sum_non_field)
+    with pytest.raises(MySqlRenderError, match="supports only Int or Float"):
+        render_mysql_expression(sum_decimal_argument)
 
 
 def test_sum_avg_decimal_and_result_predicate_deferrals_remain_documented() -> None:
@@ -332,17 +425,31 @@ def _compile_fixture(path: str) -> ScriptIR:
     return ir_result.ir
 
 
-def _aggregate(function: str, *arguments: LiteralIR) -> AggregateCallIR:
+def _aggregate(
+    function: str,
+    value_type: TypeRefIR,
+    *arguments: ExpressionIR,
+) -> AggregateCallIR:
     return AggregateCallIR(
         span=SPAN,
-        value_type=UNKNOWN_TYPE,
+        value_type=value_type,
         function=function,
         arguments=arguments,
     )
 
 
+def _field(name: str, value_type: TypeRefIR) -> FieldRefIR:
+    return FieldRefIR(
+        span=SPAN,
+        value_type=value_type,
+        name=name,
+        qualifier=(),
+        field=FieldId(owner=OWNER, name=name),
+    )
+
+
 def _literal(value: StaticValue) -> LiteralIR:
-    return LiteralIR(span=SPAN, value_type=UNKNOWN_TYPE, value=value)
+    return LiteralIR(span=SPAN, value_type=INT_NON_NULL, value=value)
 
 
 def _render_artifacts(result: SqlResult) -> bytes:

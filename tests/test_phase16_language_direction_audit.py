@@ -67,7 +67,7 @@ LOCKED_FILE_HASHES = {
         "b126059cd0aebe9535fceb9b0a1b1c09ee1ba22af13f70d276d7e013c49c60e7"
     ),
     "scripts/check_goldens.py": (
-        "be2be3b23e3e12db7a3beb0458f0c774fa3d14a06435177514da07813646fc4f"
+        "9a7008a89f6c8b32dc979eef64c9df0f3599ccc8f04d17b9c54d05248e68c09d"
     ),
     "scripts/package_smoke.py": (
         "61de7eec8f26476e39d05305642ecde0a55d1030513ce91f627cac45517c1131"
@@ -89,19 +89,19 @@ LOCKED_GROUP_HASHES = {
     ),
     "sql": (
         10,
-        "0f5c5bd51481c667cc48f202978baad4b0800a4813ec9cc3203f2d58fc2a2229",
+        "03cc50bf10a49b7a1d617b57d056f839e98046f09726eb717da9e004c900bdb0",
     ),
     "examples": (
         10,
         "230369f90130d7c4b722b75ef2ec264d98e0d6f34ad3b1b5fd7d5fbf04d45a97",
     ),
     "fixtures": (
-        28,
-        "5839f91939e5ca484bb3b1e6020f539ba451b97e592d6558de2c9e953963b4a7",
+        32,
+        "1f5845f1d08066947e5fa2a60b3ca0802cb8e74ca69f39f4fcf7b9a5f352138c",
     ),
     "goldens": (
-        17,
-        "8dc2b3200718f9b84bc5a40f166d7bdff760d44a7b78f5f0e01b5799bdba9e62",
+        19,
+        "539a980e24fc41be1e645b4527b3114d6046e0014f7c8d347e150bd1721ef728",
     ),
 }
 

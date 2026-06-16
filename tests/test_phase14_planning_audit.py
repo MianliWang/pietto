@@ -40,7 +40,7 @@ PHASE13_HASHES = {
         "2383731c2b9d78f8cf73da8e9d47f973b6eef93eb20e0f03d8f045307b788534"
     ),
     "tests/test_phase13_completion_audit.py": (
-        "cbcb9e960f677136aed3630481207e9a3338bbb5f966527d063e640a9eaa5dc0"
+        "b0c8d80600f30bd8265d5dc734a91ab87f42942d0e5cf34118e68a588ea1d3ed"
     ),
 }
 
@@ -61,7 +61,7 @@ FILE_HASHES = {
         "b126059cd0aebe9535fceb9b0a1b1c09ee1ba22af13f70d276d7e013c49c60e7"
     ),
     "scripts/check_goldens.py": (
-        "be2be3b23e3e12db7a3beb0458f0c774fa3d14a06435177514da07813646fc4f"
+        "9a7008a89f6c8b32dc979eef64c9df0f3599ccc8f04d17b9c54d05248e68c09d"
     ),
     "scripts/package_smoke.py": (
         "61de7eec8f26476e39d05305642ecde0a55d1030513ce91f627cac45517c1131"
@@ -72,12 +72,12 @@ GROUP_HASHES = {
     "frontend": "4af1382a5d1e4464f492f0c267d500fbeb667bff819dcbcad11b346f33d87e8b",
     "semantic": "a79f79494da224d670ff2260bbd3baef663c4d4d09ad8f8d7d03fc35e25d66e6",
     "ir": "1a00971a164e25214814c865154423c0b6e0ec7d02d651b2afdd32d091a5a92a",
-    "sql": "0f5c5bd51481c667cc48f202978baad4b0800a4813ec9cc3203f2d58fc2a2229",
+    "sql": "03cc50bf10a49b7a1d617b57d056f839e98046f09726eb717da9e004c900bdb0",
     "generated": "44dad9dc2fced336b8e102a558be94786fb7618fd860a3ef6f6d56e49fdebf1f",
     "cli": "235d4e50c3474306253dfc6b118e2518b3e300e90f7fbe9903263a39cbdc42a0",
 }
 
-GOLDENS_HASH = "8dc2b3200718f9b84bc5a40f166d7bdff760d44a7b78f5f0e01b5799bdba9e62"
+GOLDENS_HASH = "539a980e24fc41be1e645b4527b3114d6046e0014f7c8d347e150bd1721ef728"
 
 
 def test_phase14_plan_records_final_transition_status_and_slice_order() -> None:
@@ -327,7 +327,7 @@ def test_api_dependency_package_json_golden_and_ci_boundaries_are_locked() -> No
 
     assert "_SCHEMA_VERSION = 1" in cli_json
     assert "_SCHEMA_VERSION = 2" not in cli_json
-    assert len(goldens) == 17
+    assert len(goldens) == 19
     assert _aggregate_files(goldens) == GOLDENS_HASH
 
     assert re.search(r"(?m)^permissions:\n  contents: read$", workflow)

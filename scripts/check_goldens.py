@@ -17,6 +17,7 @@ SQL_FIXTURES = frozenset(
         "emit_mysql_compatibility_literals_identifiers.sql",
         "emit_mysql_compatibility_ordering_metadata.sql",
         "emit_mysql_order_limit_composition.sql",
+        "emit_mysql_sum_avg_aggregate.sql",
         "emit_sql_active_user_emails.sql",
         "emit_sql_active_users.sql",
         "emit_sql_count_aggregate.sql",
@@ -24,6 +25,7 @@ SQL_FIXTURES = frozenset(
         "emit_sql_compatibility_literals_identifiers.sql",
         "emit_sql_compatibility_ordering_metadata.sql",
         "emit_sql_order_limit_composition.sql",
+        "emit_sql_sum_avg_aggregate.sql",
     }
 )
 JSON_FIXTURES = frozenset(
@@ -58,6 +60,9 @@ FIXTURE_INPUTS: dict[str, tuple[str, ...]] = {
     "emit_mysql_order_limit_composition.sql": (
         "tests/fixtures/phase12/mysql_order_limit_composition.pietto",
     ),
+    "emit_mysql_sum_avg_aggregate.sql": (
+        "tests/fixtures/phase20/mysql_sum_avg_aggregate.pietto",
+    ),
     "emit_sql_active_user_emails.sql": ("examples/queries/active_user_emails.pietto",),
     "emit_sql_active_users.json": ("examples/tables/active_users.pietto",),
     "emit_sql_active_users.sql": ("examples/tables/active_users.pietto",),
@@ -76,6 +81,9 @@ FIXTURE_INPUTS: dict[str, tuple[str, ...]] = {
     "emit_sql_order_limit_composition.sql": (
         "tests/fixtures/phase12/postgres_order_limit_composition.pietto",
     ),
+    "emit_sql_sum_avg_aggregate.sql": (
+        "tests/fixtures/phase20/postgres_sum_avg_aggregate.pietto",
+    ),
     "phase12_mysql_order_limit_composition.json": (
         "tests/fixtures/phase12/mysql_order_limit_composition.pietto",
     ),
@@ -87,6 +95,7 @@ REFERENCE_TESTS = (
     Path("tests/test_phase10_mysql_golden_corpus.py"),
     Path("tests/test_phase12_composition_cli_json_goldens.py"),
     Path("tests/test_phase19_count_sql.py"),
+    Path("tests/test_phase20_sum_avg_sql.py"),
 )
 
 
