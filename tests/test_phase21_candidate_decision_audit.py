@@ -76,12 +76,19 @@ def test_future_slice_sequence_is_recorded() -> None:
     plan = _normalized()
 
     for required in (
-        "Slice 1: Baseline And Candidate Decision",
-        "Slice 2: Syntax And Clause-Scope Contract",
-        "Slice 3: Semantic / IR / SQL / Diagnostics Contract",
-        "Slice 4: Completion Audit And Status Lock",
+        "Slice 1: Candidate Decision**: complete",
+        "Slice 2: Syntax And Clause-Scope Contract**: complete as docs/audit only",
+        "Slice 3: Semantic / IR / SQL / Diagnostics Contract**: current docs/audit-only slice",
+        "Slice 4: Parser + AST parse-only implementation",
+        "Slice 5: Semantic grouped relation validation and grouped output schema",
+        "Slice 6: IR group key lowering",
+        "Slice 7: PostgreSQL/MySQL SQL lowering and goldens",
+        "Slice 8: CLI / invalid-shape hardening / no-regression checks",
+        "Slice 9: GROUP BY completion audit",
     ):
         assert required in plan
+
+    assert "Slice 4: Completion Audit And Status Lock" not in plan
 
 
 def test_source_syntax_constraints_are_preserved() -> None:

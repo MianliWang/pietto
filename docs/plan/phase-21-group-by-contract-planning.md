@@ -4,8 +4,9 @@
 
 Phase 21 Slice 1 is complete as baseline and candidate decision work only.
 Phase 21 Slice 2 is complete as GROUP BY syntax and clause-scope contract
-work only. These slices are docs/audit only. They do not implement GROUP BY
-or any compiler behavior.
+work only. Phase 21 Slice 3 is complete as GROUP BY semantic, IR, SQL, and
+diagnostics contract work only. These slices are docs/audit only. They do
+not implement GROUP BY or any compiler behavior.
 
 Trusted Phase 20 baseline:
 
@@ -16,7 +17,7 @@ Trusted Phase 20 baseline:
   MySQL SQL lowering are complete for that MVP;
 - reviewed SQL goldens and the Phase 20 completion audit are complete.
 
-Phase 21 Slice 2 preserves the Slice 1 boundary: this work adds no
+Phase 21 Slice 3 preserves the Slice 1 and Slice 2 boundary: this work adds no
 grammar/generated, AST, semantic, IR, SQL, CLI, JSON, fixture, golden,
 dependency, CI, runtime, UI, LSP, policy DSL, or database behavior change.
 It also adds no diagnostic code.
@@ -306,26 +307,138 @@ implementation slice would likely touch:
 - PostgreSQL and MySQL SQL relation renderers;
 - CLI integration, SQL goldens, fixture inventory, and focused tests.
 
+## Slice 3 Semantic / IR / SQL / Diagnostics Contract
+
+Slice 3 records the future GROUP BY semantic, IR, SQL, and diagnostic
+contract. It remains docs/audit only and reserves no new diagnostic codes.
+
+Grouped semantic mode:
+
+- a relation is grouped when a future parsed AST contains a non-empty
+  `group by:` key list;
+- `where` remains input row scope and filters rows before grouping;
+- `select` observes grouped result scope and may project only declared group
+  keys and direct aggregate projections;
+- result predicates, HAVING-like user syntax, and grouped `order by` remain
+  deferred.
+
+Group key identity:
+
+- valid bare field keys and single-input qualified field keys compare by
+  resolved input field identity;
+- in single-input scope, `status` and `orders.status` are equivalent when
+  both resolve to the same input field;
+- duplicate group keys diagnose the later duplicate key and preserve the
+  first source-ordered key for downstream classification;
+- unknown group fields emit the primary unknown group field diagnostic and
+  suppress secondary invalid-form, duplicate-key, and non-grouped-projection
+  cascades that depend on the unknown key.
+
+Grouped `select:` rules:
+
+- group key projection is allowed when the projection expression resolves to
+  a declared group key;
+- aggregate projection is allowed when it is a direct aggregate call in the
+  Phase 20 aggregate surface;
+- aggregate projection requires an explicit alias;
+- non-grouped plain field projection is rejected;
+- scalar expressions involving group keys, such as `label = lower(status)`,
+  are deferred or rejected for v1;
+- pure grouping or distinct-style output without any aggregate remains
+  deferred unless separately authorized.
+
+Semantic output schema rules:
+
+- group key projections preserve the input field type and nullability;
+- aliased group key projections preserve the input field type and nullability
+  under the selected output name;
+- aggregate outputs preserve Phase 20 result types:
+  - `count() -> Int not null`;
+  - `sum(Int) -> Int nullable`;
+  - `sum(Float) -> Float nullable`;
+  - `avg(Int) -> Float nullable`;
+  - `avg(Float) -> Float nullable`;
+- invalid grouped projections with stable output names publish unknown schema
+  fields when needed for downstream cascade suppression;
+- invalid unaliased projections suppress output fields when no stable output
+  name exists.
+
+Future Semantic IR direction:
+
+- future `RelationIR` should add
+  `group_keys: tuple[FieldRefIR, ...] = ()`;
+- group keys should reuse `FieldRefIR` rather than introduce a separate
+  `GroupKeyIR` for v1;
+- lowered group keys preserve accepted unique key source order;
+- an empty `group_keys` tuple preserves existing no-GROUP IR bytes and
+  behavior.
+
+Future SQL contract:
+
+```text
+SELECT
+FROM
+WHERE
+GROUP BY
+LIMIT
+```
+
+Grouped `ORDER BY` remains deferred in v1. PostgreSQL and MySQL grouped SQL
+should render `GROUP BY` after `WHERE` and before `LIMIT`, using the existing
+field-rendering and identifier-quoting rules for bare and qualified
+`FieldRefIR` values. Existing no-GROUP SQL bytes remain unchanged when
+`group_keys == ()`.
+
+Malformed grouped IR must fail closed with backend diagnostics rather than
+emit partial unsafe SQL. Examples include unresolved group fields, duplicate
+or non-field group keys, grouped `order_by`, unsupported aggregate shapes, or
+grouped projections that cannot be rendered deterministically.
+
+Slice 3 diagnostic categories are descriptive only. Future implementation
+may define diagnostic codes only when semantic behavior is authorized.
+
+Future diagnostic categories include:
+
+- invalid group key expression;
+- unknown group field;
+- duplicate group key;
+- aggregate in group key;
+- non-grouped projection;
+- scalar group-key expression deferred;
+- grouped `order by` deferred;
+- grouped pure distinct output deferred;
+- malformed grouped IR fail-closed backend diagnostic;
+- cascade suppression for unknown group keys and unknown aggregate arguments.
+
 ## Proposed Future Phase 21 Slices
 
-1. **Slice 1: Baseline And Candidate Decision**: complete as docs/audit only.
-   Record the trusted Phase 20 baseline, compare candidate directions, select
-   GROUP BY contract planning, and explicitly defer implementation.
+1. **Slice 1: Candidate Decision**: complete. Record the trusted Phase 20
+   baseline, compare candidate directions, select GROUP BY contract planning,
+   and explicitly defer implementation.
 2. **Slice 2: Syntax And Clause-Scope Contract**: complete as docs/audit only.
    Define the exact future GROUP BY source shape, clause order, group-key
    scope, select projection rules, and syntax constraints without compiler
    implementation.
-3. **Slice 3: Semantic / IR / SQL / Diagnostics Contract**: future planning
-   slice. Define future semantic validation, row-schema behavior, IR shape,
-   selected-dialect SQL shape, diagnostic ownership, and fail-closed
-   unsupported behavior without implementation.
-4. **Slice 4: Completion Audit And Status Lock**: future audit slice. Verify
-   the Phase 21 planning boundary and prove no unauthorized compiler,
-   runtime, database, or broad documentation behavior was added.
+3. **Slice 3: Semantic / IR / SQL / Diagnostics Contract**: current
+   docs/audit-only slice. Define future semantic validation, row-schema
+   behavior, IR shape, selected-dialect SQL shape, diagnostic ownership, and
+   fail-closed unsupported behavior without implementation.
+4. **Slice 4: Parser + AST parse-only implementation**: expected to begin
+   parse-only implementation after the Slice 3 contract is complete. Slice 4
+   is not a completion audit.
+5. **Slice 5: Semantic grouped relation validation and grouped output
+   schema**: future implementation slice.
+6. **Slice 6: IR group key lowering**: future implementation slice.
+7. **Slice 7: PostgreSQL/MySQL SQL lowering and goldens**: future
+   implementation slice.
+8. **Slice 8: CLI / invalid-shape hardening / no-regression checks**: future
+   implementation and hardening slice.
+9. **Slice 9: GROUP BY completion audit**: future final audit slice for the
+   authorized GROUP BY Aggregate MVP.
 
 ## Explicit Out Of Scope
 
-Phase 21 Slice 1 does not implement or authorize:
+Phase 21 Slice 3 does not implement or authorize:
 
 - GROUP BY implementation;
 - grammar or source syntax changes;
