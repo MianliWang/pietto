@@ -46,6 +46,8 @@ grouped relation continue to use the existing relation-name input behavior
 without CTEs, inlining, subqueries, joins, runtime execution, or database
 behavior.
 
+Phase 21 Slice 8 is complete as CLI, invalid-shape, malformed IR, and no-regression hardening. Slice 8 is tests/audit-only and adds no production behavior. It adds no fixtures, SQL/JSON goldens, `scripts/check_goldens.py` inventory changes, diagnostics, public API, dependency, lockfile, CI, runtime, database, UI, LSP, or policy DSL behavior. Slice 8 adds no grouped `order by`, HAVING user syntax, `satisfying`, `filter`, JOIN, relationship-driven query behavior, aggregate expression arguments, Decimal aggregate semantics, casts, SQLGlot, or runtime/database execution.
+
 Trusted Phase 20 baseline:
 
 - HEAD: `e67bf35cc130332aeb786a913fa5d76dac00fca9`;
@@ -88,6 +90,16 @@ Semantic IR model, IR builder/lowering, CLI implementation, JSON schema,
 public API, dependency, lockfile, CI, runtime, database, UI, LSP, policy DSL,
 join, HAVING, grouped `order by`, aggregate expression argument, Decimal
 aggregate, cast, relationship-driven query, SQLGlot, or execution behavior.
+
+Phase 21 Slice 8 changes only focused grouped CLI hardening tests, focused
+audit coverage, status documentation, and historical audit/support tests for
+exact test/doc hash fallout if needed. It adds no production behavior, grammar,
+generated ANTLR, parser, AST, semantic production code, IR, SQL renderer, CLI
+implementation, fixture, golden, `scripts/check_goldens.py`, diagnostic
+documentation, public API, dependency, lockfile, CI, runtime, database, UI,
+LSP, policy DSL, grouped `order by`, HAVING, `satisfying`, `filter`, JOIN,
+relationship-driven query behavior, aggregate expression argument, Decimal
+aggregate, cast, SQLGlot, or execution behavior.
 
 ## Strategic Priority
 
@@ -660,6 +672,33 @@ Slice 7 adds reviewed PostgreSQL/MySQL grouped SQL fixtures and golden
 inventory ownership. Existing no-GROUP SQL bytes remain the compatibility
 baseline.
 
+## Slice 8 CLI / Invalid-Shape Hardening / No-Regression Checks
+
+Slice 8 adds focused tests and audits around the Slice 7 SQL lowering surface.
+It does not change compiler behavior.
+
+Implemented hardening coverage:
+
+- valid grouped PostgreSQL and MySQL sources continue to pass `pietto check`
+  and grouped `emit-sql` text, JSON v1, and output-file paths;
+- invalid grouped programs with duplicate keys, unknown keys, non-grouped
+  projections, scalar grouped projections, pure grouping, grouped `order by`,
+  unaliased aggregates, nested aggregates, aggregate composition, wrong arity,
+  wrong type, and aggregate expression arguments fail before SQL with
+  semantic-specific diagnostics and without backend `PIE-B1000`;
+- invalid grouped JSON `emit-sql --output` reports `ok=false`, no artifacts,
+  `written=false`, and preserves any existing output file bytes;
+- downstream-from-grouped CLI JSON emits grouped and downstream artifacts while
+  using the quoted relation name as input without CTEs, inlining, subqueries, or
+  nested SQL;
+- malformed hand-built grouped IR continues to fail closed with backend
+  `PIE-B1000` for malformed keys, grouped `order_by`, unsupported projections,
+  pure grouped output, and unsupported aggregate functions;
+- grouped fixtures, reviewed grouped SQL goldens, and `scripts/check_goldens.py`
+  inventory ownership remain unchanged.
+
+Slice 8 is tests/audit-only. Slice 9 remains the future completion audit.
+
 ## Proposed Future Phase 21 Slices
 
 1. **Slice 1: Candidate Decision**: complete. Record the trusted Phase 20
@@ -686,8 +725,7 @@ baseline.
    source-ordered `FieldRefIR` values, and adds PostgreSQL/MySQL fail-closed
    guards for grouped IR without rendering SQL `GROUP BY`.
 7. **Slice 7: PostgreSQL/MySQL SQL lowering and goldens**: complete.
-8. **Slice 8: CLI / invalid-shape hardening / no-regression checks**: future
-   implementation and hardening slice.
+8. **Slice 8: CLI / invalid-shape hardening / no-regression checks**: complete.
 9. **Slice 9: GROUP BY completion audit**: future final audit slice for the
    authorized GROUP BY Aggregate MVP.
 
