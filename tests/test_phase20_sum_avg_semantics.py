@@ -260,8 +260,8 @@ def test_count_sum_and_avg_are_not_scalar_builtin_functions() -> None:
             SOURCE_PREFIX + "table paid_order_stats:\n"
             "    from orders\n"
             "    select:\n"
-            "        highest = max(amount)\n",
-            ("PIE-S2103", "Unknown function: max"),
+            "        median_amount = median(amount)\n",
+            ("PIE-S2103", "Unknown function: median"),
         ),
     ],
 )

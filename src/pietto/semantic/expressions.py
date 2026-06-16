@@ -30,12 +30,12 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
-    aggregate_call_name,
-    aggregate_result_value_type,
-    contains_aggregate,
+    contains_semantic_aggregate,
     invalid_context_diagnostic,
-    is_aggregate_call,
     is_direct_field_argument,
+    is_semantic_aggregate_call,
+    semantic_aggregate_call_name,
+    semantic_aggregate_result_value_type,
 )
 from pietto.semantic.catalog import BUILTIN_FUNCTIONS, BuiltinFunction
 from pietto.semantic.model import (
@@ -342,7 +342,7 @@ def _is_direct_aggregate_projection(item: SelectItem) -> bool:
     return (
         item.alias is not None
         and isinstance(expression, CallExpr)
-        and is_aggregate_call(expression)
+        and is_semantic_aggregate_call(expression)
     )
 
 
@@ -626,7 +626,7 @@ def _call_value_type(
     ):
         return _UNKNOWN_VALUE_TYPE
 
-    if is_aggregate_call(expression):
+    if is_semantic_aggregate_call(expression):
         if allow_aggregate_projection:
             result_type = _aggregate_value_type(expression, argument_types)
             if result_type is not None:
@@ -682,17 +682,17 @@ def _aggregate_value_type(
 ) -> ValueType | None:
     """Return a precise aggregate type only for approved direct projections."""
 
-    function_name = aggregate_call_name(expression)
+    function_name = semantic_aggregate_call_name(expression)
     if function_name is None:
         return None
     if not expression.arguments:
-        return aggregate_result_value_type(function_name)
+        return semantic_aggregate_result_value_type(function_name)
     if len(expression.arguments) != 1:
         return None
     argument = expression.arguments[0]
     if not is_direct_field_argument(argument):
         return None
-    return aggregate_result_value_type(function_name, argument_types[0])
+    return semantic_aggregate_result_value_type(function_name, argument_types[0])
 
 
 def _append_invalid_count_context_diagnostic(
@@ -703,7 +703,7 @@ def _append_invalid_count_context_diagnostic(
 ) -> None:
     """Report aggregate use where aggregate semantics are not admitted."""
 
-    if contains_aggregate(expression):
+    if contains_semantic_aggregate(expression):
         diagnostics.append(invalid_context_diagnostic(expression, context=context))
 
 

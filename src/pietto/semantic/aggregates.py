@@ -24,11 +24,21 @@ from pietto.semantic.model import (
 COUNT_AGGREGATE_NAME = "count"
 SUM_AGGREGATE_NAME = "sum"
 AVG_AGGREGATE_NAME = "avg"
+# Keep this IR-facing aggregate set limited to the already lowered aggregate
+# vocabulary. Phase 22 Slice 2 adds min/max semantics without IR lowering.
 AGGREGATE_NAMES = frozenset(
     {
         COUNT_AGGREGATE_NAME,
         SUM_AGGREGATE_NAME,
         AVG_AGGREGATE_NAME,
+    }
+)
+MIN_AGGREGATE_NAME = "min"
+MAX_AGGREGATE_NAME = "max"
+SEMANTIC_AGGREGATE_NAMES = AGGREGATE_NAMES | frozenset(
+    {
+        MIN_AGGREGATE_NAME,
+        MAX_AGGREGATE_NAME,
     }
 )
 
@@ -72,10 +82,28 @@ def aggregate_call_name(expression: Expression) -> str | None:
     return None
 
 
+def semantic_aggregate_call_name(expression: Expression) -> str | None:
+    """Return the semantic aggregate function name for one recognized call."""
+
+    if (
+        isinstance(expression, CallExpr)
+        and isinstance(expression.callee, NameExpr)
+        and expression.callee.name in SEMANTIC_AGGREGATE_NAMES
+    ):
+        return expression.callee.name
+    return None
+
+
 def is_aggregate_call(expression: Expression) -> bool:
     """Return whether an expression is a recognized aggregate call."""
 
     return aggregate_call_name(expression) is not None
+
+
+def is_semantic_aggregate_call(expression: Expression) -> bool:
+    """Return whether an expression is recognized by semantic aggregate checks."""
+
+    return semantic_aggregate_call_name(expression) is not None
 
 
 def contains_aggregate(expression: Expression) -> bool:
@@ -86,6 +114,14 @@ def contains_aggregate(expression: Expression) -> bool:
     return any(contains_aggregate(child) for child in child_expressions(expression))
 
 
+def contains_semantic_aggregate(expression: Expression) -> bool:
+    """Return whether any subtree contains a semantic aggregate name."""
+
+    if is_semantic_aggregate_call(expression):
+        return True
+    return any(contains_semantic_aggregate(child) for child in child_expressions(expression))
+
+
 def first_aggregate_call(expression: Expression) -> CallExpr | None:
     """Return the first aggregate call in source traversal order."""
 
@@ -94,6 +130,19 @@ def first_aggregate_call(expression: Expression) -> CallExpr | None:
         return expression
     for child in child_expressions(expression):
         found = first_aggregate_call(child)
+        if found is not None:
+            return found
+    return None
+
+
+def first_semantic_aggregate_call(expression: Expression) -> CallExpr | None:
+    """Return the first semantic aggregate call in source traversal order."""
+
+    if is_semantic_aggregate_call(expression):
+        assert isinstance(expression, CallExpr)
+        return expression
+    for child in child_expressions(expression):
+        found = first_semantic_aggregate_call(child)
         if found is not None:
             return found
     return None
@@ -116,6 +165,31 @@ def _nested_aggregate(
         return expression
     for child in child_expressions(expression):
         nested = _nested_aggregate(
+            child,
+            inside_aggregate=inside_aggregate or is_aggregate,
+        )
+        if nested is not None:
+            return nested
+    return None
+
+
+def nested_semantic_aggregate(expression: Expression) -> CallExpr | None:
+    """Return the first semantic aggregate nested inside another aggregate."""
+
+    return _nested_semantic_aggregate(expression, inside_aggregate=False)
+
+
+def _nested_semantic_aggregate(
+    expression: Expression,
+    *,
+    inside_aggregate: bool,
+) -> CallExpr | None:
+    is_aggregate = is_semantic_aggregate_call(expression)
+    if is_aggregate and inside_aggregate:
+        assert isinstance(expression, CallExpr)
+        return expression
+    for child in child_expressions(expression):
+        nested = _nested_semantic_aggregate(
             child,
             inside_aggregate=inside_aggregate or is_aggregate,
         )
@@ -152,6 +226,16 @@ def expected_aggregate_arity(function_name: str) -> int:
     raise AssertionError(f"Unsupported aggregate function: {function_name}")
 
 
+def expected_semantic_aggregate_arity(function_name: str) -> int:
+    """Return the semantic argument count for one aggregate function."""
+
+    if function_name in AGGREGATE_NAMES:
+        return expected_aggregate_arity(function_name)
+    if function_name in {MIN_AGGREGATE_NAME, MAX_AGGREGATE_NAME}:
+        return 1
+    raise AssertionError(f"Unsupported aggregate function: {function_name}")
+
+
 def is_direct_field_argument(expression: Expression) -> bool:
     """Return whether an aggregate argument is one direct field reference."""
 
@@ -162,6 +246,28 @@ def is_supported_numeric_argument(value_type: ValueType) -> bool:
     """Return whether an aggregate argument is an approved numeric field type."""
 
     return _is_builtin(value_type, "Int") or _is_builtin(value_type, "Float")
+
+
+def is_supported_extrema_argument(value_type: ValueType) -> bool:
+    """Return whether min/max may use this direct field type."""
+
+    return any(
+        _is_builtin(value_type, name)
+        for name in ("Int", "Float", "Date", "Timestamp")
+    )
+
+
+def is_supported_semantic_aggregate_argument(
+    function_name: str,
+    value_type: ValueType,
+) -> bool:
+    """Return whether an aggregate accepts this direct field argument type."""
+
+    if function_name in {SUM_AGGREGATE_NAME, AVG_AGGREGATE_NAME}:
+        return is_supported_numeric_argument(value_type)
+    if function_name in {MIN_AGGREGATE_NAME, MAX_AGGREGATE_NAME}:
+        return is_supported_extrema_argument(value_type)
+    return False
 
 
 def aggregate_result_value_type(
@@ -183,6 +289,24 @@ def aggregate_result_value_type(
     return None
 
 
+def semantic_aggregate_result_value_type(
+    function_name: str,
+    argument_type: ValueType | None = None,
+) -> ValueType | None:
+    """Return the semantic aggregate result type when supported."""
+
+    if function_name in AGGREGATE_NAMES:
+        return aggregate_result_value_type(function_name, argument_type)
+    if function_name not in {MIN_AGGREGATE_NAME, MAX_AGGREGATE_NAME}:
+        return None
+    if argument_type is None or not is_supported_extrema_argument(argument_type):
+        return None
+    return ValueType(
+        resolved_type=argument_type.resolved_type,
+        nullability=EffectiveNullability.NULLABLE,
+    )
+
+
 def invalid_context_diagnostic(
     expression: Expression,
     *,
@@ -190,7 +314,7 @@ def invalid_context_diagnostic(
 ) -> Diagnostic:
     """Report an aggregate used outside direct aliased select projection."""
 
-    aggregate = first_aggregate_call(expression)
+    aggregate = first_semantic_aggregate_call(expression)
     name = COUNT_AGGREGATE_NAME if aggregate is None else callee_name(aggregate)
 
     return _diagnostic(
@@ -207,7 +331,7 @@ def wrong_arity_diagnostic(expression: CallExpr) -> Diagnostic:
     """Report aggregate arity outside the approved no-GROUP shape."""
 
     name = callee_name(expression)
-    expected = expected_aggregate_arity(name)
+    expected = expected_semantic_aggregate_arity(name)
 
     return _diagnostic(
         expression,
@@ -222,7 +346,7 @@ def wrong_arity_diagnostic(expression: CallExpr) -> Diagnostic:
 def deferred_composition_diagnostic(expression: Expression) -> Diagnostic:
     """Report a composed aggregate projection deferred beyond direct calls."""
 
-    aggregate = first_aggregate_call(expression)
+    aggregate = first_semantic_aggregate_call(expression)
     name = COUNT_AGGREGATE_NAME if aggregate is None else callee_name(aggregate)
 
     return _diagnostic(
@@ -280,12 +404,17 @@ def wrong_argument_type_diagnostic(
     """Report a direct aggregate field argument with an unsupported type."""
 
     name = callee_name(expression)
+    expected = (
+        "Int, Float, Date, or Timestamp"
+        if name in {MIN_AGGREGATE_NAME, MAX_AGGREGATE_NAME}
+        else "Int or Float"
+    )
 
     return _diagnostic(
         expression,
         code="PIE-S2314",
         message=(
-            f"Aggregate function {name} expects Int or Float field argument, "
+            f"Aggregate function {name} expects {expected} field argument, "
             f"got {actual_name}"
         ),
     )

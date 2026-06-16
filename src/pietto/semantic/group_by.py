@@ -21,17 +21,17 @@ from pietto.ast_nodes import (
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
     aggregate_alias_required_diagnostic,
-    aggregate_call_name,
-    aggregate_result_value_type,
-    contains_aggregate,
+    contains_semantic_aggregate,
     deferred_argument_expression_diagnostic,
     deferred_composition_diagnostic,
-    expected_aggregate_arity,
-    is_aggregate_call,
+    expected_semantic_aggregate_arity,
     is_direct_field_argument,
-    is_supported_numeric_argument,
-    nested_aggregate,
+    is_semantic_aggregate_call,
+    is_supported_semantic_aggregate_argument,
+    nested_semantic_aggregate,
     nested_aggregate_diagnostic,
+    semantic_aggregate_call_name,
+    semantic_aggregate_result_value_type,
     wrong_arity_diagnostic,
     wrong_argument_type_diagnostic,
 )
@@ -108,7 +108,7 @@ def project_grouped_schema(
                 continue
             seen_names.add(output_name)
 
-        if contains_aggregate(item.expression):
+        if contains_semantic_aggregate(item.expression):
             aggregate_field, aggregate_diagnostics, valid = _aggregate_output_field(
                 item,
                 output_name=output_name,
@@ -234,23 +234,23 @@ def _aggregate_output_field(
     expression = item.expression
     diagnostics: list[Diagnostic] = []
 
-    nested = nested_aggregate(expression)
+    nested = nested_semantic_aggregate(expression)
     if nested is not None:
         diagnostics.append(nested_aggregate_diagnostic(nested))
         return _unknown_named_field(output_name), diagnostics, False
 
-    if not is_aggregate_call(expression):
+    if not is_semantic_aggregate_call(expression):
         diagnostics.append(deferred_composition_diagnostic(expression))
         return _unknown_named_field(output_name), diagnostics, False
 
     assert isinstance(expression, CallExpr)
-    function_name = aggregate_call_name(expression)
+    function_name = semantic_aggregate_call_name(expression)
     assert function_name is not None
     if item.alias is None:
         diagnostics.append(aggregate_alias_required_diagnostic(expression))
         return None, diagnostics, False
 
-    if len(expression.arguments) != expected_aggregate_arity(function_name):
+    if len(expression.arguments) != expected_semantic_aggregate_arity(function_name):
         if not _has_unknown_argument(
             expression,
             expression_value_types=expression_value_types,
@@ -277,7 +277,10 @@ def _aggregate_output_field(
         )
         if argument_type is None or argument_type.kind is ValueTypeKind.UNKNOWN:
             return _unknown_row_field(item.alias), diagnostics, False
-        if not is_supported_numeric_argument(argument_type):
+        if not is_supported_semantic_aggregate_argument(
+            function_name,
+            argument_type,
+        ):
             diagnostics.append(
                 wrong_argument_type_diagnostic(
                     expression,
@@ -292,7 +295,10 @@ def _aggregate_output_field(
         else expression_value_types.get(expression)
     )
     if value_type is None or value_type.kind is ValueTypeKind.UNKNOWN:
-        value_type = aggregate_result_value_type(function_name, argument_type)
+        value_type = semantic_aggregate_result_value_type(
+            function_name,
+            argument_type,
+        )
     if value_type is None:
         return _unknown_row_field(item.alias), diagnostics, False
 

@@ -18,18 +18,18 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
-    aggregate_call_name,
     aggregate_alias_required_diagnostic,
-    contains_aggregate,
+    contains_semantic_aggregate,
     deferred_composition_diagnostic,
     deferred_argument_expression_diagnostic,
-    expected_aggregate_arity,
-    is_aggregate_call,
     is_direct_field_argument,
-    is_supported_numeric_argument,
+    is_semantic_aggregate_call,
+    is_supported_semantic_aggregate_argument,
     mixed_projection_diagnostic,
     nested_aggregate_diagnostic,
-    nested_aggregate,
+    nested_semantic_aggregate,
+    expected_semantic_aggregate_arity,
+    semantic_aggregate_call_name,
     wrong_arity_diagnostic,
     wrong_argument_type_diagnostic,
 )
@@ -140,7 +140,7 @@ def _project_schema(
         if output_name is None:
             diagnostic = (
                 None
-                if contains_aggregate(item.expression)
+                if contains_semantic_aggregate(item.expression)
                 else _unnamed_projection_diagnostic(item, mode)
             )
             if diagnostic is not None:
@@ -201,29 +201,29 @@ def _aggregate_projection_diagnostics(
 
     for item in definition.select_items:
         expression = item.expression
-        if not contains_aggregate(expression):
+        if not contains_semantic_aggregate(expression):
             continue
 
-        nested = nested_aggregate(expression)
+        nested = nested_semantic_aggregate(expression)
         if nested is not None:
             diagnostics.append(nested_aggregate_diagnostic(nested))
             invalid_items.add(item)
             continue
 
-        if not is_aggregate_call(expression):
+        if not is_semantic_aggregate_call(expression):
             diagnostics.append(deferred_composition_diagnostic(expression))
             invalid_items.add(item)
             continue
 
         assert isinstance(expression, CallExpr)
-        function_name = aggregate_call_name(expression)
+        function_name = semantic_aggregate_call_name(expression)
         assert function_name is not None
         if item.alias is None:
             diagnostics.append(aggregate_alias_required_diagnostic(expression))
             invalid_items.add(item)
             continue
 
-        if len(expression.arguments) != expected_aggregate_arity(function_name):
+        if len(expression.arguments) != expected_semantic_aggregate_arity(function_name):
             if not _has_unknown_argument(
                 expression,
                 expression_value_types=expression_value_types,
@@ -254,7 +254,10 @@ def _aggregate_projection_diagnostics(
             if argument_type is None or argument_type.kind is ValueTypeKind.UNKNOWN:
                 invalid_items.add(item)
                 continue
-            if not is_supported_numeric_argument(argument_type):
+            if not is_supported_semantic_aggregate_argument(
+                function_name,
+                argument_type,
+            ):
                 diagnostics.append(
                     wrong_argument_type_diagnostic(
                         expression,
@@ -267,7 +270,8 @@ def _aggregate_projection_diagnostics(
         valid_aggregate_items.append(item)
 
     has_non_aggregate_projection = any(
-        not contains_aggregate(item.expression) for item in definition.select_items
+        not contains_semantic_aggregate(item.expression)
+        for item in definition.select_items
     )
     if valid_aggregate_items and has_non_aggregate_projection:
         diagnostics.append(
