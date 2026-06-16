@@ -33,6 +33,7 @@ from pietto.ir.diagnostics import missing_semantic_fact_diagnostic
 from pietto.ir.lowering import (
     lower_canonical_type_ref,
     lower_expr,
+    lower_group_key_ref,
     lower_row_schema,
     lower_span,
     lower_type_ref,
@@ -45,6 +46,7 @@ from pietto.ir.model import (
     EnumIR,
     ExpressionIR,
     FilterIR,
+    FieldRefIR,
     IrResult,
     LimitIR,
     NullabilityIR,
@@ -430,6 +432,13 @@ def _lower_relation(
         target_symbol=target_symbol,
     )
     limit = _lower_limit(definition)
+    group_keys = _lower_group_keys(
+        definition,
+        semantic_model,
+        input_schema=input_schema,
+        target_symbol=target_symbol,
+        field_qualifier=target.name,
+    )
     return RelationIR(
         symbol=_symbol(SymbolNamespace.RELATION, definition.name),
         name=definition.name,
@@ -449,7 +458,62 @@ def _lower_relation(
         span=lower_span(definition.span),
         order_by=order_by,
         limit=limit,
+        group_keys=group_keys,
     )
+
+
+def _lower_group_keys(
+    definition: DerivedRelation,
+    semantic_model: SemanticModel,
+    *,
+    input_schema: RowSchema,
+    target_symbol: SymbolId,
+    field_qualifier: str,
+) -> tuple[FieldRefIR, ...]:
+    """Lower accepted unique GROUP BY keys from semantic row facts."""
+
+    clause = definition.group_by_clause
+    if clause is None or input_schema.is_unknown:
+        return ()
+
+    group_keys: list[FieldRefIR] = []
+    seen_identities: set[str] = set()
+    for item in clause.items:
+        field = _group_key_field(
+            item.key,
+            input_schema=input_schema,
+            field_qualifier=field_qualifier,
+        )
+        if field is None:
+            continue
+        identity = field.name
+        if identity in seen_identities:
+            continue
+        seen_identities.add(identity)
+        group_keys.append(
+            lower_group_key_ref(
+                item.key,
+                semantic_model,
+                field=field,
+                field_owner=target_symbol,
+            )
+        )
+    return tuple(group_keys)
+
+
+def _group_key_field(
+    expression: NameExpr | DottedNameExpr,
+    *,
+    input_schema: RowSchema,
+    field_qualifier: str,
+) -> RowField | None:
+    """Resolve one syntactic GROUP BY key against the sole relation input."""
+
+    if isinstance(expression, NameExpr):
+        return input_schema.fields.get(expression.name)
+    if len(expression.parts) == 2 and expression.parts[0] == field_qualifier:
+        return input_schema.fields.get(expression.parts[1])
+    return None
 
 
 def _lower_order_by(

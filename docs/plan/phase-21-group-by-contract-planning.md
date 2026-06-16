@@ -24,6 +24,17 @@ is deferred`. Slice 5 does not add Semantic IR `group_keys`, SQL `GROUP BY`
 lowering, SQL goldens, CLI/JSON schema changes, or any grouped `emit-sql`
 success path.
 
+Phase 21 Slice 6 is complete as IR group key lowering with SQL fail-closed
+guards. It adds `RelationIR.group_keys: tuple[FieldRefIR, ...] = ()`, lowers
+accepted unique grouped keys into source-ordered `FieldRefIR` values, and keeps
+`PIE-S2316` as an unconditional semantic error for any relation containing
+`group by:`. PostgreSQL and MySQL renderers now reject grouped IR and
+downstream-from-grouped IR through the existing `PIE-B1000` backend diagnostic
+path. Slice 6 does not render SQL `GROUP BY`, add SQL goldens, add grouped
+`emit-sql` success, change CLI/JSON behavior, or change grammar/generated,
+parser, AST, semantic validation, fixtures, dependencies, lockfile, CI,
+runtime, database, UI, LSP, or policy DSL behavior.
+
 Trusted Phase 20 baseline:
 
 - HEAD: `e67bf35cc130332aeb786a913fa5d76dac00fca9`;
@@ -50,6 +61,13 @@ propagation, diagnostic documentation, and focused tests. It adds no grammar,
 generated ANTLR, parser, AST, IR, SQL, CLI, fixture, golden,
 `scripts/check_goldens.py`, dependency, lockfile, CI, runtime, database, UI,
 LSP, or policy DSL behavior.
+
+Phase 21 Slice 6 changes only the Semantic IR model/lowering surface,
+PostgreSQL/MySQL fail-closed SQL backend guards, documentation, and focused
+tests. It adds no grammar, generated ANTLR, parser, AST, semantic validation,
+CLI, JSON, fixture, golden, `scripts/check_goldens.py`, dependency, lockfile,
+CI, runtime, database, UI, LSP, or policy DSL behavior. Existing no-GROUP SQL
+bytes remain the compatibility baseline.
 
 ## Strategic Priority
 
@@ -548,6 +566,50 @@ Slice 5 explicitly does not implement Semantic IR `group_keys`, SQL
 relationship-driven query behavior, aggregate expression arguments, Decimal
 aggregate semantics, casts, or runtime/database execution.
 
+## Slice 6 IR Group Key Lowering / SQL Fail-Closed Guard
+
+Slice 6 implements the IR-only portion of grouped relations while preserving
+the same semantic fail-closed gate and adding direct backend protection.
+
+Implemented IR model and lowering:
+
+- `RelationIR` now includes
+  `group_keys: tuple[FieldRefIR, ...] = ()` as a defaulted field;
+- group keys reuse `FieldRefIR`; no `GroupKeyIR` is introduced;
+- no-GROUP relations always lower with `group_keys == ()`;
+- grouped relations lower accepted unique keys from `group_by_clause.items`;
+- bare field keys resolve against the grouped relation input row schema;
+- single-input qualified field keys resolve only when the qualifier matches
+  the resolved input relation name;
+- `status` and `orders.status` compare by resolved input field identity and
+  therefore lower at most once;
+- the first accepted unique key preserves source order;
+- later duplicate keys are skipped from precise `group_keys` IR;
+- unknown keys are skipped from precise `group_keys` IR;
+- aggregate projections continue to lower as existing `AggregateCallIR`
+  values;
+- grouped `row_schema` in IR continues to come from the Slice 5 semantic
+  grouped output schema.
+
+SQL fail-closed guard:
+
+- `PIE-S2316` remains an unconditional semantic error for any table or query
+  relation containing `group by:`;
+- `pietto check` still fails for grouped relations;
+- CLI `pietto emit-sql` still fails before SQL and produces no artifacts for
+  grouped relations because semantic diagnostics stop orchestration;
+- direct `emit_postgres_sql()` and `emit_mysql_sql()` calls now reject
+  relations whose `group_keys` tuple is non-empty through existing
+  `PIE-B1000` diagnostics;
+- direct SQL emitters also reject downstream relations whose input relation
+  has non-empty `group_keys`;
+- no SQL `GROUP BY` clause is rendered.
+
+Slice 6 explicitly does not implement SQL `GROUP BY` lowering, SQL goldens,
+grouped SQL success, grouped `order by`, HAVING user syntax, `satisfying`,
+`filter`, JOIN, relationship-driven query behavior, aggregate expression
+arguments, Decimal aggregate semantics, casts, or runtime/database execution.
+
 ## Proposed Future Phase 21 Slices
 
 1. **Slice 1: Candidate Decision**: complete. Record the trusted Phase 20
@@ -569,7 +631,10 @@ aggregate semantics, casts, or runtime/database execution.
    schema**: complete. It computes grouped semantic diagnostics and row
    schemas while preserving the unconditional `PIE-S2316` fail-closed lowering
    gate.
-6. **Slice 6: IR group key lowering**: future implementation slice.
+6. **Slice 6: IR group key lowering**: complete. It adds
+   `RelationIR.group_keys`, lowers accepted unique group keys into
+   source-ordered `FieldRefIR` values, and adds PostgreSQL/MySQL fail-closed
+   guards for grouped IR without rendering SQL `GROUP BY`.
 7. **Slice 7: PostgreSQL/MySQL SQL lowering and goldens**: future
    implementation slice.
 8. **Slice 8: CLI / invalid-shape hardening / no-regression checks**: future

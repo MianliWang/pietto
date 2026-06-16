@@ -399,6 +399,7 @@ class RelationIR(DefinitionIR):
     span: SourceSpan
     order_by: tuple[OrderItemIR, ...] = ()
     limit: LimitIR | None = None
+    group_keys: tuple[FieldRefIR, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

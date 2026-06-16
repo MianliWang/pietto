@@ -29,6 +29,8 @@ def render_mysql_relation(
 ) -> str:
     """Render a minimal relation using a MySQL source or relation-name input."""
 
+    if relation.group_keys:
+        raise MySqlRenderError("MySQL grouped relation SQL lowering is not implemented")
     quote_identifier(relation.name, context="relation identifier")
     input_sql = _relation_input_sql(
         relation,
@@ -96,6 +98,10 @@ def _relation_input_sql(
         )
     upstream = relations.get(relation.source.target)
     if upstream is not None:
+        if upstream.group_keys:
+            raise MySqlRenderError(
+                "MySQL relation input depends on unsupported grouped lowering"
+            )
         return quote_identifier(upstream.name, context="relation identifier")
     raise MySqlRenderError(
         "MySQL relation input does not resolve to SourceIR or RelationIR"

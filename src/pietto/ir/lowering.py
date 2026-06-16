@@ -161,6 +161,37 @@ def lower_expr(
     )
 
 
+def lower_group_key_ref(
+    expression: NameExpr | DottedNameExpr,
+    semantic_model: SemanticModel,
+    *,
+    field: RowField,
+    field_owner: SymbolId,
+) -> FieldRefIR:
+    """Lower one resolved GROUP BY field without requiring expression facts."""
+
+    value_type = lower_value_type(
+        ValueType(
+            resolved_type=field.resolved_type,
+            nullability=field.nullability,
+        ),
+        semantic_model,
+    )
+    if isinstance(expression, NameExpr):
+        name = expression.name
+        qualifier: tuple[str, ...] = ()
+    else:
+        name = expression.parts[-1]
+        qualifier = expression.parts[:-1]
+    return FieldRefIR(
+        name=name,
+        qualifier=qualifier,
+        field=FieldId(owner=field_owner, name=field.name),
+        span=lower_span(expression.span),
+        value_type=value_type,
+    )
+
+
 def _lower_expr_node(
     expression: Expression,
     semantic_model: SemanticModel,

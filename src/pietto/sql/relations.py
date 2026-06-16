@@ -27,6 +27,8 @@ def render_relation_sql(
 ) -> str:
     """Render a minimal relation using a source table or relation-name input."""
 
+    if relation.group_keys:
+        raise ValueError("PostgreSQL grouped relation SQL lowering is not implemented")
     input_name = _relation_input_name(
         relation,
         sources=sources,
@@ -92,6 +94,10 @@ def _relation_input_name(
         return _postgres_table_name(source)
     upstream = relations.get(relation.source.target)
     if upstream is not None:
+        if upstream.group_keys:
+            raise ValueError(
+                "PostgreSQL relation input depends on unsupported grouped lowering"
+            )
         return upstream.name
     raise ValueError(
         "PostgreSQL relation input does not resolve to SourceIR or RelationIR"
