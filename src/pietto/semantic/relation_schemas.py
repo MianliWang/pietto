@@ -117,6 +117,9 @@ def _project_schema(
 ) -> tuple[RowSchema, list[Diagnostic]]:
     """Build ordered output fields from stable projection names."""
 
+    if definition.group_by_clause is not None:
+        return _unknown_schema(), []
+
     fields: dict[str, RowField] = {}
     seen_names: set[str] = set()
     diagnostics: list[Diagnostic] = []

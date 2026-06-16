@@ -23,7 +23,7 @@ EXPECTED_GATES = (
     ),
     ("tests", ("uv", "run", "pytest")),
 )
-BOUNDARY_HASH = "9da790a28fb7476a931fd12c7aea84ca81f322d5a8a10ae2e5c15cd54f20b518"
+BOUNDARY_HASH = "eac54b70b10eef7090bec724071c501ee74ed48f898106f62bd8a0c0bf9747a1"
 
 
 def _load_validate_module() -> ModuleType:

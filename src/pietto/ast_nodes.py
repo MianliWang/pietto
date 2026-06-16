@@ -308,6 +308,20 @@ class WhereClause(Node):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class GroupByItem(Node):
+    """One source-ordered parse-only grouping key."""
+
+    key: NameExpr | DottedNameExpr
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class GroupByClause(Node):
+    """A non-empty parse-only relation grouping block."""
+
+    items: tuple[GroupByItem, ...]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class SelectItem(Node):
     """An ordered relation projection with an optional local alias."""
 
@@ -344,6 +358,7 @@ class TableDef(Node):
     name: str
     from_clause: FromClause
     where_clause: WhereClause | None
+    group_by_clause: GroupByClause | None
     select_items: tuple[SelectItem, ...]
     order_by_clause: OrderByClause | None = None
     limit_clause: LimitClause | None = None
@@ -356,6 +371,7 @@ class QueryDef(Node):
     name: str
     from_clause: FromClause
     where_clause: WhereClause | None
+    group_by_clause: GroupByClause | None
     select_items: tuple[SelectItem, ...]
     order_by_clause: OrderByClause | None = None
     limit_clause: LimitClause | None = None

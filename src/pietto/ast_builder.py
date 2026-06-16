@@ -25,6 +25,8 @@ from pietto.ast_nodes import (
     Expression,
     FieldDef,
     FromClause,
+    GroupByClause,
+    GroupByItem,
     Header,
     IndexDef,
     IsNullExpr,
@@ -365,6 +367,7 @@ class AstBuilder(PiettoVisitor):
         (
             from_clause,
             where_clause,
+            group_by_clause,
             select_items,
             order_by_clause,
             limit_clause,
@@ -374,6 +377,7 @@ class AstBuilder(PiettoVisitor):
             name=ctx.identifier().getText(),
             from_clause=from_clause,
             where_clause=where_clause,
+            group_by_clause=group_by_clause,
             select_items=select_items,
             order_by_clause=order_by_clause,
             limit_clause=limit_clause,
@@ -385,6 +389,7 @@ class AstBuilder(PiettoVisitor):
         (
             from_clause,
             where_clause,
+            group_by_clause,
             select_items,
             order_by_clause,
             limit_clause,
@@ -394,6 +399,7 @@ class AstBuilder(PiettoVisitor):
             name=ctx.identifier().getText(),
             from_clause=from_clause,
             where_clause=where_clause,
+            group_by_clause=group_by_clause,
             select_items=select_items,
             order_by_clause=order_by_clause,
             limit_clause=limit_clause,
@@ -413,6 +419,22 @@ class AstBuilder(PiettoVisitor):
         return WhereClause(
             span=self._span(ctx),
             expression=self.visit(ctx.expression()),
+        )
+
+    def visitGroupByClause(self, ctx: _AntlrContext) -> GroupByClause:
+        """Build a non-empty grouping block without semantic validation."""
+
+        return GroupByClause(
+            span=self._span(ctx),
+            items=tuple(self.visit(item) for item in ctx.groupByBody().groupByItem()),
+        )
+
+    def visitGroupByItem(self, ctx: _AntlrContext) -> GroupByItem:
+        """Build one grouping key from the restricted dotted-name syntax."""
+
+        return GroupByItem(
+            span=self._span(ctx),
+            key=self._dotted_name_expr(ctx.dottedName()),
         )
 
     def visitSelectItem(self, ctx: _AntlrContext) -> SelectItem:
@@ -467,6 +489,7 @@ class AstBuilder(PiettoVisitor):
     ) -> tuple[
         FromClause,
         WhereClause | None,
+        GroupByClause | None,
         tuple[SelectItem, ...],
         OrderByClause | None,
         LimitClause | None,
@@ -476,6 +499,11 @@ class AstBuilder(PiettoVisitor):
         return (
             self.visit(ctx.fromClause()),
             self.visit(ctx.whereClause()) if ctx.whereClause() is not None else None,
+            (
+                self.visit(ctx.groupByClause())
+                if ctx.groupByClause() is not None
+                else None
+            ),
             tuple(
                 self.visit(item)
                 for item in ctx.selectClause().selectBody().selectItem()
@@ -551,15 +579,7 @@ class AstBuilder(PiettoVisitor):
         if ctx.expression() is not None:
             return self.visit(ctx.expression())
 
-        parts = tuple(part.getText() for part in ctx.dottedName().namePart())
-        callee: NameExpr | DottedNameExpr
-        if len(parts) == 1:
-            callee = NameExpr(span=self._span(ctx.dottedName()), name=parts[0])
-        else:
-            callee = DottedNameExpr(
-                span=self._span(ctx.dottedName()),
-                parts=parts,
-            )
+        callee = self._dotted_name_expr(ctx.dottedName())
         if ctx.callSuffix() is None:
             return callee
         return CallExpr(
@@ -568,6 +588,17 @@ class AstBuilder(PiettoVisitor):
             arguments=tuple(
                 self.visit(argument) for argument in ctx.callSuffix().expression()
             ),
+        )
+
+    def _dotted_name_expr(self, ctx: _AntlrContext) -> NameExpr | DottedNameExpr:
+        """Build the AST representation for a bare or dotted name context."""
+
+        parts = tuple(part.getText() for part in ctx.namePart())
+        if len(parts) == 1:
+            return NameExpr(span=self._span(ctx), name=parts[0])
+        return DottedNameExpr(
+            span=self._span(ctx),
+            parts=parts,
         )
 
     def visitLiteral(self, ctx: _AntlrContext) -> LiteralExpr:

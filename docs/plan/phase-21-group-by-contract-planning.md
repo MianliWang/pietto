@@ -8,6 +8,13 @@ work only. Phase 21 Slice 3 is complete as GROUP BY semantic, IR, SQL, and
 diagnostics contract work only. These slices are docs/audit only. They do
 not implement GROUP BY or any compiler behavior.
 
+Phase 21 Slice 4 is complete as `group by:` parser and AST support with a
+semantic fail-closed gate. It accepts future `group by:` syntax, stores
+source-ordered AST grouping keys, and emits `PIE-S2316` for any relation that
+contains `group by:`. It does not implement grouped semantic validation,
+grouped output schema, Semantic IR `group_keys`, SQL `GROUP BY` lowering, SQL
+goldens, CLI/JSON schema changes, or any runtime/database behavior.
+
 Trusted Phase 20 baseline:
 
 - HEAD: `e67bf35cc130332aeb786a913fa5d76dac00fca9`;
@@ -21,6 +28,13 @@ Phase 21 Slice 3 preserves the Slice 1 and Slice 2 boundary: this work adds no
 grammar/generated, AST, semantic, IR, SQL, CLI, JSON, fixture, golden,
 dependency, CI, runtime, UI, LSP, policy DSL, or database behavior change.
 It also adds no diagnostic code.
+
+Phase 21 Slice 4 changes only the parser, AST, generated ANTLR artifacts, and
+minimal semantic diagnostics needed for the fail-closed `group by:` gate. It
+adds no grouped semantic success path, IR behavior, SQL behavior, fixture,
+golden, `scripts/check_goldens.py`, CLI format, JSON schema, dependency,
+lockfile, CI, runtime, database, UI, LSP, or policy DSL behavior.
+No IR/SQL/golden/check_goldens behavior changed.
 
 ## Strategic Priority
 
@@ -410,6 +424,48 @@ Future diagnostic categories include:
 - malformed grouped IR fail-closed backend diagnostic;
 - cascade suppression for unknown group keys and unknown aggregate arguments.
 
+## Slice 4 Parser / AST / Fail-Closed Gate
+
+Slice 4 adds the first implementation surface for future GROUP BY while
+remaining fail-closed before grouped semantics, IR, or SQL can succeed.
+
+Implemented parser and AST surface:
+
+- `group by:` is accepted only after optional `where` and before `select`;
+- `order by` and `limit` remain after `select`;
+- the block is non-empty and indented;
+- group keys parse as bare field-like names or dotted field-like names;
+- literals, calls such as `lower(status)`, aggregate calls such as `count()`,
+  and arbitrary expressions remain parser errors in group keys;
+- duplicate group keys parse and preserve source order because duplicate
+  ownership belongs to future Slice 5 semantics;
+- `group` remains usable as an identifier and name part where existing
+  soft-keyword rules allow it;
+- the AST records `GroupByClause`, `GroupByItem`, and
+  `group_by_clause: GroupByClause | None` on both table and query definitions;
+- clause, item, and key spans are preserved.
+
+Implemented fail-closed semantic gate:
+
+- semantic analysis emits one `PIE-S2316` error per table or query relation
+  containing `group by:`;
+- the diagnostic message is
+  `GROUP BY is parsed but semantic implementation is deferred`;
+- the diagnostic prefers the complete `group by:` clause span;
+- grouped relations publish an unknown row schema in Slice 4 so no grouped
+  output schema is claimed;
+- `pietto check` reports `PIE-S2316`;
+- `pietto emit-sql --format json` fails before SQL emission and produces no
+  artifacts for grouped programs.
+
+Slice 4 explicitly does not implement grouped semantic validation, group key
+identity/equivalence, duplicate group key diagnostics, unknown group field
+diagnostics, grouped select rules, grouped output schema, Semantic IR
+`group_keys`, SQL `GROUP BY` lowering, grouped SQL goldens, grouped success
+paths, grouped `order by`, HAVING user syntax, `satisfying`, `filter`, JOIN,
+relationship-driven query behavior, aggregate expression arguments, Decimal
+aggregate semantics, casts, or runtime/database execution.
+
 ## Proposed Future Phase 21 Slices
 
 1. **Slice 1: Candidate Decision**: complete. Record the trusted Phase 20
@@ -423,9 +479,10 @@ Future diagnostic categories include:
    docs/audit-only slice. Define future semantic validation, row-schema
    behavior, IR shape, selected-dialect SQL shape, diagnostic ownership, and
    fail-closed unsupported behavior without implementation.
-4. **Slice 4: Parser + AST parse-only implementation**: expected to begin
-   parse-only implementation after the Slice 3 contract is complete. Slice 4
-   is not a completion audit.
+4. **Slice 4: Parser + AST parse-only implementation plus semantic
+   fail-closed gate**: complete. It was expected to begin parse-only
+   implementation after the Slice 3 contract is complete. Slice 4 is not a
+   completion audit.
 5. **Slice 5: Semantic grouped relation validation and grouped output
    schema**: future implementation slice.
 6. **Slice 6: IR group key lowering**: future implementation slice.

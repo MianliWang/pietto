@@ -201,7 +201,8 @@ sourceDefinition
     : SOURCE identifier (COLON identifier)? IS expression NEWLINE
     ;
 
-// Relations support from, optional where, ordered select/order items, and limit.
+// Relations support from, optional where/group by, ordered select/order items,
+// and limit.
 tableDefinition
     : TABLE identifier COLON NEWLINE NEWLINE* INDENT tableBody DEDENT
     ;
@@ -212,7 +213,7 @@ queryDefinition
     ;
 
 tableBody
-    : NEWLINE* fromClause NEWLINE* whereClause? NEWLINE* selectClause NEWLINE* orderByClause? NEWLINE* limitClause? NEWLINE*
+    : NEWLINE* fromClause NEWLINE* whereClause? NEWLINE* groupByClause? NEWLINE* selectClause NEWLINE* orderByClause? NEWLINE* limitClause? NEWLINE*
     ;
 
 fromClause
@@ -221,6 +222,18 @@ fromClause
 
 whereClause
     : WHERE expression NEWLINE
+    ;
+
+groupByClause
+    : GROUP BY COLON NEWLINE NEWLINE* INDENT groupByBody DEDENT
+    ;
+
+groupByBody
+    : NEWLINE* groupByItem (groupByItem | NEWLINE)*
+    ;
+
+groupByItem
+    : dottedName NEWLINE
     ;
 
 selectClause
@@ -321,6 +334,7 @@ namePart
     | TABLE
     | FROM
     | WHERE
+    | GROUP
     | SELECT
     | QUERY
     | LIMIT
@@ -335,6 +349,7 @@ identifier
     | BY
     | ASC
     | DESC
+    | GROUP
     | RELATIONSHIP
     | ENDPOINT
     ;
@@ -372,6 +387,7 @@ SOURCE: 'source';
 TABLE: 'table';
 FROM: 'from';
 WHERE: 'where';
+GROUP: 'group';
 SELECT: 'select';
 QUERY: 'query';
 ORDER: 'order';

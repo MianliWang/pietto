@@ -58,6 +58,7 @@ stored separately and is never encoded in the code.
 | `PIE-S2313` | Aggregate projection without an explicit alias |
 | `PIE-S2314` | Aggregate field argument has an unsupported type |
 | `PIE-S2315` | Aggregate expression argument is deferred |
+| `PIE-S2316` | GROUP BY semantic implementation is deferred |
 | `PIE-S2401` | Constraint return type does not expand to `Bool` |
 | `PIE-S2402` | Callable or field derive body type mismatch |
 | `PIE-S2501` | Duplicate shape item name |

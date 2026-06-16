@@ -239,6 +239,21 @@ class PiettoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by PiettoParser#groupByClause.
+    def visitGroupByClause(self, ctx:PiettoParser.GroupByClauseContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#groupByBody.
+    def visitGroupByBody(self, ctx:PiettoParser.GroupByBodyContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#groupByItem.
+    def visitGroupByItem(self, ctx:PiettoParser.GroupByItemContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by PiettoParser#selectClause.
     def visitSelectClause(self, ctx:PiettoParser.SelectClauseContext):
         return self.visitChildren(ctx)

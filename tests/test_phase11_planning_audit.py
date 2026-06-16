@@ -14,16 +14,16 @@ FILE_HASHES = {
     "pyproject.toml": "021682ef880fe748f1655d4d70fcc549db4336ac39db2b29a835762ab1723d50",
     "uv.lock": "996f7bcb04c380c2b3855167d33ffbd462c902245e63bee6e626ab1789d65071",
     "grammar/Pietto.g4": (
-        "6a5f6bc45d4f66011a7898fe783b6600beaf73f3b984d6539f975cf0cd7f3110"
+        "aa9b7fe9e35ff64269fa64e8db9555897f6c16f70f293b6cb4a071a1ef25e7c1"
     ),
 }
 
 GROUP_HASHES = {
-    "frontend": "4af1382a5d1e4464f492f0c267d500fbeb667bff819dcbcad11b346f33d87e8b",
-    "semantic": "a79f79494da224d670ff2260bbd3baef663c4d4d09ad8f8d7d03fc35e25d66e6",
+    "frontend": "3fbab1f08412f036545e87fcab85fea2da8794c063afb63fb3d2964b6566a665",
+    "semantic": "9abbfc7682c60c83e600065d2fa7dd7daa83d5d75187fa303ffd48baee030d1a",
     "ir": "1a00971a164e25214814c865154423c0b6e0ec7d02d651b2afdd32d091a5a92a",
     "sql": "03cc50bf10a49b7a1d617b57d056f839e98046f09726eb717da9e004c900bdb0",
-    "generated": "44dad9dc2fced336b8e102a558be94786fb7618fd860a3ef6f6d56e49fdebf1f",
+    "generated": "655bfa5fd1bbc263f24f188a3526ab18657a1e1ab24c4ee18804416613166913",
     "cli": "235d4e50c3474306253dfc6b118e2518b3e300e90f7fbe9903263a39cbdc42a0",
 }
 
