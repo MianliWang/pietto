@@ -43,7 +43,7 @@ INPUT_HASHES = {
         "2383731c2b9d78f8cf73da8e9d47f973b6eef93eb20e0f03d8f045307b788534"
     ),
     "tests/test_phase13_completion_audit.py": (
-        "198ff5608dc3fdedbba1f414aec6245e1350122cbb4969b4deedfbb0854e1b4b"
+        "af15d540fa7959cf43def88b207adae0dd42896da17165848e05d7680c8fc37f"
     ),
 }
 
@@ -64,7 +64,7 @@ FILE_HASHES = {
         "b126059cd0aebe9535fceb9b0a1b1c09ee1ba22af13f70d276d7e013c49c60e7"
     ),
     "scripts/check_goldens.py": (
-        "9a7008a89f6c8b32dc979eef64c9df0f3599ccc8f04d17b9c54d05248e68c09d"
+        "3b3c65b1476ee083c35da086005ed256218692dda5e3af30378f7763fd8c9767"
     ),
     "scripts/package_smoke.py": (
         "61de7eec8f26476e39d05305642ecde0a55d1030513ce91f627cac45517c1131"
@@ -73,14 +73,14 @@ FILE_HASHES = {
 
 GROUP_HASHES = {
     "frontend": "3fbab1f08412f036545e87fcab85fea2da8794c063afb63fb3d2964b6566a665",
-    "semantic": "3c1bb49ad1b22d05747a8246c882982318048e3e0a195e6bcfe9da09847b231c",
+    "semantic": "2581eb50394d84ba506fc2a785a60da3549c071e541a8d0c39f8bb1f50a1bd68",
     "ir": "a7af3fe9b002bb3e1a781f4962b44349b93f1baa098771c38b08bba44e3bcc7b",
-    "sql": "ea79bb45960afbfcfb28a16cbe5c8ee8a80e3af0f6087236a6acaf10b11729c9",
+    "sql": "06e63e366434b792ae6a8da9d0c2e9443ab46446a58787715dafb635330729f4",
     "generated": "655bfa5fd1bbc263f24f188a3526ab18657a1e1ab24c4ee18804416613166913",
     "cli": "235d4e50c3474306253dfc6b118e2518b3e300e90f7fbe9903263a39cbdc42a0",
 }
 
-GOLDENS_HASH = "539a980e24fc41be1e645b4527b3114d6046e0014f7c8d347e150bd1721ef728"
+GOLDENS_HASH = "7c721c040799b3310f919a141d5e4a45c82d49860b28250c1c0f2c0107727c82"
 
 
 def test_slice2_status_inputs_and_single_candidate_decision() -> None:
@@ -351,7 +351,7 @@ def test_production_generated_dependency_api_json_golden_and_ci_are_locked() -> 
     assert "def emit_sql(" not in _runtime_text()
     assert "_SCHEMA_VERSION = 1" in cli_json
     assert "_SCHEMA_VERSION = 2" not in cli_json
-    assert len(goldens) == 19
+    assert len(goldens) == 21
     assert _aggregate_files(goldens) == GOLDENS_HASH
     assert re.search(r"(?m)^permissions:\n  contents: read$", workflow)
     assert '"3.12"' in workflow

@@ -35,6 +35,17 @@ path. Slice 6 does not render SQL `GROUP BY`, add SQL goldens, add grouped
 parser, AST, semantic validation, fixtures, dependencies, lockfile, CI,
 runtime, database, UI, LSP, or policy DSL behavior.
 
+Phase 21 Slice 7 is complete as PostgreSQL/MySQL SQL GROUP BY lowering and
+golden coverage. Valid grouped relations no longer emit the unconditional
+`PIE-S2316` gate. Valid grouped relations now pass `pietto check` and emit
+PostgreSQL/MySQL SQL with `GROUP BY` from `RelationIR.group_keys` in source
+order. Existing specific semantic diagnostics still stop invalid grouped
+relations before SQL, and malformed hand-built grouped IR still fails closed
+through backend `PIE-B1000` diagnostics. Downstream relations that read from a
+grouped relation continue to use the existing relation-name input behavior
+without CTEs, inlining, subqueries, joins, runtime execution, or database
+behavior.
+
 Trusted Phase 20 baseline:
 
 - HEAD: `e67bf35cc130332aeb786a913fa5d76dac00fca9`;
@@ -68,6 +79,15 @@ tests. It adds no grammar, generated ANTLR, parser, AST, semantic validation,
 CLI, JSON, fixture, golden, `scripts/check_goldens.py`, dependency, lockfile,
 CI, runtime, database, UI, LSP, or policy DSL behavior. Existing no-GROUP SQL
 bytes remain the compatibility baseline.
+
+Phase 21 Slice 7 changes only the retired semantic GROUP BY gate, the private
+PostgreSQL/MySQL relation SQL renderers, reviewed grouped SQL fixtures and
+goldens, golden inventory ownership, focused SQL/CLI/direct-emitter tests, and
+status/audit documentation. It adds no grammar, generated ANTLR, parser, AST,
+Semantic IR model, IR builder/lowering, CLI implementation, JSON schema,
+public API, dependency, lockfile, CI, runtime, database, UI, LSP, policy DSL,
+join, HAVING, grouped `order by`, aggregate expression argument, Decimal
+aggregate, cast, relationship-driven query, SQLGlot, or execution behavior.
 
 ## Strategic Priority
 
@@ -610,6 +630,36 @@ grouped SQL success, grouped `order by`, HAVING user syntax, `satisfying`,
 `filter`, JOIN, relationship-driven query behavior, aggregate expression
 arguments, Decimal aggregate semantics, casts, or runtime/database execution.
 
+## Slice 7 PostgreSQL/MySQL SQL Lowering / Goldens
+
+Slice 7 implements selected-dialect SQL rendering for semantically valid
+grouped relations while preserving fail-closed boundaries for unsupported
+grouped shapes.
+
+Implemented semantic gate transition:
+
+- valid grouped relations no longer emit the unconditional `PIE-S2316` gate;
+- `PIE-S2316` remains registered only as the historical Slice 4-6 lowering
+  gate and is not reused for backend malformed IR failures;
+- invalid grouped programs continue to fail before SQL with `PIE-S2317`
+  through `PIE-S2321`, `PIE-S2102`, and the existing aggregate diagnostics.
+
+Implemented SQL behavior:
+
+- PostgreSQL and MySQL relation renderers emit `GROUP BY` after optional
+  `WHERE` and before optional `LIMIT`;
+- group keys render from `RelationIR.group_keys` in source order using the
+  existing field rendering and identifier quoting rules;
+- grouped `order_by`, unresolved or duplicate group keys, pure grouped output,
+  non-grouped projections, scalar grouped projection expressions, and malformed
+  aggregate shapes fail closed through backend `PIE-B1000` for hand-built IR;
+- downstream relations reading from grouped relations use the existing quoted
+  relation name as input and do not inline, expand CTEs, or create subqueries.
+
+Slice 7 adds reviewed PostgreSQL/MySQL grouped SQL fixtures and golden
+inventory ownership. Existing no-GROUP SQL bytes remain the compatibility
+baseline.
+
 ## Proposed Future Phase 21 Slices
 
 1. **Slice 1: Candidate Decision**: complete. Record the trusted Phase 20
@@ -635,8 +685,7 @@ arguments, Decimal aggregate semantics, casts, or runtime/database execution.
    `RelationIR.group_keys`, lowers accepted unique group keys into
    source-ordered `FieldRefIR` values, and adds PostgreSQL/MySQL fail-closed
    guards for grouped IR without rendering SQL `GROUP BY`.
-7. **Slice 7: PostgreSQL/MySQL SQL lowering and goldens**: future
-   implementation slice.
+7. **Slice 7: PostgreSQL/MySQL SQL lowering and goldens**: complete.
 8. **Slice 8: CLI / invalid-shape hardening / no-regression checks**: future
    implementation and hardening slice.
 9. **Slice 9: GROUP BY completion audit**: future final audit slice for the

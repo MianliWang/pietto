@@ -33,10 +33,10 @@ PHASE15_ARTIFACT_HASHES = {
         "227e5989affa152dcbeb4f8775f0705bc8a14d9dcd269e8f4409d32e71714218"
     ),
     SLICE3_TEST_PATH: (
-        "43ffa96df463d12b904af3b47621b4feeaf43cba408d2d2c2133577c362db2d3"
+        "a431a0c75df323bc305435cff035f7f039812bdf269f5625ba598084699431d0"
     ),
     PRIOR_AUDIT_PATH: (
-        "56aa3886311e683d0e9d8ad7285d11f63cc77bc011a49cb1c82c80719a17b27f"
+        "e76e4524d61bff2b61cf68f327185f597dd4393f41d9a6e45b63986a78bbc148"
     ),
 }
 
@@ -81,7 +81,7 @@ LOCKED_GROUP_HASHES = {
     ),
     "semantic": (
         19,
-        "3c1bb49ad1b22d05747a8246c882982318048e3e0a195e6bcfe9da09847b231c",
+        "2581eb50394d84ba506fc2a785a60da3549c071e541a8d0c39f8bb1f50a1bd68",
     ),
     "ir": (
         5,
@@ -89,19 +89,19 @@ LOCKED_GROUP_HASHES = {
     ),
     "sql": (
         10,
-        "ea79bb45960afbfcfb28a16cbe5c8ee8a80e3af0f6087236a6acaf10b11729c9",
+        "06e63e366434b792ae6a8da9d0c2e9443ab46446a58787715dafb635330729f4",
     ),
     "examples": (
         10,
         "230369f90130d7c4b722b75ef2ec264d98e0d6f34ad3b1b5fd7d5fbf04d45a97",
     ),
     "fixtures": (
-        32,
-        "1f5845f1d08066947e5fa2a60b3ca0802cb8e74ca69f39f4fcf7b9a5f352138c",
+        36,
+        "58d091780585abefbac7ba986e3b997e3526350e95a7f303d7dcfec7485ef502",
     ),
     "goldens": (
-        19,
-        "539a980e24fc41be1e645b4527b3114d6046e0014f7c8d347e150bd1721ef728",
+        21,
+        "7c721c040799b3310f919a141d5e4a45c82d49860b28250c1c0f2c0107727c82",
     ),
 }
 

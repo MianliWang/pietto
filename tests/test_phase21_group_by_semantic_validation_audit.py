@@ -102,7 +102,7 @@ def test_slice5_diagnostics_are_registered() -> None:
     diagnostics = DIAGNOSTICS_PATH.read_text(encoding="utf-8")
 
     for required in (
-        "| `PIE-S2316` | GROUP BY IR/SQL lowering is deferred |",
+        "| `PIE-S2316` | Historical GROUP BY IR/SQL lowering gate, retired after SQL lowering |",
         "| `PIE-S2317` | Duplicate GROUP BY key |",
         "| `PIE-S2318` | Non-grouped projection in grouped relation |",
         "| `PIE-S2319` | Grouped scalar projection is deferred |",
@@ -117,7 +117,10 @@ def test_semantic_gate_message_and_codes_are_owned_by_group_by_helper() -> None:
 
     for required in (
         'GROUP_BY_DEFERRED_CODE = "PIE-S2316"',
-        "GROUP BY is semantically validated but IR/SQL lowering is deferred",
+        "GROUP BY lowering gate is retired; valid GROUP BY lowers to SQL",
+        "def check_group_by_deferred(script: Script) -> list[Diagnostic]:",
+        "del script",
+        "return []",
         'code="PIE-S2317"',
         'code="PIE-S2318"',
         'code="PIE-S2319"',
@@ -139,3 +142,15 @@ def test_plan_does_not_claim_group_by_lowering_or_emit_sql_success() -> None:
     )
     for forbidden in forbidden_claims:
         assert forbidden not in plan
+
+
+def test_slice7_gate_transition_is_documented() -> None:
+    plan = _normalized_plan()
+
+    for required in (
+        "Phase 21 Slice 7 is complete as PostgreSQL/MySQL SQL GROUP BY lowering and golden coverage",
+        "Valid grouped relations no longer emit the unconditional `PIE-S2316` gate",
+        "invalid grouped programs continue to fail before SQL with `PIE-S2317` through `PIE-S2321`, `PIE-S2102`, and the existing aggregate diagnostics",
+        "`PIE-S2316` remains registered only as the historical Slice 4-6 lowering gate",
+    ):
+        assert required in plan

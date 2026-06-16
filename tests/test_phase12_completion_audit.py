@@ -32,16 +32,16 @@ POSTGRES_INPUT = Path("tests/fixtures/phase12/postgres_order_limit_composition.p
 MYSQL_INPUT = Path("tests/fixtures/phase12/mysql_order_limit_composition.pietto")
 POSTGRES_GOLDEN = "emit_sql_order_limit_composition.sql"
 MYSQL_GOLDEN = "emit_mysql_order_limit_composition.sql"
-ALL_GOLDENS_HASH = "539a980e24fc41be1e645b4527b3114d6046e0014f7c8d347e150bd1721ef728"
+ALL_GOLDENS_HASH = "7c721c040799b3310f919a141d5e4a45c82d49860b28250c1c0f2c0107727c82"
 HISTORICAL_GOLDENS_HASH = (
     "11d4343245dc18fd574999cbef5bff7c316d90975b3856ed729e8d2c1d579cf0"
 )
-BOUNDARY_HASH = "219c184b678af2423bdbf431e77692604f14eeff79ad124f597e15ccad2b81da"
+BOUNDARY_HASH = "4216af8e8fc3c87bab481b989a76053ce2eb863e2ae13bb0c52c6060da1ceab5"
 GENERATED_HASH = "655bfa5fd1bbc263f24f188a3526ab18657a1e1ab24c4ee18804416613166913"
 EXPECTED_BLOBS = {
     "scripts/validate.py": "4387101bc68e13539c74c45b595ba742ca17c9c0",
     "scripts/check_generated.py": "51081d5337e0659e73f8666ba639c0d4c3fe3a4b",
-    "scripts/check_goldens.py": "0506449813cf16b9376af2be4e11707d2de8e32a",
+    "scripts/check_goldens.py": "a0145259b6052bd8f623aa93e8326e2a53ea13a8",
     "scripts/package_smoke.py": "a8f191cb52fbaf4c2c1a2dac4a500fd6a107e859",
     ".github/workflows/ci.yml": "bd8fb78e0c491041906d13865b8267bf5d7e7050",
 }
@@ -311,7 +311,7 @@ def test_postgres_mysql_composition_and_golden_inventory_are_locked() -> None:
     ).read_bytes()
 
     inventory = tuple(path for path in GOLDEN_ROOT.iterdir() if path.is_file())
-    assert len(inventory) == 19
+    assert len(inventory) == 21
     assert _aggregate_hash(inventory) == ALL_GOLDENS_HASH
     assert (
         _aggregate_hash(tuple(GOLDEN_ROOT / name for name in HISTORICAL_GOLDENS))

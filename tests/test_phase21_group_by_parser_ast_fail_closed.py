@@ -23,9 +23,6 @@ from pietto.parser_api import parse_source
 from pietto.semantic import EffectiveNullability, TypeKind, analyze
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-GROUP_BY_DEFERRED_MESSAGE = (
-    "GROUP BY is semantically validated but IR/SQL lowering is deferred"
-)
 
 
 def test_parser_accepts_group_by_bare_field() -> None:
@@ -170,7 +167,9 @@ def test_group_remains_soft_identifier_and_name_part() -> None:
 
 
 @pytest.mark.parametrize("relation_kind", ["query", "table"])
-def test_semantic_emits_one_group_by_deferred_diagnostic(relation_kind: str) -> None:
+def test_semantic_accepts_valid_grouped_relation_after_sql_lowering(
+    relation_kind: str,
+) -> None:
     result = parse_source(_grouped_program(relation_kind), path="grouped.pietto")
     assert result.diagnostics == ()
     assert result.ast is not None
@@ -183,13 +182,8 @@ def test_semantic_emits_one_group_by_deferred_diagnostic(relation_kind: str) -> 
         if diagnostic.severity is Severity.ERROR
     ]
 
-    assert [(diagnostic.code, diagnostic.message) for diagnostic in errors] == [
-        ("PIE-S2316", GROUP_BY_DEFERRED_MESSAGE)
-    ]
+    assert [(diagnostic.code, diagnostic.message) for diagnostic in errors] == []
     assert relation.group_by_clause is not None
-    diagnostic = errors[0]
-    assert diagnostic.location.line == relation.group_by_clause.span.line
-    assert diagnostic.location.column == relation.group_by_clause.span.column
     schema = semantic.model.relation_row_schemas[relation]
     assert schema.is_unknown is False
     assert list(schema.fields) == ["status", "total"]
@@ -201,23 +195,20 @@ def test_semantic_emits_one_group_by_deferred_diagnostic(relation_kind: str) -> 
     assert schema.fields["total"].nullability is EffectiveNullability.NON_NULL
 
 
-def test_cli_check_reports_group_by_deferred(
+def test_cli_check_accepts_valid_grouped_relation(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     path = _write(tmp_path, "grouped.pietto", _grouped_program("query"))
 
-    assert cli.main(["check", str(path)]) == 1
+    assert cli.main(["check", str(path)]) == 0
 
     captured = capsys.readouterr()
-    assert captured.out == ""
-    assert (
-        "PIE-S2316 error: GROUP BY is semantically validated but IR/SQL lowering is deferred"
-        in captured.err
-    )
+    assert captured.out == f"OK: {path}\n"
+    assert captured.err == ""
 
 
-def test_emit_sql_json_fails_before_sql_without_artifacts(
+def test_emit_sql_json_succeeds_with_group_by_artifact(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -234,18 +225,17 @@ def test_emit_sql_json_fails_before_sql_without_artifacts(
                 "json",
             ]
         )
-        == 1
+        == 0
     )
 
     captured = capsys.readouterr()
     assert captured.err == ""
     result = json.loads(captured.out)
-    assert result["ok"] is False
-    assert result["artifacts"] == []
-    diagnostics = cast(list[dict[str, object]], result["diagnostics"])
-    assert [(item["code"], item["message"]) for item in diagnostics] == [
-        ("PIE-S2316", GROUP_BY_DEFERRED_MESSAGE)
-    ]
+    assert result["ok"] is True
+    assert result["diagnostics"] == []
+    artifacts = cast(list[dict[str, object]], result["artifacts"])
+    assert len(artifacts) == 1
+    assert "GROUP BY" in cast(str, artifacts[0]["sql"])
 
 
 def test_group_by_grammar_and_diagnostics_are_registered() -> None:
@@ -262,7 +252,7 @@ def test_group_by_grammar_and_diagnostics_are_registered() -> None:
     ):
         assert required in grammar
     for required in (
-        "| `PIE-S2316` | GROUP BY IR/SQL lowering is deferred |",
+        "| `PIE-S2316` | Historical GROUP BY IR/SQL lowering gate, retired after SQL lowering |",
         "| `PIE-S2317` | Duplicate GROUP BY key |",
         "| `PIE-S2318` | Non-grouped projection in grouped relation |",
         "| `PIE-S2319` | Grouped scalar projection is deferred |",
@@ -286,6 +276,11 @@ def test_phase21_slice4_status_and_boundaries_are_documented() -> None:
         "the AST records `GroupByClause`, `GroupByItem`, and `group_by_clause: GroupByClause | None`",
         "`pietto emit-sql --format json` fails before SQL emission and produces no artifacts",
         "No IR/SQL/golden/check_goldens behavior changed",
+    ):
+        assert required in normalized
+    for required in (
+        "Phase 21 Slice 7 is complete as PostgreSQL/MySQL SQL GROUP BY lowering and golden coverage",
+        "Valid grouped relations no longer emit the unconditional `PIE-S2316` gate",
     ):
         assert required in normalized
 

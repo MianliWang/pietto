@@ -69,53 +69,54 @@ def test_group_key_lowering_uses_source_order_and_skips_invalid_precise_keys() -
         assert required in lowering
 
 
-def test_sql_backends_guard_grouped_ir_without_rendering_group_by() -> None:
+def test_sql_backends_render_group_by_and_guard_malformed_grouped_ir() -> None:
     postgres = POSTGRES_RELATIONS_PATH.read_text(encoding="utf-8")
     mysql = MYSQL_RELATIONS_PATH.read_text(encoding="utf-8")
 
     assert "if relation.group_keys:" in postgres
-    assert "if upstream.group_keys:" in postgres
-    assert "PostgreSQL grouped relation SQL lowering is not implemented" in postgres
+    assert "_validate_grouped_relation(relation)" in postgres
+    assert "def _render_group_key(key: FieldRefIR) -> str:" in postgres
+    assert '"GROUP BY"' in postgres
+    assert "PostgreSQL grouped ORDER BY is not supported" in postgres
+    assert "PostgreSQL GROUP BY keys must be resolved fields" in postgres
+    assert "PostgreSQL GROUP BY keys must be unique" in postgres
+    assert "if upstream.group_keys:" not in postgres
+    assert "PostgreSQL grouped relation SQL lowering is not implemented" not in postgres
     assert (
-        "PostgreSQL relation input depends on unsupported grouped lowering" in postgres
+        "PostgreSQL relation input depends on unsupported grouped lowering"
+        not in postgres
     )
 
     assert "if relation.group_keys:" in mysql
-    assert "if upstream.group_keys:" in mysql
-    assert "MySQL grouped relation SQL lowering is not implemented" in mysql
-    assert "MySQL relation input depends on unsupported grouped lowering" in mysql
-
-    postgres_without_messages = postgres.replace(
-        "PostgreSQL grouped relation SQL lowering is not implemented",
-        "",
-    ).replace(
-        "PostgreSQL relation input depends on unsupported grouped lowering",
-        "",
-    )
-    mysql_without_messages = mysql.replace(
-        "MySQL grouped relation SQL lowering is not implemented",
-        "",
-    ).replace(
-        "MySQL relation input depends on unsupported grouped lowering",
-        "",
-    )
-    assert "GROUP BY" not in postgres_without_messages
-    assert "GROUP BY" not in mysql_without_messages
+    assert "_validate_grouped_relation(relation)" in mysql
+    assert "def _render_group_key(key: FieldRefIR) -> str:" in mysql
+    assert '"GROUP BY"' in mysql
+    assert "MySQL grouped ORDER BY is not supported" in mysql
+    assert "MySQL GROUP BY keys must be resolved fields" in mysql
+    assert "MySQL GROUP BY keys must be unique" in mysql
+    assert "if upstream.group_keys:" not in mysql
+    assert "MySQL grouped relation SQL lowering is not implemented" not in mysql
+    assert "MySQL relation input depends on unsupported grouped lowering" not in mysql
 
 
-def test_pie_s2316_semantic_gate_remains_unconditional() -> None:
+def test_pie_s2316_semantic_gate_is_retired_noop() -> None:
     source = SEMANTIC_GROUP_BY_PATH.read_text(encoding="utf-8")
 
     for required in (
         'GROUP_BY_DEFERRED_CODE = "PIE-S2316"',
-        "GROUP BY is semantically validated but IR/SQL lowering is deferred",
+        "GROUP BY lowering gate is retired; valid GROUP BY lowers to SQL",
         "def check_group_by_deferred(script: Script) -> list[Diagnostic]:",
-        "for definition in script.definitions:",
-        "if clause is None:",
-        "continue",
-        "diagnostics.append(",
+        "del script",
+        "return []",
     ):
         assert required in source
+    assert (
+        "diagnostics.append("
+        not in source.split(
+            "def check_group_by_deferred(script: Script) -> list[Diagnostic]:",
+            maxsplit=1,
+        )[1].split("def project_grouped_schema(", maxsplit=1)[0]
+    )
 
 
 def test_slice6_keeps_sql_lowering_and_golden_work_out_of_scope() -> None:
@@ -145,3 +146,16 @@ def test_slice6_keeps_sql_lowering_and_golden_work_out_of_scope() -> None:
         "Phase 21 implements GROUP BY",
     ):
         assert forbidden not in plan
+
+
+def test_slice7_sql_lowering_status_and_boundaries_are_documented() -> None:
+    plan = _normalized_plan()
+
+    for required in (
+        "Phase 21 Slice 7 is complete as PostgreSQL/MySQL SQL GROUP BY lowering and golden coverage",
+        "Valid grouped relations no longer emit the unconditional `PIE-S2316` gate",
+        "group keys render from `RelationIR.group_keys` in source order using the existing field rendering and identifier quoting rules",
+        "malformed hand-built grouped IR still fails closed through backend `PIE-B1000` diagnostics",
+        "downstream relations reading from grouped relations use the existing quoted relation name as input and do not inline, expand CTEs, or create subqueries",
+    ):
+        assert required in plan

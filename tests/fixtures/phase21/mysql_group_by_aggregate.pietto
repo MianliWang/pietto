@@ -1,0 +1,15 @@
+shape Order:
+    status: Text not null
+    amount: Int not null
+
+source orders: Order is mysql.table("orders")
+
+table revenue_by_status:
+    from orders
+    where status == "paid"
+    group by:
+        status
+    select:
+        status
+        total = count()
+        revenue = sum(amount)

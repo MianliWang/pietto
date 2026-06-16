@@ -50,7 +50,7 @@ LOCKED_FILE_HASHES = {
         "e40bd3eee7f76bc68313adb8237a7a6c5d84286197261f70c827a4219c9e3418"
     ),
     "docs/spec/diagnostics.md": (
-        "03856ec1f08ab2aab077b5ffdb4c10971cb48e7c9c712e00ac200f27a6cd296a"
+        "ceed55f6c3f18ce928d4faaf8cae75368d5f8a1f11281a3839ed5929bcb65d39"
     ),
     "pyproject.toml": (
         "021682ef880fe748f1655d4d70fcc549db4336ac39db2b29a835762ab1723d50"
@@ -67,7 +67,7 @@ LOCKED_FILE_HASHES = {
         "b126059cd0aebe9535fceb9b0a1b1c09ee1ba22af13f70d276d7e013c49c60e7"
     ),
     "scripts/check_goldens.py": (
-        "9a7008a89f6c8b32dc979eef64c9df0f3599ccc8f04d17b9c54d05248e68c09d"
+        "3b3c65b1476ee083c35da086005ed256218692dda5e3af30378f7763fd8c9767"
     ),
     "scripts/package_smoke.py": (
         "61de7eec8f26476e39d05305642ecde0a55d1030513ce91f627cac45517c1131"
@@ -81,7 +81,7 @@ LOCKED_GROUP_HASHES = {
     ),
     "semantic": (
         19,
-        "3c1bb49ad1b22d05747a8246c882982318048e3e0a195e6bcfe9da09847b231c",
+        "2581eb50394d84ba506fc2a785a60da3549c071e541a8d0c39f8bb1f50a1bd68",
     ),
     "ir": (
         5,
@@ -89,19 +89,19 @@ LOCKED_GROUP_HASHES = {
     ),
     "sql": (
         10,
-        "ea79bb45960afbfcfb28a16cbe5c8ee8a80e3af0f6087236a6acaf10b11729c9",
+        "06e63e366434b792ae6a8da9d0c2e9443ab46446a58787715dafb635330729f4",
     ),
     "examples": (
         10,
         "230369f90130d7c4b722b75ef2ec264d98e0d6f34ad3b1b5fd7d5fbf04d45a97",
     ),
     "fixtures": (
-        32,
-        "1f5845f1d08066947e5fa2a60b3ca0802cb8e74ca69f39f4fcf7b9a5f352138c",
+        36,
+        "58d091780585abefbac7ba986e3b997e3526350e95a7f303d7dcfec7485ef502",
     ),
     "goldens": (
-        19,
-        "539a980e24fc41be1e645b4527b3114d6046e0014f7c8d347e150bd1721ef728",
+        21,
+        "7c721c040799b3310f919a141d5e4a45c82d49860b28250c1c0f2c0107727c82",
     ),
 }
 

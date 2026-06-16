@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from pathlib import Path
-from typing import cast
 
 import pytest
 
@@ -25,12 +23,8 @@ from pietto.semantic import SemanticResult, analyze
 from pietto.sql import SqlResult, emit_postgres_sql
 from pietto.sql.mysql import emit_mysql_sql
 
-GROUP_BY_DEFERRED_MESSAGE = (
-    "GROUP BY is semantically validated but IR/SQL lowering is deferred"
-)
 
-
-def test_grouped_relation_lowers_group_keys_despite_semantic_gate() -> None:
+def test_grouped_relation_lowers_group_keys_after_semantic_gate_retirement() -> None:
     script_ir, semantic_result = _compile_grouped_ir(
         _grouped_source(
             connector="postgres.table",
@@ -45,7 +39,7 @@ def test_grouped_relation_lowers_group_keys_despite_semantic_gate() -> None:
     )
     relation = _relation_ir(script_ir, "grouped_orders")
 
-    assert _errors(semantic_result) == [("PIE-S2316", GROUP_BY_DEFERRED_MESSAGE)]
+    assert _errors(semantic_result) == []
     assert [key.name for key in relation.group_keys] == ["status", "region"]
     assert [key.qualifier for key in relation.group_keys] == [(), ("orders",)]
     assert [key.field for key in relation.group_keys] == [
@@ -83,7 +77,6 @@ def test_bare_and_qualified_duplicate_group_keys_lower_once_in_source_order() ->
     relation = _relation_ir(script_ir, "grouped_orders")
 
     assert _errors(semantic_result) == [
-        ("PIE-S2316", GROUP_BY_DEFERRED_MESSAGE),
         ("PIE-S2317", "Duplicate GROUP BY key: status"),
         ("PIE-S2317", "Duplicate GROUP BY key: orders.region"),
     ]
@@ -104,7 +97,6 @@ def test_unknown_group_key_is_not_lowered_into_precise_group_key_ir() -> None:
     relation = _relation_ir(script_ir, "grouped_orders")
 
     assert _errors(semantic_result) == [
-        ("PIE-S2316", GROUP_BY_DEFERRED_MESSAGE),
         ("PIE-S2102", "Unknown field: missing"),
     ]
     assert [key.name for key in relation.group_keys] == ["status"]
@@ -162,16 +154,16 @@ def test_grouped_aggregate_projections_and_row_schema_survive_ir_lowering() -> N
         (
             "postgres.table",
             emit_postgres_sql,
-            "PostgreSQL grouped relation SQL lowering is not implemented",
+            'GROUP BY\n    "status"',
         ),
         (
             "mysql.table",
             emit_mysql_sql,
-            "MySQL grouped relation SQL lowering is not implemented",
+            "GROUP BY\n    `status`",
         ),
     ],
 )
-def test_direct_sql_emitters_fail_closed_for_grouped_ir(
+def test_direct_sql_emitters_succeed_for_grouped_ir(
     connector: str,
     emitter: Callable[[ScriptIR], SqlResult],
     expected_message: str,
@@ -186,10 +178,9 @@ def test_direct_sql_emitters_fail_closed_for_grouped_ir(
 
     result = emitter(script_ir)
 
-    assert result.artifacts == ()
-    assert len(result.diagnostics) == 1
-    assert result.diagnostics[0].code == "PIE-B1000"
-    assert expected_message in result.diagnostics[0].message
+    assert result.diagnostics == ()
+    assert len(result.artifacts) == 1
+    assert expected_message in result.artifacts[0].sql
 
 
 @pytest.mark.parametrize(
@@ -198,16 +189,16 @@ def test_direct_sql_emitters_fail_closed_for_grouped_ir(
         (
             "postgres.table",
             emit_postgres_sql,
-            "PostgreSQL relation input depends on unsupported grouped lowering",
+            'FROM "grouped_orders"',
         ),
         (
             "mysql.table",
             emit_mysql_sql,
-            "MySQL relation input depends on unsupported grouped lowering",
+            "FROM `grouped_orders`",
         ),
     ],
 )
-def test_direct_sql_emitters_fail_closed_for_downstream_from_grouped_ir(
+def test_direct_sql_emitters_use_relation_name_for_downstream_from_grouped_ir(
     connector: str,
     emitter: Callable[[ScriptIR], SqlResult],
     expected_message: str,
@@ -227,16 +218,16 @@ def test_direct_sql_emitters_fail_closed_for_downstream_from_grouped_ir(
 
     result = emitter(script_ir)
 
-    assert result.artifacts == ()
-    assert [diagnostic.code for diagnostic in result.diagnostics] == [
-        "PIE-B1000",
-        "PIE-B1000",
+    assert result.diagnostics == ()
+    assert [artifact.name for artifact in result.artifacts] == [
+        "grouped_orders",
+        "downstream",
     ]
-    assert expected_message in result.diagnostics[1].message
+    assert expected_message in result.artifacts[1].sql
 
 
 @pytest.mark.parametrize("dialect", ["postgres", "mysql"])
-def test_cli_emit_sql_still_fails_before_sql_without_artifacts(
+def test_cli_emit_sql_succeeds_for_grouped_ir(
     dialect: str,
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -253,18 +244,14 @@ def test_cli_emit_sql_still_fails_before_sql_without_artifacts(
     )
 
     assert (
-        cli.main(["emit-sql", str(path), "--dialect", dialect, "--format", "json"]) == 1
+        cli.main(["emit-sql", str(path), "--dialect", dialect, "--format", "json"]) == 0
     )
 
     captured = capsys.readouterr()
     assert captured.err == ""
-    result = cast(dict[str, object], json.loads(captured.out))
-    diagnostics = cast(list[dict[str, object]], result["diagnostics"])
-    assert result["ok"] is False
-    assert result["artifacts"] == []
-    assert [(item["code"], item["message"]) for item in diagnostics] == [
-        ("PIE-S2316", GROUP_BY_DEFERRED_MESSAGE)
-    ]
+    assert '"ok": true' in captured.out
+    assert '"diagnostics": []' in captured.out
+    assert "GROUP BY" in captured.out
 
 
 def _compile_grouped_ir(source: str) -> tuple[ScriptIR, SemanticResult]:

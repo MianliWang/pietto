@@ -47,7 +47,7 @@ from pietto.semantic.model import (
 
 GROUP_BY_DEFERRED_CODE = "PIE-S2316"
 GROUP_BY_DEFERRED_MESSAGE = (
-    "GROUP BY is semantically validated but IR/SQL lowering is deferred"
+    "GROUP BY lowering gate is retired; valid GROUP BY lowers to SQL"
 )
 
 _UNKNOWN_RESOLVED_TYPE = ResolvedType(name="<unknown>", kind=TypeKind.UNKNOWN)
@@ -64,31 +64,10 @@ class _GroupKey:
 
 
 def check_group_by_deferred(script: Script) -> list[Diagnostic]:
-    """Reject parsed GROUP BY relations until IR/SQL lowering is implemented."""
+    """Preserve the retired Slice 4-6 GROUP BY gate as a no-op helper."""
 
-    diagnostics: list[Diagnostic] = []
-    for definition in script.definitions:
-        if not isinstance(definition, (TableDef, QueryDef)):
-            continue
-        clause = definition.group_by_clause
-        if clause is None:
-            continue
-        span = clause.span
-        diagnostics.append(
-            Diagnostic(
-                code=GROUP_BY_DEFERRED_CODE,
-                severity=Severity.ERROR,
-                message=GROUP_BY_DEFERRED_MESSAGE,
-                location=SourceLocation(
-                    path=span.path,
-                    line=span.line,
-                    column=span.column,
-                    end_line=span.end_line,
-                    end_column=span.end_column,
-                ),
-            )
-        )
-    return diagnostics
+    del script
+    return []
 
 
 def project_grouped_schema(

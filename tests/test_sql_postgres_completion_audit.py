@@ -293,7 +293,6 @@ def test_sql_backend_has_no_forbidden_integration_or_runtime_features() -> None:
         "CREATE TABLE",
         "CREATE VIEW",
         "JOIN ",
-        "GROUP BY",
         "WINDOW ",
         "UNION ",
     ):

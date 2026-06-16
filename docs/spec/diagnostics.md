@@ -58,7 +58,7 @@ stored separately and is never encoded in the code.
 | `PIE-S2313` | Aggregate projection without an explicit alias |
 | `PIE-S2314` | Aggregate field argument has an unsupported type |
 | `PIE-S2315` | Aggregate expression argument is deferred |
-| `PIE-S2316` | GROUP BY IR/SQL lowering is deferred |
+| `PIE-S2316` | Historical GROUP BY IR/SQL lowering gate, retired after SQL lowering |
 | `PIE-S2317` | Duplicate GROUP BY key |
 | `PIE-S2318` | Non-grouped projection in grouped relation |
 | `PIE-S2319` | Grouped scalar projection is deferred |

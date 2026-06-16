@@ -12,10 +12,6 @@ from pietto.errors import Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import EffectiveNullability, SemanticResult, TypeKind, analyze
 
-GROUP_BY_DEFERRED_MESSAGE = (
-    "GROUP BY is semantically validated but IR/SQL lowering is deferred"
-)
-
 SOURCE_PREFIX = (
     "shape Order:\n"
     "    status: Text not null\n"
@@ -45,7 +41,7 @@ def test_grouped_semantic_schema_for_bare_key_and_aggregates() -> None:
     result = analyze(script)
     schema = result.model.relation_row_schemas[relation]
 
-    assert _errors(result) == [("PIE-S2316", GROUP_BY_DEFERRED_MESSAGE)]
+    assert _errors(result) == []
     assert list(schema.fields) == ["status", "total", "revenue", "average_score"]
     _assert_field(schema.fields["status"], "Text", EffectiveNullability.NON_NULL)
     _assert_field(schema.fields["total"], "Int", EffectiveNullability.NON_NULL)
@@ -72,7 +68,7 @@ def test_grouped_semantic_schema_for_qualified_key_and_alias() -> None:
     result = analyze(script)
     schema = result.model.relation_row_schemas[relation]
 
-    assert _errors(result) == [("PIE-S2316", GROUP_BY_DEFERRED_MESSAGE)]
+    assert _errors(result) == []
     assert list(schema.fields) == ["bucket", "score_total"]
     _assert_field(schema.fields["bucket"], "Text", EffectiveNullability.NULLABLE)
     _assert_field(schema.fields["score_total"], "Float", EffectiveNullability.NULLABLE)
@@ -95,7 +91,6 @@ def test_equivalent_bare_and_qualified_group_keys_diagnose_later_duplicate() -> 
     schema = result.model.relation_row_schemas[relation]
 
     assert _errors(result) == [
-        ("PIE-S2316", GROUP_BY_DEFERRED_MESSAGE),
         ("PIE-S2317", "Duplicate GROUP BY key: orders.status"),
     ]
     _assert_field(schema.fields["status"], "Text", EffectiveNullability.NON_NULL)
@@ -118,7 +113,6 @@ def test_unknown_group_key_suppresses_dependent_projection_cascade() -> None:
     schema = result.model.relation_row_schemas[relation]
 
     assert _errors(result) == [
-        ("PIE-S2316", GROUP_BY_DEFERRED_MESSAGE),
         ("PIE-S2102", "Unknown field: missing"),
     ]
     assert "PIE-S2318" not in _error_codes(result)
@@ -143,7 +137,6 @@ def test_non_grouped_plain_projection_is_rejected_with_unknown_schema_field() ->
     schema = result.model.relation_row_schemas[relation]
 
     assert _errors(result) == [
-        ("PIE-S2316", GROUP_BY_DEFERRED_MESSAGE),
         ("PIE-S2318", "Grouped projection is not a GROUP BY key: customer_id"),
     ]
     assert schema.fields["customer_id"].resolved_type.kind is TypeKind.UNKNOWN
@@ -167,7 +160,6 @@ def test_scalar_group_key_expression_projection_is_deferred() -> None:
     schema = result.model.relation_row_schemas[relation]
 
     assert _errors(result) == [
-        ("PIE-S2316", GROUP_BY_DEFERRED_MESSAGE),
         ("PIE-S2319", "Grouped scalar projection expressions are deferred"),
     ]
     assert schema.fields["label"].resolved_type.kind is TypeKind.UNKNOWN
@@ -191,7 +183,6 @@ def test_unaliased_grouped_aggregate_projection_is_rejected_and_suppressed() -> 
     schema = result.model.relation_row_schemas[relation]
 
     assert _errors(result) == [
-        ("PIE-S2316", GROUP_BY_DEFERRED_MESSAGE),
         ("PIE-S2313", "Aggregate count() projection requires an explicit alias"),
     ]
     assert list(schema.fields) == ["status"]
@@ -213,7 +204,6 @@ def test_pure_grouping_without_aggregate_is_deferred_but_schema_is_known() -> No
     schema = result.model.relation_row_schemas[relation]
 
     assert _errors(result) == [
-        ("PIE-S2316", GROUP_BY_DEFERRED_MESSAGE),
         ("PIE-S2320", "Pure grouped output without an aggregate is deferred"),
     ]
     _assert_field(schema.fields["status"], "Text", EffectiveNullability.NON_NULL)
@@ -235,7 +225,6 @@ def test_grouped_order_by_is_deferred_without_alias_lookup_cascade() -> None:
     )
 
     assert _errors(result) == [
-        ("PIE-S2316", GROUP_BY_DEFERRED_MESSAGE),
         (
             "PIE-S2321",
             "Grouped ORDER BY is deferred until grouped result scope is implemented",
@@ -292,29 +281,23 @@ def test_grouped_aggregate_invalid_shapes_match_phase20_behavior(
         )
     )
 
-    assert _errors(result) == [
-        ("PIE-S2316", GROUP_BY_DEFERRED_MESSAGE),
-        expected,
-    ]
+    assert _errors(result) == [expected]
 
 
-def test_cli_check_still_fails_for_valid_grouped_relation(
+def test_cli_check_succeeds_for_valid_grouped_relation(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     path = _write(tmp_path, "grouped.pietto", _valid_grouped_source())
 
-    assert cli.main(["check", str(path)]) == 1
+    assert cli.main(["check", str(path)]) == 0
 
     captured = capsys.readouterr()
-    assert captured.out == ""
-    assert (
-        "PIE-S2316 error: GROUP BY is semantically validated but IR/SQL lowering is deferred"
-        in captured.err
-    )
+    assert captured.out == f"OK: {path}\n"
+    assert captured.err == ""
 
 
-def test_emit_sql_json_fails_before_sql_for_valid_grouped_relation(
+def test_emit_sql_json_succeeds_for_valid_grouped_relation(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -331,19 +314,21 @@ def test_emit_sql_json_fails_before_sql_for_valid_grouped_relation(
                 "json",
             ]
         )
-        == 1
+        == 0
     )
 
     result = _read_json(capsys)
-    assert result["ok"] is False
-    assert result["artifacts"] == []
+    assert result["ok"] is True
+    assert result["diagnostics"] == []
     diagnostics = cast(list[dict[str, object]], result["diagnostics"])
-    assert [(item["code"], item["message"]) for item in diagnostics] == [
-        ("PIE-S2316", GROUP_BY_DEFERRED_MESSAGE)
-    ]
+    assert diagnostics == []
+    artifacts = cast(list[dict[str, object]], result["artifacts"])
+    assert len(artifacts) == 1
+    assert artifacts[0]["name"] == "grouped_orders"
+    assert "GROUP BY" in cast(str, artifacts[0]["sql"])
 
 
-def test_downstream_relation_from_grouped_relation_cannot_emit_sql_success(
+def test_downstream_relation_from_grouped_relation_emits_by_relation_name(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -368,16 +353,18 @@ def test_downstream_relation_from_grouped_relation_cannot_emit_sql_success(
                 "json",
             ]
         )
-        == 1
+        == 0
     )
 
     result = _read_json(capsys)
-    assert result["ok"] is False
-    assert result["artifacts"] == []
-    diagnostics = cast(list[dict[str, object]], result["diagnostics"])
-    assert [(item["code"], item["message"]) for item in diagnostics] == [
-        ("PIE-S2316", GROUP_BY_DEFERRED_MESSAGE)
+    assert result["ok"] is True
+    assert result["diagnostics"] == []
+    artifacts = cast(list[dict[str, object]], result["artifacts"])
+    assert [artifact["name"] for artifact in artifacts] == [
+        "grouped_orders",
+        "downstream",
     ]
+    assert 'FROM "grouped_orders"' in cast(str, artifacts[1]["sql"])
 
 
 def _valid_grouped_source() -> str:

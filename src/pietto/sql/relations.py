@@ -5,7 +5,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from pietto.ir.model import (
+    AggregateCallIR,
     ExpressionIR,
+    FieldId,
+    FieldRefIR,
     OrderDirectionIR,
     OrderItemIR,
     RelationIR,
@@ -27,8 +30,6 @@ def render_relation_sql(
 ) -> str:
     """Render a minimal relation using a source table or relation-name input."""
 
-    if relation.group_keys:
-        raise ValueError("PostgreSQL grouped relation SQL lowering is not implemented")
     input_name = _relation_input_name(
         relation,
         sources=sources,
@@ -36,6 +37,8 @@ def render_relation_sql(
     )
     if not relation.projections:
         raise ValueError("PostgreSQL relation emission requires projections")
+    if relation.group_keys:
+        _validate_grouped_relation(relation)
 
     projection_sql = ",\n".join(
         f"    {_render_projection(projection.expression, projection.name)}"
@@ -48,6 +51,15 @@ def render_relation_sql(
     ]
     if relation.filter is not None:
         lines.append(f"WHERE {render_expression_sql(relation.filter.expression)}")
+    if relation.group_keys:
+        lines.extend(
+            (
+                "GROUP BY",
+                ",\n".join(
+                    f"    {_render_group_key(key)}" for key in relation.group_keys
+                ),
+            )
+        )
     if relation.order_by:
         lines.extend(
             (
@@ -76,6 +88,7 @@ def _relation_uses_qualified_fields(relation: RelationIR) -> bool:
     if relation.filter is not None:
         expressions.append(relation.filter.expression)
     expressions.extend(item.expression for item in relation.order_by)
+    expressions.extend(relation.group_keys)
     return any(
         expression_uses_qualified_field(expression) for expression in expressions
     )
@@ -94,10 +107,6 @@ def _relation_input_name(
         return _postgres_table_name(source)
     upstream = relations.get(relation.source.target)
     if upstream is not None:
-        if upstream.group_keys:
-            raise ValueError(
-                "PostgreSQL relation input depends on unsupported grouped lowering"
-            )
         return upstream.name
     raise ValueError(
         "PostgreSQL relation input does not resolve to SourceIR or RelationIR"
@@ -125,6 +134,48 @@ def _render_projection(expression: ExpressionIR, name: str | None) -> str:
     if name is None:
         return sql
     return f"{sql} AS {quote_identifier(name)}"
+
+
+def _validate_grouped_relation(relation: RelationIR) -> None:
+    """Fail closed for grouped IR shapes not authorized by the semantic slice."""
+
+    if relation.order_by:
+        raise ValueError("PostgreSQL grouped ORDER BY is not supported")
+
+    group_fields = _group_key_fields(relation.group_keys)
+    saw_aggregate = False
+    for projection in relation.projections:
+        expression = projection.expression
+        if isinstance(expression, AggregateCallIR):
+            saw_aggregate = True
+            continue
+        if isinstance(expression, FieldRefIR) and expression.field in group_fields:
+            continue
+        raise ValueError(
+            "PostgreSQL grouped projection is neither a GROUP BY key nor aggregate"
+        )
+
+    if not saw_aggregate:
+        raise ValueError(
+            "PostgreSQL pure grouped output without an aggregate is not supported"
+        )
+
+
+def _group_key_fields(group_keys: tuple[FieldRefIR, ...]) -> set[FieldId]:
+    fields: set[FieldId] = set()
+    for key in group_keys:
+        if not isinstance(key, FieldRefIR) or key.field is None:
+            raise ValueError("PostgreSQL GROUP BY keys must be resolved fields")
+        if key.field in fields:
+            raise ValueError("PostgreSQL GROUP BY keys must be unique")
+        fields.add(key.field)
+    return fields
+
+
+def _render_group_key(key: FieldRefIR) -> str:
+    if not isinstance(key, FieldRefIR) or key.field is None:
+        raise ValueError("PostgreSQL GROUP BY keys must be resolved fields")
+    return render_expression_sql(key)
 
 
 def _render_limit(value: int) -> str:

@@ -34,7 +34,6 @@ from pietto.semantic.expressions import (
     type_source_connector_arguments,
 )
 from pietto.semantic.field_derive_cycles import check_field_derive_cycles
-from pietto.semantic.group_by import check_group_by_deferred
 from pietto.semantic.model import (
     CheckMode,
     EffectiveNullability,
@@ -154,7 +153,6 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
         relation_symbols,
     )
     diagnostics.extend(relation_diagnostics)
-    diagnostics.extend(check_group_by_deferred(script))
     cyclic_relations, cycle_diagnostics = check_relation_cycles(
         script,
         from_resolutions,

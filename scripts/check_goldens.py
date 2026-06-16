@@ -13,6 +13,7 @@ GOLDEN_ROOT = Path("tests/fixtures/golden")
 SQL_FIXTURES = frozenset(
     {
         "emit_mysql_count_aggregate.sql",
+        "emit_mysql_group_by_aggregate.sql",
         "emit_mysql_compatibility_expressions.sql",
         "emit_mysql_compatibility_literals_identifiers.sql",
         "emit_mysql_compatibility_ordering_metadata.sql",
@@ -21,6 +22,7 @@ SQL_FIXTURES = frozenset(
         "emit_sql_active_user_emails.sql",
         "emit_sql_active_users.sql",
         "emit_sql_count_aggregate.sql",
+        "emit_sql_group_by_aggregate.sql",
         "emit_sql_compatibility_expressions.sql",
         "emit_sql_compatibility_literals_identifiers.sql",
         "emit_sql_compatibility_ordering_metadata.sql",
@@ -57,6 +59,9 @@ FIXTURE_INPUTS: dict[str, tuple[str, ...]] = {
     "emit_mysql_count_aggregate.sql": (
         "tests/fixtures/phase19/mysql_count_aggregate.pietto",
     ),
+    "emit_mysql_group_by_aggregate.sql": (
+        "tests/fixtures/phase21/mysql_group_by_aggregate.pietto",
+    ),
     "emit_mysql_order_limit_composition.sql": (
         "tests/fixtures/phase12/mysql_order_limit_composition.pietto",
     ),
@@ -68,6 +73,9 @@ FIXTURE_INPUTS: dict[str, tuple[str, ...]] = {
     "emit_sql_active_users.sql": ("examples/tables/active_users.pietto",),
     "emit_sql_count_aggregate.sql": (
         "tests/fixtures/phase19/postgres_count_aggregate.pietto",
+    ),
+    "emit_sql_group_by_aggregate.sql": (
+        "tests/fixtures/phase21/postgres_group_by_aggregate.pietto",
     ),
     "emit_sql_compatibility_expressions.sql": (
         "tests/fixtures/postgres/compatibility_expressions.pietto",
@@ -96,6 +104,7 @@ REFERENCE_TESTS = (
     Path("tests/test_phase12_composition_cli_json_goldens.py"),
     Path("tests/test_phase19_count_sql.py"),
     Path("tests/test_phase20_sum_avg_sql.py"),
+    Path("tests/test_phase21_group_by_sql_lowering.py"),
 )
 
 
