@@ -1,0 +1,16 @@
+shape Order:
+    status: Text not null
+    amount: Int not null
+    created_at: Timestamp not null
+
+source orders: Order is mysql.table("orders")
+
+table order_extremes_by_status:
+    from orders
+    where status == "paid"
+    group by:
+        status
+    select:
+        status
+        smallest_amount = min(amount)
+        latest_created_at = max(created_at)

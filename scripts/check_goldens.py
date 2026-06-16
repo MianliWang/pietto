@@ -13,19 +13,23 @@ GOLDEN_ROOT = Path("tests/fixtures/golden")
 SQL_FIXTURES = frozenset(
     {
         "emit_mysql_count_aggregate.sql",
+        "emit_mysql_grouped_min_max_aggregate.sql",
         "emit_mysql_group_by_aggregate.sql",
         "emit_mysql_compatibility_expressions.sql",
         "emit_mysql_compatibility_literals_identifiers.sql",
         "emit_mysql_compatibility_ordering_metadata.sql",
+        "emit_mysql_min_max_aggregate.sql",
         "emit_mysql_order_limit_composition.sql",
         "emit_mysql_sum_avg_aggregate.sql",
         "emit_sql_active_user_emails.sql",
         "emit_sql_active_users.sql",
         "emit_sql_count_aggregate.sql",
+        "emit_sql_grouped_min_max_aggregate.sql",
         "emit_sql_group_by_aggregate.sql",
         "emit_sql_compatibility_expressions.sql",
         "emit_sql_compatibility_literals_identifiers.sql",
         "emit_sql_compatibility_ordering_metadata.sql",
+        "emit_sql_min_max_aggregate.sql",
         "emit_sql_order_limit_composition.sql",
         "emit_sql_sum_avg_aggregate.sql",
     }
@@ -59,8 +63,14 @@ FIXTURE_INPUTS: dict[str, tuple[str, ...]] = {
     "emit_mysql_count_aggregate.sql": (
         "tests/fixtures/phase19/mysql_count_aggregate.pietto",
     ),
+    "emit_mysql_grouped_min_max_aggregate.sql": (
+        "tests/fixtures/phase22/mysql_grouped_min_max_aggregate.pietto",
+    ),
     "emit_mysql_group_by_aggregate.sql": (
         "tests/fixtures/phase21/mysql_group_by_aggregate.pietto",
+    ),
+    "emit_mysql_min_max_aggregate.sql": (
+        "tests/fixtures/phase22/mysql_min_max_aggregate.pietto",
     ),
     "emit_mysql_order_limit_composition.sql": (
         "tests/fixtures/phase12/mysql_order_limit_composition.pietto",
@@ -74,6 +84,9 @@ FIXTURE_INPUTS: dict[str, tuple[str, ...]] = {
     "emit_sql_count_aggregate.sql": (
         "tests/fixtures/phase19/postgres_count_aggregate.pietto",
     ),
+    "emit_sql_grouped_min_max_aggregate.sql": (
+        "tests/fixtures/phase22/postgres_grouped_min_max_aggregate.pietto",
+    ),
     "emit_sql_group_by_aggregate.sql": (
         "tests/fixtures/phase21/postgres_group_by_aggregate.pietto",
     ),
@@ -85,6 +98,9 @@ FIXTURE_INPUTS: dict[str, tuple[str, ...]] = {
     ),
     "emit_sql_compatibility_ordering_metadata.sql": (
         "tests/fixtures/postgres/compatibility_ordering_metadata.pietto",
+    ),
+    "emit_sql_min_max_aggregate.sql": (
+        "tests/fixtures/phase22/postgres_min_max_aggregate.pietto",
     ),
     "emit_sql_order_limit_composition.sql": (
         "tests/fixtures/phase12/postgres_order_limit_composition.pietto",
@@ -105,6 +121,7 @@ REFERENCE_TESTS = (
     Path("tests/test_phase19_count_sql.py"),
     Path("tests/test_phase20_sum_avg_sql.py"),
     Path("tests/test_phase21_group_by_sql_lowering.py"),
+    Path("tests/test_phase22_min_max_sql.py"),
 )
 
 

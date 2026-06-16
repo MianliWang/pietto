@@ -36,13 +36,13 @@ PHASE16_ARTIFACT_HASHES = {
         "580ebcfcc78102d902110d864eb80c7f1a57ffcb6b4b33e1160c9abd17ba07a6"
     ),
     SLICE1_AUDIT_PATH: (
-        "d2b888a6d8130df035952c73c197f1180e3c08d2ef6bb19a8d2d2a1148584e3e"
+        "d5bdc955d50d34ee9ed6e9e6f15da92cc96f86968e44d661a7298d1315dde622"
     ),
     SLICE2_AUDIT_PATH: (
-        "1673e830597dbc48c8562be47284e3c1aa9c0bef9dde20f67d72f5107021c637"
+        "2fb064d563b77f0c4b6d8a35ceefe1859e3764412281dc6f9272a73e6d0ad236"
     ),
     SLICE3_AUDIT_PATH: (
-        "22179c7b57bcf03c735cb00e6c8b8c00ba55a738e7fe95b16de5d93664bc7a5b"
+        "4463ac7bf89f2e254524d34b40e4b0d93335c1746e77a5120151a63dbdf974fb"
     ),
     PLAN_PATH: "adfb0d99075299049c790f465fab7453e0ed73b985e9cff19c6aeb38f94c7f5a",
 }
@@ -93,7 +93,7 @@ LOCKED_FILE_HASHES = {
         "b126059cd0aebe9535fceb9b0a1b1c09ee1ba22af13f70d276d7e013c49c60e7"
     ),
     "scripts/check_goldens.py": (
-        "3b3c65b1476ee083c35da086005ed256218692dda5e3af30378f7763fd8c9767"
+        "ead48cc705797cddb75e672db2fd6f49070de544c5f06bdd350b40bfce57e22d"
     ),
     "scripts/package_smoke.py": (
         "61de7eec8f26476e39d05305642ecde0a55d1030513ce91f627cac45517c1131"
@@ -115,19 +115,19 @@ LOCKED_GROUP_HASHES = {
     ),
     "sql": (
         10,
-        "06e63e366434b792ae6a8da9d0c2e9443ab46446a58787715dafb635330729f4",
+        "2fd6e7a45db95619a228150e26e2f78dfdcd1f24e72499780955c911c82221a2",
     ),
     "examples": (
         10,
         "230369f90130d7c4b722b75ef2ec264d98e0d6f34ad3b1b5fd7d5fbf04d45a97",
     ),
     "fixtures": (
-        36,
-        "58d091780585abefbac7ba986e3b997e3526350e95a7f303d7dcfec7485ef502",
+        44,
+        "d27e4dad84810a67c25250c52a034356e809f5c7ee1f4819a4475a944c7365d5",
     ),
     "goldens": (
-        21,
-        "7c721c040799b3310f919a141d5e4a45c82d49860b28250c1c0f2c0107727c82",
+        25,
+        "626188783ed0e9cf20f1d6a38ef5009ada08812a2cd2cffa2cc6d0daf8a3f6e2",
     ),
 }
 

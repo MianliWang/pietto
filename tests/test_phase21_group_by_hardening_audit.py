@@ -51,7 +51,7 @@ LOCKED_FORBIDDEN_SURFACES = {
     "sql": (
         "src/pietto/sql",
         10,
-        "06e63e366434b792ae6a8da9d0c2e9443ab46446a58787715dafb635330729f4",
+        "2fd6e7a45db95619a228150e26e2f78dfdcd1f24e72499780955c911c82221a2",
     ),
     "cli": (
         "src/pietto/cli.py",
@@ -61,12 +61,12 @@ LOCKED_FORBIDDEN_SURFACES = {
     "check_goldens": (
         "scripts/check_goldens.py",
         1,
-        "857e4af82d9071f8a1cb8de2b5d48664950b52acdd16f4dfc82de3482b805e07",
+        "f0be24787d872cf0c83a9e0d3621d0f071d01a100bf47f290344de80fccf042f",
     ),
     "fixtures": (
         "tests/fixtures",
-        36,
-        "58d091780585abefbac7ba986e3b997e3526350e95a7f303d7dcfec7485ef502",
+        44,
+        "d27e4dad84810a67c25250c52a034356e809f5c7ee1f4819a4475a944c7365d5",
     ),
     "readme": (
         "README.md",

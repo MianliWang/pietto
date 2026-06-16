@@ -56,6 +56,13 @@ _NUMERIC_AGGREGATE_NAMES = {
     "avg": "AVG",
 }
 _SUPPORTED_NUMERIC_AGGREGATE_ARGUMENT_TYPES = frozenset({"Int", "Float"})
+_EXTREMA_AGGREGATE_NAMES = {
+    "min": "MIN",
+    "max": "MAX",
+}
+_SUPPORTED_EXTREMA_AGGREGATE_ARGUMENT_TYPES = frozenset(
+    {"Int", "Float", "Date", "Timestamp"}
+)
 
 
 def render_mysql_expression(expression: ExpressionIR) -> str:
@@ -122,6 +129,9 @@ def _render_mysql_expression(expression: ExpressionIR, *, nested: bool) -> str:
 def _render_aggregate_call(expression: AggregateCallIR) -> str:
     if expression.function == "count":
         return _render_count_aggregate(expression)
+    function_name = _EXTREMA_AGGREGATE_NAMES.get(expression.function)
+    if function_name is not None:
+        return _render_extrema_aggregate(expression, function_name=function_name)
     function_name = _NUMERIC_AGGREGATE_NAMES.get(expression.function)
     if function_name is None:
         raise MySqlRenderError(
@@ -170,6 +180,38 @@ def _render_numeric_aggregate(
         expected_result_type,
         NullabilityIR.NULLABLE,
     ):
+        raise MySqlRenderError(
+            f"MySQL aggregate {expression.function} result type does not match "
+            "approved logical shape"
+        )
+    return f"{function_name}({_render_mysql_expression(argument, nested=True)})"
+
+
+def _render_extrema_aggregate(
+    expression: AggregateCallIR,
+    *,
+    function_name: str,
+) -> str:
+    if len(expression.arguments) != 1:
+        raise MySqlRenderError(
+            f"MySQL aggregate {expression.function} expects 1 argument(s)"
+        )
+    argument = expression.arguments[0]
+    if not isinstance(argument, FieldRefIR) or argument.field is None:
+        raise MySqlRenderError(
+            f"MySQL aggregate {expression.function} expects a direct field argument"
+        )
+    argument_type = argument.value_type.canonical_name
+    if (
+        argument.value_type.canonical_kind is not TypeKindIR.BUILTIN
+        or argument_type not in _SUPPORTED_EXTREMA_AGGREGATE_ARGUMENT_TYPES
+    ):
+        raise MySqlRenderError(
+            f"MySQL aggregate {expression.function} supports only Int, Float, "
+            "Date, or Timestamp field arguments"
+        )
+
+    if not _has_builtin_type(expression, argument_type, NullabilityIR.NULLABLE):
         raise MySqlRenderError(
             f"MySQL aggregate {expression.function} result type does not match "
             "approved logical shape"

@@ -85,19 +85,19 @@ LOCKED_GROUP_HASHES = {
     ),
     "sql": (
         10,
-        "06e63e366434b792ae6a8da9d0c2e9443ab46446a58787715dafb635330729f4",
+        "2fd6e7a45db95619a228150e26e2f78dfdcd1f24e72499780955c911c82221a2",
     ),
     "examples": (
         10,
         "230369f90130d7c4b722b75ef2ec264d98e0d6f34ad3b1b5fd7d5fbf04d45a97",
     ),
     "fixtures": (
-        36,
-        "58d091780585abefbac7ba986e3b997e3526350e95a7f303d7dcfec7485ef502",
+        44,
+        "d27e4dad84810a67c25250c52a034356e809f5c7ee1f4819a4475a944c7365d5",
     ),
     "goldens": (
-        21,
-        "7c721c040799b3310f919a141d5e4a45c82d49860b28250c1c0f2c0107727c82",
+        25,
+        "626188783ed0e9cf20f1d6a38ef5009ada08812a2cd2cffa2cc6d0daf8a3f6e2",
     ),
 }
 

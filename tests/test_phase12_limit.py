@@ -25,7 +25,7 @@ from pietto.sql.mysql import emit_mysql_sql
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MAX_LIMIT = 9_223_372_036_854_775_807
 LIMIT_MESSAGE = "Limit must be a static integer from 0 to 9223372036854775807"
-GOLDENS_HASH = "7c721c040799b3310f919a141d5e4a45c82d49860b28250c1c0f2c0107727c82"
+GOLDENS_HASH = "626188783ed0e9cf20f1d6a38ef5009ada08812a2cd2cffa2cc6d0daf8a3f6e2"
 
 POSTGRES_PREFIX = (
     'shape User:\n    id: Int not null\nsource users: User is postgres.table("users")\n'

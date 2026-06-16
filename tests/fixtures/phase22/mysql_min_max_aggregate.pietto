@@ -1,0 +1,17 @@
+shape Order:
+    status: Text not null
+    amount: Int not null
+    score: Float not null
+    order_date: Date nullable
+    created_at: Timestamp not null
+
+source orders: Order is mysql.table("orders")
+
+table order_extremes:
+    from orders
+    where status == "paid"
+    select:
+        smallest_amount = min(amount)
+        highest_score = max(score)
+        first_order_date = min(orders.order_date)
+        latest_created_at = max(orders.created_at)
