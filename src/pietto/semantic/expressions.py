@@ -257,7 +257,10 @@ def type_relation_expressions(
                 field_qualifier=definition.from_clause.source_name,
                 allow_aggregate_projection=_is_direct_aggregate_projection(item),
             )
-        if definition.order_by_clause is not None:
+        if (
+            definition.order_by_clause is not None
+            and definition.group_by_clause is None
+        ):
             for item in definition.order_by_clause.items:
                 _append_invalid_count_context_diagnostic(
                     item.expression,

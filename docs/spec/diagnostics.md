@@ -58,7 +58,12 @@ stored separately and is never encoded in the code.
 | `PIE-S2313` | Aggregate projection without an explicit alias |
 | `PIE-S2314` | Aggregate field argument has an unsupported type |
 | `PIE-S2315` | Aggregate expression argument is deferred |
-| `PIE-S2316` | GROUP BY semantic implementation is deferred |
+| `PIE-S2316` | GROUP BY IR/SQL lowering is deferred |
+| `PIE-S2317` | Duplicate GROUP BY key |
+| `PIE-S2318` | Non-grouped projection in grouped relation |
+| `PIE-S2319` | Grouped scalar projection is deferred |
+| `PIE-S2320` | Pure grouped output without an aggregate is deferred |
+| `PIE-S2321` | Grouped ORDER BY is deferred |
 | `PIE-S2401` | Constraint return type does not expand to `Bool` |
 | `PIE-S2402` | Callable or field derive body type mismatch |
 | `PIE-S2501` | Duplicate shape item name |

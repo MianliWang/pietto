@@ -15,6 +15,15 @@ contains `group by:`. It does not implement grouped semantic validation,
 grouped output schema, Semantic IR `group_keys`, SQL `GROUP BY` lowering, SQL
 goldens, CLI/JSON schema changes, or any runtime/database behavior.
 
+Phase 21 Slice 5 is complete as grouped semantic validation and grouped output
+schema work with the same unconditional fail-closed lowering gate. It resolves
+group keys, validates grouped projections, computes grouped row schemas, and
+keeps `PIE-S2316` as an error for any relation that contains `group by:`.
+`PIE-S2316` now means `GROUP BY is semantically validated but IR/SQL lowering
+is deferred`. Slice 5 does not add Semantic IR `group_keys`, SQL `GROUP BY`
+lowering, SQL goldens, CLI/JSON schema changes, or any grouped `emit-sql`
+success path.
+
 Trusted Phase 20 baseline:
 
 - HEAD: `e67bf35cc130332aeb786a913fa5d76dac00fca9`;
@@ -35,6 +44,12 @@ adds no grouped semantic success path, IR behavior, SQL behavior, fixture,
 golden, `scripts/check_goldens.py`, CLI format, JSON schema, dependency,
 lockfile, CI, runtime, database, UI, LSP, or policy DSL behavior.
 No IR/SQL/golden/check_goldens behavior changed.
+
+Phase 21 Slice 5 changes only semantic validation, grouped row-schema
+propagation, diagnostic documentation, and focused tests. It adds no grammar,
+generated ANTLR, parser, AST, IR, SQL, CLI, fixture, golden,
+`scripts/check_goldens.py`, dependency, lockfile, CI, runtime, database, UI,
+LSP, or policy DSL behavior.
 
 ## Strategic Priority
 
@@ -449,11 +464,12 @@ Implemented fail-closed semantic gate:
 
 - semantic analysis emits one `PIE-S2316` error per table or query relation
   containing `group by:`;
-- the diagnostic message is
-  `GROUP BY is parsed but semantic implementation is deferred`;
+- Slice 4 established the `PIE-S2316` lowering gate before grouped semantics
+  could succeed; Slice 5 keeps the same code and updates the message after
+  semantic validation and schema propagation are implemented;
 - the diagnostic prefers the complete `group by:` clause span;
-- grouped relations publish an unknown row schema in Slice 4 so no grouped
-  output schema is claimed;
+- grouped relations published an unknown row schema in Slice 4 so no grouped
+  output schema was claimed before Slice 5;
 - `pietto check` reports `PIE-S2316`;
 - `pietto emit-sql --format json` fails before SQL emission and produces no
   artifacts for grouped programs.
@@ -463,6 +479,72 @@ identity/equivalence, duplicate group key diagnostics, unknown group field
 diagnostics, grouped select rules, grouped output schema, Semantic IR
 `group_keys`, SQL `GROUP BY` lowering, grouped SQL goldens, grouped success
 paths, grouped `order by`, HAVING user syntax, `satisfying`, `filter`, JOIN,
+relationship-driven query behavior, aggregate expression arguments, Decimal
+aggregate semantics, casts, or runtime/database execution.
+
+## Slice 5 Grouped Semantic Validation / Output Schema / Gate
+
+Slice 5 implements the semantic-only portion of grouped relations while
+preserving fail-closed behavior before IR and SQL support exists.
+
+Implemented group key validation:
+
+- bare input fields resolve against the grouped relation input row schema;
+- single-input qualified fields resolve only when the qualifier matches the
+  relation `from` source name;
+- `status` and `orders.status` are equivalent when both resolve to the same
+  input field;
+- accepted unique keys preserve first source order;
+- later duplicate resolved keys emit `PIE-S2317`;
+- unknown group keys reuse `PIE-S2102`;
+- dependent grouped projection cascades from an unknown group key are
+  suppressed where the projection refers to that unknown key.
+
+Implemented grouped `select:` validation:
+
+- direct group key projections are allowed;
+- aliased group key projections are allowed;
+- direct aggregate projections in the Phase 20 aggregate surface are allowed
+  for schema computation;
+- aggregate projections still require explicit aliases and reuse `PIE-S2313`;
+- non-grouped plain fields emit `PIE-S2318`;
+- scalar grouped projection expressions emit `PIE-S2319`;
+- pure grouping or distinct-style output without an aggregate emits
+  `PIE-S2320`;
+- grouped `order by` emits `PIE-S2321` and remains deferred;
+- nested aggregate, aggregate composition, wrong arity, wrong type, and
+  aggregate expression argument behavior remain consistent with Phase 19 and
+  Phase 20.
+
+Implemented grouped output schema:
+
+- group key projections preserve input field type and nullability;
+- aliased group key projections preserve input field type and nullability
+  under the alias;
+- `count() -> Int not null`;
+- `sum(Int) -> Int nullable`;
+- `sum(Float) -> Float nullable`;
+- `avg(Int) -> Float nullable`;
+- `avg(Float) -> Float nullable`;
+- invalid named projections publish unknown fields where stable output names
+  exist;
+- invalid unaliased projections suppress output fields.
+
+Fail-closed lowering gate:
+
+- semantic analysis still emits one `PIE-S2316` error per table or query
+  relation containing `group by:`;
+- the diagnostic message is
+  `GROUP BY is semantically validated but IR/SQL lowering is deferred`;
+- `pietto check` still fails for every grouped relation;
+- `pietto emit-sql --format json` still fails before IR/SQL output and
+  produces no artifacts for grouped programs;
+- downstream relations cannot produce SQL success while any grouped relation
+  emits `PIE-S2316`.
+
+Slice 5 explicitly does not implement Semantic IR `group_keys`, SQL
+`GROUP BY` lowering, SQL goldens, grouped `emit-sql` success, grouped
+`order by`, HAVING user syntax, `satisfying`, `filter`, JOIN,
 relationship-driven query behavior, aggregate expression arguments, Decimal
 aggregate semantics, casts, or runtime/database execution.
 
@@ -484,7 +566,9 @@ aggregate semantics, casts, or runtime/database execution.
    implementation after the Slice 3 contract is complete. Slice 4 is not a
    completion audit.
 5. **Slice 5: Semantic grouped relation validation and grouped output
-   schema**: future implementation slice.
+   schema**: complete. It computes grouped semantic diagnostics and row
+   schemas while preserving the unconditional `PIE-S2316` fail-closed lowering
+   gate.
 6. **Slice 6: IR group key lowering**: future implementation slice.
 7. **Slice 7: PostgreSQL/MySQL SQL lowering and goldens**: future
    implementation slice.

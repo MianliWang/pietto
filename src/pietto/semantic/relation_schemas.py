@@ -33,6 +33,7 @@ from pietto.semantic.aggregates import (
     wrong_arity_diagnostic,
     wrong_argument_type_diagnostic,
 )
+from pietto.semantic.group_by import project_grouped_schema
 from pietto.semantic.model import (
     CheckMode,
     EffectiveNullability,
@@ -118,7 +119,11 @@ def _project_schema(
     """Build ordered output fields from stable projection names."""
 
     if definition.group_by_clause is not None:
-        return _unknown_schema(), []
+        return project_grouped_schema(
+            definition,
+            input_schema,
+            expression_value_types=expression_value_types,
+        )
 
     fields: dict[str, RowField] = {}
     seen_names: set[str] = set()

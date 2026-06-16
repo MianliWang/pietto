@@ -20,10 +20,12 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Severity
 from pietto.parser_api import parse_source
-from pietto.semantic import analyze
+from pietto.semantic import EffectiveNullability, TypeKind, analyze
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-GROUP_BY_DEFERRED_MESSAGE = "GROUP BY is parsed but semantic implementation is deferred"
+GROUP_BY_DEFERRED_MESSAGE = (
+    "GROUP BY is semantically validated but IR/SQL lowering is deferred"
+)
 
 
 def test_parser_accepts_group_by_bare_field() -> None:
@@ -188,8 +190,15 @@ def test_semantic_emits_one_group_by_deferred_diagnostic(relation_kind: str) -> 
     diagnostic = errors[0]
     assert diagnostic.location.line == relation.group_by_clause.span.line
     assert diagnostic.location.column == relation.group_by_clause.span.column
-    assert semantic.model.relation_row_schemas[relation].is_unknown is True
-    assert semantic.model.relation_row_schemas[relation].fields == {}
+    schema = semantic.model.relation_row_schemas[relation]
+    assert schema.is_unknown is False
+    assert list(schema.fields) == ["status", "total"]
+    assert schema.fields["status"].resolved_type.kind is TypeKind.BUILTIN
+    assert schema.fields["status"].resolved_type.name == "Text"
+    assert schema.fields["status"].nullability is EffectiveNullability.NON_NULL
+    assert schema.fields["total"].resolved_type.kind is TypeKind.BUILTIN
+    assert schema.fields["total"].resolved_type.name == "Int"
+    assert schema.fields["total"].nullability is EffectiveNullability.NON_NULL
 
 
 def test_cli_check_reports_group_by_deferred(
@@ -203,7 +212,7 @@ def test_cli_check_reports_group_by_deferred(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert (
-        "PIE-S2316 error: GROUP BY is parsed but semantic implementation is deferred"
+        "PIE-S2316 error: GROUP BY is semantically validated but IR/SQL lowering is deferred"
         in captured.err
     )
 
@@ -252,9 +261,15 @@ def test_group_by_grammar_and_diagnostics_are_registered() -> None:
         ": dottedName NEWLINE",
     ):
         assert required in grammar
-    assert (
-        "| `PIE-S2316` | GROUP BY semantic implementation is deferred |" in diagnostics
-    )
+    for required in (
+        "| `PIE-S2316` | GROUP BY IR/SQL lowering is deferred |",
+        "| `PIE-S2317` | Duplicate GROUP BY key |",
+        "| `PIE-S2318` | Non-grouped projection in grouped relation |",
+        "| `PIE-S2319` | Grouped scalar projection is deferred |",
+        "| `PIE-S2320` | Pure grouped output without an aggregate is deferred |",
+        "| `PIE-S2321` | Grouped ORDER BY is deferred |",
+    ):
+        assert required in diagnostics
 
 
 def test_phase21_slice4_status_and_boundaries_are_documented() -> None:
