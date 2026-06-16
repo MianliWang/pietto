@@ -148,7 +148,7 @@ def test_slice8_status_and_tests_only_boundaries_are_documented() -> None:
         "It adds no fixtures, SQL/JSON goldens, `scripts/check_goldens.py` inventory changes, diagnostics, public API, dependency, lockfile, CI, runtime, database, UI, LSP, or policy DSL behavior",
         "Slice 8 adds no grouped `order by`, HAVING user syntax, `satisfying`, `filter`, JOIN, relationship-driven query behavior, aggregate expression arguments, Decimal aggregate semantics, casts, SQLGlot, or runtime/database execution",
         "8. **Slice 8: CLI / invalid-shape hardening / no-regression checks**: complete.",
-        "9. **Slice 9: GROUP BY completion audit**: future final audit slice",
+        "9. **Slice 9: GROUP BY completion audit**: complete final audit slice",
     ):
         assert required in plan
 

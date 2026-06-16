@@ -48,6 +48,22 @@ behavior.
 
 Phase 21 Slice 8 is complete as CLI, invalid-shape, malformed IR, and no-regression hardening. Slice 8 is tests/audit-only and adds no production behavior. It adds no fixtures, SQL/JSON goldens, `scripts/check_goldens.py` inventory changes, diagnostics, public API, dependency, lockfile, CI, runtime, database, UI, LSP, or policy DSL behavior. Slice 8 adds no grouped `order by`, HAVING user syntax, `satisfying`, `filter`, JOIN, relationship-driven query behavior, aggregate expression arguments, Decimal aggregate semantics, casts, SQLGlot, or runtime/database execution.
 
+Phase 21 Slice 9 is complete as GROUP BY Aggregate MVP completion audit.
+Phase 21 GROUP BY Aggregate MVP is complete as a bounded MVP. Slice 9 adds
+only completion audit coverage and this status documentation. It locks the
+completed artifact inventory, grouped syntax and parser coverage, grouped
+semantic diagnostics, `RelationIR.group_keys`, PostgreSQL/MySQL `GROUP BY`
+SQL lowering, CLI text/JSON v1/output-file paths, malformed grouped IR
+`PIE-B1000`, downstream relation-name behavior, no-GROUP Phase 19/20 SQL byte
+stability, grouped golden inventory ownership, and explicit non-goals. Slice 9
+adds no production behavior, syntax, SQL feature, fixture, golden,
+`scripts/check_goldens.py` inventory, diagnostics, public API, dependency,
+lockfile, CI, runtime, database, UI, LSP, or policy DSL behavior. Slice 9 adds
+no grouped `order by`, HAVING user syntax, `satisfying`, `filter`, JOIN,
+relationship-driven query behavior, aggregate expression arguments, Decimal
+aggregate semantics, casts, rollup, cube, grouping sets, window functions,
+nested results, SQLGlot, or runtime/database execution.
+
 Trusted Phase 20 baseline:
 
 - HEAD: `e67bf35cc130332aeb786a913fa5d76dac00fca9`;
@@ -100,6 +116,15 @@ documentation, public API, dependency, lockfile, CI, runtime, database, UI,
 LSP, policy DSL, grouped `order by`, HAVING, `satisfying`, `filter`, JOIN,
 relationship-driven query behavior, aggregate expression argument, Decimal
 aggregate, cast, SQLGlot, or execution behavior.
+
+Phase 21 Slice 9 changes only completion audit coverage and status
+documentation. It adds no production behavior, grammar, generated ANTLR,
+parser, AST, semantic production code, IR, SQL renderer, CLI implementation,
+fixture, golden, `scripts/check_goldens.py`, diagnostic documentation, public
+API, dependency, lockfile, CI, runtime, database, UI, LSP, policy DSL, grouped
+`order by`, HAVING, `satisfying`, `filter`, JOIN, relationship-driven query
+behavior, aggregate expression argument, Decimal aggregate, cast, rollup, cube,
+grouping sets, window function, nested result, SQLGlot, or execution behavior.
 
 ## Strategic Priority
 
@@ -697,7 +722,44 @@ Implemented hardening coverage:
 - grouped fixtures, reviewed grouped SQL goldens, and `scripts/check_goldens.py`
   inventory ownership remain unchanged.
 
-Slice 8 is tests/audit-only. Slice 9 remains the future completion audit.
+Slice 8 is tests/audit-only. Slice 9 is the final completion audit for the
+authorized GROUP BY Aggregate MVP.
+
+## Slice 9 Completion Audit
+
+Slice 9 adds only `tests/test_phase21_completion_audit.py` and this status
+documentation. It audits that the bounded Phase 21 GROUP BY Aggregate MVP
+surface is locked by focused Slice 4 through Slice 8 tests and reviewed
+fixtures/goldens.
+
+The completion audit locks:
+
+- Phase 21 artifact inventory and status documentation;
+- `group by:` syntax, clause order, parser acceptance, parser invalid-shape
+  rejection, and valid grouped `check`;
+- grouped semantic validation and diagnostics for duplicate keys, unknown
+  keys, non-grouped projections, scalar grouped projections, pure grouped
+  output, grouped `order by`, and aggregate invalid shapes;
+- `RelationIR.group_keys` defaulting, source ordering, `FieldRefIR` lowering,
+  and aggregate projection preservation;
+- PostgreSQL/MySQL `GROUP BY` SQL lowering, reviewed grouped SQL goldens, CLI
+  text, JSON v1, and output-file success paths;
+- invalid grouped CLI JSON output failures with semantic-specific diagnostics,
+  no artifacts, and no output overwrite;
+- malformed grouped hand-built IR fail-closed backend diagnostics through
+  `PIE-B1000`;
+- downstream-from-grouped relation SQL using the quoted relation name without
+  CTE expansion, subqueries, inlining, joins, or runtime execution;
+- no-GROUP Phase 19/20 SQL byte stability and golden ownership;
+- unchanged fixture/golden/`scripts/check_goldens.py` inventory ownership;
+- explicit absence of grouped `order by`, HAVING user syntax, `satisfying`,
+  `filter`, JOIN, relationship-driven query behavior, aggregate expression
+  arguments, Decimal aggregate semantics, casts, rollup, cube, grouping sets,
+  window functions, nested results, SQLGlot, runtime/database execution, UI,
+  playground, and LSP behavior.
+
+Phase 21 is complete after Slice 9. Future grouped language expansion requires
+a separate explicit phase and authorization.
 
 ## Proposed Future Phase 21 Slices
 
@@ -726,7 +788,7 @@ Slice 8 is tests/audit-only. Slice 9 remains the future completion audit.
    guards for grouped IR without rendering SQL `GROUP BY`.
 7. **Slice 7: PostgreSQL/MySQL SQL lowering and goldens**: complete.
 8. **Slice 8: CLI / invalid-shape hardening / no-regression checks**: complete.
-9. **Slice 9: GROUP BY completion audit**: future final audit slice for the
+9. **Slice 9: GROUP BY completion audit**: complete final audit slice for the
    authorized GROUP BY Aggregate MVP.
 
 ## Explicit Out Of Scope
