@@ -44,9 +44,9 @@ from pietto.ir.model import (
 )
 from pietto.semantic.catalog import BUILTIN_FUNCTIONS
 from pietto.semantic.aggregates import (
-    aggregate_call_name,
-    aggregate_result_value_type,
     is_direct_field_argument,
+    semantic_aggregate_call_name,
+    semantic_aggregate_result_value_type,
 )
 from pietto.semantic import (
     EffectiveNullability,
@@ -380,7 +380,7 @@ def _is_valid_aggregate_projection(
 ) -> bool:
     """Return whether this call is a precise output projection aggregate."""
 
-    function_name = aggregate_call_name(expression)
+    function_name = semantic_aggregate_call_name(expression)
     if function_name is None:
         return False
     semantic_value_type = semantic_model.expression_value_types.get(expression)
@@ -417,7 +417,7 @@ def _aggregate_type_matches_ir(
     value_type: TypeRefIR,
 ) -> bool:
     if not expression.arguments:
-        expected = aggregate_result_value_type(function_name)
+        expected = semantic_aggregate_result_value_type(function_name)
     elif len(expression.arguments) == 1 and is_direct_field_argument(
         expression.arguments[0]
     ):
@@ -427,7 +427,7 @@ def _aggregate_type_matches_ir(
         expected = (
             None
             if argument_type is None
-            else aggregate_result_value_type(function_name, argument_type)
+            else semantic_aggregate_result_value_type(function_name, argument_type)
         )
     else:
         expected = None
