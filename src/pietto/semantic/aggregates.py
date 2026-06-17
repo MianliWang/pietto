@@ -305,7 +305,9 @@ def aggregate_result_value_type(
     """Return the logical no-GROUP aggregate result type when supported."""
 
     if function_name == COUNT_AGGREGATE_NAME:
-        return COUNT_VALUE_TYPE if argument_type is None else None
+        if argument_type is None:
+            return COUNT_VALUE_TYPE
+        return COUNT_VALUE_TYPE if is_supported_count_argument(argument_type) else None
     if argument_type is None or not is_supported_numeric_argument(argument_type):
         return None
     if function_name == SUM_AGGREGATE_NAME:
@@ -341,10 +343,6 @@ def semantic_projection_aggregate_result_value_type(
 ) -> ValueType | None:
     """Return the semantic projection result type, including Slice 2 count(field)."""
 
-    if function_name == COUNT_AGGREGATE_NAME:
-        if argument_type is None:
-            return COUNT_VALUE_TYPE
-        return COUNT_VALUE_TYPE if is_supported_count_argument(argument_type) else None
     return semantic_aggregate_result_value_type(function_name, argument_type)
 
 
