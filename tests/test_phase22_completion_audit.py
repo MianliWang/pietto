@@ -149,9 +149,9 @@ def test_min_max_golden_inventory_and_json_v1_shape_are_locked() -> None:
     reference_tests = cast(tuple[Path, ...], getattr(goldens, "REFERENCE_TESTS"))
     audit = cast(Callable[[Path], tuple[str, ...]], getattr(goldens, "audit"))
 
-    assert len(sql_fixtures) == 20
+    assert len(sql_fixtures) == 24
     assert len(json_fixtures) == 5
-    assert len(sql_fixtures | json_fixtures) == 25
+    assert len(sql_fixtures | json_fixtures) == 29
     assert PHASE22_SQL_GOLDENS <= sql_fixtures
     assert fixture_inputs["emit_sql_min_max_aggregate.sql"] == (
         "tests/fixtures/phase22/postgres_min_max_aggregate.pietto",

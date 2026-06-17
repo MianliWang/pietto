@@ -1,0 +1,14 @@
+shape Order:
+    status: Text not null
+    amount: Int nullable
+    score: Float nullable
+
+source orders: Order is mysql.table("orders")
+
+table order_completeness:
+    from orders
+    where status == "paid"
+    select:
+        total = count()
+        known_amounts = count(amount)
+        known_scores = count(orders.score)

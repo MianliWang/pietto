@@ -340,7 +340,7 @@ def test_sql_renderers_keep_malformed_aggregate_ir_fail_closed() -> None:
         match="Unsupported PostgreSQL aggregate call: median",
     ):
         render_expression_sql(unsupported_function)
-    with pytest.raises(ValueError, match="PostgreSQL aggregate count expects 0"):
+    with pytest.raises(ValueError, match="direct field argument"):
         render_expression_sql(count_with_argument)
     with pytest.raises(ValueError, match="PostgreSQL aggregate sum expects 1"):
         render_expression_sql(sum_wrong_arity)
@@ -351,7 +351,7 @@ def test_sql_renderers_keep_malformed_aggregate_ir_fail_closed() -> None:
 
     with pytest.raises(MySqlRenderError, match="Unsupported MySQL aggregate call"):
         render_mysql_expression(unsupported_function)
-    with pytest.raises(MySqlRenderError, match="MySQL aggregate count expects 0"):
+    with pytest.raises(MySqlRenderError, match="direct field argument"):
         render_mysql_expression(count_with_argument)
     with pytest.raises(MySqlRenderError, match="MySQL aggregate sum expects 1"):
         render_mysql_expression(sum_wrong_arity)

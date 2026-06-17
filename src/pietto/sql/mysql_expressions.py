@@ -141,11 +141,23 @@ def _render_aggregate_call(expression: AggregateCallIR) -> str:
 
 
 def _render_count_aggregate(expression: AggregateCallIR) -> str:
-    if expression.arguments:
-        raise MySqlRenderError("MySQL aggregate count expects 0 argument(s)")
     if not _has_builtin_type(expression, "Int", NullabilityIR.NON_NULL):
         raise MySqlRenderError("MySQL aggregate count expects Int non-null result")
-    return "COUNT(*)"
+    if not expression.arguments:
+        return "COUNT(*)"
+    if len(expression.arguments) != 1:
+        raise MySqlRenderError("MySQL aggregate count expects 0 or 1 argument(s)")
+    argument = expression.arguments[0]
+    if not isinstance(argument, FieldRefIR) or argument.field is None:
+        raise MySqlRenderError("MySQL aggregate count expects a direct field argument")
+    if (
+        argument.value_type.canonical_kind is not TypeKindIR.BUILTIN
+        or argument.value_type.canonical_name == "Any"
+    ):
+        raise MySqlRenderError(
+            "MySQL aggregate count supports only concrete non-Any field arguments"
+        )
+    return f"COUNT({_render_mysql_expression(argument, nested=True)})"
 
 
 def _render_numeric_aggregate(

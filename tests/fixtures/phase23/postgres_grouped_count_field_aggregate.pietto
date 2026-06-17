@@ -1,0 +1,16 @@
+shape Order:
+    status: Text not null
+    amount: Int nullable
+    score: Float nullable
+
+source orders: Order is postgres.table("orders")
+
+table order_completeness_by_status:
+    from orders
+    where status == "paid"
+    group by:
+        status
+    select:
+        status
+        known_amounts = count(amount)
+        known_scores = count(orders.score)

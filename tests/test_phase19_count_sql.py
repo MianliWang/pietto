@@ -310,7 +310,13 @@ def test_supported_aggregate_ir_shapes_render_without_changing_count_sql() -> No
 
 
 def test_malformed_aggregate_ir_shapes_still_fail_closed() -> None:
-    count_with_argument = _aggregate("count", INT_NON_NULL, _literal(1))
+    count_with_too_many_arguments = _aggregate(
+        "count",
+        INT_NON_NULL,
+        _field("amount", INT_NON_NULL),
+        _field("score", FLOAT_NULLABLE),
+    )
+    count_with_non_field_argument = _aggregate("count", INT_NON_NULL, _literal(1))
     count_with_unknown_type = _aggregate("count", UNKNOWN_TYPE)
     unsupported_name = _aggregate(
         "median",
@@ -330,8 +336,10 @@ def test_malformed_aggregate_ir_shapes_still_fail_closed() -> None:
         _field("amount", INT_NON_NULL),
     )
 
-    with pytest.raises(ValueError, match="PostgreSQL aggregate count expects 0"):
-        render_expression_sql(count_with_argument)
+    with pytest.raises(ValueError, match="PostgreSQL aggregate count expects 0 or 1"):
+        render_expression_sql(count_with_too_many_arguments)
+    with pytest.raises(ValueError, match="direct field argument"):
+        render_expression_sql(count_with_non_field_argument)
     with pytest.raises(ValueError, match="PostgreSQL aggregate count expects Int"):
         render_expression_sql(count_with_unknown_type)
     with pytest.raises(
@@ -348,8 +356,10 @@ def test_malformed_aggregate_ir_shapes_still_fail_closed() -> None:
     with pytest.raises(ValueError, match="approved logical shape"):
         render_expression_sql(sum_bad_result_type)
 
-    with pytest.raises(MySqlRenderError, match="MySQL aggregate count expects 0"):
-        render_mysql_expression(count_with_argument)
+    with pytest.raises(MySqlRenderError, match="MySQL aggregate count expects 0 or 1"):
+        render_mysql_expression(count_with_too_many_arguments)
+    with pytest.raises(MySqlRenderError, match="direct field argument"):
+        render_mysql_expression(count_with_non_field_argument)
     with pytest.raises(MySqlRenderError, match="MySQL aggregate count expects Int"):
         render_mysql_expression(count_with_unknown_type)
     with pytest.raises(MySqlRenderError, match="Unsupported MySQL aggregate call"):
