@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
@@ -9,6 +10,7 @@ from typing import cast
 
 import pytest
 
+import pietto.cli as cli
 from pietto.errors import Severity
 from pietto.ir import (
     AggregateCallIR,
@@ -48,6 +50,23 @@ POSTGRES_GOLDEN = "emit_sql_min_max_aggregate.sql"
 MYSQL_GOLDEN = "emit_mysql_min_max_aggregate.sql"
 POSTGRES_GROUPED_GOLDEN = "emit_sql_grouped_min_max_aggregate.sql"
 MYSQL_GROUPED_GOLDEN = "emit_mysql_grouped_min_max_aggregate.sql"
+
+MIN_MAX_CLI_CASES: tuple[tuple[Path, str, str, str], ...] = (
+    (POSTGRES_INPUT, "postgres", POSTGRES_GOLDEN, "order_extremes"),
+    (MYSQL_INPUT, "mysql", MYSQL_GOLDEN, "order_extremes"),
+    (
+        POSTGRES_GROUPED_INPUT,
+        "postgres",
+        POSTGRES_GROUPED_GOLDEN,
+        "order_extremes_by_status",
+    ),
+    (
+        MYSQL_GROUPED_INPUT,
+        "mysql",
+        MYSQL_GROUPED_GOLDEN,
+        "order_extremes_by_status",
+    ),
+)
 
 HISTORICAL_SQL_CASES: tuple[tuple[Path, str, Callable[[ScriptIR], SqlResult]], ...] = (
     (
@@ -161,6 +180,135 @@ def test_direct_backend_min_max_sql_matches_reviewed_golden(
 
 
 @pytest.mark.parametrize(
+    ("input_path", "dialect", "golden_name", "artifact_name"),
+    MIN_MAX_CLI_CASES,
+)
+def test_cli_text_min_max_sql_matches_reviewed_golden(
+    input_path: Path,
+    dialect: str,
+    golden_name: str,
+    artifact_name: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    del artifact_name
+    monkeypatch.chdir(REPO_ROOT)
+
+    assert cli.main(["emit-sql", str(input_path), "--dialect", dialect]) == 0
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert captured.out.encode("utf-8") == _golden_bytes(golden_name)
+
+
+@pytest.mark.parametrize(
+    ("input_path", "dialect", "golden_name", "artifact_name"),
+    MIN_MAX_CLI_CASES,
+)
+def test_cli_json_min_max_sql_success_preserves_v1_shape(
+    input_path: Path,
+    dialect: str,
+    golden_name: str,
+    artifact_name: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(REPO_ROOT)
+
+    assert (
+        cli.main(
+            [
+                "emit-sql",
+                str(input_path),
+                "--dialect",
+                dialect,
+                "--format",
+                "json",
+            ]
+        )
+        == 0
+    )
+
+    result = _read_json(capsys)
+
+    assert set(result) == {
+        "schema_version",
+        "command",
+        "ok",
+        "path",
+        "dialect",
+        "diagnostics",
+        "cli_errors",
+        "artifacts",
+        "output",
+    }
+    assert result["schema_version"] == 1
+    assert result["command"] == "emit-sql"
+    assert result["ok"] is True
+    assert result["path"] == input_path.as_posix()
+    assert result["dialect"] == dialect
+    assert result["diagnostics"] == []
+    assert result["cli_errors"] == []
+    assert result["output"] is None
+    artifacts = cast(list[dict[str, object]], result["artifacts"])
+    assert artifacts == [
+        {
+            "kind": "relation",
+            "name": artifact_name,
+            "sql": _golden_text(golden_name).removesuffix("\n"),
+        }
+    ]
+    assert set(artifacts[0]) == {"kind", "name", "sql"}
+    sql = cast(str, artifacts[0]["sql"])
+    assert "MIN" in sql
+    assert "MAX" in sql
+
+
+@pytest.mark.parametrize(
+    ("input_path", "dialect", "golden_name", "artifact_name"),
+    MIN_MAX_CLI_CASES,
+)
+def test_cli_json_min_max_sql_output_writes_exact_sql(
+    input_path: Path,
+    dialect: str,
+    golden_name: str,
+    artifact_name: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    output_path = tmp_path / f"{dialect}-{artifact_name}.sql"
+    monkeypatch.chdir(REPO_ROOT)
+
+    assert (
+        cli.main(
+            [
+                "emit-sql",
+                str(input_path),
+                "--dialect",
+                dialect,
+                "--format",
+                "json",
+                "--output",
+                str(output_path),
+            ]
+        )
+        == 0
+    )
+
+    result = _read_json(capsys)
+
+    assert result["ok"] is True
+    assert result["diagnostics"] == []
+    assert result["cli_errors"] == []
+    assert result["output"] == {"path": str(output_path), "written": True}
+    artifacts = cast(list[dict[str, object]], result["artifacts"])
+    assert artifacts[0]["name"] == artifact_name
+    assert artifacts[0]["sql"] == _golden_text(golden_name).removesuffix("\n")
+    assert output_path.read_bytes() == _golden_bytes(golden_name)
+
+
+@pytest.mark.parametrize(
     ("golden_name", "expected_fragments"),
     [
         (
@@ -222,6 +370,73 @@ def test_historical_count_sum_avg_sql_goldens_remain_byte_stable(
 
 
 @pytest.mark.parametrize(
+    ("dialect", "connector"),
+    [
+        ("postgres", "postgres.table"),
+        ("mysql", "mysql.table"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("case_name", "select_body", "expected_code"),
+    [
+        ("unsupported_type", "        value = max(status)\n", "PIE-S2314"),
+        (
+            "expression_argument",
+            "        value = min(amount + amount)\n",
+            "PIE-S2315",
+        ),
+    ],
+)
+def test_invalid_min_max_emit_sql_json_output_fails_before_sql_without_writing(
+    dialect: str,
+    connector: str,
+    case_name: str,
+    select_body: str,
+    expected_code: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source_path = tmp_path / f"{dialect}-{case_name}.pietto"
+    output_path = tmp_path / f"{dialect}-{case_name}.sql"
+    output_path.write_text("existing SQL\n", encoding="utf-8")
+    source_path.write_text(
+        _invalid_min_max_source(connector, select_body),
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(REPO_ROOT)
+
+    assert (
+        cli.main(
+            [
+                "emit-sql",
+                str(source_path),
+                "--dialect",
+                dialect,
+                "--format",
+                "json",
+                "--output",
+                str(output_path),
+            ]
+        )
+        == 1
+    )
+
+    result = _read_json(capsys)
+    diagnostics = cast(list[dict[str, object]], result["diagnostics"])
+    codes = [diagnostic["code"] for diagnostic in diagnostics]
+
+    assert result["ok"] is False
+    assert result["artifacts"] == []
+    assert result["cli_errors"] == []
+    assert result["output"] == {"path": str(output_path), "written": False}
+    assert output_path.read_text(encoding="utf-8") == "existing SQL\n"
+    assert codes == [expected_code]
+    assert expected_code.startswith("PIE-S")
+    assert "PIE-B1000" not in codes
+
+
+@pytest.mark.parametrize(
     ("input_path", "emitter"),
     [
         (POSTGRES_INPUT, emit_postgres_sql),
@@ -262,6 +477,7 @@ def test_malformed_hand_built_min_max_ir_fails_closed_with_pie_b1000(
     assert result.artifacts == ()
     assert len(result.diagnostics) == 1
     assert result.diagnostics[0].code == "PIE-B1000"
+    assert result.diagnostics[0].severity is Severity.ERROR
 
 
 def test_phase22_min_max_goldens_are_registered_and_audited() -> None:
@@ -371,6 +587,19 @@ def _literal(value: StaticValue, value_type: TypeRefIR) -> LiteralIR:
     return LiteralIR(span=SPAN, value_type=value_type, value=value)
 
 
+def _invalid_min_max_source(connector: str, select_body: str) -> str:
+    return (
+        "shape Order:\n"
+        "    status: Text not null\n"
+        "    amount: Int not null\n"
+        f'source orders: Order is {connector}("orders")\n'
+        "table order_extremes:\n"
+        "    from orders\n"
+        "    select:\n"
+        f"{select_body}"
+    )
+
+
 def _check_goldens() -> ModuleType:
     spec = importlib.util.spec_from_file_location(
         "pietto_phase22_check_goldens",
@@ -395,3 +624,11 @@ def _render_artifacts(result: SqlResult) -> bytes:
     return ("\n\n".join(artifact.sql for artifact in result.artifacts) + "\n").encode(
         "utf-8"
     )
+
+
+def _read_json(capsys: pytest.CaptureFixture[str]) -> dict[str, object]:
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    document = json.loads(captured.out)
+    assert isinstance(document, dict)
+    return cast(dict[str, object], document)
