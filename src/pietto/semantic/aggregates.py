@@ -119,7 +119,9 @@ def contains_semantic_aggregate(expression: Expression) -> bool:
 
     if is_semantic_aggregate_call(expression):
         return True
-    return any(contains_semantic_aggregate(child) for child in child_expressions(expression))
+    return any(
+        contains_semantic_aggregate(child) for child in child_expressions(expression)
+    )
 
 
 def first_aggregate_call(expression: Expression) -> CallExpr | None:
@@ -252,8 +254,7 @@ def is_supported_extrema_argument(value_type: ValueType) -> bool:
     """Return whether min/max may use this direct field type."""
 
     return any(
-        _is_builtin(value_type, name)
-        for name in ("Int", "Float", "Date", "Timestamp")
+        _is_builtin(value_type, name) for name in ("Int", "Float", "Date", "Timestamp")
     )
 
 

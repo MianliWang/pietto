@@ -209,6 +209,16 @@ consistency, cycle and diagnostic stability, SQL byte stability, and the
 relationship metadata read-only boundary. It adds no production behavior and
 does not authorize Phase 18.
 
+Phase 22 Min/Max Aggregate MVP is complete. Slices 1 through 6 cover candidate
+decision and contract, semantic validation, IR lowering, PostgreSQL/MySQL SQL
+lowering and goldens, CLI/JSON/output hardening, and completion audit/status
+lock. The completed source scope is exactly `min(field)` / `max(field)` as
+direct aliased aggregate projections in no-GROUP and grouped contexts, with a
+direct field or supported single-input qualified field argument. Supported
+argument types are Int, Float, Date, and Timestamp, and the result is a
+nullable same-type result. Phase 22 adds no runtime/database execution, no
+JSON schema change, no CLI option change, and no relationship/JOIN behavior.
+
 SQL is generated only. Database connections, SQL or connector execution,
 schema introspection, runtime services, project or multi-file support, watch
 mode, and LSP/editor integration remain deferred.
@@ -1794,6 +1804,34 @@ The normative contracts are
 `docs/spec/computed-projection-schema-propagation-v1.md`, and
 `docs/spec/relation-to-relation-schema-hardening-v1.md`; the phase plan is
 `docs/plan/phase-17-core-sql-mvp-expansion.md`.
+
+### Phase 22: Min/Max Aggregate MVP
+
+Status: complete. Slices 1 through 6 are complete.
+
+Slice 1 records the candidate decision and min/max contract in
+`docs/plan/phase-22-min-max-aggregate-mvp.md`. Slice 2 adds semantic
+validation and row-schema propagation for the bounded min/max surface. Slice 3
+lowers valid min/max calls to existing `AggregateCallIR`. Slice 4 renders
+PostgreSQL and MySQL `MIN`/`MAX` SQL and adds reviewed no-GROUP and grouped
+SQL goldens. Slice 5 covers CLI text, JSON v1, `--output`, semantic
+no-artifact failures, malformed IR fail-closed behavior, and historical
+aggregate SQL stability. Slice 6 adds the completion audit/status lock and
+narrow behavior-neutral format cleanup.
+
+The accepted Phase 22 source scope is exactly `min(field)` / `max(field)` as
+direct aliased aggregate projections in no-GROUP and grouped contexts, with a
+direct field or supported single-input qualified field argument. Supported
+argument types are Int, Float, Date, and Timestamp. Each result has a nullable
+same-type result, and min/max remain aggregate names rather than scalar
+builtins.
+
+`count(field)`, distinct aggregates, aggregate expression arguments, filtered
+aggregates, result predicates or SQL `HAVING` user syntax, grouped `order by`,
+Decimal/Text/Bool/Bytes/Json/UUID/Any min/max semantics, casts,
+relationship/JOIN behavior, runtime/database execution, UI, LSP, and
+project/multi-file implementation remain deferred. Phase 22 adds no JSON
+schema change and no CLI option change.
 
 ---
 

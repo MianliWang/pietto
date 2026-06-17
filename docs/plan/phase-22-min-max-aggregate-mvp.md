@@ -2,10 +2,54 @@
 
 ## Status
 
+Phase 22 Slice 6 is complete as completion audit, status lock, and narrow
+behavior-neutral format cleanup. Phase 22 Min/Max Aggregate MVP is complete.
+Slice 6 adds only `tests/test_phase22_completion_audit.py`, status
+documentation, and behavior-neutral formatting of the known Phase 22 format
+blockers. It adds no production behavior.
+
 Phase 22 Slice 1 is complete as candidate decision and contract work only.
 It adds this plan/contract document and focused static audit coverage. It
 does not implement `min(field)` or `max(field)` and does not change compiler
 behavior.
+
+Phase 22 Slice 2 is complete as min/max semantic validation and row-schema
+work. It accepts direct aliased `min(field)` and `max(field)` aggregate
+projections in no-GROUP and grouped relations, with direct bare field or
+existing single-input qualified field arguments, while preserving existing
+aggregate diagnostics and cascade behavior.
+
+Phase 22 Slice 3 is complete as min/max IR lowering work. Valid `min/max`
+calls lower to existing `AggregateCallIR`; invalid or uncertain calls do not
+lower to precise aggregate IR.
+
+Phase 22 Slice 4 is complete as PostgreSQL/MySQL SQL lowering and golden
+coverage. It renders `MIN` and `MAX`, adds reviewed no-GROUP and grouped
+PostgreSQL/MySQL fixtures and SQL goldens, and registers the reviewed golden
+inventory without changing old golden bytes.
+
+Phase 22 Slice 5 is complete as CLI, JSON v1, output-file, malformed-IR, and
+no-regression hardening. It covers CLI text, JSON v1, `--output`, semantic
+failure no-artifact behavior, output preservation on failure, malformed
+hand-built min/max IR `PIE-B1000`, and historical count/sum/avg SQL stability.
+
+Phase 22 final accepted source shapes are exactly direct aliased `min(field)`
+and `max(field)` aggregate projections in no-GROUP and grouped `select:`
+contexts, with one direct bare field or existing single-input qualified field
+reference. Supported argument types are exactly `Int`, `Float`, `Date`, and
+`Timestamp`. The result type is the same canonical type as the argument and
+is nullable: `min(Int) -> Int nullable`, `max(Int) -> Int nullable`,
+`min(Float) -> Float nullable`, `max(Float) -> Float nullable`,
+`min(Date) -> Date nullable`, `max(Date) -> Date nullable`,
+`min(Timestamp) -> Timestamp nullable`, and
+`max(Timestamp) -> Timestamp nullable`. `min` and `max` remain aggregate
+names only, not scalar builtins. No new diagnostic code is added for
+Phase 22.
+
+Slice 6 changes no grammar, generated ANTLR, AST, semantic acceptance,
+Semantic IR behavior, SQL renderer behavior, SQL fixtures or goldens, CLI
+options, JSON v1 schema, public API, dependency, lockfile, package metadata,
+CI, runtime/database behavior, UI, LSP, or relationship/JOIN behavior.
 
 Trusted Phase 21 baseline:
 

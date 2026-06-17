@@ -184,6 +184,17 @@ composition, endpoint-qualified lookup, relationship-aware querying, runtime
 security, database behavior, JSON v2, new public SQL API, dependency, package,
 version, or CI change.
 
+Phase 22 Min/Max Aggregate MVP is complete. Slices 1 through 6 cover candidate
+decision and contract, semantic validation, IR lowering, PostgreSQL/MySQL SQL
+lowering and goldens, CLI/JSON/output hardening, and completion audit/status
+lock. The completed scope is exactly `min(field)` / `max(field)` as direct
+aliased aggregate projections in no-GROUP and grouped contexts, with direct
+field or supported single-input qualified field arguments. Supported argument
+types are Int, Float, Date, and Timestamp, and each aggregate has a nullable
+same-type result. Min/max remain aggregate names rather than scalar builtins.
+Phase 22 adds no runtime/database execution, no JSON schema change, no CLI
+option change, and no relationship/JOIN behavior.
+
 Phase 13 Relation Composition And Relationship Planning is complete as
 planning, contract, and audit work only. Slices 1 through 6 are complete.
 Slice 1 Master Plan And Baseline Audit, Slice 2 Relationship /
@@ -614,6 +625,13 @@ expression semantic typing, and computed projection schema propagation. Slice
 relation composition, endpoint-qualified lookup, aggregate/grouping work,
 runtime behavior, or public API expansion. Phase 17 completion does not
 authorize Phase 18.
+Phase 22 Slices 1 through 6 are complete. Slices 1 through 5 deliver the
+bounded Min/Max Aggregate MVP for `min(field)` / `max(field)`, and Slice 6
+adds only completion audit/status lock coverage plus narrow behavior-neutral
+format cleanup. Supported min/max argument types are Int, Float, Date, and
+Timestamp with a nullable same-type result. Phase 22 adds no runtime/database
+execution, no JSON schema change, no CLI option change, and no
+relationship/JOIN behavior.
 The private MySQL backend, static `mysql.table(Text)` semantic/IR surface, and
 closed renderer are the MySQL compiler boundaries. Explicit private CLI
 dispatch and JSON v1 presentation are enabled. Public emitter export, a

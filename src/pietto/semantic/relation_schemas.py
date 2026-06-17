@@ -223,7 +223,9 @@ def _aggregate_projection_diagnostics(
             invalid_items.add(item)
             continue
 
-        if len(expression.arguments) != expected_semantic_aggregate_arity(function_name):
+        if len(expression.arguments) != expected_semantic_aggregate_arity(
+            function_name
+        ):
             if not _has_unknown_argument(
                 expression,
                 expression_value_types=expression_value_types,

@@ -43,7 +43,9 @@ def test_no_group_direct_aliased_min_max_int_projections_are_accepted(
 
     assert _errors(result) == []
     assert list(schema.fields) == ["smallest_amount", "largest_amount"]
-    _assert_field(schema.fields["smallest_amount"], "Int", EffectiveNullability.NULLABLE)
+    _assert_field(
+        schema.fields["smallest_amount"], "Int", EffectiveNullability.NULLABLE
+    )
     _assert_field(schema.fields["largest_amount"], "Int", EffectiveNullability.NULLABLE)
     for item in relation.select_items:
         value_type = result.model.expression_value_types[item.expression]
@@ -95,7 +97,9 @@ def test_qualified_min_max_field_arguments_are_accepted() -> None:
         "Date",
         EffectiveNullability.NULLABLE,
     )
-    _assert_field(schema.fields["highest_score"], "Float", EffectiveNullability.NULLABLE)
+    _assert_field(
+        schema.fields["highest_score"], "Float", EffectiveNullability.NULLABLE
+    )
 
 
 def test_grouped_min_max_projections_are_accepted() -> None:
@@ -121,7 +125,9 @@ def test_grouped_min_max_projections_are_accepted() -> None:
         "latest_created_at",
     ]
     _assert_field(schema.fields["status"], "Text", EffectiveNullability.NON_NULL)
-    _assert_field(schema.fields["smallest_amount"], "Int", EffectiveNullability.NULLABLE)
+    _assert_field(
+        schema.fields["smallest_amount"], "Int", EffectiveNullability.NULLABLE
+    )
     _assert_field(
         schema.fields["latest_created_at"],
         "Timestamp",
@@ -303,7 +309,9 @@ def test_count_sum_and_avg_semantics_remain_unchanged() -> None:
     assert _errors(result) == []
     _assert_field(schema.fields["total"], "Int", EffectiveNullability.NON_NULL)
     _assert_field(schema.fields["amount_total"], "Int", EffectiveNullability.NULLABLE)
-    _assert_field(schema.fields["average_score"], "Float", EffectiveNullability.NULLABLE)
+    _assert_field(
+        schema.fields["average_score"], "Float", EffectiveNullability.NULLABLE
+    )
 
 
 def test_min_and_max_are_not_scalar_builtin_functions() -> None:

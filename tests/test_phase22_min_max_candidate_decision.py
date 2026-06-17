@@ -102,7 +102,7 @@ def test_diagnostics_ir_sql_and_golden_contracts_are_locked() -> None:
         "add no new diagnostic code unless a later implementation slice finds a concrete diagnostic gap",
         "valid `min/max` calls lower to existing `AggregateCallIR`",
         "no new public IR node is needed for v1",
-        "PostgreSQL renders `MIN(\"field\")` and `MAX(\"field\")`",
+        'PostgreSQL renders `MIN("field")` and `MAX("field")`',
         "old SQL goldens must remain byte-stable",
         "new reviewed min/max fixtures and goldens instead of rewriting unrelated goldens",
     ):

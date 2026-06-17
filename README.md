@@ -32,7 +32,11 @@ The current implementation status is:
 - **Phase 17 Core SQL MVP Expansion: complete; Slices 1 through 4 cover
   single-input qualified field binding, core scalar expression semantics, and
   computed projection schema propagation plus relation-to-relation schema
-  hardening/completion audit**.
+  hardening/completion audit**;
+- **Phase 22 Min/Max Aggregate MVP: complete; Slices 1 through 6 cover
+  candidate decision, semantic validation, IR lowering, PostgreSQL/MySQL SQL
+  lowering and goldens, CLI/JSON/output hardening, and completion audit/status
+  lock**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -81,6 +85,15 @@ qualified, and computed projection chains, semantic/IR row-schema consistency,
 cycle and diagnostic stability, SQL byte stability, and the relationship
 metadata read-only boundary. Phase 17 is complete and no Phase 18 work is
 authorized by completion.
+
+Phase 22 Min/Max Aggregate MVP is complete. The completed scope is exactly
+`min(field)` / `max(field)` as direct aliased aggregate projections in
+no-GROUP and grouped contexts, with direct field or supported single-input
+qualified field arguments. Supported argument types are Int, Float, Date, and
+Timestamp, and each aggregate has a nullable same-type result. Min/max remain
+aggregate names rather than scalar builtins. Phase 22 adds no runtime/database
+execution, no JSON schema change, no CLI option change, and no
+relationship/JOIN behavior.
 
 The supported single-file CLI commands and forms include:
 
@@ -523,6 +536,8 @@ documented in
 The completed Phase 17 Slice 4 relation-schema hardening boundary is
 documented in
 [the Relation-to-Relation Schema Hardening v1 specification](docs/spec/relation-to-relation-schema-hardening-v1.md).
+The completed Phase 22 Min/Max Aggregate MVP is documented in
+[the Phase 22 Min/Max Aggregate MVP plan](docs/plan/phase-22-min-max-aggregate-mvp.md).
 The conceptual relationship, endpoint-role, relation-role, cardinality,
 authority, and compiler-versus-runtime boundary is documented in
 [the Relationship And Relation Role Contract v1](docs/spec/relationship-relation-role-contract-v1.md).

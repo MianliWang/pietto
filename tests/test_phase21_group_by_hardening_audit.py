@@ -41,7 +41,7 @@ LOCKED_FORBIDDEN_SURFACES = {
     "semantic": (
         "src/pietto/semantic",
         19,
-        "ac6e108f9786a3e1ba26632a2db4cc8d41d2d5b600e5cba64641249a12ad13fa",
+        "91db8e09d53b412dc96e36b765380744a7ada03234d5a07878f4558c2c8c3b29",
     ),
     "ir": (
         "src/pietto/ir",
@@ -71,17 +71,17 @@ LOCKED_FORBIDDEN_SURFACES = {
     "readme": (
         "README.md",
         1,
-        "2ee3e649c602a4a10c7b6b6a6b84ab38ae818dbfcc7c138bebfd34a0bc6cc6d3",
+        "fd5b3441a0499e21c5018f336bc64b05a68f1a4354d860c8e2b394f659c76815",
     ),
     "agents": (
         "AGENTS.md",
         1,
-        "876b37530852ac0b2d94a48d2d8582035fbf62b1999080c44699028ce8dea9df",
+        "3fa26c5ff2140c06b09c00b4e7e11f28a3d2da29607c680385c6d2ec9c9c71e5",
     ),
     "pietto_v09": (
         "docs/spec/pietto-v0.9.md",
         1,
-        "057061e57a04f8585006a40da6c5aecc837ec7c1e0d216651ef35c6fc79d6f9a",
+        "1531df8d9673f308d5da012a299cfdb089b2254a7b91967f1e0b7c38deabd7d4",
     ),
     "diagnostics": (
         "docs/spec/diagnostics.md",
