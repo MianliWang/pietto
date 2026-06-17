@@ -84,10 +84,10 @@ def test_sum_and_avg_are_no_group_aggregates_not_scalar_functions() -> None:
             SOURCE_PREFIX + "table paid_order_stats:\n"
             "    from orders\n"
             "    select:\n"
-            "        total = count(amount)\n",
+            "        total = count(amount, status)\n",
             (
                 "PIE-S2309",
-                "Aggregate function count expects 0 arguments, got 1",
+                "Aggregate function count expects 0 or 1 arguments, got 2",
             ),
         ),
         (
@@ -214,7 +214,7 @@ def test_count_aggregate_diagnostics(
 @pytest.mark.parametrize(
     "projection",
     [
-        "total = count(amount)",
+        "total = count(amount, status)",
         "total = count() + 1",
         "total = count(count())",
     ],

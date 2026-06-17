@@ -238,6 +238,23 @@ def expected_semantic_aggregate_arity(function_name: str) -> int:
     raise AssertionError(f"Unsupported aggregate function: {function_name}")
 
 
+def expected_semantic_aggregate_arities(function_name: str) -> tuple[int, ...]:
+    """Return all semantic argument counts accepted for one aggregate."""
+
+    if function_name == COUNT_AGGREGATE_NAME:
+        return (0, 1)
+    return (expected_semantic_aggregate_arity(function_name),)
+
+
+def is_supported_semantic_aggregate_arity(
+    function_name: str,
+    arity: int,
+) -> bool:
+    """Return whether one aggregate arity is accepted semantically."""
+
+    return arity in expected_semantic_aggregate_arities(function_name)
+
+
 def is_direct_field_argument(expression: Expression) -> bool:
     """Return whether an aggregate argument is one direct field reference."""
 
@@ -258,12 +275,22 @@ def is_supported_extrema_argument(value_type: ValueType) -> bool:
     )
 
 
+def is_supported_count_argument(value_type: ValueType) -> bool:
+    """Return whether count(field) may use this direct field type."""
+
+    return value_type.resolved_type.kind is not TypeKind.UNKNOWN and not _is_builtin(
+        value_type, "Any"
+    )
+
+
 def is_supported_semantic_aggregate_argument(
     function_name: str,
     value_type: ValueType,
 ) -> bool:
     """Return whether an aggregate accepts this direct field argument type."""
 
+    if function_name == COUNT_AGGREGATE_NAME:
+        return is_supported_count_argument(value_type)
     if function_name in {SUM_AGGREGATE_NAME, AVG_AGGREGATE_NAME}:
         return is_supported_numeric_argument(value_type)
     if function_name in {MIN_AGGREGATE_NAME, MAX_AGGREGATE_NAME}:
@@ -308,6 +335,19 @@ def semantic_aggregate_result_value_type(
     )
 
 
+def semantic_projection_aggregate_result_value_type(
+    function_name: str,
+    argument_type: ValueType | None = None,
+) -> ValueType | None:
+    """Return the semantic projection result type, including Slice 2 count(field)."""
+
+    if function_name == COUNT_AGGREGATE_NAME:
+        if argument_type is None:
+            return COUNT_VALUE_TYPE
+        return COUNT_VALUE_TYPE if is_supported_count_argument(argument_type) else None
+    return semantic_aggregate_result_value_type(function_name, argument_type)
+
+
 def invalid_context_diagnostic(
     expression: Expression,
     *,
@@ -332,7 +372,7 @@ def wrong_arity_diagnostic(expression: CallExpr) -> Diagnostic:
     """Report aggregate arity outside the approved no-GROUP shape."""
 
     name = callee_name(expression)
-    expected = expected_semantic_aggregate_arity(name)
+    expected = _expected_arity_text(name)
 
     return _diagnostic(
         expression,
@@ -406,9 +446,13 @@ def wrong_argument_type_diagnostic(
 
     name = callee_name(expression)
     expected = (
-        "Int, Float, Date, or Timestamp"
-        if name in {MIN_AGGREGATE_NAME, MAX_AGGREGATE_NAME}
-        else "Int or Float"
+        "concrete non-Any"
+        if name == COUNT_AGGREGATE_NAME
+        else (
+            "Int, Float, Date, or Timestamp"
+            if name in {MIN_AGGREGATE_NAME, MAX_AGGREGATE_NAME}
+            else "Int or Float"
+        )
     )
 
     return _diagnostic(
@@ -441,6 +485,13 @@ def _is_builtin(value_type: ValueType, name: str) -> bool:
         value_type.resolved_type.kind is TypeKind.BUILTIN
         and value_type.resolved_type.name == name
     )
+
+
+def _expected_arity_text(function_name: str) -> str:
+    arities = expected_semantic_aggregate_arities(function_name)
+    if len(arities) == 1:
+        return str(arities[0])
+    return " or ".join(str(arity) for arity in arities)
 
 
 def _diagnostic(

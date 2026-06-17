@@ -87,7 +87,7 @@ def test_direct_lower_expr_for_valid_count_no_longer_uses_generic_call_ir() -> N
             SOURCE_PREFIX + "table paid_order_stats:\n"
             "    from orders\n"
             "    select:\n"
-            "        total = count(amount)\n",
+            "        total = count(amount, status)\n",
             "PIE-S2309",
         ),
         (

@@ -24,11 +24,11 @@ from pietto.semantic.aggregates import (
     deferred_argument_expression_diagnostic,
     is_direct_field_argument,
     is_semantic_aggregate_call,
+    is_supported_semantic_aggregate_arity,
     is_supported_semantic_aggregate_argument,
     mixed_projection_diagnostic,
     nested_aggregate_diagnostic,
     nested_semantic_aggregate,
-    expected_semantic_aggregate_arity,
     semantic_aggregate_call_name,
     wrong_arity_diagnostic,
     wrong_argument_type_diagnostic,
@@ -223,8 +223,9 @@ def _aggregate_projection_diagnostics(
             invalid_items.add(item)
             continue
 
-        if len(expression.arguments) != expected_semantic_aggregate_arity(
-            function_name
+        if not is_supported_semantic_aggregate_arity(
+            function_name,
+            len(expression.arguments),
         ):
             if not _has_unknown_argument(
                 expression,

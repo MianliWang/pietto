@@ -35,7 +35,7 @@ from pietto.semantic.aggregates import (
     is_direct_field_argument,
     is_semantic_aggregate_call,
     semantic_aggregate_call_name,
-    semantic_aggregate_result_value_type,
+    semantic_projection_aggregate_result_value_type,
 )
 from pietto.semantic.catalog import BUILTIN_FUNCTIONS, BuiltinFunction
 from pietto.semantic.model import (
@@ -686,13 +686,16 @@ def _aggregate_value_type(
     if function_name is None:
         return None
     if not expression.arguments:
-        return semantic_aggregate_result_value_type(function_name)
+        return semantic_projection_aggregate_result_value_type(function_name)
     if len(expression.arguments) != 1:
         return None
     argument = expression.arguments[0]
     if not is_direct_field_argument(argument):
         return None
-    return semantic_aggregate_result_value_type(function_name, argument_types[0])
+    return semantic_projection_aggregate_result_value_type(
+        function_name,
+        argument_types[0],
+    )
 
 
 def _append_invalid_count_context_diagnostic(

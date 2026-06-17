@@ -24,14 +24,14 @@ from pietto.semantic.aggregates import (
     contains_semantic_aggregate,
     deferred_argument_expression_diagnostic,
     deferred_composition_diagnostic,
-    expected_semantic_aggregate_arity,
     is_direct_field_argument,
     is_semantic_aggregate_call,
+    is_supported_semantic_aggregate_arity,
     is_supported_semantic_aggregate_argument,
     nested_semantic_aggregate,
     nested_aggregate_diagnostic,
     semantic_aggregate_call_name,
-    semantic_aggregate_result_value_type,
+    semantic_projection_aggregate_result_value_type,
     wrong_arity_diagnostic,
     wrong_argument_type_diagnostic,
 )
@@ -250,7 +250,10 @@ def _aggregate_output_field(
         diagnostics.append(aggregate_alias_required_diagnostic(expression))
         return None, diagnostics, False
 
-    if len(expression.arguments) != expected_semantic_aggregate_arity(function_name):
+    if not is_supported_semantic_aggregate_arity(
+        function_name,
+        len(expression.arguments),
+    ):
         if not _has_unknown_argument(
             expression,
             expression_value_types=expression_value_types,
@@ -295,7 +298,7 @@ def _aggregate_output_field(
         else expression_value_types.get(expression)
     )
     if value_type is None or value_type.kind is ValueTypeKind.UNKNOWN:
-        value_type = semantic_aggregate_result_value_type(
+        value_type = semantic_projection_aggregate_result_value_type(
             function_name,
             argument_type,
         )
