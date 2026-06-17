@@ -36,6 +36,10 @@ The current implementation status is:
 - **Phase 22 Min/Max Aggregate MVP: complete; Slices 1 through 6 cover
   candidate decision, semantic validation, IR lowering, PostgreSQL/MySQL SQL
   lowering and goldens, CLI/JSON/output hardening, and completion audit/status
+  lock**;
+- **Phase 23 Count(Field) Aggregate MVP: complete; Slices 1 through 6 cover
+  candidate decision, semantic validation, IR lowering, PostgreSQL/MySQL SQL
+  rendering and goldens, CLI/JSON/output hardening, and completion audit/status
   lock**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
@@ -94,6 +98,16 @@ Timestamp, and each aggregate has a nullable same-type result. Min/max remain
 aggregate names rather than scalar builtins. Phase 22 adds no runtime/database
 execution, no JSON schema change, no CLI option change, and no
 relationship/JOIN behavior.
+
+Phase 23 Count(Field) Aggregate MVP is complete. The completed scope preserves
+`count()` as SQL `COUNT(*)` and adds `count(field)` /
+`count(source.field)` as direct aliased aggregate projections in no-GROUP and
+grouped contexts, with direct field or supported single-input qualified field
+arguments. `count(field)` counts non-null field values and returns
+`Int not null`; all concrete bound field types are accepted except `Any`, and
+`Unknown` or unresolved fields remain rejected through existing diagnostics.
+Phase 23 adds no runtime/database execution, no JSON schema change, no CLI
+option change, and no relationship/JOIN behavior.
 
 The supported single-file CLI commands and forms include:
 

@@ -146,33 +146,34 @@ def test_deferred_boundaries_cover_required_non_goals() -> None:
         assert required in plan
 
 
-def test_future_slice_sequence_keeps_implementation_out_of_slice1() -> None:
+def test_slice_sequence_records_completion_without_moving_behavior_into_slice1() -> (
+    None
+):
     plan = _normalized()
 
     for required in (
         "Slice 1: Count(Field) Candidate Decision And Contract**: complete as docs/static-audit only",
-        "Slice 2: Count(Field) Semantic Validation And Row Schema**: future implementation slice",
-        "Slice 3: Count(Field) IR Lowering**: future implementation slice",
-        "Slice 4: PostgreSQL/MySQL SQL Rendering And Goldens**: future implementation slice",
-        "Slice 5: CLI/JSON/Output Hardening**: future tests/audit slice",
-        "Slice 6: Completion Audit And Status Lock**: future audit-only slice",
+        "Slice 2: Count(Field) Semantic Validation And Row Schema**: complete as semantic validation and row-schema work",
+        "Slice 3: Count(Field) IR Lowering**: complete as IR lowering work",
+        "Slice 4: PostgreSQL/MySQL SQL Rendering And Goldens**: complete as SQL rendering and golden coverage",
+        "Slice 5: CLI/JSON/Output Hardening**: complete as tests/audit work",
+        "Slice 6: Completion Audit And Status Lock**: complete as audit/status work",
     ):
         assert required in plan
 
 
-def test_slice1_does_not_claim_count_field_is_implemented() -> None:
+def test_slice1_itself_does_not_claim_count_field_behavior_was_implemented() -> None:
     plan = _normalized()
 
     for forbidden in (
-        "count(field) is implemented",
-        "implements count(field)",
-        "count(field) implementation is complete",
-        "Phase 23 implements count(field)",
-        "renders COUNT(field) today",
-        "semantic validation is complete",
-        "IR lowering is complete",
-        "SQL rendering is complete",
-        "CLI behavior is complete",
-        "runtime behavior is complete",
+        "Slice 1 implements count(field)",
+        "Slice 1 implements semantic behavior",
+        "Slice 1 implements Semantic IR behavior",
+        "Slice 1 implements SQL renderer behavior",
+        "Slice 1 implements CLI behavior",
+        "Slice 1 implements JSON behavior",
+        "Slice 1 implements runtime behavior",
+        "Slice 1 adds fixtures",
+        "Slice 1 adds goldens",
     ):
         assert forbidden not in plan

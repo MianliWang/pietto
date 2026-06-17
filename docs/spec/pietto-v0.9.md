@@ -36,11 +36,13 @@ Pietto source
     -> CLI text or JSON output
 ```
 
-Current implementation status after Phase 12 completion:
-Phase 12 SQL Feature Expansion I is complete. The parser/frontend,
+Current implementation status after Phase 23 completion:
+Phase 23 Count(Field) Aggregate MVP is complete. The parser/frontend,
 Semantic Checker, Semantic IR, PostgreSQL and MySQL SQL generation,
-single-file CLI, security hardening, and JSON / machine-readable CLI
-presentation are implemented. Phase 11 adds release-readiness
+single-file CLI, security hardening, JSON / machine-readable CLI
+presentation, and the completed direct aggregate vocabulary are implemented.
+Phase 12 SQL Feature Expansion I remains complete.
+Phase 11 adds release-readiness
 planning, static baseline audits, one non-mutating local validation entry
 point, an independent ANTLR provenance and generated-file reproducibility
 guard, an independent golden fixture policy and audit, and minimal GitHub
@@ -218,6 +220,19 @@ direct field or supported single-input qualified field argument. Supported
 argument types are Int, Float, Date, and Timestamp, and the result is a
 nullable same-type result. Phase 22 adds no runtime/database execution, no
 JSON schema change, no CLI option change, and no relationship/JOIN behavior.
+
+Phase 23 Count(Field) Aggregate MVP is complete. Slices 1 through 6 cover
+candidate decision and contract, semantic validation, IR lowering,
+PostgreSQL/MySQL SQL rendering and goldens, CLI/JSON/output hardening, and
+completion audit/status lock. The completed source scope preserves `count()`
+as SQL `COUNT(*)` and adds `count(field)` / `count(source.field)` as direct
+aliased aggregate projections in no-GROUP and grouped contexts, with a direct
+field or supported single-input qualified field argument. `count(field)`
+counts non-null field values and returns `Int not null`; all concrete bound
+field types are accepted except `Any`, and `Unknown` or unresolved fields
+remain rejected through existing diagnostics. Phase 23 adds no
+runtime/database execution, no JSON schema change, no CLI option change, and
+no relationship/JOIN behavior.
 
 SQL is generated only. Database connections, SQL or connector execution,
 schema introspection, runtime services, project or multi-file support, watch
@@ -1831,6 +1846,37 @@ aggregates, result predicates or SQL `HAVING` user syntax, grouped `order by`,
 Decimal/Text/Bool/Bytes/Json/UUID/Any min/max semantics, casts,
 relationship/JOIN behavior, runtime/database execution, UI, LSP, and
 project/multi-file implementation remain deferred. Phase 22 adds no JSON
+schema change and no CLI option change.
+
+### Phase 23: Count(Field) Aggregate MVP
+
+Status: complete. Slices 1 through 6 are complete.
+
+Slice 1 records the candidate decision and count(field) contract in
+`docs/plan/phase-23-count-field-aggregate-mvp.md`. Slice 2 adds semantic
+validation and row-schema propagation for the count(field) surface. Slice 3
+lowers valid count(field) calls to existing `AggregateCallIR`. Slice 4
+renders PostgreSQL and MySQL `COUNT(field)` SQL and adds reviewed no-GROUP
+and grouped SQL goldens. Slice 5 covers CLI text, JSON v1, `--output`,
+semantic no-artifact failures, backend fail-closed behavior, and
+PostgreSQL/MySQL output stability. Slice 6 adds the completion audit/status
+lock.
+
+The accepted Phase 23 source scope preserves `count()` as SQL `COUNT(*)` and
+adds `count(field)` / `count(source.field)` as direct aliased aggregate
+projections in no-GROUP and grouped contexts, with a direct field or
+supported single-input qualified field argument. `count(field)` counts
+non-null field values and returns `Int not null`. All concrete bound field
+types are accepted except `Any`; `Unknown` and unresolved fields remain
+rejected through existing diagnostics. Count remains an aggregate name rather
+than a scalar builtin.
+
+`count_distinct(field)`, distinct aggregates or `DISTINCT` syntax, filtered
+aggregates, aggregate expression arguments, nested aggregate support,
+composed aggregate support, unnamed aggregate support, result predicates or
+SQL `HAVING` user syntax, `satisfying`, grouped `order by`, relationship/JOIN
+behavior, runtime/database execution, UI, LSP, public API expansion, and
+project/multi-file implementation remain deferred. Phase 23 adds no JSON
 schema change and no CLI option change.
 
 ---

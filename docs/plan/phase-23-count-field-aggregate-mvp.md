@@ -2,11 +2,54 @@
 
 ## Status
 
+Phase 23 Slice 6 is complete as completion audit and status lock work only.
+Phase 23 Count(Field) Aggregate MVP is complete. Slice 6 adds only
+`tests/test_phase23_completion_audit.py`, status documentation, and narrow
+static audit updates needed to record the completed phase. It adds no
+production behavior.
+
 Phase 23 Slice 1 is complete as candidate decision and contract work only.
 It adds this plan/contract document and focused static audit coverage. It
 does not implement semantic behavior, Semantic IR behavior, SQL renderer
 behavior, CLI behavior, JSON behavior, runtime behavior, database behavior,
 fixtures, or goldens.
+
+Phase 23 Slice 2 is complete as count(field) semantic validation and
+row-schema work. It accepts direct aliased `count(field)` projections in
+no-GROUP and grouped relations, with direct bare field or existing
+single-input qualified field arguments, while preserving existing aggregate
+diagnostics and unknown-field cascade behavior.
+
+Phase 23 Slice 3 is complete as count(field) IR lowering work. Valid
+`count(field)` calls lower to existing `AggregateCallIR`; invalid or
+uncertain calls do not lower to precise aggregate IR.
+
+Phase 23 Slice 4 is complete as PostgreSQL/MySQL SQL rendering and golden
+coverage. It renders `COUNT(field)`, adds reviewed no-GROUP and grouped
+PostgreSQL/MySQL fixtures and SQL goldens, and registers the reviewed golden
+inventory without changing old golden bytes.
+
+Phase 23 Slice 5 is complete as CLI, JSON v1, output-file, malformed-backend,
+and no-regression hardening. It covers CLI text, JSON v1, `--output`,
+semantic failure no-artifact behavior, output preservation on failure,
+backend `PIE-B1000` fail-closed behavior, and PostgreSQL/MySQL count(field)
+CLI output stability.
+
+Phase 23 final accepted source shapes are exactly direct aliased
+`count(field)` and `count(source.field)` aggregate projections in no-GROUP
+and grouped `select:` contexts, while existing `count()` remains valid and
+continues to mean SQL `COUNT(*)`. `count(field)` counts non-null field
+values. `count()` returns `Int not null`; `count(field) -> Int not null`; and
+`count(source.field) -> Int not null`. All concrete bound field types are
+accepted except `Any`; `Any`, `Unknown`, and unresolved fields are rejected
+through existing diagnostics. `count` remains an aggregate name only, not a
+scalar builtin. No new diagnostic code is added for Phase 23. Malformed
+hand-built aggregate IR remains fail-closed through existing `PIE-B1000`.
+
+Slice 6 changes no grammar, generated ANTLR, AST, semantic acceptance,
+Semantic IR behavior, SQL renderer behavior, SQL fixtures or goldens, CLI
+options, JSON v1 schema, public API, dependency, lockfile, package metadata,
+CI, runtime/database behavior, UI, LSP, or relationship/JOIN behavior.
 
 Slice 1 changes no grammar, generated ANTLR, AST, semantic production code,
 Semantic IR production code, SQL renderer, CLI behavior, JSON schema,
@@ -222,7 +265,7 @@ Phase 23 Slice 1 explicitly does not implement or authorize:
 - public API expansion;
 - JSON schema changes;
 - CLI option changes;
-- dependency, package, version, or CI changes;
+- dependency, config, package, version, or CI changes;
 - generated ANTLR changes;
 - project configuration or multi-file implementation;
 - UI, Web playground, or LSP implementation;
@@ -238,28 +281,38 @@ Unsupported future behavior must remain diagnostic-first and fail-closed.
    explicitly defer distinct, filters, expression arguments, HAVING-like
    predicates, grouped ordering, JOIN/relationship behavior, runtime behavior,
    public API expansion, JSON schema changes, and CLI option changes.
-2. **Slice 2: Count(Field) Semantic Validation And Row Schema**: future
-   implementation slice. Accept direct aliased `count(field)` projections in
-   no-GROUP and grouped relations while preserving existing aggregate
-   diagnostics and unknown-field cascade behavior.
-3. **Slice 3: Count(Field) IR Lowering**: future implementation slice. Lower
+2. **Slice 2: Count(Field) Semantic Validation And Row Schema**: complete as
+   semantic validation and row-schema work. Accept direct aliased
+   `count(field)` projections in no-GROUP and grouped relations while
+   preserving existing aggregate diagnostics and unknown-field cascade
+   behavior.
+3. **Slice 3: Count(Field) IR Lowering**: complete as IR lowering work. Lower
    valid `count(field)` calls to existing `AggregateCallIR` and keep invalid
    or uncertain calls out of precise aggregate IR.
-4. **Slice 4: PostgreSQL/MySQL SQL Rendering And Goldens**: future
-   implementation slice. Render `COUNT(field)`, add reviewed no-GROUP and
-   grouped fixtures/goldens, and update golden inventory ownership.
-5. **Slice 5: CLI/JSON/Output Hardening**: future tests/audit slice. Cover
-   text, JSON v1, `--output`, semantic no-artifact failures, malformed
-   hand-built IR `PIE-B1000`, and old golden byte stability.
-6. **Slice 6: Completion Audit And Status Lock**: future audit-only slice.
-   Lock production, docs, tests, goldens, diagnostics, public API, and
+4. **Slice 4: PostgreSQL/MySQL SQL Rendering And Goldens**: complete as SQL
+   rendering and golden coverage. Render `COUNT(field)`, add reviewed
+   no-GROUP and grouped fixtures/goldens, and update golden inventory
+   ownership.
+5. **Slice 5: CLI/JSON/Output Hardening**: complete as tests/audit work.
+   Cover text, JSON v1, `--output`, semantic no-artifact failures,
+   backend `PIE-B1000` fail-closed behavior, and PostgreSQL/MySQL count(field)
+   CLI output stability.
+6. **Slice 6: Completion Audit And Status Lock**: complete as audit/status
+   work. Lock production, docs, tests, goldens, diagnostics, public API, and
    non-goal boundaries.
 
 ## Validation Summary
 
-Slice 1 expected validation:
+Phase 23 completion validation:
 
 ```bash
-uv run pytest tests/test_phase23_count_field_candidate_decision.py
+uv run pytest \
+  tests/test_phase23_completion_audit.py \
+  tests/test_phase23_count_field_candidate_decision.py \
+  tests/test_phase23_count_field_semantics.py \
+  tests/test_phase23_count_field_ir.py \
+  tests/test_phase23_count_field_sql.py \
+  tests/test_phase23_count_field_cli_json_output.py
+uv run python scripts/check_goldens.py
 uv run python scripts/validate.py
 ```
