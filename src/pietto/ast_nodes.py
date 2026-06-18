@@ -330,6 +330,13 @@ class SelectItem(Node):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class SatisfyingClause(Node):
+    """A parse-only relation result predicate."""
+
+    expression: Expression
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class OrderItem(Node):
     """One source-ordered sorting expression and optional direction."""
 
@@ -362,6 +369,7 @@ class TableDef(Node):
     select_items: tuple[SelectItem, ...]
     order_by_clause: OrderByClause | None = None
     limit_clause: LimitClause | None = None
+    satisfying_clause: SatisfyingClause | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -375,6 +383,7 @@ class QueryDef(Node):
     select_items: tuple[SelectItem, ...]
     order_by_clause: OrderByClause | None = None
     limit_clause: LimitClause | None = None
+    satisfying_clause: SatisfyingClause | None = None
 
 
 Definition = (

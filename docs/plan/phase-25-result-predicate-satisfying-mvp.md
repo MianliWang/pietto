@@ -7,6 +7,14 @@ only. It adds this plan/contract document and focused static audit coverage.
 It does not implement `satisfying`, parse `satisfying:`, lower HAVING, or
 change compiler behavior.
 
+Phase 25 Slice 2 is complete as parser/AST-only syntax preservation. It adds
+the `satisfying:` relation clause to the shared table/query parser body,
+regenerates ANTLR artifacts, and preserves the predicate expression in
+immutable AST nodes. It adds no semantic validation, Semantic IR, SQL/HAVING
+lowering, CLI behavior, JSON behavior, fixtures, goldens, dependency,
+package, CI, runtime/database, project/multi-file, public MySQL API, or
+relationship/JOIN behavior.
+
 Slice 1 changes no grammar, generated ANTLR, AST, AST builder, semantic
 analysis, Semantic IR, SQL backend, CLI behavior, JSON schema, JSON output
 behavior, fixture, golden, script, dependency, lockfile, package metadata, CI,
@@ -263,10 +271,12 @@ Slice 1: Candidate Decision And Exact Contract
 
 Slice 2: Parser And AST
 
-- future implementation slice;
+- complete as parser/AST-only syntax preservation;
 - parse `satisfying:` in the fixed relation clause order;
 - preserve one satisfying predicate expression in immutable AST;
-- regenerate ANTLR artifacts only in this future slice.
+- regenerate ANTLR artifacts without semantic, IR, SQL, CLI, JSON, fixture,
+  golden, dependency, package, CI, runtime/database, project/multi-file,
+  public MySQL API, or relationship/JOIN behavior.
 
 Slice 3: Semantic Validation
 

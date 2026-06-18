@@ -22,12 +22,12 @@ LOCKED_FORBIDDEN_SURFACES = {
     "grammar": (
         "grammar",
         1,
-        "97cfe87fdfe879790c1113f346e8cafab2b1da2b2ef668935f87adee5a70f397",
+        "4078b89d21126706746e07052ac8870a70f7275bd02dfc0433552f5edf06c082",
     ),
     "generated": (
         "src/pietto/generated",
         8,
-        "655bfa5fd1bbc263f24f188a3526ab18657a1e1ab24c4ee18804416613166913",
+        "25bd5df39d46749ad59e2b805bd85cce52e708cdf56bda6ee365615c419e17d1",
     ),
     "parser_ast": (
         (
@@ -36,7 +36,7 @@ LOCKED_FORBIDDEN_SURFACES = {
             "src/pietto/parser_api.py",
         ),
         3,
-        "619441a62ac3efee6a1c1ec351f65753b08f1b32e7cdc3049f4b433b360ec0c8",
+        "6c2ee7dc25365c5ab4097de4b7e6c4949b49446e6555eae19a99395c0d2f7f55",
     ),
     "semantic": (
         "src/pietto/semantic",

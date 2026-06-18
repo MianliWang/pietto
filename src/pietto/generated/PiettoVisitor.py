@@ -269,6 +269,11 @@ class PiettoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by PiettoParser#satisfyingClause.
+    def visitSatisfyingClause(self, ctx:PiettoParser.SatisfyingClauseContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by PiettoParser#orderByClause.
     def visitOrderByClause(self, ctx:PiettoParser.OrderByClauseContext):
         return self.visitChildren(ctx)

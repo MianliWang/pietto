@@ -40,7 +40,7 @@ PHASE13_HASHES = {
         "2383731c2b9d78f8cf73da8e9d47f973b6eef93eb20e0f03d8f045307b788534"
     ),
     "tests/test_phase13_completion_audit.py": (
-        "ccaf1d2ceb4e911a99b5d6fab71065a1861ec628dcfaeb47a4bf277e09c75aed"
+        "d603eff494130148fbf8ac4449001d6d40939605c0a851f88edc99ee90c7f634"
     ),
 }
 
@@ -49,7 +49,7 @@ FILE_HASHES = {
     "uv.lock": "996f7bcb04c380c2b3855167d33ffbd462c902245e63bee6e626ab1789d65071",
     "Makefile": "dbd38c41e2af5275c379de0b88c92f3861efb90724c7de1a291e0aa007ce2db7",
     "grammar/Pietto.g4": (
-        "aa9b7fe9e35ff64269fa64e8db9555897f6c16f70f293b6cb4a071a1ef25e7c1"
+        "d75052cfc4c5de426388cc9d8a34eef607e8023a5e1789f2e497979ea2dde9f6"
     ),
     ".github/workflows/ci.yml": (
         "c2ba73d04dab3331ca19577f2cf4250274671aa37ec4f84f293429e118b6c4c5"
@@ -69,11 +69,11 @@ FILE_HASHES = {
 }
 
 GROUP_HASHES = {
-    "frontend": "3fbab1f08412f036545e87fcab85fea2da8794c063afb63fb3d2964b6566a665",
+    "frontend": "06ff1d647427b4e937321ed525866059266ddc2bc292c050a458647365d95123",
     "semantic": "77f83187c4807fecd8f0b5a4889b2e5911852547e852f5f2832abd82f8ddfbb2",
     "ir": "b8867c8f4c2396936f607c616a81184c0f46071ba5d2db60b70a217db9719808",
     "sql": "fa9eff072cd83f44df112870d4a72b171302945cab35fa1f4f3c8f7cadc88986",
-    "generated": "655bfa5fd1bbc263f24f188a3526ab18657a1e1ab24c4ee18804416613166913",
+    "generated": "25bd5df39d46749ad59e2b805bd85cce52e708cdf56bda6ee365615c419e17d1",
     "cli": "235d4e50c3474306253dfc6b118e2518b3e300e90f7fbe9903263a39cbdc42a0",
 }
 

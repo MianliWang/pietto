@@ -46,6 +46,7 @@ from pietto.ast_nodes import (
     SourceDef,
     Span,
     SelectItem,
+    SatisfyingClause,
     TableDef,
     TypeArgument,
     TypeDef,
@@ -369,6 +370,7 @@ class AstBuilder(PiettoVisitor):
             where_clause,
             group_by_clause,
             select_items,
+            satisfying_clause,
             order_by_clause,
             limit_clause,
         ) = self._relation_body(ctx.tableBody())
@@ -381,6 +383,7 @@ class AstBuilder(PiettoVisitor):
             select_items=select_items,
             order_by_clause=order_by_clause,
             limit_clause=limit_clause,
+            satisfying_clause=satisfying_clause,
         )
 
     def visitQueryDefinition(self, ctx: _AntlrContext) -> QueryDef:
@@ -391,6 +394,7 @@ class AstBuilder(PiettoVisitor):
             where_clause,
             group_by_clause,
             select_items,
+            satisfying_clause,
             order_by_clause,
             limit_clause,
         ) = self._relation_body(ctx.tableBody())
@@ -403,6 +407,7 @@ class AstBuilder(PiettoVisitor):
             select_items=select_items,
             order_by_clause=order_by_clause,
             limit_clause=limit_clause,
+            satisfying_clause=satisfying_clause,
         )
 
     def visitFromClause(self, ctx: _AntlrContext) -> FromClause:
@@ -443,6 +448,14 @@ class AstBuilder(PiettoVisitor):
         return SelectItem(
             span=self._span(ctx),
             alias=ctx.identifier().getText() if ctx.ASSIGN() is not None else None,
+            expression=self.visit(ctx.expression()),
+        )
+
+    def visitSatisfyingClause(self, ctx: _AntlrContext) -> SatisfyingClause:
+        """Build a parse-only result predicate without semantic validation."""
+
+        return SatisfyingClause(
+            span=self._span(ctx),
             expression=self.visit(ctx.expression()),
         )
 
@@ -491,6 +504,7 @@ class AstBuilder(PiettoVisitor):
         WhereClause | None,
         GroupByClause | None,
         tuple[SelectItem, ...],
+        SatisfyingClause | None,
         OrderByClause | None,
         LimitClause | None,
     ]:
@@ -507,6 +521,11 @@ class AstBuilder(PiettoVisitor):
             tuple(
                 self.visit(item)
                 for item in ctx.selectClause().selectBody().selectItem()
+            ),
+            (
+                self.visit(ctx.satisfyingClause())
+                if ctx.satisfyingClause() is not None
+                else None
             ),
             (
                 self.visit(ctx.orderByClause())
