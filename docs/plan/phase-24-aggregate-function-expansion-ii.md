@@ -28,6 +28,19 @@ CI, backend registry behavior, runtime/database behavior, Decimal aggregate
 behavior, aggregate expression argument implementation, UI, LSP,
 policy/security DSL, or relationship query behavior.
 
+Phase 24 Slice 3 is complete as `count_distinct(field)` IR lowering work.
+Valid direct aliased `count_distinct(field)` and
+`count_distinct(source.field)` projections now lower to the existing
+`AggregateCallIR` shape with one lowered `FieldRefIR` argument and an
+`Int not null` result type.
+
+Slice 3 changes no grammar, generated ANTLR, AST, SQL renderer, CLI behavior,
+JSON schema, fixture, golden, `scripts/check_goldens.py` inventory,
+dependency, lockfile, package metadata, CI, backend registry behavior,
+runtime/database behavior, Decimal aggregate behavior, aggregate expression
+argument implementation, generic DISTINCT syntax, aggregate modifier
+behavior, UI, LSP, policy/security DSL, or relationship query behavior.
+
 Trusted Phase 23 baseline:
 
 - HEAD: `2d96041861fa813df0d4e7e7bd5128bf8dc4fb57`;
@@ -268,8 +281,8 @@ Unsupported future behavior must remain diagnostic-first and fail-closed.
    `count_distinct(field)` projections in no-GROUP and grouped relations while
    preserving existing aggregate diagnostics and unknown-field cascade
    behavior.
-3. **Slice 3: `count_distinct(field)` IR Lowering**: future implementation
-   slice. Lower valid `count_distinct(field)` calls to existing
+3. **Slice 3: `count_distinct(field)` IR Lowering**: complete as Semantic IR
+   lowering work. Lower valid `count_distinct(field)` calls to existing
    `AggregateCallIR` and keep invalid or uncertain calls out of precise
    aggregate IR.
 4. **Slice 4: `count_distinct(field)` SQL Rendering And Goldens**: future

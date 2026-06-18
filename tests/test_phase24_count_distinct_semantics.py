@@ -320,7 +320,7 @@ def test_count_distinct_in_invalid_context_remains_rejected() -> None:
     ]
 
 
-def test_count_distinct_is_semantic_only_until_ir_slice() -> None:
+def test_count_distinct_is_aggregate_only_and_ir_authorized() -> None:
     script = _parse(
         SOURCE_PREFIX + "table unique_order_values:\n"
         "    from orders\n"
@@ -342,7 +342,13 @@ def test_count_distinct_is_semantic_only_until_ir_slice() -> None:
     assert "count_distinct" not in BUILTIN_FUNCTIONS
     assert aggregate_call_name(expression) is None
     assert semantic_aggregate_call_name(expression) == "count_distinct"
-    assert semantic_aggregate_result_value_type("count_distinct", argument_type) is None
+    aggregate_type = semantic_aggregate_result_value_type(
+        "count_distinct",
+        argument_type,
+    )
+    assert aggregate_type is not None
+    assert aggregate_type.resolved_type.name == "Int"
+    assert aggregate_type.nullability is EffectiveNullability.NON_NULL
     assert projection_type is not None
     assert projection_type.resolved_type.name == "Int"
     assert projection_type.nullability is EffectiveNullability.NON_NULL

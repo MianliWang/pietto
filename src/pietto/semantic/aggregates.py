@@ -353,6 +353,14 @@ def semantic_aggregate_result_value_type(
 
     if function_name in AGGREGATE_NAMES:
         return aggregate_result_value_type(function_name, argument_type)
+    if function_name == COUNT_DISTINCT_AGGREGATE_NAME:
+        if argument_type is None:
+            return None
+        return (
+            COUNT_VALUE_TYPE
+            if is_supported_count_distinct_argument(argument_type)
+            else None
+        )
     if function_name not in {MIN_AGGREGATE_NAME, MAX_AGGREGATE_NAME}:
         return None
     if argument_type is None or not is_supported_extrema_argument(argument_type):
@@ -369,14 +377,6 @@ def semantic_projection_aggregate_result_value_type(
 ) -> ValueType | None:
     """Return semantic projection result types ahead of IR lowering."""
 
-    if function_name == COUNT_DISTINCT_AGGREGATE_NAME:
-        if argument_type is None:
-            return None
-        return (
-            COUNT_VALUE_TYPE
-            if is_supported_count_distinct_argument(argument_type)
-            else None
-        )
     return semantic_aggregate_result_value_type(function_name, argument_type)
 
 
