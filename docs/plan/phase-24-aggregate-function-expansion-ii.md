@@ -120,6 +120,36 @@ Historical Slice 7 checkpoint text described `Slice 8: CLI/JSON/Output
 Hardening**: future tests/audit slice`; that checkpoint is retained for audit
 compatibility and is superseded by this Slice 8 completion status.
 
+Phase 24 Slice 9 is complete as completion audit and status lock work only.
+Phase 24 Aggregate Function Expansion II is complete. Slice 9 adds only
+`tests/test_phase24_completion_audit.py`, this status documentation, and the
+candidate-decision status update needed to record the completed phase.
+
+Phase 24 final accepted new aggregate behavior is exactly direct aliased
+`count_distinct(field)` and `count_distinct(source.field)` projections plus
+direct-field Decimal `sum`, `avg`, `min`, and `max` aggregate projections in
+no-GROUP and grouped `select:` contexts. Count-distinct emits
+`COUNT(DISTINCT ...)` for PostgreSQL and MySQL. Decimal aggregate results are
+logical `Decimal nullable` values and SQL emits ordinary `SUM`, `AVG`, `MIN`,
+and `MAX` function calls without casts.
+
+Slice 9 locks the completed Phase 24 docs, tests, goldens, diagnostics,
+public API, JSON v1, CLI, dependency, config, CI, package, runtime, database,
+connector execution, schema introspection, relationship/JOIN, and deferred
+capability boundaries. It changes no production behavior, semantic
+implementation, Semantic IR, IR model, SQL renderer, CLI option, JSON schema,
+fixture, golden, `scripts/check_goldens.py` inventory, grammar, generated
+ANTLR, dependency, lockfile, package metadata, CI, backend registry behavior,
+runtime/database behavior, connector execution, schema introspection,
+relationship/JOIN behavior, public API, aggregate expression argument
+implementation, Decimal arithmetic, Decimal precision/scale modeling, casts,
+generic DISTINCT syntax, `count(distinct field)`, aggregate modifier
+behavior, UI, LSP, policy/security DSL, or relationship query behavior.
+
+Historical Slice 8 checkpoint text described `Slice 9: Completion Audit And
+Status Lock**: future audit/status slice`; that checkpoint is retained for
+audit compatibility and is superseded by this Slice 9 completion status.
+
 Trusted Phase 23 baseline:
 
 - HEAD: `2d96041861fa813df0d4e7e7bd5128bf8dc4fb57`;
@@ -436,10 +466,12 @@ Unsupported future behavior must remain diagnostic-first and fail-closed.
    output preservation on failure, backend `PIE-B1000` fail-closed behavior,
    and PostgreSQL Phase 24 output stability without JSON schema or CLI option
    changes.
-9. **Slice 9: Completion Audit And Status Lock**: future audit/status slice.
-   Lock production, docs, tests, goldens, diagnostics, public API, JSON/CLI,
-   dependency, runtime, database, relationship/JOIN, and deferred capability
-   boundaries.
+9. **Slice 9: Completion Audit And Status Lock**: complete as audit/status
+   work. Lock production, docs, tests, goldens, diagnostics, public API,
+   JSON/CLI, dependency, runtime, database, relationship/JOIN, and deferred
+   capability boundaries without production, fixture, golden, inventory,
+   grammar, generated-code, dependency, config, CI, package, public API, CLI,
+   or JSON behavior changes.
 
 ## Validation Summary
 
