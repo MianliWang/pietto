@@ -22,10 +22,11 @@ from pietto.semantic.model import (
 )
 
 COUNT_AGGREGATE_NAME = "count"
+COUNT_DISTINCT_AGGREGATE_NAME = "count_distinct"
 SUM_AGGREGATE_NAME = "sum"
 AVG_AGGREGATE_NAME = "avg"
 # Keep this IR-facing aggregate set limited to the already lowered aggregate
-# vocabulary. Phase 22 Slice 2 adds min/max semantics without IR lowering.
+# vocabulary. Later semantic-only slices may run ahead of IR lowering.
 AGGREGATE_NAMES = frozenset(
     {
         COUNT_AGGREGATE_NAME,
@@ -37,6 +38,7 @@ MIN_AGGREGATE_NAME = "min"
 MAX_AGGREGATE_NAME = "max"
 SEMANTIC_AGGREGATE_NAMES = AGGREGATE_NAMES | frozenset(
     {
+        COUNT_DISTINCT_AGGREGATE_NAME,
         MIN_AGGREGATE_NAME,
         MAX_AGGREGATE_NAME,
     }
@@ -233,7 +235,11 @@ def expected_semantic_aggregate_arity(function_name: str) -> int:
 
     if function_name in AGGREGATE_NAMES:
         return expected_aggregate_arity(function_name)
-    if function_name in {MIN_AGGREGATE_NAME, MAX_AGGREGATE_NAME}:
+    if function_name in {
+        COUNT_DISTINCT_AGGREGATE_NAME,
+        MIN_AGGREGATE_NAME,
+        MAX_AGGREGATE_NAME,
+    }:
         return 1
     raise AssertionError(f"Unsupported aggregate function: {function_name}")
 
@@ -283,6 +289,24 @@ def is_supported_count_argument(value_type: ValueType) -> bool:
     )
 
 
+def is_supported_count_distinct_argument(value_type: ValueType) -> bool:
+    """Return whether count_distinct(field) may use this direct field type."""
+
+    return any(
+        _is_builtin(value_type, name)
+        for name in (
+            "Bool",
+            "Int",
+            "Float",
+            "Decimal",
+            "Text",
+            "Date",
+            "Timestamp",
+            "UUID",
+        )
+    )
+
+
 def is_supported_semantic_aggregate_argument(
     function_name: str,
     value_type: ValueType,
@@ -291,6 +315,8 @@ def is_supported_semantic_aggregate_argument(
 
     if function_name == COUNT_AGGREGATE_NAME:
         return is_supported_count_argument(value_type)
+    if function_name == COUNT_DISTINCT_AGGREGATE_NAME:
+        return is_supported_count_distinct_argument(value_type)
     if function_name in {SUM_AGGREGATE_NAME, AVG_AGGREGATE_NAME}:
         return is_supported_numeric_argument(value_type)
     if function_name in {MIN_AGGREGATE_NAME, MAX_AGGREGATE_NAME}:
@@ -341,8 +367,16 @@ def semantic_projection_aggregate_result_value_type(
     function_name: str,
     argument_type: ValueType | None = None,
 ) -> ValueType | None:
-    """Return the semantic projection result type, including Slice 2 count(field)."""
+    """Return semantic projection result types ahead of IR lowering."""
 
+    if function_name == COUNT_DISTINCT_AGGREGATE_NAME:
+        if argument_type is None:
+            return None
+        return (
+            COUNT_VALUE_TYPE
+            if is_supported_count_distinct_argument(argument_type)
+            else None
+        )
     return semantic_aggregate_result_value_type(function_name, argument_type)
 
 
@@ -447,9 +481,13 @@ def wrong_argument_type_diagnostic(
         "concrete non-Any"
         if name == COUNT_AGGREGATE_NAME
         else (
-            "Int, Float, Date, or Timestamp"
-            if name in {MIN_AGGREGATE_NAME, MAX_AGGREGATE_NAME}
-            else "Int or Float"
+            "Bool, Int, Float, Decimal, Text, Date, Timestamp, or UUID"
+            if name == COUNT_DISTINCT_AGGREGATE_NAME
+            else (
+                "Int, Float, Date, or Timestamp"
+                if name in {MIN_AGGREGATE_NAME, MAX_AGGREGATE_NAME}
+                else "Int or Float"
+            )
         )
     )
 

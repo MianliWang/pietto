@@ -213,7 +213,7 @@ def test_proposed_phase24_slice_sequence_is_recorded() -> None:
 
     for required in (
         "Slice 1: Aggregate Function Expansion II Candidate Decision And Contract**: complete as docs/static-audit only",
-        "Slice 2: `count_distinct(field)` Semantic Validation And Row Schema**: future implementation slice",
+        "Slice 2: `count_distinct(field)` Semantic Validation And Row Schema**: complete as semantic validation and row-schema work",
         "Slice 3: `count_distinct(field)` IR Lowering**: future implementation slice",
         "Slice 4: `count_distinct(field)` SQL Rendering And Goldens**: future implementation slice",
         "Slice 5: Decimal Aggregate Semantic/Type Contract**: future contract slice",
