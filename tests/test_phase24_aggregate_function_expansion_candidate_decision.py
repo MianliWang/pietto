@@ -218,7 +218,7 @@ def test_proposed_phase24_slice_sequence_is_recorded() -> None:
         "Slice 4: `count_distinct(field)` SQL Rendering And Goldens**: complete as SQL rendering and golden coverage",
         "Slice 5: Decimal Aggregate Semantic/Type Contract**: complete as docs/static-audit contract work",
         "Slice 6: Decimal Aggregate Implementation, SQL Rendering, And Goldens**: complete as production implementation, SQL rendering, and golden coverage",
-        "Slice 7: Aggregate Expression Arguments Readiness Audit**: future docs/static-audit slice",
+        "Slice 7: Aggregate Expression Arguments Readiness Audit**: complete as a docs/static-audit slice",
         "Slice 8: CLI/JSON/Output Hardening**: future tests/audit slice",
         "Slice 9: Completion Audit And Status Lock**: future audit/status slice",
     ):

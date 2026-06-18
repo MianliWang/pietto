@@ -84,6 +84,21 @@ schema introspection, relationship/JOIN behavior, generic DISTINCT syntax,
 modeling, Decimal arithmetic, aggregate expression argument implementation,
 UI, LSP, policy/security DSL, or relationship query behavior.
 
+Phase 24 Slice 7 is complete as an aggregate expression arguments readiness
+audit. It records the future design questions for aggregate expression
+arguments, proves that `PIE-S2315` still guards aggregate expression
+arguments, and keeps implementation deferred to separate authorization.
+
+Slice 7 changes no production behavior, semantic implementation, Semantic IR,
+IR model, SQL renderer, CLI behavior, JSON schema, fixture, golden,
+`scripts/check_goldens.py` inventory, grammar, generated ANTLR, dependency,
+lockfile, package metadata, CI, backend registry behavior,
+runtime/database behavior, connector execution, schema introspection,
+relationship/JOIN behavior, public API, Decimal arithmetic,
+Decimal precision/scale modeling, casts, generic DISTINCT syntax,
+`count(distinct field)`, aggregate modifier behavior, UI, LSP,
+policy/security DSL, or relationship query behavior.
+
 Trusted Phase 23 baseline:
 
 - HEAD: `2d96041861fa813df0d4e7e7bd5128bf8dc4fb57`;
@@ -250,7 +265,10 @@ Aggregate expression arguments remain readiness/contract-only in Phase 24.
 Future examples that remain deferred:
 
 - `sum(amount + tax)`;
+- `avg(amount + tax)`;
 - `avg(score * weight)`;
+- `min(date_expr)`;
+- `max(timestamp_expr)`;
 - `count(lower(email))`;
 - `count_distinct(lower(email))`.
 
@@ -260,6 +278,36 @@ not implement aggregate expression arguments and does not broadly retire
 implementation authorization because it changes aggregate argument typing,
 nullability propagation, IR validation, SQL rendering, and diagnostic cascade
 behavior.
+
+Required future design questions before aggregate expression arguments can be
+implemented:
+
+- type inference for aggregate argument expressions;
+- nullability propagation from expression operands into aggregate results;
+- the allowed expression subset for aggregate arguments;
+- deterministic PostgreSQL/MySQL SQL rendering for expression arguments;
+- Decimal arithmetic policy, including whether Decimal operands are admitted;
+- scalar function arguments such as `count_distinct(lower(status))`;
+- expression aliasing and projection-alias visibility rules;
+- preserving the nested aggregate prohibition;
+- cross-dialect portability for expression semantics;
+- diagnostics, cascade suppression, and fail-closed malformed IR behavior.
+
+The current behavior remains locked:
+
+- `sum(amount + amount)` remains `PIE-S2315`;
+- `avg(amount + amount)` remains `PIE-S2315`;
+- `min(amount + amount)` remains `PIE-S2315`;
+- `max(amount + amount)` remains `PIE-S2315`;
+- `count_distinct(lower(status))` remains `PIE-S2315`;
+- nested aggregates remain `PIE-S2311`;
+- composed aggregate projections remain `PIE-S2310`;
+- unaliased aggregates remain `PIE-S2313`;
+- invalid aggregate contexts remain `PIE-S2308`;
+- direct-field Decimal aggregates from Slice 6 remain accepted;
+- Decimal arithmetic outside aggregate arguments is not enabled;
+- Decimal precision/scale modeling, casts, schema introspection, and
+  runtime/database execution remain out of scope.
 
 ## Diagnostic Contract
 
@@ -358,7 +406,7 @@ Unsupported future behavior must remain diagnostic-first and fail-closed.
    Accept direct-field Decimal for `sum`, `avg`, `min`, and `max`, render
    existing SQL function names without casts, and add reviewed SQL goldens
    under the Slice 5 contract.
-7. **Slice 7: Aggregate Expression Arguments Readiness Audit**: future
+7. **Slice 7: Aggregate Expression Arguments Readiness Audit**: complete as a
    docs/static-audit slice. Record future expression-argument design choices,
    prove `PIE-S2315` still guards expression arguments, and defer
    implementation to separate authorization.
