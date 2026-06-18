@@ -55,6 +55,19 @@ aggregate behavior, aggregate expression argument implementation, generic
 DISTINCT syntax, `count(distinct field)`, aggregate modifier behavior, UI,
 LSP, policy/security DSL, or relationship query behavior.
 
+Phase 24 Slice 5 is complete as Decimal aggregate semantic/type contract
+work only. It locks the future direct-field Decimal aggregate contract for
+`sum(Decimal)`, `avg(Decimal)`, `min(Decimal)`, and `max(Decimal)` without
+enabling production Decimal aggregate behavior.
+
+Slice 5 changes no semantic behavior, Semantic IR behavior, IR model, SQL
+renderer behavior, CLI behavior, JSON schema, fixture, golden,
+`scripts/check_goldens.py` inventory, grammar, generated ANTLR, dependency,
+lockfile, package metadata, CI, backend registry behavior, runtime/database
+behavior, aggregate expression argument implementation, generic DISTINCT
+syntax, `count(distinct field)`, aggregate modifier behavior, UI, LSP,
+policy/security DSL, or relationship query behavior.
+
 Trusted Phase 23 baseline:
 
 - HEAD: `2d96041861fa813df0d4e7e7bd5128bf8dc4fb57`;
@@ -191,11 +204,28 @@ SQL lowering contract:
 Decimal portability policy:
 
 - Decimal aggregate results are logical Pietto `Decimal` values;
+- `avg(Decimal)` remains logical Pietto `Decimal`, not `Float`;
 - there is no Decimal precision/scale promise in Phase 24;
 - there are no Decimal type-argument semantics in Phase 24;
 - there is no silent collapse from Decimal to Float;
+- there is no schema introspection for Decimal precision or scale;
+- there is no runtime/database execution for Decimal aggregate validation;
+- there is no dialect-specific precision guarantee;
 - the target SQL engine handles exact precision behavior for its selected
   backend dialect.
+
+Unsupported Decimal aggregate cases remain unsupported until a later approved
+implementation slice:
+
+- Decimal aggregate expression arguments such as `sum(amount + tax)`;
+- nested aggregates;
+- aggregate composition;
+- unnamed aggregates;
+- invalid aggregate contexts;
+- unresolved fields;
+- `Bytes`, `Json`, `Any`, `Bool`, `Text`, and `UUID` for `sum` and `avg`;
+- `Bytes`, `Json`, `Any`, `Bool`, `Text`, and `UUID` for `min` and `max`;
+- `Text`, `Bool`, and `UUID` extrema remain outside Phase 24.
 
 ## Aggregate Expression Arguments Readiness
 
@@ -303,10 +333,10 @@ Unsupported future behavior must remain diagnostic-first and fail-closed.
    SQL rendering and golden coverage. Render `COUNT(DISTINCT field)`, add
    reviewed no-GROUP and grouped fixtures/goldens, and update golden inventory
    ownership.
-5. **Slice 5: Decimal Aggregate Semantic/Type Contract**: future contract
-   slice. Lock logical Decimal result types, nullability, SQL lowering shape,
-   and precision/scale non-promises before production Decimal aggregate
-   implementation.
+5. **Slice 5: Decimal Aggregate Semantic/Type Contract**: complete as
+   docs/static-audit contract work. Lock logical Decimal result types,
+   nullability, SQL lowering shape, and precision/scale non-promises before
+   production Decimal aggregate implementation.
 6. **Slice 6: Decimal Aggregate Implementation, SQL Rendering, And Goldens If
    Approved**: future implementation slice. Accept direct-field Decimal for
    `sum`, `avg`, `min`, and `max`, render existing SQL function names without

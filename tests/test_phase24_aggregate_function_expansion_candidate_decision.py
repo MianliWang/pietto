@@ -216,7 +216,7 @@ def test_proposed_phase24_slice_sequence_is_recorded() -> None:
         "Slice 2: `count_distinct(field)` Semantic Validation And Row Schema**: complete as semantic validation and row-schema work",
         "Slice 3: `count_distinct(field)` IR Lowering**: complete as Semantic IR lowering work",
         "Slice 4: `count_distinct(field)` SQL Rendering And Goldens**: complete as SQL rendering and golden coverage",
-        "Slice 5: Decimal Aggregate Semantic/Type Contract**: future contract slice",
+        "Slice 5: Decimal Aggregate Semantic/Type Contract**: complete as docs/static-audit contract work",
         "Slice 6: Decimal Aggregate Implementation, SQL Rendering, And Goldens If Approved**: future implementation slice",
         "Slice 7: Aggregate Expression Arguments Readiness Audit**: future docs/static-audit slice",
         "Slice 8: CLI/JSON/Output Hardening**: future tests/audit slice",
