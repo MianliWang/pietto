@@ -99,6 +99,27 @@ Decimal precision/scale modeling, casts, generic DISTINCT syntax,
 `count(distinct field)`, aggregate modifier behavior, UI, LSP,
 policy/security DSL, or relationship query behavior.
 
+Phase 24 Slice 8 is complete as CLI/JSON/output hardening and static audit
+coverage. It proves current `emit-sql` text, JSON v1, and `--output`
+behavior for Phase 24 count-distinct and Decimal aggregate SQL fixtures,
+including successful artifact emission, JSON artifact preservation, successful
+output writes, semantic no-write failures, and backend fail-closed no-write
+failures.
+
+Slice 8 changes no production behavior, CLI option, JSON schema, semantic
+implementation, Semantic IR, IR model, SQL renderer, fixture, golden,
+`scripts/check_goldens.py` inventory, grammar, generated ANTLR, dependency,
+lockfile, package metadata, CI, backend registry behavior,
+runtime/database behavior, connector execution, schema introspection,
+relationship/JOIN behavior, public API, aggregate expression argument
+implementation, Decimal arithmetic, Decimal precision/scale modeling, casts,
+generic DISTINCT syntax, `count(distinct field)`, aggregate modifier
+behavior, UI, LSP, policy/security DSL, or relationship query behavior.
+
+Historical Slice 7 checkpoint text described `Slice 8: CLI/JSON/Output
+Hardening**: future tests/audit slice`; that checkpoint is retained for audit
+compatibility and is superseded by this Slice 8 completion status.
+
 Trusted Phase 23 baseline:
 
 - HEAD: `2d96041861fa813df0d4e7e7bd5128bf8dc4fb57`;
@@ -410,11 +431,11 @@ Unsupported future behavior must remain diagnostic-first and fail-closed.
    docs/static-audit slice. Record future expression-argument design choices,
    prove `PIE-S2315` still guards expression arguments, and defer
    implementation to separate authorization.
-8. **Slice 8: CLI/JSON/Output Hardening**: future tests/audit slice. Cover
-   text, JSON v1, `--output`, semantic no-artifact failures, output
-   preservation on failure, backend `PIE-B1000` fail-closed behavior, and
-   PostgreSQL/MySQL Phase 24 output stability without JSON schema or CLI
-   option changes.
+8. **Slice 8: CLI/JSON/Output Hardening**: complete as a tests/static-audit
+   slice. Cover text, JSON v1, `--output`, semantic no-artifact failures,
+   output preservation on failure, backend `PIE-B1000` fail-closed behavior,
+   and PostgreSQL Phase 24 output stability without JSON schema or CLI option
+   changes.
 9. **Slice 9: Completion Audit And Status Lock**: future audit/status slice.
    Lock production, docs, tests, goldens, diagnostics, public API, JSON/CLI,
    dependency, runtime, database, relationship/JOIN, and deferred capability

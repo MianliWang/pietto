@@ -1,0 +1,489 @@
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+from typing import cast
+
+import pytest
+
+import pietto.cli as cli
+from pietto.errors import Diagnostic, Severity, SourceLocation
+from pietto.ir import ScriptIR
+from pietto.sql import SqlResult
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+GOLDEN_ROOT = REPO_ROOT / "tests" / "fixtures" / "golden"
+
+POSTGRES_COUNT_DISTINCT_INPUT = Path(
+    "tests/fixtures/phase24/postgres_count_distinct_aggregate.pietto"
+)
+POSTGRES_GROUPED_COUNT_DISTINCT_INPUT = Path(
+    "tests/fixtures/phase24/postgres_grouped_count_distinct_aggregate.pietto"
+)
+POSTGRES_DECIMAL_INPUT = Path(
+    "tests/fixtures/phase24/postgres_decimal_aggregate.pietto"
+)
+POSTGRES_GROUPED_DECIMAL_INPUT = Path(
+    "tests/fixtures/phase24/postgres_grouped_decimal_aggregate.pietto"
+)
+
+EMIT_SQL_KEYS = {
+    "schema_version",
+    "command",
+    "ok",
+    "path",
+    "dialect",
+    "diagnostics",
+    "cli_errors",
+    "artifacts",
+    "output",
+}
+
+PHASE24_POSTGRES_CASES: tuple[tuple[Path, str, str, str], ...] = (
+    (
+        POSTGRES_COUNT_DISTINCT_INPUT,
+        "emit_sql_count_distinct_aggregate.sql",
+        "unique_order_values",
+        "COUNT(DISTINCT",
+    ),
+    (
+        POSTGRES_GROUPED_COUNT_DISTINCT_INPUT,
+        "emit_sql_grouped_count_distinct_aggregate.sql",
+        "unique_customers_by_status",
+        "GROUP BY",
+    ),
+    (
+        POSTGRES_DECIMAL_INPUT,
+        "emit_sql_decimal_aggregate.sql",
+        "decimal_order_stats",
+        'SUM("amount")',
+    ),
+    (
+        POSTGRES_GROUPED_DECIMAL_INPUT,
+        "emit_sql_grouped_decimal_aggregate.sql",
+        "decimal_order_stats_by_status",
+        'MAX("orders"."amount")',
+    ),
+)
+
+LOCKED_BOUNDARY_SURFACES = {
+    "cli": (
+        "src/pietto/cli.py",
+        1,
+        "af378ad655ed3ffc230983e94ee40cfef3b4f67e01d902901c5933c317c1f90f",
+    ),
+    "semantic": (
+        "src/pietto/semantic",
+        19,
+        "77f83187c4807fecd8f0b5a4889b2e5911852547e852f5f2832abd82f8ddfbb2",
+    ),
+    "ir": (
+        "src/pietto/ir",
+        5,
+        "b8867c8f4c2396936f607c616a81184c0f46071ba5d2db60b70a217db9719808",
+    ),
+    "sql": (
+        "src/pietto/sql",
+        10,
+        "fa9eff072cd83f44df112870d4a72b171302945cab35fa1f4f3c8f7cadc88986",
+    ),
+    "check_goldens": (
+        "scripts/check_goldens.py",
+        1,
+        "59c3921f21de398e06f6deca28f18871120bbf411110974c3df6ba7fa85970c4",
+    ),
+    "fixtures": (
+        "tests/fixtures",
+        68,
+        "dbd457dd7e79f41d0e1740187818478941861cabf9ae9f3b06f908bdc81cd11c",
+    ),
+    "goldens": (
+        "tests/fixtures/golden",
+        37,
+        "0e26a0b367a2ae849e5ec1e9a239be42765bea2c352242db5da930ab56b43004",
+    ),
+    "grammar": (
+        "grammar/Pietto.g4",
+        1,
+        "97cfe87fdfe879790c1113f346e8cafab2b1da2b2ef668935f87adee5a70f397",
+    ),
+    "generated": (
+        "src/pietto/generated",
+        8,
+        "655bfa5fd1bbc263f24f188a3526ab18657a1e1ab24c4ee18804416613166913",
+    ),
+    "pyproject": (
+        "pyproject.toml",
+        1,
+        "cf5894a9cb7ef0399126a7d424da4e3958fc92d8e6bed295939a6e6bac469099",
+    ),
+    "uv_lock": (
+        "uv.lock",
+        1,
+        "b48bb27656ff3344a95ba92347f45173904801cd8bdccfd2b55106549c445ac0",
+    ),
+    "github": (
+        ".github",
+        1,
+        "129f96212b5025e66254b2485195977770cf7765bd8977215c6dfaefd9e6e5ae",
+    ),
+    "makefile": (
+        "Makefile",
+        1,
+        "14c05902d307dbc803c31d522ebe6d2614d36f2c428e4c1eca2d4441661dbe09",
+    ),
+    "readme": (
+        "README.md",
+        1,
+        "a61b94e5969a41c4e806efc2acaa7ab266dd0cc3c8ef0880595eeb8248883a2c",
+    ),
+    "agents": (
+        "AGENTS.md",
+        1,
+        "d1aef2e6b63bad78d6ccdd5d5ee6496be851eeac3b5a8dc8e90f7683aa210914",
+    ),
+    "pietto_v09": (
+        "docs/spec/pietto-v0.9.md",
+        1,
+        "207356dd8e19d55d5c467329b1d41670c6fa76343ba14b7b99b20f0536419937",
+    ),
+}
+
+
+@pytest.mark.parametrize(
+    ("input_path", "golden_name", "artifact_name", "expected_fragment"),
+    PHASE24_POSTGRES_CASES,
+)
+def test_cli_text_phase24_postgres_aggregate_sql_matches_reviewed_golden(
+    input_path: Path,
+    golden_name: str,
+    artifact_name: str,
+    expected_fragment: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    del artifact_name, expected_fragment
+    monkeypatch.chdir(REPO_ROOT)
+
+    assert cli.main(["emit-sql", input_path.as_posix(), "--dialect", "postgres"]) == 0
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert captured.out.encode("utf-8") == _golden_bytes(golden_name)
+
+
+@pytest.mark.parametrize(
+    ("input_path", "golden_name", "artifact_name", "expected_fragment"),
+    PHASE24_POSTGRES_CASES,
+)
+def test_cli_json_phase24_postgres_aggregate_sql_preserves_v1_shape(
+    input_path: Path,
+    golden_name: str,
+    artifact_name: str,
+    expected_fragment: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(REPO_ROOT)
+
+    assert (
+        cli.main(
+            [
+                "emit-sql",
+                input_path.as_posix(),
+                "--dialect",
+                "postgres",
+                "--format",
+                "json",
+            ]
+        )
+        == 0
+    )
+
+    result = _read_json(capsys)
+    artifacts = cast(list[dict[str, object]], result["artifacts"])
+
+    assert set(result) == EMIT_SQL_KEYS
+    assert result["schema_version"] == 1
+    assert result["command"] == "emit-sql"
+    assert result["ok"] is True
+    assert result["path"] == input_path.as_posix()
+    assert result["dialect"] == "postgres"
+    assert result["diagnostics"] == []
+    assert result["cli_errors"] == []
+    assert result["output"] is None
+    assert artifacts == [
+        {
+            "kind": "relation",
+            "name": artifact_name,
+            "sql": _golden_text(golden_name).removesuffix("\n"),
+        }
+    ]
+    assert set(artifacts[0]) == {"kind", "name", "sql"}
+    assert expected_fragment in cast(str, artifacts[0]["sql"])
+    for forbidden_key in ("schema_version_v2", "project", "project_root", "files"):
+        assert forbidden_key not in result
+
+
+@pytest.mark.parametrize(
+    ("input_path", "golden_name", "artifact_name", "expected_fragment"),
+    PHASE24_POSTGRES_CASES,
+)
+def test_cli_text_phase24_output_writes_exact_sql(
+    input_path: Path,
+    golden_name: str,
+    artifact_name: str,
+    expected_fragment: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    del artifact_name, expected_fragment
+    output_path = tmp_path / f"{input_path.stem}.sql"
+    output_path.write_text("stale SQL\n", encoding="utf-8")
+    monkeypatch.chdir(REPO_ROOT)
+
+    assert (
+        cli.main(
+            [
+                "emit-sql",
+                input_path.as_posix(),
+                "--dialect",
+                "postgres",
+                "--output",
+                str(output_path),
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+    assert output_path.read_bytes() == _golden_bytes(golden_name)
+    assert not tuple(tmp_path.glob(f".{output_path.name}.*.tmp"))
+
+
+@pytest.mark.parametrize(
+    ("input_path", "golden_name", "artifact_name", "expected_fragment"),
+    PHASE24_POSTGRES_CASES,
+)
+def test_cli_json_phase24_output_writes_sql_and_keeps_artifacts(
+    input_path: Path,
+    golden_name: str,
+    artifact_name: str,
+    expected_fragment: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    output_path = tmp_path / f"{input_path.stem}-json.sql"
+    monkeypatch.chdir(REPO_ROOT)
+
+    assert (
+        cli.main(
+            [
+                "emit-sql",
+                input_path.as_posix(),
+                "--dialect",
+                "postgres",
+                "--format",
+                "json",
+                "--output",
+                str(output_path),
+            ]
+        )
+        == 0
+    )
+
+    result = _read_json(capsys)
+    artifacts = cast(list[dict[str, object]], result["artifacts"])
+
+    assert result["schema_version"] == 1
+    assert result["ok"] is True
+    assert result["diagnostics"] == []
+    assert result["cli_errors"] == []
+    assert result["output"] == {"path": str(output_path), "written": True}
+    assert artifacts == [
+        {
+            "kind": "relation",
+            "name": artifact_name,
+            "sql": _golden_text(golden_name).removesuffix("\n"),
+        }
+    ]
+    assert expected_fragment in cast(str, artifacts[0]["sql"])
+    assert output_path.read_bytes() == _golden_bytes(golden_name)
+    assert not tuple(tmp_path.glob(f".{output_path.name}.*.tmp"))
+
+
+def test_cli_text_aggregate_expression_argument_stops_before_backend(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    input_path = _write_invalid_expression_aggregate_source(tmp_path)
+
+    assert cli.main(["emit-sql", str(input_path), "--dialect", "postgres"]) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "PIE-S2315 error:" in captured.err
+    assert "expression arguments are deferred" in captured.err
+    assert "PIE-B1000" not in captured.err
+
+
+def test_cli_json_aggregate_expression_argument_does_not_write_output(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    input_path = _write_invalid_expression_aggregate_source(tmp_path)
+    output_path = tmp_path / "invalid-expression-aggregate.sql"
+    output_path.write_text("original SQL\n", encoding="utf-8")
+
+    assert (
+        cli.main(
+            [
+                "emit-sql",
+                str(input_path),
+                "--dialect",
+                "postgres",
+                "--format",
+                "json",
+                "--output",
+                str(output_path),
+            ]
+        )
+        == 1
+    )
+
+    result = _read_json(capsys)
+    diagnostics = cast(list[dict[str, object]], result["diagnostics"])
+
+    assert result["ok"] is False
+    assert [diagnostic["code"] for diagnostic in diagnostics] == ["PIE-S2315"]
+    assert result["cli_errors"] == []
+    assert result["artifacts"] == []
+    assert result["output"] == {"path": str(output_path), "written": False}
+    assert output_path.read_text(encoding="utf-8") == "original SQL\n"
+
+
+def test_cli_json_backend_pie_b1000_does_not_write_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    output_path = tmp_path / "backend-error.sql"
+    output_path.write_text("original SQL\n", encoding="utf-8")
+    diagnostic = Diagnostic(
+        code="PIE-B1000",
+        severity=Severity.ERROR,
+        message="unsupported backend case",
+        location=SourceLocation(
+            path=POSTGRES_COUNT_DISTINCT_INPUT.as_posix(),
+            line=1,
+            column=1,
+            end_line=1,
+            end_column=1,
+        ),
+    )
+
+    def emit_backend_error(script_ir: ScriptIR) -> SqlResult:
+        del script_ir
+        return SqlResult(artifacts=(), diagnostics=(diagnostic,))
+
+    monkeypatch.chdir(REPO_ROOT)
+    monkeypatch.setattr(cli.sql_api, "emit_postgres_sql", emit_backend_error)
+
+    assert (
+        cli.main(
+            [
+                "emit-sql",
+                POSTGRES_COUNT_DISTINCT_INPUT.as_posix(),
+                "--dialect",
+                "postgres",
+                "--format",
+                "json",
+                "--output",
+                str(output_path),
+            ]
+        )
+        == 1
+    )
+
+    result = _read_json(capsys)
+    diagnostics = cast(list[dict[str, object]], result["diagnostics"])
+
+    assert result["ok"] is False
+    assert [diagnostic["code"] for diagnostic in diagnostics] == ["PIE-B1000"]
+    assert result["cli_errors"] == []
+    assert result["artifacts"] == []
+    assert result["output"] == {"path": str(output_path), "written": False}
+    assert output_path.read_text(encoding="utf-8") == "original SQL\n"
+
+
+def test_slice8_boundary_surfaces_remain_post_slice7_hash_locked() -> None:
+    for _name, (
+        path_or_paths,
+        expected_count,
+        expected_hash,
+    ) in LOCKED_BOUNDARY_SURFACES.items():
+        paths = _paths(path_or_paths)
+
+        assert len(paths) == expected_count
+        assert _digest(paths) == expected_hash
+
+
+def _read_json(capsys: pytest.CaptureFixture[str]) -> dict[str, object]:
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert captured.out.startswith("{")
+    assert captured.out.endswith("}\n")
+    assert captured.out.count("\n") == 1
+    document = json.loads(captured.out)
+    assert isinstance(document, dict)
+    return cast(dict[str, object], document)
+
+
+def _write_invalid_expression_aggregate_source(tmp_path: Path) -> Path:
+    path = tmp_path / "invalid-expression-aggregate.pietto"
+    path.write_text(
+        "shape Order:\n"
+        "    amount: Decimal not null\n"
+        'source orders: Order is postgres.table("orders")\n'
+        "table invalid_expression_aggregate:\n"
+        "    from orders\n"
+        "    select:\n"
+        "        value = sum(amount + amount)\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def _golden_text(name: str) -> str:
+    return (GOLDEN_ROOT / name).read_text(encoding="utf-8")
+
+
+def _golden_bytes(name: str) -> bytes:
+    return (GOLDEN_ROOT / name).read_bytes()
+
+
+def _paths(path_or_paths: str | tuple[str, ...]) -> tuple[Path, ...]:
+    if isinstance(path_or_paths, tuple):
+        return tuple(REPO_ROOT / path for path in path_or_paths)
+
+    path = REPO_ROOT / path_or_paths
+    if path.is_file():
+        return (path,)
+    return tuple(
+        item
+        for item in sorted(path.rglob("*"))
+        if item.is_file() and "__pycache__" not in item.parts
+    )
+
+
+def _digest(paths: tuple[Path, ...]) -> str:
+    digest = hashlib.sha256()
+    for path in paths:
+        relative_path = path.relative_to(REPO_ROOT).as_posix().encode()
+        digest.update(relative_path + b"\0" + path.read_bytes() + b"\0")
+    return digest.hexdigest()
