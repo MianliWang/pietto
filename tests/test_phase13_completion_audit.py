@@ -38,7 +38,7 @@ FILE_HASHES = {
         "b126059cd0aebe9535fceb9b0a1b1c09ee1ba22af13f70d276d7e013c49c60e7"
     ),
     "scripts/check_goldens.py": (
-        "63edd856bbbf27db92190ca6c785212b4df025af802fc7701f5a80044bfda0dd"
+        "23e271e0138e6b7ac189e27f33c557e04300301adff8f49747999e0c4b50c2e9"
     ),
     "scripts/package_smoke.py": (
         "61de7eec8f26476e39d05305642ecde0a55d1030513ce91f627cac45517c1131"
@@ -47,9 +47,9 @@ FILE_HASHES = {
 
 GROUP_HASHES = {
     "frontend": "3fbab1f08412f036545e87fcab85fea2da8794c063afb63fb3d2964b6566a665",
-    "semantic": "6180253f40959be1142ed0ac4d705c29c93fb99cc9f1beb52b576468b5682c0d",
+    "semantic": "77f83187c4807fecd8f0b5a4889b2e5911852547e852f5f2832abd82f8ddfbb2",
     "ir": "b8867c8f4c2396936f607c616a81184c0f46071ba5d2db60b70a217db9719808",
-    "sql": "acc1b1c6e1c8d8b2b1c750295cb08810c2af30faf337eebd0d116ead8c03a2f5",
+    "sql": "fa9eff072cd83f44df112870d4a72b171302945cab35fa1f4f3c8f7cadc88986",
     "generated": "655bfa5fd1bbc263f24f188a3526ab18657a1e1ab24c4ee18804416613166913",
     "cli": "235d4e50c3474306253dfc6b118e2518b3e300e90f7fbe9903263a39cbdc42a0",
 }
@@ -69,7 +69,7 @@ CONTRACT_HASHES = {
     ),
 }
 
-GOLDENS_HASH = "d3f417c58f78859a92a01bee851b054617f538b2fd75c839e79bcadf38f07baa"
+GOLDENS_HASH = "0e26a0b367a2ae849e5ec1e9a239be42765bea2c352242db5da930ab56b43004"
 
 
 def test_all_phase13_slices_and_documents_are_complete() -> None:
@@ -258,7 +258,7 @@ def test_json_cli_golden_audits_and_ci_remain_unchanged() -> None:
     ):
         assert marker not in cli.lower()
 
-    assert len(goldens) == 33
+    assert len(goldens) == 37
     assert _aggregate_files(goldens) == GOLDENS_HASH
     assert "CLASSIFIED_FIXTURES" in _read("scripts/check_goldens.py")
     assert "_compare_generated_files" in _read("scripts/check_generated.py")

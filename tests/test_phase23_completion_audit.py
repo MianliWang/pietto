@@ -124,7 +124,7 @@ def test_slice2_through_slice5_focused_coverage_is_locked() -> None:
             "test_mixed_no_group_count_field_projection_remains_rejected",
             "test_count_field_in_invalid_context_remains_rejected",
             "test_existing_sum_avg_min_max_semantics_remain_unchanged",
-            "test_existing_sum_avg_min_max_diagnostics_remain_unchanged",
+            "test_existing_sum_avg_min_max_diagnostics_remain_covered",
         },
         "tests/test_phase23_count_field_ir.py": {
             "test_count_star_still_lowers_to_zero_arg_aggregate_ir",
@@ -171,9 +171,9 @@ def test_count_field_golden_inventory_and_json_v1_shape_are_locked() -> None:
     reference_tests = cast(tuple[Path, ...], getattr(goldens, "REFERENCE_TESTS"))
     audit = cast(Callable[[Path], tuple[str, ...]], getattr(goldens, "audit"))
 
-    assert len(sql_fixtures) == 28
+    assert len(sql_fixtures) == 32
     assert len(json_fixtures) == 5
-    assert len(sql_fixtures | json_fixtures) == 33
+    assert len(sql_fixtures | json_fixtures) == 37
     assert PHASE23_SQL_GOLDENS <= sql_fixtures
     for golden, inputs in PHASE23_GOLDEN_INPUTS.items():
         assert fixture_inputs[golden] == inputs

@@ -498,7 +498,7 @@ def test_phase24_count_distinct_goldens_are_registered_and_audited() -> None:
     reference_tests = cast(tuple[Path, ...], getattr(goldens, "REFERENCE_TESTS"))
     audit = cast(Callable[[Path], tuple[str, ...]], getattr(goldens, "audit"))
 
-    assert len(sql_fixtures) == 28
+    assert len(sql_fixtures) == 32
     assert len(json_fixtures) == 5
     assert PHASE24_SQL_GOLDENS <= sql_fixtures
     assert fixture_inputs[POSTGRES_GOLDEN] == (POSTGRES_INPUT.as_posix(),)

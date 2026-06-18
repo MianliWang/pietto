@@ -31,6 +31,7 @@ from pietto.ast_nodes import (
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
     contains_semantic_aggregate,
+    deferred_argument_expression_diagnostic,
     invalid_context_diagnostic,
     is_direct_field_argument,
     is_semantic_aggregate_call,
@@ -610,6 +611,16 @@ def _call_value_type(
     """Type one exact built-in call while suppressing Unknown cascades."""
 
     function_name = _callee_name(expression)
+    if (
+        allow_aggregate_projection
+        and is_semantic_aggregate_call(expression)
+        and len(expression.arguments) == 1
+        and not is_direct_field_argument(expression.arguments[0])
+        and not contains_semantic_aggregate(expression.arguments[0])
+    ):
+        diagnostics.append(deferred_argument_expression_diagnostic(expression))
+        return _UNKNOWN_VALUE_TYPE
+
     argument_types = tuple(
         _infer(
             argument,

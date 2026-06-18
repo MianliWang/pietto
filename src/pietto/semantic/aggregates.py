@@ -56,6 +56,10 @@ FLOAT_NULLABLE_VALUE_TYPE = ValueType(
     resolved_type=ResolvedType(name="Float", kind=TypeKind.BUILTIN),
     nullability=EffectiveNullability.NULLABLE,
 )
+DECIMAL_NULLABLE_VALUE_TYPE = ValueType(
+    resolved_type=ResolvedType(name="Decimal", kind=TypeKind.BUILTIN),
+    nullability=EffectiveNullability.NULLABLE,
+)
 
 
 def callee_name(expression: CallExpr) -> str:
@@ -270,14 +274,15 @@ def is_direct_field_argument(expression: Expression) -> bool:
 def is_supported_numeric_argument(value_type: ValueType) -> bool:
     """Return whether an aggregate argument is an approved numeric field type."""
 
-    return _is_builtin(value_type, "Int") or _is_builtin(value_type, "Float")
+    return any(_is_builtin(value_type, name) for name in ("Int", "Float", "Decimal"))
 
 
 def is_supported_extrema_argument(value_type: ValueType) -> bool:
     """Return whether min/max may use this direct field type."""
 
     return any(
-        _is_builtin(value_type, name) for name in ("Int", "Float", "Date", "Timestamp")
+        _is_builtin(value_type, name)
+        for name in ("Int", "Float", "Decimal", "Date", "Timestamp")
     )
 
 
@@ -339,8 +344,12 @@ def aggregate_result_value_type(
     if function_name == SUM_AGGREGATE_NAME:
         if _is_builtin(argument_type, "Int"):
             return INT_NULLABLE_VALUE_TYPE
+        if _is_builtin(argument_type, "Decimal"):
+            return DECIMAL_NULLABLE_VALUE_TYPE
         return FLOAT_NULLABLE_VALUE_TYPE
     if function_name == AVG_AGGREGATE_NAME:
+        if _is_builtin(argument_type, "Decimal"):
+            return DECIMAL_NULLABLE_VALUE_TYPE
         return FLOAT_NULLABLE_VALUE_TYPE
     return None
 
@@ -484,9 +493,9 @@ def wrong_argument_type_diagnostic(
             "Bool, Int, Float, Decimal, Text, Date, Timestamp, or UUID"
             if name == COUNT_DISTINCT_AGGREGATE_NAME
             else (
-                "Int, Float, Date, or Timestamp"
+                "Int, Float, Decimal, Date, or Timestamp"
                 if name in {MIN_AGGREGATE_NAME, MAX_AGGREGATE_NAME}
-                else "Int or Float"
+                else "Int, Float, or Decimal"
             )
         )
     )

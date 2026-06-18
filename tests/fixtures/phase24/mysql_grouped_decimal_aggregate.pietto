@@ -1,0 +1,17 @@
+shape Order:
+    status: Text not null
+    amount: Decimal not null
+
+source orders: Order is mysql.table("orders")
+
+table decimal_order_stats_by_status:
+    from orders
+    where status == "paid"
+    group by:
+        status
+    select:
+        status
+        total_amount = sum(amount)
+        average_amount = avg(amount)
+        smallest_amount = min(amount)
+        largest_amount = max(orders.amount)

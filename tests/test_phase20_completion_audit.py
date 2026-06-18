@@ -211,7 +211,7 @@ def test_valid_sum_avg_ir_types_and_sql_bytes_are_locked() -> None:
         ("        revenue = sum(amount + amount)\n", "PIE-S2315"),
         ("        average = avg(1)\n", "PIE-S2315"),
         ("        revenue = sum(status)\n", "PIE-S2314"),
-        ("        average = avg(price)\n", "PIE-S2314"),
+        ("        average = avg(status)\n", "PIE-S2314"),
         ("        revenue = sum(avg(amount))\n", "PIE-S2311"),
         ("        revenue = sum(amount) + 1\n", "PIE-S2310"),
         ("        status\n        revenue = sum(amount)\n", "PIE-S2312"),

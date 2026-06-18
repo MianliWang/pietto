@@ -68,6 +68,22 @@ behavior, aggregate expression argument implementation, generic DISTINCT
 syntax, `count(distinct field)`, aggregate modifier behavior, UI, LSP,
 policy/security DSL, or relationship query behavior.
 
+Phase 24 Slice 6 is complete as Decimal aggregate implementation, SQL
+rendering, and golden coverage. It accepts direct-field
+`sum(Decimal)`, `avg(Decimal)`, `min(Decimal)`, and `max(Decimal)` in
+no-GROUP and grouped aggregate `select:` contexts, lowers valid calls through
+the existing `AggregateCallIR` shape, and renders PostgreSQL/MySQL
+`SUM`, `AVG`, `MIN`, and `MAX` without casts. Decimal aggregate results are
+logical Pietto `Decimal nullable` values.
+
+Slice 6 changes no parser, grammar, generated ANTLR, AST, IR model, CLI
+option, JSON schema, public API, dependency, lockfile, package metadata, CI,
+backend registry behavior, runtime/database behavior, connector execution,
+schema introspection, relationship/JOIN behavior, generic DISTINCT syntax,
+`count(distinct field)`, aggregate modifier behavior, Decimal precision/scale
+modeling, Decimal arithmetic, aggregate expression argument implementation,
+UI, LSP, policy/security DSL, or relationship query behavior.
+
 Trusted Phase 23 baseline:
 
 - HEAD: `2d96041861fa813df0d4e7e7bd5128bf8dc4fb57`;
@@ -337,10 +353,11 @@ Unsupported future behavior must remain diagnostic-first and fail-closed.
    docs/static-audit contract work. Lock logical Decimal result types,
    nullability, SQL lowering shape, and precision/scale non-promises before
    production Decimal aggregate implementation.
-6. **Slice 6: Decimal Aggregate Implementation, SQL Rendering, And Goldens If
-   Approved**: future implementation slice. Accept direct-field Decimal for
-   `sum`, `avg`, `min`, and `max`, render existing SQL function names without
-   casts, and add reviewed SQL goldens if Slice 5 confirms the contract.
+6. **Slice 6: Decimal Aggregate Implementation, SQL Rendering, And Goldens**:
+   complete as production implementation, SQL rendering, and golden coverage.
+   Accept direct-field Decimal for `sum`, `avg`, `min`, and `max`, render
+   existing SQL function names without casts, and add reviewed SQL goldens
+   under the Slice 5 contract.
 7. **Slice 7: Aggregate Expression Arguments Readiness Audit**: future
    docs/static-audit slice. Record future expression-argument design choices,
    prove `PIE-S2315` still guards expression arguments, and defer

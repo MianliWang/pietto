@@ -55,13 +55,13 @@ _NUMERIC_AGGREGATE_NAMES = {
     "sum": "SUM",
     "avg": "AVG",
 }
-_SUPPORTED_NUMERIC_AGGREGATE_ARGUMENT_TYPES = frozenset({"Int", "Float"})
+_SUPPORTED_NUMERIC_AGGREGATE_ARGUMENT_TYPES = frozenset({"Int", "Float", "Decimal"})
 _EXTREMA_AGGREGATE_NAMES = {
     "min": "MIN",
     "max": "MAX",
 }
 _SUPPORTED_EXTREMA_AGGREGATE_ARGUMENT_TYPES = frozenset(
-    {"Int", "Float", "Date", "Timestamp"}
+    {"Int", "Float", "Decimal", "Date", "Timestamp"}
 )
 _SUPPORTED_COUNT_DISTINCT_ARGUMENT_TYPES = frozenset(
     {"Bool", "Int", "Float", "Decimal", "Text", "Date", "Timestamp", "UUID"}
@@ -209,13 +209,16 @@ def _render_numeric_aggregate(
         or argument_type not in _SUPPORTED_NUMERIC_AGGREGATE_ARGUMENT_TYPES
     ):
         raise MySqlRenderError(
-            f"MySQL aggregate {expression.function} supports only Int or Float "
-            "field arguments"
+            f"MySQL aggregate {expression.function} supports only Int, Float, "
+            "or Decimal field arguments"
         )
 
-    expected_result_type = (
-        "Int" if expression.function == "sum" and argument_type == "Int" else "Float"
-    )
+    if argument_type == "Decimal":
+        expected_result_type = "Decimal"
+    elif expression.function == "sum" and argument_type == "Int":
+        expected_result_type = "Int"
+    else:
+        expected_result_type = "Float"
     if not _has_builtin_type(
         expression,
         expected_result_type,
@@ -249,7 +252,7 @@ def _render_extrema_aggregate(
     ):
         raise MySqlRenderError(
             f"MySQL aggregate {expression.function} supports only Int, Float, "
-            "Date, or Timestamp field arguments"
+            "Decimal, Date, or Timestamp field arguments"
         )
 
     if not _has_builtin_type(expression, argument_type, NullabilityIR.NULLABLE):

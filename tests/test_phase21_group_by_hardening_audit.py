@@ -41,7 +41,7 @@ LOCKED_FORBIDDEN_SURFACES = {
     "semantic": (
         "src/pietto/semantic",
         19,
-        "6180253f40959be1142ed0ac4d705c29c93fb99cc9f1beb52b576468b5682c0d",
+        "77f83187c4807fecd8f0b5a4889b2e5911852547e852f5f2832abd82f8ddfbb2",
     ),
     "ir": (
         "src/pietto/ir",
@@ -51,7 +51,7 @@ LOCKED_FORBIDDEN_SURFACES = {
     "sql": (
         "src/pietto/sql",
         10,
-        "acc1b1c6e1c8d8b2b1c750295cb08810c2af30faf337eebd0d116ead8c03a2f5",
+        "fa9eff072cd83f44df112870d4a72b171302945cab35fa1f4f3c8f7cadc88986",
     ),
     "cli": (
         "src/pietto/cli.py",
@@ -61,12 +61,12 @@ LOCKED_FORBIDDEN_SURFACES = {
     "check_goldens": (
         "scripts/check_goldens.py",
         1,
-        "6055ec121324f05510034ea45216a4b8cd07f9693e7168020261a4a767d12e11",
+        "59c3921f21de398e06f6deca28f18871120bbf411110974c3df6ba7fa85970c4",
     ),
     "fixtures": (
         "tests/fixtures",
-        60,
-        "3896d738de454d3e76fa8636bb67a563ab920660c41462b292ce033805741daf",
+        68,
+        "dbd457dd7e79f41d0e1740187818478941861cabf9ae9f3b06f908bdc81cd11c",
     ),
     "readme": (
         "README.md",

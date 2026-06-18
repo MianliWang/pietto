@@ -173,18 +173,19 @@ def test_count_sum_and_avg_are_not_scalar_builtin_functions() -> None:
             "        revenue = sum(status)\n",
             (
                 "PIE-S2314",
-                "Aggregate function sum expects Int or Float field argument, got Text",
+                "Aggregate function sum expects Int, Float, or Decimal field "
+                "argument, got Text",
             ),
         ),
         (
             SOURCE_PREFIX + "table paid_order_stats:\n"
             "    from orders\n"
             "    select:\n"
-            "        average = avg(price)\n",
+            "        average = avg(status)\n",
             (
                 "PIE-S2314",
-                "Aggregate function avg expects Int or Float field argument, "
-                "got Decimal",
+                "Aggregate function avg expects Int, Float, or Decimal field "
+                "argument, got Text",
             ),
         ),
         (

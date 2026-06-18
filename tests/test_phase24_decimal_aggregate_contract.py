@@ -100,12 +100,17 @@ def test_slice5_does_not_authorize_other_aggregate_expansions() -> None:
         assert required in plan
 
 
-def test_current_production_helpers_do_not_authorize_decimal_aggregates_yet() -> None:
+def test_slice6_production_helpers_authorize_decimal_aggregates() -> None:
     for function_name in ("sum", "avg", "min", "max"):
-        assert (
-            semantic_aggregate_result_value_type(function_name, DECIMAL_VALUE_TYPE)
-            is None
+        value_type = semantic_aggregate_result_value_type(
+            function_name,
+            DECIMAL_VALUE_TYPE,
         )
+
+        assert value_type is not None
+        assert value_type.resolved_type.name == "Decimal"
+        assert value_type.resolved_type.kind is TypeKind.BUILTIN
+        assert value_type.nullability is EffectiveNullability.NULLABLE
 
 
 def test_count_distinct_decimal_argument_remains_authorized() -> None:

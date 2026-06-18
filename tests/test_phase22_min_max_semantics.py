@@ -140,7 +140,6 @@ def test_grouped_min_max_projections_are_accepted() -> None:
     [
         ("min", "status", "Text"),
         ("max", "active", "Bool"),
-        ("min", "price", "Decimal"),
         ("max", "raw", "Bytes"),
         ("min", "payload", "Json"),
         ("max", "id", "UUID"),
@@ -164,8 +163,8 @@ def test_min_max_reject_unsupported_direct_field_argument_types(
     assert _errors(result) == [
         (
             "PIE-S2314",
-            f"Aggregate function {function_name} expects Int, Float, Date, or "
-            f"Timestamp field argument, got {actual_type}",
+            f"Aggregate function {function_name} expects Int, Float, Decimal, "
+            f"Date, or Timestamp field argument, got {actual_type}",
         )
     ]
 
@@ -284,8 +283,8 @@ def test_invalid_min_max_projection_aliases_keep_unknown_schema() -> None:
     assert _errors(result) == [
         (
             "PIE-S2314",
-            "Aggregate function max expects Int, Float, Date, or Timestamp "
-            "field argument, got Text",
+            "Aggregate function max expects Int, Float, Decimal, Date, or "
+            "Timestamp field argument, got Text",
         )
     ]
     assert field.resolved_type.kind is TypeKind.UNKNOWN

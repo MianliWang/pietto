@@ -331,35 +331,37 @@ def test_existing_sum_avg_min_max_semantics_remain_unchanged() -> None:
             "value = sum(status)",
             (
                 "PIE-S2314",
-                "Aggregate function sum expects Int or Float field argument, got Text",
+                "Aggregate function sum expects Int, Float, or Decimal field "
+                "argument, got Text",
             ),
         ),
         (
-            "value = avg(price)",
+            "value = avg(status)",
             (
                 "PIE-S2314",
-                "Aggregate function avg expects Int or Float field argument, got Decimal",
+                "Aggregate function avg expects Int, Float, or Decimal field "
+                "argument, got Text",
             ),
         ),
         (
             "value = min(status)",
             (
                 "PIE-S2314",
-                "Aggregate function min expects Int, Float, Date, or Timestamp "
-                "field argument, got Text",
+                "Aggregate function min expects Int, Float, Decimal, Date, or "
+                "Timestamp field argument, got Text",
             ),
         ),
         (
             "value = max(active)",
             (
                 "PIE-S2314",
-                "Aggregate function max expects Int, Float, Date, or Timestamp "
-                "field argument, got Bool",
+                "Aggregate function max expects Int, Float, Decimal, Date, or "
+                "Timestamp field argument, got Bool",
             ),
         ),
     ],
 )
-def test_existing_sum_avg_min_max_diagnostics_remain_unchanged(
+def test_existing_sum_avg_min_max_diagnostics_remain_covered(
     projection: str,
     expected: tuple[str, str],
 ) -> None:

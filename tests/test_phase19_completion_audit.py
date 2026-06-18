@@ -346,7 +346,7 @@ def test_sql_renderers_keep_malformed_aggregate_ir_fail_closed() -> None:
         render_expression_sql(sum_wrong_arity)
     with pytest.raises(ValueError, match="direct field argument"):
         render_expression_sql(sum_non_field)
-    with pytest.raises(ValueError, match="supports only Int or Float"):
+    with pytest.raises(ValueError, match="approved logical shape"):
         render_expression_sql(sum_decimal_argument)
 
     with pytest.raises(MySqlRenderError, match="Unsupported MySQL aggregate call"):
@@ -357,7 +357,7 @@ def test_sql_renderers_keep_malformed_aggregate_ir_fail_closed() -> None:
         render_mysql_expression(sum_wrong_arity)
     with pytest.raises(MySqlRenderError, match="direct field argument"):
         render_mysql_expression(sum_non_field)
-    with pytest.raises(MySqlRenderError, match="supports only Int or Float"):
+    with pytest.raises(MySqlRenderError, match="approved logical shape"):
         render_mysql_expression(sum_decimal_argument)
 
 

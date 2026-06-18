@@ -240,7 +240,8 @@ def test_grouped_order_by_is_deferred_without_alias_lookup_cascade() -> None:
             "revenue = sum(status)",
             (
                 "PIE-S2314",
-                "Aggregate function sum expects Int or Float field argument, got Text",
+                "Aggregate function sum expects Int, Float, or Decimal field "
+                "argument, got Text",
             ),
         ),
         (
