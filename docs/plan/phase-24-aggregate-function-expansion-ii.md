@@ -41,6 +41,20 @@ runtime/database behavior, Decimal aggregate behavior, aggregate expression
 argument implementation, generic DISTINCT syntax, aggregate modifier
 behavior, UI, LSP, policy/security DSL, or relationship query behavior.
 
+Phase 24 Slice 4 is complete as `count_distinct(field)` SQL rendering and
+golden coverage. PostgreSQL and MySQL now render valid direct-field
+`count_distinct(field)` and `count_distinct(source.field)` aggregate IR as
+`COUNT(DISTINCT field)` with existing dialect identifier quoting and
+qualification rules. Slice 4 adds reviewed no-GROUP and grouped
+fixtures/goldens plus golden inventory ownership.
+
+Slice 4 changes no semantic behavior, Semantic IR lowering, IR model, CLI
+behavior, JSON schema, grammar, generated ANTLR, dependency, lockfile, package
+metadata, CI, backend registry behavior, runtime/database behavior, Decimal
+aggregate behavior, aggregate expression argument implementation, generic
+DISTINCT syntax, `count(distinct field)`, aggregate modifier behavior, UI,
+LSP, policy/security DSL, or relationship query behavior.
+
 Trusted Phase 23 baseline:
 
 - HEAD: `2d96041861fa813df0d4e7e7bd5128bf8dc4fb57`;
@@ -285,9 +299,9 @@ Unsupported future behavior must remain diagnostic-first and fail-closed.
    lowering work. Lower valid `count_distinct(field)` calls to existing
    `AggregateCallIR` and keep invalid or uncertain calls out of precise
    aggregate IR.
-4. **Slice 4: `count_distinct(field)` SQL Rendering And Goldens**: future
-   implementation slice. Render `COUNT(DISTINCT field)`, add reviewed
-   no-GROUP and grouped fixtures/goldens, and update golden inventory
+4. **Slice 4: `count_distinct(field)` SQL Rendering And Goldens**: complete as
+   SQL rendering and golden coverage. Render `COUNT(DISTINCT field)`, add
+   reviewed no-GROUP and grouped fixtures/goldens, and update golden inventory
    ownership.
 5. **Slice 5: Decimal Aggregate Semantic/Type Contract**: future contract
    slice. Lock logical Decimal result types, nullability, SQL lowering shape,

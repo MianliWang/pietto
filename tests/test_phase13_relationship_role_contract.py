@@ -196,7 +196,7 @@ def test_public_api_json_dependencies_and_goldens_remain_unchanged() -> None:
                 if path.is_file()
             )
         )
-        == 29
+        == 33
     )
 
 

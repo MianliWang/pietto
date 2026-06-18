@@ -18,7 +18,7 @@ POSTGRES_BOUNDARY_HASHES = {
         "e40bd3eee7f76bc68313adb8237a7a6c5d84286197261f70c827a4219c9e3418"
     ),
     "src/pietto/sql/expressions.py": (
-        "e986f4745db4e2dc471b201f6094a1b3468a51130c2f8d548bf1e6d033a835d3"
+        "c71b138fcffb71cac6dcee07487e75b63e85e8e465e94d2b8c4e311d8b45d96d"
     ),
     "src/pietto/sql/model.py": (
         "0b5f096fbd9b2fdcc0c92cf65e50de90d64b134fd7479a3314ee05c348ab69f1"

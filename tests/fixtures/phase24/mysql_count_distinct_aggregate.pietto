@@ -1,0 +1,13 @@
+shape Order:
+    status: Text not null
+    customer_id: UUID not null
+    region: Text nullable
+
+source orders: Order is mysql.table("orders")
+
+table unique_order_values:
+    from orders
+    where status == "paid"
+    select:
+        unique_customers = count_distinct(customer_id)
+        unique_statuses = count_distinct(orders.status)

@@ -171,9 +171,9 @@ def test_count_field_golden_inventory_and_json_v1_shape_are_locked() -> None:
     reference_tests = cast(tuple[Path, ...], getattr(goldens, "REFERENCE_TESTS"))
     audit = cast(Callable[[Path], tuple[str, ...]], getattr(goldens, "audit"))
 
-    assert len(sql_fixtures) == 24
+    assert len(sql_fixtures) == 28
     assert len(json_fixtures) == 5
-    assert len(sql_fixtures | json_fixtures) == 29
+    assert len(sql_fixtures | json_fixtures) == 33
     assert PHASE23_SQL_GOLDENS <= sql_fixtures
     for golden, inputs in PHASE23_GOLDEN_INPUTS.items():
         assert fixture_inputs[golden] == inputs

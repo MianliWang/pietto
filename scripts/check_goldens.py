@@ -13,7 +13,9 @@ GOLDEN_ROOT = Path("tests/fixtures/golden")
 SQL_FIXTURES = frozenset(
     {
         "emit_mysql_count_aggregate.sql",
+        "emit_mysql_count_distinct_aggregate.sql",
         "emit_mysql_count_field_aggregate.sql",
+        "emit_mysql_grouped_count_distinct_aggregate.sql",
         "emit_mysql_grouped_min_max_aggregate.sql",
         "emit_mysql_grouped_count_field_aggregate.sql",
         "emit_mysql_group_by_aggregate.sql",
@@ -26,7 +28,9 @@ SQL_FIXTURES = frozenset(
         "emit_sql_active_user_emails.sql",
         "emit_sql_active_users.sql",
         "emit_sql_count_aggregate.sql",
+        "emit_sql_count_distinct_aggregate.sql",
         "emit_sql_count_field_aggregate.sql",
+        "emit_sql_grouped_count_distinct_aggregate.sql",
         "emit_sql_grouped_min_max_aggregate.sql",
         "emit_sql_grouped_count_field_aggregate.sql",
         "emit_sql_group_by_aggregate.sql",
@@ -67,8 +71,14 @@ FIXTURE_INPUTS: dict[str, tuple[str, ...]] = {
     "emit_mysql_count_aggregate.sql": (
         "tests/fixtures/phase19/mysql_count_aggregate.pietto",
     ),
+    "emit_mysql_count_distinct_aggregate.sql": (
+        "tests/fixtures/phase24/mysql_count_distinct_aggregate.pietto",
+    ),
     "emit_mysql_count_field_aggregate.sql": (
         "tests/fixtures/phase23/mysql_count_field_aggregate.pietto",
+    ),
+    "emit_mysql_grouped_count_distinct_aggregate.sql": (
+        "tests/fixtures/phase24/mysql_grouped_count_distinct_aggregate.pietto",
     ),
     "emit_mysql_grouped_count_field_aggregate.sql": (
         "tests/fixtures/phase23/mysql_grouped_count_field_aggregate.pietto",
@@ -94,8 +104,14 @@ FIXTURE_INPUTS: dict[str, tuple[str, ...]] = {
     "emit_sql_count_aggregate.sql": (
         "tests/fixtures/phase19/postgres_count_aggregate.pietto",
     ),
+    "emit_sql_count_distinct_aggregate.sql": (
+        "tests/fixtures/phase24/postgres_count_distinct_aggregate.pietto",
+    ),
     "emit_sql_count_field_aggregate.sql": (
         "tests/fixtures/phase23/postgres_count_field_aggregate.pietto",
+    ),
+    "emit_sql_grouped_count_distinct_aggregate.sql": (
+        "tests/fixtures/phase24/postgres_grouped_count_distinct_aggregate.pietto",
     ),
     "emit_sql_grouped_count_field_aggregate.sql": (
         "tests/fixtures/phase23/postgres_grouped_count_field_aggregate.pietto",
@@ -139,6 +155,7 @@ REFERENCE_TESTS = (
     Path("tests/test_phase21_group_by_sql_lowering.py"),
     Path("tests/test_phase22_min_max_sql.py"),
     Path("tests/test_phase23_count_field_sql.py"),
+    Path("tests/test_phase24_count_distinct_sql.py"),
 )
 
 

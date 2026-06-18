@@ -191,7 +191,7 @@ def test_api_json_dependency_golden_and_source_boundaries_are_unchanged() -> Non
     assert "_SCHEMA_VERSION = 1" in cli_json
     assert "sqlglot" not in _read("pyproject.toml").lower()
     assert "sqlglot" not in _read("uv.lock").lower()
-    assert len(tuple((REPO_ROOT / "tests/fixtures/golden").iterdir())) == 29
+    assert len(tuple((REPO_ROOT / "tests/fixtures/golden").iterdir())) == 33
 
 
 def test_runtime_has_no_composition_sql_shape_implementation_markers() -> None:

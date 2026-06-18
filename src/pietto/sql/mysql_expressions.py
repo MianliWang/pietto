@@ -63,6 +63,9 @@ _EXTREMA_AGGREGATE_NAMES = {
 _SUPPORTED_EXTREMA_AGGREGATE_ARGUMENT_TYPES = frozenset(
     {"Int", "Float", "Date", "Timestamp"}
 )
+_SUPPORTED_COUNT_DISTINCT_ARGUMENT_TYPES = frozenset(
+    {"Bool", "Int", "Float", "Decimal", "Text", "Date", "Timestamp", "UUID"}
+)
 
 
 def render_mysql_expression(expression: ExpressionIR) -> str:
@@ -129,6 +132,8 @@ def _render_mysql_expression(expression: ExpressionIR, *, nested: bool) -> str:
 def _render_aggregate_call(expression: AggregateCallIR) -> str:
     if expression.function == "count":
         return _render_count_aggregate(expression)
+    if expression.function == "count_distinct":
+        return _render_count_distinct_aggregate(expression)
     function_name = _EXTREMA_AGGREGATE_NAMES.get(expression.function)
     if function_name is not None:
         return _render_extrema_aggregate(expression, function_name=function_name)
@@ -158,6 +163,30 @@ def _render_count_aggregate(expression: AggregateCallIR) -> str:
             "MySQL aggregate count supports only concrete non-Any field arguments"
         )
     return f"COUNT({_render_mysql_expression(argument, nested=True)})"
+
+
+def _render_count_distinct_aggregate(expression: AggregateCallIR) -> str:
+    if not _has_builtin_type(expression, "Int", NullabilityIR.NON_NULL):
+        raise MySqlRenderError(
+            "MySQL aggregate count_distinct expects Int non-null result"
+        )
+    if len(expression.arguments) != 1:
+        raise MySqlRenderError("MySQL aggregate count_distinct expects 1 argument(s)")
+    argument = expression.arguments[0]
+    if not isinstance(argument, FieldRefIR) or argument.field is None:
+        raise MySqlRenderError(
+            "MySQL aggregate count_distinct expects a direct field argument"
+        )
+    argument_type = argument.value_type.canonical_name
+    if (
+        argument.value_type.canonical_kind is not TypeKindIR.BUILTIN
+        or argument_type not in _SUPPORTED_COUNT_DISTINCT_ARGUMENT_TYPES
+    ):
+        raise MySqlRenderError(
+            "MySQL aggregate count_distinct supports only Bool, Int, Float, "
+            "Decimal, Text, Date, Timestamp, or UUID field arguments"
+        )
+    return f"COUNT(DISTINCT {_render_mysql_expression(argument, nested=True)})"
 
 
 def _render_numeric_aggregate(
