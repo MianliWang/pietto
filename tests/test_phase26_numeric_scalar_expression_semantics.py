@@ -111,6 +111,7 @@ def test_numeric_arithmetic_inside_where_comparison_is_locked() -> None:
         )
     )
     relation = _relation(result)
+    assert relation.where_clause is not None
     where_expression = relation.where_clause.expression
     assert isinstance(where_expression, ComparisonExpr)
     arithmetic = where_expression.left
