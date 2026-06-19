@@ -31,6 +31,32 @@ public MySQL API, public MySQL CLI exposure, LSP/playground behavior, Decimal
 arithmetic, aggregate expression argument acceptance, or relationship/JOIN
 behavior.
 
+Phase 26 Slice 3 is complete as a narrow Decimal scalar arithmetic semantics
+slice. It implements only `Decimal + Decimal -> Decimal` and
+`Decimal - Decimal -> Decimal` for ordinary scalar expressions and computed
+projections. It preserves the current binary expression nullability convention,
+invalid-operand `PIE-S2105` behavior, Unknown cascade suppression, and deferred
+division behavior.
+
+Slice 3 changes no IR, SQL backend, CLI, JSON, fixture, or golden behavior.
+Existing downstream compiler stages may continue to carry already-supported
+scalar expression shapes as a consequence of the existing pipeline, but Slice 3
+does not add or lock any new IR, SQL, CLI, JSON, fixture, or golden contract.
+Aggregate expression argument acceptance remains deferred through `PIE-S2315`,
+and direct aggregate calls inside `satisfying:` remain rejected through
+`PIE-S2308`.
+
+Slice 3 does not implement Decimal multiplication, mixed Decimal/Int
+arithmetic, mixed Decimal/Float arithmetic, Decimal division, Decimal literal
+typing, Decimal promotion, casts, Decimal precision/scale modeling, schema
+introspection, runtime/database Decimal validation, Decimal-specific comparison
+semantics, aggregate expression argument acceptance, public MySQL API exposure,
+or relationship/JOIN behavior. It changes no grammar, generated ANTLR, AST, AST
+builder, Semantic IR implementation, SQL backend, CLI implementation, JSON
+schema, JSON serializer, fixture, golden, script, dependency, lockfile, package
+metadata, CI, Makefile/config, project/multi-file behavior, or runtime/database
+behavior.
+
 Trusted Phase 25 baseline:
 
 - HEAD: `38c696d0aadc1c5f6b9e41b71e2a441f32c20198`;

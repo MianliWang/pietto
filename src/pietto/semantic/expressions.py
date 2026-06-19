@@ -553,12 +553,12 @@ def _binary_value_type(
         return _UNKNOWN_VALUE_TYPE
 
     if expression.operator in {"+", "-", "*"}:
-        if _is_numeric(left_type) and _is_numeric(right_type):
-            return_type = (
-                "Float"
-                if _is_builtin(left_type, "Float") or _is_builtin(right_type, "Float")
-                else "Int"
-            )
+        return_type = _binary_arithmetic_result_type(
+            expression.operator,
+            left_type,
+            right_type,
+        )
+        if return_type is not None:
             return _builtin_value_type(return_type, EffectiveNullability.UNKNOWN)
         diagnostics.append(
             _invalid_operator_operands_diagnostic(
@@ -796,6 +796,28 @@ def _is_numeric(value_type: ValueType) -> bool:
     """Return whether a known value type is one of Pietto's numeric scalars."""
 
     return _is_builtin(value_type, "Int") or _is_builtin(value_type, "Float")
+
+
+def _binary_arithmetic_result_type(
+    operator: str,
+    left_type: ValueType,
+    right_type: ValueType,
+) -> str | None:
+    """Return the approved result type for one binary arithmetic expression."""
+
+    if _is_numeric(left_type) and _is_numeric(right_type):
+        return (
+            "Float"
+            if _is_builtin(left_type, "Float") or _is_builtin(right_type, "Float")
+            else "Int"
+        )
+    if (
+        operator in {"+", "-"}
+        and _is_builtin(left_type, "Decimal")
+        and _is_builtin(right_type, "Decimal")
+    ):
+        return "Decimal"
+    return None
 
 
 def _is_builtin(value_type: ValueType, name: str) -> bool:

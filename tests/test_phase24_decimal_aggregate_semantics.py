@@ -146,12 +146,12 @@ def test_decimal_aggregate_expression_arguments_remain_deferred(
     ]
 
 
-def test_decimal_arithmetic_is_not_enabled_outside_aggregates() -> None:
+def test_decimal_multiplication_is_not_enabled_outside_aggregates() -> None:
     script = _parse(
         SOURCE_PREFIX + "table decimal_order_stats:\n"
         "    from orders\n"
         "    select:\n"
-        "        bad = amount + amount\n"
+        "        bad = amount * amount\n"
     )
     relation = _relation(script)
 
@@ -159,7 +159,7 @@ def test_decimal_arithmetic_is_not_enabled_outside_aggregates() -> None:
     field = result.model.relation_row_schemas[relation].fields["bad"]
 
     assert _errors(result) == [
-        ("PIE-S2105", "Invalid operands for operator +: expected numeric operands")
+        ("PIE-S2105", "Invalid operands for operator *: expected numeric operands")
     ]
     assert field.resolved_type.kind is TypeKind.UNKNOWN
     assert field.nullability is EffectiveNullability.UNKNOWN
