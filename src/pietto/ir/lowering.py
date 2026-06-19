@@ -44,7 +44,6 @@ from pietto.ir.model import (
 )
 from pietto.semantic.catalog import BUILTIN_FUNCTIONS
 from pietto.semantic.aggregates import (
-    is_direct_field_argument,
     semantic_aggregate_call_name,
     semantic_aggregate_result_value_type,
 )
@@ -418,9 +417,7 @@ def _aggregate_type_matches_ir(
 ) -> bool:
     if not expression.arguments:
         expected = semantic_aggregate_result_value_type(function_name)
-    elif len(expression.arguments) == 1 and is_direct_field_argument(
-        expression.arguments[0]
-    ):
+    elif len(expression.arguments) == 1:
         argument_type = semantic_model.expression_value_types.get(
             expression.arguments[0]
         )

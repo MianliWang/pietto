@@ -81,7 +81,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "ir": (
         "src/pietto/ir",
         5,
-        "8c2c3648740d898137c402c20596db28d3ac13734cdbdb6ddd6ce82c5b3577cd",
+        "4aff21c78f68496cb909a0ff32b341424d40721c7d85c86e64cc4d4503769aad",
     ),
     "sql": (
         "src/pietto/sql",
@@ -328,7 +328,7 @@ def test_cli_text_aggregate_expression_argument_stops_before_backend(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "PIE-B1000 error:" in captured.err
-    assert "Unsupported PostgreSQL function call: sum" in captured.err
+    assert "PostgreSQL aggregate sum expects a direct field argument" in captured.err
     assert "PIE-S2315" not in captured.err
 
 
@@ -361,7 +361,9 @@ def test_cli_json_aggregate_expression_argument_does_not_write_output(
 
     assert result["ok"] is False
     assert [diagnostic["code"] for diagnostic in diagnostics] == ["PIE-B1000"]
-    assert "Unsupported PostgreSQL function call: sum" in str(diagnostics[0]["message"])
+    assert "PostgreSQL aggregate sum expects a direct field argument" in str(
+        diagnostics[0]["message"]
+    )
     assert result["cli_errors"] == []
     assert result["artifacts"] == []
     assert result["output"] == {"path": str(output_path), "written": False}

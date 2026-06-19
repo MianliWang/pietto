@@ -95,6 +95,17 @@ behavior. The focused fail-closed guard proves that semantically accepted
 IR/SQL slices. If a lower layer ever starts emitting SQL for this shape before
 those slices, that is a scope violation rather than a Slice 5 feature.
 
+Phase 26 Slice 6 is complete as an IR-only aggregate expression argument
+lowering slice. It reuses the existing `AggregateCallIR.arguments:
+tuple[ExpressionIR, ...]` representation so semantically accepted `sum` / `avg`
+numeric expression arguments and `count_distinct` lower/trim Text transform
+arguments lower as `AggregateCallIR` instead of generic scalar `CallIR`.
+
+Slice 6 intentionally adds no SQL backend, CLI, JSON, fixture, or golden
+behavior. PostgreSQL and private MySQL emitters still fail closed through
+`PIE-B1000` for aggregate expression arguments because SQL rendering remains
+deferred to Slice 7.
+
 Trusted Phase 25 baseline:
 
 - HEAD: `38c696d0aadc1c5f6b9e41b71e2a441f32c20198`;
@@ -359,14 +370,16 @@ Required transition:
 
 Planned examples:
 
-- `sum(amount + tax)` is semantically accepted in Slice 4, while SQL emission
-  remains fail-closed with no artifact until the later IR/SQL slices;
+- `sum(amount + tax)` is semantically accepted in Slice 4 and lowered as
+  `AggregateCallIR` in Slice 6, while SQL emission remains fail-closed with no
+  artifact until the later SQL slices;
 - `sum(amount + 1)` remains deferred through `PIE-S2315`;
 - `sum(amount / tax)` remains deferred through `PIE-S2315`;
 - `sum(lower(status))` reports `PIE-S2314` because the aggregate argument type
   is known Text, not numeric;
-- `count_distinct(lower(status))` is semantically accepted in Slice 5, while SQL
-  emission remains fail-closed with no artifact until the later IR/SQL slices;
+- `count_distinct(lower(status))` is semantically accepted in Slice 5 and lowered
+  as `AggregateCallIR` in Slice 6, while SQL emission remains fail-closed with
+  no artifact until the later SQL slices;
 - `sum(avg(amount))` reports `PIE-S2311`;
 - `sum(amount) + 1` reports `PIE-S2310`;
 - `satisfying: sum(amount + tax) > 1000` reports `PIE-S2308`.
@@ -413,21 +426,21 @@ result nullability follows the completed aggregate contracts.
 Phase 26 should not need an IR dataclass change for aggregate expression
 arguments.
 
-Future lowering examples:
+Slice 6 lowering examples:
 
 - `sum(amount + tax)` lowers as `AggregateCallIR("sum", (BinaryIR(...),), ...)`;
 - `avg(score * weight)` lowers as `AggregateCallIR("avg", (BinaryIR(...),), ...)`;
 - `count_distinct(lower(status))` lowers as
   `AggregateCallIR("count_distinct", (CallIR("lower", ...),), ...)`.
 
-The IR lowering slice should update aggregate projection consistency checks so
-valid expression arguments lower as aggregate IR instead of generic scalar
-`CallIR`. Malformed or unsupported aggregate IR remains fail-closed before or
-during SQL rendering.
+Slice 6 updates aggregate projection consistency checks so valid expression
+arguments lower as aggregate IR instead of generic scalar `CallIR`. Malformed or
+unsupported aggregate IR remains fail-closed before or during SQL rendering.
 
-Until that IR slice lands, Slice 4 intentionally relies on a fail-closed
-lower-layer guard: source that is semantically accepted with
-`sum(amount + tax)` must not produce SQL artifacts through `emit-sql`.
+Until the SQL slice lands, Slice 6 intentionally relies on a fail-closed backend
+guard: source that is semantically accepted and lowered as `AggregateCallIR`
+with `sum(amount + tax)` or `count_distinct(lower(status))` must not produce SQL
+artifacts through `emit-sql`.
 
 ## SQL Backend Contract
 
@@ -520,10 +533,13 @@ Slice 5: `count_distinct` Text Transform Expression Semantics
 
 Slice 6: Aggregate Expression Argument IR Lowering
 
+- complete as IR-only work;
 - lower accepted aggregate expression arguments through existing
   `AggregateCallIR.arguments`;
 - update IR aggregate consistency checks;
-- add focused IR tests;
+- add focused IR tests and backend fail-closed guards proving PostgreSQL and
+  private MySQL still return `PIE-B1000` with no SQL artifact for aggregate
+  expression arguments;
 - add no SQL backend behavior, CLI behavior, JSON schema, fixture, golden,
   dependency, runtime/database, public MySQL API, or relationship/JOIN behavior.
 
