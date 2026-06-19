@@ -15,6 +15,16 @@ lowering, CLI behavior, JSON behavior, fixtures, goldens, dependency,
 package, CI, runtime/database, project/multi-file, public MySQL API, or
 relationship/JOIN behavior.
 
+Phase 25 Slice 3 is complete as semantic validation and fail-closed hardening
+only. It validates parsed `satisfying:` clauses for GROUP BY-only use,
+select-output-name scope, group-key or direct-aggregate output references,
+and a conservative predicate subset. Otherwise-valid `satisfying:` programs
+emit temporary `PIE-S2322` until a later IR/SQL slice adds result-predicate
+lowering. Slice 3 adds no Semantic IR, SQL/HAVING lowering, CLI behavior,
+JSON schema, JSON output behavior, grammar, generated parser, AST, fixture,
+golden, dependency, package, CI, runtime/database, project/multi-file, public
+MySQL API, or relationship/JOIN behavior.
+
 Slice 1 changes no grammar, generated ANTLR, AST, AST builder, semantic
 analysis, Semantic IR, SQL backend, CLI behavior, JSON schema, JSON output
 behavior, fixture, golden, script, dependency, lockfile, package metadata, CI,
@@ -166,13 +176,15 @@ Rejected or deferred references:
 
 ### Predicate Subset
 
-The MVP admits predicates built from select output names, scalar literals,
-parentheses, comparisons, `between`, `is null`, `is not null`, and existing
-Boolean `and` / `or` composition.
+Slice 3 admits only predicates built from select output names, scalar
+literals, parentheses as represented by the parsed AST, simple comparisons
+`==`, `!=`, `<`, `<=`, `>`, `>=`, and existing Boolean `and` / `or`
+composition.
 
-The MVP defers direct aggregate calls, scalar calls, arithmetic, unary
-operators, `like`, standalone `not`, arbitrary expressions, aggregate
-composition, and projection alias composition inside `satisfying:`.
+Slice 3 rejects or defers dotted names, direct aggregate calls, scalar calls,
+arithmetic, unary operators, `like`, `between`, `is null`, `is not null`,
+standalone `not`, arbitrary expressions, aggregate composition, and
+projection alias composition inside `satisfying:`.
 
 The satisfying predicate must type as Bool when known. Existing Bool predicate
 validation should be reused by a future semantic slice.
@@ -233,27 +245,31 @@ Those byte-level details belong to the SQL/golden slice.
 
 ## Diagnostics Direction
 
-Slice 1 does not implement or reserve final diagnostics. It records the
-recommended diagnostic direction for later semantic slices.
+Slice 1 did not implement or reserve final diagnostics. Slice 3 adds the
+temporary fail-closed and shape diagnostics needed for semantic validation.
 
-Recommended reuse:
+Reuse:
 
-- direct aggregate calls inside `satisfying:` should reuse `PIE-S2308`
+- direct aggregate calls inside `satisfying:` reuse `PIE-S2308`
   because this is an aggregate used outside the only currently accepted
   context: direct aliased `select:` projection.
 - existing aggregate projection diagnostics `PIE-S2309` through `PIE-S2315`
-  should remain unchanged for invalid aggregate projections in `select:`.
-- known non-Bool satisfying predicates should reuse `PIE-S2202` with a
+  remain unchanged for invalid aggregate projections in `select:`.
+- known non-Bool satisfying predicates reuse `PIE-S2202` with a
   satisfying-specific context.
 
-Recommended new satisfying diagnostics, if implementation needs them:
+Slice 3 satisfying diagnostics:
 
-- satisfying used without GROUP BY;
-- unknown satisfying output name;
-- satisfying reference to a row-level input field rather than a select output;
-- satisfying reference to a projection output whose expression is not a
-  group-key projection or direct aggregate projection;
-- unsupported satisfying predicate expression form.
+- `PIE-S2322`: otherwise-valid `satisfying:` is semantically recognized, but
+  IR/SQL lowering is deferred;
+- `PIE-S2323`: `satisfying:` is used without `group by:`;
+- `PIE-S2324`: a bare name does not resolve to a select output name;
+- `PIE-S2325`: a bare name resolves to an input field rather than a select
+  output name;
+- `PIE-S2326`: a referenced select output is not a group-key projection or
+  direct aggregate projection;
+- `PIE-S2327`: the predicate uses an expression form outside the Slice 3
+  conservative subset.
 
 Reasoning: reusing `PIE-S2308` for direct aggregate calls avoids inventing a
 second aggregate-context diagnostic for the same semantic mistake. New
@@ -280,11 +296,14 @@ Slice 2: Parser And AST
 
 Slice 3: Semantic Validation
 
-- future implementation slice;
+- complete as semantic-validation-only fail-closed hardening;
 - enforce GROUP BY-only scope;
 - resolve select output names only;
 - validate referenced outputs as group-key projections or direct aggregates;
-- validate Bool predicate shape and satisfying-specific diagnostics.
+- validate Bool predicate shape and satisfying-specific diagnostics;
+- add no Semantic IR, SQL/HAVING lowering, CLI behavior, JSON schema change,
+  fixture, golden, grammar, generated parser, AST, dependency, CI, package,
+  runtime/database, public MySQL API, or relationship/JOIN behavior.
 
 Slice 4: IR Representation And Alias Normalization
 

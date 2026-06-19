@@ -89,12 +89,16 @@ def test_predicate_subset_and_deferred_expression_forms_are_locked() -> None:
     plan = _normalized()
 
     for required in (
-        "select output names, scalar literals, parentheses, comparisons, `between`, `is null`, `is not null`, and existing Boolean `and` / `or` composition",
+        "simple comparisons `==`, `!=`, `<`, `<=`, `>`, `>=`, and existing Boolean `and` / `or` composition",
+        "Slice 3 rejects or defers dotted names",
         "direct aggregate calls",
         "scalar calls",
         "arithmetic",
         "unary operators",
         "`like`",
+        "`between`",
+        "`is null`",
+        "`is not null`",
         "standalone `not`",
         "aggregate composition",
         "projection alias composition",
@@ -120,11 +124,12 @@ def test_diagnostics_recommendation_preserves_existing_aggregate_codes() -> None
     plan = _normalized()
 
     for required in (
-        "Slice 1 does not implement or reserve final diagnostics",
-        "direct aggregate calls inside `satisfying:` should reuse `PIE-S2308`",
-        "existing aggregate projection diagnostics `PIE-S2309` through `PIE-S2315` should remain unchanged",
-        "known non-Bool satisfying predicates should reuse `PIE-S2202`",
-        "New satisfying diagnostics should be reserved for scope and predicate-shape errors",
+        "Slice 1 did not implement or reserve final diagnostics",
+        "direct aggregate calls inside `satisfying:` reuse `PIE-S2308`",
+        "existing aggregate projection diagnostics `PIE-S2309` through `PIE-S2315` remain unchanged",
+        "known non-Bool satisfying predicates reuse `PIE-S2202`",
+        "`PIE-S2322`: otherwise-valid `satisfying:` is semantically recognized, but IR/SQL lowering is deferred",
+        "`PIE-S2327`: the predicate uses an expression form outside the Slice 3 conservative subset",
     ):
         assert required in plan
 
@@ -150,7 +155,7 @@ def test_required_non_goals_remain_explicitly_deferred() -> None:
         assert required in plan
 
 
-def test_future_slice_sequence_is_recorded_without_implementing_slice2() -> None:
+def test_slice_sequence_records_completed_slice3_and_future_lowering() -> None:
     plan = _normalized()
 
     for required in (
@@ -161,6 +166,7 @@ def test_future_slice_sequence_is_recorded_without_implementing_slice2() -> None
         "Slice 5: PostgreSQL And Private MySQL SQL Lowering",
         "Slice 6: CLI / JSON / Output Hardening",
         "Slice 7: Completion Audit And Status Lock",
+        "complete as semantic-validation-only fail-closed hardening",
         "future implementation slice",
     ):
         assert required in plan

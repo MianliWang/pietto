@@ -51,6 +51,7 @@ from pietto.semantic.relationship_metadata import check_relationship_metadata
 from pietto.semantic.relations import resolve_relation_inputs
 from pietto.semantic.shapes import check_field_derives, check_shape_structures
 from pietto.semantic.source_connectors import check_source_connectors
+from pietto.semantic.satisfying import check_satisfying_clauses
 from pietto.semantic.sources import check_sources
 from pietto.semantic.predicate_checks import check_predicates
 from pietto.semantic.type_aliases import expand_type_aliases
@@ -201,6 +202,14 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
     diagnostics.extend(check_relation_limits(script))
     diagnostics.extend(check_source_connectors(script, expression_value_types))
     diagnostics.extend(check_predicates(script, expression_value_types))
+    diagnostics.extend(
+        check_satisfying_clauses(
+            script,
+            from_resolutions=from_resolutions,
+            source_row_schemas=source_row_schemas,
+            relation_row_schemas=relation_row_schemas,
+        )
+    )
     diagnostics.extend(
         check_callable_bodies(
             script,

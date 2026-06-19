@@ -40,8 +40,8 @@ LOCKED_FORBIDDEN_SURFACES = {
     ),
     "semantic": (
         "src/pietto/semantic",
-        19,
-        "77f83187c4807fecd8f0b5a4889b2e5911852547e852f5f2832abd82f8ddfbb2",
+        20,
+        "60b8815761468602ef3a3c4681478efd14b6bd05fbbbfbb32812879fb51d177c",
     ),
     "ir": (
         "src/pietto/ir",
@@ -86,7 +86,7 @@ LOCKED_FORBIDDEN_SURFACES = {
     "diagnostics": (
         "docs/spec/diagnostics.md",
         1,
-        "df3f943f077769b54cd826dd18ebcdf82e153d2542f417c7e171b5ec4a7448d6",
+        "18601874167ec8bb3bb4dc9e1567aaaba70efe52861e72e25dd88b774d89a36e",
     ),
     "pyproject": (
         "pyproject.toml",

@@ -64,6 +64,12 @@ stored separately and is never encoded in the code.
 | `PIE-S2319` | Grouped scalar projection is deferred |
 | `PIE-S2320` | Pure grouped output without an aggregate is deferred |
 | `PIE-S2321` | Grouped ORDER BY is deferred |
+| `PIE-S2322` | `satisfying` IR/SQL lowering is deferred |
+| `PIE-S2323` | `satisfying` used without `GROUP BY` |
+| `PIE-S2324` | Unknown select output name in `satisfying` |
+| `PIE-S2325` | Input field referenced instead of select output in `satisfying` |
+| `PIE-S2326` | Unsupported select output referenced in `satisfying` |
+| `PIE-S2327` | Unsupported expression form in `satisfying` |
 | `PIE-S2401` | Constraint return type does not expand to `Bool` |
 | `PIE-S2402` | Callable or field derive body type mismatch |
 | `PIE-S2501` | Duplicate shape item name |
