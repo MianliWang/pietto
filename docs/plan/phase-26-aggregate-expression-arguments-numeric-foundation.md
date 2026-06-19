@@ -15,6 +15,22 @@ package metadata, CI, Makefile/config, project/multi-file behavior,
 runtime/database behavior, schema introspection, public MySQL API, public MySQL
 CLI exposure, LSP/playground behavior, or relationship/JOIN behavior.
 
+Phase 26 Slice 2 is complete as numeric scalar expression semantics audit and
+status work only. It locks the already-implemented Int/Float `+`, `-`, and `*`
+ordinary scalar expression semantics for computed projections and `where`
+predicate operands, existing unary numeric semantics, existing binary
+expression nullability, invalid-operand diagnostics, unknown cascade
+suppression, and deferred division behavior.
+
+Slice 2 adds no production behavior. It changes no grammar, generated ANTLR,
+AST, AST builder, semantic implementation, Semantic IR implementation, SQL
+backend, CLI implementation, JSON schema, JSON serializer, fixture, golden,
+script, dependency, lockfile, package metadata, CI, Makefile/config,
+project/multi-file behavior, runtime/database behavior, schema introspection,
+public MySQL API, public MySQL CLI exposure, LSP/playground behavior, Decimal
+arithmetic, aggregate expression argument acceptance, or relationship/JOIN
+behavior.
+
 Trusted Phase 25 baseline:
 
 - HEAD: `38c696d0aadc1c5f6b9e41b71e2a441f32c20198`;
@@ -380,8 +396,11 @@ Slice 1: Candidate Decision, Exact Contract, And Static Audit
 
 Slice 2: Numeric Scalar Expression Semantics
 
-- implement the approved Int/Float numeric scalar expression contract;
+- complete as numeric scalar expression semantics audit and status work only;
+- lock the already-implemented approved Int/Float numeric scalar expression
+  contract for ordinary computed projections and `where` predicate operands;
 - keep division deferred;
+- keep Decimal arithmetic deferred to Slice 3;
 - keep aggregate expression argument acceptance deferred;
 - add no grammar, generated parser, AST, IR, SQL, CLI, JSON, fixture, golden,
   dependency, runtime/database, public MySQL API, or relationship/JOIN behavior.
@@ -502,5 +521,6 @@ uv run python scripts/package_smoke.py
 uv run python scripts/validate.py
 ```
 
-Slice 1 itself requires only static audit tests and lightweight repository
-checks because it changes no production compiler behavior.
+Slice 1 and Slice 2 themselves require only focused static/regression audit
+tests and lightweight repository checks because they change no production
+compiler behavior.
