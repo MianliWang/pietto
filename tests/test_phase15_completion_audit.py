@@ -36,7 +36,7 @@ PHASE15_ARTIFACT_HASHES = {
         "e2a4219d2e0a0b7cc2d739475e39022df931c58171a87f96436286008a4be3b3"
     ),
     PRIOR_AUDIT_PATH: (
-        "26cb229e7ae3cf5e92121f8c770a0ec2835486d0b3c864aa5d3f64e5017cc732"
+        "203233a4bfdc73805142ef767ea5c39a1375c5a828f152ec650c39432bc9e540"
     ),
 }
 
@@ -81,7 +81,7 @@ LOCKED_GROUP_HASHES = {
     ),
     "semantic": (
         20,
-        "e011609deb5abc2a8d0e48d433af2489432ce6e40325c5ea924c5a333bc8ce8e",
+        "7952233af8d0452a341385e631af587757deff8167a80f7fd6a08720184ca069",
     ),
     "ir": (
         5,

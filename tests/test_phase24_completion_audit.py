@@ -78,7 +78,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "semantic": (
         "src/pietto/semantic",
         20,
-        "e011609deb5abc2a8d0e48d433af2489432ce6e40325c5ea924c5a333bc8ce8e",
+        "7952233af8d0452a341385e631af587757deff8167a80f7fd6a08720184ca069",
     ),
     "ir": (
         "src/pietto/ir",
@@ -288,7 +288,7 @@ def test_phase24_focused_coverage_is_locked() -> None:
             "test_qualified_decimal_aggregate_arguments_are_accepted",
             "test_grouped_decimal_aggregate_projections_are_accepted",
             "test_decimal_aggregate_expression_arguments_remain_deferred",
-            "test_decimal_arithmetic_is_not_enabled_outside_aggregates",
+            "test_decimal_multiplication_is_not_enabled_outside_aggregates",
             "test_decimal_aggregate_in_invalid_context_remains_rejected",
         },
         "tests/test_phase24_decimal_aggregate_ir.py": {
