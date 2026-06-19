@@ -30,7 +30,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "semantic": (
         "src/pietto/semantic",
         20,
-        "7952233af8d0452a341385e631af587757deff8167a80f7fd6a08720184ca069",
+        "cfa7034571449df0d0034b053c48585980f3ccd457b7f0fd326739b72dc655d1",
     ),
     "ir": (
         "src/pietto/ir",
@@ -181,8 +181,8 @@ def test_slice7_preserves_decimal_and_runtime_non_goals() -> None:
 @pytest.mark.parametrize(
     ("projection", "function_name"),
     [
-        ("value = sum(amount + amount)", "sum"),
-        ("value = avg(amount + amount)", "avg"),
+        ("value = sum(amount + 1)", "sum"),
+        ("value = avg(amount / amount)", "avg"),
         ("value = min(amount + amount)", "min"),
         ("value = max(amount + amount)", "max"),
         ("value = count_distinct(lower(status))", "count_distinct"),

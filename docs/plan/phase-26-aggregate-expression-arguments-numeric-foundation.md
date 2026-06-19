@@ -57,6 +57,28 @@ schema, JSON serializer, fixture, golden, script, dependency, lockfile, package
 metadata, CI, Makefile/config, project/multi-file behavior, or runtime/database
 behavior.
 
+Phase 26 Slice 4 is complete as a semantic-only aggregate expression argument
+slice. It admits only field-only numeric scalar expression arguments for direct
+aliased `sum` and `avg` projections in no-GROUP and grouped `select:` contexts.
+Accepted leaves are direct input field references and existing single-input
+qualified field references; accepted composition is unary `+` / `-` and binary
+`+`, `-`, or `*` only when the existing scalar expression typing yields an
+approved `Int`, `Float`, or `Decimal` result.
+
+Literal-containing aggregate arguments such as `sum(amount + 1)` and
+`avg(score * 2)` remain deferred through `PIE-S2315`. Slice 4 also keeps
+`count(expression)`, `count_distinct(expression)`, `min(expression)`,
+`max(expression)`, division, modulo, Decimal multiplication, mixed Decimal/Int
+or Decimal/Float arithmetic, literal-only arguments, projection aliases as
+aggregate argument leaves, nested aggregates, aggregate composition, and direct
+aggregate calls inside `satisfying:` outside the accepted subset.
+
+Slice 4 intentionally adds no IR, SQL backend, CLI, JSON, fixture, or golden
+behavior. The focused fail-closed guard proves that semantically accepted
+`sum(amount + tax)` does not emit SQL artifacts before the later IR/SQL slices.
+If a lower layer ever starts emitting SQL for this shape before those slices,
+that is a scope violation rather than a Slice 4 feature.
+
 Trusted Phase 25 baseline:
 
 - HEAD: `38c696d0aadc1c5f6b9e41b71e2a441f32c20198`;
@@ -194,10 +216,16 @@ reference and must not be a standalone literal argument such as `avg(1)`.
 Direct input field leaves may be bare fields or existing single-input qualified
 field references. Projection aliases are not aggregate argument leaves.
 
+Slice 4 applies the first conservative semantic subset for `sum` and `avg`:
+all leaves must be direct input field references or supported single-input
+qualified field references. Numeric literal leaves are not admitted in this
+slice, so literal-containing arguments such as `sum(amount + 1)` and
+`avg(score * 2)` remain deferred through `PIE-S2315`.
+
 Approved numeric expression shape for `sum` and `avg`:
 
-- direct input field reference;
-- existing single-input qualified field reference;
+- direct input field reference leaf;
+- existing single-input qualified field reference leaf;
 - unary `+` or `-` over an approved numeric expression;
 - binary `+`, `-`, or `*` over approved numeric expressions whose result type is
   `Int`, `Float`, or accepted `Decimal`.
@@ -315,7 +343,9 @@ Required transition:
 
 Planned examples:
 
-- `sum(amount + tax)` is accepted after the semantic/IR/SQL slices land;
+- `sum(amount + tax)` is semantically accepted in Slice 4, while SQL emission
+  remains fail-closed with no artifact until the later IR/SQL slices;
+- `sum(amount + 1)` remains deferred through `PIE-S2315`;
 - `sum(amount / tax)` remains deferred through `PIE-S2315`;
 - `sum(lower(status))` reports `PIE-S2314` because the aggregate argument type
   is known Text, not numeric;
@@ -340,6 +370,8 @@ Future semantic work should:
   modulo remains supported;
 - add an aggregate-argument expression shape predicate instead of accepting all
   typed expressions;
+- keep numeric literal leaves out of the Slice 4 `sum` / `avg` aggregate
+  expression argument subset;
 - validate nested aggregate, composition, arity, alias, and context errors
   before expression-argument acceptance;
 - compute aggregate result types from the expression argument value type;
@@ -376,6 +408,10 @@ The IR lowering slice should update aggregate projection consistency checks so
 valid expression arguments lower as aggregate IR instead of generic scalar
 `CallIR`. Malformed or unsupported aggregate IR remains fail-closed before or
 during SQL rendering.
+
+Until that IR slice lands, Slice 4 intentionally relies on a fail-closed
+lower-layer guard: source that is semantically accepted with
+`sum(amount + tax)` must not produce SQL artifacts through `emit-sql`.
 
 ## SQL Backend Contract
 
@@ -442,10 +478,15 @@ Slice 3: Decimal Arithmetic Subset
 
 Slice 4: `sum` / `avg` Aggregate Expression Semantics
 
-- admit approved numeric expression arguments for direct aliased `sum` and
-  `avg` projections in no-GROUP and grouped `select:` contexts;
+- complete as semantic-only work;
+- admit approved field-only numeric expression arguments for direct aliased
+  `sum` and `avg` projections in no-GROUP and grouped `select:` contexts;
+- keep literal-containing aggregate arguments such as `sum(amount + 1)` and
+  `avg(score * 2)` deferred through `PIE-S2315`;
 - preserve `count(expression)`, `min(expression)`, `max(expression)`, nested
   aggregates, aggregate composition, and unsupported expression diagnostics;
+- prove `emit-sql` fails closed with no SQL artifact for semantically accepted
+  `sum(amount + tax)` until later IR/SQL slices;
 - add no IR, SQL, CLI, JSON, fixture, golden, dependency, runtime/database,
   public MySQL API, or relationship/JOIN behavior.
 

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from pietto.ast_nodes import (
     BetweenExpr,
     BinaryExpr,
@@ -19,6 +21,7 @@ from pietto.semantic.model import (
     ResolvedType,
     TypeKind,
     ValueType,
+    ValueTypeKind,
 )
 
 COUNT_AGGREGATE_NAME = "count"
@@ -271,6 +274,39 @@ def is_direct_field_argument(expression: Expression) -> bool:
     return isinstance(expression, (NameExpr, DottedNameExpr))
 
 
+def is_supported_semantic_aggregate_argument_expression(
+    function_name: str,
+    expression: Expression,
+    value_type: ValueType,
+) -> bool:
+    """Return whether an aggregate accepts this argument expression."""
+
+    if is_direct_field_argument(expression):
+        return is_supported_semantic_aggregate_argument(function_name, value_type)
+    if function_name not in {SUM_AGGREGATE_NAME, AVG_AGGREGATE_NAME}:
+        return False
+    return is_supported_numeric_argument(value_type) and _is_field_only_numeric_shape(
+        expression
+    )
+
+
+def has_unknown_field_reference(
+    expression: Expression,
+    expression_value_types: Mapping[Expression, ValueType] | None,
+) -> bool:
+    """Return whether a field leaf in this expression is semantically unknown."""
+
+    if expression_value_types is None:
+        return False
+    if isinstance(expression, (NameExpr, DottedNameExpr)):
+        value_type = expression_value_types.get(expression)
+        return value_type is None or value_type.kind is ValueTypeKind.UNKNOWN
+    return any(
+        has_unknown_field_reference(child, expression_value_types)
+        for child in child_expressions(expression)
+    )
+
+
 def is_supported_numeric_argument(value_type: ValueType) -> bool:
     """Return whether an aggregate argument is an approved numeric field type."""
 
@@ -310,6 +346,22 @@ def is_supported_count_distinct_argument(value_type: ValueType) -> bool:
             "UUID",
         )
     )
+
+
+def _is_field_only_numeric_shape(expression: Expression) -> bool:
+    if isinstance(expression, (NameExpr, DottedNameExpr)):
+        return True
+    if isinstance(expression, UnaryExpr):
+        return expression.operator in {"+", "-"} and _is_field_only_numeric_shape(
+            expression.operand
+        )
+    if isinstance(expression, BinaryExpr):
+        return (
+            expression.operator in {"+", "-", "*"}
+            and _is_field_only_numeric_shape(expression.left)
+            and _is_field_only_numeric_shape(expression.right)
+        )
+    return False
 
 
 def is_supported_semantic_aggregate_argument(

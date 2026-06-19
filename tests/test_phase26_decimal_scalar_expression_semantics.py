@@ -206,7 +206,7 @@ def test_decimal_division_remains_deferred_without_diagnostic() -> None:
     ("projection", "expected"),
     [
         (
-            "value = sum(price + price)",
+            "value = sum(price * price)",
             (
                 "PIE-S2315",
                 "Aggregate function sum requires a direct field argument; "

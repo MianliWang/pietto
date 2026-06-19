@@ -181,8 +181,8 @@ def test_direct_lower_expr_for_decimal_aggregate_uses_aggregate_call_ir() -> Non
 @pytest.mark.parametrize(
     ("select_body", "expected_code"),
     [
-        ("        value = sum(amount + amount)\n", "PIE-S2315"),
-        ("        value = avg(amount + amount)\n", "PIE-S2315"),
+        ("        value = sum(amount * amount)\n", "PIE-S2315"),
+        ("        value = avg(amount / amount)\n", "PIE-S2315"),
         ("        value = min(amount + amount)\n", "PIE-S2315"),
         ("        value = max(amount + amount)\n", "PIE-S2315"),
         ("        value = sum(avg(amount))\n", "PIE-S2311"),

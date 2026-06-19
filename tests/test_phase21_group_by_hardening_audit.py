@@ -41,7 +41,7 @@ LOCKED_FORBIDDEN_SURFACES = {
     "semantic": (
         "src/pietto/semantic",
         20,
-        "7952233af8d0452a341385e631af587757deff8167a80f7fd6a08720184ca069",
+        "cfa7034571449df0d0034b053c48585980f3ccd457b7f0fd326739b72dc655d1",
     ),
     "ir": (
         "src/pietto/ir",

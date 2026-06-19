@@ -291,7 +291,7 @@ def test_cli_check_succeeds_for_valid_grouped_relation(
             "        status\n"
             "    select:\n"
             "        status\n"
-            "        revenue = sum(amount + amount)\n",
+            "        revenue = sum(amount + 1)\n",
             ["PIE-S2315"],
         ),
     ],

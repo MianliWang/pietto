@@ -76,7 +76,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "semantic": (
         "src/pietto/semantic",
         20,
-        "7952233af8d0452a341385e631af587757deff8167a80f7fd6a08720184ca069",
+        "cfa7034571449df0d0034b053c48585980f3ccd457b7f0fd326739b72dc655d1",
     ),
     "ir": (
         "src/pietto/ir",
@@ -327,9 +327,9 @@ def test_cli_text_aggregate_expression_argument_stops_before_backend(
 
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert "PIE-S2315 error:" in captured.err
-    assert "expression arguments are deferred" in captured.err
-    assert "PIE-B1000" not in captured.err
+    assert "PIE-B1000 error:" in captured.err
+    assert "Unsupported PostgreSQL function call: sum" in captured.err
+    assert "PIE-S2315" not in captured.err
 
 
 def test_cli_json_aggregate_expression_argument_does_not_write_output(
@@ -360,7 +360,8 @@ def test_cli_json_aggregate_expression_argument_does_not_write_output(
     diagnostics = cast(list[dict[str, object]], result["diagnostics"])
 
     assert result["ok"] is False
-    assert [diagnostic["code"] for diagnostic in diagnostics] == ["PIE-S2315"]
+    assert [diagnostic["code"] for diagnostic in diagnostics] == ["PIE-B1000"]
+    assert "Unsupported PostgreSQL function call: sum" in str(diagnostics[0]["message"])
     assert result["cli_errors"] == []
     assert result["artifacts"] == []
     assert result["output"] == {"path": str(output_path), "written": False}

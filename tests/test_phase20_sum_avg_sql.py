@@ -235,7 +235,7 @@ def test_cli_json_sum_avg_sql_output_writes_exact_sql(
 @pytest.mark.parametrize(
     ("select_body", "expected_code"),
     [
-        ("        revenue = sum(amount + amount)\n", "PIE-S2315"),
+        ("        revenue = sum(amount + 1)\n", "PIE-S2315"),
         ("        average = avg(1)\n", "PIE-S2315"),
         ("        revenue = sum(status)\n", "PIE-S2314"),
         ("        average = avg(status)\n", "PIE-S2314"),

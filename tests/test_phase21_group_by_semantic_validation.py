@@ -245,7 +245,7 @@ def test_grouped_order_by_is_deferred_without_alias_lookup_cascade() -> None:
             ),
         ),
         (
-            "revenue = sum(amount + amount)",
+            "revenue = sum(amount + 1)",
             (
                 "PIE-S2315",
                 "Aggregate function sum requires a direct field argument; "

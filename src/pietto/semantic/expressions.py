@@ -31,10 +31,10 @@ from pietto.ast_nodes import (
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
     contains_semantic_aggregate,
-    deferred_argument_expression_diagnostic,
+    has_unknown_field_reference,
     invalid_context_diagnostic,
-    is_direct_field_argument,
     is_semantic_aggregate_call,
+    is_supported_semantic_aggregate_argument_expression,
     semantic_aggregate_call_name,
     semantic_projection_aggregate_result_value_type,
 )
@@ -611,26 +611,14 @@ def _call_value_type(
     """Type one exact built-in call while suppressing Unknown cascades."""
 
     function_name = _callee_name(expression)
-    if (
-        allow_aggregate_projection
-        and is_semantic_aggregate_call(expression)
-        and len(expression.arguments) == 1
-        and not is_direct_field_argument(expression.arguments[0])
-        and not contains_semantic_aggregate(expression.arguments[0])
-    ):
-        diagnostics.append(deferred_argument_expression_diagnostic(expression))
-        return _UNKNOWN_VALUE_TYPE
-
-    argument_types = tuple(
-        _infer(
-            argument,
-            row_schema,
-            value_types,
-            diagnostics,
-            report_unknown_name=report_unknown_name,
-            field_qualifier=field_qualifier,
-        )
-        for argument in expression.arguments
+    argument_types = _call_argument_types(
+        expression,
+        row_schema,
+        value_types,
+        diagnostics,
+        report_unknown_name=report_unknown_name,
+        field_qualifier=field_qualifier,
+        allow_aggregate_projection=allow_aggregate_projection,
     )
     if any(
         argument_type.kind is ValueTypeKind.UNKNOWN for argument_type in argument_types
@@ -678,6 +666,53 @@ def _call_value_type(
     )
 
 
+def _call_argument_types(
+    expression: CallExpr,
+    row_schema: RowSchema,
+    value_types: dict[Expression, ValueType],
+    diagnostics: list[Diagnostic],
+    *,
+    report_unknown_name: bool,
+    field_qualifier: str | None,
+    allow_aggregate_projection: bool,
+) -> tuple[ValueType, ...]:
+    if (
+        allow_aggregate_projection
+        and is_semantic_aggregate_call(expression)
+        and len(expression.arguments) == 1
+        and not contains_semantic_aggregate(expression.arguments[0])
+    ):
+        argument = expression.arguments[0]
+        temporary_diagnostics: list[Diagnostic] = []
+        argument_type = _infer(
+            argument,
+            row_schema,
+            value_types,
+            temporary_diagnostics,
+            report_unknown_name=report_unknown_name,
+            field_qualifier=field_qualifier,
+        )
+        if is_supported_semantic_aggregate_argument_expression(
+            _callee_name(expression),
+            argument,
+            argument_type,
+        ) or has_unknown_field_reference(argument, value_types):
+            diagnostics.extend(temporary_diagnostics)
+        return (argument_type,)
+
+    return tuple(
+        _infer(
+            argument,
+            row_schema,
+            value_types,
+            diagnostics,
+            report_unknown_name=report_unknown_name,
+            field_qualifier=field_qualifier,
+        )
+        for argument in expression.arguments
+    )
+
+
 def _callee_name(expression: CallExpr) -> str:
     """Return a source-level name for a simple or dotted call target."""
 
@@ -701,7 +736,11 @@ def _aggregate_value_type(
     if len(expression.arguments) != 1:
         return None
     argument = expression.arguments[0]
-    if not is_direct_field_argument(argument):
+    if not is_supported_semantic_aggregate_argument_expression(
+        function_name,
+        argument,
+        argument_types[0],
+    ):
         return None
     return semantic_projection_aggregate_result_value_type(
         function_name,

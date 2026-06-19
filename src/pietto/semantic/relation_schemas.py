@@ -22,10 +22,11 @@ from pietto.semantic.aggregates import (
     contains_semantic_aggregate,
     deferred_composition_diagnostic,
     deferred_argument_expression_diagnostic,
-    is_direct_field_argument,
+    has_unknown_field_reference,
     is_semantic_aggregate_call,
     is_supported_semantic_aggregate_arity,
     is_supported_semantic_aggregate_argument,
+    is_supported_semantic_aggregate_argument_expression,
     mixed_projection_diagnostic,
     nested_aggregate_diagnostic,
     nested_semantic_aggregate,
@@ -237,24 +238,20 @@ def _aggregate_projection_diagnostics(
 
         if expression.arguments:
             argument = expression.arguments[0]
-            has_unknown_argument = _has_unknown_argument(
-                expression,
-                expression_value_types=expression_value_types,
+            has_unknown_reference = has_unknown_field_reference(
+                argument,
+                expression_value_types,
             )
-            if not is_direct_field_argument(argument):
-                if not has_unknown_argument:
-                    diagnostics.append(
-                        deferred_argument_expression_diagnostic(expression)
-                    )
-                invalid_items.add(item)
-                continue
-
             argument_type = (
                 None
                 if expression_value_types is None
                 else expression_value_types.get(argument)
             )
             if argument_type is None or argument_type.kind is ValueTypeKind.UNKNOWN:
+                if not has_unknown_reference:
+                    diagnostics.append(
+                        deferred_argument_expression_diagnostic(expression)
+                    )
                 invalid_items.add(item)
                 continue
             if not is_supported_semantic_aggregate_argument(
@@ -267,6 +264,14 @@ def _aggregate_projection_diagnostics(
                         actual_name=argument_type.resolved_type.name,
                     )
                 )
+                invalid_items.add(item)
+                continue
+            if not is_supported_semantic_aggregate_argument_expression(
+                function_name,
+                argument,
+                argument_type,
+            ):
+                diagnostics.append(deferred_argument_expression_diagnostic(expression))
                 invalid_items.add(item)
                 continue
 

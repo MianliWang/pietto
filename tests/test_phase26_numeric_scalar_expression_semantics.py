@@ -262,7 +262,7 @@ def test_decimal_multiplication_remains_deferred_to_later_slice() -> None:
     ("projection", "expected"),
     [
         (
-            "value = sum(amount + tax)",
+            "value = sum(amount + 1)",
             (
                 "PIE-S2315",
                 "Aggregate function sum requires a direct field argument; "

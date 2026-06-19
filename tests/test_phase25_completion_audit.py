@@ -47,7 +47,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "semantic": (
         "src/pietto/semantic",
         20,
-        "7952233af8d0452a341385e631af587757deff8167a80f7fd6a08720184ca069",
+        "cfa7034571449df0d0034b053c48585980f3ccd457b7f0fd326739b72dc655d1",
     ),
     "ir": (
         "src/pietto/ir",
@@ -184,7 +184,7 @@ def test_phase25_diagnostics_and_retired_pie_s2322_status_are_locked() -> None:
         assert code in plan
         assert code in semantic_tests
 
-    for reused_code in ("PIE-S2308", "PIE-S2315", "PIE-S2202", "PIE-S2105"):
+    for reused_code in ("PIE-S2308", "PIE-S2202", "PIE-S2105"):
         assert reused_code in semantic_tests
 
 
@@ -212,7 +212,7 @@ def test_phase25_focused_coverage_is_locked() -> None:
             "test_input_field_reference_in_satisfying_must_use_select_output",
             "test_computed_projection_output_in_satisfying_is_deferred",
             "test_aggregate_calls_inside_satisfying_use_invalid_context_diagnostic",
-            "test_select_projection_aggregate_expression_argument_still_uses_pie_s2315",
+            "test_satisfying_resolves_aggregate_expression_projection_alias",
             "test_unsupported_satisfying_expression_forms_are_deferred",
             "test_non_bool_satisfying_predicate_reuses_predicate_diagnostic",
             "test_invalid_and_or_operands_reuse_operator_diagnostic",

@@ -227,7 +227,7 @@ def test_aggregate_calls_inside_satisfying_use_invalid_context_diagnostic(
     ]
 
 
-def test_select_projection_aggregate_expression_argument_still_uses_pie_s2315() -> None:
+def test_satisfying_resolves_aggregate_expression_projection_alias() -> None:
     result = analyze(
         _parse(
             _grouped_relation(
@@ -240,13 +240,7 @@ def test_select_projection_aggregate_expression_argument_still_uses_pie_s2315() 
         )
     )
 
-    assert _errors(result) == [
-        (
-            "PIE-S2315",
-            "Aggregate function sum requires a direct field argument; "
-            "expression arguments are deferred",
-        ),
-    ]
+    assert _errors(result) == []
 
 
 @pytest.mark.parametrize(
