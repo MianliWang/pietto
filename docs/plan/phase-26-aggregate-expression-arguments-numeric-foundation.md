@@ -79,6 +79,22 @@ behavior. The focused fail-closed guard proves that semantically accepted
 If a lower layer ever starts emitting SQL for this shape before those slices,
 that is a scope violation rather than a Slice 4 feature.
 
+Phase 26 Slice 5 is complete as a semantic-only `count_distinct` Text transform
+expression argument slice. It admits direct aliased `count_distinct` projections
+whose argument is a `lower` / `trim` transform chain over exactly one direct
+Text input field or existing single-input qualified Text field.
+
+Slice 5 preserves direct-field `count_distinct(field)` behavior, keeps
+unsupported `count_distinct` expression shapes deferred through `PIE-S2315`,
+and keeps nested aggregate, aggregate composition, wrong arity, unknown-child,
+and direct-aggregate-in-`satisfying` diagnostic precedence unchanged.
+
+Slice 5 intentionally adds no IR, SQL backend, CLI, JSON, fixture, or golden
+behavior. The focused fail-closed guard proves that semantically accepted
+`count_distinct(lower(status))` does not emit SQL artifacts before the later
+IR/SQL slices. If a lower layer ever starts emitting SQL for this shape before
+those slices, that is a scope violation rather than a Slice 5 feature.
+
 Trusted Phase 25 baseline:
 
 - HEAD: `38c696d0aadc1c5f6b9e41b71e2a441f32c20198`;
@@ -349,8 +365,8 @@ Planned examples:
 - `sum(amount / tax)` remains deferred through `PIE-S2315`;
 - `sum(lower(status))` reports `PIE-S2314` because the aggregate argument type
   is known Text, not numeric;
-- `count_distinct(lower(status))` is accepted after the semantic/IR/SQL slices
-  land;
+- `count_distinct(lower(status))` is semantically accepted in Slice 5, while SQL
+  emission remains fail-closed with no artifact until the later IR/SQL slices;
 - `sum(avg(amount))` reports `PIE-S2311`;
 - `sum(amount) + 1` reports `PIE-S2310`;
 - `satisfying: sum(amount + tax) > 1000` reports `PIE-S2308`.
@@ -492,10 +508,13 @@ Slice 4: `sum` / `avg` Aggregate Expression Semantics
 
 Slice 5: `count_distinct` Text Transform Expression Semantics
 
-- admit `lower` / `trim` Text transform expression arguments for direct aliased
-  `count_distinct` projections;
+- complete as semantic-only work;
+- admit `lower` / `trim` Text transform expression arguments over exactly one
+  direct Text input field for direct aliased `count_distinct` projections;
 - keep `len`, `matches`, arbitrary calls, non-Text expression arguments, generic
   `DISTINCT`, and `count(distinct field)` deferred;
+- prove `emit-sql` fails closed with no SQL artifact for semantically accepted
+  `count_distinct(lower(status))` until later IR/SQL slices;
 - add no IR, SQL, CLI, JSON, fixture, golden, dependency, runtime/database,
   public MySQL API, or relationship/JOIN behavior.
 

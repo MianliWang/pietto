@@ -214,7 +214,7 @@ def test_decimal_division_remains_deferred_without_diagnostic() -> None:
             ),
         ),
         (
-            "value = count_distinct(lower(status))",
+            "value = count_distinct(len(status))",
             (
                 "PIE-S2315",
                 "Aggregate function count_distinct requires a direct field "

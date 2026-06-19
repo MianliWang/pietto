@@ -270,7 +270,7 @@ def test_decimal_multiplication_remains_deferred_to_later_slice() -> None:
             ),
         ),
         (
-            "value = count_distinct(lower(status))",
+            "value = count_distinct(len(status))",
             (
                 "PIE-S2315",
                 "Aggregate function count_distinct requires a direct field "

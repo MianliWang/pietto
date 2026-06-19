@@ -172,7 +172,7 @@ def test_decimal_multiplication_is_not_enabled_outside_aggregates() -> None:
         ("value = avg(score * 2)", "avg"),
         ("value = min(quantity + quantity)", "min"),
         ("value = max(score + score)", "max"),
-        ("value = count_distinct(lower(status))", "count_distinct"),
+        ("value = count_distinct(len(status))", "count_distinct"),
     ],
 )
 def test_existing_aggregate_expression_argument_diagnostics_remain_deferred(

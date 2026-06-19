@@ -30,7 +30,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "semantic": (
         "src/pietto/semantic",
         20,
-        "cfa7034571449df0d0034b053c48585980f3ccd457b7f0fd326739b72dc655d1",
+        "443719b0a177373f57ede2229339d207830f02e464a59a2a0dde5f510e53e0c7",
     ),
     "ir": (
         "src/pietto/ir",
@@ -160,7 +160,6 @@ def test_slice7_records_expression_arguments_as_deferred_behind_s2315() -> None:
         "`avg(amount + amount)` remains `PIE-S2315`",
         "`min(amount + amount)` remains `PIE-S2315`",
         "`max(amount + amount)` remains `PIE-S2315`",
-        "`count_distinct(lower(status))` remains `PIE-S2315`",
     ):
         assert required in plan
 
@@ -185,7 +184,7 @@ def test_slice7_preserves_decimal_and_runtime_non_goals() -> None:
         ("value = avg(amount / amount)", "avg"),
         ("value = min(amount + amount)", "min"),
         ("value = max(amount + amount)", "max"),
-        ("value = count_distinct(lower(status))", "count_distinct"),
+        ("value = count_distinct(len(status))", "count_distinct"),
     ],
 )
 def test_aggregate_expression_arguments_still_fail_with_s2315(

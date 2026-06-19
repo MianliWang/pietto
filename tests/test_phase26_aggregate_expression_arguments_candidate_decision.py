@@ -274,7 +274,7 @@ def test_current_phase24_readiness_lock_remains_deferred_until_later_slices() ->
     for required in (
         "`sum(amount + amount)` remains `PIE-S2315`",
         "`avg(amount + amount)` remains `PIE-S2315`",
-        "`count_distinct(lower(status))` remains `PIE-S2315`",
+        '("value = count_distinct(len(status))", "count_distinct")',
         "test_aggregate_expression_arguments_still_fail_with_s2315",
     ):
         assert required in phase24_readiness

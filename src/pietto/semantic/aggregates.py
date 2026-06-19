@@ -283,6 +283,10 @@ def is_supported_semantic_aggregate_argument_expression(
 
     if is_direct_field_argument(expression):
         return is_supported_semantic_aggregate_argument(function_name, value_type)
+    if function_name == COUNT_DISTINCT_AGGREGATE_NAME:
+        return _is_builtin(value_type, "Text") and _is_lower_trim_text_transform_chain(
+            expression
+        )
     if function_name not in {SUM_AGGREGATE_NAME, AVG_AGGREGATE_NAME}:
         return False
     return is_supported_numeric_argument(value_type) and _is_field_only_numeric_shape(
@@ -362,6 +366,20 @@ def _is_field_only_numeric_shape(expression: Expression) -> bool:
             and _is_field_only_numeric_shape(expression.right)
         )
     return False
+
+
+def _is_lower_trim_text_transform_chain(expression: Expression) -> bool:
+    if isinstance(expression, (NameExpr, DottedNameExpr)):
+        return True
+    if not isinstance(expression, CallExpr):
+        return False
+    if not isinstance(expression.callee, NameExpr):
+        return False
+    if expression.callee.name not in {"lower", "trim"}:
+        return False
+    if len(expression.arguments) != 1:
+        return False
+    return _is_lower_trim_text_transform_chain(expression.arguments[0])
 
 
 def is_supported_semantic_aggregate_argument(

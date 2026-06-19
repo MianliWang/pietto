@@ -231,7 +231,7 @@ def test_projection_alias_is_not_a_count_distinct_argument() -> None:
             ),
         ),
         (
-            "unique_values = count_distinct(lower(status))",
+            "unique_values = count_distinct(len(status))",
             (
                 "PIE-S2315",
                 "Aggregate function count_distinct requires a direct field "

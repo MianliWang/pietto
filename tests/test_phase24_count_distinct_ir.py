@@ -252,7 +252,7 @@ def test_direct_lower_expr_for_valid_count_distinct_uses_aggregate_call_ir() -> 
             SOURCE_PREFIX + "table unique_order_values:\n"
             "    from orders\n"
             "    select:\n"
-            "        unique_values = count_distinct(lower(status))\n",
+            "        unique_values = count_distinct(len(status))\n",
             "PIE-S2315",
         ),
         (
