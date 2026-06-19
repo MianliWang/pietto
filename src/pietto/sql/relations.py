@@ -37,6 +37,8 @@ def render_relation_sql(
     )
     if not relation.projections:
         raise ValueError("PostgreSQL relation emission requires projections")
+    if relation.result_predicate is not None and not relation.group_keys:
+        raise ValueError("PostgreSQL result predicate requires GROUP BY")
     if relation.group_keys:
         _validate_grouped_relation(relation)
 
@@ -58,6 +60,13 @@ def render_relation_sql(
                 ",\n".join(
                     f"    {_render_group_key(key)}" for key in relation.group_keys
                 ),
+            )
+        )
+    if relation.result_predicate is not None:
+        lines.extend(
+            (
+                "HAVING",
+                f"    {render_expression_sql(relation.result_predicate.expression)}",
             )
         )
     if relation.order_by:
@@ -87,6 +96,8 @@ def _relation_uses_qualified_fields(relation: RelationIR) -> bool:
     expressions = [projection.expression for projection in relation.projections]
     if relation.filter is not None:
         expressions.append(relation.filter.expression)
+    if relation.result_predicate is not None:
+        expressions.append(relation.result_predicate.expression)
     expressions.extend(item.expression for item in relation.order_by)
     expressions.extend(relation.group_keys)
     return any(

@@ -128,7 +128,7 @@ BOUNDARY_HASHES = {
         "9b89550ddaf1759e8066d02590288f545eace484e4633f6f6e37b1fa8c194790"
     ),
     "src/pietto/sql/relations.py": (
-        "a908cb22f3ce040934bf54f234c90d90991d93fef4086f3f3292951acbbb0da1"
+        "20fb0db7d81232f17cebfcb7dd22d3b0daf30a419f9e6278ab96103a4455ee98"
     ),
     "src/pietto/sql/render.py": (
         "199a8c019331d2dc0d4112bca449268c34d9ba5688c976dd4194b8502c5daed5"

@@ -36,6 +36,16 @@ behavior, grammar, generated parser, AST, fixture, golden, dependency,
 package, CI, runtime/database, project/multi-file, public MySQL API, or
 relationship/JOIN behavior.
 
+Phase 25 Slice 5 is complete as constructed-IR SQL lowering only. PostgreSQL
+and the private MySQL backend render non-empty grouped
+`RelationIR.result_predicate` values as SQL `HAVING` by re-rendering the
+predicate IR expression directly. Ordinary source `satisfying:` remains
+fail-closed with `PIE-S2322`, and source AST/semantic alias-to-underlying-IR
+lowering remains deferred. Slice 5 adds no grammar, generated parser, AST,
+semantic behavior, IR model, IR builder, CLI behavior, JSON behavior/schema,
+fixture, golden, dependency, package, CI, runtime/database, project/multi-file,
+public MySQL API, or relationship/JOIN behavior.
+
 Slice 1 changes no grammar, generated ANTLR, AST, AST builder, semantic
 analysis, Semantic IR, SQL backend, CLI behavior, JSON schema, JSON output
 behavior, fixture, golden, script, dependency, lockfile, package metadata, CI,
@@ -327,11 +337,13 @@ Slice 4: IR Representation And Alias Normalization
 
 Slice 5: PostgreSQL And Private MySQL SQL Lowering
 
-- future implementation slice;
-- lower valid result predicates to SQL HAVING or equivalent selected-dialect
-  result predicate shape;
-- re-render underlying expressions instead of SELECT aliases;
-- add reviewed SQL fixtures and goldens.
+- complete as constructed-IR SQL lowering only;
+- render non-empty grouped `RelationIR.result_predicate` values to SQL HAVING
+  in PostgreSQL and the private MySQL backend;
+- re-render the predicate IR expression directly instead of SELECT aliases;
+- keep ordinary source `satisfying:` fail-closed with `PIE-S2322`;
+- add no fixtures, goldens, source pipeline wiring, CLI behavior, JSON schema,
+  semantic behavior, or IR changes.
 
 Slice 6: CLI / JSON / Output Hardening
 

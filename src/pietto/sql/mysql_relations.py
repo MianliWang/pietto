@@ -40,6 +40,8 @@ def render_mysql_relation(
     )
     if not relation.projections:
         raise MySqlRenderError("MySQL relation emission requires projections")
+    if relation.result_predicate is not None and not relation.group_keys:
+        raise MySqlRenderError("MySQL result predicate requires GROUP BY")
     if relation.group_keys:
         _validate_grouped_relation(relation)
 
@@ -61,6 +63,13 @@ def render_mysql_relation(
                 ",\n".join(
                     f"    {_render_group_key(key)}" for key in relation.group_keys
                 ),
+            )
+        )
+    if relation.result_predicate is not None:
+        lines.extend(
+            (
+                "HAVING",
+                f"    {render_mysql_expression(relation.result_predicate.expression)}",
             )
         )
     if relation.order_by:
@@ -90,6 +99,8 @@ def _relation_uses_qualified_fields(relation: RelationIR) -> bool:
     expressions = [projection.expression for projection in relation.projections]
     if relation.filter is not None:
         expressions.append(relation.filter.expression)
+    if relation.result_predicate is not None:
+        expressions.append(relation.result_predicate.expression)
     expressions.extend(item.expression for item in relation.order_by)
     expressions.extend(relation.group_keys)
     return any(

@@ -155,7 +155,7 @@ def test_required_non_goals_remain_explicitly_deferred() -> None:
         assert required in plan
 
 
-def test_slice_sequence_records_completed_slice3_and_future_lowering() -> None:
+def test_slice_sequence_records_completed_slice5_and_future_hardening() -> None:
     plan = _normalized()
 
     for required in (
@@ -167,7 +167,8 @@ def test_slice_sequence_records_completed_slice3_and_future_lowering() -> None:
         "Slice 6: CLI / JSON / Output Hardening",
         "Slice 7: Completion Audit And Status Lock",
         "complete as semantic-validation-only fail-closed hardening",
-        "future implementation slice",
+        "complete as constructed-IR SQL lowering only",
+        "future tests/static-audit slice",
     ):
         assert required in plan
 

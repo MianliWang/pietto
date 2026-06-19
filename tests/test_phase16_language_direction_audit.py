@@ -89,7 +89,7 @@ LOCKED_GROUP_HASHES = {
     ),
     "sql": (
         10,
-        "fa9eff072cd83f44df112870d4a72b171302945cab35fa1f4f3c8f7cadc88986",
+        "112bb96372e442aba03ff953b45a5c5850a946e29d0f6358c3cffa281bf29b92",
     ),
     "examples": (
         10,
