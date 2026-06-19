@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from collections.abc import Mapping
 
 from pietto.ast_nodes import (
@@ -35,6 +36,7 @@ from pietto.semantic.model import (
     TypeKind,
     ValueType,
     ValueTypeKind,
+    SatisfyingResultPredicateInfo,
 )
 
 DerivedRelation = TableDef | QueryDef
@@ -54,15 +56,23 @@ _BOOL_VALUE_TYPE = ValueType(
 _ALLOWED_COMPARISON_OPERATORS = frozenset({"==", "!=", "<", "<=", ">", ">="})
 
 
+@dataclass(frozen=True, slots=True)
+class _SatisfyingOutput:
+    field: RowField | None
+    supported: bool
+    expression: Expression
+
+
 def check_satisfying_clauses(
     script: Script,
     *,
     from_resolutions: Mapping[FromClause, RelationDefinition],
     source_row_schemas: Mapping[SourceDef, RowSchema],
     relation_row_schemas: Mapping[DerivedRelation, RowSchema],
-) -> list[Diagnostic]:
-    """Validate parsed satisfying clauses while keeping lowering fail-closed."""
+) -> tuple[dict[DerivedRelation, SatisfyingResultPredicateInfo], list[Diagnostic]]:
+    """Validate parsed satisfying clauses and collect lowering facts."""
 
+    result_predicates: dict[DerivedRelation, SatisfyingResultPredicateInfo] = {}
     diagnostics: list[Diagnostic] = []
     for definition in script.definitions:
         if not isinstance(definition, (TableDef, QueryDef)):
@@ -96,11 +106,13 @@ def check_satisfying_clauses(
             relation_row_schemas=relation_row_schemas,
         )
         relation_diagnostics: list[Diagnostic] = []
+        expression_value_types: dict[Expression, ValueType] = {}
         value_type = _infer_predicate(
             expression,
             output_scope,
             input_schema=input_schema,
             diagnostics=relation_diagnostics,
+            value_types=expression_value_types,
         )
         if relation_diagnostics:
             diagnostics.extend(relation_diagnostics)
@@ -113,9 +125,18 @@ def check_satisfying_clauses(
         if value_type.kind is ValueTypeKind.UNKNOWN:
             continue
 
-        diagnostics.append(_lowering_deferred_diagnostic(definition))
+        assert definition.satisfying_clause is not None
+        result_predicates[definition] = SatisfyingResultPredicateInfo(
+            clause=definition.satisfying_clause,
+            output_expressions={
+                name: output.expression
+                for name, output in output_scope.items()
+                if output.supported
+            },
+            expression_value_types=expression_value_types,
+        )
 
-    return diagnostics
+    return result_predicates, diagnostics
 
 
 def _input_schema(
@@ -138,14 +159,14 @@ def _satisfying_output_scope(
     *,
     input_schema: RowSchema,
     relation_row_schemas: Mapping[DerivedRelation, RowSchema],
-) -> dict[str, tuple[RowField | None, bool]]:
+) -> dict[str, _SatisfyingOutput]:
     group_key_identities = {
         identity
         for item in _group_by_items(definition)
         if (identity := _field_identity(definition, item.key, input_schema)) is not None
     }
     schema = relation_row_schemas.get(definition, RowSchema(is_unknown=True))
-    scope: dict[str, tuple[RowField | None, bool]] = {}
+    scope: dict[str, _SatisfyingOutput] = {}
     for item in definition.select_items:
         output_name = _projection_output_name(item)
         if output_name is None or output_name in scope:
@@ -156,7 +177,11 @@ def _satisfying_output_scope(
             input_schema=input_schema,
             group_key_identities=group_key_identities,
         ) or _is_direct_aggregate_projection(item)
-        scope[output_name] = (schema.fields.get(output_name), supported)
+        scope[output_name] = _SatisfyingOutput(
+            field=schema.fields.get(output_name),
+            supported=supported,
+            expression=item.expression,
+        )
     return scope
 
 
@@ -218,18 +243,22 @@ def _is_direct_aggregate_projection(item: SelectItem) -> bool:
 
 def _infer_predicate(
     expression: Expression,
-    output_scope: Mapping[str, tuple[RowField | None, bool]],
+    output_scope: Mapping[str, _SatisfyingOutput],
     *,
     input_schema: RowSchema,
     diagnostics: list[Diagnostic],
+    value_types: dict[Expression, ValueType],
 ) -> ValueType:
     if isinstance(expression, (NameExpr, LiteralExpr)):
-        return _infer_value(
+        value_type = _infer_value(
             expression,
             output_scope,
             input_schema=input_schema,
             diagnostics=diagnostics,
+            value_types=value_types,
         )
+        value_types[expression] = value_type
+        return value_type
 
     if isinstance(expression, ComparisonExpr):
         if expression.operator not in _ALLOWED_COMPARISON_OPERATORS:
@@ -239,24 +268,29 @@ def _infer_predicate(
                     form=f"comparison operator `{expression.operator}`",
                 )
             )
+            value_types[expression] = _UNKNOWN_VALUE_TYPE
             return _UNKNOWN_VALUE_TYPE
         left_type = _infer_value(
             expression.left,
             output_scope,
             input_schema=input_schema,
             diagnostics=diagnostics,
+            value_types=value_types,
         )
         right_type = _infer_value(
             expression.right,
             output_scope,
             input_schema=input_schema,
             diagnostics=diagnostics,
+            value_types=value_types,
         )
         if (
             left_type.kind is ValueTypeKind.UNKNOWN
             or right_type.kind is ValueTypeKind.UNKNOWN
         ):
+            value_types[expression] = _UNKNOWN_VALUE_TYPE
             return _UNKNOWN_VALUE_TYPE
+        value_types[expression] = _BOOL_VALUE_TYPE
         return _BOOL_VALUE_TYPE
 
     if isinstance(expression, BinaryExpr) and expression.operator in {"and", "or"}:
@@ -265,44 +299,56 @@ def _infer_predicate(
             output_scope,
             input_schema=input_schema,
             diagnostics=diagnostics,
+            value_types=value_types,
         )
         right_type = _infer_predicate(
             expression.right,
             output_scope,
             input_schema=input_schema,
             diagnostics=diagnostics,
+            value_types=value_types,
         )
         if (
             left_type.kind is ValueTypeKind.UNKNOWN
             or right_type.kind is ValueTypeKind.UNKNOWN
         ):
+            value_types[expression] = _UNKNOWN_VALUE_TYPE
             return _UNKNOWN_VALUE_TYPE
         if _is_bool(left_type) and _is_bool(right_type):
+            value_types[expression] = _BOOL_VALUE_TYPE
             return _BOOL_VALUE_TYPE
         diagnostics.append(_invalid_bool_operands_diagnostic(expression))
+        value_types[expression] = _UNKNOWN_VALUE_TYPE
         return _UNKNOWN_VALUE_TYPE
 
     diagnostics.append(_unsupported_expression_diagnostic(expression))
+    value_types[expression] = _UNKNOWN_VALUE_TYPE
     return _UNKNOWN_VALUE_TYPE
 
 
 def _infer_value(
     expression: Expression,
-    output_scope: Mapping[str, tuple[RowField | None, bool]],
+    output_scope: Mapping[str, _SatisfyingOutput],
     *,
     input_schema: RowSchema,
     diagnostics: list[Diagnostic],
+    value_types: dict[Expression, ValueType],
 ) -> ValueType:
     if isinstance(expression, LiteralExpr):
-        return _literal_value_type(expression)
+        value_type = _literal_value_type(expression)
+        value_types[expression] = value_type
+        return value_type
     if isinstance(expression, NameExpr):
-        return _name_value_type(
+        value_type = _name_value_type(
             expression,
             output_scope,
             input_schema=input_schema,
             diagnostics=diagnostics,
         )
+        value_types[expression] = value_type
+        return value_type
     diagnostics.append(_unsupported_expression_diagnostic(expression))
+    value_types[expression] = _UNKNOWN_VALUE_TYPE
     return _UNKNOWN_VALUE_TYPE
 
 
@@ -321,7 +367,7 @@ def _literal_value_type(expression: LiteralExpr) -> ValueType:
 
 def _name_value_type(
     expression: NameExpr,
-    output_scope: Mapping[str, tuple[RowField | None, bool]],
+    output_scope: Mapping[str, _SatisfyingOutput],
     *,
     input_schema: RowSchema,
     diagnostics: list[Diagnostic],
@@ -334,10 +380,10 @@ def _name_value_type(
             diagnostics.append(_unknown_output_diagnostic(expression))
         return _UNKNOWN_VALUE_TYPE
 
-    field, supported = scoped
-    if not supported:
+    if not scoped.supported:
         diagnostics.append(_unsupported_output_diagnostic(expression))
         return _UNKNOWN_VALUE_TYPE
+    field = scoped.field
     if field is None or field.resolved_type.kind is TypeKind.UNKNOWN:
         return _UNKNOWN_VALUE_TYPE
     return ValueType(
@@ -364,15 +410,6 @@ def _is_bool(value_type: ValueType) -> bool:
     return (
         value_type.resolved_type.kind is TypeKind.BUILTIN
         and value_type.resolved_type.name == "Bool"
-    )
-
-
-def _lowering_deferred_diagnostic(definition: DerivedRelation) -> Diagnostic:
-    assert definition.satisfying_clause is not None
-    return _diagnostic(
-        definition.satisfying_clause,
-        code="PIE-S2322",
-        message="`satisfying` IR/SQL lowering is deferred",
     )
 
 

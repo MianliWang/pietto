@@ -14,6 +14,7 @@ from pietto.ast_nodes import (
     FromClause,
     Node,
     QueryDef,
+    SatisfyingClause,
     SourceDef,
     TableDef,
     TypeExpr,
@@ -127,6 +128,29 @@ class RelationshipSemanticInfo:
 
 
 @dataclass(frozen=True, slots=True)
+class SatisfyingResultPredicateInfo:
+    """Validated result-predicate facts for one relation ``satisfying:`` clause."""
+
+    clause: SatisfyingClause
+    output_expressions: Mapping[str, Expression]
+    expression_value_types: Mapping[Expression, ValueType]
+
+    def __post_init__(self) -> None:
+        """Copy satisfying predicate facts into immutable mappings."""
+
+        object.__setattr__(
+            self,
+            "output_expressions",
+            _readonly_mapping(self.output_expressions),
+        )
+        object.__setattr__(
+            self,
+            "expression_value_types",
+            _readonly_mapping(self.expression_value_types),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class SemanticModel:
     """Readonly semantic state built incrementally across Phase 2."""
 
@@ -162,6 +186,10 @@ class SemanticModel:
     expression_value_types: Mapping[Expression, ValueType] = field(
         default_factory=lambda: _readonly_mapping()
     )
+    result_predicates: Mapping[
+        TableDef | QueryDef,
+        SatisfyingResultPredicateInfo,
+    ] = field(default_factory=lambda: _readonly_mapping())
     relationships: tuple[RelationshipSemanticInfo, ...] = ()
 
     def __post_init__(self) -> None:
@@ -212,6 +240,11 @@ class SemanticModel:
             self,
             "expression_value_types",
             _readonly_mapping(self.expression_value_types),
+        )
+        object.__setattr__(
+            self,
+            "result_predicates",
+            _readonly_mapping(self.result_predicates),
         )
 
 

@@ -19,7 +19,7 @@ Phase 25 Slice 3 is complete as semantic validation and fail-closed hardening
 only. It validates parsed `satisfying:` clauses for GROUP BY-only use,
 select-output-name scope, group-key or direct-aggregate output references,
 and a conservative predicate subset. Otherwise-valid `satisfying:` programs
-emit temporary `PIE-S2322` until a later IR/SQL slice adds result-predicate
+emitted temporary `PIE-S2322` until Slice 6 added source result-predicate
 lowering. Slice 3 adds no Semantic IR, SQL/HAVING lowering, CLI behavior,
 JSON schema, JSON output behavior, grammar, generated parser, AST, fixture,
 golden, dependency, package, CI, runtime/database, project/multi-file, public
@@ -30,7 +30,8 @@ additive `ResultPredicateIR` wrapper and nullable `RelationIR.result_predicate`
 field so later slices have a durable shape for post-aggregate predicates.
 Constructed IR fixtures demonstrate the intended normalized representation
 shape. Actual source AST/semantic alias-to-underlying-expression lowering
-remains deferred while `PIE-S2322` is active. Slice 4 adds no semantic
+remained deferred until Slice 6 retired the active `PIE-S2322` gate. Slice 4
+adds no semantic
 behavior change, SQL/HAVING lowering, CLI behavior, JSON schema, JSON output
 behavior, grammar, generated parser, AST, fixture, golden, dependency,
 package, CI, runtime/database, project/multi-file, public MySQL API, or
@@ -39,12 +40,24 @@ relationship/JOIN behavior.
 Phase 25 Slice 5 is complete as constructed-IR SQL lowering only. PostgreSQL
 and the private MySQL backend render non-empty grouped
 `RelationIR.result_predicate` values as SQL `HAVING` by re-rendering the
-predicate IR expression directly. Ordinary source `satisfying:` remains
-fail-closed with `PIE-S2322`, and source AST/semantic alias-to-underlying-IR
-lowering remains deferred. Slice 5 adds no grammar, generated parser, AST,
+predicate IR expression directly. Ordinary source `satisfying:` remained
+behind the temporary `PIE-S2322` gate at the Slice 5 boundary, and
+source AST/semantic alias-to-underlying-IR lowering remained deferred until
+Slice 6. Slice 5 adds no grammar, generated parser, AST,
 semantic behavior, IR model, IR builder, CLI behavior, JSON behavior/schema,
 fixture, golden, dependency, package, CI, runtime/database, project/multi-file,
 public MySQL API, or relationship/JOIN behavior.
+
+Phase 25 Slice 6 is complete as source-pipeline enablement and CLI/JSON/output
+hardening. Otherwise-valid grouped source `satisfying:` no longer emits the
+temporary `PIE-S2322` gate; semantic validation records alias-normalized
+result-predicate facts, IR lowering builds `RelationIR.result_predicate`, and
+the existing PostgreSQL CLI text, JSON v1, and `--output` success paths emit SQL
+with `HAVING`. Invalid `satisfying:` forms still fail semantically before IR or
+SQL. Slice 6 adds no grammar, generated parser, AST, SQL backend implementation,
+CLI implementation, JSON schema, fixture, golden, script, dependency, package,
+CI, runtime/database, project/multi-file, public MySQL API, or
+relationship/JOIN behavior.
 
 Slice 1 changes no grammar, generated ANTLR, AST, AST builder, semantic
 analysis, Semantic IR, SQL backend, CLI behavior, JSON schema, JSON output
@@ -281,8 +294,8 @@ Reuse:
 
 Slice 3 satisfying diagnostics:
 
-- `PIE-S2322`: otherwise-valid `satisfying:` is semantically recognized, but
-  IR/SQL lowering is deferred;
+- `PIE-S2322`: otherwise-valid `satisfying:` was semantically recognized, but
+  IR/SQL lowering was deferred before Slice 6 source pipeline enablement;
 - `PIE-S2323`: `satisfying:` is used without `group by:`;
 - `PIE-S2324`: a bare name does not resolve to a select output name;
 - `PIE-S2325`: a bare name resolves to an input field rather than a select
@@ -331,7 +344,8 @@ Slice 4: IR Representation And Alias Normalization
 - complete as IR-model-only representation work;
 - add an additive `ResultPredicateIR` wrapper and
   `RelationIR.result_predicate`;
-- keep ordinary source pipelines fail-closed with `PIE-S2322`;
+- kept ordinary source pipelines behind the temporary `PIE-S2322` gate at the Slice 4
+  boundary;
 - use constructed IR fixtures to demonstrate the intended normalized
   representation shape without implementing source alias normalization.
 
@@ -341,16 +355,23 @@ Slice 5: PostgreSQL And Private MySQL SQL Lowering
 - render non-empty grouped `RelationIR.result_predicate` values to SQL HAVING
   in PostgreSQL and the private MySQL backend;
 - re-render the predicate IR expression directly instead of SELECT aliases;
-- keep ordinary source `satisfying:` fail-closed with `PIE-S2322`;
+- kept ordinary source `satisfying:` behind the temporary `PIE-S2322` gate at the Slice
+  5 boundary;
 - add no fixtures, goldens, source pipeline wiring, CLI behavior, JSON schema,
   semantic behavior, or IR changes.
 
-Slice 6: CLI / JSON / Output Hardening
+Slice 6: Source Pipeline / CLI / JSON / Output Hardening
 
-- future tests/static-audit slice;
-- prove existing `check`, `emit-sql`, JSON v1, and `--output` paths behave
-  correctly;
-- add no JSON schema or CLI option change.
+- complete as source-pipeline enablement and focused hardening;
+- remove the active `PIE-S2322` gate for otherwise-valid grouped source
+  `satisfying:`;
+- store validated alias-normalized result-predicate facts and lower source
+  `satisfying:` into `RelationIR.result_predicate`;
+- prove existing PostgreSQL CLI text, JSON v1, and `--output` success paths
+  emit SQL with `HAVING`;
+- preserve invalid satisfying diagnostics before IR/SQL;
+- add no fixtures, goldens, SQL backend implementation, CLI implementation,
+  JSON schema, dependency, runtime/database behavior, or public MySQL API.
 
 Slice 7: Completion Audit And Status Lock
 

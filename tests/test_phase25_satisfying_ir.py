@@ -115,7 +115,7 @@ def test_relation_ir_result_predicate_defaults_to_none_for_existing_builds() -> 
 
 
 def test_constructed_ir_fixture_models_aggregate_alias_normalization_shape() -> None:
-    """Constructed only; source alias normalization remains deferred."""
+    """Constructed IR preserves the same normalized aggregate predicate shape."""
 
     predicate = ResultPredicateIR(expression=_amount_sum_gt_1000(), span=SPAN)
     relation = _constructed_relation(predicate)
@@ -138,7 +138,7 @@ def test_constructed_ir_fixture_models_aggregate_alias_normalization_shape() -> 
 
 
 def test_constructed_ir_fixture_models_group_key_alias_normalization_shape() -> None:
-    """Constructed only; source alias normalization remains deferred."""
+    """Constructed IR preserves the same normalized group-key predicate shape."""
 
     predicate = ResultPredicateIR(expression=_region_ne_test(), span=SPAN)
     relation = _constructed_relation(predicate)
@@ -156,45 +156,75 @@ def test_constructed_ir_fixture_models_group_key_alias_normalization_shape() -> 
     assert left.field == FieldId(owner=ORDERS, name="region")
 
 
-def test_satisfying_source_still_fails_closed_and_does_not_lower_result_predicate() -> (
-    None
-):
+def test_satisfying_source_lowers_aggregate_alias_result_predicate() -> None:
     parse_result = parse_source(_valid_satisfying_source())
     assert parse_result.diagnostics == ()
     assert parse_result.ast is not None
 
     semantic_result = analyze(parse_result.ast)
-    assert _errors(semantic_result) == [
-        ("PIE-S2322", "`satisfying` IR/SQL lowering is deferred"),
-    ]
+    assert _errors(semantic_result) == []
 
     ir_result = build_ir(parse_result.ast, semantic_result.model)
+    assert ir_result.diagnostics == ()
     assert ir_result.ir is not None
     relation = _relation_ir(ir_result, "revenue")
-    assert relation.result_predicate is None
+    assert relation.result_predicate is not None
+    expression = relation.result_predicate.expression
+    assert isinstance(expression, ComparisonIR)
+    left = expression.left
+    assert isinstance(left, AggregateCallIR)
+    assert left.function == "sum"
+    argument = left.arguments[0]
+    assert isinstance(argument, FieldRefIR)
+    assert argument.name == "amount"
+    assert argument.field == FieldId(owner=ORDERS, name="amount")
 
 
-def test_emit_sql_text_still_fails_before_ir_and_sql(
+def test_satisfying_source_lowers_group_key_alias_result_predicate() -> None:
+    parse_result = parse_source(_group_key_alias_satisfying_source())
+    assert parse_result.diagnostics == ()
+    assert parse_result.ast is not None
+
+    semantic_result = analyze(parse_result.ast)
+    assert _errors(semantic_result) == []
+
+    ir_result = build_ir(parse_result.ast, semantic_result.model)
+    assert ir_result.diagnostics == ()
+    assert ir_result.ir is not None
+    relation = _relation_ir(ir_result, "revenue")
+    assert relation.result_predicate is not None
+    expression = relation.result_predicate.expression
+    assert isinstance(expression, ComparisonIR)
+    left = expression.left
+    assert isinstance(left, FieldRefIR)
+    assert left.name == "region"
+    assert left.name != "r"
+    assert left.field == FieldId(owner=ORDERS, name="region")
+
+
+def test_emit_sql_text_invalid_satisfying_still_fails_before_ir_and_sql(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "satisfying.pietto", _valid_satisfying_source())
+    path = _write(tmp_path, "satisfying.pietto", _invalid_satisfying_source())
     _forbid_ir_and_sql(monkeypatch)
 
     assert cli.main(["emit-sql", str(path), "--dialect", "postgres"]) == 1
 
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert "PIE-S2322 error: `satisfying` IR/SQL lowering is deferred" in captured.err
+    assert (
+        "PIE-S2324 error: Unknown select output in satisfying: missing" in captured.err
+    )
 
 
-def test_emit_sql_json_still_fails_without_artifacts(
+def test_emit_sql_json_invalid_satisfying_still_fails_without_artifacts(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "satisfying.pietto", _valid_satisfying_source())
+    path = _write(tmp_path, "satisfying.pietto", _invalid_satisfying_source())
     _forbid_ir_and_sql(monkeypatch)
 
     assert (
@@ -216,7 +246,7 @@ def test_emit_sql_json_still_fails_without_artifacts(
     assert result["ok"] is False
     assert result["artifacts"] == []
     diagnostics = cast(list[dict[str, object]], result["diagnostics"])
-    assert [diagnostic["code"] for diagnostic in diagnostics] == ["PIE-S2322"]
+    assert [diagnostic["code"] for diagnostic in diagnostics] == ["PIE-S2324"]
 
 
 def _amount_sum_gt_1000() -> ComparisonIR:
@@ -286,6 +316,34 @@ def _valid_satisfying_source() -> str:
     )
 
 
+def _group_key_alias_satisfying_source() -> str:
+    return (
+        SOURCE_PREFIX + "table revenue:\n"
+        "    from orders\n"
+        "    group by:\n"
+        "        region\n"
+        "    select:\n"
+        "        r = region\n"
+        "        total_amount = sum(amount)\n"
+        "    satisfying:\n"
+        '        r != "test"\n'
+    )
+
+
+def _invalid_satisfying_source() -> str:
+    return (
+        SOURCE_PREFIX + "table revenue:\n"
+        "    from orders\n"
+        "    group by:\n"
+        "        region\n"
+        "    select:\n"
+        "        region\n"
+        "        total_amount = sum(amount)\n"
+        "    satisfying:\n"
+        "        missing > 1000\n"
+    )
+
+
 def _compile_ir(source: str) -> tuple[IrResult, SemanticResult]:
     parse_result = parse_source(source)
     assert parse_result.diagnostics == ()
@@ -326,7 +384,7 @@ def _write(tmp_path: Path, name: str, source: str) -> Path:
 def _forbid_ir_and_sql(monkeypatch: pytest.MonkeyPatch) -> None:
     def unexpected_call(*args: object, **kwargs: object) -> object:
         del args, kwargs
-        raise AssertionError("satisfying must still fail before IR and SQL")
+        raise AssertionError("invalid satisfying must fail before IR and SQL")
 
     monkeypatch.setattr(cli.ir_api, "build_ir", unexpected_call)
     monkeypatch.setattr(cli.sql_api, "emit_postgres_sql", unexpected_call)

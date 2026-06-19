@@ -24,7 +24,7 @@ SOURCE_PREFIX = (
 
 
 @pytest.mark.parametrize("relation_kind", ["table", "query"])
-def test_grouped_satisfying_over_aggregate_alias_fails_closed(
+def test_grouped_satisfying_over_aggregate_alias_is_accepted(
     relation_kind: str,
 ) -> None:
     result = analyze(
@@ -40,12 +40,10 @@ def test_grouped_satisfying_over_aggregate_alias_fails_closed(
         )
     )
 
-    assert _errors(result) == [
-        ("PIE-S2322", "`satisfying` IR/SQL lowering is deferred"),
-    ]
+    assert _errors(result) == []
 
 
-def test_grouped_satisfying_over_group_key_alias_fails_closed() -> None:
+def test_grouped_satisfying_over_group_key_alias_is_accepted() -> None:
     result = analyze(
         _parse(
             _grouped_relation(
@@ -58,9 +56,7 @@ def test_grouped_satisfying_over_group_key_alias_fails_closed() -> None:
         )
     )
 
-    assert _errors(result) == [
-        ("PIE-S2322", "`satisfying` IR/SQL lowering is deferred"),
-    ]
+    assert _errors(result) == []
 
 
 def test_no_group_satisfying_is_rejected() -> None:
@@ -166,9 +162,7 @@ def test_renamed_group_key_exposes_only_alias_to_satisfying() -> None:
         )
     )
 
-    assert _errors(valid) == [
-        ("PIE-S2322", "`satisfying` IR/SQL lowering is deferred"),
-    ]
+    assert _errors(valid) == []
     assert _errors(invalid) == [
         (
             "PIE-S2325",
@@ -304,7 +298,7 @@ def test_non_bool_satisfying_predicate_reuses_predicate_diagnostic() -> None:
     ]
 
 
-def test_and_or_bool_composition_is_accepted_subject_to_lowering_gate() -> None:
+def test_and_or_bool_composition_is_accepted() -> None:
     result = analyze(
         _parse(
             _grouped_relation(
@@ -317,9 +311,7 @@ def test_and_or_bool_composition_is_accepted_subject_to_lowering_gate() -> None:
         )
     )
 
-    assert _errors(result) == [
-        ("PIE-S2322", "`satisfying` IR/SQL lowering is deferred"),
-    ]
+    assert _errors(result) == []
 
 
 def test_invalid_and_or_operands_reuse_operator_diagnostic() -> None:
@@ -343,28 +335,44 @@ def test_invalid_and_or_operands_reuse_operator_diagnostic() -> None:
     ]
 
 
-def test_emit_sql_text_fails_closed_before_ir_and_sql(
+def test_emit_sql_text_invalid_satisfying_fails_before_ir_and_sql(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "satisfying.pietto", _valid_satisfying_source())
+    path = _write(
+        tmp_path,
+        "satisfying.pietto",
+        _grouped_relation(
+            projections=("region", "total_amount = sum(amount)"),
+            satisfying="missing > 1000",
+        ),
+    )
     _forbid_ir_and_sql(monkeypatch)
 
     assert cli.main(["emit-sql", str(path), "--dialect", "postgres"]) == 1
 
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert "PIE-S2322 error: `satisfying` IR/SQL lowering is deferred" in captured.err
+    assert (
+        "PIE-S2324 error: Unknown select output in satisfying: missing" in captured.err
+    )
     assert "SELECT" not in captured.out
 
 
-def test_emit_sql_json_fails_closed_without_artifacts(
+def test_emit_sql_json_invalid_satisfying_fails_without_artifacts(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    path = _write(tmp_path, "satisfying.pietto", _valid_satisfying_source())
+    path = _write(
+        tmp_path,
+        "satisfying.pietto",
+        _grouped_relation(
+            projections=("region", "total_amount = sum(amount)"),
+            satisfying="missing > 1000",
+        ),
+    )
     _forbid_ir_and_sql(monkeypatch)
 
     assert (
@@ -386,7 +394,7 @@ def test_emit_sql_json_fails_closed_without_artifacts(
     assert result["ok"] is False
     assert result["artifacts"] == []
     diagnostics = cast(list[dict[str, object]], result["diagnostics"])
-    assert [diagnostic["code"] for diagnostic in diagnostics] == ["PIE-S2322"]
+    assert [diagnostic["code"] for diagnostic in diagnostics] == ["PIE-S2324"]
 
 
 def _grouped_relation(

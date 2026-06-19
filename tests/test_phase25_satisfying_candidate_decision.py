@@ -128,7 +128,7 @@ def test_diagnostics_recommendation_preserves_existing_aggregate_codes() -> None
         "direct aggregate calls inside `satisfying:` reuse `PIE-S2308`",
         "existing aggregate projection diagnostics `PIE-S2309` through `PIE-S2315` remain unchanged",
         "known non-Bool satisfying predicates reuse `PIE-S2202`",
-        "`PIE-S2322`: otherwise-valid `satisfying:` is semantically recognized, but IR/SQL lowering is deferred",
+        "`PIE-S2322`: otherwise-valid `satisfying:` was semantically recognized, but IR/SQL lowering was deferred before Slice 6 source pipeline enablement",
         "`PIE-S2327`: the predicate uses an expression form outside the Slice 3 conservative subset",
     ):
         assert required in plan
@@ -155,7 +155,7 @@ def test_required_non_goals_remain_explicitly_deferred() -> None:
         assert required in plan
 
 
-def test_slice_sequence_records_completed_slice5_and_future_hardening() -> None:
+def test_slice_sequence_records_completed_slice6_and_future_completion_audit() -> None:
     plan = _normalized()
 
     for required in (
@@ -164,11 +164,11 @@ def test_slice_sequence_records_completed_slice5_and_future_hardening() -> None:
         "Slice 3: Semantic Validation",
         "Slice 4: IR Representation And Alias Normalization",
         "Slice 5: PostgreSQL And Private MySQL SQL Lowering",
-        "Slice 6: CLI / JSON / Output Hardening",
+        "Slice 6: Source Pipeline / CLI / JSON / Output Hardening",
         "Slice 7: Completion Audit And Status Lock",
         "complete as semantic-validation-only fail-closed hardening",
         "complete as constructed-IR SQL lowering only",
-        "future tests/static-audit slice",
+        "complete as source-pipeline enablement and focused hardening",
     ):
         assert required in plan
 

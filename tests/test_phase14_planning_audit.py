@@ -40,7 +40,7 @@ PHASE13_HASHES = {
         "2383731c2b9d78f8cf73da8e9d47f973b6eef93eb20e0f03d8f045307b788534"
     ),
     "tests/test_phase13_completion_audit.py": (
-        "5a13b44f964428c64f4c14b05905dc6dba334e82ee320e31812c0dfaf1a51772"
+        "f9f1c89b0fc19d38efd9ec9b5f69809d9ccfb082dbc514aa0434378f2dc499bb"
     ),
 }
 
@@ -70,8 +70,8 @@ FILE_HASHES = {
 
 GROUP_HASHES = {
     "frontend": "06ff1d647427b4e937321ed525866059266ddc2bc292c050a458647365d95123",
-    "semantic": "60b8815761468602ef3a3c4681478efd14b6bd05fbbbfbb32812879fb51d177c",
-    "ir": "9e4dbdc98c7c7f0ff4f4b13da6b4a0a5abd304d20201d1c39cc820897d4e8d00",
+    "semantic": "e011609deb5abc2a8d0e48d433af2489432ce6e40325c5ea924c5a333bc8ce8e",
+    "ir": "8c2c3648740d898137c402c20596db28d3ac13734cdbdb6ddd6ce82c5b3577cd",
     "sql": "112bb96372e442aba03ff953b45a5c5850a946e29d0f6358c3cffa281bf29b92",
     "generated": "25bd5df39d46749ad59e2b805bd85cce52e708cdf56bda6ee365615c419e17d1",
     "cli": "235d4e50c3474306253dfc6b118e2518b3e300e90f7fbe9903263a39cbdc42a0",

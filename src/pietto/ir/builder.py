@@ -5,8 +5,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from pietto.ast_nodes import (
+    BinaryExpr,
     CallExpr,
     CheckDef,
+    ComparisonExpr,
     ConstraintDef,
     DeriveDef,
     DottedNameExpr,
@@ -34,11 +36,14 @@ from pietto.ir.lowering import (
     lower_canonical_type_ref,
     lower_expr,
     lower_group_key_ref,
+    lower_value_type,
     lower_row_schema,
     lower_span,
     lower_type_ref,
 )
 from pietto.ir.model import (
+    BinaryIR,
+    ComparisonIR,
     ConnectorIR,
     ConstraintIR,
     DefinitionIR,
@@ -49,6 +54,7 @@ from pietto.ir.model import (
     FieldRefIR,
     IrResult,
     LimitIR,
+    LiteralIR,
     NullabilityIR,
     OrderDirectionIR,
     OrderItemIR,
@@ -57,6 +63,7 @@ from pietto.ir.model import (
     RelationIR,
     RelationKindIR,
     RelationSourceIR,
+    ResultPredicateIR,
     RowFieldIR,
     ScriptIR,
     ShapeCheckIR,
@@ -67,12 +74,15 @@ from pietto.ir.model import (
     ShapeItemIR,
     ShapeUniqueIR,
     SourceIR,
+    SourceSpan,
     StaticValue,
     SymbolId,
     SymbolNamespace,
     TypeIR,
+    TypeRefIR,
 )
 from pietto.semantic import RowField, RowSchema, SemanticModel
+from pietto.semantic.model import SatisfyingResultPredicateInfo
 
 DerivedRelation = TableDef | QueryDef
 RelationDefinition = SourceDef | TableDef | QueryDef
@@ -439,6 +449,12 @@ def _lower_relation(
         target_symbol=target_symbol,
         field_qualifier=target.name,
     )
+    result_predicate = _lower_result_predicate(
+        definition,
+        semantic_model,
+        input_schema=input_schema,
+        target_symbol=target_symbol,
+    )
     return RelationIR(
         symbol=_symbol(SymbolNamespace.RELATION, definition.name),
         name=definition.name,
@@ -459,6 +475,7 @@ def _lower_relation(
         order_by=order_by,
         limit=limit,
         group_keys=group_keys,
+        result_predicate=result_predicate,
     )
 
 
@@ -563,6 +580,116 @@ def _lower_limit(definition: DerivedRelation) -> LimitIR | None:
         value=expression.value,
         span=lower_span(expression.span),
     )
+
+
+def _lower_result_predicate(
+    definition: DerivedRelation,
+    semantic_model: SemanticModel,
+    *,
+    input_schema: RowSchema,
+    target_symbol: SymbolId,
+) -> ResultPredicateIR | None:
+    clause = definition.satisfying_clause
+    if clause is None:
+        return None
+    predicate_info = semantic_model.result_predicates.get(definition)
+    if predicate_info is None:
+        raise _MissingSemanticFact(clause, "validated satisfying result predicate")
+    return ResultPredicateIR(
+        expression=_lower_satisfying_expression(
+            clause.expression,
+            predicate_info,
+            semantic_model,
+            input_schema=input_schema,
+            target_symbol=target_symbol,
+        ),
+        span=lower_span(clause.span),
+    )
+
+
+def _lower_satisfying_expression(
+    expression: Expression,
+    predicate_info: SatisfyingResultPredicateInfo,
+    semantic_model: SemanticModel,
+    *,
+    input_schema: RowSchema,
+    target_symbol: SymbolId,
+) -> ExpressionIR:
+    if isinstance(expression, NameExpr):
+        output_expression = predicate_info.output_expressions.get(expression.name)
+        if output_expression is None:
+            raise _MissingSemanticFact(expression, "satisfying output expression")
+        return _require_lowered_expression(
+            output_expression,
+            semantic_model,
+            fields=input_schema.fields,
+            field_owner=target_symbol,
+            field_qualifier=target_symbol.name,
+        )
+
+    span, value_type = _satisfying_expression_common(
+        expression,
+        predicate_info,
+        semantic_model,
+    )
+    if isinstance(expression, LiteralExpr):
+        return LiteralIR(
+            value=expression.value,
+            span=span,
+            value_type=value_type,
+        )
+    if isinstance(expression, ComparisonExpr):
+        return ComparisonIR(
+            left=_lower_satisfying_expression(
+                expression.left,
+                predicate_info,
+                semantic_model,
+                input_schema=input_schema,
+                target_symbol=target_symbol,
+            ),
+            operator=expression.operator,
+            right=_lower_satisfying_expression(
+                expression.right,
+                predicate_info,
+                semantic_model,
+                input_schema=input_schema,
+                target_symbol=target_symbol,
+            ),
+            span=span,
+            value_type=value_type,
+        )
+    if isinstance(expression, BinaryExpr) and expression.operator in {"and", "or"}:
+        return BinaryIR(
+            left=_lower_satisfying_expression(
+                expression.left,
+                predicate_info,
+                semantic_model,
+                input_schema=input_schema,
+                target_symbol=target_symbol,
+            ),
+            operator=expression.operator,
+            right=_lower_satisfying_expression(
+                expression.right,
+                predicate_info,
+                semantic_model,
+                input_schema=input_schema,
+                target_symbol=target_symbol,
+            ),
+            span=span,
+            value_type=value_type,
+        )
+    raise _MissingSemanticFact(expression, "supported satisfying expression")
+
+
+def _satisfying_expression_common(
+    expression: Expression,
+    predicate_info: SatisfyingResultPredicateInfo,
+    semantic_model: SemanticModel,
+) -> tuple[SourceSpan, TypeRefIR]:
+    value_type = predicate_info.expression_value_types.get(expression)
+    if value_type is None:
+        raise _MissingSemanticFact(expression, "satisfying expression value type")
+    return lower_span(expression.span), lower_value_type(value_type, semantic_model)
 
 
 def _relation_schema(

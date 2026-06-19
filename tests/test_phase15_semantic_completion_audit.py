@@ -60,11 +60,11 @@ LOCKED_GROUP_HASHES = {
     ),
     "unchanged_semantic": (
         17,
-        "bb6306b0be0bbe43dd634eac189aaf874d5e71a2934cc2a4584320ad84f98d5d",
+        "21b99c8730f4fc21211561ba20aad795673b83414551abcf068a517a0b134c15",
     ),
     "ir": (
         5,
-        "9e4dbdc98c7c7f0ff4f4b13da6b4a0a5abd304d20201d1c39cc820897d4e8d00",
+        "8c2c3648740d898137c402c20596db28d3ac13734cdbdb6ddd6ce82c5b3577cd",
     ),
     "sql": (
         10,

@@ -202,14 +202,13 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
     diagnostics.extend(check_relation_limits(script))
     diagnostics.extend(check_source_connectors(script, expression_value_types))
     diagnostics.extend(check_predicates(script, expression_value_types))
-    diagnostics.extend(
-        check_satisfying_clauses(
-            script,
-            from_resolutions=from_resolutions,
-            source_row_schemas=source_row_schemas,
-            relation_row_schemas=relation_row_schemas,
-        )
+    result_predicates, satisfying_diagnostics = check_satisfying_clauses(
+        script,
+        from_resolutions=from_resolutions,
+        source_row_schemas=source_row_schemas,
+        relation_row_schemas=relation_row_schemas,
     )
+    diagnostics.extend(satisfying_diagnostics)
     diagnostics.extend(
         check_callable_bodies(
             script,
@@ -238,6 +237,7 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
             from_resolutions=from_resolutions,
             relation_row_schemas=relation_row_schemas,
             expression_value_types=expression_value_types,
+            result_predicates=result_predicates,
             relationships=relationships,
         ),
         diagnostics=tuple(sorted(diagnostics, key=_diagnostic_order)),

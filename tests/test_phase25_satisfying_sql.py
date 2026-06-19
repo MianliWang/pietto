@@ -31,8 +31,11 @@ from pietto.ir import (
     SymbolNamespace,
     TypeKindIR,
     TypeRefIR,
+    build_ir,
 )
 from pietto.ir.model import LimitIR, OrderDirectionIR, OrderItemIR
+from pietto.parser_api import parse_source
+from pietto.semantic import analyze
 from pietto.sql import SqlResult, emit_postgres_sql
 from pietto.sql.mysql import emit_mysql_sql
 
@@ -300,28 +303,41 @@ def test_grouped_order_by_remains_fail_closed_with_result_predicate(
     assert "grouped ORDER BY is not supported" in result.diagnostics[0].message
 
 
-def test_source_satisfying_still_fails_closed_before_text_sql(
+def test_source_satisfying_text_emit_sql_succeeds_with_having(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     path = _write(tmp_path, "satisfying.pietto", _valid_satisfying_source())
-    _forbid_ir_and_sql(monkeypatch)
 
-    assert cli.main(["emit-sql", str(path), "--dialect", "postgres"]) == 1
+    assert cli.main(["emit-sql", str(path), "--dialect", "postgres"]) == 0
 
     captured = capsys.readouterr()
-    assert captured.out == ""
-    assert "PIE-S2322 error: `satisfying` IR/SQL lowering is deferred" in captured.err
+    assert captured.err == ""
+    assert captured.out == f"{_expected_postgres_satisfying_sql()}\n"
 
 
-def test_source_satisfying_still_fails_closed_before_json_sql(
+def test_source_satisfying_having_uses_underlying_expressions_not_aliases(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _write(tmp_path, "satisfying.pietto", _alias_satisfying_source())
+
+    assert cli.main(["emit-sql", str(path), "--dialect", "postgres"]) == 0
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    having = _having_clause(captured.out)
+    assert 'SUM("amount") > 1000' in having
+    assert "\"region\" <> 'test'" in having
+    assert '"total_amount"' not in having
+    assert '"r"' not in having
+
+
+def test_source_satisfying_json_emit_sql_preserves_v1_shape(
+    tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     path = _write(tmp_path, "satisfying.pietto", _valid_satisfying_source())
-    _forbid_ir_and_sql(monkeypatch)
 
     assert (
         cli.main(
@@ -333,6 +349,141 @@ def test_source_satisfying_still_fails_closed_before_json_sql(
                 "--format=json",
             ]
         )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    result = cast(dict[str, object], json.loads(captured.out))
+    assert set(result) == {
+        "schema_version",
+        "command",
+        "ok",
+        "path",
+        "dialect",
+        "diagnostics",
+        "cli_errors",
+        "artifacts",
+        "output",
+    }
+    assert result["schema_version"] == 1
+    assert result["command"] == "emit-sql"
+    assert result["ok"] is True
+    assert result["dialect"] == "postgres"
+    assert result["diagnostics"] == []
+    assert result["cli_errors"] == []
+    assert result["output"] is None
+    artifacts = cast(list[dict[str, object]], result["artifacts"])
+    assert artifacts == [
+        {
+            "kind": "relation",
+            "name": "revenue",
+            "sql": _expected_postgres_satisfying_sql(),
+        }
+    ]
+
+
+def test_source_satisfying_text_output_writes_having_sql(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _write(tmp_path, "satisfying.pietto", _valid_satisfying_source())
+    output = tmp_path / "out.sql"
+
+    assert (
+        cli.main(
+            [
+                "emit-sql",
+                str(path),
+                "--dialect",
+                "postgres",
+                "--output",
+                str(output),
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == ""
+    assert output.read_text(encoding="utf-8") == (
+        f"{_expected_postgres_satisfying_sql()}\n"
+    )
+
+
+def test_source_satisfying_json_output_writes_having_sql(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _write(tmp_path, "satisfying.pietto", _valid_satisfying_source())
+    output = tmp_path / "out.sql"
+
+    assert (
+        cli.main(
+            [
+                "emit-sql",
+                str(path),
+                "--dialect",
+                "postgres",
+                "--format=json",
+                "--output",
+                str(output),
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    result = cast(dict[str, object], json.loads(captured.out))
+    assert result["ok"] is True
+    assert result["output"] == {"path": str(output), "written": True}
+    artifacts = cast(list[dict[str, object]], result["artifacts"])
+    assert artifacts[0]["sql"] == _expected_postgres_satisfying_sql()
+    assert output.read_text(encoding="utf-8") == (
+        f"{_expected_postgres_satisfying_sql()}\n"
+    )
+
+
+def test_invalid_source_satisfying_still_fails_before_text_sql(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _write(tmp_path, "satisfying.pietto", _invalid_satisfying_source())
+    _forbid_ir_and_sql(monkeypatch)
+
+    assert cli.main(["emit-sql", str(path), "--dialect", "postgres"]) == 1
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert (
+        "PIE-S2324 error: Unknown select output in satisfying: missing" in captured.err
+    )
+
+
+def test_invalid_source_satisfying_json_output_does_not_replace_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    path = _write(tmp_path, "satisfying.pietto", _invalid_satisfying_source())
+    output = _write(tmp_path, "out.sql", "old SQL\n")
+    _forbid_ir_and_sql(monkeypatch)
+
+    assert (
+        cli.main(
+            [
+                "emit-sql",
+                str(path),
+                "--dialect",
+                "postgres",
+                "--format=json",
+                "--output",
+                str(output),
+            ]
+        )
         == 1
     )
 
@@ -341,8 +492,35 @@ def test_source_satisfying_still_fails_closed_before_json_sql(
     result = cast(dict[str, object], json.loads(captured.out))
     assert result["ok"] is False
     assert result["artifacts"] == []
+    assert result["output"] == {"path": str(output), "written": False}
     diagnostics = cast(list[dict[str, object]], result["diagnostics"])
-    assert [diagnostic["code"] for diagnostic in diagnostics] == ["PIE-S2322"]
+    assert [diagnostic["code"] for diagnostic in diagnostics] == ["PIE-S2324"]
+    assert output.read_text(encoding="utf-8") == "old SQL\n"
+
+
+def test_private_mysql_source_pipeline_renders_satisfying_having() -> None:
+    parse_result = parse_source(_valid_satisfying_source(connector="mysql.table"))
+    assert parse_result.diagnostics == ()
+    assert parse_result.ast is not None
+    semantic_result = analyze(parse_result.ast)
+    assert semantic_result.diagnostics == ()
+    ir_result = build_ir(parse_result.ast, semantic_result.model)
+    assert ir_result.diagnostics == ()
+    assert ir_result.ir is not None
+
+    result = emit_mysql_sql(ir_result.ir)
+
+    assert result.diagnostics == ()
+    assert result.artifacts[0].sql == (
+        "SELECT\n"
+        "    `region` AS `region`,\n"
+        "    SUM(`amount`) AS `total_amount`\n"
+        "FROM `orders`\n"
+        "GROUP BY\n"
+        "    `region`\n"
+        "HAVING\n"
+        "    SUM(`amount`) > 1000"
+    )
 
 
 def _script(
@@ -477,7 +655,35 @@ def _having_clause(sql: str) -> str:
     return having.split("\nLIMIT", maxsplit=1)[0]
 
 
-def _valid_satisfying_source() -> str:
+def _valid_satisfying_source(*, connector: str = "postgres.table") -> str:
+    return (
+        _source_prefix(connector) + "table revenue:\n"
+        "    from orders\n"
+        "    group by:\n"
+        "        region\n"
+        "    select:\n"
+        "        region\n"
+        "        total_amount = sum(amount)\n"
+        "    satisfying:\n"
+        "        total_amount > 1000\n"
+    )
+
+
+def _alias_satisfying_source() -> str:
+    return (
+        SOURCE_PREFIX + "table revenue:\n"
+        "    from orders\n"
+        "    group by:\n"
+        "        region\n"
+        "    select:\n"
+        "        r = region\n"
+        "        total_amount = sum(amount)\n"
+        "    satisfying:\n"
+        '        total_amount > 1000 and r != "test"\n'
+    )
+
+
+def _invalid_satisfying_source() -> str:
     return (
         SOURCE_PREFIX + "table revenue:\n"
         "    from orders\n"
@@ -487,7 +693,29 @@ def _valid_satisfying_source() -> str:
         "        region\n"
         "        total_amount = sum(amount)\n"
         "    satisfying:\n"
-        "        total_amount > 1000\n"
+        "        missing > 1000\n"
+    )
+
+
+def _source_prefix(connector: str) -> str:
+    return (
+        "shape Order:\n"
+        "    region: Text not null\n"
+        "    amount: Int not null\n"
+        f'source orders: Order is {connector}("orders")\n'
+    )
+
+
+def _expected_postgres_satisfying_sql() -> str:
+    return (
+        "SELECT\n"
+        '    "region" AS "region",\n'
+        '    SUM("amount") AS "total_amount"\n'
+        'FROM "orders"\n'
+        "GROUP BY\n"
+        '    "region"\n'
+        "HAVING\n"
+        '    SUM("amount") > 1000'
     )
 
 
@@ -500,7 +728,7 @@ def _write(tmp_path: Path, name: str, source: str) -> Path:
 def _forbid_ir_and_sql(monkeypatch: pytest.MonkeyPatch) -> None:
     def unexpected_call(*args: object, **kwargs: object) -> object:
         del args, kwargs
-        raise AssertionError("satisfying source must still fail before IR and SQL")
+        raise AssertionError("invalid satisfying source must fail before IR and SQL")
 
     monkeypatch.setattr(cli.ir_api, "build_ir", unexpected_call)
     monkeypatch.setattr(cli.sql_api, "emit_postgres_sql", unexpected_call)
