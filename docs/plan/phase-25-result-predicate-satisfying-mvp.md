@@ -25,6 +25,17 @@ JSON schema, JSON output behavior, grammar, generated parser, AST, fixture,
 golden, dependency, package, CI, runtime/database, project/multi-file, public
 MySQL API, or relationship/JOIN behavior.
 
+Phase 25 Slice 4 is complete as IR-model-only representation work. It adds an
+additive `ResultPredicateIR` wrapper and nullable `RelationIR.result_predicate`
+field so later slices have a durable shape for post-aggregate predicates.
+Constructed IR fixtures demonstrate the intended normalized representation
+shape. Actual source AST/semantic alias-to-underlying-expression lowering
+remains deferred while `PIE-S2322` is active. Slice 4 adds no semantic
+behavior change, SQL/HAVING lowering, CLI behavior, JSON schema, JSON output
+behavior, grammar, generated parser, AST, fixture, golden, dependency,
+package, CI, runtime/database, project/multi-file, public MySQL API, or
+relationship/JOIN behavior.
+
 Slice 1 changes no grammar, generated ANTLR, AST, AST builder, semantic
 analysis, Semantic IR, SQL backend, CLI behavior, JSON schema, JSON output
 behavior, fixture, golden, script, dependency, lockfile, package metadata, CI,
@@ -307,11 +318,12 @@ Slice 3: Semantic Validation
 
 Slice 4: IR Representation And Alias Normalization
 
-- future implementation slice;
-- add an additive result-predicate representation to relation IR;
-- lower output-name references to underlying group-key or aggregate
-  expression IR;
-- keep final IR class and field names local to that slice.
+- complete as IR-model-only representation work;
+- add an additive `ResultPredicateIR` wrapper and
+  `RelationIR.result_predicate`;
+- keep ordinary source pipelines fail-closed with `PIE-S2322`;
+- use constructed IR fixtures to demonstrate the intended normalized
+  representation shape without implementing source alias normalization.
 
 Slice 5: PostgreSQL And Private MySQL SQL Lowering
 

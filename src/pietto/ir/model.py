@@ -352,6 +352,14 @@ class FilterIR:
 
 
 @dataclass(frozen=True, slots=True)
+class ResultPredicateIR:
+    """A lowered post-aggregate relation result predicate."""
+
+    expression: ExpressionIR
+    span: SourceSpan
+
+
+@dataclass(frozen=True, slots=True)
 class ProjectionIR:
     """An ordered relation projection and its stable output metadata."""
 
@@ -400,6 +408,7 @@ class RelationIR(DefinitionIR):
     order_by: tuple[OrderItemIR, ...] = ()
     limit: LimitIR | None = None
     group_keys: tuple[FieldRefIR, ...] = ()
+    result_predicate: ResultPredicateIR | None = None
 
 
 @dataclass(frozen=True, slots=True)

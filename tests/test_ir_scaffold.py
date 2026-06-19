@@ -113,6 +113,7 @@ def test_ir_public_exports_are_explicit() -> None:
         "RelationIR",
         "RelationKindIR",
         "RelationSourceIR",
+        "ResultPredicateIR",
         "RowFieldIR",
         "RowSchemaIR",
         "ScriptIR",
