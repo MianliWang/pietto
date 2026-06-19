@@ -59,6 +59,16 @@ CLI implementation, JSON schema, fixture, golden, script, dependency, package,
 CI, runtime/database, project/multi-file, public MySQL API, or
 relationship/JOIN behavior.
 
+Phase 25 Slice 7 is complete as completion audit and status lock work only.
+Slice 7 adds focused completion audit coverage and records Phase 25 as
+complete. Slice 7 adds no grammar, generated parser, AST, semantic behavior,
+IR behavior, SQL backend implementation, CLI implementation, CLI option,
+JSON schema, fixture, golden, script, dependency, package, CI,
+runtime/database, project/multi-file, public MySQL API, or relationship/JOIN
+behavior.
+
+Phase 25 Result Predicate / `satisfying` MVP is complete.
+
 Slice 1 changes no grammar, generated ANTLR, AST, AST builder, semantic
 analysis, Semantic IR, SQL backend, CLI behavior, JSON schema, JSON output
 behavior, fixture, golden, script, dependency, lockfile, package metadata, CI,
@@ -240,6 +250,7 @@ Phase 25 MVP does not include:
 - direct aggregate calls inside `satisfying`, such as `sum(amount) > 1000`;
 - aggregate expression arguments, such as `sum(amount + tax)`;
 - generic SQL `HAVING` source syntax;
+- CLI option changes;
 - dotted field references inside satisfying;
 - row-level non-group field references inside satisfying;
 - projection alias composition;
@@ -375,9 +386,15 @@ Slice 6: Source Pipeline / CLI / JSON / Output Hardening
 
 Slice 7: Completion Audit And Status Lock
 
-- future audit/status slice;
-- lock Phase 25 behavior, deferrals, diagnostics, SQL goldens, public API,
-  dependency, and runtime/database boundaries.
+- complete as completion audit and status lock work only;
+- add `tests/test_phase25_completion_audit.py` and this status documentation;
+- lock Phase 25 behavior, deferrals, diagnostics, fixture/golden inventory,
+  public API, dependency, CI/package/config, runtime/database,
+  project/multi-file, and relationship/JOIN boundaries;
+- add no production behavior, semantic implementation, IR behavior, SQL backend
+  implementation, CLI implementation, JSON schema, fixture, golden, script,
+  dependency, lockfile, package metadata, CI, runtime/database behavior,
+  project/multi-file behavior, public MySQL API, or relationship/JOIN behavior.
 
 ## Validation And Compatibility Gates
 
