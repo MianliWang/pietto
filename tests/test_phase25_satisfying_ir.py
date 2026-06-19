@@ -96,7 +96,7 @@ def test_result_predicate_ir_is_frozen_and_frontend_independent() -> None:
     assert predicate.span is SPAN
     _assert_no_frontend_objects(predicate)
     with pytest.raises(FrozenInstanceError):
-        predicate.span = SPAN
+        setattr(predicate, "span", SPAN)
 
 
 def test_relation_ir_result_predicate_defaults_to_none_for_existing_builds() -> None:
@@ -121,7 +121,10 @@ def test_constructed_ir_fixture_models_aggregate_alias_normalization_shape() -> 
     relation = _constructed_relation(predicate)
 
     assert relation.result_predicate is predicate
-    expression = relation.result_predicate.expression
+    result_predicate = relation.result_predicate
+    assert result_predicate is not None
+    assert result_predicate is predicate
+    expression = result_predicate.expression
     assert isinstance(expression, ComparisonIR)
     left = expression.left
     assert isinstance(left, AggregateCallIR)
@@ -141,7 +144,10 @@ def test_constructed_ir_fixture_models_group_key_alias_normalization_shape() -> 
     relation = _constructed_relation(predicate)
 
     assert relation.result_predicate is predicate
-    expression = relation.result_predicate.expression
+    result_predicate = relation.result_predicate
+    assert result_predicate is not None
+    assert result_predicate is predicate
+    expression = result_predicate.expression
     assert isinstance(expression, ComparisonIR)
     left = expression.left
     assert isinstance(left, FieldRefIR)
