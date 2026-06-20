@@ -2033,23 +2033,38 @@ shapes remain deferred through existing primary diagnostics, including
 
 ### Phase 29: v0.2 Stabilization Boundary
 
-Status: Phase 29 Slice 1 is complete as candidate decision, boundary contract,
-and static audit work only.
+Status: Phase 29 is complete as docs/spec/static-audit and status work only.
 
-Phase 29 selects v0.2 Stabilization Boundary And Deferred Register. The Slice
-1 boundary defines v0.2 as a stable single-file typed SQL authoring compiler,
-directionally freezes the Phase 19 through Phase 28 aggregate surface for v0.2
-except bug fixes, and prepares Phase 30 Core Type System Stabilization I.
+Phase 29 selects v0.2 Stabilization Boundary And Deferred Register. Slices 1
+through 6 cover the candidate decision and v0.2 boundary contract, deferred
+feature register, aggregate surface freeze, core type-system gap matrix, v0.2
+exit criteria and validation strategy, and completion audit/status lock. Phase
+29 defines v0.2 as a stable single-file typed SQL authoring compiler, but v0.2
+is not complete yet. Phase 30 Core Type System Stabilization I is the next
+mainline.
 
 The accepted Phase 30 through Phase 32 mainline is Phase 30 Core Type System
 Stabilization I, Phase 31 Core Type System Stabilization II And Dialect Matrix
 Hardening, and Phase 32 v0.2 Single-file Stable Completion Audit.
+Phase 30, Phase 31, and Phase 32 remain required before v0.2 stable
+completion.
 
 Phase 29 Slice 1 adds no source implementation, grammar, generated,
 CLI/JSON/API, IR, SQL, aggregate semantic, runtime/database, schema
 introspection, project/multi-file, public MySQL API, or relationship/JOIN
-behavior changes. Deferred capabilities remain deferred until separate
-approved slices.
+behavior changes. Phase 29 as a whole adds no source implementation, grammar,
+generated, CLI/JSON/API, IR, SQL, semantic, aggregate, diagnostic,
+runtime/database, schema introspection, project/multi-file, public MySQL API,
+relationship/JOIN, type-system behavior, package version, release,
+publication, JSON v2, or release artifact changes. Deferred capabilities
+remain deferred until separate approved slices.
+
+Historical Phase 29 Slice 1 checkpoint: Slice 1 is complete as candidate
+decision, boundary contract, and static audit work only. It directionally
+freezes the Phase 19 through Phase 28 aggregate surface for v0.2 except bug
+fixes and adds no source implementation, grammar, generated, CLI/JSON/API, IR,
+SQL, aggregate semantic, runtime/database, schema introspection,
+project/multi-file, public MySQL API, or relationship/JOIN behavior changes.
 
 ---
 

@@ -67,11 +67,13 @@ The current implementation status is:
   Float numeric literal leaves inside selected `sum(...)` and `avg(...)`
   numeric expression arguments, and accepted expressions must still include at
   least one direct input field leaf**;
-- **Phase 29 v0.2 Stabilization Boundary: Slice 1 is complete as candidate
-  decision, boundary contract, and static audit work only. It selects a stable
-  single-file typed SQL authoring compiler boundary, directionally freezes the
-  Phase 19 through Phase 28 aggregate surface for v0.2 except bug fixes, and
-  prepares Phase 30 Core Type System Stabilization I**.
+- **Phase 29 v0.2 Stabilization Boundary: complete as docs/spec/static-audit
+  and status work only. It defines a stable single-file typed SQL authoring
+  compiler boundary, adds the deferred feature register, freezes the Phase 19
+  through Phase 28 aggregate surface for v0.2 except bug fixes, records the
+  core type-system gap matrix, defines v0.2 exit criteria, and locks the Phase
+  30 through Phase 32 handoff. v0.2 is not complete yet; Phase 30 Core Type
+  System Stabilization I is the next mainline**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -192,14 +194,25 @@ AST, parser, IR model, SQL fixture/golden, JSON schema, CLI option,
 dependency, public API, runtime/project, public MySQL API, or
 relationship/JOIN changes.
 
-Phase 29 v0.2 Stabilization Boundary Slice 1 is complete. It selects Phase 29
-v0.2 Stabilization Boundary And Deferred Register as the next direction,
-defines v0.2 as a stable single-file typed SQL authoring compiler, freezes the
-Phase 19 through Phase 28 aggregate surface directionally for v0.2 except bug
-fixes, and prepares Phase 30 Core Type System Stabilization I. Slice 1 adds no
-source implementation, grammar, generated, CLI/JSON/API, IR, SQL, aggregate
-semantic, runtime/database, schema introspection, project/multi-file, public
-MySQL API, or relationship/JOIN behavior changes.
+Phase 29 v0.2 Stabilization Boundary is complete as docs/spec/static-audit and
+status work only. Slices 1 through 6 cover the v0.2 boundary contract, deferred
+feature register, aggregate surface freeze, core type-system gap matrix, v0.2
+exit criteria and validation strategy, and completion audit/status lock. Phase
+29 defines v0.2 as a stable single-file typed SQL authoring compiler, but v0.2
+is not complete yet. Phase 30 Core Type System Stabilization I is the next
+mainline, and Phase 30, Phase 31, and Phase 32 remain required before v0.2
+stable completion. Phase 29 adds no source implementation, grammar, generated,
+CLI/JSON/API, IR, SQL, semantic, aggregate, diagnostic, runtime/database,
+schema introspection, project/multi-file, public MySQL API, relationship/JOIN,
+type-system behavior, package version, release, publication, JSON v2, or
+release artifact changes.
+
+Historical Phase 29 Slice 1 checkpoint: Slice 1 is complete as candidate
+decision, boundary contract, and static audit work only. It directionally
+freezes the Phase 19 through Phase 28 aggregate surface for v0.2 except bug
+fixes and adds no source implementation, grammar, generated, CLI/JSON/API, IR,
+SQL, aggregate semantic, runtime/database, schema introspection,
+project/multi-file, public MySQL API, or relationship/JOIN behavior changes.
 
 The supported single-file CLI commands and forms include:
 
@@ -707,5 +720,13 @@ The Phase 29 v0.2 stabilization boundary is documented in
 [the Phase 29 v0.2 Stabilization Boundary plan](docs/plan/phase-29-v02-stabilization-boundary.md).
 The exact Slice 1 boundary contract is in
 [the v0.2 Stabilization Boundary v1 specification](docs/spec/v02-stabilization-boundary-v1.md).
+The v0.2 deferred feature register is in
+[the v0.2 Deferred Feature Register v1 specification](docs/spec/v02-deferred-feature-register-v1.md).
+The v0.2 aggregate freeze is in
+[the v0.2 Aggregate Surface Freeze v1 specification](docs/spec/v02-aggregate-surface-freeze-v1.md).
+The v0.2 core type-system gap matrix is in
+[the v0.2 Core Type System Gap Matrix v1 specification](docs/spec/v02-core-type-system-gap-matrix-v1.md).
+The v0.2 exit criteria and validation strategy are in
+[the v0.2 Exit Criteria And Validation Strategy v1 specification](docs/spec/v02-exit-criteria-validation-strategy-v1.md).
 Diagnostic codes are documented in
 [the diagnostics specification](docs/spec/diagnostics.md).

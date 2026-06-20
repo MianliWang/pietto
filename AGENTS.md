@@ -259,15 +259,24 @@ introspection, arbitrary scalar calls inside `sum` / `avg`, division, modulo,
 model, SQL fixture/golden, JSON schema, CLI option, dependency, public API,
 runtime/project, public MySQL API, or relationship/JOIN changes.
 
-Phase 29 v0.2 Stabilization Boundary Slice 1 is complete as candidate
-decision, boundary contract, and static audit work only. It selects Phase 29
-v0.2 Stabilization Boundary And Deferred Register, defines v0.2 as a stable
-single-file typed SQL authoring compiler, directionally freezes the Phase 19
-through Phase 28 aggregate surface for v0.2 except bug fixes, and prepares
-Phase 30 Core Type System Stabilization I. Slice 1 adds no source
-implementation, grammar, generated, CLI/JSON/API, IR, SQL, aggregate semantic,
-runtime/database, schema introspection, project/multi-file, public MySQL API,
-or relationship/JOIN behavior changes.
+Phase 29 v0.2 Stabilization Boundary is complete as docs/spec/static-audit
+and status work only. Slices 1 through 6 cover the candidate decision and
+v0.2 boundary contract, deferred feature register, aggregate surface freeze,
+core type-system gap matrix, v0.2 exit criteria and validation strategy, and
+completion audit/status lock. Phase 29 defines v0.2 as a stable single-file
+typed SQL authoring compiler, but v0.2 is not complete yet. Phase 30 Core Type
+System Stabilization I is the next mainline, and Phase 30, Phase 31, and Phase
+32 remain required before v0.2 stable completion. Phase 29 adds no source
+implementation, grammar, generated, CLI/JSON/API, IR, SQL, semantic,
+aggregate, diagnostic, runtime/database, schema introspection,
+project/multi-file, public MySQL API, relationship/JOIN, type-system behavior,
+package version, release, publication, JSON v2, or release artifact changes.
+Historical Phase 29 Slice 1 checkpoint: Slice 1 is complete as candidate
+decision, boundary contract, and static audit work only. It directionally
+freezes the Phase 19 through Phase 28 aggregate surface for v0.2 except bug
+fixes and adds no source implementation, grammar, generated, CLI/JSON/API, IR,
+SQL, aggregate semantic, runtime/database, schema introspection,
+project/multi-file, public MySQL API, or relationship/JOIN behavior changes.
 
 Phase 13 Relation Composition And Relationship Planning is complete as
 planning, contract, and audit work only. Slices 1 through 6 are complete.

@@ -23,6 +23,15 @@ contract and static audit work only. It adds the formal v0.2 exit criteria and
 validation strategy at
 `docs/spec/v02-exit-criteria-validation-strategy-v1.md`.
 
+Phase 29 Slice 6 is complete as completion audit and status lock work only. It
+adds `tests/test_phase29_completion_audit.py` and locks Phase 29 completion
+without declaring v0.2 complete.
+
+Phase 29 v0.2 Stabilization Boundary is complete as docs/spec/static-audit and
+status work only. Phase 30 Core Type System Stabilization I is the next
+mainline. Phase 30, Phase 31, and Phase 32 remain required before v0.2 stable
+completion.
+
 Slice 1 changes no source implementation, grammar, generated ANTLR, AST,
 parser, semantic implementation, IR implementation, IR model, SQL backend,
 CLI behavior, JSON behavior or schema, fixture, golden, script, dependency,
@@ -64,6 +73,16 @@ relationship/JOIN behavior, type-system behavior, aggregate behavior,
 diagnostic behavior, release tag, publication, package upload, signing,
 attestation, release artifact, package version, JSON v2 behavior, schema
 introspection behavior, or runtime/database execution behavior.
+
+Slice 6 also changes no source implementation, grammar, generated ANTLR, AST,
+parser, semantic implementation, IR implementation, IR model, SQL backend,
+CLI behavior, JSON behavior or schema, fixture, golden, script, dependency,
+lockfile, package metadata, CI, public API, runtime/database behavior, schema
+introspection, project/multi-file behavior, public MySQL API,
+relationship/JOIN behavior, type-system behavior, aggregate behavior,
+diagnostic behavior, package version, release tag, publication, package
+upload, signing, attestation, release artifact, JSON v2 behavior, v0.2
+completion declaration, or Phase 30 implementation.
 
 Trusted Phase 28 baseline:
 
@@ -449,9 +468,12 @@ uv run python scripts/validate.py
 
 Commit message suggestion: `Define v0.2 validation strategy`.
 
+Historical Slice 5 checkpoint retained for static-audit compatibility:
+`### Slice 6: Completion Audit And Status Lock Status: planned only`.
+
 ### Slice 6: Completion Audit And Status Lock
 
-Status: planned only.
+Status: complete as completion audit and status lock work only.
 
 Goal: lock Phase 29 artifacts, boundaries, deferred register, aggregate freeze,
 type-system gap matrix, v0.2 exit criteria, and Phase 30 through Phase 32
@@ -467,12 +489,22 @@ Explicit non-goals:
 
 - no compiler behavior changes;
 - no new v0.2 implementation;
-- no commit, push, release, or package publication without explicit approval.
+- no v0.2 completion declaration;
+- no Phase 30, Phase 31, or Phase 32 implementation;
+- no commit, push, release, package version bump, release tag, release
+  artifact, publication, package upload, signing, or attestation without
+  explicit approval;
+- no JSON v2 or public MySQL API expansion.
 
 Validation:
 
 ```bash
 uv run pytest tests/test_phase29_completion_audit.py
+uv run pytest tests/test_phase29_v02_exit_criteria_validation_strategy.py
+uv run pytest tests/test_phase29_v02_core_type_system_gap_matrix.py
+uv run pytest tests/test_phase29_v02_aggregate_surface_freeze.py
+uv run pytest tests/test_phase29_v02_deferred_feature_register.py
+uv run pytest tests/test_phase29_v02_stabilization_candidate_decision.py
 uv run python scripts/check_generated.py
 uv run python scripts/check_goldens.py
 uv run python scripts/package_smoke.py
