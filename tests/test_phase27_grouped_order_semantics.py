@@ -276,7 +276,7 @@ def test_pietto_check_accepts_grouped_order_but_emit_sql_remains_deferred(
     assert result["ok"] is False
     assert result["artifacts"] == []
     assert result["output"] == {"path": str(output), "written": False}
-    assert [diagnostic["code"] for diagnostic in diagnostics] == ["PIE-I1000"]
+    assert [diagnostic["code"] for diagnostic in diagnostics] == ["PIE-B1000"]
     assert output.read_text(encoding="utf-8") == "old SQL\n"
 
 

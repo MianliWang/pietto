@@ -85,7 +85,7 @@ LOCKED_GROUP_HASHES = {
     ),
     "ir": (
         5,
-        "4aff21c78f68496cb909a0ff32b341424d40721c7d85c86e64cc4d4503769aad",
+        "7438c72875751eeadf8b12b3aad1825499061f3f4e0dd73d8c1a339c614ae884",
     ),
     "sql": (
         10,

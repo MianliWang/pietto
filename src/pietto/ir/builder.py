@@ -42,6 +42,7 @@ from pietto.ir.lowering import (
     lower_type_ref,
 )
 from pietto.ir.model import (
+    AggregateCallIR,
     BinaryIR,
     ComparisonIR,
     ConnectorIR,
@@ -435,13 +436,6 @@ def _lower_relation(
         )
         for item in definition.select_items
     )
-    order_by = _lower_order_by(
-        definition,
-        semantic_model,
-        input_schema=input_schema,
-        target_symbol=target_symbol,
-    )
-    limit = _lower_limit(definition)
     group_keys = _lower_group_keys(
         definition,
         semantic_model,
@@ -449,6 +443,15 @@ def _lower_relation(
         target_symbol=target_symbol,
         field_qualifier=target.name,
     )
+    order_by = _lower_order_by(
+        definition,
+        semantic_model,
+        input_schema=input_schema,
+        target_symbol=target_symbol,
+        projections=projections,
+        group_keys=group_keys,
+    )
+    limit = _lower_limit(definition)
     result_predicate = _lower_result_predicate(
         definition,
         semantic_model,
@@ -539,12 +542,20 @@ def _lower_order_by(
     *,
     input_schema: RowSchema,
     target_symbol: SymbolId,
+    projections: tuple[ProjectionIR, ...],
+    group_keys: tuple[FieldRefIR, ...],
 ) -> tuple[OrderItemIR, ...]:
-    """Lower sorting expressions against the relation input row."""
+    """Lower input-scope or grouped result-scope sorting expressions."""
 
     clause = definition.order_by_clause
     if clause is None:
         return ()
+    if definition.group_by_clause is not None:
+        return _lower_grouped_order_by(
+            definition,
+            projections=projections,
+            group_keys=group_keys,
+        )
     return tuple(
         OrderItemIR(
             expression=_require_lowered_expression(
@@ -554,13 +565,68 @@ def _lower_order_by(
                 field_owner=target_symbol,
                 field_qualifier=target_symbol.name,
             ),
-            direction=OrderDirectionIR(
-                "ASC" if item.direction is None else item.direction.upper()
-            ),
+            direction=_lower_order_direction(item.direction),
             span=lower_span(item.span),
         )
         for item in clause.items
     )
+
+
+def _lower_grouped_order_by(
+    definition: DerivedRelation,
+    *,
+    projections: tuple[ProjectionIR, ...],
+    group_keys: tuple[FieldRefIR, ...],
+) -> tuple[OrderItemIR, ...]:
+    clause = definition.order_by_clause
+    if clause is None:
+        return ()
+    output_expressions = _grouped_order_output_expressions(
+        projections,
+        group_keys=group_keys,
+    )
+    order_by: list[OrderItemIR] = []
+    for item in clause.items:
+        if not isinstance(item.expression, NameExpr):
+            raise _MissingSemanticFact(item.expression, "grouped order output")
+        expression = output_expressions.get(item.expression.name)
+        if expression is None:
+            raise _MissingSemanticFact(item.expression, "grouped order output")
+        order_by.append(
+            OrderItemIR(
+                expression=expression,
+                direction=_lower_order_direction(item.direction),
+                span=lower_span(item.span),
+            )
+        )
+    return tuple(order_by)
+
+
+def _grouped_order_output_expressions(
+    projections: tuple[ProjectionIR, ...],
+    *,
+    group_keys: tuple[FieldRefIR, ...],
+) -> dict[str, ExpressionIR]:
+    group_key_fields = {key.field for key in group_keys if key.field is not None}
+    output_expressions: dict[str, ExpressionIR] = {}
+    for projection in projections:
+        if projection.name is None or projection.name in output_expressions:
+            continue
+        expression = projection.expression
+        if isinstance(expression, AggregateCallIR):
+            output_expressions[projection.name] = expression
+            continue
+        if (
+            isinstance(expression, FieldRefIR)
+            and expression.field is not None
+            and expression.field in group_key_fields
+        ):
+            output_expressions[projection.name] = expression
+    return output_expressions
+
+
+def _lower_order_direction(direction: str | None) -> OrderDirectionIR:
+    return OrderDirectionIR("ASC" if direction is None else direction.upper())
 
 
 def _lower_limit(definition: DerivedRelation) -> LimitIR | None:
