@@ -240,6 +240,23 @@ broad `ORDER BY` / `LIMIT` redesign, JSON schema change, CLI option change,
 fixture/golden inventory change, public MySQL API expansion, runtime/database
 execution, project/multi-file behavior, or relationship/JOIN behavior.
 
+Phase 28 Numeric / Aggregate Refinement II Slice 1 is complete as candidate
+decision, exact contract, and static audit work only. Phase 28 implementation
+has not started. The selected future target is a numeric literal aggregate
+argument MVP that admits only Int and Float numeric literal leaves inside
+selected `sum(...)` and `avg(...)` numeric expression arguments. Accepted
+future expressions must still include at least one direct input field leaf, so
+literal-only aggregate arguments such as `sum(1)` and `avg(1)` remain rejected.
+The contract preserves existing scalar type inference and aggregate result
+typing, including existing `sum(Int expression)`, `sum(Float expression)`,
+`avg(Int expression)`, and `avg(Float expression)` behavior. Phase 28 Slice 1
+adds no Decimal literal, Decimal multiplication, Decimal division, mixed
+Decimal promotion, casts, precision/scale modeling, division, modulo,
+`count(expression)`, `min(expression)`, `max(expression)`,
+`count_distinct(...)` widening, grammar, generated ANTLR, AST, parser, IR
+model, SQL fixture/golden, JSON schema, CLI option, dependency, public API,
+runtime/project, public MySQL API, or relationship/JOIN changes.
+
 Phase 13 Relation Composition And Relationship Planning is complete as
 planning, contract, and audit work only. Slices 1 through 6 are complete.
 Slice 1 Master Plan And Baseline Audit, Slice 2 Relationship /

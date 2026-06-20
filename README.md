@@ -60,6 +60,11 @@ The current implementation status is:
   selected expressions rather than SELECT aliases, keeps unsupported grouped
   order source shapes on existing diagnostics such as `PIE-S2321`, and keeps
   CLI options and JSON v1 shape unchanged**.
+- **Phase 28 Numeric / Aggregate Refinement II: Slice 1 is complete as
+  candidate decision, exact contract, and static audit work only. Phase 28
+  implementation has not started. The selected future target is a numeric
+  literal aggregate argument MVP for Int and Float numeric literal leaves
+  inside selected `sum(...)` and `avg(...)` numeric expression arguments**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -162,6 +167,23 @@ source `order by:`, ordinal ordering, no-GROUP projection-alias ordering,
 broad `ORDER BY` / `LIMIT` redesign, JSON schema change, CLI option change,
 fixture/golden inventory change, public MySQL API expansion, runtime/database
 execution, project/multi-file behavior, or relationship/JOIN behavior.
+
+Phase 28 Numeric / Aggregate Refinement II Slice 1 is complete as candidate
+decision, exact contract, and static audit work only. Phase 28 implementation
+has not started. The selected future target is a numeric literal aggregate
+argument MVP that admits only Int and Float numeric literal leaves inside
+selected `sum(...)` and `avg(...)` numeric expression arguments. Accepted
+future expressions must still include at least one direct input field leaf, so
+literal-only aggregate arguments such as `sum(1)` and `avg(1)` remain rejected.
+The contract preserves existing scalar type inference and aggregate result
+typing, including existing `sum(Int expression)`, `sum(Float expression)`,
+`avg(Int expression)`, and `avg(Float expression)` behavior. Phase 28 Slice 1
+adds no Decimal literal, Decimal multiplication, Decimal division, mixed
+Decimal promotion, casts, precision/scale modeling, division, modulo,
+`count(expression)`, `min(expression)`, `max(expression)`,
+`count_distinct(...)` widening, grammar, generated ANTLR, AST, parser, IR
+model, SQL fixture/golden, JSON schema, CLI option, dependency, public API,
+runtime/project, public MySQL API, or relationship/JOIN changes.
 
 The supported single-file CLI commands and forms include:
 
@@ -661,5 +683,10 @@ The planned fixed project ceilings, deterministic resource stage gates, and
 failure classification are in
 [the project resource model version 1 specification](docs/spec/project-resource-model-v1.md);
 no project-level budget is implemented.
+The Phase 28 numeric literal aggregate argument candidate decision is in
+[the Phase 28 Numeric / Aggregate Refinement II plan](docs/plan/phase-28-numeric-aggregate-refinement-ii.md).
+The selected future MVP contract is in
+[the Numeric Literal Aggregate Arguments v1 specification](docs/spec/numeric-literal-aggregate-arguments-v1.md);
+Phase 28 implementation has not started.
 Diagnostic codes are documented in
 [the diagnostics specification](docs/spec/diagnostics.md).
