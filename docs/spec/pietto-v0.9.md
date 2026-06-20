@@ -2070,8 +2070,8 @@ project/multi-file, public MySQL API, or relationship/JOIN behavior changes.
 
 ### Phase 30: Core Type System Stabilization I
 
-Status: Phase 30 Slices 1 and 2 are complete as docs/spec/static-audit/status
-work only.
+Status: Phase 30 Slices 1 through 3 are complete as
+docs/spec/static-audit/status work only.
 
 Phase 30 Slice 1 selects Core Type System Stabilization I, records the trusted
 Phase 29 baseline, adds the type-system stabilization contract, and records the
@@ -2079,18 +2079,21 @@ eight-slice master plan. Slice 2 is complete as canonical scalar type registry
 contract, static audit, and status work only. It confirms `UUID` is a
 limited/frozen identifier scalar only for existing frozen behavior such as
 direct-field `count_distinct(UUID)`; broader UUID behavior remains deferred.
-Enum remains a non-builtin semantic type kind. Slices 3 through 8 remain
+Enum remains a non-builtin semantic type kind. Slice 3 is complete as
+nullability propagation contract, static audit, and status work only.
+`EffectiveNullability.UNKNOWN`, `ValueTypeKind.UNKNOWN`, and SQL
+three-valued logic `UNKNOWN` remain distinct. Slices 4 through 8 remain
 planned only. Slice 1 did not pre-decide that every later Phase 30 slice must
 be docs-only; later slices must be approved one by one, and any behavior
 change requires separate explicit approval.
 
-The Phase 30 Slice 1 and Slice 2 contracts change no source implementation,
-grammar, generated, CLI/JSON/API, IR, SQL, semantic, aggregate, diagnostic,
-runtime/database, schema introspection, project/multi-file, public MySQL API,
-relationship/JOIN, type-system behavior, fixture, golden, script, dependency,
-CI, package version, release, publication, JSON v2, UUID or Enum
-implementation, DateTime, Currency/Money, or semantic annotation syntax
-behavior.
+The Phase 30 Slice 1 through Slice 3 contracts change no source
+implementation, grammar, generated, CLI/JSON/API, IR, SQL, semantic,
+aggregate, diagnostic, runtime/database, schema introspection,
+project/multi-file, public MySQL API, relationship/JOIN, type-system
+behavior, fixture, golden, script, dependency, CI, package version, release,
+publication, JSON v2, UUID or Enum implementation, DateTime, Currency/Money,
+or semantic annotation syntax behavior.
 
 Phase 31 and Phase 32 remain required before v0.2 stable completion.
 

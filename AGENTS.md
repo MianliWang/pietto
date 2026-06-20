@@ -278,22 +278,25 @@ fixes and adds no source implementation, grammar, generated, CLI/JSON/API, IR,
 SQL, aggregate semantic, runtime/database, schema introspection,
 project/multi-file, public MySQL API, or relationship/JOIN behavior changes.
 
-Phase 30 Core Type System Stabilization I Slices 1 and 2 are complete as
+Phase 30 Core Type System Stabilization I Slices 1 through 3 are complete as
 docs/spec/static-audit/status work only. Slice 1 records the trusted Phase 29
 baseline, chooses the Phase 30 direction, and adds the eight-slice master
 plan. Slice 2 is complete as canonical scalar type registry contract, static
 audit, and status work only. It confirms `UUID` is a limited/frozen
 identifier scalar only for existing frozen behavior such as direct-field
 `count_distinct(UUID)`; broader UUID behavior remains deferred. Enum remains a
-non-builtin semantic type kind. Slices 3 through 8 remain planned only.
-Through Slice 2, Phase 30 adds no source implementation, grammar, generated,
-CLI/JSON/API, IR, SQL, semantic, aggregate, diagnostic, runtime/database,
-schema introspection, project/multi-file, public MySQL API, relationship/JOIN,
-type-system behavior, package version, release, publication, JSON v2, UUID or
-Enum implementation, DateTime, Currency/Money, or semantic annotation syntax
-changes. Later Phase 30 slices require separate approval, any behavior change
-requires separate explicit approval, and Phase 31 and Phase 32 remain required
-before v0.2 stable completion.
+non-builtin semantic type kind. Slice 3 is complete as nullability propagation
+contract, static audit, and status work only. `EffectiveNullability.UNKNOWN`,
+`ValueTypeKind.UNKNOWN`, and SQL three-valued logic `UNKNOWN` remain distinct.
+Slices 4 through 8 remain planned only. Through Slice 3, Phase 30 adds no
+source implementation, grammar, generated, CLI/JSON/API, IR, SQL, semantic,
+aggregate, diagnostic, runtime/database, schema introspection,
+project/multi-file, public MySQL API, relationship/JOIN, type-system behavior,
+package version, release, publication, JSON v2, UUID or Enum implementation,
+DateTime, Currency/Money, or semantic annotation syntax changes. Later Phase
+30 slices require separate approval, any behavior change requires separate
+explicit approval, and Phase 31 and Phase 32 remain required before v0.2
+stable completion.
 
 Phase 13 Relation Composition And Relationship Planning is complete as
 planning, contract, and audit work only. Slices 1 through 6 are complete.

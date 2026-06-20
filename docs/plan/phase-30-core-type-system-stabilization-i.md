@@ -8,6 +8,9 @@ static audit, and status work only.
 Phase 30 Slice 2 is complete as canonical scalar type registry contract,
 static audit, and status work only.
 
+Phase 30 Slice 3 is complete as nullability propagation contract, static
+audit, and status work only.
+
 Slice 1 selects **Phase 30 Core Type System Stabilization I** as the Phase 30
 direction and adds the first contract at
 `docs/spec/core-type-system-stabilization-contract-v1.md`.
@@ -17,7 +20,13 @@ Slice 2 adds the canonical scalar registry contract at
 classification vocabulary only; it does not add a scalar registry object or
 change compiler behavior.
 
-Slices 3 through 8 remain planned only. Slice 1 did not pre-decide that every
+Slice 3 adds the nullability propagation contract at
+`docs/spec/nullability-propagation-contract-v1.md`. It distinguishes
+`EffectiveNullability.UNKNOWN`, `ValueTypeKind.UNKNOWN`, and SQL
+three-valued logic `UNKNOWN`; it does not change nullability inference or
+compiler behavior.
+
+Slices 4 through 8 remain planned only. Slice 1 did not pre-decide that every
 later Phase 30 slice must be docs-only. Later slices must be planned and
 approved one by one, and any behavior change requires separate explicit
 approval.
@@ -35,6 +44,12 @@ Slice 2 starts from the completed Phase 30 Slice 1 baseline:
 - HEAD: `374698aec9b9774f1df1c1c3aa7132159f7f65a0`;
 - commit: `Plan Phase 30 core type system stabilization`;
 - CI run: `27885002942 success`.
+
+Slice 3 starts from the completed Phase 30 Slice 2 baseline:
+
+- HEAD: `1ab91bb972c928e92e22fc34e945f871454af9bd`;
+- commit: `Document canonical scalar type registry`;
+- CI run: `27885698694 success`.
 
 Phase 29 v0.2 Stabilization Boundary is complete as docs/spec/static-audit and
 status work only. v0.2 is not complete yet. Phase 30, Phase 31, and Phase 32
@@ -60,6 +75,10 @@ The handoff facts are:
 - `ResolvedType` stores only `name`, `kind`, and optional `definition`;
 - `ValueType` stores resolved type, effective nullability, and known/unknown
   status;
+- `ValueTypeKind.UNKNOWN` records an unknown value type and remains distinct
+  from `EffectiveNullability.UNKNOWN`;
+- SQL three-valued logic `UNKNOWN` is a runtime predicate truth value and is
+  distinct from Pietto compile-time nullability facts;
 - no canonical scalar registry object exists;
 - no Decimal precision/scale carrier exists;
 - nullability propagation remains conservative in expression results;
@@ -108,6 +127,21 @@ The selected Slice 2 direction is contract-first. Traits such as `numeric`,
 vocabulary only. They do not authorize new operator, comparison, aggregate,
 SQL lowering, diagnostic, JSON, CLI, public API, or type-system behavior.
 
+## Slice 3 Candidate Decision
+
+Slice 3 selects **Nullability Propagation Contract** as a
+docs/spec/static-audit and status slice.
+
+| Candidate | Fit | Risk | Decision |
+|---|---:|---:|---|
+| Slice 3 docs/spec/static-audit/status only | High | Low | Chosen. |
+| Tests-only hardening | Medium | Medium | Rejected for Slice 3; behavior tests would imply a hardening pass before the contract is accepted. Static audit coverage is enough. |
+| Minimal implementation artifact | Low | Medium | Rejected; no current consumer requires a new helper, enum, registry, or propagation function. |
+| Broad behavior implementation | Low | High | Rejected; it could change semantic, diagnostic, IR, SQL, CLI, JSON, aggregate, fixture, golden, and public API behavior. |
+
+The selected Slice 3 direction is contract-first. It locks current
+nullability behavior only and does not add broader inference.
+
 ## Type-System Contract Direction
 
 Phase 30 treats Pietto's type system as the foundation for:
@@ -130,6 +164,12 @@ does not imply primary-key semantics, foreign-key semantics, relationship
 semantics, cardinality, grain, row identity, business ID validation, general
 comparison behavior, cast behavior, SQL storage behavior, or public API
 behavior.
+
+Slice 3 keeps that direction bounded. It defines current nullability
+propagation as compile-time Pietto value facts, explicitly distinguishes
+`EffectiveNullability.UNKNOWN`, `ValueTypeKind.UNKNOWN`, and SQL
+three-valued logic `UNKNOWN`, and leaves Bool/predicate semantics plus the
+operator/comparison matrix to later approved slices.
 
 ## Phase 30 Slice Plan
 
@@ -191,11 +231,31 @@ Validation:
 
 ### Slice 3: Nullability Propagation Contract
 
-Status: planned only.
+Status: complete as nullability propagation contract, static audit, and status
+work only.
 
 Goal: document source nullability, expression uncertainty, predicate
 nullability, aggregate result nullability, unknown propagation, and fail-closed
-rules. Slice 3 must not start until separately approved.
+rules.
+
+Artifacts:
+
+- `docs/spec/nullability-propagation-contract-v1.md`;
+- `tests/test_phase30_nullability_propagation_contract.py`;
+- minimal status documentation updates.
+
+Validation:
+
+- `uv run pytest tests/test_phase30_nullability_propagation_contract.py tests/test_phase30_candidate_decision.py tests/test_phase30_canonical_scalar_type_registry.py`;
+- `uv run pytest tests/test_phase29_v02_core_type_system_gap_matrix.py tests/test_phase29_completion_audit.py`;
+- `uv run pytest tests/test_phase17_core_scalar_expression_semantics.py tests/test_phase26_numeric_scalar_expression_semantics.py tests/test_phase26_decimal_scalar_expression_semantics.py tests/test_semantic_expressions.py tests/test_semantic_types.py tests/test_semantic_where.py tests/test_phase25_satisfying_semantics.py`;
+- `uv run pytest tests/test_phase22_min_max_semantics.py tests/test_phase23_count_field_semantics.py tests/test_phase24_count_distinct_semantics.py tests/test_phase24_completion_audit.py`;
+- `uv run python scripts/check_generated.py`;
+- `uv run python scripts/check_goldens.py`;
+- `uv run python scripts/package_smoke.py`;
+- `uv run python scripts/validate.py`;
+- `git diff --check`;
+- `git diff -- src grammar tests/fixtures scripts pyproject.toml uv.lock .github Makefile`.
 
 ### Slice 4: Bool And Predicate Semantics
 
@@ -238,7 +298,7 @@ approved.
 
 ## Phase-Wide Non-Goals
 
-Phase 30 through Slice 2 does not authorize:
+Phase 30 through Slice 3 does not authorize:
 
 - source implementation changes;
 - grammar, generated ANTLR, AST, or parser changes;

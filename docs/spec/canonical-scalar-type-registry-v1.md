@@ -182,7 +182,9 @@ Slice 2 feeds later Phase 30 slices without implementing them:
   boundary, and deferred classifications to state supported, rejected, and
   deferred pairs.
 
-Slices 3 through 8 remain planned only and require separate explicit approval.
+Slice 3 is complete as nullability propagation contract, static audit, and
+status work only. Slices 4 through 8 remain planned only and require separate
+explicit approval.
 
 ## Explicit Non-Goals
 

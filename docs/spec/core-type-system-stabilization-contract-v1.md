@@ -9,6 +9,10 @@ Phase 30 Slice 2 is complete as canonical scalar type registry contract,
 static audit, and status work only. The Slice 2 contract is
 `docs/spec/canonical-scalar-type-registry-v1.md`.
 
+Phase 30 Slice 3 is complete as nullability propagation contract, static
+audit, and status work only. The Slice 3 contract is
+`docs/spec/nullability-propagation-contract-v1.md`.
+
 This contract selects Phase 30 Core Type System Stabilization I and records the
 phase-wide boundary for turning the Phase 29 core type-system gap matrix into a
 stable v0.2 compiler scalar type contract.
@@ -20,6 +24,10 @@ authorized in that later approval.
 
 Slice 2 remains docs/spec/static-audit/status only. It defines registry
 classification vocabulary, not a registry implementation artifact.
+
+Slice 3 remains docs/spec/static-audit/status only. It defines current
+nullability propagation rules, not a nullability inference implementation
+change.
 
 ## Trusted Baseline
 
@@ -68,6 +76,10 @@ Slice 1 grounds the contract in current implementation facts:
 - `ResolvedType` carries `name`, `kind`, and optional `definition`;
 - `ValueType` carries `resolved_type`, `nullability`, and `kind`;
 - `EffectiveNullability` records `non_null`, `nullable`, or `unknown`;
+- `ValueTypeKind.UNKNOWN` records an unknown value type and remains distinct
+  from `EffectiveNullability.UNKNOWN`;
+- SQL three-valued logic `UNKNOWN` is a runtime predicate truth value and is
+  distinct from Pietto compile-time nullability facts;
 - no canonical scalar type registry object exists;
 - no Decimal precision/scale carrier exists;
 - expression comparisons currently return Pietto `Bool` with unknown
@@ -112,8 +124,9 @@ Slice 1 grounds the contract in current implementation facts:
 7. Operator And Comparison Matrix.
 8. Completion Audit And Status Lock.
 
-Slice 2 is complete as the canonical scalar type registry contract. Slices 3
-through 8 remain planned only and require separate explicit approval.
+Slice 2 is complete as the canonical scalar type registry contract. Slice 3 is
+complete as the nullability propagation contract. Slices 4 through 8 remain
+planned only and require separate explicit approval.
 
 ## Stabilization Boundary
 
@@ -129,14 +142,15 @@ Phase 30 may stabilize contracts for:
   direct-field aggregate-distinct behavior;
 - explicit deferrals for `Bytes`, `Json`, broader UUID behavior, and Enum
   behavior;
-- nullability propagation rules;
+- current nullability propagation rules;
 - Bool and predicate semantics, including the SQL three-valued-logic boundary;
 - Date/Timestamp portability and temporal deferrals;
 - Decimal logical behavior and precision/scale disposition;
 - operator and comparison matrices.
 
-Phase 30 Slice 1 does not change any of those behaviors. It only records the
-contract boundary and the plan for later approved slices.
+Phase 30 through Slice 3 does not change any of those behaviors. It records the
+contract boundary, scalar registry vocabulary, and nullability propagation
+contract for later approved slices.
 
 ## Explicit Non-Goals
 

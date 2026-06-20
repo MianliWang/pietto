@@ -296,7 +296,9 @@ def test_later_slice_handoff_and_non_goals_are_locked() -> None:
         "Slice 5 Date / Timestamp Formalization",
         "Slice 6 Decimal Precision / Scale Contract",
         "Slice 7 Operator And Comparison Matrix",
-        "Slices 3 through 8 remain planned only",
+        "Slice 3 is complete as nullability propagation contract, static audit, "
+        "and status work only",
+        "Slices 4 through 8 remain planned only",
         "require separate explicit approval",
     ):
         assert required in plan_and_spec
@@ -312,11 +314,15 @@ def test_status_docs_record_slice2_without_v02_completion_or_behavior_change() -
             "Phase 30 Core Type System Stabilization I",
             "Slice 2 is complete as canonical scalar type registry contract, "
             "static audit, and status work only",
+            "Slice 3 is complete as nullability propagation contract, static "
+            "audit, and status work only",
             "`UUID` is a limited/frozen identifier scalar only for existing "
             "frozen behavior such as direct-field `count_distinct(UUID)`",
             "broader UUID behavior remains deferred",
             "Enum remains a non-builtin semantic type kind",
-            "Slices 3 through 8 remain planned only",
+            "`EffectiveNullability.UNKNOWN`, `ValueTypeKind.UNKNOWN`, and SQL "
+            "three-valued logic `UNKNOWN` remain distinct",
+            "Slices 4 through 8 remain planned only",
             "Phase 31 and Phase 32 remain required before v0.2 stable completion",
         ):
             assert required in status_doc

@@ -26,7 +26,9 @@ AGGREGATES_PATH = REPO_ROOT / "src/pietto/semantic/aggregates.py"
 PHASE30_ARTIFACTS = (
     "docs/plan/phase-30-core-type-system-stabilization-i.md",
     "docs/spec/core-type-system-stabilization-contract-v1.md",
+    "docs/spec/nullability-propagation-contract-v1.md",
     "tests/test_phase30_candidate_decision.py",
+    "tests/test_phase30_nullability_propagation_contract.py",
 )
 
 PHASE30_SLICES = (
@@ -147,11 +149,12 @@ def test_phase30_master_plan_and_later_slice_approval_boundary_are_locked() -> N
     for required in (
         "Phase 30 Slice 2 is complete as canonical scalar type registry "
         "contract, static audit, and status work only",
-        "Slices 3 through 8 remain planned only",
+        "Phase 30 Slice 3 is complete as nullability propagation contract, "
+        "static audit, and status work only",
+        "Slices 4 through 8 remain planned only",
         "Slice 1 did not pre-decide that every later Phase 30 slice must be docs-only",
         "Later slices must be planned and approved one by one",
         "any behavior change requires separate explicit approval",
-        "Slice 3 must not start until separately approved",
         "Slice 4 must not start until separately approved",
         "Slice 5 must not start until separately approved",
         "Slice 6 must not start until separately approved",
@@ -164,7 +167,11 @@ def test_phase30_master_plan_and_later_slice_approval_boundary_are_locked() -> N
         "Phase 30 Slice 2 is complete as canonical scalar type registry "
         "contract, static audit, and status work only"
     ) in spec
-    assert "Slices 3 through 8 remain planned only" in spec
+    assert (
+        "Phase 30 Slice 3 is complete as nullability propagation contract, "
+        "static audit, and status work only"
+    ) in spec
+    assert "Slices 4 through 8 remain planned only" in spec
     assert (
         "Each later slice requires a separate plan and separate explicit approval"
         in (spec)
@@ -196,6 +203,9 @@ def test_phase30_contract_is_grounded_in_phase29_handoff_and_repo_facts() -> Non
         "known/unknown status",
         "no canonical scalar registry object exists",
         "no Decimal precision/scale carrier exists",
+        "`ValueTypeKind.UNKNOWN` records an unknown value type and remains "
+        "distinct from `EffectiveNullability.UNKNOWN`",
+        "SQL three-valued logic `UNKNOWN` is a runtime predicate truth value",
         "`UUID` is a current built-in name with limited/frozen identifier-scalar "
         "status for existing accepted behavior such as direct-field "
         "`count_distinct(UUID)`",
@@ -273,7 +283,11 @@ def test_phase30_non_goals_and_status_docs_preserve_v02_boundary() -> None:
             "Phase 30 Core Type System Stabilization I",
             "Slice 2 is complete as canonical scalar type registry contract, "
             "static audit, and status work only",
-            "Slices 3 through 8 remain planned only",
+            "Slice 3 is complete as nullability propagation contract, static "
+            "audit, and status work only",
+            "`EffectiveNullability.UNKNOWN`, `ValueTypeKind.UNKNOWN`, and SQL "
+            "three-valued logic `UNKNOWN` remain distinct",
+            "Slices 4 through 8 remain planned only",
             "any behavior change requires separate explicit approval",
             "Phase 31 and Phase 32 remain required before v0.2 stable completion",
         ):
