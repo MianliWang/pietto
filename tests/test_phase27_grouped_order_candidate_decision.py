@@ -22,9 +22,12 @@ def test_phase27_slice1_artifacts_exist_and_record_status() -> None:
     plan = _normalized(PLAN_PATH)
     spec = _normalized(SPEC_PATH)
     for required in (
-        "Phase 27 Slice 1 is complete as candidate decision, exact contract, "
-        "and static audit work only",
-        "Phase 27 implementation behavior has not started",
+        "Phase 27 is complete. Slices 1 through 6 cover candidate decision "
+        "and exact contract, grouped result-order semantic validation, IR "
+        "lowering, PostgreSQL and private MySQL SQL lowering, CLI / JSON / "
+        "output hardening, and completion audit/status lock",
+        "Status: complete as candidate decision, exact contract, and static "
+        "audit work only",
         "Grouped Result Ordering MVP",
         "HEAD: `80245a301b6281c8e92efd7f88b2e868ab643649`",
         "Phase 26 Aggregate Expression Arguments + Numeric Expression "
@@ -32,13 +35,13 @@ def test_phase27_slice1_artifacts_exist_and_record_status() -> None:
     ):
         assert required in plan
     for required in (
-        "Status: Phase 27 Slice 1 is complete as candidate decision, exact "
-        "contract, and static audit work only",
-        "Slice 1 changes no grammar, generated ANTLR, AST, AST builder, "
-        "semantic implementation, Semantic IR implementation, SQL backend, "
-        "CLI implementation, JSON schema, JSON serializer, fixture, golden, "
-        "script, dependency, lockfile, package metadata, CI, Makefile/config, "
-        "public API",
+        "Status: Phase 27 is complete for the grouped result-ordering MVP",
+        "The implemented behavior is limited to grouped result-scope `ORDER "
+        "BY` over bare selected output names",
+        "SQL renders underlying selected expressions, not SELECT aliases",
+        "Phase 27 changes no grammar, generated ANTLR, AST, AST builder, "
+        "JSON schema, JSON serializer, fixture, golden, script, dependency, "
+        "lockfile, package metadata, CI, Makefile/config, public API",
     ):
         assert required in spec
 
@@ -65,7 +68,8 @@ def test_slice1_boundary_is_docs_plan_spec_static_audit_and_status_only() -> Non
         "schema introspection",
         "public MySQL API",
         "relationship/JOIN behavior",
-        "Phase 27 implementation behavior",
+        "JSON schema",
+        "JSON serializer",
     ):
         assert required in spec
 
@@ -87,7 +91,7 @@ def test_phase12_phase21_phase25_phase26_baselines_are_locked() -> None:
         "no-GROUP input-scope `order by:` and static `limit`",
         "no-GROUP projection aliases are still not in `ORDER BY` scope",
         "Phase 21 baseline",
-        "grouped semantic validation currently emits `PIE-S2321`",
+        "Phase 21 originally kept grouped `order by:` deferred through `PIE-S2321`",
         "`RelationIR.group_keys` is the existing grouped relation seam",
         "Phase 25/26 alias-normalization precedent",
         "`satisfying:` resolves select output names in source",
@@ -129,7 +133,7 @@ def test_exact_accepted_grouped_order_subset_is_locked() -> None:
 
     for required in (
         "Phase 27 supports only grouped result-scope `ORDER BY` over bare "
-        "select output names",
+        "selected output names",
         "the relation contains `group by:`",
         "the item expression is a bare name",
         "the name resolves to exactly one selected output name",
@@ -184,7 +188,7 @@ def test_diagnostic_strategy_keeps_s2321_without_new_code() -> None:
     for required in (
         "Phase 27 keeps `PIE-S2321` as the grouped `order by:` unsupported "
         "diagnostic family",
-        "Slice 1 does not add `PIE-S2328` or reserve any new diagnostic code",
+        "It does not add `PIE-S2328` or reserve any new diagnostic code",
         "unknown grouped select output names",
         "Parser-owned malformed shapes",
         "`order by: 1` remain parser errors through `PIE-P1000`",
@@ -268,18 +272,26 @@ def test_required_non_goals_remain_explicitly_deferred() -> None:
         assert required in spec
 
 
-def test_status_docs_record_slice1_without_claiming_behavior() -> None:
+def test_status_docs_record_phase27_completion_without_broadening_scope() -> None:
     for relative_path in ("README.md", "AGENTS.md", "docs/spec/pietto-v0.9.md"):
         text = _normalized(REPO_ROOT / relative_path)
         for required in (
             "Phase 27 Grouped Result Ordering MVP",
-            "Slice 1 is complete as candidate decision, exact contract, and "
-            "static audit work only",
-            "Phase 27 implementation behavior has not started",
-            "grouped result-scope `ORDER BY` over bare select output names",
-            "no grammar, generated ANTLR, AST, Semantic IR, SQL backend, CLI, "
-            "JSON schema, fixture, golden, public API, runtime/database, "
-            "project/multi-file, public MySQL API, or relationship/JOIN "
-            "behavior change",
+            "complete",
+            "grouped result-scope `ORDER BY` over bare selected output names",
+            "SQL renders the underlying selected expression rather than the "
+            "SELECT alias",
+            "Unsupported grouped order source shapes continue to use existing "
+            "diagnostics such as `PIE-S2321`",
+            "no arbitrary grouped `ORDER BY` expressions",
+            "direct aggregate calls inside source `order by:`",
+            "ordinal ordering",
+            "no-GROUP projection-alias ordering",
+            "JSON schema change",
+            "CLI option change",
+            "public MySQL API expansion",
+            "runtime/database execution",
+            "project/multi-file behavior",
+            "relationship/JOIN behavior",
         ):
             assert required in text

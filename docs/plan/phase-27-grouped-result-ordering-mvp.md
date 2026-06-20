@@ -2,17 +2,23 @@
 
 ## Status
 
-Phase 27 Slice 1 is complete as candidate decision, exact contract, and static
-audit work only. It adds the grouped result ordering contract, this master
-plan, focused static audit coverage, and minimal status documentation. Phase 27
-implementation behavior has not started.
+Phase 27 is complete. Slices 1 through 6 cover candidate decision and exact
+contract, grouped result-order semantic validation, IR lowering, PostgreSQL and
+private MySQL SQL lowering, CLI / JSON / output hardening, and completion
+audit/status lock.
 
-Slice 1 changes no grammar, generated ANTLR, AST, AST builder, semantic
-implementation, Semantic IR implementation, SQL backend, CLI implementation,
-JSON schema, JSON serializer, fixture, golden, script, dependency, lockfile,
-package metadata, CI, Makefile/config, public API, project/multi-file behavior,
+The completed behavior is limited to grouped result-scope `ORDER BY` over bare
+selected output names. Accepted names resolve to selected group-key projection
+outputs, selected direct aggregate projection outputs, or selected Phase 26
+aggregate-expression projection outputs. SQL lowering renders the underlying
+selected expressions rather than SELECT aliases. Unsupported grouped order
+source shapes continue to use existing diagnostics such as `PIE-S2321`.
+
+Phase 27 changes no grammar, generated ANTLR, AST, AST builder, JSON schema,
+JSON serializer, fixture, golden, script, dependency, lockfile, package
+metadata, CI, Makefile/config, public API, project/multi-file behavior,
 runtime/database behavior, schema introspection, public MySQL API, public MySQL
-CLI exposure, relationship/JOIN behavior, or Phase 27 implementation behavior.
+CLI exposure, or relationship/JOIN behavior.
 
 Trusted Phase 26 baseline:
 
@@ -32,11 +38,11 @@ Trusted Phase 26 baseline:
 
 Phase 27 selects **Grouped Result Ordering MVP**.
 
-The target is grouped result-scope `ORDER BY` over select output names. This is
-not a broad `ORDER BY` / `LIMIT` rewrite, not a no-GROUP projection-alias
-ordering phase, and not a relationship/JOIN readiness phase.
+The target is grouped result-scope `ORDER BY` over bare selected output names.
+This is not a broad `ORDER BY` / `LIMIT` rewrite, not a no-GROUP
+projection-alias ordering phase, and not a relationship/JOIN readiness phase.
 
-The accepted future subset is:
+The accepted completed subset is:
 
 - only relations with `group by:`;
 - only bare `order by:` names that resolve to selected output names;
@@ -69,10 +75,10 @@ Phase 12 baseline:
 Phase 21 baseline:
 
 - `group by:` exists before `select:` and leaves `order by:` after `select:`;
-- grouped semantic validation currently emits `PIE-S2321` for any grouped
-  `order by:`;
+- Phase 21 originally kept grouped `order by:` deferred through `PIE-S2321`;
 - `RelationIR.group_keys` is the existing grouped relation seam;
-- PostgreSQL and private MySQL currently fail closed for grouped `order_by` IR.
+- PostgreSQL and private MySQL originally failed closed for grouped
+  `order_by` IR.
 
 Phase 25/26 alias-normalization precedent:
 
@@ -84,6 +90,9 @@ Phase 25/26 alias-normalization precedent:
 ## Slice Plan
 
 ### Slice 1: Candidate Decision And Exact Contract
+
+Status: complete as candidate decision, exact contract, and static audit work
+only.
 
 Goal: lock the Phase 27 target and prevent scope drift before production work.
 
@@ -118,6 +127,8 @@ needed.
 Goal: retire the blanket semantic rejection only for supported grouped
 output-name order items.
 
+Status: complete as grouped result-order semantic validation only.
+
 Allowed changes:
 
 - add grouped order validation facts;
@@ -125,11 +136,8 @@ Allowed changes:
   select output names;
 - preserve no-GROUP Phase 12 input-scope behavior.
 
-Expected changed files:
+Approved production/test change shape:
 
-- `src/pietto/semantic/grouped_order_by.py`;
-- `src/pietto/semantic/model.py`;
-- `src/pietto/semantic/analyzer.py`;
 - narrow replacement of the blanket grouped-order diagnostic in
   `src/pietto/semantic/group_by.py`;
 - `tests/test_phase27_grouped_order_semantics.py`;
@@ -157,6 +165,8 @@ a new diagnostic family.
 
 Goal: lower supported grouped order items into existing `RelationIR.order_by`
 using underlying projection expressions.
+
+Status: complete as IR lowering only.
 
 Expected changed files:
 
@@ -192,6 +202,8 @@ lowered expression safely.
 
 Goal: allow validated grouped `order_by` IR through PostgreSQL and private
 MySQL and render it after `HAVING`, before `LIMIT`.
+
+Status: complete as PostgreSQL/private MySQL SQL backend lowering only.
 
 Expected changed files:
 
@@ -230,6 +242,8 @@ for portability.
 Goal: prove existing CLI text, JSON v1, and `--output` paths carry grouped
 result ordering without schema or option changes.
 
+Status: complete as tests-only CLI / JSON / output hardening.
+
 Expected changed files:
 
 - `tests/test_phase27_grouped_order_cli_json_output.py`;
@@ -263,12 +277,17 @@ Stop-and-report condition: JSON schema or CLI surface changes are needed.
 
 Goal: close Phase 27 and lock exact behavior and non-goals.
 
+Status: complete as completion audit and status lock work only.
+
 Expected changed files:
 
 - `tests/test_phase27_completion_audit.py`;
 - this phase plan;
+- `docs/spec/grouped-result-ordering-v1.md`;
 - status documentation in `README.md`, `AGENTS.md`, and
   `docs/spec/pietto-v0.9.md`;
+- narrow static-audit expectation updates in
+  `tests/test_phase27_grouped_order_candidate_decision.py`;
 - narrow hash-lock updates only if status documentation changes require them.
 
 Explicit non-goals:

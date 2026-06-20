@@ -52,13 +52,14 @@ The current implementation status is:
   addition/subtraction, aggregate expression argument semantics, IR lowering,
   PostgreSQL/private MySQL SQL lowering, CLI/JSON/output and `satisfying`
   hardening, and completion audit/status lock**;
-- **Phase 27 Grouped Result Ordering MVP: Slice 1 is complete as candidate
-  decision, exact contract, and static audit work only. Phase 27
-  implementation behavior has not started. The planned target is grouped
-  result-scope `ORDER BY` over bare select output names. Slice 1 adds no
-  grammar, generated ANTLR, AST, Semantic IR, SQL backend, CLI, JSON schema,
-  fixture, golden, public API, runtime/database, project/multi-file, public
-  MySQL API, or relationship/JOIN behavior change**.
+- **Phase 27 Grouped Result Ordering MVP: complete; Slices 1 through 6 cover
+  the grouped result-order contract, semantic validation, IR lowering,
+  PostgreSQL/private MySQL SQL lowering, CLI/JSON/output hardening, and
+  completion audit/status lock. The completed behavior is limited to grouped
+  result-scope `ORDER BY` over bare selected output names, renders underlying
+  selected expressions rather than SELECT aliases, keeps unsupported grouped
+  order source shapes on existing diagnostics such as `PIE-S2321`, and keeps
+  CLI options and JSON v1 shape unchanged**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -148,14 +149,19 @@ runtime/database execution, no JSON schema change, no CLI option change, no
 fixture/golden inventory change, no public MySQL API expansion, and no
 relationship/JOIN behavior.
 
-Phase 27 Grouped Result Ordering MVP Slice 1 is complete as candidate
-decision, exact contract, and static audit work only. Phase 27 implementation
-behavior has not started. The planned target is grouped result-scope
-`ORDER BY` over bare select output names, rendered later through underlying
-selected expressions rather than SELECT aliases. Slice 1 adds no grammar,
-generated ANTLR, AST, Semantic IR, SQL backend, CLI, JSON schema, fixture,
-golden, public API, runtime/database, project/multi-file, public MySQL API, or
-relationship/JOIN behavior change.
+Phase 27 Grouped Result Ordering MVP is complete. The completed behavior is
+limited to grouped result-scope `ORDER BY` over bare selected output names,
+including selected group-key projection outputs, selected direct aggregate
+projection outputs, and selected Phase 26 aggregate-expression projection
+outputs such as `sum(amount + tax)`, `avg(score * weight)`, and
+`count_distinct(lower(trim(status)))`. SQL renders the underlying selected
+expression rather than the SELECT alias. Unsupported grouped order source
+shapes continue to use existing diagnostics such as `PIE-S2321`. Phase 27 adds
+no arbitrary grouped `ORDER BY` expressions, direct aggregate calls inside
+source `order by:`, ordinal ordering, no-GROUP projection-alias ordering,
+broad `ORDER BY` / `LIMIT` redesign, JSON schema change, CLI option change,
+fixture/golden inventory change, public MySQL API expansion, runtime/database
+execution, project/multi-file behavior, or relationship/JOIN behavior.
 
 The supported single-file CLI commands and forms include:
 

@@ -2,16 +2,16 @@
 
 ## Status
 
-Status: Phase 27 Slice 1 is complete as candidate decision, exact contract,
-and static audit work only. It records the future grouped result-scope
-`ORDER BY` MVP and adds no compiler behavior.
+Status: Phase 27 is complete for the grouped result-ordering MVP. The
+implemented behavior is limited to grouped result-scope `ORDER BY` over bare
+selected output names. SQL renders underlying selected expressions, not SELECT
+aliases.
 
-Slice 1 changes no grammar, generated ANTLR, AST, AST builder, semantic
-implementation, Semantic IR implementation, SQL backend, CLI implementation,
-JSON schema, JSON serializer, fixture, golden, script, dependency, lockfile,
-package metadata, CI, Makefile/config, public API, project/multi-file behavior,
+Phase 27 changes no grammar, generated ANTLR, AST, AST builder, JSON schema,
+JSON serializer, fixture, golden, script, dependency, lockfile, package
+metadata, CI, Makefile/config, public API, project/multi-file behavior,
 runtime/database behavior, schema introspection, public MySQL API, public MySQL
-CLI exposure, relationship/JOIN behavior, or Phase 27 implementation behavior.
+CLI exposure, or relationship/JOIN behavior.
 
 ## Baseline
 
@@ -32,10 +32,9 @@ optional order by
 optional limit
 ```
 
-`RelationIR` already carries `order_by: tuple[OrderItemIR, ...] = ()`, and SQL
-renderers already place `ORDER BY` after `HAVING` and before `LIMIT`. Current
-grouped semantic validation emits `PIE-S2321` for grouped `order by:`; current
-backend validation also fails closed for grouped `order_by` IR.
+`RelationIR` carries `order_by: tuple[OrderItemIR, ...] = ()`, and SQL
+renderers place `ORDER BY` after `HAVING` and before `LIMIT`. Phase 27 uses
+that existing IR slot for validated grouped result ordering.
 
 Phase 25 and Phase 26 establish the portability precedent for grouped
 result-scope names: `satisfying:` resolves select output names in source, but
@@ -44,8 +43,8 @@ aliases.
 
 ## Accepted Source Subset
 
-Phase 27 supports only grouped result-scope `ORDER BY` over bare select output
-names.
+Phase 27 supports only grouped result-scope `ORDER BY` over bare selected
+output names.
 
 Accepted order items must satisfy all of these rules:
 
@@ -68,7 +67,7 @@ Accepted order items must satisfy all of these rules:
 - order item source order is preserved;
 - duplicate order items are preserved and are not deduplicated.
 
-Examples that are in scope for future implementation:
+Examples that are in scope for the completed MVP:
 
 ```pietto
 table revenue_by_region:
@@ -116,7 +115,7 @@ order by:
     region asc
 ```
 
-PostgreSQL should render the underlying expressions approximately as:
+PostgreSQL renders the underlying expressions as:
 
 ```sql
 ORDER BY
@@ -131,7 +130,7 @@ ORDER BY
     "total" DESC
 ```
 
-For `normalized = count_distinct(lower(trim(status)))`, SQL should render the
+For `normalized = count_distinct(lower(trim(status)))`, SQL renders the
 backend-native aggregate expression for `count_distinct` over the existing
 lower/trim expression renderer.
 
@@ -150,10 +149,10 @@ LIMIT
 ## Diagnostics
 
 Phase 27 keeps `PIE-S2321` as the grouped `order by:` unsupported diagnostic
-family. Slice 1 does not add `PIE-S2328` or reserve any new diagnostic code.
+family. It does not add `PIE-S2328` or reserve any new diagnostic code.
 
-Future semantic implementation should retire the blanket `PIE-S2321`
-diagnostic only for accepted grouped output-name order items. It should keep
+Semantic validation retires the blanket `PIE-S2321` diagnostic only for
+accepted grouped output-name order items. It keeps
 `PIE-S2321` for unsupported grouped order shapes, including:
 
 - unknown grouped select output names;
@@ -177,8 +176,7 @@ existing input field diagnostics such as `PIE-S2102`.
 
 Phase 27 does not authorize:
 
-- grammar, generated ANTLR, AST, or AST builder changes unless a later approved
-  implementation slice proves they are unavoidable;
+- grammar, generated ANTLR, AST, or AST builder changes;
 - a new keyword;
 - a broad `ORDER BY` or `LIMIT` rewrite;
 - no-GROUP projection-alias ordering;
