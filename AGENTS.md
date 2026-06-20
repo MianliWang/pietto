@@ -208,6 +208,21 @@ rejected through existing diagnostics. Count remains an aggregate name rather
 than a scalar builtin. Phase 23 adds no runtime/database execution, no JSON
 schema change, no CLI option change, and no relationship/JOIN behavior.
 
+Phase 26 Aggregate Expression Arguments + Numeric Expression Foundation is
+complete. Slices 1 through 9 cover the aggregate expression argument contract,
+numeric scalar semantics audit, `Decimal + Decimal` / `Decimal - Decimal`
+scalar semantics, semantic acceptance for field-only `sum` / `avg` numeric
+expression arguments, semantic acceptance for `count_distinct` lower/trim Text
+transform chains, IR lowering to existing `AggregateCallIR.arguments`,
+PostgreSQL/private MySQL SQL lowering, CLI/JSON/output and `satisfying`
+hardening, and completion audit/status lock. The completed source scope
+includes `sum(amount + tax)`, `avg(score * weight)`, and
+`count_distinct(lower(trim(status)))` as direct aliased aggregate projections,
+plus grouped `satisfying:` alias normalization to underlying aggregate
+expressions. Phase 26 adds no runtime/database execution, no JSON schema
+change, no CLI option change, no fixture/golden inventory change, no public
+MySQL API expansion, and no relationship/JOIN behavior.
+
 Phase 13 Relation Composition And Relationship Planning is complete as
 planning, contract, and audit work only. Slices 1 through 6 are complete.
 Slice 1 Master Plan And Baseline Audit, Slice 2 Relationship /

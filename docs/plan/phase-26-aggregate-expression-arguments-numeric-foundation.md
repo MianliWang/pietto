@@ -147,6 +147,18 @@ files, `scripts/check_goldens.py`, dependency or lockfile, package metadata,
 CI, Makefile/config, runtime/database behavior, project/multi-file behavior,
 public MySQL API exposure, or relationship/JOIN behavior.
 
+Phase 26 Slice 9 is complete as completion audit and status lock work only.
+Phase 26 Aggregate Expression Arguments + Numeric Expression Foundation is
+complete. Slice 9 adds only `tests/test_phase26_completion_audit.py`, this
+status documentation, minimal status sync in `README.md`, `AGENTS.md`, and
+`docs/spec/pietto-v0.9.md`, and narrow hash-lock updates in
+`tests/test_phase24_completion_audit.py`.
+
+Slice 9 adds no new production behavior, semantic acceptance, IR model or
+lowering, SQL rendering, CLI implementation, JSON schema or serializer,
+fixture, golden, script, dependency, package metadata, CI, runtime/database,
+project/multi-file, public MySQL API, relationship/JOIN, or Phase 27 behavior.
+
 Trusted Phase 25 baseline:
 
 - HEAD: `38c696d0aadc1c5f6b9e41b71e2a441f32c20198`;
@@ -369,6 +381,10 @@ aliased `select:` projection.
 Slice 7 uses focused inline SQL assertions rather than new fixtures or goldens.
 Existing SQL fixtures and goldens remain unchanged and continue to be audited by
 `scripts/check_goldens.py`.
+
+Phase 26 adds no fixtures or goldens. Focused inline SQL and JSON assertions
+remain the reviewed policy for aggregate expression argument SQL, CLI, JSON,
+and output-file behavior. `scripts/check_goldens.py` remains unchanged.
 
 If a later reviewer requires reviewed fixture/golden coverage for aggregate
 expression argument SQL bytes, that follow-up must be separately authorized
@@ -631,11 +647,16 @@ Slice 8: CLI / JSON / Output And `satisfying` Hardening
 
 Slice 9: Completion Audit And Status Lock
 
-- add focused completion audit coverage and final status documentation;
+- complete as completion audit and status lock work only;
+- add `tests/test_phase26_completion_audit.py`, final status documentation, and
+  minimal README/AGENTS/pietto-v0.9 status sync;
 - lock final behavior, diagnostics, fixture/golden inventory, public API,
   dependency, CI/package/config, runtime/database, project/multi-file, public
   MySQL API, and relationship/JOIN boundaries;
-- add no new production behavior.
+- add no new production behavior, semantic acceptance, IR lowering, SQL
+  rendering, CLI implementation, JSON schema, fixture, golden, script,
+  dependency, package metadata, CI, runtime/database, project/multi-file, public
+  MySQL API, relationship/JOIN, or Phase 27 behavior.
 
 ## Bounded-Slice Matrix
 

@@ -40,7 +40,18 @@ The current implementation status is:
 - **Phase 23 Count(Field) Aggregate MVP: complete; Slices 1 through 6 cover
   candidate decision, semantic validation, IR lowering, PostgreSQL/MySQL SQL
   rendering and goldens, CLI/JSON/output hardening, and completion audit/status
-  lock**.
+  lock**;
+- **Phase 24 Aggregate Function Expansion II: complete; Slices 1 through 9
+  cover `count_distinct(field)`, direct-field Decimal aggregate support,
+  CLI/JSON/output hardening, and completion audit/status lock**;
+- **Phase 25 Result Predicate / `satisfying` MVP: complete; Slices 1 through 7
+  cover grouped result predicates, alias normalization, SQL HAVING lowering,
+  CLI/JSON/output hardening, and completion audit/status lock**;
+- **Phase 26 Aggregate Expression Arguments + Numeric Expression Foundation:
+  complete; Slices 1 through 9 cover numeric scalar audit, Decimal
+  addition/subtraction, aggregate expression argument semantics, IR lowering,
+  PostgreSQL/private MySQL SQL lowering, CLI/JSON/output and `satisfying`
+  hardening, and completion audit/status lock**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -108,6 +119,27 @@ arguments. `count(field)` counts non-null field values and returns
 `Unknown` or unresolved fields remain rejected through existing diagnostics.
 Phase 23 adds no runtime/database execution, no JSON schema change, no CLI
 option change, and no relationship/JOIN behavior.
+
+Phase 24 Aggregate Function Expansion II and Phase 25 Result Predicate /
+`satisfying` MVP are complete. Phase 24 added bounded
+`count_distinct(field)` and direct-field Decimal aggregate support. Phase 25
+added grouped `satisfying:` result predicates that lower to SQL `HAVING` using
+underlying select expressions rather than aliases. Both phases add no
+runtime/database execution, no JSON schema change, no public MySQL API
+expansion, and no relationship/JOIN behavior.
+
+Phase 26 Aggregate Expression Arguments + Numeric Expression Foundation is
+complete. The accepted aggregate expression argument surface is
+`sum(amount + tax)`, `avg(score * weight)`, and
+`count_distinct(lower(trim(status)))`-style lower/trim Text transform chains,
+including grouped `satisfying:` alias normalization. Decimal scalar arithmetic
+is limited to `Decimal + Decimal` and `Decimal - Decimal`; Decimal
+multiplication, mixed Decimal arithmetic, Decimal division, precision/scale
+modeling, generic DISTINCT syntax, aggregate modifiers, and expression
+arguments for `count`, `min`, and `max` remain deferred. Phase 26 adds no
+runtime/database execution, no JSON schema change, no CLI option change, no
+fixture/golden inventory change, no public MySQL API expansion, and no
+relationship/JOIN behavior.
 
 The supported single-file CLI commands and forms include:
 

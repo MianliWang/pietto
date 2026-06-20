@@ -234,6 +234,20 @@ remain rejected through existing diagnostics. Phase 23 adds no
 runtime/database execution, no JSON schema change, no CLI option change, and
 no relationship/JOIN behavior.
 
+Phase 26 Aggregate Expression Arguments + Numeric Expression Foundation is
+complete. Slices 1 through 9 cover numeric scalar semantics audit,
+`Decimal + Decimal` / `Decimal - Decimal` scalar semantics, accepted
+field-only `sum` / `avg` numeric expression arguments, accepted
+`count_distinct` lower/trim Text transform chains, IR lowering, PostgreSQL and
+private MySQL SQL lowering, CLI/JSON/output and `satisfying` hardening, and
+completion audit/status lock. The accepted source scope includes
+`sum(amount + tax)`, `avg(score * weight)`, and
+`count_distinct(lower(trim(status)))` as direct aliased aggregate projections,
+plus grouped `satisfying:` alias normalization to the underlying aggregate
+expression. Phase 26 adds no runtime/database execution, no JSON schema
+change, no CLI option change, no fixture/golden inventory change, no public
+MySQL API expansion, and no relationship/JOIN behavior.
+
 SQL is generated only. Database connections, SQL or connector execution,
 schema introspection, runtime services, project or multi-file support, watch
 mode, and LSP/editor integration remain deferred.
@@ -1878,6 +1892,39 @@ SQL `HAVING` user syntax, `satisfying`, grouped `order by`, relationship/JOIN
 behavior, runtime/database execution, UI, LSP, public API expansion, and
 project/multi-file implementation remain deferred. Phase 23 adds no JSON
 schema change and no CLI option change.
+
+### Phase 26: Aggregate Expression Arguments + Numeric Expression Foundation
+
+Status: complete. Slices 1 through 9 are complete.
+
+Slice 1 records the candidate decision and exact contract. Slice 2 locks the
+approved Int/Float numeric scalar expression behavior. Slice 3 implements only
+`Decimal + Decimal` and `Decimal - Decimal` for ordinary scalar expressions.
+Slice 4 admits field-only numeric expression arguments for direct aliased
+`sum` and `avg` projections. Slice 5 admits `count_distinct` lower/trim Text
+transform expression arguments over one Text field. Slice 6 lowers accepted
+arguments through existing `AggregateCallIR.arguments`. Slice 7 renders the
+accepted PostgreSQL and private MySQL SQL shapes using inline SQL assertions
+instead of fixtures or goldens. Slice 8 hardens CLI text, JSON v1, `--output`,
+and grouped `satisfying:` alias behavior. Slice 9 adds the completion audit and
+status lock.
+
+The accepted Phase 26 source scope includes direct aliased
+`sum(amount + tax)`, `avg(score * weight)`, and
+`count_distinct(lower(trim(status)))` aggregate projections in no-GROUP and
+grouped contexts. Grouped `satisfying:` may reference the select output alias,
+and SQL `HAVING` uses the underlying aggregate expression rather than the
+select alias.
+
+`count(expression)`, `min(expression)`, `max(expression)`, literal-containing
+aggregate arguments such as `sum(amount + 1)`, division, modulo, Decimal
+multiplication, mixed Decimal arithmetic, Decimal division, Decimal
+precision/scale modeling, generic DISTINCT syntax, aggregate modifiers, nested
+aggregate support, aggregate composition, relationship/JOIN behavior,
+runtime/database execution, UI, LSP, public API expansion, and
+project/multi-file implementation remain deferred. Phase 26 adds no JSON
+schema change, no CLI option change, no fixture/golden inventory change, and
+no public MySQL API expansion.
 
 ---
 
