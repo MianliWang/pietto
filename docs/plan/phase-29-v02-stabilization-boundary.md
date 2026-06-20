@@ -6,12 +6,23 @@ Phase 29 Slice 1 is complete as candidate decision, v0.2 boundary contract,
 and static audit work only. It selects **Phase 29 v0.2 Stabilization Boundary
 And Deferred Register** as the Phase 29 direction.
 
+Phase 29 Slice 2 is complete as deferred-feature register contract and static
+audit work only. It adds the formal v0.2 deferred feature register at
+`docs/spec/v02-deferred-feature-register-v1.md`.
+
 Slice 1 changes no source implementation, grammar, generated ANTLR, AST,
 parser, semantic implementation, IR implementation, IR model, SQL backend,
 CLI behavior, JSON behavior or schema, fixture, golden, script, dependency,
 lockfile, package metadata, CI, public API, runtime/database behavior, schema
 introspection, project/multi-file behavior, public MySQL API, or
 relationship/JOIN behavior.
+
+Slice 2 also changes no source implementation, grammar, generated ANTLR, AST,
+parser, semantic implementation, IR implementation, IR model, SQL backend,
+CLI behavior, JSON behavior or schema, fixture, golden, script, dependency,
+lockfile, package metadata, CI, public API, runtime/database behavior, schema
+introspection, project/multi-file behavior, public MySQL API, relationship/JOIN
+behavior, type-system behavior, or aggregate behavior.
 
 Trusted Phase 28 baseline:
 
@@ -93,8 +104,9 @@ The freeze keeps deferred:
 
 ## Planned Deferred Feature Register
 
-Slice 2 will add the full deferred feature register. The planned register must
-cover at least:
+Slice 1 recorded that Slice 2 will add the full deferred feature register.
+Slice 2 adds the formal register at
+`docs/spec/v02-deferred-feature-register-v1.md`. The register covers:
 
 - aggregate expansion;
 - numeric expression expansion;
@@ -115,9 +127,19 @@ cover at least:
 - runtime and database execution;
 - Arrow and dataframe integration.
 
-Every register entry must include why it is deferred, blocking prerequisites,
-an unfreeze condition, a likely target phase or version, and explicit
-non-goals. Planning the register does not authorize implementation.
+Every register entry includes the feature name, why it is deferred, blocking
+prerequisites, an unfreeze condition, a likely target phase or version, whether
+it is allowed before v0.2, and explicit non-goals.
+
+The allowed-before-v0.2 categories are:
+
+- bug fixes only;
+- contracts/tests only;
+- readiness or narrow-MVP decision only;
+- Phase 30/31 stabilization only if explicitly approved;
+- no before v0.2.
+
+The register does not authorize implementation of any deferred feature.
 
 ## Core Type System Gap Matrix Direction
 
@@ -177,7 +199,8 @@ Commit message suggestion: `Plan Phase 29 v0.2 stabilization boundary`.
 
 ### Slice 2: Deferred Feature Register
 
-Status: planned only.
+Status: complete as deferred-feature register contract and static audit work
+only.
 
 Goal: add the full deferred feature register with prerequisites and unfreeze
 conditions.
@@ -185,18 +208,25 @@ conditions.
 Expected file areas:
 
 - `docs/spec/v02-deferred-feature-register-v1.md`;
-- focused Phase 29 static audit tests;
-- status documentation only if needed.
+- `tests/test_phase29_v02_deferred_feature_register.py`;
+- `docs/plan/phase-29-v02-stabilization-boundary.md`.
 
 Explicit non-goals:
 
 - no implementation of any registered feature;
 - no syntax, CLI, JSON, public API, source, IR, SQL, dependency, runtime,
-  project, relationship/JOIN, schema introspection, or aggregate expansion.
+  project, relationship/JOIN, schema introspection, type-system behavior, or
+  aggregate expansion;
+- no DateTime primitive;
+- no Currency or Money primitive;
+- no semantic annotation syntax;
+- no JSON v2;
+- no public MySQL API expansion.
 
 Validation:
 
 ```bash
+uv run pytest tests/test_phase29_v02_deferred_feature_register.py
 uv run pytest tests/test_phase29_v02_stabilization_candidate_decision.py
 uv run python scripts/validate.py
 ```
