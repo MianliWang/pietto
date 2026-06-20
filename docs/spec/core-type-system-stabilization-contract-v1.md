@@ -5,6 +5,10 @@
 Phase 30 Slice 1 is complete as candidate decision, type-system contract,
 static audit, and status work only.
 
+Phase 30 Slice 2 is complete as canonical scalar type registry contract,
+static audit, and status work only. The Slice 2 contract is
+`docs/spec/canonical-scalar-type-registry-v1.md`.
+
 This contract selects Phase 30 Core Type System Stabilization I and records the
 phase-wide boundary for turning the Phase 29 core type-system gap matrix into a
 stable v0.2 compiler scalar type contract.
@@ -13,6 +17,9 @@ Slice 1 does not implement later Phase 30 slices. It also does not decide that
 every later Phase 30 slice must be docs-only. Each later slice requires a
 separate plan and separate explicit approval, and any behavior change must be
 authorized in that later approval.
+
+Slice 2 remains docs/spec/static-audit/status only. It defines registry
+classification vocabulary, not a registry implementation artifact.
 
 ## Trusted Baseline
 
@@ -72,7 +79,17 @@ Slice 1 grounds the contract in current implementation facts:
   Bool `and`/`or`, and unary numeric `+`/`-`;
 - `/` remains semantically deferred;
 - aggregate result typing is implemented in aggregate helpers and frozen by
-  the v0.2 aggregate surface freeze.
+  the v0.2 aggregate surface freeze;
+- `UUID` is a current built-in name with limited/frozen identifier-scalar
+  status for existing accepted behavior such as direct-field
+  `count_distinct(UUID)`;
+- broader UUID behavior remains deferred, including literals, casts,
+  functions, storage semantics, DDL, general comparison guarantees, wider SQL
+  behavior, dialect compatibility, and public API exposure;
+- the `identifier` label is only registry vocabulary and does not imply
+  primary-key, foreign-key, relationship, cardinality, grain, row identity,
+  business ID validation, general comparison, cast, SQL storage, or public API
+  behavior.
 
 ## Candidate Comparison
 
@@ -95,7 +112,8 @@ Slice 1 grounds the contract in current implementation facts:
 7. Operator And Comparison Matrix.
 8. Completion Audit And Status Lock.
 
-Slices 2 through 8 remain planned only and require separate explicit approval.
+Slice 2 is complete as the canonical scalar type registry contract. Slices 3
+through 8 remain planned only and require separate explicit approval.
 
 ## Stabilization Boundary
 
@@ -107,7 +125,10 @@ Phase 30 may stabilize contracts for:
 - `Any` as a boundary type that must not hide unsupported behavior;
 - concrete scalar facts for `Bool`, `Int`, `Float`, `Decimal`, `Text`, `Date`,
   and `Timestamp`;
-- explicit deferrals for `Bytes`, `Json`, `UUID`, and Enum behavior;
+- `UUID` as a limited/frozen identifier scalar only for existing accepted
+  direct-field aggregate-distinct behavior;
+- explicit deferrals for `Bytes`, `Json`, broader UUID behavior, and Enum
+  behavior;
 - nullability propagation rules;
 - Bool and predicate semantics, including the SQL three-valued-logic boundary;
 - Date/Timestamp portability and temporal deferrals;
@@ -142,7 +163,8 @@ This contract does not authorize:
 - DateTime, Time, timezone, or Interval primitives;
 - Currency or Money primitives;
 - semantic annotation syntax;
-- UUID or Enum implementation;
+- UUID implementation or broader UUID behavior;
+- Enum implementation or broader Enum behavior;
 - Bytes or Json behavior expansion;
 - native database type metadata.
 

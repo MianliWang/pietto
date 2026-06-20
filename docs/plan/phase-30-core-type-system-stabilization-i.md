@@ -5,11 +5,19 @@
 Phase 30 Slice 1 is complete as candidate decision, type-system contract,
 static audit, and status work only.
 
+Phase 30 Slice 2 is complete as canonical scalar type registry contract,
+static audit, and status work only.
+
 Slice 1 selects **Phase 30 Core Type System Stabilization I** as the Phase 30
 direction and adds the first contract at
 `docs/spec/core-type-system-stabilization-contract-v1.md`.
 
-Slices 2 through 8 remain planned only. Slice 1 does not pre-decide that every
+Slice 2 adds the canonical scalar registry contract at
+`docs/spec/canonical-scalar-type-registry-v1.md`. It defines registry
+classification vocabulary only; it does not add a scalar registry object or
+change compiler behavior.
+
+Slices 3 through 8 remain planned only. Slice 1 did not pre-decide that every
 later Phase 30 slice must be docs-only. Later slices must be planned and
 approved one by one, and any behavior change requires separate explicit
 approval.
@@ -21,6 +29,12 @@ Slice 1 starts from the final Phase 29 baseline:
 - HEAD: `92cdf6010c6f55524023f214a0e1173ea9492240`;
 - final Phase 29 commit: `Complete Phase 29 v0.2 stabilization audit`;
 - CI run: `27884233974 success`.
+
+Slice 2 starts from the completed Phase 30 Slice 1 baseline:
+
+- HEAD: `374698aec9b9774f1df1c1c3aa7132159f7f65a0`;
+- commit: `Plan Phase 30 core type system stabilization`;
+- CI run: `27885002942 success`.
 
 Phase 29 v0.2 Stabilization Boundary is complete as docs/spec/static-audit and
 status work only. v0.2 is not complete yet. Phase 30, Phase 31, and Phase 32
@@ -53,8 +67,14 @@ The handoff facts are:
   matrix;
 - `Date` and `Timestamp` exist as built-in names but lack a complete operator,
   comparison, and dialect-portability contract;
-- `UUID` and enums remain syntax/metadata-level or readiness concerns, not
-  stabilized SQL behavior for v0.2.
+- `UUID` is a current built-in name with limited/frozen identifier-scalar
+  status for existing accepted behavior such as direct-field
+  `count_distinct(UUID)`;
+- broader UUID behavior remains deferred, including literals, casts,
+  functions, storage semantics, DDL, general comparison guarantees, wider SQL
+  behavior, dialect compatibility, and public API exposure;
+- enums remain syntax/metadata-level or readiness concerns, not stabilized SQL
+  behavior for v0.2.
 
 ## Candidate Decision
 
@@ -72,6 +92,22 @@ The chosen Slice 1 direction is contract-first. Phase 30 should turn the Phase
 29 core type-system gap matrix into accepted scalar type-system contracts
 without changing compiler behavior in Slice 1.
 
+## Slice 2 Candidate Decision
+
+Slice 2 selects **Canonical Scalar Type Registry** as a docs/spec/static-audit
+and status slice.
+
+| Candidate | Fit | Risk | Decision |
+|---|---:|---:|---|
+| Slice 2 docs/spec/static-audit/status only | High | Low | Chosen. |
+| Minimal scalar registry implementation artifact | Medium | Medium | Rejected for Slice 2; no current consumer requires it, and trait shape depends on later nullability, predicate, temporal, Decimal, operator, and comparison contracts. |
+| Broad type-system behavior implementation | Low | High | Rejected; it could change semantic, diagnostic, IR, SQL, CLI, JSON, aggregate, fixture, golden, and public API behavior. |
+
+The selected Slice 2 direction is contract-first. Traits such as `numeric`,
+`exact numeric`, `temporal`, `identifier`, `binary`, and `json` are contract
+vocabulary only. They do not authorize new operator, comparison, aggregate,
+SQL lowering, diagnostic, JSON, CLI, public API, or type-system behavior.
+
 ## Type-System Contract Direction
 
 Phase 30 treats Pietto's type system as the foundation for:
@@ -86,6 +122,14 @@ Slice 1 keeps that direction bounded. It does not implement a scalar registry,
 change type facts, change nullability inference, change predicate behavior,
 change Decimal behavior, change Date/Timestamp behavior, change operator or
 comparison acceptance, or alter any backend output.
+
+Slice 2 keeps that direction bounded. It defines the canonical registry
+vocabulary, including `UUID` as a limited/frozen identifier scalar for existing
+accepted direct-field aggregate-distinct behavior only. The `identifier` label
+does not imply primary-key semantics, foreign-key semantics, relationship
+semantics, cardinality, grain, row identity, business ID validation, general
+comparison behavior, cast behavior, SQL storage behavior, or public API
+behavior.
 
 ## Phase 30 Slice Plan
 
@@ -119,11 +163,31 @@ Validation:
 
 ### Slice 2: Canonical Scalar Type Registry
 
-Status: planned only.
+Status: complete as canonical scalar type registry contract, static audit, and
+status work only.
 
 Goal: define the canonical scalar registry contract for `Any`, concrete scalar
-names, deferred scalar names, and the enum distinction. Slice 2 must not start
-until separately approved.
+names, deferred scalar names, limited/frozen `UUID` identifier-scalar behavior,
+and the enum distinction.
+
+Artifacts:
+
+- `docs/spec/canonical-scalar-type-registry-v1.md`;
+- `tests/test_phase30_canonical_scalar_type_registry.py`;
+- minimal status documentation updates.
+
+Validation:
+
+- `uv run pytest tests/test_phase30_canonical_scalar_type_registry.py tests/test_phase30_candidate_decision.py`;
+- `uv run pytest tests/test_phase29_v02_core_type_system_gap_matrix.py tests/test_phase29_v02_deferred_feature_register.py tests/test_phase29_completion_audit.py`;
+- `uv run pytest tests/test_phase24_count_distinct_semantics.py tests/test_phase24_completion_audit.py`;
+- `uv run pytest tests/test_phase17_core_scalar_expression_semantics.py tests/test_phase26_numeric_scalar_expression_semantics.py tests/test_phase26_decimal_scalar_expression_semantics.py tests/test_semantic_expressions.py tests/test_semantic_types.py tests/test_semantic_where.py`;
+- `uv run python scripts/check_generated.py`;
+- `uv run python scripts/check_goldens.py`;
+- `uv run python scripts/package_smoke.py`;
+- `uv run python scripts/validate.py`;
+- `git diff --check`;
+- `git diff -- src grammar tests/fixtures scripts pyproject.toml uv.lock .github Makefile`.
 
 ### Slice 3: Nullability Propagation Contract
 
@@ -174,7 +238,7 @@ approved.
 
 ## Phase-Wide Non-Goals
 
-Phase 30 Slice 1 does not authorize:
+Phase 30 through Slice 2 does not authorize:
 
 - source implementation changes;
 - grammar, generated ANTLR, AST, or parser changes;
@@ -197,7 +261,8 @@ Phase 30 Slice 1 does not authorize:
 - DateTime, Time, timezone, or Interval primitives;
 - Currency or Money primitives;
 - semantic annotation syntax;
-- UUID or Enum implementation;
+- UUID implementation or broader UUID behavior;
+- Enum implementation or broader Enum behavior;
 - Bytes or Json behavior expansion;
 - native database type metadata.
 

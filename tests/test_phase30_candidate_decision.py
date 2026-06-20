@@ -76,7 +76,8 @@ PHASE30_NON_GOALS = (
     "DateTime, Time, timezone, or Interval primitives",
     "Currency or Money primitives",
     "semantic annotation syntax",
-    "UUID or Enum implementation",
+    "UUID implementation or broader UUID behavior",
+    "Enum implementation or broader Enum behavior",
     "Bytes or Json behavior expansion",
     "native database type metadata",
 )
@@ -144,11 +145,12 @@ def test_phase30_master_plan_and_later_slice_approval_boundary_are_locked() -> N
         assert step in spec
 
     for required in (
-        "Slices 2 through 8 remain planned only",
-        "Slice 1 does not pre-decide that every later Phase 30 slice must be docs-only",
+        "Phase 30 Slice 2 is complete as canonical scalar type registry "
+        "contract, static audit, and status work only",
+        "Slices 3 through 8 remain planned only",
+        "Slice 1 did not pre-decide that every later Phase 30 slice must be docs-only",
         "Later slices must be planned and approved one by one",
         "any behavior change requires separate explicit approval",
-        "Slice 2 must not start until separately approved",
         "Slice 3 must not start until separately approved",
         "Slice 4 must not start until separately approved",
         "Slice 5 must not start until separately approved",
@@ -158,7 +160,11 @@ def test_phase30_master_plan_and_later_slice_approval_boundary_are_locked() -> N
     ):
         assert required in plan
 
-    assert "Slices 2 through 8 remain planned only" in spec
+    assert (
+        "Phase 30 Slice 2 is complete as canonical scalar type registry "
+        "contract, static audit, and status work only"
+    ) in spec
+    assert "Slices 3 through 8 remain planned only" in spec
     assert (
         "Each later slice requires a separate plan and separate explicit approval"
         in (spec)
@@ -190,7 +196,11 @@ def test_phase30_contract_is_grounded_in_phase29_handoff_and_repo_facts() -> Non
         "known/unknown status",
         "no canonical scalar registry object exists",
         "no Decimal precision/scale carrier exists",
-        "`UUID` and enums remain syntax/metadata-level or readiness concerns",
+        "`UUID` is a current built-in name with limited/frozen identifier-scalar "
+        "status for existing accepted behavior such as direct-field "
+        "`count_distinct(UUID)`",
+        "broader UUID behavior remains deferred",
+        "enums remain syntax/metadata-level or readiness concerns",
     ):
         assert required in plan
 
@@ -261,9 +271,9 @@ def test_phase30_non_goals_and_status_docs_preserve_v02_boundary() -> None:
         status_doc = _normalized(REPO_ROOT / relative_path)
         for required in (
             "Phase 30 Core Type System Stabilization I",
-            "Slice 1 is complete as candidate decision, type-system contract, "
+            "Slice 2 is complete as canonical scalar type registry contract, "
             "static audit, and status work only",
-            "Slices 2 through 8 remain planned only",
+            "Slices 3 through 8 remain planned only",
             "any behavior change requires separate explicit approval",
             "Phase 31 and Phase 32 remain required before v0.2 stable completion",
         ):
