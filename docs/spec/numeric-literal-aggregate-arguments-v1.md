@@ -2,16 +2,15 @@
 
 ## Status
 
-Status: Phase 28 Slice 1 is complete as candidate decision, exact contract,
-and static audit work only. Phase 28 implementation has not started.
+Status: Phase 28 is complete for the bounded numeric literal aggregate
+argument MVP.
 
-This contract selects a bounded Numeric / Aggregate Refinement II direction:
-admit Int and Float numeric literal leaves inside selected `sum(...)` and
-`avg(...)` numeric expression arguments in later implementation slices.
+The implemented behavior admits only Int and Float numeric literal leaves
+inside selected `sum(...)` and `avg(...)` numeric expression arguments.
+Accepted expressions must still include at least one direct input field leaf.
 
-Slice 1 changes no grammar, generated ANTLR, AST, AST builder, parser,
-semantic implementation, IR model or lowering, SQL backend, CLI
-implementation, JSON schema or serializer, fixture, golden, script,
+Phase 28 changes no grammar, generated ANTLR, AST, AST builder, parser, IR
+model, CLI implementation, JSON schema or serializer, fixture, golden, script,
 dependency, lockfile, CI, package metadata, public API, runtime/project
 behavior, public MySQL API, or relationship/JOIN behavior.
 
@@ -22,8 +21,7 @@ complete. It already accepts direct aliased aggregate projections such as
 `sum(amount + tax)`, `avg(score * weight)`, and
 `count_distinct(lower(trim(status)))` in no-GROUP and grouped contexts.
 
-The current repository already has the carrier surfaces required for this
-future MVP:
+The repository already had the carrier surfaces required for this MVP:
 
 - `LiteralExpr` in the AST;
 - `LiteralIR` in Semantic IR;
@@ -33,15 +31,15 @@ future MVP:
 - backend aggregate validation that already walks aggregate argument
   expression trees.
 
-The current semantic aggregate argument shape gate still intentionally rejects
-literal-containing aggregate arguments through `PIE-S2315`.
+Phase 28 retires `PIE-S2315` only for the accepted literal-bearing `sum` and
+`avg` numeric expression argument subset.
 
-## Accepted Future Source Subset
+## Accepted Source Subset
 
-Phase 28 targets only Int and Float numeric literal leaves inside `sum(...)`
+Phase 28 supports only Int and Float numeric literal leaves inside `sum(...)`
 and `avg(...)` numeric expression arguments.
 
-Accepted future aggregate arguments must satisfy all of these rules:
+Accepted aggregate arguments must satisfy all of these rules:
 
 - the aggregate function is `sum` or `avg`;
 - the aggregate call is a direct aliased projection in an already supported
@@ -56,7 +54,7 @@ Accepted future aggregate arguments must satisfy all of these rules:
 - mixed Int/Float expression behavior follows the already implemented scalar
   numeric typing rules.
 
-Accepted examples for later implementation:
+Accepted examples:
 
 ```pietto
 table revenue_stats:
@@ -84,7 +82,7 @@ select:
 Phase 28 does not add a new numeric promotion system. It preserves existing
 scalar expression typing and existing aggregate result typing.
 
-The intended future result behavior is:
+The implemented result behavior is:
 
 - `sum(Int expression)` keeps the existing `sum` Int nullable result behavior;
 - `sum(Float expression)` keeps the existing Float nullable result behavior;
@@ -102,7 +100,7 @@ The intended future result behavior is:
 
 Phase 28 should preserve existing primary diagnostics.
 
-`PIE-S2315` is retired only for the accepted future literal-bearing `sum` and
+`PIE-S2315` is retired only for the accepted literal-bearing `sum` and
 `avg` numeric expression argument subset. `PIE-S2315` remains for unsupported
 aggregate argument shapes. It remains the aggregate argument deferral
 diagnostic for unsupported aggregate argument shapes, including:

@@ -15,7 +15,7 @@ def _normalized(path: Path) -> str:
     return " ".join(_read(path).split())
 
 
-def test_slice1_artifacts_exist_and_record_planning_only_status() -> None:
+def test_phase28_artifacts_exist_and_record_completion_status() -> None:
     assert PLAN_PATH.is_file()
     assert SPEC_PATH.is_file()
 
@@ -23,26 +23,33 @@ def test_slice1_artifacts_exist_and_record_planning_only_status() -> None:
     spec = _normalized(SPEC_PATH)
 
     for required in (
-        "Phase 28 Slice 1 is complete as candidate decision, exact contract, "
-        "and static audit work only",
-        "Phase 28 implementation has not started",
+        "Phase 28 Numeric / Aggregate Refinement II is complete. Slices 1 "
+        "through 6 cover candidate decision and exact contract, semantic "
+        "acceptance, IR lowering proof, PostgreSQL/private MySQL SQL "
+        "lowering, CLI / JSON / output hardening, and completion "
+        "audit/status lock",
+        "The completed behavior is limited to the bounded numeric literal "
+        "aggregate argument MVP",
+        "Status: complete as candidate decision, exact contract, and static "
+        "audit work only",
         "Trusted Phase 27 baseline",
         "HEAD: `dcfab7c2a048fa9c29b267c395d5c779994ea128`",
         "Phase 27 Grouped Result Ordering MVP is complete",
-        "Slice 1 adds the Phase 28 plan, the numeric literal aggregate "
-        "argument contract, focused static audit coverage, and status-only "
-        "documentation",
+        "Status: complete as completion audit and status lock work only",
     ):
         assert required in plan
 
     for required in (
-        "Status: Phase 28 Slice 1 is complete as candidate decision, exact "
-        "contract, and static audit work only",
-        "Phase 28 implementation has not started",
-        "admit Int and Float numeric literal leaves inside selected "
+        "Status: Phase 28 is complete for the bounded numeric literal "
+        "aggregate argument MVP",
+        "The implemented behavior admits only Int and Float numeric literal "
+        "leaves inside selected `sum(...)` and `avg(...)` numeric expression "
+        "arguments",
+        "Accepted expressions must still include at least one direct input field leaf",
+        "Phase 28 changes no grammar, generated ANTLR, AST, AST builder, "
+        "parser, IR model, CLI implementation, JSON schema or serializer",
+        "admits only Int and Float numeric literal leaves inside selected "
         "`sum(...)` and `avg(...)` numeric expression arguments",
-        "Slice 1 changes no grammar, generated ANTLR, AST, AST builder, "
-        "parser, semantic implementation, IR model or lowering, SQL backend",
     ):
         assert required in spec
 
@@ -254,30 +261,28 @@ def test_phase_wide_non_goals_and_slice1_boundaries_are_locked() -> None:
         assert required in spec
 
 
-def test_status_docs_record_slice1_without_claiming_implementation() -> None:
+def test_status_docs_record_phase28_completion_without_broadening_scope() -> None:
     for relative_path in ("README.md", "AGENTS.md", "docs/spec/pietto-v0.9.md"):
         text = _normalized(REPO_ROOT / relative_path)
         for required in (
             "Phase 28 Numeric / Aggregate Refinement II",
-            "Slice 1 is complete as candidate decision, exact contract, and "
-            "static audit work only",
-            "Phase 28 implementation has not started",
-            "numeric literal aggregate argument MVP",
-            "Int and Float numeric literal leaves inside selected `sum(...)` "
-            "and `avg(...)` numeric expression arguments",
-            "at least one direct input field leaf",
+            "complete",
+            "bounded numeric literal aggregate argument MVP",
+            "Int and Float numeric literal leaves inside selected `sum(...)` and `avg(...)` numeric expression arguments",
+            "Accepted expressions must still include at least one direct "
+            "input field leaf",
             "literal-only aggregate arguments such as `sum(1)` and `avg(1)` "
             "remain rejected",
-            "no Decimal literal, Decimal multiplication, Decimal division, "
-            "mixed Decimal promotion, casts, precision/scale modeling, "
-            "division, modulo, `count(expression)`, `min(expression)`, "
-            "`max(expression)`, `count_distinct(...)` widening",
-            "adds no Decimal literal, Decimal multiplication, Decimal "
-            "division, mixed Decimal promotion, casts, precision/scale "
-            "modeling, division, modulo, `count(expression)`, "
-            "`min(expression)`, `max(expression)`, `count_distinct(...)` "
-            "widening, grammar, generated ANTLR, AST, parser, IR model, SQL "
+            "adds no Decimal literal, Decimal multiplication, Decimal division, mixed Decimal promotion, casts, precision/scale modeling, schema introspection, arbitrary scalar calls inside `sum` / `avg`, division, modulo, `count(expression)`, `min(expression)`, `max(expression)`, `count_distinct(...)` widening",
+            "grammar, generated ANTLR, AST, parser, IR model, SQL "
             "fixture/golden, JSON schema, CLI option, dependency, public API, "
             "runtime/project, public MySQL API, or relationship/JOIN changes",
         ):
             assert required in text
+        for forbidden in (
+            "Phase 28 implementation has not started",
+            "Decimal literals are supported",
+            "count(expression) is supported",
+            "public `emit_mysql_sql`",
+        ):
+            assert forbidden not in text

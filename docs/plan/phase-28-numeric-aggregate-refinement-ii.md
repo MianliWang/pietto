@@ -2,12 +2,15 @@
 
 ## Status
 
-Phase 28 Slice 1 is complete as candidate decision, exact contract, and static
-audit work only. Phase 28 implementation has not started.
+Phase 28 Numeric / Aggregate Refinement II is complete. Slices 1 through 6
+cover candidate decision and exact contract, semantic acceptance, IR lowering
+proof, PostgreSQL/private MySQL SQL lowering, CLI / JSON / output hardening,
+and completion audit/status lock.
 
-Slice 1 adds the Phase 28 plan, the numeric literal aggregate argument
-contract, focused static audit coverage, and status-only documentation. It
-adds no production behavior.
+The completed behavior is limited to the bounded numeric literal aggregate
+argument MVP: Int and Float numeric literal leaves inside selected `sum(...)`
+and `avg(...)` numeric expression arguments. Accepted expressions must still
+include at least one direct input field leaf.
 
 Trusted Phase 27 baseline:
 
@@ -41,7 +44,7 @@ Phase 28 extends Phase 26 aggregate expression arguments only by admitting Int
 and Float numeric literal leaves inside selected `sum(...)` and `avg(...)`
 numeric expression arguments.
 
-Accepted future source shapes:
+Accepted source shapes:
 
 - `sum(amount + 1)`;
 - `sum(1 + amount)`;
@@ -115,6 +118,8 @@ golden/script/dependency/API change appears necessary.
 
 ### Slice 2: Semantic Acceptance
 
+Status: complete as semantic acceptance only.
+
 Goal: retire `PIE-S2315` only for accepted literal-bearing `sum` and `avg`
 numeric expression arguments.
 
@@ -151,6 +156,8 @@ changes.
 
 ### Slice 3: IR Lowering
 
+Status: complete as tests-only IR lowering proof.
+
 Goal: prove accepted literal-bearing aggregate arguments lower through existing
 `AggregateCallIR.arguments`.
 
@@ -180,6 +187,8 @@ Stop-and-report condition: `AggregateCallIR.arguments` or existing expression
 IR cannot carry literals without model/API changes.
 
 ### Slice 4: PostgreSQL And Private MySQL SQL Lowering
+
+Status: complete as PostgreSQL/private MySQL SQL backend lowering only.
 
 Goal: render accepted numeric literal aggregate arguments in PostgreSQL and
 private MySQL.
@@ -214,6 +223,8 @@ public MySQL export, fixtures/goldens, or runtime/database behavior.
 
 ### Slice 5: CLI / JSON / Output Hardening
 
+Status: complete as tests-only CLI / JSON / output hardening.
+
 Goal: prove existing CLI text, JSON v1, and `--output` orchestration carry
 accepted numeric literal aggregate SQL without schema or option changes.
 
@@ -243,6 +254,8 @@ Stop-and-report condition: CLI implementation, JSON schema, dialect values,
 public API, or output safety behavior needs expansion.
 
 ### Slice 6: Completion Audit And Status Lock
+
+Status: complete as completion audit and status lock work only.
 
 Goal: close Phase 28 and lock the exact completed scope.
 

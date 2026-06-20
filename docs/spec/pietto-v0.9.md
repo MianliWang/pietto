@@ -265,18 +265,20 @@ broad `ORDER BY` / `LIMIT` redesign, JSON schema change, CLI option change,
 fixture/golden inventory change, public MySQL API expansion, runtime/database
 execution, project/multi-file behavior, or relationship/JOIN behavior.
 
-Phase 28 Numeric / Aggregate Refinement II Slice 1 is complete as candidate
-decision, exact contract, and static audit work only. Phase 28 implementation
-has not started. The selected future target is a numeric literal aggregate
-argument MVP that admits only Int and Float numeric literal leaves inside
-selected `sum(...)` and `avg(...)` numeric expression arguments. Accepted
-future expressions must still include at least one direct input field leaf, so
-literal-only aggregate arguments such as `sum(1)` and `avg(1)` remain rejected.
-The contract preserves existing scalar type inference and aggregate result
-typing, including existing `sum(Int expression)`, `sum(Float expression)`,
-`avg(Int expression)`, and `avg(Float expression)` behavior. Phase 28 Slice 1
-adds no Decimal literal, Decimal multiplication, Decimal division, mixed
-Decimal promotion, casts, precision/scale modeling, division, modulo,
+Phase 28 Numeric / Aggregate Refinement II is complete. Slices 1 through 6
+cover candidate decision and exact contract, semantic acceptance, IR lowering
+proof, PostgreSQL/private MySQL SQL lowering, CLI/JSON/output hardening, and
+completion audit/status lock. The completed behavior is limited to the bounded
+numeric literal aggregate argument MVP: Int and Float numeric literal leaves
+inside selected `sum(...)` and `avg(...)` numeric expression arguments.
+Accepted expressions must still include at least one direct input field leaf,
+so literal-only aggregate arguments such as `sum(1)` and `avg(1)` remain
+rejected. The contract preserves existing scalar type inference and aggregate
+result typing, including existing `sum(Int expression)`,
+`sum(Float expression)`, `avg(Int expression)`, and `avg(Float expression)`
+behavior. Phase 28 adds no Decimal literal, Decimal multiplication, Decimal
+division, mixed Decimal promotion, casts, precision/scale modeling, schema
+introspection, arbitrary scalar calls inside `sum` / `avg`, division, modulo,
 `count(expression)`, `min(expression)`, `max(expression)`,
 `count_distinct(...)` widening, grammar, generated ANTLR, AST, parser, IR
 model, SQL fixture/golden, JSON schema, CLI option, dependency, public API,
@@ -1991,14 +1993,13 @@ grouped order expressions remain deferred.
 
 ### Phase 28: Numeric / Aggregate Refinement II
 
-Status: Slice 1 is complete as candidate decision, exact contract, and static
-audit work only. Phase 28 implementation has not started.
+Status: Phase 28 is complete for the bounded numeric literal aggregate
+argument MVP.
 
-The Phase 28 selected future target is a numeric literal aggregate argument
-MVP for Int and Float numeric literal leaves inside selected `sum(...)` and
-`avg(...)` numeric expression arguments. Accepted future expressions must still
-include at least one direct input field leaf. Literal-only aggregate arguments
-such as `sum(1)` and `avg(1)` remain rejected.
+The completed Phase 28 behavior admits only Int and Float numeric literal
+leaves inside selected `sum(...)` and `avg(...)` numeric expression arguments.
+Accepted expressions must still include at least one direct input field leaf.
+Literal-only aggregate arguments such as `sum(1)` and `avg(1)` remain rejected.
 
 The contract preserves existing scalar type inference and aggregate result
 typing. `sum(Int expression)` keeps the existing `sum` Int result behavior,
@@ -2007,15 +2008,15 @@ typing. `sum(Int expression)` keeps the existing `sum` Int result behavior,
 Int/Float expression behavior follows existing scalar numeric typing and does
 not introduce a new promotion system.
 
-Phase 28 Slice 1 adds no Decimal literal, Decimal multiplication, Decimal
-division, mixed Decimal/Int or Decimal/Float promotion, casts,
-precision/scale modeling, division, modulo, `count(expression)`,
-`min(expression)`, `max(expression)`, `count_distinct(...)` widening,
-grammar, generated ANTLR, AST, parser, IR model, SQL fixture/golden, JSON
-schema, CLI option, dependency, public API, runtime/project, public MySQL API,
-or relationship/JOIN changes. Unsupported future implementation shapes remain
-deferred through existing primary diagnostics, including `PIE-S2315` where it
-is still the aggregate argument deferral diagnostic.
+Phase 28 adds no Decimal literal, Decimal multiplication, Decimal division,
+mixed Decimal/Int or Decimal/Float promotion, casts, precision/scale modeling,
+schema introspection, arbitrary scalar calls inside `sum` / `avg`, division,
+modulo, `count(expression)`, `min(expression)`, `max(expression)`,
+`count_distinct(...)` widening, grammar, generated ANTLR, AST, parser, IR
+model, SQL fixture/golden, JSON schema, CLI option, dependency, public API,
+runtime/project, public MySQL API, or relationship/JOIN changes. Unsupported
+shapes remain deferred through existing primary diagnostics, including
+`PIE-S2315` where it is still the aggregate argument deferral diagnostic.
 
 ---
 
