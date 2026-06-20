@@ -31,7 +31,7 @@ EXPECTED_COMMANDS = (
     "uv run python scripts/check_goldens.py",
     "uv run python scripts/package_smoke.py",
 )
-BOUNDARY_HASH = "f862c39af31bbda70856040aff2a9d7173799a1b2194bbd36c5c7c50122ffe2c"
+BOUNDARY_HASH = "5cc81ac403b75e042061888a1c6a1625a4a30fbed189e3edaf88b70f4c4aeca0"
 GOLDEN_HASH = "0e26a0b367a2ae849e5ec1e9a239be42765bea2c352242db5da930ab56b43004"
 SCRIPT_HASHES = {
     "scripts/validate.py": "4387101bc68e13539c74c45b595ba742ca17c9c0",

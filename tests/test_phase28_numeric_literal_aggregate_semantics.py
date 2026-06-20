@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from typing import cast
 
 import pytest
 
@@ -168,47 +166,6 @@ def test_cli_check_accepts_numeric_literal_aggregate_arguments(
 
     assert captured.err == ""
     assert captured.out == f"OK: {path}\n"
-
-
-def test_source_level_emit_sql_remains_fail_closed_before_sql_slice(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    path = _write(
-        tmp_path,
-        "numeric-literal-aggregate.pietto",
-        SOURCE_PREFIX + "table aggregate_stats:\n"
-        "    from orders\n"
-        "    select:\n"
-        "        total = sum(amount + 1)\n",
-    )
-    output = _write(tmp_path, "aggregate.sql", "stale SQL\n")
-
-    assert (
-        cli.main(
-            [
-                "emit-sql",
-                str(path),
-                "--dialect",
-                "postgres",
-                "--format=json",
-                "--output",
-                str(output),
-            ]
-        )
-        == 1
-    )
-    captured = capsys.readouterr()
-    result = cast(dict[str, object], json.loads(captured.out))
-    diagnostics = cast(list[dict[str, object]], result["diagnostics"])
-
-    assert captured.err == ""
-    assert result["ok"] is False
-    assert result["cli_errors"] == []
-    assert [diagnostic["code"] for diagnostic in diagnostics] == ["PIE-B1000"]
-    assert result["artifacts"] == []
-    assert result["output"] == {"path": str(output), "written": False}
-    assert output.read_text(encoding="utf-8") == "stale SQL\n"
 
 
 @pytest.mark.parametrize(

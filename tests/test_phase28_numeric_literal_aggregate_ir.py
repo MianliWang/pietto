@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import json
 from collections.abc import Iterable
-from pathlib import Path
 from typing import cast
 
 import pytest
 
-import pietto.cli as cli
 from pietto.ast_nodes import QueryDef, Script, TableDef
 from pietto.errors import Severity
 from pietto.ir import (
@@ -273,55 +270,6 @@ def test_phase26_field_only_expression_aggregate_arguments_still_lower() -> None
     )
 
 
-def test_source_level_emit_sql_remains_backend_fail_closed_after_ir_lowering(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    source = (
-        SOURCE_PREFIX + "table aggregate_stats:\n"
-        "    from orders\n"
-        "    select:\n"
-        "        total = sum(amount + 1)\n"
-        "        average = avg(score * 2)\n"
-    )
-    script = _parse(source)
-    semantic_result = analyze(script)
-    ir_result = build_ir(script, semantic_result.model)
-    path = _write(tmp_path, "numeric-literal-aggregate.pietto", source)
-    output = _write(tmp_path, "aggregate.sql", "stale SQL\n")
-
-    assert _error_codes(semantic_result) == []
-    assert ir_result.diagnostics == ()
-    assert ir_result.ir is not None
-    assert len(_aggregate_expressions(ir_result.ir)) == 2
-    assert (
-        cli.main(
-            [
-                "emit-sql",
-                str(path),
-                "--dialect",
-                "postgres",
-                "--format=json",
-                "--output",
-                str(output),
-            ]
-        )
-        == 1
-    )
-
-    captured = capsys.readouterr()
-    result = cast(dict[str, object], json.loads(captured.out))
-    diagnostics = cast(list[dict[str, object]], result["diagnostics"])
-
-    assert captured.err == ""
-    assert result["ok"] is False
-    assert result["cli_errors"] == []
-    assert [diagnostic["code"] for diagnostic in diagnostics] == ["PIE-B1000"]
-    assert result["artifacts"] == []
-    assert result["output"] == {"path": str(output), "written": False}
-    assert output.read_text(encoding="utf-8") == "stale SQL\n"
-
-
 @pytest.mark.parametrize(
     ("projection", "expected_code"),
     [
@@ -507,9 +455,3 @@ def _error_codes(result: object) -> list[str]:
         for diagnostic in diagnostics
         if diagnostic.severity is Severity.ERROR
     ]
-
-
-def _write(tmp_path: Path, name: str, content: str) -> Path:
-    path = tmp_path / name
-    path.write_text(content, encoding="utf-8")
-    return path

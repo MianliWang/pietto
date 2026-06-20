@@ -234,46 +234,88 @@ def _render_numeric_aggregate(
 
 
 def _numeric_aggregate_argument_type(expression: ExpressionIR) -> str | None:
+    expression_type, has_field, has_literal = _numeric_aggregate_argument_shape(
+        expression
+    )
+    if expression_type is None:
+        return None
+    if has_literal and (not has_field or expression_type not in {"Int", "Float"}):
+        return None
+    return expression_type
+
+
+def _numeric_aggregate_argument_shape(
+    expression: ExpressionIR,
+) -> tuple[str | None, bool, bool]:
+    """Return (builtin type, has resolved field, has Int/Float literal)."""
+
     expression_type = _builtin_type_name(expression)
     if expression_type not in _SUPPORTED_NUMERIC_AGGREGATE_ARGUMENT_TYPES:
-        return None
+        return None, False, False
 
     if isinstance(expression, FieldRefIR):
         if expression.field is None:
-            return None
-        return expression_type
+            return None, False, False
+        return expression_type, True, False
+
+    if isinstance(expression, LiteralIR):
+        if type(expression.value) is int and expression_type == "Int":
+            return expression_type, False, True
+        if type(expression.value) is float and expression_type == "Float":
+            return expression_type, False, True
+        return None, False, False
 
     if isinstance(expression, UnaryIR):
         if expression.operator not in _UNARY_OPERATORS:
-            return None
-        operand_type = _numeric_aggregate_argument_type(expression.operand)
+            return None, False, False
+        (
+            operand_type,
+            operand_has_field,
+            operand_has_literal,
+        ) = _numeric_aggregate_argument_shape(expression.operand)
         if operand_type != expression_type:
-            return None
-        return expression_type
+            return None, False, False
+        return expression_type, operand_has_field, operand_has_literal
 
     if isinstance(expression, BinaryIR):
         if expression.operator not in {"+", "-", "*"}:
-            return None
-        left_type = _numeric_aggregate_argument_type(expression.left)
-        right_type = _numeric_aggregate_argument_type(expression.right)
+            return None, False, False
+        left_type, left_has_field, left_has_literal = _numeric_aggregate_argument_shape(
+            expression.left
+        )
+        right_type, right_has_field, right_has_literal = (
+            _numeric_aggregate_argument_shape(expression.right)
+        )
         if left_type is None or right_type is None:
-            return None
+            return None, False, False
         if expression_type == "Decimal":
             if (
                 expression.operator == "*"
                 or left_type != "Decimal"
                 or right_type != "Decimal"
             ):
-                return None
-            return expression_type
+                return None, False, False
+            return (
+                expression_type,
+                left_has_field or right_has_field,
+                left_has_literal or right_has_literal,
+            )
         if expression_type == "Int":
             if left_type == "Int" and right_type == "Int":
-                return expression_type
-            return None
+                return (
+                    expression_type,
+                    left_has_field or right_has_field,
+                    left_has_literal or right_has_literal,
+                )
+            return None, False, False
         if expression_type == "Float" and {left_type, right_type} <= {"Int", "Float"}:
-            return expression_type
+            return (
+                expression_type,
+                left_has_field or right_has_field,
+                left_has_literal or right_has_literal,
+            )
 
-    return None
+    return None, False, False
 
 
 def _is_count_distinct_text_transform_argument(expression: ExpressionIR) -> bool:

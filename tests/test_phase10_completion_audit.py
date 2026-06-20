@@ -119,7 +119,7 @@ BOUNDARY_HASHES = {
         "e40bd3eee7f76bc68313adb8237a7a6c5d84286197261f70c827a4219c9e3418"
     ),
     "src/pietto/sql/expressions.py": (
-        "9e44f56c4fd50f8cdaa6718fed4d30cb60b56737d614cb295b7597d4c6a5f921"
+        "e16bbff0ab21b792cc7f3c90011bf197cc817a9b0c78e39ff3e096eaa0b026c5"
     ),
     "src/pietto/sql/model.py": (
         "0b5f096fbd9b2fdcc0c92cf65e50de90d64b134fd7479a3314ee05c348ab69f1"

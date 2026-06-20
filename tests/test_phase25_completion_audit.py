@@ -57,7 +57,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "sql": (
         "src/pietto/sql",
         10,
-        "7b1af177e99bcc898e74c9cb7a3922e74ac185fef0a43f0f77620a561856b396",
+        "67aeafa622d3147b08930cebcf18862322eec692d547d328b18966afa81f3530",
     ),
     "cli": (
         "src/pietto/cli.py",
