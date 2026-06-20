@@ -127,6 +127,26 @@ fixtures/goldens because adding golden files would require a script inventory
 change outside the approved slice. Existing fixture/golden bytes remain
 unchanged and are still covered by the existing golden audit.
 
+Phase 26 Slice 8 is complete as CLI / JSON / output and `satisfying` hardening
+work. It proves that the existing text, JSON v1, and `--output` paths carry the
+accepted aggregate expression argument SQL artifacts from Slice 7 without
+changing CLI implementation or JSON schema. It also locks grouped
+alias-based `satisfying:` over `sum(amount + tax)` and
+`count_distinct(lower(trim(status)))`, proving HAVING uses the normalized
+underlying aggregate expression rather than the select alias.
+
+Slice 8 preserves the unsupported-shape boundary for literal-containing,
+division, modulo, unsupported `count_distinct`, `count`, `min`, `max`, nested
+aggregate, aggregate composition, direct aggregate inside `satisfying:`, and
+no-GROUP `satisfying:` cases. Invalid semantic cases still fail before SQL,
+produce no SQL artifacts, and do not write or replace requested output files.
+
+Slice 8 changes no semantic acceptance, IR model or lowering, SQL renderer
+behavior, CLI implementation, JSON schema or serializer, fixture or golden
+files, `scripts/check_goldens.py`, dependency or lockfile, package metadata,
+CI, Makefile/config, runtime/database behavior, project/multi-file behavior,
+public MySQL API exposure, or relationship/JOIN behavior.
+
 Trusted Phase 25 baseline:
 
 - HEAD: `38c696d0aadc1c5f6b9e41b71e2a441f32c20198`;
@@ -596,10 +616,15 @@ Slice 7: PostgreSQL And Private MySQL SQL Lowering
 
 Slice 8: CLI / JSON / Output And `satisfying` Hardening
 
+- complete as tests/docs-only hardening work;
 - prove existing text, JSON v1, and `--output` paths carry accepted aggregate
   expression argument SQL artifacts;
 - prove `satisfying: total > 1000` works through alias normalization when
   `total = sum(amount + tax)` is valid;
+- prove `satisfying: normalized > 10` works through alias normalization when
+  `normalized = count_distinct(lower(trim(status)))` is valid;
+- prove invalid semantic cases still produce no SQL artifacts and do not write
+  or replace requested output files;
 - prove direct aggregate calls inside `satisfying:` still use `PIE-S2308`;
 - add no CLI option, JSON schema, fixture/golden inventory, dependency,
   runtime/database, public MySQL API, or relationship/JOIN behavior.
