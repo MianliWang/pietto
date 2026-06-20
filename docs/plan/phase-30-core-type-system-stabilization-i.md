@@ -11,6 +11,9 @@ static audit, and status work only.
 Phase 30 Slice 3 is complete as nullability propagation contract, static
 audit, and status work only.
 
+Phase 30 Slice 4 is complete as Bool and predicate semantics contract, static
+audit, and status work only.
+
 Slice 1 selects **Phase 30 Core Type System Stabilization I** as the Phase 30
 direction and adds the first contract at
 `docs/spec/core-type-system-stabilization-contract-v1.md`.
@@ -26,7 +29,13 @@ Slice 3 adds the nullability propagation contract at
 three-valued logic `UNKNOWN`; it does not change nullability inference or
 compiler behavior.
 
-Slices 4 through 8 remain planned only. Slice 1 did not pre-decide that every
+Slice 4 adds the Bool and predicate semantics contract at
+`docs/spec/bool-predicate-semantics-contract-v1.md`. It records existing Bool
+expression typing, predicate contexts, current predicate diagnostics, and the
+SQL three-valued logic boundary; it does not change predicate behavior,
+diagnostic behavior, SQL lowering, or compiler behavior.
+
+Slices 5 through 8 remain planned only. Slice 1 did not pre-decide that every
 later Phase 30 slice must be docs-only. Later slices must be planned and
 approved one by one, and any behavior change requires separate explicit
 approval.
@@ -50,6 +59,12 @@ Slice 3 starts from the completed Phase 30 Slice 2 baseline:
 - HEAD: `1ab91bb972c928e92e22fc34e945f871454af9bd`;
 - commit: `Document canonical scalar type registry`;
 - CI run: `27885698694 success`.
+
+Slice 4 starts from the completed Phase 30 Slice 3 baseline:
+
+- HEAD: `b0d9f99b20c691af921cbd06dc45b22d3c509a17`;
+- commit: `Document nullability propagation contract`;
+- CI run: `27886514387 success`.
 
 Phase 29 v0.2 Stabilization Boundary is complete as docs/spec/static-audit and
 status work only. v0.2 is not complete yet. Phase 30, Phase 31, and Phase 32
@@ -142,6 +157,22 @@ docs/spec/static-audit and status slice.
 The selected Slice 3 direction is contract-first. It locks current
 nullability behavior only and does not add broader inference.
 
+## Slice 4 Candidate Decision
+
+Slice 4 selects **Bool And Predicate Semantics** as a docs/spec/static-audit
+and status slice.
+
+| Candidate | Fit | Risk | Decision |
+|---|---:|---:|---|
+| Slice 4 docs/spec/static-audit/status only | High | Low | Chosen. |
+| Tests-only hardening | Medium | Medium | Rejected for Slice 4; current behavior tests already cover the relevant surfaces, and Slice 4 should first lock the contract. |
+| Minimal implementation artifact | Low | Medium | Rejected; no helper, enum, registry, or predicate API is needed for the contract. |
+| Broad behavior implementation | Low | High | Rejected; it could change semantic, diagnostic, IR, SQL, CLI, JSON, fixture, golden, aggregate, and public API behavior. |
+
+The selected Slice 4 direction is contract-first. It records current behavior
+only and does not widen predicate acceptance, diagnostics, SQL lowering, or
+SQL three-valued logic handling.
+
 ## Type-System Contract Direction
 
 Phase 30 treats Pietto's type system as the foundation for:
@@ -170,6 +201,11 @@ propagation as compile-time Pietto value facts, explicitly distinguishes
 `EffectiveNullability.UNKNOWN`, `ValueTypeKind.UNKNOWN`, and SQL
 three-valued logic `UNKNOWN`, and leaves Bool/predicate semantics plus the
 operator/comparison matrix to later approved slices.
+
+Slice 4 keeps that direction bounded. It defines current Bool and predicate
+semantics as compile-time Pietto type facts. Known Bool predicate acceptance
+remains a compile-time type-level fact and does not imply non-null proof,
+runtime truth, or SQL three-valued logic collapse.
 
 ## Phase 30 Slice Plan
 
@@ -259,11 +295,30 @@ Validation:
 
 ### Slice 4: Bool And Predicate Semantics
 
-Status: planned only.
+Status: complete as Bool and predicate semantics contract, static audit, and
+status work only.
 
 Goal: formalize Bool typing, predicate contexts, `is null`, `is not null`,
-comparisons, `and`, `or`, and the SQL three-valued-logic boundary. Slice 4
-must not start until separately approved.
+comparisons, `and`, `or`, current predicate diagnostics, and the SQL
+three-valued-logic boundary.
+
+Artifacts:
+
+- `docs/spec/bool-predicate-semantics-contract-v1.md`;
+- `tests/test_phase30_bool_predicate_semantics_contract.py`;
+- minimal status documentation updates.
+
+Validation:
+
+- `uv run pytest tests/test_phase30_bool_predicate_semantics_contract.py tests/test_phase30_nullability_propagation_contract.py tests/test_phase30_canonical_scalar_type_registry.py tests/test_phase30_candidate_decision.py`;
+- `uv run pytest tests/test_phase29_v02_core_type_system_gap_matrix.py tests/test_phase29_completion_audit.py`;
+- `uv run pytest tests/test_phase17_core_scalar_expression_semantics.py tests/test_semantic_expressions.py tests/test_semantic_where.py tests/test_semantic_shape_predicates.py tests/test_phase25_satisfying_semantics.py tests/test_semantic_callables.py`;
+- `uv run python scripts/check_generated.py`;
+- `uv run python scripts/check_goldens.py`;
+- `uv run python scripts/package_smoke.py`;
+- `uv run python scripts/validate.py`;
+- `git diff --check`;
+- `git diff -- src grammar tests/fixtures scripts pyproject.toml uv.lock .github Makefile`.
 
 ### Slice 5: Date / Timestamp Formalization
 
@@ -298,15 +353,17 @@ approved.
 
 ## Phase-Wide Non-Goals
 
-Phase 30 through Slice 3 does not authorize:
+Phase 30 through Slice 4 does not authorize:
 
 - source implementation changes;
 - grammar, generated ANTLR, AST, or parser changes;
 - semantic implementation or semantic behavior changes;
 - type-system behavior changes;
 - diagnostic behavior changes;
+- predicate behavior changes;
 - IR implementation or IR model changes;
 - SQL backend or SQL lowering changes;
+- SQL three-valued logic lowering changes;
 - CLI behavior, command, option, help, exit-code, or output changes;
 - JSON v1 changes or JSON v2 implementation;
 - public API changes or public MySQL API expansion;

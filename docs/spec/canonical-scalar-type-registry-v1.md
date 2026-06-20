@@ -183,8 +183,9 @@ Slice 2 feeds later Phase 30 slices without implementing them:
   deferred pairs.
 
 Slice 3 is complete as nullability propagation contract, static audit, and
-status work only. Slices 4 through 8 remain planned only and require separate
-explicit approval.
+status work only. Slice 4 is complete as Bool and predicate semantics
+contract, static audit, and status work only. Slices 5 through 8 remain
+planned only and require separate explicit approval.
 
 ## Explicit Non-Goals
 

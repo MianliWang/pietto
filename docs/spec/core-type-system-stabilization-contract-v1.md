@@ -13,6 +13,10 @@ Phase 30 Slice 3 is complete as nullability propagation contract, static
 audit, and status work only. The Slice 3 contract is
 `docs/spec/nullability-propagation-contract-v1.md`.
 
+Phase 30 Slice 4 is complete as Bool and predicate semantics contract, static
+audit, and status work only. The Slice 4 contract is
+`docs/spec/bool-predicate-semantics-contract-v1.md`.
+
 This contract selects Phase 30 Core Type System Stabilization I and records the
 phase-wide boundary for turning the Phase 29 core type-system gap matrix into a
 stable v0.2 compiler scalar type contract.
@@ -28,6 +32,10 @@ classification vocabulary, not a registry implementation artifact.
 Slice 3 remains docs/spec/static-audit/status only. It defines current
 nullability propagation rules, not a nullability inference implementation
 change.
+
+Slice 4 remains docs/spec/static-audit/status only. It defines current Bool
+and predicate semantics, not a predicate, diagnostic, or SQL lowering
+implementation change.
 
 ## Trusted Baseline
 
@@ -125,8 +133,9 @@ Slice 1 grounds the contract in current implementation facts:
 8. Completion Audit And Status Lock.
 
 Slice 2 is complete as the canonical scalar type registry contract. Slice 3 is
-complete as the nullability propagation contract. Slices 4 through 8 remain
-planned only and require separate explicit approval.
+complete as the nullability propagation contract. Slice 4 is complete as the
+Bool and predicate semantics contract. Slices 5 through 8 remain planned only
+and require separate explicit approval.
 
 ## Stabilization Boundary
 
@@ -148,9 +157,9 @@ Phase 30 may stabilize contracts for:
 - Decimal logical behavior and precision/scale disposition;
 - operator and comparison matrices.
 
-Phase 30 through Slice 3 does not change any of those behaviors. It records the
-contract boundary, scalar registry vocabulary, and nullability propagation
-contract for later approved slices.
+Phase 30 through Slice 4 does not change any of those behaviors. It records
+the contract boundary, scalar registry vocabulary, nullability propagation
+contract, and Bool/predicate contract for later approved slices.
 
 ## Explicit Non-Goals
 
@@ -161,8 +170,10 @@ This contract does not authorize:
 - semantic implementation or semantic behavior changes;
 - type-system behavior changes;
 - diagnostic behavior changes;
+- predicate behavior changes;
 - IR implementation or IR model changes;
 - SQL backend or SQL lowering changes;
+- SQL three-valued logic lowering changes;
 - CLI behavior, command, option, help, exit-code, or output changes;
 - JSON v1 changes or JSON v2 implementation;
 - public API changes or public MySQL API expansion;

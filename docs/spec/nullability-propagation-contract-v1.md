@@ -28,6 +28,10 @@ scalar type registry contract, static audit, and status work only. v0.2 is not
 complete yet. Phase 30, Phase 31, and Phase 32 remain required before v0.2
 stable completion.
 
+Phase 30 Slice 4 is complete as Bool and predicate semantics contract, static
+audit, and status work only. The Slice 4 contract is
+`docs/spec/bool-predicate-semantics-contract-v1.md`.
+
 ## Candidate Decision
 
 | Candidate | Fit | Risk | Decision |
@@ -169,7 +173,9 @@ Slice 3 feeds later Phase 30 slices without implementing them:
 - Slice 7 Operator And Comparison Matrix uses the current result-nullability
   facts for unary, binary, Bool, comparison, and `between` expressions.
 
-Slices 4 through 8 remain planned only and require separate explicit approval.
+Slice 4 is complete as Bool and predicate semantics contract, static audit,
+and status work only. Slices 5 through 8 remain planned only and require
+separate explicit approval.
 
 ## Explicit Non-Goals
 

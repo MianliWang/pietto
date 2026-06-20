@@ -367,7 +367,9 @@ def test_later_slice_handoff_and_hard_non_goals_are_locked() -> None:
         "logic `UNKNOWN`",
         "current result-nullability facts for unary, binary, Bool, comparison, "
         "and `between` expressions",
-        "Slices 4 through 8 remain planned only",
+        "Slice 4 is complete as Bool and predicate semantics contract, static "
+        "audit, and status work only",
+        "Slices 5 through 8 remain planned only",
         "require separate explicit approval",
     ):
         assert required in plan_and_specs
@@ -383,9 +385,12 @@ def test_status_docs_record_slice3_without_v02_completion_or_behavior_change() -
             "Phase 30 Core Type System Stabilization I",
             "Slice 3 is complete as nullability propagation contract, static "
             "audit, and status work only",
+            "Slice 4 is complete as Bool and predicate semantics contract, "
+            "static audit, and status work only",
+            "Known Bool predicate acceptance remains a compile-time type-level fact",
             "`EffectiveNullability.UNKNOWN`, `ValueTypeKind.UNKNOWN`, and SQL "
             "three-valued logic `UNKNOWN` remain distinct",
-            "Slices 4 through 8 remain planned only",
+            "Slices 5 through 8 remain planned only",
             "Phase 31 and Phase 32 remain required before v0.2 stable completion",
         ):
             assert required in status_doc
