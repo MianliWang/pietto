@@ -18,6 +18,11 @@ Phase 29 Slice 4 is complete as core type-system gap matrix contract and
 static audit work only. It adds the formal v0.2 core type-system gap matrix at
 `docs/spec/v02-core-type-system-gap-matrix-v1.md`.
 
+Phase 29 Slice 5 is complete as v0.2 exit criteria and validation strategy
+contract and static audit work only. It adds the formal v0.2 exit criteria and
+validation strategy at
+`docs/spec/v02-exit-criteria-validation-strategy-v1.md`.
+
 Slice 1 changes no source implementation, grammar, generated ANTLR, AST,
 parser, semantic implementation, IR implementation, IR model, SQL backend,
 CLI behavior, JSON behavior or schema, fixture, golden, script, dependency,
@@ -49,6 +54,16 @@ relationship/JOIN behavior, type-system behavior, aggregate behavior,
 diagnostic behavior, DateTime/Time/Interval/timezone behavior, UUID/Enum
 behavior, Bytes/Json behavior, Decimal precision/scale behavior, or semantic
 annotation behavior.
+
+Slice 5 also changes no source implementation, grammar, generated ANTLR, AST,
+parser, semantic implementation, IR implementation, IR model, SQL backend,
+CLI behavior, JSON behavior or schema, fixture, golden, script, dependency,
+lockfile, package metadata, CI, public API, runtime/database behavior, schema
+introspection, project/multi-file behavior, public MySQL API,
+relationship/JOIN behavior, type-system behavior, aggregate behavior,
+diagnostic behavior, release tag, publication, package upload, signing,
+attestation, release artifact, package version, JSON v2 behavior, schema
+introspection behavior, or runtime/database execution behavior.
 
 Trusted Phase 28 baseline:
 
@@ -205,6 +220,25 @@ Slice 4 formalizes this audit at
 `docs/spec/v02-core-type-system-gap-matrix-v1.md`. The matrix is current-fact,
 gap, and disposition documentation only. It does not decide final Phase 30
 implementation rules or authorize type-system behavior changes.
+
+## v0.2 Exit Criteria And Validation Strategy Direction
+
+Phase 29 defines v0.2 exit criteria without declaring v0.2 complete.
+
+Slice 5 formalizes this contract at
+`docs/spec/v02-exit-criteria-validation-strategy-v1.md`. The criteria require
+the stable single-file language surface, Slice 2 deferred register, Slice 3
+aggregate freeze, Slice 4 type-system gap matrix, Phase 30 and Phase 31
+prerequisites, Phase 32 completion audit, CLI and JSON v1 stability, public API
+stability, diagnostic stability, SQL golden stability, generated-file
+stability, package smoke validation, docs/examples/README readiness, and CI
+alignment with local validation commands.
+
+The exit criteria are not a release, package version bump, release tag,
+publication, package upload, signing, attestation, release artifact, CI
+workflow change, validation script change, fixture/golden change, or behavior
+change. Phase 30, Phase 31, and Phase 32 remain required before the v0.2 stable
+single-file completion status can be locked.
 
 ## Phase 29 Slice Plan
 
@@ -365,27 +399,48 @@ uv run python scripts/validate.py
 
 Commit message suggestion: `Audit v0.2 core type system gaps`.
 
+Historical Slice 4 checkpoint retained for static-audit compatibility:
+`### Slice 5: v0.2 Exit Criteria And Validation Strategy Status: planned only`.
+
 ### Slice 5: v0.2 Exit Criteria And Validation Strategy
 
-Status: planned only.
+Status: complete as v0.2 exit criteria and validation strategy contract and
+static audit work only.
 
 Goal: define v0.2 exit criteria, validation stack, package smoke expectations,
-and stability invariants.
+and stability invariants without declaring v0.2 complete.
 
 Expected file areas:
 
-- Phase 29 docs and tests;
-- status documentation only if needed.
+- `docs/spec/v02-exit-criteria-validation-strategy-v1.md`;
+- `tests/test_phase29_v02_exit_criteria_validation_strategy.py`;
+- `docs/plan/phase-29-v02-stabilization-boundary.md`.
 
 Explicit non-goals:
 
+- no source implementation changes;
+- no grammar, generated ANTLR, AST, parser, IR model, SQL backend, CLI, JSON,
+  fixture, golden, script, dependency, lockfile, package metadata, CI, or
+  public API changes;
+- no public MySQL API expansion;
+- no JSON v2;
+- no project/multi-file, schema introspection, runtime/database execution, or
+  relationship/JOIN behavior;
+- no semantic, aggregate, diagnostic, or type-system behavior changes;
+- no v0.2 completion declaration;
 - no package version bump;
-- no release, publication, signing, upload, or attestation;
-- no CI workflow change unless separately authorized.
+- no release tag, release artifact, publication, package upload, signing, or
+  attestation;
+- no Phase 30, Phase 31, or Phase 32 implementation.
 
 Validation:
 
 ```bash
+uv run pytest tests/test_phase29_v02_exit_criteria_validation_strategy.py
+uv run pytest tests/test_phase29_v02_core_type_system_gap_matrix.py
+uv run pytest tests/test_phase29_v02_aggregate_surface_freeze.py
+uv run pytest tests/test_phase29_v02_deferred_feature_register.py
+uv run pytest tests/test_phase29_v02_stabilization_candidate_decision.py
 uv run python scripts/check_generated.py
 uv run python scripts/check_goldens.py
 uv run python scripts/package_smoke.py
