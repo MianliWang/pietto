@@ -170,7 +170,7 @@ def test_cli_check_accepts_numeric_literal_aggregate_arguments(
     assert captured.out == f"OK: {path}\n"
 
 
-def test_source_level_emit_sql_remains_fail_closed_before_ir_sql_slices(
+def test_source_level_emit_sql_remains_fail_closed_before_sql_slice(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -200,11 +200,12 @@ def test_source_level_emit_sql_remains_fail_closed_before_ir_sql_slices(
     )
     captured = capsys.readouterr()
     result = cast(dict[str, object], json.loads(captured.out))
+    diagnostics = cast(list[dict[str, object]], result["diagnostics"])
 
     assert captured.err == ""
     assert result["ok"] is False
     assert result["cli_errors"] == []
-    assert cast(list[dict[str, object]], result["diagnostics"])
+    assert [diagnostic["code"] for diagnostic in diagnostics] == ["PIE-B1000"]
     assert result["artifacts"] == []
     assert result["output"] == {"path": str(output), "written": False}
     assert output.read_text(encoding="utf-8") == "stale SQL\n"
