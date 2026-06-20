@@ -308,9 +308,15 @@ def test_malformed_hand_built_decimal_aggregate_ir_fails_closed_with_pie_b1000(
 def test_direct_malformed_decimal_renderer_errors_stay_dialect_specific() -> None:
     aggregate = _aggregate("sum", DECIMAL_NULLABLE, _literal(1, INT_NON_NULL))
 
-    with pytest.raises(ValueError, match="direct field argument"):
+    with pytest.raises(
+        ValueError,
+        match="field-only Int, Float, or Decimal expression argument",
+    ):
         render_expression_sql(aggregate)
-    with pytest.raises(MySqlRenderError, match="direct field argument"):
+    with pytest.raises(
+        MySqlRenderError,
+        match="field-only Int, Float, or Decimal expression argument",
+    ):
         render_mysql_expression(aggregate)
 
 

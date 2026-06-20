@@ -333,14 +333,30 @@ def test_direct_aggregate_inside_satisfying_still_uses_s2308() -> None:
     ]
 
 
-@pytest.mark.parametrize("dialect", ["postgres", "mysql"])
-def test_emit_sql_for_aggregate_expression_argument_fails_closed_without_artifacts(
+@pytest.mark.parametrize(
+    ("dialect", "connector", "expected_sql"),
+    [
+        (
+            "postgres",
+            "postgres.table",
+            'SELECT\n    SUM(("amount" + "tax")) AS "total"\nFROM "orders"',
+        ),
+        (
+            "mysql",
+            "mysql.table",
+            "SELECT\n    SUM((`amount` + `tax`)) AS `total`\nFROM `orders`",
+        ),
+    ],
+)
+def test_emit_sql_for_aggregate_expression_argument_succeeds_after_sql_slice(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     dialect: str,
+    connector: str,
+    expected_sql: str,
 ) -> None:
     source = (
-        SOURCE_PREFIX + "table aggregate_stats:\n"
+        SOURCE_PREFIX.replace("postgres.table", connector) + "table aggregate_stats:\n"
         "    from orders\n"
         "    select:\n"
         "        total = sum(amount + tax)\n"
@@ -362,21 +378,24 @@ def test_emit_sql_for_aggregate_expression_argument_fails_closed_without_artifac
                 str(output),
             ]
         )
-        == 1
+        == 0
     )
     captured = capsys.readouterr()
     result = cast(dict[str, object], json.loads(captured.out))
-    diagnostics = cast(list[dict[str, object]], result["diagnostics"])
-    diagnostic_codes = {str(diagnostic["code"]) for diagnostic in diagnostics}
+    artifacts = cast(list[dict[str, object]], result["artifacts"])
 
     assert captured.err == ""
-    assert result["ok"] is False
-    assert result["artifacts"] == []
-    assert result["output"] == {"path": str(output), "written": False}
-    assert diagnostic_codes
-    assert diagnostic_codes <= {"PIE-I1000", "PIE-B1000"}
-    assert "SELECT" not in captured.out
-    assert not output.exists()
+    assert result["ok"] is True
+    assert result["diagnostics"] == []
+    assert result["output"] == {"path": str(output), "written": True}
+    assert artifacts == [
+        {
+            "kind": "relation",
+            "name": "aggregate_stats",
+            "sql": expected_sql,
+        }
+    ]
+    assert output.read_text(encoding="utf-8") == expected_sql + "\n"
 
 
 def _parse(source: str) -> Script:

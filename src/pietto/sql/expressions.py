@@ -13,6 +13,8 @@ from pietto.ir.model import (
     IsNullIR,
     LiteralIR,
     NullabilityIR,
+    SymbolId,
+    SymbolNamespace,
     TypeKindIR,
     UnaryIR,
 )
@@ -69,6 +71,7 @@ _SUPPORTED_EXTREMA_AGGREGATE_ARGUMENT_TYPES = frozenset(
 _SUPPORTED_COUNT_DISTINCT_ARGUMENT_TYPES = frozenset(
     {"Bool", "Int", "Float", "Decimal", "Text", "Date", "Timestamp", "UUID"}
 )
+_COUNT_DISTINCT_TRANSFORM_NAMES = frozenset({"lower", "trim"})
 
 
 def render_expression_sql(expression: ExpressionIR) -> str:
@@ -209,19 +212,27 @@ def _render_count_distinct_aggregate(expression: AggregateCallIR) -> str:
     if len(expression.arguments) != 1:
         raise ValueError("PostgreSQL aggregate count_distinct expects 1 argument(s)")
     argument = expression.arguments[0]
-    if not isinstance(argument, FieldRefIR) or argument.field is None:
+
+    if isinstance(argument, FieldRefIR):
+        if argument.field is None:
+            raise ValueError(
+                "PostgreSQL aggregate count_distinct expects a resolved field argument"
+            )
+        argument_type = argument.value_type.canonical_name
+        if (
+            argument.value_type.canonical_kind is not TypeKindIR.BUILTIN
+            or argument_type not in _SUPPORTED_COUNT_DISTINCT_ARGUMENT_TYPES
+        ):
+            raise ValueError(
+                "PostgreSQL aggregate count_distinct supports only Bool, Int, "
+                "Float, Decimal, Text, Date, Timestamp, or UUID field arguments"
+            )
+    elif not _is_count_distinct_text_transform_argument(argument):
         raise ValueError(
-            "PostgreSQL aggregate count_distinct expects a direct field argument"
+            "PostgreSQL aggregate count_distinct expects a direct field or "
+            "lower/trim Text transform argument"
         )
-    argument_type = argument.value_type.canonical_name
-    if (
-        argument.value_type.canonical_kind is not TypeKindIR.BUILTIN
-        or argument_type not in _SUPPORTED_COUNT_DISTINCT_ARGUMENT_TYPES
-    ):
-        raise ValueError(
-            "PostgreSQL aggregate count_distinct supports only Bool, Int, Float, "
-            "Decimal, Text, Date, Timestamp, or UUID field arguments"
-        )
+
     return f"COUNT(DISTINCT {_render_expression_sql(argument, nested=True)})"
 
 
@@ -235,19 +246,11 @@ def _render_numeric_aggregate(
             f"PostgreSQL aggregate {expression.function} expects 1 argument(s)"
         )
     argument = expression.arguments[0]
-    if not isinstance(argument, FieldRefIR) or argument.field is None:
+    argument_type = _numeric_aggregate_argument_type(argument)
+    if argument_type is None:
         raise ValueError(
-            f"PostgreSQL aggregate {expression.function} expects a direct field "
-            "argument"
-        )
-    argument_type = argument.value_type.canonical_name
-    if (
-        argument.value_type.canonical_kind is not TypeKindIR.BUILTIN
-        or argument_type not in _SUPPORTED_NUMERIC_AGGREGATE_ARGUMENT_TYPES
-    ):
-        raise ValueError(
-            f"PostgreSQL aggregate {expression.function} supports only Int, "
-            "Float, or Decimal field arguments"
+            f"PostgreSQL aggregate {expression.function} expects a field-only "
+            "Int, Float, or Decimal expression argument"
         )
 
     if argument_type == "Decimal":
@@ -266,6 +269,73 @@ def _render_numeric_aggregate(
             "match approved logical shape"
         )
     return f"{function_name}({_render_expression_sql(argument, nested=True)})"
+
+
+def _numeric_aggregate_argument_type(expression: ExpressionIR) -> str | None:
+    expression_type = _builtin_type_name(expression)
+    if expression_type not in _SUPPORTED_NUMERIC_AGGREGATE_ARGUMENT_TYPES:
+        return None
+
+    if isinstance(expression, FieldRefIR):
+        if expression.field is None:
+            return None
+        return expression_type
+
+    if isinstance(expression, UnaryIR):
+        if expression.operator not in _UNARY_OPERATORS:
+            return None
+        operand_type = _numeric_aggregate_argument_type(expression.operand)
+        if operand_type != expression_type:
+            return None
+        return expression_type
+
+    if isinstance(expression, BinaryIR):
+        if expression.operator not in {"+", "-", "*"}:
+            return None
+        left_type = _numeric_aggregate_argument_type(expression.left)
+        right_type = _numeric_aggregate_argument_type(expression.right)
+        if left_type is None or right_type is None:
+            return None
+        if expression_type == "Decimal":
+            if (
+                expression.operator == "*"
+                or left_type != "Decimal"
+                or right_type != "Decimal"
+            ):
+                return None
+            return expression_type
+        if expression_type == "Int":
+            if left_type == "Int" and right_type == "Int":
+                return expression_type
+            return None
+        if expression_type == "Float" and {left_type, right_type} <= {"Int", "Float"}:
+            return expression_type
+
+    return None
+
+
+def _is_count_distinct_text_transform_argument(expression: ExpressionIR) -> bool:
+    if not isinstance(expression, CallIR):
+        return False
+    if _builtin_type_name(expression) != "Text":
+        return False
+    if expression.callee not in _COUNT_DISTINCT_TRANSFORM_NAMES:
+        return False
+    expected_symbol = SymbolId(SymbolNamespace.CALLABLE, expression.callee)
+    if expression.callee_symbol != expected_symbol:
+        return False
+    if len(expression.arguments) != 1:
+        return False
+    argument = expression.arguments[0]
+    if isinstance(argument, FieldRefIR):
+        return argument.field is not None and _builtin_type_name(argument) == "Text"
+    return _is_count_distinct_text_transform_argument(argument)
+
+
+def _builtin_type_name(expression: ExpressionIR) -> str | None:
+    if expression.value_type.canonical_kind is not TypeKindIR.BUILTIN:
+        return None
+    return expression.value_type.canonical_name
 
 
 def _render_extrema_aggregate(

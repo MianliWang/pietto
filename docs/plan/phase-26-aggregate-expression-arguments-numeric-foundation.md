@@ -106,6 +106,27 @@ behavior. PostgreSQL and private MySQL emitters still fail closed through
 `PIE-B1000` for aggregate expression arguments because SQL rendering remains
 deferred to Slice 7.
 
+Phase 26 Slice 7 is complete as a SQL-backend lowering slice. It renders the
+aggregate expression arguments already accepted by Slice 4 and Slice 5 and
+lowered by Slice 6:
+
+- `sum(field-only numeric expression)`;
+- `avg(field-only numeric expression)`;
+- `count_distinct(lower/trim Text transform chain over one Text field)`.
+
+Slice 7 changes only PostgreSQL and private MySQL expression rendering plus
+focused regression coverage. It does not change semantic acceptance, IR model
+or lowering, grammar, generated parser files, AST model or builder, CLI
+implementation, JSON schema or serializer, fixture or golden files,
+`scripts/check_goldens.py`, dependency or lockfile, package metadata, CI,
+Makefile/config, runtime/database behavior, project/multi-file behavior, public
+MySQL API exposure, or relationship/JOIN behavior.
+
+Slice 7 deliberately uses focused inline SQL assertions instead of new
+fixtures/goldens because adding golden files would require a script inventory
+change outside the approved slice. Existing fixture/golden bytes remain
+unchanged and are still covered by the existing golden audit.
+
 Trusted Phase 25 baseline:
 
 - HEAD: `38c696d0aadc1c5f6b9e41b71e2a441f32c20198`;
@@ -325,11 +346,14 @@ aliased `select:` projection.
 
 ### Fixture And Golden Policy
 
-SQL lowering slices should add reviewed SQL fixtures and goldens when accepted
-aggregate expression arguments first produce new SQL bytes. The same SQL slice
-must update `scripts/check_goldens.py` inventory ownership. Completion audit
-only locks final fixture/golden inventory and must not introduce the first
-reviewed SQL bytes for this feature.
+Slice 7 uses focused inline SQL assertions rather than new fixtures or goldens.
+Existing SQL fixtures and goldens remain unchanged and continue to be audited by
+`scripts/check_goldens.py`.
+
+If a later reviewer requires reviewed fixture/golden coverage for aggregate
+expression argument SQL bytes, that follow-up must be separately authorized
+because adding new golden files requires updating the explicit
+`scripts/check_goldens.py` inventory.
 
 ### Explicit Deferrals
 
@@ -368,18 +392,18 @@ Required transition:
 - `PIE-S2308` remains the diagnostic for direct aggregate calls inside
   `satisfying:`.
 
-Planned examples:
+Examples:
 
-- `sum(amount + tax)` is semantically accepted in Slice 4 and lowered as
-  `AggregateCallIR` in Slice 6, while SQL emission remains fail-closed with no
-  artifact until the later SQL slices;
+- `sum(amount + tax)` is semantically accepted in Slice 4, lowered as
+  `AggregateCallIR` in Slice 6, and rendered by PostgreSQL/private MySQL in
+  Slice 7;
 - `sum(amount + 1)` remains deferred through `PIE-S2315`;
 - `sum(amount / tax)` remains deferred through `PIE-S2315`;
 - `sum(lower(status))` reports `PIE-S2314` because the aggregate argument type
   is known Text, not numeric;
-- `count_distinct(lower(status))` is semantically accepted in Slice 5 and lowered
-  as `AggregateCallIR` in Slice 6, while SQL emission remains fail-closed with
-  no artifact until the later SQL slices;
+- `count_distinct(lower(status))` is semantically accepted in Slice 5, lowered
+  as `AggregateCallIR` in Slice 6, and rendered by PostgreSQL/private MySQL in
+  Slice 7;
 - `sum(avg(amount))` reports `PIE-S2311`;
 - `sum(amount) + 1` reports `PIE-S2310`;
 - `satisfying: sum(amount + tax) > 1000` reports `PIE-S2308`.
@@ -437,9 +461,9 @@ Slice 6 updates aggregate projection consistency checks so valid expression
 arguments lower as aggregate IR instead of generic scalar `CallIR`. Malformed or
 unsupported aggregate IR remains fail-closed before or during SQL rendering.
 
-Until the SQL slice lands, Slice 6 intentionally relies on a fail-closed backend
-guard: source that is semantically accepted and lowered as `AggregateCallIR`
-with `sum(amount + tax)` or `count_distinct(lower(status))` must not produce SQL
+Slice 6 relied on a temporary fail-closed backend guard: before Slice 7, source
+that was semantically accepted and lowered as `AggregateCallIR` with
+`sum(amount + tax)` or `count_distinct(lower(status))` did not produce SQL
 artifacts through `emit-sql`.
 
 ## SQL Backend Contract
@@ -447,31 +471,48 @@ artifacts through `emit-sql`.
 PostgreSQL and private MySQL SQL lowering should reuse the existing nested
 expression rendering policy.
 
-Expected PostgreSQL shape:
+Implemented PostgreSQL shape:
 
 ```sql
 SUM(("amount" + "tax"))
 AVG(("score" * "weight"))
+SUM(("price" + "price"))
+AVG(("price" - "price"))
 COUNT(DISTINCT lower("status"))
+COUNT(DISTINCT trim("status"))
+COUNT(DISTINCT lower(trim("status")))
 ```
 
-Expected private MySQL shape:
+Implemented private MySQL shape:
 
 ```sql
 SUM((`amount` + `tax`))
 AVG((`score` * `weight`))
+SUM((`price` + `price`))
+AVG((`price` - `price`))
 COUNT(DISTINCT LOWER(`status`))
+COUNT(DISTINCT TRIM(`status`))
+COUNT(DISTINCT LOWER(TRIM(`status`)))
 ```
 
-The SQL slice may hard-lock exact bytes through reviewed goldens. Slice 1
-records only the conceptual rendering policy.
+Qualified leaves preserve existing source alias behavior:
+
+```sql
+SUM(("orders"."amount" + "orders"."tax"))
+SUM((`orders`.`amount` + `orders`.`tax`))
+COUNT(DISTINCT lower("orders"."status"))
+COUNT(DISTINCT LOWER(`orders`.`status`))
+```
+
+Malformed hand-built aggregate IR remains fail-closed through `PIE-B1000`.
+`count`, `min`, and `max` expression arguments remain unsupported.
 
 ## CLI / JSON / Output Contract
 
-Phase 26 should add focused CLI / JSON / `--output` tests after SQL lowering is
-available. Existing CLI and JSON v1 paths should naturally carry the new SQL
-artifacts. Phase 26 does not change JSON v1 schema, stdout/stderr separation,
-CLI option names, selected dialect values, or output-file safety rules.
+Slice 7 adds focused CLI / JSON / `--output` tests after SQL lowering became
+available. Existing CLI and JSON v1 paths naturally carry the new SQL artifacts.
+Phase 26 does not change JSON v1 schema, stdout/stderr separation, CLI option
+names, selected dialect values, or output-file safety rules.
 
 Invalid semantic cases must continue to fail before IR/SQL and must not write
 or replace requested output files.
@@ -543,11 +584,12 @@ Slice 6: Aggregate Expression Argument IR Lowering
 - add no SQL backend behavior, CLI behavior, JSON schema, fixture, golden,
   dependency, runtime/database, public MySQL API, or relationship/JOIN behavior.
 
-Slice 7: PostgreSQL And Private MySQL SQL Lowering And Goldens
+Slice 7: PostgreSQL And Private MySQL SQL Lowering
 
+- complete as SQL-backend lowering work;
 - render accepted aggregate expression arguments in PostgreSQL and private MySQL;
-- add reviewed SQL fixtures/goldens and update `scripts/check_goldens.py`
-  inventory in the same slice;
+- use focused inline SQL assertions rather than new fixture/golden files;
+- keep existing fixture/golden bytes and `scripts/check_goldens.py` unchanged;
 - preserve public `pietto.sql` exports and existing CLI dialect surface;
 - add no semantic behavior, IR model, CLI implementation, JSON schema,
   dependency, runtime/database, public MySQL API, or relationship/JOIN behavior.
@@ -579,8 +621,7 @@ GREEN files and directories:
 - semantic expression and aggregate files in semantic slices;
 - IR lowering files in the IR slice;
 - PostgreSQL/private MySQL expression renderers in the SQL slice;
-- Phase 26 fixtures/goldens and `scripts/check_goldens.py` only in the SQL
-  lowering and golden slice.
+- existing fixture/golden audit tests, only to prove no fixture/golden drift.
 
 YELLOW files and directories:
 

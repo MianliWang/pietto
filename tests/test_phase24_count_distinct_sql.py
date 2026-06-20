@@ -481,9 +481,15 @@ def test_direct_malformed_count_distinct_renderer_errors_stay_dialect_specific()
         _literal(1, INT_NON_NULL),
     )
 
-    with pytest.raises(ValueError, match="direct field argument"):
+    with pytest.raises(
+        ValueError,
+        match="direct field or lower/trim Text transform",
+    ):
         render_expression_sql(count_literal)
-    with pytest.raises(MySqlRenderError, match="direct field argument"):
+    with pytest.raises(
+        MySqlRenderError,
+        match="direct field or lower/trim Text transform",
+    ):
         render_mysql_expression(count_literal)
 
 

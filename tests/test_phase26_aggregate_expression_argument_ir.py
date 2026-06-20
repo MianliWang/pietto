@@ -381,36 +381,40 @@ def test_direct_aggregate_inside_satisfying_remains_semantic_error() -> None:
 
 
 @pytest.mark.parametrize(
-    ("projection", "message_by_dialect"),
+    ("dialect", "projection", "expected_sql"),
     [
         (
+            "postgres",
             "total = sum(amount + tax)",
-            {
-                "postgres": "PostgreSQL aggregate sum expects a direct field argument",
-                "mysql": "MySQL aggregate sum expects a direct field argument",
-            },
+            'SELECT\n    SUM(("amount" + "tax")) AS "total"\nFROM "orders"',
         ),
         (
+            "postgres",
             "normalized = count_distinct(lower(status))",
-            {
-                "postgres": (
-                    "PostgreSQL aggregate count_distinct expects a direct field "
-                    "argument"
-                ),
-                "mysql": (
-                    "MySQL aggregate count_distinct expects a direct field argument"
-                ),
-            },
+            "SELECT\n"
+            '    COUNT(DISTINCT lower("status")) AS "normalized"\n'
+            'FROM "orders"',
+        ),
+        (
+            "mysql",
+            "total = sum(amount + tax)",
+            "SELECT\n    SUM((`amount` + `tax`)) AS `total`\nFROM `orders`",
+        ),
+        (
+            "mysql",
+            "normalized = count_distinct(lower(status))",
+            "SELECT\n"
+            "    COUNT(DISTINCT LOWER(`status`)) AS `normalized`\n"
+            "FROM `orders`",
         ),
     ],
 )
-@pytest.mark.parametrize("dialect", ["postgres", "mysql"])
-def test_emit_sql_for_expression_argument_aggregates_fails_closed_at_backend(
+def test_emit_sql_for_expression_argument_aggregates_succeeds_after_sql_slice(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
-    projection: str,
-    message_by_dialect: dict[str, str],
     dialect: str,
+    projection: str,
+    expected_sql: str,
 ) -> None:
     source = (
         _source_prefix("mysql.table" if dialect == "mysql" else "postgres.table")
@@ -441,29 +445,28 @@ def test_emit_sql_for_expression_argument_aggregates_fails_closed_at_backend(
                 str(output),
             ]
         )
-        == 1
+        == 0
     )
 
     captured = capsys.readouterr()
     result = cast(dict[str, object], json.loads(captured.out))
-    diagnostics = cast(list[dict[str, object]], result["diagnostics"])
-    diagnostic_codes = {str(diagnostic["code"]) for diagnostic in diagnostics}
-    diagnostic_messages = tuple(
-        str(diagnostic["message"]) for diagnostic in diagnostics
-    )
+    artifacts = cast(list[dict[str, object]], result["artifacts"])
 
     assert captured.err == ""
-    assert result["ok"] is False
-    assert result["artifacts"] == []
-    assert result["output"] == {"path": str(output), "written": False}
-    assert diagnostic_codes == {"PIE-B1000"}
-    assert "PIE-I1000" not in diagnostic_codes
-    assert "PIE-S2315" not in diagnostic_codes
-    assert any(
-        message_by_dialect[dialect] in message for message in diagnostic_messages
-    )
-    assert "SELECT" not in captured.out
-    assert not output.exists()
+    assert result["ok"] is True
+    assert result["diagnostics"] == []
+    assert result["output"] == {"path": str(output), "written": True}
+    assert artifacts == [
+        {
+            "kind": "relation",
+            "name": "aggregate_stats",
+            "sql": expected_sql,
+        }
+    ]
+    assert "PIE-B1000" not in captured.out
+    assert "PIE-I1000" not in captured.out
+    assert "PIE-S2315" not in captured.out
+    assert output.read_text(encoding="utf-8") == expected_sql + "\n"
 
 
 def _parse(source: str) -> Script:

@@ -86,7 +86,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "sql": (
         "src/pietto/sql",
         10,
-        "112bb96372e442aba03ff953b45a5c5850a946e29d0f6358c3cffa281bf29b92",
+        "0f78250ec5f5b73b620fd1f7753e0e311003ebe4afa45598541ec5eb59373ac0",
     ),
     "check_goldens": (
         "scripts/check_goldens.py",
@@ -317,27 +317,27 @@ def test_cli_json_phase24_output_writes_sql_and_keeps_artifacts(
     assert not tuple(tmp_path.glob(f".{output_path.name}.*.tmp"))
 
 
-def test_cli_text_aggregate_expression_argument_stops_before_backend(
+def test_cli_text_aggregate_expression_argument_emits_sql_after_sql_slice(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    input_path = _write_invalid_expression_aggregate_source(tmp_path)
+    input_path = _write_supported_expression_aggregate_source(tmp_path)
 
-    assert cli.main(["emit-sql", str(input_path), "--dialect", "postgres"]) == 1
+    assert cli.main(["emit-sql", str(input_path), "--dialect", "postgres"]) == 0
 
     captured = capsys.readouterr()
-    assert captured.out == ""
-    assert "PIE-B1000 error:" in captured.err
-    assert "PostgreSQL aggregate sum expects a direct field argument" in captured.err
-    assert "PIE-S2315" not in captured.err
+    assert captured.err == ""
+    assert captured.out == (
+        'SELECT\n    SUM(("amount" + "amount")) AS "value"\nFROM "orders"\n'
+    )
 
 
-def test_cli_json_aggregate_expression_argument_does_not_write_output(
+def test_cli_json_aggregate_expression_argument_writes_output_after_sql_slice(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    input_path = _write_invalid_expression_aggregate_source(tmp_path)
-    output_path = tmp_path / "invalid-expression-aggregate.sql"
+    input_path = _write_supported_expression_aggregate_source(tmp_path)
+    output_path = tmp_path / "supported-expression-aggregate.sql"
     output_path.write_text("original SQL\n", encoding="utf-8")
 
     assert (
@@ -353,21 +353,25 @@ def test_cli_json_aggregate_expression_argument_does_not_write_output(
                 str(output_path),
             ]
         )
-        == 1
+        == 0
     )
 
     result = _read_json(capsys)
-    diagnostics = cast(list[dict[str, object]], result["diagnostics"])
+    artifacts = cast(list[dict[str, object]], result["artifacts"])
+    expected_sql = 'SELECT\n    SUM(("amount" + "amount")) AS "value"\nFROM "orders"'
 
-    assert result["ok"] is False
-    assert [diagnostic["code"] for diagnostic in diagnostics] == ["PIE-B1000"]
-    assert "PostgreSQL aggregate sum expects a direct field argument" in str(
-        diagnostics[0]["message"]
-    )
+    assert result["ok"] is True
+    assert result["diagnostics"] == []
     assert result["cli_errors"] == []
-    assert result["artifacts"] == []
-    assert result["output"] == {"path": str(output_path), "written": False}
-    assert output_path.read_text(encoding="utf-8") == "original SQL\n"
+    assert artifacts == [
+        {
+            "kind": "relation",
+            "name": "invalid_expression_aggregate",
+            "sql": expected_sql,
+        }
+    ]
+    assert result["output"] == {"path": str(output_path), "written": True}
+    assert output_path.read_text(encoding="utf-8") == expected_sql + "\n"
 
 
 def test_cli_json_backend_pie_b1000_does_not_write_output(
@@ -447,8 +451,8 @@ def _read_json(capsys: pytest.CaptureFixture[str]) -> dict[str, object]:
     return cast(dict[str, object], document)
 
 
-def _write_invalid_expression_aggregate_source(tmp_path: Path) -> Path:
-    path = tmp_path / "invalid-expression-aggregate.pietto"
+def _write_supported_expression_aggregate_source(tmp_path: Path) -> Path:
+    path = tmp_path / "supported-expression-aggregate.pietto"
     path.write_text(
         "shape Order:\n"
         "    amount: Decimal not null\n"

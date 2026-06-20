@@ -227,17 +227,18 @@ def test_fixture_golden_policy_and_slice_plan_are_locked() -> None:
     plan = _normalized()
 
     for required in (
-        "SQL lowering slices should add reviewed SQL fixtures and goldens when "
-        "accepted aggregate expression arguments first produce new SQL bytes",
-        "The same SQL slice must update `scripts/check_goldens.py` inventory ownership",
-        "Completion audit only locks final fixture/golden inventory",
+        "Slice 7 uses focused inline SQL assertions rather than new fixtures or goldens",
+        "Existing SQL fixtures and goldens remain unchanged and continue to be "
+        "audited by `scripts/check_goldens.py`",
+        "adding new golden files requires updating the explicit "
+        "`scripts/check_goldens.py` inventory",
         "Slice 1: Candidate Decision, Exact Contract, And Static Audit",
         "Slice 2: Numeric Scalar Expression Semantics",
         "Slice 3: Decimal Arithmetic Subset",
         "Slice 4: `sum` / `avg` Aggregate Expression Semantics",
         "Slice 5: `count_distinct` Text Transform Expression Semantics",
         "Slice 6: Aggregate Expression Argument IR Lowering",
-        "Slice 7: PostgreSQL And Private MySQL SQL Lowering And Goldens",
+        "Slice 7: PostgreSQL And Private MySQL SQL Lowering",
         "Slice 8: CLI / JSON / Output And `satisfying` Hardening",
         "Slice 9: Completion Audit And Status Lock",
     ):

@@ -88,7 +88,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "sql": (
         "src/pietto/sql",
         10,
-        "112bb96372e442aba03ff953b45a5c5850a946e29d0f6358c3cffa281bf29b92",
+        "0f78250ec5f5b73b620fd1f7753e0e311003ebe4afa45598541ec5eb59373ac0",
     ),
     "check_goldens": (
         "scripts/check_goldens.py",
@@ -316,7 +316,8 @@ def test_phase24_focused_coverage_is_locked() -> None:
             "test_cli_json_phase24_postgres_aggregate_sql_preserves_v1_shape",
             "test_cli_text_phase24_output_writes_exact_sql",
             "test_cli_json_phase24_output_writes_sql_and_keeps_artifacts",
-            "test_cli_json_aggregate_expression_argument_does_not_write_output",
+            "test_cli_text_aggregate_expression_argument_emits_sql_after_sql_slice",
+            "test_cli_json_aggregate_expression_argument_writes_output_after_sql_slice",
             "test_cli_json_backend_pie_b1000_does_not_write_output",
             "test_slice8_boundary_surfaces_remain_post_slice7_hash_locked",
         },
@@ -368,7 +369,6 @@ def test_phase24_golden_inventory_and_json_v1_shape_are_locked() -> None:
         'assert result["output"] == {"path": str(output_path), "written": True}',
         'assert result["output"] == {"path": str(output_path), "written": False}',
         'assert result["artifacts"] == []',
-        "PIE-S2315",
         "PIE-B1000",
     ):
         assert required in cli_tests
