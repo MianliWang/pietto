@@ -74,6 +74,12 @@ The current implementation status is:
   core type-system gap matrix, defines v0.2 exit criteria, and locks the Phase
   30 through Phase 32 handoff. v0.2 is not complete yet; Phase 30 Core Type
   System Stabilization I is the next mainline**.
+- **Phase 30 Core Type System Stabilization I: Slice 1 is complete as
+  candidate decision, type-system contract, static audit, and status work
+  only. It selects the Phase 30 direction and records the eight-slice master
+  plan. Slices 2 through 8 remain planned only, any behavior change requires
+  separate explicit approval, and Phase 31 and Phase 32 remain required before
+  v0.2 stable completion**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -213,6 +219,19 @@ freezes the Phase 19 through Phase 28 aggregate surface for v0.2 except bug
 fixes and adds no source implementation, grammar, generated, CLI/JSON/API, IR,
 SQL, aggregate semantic, runtime/database, schema introspection,
 project/multi-file, public MySQL API, or relationship/JOIN behavior changes.
+
+Phase 30 Core Type System Stabilization I Slice 1 is complete as candidate
+decision, type-system contract, static audit, and status work only. It records
+the trusted Phase 29 baseline, chooses the Phase 30 direction, adds the
+eight-slice master plan, and keeps Slices 2 through 8 planned only. Slice 1
+adds no source implementation, grammar, generated, CLI/JSON/API, IR, SQL,
+semantic, aggregate, diagnostic, runtime/database, schema introspection,
+project/multi-file, public MySQL API, relationship/JOIN, type-system behavior,
+package version, release, publication, JSON v2, UUID/Enum implementation,
+DateTime, Currency/Money, or semantic annotation syntax changes. Later Phase
+30 slices require separate approval, any behavior change requires separate
+explicit approval, and Phase 31 and Phase 32 remain required before v0.2
+stable completion.
 
 The supported single-file CLI commands and forms include:
 

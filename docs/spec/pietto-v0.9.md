@@ -2068,6 +2068,29 @@ project/multi-file, public MySQL API, or relationship/JOIN behavior changes.
 
 ---
 
+### Phase 30: Core Type System Stabilization I
+
+Status: Phase 30 Slice 1 is complete as candidate decision, type-system
+contract, static audit, and status work only.
+
+Phase 30 Slice 1 selects Core Type System Stabilization I, records the trusted
+Phase 29 baseline, adds the type-system stabilization contract, and records the
+eight-slice master plan. Slices 2 through 8 remain planned only. Slice 1 does
+not pre-decide that every later Phase 30 slice must be docs-only; later slices
+must be approved one by one, and any behavior change requires separate
+explicit approval.
+
+The Phase 30 Slice 1 contract changes no source implementation, grammar,
+generated, CLI/JSON/API, IR, SQL, semantic, aggregate, diagnostic,
+runtime/database, schema introspection, project/multi-file, public MySQL API,
+relationship/JOIN, type-system behavior, fixture, golden, script, dependency,
+CI, package version, release, publication, JSON v2, UUID/Enum implementation,
+DateTime, Currency/Money, or semantic annotation syntax behavior.
+
+Phase 31 and Phase 32 remain required before v0.2 stable completion.
+
+---
+
 ## 14. Codex Implementation Strategy
 
 Codex should not be asked to implement the entire language at once.
