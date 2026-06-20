@@ -14,6 +14,10 @@ Phase 29 Slice 3 is complete as aggregate-surface freeze contract and static
 audit work only. It adds the formal v0.2 aggregate surface freeze at
 `docs/spec/v02-aggregate-surface-freeze-v1.md`.
 
+Phase 29 Slice 4 is complete as core type-system gap matrix contract and
+static audit work only. It adds the formal v0.2 core type-system gap matrix at
+`docs/spec/v02-core-type-system-gap-matrix-v1.md`.
+
 Slice 1 changes no source implementation, grammar, generated ANTLR, AST,
 parser, semantic implementation, IR implementation, IR model, SQL backend,
 CLI behavior, JSON behavior or schema, fixture, golden, script, dependency,
@@ -35,6 +39,16 @@ lockfile, package metadata, CI, public API, runtime/database behavior, schema
 introspection, project/multi-file behavior, public MySQL API,
 relationship/JOIN behavior, type-system behavior, aggregate behavior, or
 diagnostic behavior.
+
+Slice 4 also changes no source implementation, grammar, generated ANTLR, AST,
+parser, semantic implementation, IR implementation, IR model, SQL backend,
+CLI behavior, JSON behavior or schema, fixture, golden, script, dependency,
+lockfile, package metadata, CI, public API, runtime/database behavior, schema
+introspection, project/multi-file behavior, public MySQL API,
+relationship/JOIN behavior, type-system behavior, aggregate behavior,
+diagnostic behavior, DateTime/Time/Interval/timezone behavior, UUID/Enum
+behavior, Bytes/Json behavior, Decimal precision/scale behavior, or semantic
+annotation behavior.
 
 Trusted Phase 28 baseline:
 
@@ -167,17 +181,30 @@ Phase 29 prepares Phase 30 by documenting current type-system gaps without
 changing semantics. Current implementation facts include:
 
 - built-in scalar names are cataloged as strings;
+- current built-in scalar names are `Any`, `Bool`, `Bytes`, `Date`, `Decimal`,
+  `Float`, `Int`, `Json`, `Text`, `Timestamp`, and `UUID`;
 - `ResolvedType` carries only `name`, `kind`, and optional `definition`;
 - `ValueType` carries a resolved type, effective nullability, and known/unknown
   status;
 - no canonical scalar type registry object exists;
 - no Decimal precision/scale carrier exists;
 - nullability propagation is intentionally conservative in many expression
-  contexts;
-- `Date` and `Timestamp` exist as built-in names but lack a full
-  operator/comparison matrix;
-- `UUID` and enums exist at syntax/metadata levels but are not stabilized as
-  SQL behavior for v0.2.
+  contexts and is distinct from SQL three-valued predicate logic;
+- `Date` and `Timestamp` exist as built-in names;
+- `UUID` and enums exist at syntax/metadata levels;
+- `Date`, `Timestamp`, `UUID`, `Bytes`, and `Json` exist as built-in names but
+  lack full operator/comparison or SQL behavior contracts;
+- enum/type-definition support exists through semantic type kinds and metadata,
+  but `Enum` is not a normal built-in scalar name;
+- `Bool`, predicate semantics, operator compatibility, comparison
+  compatibility, aggregate result typing, Decimal precision/scale, native
+  database metadata, semantic/domain annotations, and relationship
+  cardinality/grain/fanout all need documented Phase 30 or later disposition.
+
+Slice 4 formalizes this audit at
+`docs/spec/v02-core-type-system-gap-matrix-v1.md`. The matrix is current-fact,
+gap, and disposition documentation only. It does not decide final Phase 30
+implementation rules or authorize type-system behavior changes.
 
 ## Phase 29 Slice Plan
 
@@ -292,9 +319,13 @@ uv run python scripts/validate.py
 
 Commit message suggestion: `Freeze v0.2 aggregate surface`.
 
+Historical Slice 3 checkpoint retained for static-audit compatibility:
+`### Slice 4: Core Type System Gap Matrix Status: planned only`.
+
 ### Slice 4: Core Type System Gap Matrix
 
-Status: planned only.
+Status: complete as core type-system gap matrix contract and static audit work
+only.
 
 Goal: audit scalar registry, nullability, predicate, Date/Timestamp, Decimal
 precision/scale, operator, comparison, and aggregate-result gaps before Phase
@@ -302,22 +333,34 @@ precision/scale, operator, comparison, and aggregate-result gaps before Phase
 
 Expected file areas:
 
-- Phase 29 docs and tests;
-- no source files unless a later approved slice explicitly changes scope.
+- `docs/spec/v02-core-type-system-gap-matrix-v1.md`;
+- `tests/test_phase29_v02_core_type_system_gap_matrix.py`;
+- `docs/plan/phase-29-v02-stabilization-boundary.md`.
 
 Explicit non-goals:
 
+- no source implementation changes;
+- no grammar, generated ANTLR, AST, parser, IR model, SQL backend, CLI, JSON,
+  fixture, golden, script, dependency, lockfile, package metadata, CI, or
+  public API changes;
 - no type model changes;
 - no semantic behavior changes;
 - no new diagnostics;
-- no DateTime, Currency, Money, semantic annotation, or native database type
-  syntax.
+- no aggregate behavior changes;
+- no DateTime, Time, Interval, timezone, Currency, Money, semantic annotation,
+  or native database type syntax;
+- no Decimal precision/scale implementation;
+- no UUID, Enum, Bytes, or Json behavior expansion.
 
 Validation:
 
 ```bash
+uv run pytest tests/test_phase29_v02_core_type_system_gap_matrix.py
+uv run pytest tests/test_phase29_v02_aggregate_surface_freeze.py
+uv run pytest tests/test_phase29_v02_deferred_feature_register.py
 uv run pytest tests/test_phase29_v02_stabilization_candidate_decision.py
 uv run pytest tests/test_phase17_core_scalar_expression_semantics.py tests/test_phase26_numeric_scalar_expression_semantics.py tests/test_phase26_decimal_scalar_expression_semantics.py
+uv run python scripts/validate.py
 ```
 
 Commit message suggestion: `Audit v0.2 core type system gaps`.
