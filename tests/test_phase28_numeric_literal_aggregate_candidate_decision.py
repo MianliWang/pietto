@@ -95,14 +95,15 @@ def test_current_aggregate_literal_boundary_and_future_target_are_locked() -> No
     plan = _normalized(PLAN_PATH)
     spec = _normalized(SPEC_PATH)
     aggregates = _read(REPO_ROOT / "src/pietto/semantic/aggregates.py")
-    phase26_semantics = _read(
-        REPO_ROOT / "tests/test_phase26_aggregate_expression_argument_semantics.py"
+    phase28_semantics = _read(
+        REPO_ROOT / "tests/test_phase28_numeric_literal_aggregate_semantics.py"
     )
 
     assert "def _is_field_only_numeric_shape(expression: Expression)" in aggregates
     assert "return False" in aggregates
-    assert '("value = sum(amount + 1)", "sum")' in phase26_semantics
-    assert '("value = avg(score * 2)", "avg")' in phase26_semantics
+    assert '("value = sum(amount + 1)", "Int"' in phase28_semantics
+    assert '("value = avg(score * 2)", "Float"' in phase28_semantics
+    assert '("value = sum(1)", "sum")' in phase28_semantics
 
     for required in (
         "`sum(amount + 1)`",

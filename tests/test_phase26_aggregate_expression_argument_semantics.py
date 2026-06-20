@@ -173,8 +173,6 @@ def test_qualified_field_leaves_are_semantically_accepted() -> None:
 @pytest.mark.parametrize(
     ("projection", "function_name"),
     [
-        ("value = sum(amount + 1)", "sum"),
-        ("value = avg(score * 2)", "avg"),
         ("value = sum(1 + 2)", "sum"),
         ("value = avg(1)", "avg"),
         ("value = sum(amount / tax)", "sum"),

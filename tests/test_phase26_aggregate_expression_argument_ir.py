@@ -330,8 +330,6 @@ def test_direct_field_aggregate_lowering_remains_unchanged() -> None:
 @pytest.mark.parametrize(
     ("projection", "expected_code"),
     [
-        ("value = sum(amount + 1)", "PIE-S2315"),
-        ("value = avg(score * 2)", "PIE-S2315"),
         ("value = sum(amount / tax)", "PIE-S2315"),
         ("value = sum(amount % tax)", "PIE-S2315"),
         ("value = avg(price * price)", "PIE-S2315"),

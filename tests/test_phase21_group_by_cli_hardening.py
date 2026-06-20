@@ -177,7 +177,7 @@ INVALID_GROUPED_CASES = (
         "        status\n"
         "    select:\n"
         "        status\n"
-        "        revenue = sum(amount + 1)\n",
+        "        revenue = sum(1)\n",
         "PIE-S2315",
     ),
 )

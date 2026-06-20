@@ -12,6 +12,7 @@ from pietto.ast_nodes import (
     DottedNameExpr,
     Expression,
     IsNullExpr,
+    LiteralExpr,
     NameExpr,
     UnaryExpr,
 )
@@ -289,8 +290,9 @@ def is_supported_semantic_aggregate_argument_expression(
         )
     if function_name not in {SUM_AGGREGATE_NAME, AVG_AGGREGATE_NAME}:
         return False
-    return is_supported_numeric_argument(value_type) and _is_field_only_numeric_shape(
-        expression
+    return _is_supported_sum_avg_numeric_expression_shape(
+        expression,
+        value_type,
     )
 
 
@@ -366,6 +368,56 @@ def _is_field_only_numeric_shape(expression: Expression) -> bool:
             and _is_field_only_numeric_shape(expression.right)
         )
     return False
+
+
+def _is_supported_sum_avg_numeric_expression_shape(
+    expression: Expression,
+    value_type: ValueType,
+) -> bool:
+    if _is_field_only_numeric_shape(expression):
+        return is_supported_numeric_argument(value_type)
+
+    is_valid, has_field, has_literal = _numeric_literal_argument_shape(expression)
+    return (
+        is_valid
+        and has_field
+        and has_literal
+        and (_is_builtin(value_type, "Int") or _is_builtin(value_type, "Float"))
+    )
+
+
+def _numeric_literal_argument_shape(
+    expression: Expression,
+) -> tuple[bool, bool, bool]:
+    """Return (valid, has direct field leaf, has Int/Float literal leaf)."""
+
+    if isinstance(expression, (NameExpr, DottedNameExpr)):
+        return True, True, False
+    if isinstance(expression, LiteralExpr):
+        return type(expression.value) in {int, float}, False, True
+    if isinstance(expression, UnaryExpr):
+        if expression.operator not in {"+", "-"}:
+            return False, False, False
+        return _numeric_literal_argument_shape(expression.operand)
+    if isinstance(expression, BinaryExpr):
+        if expression.operator not in {"+", "-", "*"}:
+            return False, False, False
+        left_valid, left_has_field, left_has_literal = _numeric_literal_argument_shape(
+            expression.left
+        )
+        (
+            right_valid,
+            right_has_field,
+            right_has_literal,
+        ) = _numeric_literal_argument_shape(
+            expression.right,
+        )
+        return (
+            left_valid and right_valid,
+            left_has_field or right_has_field,
+            left_has_literal or right_has_literal,
+        )
+    return False, False, False
 
 
 def _is_lower_trim_text_transform_chain(expression: Expression) -> bool:

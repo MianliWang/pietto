@@ -245,7 +245,7 @@ def test_unsupported_grouped_order_by_items_emit_s2321(order_item: str) -> None:
             ),
         ),
         (
-            "revenue = sum(amount + 1)",
+            "revenue = sum(1)",
             (
                 "PIE-S2315",
                 "Aggregate function sum requires a direct field argument; "

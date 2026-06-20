@@ -168,8 +168,8 @@ def test_decimal_multiplication_is_not_enabled_outside_aggregates() -> None:
 @pytest.mark.parametrize(
     ("projection", "function_name"),
     [
-        ("value = sum(quantity + 1)", "sum"),
-        ("value = avg(score * 2)", "avg"),
+        ("value = sum(1 + 2)", "sum"),
+        ("value = avg(1.5 * 2)", "avg"),
         ("value = min(quantity + quantity)", "min"),
         ("value = max(score + score)", "max"),
         ("value = count_distinct(len(status))", "count_distinct"),

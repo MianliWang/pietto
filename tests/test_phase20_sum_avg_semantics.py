@@ -192,17 +192,6 @@ def test_count_sum_and_avg_are_not_scalar_builtin_functions() -> None:
             SOURCE_PREFIX + "table paid_order_stats:\n"
             "    from orders\n"
             "    select:\n"
-            "        revenue = sum(amount + 1)\n",
-            (
-                "PIE-S2315",
-                "Aggregate function sum requires a direct field argument; "
-                "expression arguments are deferred",
-            ),
-        ),
-        (
-            SOURCE_PREFIX + "table paid_order_stats:\n"
-            "    from orders\n"
-            "    select:\n"
             "        average = avg(1)\n",
             (
                 "PIE-S2315",
@@ -279,7 +268,7 @@ def test_sum_avg_aggregate_diagnostics(
     "projection",
     [
         "revenue = sum(status)",
-        "revenue = sum(amount + 1)",
+        "revenue = sum(1)",
         "revenue = sum(avg(amount))",
     ],
 )

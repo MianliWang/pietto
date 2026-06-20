@@ -295,8 +295,6 @@ def test_cli_json_output_writes_file_and_keeps_expression_argument_artifacts(
 @pytest.mark.parametrize(
     ("projection", "expected_code"),
     [
-        ("value = sum(amount + 1)", "PIE-S2315"),
-        ("value = avg(score * 2)", "PIE-S2315"),
         ("value = sum(amount / tax)", "PIE-S2315"),
         ("value = sum(amount % tax)", "PIE-S2315"),
         ("value = avg(price * price)", "PIE-S2315"),
