@@ -86,7 +86,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "sql": (
         "src/pietto/sql",
         10,
-        "0f78250ec5f5b73b620fd1f7753e0e311003ebe4afa45598541ec5eb59373ac0",
+        "7b1af177e99bcc898e74c9cb7a3922e74ac185fef0a43f0f77620a561856b396",
     ),
     "check_goldens": (
         "scripts/check_goldens.py",

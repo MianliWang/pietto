@@ -278,7 +278,7 @@ def test_unsupported_result_predicate_expression_fails_closed_without_artifact(
         ("mysql.table", emit_mysql_sql),
     ],
 )
-def test_grouped_order_by_remains_fail_closed_with_result_predicate(
+def test_malformed_grouped_order_by_remains_fail_closed_with_result_predicate(
     connector: str,
     emitter: Callable[[ScriptIR], SqlResult],
 ) -> None:
@@ -288,7 +288,7 @@ def test_grouped_order_by_remains_fail_closed_with_result_predicate(
         relation,
         order_by=(
             OrderItemIR(
-                expression=_region(),
+                expression=_amount(),
                 direction=OrderDirectionIR.ASC,
                 span=SPAN,
             ),
@@ -300,7 +300,7 @@ def test_grouped_order_by_remains_fail_closed_with_result_predicate(
     assert result.artifacts == ()
     assert len(result.diagnostics) == 1
     assert result.diagnostics[0].code == "PIE-B1000"
-    assert "grouped ORDER BY is not supported" in result.diagnostics[0].message
+    assert "must match a selected" in result.diagnostics[0].message
 
 
 def test_source_satisfying_text_emit_sql_succeeds_with_having(

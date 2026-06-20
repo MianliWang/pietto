@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import cast
 
@@ -234,7 +233,7 @@ def test_grouped_order_rejects_unsupported_computed_projection_output() -> None:
     ]
 
 
-def test_pietto_check_accepts_grouped_order_but_emit_sql_remains_deferred(
+def test_pietto_check_accepts_grouped_order_source(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -247,37 +246,11 @@ def test_pietto_check_accepts_grouped_order_but_emit_sql_remains_deferred(
             order_items=("total desc", "region asc"),
         ),
     )
-    output = _write(tmp_path, "grouped-order.sql", "old SQL\n")
 
     assert cli.main(["check", str(path)]) == 0
     checked = capsys.readouterr()
     assert checked.out == f"OK: {path}\n"
     assert checked.err == ""
-
-    assert (
-        cli.main(
-            [
-                "emit-sql",
-                str(path),
-                "--dialect",
-                "postgres",
-                "--format=json",
-                "--output",
-                str(output),
-            ]
-        )
-        == 1
-    )
-    emitted = capsys.readouterr()
-    result = cast(dict[str, object], json.loads(emitted.out))
-    diagnostics = cast(list[dict[str, object]], result["diagnostics"])
-
-    assert emitted.err == ""
-    assert result["ok"] is False
-    assert result["artifacts"] == []
-    assert result["output"] == {"path": str(output), "written": False}
-    assert [diagnostic["code"] for diagnostic in diagnostics] == ["PIE-B1000"]
-    assert output.read_text(encoding="utf-8") == "old SQL\n"
 
 
 def _grouped_relation(

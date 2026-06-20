@@ -194,7 +194,7 @@ def test_diagnostic_strategy_keeps_s2321_without_new_code() -> None:
     assert "It does not add a new `PIE-S2328` diagnostic in the MVP" in plan
 
 
-def test_backend_placement_and_current_grouped_gate_are_acknowledged() -> None:
+def test_backend_placement_and_current_grouped_order_guard_are_acknowledged() -> None:
     postgres = _read(REPO_ROOT / "src/pietto/sql/relations.py")
     mysql = _read(REPO_ROOT / "src/pietto/sql/mysql_relations.py")
     phase25_sql_tests = _read(REPO_ROOT / "tests/test_phase25_satisfying_sql.py")
@@ -203,7 +203,9 @@ def test_backend_placement_and_current_grouped_gate_are_acknowledged() -> None:
         assert 'lines.extend(\n            (\n                "HAVING",' in renderer
         assert 'lines.extend(\n            (\n                "ORDER BY",' in renderer
         assert "if relation.order_by:" in renderer
-        assert "grouped ORDER BY is not supported" in renderer
+        assert "def _validate_grouped_order_by(" in renderer
+        assert "grouped ORDER BY expression must match a selected" in renderer
+        assert "grouped ORDER BY is not supported" not in renderer
     assert 'sql.index("GROUP BY") < sql.index("HAVING") < sql.index("LIMIT")' in (
         phase25_sql_tests
     )

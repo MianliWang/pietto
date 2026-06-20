@@ -486,7 +486,7 @@ def _malformed_grouped_relation(relation: RelationIR, case: str) -> RelationIR:
             relation,
             order_by=(
                 OrderItemIR(
-                    expression=relation.projections[0].expression,
+                    expression=_field("customer_id", TEXT_NON_NULL),
                     direction=OrderDirectionIR.ASC,
                     span=SPAN,
                 ),

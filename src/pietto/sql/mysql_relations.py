@@ -153,17 +153,17 @@ def _render_projection(expression: ExpressionIR, name: str | None) -> str:
 
 
 def _validate_grouped_relation(relation: RelationIR) -> None:
-    if relation.order_by:
-        raise MySqlRenderError("MySQL grouped ORDER BY is not supported")
-
     group_fields = _group_key_fields(relation.group_keys)
+    orderable_expressions: list[ExpressionIR] = []
     saw_aggregate = False
     for projection in relation.projections:
         expression = projection.expression
         if isinstance(expression, AggregateCallIR):
             saw_aggregate = True
+            orderable_expressions.append(expression)
             continue
         if isinstance(expression, FieldRefIR) and expression.field in group_fields:
+            orderable_expressions.append(expression)
             continue
         raise MySqlRenderError(
             "MySQL grouped projection is neither a GROUP BY key nor aggregate"
@@ -173,6 +173,22 @@ def _validate_grouped_relation(relation: RelationIR) -> None:
         raise MySqlRenderError(
             "MySQL pure grouped output without an aggregate is not supported"
         )
+
+    _validate_grouped_order_by(relation.order_by, orderable_expressions)
+
+
+def _validate_grouped_order_by(
+    order_by: tuple[OrderItemIR, ...],
+    orderable_expressions: list[ExpressionIR],
+) -> None:
+    for item in order_by:
+        if not any(
+            item.expression == expression for expression in orderable_expressions
+        ):
+            raise MySqlRenderError(
+                "MySQL grouped ORDER BY expression must match a selected GROUP BY "
+                "key or aggregate projection"
+            )
 
 
 def _group_key_fields(group_keys: tuple[FieldRefIR, ...]) -> set[FieldId]:

@@ -77,7 +77,9 @@ def test_sql_backends_render_group_by_and_guard_malformed_grouped_ir() -> None:
     assert "_validate_grouped_relation(relation)" in postgres
     assert "def _render_group_key(key: FieldRefIR) -> str:" in postgres
     assert '"GROUP BY"' in postgres
-    assert "PostgreSQL grouped ORDER BY is not supported" in postgres
+    assert "def _validate_grouped_order_by(" in postgres
+    assert "PostgreSQL grouped ORDER BY expression must match a selected" in postgres
+    assert "PostgreSQL grouped ORDER BY is not supported" not in postgres
     assert "PostgreSQL GROUP BY keys must be resolved fields" in postgres
     assert "PostgreSQL GROUP BY keys must be unique" in postgres
     assert "if upstream.group_keys:" not in postgres
@@ -91,7 +93,9 @@ def test_sql_backends_render_group_by_and_guard_malformed_grouped_ir() -> None:
     assert "_validate_grouped_relation(relation)" in mysql
     assert "def _render_group_key(key: FieldRefIR) -> str:" in mysql
     assert '"GROUP BY"' in mysql
-    assert "MySQL grouped ORDER BY is not supported" in mysql
+    assert "def _validate_grouped_order_by(" in mysql
+    assert "MySQL grouped ORDER BY expression must match a selected" in mysql
+    assert "MySQL grouped ORDER BY is not supported" not in mysql
     assert "MySQL GROUP BY keys must be resolved fields" in mysql
     assert "MySQL GROUP BY keys must be unique" in mysql
     assert "if upstream.group_keys:" not in mysql
