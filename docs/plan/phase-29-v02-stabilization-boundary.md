@@ -10,6 +10,10 @@ Phase 29 Slice 2 is complete as deferred-feature register contract and static
 audit work only. It adds the formal v0.2 deferred feature register at
 `docs/spec/v02-deferred-feature-register-v1.md`.
 
+Phase 29 Slice 3 is complete as aggregate-surface freeze contract and static
+audit work only. It adds the formal v0.2 aggregate surface freeze at
+`docs/spec/v02-aggregate-surface-freeze-v1.md`.
+
 Slice 1 changes no source implementation, grammar, generated ANTLR, AST,
 parser, semantic implementation, IR implementation, IR model, SQL backend,
 CLI behavior, JSON behavior or schema, fixture, golden, script, dependency,
@@ -23,6 +27,14 @@ CLI behavior, JSON behavior or schema, fixture, golden, script, dependency,
 lockfile, package metadata, CI, public API, runtime/database behavior, schema
 introspection, project/multi-file behavior, public MySQL API, relationship/JOIN
 behavior, type-system behavior, or aggregate behavior.
+
+Slice 3 also changes no source implementation, grammar, generated ANTLR, AST,
+parser, semantic implementation, IR implementation, IR model, SQL backend,
+CLI behavior, JSON behavior or schema, fixture, golden, script, dependency,
+lockfile, package metadata, CI, public API, runtime/database behavior, schema
+introspection, project/multi-file behavior, public MySQL API,
+relationship/JOIN behavior, type-system behavior, aggregate behavior, or
+diagnostic behavior.
 
 Trusted Phase 28 baseline:
 
@@ -72,6 +84,9 @@ approved release slice.
 Phase 29 directionally freezes the Phase 19 through Phase 28 aggregate surface
 for v0.2 except bug fixes and audit-only clarifications.
 
+Slice 3 formalizes this freeze at
+`docs/spec/v02-aggregate-surface-freeze-v1.md`.
+
 The frozen aggregate surface includes:
 
 - `count()`;
@@ -80,8 +95,12 @@ The frozen aggregate surface includes:
 - `min(field)` and `max(field)`;
 - `count(field)`;
 - `count_distinct(field)`;
-- direct-field Decimal aggregate support;
-- grouped `satisfying:` result predicates;
+- `count_distinct(source.field)`;
+- bounded `count_distinct(...)` lower/trim Text transform chains over one Text
+  field, including bare and single-input qualified field forms;
+- direct-field Decimal aggregate support for `sum`, `avg`, `min`, and `max`;
+- grouped `satisfying:` result predicates, described by current Phase 25
+  behavior;
 - selected aggregate expression arguments from Phase 26;
 - grouped result ordering over selected outputs from Phase 27;
 - Int/Float literal leaves in selected `sum(...)` and `avg(...)` aggregate
@@ -95,7 +114,8 @@ The freeze keeps deferred:
 - window functions;
 - `count(expression)`;
 - `min(expression)` and `max(expression)`;
-- broad `count_distinct(...)` expression widening;
+- broad `count_distinct(...)` expression widening beyond direct fields and the
+  current lower/trim Text transform subset;
 - arbitrary scalar calls inside `sum` or `avg`;
 - aggregate argument division or modulo;
 - Decimal literal aggregate arguments;
@@ -235,26 +255,36 @@ Commit message suggestion: `Document v0.2 deferred feature register`.
 
 ### Slice 3: Aggregate Surface Freeze
 
-Status: planned only.
+Status: complete as aggregate-surface freeze contract and static audit work
+only.
 
 Goal: lock the Phase 19 through Phase 28 aggregate surface for v0.2 except bug
 fixes.
 
 Expected file areas:
 
-- Phase 29 docs and tests;
-- status documentation only if needed.
+- `docs/spec/v02-aggregate-surface-freeze-v1.md`;
+- `tests/test_phase29_v02_aggregate_surface_freeze.py`;
+- `docs/plan/phase-29-v02-stabilization-boundary.md`;
+- narrow cross-link updates in
+  `docs/spec/v02-deferred-feature-register-v1.md`.
 
 Explicit non-goals:
 
 - no aggregate expansion;
 - no new aggregate diagnostics;
 - no fixture or golden changes;
-- no semantic, IR, SQL, CLI, JSON, or public API behavior changes.
+- no semantic, IR, SQL, CLI, JSON, or public API behavior changes;
+- no diagnostic behavior changes;
+- no source implementation, grammar, generated ANTLR, AST, parser, runtime,
+  project, relationship/JOIN, schema introspection, type-system, dependency,
+  lockfile, package metadata, CI, or public MySQL API changes.
 
 Validation:
 
 ```bash
+uv run pytest tests/test_phase29_v02_aggregate_surface_freeze.py
+uv run pytest tests/test_phase29_v02_deferred_feature_register.py
 uv run pytest tests/test_phase29_v02_stabilization_candidate_decision.py
 uv run python scripts/check_goldens.py
 uv run python scripts/validate.py
