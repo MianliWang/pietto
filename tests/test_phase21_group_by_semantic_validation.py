@@ -209,7 +209,8 @@ def test_pure_grouping_without_aggregate_is_deferred_but_schema_is_known() -> No
     _assert_field(schema.fields["status"], "Text", EffectiveNullability.NON_NULL)
 
 
-def test_grouped_order_by_is_deferred_without_alias_lookup_cascade() -> None:
+@pytest.mark.parametrize("order_item", ["sum(amount) desc", "orders.status"])
+def test_unsupported_grouped_order_by_items_emit_s2321(order_item: str) -> None:
     result = analyze(
         _parse(
             SOURCE_PREFIX + "table grouped_orders:\n"
@@ -220,17 +221,16 @@ def test_grouped_order_by_is_deferred_without_alias_lookup_cascade() -> None:
             "        status\n"
             "        total = count()\n"
             "    order by:\n"
-            "        total desc\n"
+            f"        {order_item}\n"
         )
     )
 
     assert _errors(result) == [
         (
             "PIE-S2321",
-            "Grouped ORDER BY is deferred until grouped result scope is implemented",
+            "Unsupported grouped ORDER BY item; expected a supported select output name",
         ),
     ]
-    assert ("PIE-S2102", "Unknown field: total") not in _errors(result)
 
 
 @pytest.mark.parametrize(

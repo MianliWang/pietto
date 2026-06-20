@@ -64,6 +64,11 @@ class _GroupKey:
     item: GroupByItem
 
 
+@dataclass(frozen=True, slots=True)
+class _GroupedOrderOutput:
+    supported: bool
+
+
 def check_group_by_deferred(script: Script) -> list[Diagnostic]:
     """Preserve the retired Slice 4-6 GROUP BY gate as a no-op helper."""
 
@@ -92,10 +97,10 @@ def project_grouped_schema(
         input_schema,
     )
     diagnostics.extend(key_diagnostics)
-    diagnostics.extend(_grouped_order_by_diagnostics(definition))
 
     key_fields = {key.identity: key.field for key in group_keys}
     fields: dict[str, RowField] = {}
+    grouped_order_outputs: dict[str, _GroupedOrderOutput] = {}
     seen_names: set[str] = set()
     saw_valid_aggregate = False
     saw_invalid_projection = False
@@ -118,6 +123,10 @@ def project_grouped_schema(
             diagnostics.extend(aggregate_diagnostics)
             if aggregate_field is not None:
                 fields[aggregate_field.name] = aggregate_field
+            if output_name is not None:
+                grouped_order_outputs[output_name] = _GroupedOrderOutput(
+                    supported=valid,
+                )
             if valid:
                 saw_valid_aggregate = True
             else:
@@ -135,11 +144,17 @@ def project_grouped_schema(
                     output_name,
                     key_fields[key_identity],
                 )
+                grouped_order_outputs[output_name] = _GroupedOrderOutput(
+                    supported=True,
+                )
             continue
 
         if _matches_unknown_group_key(item.expression, unknown_key_texts):
             if output_name is not None:
                 fields[output_name] = _unknown_row_field(output_name)
+                grouped_order_outputs[output_name] = _GroupedOrderOutput(
+                    supported=False,
+                )
             saw_invalid_projection = True
             continue
 
@@ -154,17 +169,26 @@ def project_grouped_schema(
                     diagnostics.append(_unknown_field_diagnostic(item.expression))
                 if output_name is not None:
                     fields[output_name] = _unknown_row_field(output_name)
+                    grouped_order_outputs[output_name] = _GroupedOrderOutput(
+                        supported=False,
+                    )
             else:
                 diagnostics.append(_non_grouped_projection_diagnostic(item.expression))
                 if output_name is not None:
                     fields[output_name] = _unknown_row_field(output_name)
+                    grouped_order_outputs[output_name] = _GroupedOrderOutput(
+                        supported=False,
+                    )
             saw_invalid_projection = True
             continue
 
         diagnostics.append(_scalar_grouped_projection_diagnostic(item.expression))
         if output_name is not None:
             fields[output_name] = _unknown_row_field(output_name)
+            grouped_order_outputs[output_name] = _GroupedOrderOutput(supported=False)
         saw_invalid_projection = True
+
+    diagnostics.extend(_grouped_order_by_diagnostics(definition, grouped_order_outputs))
 
     if not saw_valid_aggregate and not saw_invalid_projection:
         diagnostics.append(_pure_grouped_output_deferred_diagnostic(definition))
@@ -336,10 +360,32 @@ def _has_unknown_argument(
     )
 
 
-def _grouped_order_by_diagnostics(definition: DerivedRelation) -> list[Diagnostic]:
+def _grouped_order_by_diagnostics(
+    definition: DerivedRelation,
+    output_scope: Mapping[str, _GroupedOrderOutput] | None = None,
+) -> list[Diagnostic]:
     if definition.order_by_clause is None:
         return []
-    return [_grouped_order_by_deferred_diagnostic(definition)]
+    if output_scope is None:
+        return [
+            _grouped_order_by_unsupported_diagnostic(
+                definition.order_by_clause,
+            )
+        ]
+
+    diagnostics: list[Diagnostic] = []
+    for item in definition.order_by_clause.items:
+        if not isinstance(item.expression, NameExpr):
+            diagnostics.append(
+                _grouped_order_by_unsupported_diagnostic(item.expression)
+            )
+            continue
+        scoped = output_scope.get(item.expression.name)
+        if scoped is None or not scoped.supported:
+            diagnostics.append(
+                _grouped_order_by_unsupported_diagnostic(item.expression)
+            )
+    return diagnostics
 
 
 def _projection_output_name(item: SelectItem) -> str | None:
@@ -442,12 +488,11 @@ def _pure_grouped_output_deferred_diagnostic(definition: DerivedRelation) -> Dia
     )
 
 
-def _grouped_order_by_deferred_diagnostic(definition: DerivedRelation) -> Diagnostic:
-    assert definition.order_by_clause is not None
+def _grouped_order_by_unsupported_diagnostic(node: Node) -> Diagnostic:
     return _diagnostic(
-        definition.order_by_clause,
+        node,
         code="PIE-S2321",
-        message="Grouped ORDER BY is deferred until grouped result scope is implemented",
+        message="Unsupported grouped ORDER BY item; expected a supported select output name",
     )
 
 

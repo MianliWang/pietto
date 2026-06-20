@@ -127,7 +127,7 @@ INVALID_GROUPED_CASES = (
         "        status\n"
         "        total = count()\n"
         "    order by:\n"
-        "        total desc\n",
+        "        sum(amount) desc\n",
         "PIE-S2321",
     ),
     (

@@ -70,7 +70,7 @@ LOCKED_GROUP_HASHES = {
     ),
     "semantic": (
         20,
-        "443719b0a177373f57ede2229339d207830f02e464a59a2a0dde5f510e53e0c7",
+        "f6f8e07240ca38a482ec49ea2a993c66ac75a71ebf887889330927d163eb7c42",
     ),
     "ir": (
         5,

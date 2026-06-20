@@ -129,7 +129,7 @@ def test_grouped_semantic_diagnostics_and_aggregate_edges_are_locked() -> None:
             "test_scalar_group_key_expression_projection_is_deferred",
             "test_unaliased_grouped_aggregate_projection_is_rejected_and_suppressed",
             "test_pure_grouping_without_aggregate_is_deferred_but_schema_is_known",
-            "test_grouped_order_by_is_deferred_without_alias_lookup_cascade",
+            "test_unsupported_grouped_order_by_items_emit_s2321",
             "test_grouped_aggregate_invalid_shapes_match_phase20_behavior",
         },
     )

@@ -266,7 +266,7 @@ def test_cli_check_succeeds_for_valid_grouped_relation(
             "        status\n"
             "        total = count()\n"
             "    order by:\n"
-            "        total desc\n",
+            "        sum(amount) desc\n",
             ["PIE-S2321"],
         ),
         (
