@@ -66,7 +66,12 @@ The current implementation status is:
   completion audit/status lock. The completed behavior is limited to Int and
   Float numeric literal leaves inside selected `sum(...)` and `avg(...)`
   numeric expression arguments, and accepted expressions must still include at
-  least one direct input field leaf**.
+  least one direct input field leaf**;
+- **Phase 29 v0.2 Stabilization Boundary: Slice 1 is complete as candidate
+  decision, boundary contract, and static audit work only. It selects a stable
+  single-file typed SQL authoring compiler boundary, directionally freezes the
+  Phase 19 through Phase 28 aggregate surface for v0.2 except bug fixes, and
+  prepares Phase 30 Core Type System Stabilization I**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -186,6 +191,15 @@ precision/scale modeling, schema introspection, arbitrary scalar calls inside
 AST, parser, IR model, SQL fixture/golden, JSON schema, CLI option,
 dependency, public API, runtime/project, public MySQL API, or
 relationship/JOIN changes.
+
+Phase 29 v0.2 Stabilization Boundary Slice 1 is complete. It selects Phase 29
+v0.2 Stabilization Boundary And Deferred Register as the next direction,
+defines v0.2 as a stable single-file typed SQL authoring compiler, freezes the
+Phase 19 through Phase 28 aggregate surface directionally for v0.2 except bug
+fixes, and prepares Phase 30 Core Type System Stabilization I. Slice 1 adds no
+source implementation, grammar, generated, CLI/JSON/API, IR, SQL, aggregate
+semantic, runtime/database, schema introspection, project/multi-file, public
+MySQL API, or relationship/JOIN behavior changes.
 
 The supported single-file CLI commands and forms include:
 
@@ -689,5 +703,9 @@ The completed Phase 28 numeric literal aggregate argument MVP is documented in
 [the Phase 28 Numeric / Aggregate Refinement II plan](docs/plan/phase-28-numeric-aggregate-refinement-ii.md).
 The exact completed contract is in
 [the Numeric Literal Aggregate Arguments v1 specification](docs/spec/numeric-literal-aggregate-arguments-v1.md).
+The Phase 29 v0.2 stabilization boundary is documented in
+[the Phase 29 v0.2 Stabilization Boundary plan](docs/plan/phase-29-v02-stabilization-boundary.md).
+The exact Slice 1 boundary contract is in
+[the v0.2 Stabilization Boundary v1 specification](docs/spec/v02-stabilization-boundary-v1.md).
 Diagnostic codes are documented in
 [the diagnostics specification](docs/spec/diagnostics.md).

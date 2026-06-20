@@ -259,6 +259,16 @@ introspection, arbitrary scalar calls inside `sum` / `avg`, division, modulo,
 model, SQL fixture/golden, JSON schema, CLI option, dependency, public API,
 runtime/project, public MySQL API, or relationship/JOIN changes.
 
+Phase 29 v0.2 Stabilization Boundary Slice 1 is complete as candidate
+decision, boundary contract, and static audit work only. It selects Phase 29
+v0.2 Stabilization Boundary And Deferred Register, defines v0.2 as a stable
+single-file typed SQL authoring compiler, directionally freezes the Phase 19
+through Phase 28 aggregate surface for v0.2 except bug fixes, and prepares
+Phase 30 Core Type System Stabilization I. Slice 1 adds no source
+implementation, grammar, generated, CLI/JSON/API, IR, SQL, aggregate semantic,
+runtime/database, schema introspection, project/multi-file, public MySQL API,
+or relationship/JOIN behavior changes.
+
 Phase 13 Relation Composition And Relationship Planning is complete as
 planning, contract, and audit work only. Slices 1 through 6 are complete.
 Slice 1 Master Plan And Baseline Audit, Slice 2 Relationship /

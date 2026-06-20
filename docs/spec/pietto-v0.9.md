@@ -284,6 +284,17 @@ introspection, arbitrary scalar calls inside `sum` / `avg`, division, modulo,
 model, SQL fixture/golden, JSON schema, CLI option, dependency, public API,
 runtime/project, public MySQL API, or relationship/JOIN changes.
 
+Phase 29 v0.2 Stabilization Boundary Slice 1 is complete as candidate
+decision, boundary contract, and static audit work only. It selects Phase 29
+v0.2 Stabilization Boundary And Deferred Register, defines v0.2 as a stable
+single-file typed SQL authoring compiler, directionally freezes the Phase 19
+through Phase 28 aggregate surface for v0.2 except bug fixes, records the
+Phase 30 through Phase 32 mainline, and prepares Phase 30 Core Type System
+Stabilization I. Slice 1 adds no source implementation, grammar, generated,
+CLI/JSON/API, IR, SQL, aggregate semantic, runtime/database, schema
+introspection, project/multi-file, public MySQL API, or relationship/JOIN
+behavior changes.
+
 SQL is generated only. Database connections, SQL or connector execution,
 schema introspection, runtime services, project or multi-file support, watch
 mode, and LSP/editor integration remain deferred.
@@ -2017,6 +2028,28 @@ model, SQL fixture/golden, JSON schema, CLI option, dependency, public API,
 runtime/project, public MySQL API, or relationship/JOIN changes. Unsupported
 shapes remain deferred through existing primary diagnostics, including
 `PIE-S2315` where it is still the aggregate argument deferral diagnostic.
+
+---
+
+### Phase 29: v0.2 Stabilization Boundary
+
+Status: Phase 29 Slice 1 is complete as candidate decision, boundary contract,
+and static audit work only.
+
+Phase 29 selects v0.2 Stabilization Boundary And Deferred Register. The Slice
+1 boundary defines v0.2 as a stable single-file typed SQL authoring compiler,
+directionally freezes the Phase 19 through Phase 28 aggregate surface for v0.2
+except bug fixes, and prepares Phase 30 Core Type System Stabilization I.
+
+The accepted Phase 30 through Phase 32 mainline is Phase 30 Core Type System
+Stabilization I, Phase 31 Core Type System Stabilization II And Dialect Matrix
+Hardening, and Phase 32 v0.2 Single-file Stable Completion Audit.
+
+Phase 29 Slice 1 adds no source implementation, grammar, generated,
+CLI/JSON/API, IR, SQL, aggregate semantic, runtime/database, schema
+introspection, project/multi-file, public MySQL API, or relationship/JOIN
+behavior changes. Deferred capabilities remain deferred until separate
+approved slices.
 
 ---
 
