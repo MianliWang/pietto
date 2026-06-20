@@ -248,6 +248,15 @@ expression. Phase 26 adds no runtime/database execution, no JSON schema
 change, no CLI option change, no fixture/golden inventory change, no public
 MySQL API expansion, and no relationship/JOIN behavior.
 
+Phase 27 Grouped Result Ordering MVP Slice 1 is complete as candidate
+decision, exact contract, and static audit work only. Phase 27 implementation
+behavior has not started. The planned target is grouped result-scope
+`ORDER BY` over bare select output names, with future SQL rendering through
+underlying selected expressions rather than SELECT aliases. Slice 1 adds no
+grammar, generated ANTLR, AST, Semantic IR, SQL backend, CLI, JSON schema,
+fixture, golden, public API, runtime/database, project/multi-file, public
+MySQL API, or relationship/JOIN behavior change.
+
 SQL is generated only. Database connections, SQL or connector execution,
 schema introspection, runtime services, project or multi-file support, watch
 mode, and LSP/editor integration remain deferred.
@@ -1925,6 +1934,32 @@ runtime/database execution, UI, LSP, public API expansion, and
 project/multi-file implementation remain deferred. Phase 26 adds no JSON
 schema change, no CLI option change, no fixture/golden inventory change, and
 no public MySQL API expansion.
+
+---
+
+### Phase 27: Grouped Result Ordering MVP
+
+Status: Slice 1 is complete as candidate decision, exact contract, and static
+audit work only. Phase 27 implementation behavior has not started.
+
+The planned Phase 27 target is grouped result-scope `ORDER BY` over bare select
+output names. Accepted future names may refer to group-key projection outputs,
+direct aggregate projection outputs, and Phase 26 aggregate-expression
+projection outputs such as `sum(amount + tax)`, `avg(score * weight)`, and
+`count_distinct(lower(trim(status)))`.
+
+Future SQL lowering should render the underlying selected expression rather
+than the SELECT alias. The MVP keeps `PIE-S2321` as the unsupported grouped
+`order by:` diagnostic family and does not add a new diagnostic code in Slice
+1.
+
+Slice 1 adds no grammar, generated ANTLR, AST, Semantic IR, SQL backend, CLI,
+JSON schema, fixture, golden, public API, runtime/database, project/multi-file,
+public MySQL API, or relationship/JOIN behavior change. Relationship/JOIN
+behavior, project/multi-file implementation, runtime/database execution,
+schema introspection, JSON schema changes, public MySQL API expansion, broad
+`ORDER BY` / `LIMIT` redesign, no-GROUP projection-alias ordering, and
+arbitrary grouped order expressions remain deferred.
 
 ---
 

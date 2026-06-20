@@ -51,7 +51,14 @@ The current implementation status is:
   complete; Slices 1 through 9 cover numeric scalar audit, Decimal
   addition/subtraction, aggregate expression argument semantics, IR lowering,
   PostgreSQL/private MySQL SQL lowering, CLI/JSON/output and `satisfying`
-  hardening, and completion audit/status lock**.
+  hardening, and completion audit/status lock**;
+- **Phase 27 Grouped Result Ordering MVP: Slice 1 is complete as candidate
+  decision, exact contract, and static audit work only. Phase 27
+  implementation behavior has not started. The planned target is grouped
+  result-scope `ORDER BY` over bare select output names. Slice 1 adds no
+  grammar, generated ANTLR, AST, Semantic IR, SQL backend, CLI, JSON schema,
+  fixture, golden, public API, runtime/database, project/multi-file, public
+  MySQL API, or relationship/JOIN behavior change**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -140,6 +147,15 @@ arguments for `count`, `min`, and `max` remain deferred. Phase 26 adds no
 runtime/database execution, no JSON schema change, no CLI option change, no
 fixture/golden inventory change, no public MySQL API expansion, and no
 relationship/JOIN behavior.
+
+Phase 27 Grouped Result Ordering MVP Slice 1 is complete as candidate
+decision, exact contract, and static audit work only. Phase 27 implementation
+behavior has not started. The planned target is grouped result-scope
+`ORDER BY` over bare select output names, rendered later through underlying
+selected expressions rather than SELECT aliases. Slice 1 adds no grammar,
+generated ANTLR, AST, Semantic IR, SQL backend, CLI, JSON schema, fixture,
+golden, public API, runtime/database, project/multi-file, public MySQL API, or
+relationship/JOIN behavior change.
 
 The supported single-file CLI commands and forms include:
 

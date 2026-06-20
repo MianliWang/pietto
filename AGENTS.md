@@ -223,6 +223,15 @@ expressions. Phase 26 adds no runtime/database execution, no JSON schema
 change, no CLI option change, no fixture/golden inventory change, no public
 MySQL API expansion, and no relationship/JOIN behavior.
 
+Phase 27 Grouped Result Ordering MVP Slice 1 is complete as candidate
+decision, exact contract, and static audit work only. Phase 27 implementation
+behavior has not started. The planned target is grouped result-scope
+`ORDER BY` over bare select output names, with future SQL rendering through
+underlying selected expressions rather than SELECT aliases. Slice 1 adds no
+grammar, generated ANTLR, AST, Semantic IR, SQL backend, CLI, JSON schema,
+fixture, golden, public API, runtime/database, project/multi-file, public
+MySQL API, or relationship/JOIN behavior change.
+
 Phase 13 Relation Composition And Relationship Planning is complete as
 planning, contract, and audit work only. Slices 1 through 6 are complete.
 Slice 1 Master Plan And Baseline Audit, Slice 2 Relationship /
