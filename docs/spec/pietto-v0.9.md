@@ -2041,13 +2041,12 @@ feature register, aggregate surface freeze, core type-system gap matrix, v0.2
 exit criteria and validation strategy, and completion audit/status lock. Phase
 29 defines v0.2 as a stable single-file typed SQL authoring compiler, but v0.2
 is not complete yet. Phase 30 Core Type System Stabilization I is complete,
-and Phase 31 Core Type System Stabilization II And Dialect Matrix Hardening is
-the next mainline.
+and Phase 31 v0.2 Hardening And Stable Completion is the current mainline.
 
-The accepted Phase 31 through Phase 32 mainline is Phase 31 Core Type System
-Stabilization II And Dialect Matrix Hardening and Phase 32 v0.2 Single-file
-Stable Completion Audit. Phase 31 and Phase 32 remain required before v0.2
-stable completion.
+The accepted merged Phase 31 mainline is Phase 31 v0.2 Hardening And Stable
+Completion. Phase 31 Slice 8 is the future v0.2 Stable Completion Audit And
+Status Lock, and Phase 31 completion may lock v0.2 stable if all criteria
+pass. Phase 32 is post-v0.2 Semantic Explain And Metadata Output MVP.
 
 Phase 29 Slice 1 adds no source implementation, grammar, generated,
 CLI/JSON/API, IR, SQL, aggregate semantic, runtime/database, schema
@@ -2108,9 +2107,9 @@ Date/Timestamp-specific comparison matrix, no UUID comparison, cast, literal,
 storage, DDL, wider SQL, or public API behavior. Enum remains a non-builtin
 semantic type kind, and Bytes and Json remain deferred/unsupported behavior
 built-ins. Slice 8 is complete as completion audit and status lock work only.
-Phase 30 is complete, but v0.2 is not complete. Phase 31 Core Type System
-Stabilization II And Dialect Matrix Hardening is the next mainline, and Phase
-31 and Phase 32 remain required before v0.2 stable completion.
+Phase 30 is complete, but v0.2 is not complete. Phase 31 v0.2 Hardening And
+Stable Completion is the current mainline, and Phase 31 Slice 8 is the future
+v0.2 Stable Completion Audit And Status Lock.
 
 The Phase 30 Slice 1 through Slice 8 contracts change no source
 implementation, grammar, generated, CLI/JSON/API, IR, SQL, semantic,
@@ -2125,6 +2124,45 @@ guarantees, Decimal literal, Decimal multiplication/division, mixed Decimal
 promotion, Currency/Money, or semantic annotation syntax behavior. Phase 30
 adds no package version, release, tag, publishing, JSON v2, public MySQL API
 expansion, or Phase 31 implementation.
+
+---
+
+### Phase 31: v0.2 Hardening And Stable Completion
+
+Status: Phase 31 Slice 1 is complete as candidate decision, Phase 30
+carry-forward audit, static audit, and status work only.
+
+Phase 31 Slice 1 selects v0.2 Hardening And Stable Completion, records the
+trusted final Phase 30 baseline
+`182ed41e7dc7dd7e616cfb1be5cfbb4a7fcdae58`, final Phase 30 commit `Complete
+Phase 30 core type system stabilization audit`, and CI run `27891119809
+success`, and adds the eight-slice Phase 31 master plan. Phase 29 deferred
+register remains active, Phase 29 aggregate freeze remains active, and Phase
+30 type-system contracts are carried forward.
+
+The eight-slice Phase 31 plan is Candidate Decision And Phase 30
+Carry-forward Audit, Aggregate Result Matrix Hardening, Numeric Promotion And
+Decimal Boundary Tests, Date / Timestamp SQL Compatibility Audit, UUID / Enum
+Readiness Decision, Diagnostic / CLI / JSON Stability Hardening, Docs /
+Examples / Package / CI v0.2 Readiness Audit, and v0.2 Stable Completion
+Audit And Status Lock. Slices 2 through 8 remain planned only.
+
+Phase 31 Slice 1 adds no Phase 31 behavior implementation in Slice 1, no
+behavior fixes, no source implementation, grammar, generated, fixture, golden,
+script, package, CI, public API, CLI, JSON, IR, SQL, semantic, aggregate,
+diagnostic, predicate, runtime, project/multi-file, relationship/JOIN, schema
+introspection, or type-system behavior changes. It adds no aggregate
+expansion, JSON v1 schema expansion, JSON v2, public MySQL API expansion,
+DateTime/Time/Interval/timezone semantics, Money/Currency primitive, semantic
+annotation syntax, Decimal precision/scale carrier, UUID or Enum behavior
+implementation, no Phase 32 implementation in Slice 1, package version bump,
+release tag, publishing, or v0.2 completion declaration. Phase 31 as a whole
+is not complete, v0.2 is not complete yet at Phase 31 Slice 1, and Phase 31
+Slice 8 is the future v0.2 Stable Completion Audit And Status Lock. Phase 31
+completion may lock v0.2 stable if all criteria pass. Phase 32 is post-v0.2
+Semantic Explain And Metadata Output MVP; Phase 33 is Project And Multi-file
+MVP; Phase 34 is Semantic Graph / ERD / AI Metadata Export MVP; Phase 35 is
+Relationship Grain And Narrow JOIN MVP.
 
 ---
 

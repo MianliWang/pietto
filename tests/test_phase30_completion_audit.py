@@ -189,17 +189,17 @@ LOCKED_BOUNDARY_SURFACES = {
     "readme": (
         "README.md",
         1,
-        "79cc58643e2151f033fc355017f3a3b65b63bc7d4668a3c2c4493afb80921c65",
+        "6fdf391ed109238aa2e7df3afc429557d59529f67716489bc96c95f7fac1d41f",
     ),
     "agents": (
         "AGENTS.md",
         1,
-        "9c3c8db132e86945a5ab2c3e263ea85be36dcb24ffceb9f8da93354c87143ee3",
+        "2bc5c2a1e06db595f27a7bb72b5be569d9edd0143dc184787f7f0b7dc326f96c",
     ),
     "pietto_v09": (
         "docs/spec/pietto-v0.9.md",
         1,
-        "884a41f529065dbcd09fb81ac025b5a6620c7ab18f1935ab17d8ea45ebf31d01",
+        "88112d96cc83feb697f9c974a2be6593921e3f24b37f533134f48c8c623e3bc6",
     ),
 }
 
@@ -266,9 +266,11 @@ def test_phase30_status_docs_lock_completion_without_v02_completion() -> None:
             "docs/spec/static-audit/status work only",
             "Slice 8 is complete as completion audit and status lock work only",
             "v0.2 is not complete",
-            "Phase 31 Core Type System Stabilization II And Dialect Matrix "
-            "Hardening is the next mainline",
-            "Phase 31 and Phase 32 remain required before v0.2 stable completion",
+            "Phase 31 v0.2 Hardening And Stable Completion is the current mainline",
+            "Phase 31 Slice 8 is the future v0.2 Stable Completion Audit And "
+            "Status Lock",
+            "Phase 31 completion may lock v0.2 stable if all criteria pass",
+            "Phase 32 is post-v0.2 Semantic Explain And Metadata Output MVP",
             "no source implementation",
             "grammar",
             "generated",

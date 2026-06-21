@@ -368,9 +368,11 @@ def test_status_docs_record_slice2_without_v02_completion_or_behavior_change() -
             "Slice 8 is complete as completion audit and status lock work only",
             "Phase 30 is complete",
             "v0.2 is not complete",
-            "Phase 31 Core Type System Stabilization II And Dialect Matrix "
-            "Hardening is the next mainline",
-            "Phase 31 and Phase 32 remain required before v0.2 stable completion",
+            "Phase 31 v0.2 Hardening And Stable Completion is the current mainline",
+            "Phase 31 Slice 8 is the future v0.2 Stable Completion Audit And "
+            "Status Lock",
+            "Phase 31 completion may lock v0.2 stable if all criteria pass",
+            "Phase 32 is post-v0.2 Semantic Explain And Metadata Output MVP",
         ):
             assert required in status_doc
 
