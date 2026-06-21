@@ -36,6 +36,10 @@ Phase 30 Slice 5 is complete as Date / Timestamp formalization contract,
 static audit, and status work only. The Slice 5 contract is
 `docs/spec/date-timestamp-formalization-contract-v1.md`.
 
+Phase 30 Slice 6 is complete as Decimal precision / scale contract, static
+audit, and status work only. The Slice 6 contract is
+`docs/spec/decimal-precision-scale-contract-v1.md`.
+
 ## Candidate Decision
 
 | Candidate | Fit | Risk | Decision |
@@ -180,7 +184,9 @@ Slice 3 feeds later Phase 30 slices without implementing them:
 Slice 4 is complete as Bool and predicate semantics contract, static audit,
 and status work only. Slice 5 Date / Timestamp Formalization is complete as
 Date / Timestamp formalization contract, static audit, and status work only.
-Slices 6 through 8 remain planned only and require separate explicit approval.
+Slice 6 Decimal Precision / Scale Contract is complete as Decimal precision /
+scale contract, static audit, and status work only. Slices 7 through 8 remain
+planned only and require separate explicit approval.
 
 ## Explicit Non-Goals
 

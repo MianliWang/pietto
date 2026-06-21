@@ -2070,7 +2070,7 @@ project/multi-file, public MySQL API, or relationship/JOIN behavior changes.
 
 ### Phase 30: Core Type System Stabilization I
 
-Status: Phase 30 Slices 1 through 5 are complete as
+Status: Phase 30 Slices 1 through 6 are complete as
 docs/spec/static-audit/status work only.
 
 Phase 30 Slice 1 selects Core Type System Stabilization I, records the trusted
@@ -2092,19 +2092,29 @@ date+time values; Slice 5 records current generic comparison behavior only and
 adds no `DateTime` primitive or alias, no Date/Timestamp literal syntax, no
 timezone semantics, and no temporal arithmetic, date/time functions, casts,
 timestamp precision modeling, native database type metadata, or runtime
-timezone interpretation. Slices 6 through 8 remain planned only. Slice 1 did
+timezone interpretation. Slice 6 is complete as Decimal precision / scale
+contract, static audit, and status work only. `Decimal` remains logical v0.2
+exact numeric; generic `TypeExpr.arguments`, including currently parsed
+`Decimal(12, 2)`, do not create accepted precision/scale semantics. Slice 6
+adds no Decimal precision/scale carrier, propagation, validation, SQL
+precision guarantee, native DB metadata, JSON/API exposure, or public contract,
+and no Decimal literal syntax, Decimal multiplication/division expansion,
+mixed Decimal promotion expansion, casts, Money/Currency primitive, or
+semantic annotation syntax. Slices 7 through 8 remain planned only. Slice 1 did
 not pre-decide that every later Phase 30 slice must be docs-only; later slices
 must be approved one by one, and any behavior change requires separate
 explicit approval.
 
-The Phase 30 Slice 1 through Slice 5 contracts change no source
+The Phase 30 Slice 1 through Slice 6 contracts change no source
 implementation, grammar, generated, CLI/JSON/API, IR, SQL, semantic,
 aggregate, diagnostic, predicate, runtime/database, schema introspection,
 project/multi-file, public MySQL API, relationship/JOIN, type-system
 behavior, fixture, golden, script, dependency, CI, package version, release,
 publication, JSON v2, UUID or Enum implementation, DateTime, Time, Interval,
-timezone, temporal arithmetic, date/time function, cast, Currency/Money, or
-semantic annotation syntax behavior.
+timezone, temporal arithmetic, date/time function, cast, Decimal
+precision/scale semantics/carrier/propagation/validation, SQL precision
+guarantees, Decimal literal, Decimal multiplication/division, mixed Decimal
+promotion, Currency/Money, or semantic annotation syntax behavior.
 
 Phase 31 and Phase 32 remain required before v0.2 stable completion.
 

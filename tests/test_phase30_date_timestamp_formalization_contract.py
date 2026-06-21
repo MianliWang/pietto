@@ -59,6 +59,11 @@ PHASE30_HARD_NON_GOALS = (
     "casts between Date and Timestamp",
     "timestamp precision modeling",
     "native database type metadata or physical storage guarantees",
+    "Decimal precision/scale syntax semantics, carrier, propagation, validation,",
+    "SQL precision guarantees, JSON/API exposure, native database metadata, or",
+    "public contract",
+    "Decimal literal syntax, Decimal multiplication or division expansion, mixed",
+    "Decimal promotion expansion, or casts",
 )
 
 
@@ -376,12 +381,15 @@ def test_later_slice_handoff_and_hard_non_goals_are_locked() -> None:
 
     for required in (
         "Slice 6 Decimal Precision / Scale Contract",
+        "records current logical Decimal behavior and precision/scale deferral",
         "Slice 7 Operator And Comparison Matrix",
         "Slice 7 Operator And Comparison Matrix owns the full supported, "
         "rejected, and deferred matrix for temporal and non-temporal operators "
         "and comparisons",
         "Phase 31 may carry Date/Timestamp SQL compatibility hardening",
-        "Slices 6 through 8 remain planned only",
+        "Slice 6 is complete as Decimal precision / scale contract, static "
+        "audit, and status work only",
+        "Slices 7 through 8 remain planned only",
         "require separate explicit approval",
     ):
         assert required in plan_and_specs
@@ -405,7 +413,18 @@ def test_status_docs_record_slice5_without_behavior_change() -> None:
             "no temporal arithmetic, date/time functions, casts, timestamp "
             "precision modeling, native database type metadata, or runtime "
             "timezone interpretation",
-            "Slices 6 through 8 remain planned only",
+            "Slice 6 is complete as Decimal precision / scale contract, static "
+            "audit, and status work only",
+            "`Decimal` remains logical v0.2 exact numeric",
+            "generic `TypeExpr.arguments`, including currently parsed "
+            "`Decimal(12, 2)`, do not create accepted precision/scale semantics",
+            "no Decimal precision/scale carrier, propagation, validation, SQL "
+            "precision guarantee, native DB metadata, JSON/API exposure, or "
+            "public contract",
+            "no Decimal literal syntax, Decimal multiplication/division "
+            "expansion, mixed Decimal promotion expansion, casts, "
+            "Money/Currency primitive, or semantic annotation syntax",
+            "Slices 7 through 8 remain planned only",
             "Phase 31 and Phase 32 remain required before v0.2 stable completion",
         ):
             assert required in status_doc

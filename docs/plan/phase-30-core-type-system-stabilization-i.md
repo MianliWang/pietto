@@ -17,6 +17,9 @@ audit, and status work only.
 Phase 30 Slice 5 is complete as Date / Timestamp formalization contract,
 static audit, and status work only.
 
+Phase 30 Slice 6 is complete as Decimal precision / scale contract, static
+audit, and status work only.
+
 Slice 1 selects **Phase 30 Core Type System Stabilization I** as the Phase 30
 direction and adds the first contract at
 `docs/spec/core-type-system-stabilization-contract-v1.md`.
@@ -45,7 +48,15 @@ generic comparison posture, temporal predicate handoff, and portability
 deferrals; it does not add Date/Timestamp literals, casts, temporal comparison
 rules, timezone semantics, or compiler behavior.
 
-Slices 6 through 8 remain planned only. Slice 1 did not pre-decide that every
+Slice 6 adds the Decimal precision / scale contract at
+`docs/spec/decimal-precision-scale-contract-v1.md`. It records current logical
+Decimal scalar facts, accepted Decimal arithmetic and aggregate behavior,
+generic parsed type-argument deferral, precision/scale deferral, and
+Money/Currency deferral; it does not add Decimal precision/scale semantics,
+carriers, propagation, SQL guarantees, literals, casts, promotion, or compiler
+behavior.
+
+Slices 7 through 8 remain planned only. Slice 1 did not pre-decide that every
 later Phase 30 slice must be docs-only. Later slices must be planned and
 approved one by one, and any behavior change requires separate explicit
 approval.
@@ -81,6 +92,12 @@ Slice 5 starts from the completed Phase 30 Slice 4 baseline:
 - HEAD: `2a47dfef6c5c0dd8302cdef5a1f253e52ecb1275`;
 - commit: `Document Bool and predicate semantics contract`;
 - CI run: `27887558604 success`.
+
+Slice 6 starts from the completed Phase 30 Slice 5 baseline:
+
+- HEAD: `fa7437e8141ed68daa988623cab25955237064cb`;
+- commit: `Document Date and Timestamp formalization`;
+- CI run: `27888353617 success`.
 
 Phase 29 v0.2 Stabilization Boundary is complete as docs/spec/static-audit and
 status work only. v0.2 is not complete yet. Phase 30, Phase 31, and Phase 32
@@ -206,6 +223,25 @@ only and does not add temporal comparison rules, temporal literal syntax,
 casts, temporal arithmetic, SQL lowering changes, or dialect-specific temporal
 guarantees.
 
+## Slice 6 Candidate Decision
+
+Slice 6 selects **Decimal Precision / Scale Contract** as a
+docs/spec/static-audit and status slice.
+
+| Candidate | Fit | Risk | Decision |
+|---|---:|---:|---|
+| Slice 6 docs/spec/static-audit/status only | High | Low | Chosen. |
+| Tests-only hardening | Medium | Medium | Rejected for Slice 6; existing behavior tests already cover Decimal arithmetic, aggregate behavior, and deferred expansions. |
+| Minimal implementation artifact | Low | Medium | Rejected; no consumer needs a precision/scale carrier, registry object, helper, or SQL metadata type before the contract is accepted. |
+| Broad behavior implementation | Low | High | Rejected; it could change grammar, semantic typing, diagnostics, IR, SQL, CLI/JSON, aggregate, fixture/golden, and public API behavior. |
+
+The selected Slice 6 direction is contract-first. It records current behavior
+only and does not add Decimal precision/scale syntax semantics,
+precision/scale carriers, propagation, validation, SQL precision guarantees,
+native database metadata, Decimal literals, casts, multiplication, division,
+mixed Decimal promotion, Money/Currency primitives, or semantic annotation
+syntax.
+
 ## Type-System Contract Direction
 
 Phase 30 treats Pietto's type system as the foundation for:
@@ -247,6 +283,14 @@ behavior only. It does not introduce a `DateTime` primitive or alias,
 Date/Timestamp literal syntax, timezone semantics, temporal arithmetic,
 date/time functions, casts, timestamp precision modeling, native database
 type metadata, or runtime timezone interpretation.
+
+Slice 6 keeps that direction bounded. It defines `Decimal` as the current
+logical v0.2 exact numeric scalar, records current `Decimal + Decimal` and
+`Decimal - Decimal` behavior, and records current Decimal aggregate behavior.
+Generic `TypeExpr.arguments`, including currently parsed `Decimal(12, 2)`,
+do not create accepted precision/scale semantics, carriers, propagation,
+validation, SQL precision guarantees, JSON/API exposure, native DB metadata,
+or a public contract.
 
 ## Phase 30 Slice Plan
 
@@ -391,11 +435,31 @@ Validation:
 
 ### Slice 6: Decimal Precision / Scale Contract
 
-Status: planned only.
+Status: complete as Decimal precision / scale contract, static audit, and
+status work only.
 
 Goal: define logical Decimal behavior and explicitly decide how precision/scale
-is deferred or represented by later work. Slice 6 must not start until
-separately approved.
+is deferred or represented by later work.
+
+Artifacts:
+
+- `docs/spec/decimal-precision-scale-contract-v1.md`;
+- `tests/test_phase30_decimal_precision_scale_contract.py`;
+- minimal status documentation updates.
+
+Validation:
+
+- `uv run pytest tests/test_phase30_decimal_precision_scale_contract.py tests/test_phase30_date_timestamp_formalization_contract.py tests/test_phase30_bool_predicate_semantics_contract.py tests/test_phase30_nullability_propagation_contract.py tests/test_phase30_canonical_scalar_type_registry.py tests/test_phase30_candidate_decision.py`;
+- `uv run pytest tests/test_phase29_v02_core_type_system_gap_matrix.py tests/test_phase29_v02_aggregate_surface_freeze.py tests/test_phase29_v02_deferred_feature_register.py tests/test_phase29_completion_audit.py`;
+- `uv run pytest tests/test_phase24_decimal_aggregate_semantics.py tests/test_phase24_decimal_aggregate_ir.py tests/test_phase24_decimal_aggregate_sql.py tests/test_phase24_completion_audit.py`;
+- `uv run pytest tests/test_phase26_decimal_scalar_expression_semantics.py tests/test_phase26_aggregate_expression_argument_semantics.py tests/test_phase26_aggregate_expression_argument_ir.py tests/test_phase26_aggregate_expression_argument_sql.py tests/test_phase26_completion_audit.py`;
+- `uv run pytest tests/test_phase28_numeric_literal_aggregate_semantics.py tests/test_phase28_numeric_literal_aggregate_ir.py tests/test_phase28_numeric_literal_aggregate_sql.py tests/test_phase28_completion_audit.py`;
+- `uv run python scripts/check_generated.py`;
+- `uv run python scripts/check_goldens.py`;
+- `uv run python scripts/package_smoke.py`;
+- `uv run python scripts/validate.py`;
+- `git diff --check`;
+- `git diff -- src grammar tests/fixtures scripts pyproject.toml uv.lock .github Makefile`.
 
 ### Slice 7: Operator And Comparison Matrix
 
@@ -414,7 +478,7 @@ approved.
 
 ## Phase-Wide Non-Goals
 
-Phase 30 through Slice 5 does not authorize:
+Phase 30 through Slice 6 does not authorize:
 
 - source implementation changes;
 - grammar, generated ANTLR, AST, or parser changes;
@@ -444,7 +508,13 @@ Phase 30 through Slice 5 does not authorize:
 - Date/Timestamp literal syntax, Date/Timestamp casts, timestamp precision
   modeling, native database type metadata, physical storage guarantees, or
   runtime timezone interpretation;
+- Decimal precision/scale syntax semantics, carrier, propagation, validation,
+  SQL precision guarantees, JSON/API exposure, native database metadata, or
+  public contract;
+- Decimal literal syntax, Decimal multiplication or division expansion, mixed
+  Decimal promotion expansion, or casts;
 - Currency or Money primitives;
+- exchange-rate, accounting, rounding, or minor-unit semantics;
 - semantic annotation syntax;
 - UUID implementation or broader UUID behavior;
 - Enum implementation or broader Enum behavior;

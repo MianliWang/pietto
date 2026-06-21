@@ -74,7 +74,7 @@ The current implementation status is:
   core type-system gap matrix, defines v0.2 exit criteria, and locks the Phase
   30 through Phase 32 handoff. v0.2 is not complete yet; Phase 30 Core Type
   System Stabilization I is the next mainline**.
-- **Phase 30 Core Type System Stabilization I: Slices 1 through 5 are complete
+- **Phase 30 Core Type System Stabilization I: Slices 1 through 6 are complete
   as docs/spec/static-audit/status work only. Slice 2 is complete as canonical
   scalar type registry contract, static audit, and status work only. It
   confirms `UUID` is a limited/frozen identifier scalar only for existing
@@ -93,7 +93,16 @@ The current implementation status is:
   `DateTime` primitive or alias, no Date/Timestamp literal syntax, no timezone
   semantics, and no temporal arithmetic, date/time functions, casts, timestamp
   precision modeling, native database type metadata, or runtime timezone
-  interpretation. Slices 6 through 8 remain planned only, any behavior change
+  interpretation. Slice 6 is complete as Decimal precision / scale contract,
+  static audit, and status work only. `Decimal` remains logical v0.2 exact
+  numeric; generic `TypeExpr.arguments`, including currently parsed
+  `Decimal(12, 2)`, do not create accepted precision/scale semantics. Slice 6
+  adds no Decimal precision/scale carrier, propagation, validation, SQL
+  precision guarantee, native DB metadata, JSON/API exposure, or public
+  contract, and no Decimal literal syntax, Decimal multiplication/division
+  expansion, mixed Decimal promotion expansion, casts, Money/Currency
+  primitive, or semantic annotation syntax. Slices 7 through 8 remain planned
+  only, any behavior change
   requires separate explicit approval, and Phase 31 and Phase 32 remain
   required before v0.2 stable completion**.
 
@@ -236,7 +245,7 @@ fixes and adds no source implementation, grammar, generated, CLI/JSON/API, IR,
 SQL, aggregate semantic, runtime/database, schema introspection,
 project/multi-file, public MySQL API, or relationship/JOIN behavior changes.
 
-Phase 30 Core Type System Stabilization I Slices 1 through 5 are complete as
+Phase 30 Core Type System Stabilization I Slices 1 through 6 are complete as
 docs/spec/static-audit/status work only. Slice 1 records the trusted Phase 29
 baseline, chooses the Phase 30 direction, and adds the eight-slice master
 plan. Slice 2 is complete as canonical scalar type registry contract, static
@@ -255,14 +264,24 @@ current canonical v0.2 spelling for date+time values; Slice 5 records current
 generic comparison behavior only and adds no `DateTime` primitive or alias, no
 Date/Timestamp literal syntax, no timezone semantics, and no temporal
 arithmetic, date/time functions, casts, timestamp precision modeling, native
-database type metadata, or runtime timezone interpretation. Slices 6 through 8
-remain planned only. Through Slice 5, Phase 30 adds no source implementation,
+database type metadata, or runtime timezone interpretation. Slice 6 is complete
+as Decimal precision / scale contract, static audit, and status work only.
+`Decimal` remains logical v0.2 exact numeric; generic `TypeExpr.arguments`,
+including currently parsed `Decimal(12, 2)`, do not create accepted
+precision/scale semantics. Slice 6 adds no Decimal precision/scale carrier,
+propagation, validation, SQL precision guarantee, native DB metadata, JSON/API
+exposure, or public contract, and no Decimal literal syntax, Decimal
+multiplication/division expansion, mixed Decimal promotion expansion, casts,
+Money/Currency primitive, or semantic annotation syntax. Slices 7 through 8
+remain planned only. Through Slice 6, Phase 30 adds no source implementation,
 grammar, generated, CLI/JSON/API, IR, SQL, semantic,
 aggregate, diagnostic, runtime/database, schema introspection,
 project/multi-file, public MySQL API, relationship/JOIN, type-system behavior,
 package version, release, publication, JSON v2, UUID or Enum implementation,
 DateTime, Time, Interval, timezone, temporal arithmetic, date/time function,
-cast, Currency/Money, or semantic annotation syntax changes. Later Phase
+cast, Decimal precision/scale semantics/carrier/propagation/validation, SQL
+precision guarantees, Decimal literal, Decimal multiplication/division, mixed
+Decimal promotion, Currency/Money, or semantic annotation syntax changes. Later Phase
 30 slices require separate approval, any behavior change requires separate
 explicit approval, and Phase 31 and Phase 32 remain required before v0.2
 stable completion.

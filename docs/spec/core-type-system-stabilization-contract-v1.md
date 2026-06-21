@@ -21,6 +21,10 @@ Phase 30 Slice 5 is complete as Date / Timestamp formalization contract,
 static audit, and status work only. The Slice 5 contract is
 `docs/spec/date-timestamp-formalization-contract-v1.md`.
 
+Phase 30 Slice 6 is complete as Decimal precision / scale contract, static
+audit, and status work only. The Slice 6 contract is
+`docs/spec/decimal-precision-scale-contract-v1.md`.
+
 This contract selects Phase 30 Core Type System Stabilization I and records the
 phase-wide boundary for turning the Phase 29 core type-system gap matrix into a
 stable v0.2 compiler scalar type contract.
@@ -44,6 +48,12 @@ implementation change.
 Slice 5 remains docs/spec/static-audit/status only. It defines current Date /
 Timestamp scalar and temporal portability facts, not a temporal behavior,
 comparison, cast, literal, diagnostic, or SQL lowering implementation change.
+
+Slice 6 remains docs/spec/static-audit/status only. It defines current Decimal
+logical behavior and precision/scale deferral, not a Decimal precision/scale
+syntax semantics, carrier, propagation, validation, SQL precision guarantee,
+literal, cast, multiplication, division, promotion, Money/Currency, semantic
+annotation, diagnostic, or SQL lowering implementation change.
 
 ## Trusted Baseline
 
@@ -143,8 +153,9 @@ Slice 1 grounds the contract in current implementation facts:
 Slice 2 is complete as the canonical scalar type registry contract. Slice 3 is
 complete as the nullability propagation contract. Slice 4 is complete as the
 Bool and predicate semantics contract. Slice 5 is complete as the Date /
-Timestamp formalization contract. Slices 6 through 8 remain planned only and
-require separate explicit approval.
+Timestamp formalization contract. Slice 6 is complete as the Decimal precision
+/ scale contract. Slices 7 through 8 remain planned only and require separate
+explicit approval.
 
 ## Stabilization Boundary
 
@@ -166,10 +177,10 @@ Phase 30 may stabilize contracts for:
 - Decimal logical behavior and precision/scale disposition;
 - operator and comparison matrices.
 
-Phase 30 through Slice 5 does not change any of those behaviors. It records
+Phase 30 through Slice 6 does not change any of those behaviors. It records
 the contract boundary, scalar registry vocabulary, nullability propagation
-contract, Bool/predicate contract, and Date/Timestamp contract for later
-approved slices.
+contract, Bool/predicate contract, Date/Timestamp contract, and Decimal
+precision/scale contract for later approved slices.
 
 ## Explicit Non-Goals
 
@@ -203,7 +214,13 @@ This contract does not authorize:
 - Date/Timestamp literal syntax, Date/Timestamp casts, timestamp precision
   modeling, native database type metadata, physical storage guarantees, or
   runtime timezone interpretation;
+- Decimal precision/scale syntax semantics, carrier, propagation, validation,
+  SQL precision guarantees, JSON/API exposure, native database metadata, or
+  public contract;
+- Decimal literal syntax, Decimal multiplication or division expansion, mixed
+  Decimal promotion expansion, or casts;
 - Currency or Money primitives;
+- exchange-rate, accounting, rounding, or minor-unit semantics;
 - semantic annotation syntax;
 - UUID implementation or broader UUID behavior;
 - Enum implementation or broader Enum behavior;
