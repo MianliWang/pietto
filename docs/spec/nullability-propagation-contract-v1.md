@@ -32,6 +32,10 @@ Phase 30 Slice 4 is complete as Bool and predicate semantics contract, static
 audit, and status work only. The Slice 4 contract is
 `docs/spec/bool-predicate-semantics-contract-v1.md`.
 
+Phase 30 Slice 5 is complete as Date / Timestamp formalization contract,
+static audit, and status work only. The Slice 5 contract is
+`docs/spec/date-timestamp-formalization-contract-v1.md`.
+
 ## Candidate Decision
 
 | Candidate | Fit | Risk | Decision |
@@ -174,8 +178,9 @@ Slice 3 feeds later Phase 30 slices without implementing them:
   facts for unary, binary, Bool, comparison, and `between` expressions.
 
 Slice 4 is complete as Bool and predicate semantics contract, static audit,
-and status work only. Slices 5 through 8 remain planned only and require
-separate explicit approval.
+and status work only. Slice 5 Date / Timestamp Formalization is complete as
+Date / Timestamp formalization contract, static audit, and status work only.
+Slices 6 through 8 remain planned only and require separate explicit approval.
 
 ## Explicit Non-Goals
 

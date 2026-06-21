@@ -300,7 +300,9 @@ def test_later_slice_handoff_and_non_goals_are_locked() -> None:
         "and status work only",
         "Slice 4 is complete as Bool and predicate semantics contract, static "
         "audit, and status work only",
-        "Slices 5 through 8 remain planned only",
+        "Slice 5 is complete as Date / Timestamp formalization contract, "
+        "static audit, and status work only",
+        "Slices 6 through 8 remain planned only",
         "require separate explicit approval",
     ):
         assert required in plan_and_spec
@@ -321,13 +323,18 @@ def test_status_docs_record_slice2_without_v02_completion_or_behavior_change() -
             "Slice 4 is complete as Bool and predicate semantics contract, "
             "static audit, and status work only",
             "Known Bool predicate acceptance remains a compile-time type-level fact",
+            "Slice 5 is complete as Date / Timestamp formalization contract, "
+            "static audit, and status work only",
+            "`Timestamp` is the current canonical v0.2 spelling for date+time values",
+            "current generic comparison behavior only",
+            "no `DateTime` primitive or alias",
             "`UUID` is a limited/frozen identifier scalar only for existing "
             "frozen behavior such as direct-field `count_distinct(UUID)`",
             "broader UUID behavior remains deferred",
             "Enum remains a non-builtin semantic type kind",
             "`EffectiveNullability.UNKNOWN`, `ValueTypeKind.UNKNOWN`, and SQL "
             "three-valued logic `UNKNOWN` remain distinct",
-            "Slices 5 through 8 remain planned only",
+            "Slices 6 through 8 remain planned only",
             "Phase 31 and Phase 32 remain required before v0.2 stable completion",
         ):
             assert required in status_doc

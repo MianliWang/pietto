@@ -17,6 +17,10 @@ Phase 30 Slice 4 is complete as Bool and predicate semantics contract, static
 audit, and status work only. The Slice 4 contract is
 `docs/spec/bool-predicate-semantics-contract-v1.md`.
 
+Phase 30 Slice 5 is complete as Date / Timestamp formalization contract,
+static audit, and status work only. The Slice 5 contract is
+`docs/spec/date-timestamp-formalization-contract-v1.md`.
+
 This contract selects Phase 30 Core Type System Stabilization I and records the
 phase-wide boundary for turning the Phase 29 core type-system gap matrix into a
 stable v0.2 compiler scalar type contract.
@@ -36,6 +40,10 @@ change.
 Slice 4 remains docs/spec/static-audit/status only. It defines current Bool
 and predicate semantics, not a predicate, diagnostic, or SQL lowering
 implementation change.
+
+Slice 5 remains docs/spec/static-audit/status only. It defines current Date /
+Timestamp scalar and temporal portability facts, not a temporal behavior,
+comparison, cast, literal, diagnostic, or SQL lowering implementation change.
 
 ## Trusted Baseline
 
@@ -134,8 +142,9 @@ Slice 1 grounds the contract in current implementation facts:
 
 Slice 2 is complete as the canonical scalar type registry contract. Slice 3 is
 complete as the nullability propagation contract. Slice 4 is complete as the
-Bool and predicate semantics contract. Slices 5 through 8 remain planned only
-and require separate explicit approval.
+Bool and predicate semantics contract. Slice 5 is complete as the Date /
+Timestamp formalization contract. Slices 6 through 8 remain planned only and
+require separate explicit approval.
 
 ## Stabilization Boundary
 
@@ -157,9 +166,10 @@ Phase 30 may stabilize contracts for:
 - Decimal logical behavior and precision/scale disposition;
 - operator and comparison matrices.
 
-Phase 30 through Slice 4 does not change any of those behaviors. It records
+Phase 30 through Slice 5 does not change any of those behaviors. It records
 the contract boundary, scalar registry vocabulary, nullability propagation
-contract, and Bool/predicate contract for later approved slices.
+contract, Bool/predicate contract, and Date/Timestamp contract for later
+approved slices.
 
 ## Explicit Non-Goals
 
@@ -186,6 +196,13 @@ This contract does not authorize:
   runtime/database behavior;
 - relationship or JOIN implementation;
 - DateTime, Time, timezone, or Interval primitives;
+- DateTime primitive or alias, TimestampTZ, Instant, Time, or Interval
+  primitives;
+- timezone semantics;
+- temporal arithmetic, date/time functions, extraction, or truncation;
+- Date/Timestamp literal syntax, Date/Timestamp casts, timestamp precision
+  modeling, native database type metadata, physical storage guarantees, or
+  runtime timezone interpretation;
 - Currency or Money primitives;
 - semantic annotation syntax;
 - UUID implementation or broader UUID behavior;

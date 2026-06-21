@@ -74,7 +74,7 @@ The current implementation status is:
   core type-system gap matrix, defines v0.2 exit criteria, and locks the Phase
   30 through Phase 32 handoff. v0.2 is not complete yet; Phase 30 Core Type
   System Stabilization I is the next mainline**.
-- **Phase 30 Core Type System Stabilization I: Slices 1 through 4 are complete
+- **Phase 30 Core Type System Stabilization I: Slices 1 through 5 are complete
   as docs/spec/static-audit/status work only. Slice 2 is complete as canonical
   scalar type registry contract, static audit, and status work only. It
   confirms `UUID` is a limited/frozen identifier scalar only for existing
@@ -86,8 +86,14 @@ The current implementation status is:
   distinct. Slice 4 is complete as Bool and predicate semantics contract,
   static audit, and status work only. Known Bool predicate acceptance remains
   a compile-time type-level fact and does not imply non-null proof, runtime
-  truth, or SQL three-valued logic collapse. Slices 5 through 8 remain planned
-  only, any behavior change
+  truth, or SQL three-valued logic collapse. Slice 5 is complete as Date /
+  Timestamp formalization contract, static audit, and status work only.
+  `Timestamp` is the current canonical v0.2 spelling for date+time values;
+  Slice 5 records current generic comparison behavior only and adds no
+  `DateTime` primitive or alias, no Date/Timestamp literal syntax, no timezone
+  semantics, and no temporal arithmetic, date/time functions, casts, timestamp
+  precision modeling, native database type metadata, or runtime timezone
+  interpretation. Slices 6 through 8 remain planned only, any behavior change
   requires separate explicit approval, and Phase 31 and Phase 32 remain
   required before v0.2 stable completion**.
 
@@ -230,7 +236,7 @@ fixes and adds no source implementation, grammar, generated, CLI/JSON/API, IR,
 SQL, aggregate semantic, runtime/database, schema introspection,
 project/multi-file, public MySQL API, or relationship/JOIN behavior changes.
 
-Phase 30 Core Type System Stabilization I Slices 1 through 4 are complete as
+Phase 30 Core Type System Stabilization I Slices 1 through 5 are complete as
 docs/spec/static-audit/status work only. Slice 1 records the trusted Phase 29
 baseline, chooses the Phase 30 direction, and adds the eight-slice master
 plan. Slice 2 is complete as canonical scalar type registry contract, static
@@ -243,13 +249,20 @@ contract, static audit, and status work only. `EffectiveNullability.UNKNOWN`,
 Slice 4 is complete as Bool and predicate semantics contract, static audit,
 and status work only. Known Bool predicate acceptance remains a compile-time
 type-level fact and does not imply non-null proof, runtime truth, or SQL
-three-valued logic collapse. Slices 5 through 8 remain planned only. Through
-Slice 4, Phase 30 adds no source implementation, grammar, generated,
-CLI/JSON/API, IR, SQL, semantic,
+three-valued logic collapse. Slice 5 is complete as Date / Timestamp
+formalization contract, static audit, and status work only. `Timestamp` is the
+current canonical v0.2 spelling for date+time values; Slice 5 records current
+generic comparison behavior only and adds no `DateTime` primitive or alias, no
+Date/Timestamp literal syntax, no timezone semantics, and no temporal
+arithmetic, date/time functions, casts, timestamp precision modeling, native
+database type metadata, or runtime timezone interpretation. Slices 6 through 8
+remain planned only. Through Slice 5, Phase 30 adds no source implementation,
+grammar, generated, CLI/JSON/API, IR, SQL, semantic,
 aggregate, diagnostic, runtime/database, schema introspection,
 project/multi-file, public MySQL API, relationship/JOIN, type-system behavior,
 package version, release, publication, JSON v2, UUID or Enum implementation,
-DateTime, Currency/Money, or semantic annotation syntax changes. Later Phase
+DateTime, Time, Interval, timezone, temporal arithmetic, date/time function,
+cast, Currency/Money, or semantic annotation syntax changes. Later Phase
 30 slices require separate approval, any behavior change requires separate
 explicit approval, and Phase 31 and Phase 32 remain required before v0.2
 stable completion.

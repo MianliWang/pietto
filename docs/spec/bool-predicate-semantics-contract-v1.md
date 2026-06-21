@@ -26,8 +26,10 @@ Phase 30 Slice 1 is complete as candidate decision, type-system contract,
 static audit, and status work only. Phase 30 Slice 2 is complete as canonical
 scalar type registry contract, static audit, and status work only. Phase 30
 Slice 3 is complete as nullability propagation contract, static audit, and
-status work only. v0.2 is not complete yet. Phase 30, Phase 31, and Phase 32
-remain required before v0.2 stable completion.
+status work only. Phase 30 Slice 5 is complete as Date / Timestamp
+formalization contract, static audit, and status work only. v0.2 is not
+complete yet. Phase 30, Phase 31, and Phase 32 remain required before v0.2
+stable completion.
 
 ## Candidate Decision
 
@@ -138,7 +140,8 @@ truth, infer SQL TRUE/FALSE/UNKNOWN, or rewrite predicates.
 
 Slice 4 feeds later Phase 30 work without implementing it:
 
-- Slice 5 Date / Timestamp Formalization decides temporal scalar posture.
+- Slice 5 Date / Timestamp Formalization records the current temporal scalar
+  posture.
 - Slice 6 Decimal Precision / Scale Contract decides Decimal precision/scale
   posture.
 - Slice 7 Operator And Comparison Matrix owns the full supported, rejected,
@@ -148,7 +151,9 @@ Slice 4 does not widen comparison acceptance, define final comparison
 compatibility, introduce SQL three-valued logic lowering changes, or alter SQL
 backend predicate rendering.
 
-Slices 5 through 8 remain planned only and require separate explicit approval.
+Slice 5 is complete as Date / Timestamp formalization contract, static audit,
+and status work only. Slices 6 through 8 remain planned only and require
+separate explicit approval.
 
 ## Explicit Non-Goals
 

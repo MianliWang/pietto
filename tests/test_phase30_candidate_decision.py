@@ -29,10 +29,12 @@ PHASE30_ARTIFACTS = (
     "docs/spec/canonical-scalar-type-registry-v1.md",
     "docs/spec/nullability-propagation-contract-v1.md",
     "docs/spec/bool-predicate-semantics-contract-v1.md",
+    "docs/spec/date-timestamp-formalization-contract-v1.md",
     "tests/test_phase30_candidate_decision.py",
     "tests/test_phase30_canonical_scalar_type_registry.py",
     "tests/test_phase30_nullability_propagation_contract.py",
     "tests/test_phase30_bool_predicate_semantics_contract.py",
+    "tests/test_phase30_date_timestamp_formalization_contract.py",
 )
 
 PHASE30_SLICES = (
@@ -157,11 +159,12 @@ def test_phase30_master_plan_and_later_slice_approval_boundary_are_locked() -> N
         "static audit, and status work only",
         "Phase 30 Slice 4 is complete as Bool and predicate semantics "
         "contract, static audit, and status work only",
-        "Slices 5 through 8 remain planned only",
+        "Phase 30 Slice 5 is complete as Date / Timestamp formalization "
+        "contract, static audit, and status work only",
+        "Slices 6 through 8 remain planned only",
         "Slice 1 did not pre-decide that every later Phase 30 slice must be docs-only",
         "Later slices must be planned and approved one by one",
         "any behavior change requires separate explicit approval",
-        "Slice 5 must not start until separately approved",
         "Slice 6 must not start until separately approved",
         "Slice 7 must not start until separately approved",
         "Slice 8 must not start until separately approved",
@@ -180,7 +183,11 @@ def test_phase30_master_plan_and_later_slice_approval_boundary_are_locked() -> N
         "Phase 30 Slice 4 is complete as Bool and predicate semantics "
         "contract, static audit, and status work only"
     ) in spec
-    assert "Slices 5 through 8 remain planned only" in spec
+    assert (
+        "Phase 30 Slice 5 is complete as Date / Timestamp formalization "
+        "contract, static audit, and status work only"
+    ) in spec
+    assert "Slices 6 through 8 remain planned only" in spec
     assert (
         "Each later slice requires a separate plan and separate explicit approval"
         in (spec)
@@ -297,9 +304,19 @@ def test_phase30_non_goals_and_status_docs_preserve_v02_boundary() -> None:
             "Slice 4 is complete as Bool and predicate semantics contract, "
             "static audit, and status work only",
             "Known Bool predicate acceptance remains a compile-time type-level fact",
+            "Slice 5 is complete as Date / Timestamp formalization contract, "
+            "static audit, and status work only",
+            "`Timestamp` is the current canonical v0.2 spelling for date+time values",
+            "current generic comparison behavior only",
+            "no `DateTime` primitive or alias",
+            "no Date/Timestamp literal syntax",
+            "no timezone semantics",
+            "no temporal arithmetic, date/time functions, casts, timestamp "
+            "precision modeling, native database type metadata, or runtime "
+            "timezone interpretation",
             "`EffectiveNullability.UNKNOWN`, `ValueTypeKind.UNKNOWN`, and SQL "
             "three-valued logic `UNKNOWN` remain distinct",
-            "Slices 5 through 8 remain planned only",
+            "Slices 6 through 8 remain planned only",
             "any behavior change requires separate explicit approval",
             "Phase 31 and Phase 32 remain required before v0.2 stable completion",
         ):
