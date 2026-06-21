@@ -310,8 +310,10 @@ def test_later_slice_handoff_and_non_goals_are_locked() -> None:
         "static audit, and status work only",
         "Slice 6 is complete as Decimal precision / scale contract, static "
         "audit, and status work only",
-        "Slices 7 through 8 remain planned only",
-        "require separate explicit approval",
+        "Slice 7 is complete as operator and comparison matrix contract, "
+        "static audit, and status work only",
+        "Slice 8 remains planned only",
+        "requires separate explicit approval",
     ):
         assert required in plan_and_spec
 
@@ -347,13 +349,22 @@ def test_status_docs_record_slice2_without_v02_completion_or_behavior_change() -
             "no Decimal literal syntax, Decimal multiplication/division "
             "expansion, mixed Decimal promotion expansion, casts, "
             "Money/Currency primitive, or semantic annotation syntax",
+            "Slice 7 is complete as operator and comparison matrix contract, "
+            "static audit, and status work only",
+            "current comparison behavior is generic known-child typing",
+            "not a final pair-specific semantic compatibility guarantee",
+            "no Text concatenation",
+            "no Date/Timestamp-specific comparison matrix",
+            "no UUID comparison, cast, literal, storage, DDL, wider SQL, or "
+            "public API behavior",
+            "Bytes and Json remain deferred/unsupported behavior built-ins",
             "`UUID` is a limited/frozen identifier scalar only for existing "
             "frozen behavior such as direct-field `count_distinct(UUID)`",
             "broader UUID behavior remains deferred",
             "Enum remains a non-builtin semantic type kind",
             "`EffectiveNullability.UNKNOWN`, `ValueTypeKind.UNKNOWN`, and SQL "
             "three-valued logic `UNKNOWN` remain distinct",
-            "Slices 7 through 8 remain planned only",
+            "Slice 8 remains planned only",
             "Phase 31 and Phase 32 remain required before v0.2 stable completion",
         ):
             assert required in status_doc

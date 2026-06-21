@@ -31,12 +31,14 @@ PHASE30_ARTIFACTS = (
     "docs/spec/bool-predicate-semantics-contract-v1.md",
     "docs/spec/date-timestamp-formalization-contract-v1.md",
     "docs/spec/decimal-precision-scale-contract-v1.md",
+    "docs/spec/operator-comparison-matrix-contract-v1.md",
     "tests/test_phase30_candidate_decision.py",
     "tests/test_phase30_canonical_scalar_type_registry.py",
     "tests/test_phase30_nullability_propagation_contract.py",
     "tests/test_phase30_bool_predicate_semantics_contract.py",
     "tests/test_phase30_date_timestamp_formalization_contract.py",
     "tests/test_phase30_decimal_precision_scale_contract.py",
+    "tests/test_phase30_operator_comparison_matrix_contract.py",
 )
 
 PHASE30_SLICES = (
@@ -171,11 +173,12 @@ def test_phase30_master_plan_and_later_slice_approval_boundary_are_locked() -> N
         "contract, static audit, and status work only",
         "Phase 30 Slice 6 is complete as Decimal precision / scale contract, "
         "static audit, and status work only",
-        "Slices 7 through 8 remain planned only",
+        "Phase 30 Slice 7 is complete as operator and comparison matrix "
+        "contract, static audit, and status work only",
+        "Slice 8 remains planned only",
         "Slice 1 did not pre-decide that every later Phase 30 slice must be docs-only",
         "Later slices must be planned and approved one by one",
         "any behavior change requires separate explicit approval",
-        "Slice 7 must not start until separately approved",
         "Slice 8 must not start until separately approved",
     ):
         assert required in plan
@@ -200,7 +203,11 @@ def test_phase30_master_plan_and_later_slice_approval_boundary_are_locked() -> N
         "Phase 30 Slice 6 is complete as Decimal precision / scale contract, "
         "static audit, and status work only"
     ) in spec
-    assert "Slices 7 through 8 remain planned only" in spec
+    assert (
+        "Phase 30 Slice 7 is complete as operator and comparison matrix "
+        "contract, static audit, and status work only"
+    ) in spec
+    assert "Slice 8 remains planned only" in spec
     assert (
         "Each later slice requires a separate plan and separate explicit approval"
         in (spec)
@@ -338,9 +345,18 @@ def test_phase30_non_goals_and_status_docs_preserve_v02_boundary() -> None:
             "no Decimal literal syntax, Decimal multiplication/division "
             "expansion, mixed Decimal promotion expansion, casts, "
             "Money/Currency primitive, or semantic annotation syntax",
+            "Slice 7 is complete as operator and comparison matrix contract, "
+            "static audit, and status work only",
+            "current comparison behavior is generic known-child typing",
+            "not a final pair-specific semantic compatibility guarantee",
+            "no Text concatenation",
+            "no Date/Timestamp-specific comparison matrix",
+            "no UUID comparison, cast, literal, storage, DDL, wider SQL, or "
+            "public API behavior",
+            "Bytes and Json remain deferred/unsupported behavior built-ins",
             "`EffectiveNullability.UNKNOWN`, `ValueTypeKind.UNKNOWN`, and SQL "
             "three-valued logic `UNKNOWN` remain distinct",
-            "Slices 7 through 8 remain planned only",
+            "Slice 8 remains planned only",
             "any behavior change requires separate explicit approval",
             "Phase 31 and Phase 32 remain required before v0.2 stable completion",
         ):

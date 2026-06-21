@@ -187,8 +187,9 @@ status work only. Slice 4 is complete as Bool and predicate semantics
 contract, static audit, and status work only. Slice 5 is complete as Date /
 Timestamp formalization contract, static audit, and status work only. Slice 6
 is complete as Decimal precision / scale contract, static audit, and status
-work only. Slices 7 through 8 remain planned only and require separate explicit
-approval.
+work only. Slice 7 is complete as operator and comparison matrix contract,
+static audit, and status work only. Slice 8 remains planned only and requires
+separate explicit approval.
 
 ## Explicit Non-Goals
 

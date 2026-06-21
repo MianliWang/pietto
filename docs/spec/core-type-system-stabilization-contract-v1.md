@@ -25,6 +25,10 @@ Phase 30 Slice 6 is complete as Decimal precision / scale contract, static
 audit, and status work only. The Slice 6 contract is
 `docs/spec/decimal-precision-scale-contract-v1.md`.
 
+Phase 30 Slice 7 is complete as operator and comparison matrix contract,
+static audit, and status work only. The Slice 7 contract is
+`docs/spec/operator-comparison-matrix-contract-v1.md`.
+
 This contract selects Phase 30 Core Type System Stabilization I and records the
 phase-wide boundary for turning the Phase 29 core type-system gap matrix into a
 stable v0.2 compiler scalar type contract.
@@ -54,6 +58,12 @@ logical behavior and precision/scale deferral, not a Decimal precision/scale
 syntax semantics, carrier, propagation, validation, SQL precision guarantee,
 literal, cast, multiplication, division, promotion, Money/Currency, semantic
 annotation, diagnostic, or SQL lowering implementation change.
+
+Slice 7 remains docs/spec/static-audit/status only. It defines current
+operator and comparison matrix facts, not operator validation, comparison
+validation, casts, collation, temporal comparison rules, UUID comparison
+guarantees, Enum comparison behavior, Bytes/Json comparison behavior,
+diagnostic behavior, SQL lowering, or public API implementation changes.
 
 ## Trusted Baseline
 
@@ -154,8 +164,9 @@ Slice 2 is complete as the canonical scalar type registry contract. Slice 3 is
 complete as the nullability propagation contract. Slice 4 is complete as the
 Bool and predicate semantics contract. Slice 5 is complete as the Date /
 Timestamp formalization contract. Slice 6 is complete as the Decimal precision
-/ scale contract. Slices 7 through 8 remain planned only and require separate
-explicit approval.
+/ scale contract. Slice 7 is complete as the operator and comparison matrix
+contract. Slice 8 remains planned only and requires separate explicit
+approval.
 
 ## Stabilization Boundary
 
@@ -177,10 +188,11 @@ Phase 30 may stabilize contracts for:
 - Decimal logical behavior and precision/scale disposition;
 - operator and comparison matrices.
 
-Phase 30 through Slice 6 does not change any of those behaviors. It records
+Phase 30 through Slice 7 does not change any of those behaviors. It records
 the contract boundary, scalar registry vocabulary, nullability propagation
 contract, Bool/predicate contract, Date/Timestamp contract, and Decimal
-precision/scale contract for later approved slices.
+precision/scale contract, and operator/comparison matrix contract for later
+approved slices.
 
 ## Explicit Non-Goals
 
@@ -206,6 +218,9 @@ This contract does not authorize:
 - schema introspection, database pull, SQL execution, connector execution, or
   runtime/database behavior;
 - relationship or JOIN implementation;
+- Text concatenation;
+- new scalar functions, function overloads, casts, or collation behavior;
+- new comparison validation or pair-specific compatibility guarantees;
 - DateTime, Time, timezone, or Interval primitives;
 - DateTime primitive or alias, TimestampTZ, Instant, Time, or Interval
   primitives;
@@ -223,7 +238,10 @@ This contract does not authorize:
 - exchange-rate, accounting, rounding, or minor-unit semantics;
 - semantic annotation syntax;
 - UUID implementation or broader UUID behavior;
+- UUID comparison, cast, literal, storage, DDL, wider SQL, or public API
+  behavior;
 - Enum implementation or broader Enum behavior;
+- Enum SQL or comparison behavior;
 - Bytes or Json behavior expansion;
 - native database type metadata.
 

@@ -20,6 +20,9 @@ static audit, and status work only.
 Phase 30 Slice 6 is complete as Decimal precision / scale contract, static
 audit, and status work only.
 
+Phase 30 Slice 7 is complete as operator and comparison matrix contract,
+static audit, and status work only.
+
 Slice 1 selects **Phase 30 Core Type System Stabilization I** as the Phase 30
 direction and adds the first contract at
 `docs/spec/core-type-system-stabilization-contract-v1.md`.
@@ -56,10 +59,17 @@ Money/Currency deferral; it does not add Decimal precision/scale semantics,
 carriers, propagation, SQL guarantees, literals, casts, promotion, or compiler
 behavior.
 
-Slices 7 through 8 remain planned only. Slice 1 did not pre-decide that every
-later Phase 30 slice must be docs-only. Later slices must be planned and
-approved one by one, and any behavior change requires separate explicit
-approval.
+Slice 7 adds the operator and comparison matrix contract at
+`docs/spec/operator-comparison-matrix-contract-v1.md`. It records current
+operator result facts, generic comparison behavior, unknown propagation,
+diagnostic boundaries, and deferred scalar-pair behavior; it does not add
+operator validation, comparison validation, casts, Text concatenation,
+temporal comparison rules, UUID comparison guarantees, Enum comparison
+behavior, Bytes/Json behavior, SQL lowering changes, or compiler behavior.
+
+Slice 8 remains planned only. Slice 1 did not pre-decide that every later
+Phase 30 slice must be docs-only. Later slices must be planned and approved
+one by one, and any behavior change requires separate explicit approval.
 
 ## Trusted Baseline
 
@@ -98,6 +108,12 @@ Slice 6 starts from the completed Phase 30 Slice 5 baseline:
 - HEAD: `fa7437e8141ed68daa988623cab25955237064cb`;
 - commit: `Document Date and Timestamp formalization`;
 - CI run: `27888353617 success`.
+
+Slice 7 starts from the completed Phase 30 Slice 6 baseline:
+
+- HEAD: `da9394c1e9e0383e574a5c773d1414e7969ca7c0`;
+- commit: `Document Decimal precision and scale contract`;
+- CI run: `27889088949 success`.
 
 Phase 29 v0.2 Stabilization Boundary is complete as docs/spec/static-audit and
 status work only. v0.2 is not complete yet. Phase 30, Phase 31, and Phase 32
@@ -242,6 +258,24 @@ native database metadata, Decimal literals, casts, multiplication, division,
 mixed Decimal promotion, Money/Currency primitives, or semantic annotation
 syntax.
 
+## Slice 7 Candidate Decision
+
+Slice 7 selects **Operator And Comparison Matrix** as a
+docs/spec/static-audit and status slice.
+
+| Candidate | Fit | Risk | Decision |
+|---|---:|---:|---|
+| Slice 7 docs/spec/static-audit/status only | High | Low | Chosen. |
+| Tests-only hardening | Medium | Medium | Rejected for Slice 7; current behavior tests already cover the relevant operator, comparison, Decimal, Bool, and unknown-propagation surfaces. |
+| Minimal implementation artifact | Low | Medium | Rejected; no consumer requires a registry object, compatibility helper, matrix API, or diagnostic helper before the contract is accepted. |
+| Broad behavior implementation | Low | High | Rejected; it could change semantic typing, diagnostics, predicate behavior, IR, SQL lowering, CLI/JSON, fixtures/goldens, aggregate behavior, and public API behavior. |
+
+The selected Slice 7 direction is contract-first. It records current behavior
+only and does not add operator compatibility validation, comparison
+validation, casts, collation, temporal comparison rules, UUID comparison
+guarantees, Enum comparison behavior, Bytes/Json comparison behavior,
+diagnostic behavior, SQL lowering changes, or public API behavior.
+
 ## Type-System Contract Direction
 
 Phase 30 treats Pietto's type system as the foundation for:
@@ -291,6 +325,16 @@ Generic `TypeExpr.arguments`, including currently parsed `Decimal(12, 2)`,
 do not create accepted precision/scale semantics, carriers, propagation,
 validation, SQL precision guarantees, JSON/API exposure, native DB metadata,
 or a public contract.
+
+Slice 7 keeps that direction bounded. It defines the current operator and
+comparison matrix as compiler facts and contract boundaries. Current
+comparison behavior is generic known-child typing that can produce
+`Bool UNKNOWN`; this is a current compiler outcome, not a final pair-specific
+semantic compatibility guarantee. Slice 7 records no Text concatenation, no
+Decimal multiplication or division expansion, no mixed Decimal promotion, no
+Date/Timestamp-specific comparison matrix, no UUID comparison or cast
+behavior, no Enum SQL/comparison behavior, and no Bytes/Json behavior
+expansion.
 
 ## Phase 30 Slice Plan
 
@@ -463,10 +507,29 @@ Validation:
 
 ### Slice 7: Operator And Comparison Matrix
 
-Status: planned only.
+Status: complete as operator and comparison matrix contract, static audit,
+and status work only.
 
 Goal: consolidate supported, rejected, and deferred operator and comparison
-pairs from current behavior. Slice 7 must not start until separately approved.
+pairs from current behavior.
+
+Artifacts:
+
+- `docs/spec/operator-comparison-matrix-contract-v1.md`;
+- `tests/test_phase30_operator_comparison_matrix_contract.py`;
+- minimal status documentation updates.
+
+Validation:
+
+- `uv run pytest tests/test_phase30_operator_comparison_matrix_contract.py tests/test_phase30_decimal_precision_scale_contract.py tests/test_phase30_date_timestamp_formalization_contract.py tests/test_phase30_bool_predicate_semantics_contract.py tests/test_phase30_nullability_propagation_contract.py tests/test_phase30_canonical_scalar_type_registry.py tests/test_phase30_candidate_decision.py`;
+- `uv run pytest tests/test_phase29_v02_core_type_system_gap_matrix.py tests/test_phase29_v02_deferred_feature_register.py tests/test_phase29_completion_audit.py`;
+- `uv run pytest tests/test_phase17_core_scalar_expression_semantics.py tests/test_phase26_numeric_scalar_expression_semantics.py tests/test_phase26_decimal_scalar_expression_semantics.py tests/test_phase26_aggregate_expression_argument_semantics.py tests/test_semantic_expressions.py tests/test_semantic_where.py tests/test_semantic_shape_predicates.py tests/test_phase25_satisfying_semantics.py`;
+- `uv run python scripts/check_generated.py`;
+- `uv run python scripts/check_goldens.py`;
+- `uv run python scripts/package_smoke.py`;
+- `uv run python scripts/validate.py`;
+- `git diff --check`;
+- `git diff -- src grammar tests/fixtures scripts pyproject.toml uv.lock .github Makefile`.
 
 ### Slice 8: Completion Audit And Status Lock
 
@@ -478,7 +541,7 @@ approved.
 
 ## Phase-Wide Non-Goals
 
-Phase 30 through Slice 6 does not authorize:
+Phase 30 through Slice 7 does not authorize:
 
 - source implementation changes;
 - grammar, generated ANTLR, AST, or parser changes;
@@ -500,6 +563,9 @@ Phase 30 through Slice 6 does not authorize:
 - schema introspection, database pull, SQL execution, connector execution, or
   runtime/database behavior;
 - relationship or JOIN implementation;
+- Text concatenation;
+- new scalar functions, function overloads, casts, or collation behavior;
+- new comparison validation or pair-specific compatibility guarantees;
 - DateTime, Time, timezone, or Interval primitives;
 - DateTime primitive or alias, TimestampTZ, Instant, Time, or Interval
   primitives;
@@ -517,7 +583,10 @@ Phase 30 through Slice 6 does not authorize:
 - exchange-rate, accounting, rounding, or minor-unit semantics;
 - semantic annotation syntax;
 - UUID implementation or broader UUID behavior;
+- UUID comparison, cast, literal, storage, DDL, wider SQL, or public API
+  behavior;
 - Enum implementation or broader Enum behavior;
+- Enum SQL or comparison behavior;
 - Bytes or Json behavior expansion;
 - native database type metadata.
 

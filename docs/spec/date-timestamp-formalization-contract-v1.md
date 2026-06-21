@@ -30,8 +30,9 @@ Slice 3 is complete as nullability propagation contract, static audit, and
 status work only. Phase 30 Slice 4 is complete as Bool and predicate semantics
 contract, static audit, and status work only. Phase 30 Slice 6 is complete as
 Decimal precision / scale contract, static audit, and status work only. v0.2
-is not complete yet. Phase 30, Phase 31, and Phase 32 remain required before
-v0.2 stable completion.
+is not complete yet. Phase 30 Slice 7 is complete as operator and comparison
+matrix contract, static audit, and status work only. Phase 30, Phase 31, and
+Phase 32 remain required before v0.2 stable completion.
 
 ## Candidate Decision
 
@@ -158,8 +159,9 @@ Slice 5 feeds later Phase 30 and Phase 31 work without implementing it:
   contracts are accepted.
 
 Slice 6 is complete as Decimal precision / scale contract, static audit, and
-status work only. Slices 7 through 8 remain planned only and require separate
-explicit approval.
+status work only. Slice 7 is complete as operator and comparison matrix
+contract, static audit, and status work only. Slice 8 remains planned only and
+requires separate explicit approval.
 
 ## Explicit Non-Goals
 

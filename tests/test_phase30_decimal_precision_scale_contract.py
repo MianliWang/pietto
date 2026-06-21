@@ -486,8 +486,10 @@ def test_money_currency_and_later_handoff_are_locked() -> None:
         "Slice 7 Operator And Comparison Matrix owns the supported, rejected, "
         "and deferred Decimal operator and comparison matrix",
         "Phase 31 may harden numeric and Decimal boundaries",
-        "Slices 7 through 8 remain planned only",
-        "require separate explicit approval",
+        "Slice 7 is complete as operator and comparison matrix contract, "
+        "static audit, and status work only",
+        "Slice 8 remains planned only",
+        "requires separate explicit approval",
     ):
         assert required in plan_and_specs
 
@@ -511,7 +513,16 @@ def test_status_docs_record_slice6_without_behavior_change() -> None:
             "no Decimal literal syntax, Decimal multiplication/division "
             "expansion, mixed Decimal promotion expansion, casts, "
             "Money/Currency primitive, or semantic annotation syntax",
-            "Slices 7 through 8 remain planned only",
+            "Slice 7 is complete as operator and comparison matrix contract, "
+            "static audit, and status work only",
+            "current comparison behavior is generic known-child typing",
+            "not a final pair-specific semantic compatibility guarantee",
+            "no Text concatenation",
+            "no Date/Timestamp-specific comparison matrix",
+            "no UUID comparison, cast, literal, storage, DDL, wider SQL, or "
+            "public API behavior",
+            "Bytes and Json remain deferred/unsupported behavior built-ins",
+            "Slice 8 remains planned only",
             "Phase 31 and Phase 32 remain required before v0.2 stable completion",
         ):
             assert required in status_doc

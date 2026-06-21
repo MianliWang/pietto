@@ -40,6 +40,10 @@ Phase 30 Slice 6 is complete as Decimal precision / scale contract, static
 audit, and status work only. The Slice 6 contract is
 `docs/spec/decimal-precision-scale-contract-v1.md`.
 
+Phase 30 Slice 7 is complete as operator and comparison matrix contract,
+static audit, and status work only. The Slice 7 contract is
+`docs/spec/operator-comparison-matrix-contract-v1.md`.
+
 ## Candidate Decision
 
 | Candidate | Fit | Risk | Decision |
@@ -185,8 +189,10 @@ Slice 4 is complete as Bool and predicate semantics contract, static audit,
 and status work only. Slice 5 Date / Timestamp Formalization is complete as
 Date / Timestamp formalization contract, static audit, and status work only.
 Slice 6 Decimal Precision / Scale Contract is complete as Decimal precision /
-scale contract, static audit, and status work only. Slices 7 through 8 remain
-planned only and require separate explicit approval.
+scale contract, static audit, and status work only. Slice 7 Operator And
+Comparison Matrix is complete as operator and comparison matrix contract,
+static audit, and status work only. Slice 8 remains planned only and requires
+separate explicit approval.
 
 ## Explicit Non-Goals
 

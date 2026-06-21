@@ -2070,7 +2070,7 @@ project/multi-file, public MySQL API, or relationship/JOIN behavior changes.
 
 ### Phase 30: Core Type System Stabilization I
 
-Status: Phase 30 Slices 1 through 6 are complete as
+Status: Phase 30 Slices 1 through 7 are complete as
 docs/spec/static-audit/status work only.
 
 Phase 30 Slice 1 selects Core Type System Stabilization I, records the trusted
@@ -2100,18 +2100,26 @@ adds no Decimal precision/scale carrier, propagation, validation, SQL
 precision guarantee, native DB metadata, JSON/API exposure, or public contract,
 and no Decimal literal syntax, Decimal multiplication/division expansion,
 mixed Decimal promotion expansion, casts, Money/Currency primitive, or
-semantic annotation syntax. Slices 7 through 8 remain planned only. Slice 1 did
-not pre-decide that every later Phase 30 slice must be docs-only; later slices
-must be approved one by one, and any behavior change requires separate
-explicit approval.
+semantic annotation syntax. Slice 7 is complete as operator and comparison
+matrix contract, static audit, and status work only. It records current
+comparison behavior is generic known-child typing, not a final pair-specific
+semantic compatibility guarantee; it adds no Text concatenation, no Decimal
+multiplication/division expansion, no mixed Decimal promotion expansion, no
+Date/Timestamp-specific comparison matrix, no UUID comparison, cast, literal,
+storage, DDL, wider SQL, or public API behavior. Enum remains a non-builtin
+semantic type kind, and Bytes and Json remain deferred/unsupported behavior
+built-ins. Slice 8 remains planned only. Slice 1 did not pre-decide that every
+later Phase 30 slice must be docs-only; later slices must be approved one by
+one, and any behavior change requires separate explicit approval.
 
-The Phase 30 Slice 1 through Slice 6 contracts change no source
+The Phase 30 Slice 1 through Slice 7 contracts change no source
 implementation, grammar, generated, CLI/JSON/API, IR, SQL, semantic,
 aggregate, diagnostic, predicate, runtime/database, schema introspection,
 project/multi-file, public MySQL API, relationship/JOIN, type-system
 behavior, fixture, golden, script, dependency, CI, package version, release,
 publication, JSON v2, UUID or Enum implementation, DateTime, Time, Interval,
-timezone, temporal arithmetic, date/time function, cast, Decimal
+timezone, temporal arithmetic, date/time function, cast, comparison
+validation, Text concatenation, Decimal
 precision/scale semantics/carrier/propagation/validation, SQL precision
 guarantees, Decimal literal, Decimal multiplication/division, mixed Decimal
 promotion, Currency/Money, or semantic annotation syntax behavior.
