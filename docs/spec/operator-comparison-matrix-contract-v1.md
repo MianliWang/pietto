@@ -191,15 +191,20 @@ Current diagnostic behavior is preserved exactly:
 
 ## Handoff
 
-Slice 8 Completion Audit And Status Lock verifies the complete Phase 30
-contract set, unchanged forbidden surfaces, validation commands, and status
-documentation.
+Slice 8 Completion Audit And Status Lock is complete as completion audit and
+status lock work only. It verifies the complete Phase 30 contract set,
+unchanged forbidden surfaces, validation commands, public API stability,
+CLI/JSON stability, SQL/golden/generated/package validation boundaries,
+aggregate freeze preservation, deferred register preservation, status
+documentation, and the Phase 31/32 handoff.
 
-Phase 31 may separately harden numeric/Decimal boundaries, UUID/Enum
-readiness, Date/Timestamp SQL compatibility, diagnostic boundaries, and
-CLI/JSON hardening after Phase 30 contracts are accepted.
+Phase 30 is complete as docs/spec/static-audit/status work only. v0.2 is not
+complete yet. Phase 31 Core Type System Stabilization II And Dialect Matrix
+Hardening is the next mainline and may separately harden numeric/Decimal
+boundaries, UUID/Enum readiness, Date/Timestamp SQL compatibility, diagnostic
+boundaries, and CLI/JSON hardening after Phase 30 contracts are accepted.
 
-Slice 8 remains planned only and requires separate explicit approval.
+Phase 31 and Phase 32 remain required before v0.2 stable completion.
 
 ## Explicit Non-Goals
 

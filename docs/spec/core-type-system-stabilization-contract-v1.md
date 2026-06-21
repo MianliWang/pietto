@@ -73,8 +73,9 @@ The trusted Phase 29 baseline is:
 - final Phase 29 commit: `Complete Phase 29 v0.2 stabilization audit`;
 - CI run: `27884233974 success`.
 
-Phase 29 v0.2 Stabilization Boundary is complete. v0.2 is not complete yet.
-Phase 30, Phase 31, and Phase 32 remain required before v0.2 stable
+Phase 29 v0.2 Stabilization Boundary is complete. Phase 30 Core Type System
+Stabilization I is complete as docs/spec/static-audit/status work only. v0.2
+is not complete yet. Phase 31 and Phase 32 remain required before v0.2 stable
 completion.
 
 ## Selected Direction
@@ -165,8 +166,8 @@ complete as the nullability propagation contract. Slice 4 is complete as the
 Bool and predicate semantics contract. Slice 5 is complete as the Date /
 Timestamp formalization contract. Slice 6 is complete as the Decimal precision
 / scale contract. Slice 7 is complete as the operator and comparison matrix
-contract. Slice 8 remains planned only and requires separate explicit
-approval.
+contract. Slice 8 is complete as completion audit and status lock work only.
+Phase 30 is complete as docs/spec/static-audit/status work only.
 
 ## Stabilization Boundary
 
@@ -188,11 +189,13 @@ Phase 30 may stabilize contracts for:
 - Decimal logical behavior and precision/scale disposition;
 - operator and comparison matrices.
 
-Phase 30 through Slice 7 does not change any of those behaviors. It records
+Phase 30 through Slice 8 does not change any of those behaviors. It records
 the contract boundary, scalar registry vocabulary, nullability propagation
 contract, Bool/predicate contract, Date/Timestamp contract, and Decimal
-precision/scale contract, and operator/comparison matrix contract for later
-approved slices.
+precision/scale contract, operator/comparison matrix contract, and completion
+status lock. v0.2 is not complete yet. Phase 31 Core Type System Stabilization
+II And Dialect Matrix Hardening and Phase 32 remain required before v0.2
+stable completion.
 
 ## Explicit Non-Goals
 

@@ -8,44 +8,91 @@ from types import ModuleType
 import pietto.sql as sql_api
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PLAN_PATH = REPO_ROOT / "docs/plan/phase-29-v02-stabilization-boundary.md"
-STABILIZATION_SPEC_PATH = REPO_ROOT / "docs/spec/v02-stabilization-boundary-v1.md"
-REGISTER_SPEC_PATH = REPO_ROOT / "docs/spec/v02-deferred-feature-register-v1.md"
-AGGREGATE_FREEZE_SPEC_PATH = REPO_ROOT / "docs/spec/v02-aggregate-surface-freeze-v1.md"
-TYPE_GAP_SPEC_PATH = REPO_ROOT / "docs/spec/v02-core-type-system-gap-matrix-v1.md"
-EXIT_CRITERIA_SPEC_PATH = (
+PLAN_PATH = REPO_ROOT / "docs/plan/phase-30-core-type-system-stabilization-i.md"
+CORE_CONTRACT_PATH = (
+    REPO_ROOT / "docs/spec/core-type-system-stabilization-contract-v1.md"
+)
+REGISTRY_CONTRACT_PATH = REPO_ROOT / "docs/spec/canonical-scalar-type-registry-v1.md"
+NULLABILITY_CONTRACT_PATH = (
+    REPO_ROOT / "docs/spec/nullability-propagation-contract-v1.md"
+)
+BOOL_CONTRACT_PATH = REPO_ROOT / "docs/spec/bool-predicate-semantics-contract-v1.md"
+DATE_CONTRACT_PATH = REPO_ROOT / "docs/spec/date-timestamp-formalization-contract-v1.md"
+DECIMAL_CONTRACT_PATH = REPO_ROOT / "docs/spec/decimal-precision-scale-contract-v1.md"
+OPERATOR_CONTRACT_PATH = (
+    REPO_ROOT / "docs/spec/operator-comparison-matrix-contract-v1.md"
+)
+
+PHASE29_REGISTER_SPEC_PATH = REPO_ROOT / "docs/spec/v02-deferred-feature-register-v1.md"
+PHASE29_AGGREGATE_FREEZE_SPEC_PATH = (
+    REPO_ROOT / "docs/spec/v02-aggregate-surface-freeze-v1.md"
+)
+PHASE29_TYPE_GAP_SPEC_PATH = (
+    REPO_ROOT / "docs/spec/v02-core-type-system-gap-matrix-v1.md"
+)
+PHASE29_EXIT_CRITERIA_SPEC_PATH = (
     REPO_ROOT / "docs/spec/v02-exit-criteria-validation-strategy-v1.md"
 )
 CLI_JSON_SPEC_PATH = REPO_ROOT / "docs/spec/cli-json-v1.md"
-DIAGNOSTICS_SPEC_PATH = REPO_ROOT / "docs/spec/diagnostics.md"
 CHECK_GOLDENS_PATH = REPO_ROOT / "scripts/check_goldens.py"
 
-PHASE29_ARTIFACTS = (
-    "docs/plan/phase-29-v02-stabilization-boundary.md",
-    "docs/spec/v02-stabilization-boundary-v1.md",
-    "docs/spec/v02-deferred-feature-register-v1.md",
-    "docs/spec/v02-aggregate-surface-freeze-v1.md",
-    "docs/spec/v02-core-type-system-gap-matrix-v1.md",
-    "docs/spec/v02-exit-criteria-validation-strategy-v1.md",
-    "tests/test_phase29_v02_stabilization_candidate_decision.py",
-    "tests/test_phase29_v02_deferred_feature_register.py",
-    "tests/test_phase29_v02_aggregate_surface_freeze.py",
-    "tests/test_phase29_v02_core_type_system_gap_matrix.py",
-    "tests/test_phase29_v02_exit_criteria_validation_strategy.py",
-    "tests/test_phase29_completion_audit.py",
+PHASE30_ARTIFACTS = (
+    "docs/plan/phase-30-core-type-system-stabilization-i.md",
+    "docs/spec/core-type-system-stabilization-contract-v1.md",
+    "docs/spec/canonical-scalar-type-registry-v1.md",
+    "docs/spec/nullability-propagation-contract-v1.md",
+    "docs/spec/bool-predicate-semantics-contract-v1.md",
+    "docs/spec/date-timestamp-formalization-contract-v1.md",
+    "docs/spec/decimal-precision-scale-contract-v1.md",
+    "docs/spec/operator-comparison-matrix-contract-v1.md",
+    "tests/test_phase30_candidate_decision.py",
+    "tests/test_phase30_canonical_scalar_type_registry.py",
+    "tests/test_phase30_nullability_propagation_contract.py",
+    "tests/test_phase30_bool_predicate_semantics_contract.py",
+    "tests/test_phase30_date_timestamp_formalization_contract.py",
+    "tests/test_phase30_decimal_precision_scale_contract.py",
+    "tests/test_phase30_operator_comparison_matrix_contract.py",
+    "tests/test_phase30_completion_audit.py",
+)
+
+PHASE30_SLICE_STATUS = (
+    "Phase 30 Slice 1 is complete as candidate decision, type-system "
+    "contract, static audit, and status work only",
+    "Phase 30 Slice 2 is complete as canonical scalar type registry "
+    "contract, static audit, and status work only",
+    "Phase 30 Slice 3 is complete as nullability propagation contract, "
+    "static audit, and status work only",
+    "Phase 30 Slice 4 is complete as Bool and predicate semantics "
+    "contract, static audit, and status work only",
+    "Phase 30 Slice 5 is complete as Date / Timestamp formalization "
+    "contract, static audit, and status work only",
+    "Phase 30 Slice 6 is complete as Decimal precision / scale contract, "
+    "static audit, and status work only",
+    "Phase 30 Slice 7 is complete as operator and comparison matrix "
+    "contract, static audit, and status work only",
+    "Phase 30 Slice 8 is complete as completion audit and status lock work only",
 )
 
 REQUIRED_VALIDATION_COMMANDS = (
-    "uv run pytest tests/test_phase29_completion_audit.py",
-    "uv run pytest tests/test_phase29_v02_exit_criteria_validation_strategy.py",
-    "uv run pytest tests/test_phase29_v02_core_type_system_gap_matrix.py",
-    "uv run pytest tests/test_phase29_v02_aggregate_surface_freeze.py",
-    "uv run pytest tests/test_phase29_v02_deferred_feature_register.py",
-    "uv run pytest tests/test_phase29_v02_stabilization_candidate_decision.py",
+    "uv run pytest tests/test_phase30_completion_audit.py",
+    "uv run pytest tests/test_phase30_operator_comparison_matrix_contract.py",
+    "uv run pytest tests/test_phase30_decimal_precision_scale_contract.py",
+    "uv run pytest tests/test_phase30_date_timestamp_formalization_contract.py",
+    "uv run pytest tests/test_phase30_bool_predicate_semantics_contract.py",
+    "uv run pytest tests/test_phase30_nullability_propagation_contract.py",
+    "uv run pytest tests/test_phase30_canonical_scalar_type_registry.py",
+    "uv run pytest tests/test_phase30_candidate_decision.py",
+    "uv run pytest tests/test_phase29_completion_audit.py "
+    "tests/test_phase29_v02_deferred_feature_register.py "
+    "tests/test_phase29_v02_aggregate_surface_freeze.py "
+    "tests/test_phase29_v02_exit_criteria_validation_strategy.py",
     "uv run python scripts/check_generated.py",
     "uv run python scripts/check_goldens.py",
     "uv run python scripts/package_smoke.py",
     "uv run python scripts/validate.py",
+    "git diff --check",
+    "git diff -- src grammar tests/fixtures scripts pyproject.toml uv.lock "
+    ".github Makefile",
 )
 
 LOCKED_BOUNDARY_SURFACES = {
@@ -154,36 +201,6 @@ LOCKED_BOUNDARY_SURFACES = {
         1,
         "884a41f529065dbcd09fb81ac025b5a6620c7ab18f1935ab17d8ea45ebf31d01",
     ),
-    "phase29_plan": (
-        "docs/plan/phase-29-v02-stabilization-boundary.md",
-        1,
-        "b5625d16c7e995c9f023953edc56caa61c4276d03d8f0602ff4988589abc695e",
-    ),
-    "phase29_boundary_spec": (
-        "docs/spec/v02-stabilization-boundary-v1.md",
-        1,
-        "66826da2df9a6a8b37bf0ba77972b2ad1abae337bc677b4000fbff77e60701de",
-    ),
-    "phase29_deferred_register": (
-        "docs/spec/v02-deferred-feature-register-v1.md",
-        1,
-        "d70ef67d401535f6f5ad86af19da78e97b125cb019deaa8a431f69f8611936da",
-    ),
-    "phase29_aggregate_freeze": (
-        "docs/spec/v02-aggregate-surface-freeze-v1.md",
-        1,
-        "cebb1fb8360c1c72a1ec6ba59a75962c04a25cecd8a874bf038fe336021b8ccc",
-    ),
-    "phase29_type_gap_matrix": (
-        "docs/spec/v02-core-type-system-gap-matrix-v1.md",
-        1,
-        "c417a76567e1c4f007768eb064cc586318f42283b65657f72b4bf15fc7f676be",
-    ),
-    "phase29_exit_criteria": (
-        "docs/spec/v02-exit-criteria-validation-strategy-v1.md",
-        1,
-        "76aea935b950042af804eb94f0c25d10ea68ee31d065efd420610150d6f5b5e1",
-    ),
 }
 
 
@@ -195,124 +212,136 @@ def _normalized(path: Path) -> str:
     return " ".join(_read(path).split())
 
 
-def test_phase29_status_and_artifact_inventory_are_complete() -> None:
-    for relative_path in PHASE29_ARTIFACTS:
+def test_phase30_artifact_inventory_and_slice_completion_are_locked() -> None:
+    for relative_path in PHASE30_ARTIFACTS:
         assert (REPO_ROOT / relative_path).is_file()
 
     plan = _normalized(PLAN_PATH)
+    contracts = " ".join(
+        _normalized(path)
+        for path in (
+            CORE_CONTRACT_PATH,
+            REGISTRY_CONTRACT_PATH,
+            NULLABILITY_CONTRACT_PATH,
+            BOOL_CONTRACT_PATH,
+            DATE_CONTRACT_PATH,
+            DECIMAL_CONTRACT_PATH,
+            OPERATOR_CONTRACT_PATH,
+        )
+    )
+
+    for required in PHASE30_SLICE_STATUS:
+        assert required in plan
+
     for required in (
-        "Phase 29 Slice 1 is complete as candidate decision, v0.2 boundary "
-        "contract, and static audit work only",
-        "Phase 29 Slice 2 is complete as deferred-feature register contract "
-        "and static audit work only",
-        "Phase 29 Slice 3 is complete as aggregate-surface freeze contract "
-        "and static audit work only",
-        "Phase 29 Slice 4 is complete as core type-system gap matrix contract "
-        "and static audit work only",
-        "Phase 29 Slice 5 is complete as v0.2 exit criteria and validation "
-        "strategy contract and static audit work only",
-        "Phase 29 Slice 6 is complete as completion audit and status lock work only",
-        "Phase 29 v0.2 Stabilization Boundary is complete as "
-        "docs/spec/static-audit and status work only",
-        "Status: complete as completion audit and status lock work only",
-        "Complete Phase 29 v0.2 stabilization audit",
-        "Historical Slice 5 checkpoint retained for static-audit compatibility",
-        "### Slice 6: Completion Audit And Status Lock Status: planned only",
+        "Phase 30 Core Type System Stabilization I is complete as "
+        "docs/spec/static-audit/status work only",
+        "v0.2 is not complete yet",
+        "Phase 31 Core Type System Stabilization II And Dialect Matrix "
+        "Hardening is the next mainline",
+        "Phase 31 and Phase 32 remain required before v0.2 stable completion",
+        "Phase 31 is not implemented by Phase 30",
     ):
         assert required in plan
 
+    assert "Slice 8 must not start until separately approved" not in plan
+    assert "Slice 8 remains planned only" not in plan
+    assert "v0.2 is complete" not in plan
 
-def test_phase29_status_docs_lock_completion_without_v02_completion() -> None:
+    for required in (
+        "Slice 8 is complete as completion audit",
+        "Phase 30 is complete as docs/spec/static-audit/status work only",
+        "v0.2 is not complete",
+        "Phase 31 and Phase 32 remain required before v0.2 stable completion",
+    ):
+        assert required in contracts
+
+
+def test_phase30_status_docs_lock_completion_without_v02_completion() -> None:
     for relative_path in ("README.md", "AGENTS.md", "docs/spec/pietto-v0.9.md"):
         status_doc = _normalized(REPO_ROOT / relative_path)
         for required in (
-            "Phase 29 v0.2 Stabilization Boundary",
-            "complete as docs/spec/static-audit",
-            "stable single-file typed SQL authoring compiler",
-            "deferred feature register",
-            "aggregate surface",
-            "core type-system gap matrix",
-            "v0.2 exit criteria",
-            "completion audit/status lock",
-            "v0.2 is not complete yet",
-            "Phase 30 Core Type System Stabilization I is complete",
+            "Phase 30 Core Type System Stabilization I",
+            "Phase 30 is complete",
+            "docs/spec/static-audit/status work only",
+            "Slice 8 is complete as completion audit and status lock work only",
+            "v0.2 is not complete",
             "Phase 31 Core Type System Stabilization II And Dialect Matrix "
             "Hardening is the next mainline",
             "Phase 31 and Phase 32 remain required before v0.2 stable completion",
+            "no source implementation",
+            "grammar",
+            "generated",
+            "CLI/JSON/API, IR, SQL, semantic",
+            "public MySQL API",
+            "type-system behavior",
             "package version",
             "release",
+            "publication",
             "JSON v2",
-            "public MySQL API",
-            "relationship/JOIN",
+            "Phase 31 implementation",
         ):
             assert required in status_doc
+
         for forbidden in (
             "v0.2 is complete",
             "v0.2 stable completion is locked",
-            "Phase 30 implementation",
+            "Phase 31 is complete",
             "Phase 31 implementation is complete",
-            "Phase 31 implementation has started",
-            "Phase 29 implements JSON v2",
-            "Phase 29 changes public `emit_mysql_sql`",
+            "Phase 30 implements Phase 31",
+            "Phase 30 changes JSON v1",
+            "Phase 30 implements JSON v2",
+            "Phase 30 expands aggregate",
+            "Phase 30 changes SQL lowering",
+            "Phase 30 changes diagnostics",
             "public `emit_mysql_sql`",
-            "Phase 29 implements relationship/JOIN",
         ):
             assert forbidden not in status_doc
 
 
-def test_phase29_spec_suite_preserves_contract_boundaries() -> None:
-    stabilization = _normalized(STABILIZATION_SPEC_PATH)
-    register = _normalized(REGISTER_SPEC_PATH)
-    aggregate_freeze = _normalized(AGGREGATE_FREEZE_SPEC_PATH)
-    type_gap = _normalized(TYPE_GAP_SPEC_PATH)
-    exit_criteria = _normalized(EXIT_CRITERIA_SPEC_PATH)
-
-    for required in (
-        "v0.2 is defined as a stable single-file typed SQL authoring compiler boundary",
-        "JSON v1 remains the single-file machine-readable contract",
-        "The public Python SQL API remains PostgreSQL-only",
-        "The MySQL emitter remains private to explicit CLI dispatch",
-    ):
-        assert required in stabilization
+def test_phase30_phase29_handoff_and_frozen_surfaces_remain_preserved() -> None:
+    register = _normalized(PHASE29_REGISTER_SPEC_PATH)
+    aggregate_freeze = _normalized(PHASE29_AGGREGATE_FREEZE_SPEC_PATH)
+    type_gap = _normalized(PHASE29_TYPE_GAP_SPEC_PATH)
+    exit_criteria = _normalized(PHASE29_EXIT_CRITERIA_SPEC_PATH)
 
     for required in (
         "It does not authorize implementation",
-        "| Feature | Why deferred | Blocking prerequisites | Unfreeze condition "
-        "| Target | Allowed before v0.2 | Explicit non-goals |",
         "Aggregate expansion",
+        "JSON v2",
+        "No SQL execution",
+        "No JOIN implementation",
+        "Project/multi-file",
         "Runtime/database execution",
-        "Arrow/dataframe integration",
     ):
         assert required in register
 
     for required in (
         "For v0.2, the Phase 19 through Phase 28 aggregate surface is frozen "
         "except for bug fixes and audit-only clarifications",
-        "current bounded `count_distinct(...)` Text transform subset",
-        "chains composed only of `lower(...)` and `trim(...)` over exactly one "
-        "Text field leaf",
-        "current direct-field Decimal aggregate surface",
         "Rejected v0.2 Aggregate Expansions",
+        "new aggregate functions",
+        "`count(expression)`",
+        "`min(expression)` beyond direct fields",
+        "`max(expression)` beyond direct fields",
     ):
         assert required in aggregate_freeze
 
     for required in (
-        "Phase 29 Slice 4 is complete as a core type-system gap matrix "
-        "contract and static audit slice only",
         "Canonical scalar type registry",
         "Nullability propagation",
         "Predicate semantics / SQL three-valued logic boundary",
         "Decimal precision/scale",
+        "Operator compatibility matrix",
+        "Comparison compatibility matrix",
     ):
         assert required in type_gap
 
     for required in (
         "It does not declare v0.2 complete",
-        "Phase 30 Core Type System Stabilization I",
         "Phase 31 Core Type System Stabilization II And Dialect Matrix Hardening",
         "Phase 32 v0.2 Single-file Stable Completion Audit",
         "remain required before the v0.2 stable completion status can be locked",
-        "Phase 32 remains the actual v0.2 single-file stable completion audit",
         "package version changes",
         "release tags",
         "publication",
@@ -322,45 +351,8 @@ def test_phase29_spec_suite_preserves_contract_boundaries() -> None:
         assert required in exit_criteria
 
 
-def test_phase29_validation_stack_and_phase30_handoff_are_locked() -> None:
-    plan = _normalized(PLAN_PATH)
-    exit_criteria = _normalized(EXIT_CRITERIA_SPEC_PATH)
-
-    for command in REQUIRED_VALIDATION_COMMANDS:
-        assert command in plan
-        assert command in exit_criteria or command == (
-            "uv run pytest tests/test_phase29_completion_audit.py"
-        )
-
-    for required in (
-        "Phase 30 Core Type System Stabilization I is the next mainline",
-        "Phase 30, Phase 31, and Phase 32 remain required before v0.2 stable "
-        "completion",
-        "Phase 29 prepares this mainline but does not implement it",
-        "Candidate Decision And Type-System Contract",
-        "Canonical Scalar Type Registry",
-        "Nullability Propagation Contract",
-        "Bool And Predicate Semantics",
-        "Date / Timestamp Formalization",
-        "Decimal Precision / Scale Contract",
-        "Operator And Comparison Matrix",
-        "Completion Audit",
-    ):
-        assert required in plan
-
-    for forbidden in (
-        "Phase 30 is complete",
-        "Phase 30 implementation is authorized",
-        "v0.2 is complete",
-    ):
-        assert forbidden not in plan
-
-
-def test_phase29_public_api_cli_json_release_and_package_boundaries_are_locked() -> (
-    None
-):
+def test_phase30_public_api_cli_json_package_and_ci_boundaries_are_locked() -> None:
     cli_json = _normalized(CLI_JSON_SPEC_PATH)
-    diagnostics = _normalized(DIAGNOSTICS_SPEC_PATH)
     pyproject = _read(REPO_ROOT / "pyproject.toml")
     ci = _read(REPO_ROOT / ".github/workflows/ci.yml")
 
@@ -374,11 +366,7 @@ def test_phase29_public_api_cli_json_release_and_package_boundaries_are_locked()
     assert not hasattr(sql_api, "emit_mysql_sql")
 
     assert "JSON schema version 1 remains exclusively single-file" in cli_json
-    assert "adding top-level or nested fields must be treated conservatively" in (
-        cli_json
-    )
-    assert "PIE-<PHASE><NUMBER>" in diagnostics
-    assert "Diagnostic severity is stored separately" in diagnostics
+    assert "write exactly one complete JSON document to stdout" in cli_json
     assert 'version = "0.1.0"' in pyproject
     assert 'requires-python = ">=3.12"' in pyproject
 
@@ -391,7 +379,13 @@ def test_phase29_public_api_cli_json_release_and_package_boundaries_are_locked()
         assert command in ci
 
 
-def test_phase29_golden_fixture_inventory_remains_unchanged() -> None:
+def test_phase30_validation_stack_is_documented() -> None:
+    plan = _normalized(PLAN_PATH)
+    for command in REQUIRED_VALIDATION_COMMANDS:
+        assert command in plan
+
+
+def test_phase30_golden_fixture_inventory_remains_unchanged() -> None:
     check_goldens = _check_goldens_module()
 
     assert len(check_goldens.SQL_FIXTURES) == 32
@@ -400,7 +394,7 @@ def test_phase29_golden_fixture_inventory_remains_unchanged() -> None:
     assert check_goldens.audit(REPO_ROOT) == ()
 
 
-def test_phase29_locked_boundary_surface_hashes_are_unchanged() -> None:
+def test_phase30_locked_boundary_surface_hashes_are_unchanged() -> None:
     for label, (
         relative_path,
         expected_count,

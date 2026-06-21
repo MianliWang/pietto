@@ -191,8 +191,10 @@ Date / Timestamp formalization contract, static audit, and status work only.
 Slice 6 Decimal Precision / Scale Contract is complete as Decimal precision /
 scale contract, static audit, and status work only. Slice 7 Operator And
 Comparison Matrix is complete as operator and comparison matrix contract,
-static audit, and status work only. Slice 8 remains planned only and requires
-separate explicit approval.
+static audit, and status work only. Slice 8 Completion Audit And Status Lock
+is complete as completion audit and status lock work only. Phase 30 is
+complete as docs/spec/static-audit/status work only, but v0.2 is not complete.
+Phase 31 and Phase 32 remain required before v0.2 stable completion.
 
 ## Explicit Non-Goals
 

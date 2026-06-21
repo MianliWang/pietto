@@ -73,9 +73,10 @@ The current implementation status is:
   through Phase 28 aggregate surface for v0.2 except bug fixes, records the
   core type-system gap matrix, defines v0.2 exit criteria, and locks the Phase
   30 through Phase 32 handoff. v0.2 is not complete yet; Phase 30 Core Type
-  System Stabilization I is the next mainline**.
-- **Phase 30 Core Type System Stabilization I: Slices 1 through 7 are complete
-  as docs/spec/static-audit/status work only. Slice 2 is complete as canonical
+  System Stabilization I is complete and Phase 31 Core Type System
+  Stabilization II And Dialect Matrix Hardening is the next mainline**.
+- **Phase 30 Core Type System Stabilization I: complete as
+  docs/spec/static-audit/status work only. Slice 2 is complete as canonical
   scalar type registry contract, static audit, and status work only. It
   confirms `UUID` is a limited/frozen identifier scalar only for existing
   frozen behavior such as direct-field `count_distinct(UUID)`, while broader
@@ -109,9 +110,12 @@ The current implementation status is:
   Decimal promotion expansion, no Date/Timestamp-specific comparison matrix,
   no UUID comparison, cast, literal, storage, DDL, wider SQL, or public API
   behavior. Enum remains a non-builtin semantic type kind, and Bytes and Json
-  remain deferred/unsupported behavior built-ins. Slice 8 remains planned
-  only, any behavior change requires separate explicit approval, and Phase 31
-  and Phase 32 remain required before v0.2 stable completion**.
+  remain deferred/unsupported behavior built-ins. Slice 8 is complete as
+  completion audit and status lock work only. Phase 30 is complete, but v0.2
+  is not complete. Phase 31 Core Type System Stabilization II And Dialect
+  Matrix Hardening and Phase 32 remain required before v0.2 stable
+  completion. Phase 30 adds no package version, release, tag, publication,
+  JSON v2, public MySQL API expansion, or Phase 31 implementation**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -237,9 +241,10 @@ status work only. Slices 1 through 6 cover the v0.2 boundary contract, deferred
 feature register, aggregate surface freeze, core type-system gap matrix, v0.2
 exit criteria and validation strategy, and completion audit/status lock. Phase
 29 defines v0.2 as a stable single-file typed SQL authoring compiler, but v0.2
-is not complete yet. Phase 30 Core Type System Stabilization I is the next
-mainline, and Phase 30, Phase 31, and Phase 32 remain required before v0.2
-stable completion. Phase 29 adds no source implementation, grammar, generated,
+is not complete yet. Phase 30 Core Type System Stabilization I is complete,
+Phase 31 Core Type System Stabilization II And Dialect Matrix Hardening is the
+next mainline, and Phase 31 and Phase 32 remain required before v0.2 stable
+completion. Phase 29 adds no source implementation, grammar, generated,
 CLI/JSON/API, IR, SQL, semantic, aggregate, diagnostic, runtime/database,
 schema introspection, project/multi-file, public MySQL API, relationship/JOIN,
 type-system behavior, package version, release, publication, JSON v2, or
@@ -252,7 +257,7 @@ fixes and adds no source implementation, grammar, generated, CLI/JSON/API, IR,
 SQL, aggregate semantic, runtime/database, schema introspection,
 project/multi-file, public MySQL API, or relationship/JOIN behavior changes.
 
-Phase 30 Core Type System Stabilization I Slices 1 through 7 are complete as
+Phase 30 Core Type System Stabilization I is complete as
 docs/spec/static-audit/status work only. Slice 1 records the trusted Phase 29
 baseline, chooses the Phase 30 direction, and adds the eight-slice master
 plan. Slice 2 is complete as canonical scalar type registry contract, static
@@ -287,8 +292,9 @@ concatenation, no Decimal multiplication/division expansion, no mixed Decimal
 promotion expansion, no Date/Timestamp-specific comparison matrix, no UUID
 comparison, cast, literal, storage, DDL, wider SQL, or public API behavior.
 Enum remains a non-builtin semantic type kind, and Bytes and Json remain
-deferred/unsupported behavior built-ins. Slice 8 remains planned only. Through
-Slice 7, Phase 30 adds no source implementation, grammar, generated,
+deferred/unsupported behavior built-ins. Slice 8 is complete as completion
+audit and status lock work only. Through Slice 8, Phase 30 adds no source
+implementation, grammar, generated,
 CLI/JSON/API, IR, SQL, semantic,
 aggregate, diagnostic, runtime/database, schema introspection,
 project/multi-file, public MySQL API, relationship/JOIN, type-system behavior,
@@ -297,10 +303,11 @@ DateTime, Time, Interval, timezone, temporal arithmetic, date/time function,
 cast, comparison validation, Text concatenation, Decimal precision/scale
 semantics/carrier/propagation/validation, SQL precision guarantees, Decimal
 literal, Decimal multiplication/division, mixed Decimal promotion,
-Currency/Money, or semantic annotation syntax changes. Later Phase 30 slices
-require separate approval, any behavior change requires separate explicit
-approval, and Phase 31 and Phase 32 remain required before v0.2 stable
-completion.
+Currency/Money, or semantic annotation syntax changes. Phase 30 is complete,
+but v0.2 is not complete. Phase 31 Core Type System Stabilization II And
+Dialect Matrix Hardening is the next mainline, Phase 31 and Phase 32 remain
+required before v0.2 stable completion, and Phase 30 adds no Phase 31
+implementation.
 
 The supported single-file CLI commands and forms include:
 

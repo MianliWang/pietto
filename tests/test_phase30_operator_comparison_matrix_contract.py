@@ -108,8 +108,7 @@ def test_slice7_artifacts_baseline_and_status_are_locked() -> None:
         "commit: `Document Decimal precision and scale contract`",
         "CI run: `27889088949 success`",
         "v0.2 is not complete yet",
-        "Phase 30, Phase 31, and Phase 32 remain required before v0.2 "
-        "stable completion",
+        "Phase 31 and Phase 32 remain required before v0.2 stable completion",
     ):
         assert required in plan
         assert required in spec
@@ -121,7 +120,9 @@ def test_slice7_artifacts_baseline_and_status_are_locked() -> None:
     assert "Slice 7 Operator And Comparison Matrix" in bool_contract
     assert "Slice 7 Operator And Comparison Matrix" in date_contract
     assert "Slice 7 Operator And Comparison Matrix" in decimal_contract
-    assert "Slice 8 remains planned only" in spec
+    assert "Slice 8 Completion Audit And Status Lock is complete" in spec
+    assert "Phase 30 is complete as docs/spec/static-audit/status work only" in spec
+    assert "v0.2 is not complete" in spec
 
 
 def test_slice7_candidate_decision_is_docs_static_audit_status_only() -> None:
@@ -624,15 +625,17 @@ def test_handoff_non_goals_and_status_docs_are_locked() -> None:
     plan_and_specs = f"{plan} {spec} {core_contract}"
 
     for required in (
-        "Slice 8 Completion Audit And Status Lock verifies the complete Phase "
-        "30 contract set",
-        "Phase 31 may separately harden numeric/Decimal boundaries",
+        "Slice 8 Completion Audit And Status Lock is complete as completion "
+        "audit and status lock work only",
+        "verifies the complete Phase 30 contract set",
+        "Phase 31 Core Type System Stabilization II And Dialect Matrix "
+        "Hardening is the next mainline",
+        "may separately harden numeric/Decimal boundaries",
         "UUID/Enum readiness",
         "Date/Timestamp SQL compatibility",
         "diagnostic boundaries",
         "CLI/JSON hardening",
-        "Slice 8 remains planned only",
-        "requires separate explicit approval",
+        "Phase 31 and Phase 32 remain required before v0.2 stable completion",
     ):
         assert required in plan_and_specs
 
@@ -655,15 +658,19 @@ def test_handoff_non_goals_and_status_docs_are_locked() -> None:
             "public API behavior",
             "Enum remains a non-builtin semantic type kind",
             "Bytes and Json remain deferred/unsupported behavior built-ins",
-            "Slice 8 remains planned only",
+            "Slice 8 is complete as completion audit and status lock work only",
+            "Phase 30 is complete",
+            "v0.2 is not complete",
+            "Phase 31 Core Type System Stabilization II And Dialect Matrix "
+            "Hardening is the next mainline",
             "Phase 31 and Phase 32 remain required before v0.2 stable completion",
         ):
             assert required in status_doc
 
         for forbidden in (
-            "Phase 30 is complete",
             "v0.2 is complete",
             "Phase 30 implementation",
+            "Phase 31 implementation is complete",
             "Text concatenation is implemented",
             "comparison compatibility matrix is implemented",
             "DateTime primitive is allowed",

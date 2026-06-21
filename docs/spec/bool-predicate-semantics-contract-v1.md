@@ -156,8 +156,10 @@ backend predicate rendering.
 Slice 5 is complete as Date / Timestamp formalization contract, static audit,
 and status work only. Slice 6 is complete as Decimal precision / scale
 contract, static audit, and status work only. Slice 7 is complete as operator
-and comparison matrix contract, static audit, and status work only. Slice 8
-remains planned only and requires separate explicit approval.
+and comparison matrix contract, static audit, and status work only. Slice 8 is
+complete as completion audit and status lock work only. Phase 30 is complete
+as docs/spec/static-audit/status work only, but v0.2 is not complete. Phase 31
+and Phase 32 remain required before v0.2 stable completion.
 
 ## Explicit Non-Goals
 

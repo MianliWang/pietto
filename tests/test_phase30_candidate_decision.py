@@ -39,6 +39,7 @@ PHASE30_ARTIFACTS = (
     "tests/test_phase30_date_timestamp_formalization_contract.py",
     "tests/test_phase30_decimal_precision_scale_contract.py",
     "tests/test_phase30_operator_comparison_matrix_contract.py",
+    "tests/test_phase30_completion_audit.py",
 )
 
 PHASE30_SLICES = (
@@ -123,8 +124,7 @@ def test_phase30_slice1_artifacts_and_trusted_baseline_are_locked() -> None:
         "final Phase 29 commit: `Complete Phase 29 v0.2 stabilization audit`",
         "CI run: `27884233974 success`",
         "v0.2 is not complete yet",
-        "Phase 30, Phase 31, and Phase 32 remain required before v0.2 stable "
-        "completion",
+        "Phase 31 and Phase 32 remain required before v0.2 stable completion",
     ):
         assert required in plan
         assert required in spec
@@ -175,11 +175,12 @@ def test_phase30_master_plan_and_later_slice_approval_boundary_are_locked() -> N
         "static audit, and status work only",
         "Phase 30 Slice 7 is complete as operator and comparison matrix "
         "contract, static audit, and status work only",
-        "Slice 8 remains planned only",
-        "Slice 1 did not pre-decide that every later Phase 30 slice must be docs-only",
-        "Later slices must be planned and approved one by one",
-        "any behavior change requires separate explicit approval",
-        "Slice 8 must not start until separately approved",
+        "Phase 30 Slice 8 is complete as completion audit and status lock work only",
+        "Phase 30 Core Type System Stabilization I is complete as "
+        "docs/spec/static-audit/status work only",
+        "v0.2 is not complete yet",
+        "Phase 31 Core Type System Stabilization II And Dialect Matrix "
+        "Hardening is the next mainline",
     ):
         assert required in plan
 
@@ -207,10 +208,11 @@ def test_phase30_master_plan_and_later_slice_approval_boundary_are_locked() -> N
         "Phase 30 Slice 7 is complete as operator and comparison matrix "
         "contract, static audit, and status work only"
     ) in spec
-    assert "Slice 8 remains planned only" in spec
-    assert (
-        "Each later slice requires a separate plan and separate explicit approval"
-        in (spec)
+    assert "Slice 8 is complete as completion audit" in spec
+    assert "Phase 30 is complete as docs/spec/static-audit/status work only" in spec
+    assert "v0.2 is not complete" in spec
+    assert "Phase 31 and Phase 32 remain required before v0.2 stable completion" in (
+        spec
     )
 
 
@@ -356,16 +358,19 @@ def test_phase30_non_goals_and_status_docs_preserve_v02_boundary() -> None:
             "Bytes and Json remain deferred/unsupported behavior built-ins",
             "`EffectiveNullability.UNKNOWN`, `ValueTypeKind.UNKNOWN`, and SQL "
             "three-valued logic `UNKNOWN` remain distinct",
-            "Slice 8 remains planned only",
-            "any behavior change requires separate explicit approval",
+            "Slice 8 is complete as completion audit and status lock work only",
+            "Phase 30 is complete",
+            "v0.2 is not complete",
+            "Phase 31 Core Type System Stabilization II And Dialect Matrix "
+            "Hardening is the next mainline",
             "Phase 31 and Phase 32 remain required before v0.2 stable completion",
         ):
             assert required in status_doc
 
         for forbidden in (
-            "Phase 30 is complete",
             "v0.2 is complete",
             "Phase 30 implementation",
+            "Phase 31 implementation is complete",
             "DateTime primitive is allowed",
             "Currency primitive is allowed",
             "Money primitive is allowed",

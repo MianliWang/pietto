@@ -109,8 +109,7 @@ def test_slice6_artifacts_baseline_and_status_are_locked() -> None:
         "commit: `Document Date and Timestamp formalization`",
         "CI run: `27888353617 success`",
         "v0.2 is not complete yet",
-        "Phase 30, Phase 31, and Phase 32 remain required before v0.2 "
-        "stable completion",
+        "Phase 31 and Phase 32 remain required before v0.2 stable completion",
     ):
         assert required in plan
         assert required in spec
@@ -488,8 +487,10 @@ def test_money_currency_and_later_handoff_are_locked() -> None:
         "Phase 31 may harden numeric and Decimal boundaries",
         "Slice 7 is complete as operator and comparison matrix contract, "
         "static audit, and status work only",
-        "Slice 8 remains planned only",
-        "requires separate explicit approval",
+        "Slice 8 is complete as completion audit and status lock work only",
+        "Phase 30 is complete as docs/spec/static-audit/status work only",
+        "v0.2 is not complete",
+        "Phase 31 and Phase 32 remain required before v0.2 stable completion",
     ):
         assert required in plan_and_specs
 
@@ -522,15 +523,19 @@ def test_status_docs_record_slice6_without_behavior_change() -> None:
             "no UUID comparison, cast, literal, storage, DDL, wider SQL, or "
             "public API behavior",
             "Bytes and Json remain deferred/unsupported behavior built-ins",
-            "Slice 8 remains planned only",
+            "Slice 8 is complete as completion audit and status lock work only",
+            "Phase 30 is complete",
+            "v0.2 is not complete",
+            "Phase 31 Core Type System Stabilization II And Dialect Matrix "
+            "Hardening is the next mainline",
             "Phase 31 and Phase 32 remain required before v0.2 stable completion",
         ):
             assert required in status_doc
 
         for forbidden in (
-            "Phase 30 is complete",
             "v0.2 is complete",
             "Phase 30 implementation",
+            "Phase 31 implementation is complete",
             "Decimal precision/scale is implemented",
             "Decimal precision/scale carrier is implemented",
             "Decimal literals are implemented",

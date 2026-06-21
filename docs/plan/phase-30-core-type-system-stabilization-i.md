@@ -23,6 +23,12 @@ audit, and status work only.
 Phase 30 Slice 7 is complete as operator and comparison matrix contract,
 static audit, and status work only.
 
+Phase 30 Slice 8 is complete as completion audit and status lock work only.
+
+Phase 30 Core Type System Stabilization I is complete as
+docs/spec/static-audit/status work only. v0.2 is not complete yet. Phase 31
+and Phase 32 remain required before v0.2 stable completion.
+
 Slice 1 selects **Phase 30 Core Type System Stabilization I** as the Phase 30
 direction and adds the first contract at
 `docs/spec/core-type-system-stabilization-contract-v1.md`.
@@ -67,9 +73,13 @@ operator validation, comparison validation, casts, Text concatenation,
 temporal comparison rules, UUID comparison guarantees, Enum comparison
 behavior, Bytes/Json behavior, SQL lowering changes, or compiler behavior.
 
-Slice 8 remains planned only. Slice 1 did not pre-decide that every later
-Phase 30 slice must be docs-only. Later slices must be planned and approved
-one by one, and any behavior change requires separate explicit approval.
+Slice 8 adds the completion audit and status lock at
+`tests/test_phase30_completion_audit.py`. It verifies all Phase 30 contracts,
+unchanged forbidden surfaces, validation commands, public API stability,
+CLI/JSON stability, SQL/golden/generated/package validation boundaries,
+aggregate freeze preservation, deferred register preservation, status
+documentation, and the Phase 31/32 handoff. It does not declare v0.2 complete
+and does not start Phase 31.
 
 ## Trusted Baseline
 
@@ -115,9 +125,15 @@ Slice 7 starts from the completed Phase 30 Slice 6 baseline:
 - commit: `Document Decimal precision and scale contract`;
 - CI run: `27889088949 success`.
 
+Slice 8 starts from the completed Phase 30 Slice 7 baseline:
+
+- HEAD: `8510716b72e72980c89a261ea70c6fcc76e12504`;
+- commit: `Document operator and comparison matrix contract`;
+- CI run: `27889905879 success`.
+
 Phase 29 v0.2 Stabilization Boundary is complete as docs/spec/static-audit and
-status work only. v0.2 is not complete yet. Phase 30, Phase 31, and Phase 32
-remain required before v0.2 stable completion.
+status work only. v0.2 is not complete yet. Phase 31 and Phase 32 remain
+required before v0.2 stable completion.
 
 ## Phase 29 Handoff
 
@@ -276,6 +292,23 @@ validation, casts, collation, temporal comparison rules, UUID comparison
 guarantees, Enum comparison behavior, Bytes/Json comparison behavior,
 diagnostic behavior, SQL lowering changes, or public API behavior.
 
+## Slice 8 Candidate Decision
+
+Slice 8 selects **Completion Audit And Status Lock** as a docs/spec/static-audit
+and status-lock slice.
+
+| Candidate | Fit | Risk | Decision |
+|---|---:|---:|---|
+| Slice 8 docs/spec/static-audit/status only | High | Low | Chosen. |
+| Tests-only behavior hardening | Medium | Medium | Rejected for Slice 8; the completion slice should audit and lock status, not add new behavior tests. |
+| Minimal implementation artifact | Low | Medium | Rejected; no compiler helper, registry, API, or validation artifact is needed. |
+| Broad behavior implementation | Low | High | Rejected; it would violate Phase 30 and v0.2 boundaries. |
+
+The selected Slice 8 direction is completion-audit only. It marks Phase 30
+complete as docs/spec/static-audit/status work, does not declare v0.2 complete,
+and records Phase 31 Core Type System Stabilization II And Dialect Matrix
+Hardening as the next mainline.
+
 ## Type-System Contract Direction
 
 Phase 30 treats Pietto's type system as the foundation for:
@@ -335,6 +368,11 @@ Decimal multiplication or division expansion, no mixed Decimal promotion, no
 Date/Timestamp-specific comparison matrix, no UUID comparison or cast
 behavior, no Enum SQL/comparison behavior, and no Bytes/Json behavior
 expansion.
+
+Slice 8 keeps that direction bounded. It verifies the complete Phase 30
+contract set and status lock without changing compiler behavior. Phase 30 is
+complete after Slice 8, but v0.2 remains incomplete until Phase 31 and Phase
+32 are complete.
 
 ## Phase 30 Slice Plan
 
@@ -533,15 +571,39 @@ Validation:
 
 ### Slice 8: Completion Audit And Status Lock
 
-Status: planned only.
+Status: complete as completion audit and status lock work only.
 
 Goal: verify all Phase 30 contracts, unchanged forbidden surfaces, validation
-commands, and status documentation. Slice 8 must not start until separately
-approved.
+commands, public API stability, CLI/JSON stability, SQL/golden/generated and
+package validation boundaries, aggregate freeze preservation, deferred
+register preservation, status documentation, and Phase 31/32 handoff.
+
+Artifacts:
+
+- `tests/test_phase30_completion_audit.py`;
+- final status documentation updates.
+
+Validation:
+
+- `uv run pytest tests/test_phase30_completion_audit.py`;
+- `uv run pytest tests/test_phase30_operator_comparison_matrix_contract.py`;
+- `uv run pytest tests/test_phase30_decimal_precision_scale_contract.py`;
+- `uv run pytest tests/test_phase30_date_timestamp_formalization_contract.py`;
+- `uv run pytest tests/test_phase30_bool_predicate_semantics_contract.py`;
+- `uv run pytest tests/test_phase30_nullability_propagation_contract.py`;
+- `uv run pytest tests/test_phase30_canonical_scalar_type_registry.py`;
+- `uv run pytest tests/test_phase30_candidate_decision.py`;
+- `uv run pytest tests/test_phase29_completion_audit.py tests/test_phase29_v02_deferred_feature_register.py tests/test_phase29_v02_aggregate_surface_freeze.py tests/test_phase29_v02_exit_criteria_validation_strategy.py`;
+- `uv run python scripts/check_generated.py`;
+- `uv run python scripts/check_goldens.py`;
+- `uv run python scripts/package_smoke.py`;
+- `uv run python scripts/validate.py`;
+- `git diff --check`;
+- `git diff -- src grammar tests/fixtures scripts pyproject.toml uv.lock .github Makefile`.
 
 ## Phase-Wide Non-Goals
 
-Phase 30 through Slice 7 does not authorize:
+Phase 30 through Slice 8 does not authorize:
 
 - source implementation changes;
 - grammar, generated ANTLR, AST, or parser changes;
@@ -592,11 +654,11 @@ Phase 30 through Slice 7 does not authorize:
 
 ## Future Mainline
 
-Phase 31 Core Type System Stabilization II And Dialect Matrix Hardening remains
-required after Phase 30. It should carry Phase 30 decisions into aggregate
-result matrix hardening, numeric and Decimal boundary tests, Date/Timestamp SQL
-compatibility, UUID/Enum readiness, and diagnostic plus CLI/JSON hardening
-decisions.
+Phase 31 Core Type System Stabilization II And Dialect Matrix Hardening is the
+next mainline after Phase 30. It should carry Phase 30 decisions into
+aggregate result matrix hardening, numeric and Decimal boundary tests,
+Date/Timestamp SQL compatibility, UUID/Enum readiness, and diagnostic plus
+CLI/JSON hardening decisions. Phase 31 is not implemented by Phase 30.
 
 Phase 32 v0.2 Single-file Stable Completion Audit remains required after Phase
 31. It is the later phase that may lock v0.2 stable completion if all exit

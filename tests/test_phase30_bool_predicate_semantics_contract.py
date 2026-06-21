@@ -88,8 +88,7 @@ def test_slice4_artifacts_baseline_and_status_are_locked() -> None:
         "commit: `Document nullability propagation contract`",
         "CI run: `27886514387 success`",
         "v0.2 is not complete yet",
-        "Phase 30, Phase 31, and Phase 32 remain required before v0.2 "
-        "stable completion",
+        "Phase 31 and Phase 32 remain required before v0.2 stable completion",
     ):
         assert required in plan
         assert required in spec
@@ -397,8 +396,10 @@ def test_later_slice_handoff_and_hard_non_goals_are_locked() -> None:
         "audit, and status work only",
         "Slice 7 is complete as operator and comparison matrix contract, "
         "static audit, and status work only",
-        "Slice 8 remains planned only",
-        "requires separate explicit approval",
+        "Slice 8 is complete as completion audit and status lock work only",
+        "Phase 30 is complete as docs/spec/static-audit/status work only",
+        "v0.2 is not complete",
+        "Phase 31 and Phase 32 remain required before v0.2 stable completion",
     ):
         assert required in plan_and_specs
 
@@ -441,15 +442,19 @@ def test_status_docs_record_slice4_without_v02_completion_or_behavior_change() -
             "Bytes and Json remain deferred/unsupported behavior built-ins",
             "`EffectiveNullability.UNKNOWN`, `ValueTypeKind.UNKNOWN`, and SQL "
             "three-valued logic `UNKNOWN` remain distinct",
-            "Slice 8 remains planned only",
+            "Slice 8 is complete as completion audit and status lock work only",
+            "Phase 30 is complete",
+            "v0.2 is not complete",
+            "Phase 31 Core Type System Stabilization II And Dialect Matrix "
+            "Hardening is the next mainline",
             "Phase 31 and Phase 32 remain required before v0.2 stable completion",
         ):
             assert required in status_doc
 
         for forbidden in (
-            "Phase 30 is complete",
             "v0.2 is complete",
             "Phase 30 implementation",
+            "Phase 31 implementation is complete",
             "DateTime primitive is allowed",
             "Currency primitive is allowed",
             "Money primitive is allowed",
