@@ -2129,8 +2129,8 @@ expansion, or Phase 31 implementation.
 
 ### Phase 31: v0.2 Hardening And Stable Completion
 
-Status: Phase 31 Slice 2 Aggregate Result Matrix Hardening is complete as
-tests/static-audit/status work only.
+Status: Phase 31 Slice 3 Numeric Promotion And Decimal Boundary Tests is
+complete as tests/static-audit/status work only.
 
 Phase 31 Slice 1 is complete as candidate decision, Phase 30 carry-forward
 audit, static audit, and status work only.
@@ -2148,7 +2148,7 @@ Carry-forward Audit, Aggregate Result Matrix Hardening, Numeric Promotion And
 Decimal Boundary Tests, Date / Timestamp SQL Compatibility Audit, UUID / Enum
 Readiness Decision, Diagnostic / CLI / JSON Stability Hardening, Docs /
 Examples / Package / CI v0.2 Readiness Audit, and v0.2 Stable Completion
-Audit And Status Lock. Slice 2 is complete. Slices 3 through 8 remain planned
+Audit And Status Lock. Slice 3 is complete. Slices 4 through 8 remain planned
 only.
 
 Phase 31 Slice 1 adds no Phase 31 behavior implementation in Slice 1, no
@@ -2176,8 +2176,24 @@ behavior implementation in Slice 2, no Phase 32 implementation in Slice 2, no
 behavior fixes, no source implementation, grammar, generated, fixture, golden,
 script, package, CI, public API, CLI, JSON, IR, SQL, semantic, aggregate,
 diagnostic, predicate, runtime, project/multi-file, relationship/JOIN, schema
-introspection, or type-system behavior changes. v0.2 is not complete yet at
-Phase 31 Slice 2, and Phase 31 Slice 8 is the future v0.2 Stable Completion
+introspection, or type-system behavior changes. Phase 31 Slice 3 Numeric
+Promotion And Decimal Boundary Tests is complete as tests/static-audit/status
+work only. Slice 3 locks current Int/Float numeric promotion, Decimal `+` and
+`-`, deferred/unknown division `/`, no Decimal multiplication implementation,
+no Decimal division implementation, no mixed Decimal promotion implementation,
+no Decimal literal implementation, no casts, no Decimal precision/scale
+carrier, no SQL precision/scale behavior, and generic `TypeExpr.arguments`,
+including `Decimal(12, 2)`, as parsed type arguments with no accepted
+precision/scale semantics. Phase 28 numeric literal aggregate support remains
+limited to current `sum`/`avg` bounded numeric expression argument behavior
+with at least one field leaf; literal-only aggregate arguments remain
+unsupported. Slice 3 adds no Phase 31 behavior implementation in Slice 3, no
+Phase 32 implementation in Slice 3, no behavior fixes, no source
+implementation, grammar, generated, fixture, golden, script, package, CI,
+public API, CLI, JSON, IR, SQL, semantic, aggregate, diagnostic, predicate,
+runtime, project/multi-file, relationship/JOIN, schema introspection,
+type-system behavior changes, or Slice 4 work. v0.2 is not complete yet at
+Phase 31 Slice 3, and Phase 31 Slice 8 is the future v0.2 Stable Completion
 Audit And Status Lock. Phase 31 completion may lock v0.2 stable if all
 criteria pass. Phase 32 is post-v0.2 Semantic Explain And Metadata Output
 MVP; Phase 33 is Project And Multi-file MVP; Phase 34 is Semantic Graph / ERD

@@ -152,7 +152,7 @@ def test_phase31_slice2_plan_and_spec_lock_tests_static_audit_scope() -> None:
     for required in (
         "Phase 31 Slice 2 is complete as aggregate result matrix hardening, "
         "tests, static audit, and status work only",
-        "Slice 2 is complete. Slices 3 through 8 are planned only",
+        "Slice 3 is complete. Slices 4 through 8 are planned only",
         "Phase 29 aggregate freeze remains active",
         "Phase 30 type-system contracts are carried forward",
         "min(Decimal) and max(Decimal) are included only as current accepted "

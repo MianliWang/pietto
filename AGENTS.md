@@ -349,23 +349,36 @@ expression, comparison, SQL, or type-system support. count(Enum field)
 remains a documented risk because current semantic/IR acceptance has
 PostgreSQL/private MySQL fail-closed output. The risk is semantic/IR
 acceptance with PostgreSQL/private MySQL fail-closed output and requires
-separate explicit approval before any behavior fix. v0.2 is not complete yet
-at Phase 31 Slice 2, and Phase 31 Slice 8 is the future v0.2 Stable
-Completion Audit And Status Lock. Phase 31 completion may lock v0.2 stable if
-all criteria pass. Phase 32 is post-v0.2 Semantic Explain And Metadata Output
-MVP; Phase 33 is Project And Multi-file MVP; Phase 34 is Semantic Graph / ERD
-/ AI Metadata Export MVP; Phase 35 is Relationship Grain And Narrow JOIN MVP.
-Slice 1 adds no Phase 31 behavior implementation in Slice 1, and Slice 2 adds
-no Phase 31 behavior implementation in Slice 2, no behavior fixes, no source
-implementation, grammar, generated, fixture, golden, script, package, CI,
-public API, CLI, JSON, IR, SQL, semantic, aggregate, diagnostic, predicate,
-runtime, project/multi-file, relationship/JOIN, schema introspection, or
-type-system behavior changes. It adds no JSON v1 schema expansion, JSON v2,
-public MySQL API expansion, DateTime/Time/Interval/timezone semantics,
-Money/Currency primitive, semantic annotation syntax, Decimal precision/scale
-carrier, UUID or Enum behavior implementation, no Phase 32 implementation in
-Slice 1, no Phase 32 implementation in Slice 2, v0.2 completion declaration,
-package version bump, release tag, or publishing.
+separate explicit approval before any behavior fix. Phase 31 Slice 3 Numeric
+Promotion And Decimal Boundary Tests is complete as tests/static-audit/status
+work only. Slice 3 locks current Int/Float numeric promotion, Decimal `+` and
+`-`, deferred/unknown division `/`, no Decimal multiplication implementation,
+no Decimal division implementation, no mixed Decimal promotion implementation,
+no Decimal literal implementation, no casts, no Decimal precision/scale
+carrier, no SQL precision/scale behavior, and generic `TypeExpr.arguments`,
+including `Decimal(12, 2)`, as parsed type arguments with no accepted
+precision/scale semantics. Phase 28 numeric literal aggregate support remains
+limited to current `sum`/`avg` bounded numeric expression argument behavior
+with at least one field leaf; literal-only aggregate arguments remain
+unsupported. v0.2 is not complete yet at Phase 31 Slice 3, and Phase 31 Slice
+8 is the future v0.2 Stable Completion Audit And Status Lock. Phase 31
+completion may lock v0.2 stable if all criteria pass. Phase 32 is post-v0.2
+Semantic Explain And Metadata Output MVP; Phase 33 is Project And Multi-file
+MVP; Phase 34 is Semantic Graph / ERD / AI Metadata Export MVP; Phase 35 is
+Relationship Grain And Narrow JOIN MVP. Slice 1 adds no Phase 31 behavior
+implementation in Slice 1, Slice 2 adds no Phase 31 behavior implementation in
+Slice 2, and Slice 3 adds no Phase 31 behavior implementation in Slice 3, no
+behavior fixes, no source implementation, grammar, generated, fixture, golden,
+script, package, CI, public API, CLI, JSON, IR, SQL, semantic, aggregate,
+diagnostic, predicate, runtime, project/multi-file, relationship/JOIN, schema
+introspection, or type-system behavior changes. It adds no JSON v1 schema
+expansion, JSON v2, public MySQL API expansion,
+DateTime/Time/Interval/timezone semantics, Money/Currency primitive, semantic
+annotation syntax, Decimal precision/scale carrier, UUID or Enum behavior
+implementation, no Phase 32 implementation in Slice 1, no Phase 32
+implementation in Slice 2, no Phase 32 implementation in Slice 3, no Slice 4
+work, v0.2 completion declaration, package version bump, release tag, or
+publishing.
 
 Phase 13 Relation Composition And Relationship Planning is complete as
 planning, contract, and audit work only. Slices 1 through 6 are complete.

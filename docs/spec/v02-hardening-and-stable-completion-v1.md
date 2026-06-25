@@ -2,13 +2,15 @@
 
 ## Status
 
-Phase 31 Slice 2 is complete as aggregate result matrix hardening, tests,
-static audit, and status work only.
+Phase 31 Slice 3 is complete as numeric promotion and Decimal boundary
+hardening, tests, static audit, and status work only.
 
 This contract selects Phase 31 v0.2 Hardening And Stable Completion. It
 records the approved merged Phase 31 direction and master plan. Slice 2 locks
 the current aggregate result matrix through tests/static audit and status
-documentation only, without starting Slice 3, starting Phase 32, or changing
+documentation only. Slice 3 locks current numeric promotion and Decimal
+boundaries through tests/static audit and status documentation only, without
+starting Slice 4, starting Phase 32, or changing
 compiler behavior.
 
 Phase 31 Slice 1 is complete as candidate decision, Phase 30 carry-forward
@@ -20,16 +22,23 @@ specs, and static audit only. If a later slice exposes a concrete
 contract/implementation mismatch, compiler behavior may change only after
 separate explicit approval.
 
-v0.2 is not complete yet at Phase 31 Slice 2. Phase 31 Slice 8 is the future
+v0.2 is not complete yet at Phase 31 Slice 3. Phase 31 Slice 8 is the future
 v0.2 Stable Completion Audit And Status Lock. Phase 31 completion may lock
 v0.2 stable if all criteria pass. Phase 32 is post-v0.2 work.
 
 Slice 2 adds no aggregate behavior, semantic behavior, IR model, SQL backend
 behavior, diagnostic behavior, CLI/JSON behavior, public API, fixture/golden,
 grammar, generated, source implementation, package, release, runtime, project,
-relationship/JOIN, schema introspection, or Slice 3 work. It does not
-authorize a behavior fix, v0.2 completion declaration in Slice 2, or Phase 32
-implementation.
+relationship/JOIN, or schema introspection.
+
+Slice 3 adds no Decimal multiplication implementation, Decimal division
+implementation, mixed Decimal promotion implementation, Decimal literal
+implementation, casts, SQL precision/scale behavior, behavior fix, aggregate
+expansion, semantic behavior, IR model, SQL backend behavior, diagnostic
+behavior, CLI/JSON behavior, public API, fixture/golden, grammar, generated,
+source implementation, package, release, runtime, project, relationship/JOIN,
+schema introspection, Slice 4 work, v0.2 completion declaration in Slice 3, or
+Phase 32 implementation.
 
 ## Trusted Baseline
 
@@ -118,8 +127,8 @@ Slice 1 is grounded in current implementation facts:
 8. v0.2 Stable Completion Audit And Status Lock.
 
 Slice 1 is complete as candidate decision, Phase 30 carry-forward audit,
-static audit, and status work only. Slice 2 is complete. Slices 3 through 8
-are planned only.
+static audit, and status work only. Slice 2 is complete. Slice 3 is complete.
+Slices 4 through 8 are planned only.
 
 ## Slice Boundaries
 
@@ -130,6 +139,9 @@ functions, aggregate modifiers, aggregate filters, window functions,
 `count_distinct(...)` expression behavior.
 
 Slice 2 locks the current aggregate result matrix:
+
+Phase 31 Slice 2 is complete as aggregate result matrix hardening, tests,
+static audit, and status work only.
 
 - `count()` is `Int not null`.
 - Existing count(field) behavior over concrete builtin non-Any fields is
@@ -159,11 +171,41 @@ Slice 2 adds no aggregate behavior, semantic behavior, IR model, SQL backend
 behavior, diagnostic behavior, CLI/JSON behavior, public API, fixture/golden,
 grammar, generated, source implementation, package, release, runtime, project,
 relationship/JOIN, schema introspection, or Slice 3 work.
+It does not authorize a behavior fix, v0.2 completion declaration in Slice 2,
+or Phase 32 implementation.
 
 Numeric Promotion And Decimal Boundary Tests means hardening current Int/Float
 promotion and Decimal boundaries. It does not add Decimal literals, Decimal
 multiplication, Decimal division, mixed Decimal promotion, casts, or a Decimal
 precision/scale carrier.
+
+Slice 3 locks the current numeric and Decimal matrix:
+
+- Int and Float numeric promotion remains current behavior: Int/Int binary
+  arithmetic returns `Int UNKNOWN`, Int/Float and Float/Int promotion returns
+  `Float UNKNOWN`, Float/Float binary arithmetic returns `Float UNKNOWN`, and
+  unary Int/Float preserves operand nullability.
+- Decimal `+` and `-` remain accepted only for Decimal/Decimal operands and
+  return `Decimal UNKNOWN`.
+- Decimal multiplication remains rejected current behavior.
+- division `/` remains semantically deferred/unknown and does not become
+  accepted SQL behavior.
+- Mixed Decimal promotion remains rejected current behavior.
+- Decimal literal syntax remains absent.
+- Casts remain absent.
+- No Decimal precision/scale carrier exists.
+- Generic `TypeExpr.arguments`, including `Decimal(12, 2)`, do not create
+  accepted precision/scale semantics.
+- Phase 28 numeric literal aggregate support remains limited to current
+  `sum`/`avg` bounded numeric expression argument behavior with at least one
+  field leaf.
+- Literal-only aggregate arguments remain unsupported.
+
+Slice 3 adds no aggregate behavior, semantic behavior, IR model, SQL backend
+behavior, diagnostic behavior, CLI/JSON behavior, public API, fixture/golden,
+grammar, generated, source implementation, package, release, runtime, project,
+relationship/JOIN, schema introspection, Slice 4 work, v0.2 completion
+declaration in Slice 3, or Phase 32 implementation.
 
 Date / Timestamp SQL Compatibility Audit means proving current accepted
 Date/Timestamp SQL behavior remains within the current PostgreSQL/private
@@ -229,8 +271,14 @@ This contract does not authorize:
 - Money or Currency primitives;
 - semantic annotation syntax;
 - Decimal precision/scale carrier;
+- Decimal multiplication implementation;
+- Decimal division implementation;
+- mixed Decimal promotion implementation;
+- Decimal literal implementation;
+- casts;
+- SQL precision/scale behavior;
 - UUID or Enum behavior implementation;
 - package version bump, release tag, publication, upload, signing,
   attestation, or release artifact changes;
 - Phase 32 implementation;
-- v0.2 completion declaration in Slice 1 or Slice 2.
+- v0.2 completion declaration in Slice 1, Slice 2, or Slice 3.

@@ -2,8 +2,8 @@
 
 ## Status
 
-Phase 31 Slice 2 is complete as aggregate result matrix hardening, tests,
-static audit, and status work only.
+Phase 31 Slice 3 is complete as numeric promotion and Decimal boundary
+hardening, tests, static audit, and status work only.
 
 Slice 1 selects **Phase 31 v0.2 Hardening And Stable Completion** as the
 approved Phase 31 direction. It replaces the earlier split where Phase 31 was
@@ -20,7 +20,7 @@ mismatch, compiler behavior may change only after separate explicit approval.
 
 Phase 29 deferred register remains active. Phase 29 aggregate freeze remains
 active. Phase 30 type-system contracts are carried forward. v0.2 is not
-complete yet at Phase 31 Slice 2. Phase 31 Slice 8 is the future v0.2 Stable
+complete yet at Phase 31 Slice 3. Phase 31 Slice 8 is the future v0.2 Stable
 Completion Audit And Status Lock. Phase 31 completion may lock v0.2 stable if
 all criteria pass. Phase 32 is post-v0.2 work.
 
@@ -28,9 +28,19 @@ Slice 2 locks the current aggregate result matrix through tests/static audit
 and status documentation only. Slice 2 adds no aggregate behavior, semantic
 behavior, IR model, SQL backend behavior, diagnostic behavior, CLI/JSON
 behavior, public API, fixture/golden, grammar, generated, source
+implementation, package, release, runtime, project, relationship/JOIN, or
+schema introspection.
+
+Slice 3 locks current numeric promotion and Decimal boundaries through
+tests/static audit and status documentation only. Slice 3 adds no Decimal
+multiplication implementation, Decimal division implementation, mixed Decimal
+promotion implementation, Decimal literal implementation, casts, SQL
+precision/scale behavior, behavior fix, aggregate expansion, semantic
+behavior, IR model, SQL backend behavior, diagnostic behavior, CLI/JSON
+behavior, public API, fixture/golden, grammar, generated, source
 implementation, package, release, runtime, project, relationship/JOIN, schema
-introspection, or Slice 3 work. It does not authorize a behavior fix, v0.2
-completion declaration in Slice 2, or Phase 32 implementation.
+introspection, Slice 4 work, v0.2 completion declaration in Slice 3, or Phase
+32 implementation.
 
 ## Trusted Baseline
 
@@ -84,7 +94,7 @@ Carry-forward facts:
 - MySQL remains private to explicit CLI dispatch;
 - JSON v1 remains the current single-file machine-readable output contract and
   has no type-output fields;
-- v0.2 is not complete yet at Phase 31 Slice 2.
+- v0.2 is not complete yet at Phase 31 Slice 3.
 
 ## Candidate Decision
 
@@ -105,7 +115,7 @@ behavior.
 
 ## Phase 31 Master Plan
 
-Slice 2 is complete. Slices 3 through 8 are planned only.
+Slice 3 is complete. Slices 4 through 8 are planned only.
 
 ### Slice 1: Candidate Decision And Phase 30 Carry-forward Audit
 
@@ -139,6 +149,9 @@ Validation:
 
 Status: complete as aggregate result matrix hardening, tests, static audit,
 and status work only.
+
+Phase 31 Slice 2 is complete as aggregate result matrix hardening, tests,
+static audit, and status work only.
 
 Goal: lock the accepted result type and nullability matrix for `count`,
 `count_distinct`, `sum`, `avg`, `min`, and `max` across semantic helpers, IR
@@ -178,17 +191,52 @@ Slice 2 adds no aggregate behavior, semantic behavior, IR model, SQL backend
 behavior, diagnostic behavior, CLI/JSON behavior, public API, fixture/golden,
 grammar, generated, source implementation, package, release, runtime, project,
 relationship/JOIN, schema introspection, or Slice 3 work.
+It does not authorize a behavior fix, v0.2 completion declaration in Slice 2,
+or Phase 32 implementation.
 
 ### Slice 3: Numeric Promotion And Decimal Boundary Tests
 
-Status: planned only.
+Status: complete as numeric promotion and Decimal boundary hardening, tests,
+static audit, and status work only.
 
 Goal: harden current Int/Float promotion, Decimal `+` and `-`, deferred
 Decimal `*` and `/`, no Decimal literals, no casts, no Decimal precision/scale
 carrier, and no mixed Decimal promotion.
 
-Boundary: no numeric behavior expansion and no Decimal precision/scale
-implementation.
+Slice 3 numeric and Decimal facts:
+
+- Int and Float numeric promotion remains current behavior: Int/Int binary
+  arithmetic returns `Int UNKNOWN`, Int/Float and Float/Int promotion returns
+  `Float UNKNOWN`, Float/Float binary arithmetic returns `Float UNKNOWN`, and
+  unary Int/Float preserves operand nullability.
+- Decimal `+` and `-` remain accepted only for Decimal/Decimal operands and
+  return `Decimal UNKNOWN`.
+- Decimal multiplication remains rejected current behavior.
+- Decimal division implementation is not added; division `/` remains
+  semantically deferred/unknown and does not become accepted SQL behavior.
+- Mixed Decimal promotion remains rejected current behavior.
+- Decimal literal syntax remains absent.
+- Casts remain absent.
+- No Decimal precision/scale carrier exists.
+- Generic `TypeExpr.arguments`, including `Decimal(12, 2)`, do not create
+  accepted precision/scale semantics.
+- Phase 28 numeric literal aggregate support remains limited to current
+  `sum`/`avg` bounded numeric expression argument behavior with at least one
+  field leaf.
+- Literal-only aggregate arguments remain unsupported.
+
+Boundary: no numeric behavior expansion, no Decimal precision/scale
+implementation, no aggregate expansion, no diagnostic behavior change, no SQL
+backend behavior change, no CLI/JSON behavior change, no public API change,
+and no Slice 4 work.
+
+Artifacts:
+
+- `tests/test_phase31_numeric_promotion_decimal_boundary.py`;
+- focused updates to this plan and
+  `docs/spec/v02-hardening-and-stable-completion-v1.md`;
+- minimal status documentation updates;
+- exact hash-lock updates where status documentation changed.
 
 ### Slice 4: Date / Timestamp SQL Compatibility Audit
 
@@ -260,7 +308,7 @@ Phase 31 Slice 1 does not start Phase 32 or implement any post-v0.2 work.
 
 ## Phase-wide Non-goals
 
-Phase 31 Slices 1 and 2 and this master plan do not authorize:
+Phase 31 Slices 1 through 3 and this master plan do not authorize:
 
 - source implementation changes;
 - grammar changes;
@@ -283,14 +331,20 @@ Phase 31 Slices 1 and 2 and this master plan do not authorize:
 - Money or Currency primitives;
 - semantic annotation syntax;
 - Decimal precision/scale carrier;
+- Decimal multiplication implementation;
+- Decimal division implementation;
+- mixed Decimal promotion implementation;
+- Decimal literal implementation;
+- casts;
+- SQL precision/scale behavior;
 - UUID or Enum behavior implementation;
 - package version, release tag, publication, upload, signing, attestation, or
   release artifact changes;
 - Phase 32 implementation;
-- v0.2 completion declaration in Slice 1 or Slice 2.
+- v0.2 completion declaration in Slice 1, Slice 2, or Slice 3.
 
 ## Future Workflow Reminder
 
-Phase 31 Slice 2 is the latest implemented slice here. Do not stage real
+Phase 31 Slice 3 is the latest implemented slice here. Do not stage real
 content, commit, or push without a separate Gate 3 approval. Do not start
-Slice 3 or Phase 32 without separate approval.
+Slice 4 or Phase 32 without separate approval.
