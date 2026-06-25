@@ -51,6 +51,7 @@ PHASE31_ARTIFACTS = (
     "docs/plan/phase-31-v02-hardening-and-stable-completion.md",
     "docs/spec/v02-hardening-and-stable-completion-v1.md",
     "tests/test_phase31_candidate_decision.py",
+    "tests/test_phase31_aggregate_result_matrix_hardening.py",
 )
 
 PHASE31_SLICES = (
@@ -111,7 +112,7 @@ def test_phase31_slice1_artifacts_and_preferred_paths_are_locked() -> None:
         "final Phase 30 commit: `Complete Phase 30 core type system "
         "stabilization audit`",
         "CI run: `27891119809 success`",
-        "v0.2 is not complete yet at Phase 31 Slice 1",
+        "v0.2 is not complete yet at Phase 31 Slice 2",
         "Phase 31 Slice 8 is the future v0.2 Stable Completion Audit And Status Lock",
         "Phase 31 completion may lock v0.2 stable if all criteria pass",
         "Phase 32 is post-v0.2 work",
@@ -168,7 +169,21 @@ def test_phase31_master_plan_and_slice_boundaries_are_locked() -> None:
         "Slice 1 does not implement Slice 2",
         "It does not authorize behavior fixes or production changes",
         "compiler behavior may change only after separate explicit approval",
-        "Slices 2 through 8 are planned only",
+        "Phase 31 Slice 2 is complete as aggregate result matrix hardening, "
+        "tests, static audit, and status work only",
+        "Slice 2 is complete. Slices 3 through 8 are planned only",
+        "count(Enum field) remains a documented risk",
+        "semantic/IR acceptance with PostgreSQL/private MySQL fail-closed output",
+        "requires separate explicit approval before any behavior fix",
+        "Bytes and Json are recorded only as existing count(field) concrete "
+        "builtin non-Any behavior",
+        "does not imply broader Bytes or Json expression, comparison, SQL, or "
+        "type-system support",
+        "min(Decimal) and max(Decimal) are included only as current accepted "
+        "behavior with existing semantic, IR, and SQL test evidence",
+        "Accepted locked matrix rows have concrete expected nullability",
+        "Unsupported or invalid forms may preserve unknown schema/value facts "
+        "through existing diagnostics",
         "Do not add UUID or Enum behavior without separate explicit approval",
         "This slice must not imply JSON v1 schema expansion",
         "no package version bump, release tag, publishing",
@@ -180,6 +195,10 @@ def test_phase31_master_plan_and_slice_boundaries_are_locked() -> None:
     for required in (
         "Slice 1 is docs/spec/static-audit/status only",
         "Later Phase 31 hardening may mean tests, specs, and static audit only",
+        "Phase 31 Slice 2 is complete as aggregate result matrix hardening, "
+        "tests, static audit, and status work only",
+        "Slice 2 is complete. Slices 3 through 8 are planned only",
+        "count(Enum field) remains a documented risk",
         "No new JSON fields, JSON v2, public MySQL API expansion, CLI behavior "
         "change, or diagnostic behavior change may happen without later "
         "explicit approval",
@@ -200,7 +219,7 @@ def test_phase31_post_v02_roadmap_is_locked_without_phase32_start() -> None:
     for required in (
         "Phase 31 Slice 1 does not start Phase 32 or implement any post-v0.2 work",
         "Do not stage real content, commit, or push without a separate Gate 3 approval",
-        "Do not start Slice 2 or Phase 32 without separate approval",
+        "Do not start Slice 3 or Phase 32 without separate approval",
     ):
         assert required in plan
 
@@ -346,23 +365,31 @@ def test_phase31_slice1_hard_non_goals_are_locked() -> None:
         assert forbidden not in combined
 
 
-def test_phase31_status_docs_record_slice1_without_v02_completion() -> None:
+def test_phase31_status_docs_record_slice2_without_v02_completion() -> None:
     for relative_path in ("README.md", "AGENTS.md", "docs/spec/pietto-v0.9.md"):
         status_doc = _normalized(REPO_ROOT / relative_path)
         for required in (
             "Phase 31 v0.2 Hardening And Stable Completion",
             "Phase 31 Slice 1 is complete as candidate decision, Phase 30 "
             "carry-forward audit, static audit, and status work only",
+            "Phase 31 Slice 2 Aggregate Result Matrix Hardening is complete "
+            "as tests/static-audit/status work only",
             "Phase 29 deferred register remains active",
             "Phase 29 aggregate freeze remains active",
             "Phase 30 type-system contracts are carried forward",
-            "v0.2 is not complete yet at Phase 31 Slice 1",
+            "v0.2 is not complete yet at Phase 31 Slice 2",
             "Phase 31 Slice 8 is the future v0.2 Stable Completion Audit And "
             "Status Lock",
             "Phase 31 completion may lock v0.2 stable if all criteria pass",
             "Phase 32 is post-v0.2 Semantic Explain And Metadata Output MVP",
             "no Phase 31 behavior implementation in Slice 1",
+            "no Phase 31 behavior implementation in Slice 2",
             "no Phase 32 implementation in Slice 1",
+            "no Phase 32 implementation in Slice 2",
+            "count(Enum field) remains a documented risk",
+            "semantic/IR acceptance with PostgreSQL/private MySQL fail-closed output",
+            "Bytes and Json are recorded only as existing count(field) "
+            "concrete builtin non-Any behavior",
             "JSON v1 schema expansion",
             "public MySQL API",
             "UUID or Enum behavior implementation",

@@ -2129,8 +2129,11 @@ expansion, or Phase 31 implementation.
 
 ### Phase 31: v0.2 Hardening And Stable Completion
 
-Status: Phase 31 Slice 1 is complete as candidate decision, Phase 30
-carry-forward audit, static audit, and status work only.
+Status: Phase 31 Slice 2 Aggregate Result Matrix Hardening is complete as
+tests/static-audit/status work only.
+
+Phase 31 Slice 1 is complete as candidate decision, Phase 30 carry-forward
+audit, static audit, and status work only.
 
 Phase 31 Slice 1 selects v0.2 Hardening And Stable Completion, records the
 trusted final Phase 30 baseline
@@ -2145,7 +2148,8 @@ Carry-forward Audit, Aggregate Result Matrix Hardening, Numeric Promotion And
 Decimal Boundary Tests, Date / Timestamp SQL Compatibility Audit, UUID / Enum
 Readiness Decision, Diagnostic / CLI / JSON Stability Hardening, Docs /
 Examples / Package / CI v0.2 Readiness Audit, and v0.2 Stable Completion
-Audit And Status Lock. Slices 2 through 8 remain planned only.
+Audit And Status Lock. Slice 2 is complete. Slices 3 through 8 remain planned
+only.
 
 Phase 31 Slice 1 adds no Phase 31 behavior implementation in Slice 1, no
 behavior fixes, no source implementation, grammar, generated, fixture, golden,
@@ -2157,12 +2161,27 @@ DateTime/Time/Interval/timezone semantics, Money/Currency primitive, semantic
 annotation syntax, Decimal precision/scale carrier, UUID or Enum behavior
 implementation, no Phase 32 implementation in Slice 1, package version bump,
 release tag, publishing, or v0.2 completion declaration. Phase 31 as a whole
-is not complete, v0.2 is not complete yet at Phase 31 Slice 1, and Phase 31
-Slice 8 is the future v0.2 Stable Completion Audit And Status Lock. Phase 31
-completion may lock v0.2 stable if all criteria pass. Phase 32 is post-v0.2
-Semantic Explain And Metadata Output MVP; Phase 33 is Project And Multi-file
-MVP; Phase 34 is Semantic Graph / ERD / AI Metadata Export MVP; Phase 35 is
-Relationship Grain And Narrow JOIN MVP.
+is not complete. Phase 31 Slice 2 Aggregate Result Matrix Hardening is
+complete as tests/static-audit/status work only. Slice 2 locks the current
+aggregate result matrix without behavior changes. Decimal `min` and `max` are
+included only as current accepted behavior with existing semantic, IR, and SQL
+test evidence. Bytes and Json are recorded only as existing count(field)
+concrete builtin non-Any behavior; this does not imply broader Bytes or Json
+expression, comparison, SQL, or type-system support. count(Enum field)
+remains a documented risk because current semantic/IR acceptance has
+PostgreSQL/private MySQL fail-closed output. The risk is semantic/IR
+acceptance with PostgreSQL/private MySQL fail-closed output and requires
+separate explicit approval before any behavior fix. Slice 2 adds no Phase 31
+behavior implementation in Slice 2, no Phase 32 implementation in Slice 2, no
+behavior fixes, no source implementation, grammar, generated, fixture, golden,
+script, package, CI, public API, CLI, JSON, IR, SQL, semantic, aggregate,
+diagnostic, predicate, runtime, project/multi-file, relationship/JOIN, schema
+introspection, or type-system behavior changes. v0.2 is not complete yet at
+Phase 31 Slice 2, and Phase 31 Slice 8 is the future v0.2 Stable Completion
+Audit And Status Lock. Phase 31 completion may lock v0.2 stable if all
+criteria pass. Phase 32 is post-v0.2 Semantic Explain And Metadata Output
+MVP; Phase 33 is Project And Multi-file MVP; Phase 34 is Semantic Graph / ERD
+/ AI Metadata Export MVP; Phase 35 is Relationship Grain And Narrow JOIN MVP.
 
 ---
 

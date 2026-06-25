@@ -119,15 +119,26 @@ The current implementation status is:
   implementation**.
 - **Phase 31 v0.2 Hardening And Stable Completion: Phase 31 Slice 1 is
   complete as candidate decision, Phase 30 carry-forward audit, static audit,
-  and status work only. Phase 29 deferred register remains active, Phase 29
-  aggregate freeze remains active, and Phase 30 type-system contracts are
-  carried forward. Phase 31 Slice 1 adds no Phase 31 behavior implementation
-  in Slice 1, no Phase 32 implementation in Slice 1, no JSON v1 schema
-  expansion, no JSON v2, no public MySQL API expansion, no CLI, diagnostic,
-  semantic, IR, SQL, aggregate, type-system, runtime, project,
+  and status work only. Phase 31 Slice 2 Aggregate Result Matrix Hardening is
+  complete as tests/static-audit/status work only. Phase 29 deferred register
+  remains active, Phase 29 aggregate freeze remains active, and Phase 30
+  type-system contracts are carried forward. Slice 2 locks the current
+  aggregate result matrix without behavior changes: Decimal `min`/`max` are
+  included only as current accepted behavior with existing semantic, IR, and
+  SQL test evidence; Bytes and Json are recorded only as existing
+  count(field) concrete builtin non-Any behavior and do not imply broader
+  Bytes or Json expression, comparison, SQL, or type-system support; and
+  count(Enum field) remains a documented risk because current semantic/IR
+  acceptance has PostgreSQL/private MySQL fail-closed output; the risk is
+  semantic/IR acceptance with PostgreSQL/private MySQL fail-closed output.
+  Phase 31 Slice 1 adds no Phase 31 behavior implementation in Slice 1, and
+  Slice 2 adds no Phase 31 behavior implementation in Slice 2, no Phase 32
+  implementation in Slice 1, no Phase 32 implementation in Slice 2, no JSON
+  v1 schema expansion, no JSON v2, no public MySQL API expansion, no CLI,
+  diagnostic, semantic, IR, SQL, aggregate, type-system, runtime, project,
   relationship/JOIN, schema introspection, Decimal precision/scale carrier,
   UUID or Enum behavior implementation, Money/Currency primitive, or semantic
-  annotation behavior. v0.2 is not complete yet at Phase 31 Slice 1. Phase 31
+  annotation behavior. v0.2 is not complete yet at Phase 31 Slice 2. Phase 31
   Slice 8 is the future v0.2 Stable Completion Audit And Status Lock, and
   Phase 31 completion may lock v0.2 stable if all criteria pass. Phase 32 is
   post-v0.2 Semantic Explain And Metadata Output MVP**.
@@ -329,22 +340,34 @@ candidate decision, Phase 30 carry-forward audit, static audit, and status
 work only. Slice 1 selects the approved merged Phase 31 direction, adds the
 eight-slice master plan, and records that Phase 29 deferred register remains
 active, Phase 29 aggregate freeze remains active, and Phase 30 type-system
-contracts are carried forward. Phase 31 as a whole is not complete, v0.2 is
-not complete yet at Phase 31 Slice 1, and Phase 31 Slice 8 is the future v0.2
-Stable Completion Audit And Status Lock. Phase 31 completion may lock v0.2
-stable if all criteria pass. Phase 32 is post-v0.2 Semantic Explain And
-Metadata Output MVP; Phase 33 is Project And Multi-file MVP; Phase 34 is
-Semantic Graph / ERD / AI Metadata Export MVP; Phase 35 is Relationship Grain
-And Narrow JOIN MVP. Slice 1 adds no Phase 31 behavior implementation in
-Slice 1, no behavior fixes, no source implementation, grammar, generated,
-fixture, golden, script, package, CI, public API, CLI, JSON, IR, SQL,
-semantic, aggregate, diagnostic, predicate, runtime, project/multi-file,
-relationship/JOIN, schema introspection, or type-system behavior changes. It
-adds no JSON v1 schema expansion, JSON v2, public MySQL API expansion,
-DateTime/Time/Interval/timezone semantics, Money/Currency primitive, semantic
-annotation syntax, Decimal precision/scale carrier, UUID or Enum behavior
-implementation, Phase 32 implementation in Slice 1, v0.2 completion
-declaration, package version bump, release tag, or publishing.
+contracts are carried forward. Phase 31 Slice 2 Aggregate Result Matrix
+Hardening is complete as tests/static-audit/status work only. Slice 2 locks
+the current aggregate result matrix without behavior changes. Decimal `min`
+and `max` are included only as current accepted behavior with existing
+semantic, IR, and SQL test evidence. Bytes and Json are recorded only as
+existing count(field) concrete builtin non-Any behavior; this does not imply
+broader Bytes or Json expression, comparison, SQL, or type-system support.
+count(Enum field) remains a documented risk because current semantic/IR
+acceptance has PostgreSQL/private MySQL fail-closed output. The risk is
+semantic/IR acceptance with PostgreSQL/private MySQL fail-closed output and
+requires separate explicit approval before any behavior fix. Phase 31 as a
+whole is not complete, v0.2 is not complete yet at Phase 31 Slice 2, and
+Phase 31 Slice 8 is the future v0.2 Stable Completion Audit And Status Lock.
+Phase 31 completion may lock v0.2 stable if all criteria pass. Phase 32 is
+post-v0.2 Semantic Explain And Metadata Output MVP; Phase 33 is Project And
+Multi-file MVP; Phase 34 is Semantic Graph / ERD / AI Metadata Export MVP;
+Phase 35 is Relationship Grain And Narrow JOIN MVP. Slice 1 adds no Phase 31
+behavior implementation in Slice 1, and Slice 2 adds no Phase 31 behavior
+implementation in Slice 2, no Phase 32 implementation in Slice 1, no Phase 32
+implementation in Slice 2, no behavior fixes, no source implementation,
+grammar, generated, fixture, golden, script, package, CI, public API, CLI,
+JSON, IR, SQL, semantic, aggregate, diagnostic, predicate, runtime,
+project/multi-file, relationship/JOIN, schema introspection, or type-system
+behavior changes. It adds no JSON v1 schema expansion, JSON v2, public MySQL
+API expansion, DateTime/Time/Interval/timezone semantics, Money/Currency
+primitive, semantic annotation syntax, Decimal precision/scale carrier, UUID
+or Enum behavior implementation, v0.2 completion declaration, package version
+bump, release tag, or publishing.
 
 The supported single-file CLI commands and forms include:
 

@@ -2,12 +2,17 @@
 
 ## Status
 
-Phase 31 Slice 1 is complete as candidate decision, Phase 30 carry-forward
-audit, static audit, and status work only.
+Phase 31 Slice 2 is complete as aggregate result matrix hardening, tests,
+static audit, and status work only.
 
 This contract selects Phase 31 v0.2 Hardening And Stable Completion. It
-records the approved merged Phase 31 direction and master plan without
-implementing Slice 2, starting Phase 32, or changing compiler behavior.
+records the approved merged Phase 31 direction and master plan. Slice 2 locks
+the current aggregate result matrix through tests/static audit and status
+documentation only, without starting Slice 3, starting Phase 32, or changing
+compiler behavior.
+
+Phase 31 Slice 1 is complete as candidate decision, Phase 30 carry-forward
+audit, static audit, and status work only.
 
 Slice 1 is docs/spec/static-audit/status only. It does not pre-authorize
 behavior fixes or production changes. Later Phase 31 hardening may mean tests,
@@ -15,9 +20,16 @@ specs, and static audit only. If a later slice exposes a concrete
 contract/implementation mismatch, compiler behavior may change only after
 separate explicit approval.
 
-v0.2 is not complete yet at Phase 31 Slice 1. Phase 31 Slice 8 is the future
+v0.2 is not complete yet at Phase 31 Slice 2. Phase 31 Slice 8 is the future
 v0.2 Stable Completion Audit And Status Lock. Phase 31 completion may lock
 v0.2 stable if all criteria pass. Phase 32 is post-v0.2 work.
+
+Slice 2 adds no aggregate behavior, semantic behavior, IR model, SQL backend
+behavior, diagnostic behavior, CLI/JSON behavior, public API, fixture/golden,
+grammar, generated, source implementation, package, release, runtime, project,
+relationship/JOIN, schema introspection, or Slice 3 work. It does not
+authorize a behavior fix, v0.2 completion declaration in Slice 2, or Phase 32
+implementation.
 
 ## Trusted Baseline
 
@@ -106,7 +118,8 @@ Slice 1 is grounded in current implementation facts:
 8. v0.2 Stable Completion Audit And Status Lock.
 
 Slice 1 is complete as candidate decision, Phase 30 carry-forward audit,
-static audit, and status work only. Slices 2 through 8 are planned only.
+static audit, and status work only. Slice 2 is complete. Slices 3 through 8
+are planned only.
 
 ## Slice Boundaries
 
@@ -115,6 +128,37 @@ and nullability behavior for existing aggregates. It does not add aggregate
 functions, aggregate modifiers, aggregate filters, window functions,
 `count(expression)`, `min(expression)`, `max(expression)`, or broader
 `count_distinct(...)` expression behavior.
+
+Slice 2 locks the current aggregate result matrix:
+
+- `count()` is `Int not null`.
+- Existing count(field) behavior over concrete builtin non-Any fields is
+  recorded narrowly, including `Bytes`, `Json`, and `UUID`. Bytes and Json are
+  recorded only as existing count(field) concrete builtin non-Any behavior;
+  this does not imply broader Bytes or Json expression, comparison, SQL, or
+  type-system support.
+- count(Enum field) remains a documented risk: current semantic/IR
+  acceptance with PostgreSQL/private MySQL fail-closed output. Enum is not an
+  accepted end-to-end matrix row and requires separate explicit approval
+  before any behavior fix.
+- `count_distinct(field)` remains limited to current supported direct-field
+  types, including existing direct-field `count_distinct(UUID)`.
+- `count_distinct(lower/trim Text chain)` remains limited to the existing
+  lower/trim chain over one Text field leaf.
+- `sum` and `avg` remain limited to current numeric direct-field and already
+  accepted bounded numeric expression argument forms.
+- `min` and `max` remain limited to direct supported field arguments.
+  min(Decimal) and max(Decimal) are included only as current accepted
+  behavior with existing semantic, IR, and SQL test evidence.
+- Accepted locked matrix rows have concrete expected nullability:
+  `count`, `count(field)`, and `count_distinct(...)` are not-null; accepted
+  `sum`, `avg`, `min`, and `max` rows are nullable. Unsupported or invalid
+  forms may preserve unknown schema/value facts through existing diagnostics.
+
+Slice 2 adds no aggregate behavior, semantic behavior, IR model, SQL backend
+behavior, diagnostic behavior, CLI/JSON behavior, public API, fixture/golden,
+grammar, generated, source implementation, package, release, runtime, project,
+relationship/JOIN, schema introspection, or Slice 3 work.
 
 Numeric Promotion And Decimal Boundary Tests means hardening current Int/Float
 promotion and Decimal boundaries. It does not add Decimal literals, Decimal
@@ -189,4 +233,4 @@ This contract does not authorize:
 - package version bump, release tag, publication, upload, signing,
   attestation, or release artifact changes;
 - Phase 32 implementation;
-- v0.2 completion declaration in Slice 1.
+- v0.2 completion declaration in Slice 1 or Slice 2.

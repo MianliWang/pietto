@@ -2,13 +2,16 @@
 
 ## Status
 
-Phase 31 Slice 1 is complete as candidate decision, Phase 30 carry-forward
-audit, static audit, and status work only.
+Phase 31 Slice 2 is complete as aggregate result matrix hardening, tests,
+static audit, and status work only.
 
 Slice 1 selects **Phase 31 v0.2 Hardening And Stable Completion** as the
 approved Phase 31 direction. It replaces the earlier split where Phase 31 was
 Core Type System Stabilization II And Dialect Matrix Hardening and Phase 32
 was the v0.2 completion audit.
+
+Phase 31 Slice 1 is complete as candidate decision, Phase 30 carry-forward
+audit, static audit, and status work only.
 
 Slice 1 does not implement Slice 2. It does not authorize behavior fixes or
 production changes. Later Phase 31 hardening can mean tests, specs, and static
@@ -17,9 +20,17 @@ mismatch, compiler behavior may change only after separate explicit approval.
 
 Phase 29 deferred register remains active. Phase 29 aggregate freeze remains
 active. Phase 30 type-system contracts are carried forward. v0.2 is not
-complete yet at Phase 31 Slice 1. Phase 31 Slice 8 is the future v0.2 Stable
+complete yet at Phase 31 Slice 2. Phase 31 Slice 8 is the future v0.2 Stable
 Completion Audit And Status Lock. Phase 31 completion may lock v0.2 stable if
 all criteria pass. Phase 32 is post-v0.2 work.
+
+Slice 2 locks the current aggregate result matrix through tests/static audit
+and status documentation only. Slice 2 adds no aggregate behavior, semantic
+behavior, IR model, SQL backend behavior, diagnostic behavior, CLI/JSON
+behavior, public API, fixture/golden, grammar, generated, source
+implementation, package, release, runtime, project, relationship/JOIN, schema
+introspection, or Slice 3 work. It does not authorize a behavior fix, v0.2
+completion declaration in Slice 2, or Phase 32 implementation.
 
 ## Trusted Baseline
 
@@ -73,7 +84,7 @@ Carry-forward facts:
 - MySQL remains private to explicit CLI dispatch;
 - JSON v1 remains the current single-file machine-readable output contract and
   has no type-output fields;
-- v0.2 is not complete yet at Phase 31 Slice 1.
+- v0.2 is not complete yet at Phase 31 Slice 2.
 
 ## Candidate Decision
 
@@ -94,7 +105,7 @@ behavior.
 
 ## Phase 31 Master Plan
 
-Slices 2 through 8 are planned only.
+Slice 2 is complete. Slices 3 through 8 are planned only.
 
 ### Slice 1: Candidate Decision And Phase 30 Carry-forward Audit
 
@@ -126,7 +137,8 @@ Validation:
 
 ### Slice 2: Aggregate Result Matrix Hardening
 
-Status: planned only.
+Status: complete as aggregate result matrix hardening, tests, static audit,
+and status work only.
 
 Goal: lock the accepted result type and nullability matrix for `count`,
 `count_distinct`, `sum`, `avg`, `min`, and `max` across semantic helpers, IR
@@ -135,6 +147,37 @@ expectations, and PostgreSQL/private MySQL SQL renderer guards.
 Boundary: no aggregate expansion, no new aggregate functions, no aggregate
 filters, no window functions, and no fixture or golden inventory change unless
 a separately approved bug-fix slice proves a concrete mismatch.
+
+Slice 2 matrix facts:
+
+- `count()` remains `Int not null`.
+- Existing count(field) behavior over concrete builtin non-Any fields is
+  recorded narrowly, including `Bytes`, `Json`, and `UUID`. Bytes and Json are
+  recorded only as existing count(field) concrete builtin non-Any behavior;
+  this does not imply broader Bytes or Json expression, comparison, SQL, or
+  type-system support.
+- count(Enum field) remains a documented risk: current semantic/IR
+  acceptance with PostgreSQL/private MySQL fail-closed output. Enum is not an
+  accepted end-to-end matrix row and requires separate explicit approval
+  before any behavior fix.
+- `count_distinct(field)` remains limited to current supported direct-field
+  types, including existing direct-field `count_distinct(UUID)`.
+- `count_distinct(lower/trim Text chain)` remains limited to the existing
+  lower/trim chain over one Text field leaf.
+- `sum` and `avg` remain limited to current numeric direct-field and already
+  accepted bounded numeric expression argument forms.
+- `min` and `max` remain limited to direct supported field arguments.
+  min(Decimal) and max(Decimal) are included only as current accepted
+  behavior with existing semantic, IR, and SQL test evidence.
+- Accepted locked matrix rows have concrete expected nullability:
+  `count`, `count(field)`, and `count_distinct(...)` are not-null; accepted
+  `sum`, `avg`, `min`, and `max` rows are nullable. Unsupported or invalid
+  forms may preserve unknown schema/value facts through existing diagnostics.
+
+Slice 2 adds no aggregate behavior, semantic behavior, IR model, SQL backend
+behavior, diagnostic behavior, CLI/JSON behavior, public API, fixture/golden,
+grammar, generated, source implementation, package, release, runtime, project,
+relationship/JOIN, schema introspection, or Slice 3 work.
 
 ### Slice 3: Numeric Promotion And Decimal Boundary Tests
 
@@ -217,7 +260,7 @@ Phase 31 Slice 1 does not start Phase 32 or implement any post-v0.2 work.
 
 ## Phase-wide Non-goals
 
-Phase 31 Slice 1 and this master plan do not authorize:
+Phase 31 Slices 1 and 2 and this master plan do not authorize:
 
 - source implementation changes;
 - grammar changes;
@@ -244,10 +287,10 @@ Phase 31 Slice 1 and this master plan do not authorize:
 - package version, release tag, publication, upload, signing, attestation, or
   release artifact changes;
 - Phase 32 implementation;
-- v0.2 completion declaration in Slice 1.
+- v0.2 completion declaration in Slice 1 or Slice 2.
 
 ## Future Workflow Reminder
 
-Phase 31 Slice 1 is the only implemented slice here. Do not stage real
+Phase 31 Slice 2 is the latest implemented slice here. Do not stage real
 content, commit, or push without a separate Gate 3 approval. Do not start
-Slice 2 or Phase 32 without separate approval.
+Slice 3 or Phase 32 without separate approval.
