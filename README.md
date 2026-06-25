@@ -125,6 +125,8 @@ The current implementation status is:
   work only. Phase 31 Slice 4 Date / Timestamp SQL Compatibility Audit is
   complete as tests/static-audit/status work only. Phase 31 Slice 5 UUID /
   Enum Readiness Decision is complete as tests/static-audit/status work only.
+  Phase 31 Slice 6 Diagnostic / CLI / JSON Stability Hardening is complete as
+  tests/static-audit/status/docs work only.
   Phase 29 deferred register
   remains active, Phase 29 aggregate freeze remains active, and Phase 30
   type-system contracts are carried forward. Slice 2 locks the current
@@ -161,13 +163,20 @@ The current implementation status is:
   approval before any behavior fix; Enum is not an accepted end-to-end
   aggregate row; and UUID/Enum comparisons remain current
   generic known-child comparison behavior producing `Bool UNKNOWN`, not a
-  UUID- or Enum-specific comparison compatibility matrix. Phase 31 Slice 1
+  UUID- or Enum-specific comparison compatibility matrix. Slice 6 locks
+  diagnostic inventory, CLI JSON v1 shape, public SQL API posture, and
+  selected backend diagnostic posture without behavior changes. `PIE-B1000`
+  documents current selected PostgreSQL/private MySQL backend fail-closed
+  behavior, `PIE-S2307` is active in the central diagnostics inventory with
+  the existing static LIMIT message, and `PIE-S2322` remains explicitly
+  historical/retired. Phase 31 Slice 1
   adds no Phase 31 behavior implementation in Slice 1, Slice 2 adds no
   Phase 31 behavior implementation in Slice 2, Slice 3 adds no Phase 31
   behavior implementation in Slice 3, and Slice 4 adds no Phase 31 behavior
   implementation in Slice 4, and Slice 5 adds no Phase 31 behavior
-  implementation in Slice 5, no Phase 32 implementation in Slices 1 through
-  5, no JSON v1 schema expansion, no JSON v2, no public MySQL API expansion,
+  implementation in Slice 5, and Slice 6 adds no Phase 31 behavior
+  implementation in Slice 6, no Phase 32 implementation in Slices 1 through
+  6, no JSON v1 schema expansion, no JSON v2, no public MySQL API expansion,
   no CLI, diagnostic, semantic, IR, SQL, aggregate, type-system, runtime,
   project, relationship/JOIN, schema introspection, UUID or Enum behavior
   implementation, UUID literal implementation, Enum literal implementation,
@@ -177,8 +186,9 @@ The current implementation status is:
   DateTime/Time/Interval/timezone semantics, no Date/Timestamp literal
   implementation, no temporal arithmetic implementation, no temporal function
   implementation, no timestamp precision modeling, and no native database
-  metadata, no tooling evaluation, no `ty`, and no coverage addition.
-  v0.2 is not complete yet at Phase 31 Slice 5. Phase 31 Slice 8 is the
+  metadata, no diagnostic code/message/severity/order/location behavior
+  changes, no tooling evaluation, no `ty`, and no coverage addition. v0.2 is
+  not complete yet at Phase 31 Slice 6. Phase 31 Slice 8 is the
   future v0.2 Stable Completion Audit And Status Lock, and Phase 31 completion
   may lock v0.2 stable if all criteria pass. Phase 32 is post-v0.2 Semantic
   Explain And Metadata Output MVP**.
@@ -434,10 +444,11 @@ And Narrow JOIN MVP. Slice 1 adds no Phase 31 behavior implementation in Slice
 1, Slice 2 adds no Phase 31 behavior implementation in Slice 2, Slice 3 adds
 no Phase 31 behavior implementation in Slice 3, Slice 4 adds no Phase 31
 behavior implementation in Slice 4, and Slice 5 adds no Phase 31 behavior
-implementation in Slice 5, no Phase 32 implementation in Slice 1, no Phase 32
+implementation in Slice 5, and Slice 6 adds no Phase 31 behavior
+implementation in Slice 6, no Phase 32 implementation in Slice 1, no Phase 32
 implementation in Slice 2, no Phase 32 implementation in Slice 3, no Phase 32
-implementation in Slice 4, no Phase 32 implementation in Slice 5, no behavior
-fixes, no source implementation, grammar, generated, fixture, golden, script,
+implementation in Slice 4, no Phase 32 implementation in Slice 5, no Phase 32
+implementation in Slice 6, no behavior fixes, no source implementation, grammar, generated, fixture, golden, script,
 package, CI, public API, CLI, JSON, IR, SQL, semantic, aggregate, diagnostic,
 predicate, runtime, project/multi-file, relationship/JOIN, schema
 introspection, or type-system behavior changes. It adds no JSON v1 schema
@@ -449,8 +460,9 @@ semantic annotation syntax, Decimal precision/scale carrier, UUID or Enum
 behavior implementation, UUID literal implementation, Enum literal
 implementation, UUID or Enum cast implementation, UUID or Enum storage, DDL,
 or native database metadata, broader UUID SQL behavior, broad Enum SQL
-support, Slice 6 work, tooling evaluation, `ty`, coverage addition, v0.2
-completion declaration, package version bump, release tag, or publishing.
+support, diagnostic code/message/severity/order/location behavior changes,
+no Slice 7 work, tooling evaluation, `ty`, coverage addition, v0.2 completion
+declaration, package version bump, release tag, or publishing.
 
 The supported single-file CLI commands and forms include:
 

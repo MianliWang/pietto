@@ -152,7 +152,7 @@ def test_phase31_slice2_plan_and_spec_lock_tests_static_audit_scope() -> None:
     for required in (
         "Phase 31 Slice 2 is complete as aggregate result matrix hardening, "
         "tests, static audit, and status work only",
-        "Slice 5 is complete. Slices 6 through 8 are planned only",
+        "Slice 6 is complete. Slices 7 and 8 are planned only",
         "Phase 29 aggregate freeze remains active",
         "Phase 30 type-system contracts are carried forward",
         "min(Decimal) and max(Decimal) are included only as current accepted "
@@ -164,6 +164,8 @@ def test_phase31_slice2_plan_and_spec_lock_tests_static_audit_scope() -> None:
         "count(Enum field) remains a documented risk",
         "Phase 31 Slice 5 is complete as UUID / Enum readiness decision, "
         "tests, static audit, and status work only",
+        "Phase 31 Slice 6 is complete as Diagnostic / CLI / JSON stability "
+        "hardening, tests, static audit, status, and docs work only",
         "UUID remains limited/frozen readiness",
         "Enum remains metadata readiness only",
         "semantic/IR acceptance with PostgreSQL/private MySQL fail-closed output",

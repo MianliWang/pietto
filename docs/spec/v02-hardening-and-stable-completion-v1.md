@@ -2,8 +2,8 @@
 
 ## Status
 
-Phase 31 Slice 5 is complete as UUID / Enum readiness decision, tests,
-static audit, and status work only.
+Phase 31 Slice 6 is complete as Diagnostic / CLI / JSON stability hardening,
+tests, static audit, status, and docs work only.
 
 This contract selects Phase 31 v0.2 Hardening And Stable Completion. It
 records the approved merged Phase 31 direction and master plan. Slice 2 locks
@@ -12,8 +12,11 @@ documentation only. Slice 3 locks current numeric promotion and Decimal
 boundaries through tests/static audit and status documentation only. Slice 4
 locks current Date / Timestamp SQL compatibility through tests/static audit
 and status documentation only. Slice 5 locks the UUID / Enum readiness
-decision through tests/static audit and status documentation only, without
-starting Slice 6, starting Phase 32, or changing compiler behavior.
+decision through tests/static audit and status documentation only. Slice 6
+locks diagnostic inventory, CLI JSON v1 shape, public SQL API posture, and
+selected backend diagnostic posture through tests/static audit, status
+documentation, and narrow docs-only diagnostics inventory corrections,
+without starting Slice 7, starting Phase 32, or changing compiler behavior.
 
 Phase 31 Slice 1 is complete as candidate decision, Phase 30 carry-forward
 audit, static audit, and status work only.
@@ -24,7 +27,7 @@ specs, and static audit only. If a later slice exposes a concrete
 contract/implementation mismatch, compiler behavior may change only after
 separate explicit approval.
 
-v0.2 is not complete yet at Phase 31 Slice 5. Phase 31 Slice 8 is the future
+v0.2 is not complete yet at Phase 31 Slice 6. Phase 31 Slice 8 is the future
 v0.2 Stable Completion Audit And Status Lock. Phase 31 completion may lock
 v0.2 stable if all criteria pass. Phase 32 is post-v0.2 work.
 
@@ -78,7 +81,23 @@ semantic behavior, IR model, SQL backend behavior, diagnostic behavior,
 CLI/JSON behavior, public API, public MySQL API expansion, fixture/golden,
 grammar, generated, source implementation, package, release, tooling, `ty`,
 coverage, runtime, project, relationship/JOIN, schema introspection, Slice 6
-work, v0.2 completion declaration in Slice 5, or Phase 32 implementation.
+behavior implementation, v0.2 completion declaration in Slice 5, or Phase 32
+implementation.
+
+Slice 6 adds only tests/static audit, status documentation, and docs-only
+diagnostics inventory corrections. Diagnostic inventory audit distinguishes
+active diagnostics from historical/retired diagnostics: every currently
+source-emitted PIE diagnostic code is documented, every documented active
+diagnostic code corresponds to current behavior, historical/retired/reserved
+rows may intentionally have no current source emission, `PIE-S2322` remains
+explicitly historical/retired, and `PIE-S2307` is active and present in the
+central diagnostics inventory. `PIE-B1000` describes current selected
+PostgreSQL/private MySQL backend fail-closed behavior. No diagnostic code,
+message, severity, ordering, or location behavior changes are authorized. No
+CLI behavior change, JSON v1 schema expansion, new JSON fields, JSON v2,
+public MySQL API expansion, tooling evaluation, `ty`, coverage addition, no
+Slice 7 work, v0.2 completion declaration in Slice 6, or Phase 32
+implementation is authorized.
 
 ## Trusted Baseline
 
@@ -169,8 +188,8 @@ Slice 1 is grounded in current implementation facts:
 
 Slice 1 is complete as candidate decision, Phase 30 carry-forward audit,
 static audit, and status work only. Slice 2 is complete. Slice 3 is complete.
-Slice 4 is complete. Slice 5 is complete. Slices 6 through 8 are planned
-only.
+Slice 4 is complete. Slice 5 is complete. Slice 6 is complete. Slices 7 and 8
+are planned only.
 
 ## Slice Boundaries
 
@@ -332,13 +351,37 @@ Slice 5 adds no aggregate behavior, semantic behavior, IR model, SQL backend
 behavior, diagnostic behavior, CLI/JSON behavior, public API, fixture/golden,
 grammar, generated, source implementation, package, release, runtime,
 project, relationship/JOIN, schema introspection, public MySQL API expansion,
-tooling evaluation, `ty`, coverage, Slice 6 work, v0.2 completion
-declaration in Slice 5, or Phase 32 implementation.
+tooling evaluation, `ty`, coverage, Slice 6 behavior implementation, v0.2
+completion declaration in Slice 5, or Phase 32 implementation.
 
-Diagnostic / CLI / JSON Stability Hardening must not imply JSON v1 schema
-expansion. No new JSON fields, JSON v2, public MySQL API expansion, CLI
-behavior change, or diagnostic behavior change may happen without later
-explicit approval.
+Phase 31 Slice 6 is complete as Diagnostic / CLI / JSON stability hardening,
+tests, static audit, status, and docs work only.
+
+Slice 6 locks the current diagnostic / CLI / JSON posture:
+
+- Diagnostic inventory audit distinguishes active diagnostics from
+  historical/retired diagnostics.
+- Every currently source-emitted PIE diagnostic code is documented.
+- Every documented active diagnostic code corresponds to current behavior.
+- Historical/retired/reserved rows may intentionally have no current source
+  emission.
+- `PIE-S2307` is active and present in the central diagnostics inventory with
+  the existing Phase 12 static LIMIT message:
+  `Limit must be a static integer from 0 to 9223372036854775807`.
+- `PIE-S2322` remains explicitly historical/retired and is exempt from active
+  source-emission requirements.
+- `PIE-B1000` describes current selected PostgreSQL/private MySQL backend
+  fail-closed behavior.
+- CLI JSON v1 keeps the current schema version and field sets.
+- The public Python SQL API remains PostgreSQL-only; MySQL remains private to
+  explicit CLI dispatch.
+
+Slice 6 adds no diagnostic code, message, severity, ordering, or location
+behavior changes, diagnostic behavior change, CLI behavior change, JSON v1
+schema expansion, new JSON fields, JSON v2, public MySQL API expansion,
+tooling evaluation, `ty`, coverage addition, package version bump, release
+tag, publishing, no Slice 7 work, v0.2 completion declaration in Slice 6, or
+Phase 32 implementation.
 
 Docs / Examples / Package / CI v0.2 Readiness Audit must not imply package
 version bump, release tag, publishing, dependency, lockfile, workflow, fixture,
@@ -378,6 +421,7 @@ This contract does not authorize:
 - semantic implementation or semantic behavior changes;
 - aggregate expansion or aggregate behavior changes;
 - diagnostic behavior changes;
+- diagnostic code/message/severity/order/location behavior changes;
 - predicate behavior changes;
 - type-system behavior changes;
 - public MySQL API expansion;
@@ -412,5 +456,5 @@ This contract does not authorize:
   attestation, or release artifact changes;
 - tooling evaluation, `ty`, or coverage addition;
 - Phase 32 implementation;
-- v0.2 completion declaration in Slice 1, Slice 2, Slice 3, Slice 4, or
-  Slice 5.
+- v0.2 completion declaration in Slice 1, Slice 2, Slice 3, Slice 4, Slice 5,
+  or Slice 6.

@@ -50,6 +50,7 @@ stored separately and is never encoded in the code.
 | `PIE-S2304` | Computed projection without an explicit alias |
 | `PIE-S2305` | Duplicate projection output name |
 | `PIE-S2306` | Invalid source connector or connector arguments |
+| `PIE-S2307` | Static relation LIMIT operand is invalid; emits error message `Limit must be a static integer from 0 to 9223372036854775807` |
 | `PIE-S2308` | Aggregate used in an invalid context |
 | `PIE-S2309` | Aggregate called with the wrong arity |
 | `PIE-S2310` | Aggregate composition is deferred |
@@ -90,6 +91,6 @@ stored separately and is never encoded in the code.
 
 | Code | Meaning |
 |---|---|
-| `PIE-B1000` | Selected SQL backend emission case is unsupported or invalid; currently emitted only by PostgreSQL |
+| `PIE-B1000` | Selected PostgreSQL/private MySQL SQL backend emission case is unsupported or invalid |
 
 No runtime diagnostic codes are currently defined.

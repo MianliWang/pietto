@@ -36,13 +36,13 @@ PHASE16_ARTIFACT_HASHES = {
         "580ebcfcc78102d902110d864eb80c7f1a57ffcb6b4b33e1160c9abd17ba07a6"
     ),
     SLICE1_AUDIT_PATH: (
-        "503afabf31461f9482a9a8146c57f1594add2d5335d478aa585b505e87201b48"
+        "c0e31af71b2c57ea402602e54faa18bba020b896535853e37c08826dbd43f9b6"
     ),
     SLICE2_AUDIT_PATH: (
-        "538e805b18e92ec768a4aaabc3ab2a82ebfb3f4ddc605026f9d633aa516394a6"
+        "0c3f783317cabaff569e98c37f0f4863c451a3961437c7369c7fa5b2d77f0d2e"
     ),
     SLICE3_AUDIT_PATH: (
-        "0775271edeb66e023ec8052379bfeda5bd85b0c4fb79ef48eb8477c4c80fcacc"
+        "7af6d9e05c1f18a913e753cefa1884d10cab3ff95d0c1548888844dd41dbb817"
     ),
     PLAN_PATH: "adfb0d99075299049c790f465fab7453e0ed73b985e9cff19c6aeb38f94c7f5a",
 }
@@ -76,7 +76,7 @@ LOCKED_FILE_HASHES = {
         "e40bd3eee7f76bc68313adb8237a7a6c5d84286197261f70c827a4219c9e3418"
     ),
     "docs/spec/diagnostics.md": (
-        "20dddffb5f2feb34736f0726e91f3b459f69668a845571a38ed3db74b42beed3"
+        "f9d184baa45cca862be8c2f150c7e93d3b464a51f4355c39034c3e8b46b9f9c1"
     ),
     "pyproject.toml": (
         "021682ef880fe748f1655d4d70fcc549db4336ac39db2b29a835762ab1723d50"

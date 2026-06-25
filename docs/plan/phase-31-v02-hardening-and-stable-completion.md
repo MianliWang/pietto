@@ -2,8 +2,8 @@
 
 ## Status
 
-Phase 31 Slice 5 is complete as UUID / Enum readiness decision, tests,
-static audit, and status work only.
+Phase 31 Slice 6 is complete as Diagnostic / CLI / JSON stability hardening,
+tests, static audit, status, and docs work only.
 
 Slice 1 selects **Phase 31 v0.2 Hardening And Stable Completion** as the
 approved Phase 31 direction. It replaces the earlier split where Phase 31 was
@@ -21,7 +21,7 @@ mismatch, compiler behavior may change only after separate explicit approval.
 Phase 29 deferred register remains active. Phase 29 aggregate freeze remains
 active. Phase 30 type-system contracts are carried forward. Phase 30
 Date/Timestamp contracts are carried forward. v0.2 is not complete yet at
-Phase 31 Slice 5. Phase 31 Slice 8 is the future v0.2 Stable
+Phase 31 Slice 6. Phase 31 Slice 8 is the future v0.2 Stable
 Completion Audit And Status Lock. Phase 31 completion may lock v0.2 stable if
 all criteria pass. Phase 32 is post-v0.2 work.
 
@@ -59,13 +59,14 @@ implementation, package, release, runtime, project, relationship/JOIN, schema
 introspection, Slice 5 work, v0.2 completion declaration in Slice 4, or Phase
 32 implementation.
 
-Slice 5 locks the UUID / Enum readiness decision through tests/static audit
-and status documentation only. UUID remains limited/frozen readiness:
-current builtin scalar name, field facts, direct field projection, existing
-direct-field `count(UUID field)`, and existing direct-field
-`count_distinct(UUID field)` are preserved. Enum remains metadata readiness
-only: enum definitions, enum field facts, `TypeKind.ENUM`, and `EnumIR`
-metadata are preserved. count(Enum field) remains a documented risk: current
+Phase 31 Slice 5 is complete as UUID / Enum readiness decision, tests, static
+audit, and status work only. Slice 5 locks the UUID / Enum readiness decision
+through tests/static audit and status documentation only. UUID remains
+limited/frozen readiness: current builtin scalar name, field facts, direct
+field projection, existing direct-field `count(UUID field)`, and existing
+direct-field `count_distinct(UUID field)` are preserved. Enum remains metadata
+readiness only: enum definitions, enum field facts, `TypeKind.ENUM`, and
+`EnumIR` metadata are preserved. count(Enum field) remains a documented risk: current
 semantic/IR acceptance with PostgreSQL/private MySQL fail-closed output.
 Enum is not an accepted end-to-end aggregate row and requires separate
 explicit approval before any behavior fix. UUID/Enum comparisons remain
@@ -79,7 +80,30 @@ semantic behavior, IR model, SQL backend behavior, diagnostic behavior,
 CLI/JSON behavior, public API, public MySQL API expansion, fixture/golden,
 grammar, generated, source implementation, package, release, tooling, `ty`,
 coverage, runtime, project, relationship/JOIN, schema introspection, Slice 6
-work, v0.2 completion declaration in Slice 5, or Phase 32 implementation.
+behavior implementation, v0.2 completion declaration in Slice 5, or Phase 32
+implementation.
+
+Slice 6 locks diagnostic inventory, CLI JSON v1 shape, public SQL API
+posture, and selected backend diagnostic posture through tests/static audit,
+status documentation, and a narrow docs-only diagnostics inventory correction.
+Diagnostic inventory audit distinguishes active diagnostics from
+historical/retired diagnostics: every currently source-emitted PIE diagnostic
+code is documented, every documented active diagnostic code corresponds to
+current behavior, historical/retired/reserved rows may intentionally have no
+current source emission, `PIE-S2322` remains explicitly historical/retired,
+and `PIE-S2307` is active and present in the central diagnostics inventory.
+`PIE-B1000` describes current selected PostgreSQL/private MySQL backend
+fail-closed behavior. Slice 6 adds no diagnostic code, message, severity,
+ordering, or location behavior changes, no diagnostic behavior change, no CLI
+behavior change, no JSON v1 schema expansion, no new JSON fields, no JSON v2,
+no public MySQL API expansion, no source implementation, grammar, generated,
+fixture, golden, script, package, CI, IR, SQL, semantic, aggregate,
+type-system, runtime, project, relationship/JOIN, schema introspection,
+tooling evaluation, `ty`, coverage addition, no Slice 7 work, v0.2 completion
+declaration in Slice 6, or Phase 32 implementation.
+No diagnostic code, message, severity, ordering, or location behavior changes
+are authorized. No CLI behavior change, JSON v1 schema expansion, new JSON
+fields, JSON v2, or public MySQL API expansion is authorized.
 
 ## Trusted Baseline
 
@@ -133,7 +157,7 @@ Carry-forward facts:
 - MySQL remains private to explicit CLI dispatch;
 - JSON v1 remains the current single-file machine-readable output contract and
   has no type-output fields;
-- v0.2 is not complete yet at Phase 31 Slice 5.
+- v0.2 is not complete yet at Phase 31 Slice 6.
 
 ## Candidate Decision
 
@@ -154,7 +178,7 @@ behavior.
 
 ## Phase 31 Master Plan
 
-Slice 5 is complete. Slices 6 through 8 are planned only.
+Slice 6 is complete. Slices 7 and 8 are planned only.
 
 ### Slice 1: Candidate Decision And Phase 30 Carry-forward Audit
 
@@ -378,7 +402,7 @@ implementation, no UUID or Enum storage, DDL, or native database metadata, no
 broader UUID SQL behavior, no broad Enum SQL support, no aggregate expansion,
 no diagnostic behavior change, no CLI/JSON behavior change, no public MySQL
 API expansion, no tooling evaluation, no `ty`, no coverage addition, and no
-Slice 6 work.
+Slice 6 behavior implementation.
 
 Artifacts:
 
@@ -390,15 +414,36 @@ Artifacts:
 
 ### Slice 6: Diagnostic / CLI / JSON Stability Hardening
 
-Status: planned only.
+Status: complete as tests/static-audit/status/docs work only.
 
 Goal: lock diagnostic code/order/shape and prove CLI/JSON v1 type-related
 output remains stable.
 
-Boundary: hardening means tests/static audit unless a concrete mismatch is
-found and separately approved. This slice must not imply JSON v1 schema
-expansion, new JSON fields, JSON v2, public MySQL API expansion, CLI behavior
-change, or diagnostic behavior change.
+Decision: preserve current diagnostic, CLI, JSON, and backend behavior. Make
+only docs-only diagnostics inventory corrections: `PIE-B1000` no longer says
+PostgreSQL-only and now documents current selected PostgreSQL/private MySQL
+backend fail-closed behavior; `PIE-S2307` is added as an active static LIMIT
+diagnostic with its existing Phase 12 message; `PIE-S2322` remains
+historical/retired and is exempt from active source-emission requirements.
+
+Boundary: no diagnostic code, message, severity, ordering, or location
+behavior changes; no CLI behavior change; no JSON v1 schema expansion; no
+new JSON fields; no JSON v2; no public MySQL API expansion; no tooling or CI
+tooling; no `ty`; no coverage addition; no behavior fix; no package version
+bump, release tag, or publishing; no Slice 7 work; no v0.2 completion
+declaration in Slice 6; and no Phase 32 implementation.
+This slice must not imply JSON v1 schema expansion, new JSON fields, JSON v2,
+public MySQL API expansion, CLI behavior change, or diagnostic behavior
+change.
+
+Artifacts:
+
+- `tests/test_phase31_diagnostic_cli_json_stability.py`;
+- focused updates to this plan and
+  `docs/spec/v02-hardening-and-stable-completion-v1.md`;
+- docs-only corrections in `docs/spec/diagnostics.md`;
+- minimal status documentation updates;
+- exact hash-lock updates where status or diagnostics documentation changed.
 
 ### Slice 7: Docs / Examples / Package / CI v0.2 Readiness Audit
 
@@ -436,7 +481,7 @@ Phase 31 Slice 1 does not start Phase 32 or implement any post-v0.2 work.
 
 ## Phase-wide Non-goals
 
-Phase 31 Slices 1 through 5 and this master plan do not authorize:
+Phase 31 Slices 1 through 6 and this master plan do not authorize:
 
 - source implementation changes;
 - grammar changes;
@@ -447,6 +492,7 @@ Phase 31 Slices 1 through 5 and this master plan do not authorize:
 - public API, CLI, JSON, IR, SQL, semantic, aggregate, diagnostic, predicate,
   runtime, project, relationship, introspection, or type-system behavior
   changes;
+- diagnostic code/message/severity/order/location behavior changes;
 - aggregate expansion;
 - JSON v2;
 - JSON v1 schema expansion or new JSON fields;
@@ -482,11 +528,11 @@ Phase 31 Slices 1 through 5 and this master plan do not authorize:
   release artifact changes;
 - tooling evaluation, `ty`, or coverage addition;
 - Phase 32 implementation;
-- v0.2 completion declaration in Slice 1, Slice 2, Slice 3, Slice 4, or
-  Slice 5.
+- v0.2 completion declaration in Slice 1, Slice 2, Slice 3, Slice 4, Slice 5,
+  or Slice 6.
 
 ## Future Workflow Reminder
 
-Phase 31 Slice 5 is the latest implemented slice here. Do not stage real
+Phase 31 Slice 6 is the latest implemented slice here. Do not stage real
 content, commit, or push without a separate Gate 3 approval. Do not start
-Slice 6 or Phase 32 without separate approval.
+Slice 7 or Phase 32 without separate approval.

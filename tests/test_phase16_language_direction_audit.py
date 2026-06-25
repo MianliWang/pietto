@@ -50,7 +50,7 @@ LOCKED_FILE_HASHES = {
         "e40bd3eee7f76bc68313adb8237a7a6c5d84286197261f70c827a4219c9e3418"
     ),
     "docs/spec/diagnostics.md": (
-        "20dddffb5f2feb34736f0726e91f3b459f69668a845571a38ed3db74b42beed3"
+        "f9d184baa45cca862be8c2f150c7e93d3b464a51f4355c39034c3e8b46b9f9c1"
     ),
     "pyproject.toml": (
         "021682ef880fe748f1655d4d70fcc549db4336ac39db2b29a835762ab1723d50"

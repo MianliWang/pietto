@@ -2129,8 +2129,8 @@ expansion, or Phase 31 implementation.
 
 ### Phase 31: v0.2 Hardening And Stable Completion
 
-Status: Phase 31 Slice 5 UUID / Enum Readiness Decision is complete
-as tests/static-audit/status work only.
+Status: Phase 31 Slice 6 Diagnostic / CLI / JSON Stability Hardening is
+complete as tests/static-audit/status/docs work only.
 
 Phase 31 Slice 1 is complete as candidate decision, Phase 30 carry-forward
 audit, static audit, and status work only.
@@ -2148,7 +2148,7 @@ Carry-forward Audit, Aggregate Result Matrix Hardening, Numeric Promotion And
 Decimal Boundary Tests, Date / Timestamp SQL Compatibility Audit, UUID / Enum
 Readiness Decision, Diagnostic / CLI / JSON Stability Hardening, Docs /
 Examples / Package / CI v0.2 Readiness Audit, and v0.2 Stable Completion
-Audit And Status Lock. Slice 5 is complete. Slices 6 through 8 remain planned
+Audit And Status Lock. Slice 6 is complete. Slices 7 and 8 remain planned
 only.
 
 Phase 31 Slice 1 adds no Phase 31 behavior implementation in Slice 1, no
@@ -2233,9 +2233,28 @@ introspection, or type-system behavior changes. It adds no UUID or Enum
 behavior implementation, no UUID literal implementation, no Enum literal
 implementation, no UUID or Enum cast implementation, no UUID or Enum storage,
 DDL, or native database metadata, no broader UUID SQL behavior, no broad Enum
-SQL support, no Slice 6 work, no tooling evaluation, no `ty`, no coverage
-addition, no v0.2 completion declaration, no package version bump, no release
-tag, and no publishing. v0.2 is not complete yet at Phase 31 Slice 5, and
+SQL support, no Slice 6 behavior implementation, no tooling evaluation, no
+`ty`, no coverage addition, no v0.2 completion declaration, no package
+version bump, no release tag, and no publishing. Phase 31 Slice 6 Diagnostic
+/ CLI / JSON Stability Hardening is complete as tests/static-audit/status/docs
+work only. Slice 6 locks diagnostic inventory, CLI JSON v1 shape, public SQL
+API posture, and selected backend diagnostic posture through tests/static
+audit, status documentation, and docs-only diagnostics inventory corrections.
+Diagnostic inventory audit distinguishes active diagnostics from
+historical/retired diagnostics: every currently source-emitted PIE diagnostic
+code is documented, every documented active diagnostic code corresponds to
+current behavior, historical/retired/reserved rows may intentionally have no
+current source emission, `PIE-S2322` remains explicitly historical/retired,
+and `PIE-S2307` is active and present in the central diagnostics inventory
+with the existing static LIMIT message. `PIE-B1000` documents current selected
+PostgreSQL/private MySQL backend fail-closed behavior. Slice 6 adds no
+Phase 31 behavior implementation in Slice 6, no Phase 32 implementation in
+Slice 6, no diagnostic code/message/severity/order/location behavior changes,
+no diagnostic behavior change, no CLI behavior change, no JSON v1 schema
+expansion, no new JSON fields, no JSON v2, no public MySQL API expansion, no
+tooling evaluation, no `ty`, no coverage addition, no package version bump,
+no release tag, no publishing, and no Slice 7 work. v0.2 is not complete yet
+at Phase 31 Slice 6, and
 Phase 31 Slice 8 is the future v0.2 Stable Completion Audit And Status Lock.
 Phase 31 completion may lock v0.2 stable if all criteria pass. Phase 32 is
 post-v0.2 Semantic Explain And Metadata Output MVP; Phase 33 is Project And

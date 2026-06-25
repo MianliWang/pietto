@@ -383,7 +383,14 @@ requires separate explicit approval before any behavior fix. Enum is not an
 accepted end-to-end aggregate row. UUID/Enum
 comparisons remain current generic known-child comparison behavior producing
 `Bool UNKNOWN`, not a UUID- or Enum-specific comparison compatibility matrix.
-v0.2 is not complete yet at Phase 31 Slice 5, and Phase 31 Slice 8 is the
+Phase 31 Slice 6 Diagnostic / CLI / JSON Stability Hardening is complete as
+tests/static-audit/status/docs work only. Slice 6 locks diagnostic inventory,
+CLI JSON v1 shape, public SQL API posture, and selected backend diagnostic
+posture without behavior changes. `PIE-B1000` documents current selected
+PostgreSQL/private MySQL backend fail-closed behavior, `PIE-S2307` is active
+in the central diagnostics inventory with the existing static LIMIT message,
+and `PIE-S2322` remains explicitly historical/retired. v0.2 is not complete
+yet at Phase 31 Slice 6, and Phase 31 Slice 8 is the
 future v0.2 Stable Completion Audit And Status Lock. Phase 31 completion may
 lock v0.2 stable if all criteria pass. Phase 32 is post-v0.2 Semantic Explain
 And Metadata Output MVP; Phase 33 is Project And Multi-file MVP; Phase 34 is
@@ -392,7 +399,8 @@ And Narrow JOIN MVP. Slice 1 adds no Phase 31 behavior implementation in Slice
 1, Slice 2 adds no Phase 31 behavior implementation in Slice 2, Slice 3 adds
 no Phase 31 behavior implementation in Slice 3, Slice 4 adds no Phase 31
 behavior implementation in Slice 4, and Slice 5 adds no Phase 31 behavior
-implementation in Slice 5, no behavior fixes, no source implementation,
+implementation in Slice 5, and Slice 6 adds no Phase 31 behavior
+implementation in Slice 6, no behavior fixes, no source implementation,
 grammar, generated, fixture, golden, script, package, CI, public API, CLI,
 JSON, IR, SQL, semantic, aggregate, diagnostic, predicate, runtime,
 project/multi-file, relationship/JOIN, schema introspection, or type-system
@@ -407,9 +415,10 @@ UUID or Enum cast implementation, UUID or Enum storage, DDL, or native
 database metadata, broader UUID SQL behavior, broad Enum SQL support, no
 Phase 32 implementation in Slice 1, no Phase 32 implementation in Slice 2, no
 Phase 32 implementation in Slice 3, no Phase 32 implementation in Slice 4, no
-Phase 32 implementation in Slice 5, no Slice 6 work, tooling evaluation, `ty`,
-coverage addition, v0.2 completion declaration, package version bump, release
-tag, or publishing.
+Phase 32 implementation in Slice 5, no Phase 32 implementation in Slice 6, no
+diagnostic code/message/severity/order/location behavior changes, no Slice 7
+work, tooling evaluation, `ty`, coverage addition, v0.2 completion
+declaration, package version bump, release tag, or publishing.
 
 Phase 13 Relation Composition And Relationship Planning is complete as
 planning, contract, and audit work only. Slices 1 through 6 are complete.

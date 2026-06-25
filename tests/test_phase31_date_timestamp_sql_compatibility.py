@@ -59,9 +59,11 @@ def test_phase31_slice4_plan_and_spec_lock_tests_static_audit_scope() -> None:
     for required in (
         "Phase 31 Slice 4 is complete as Date / Timestamp SQL compatibility "
         "audit, tests, static audit, and status work only",
-        "Slice 5 is complete. Slices 6 through 8 are planned only",
+        "Slice 6 is complete. Slices 7 and 8 are planned only",
         "Phase 31 Slice 5 is complete as UUID / Enum readiness decision, "
         "tests, static audit, and status work only",
+        "Phase 31 Slice 6 is complete as Diagnostic / CLI / JSON stability "
+        "hardening, tests, static audit, status, and docs work only",
         "Phase 29 aggregate freeze remains active",
         "Phase 30 Date/Timestamp contracts are carried forward",
         "Direct-field `min(Date)`, `max(Date)`, `min(Timestamp)`, and "
