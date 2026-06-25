@@ -369,16 +369,30 @@ behavior. `count(Date)`, `count(Timestamp)`, `count_distinct(Date)`, and
 Date/Timestamp comparisons remain current generic known-child comparison
 behavior producing `Bool UNKNOWN`, not a Date/Timestamp-specific comparison
 compatibility matrix. SQL renderers add no casts, temporal functions, timezone
-terms, precision terms, or native database metadata. v0.2 is not complete yet
-at Phase 31 Slice 4, and Phase 31 Slice 8 is the future v0.2 Stable Completion
-Audit And Status Lock. Phase 31 completion may lock v0.2 stable if all
-criteria pass. Phase 32 is post-v0.2 Semantic Explain And Metadata Output MVP;
-Phase 33 is Project And Multi-file MVP; Phase 34 is Semantic Graph / ERD / AI
-Metadata Export MVP; Phase 35 is Relationship Grain And Narrow JOIN MVP. Slice
-1 adds no Phase 31 behavior implementation in Slice 1, Slice 2 adds no Phase
-31 behavior implementation in Slice 2, Slice 3 adds no Phase 31 behavior
-implementation in Slice 3, and Slice 4 adds no Phase 31 behavior
-implementation in Slice 4, no behavior fixes, no source implementation,
+terms, precision terms, or native database metadata. Phase 31 Slice 5 UUID /
+Enum Readiness Decision is complete as tests/static-audit/status work only.
+Slice 5 locks current UUID / Enum readiness only. UUID remains limited/frozen
+readiness as a builtin scalar name with field facts/projection, existing
+direct-field `count(UUID field)`, and existing direct-field
+`count_distinct(UUID field)`. Enum remains metadata readiness only through
+enum definitions, enum field facts, `TypeKind.ENUM`, and `EnumIR` metadata.
+count(Enum field) remains a documented risk because current semantic/IR
+acceptance has PostgreSQL/private MySQL fail-closed output. The risk is
+semantic/IR acceptance with PostgreSQL/private MySQL fail-closed output and
+requires separate explicit approval before any behavior fix. Enum is not an
+accepted end-to-end aggregate row. UUID/Enum
+comparisons remain current generic known-child comparison behavior producing
+`Bool UNKNOWN`, not a UUID- or Enum-specific comparison compatibility matrix.
+v0.2 is not complete yet at Phase 31 Slice 5, and Phase 31 Slice 8 is the
+future v0.2 Stable Completion Audit And Status Lock. Phase 31 completion may
+lock v0.2 stable if all criteria pass. Phase 32 is post-v0.2 Semantic Explain
+And Metadata Output MVP; Phase 33 is Project And Multi-file MVP; Phase 34 is
+Semantic Graph / ERD / AI Metadata Export MVP; Phase 35 is Relationship Grain
+And Narrow JOIN MVP. Slice 1 adds no Phase 31 behavior implementation in Slice
+1, Slice 2 adds no Phase 31 behavior implementation in Slice 2, Slice 3 adds
+no Phase 31 behavior implementation in Slice 3, Slice 4 adds no Phase 31
+behavior implementation in Slice 4, and Slice 5 adds no Phase 31 behavior
+implementation in Slice 5, no behavior fixes, no source implementation,
 grammar, generated, fixture, golden, script, package, CI, public API, CLI,
 JSON, IR, SQL, semantic, aggregate, diagnostic, predicate, runtime,
 project/multi-file, relationship/JOIN, schema introspection, or type-system
@@ -386,12 +400,16 @@ behavior changes. It adds no JSON v1 schema expansion, JSON v2, public MySQL
 API expansion, no DateTime/Time/Interval/timezone semantics, no
 Date/Timestamp literal implementation, no temporal arithmetic implementation,
 no temporal function implementation, no timestamp precision modeling, no
-native database metadata,
-Money/Currency primitive, semantic annotation syntax, Decimal precision/scale
-carrier, UUID or Enum behavior implementation, no Phase 32 implementation in
-Slice 1, no Phase 32 implementation in Slice 2, no Phase 32 implementation in
-Slice 3, no Phase 32 implementation in Slice 4, no Slice 5 work, v0.2
-completion declaration, package version bump, release tag, or publishing.
+native database metadata, Money/Currency primitive, semantic annotation
+syntax, Decimal precision/scale carrier, UUID or Enum behavior
+implementation, UUID literal implementation, Enum literal implementation,
+UUID or Enum cast implementation, UUID or Enum storage, DDL, or native
+database metadata, broader UUID SQL behavior, broad Enum SQL support, no
+Phase 32 implementation in Slice 1, no Phase 32 implementation in Slice 2, no
+Phase 32 implementation in Slice 3, no Phase 32 implementation in Slice 4, no
+Phase 32 implementation in Slice 5, no Slice 6 work, tooling evaluation, `ty`,
+coverage addition, v0.2 completion declaration, package version bump, release
+tag, or publishing.
 
 Phase 13 Relation Composition And Relationship Planning is complete as
 planning, contract, and audit work only. Slices 1 through 6 are complete.

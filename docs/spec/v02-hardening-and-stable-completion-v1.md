@@ -2,8 +2,8 @@
 
 ## Status
 
-Phase 31 Slice 4 is complete as Date / Timestamp SQL compatibility audit,
-tests, static audit, and status work only.
+Phase 31 Slice 5 is complete as UUID / Enum readiness decision, tests,
+static audit, and status work only.
 
 This contract selects Phase 31 v0.2 Hardening And Stable Completion. It
 records the approved merged Phase 31 direction and master plan. Slice 2 locks
@@ -11,8 +11,9 @@ the current aggregate result matrix through tests/static audit and status
 documentation only. Slice 3 locks current numeric promotion and Decimal
 boundaries through tests/static audit and status documentation only. Slice 4
 locks current Date / Timestamp SQL compatibility through tests/static audit
-and status documentation only, without starting Slice 5, starting Phase 32, or
-changing compiler behavior.
+and status documentation only. Slice 5 locks the UUID / Enum readiness
+decision through tests/static audit and status documentation only, without
+starting Slice 6, starting Phase 32, or changing compiler behavior.
 
 Phase 31 Slice 1 is complete as candidate decision, Phase 30 carry-forward
 audit, static audit, and status work only.
@@ -23,7 +24,7 @@ specs, and static audit only. If a later slice exposes a concrete
 contract/implementation mismatch, compiler behavior may change only after
 separate explicit approval.
 
-v0.2 is not complete yet at Phase 31 Slice 4. Phase 31 Slice 8 is the future
+v0.2 is not complete yet at Phase 31 Slice 5. Phase 31 Slice 8 is the future
 v0.2 Stable Completion Audit And Status Lock. Phase 31 completion may lock
 v0.2 stable if all criteria pass. Phase 32 is post-v0.2 work.
 
@@ -56,6 +57,28 @@ API, public MySQL API expansion, fixture/golden, grammar, generated, source
 implementation, package, release, runtime, project, relationship/JOIN, schema
 introspection, Slice 5 work, v0.2 completion declaration in Slice 4, or Phase
 32 implementation.
+
+Slice 5 locks the UUID / Enum readiness decision through tests/static audit
+and status documentation only. UUID remains limited/frozen readiness:
+current builtin scalar name, field facts, direct field projection, existing
+direct-field `count(UUID field)`, and existing direct-field
+`count_distinct(UUID field)` are preserved. Enum remains metadata readiness
+only: enum definitions, enum field facts, `TypeKind.ENUM`, and `EnumIR`
+metadata are preserved. count(Enum field) remains a documented risk: current
+semantic/IR acceptance with PostgreSQL/private MySQL fail-closed output.
+Enum is not an accepted end-to-end aggregate row and requires separate
+explicit approval before any behavior fix. UUID/Enum comparisons remain
+current generic known-child comparison behavior producing `Bool UNKNOWN`, not
+a UUID- or Enum-specific comparison compatibility matrix. Slice 5 adds no
+behavior fix, UUID or Enum behavior implementation, UUID literal
+implementation, Enum literal implementation, UUID or Enum cast
+implementation, UUID or Enum storage, DDL, or native database metadata,
+broader UUID SQL behavior, broad Enum SQL support, aggregate expansion,
+semantic behavior, IR model, SQL backend behavior, diagnostic behavior,
+CLI/JSON behavior, public API, public MySQL API expansion, fixture/golden,
+grammar, generated, source implementation, package, release, tooling, `ty`,
+coverage, runtime, project, relationship/JOIN, schema introspection, Slice 6
+work, v0.2 completion declaration in Slice 5, or Phase 32 implementation.
 
 ## Trusted Baseline
 
@@ -146,7 +169,8 @@ Slice 1 is grounded in current implementation facts:
 
 Slice 1 is complete as candidate decision, Phase 30 carry-forward audit,
 static audit, and status work only. Slice 2 is complete. Slice 3 is complete.
-Slice 4 is complete. Slices 5 through 8 are planned only.
+Slice 4 is complete. Slice 5 is complete. Slices 6 through 8 are planned
+only.
 
 ## Slice Boundaries
 
@@ -261,9 +285,55 @@ grammar, generated, source implementation, package, release, runtime, project,
 relationship/JOIN, schema introspection, public MySQL API expansion, Slice 5
 work, v0.2 completion declaration in Slice 4, or Phase 32 implementation.
 
-UUID / Enum Readiness Decision is readiness-only by default. It preserves
-existing limited direct-field `count_distinct(UUID)` and Enum metadata
-behavior. It does not implement UUID or Enum behavior in Slice 1.
+UUID / Enum Readiness Decision is readiness-only. It preserves existing
+limited UUID readiness and Enum metadata readiness without adding UUID or Enum
+behavior.
+
+Phase 31 Slice 5 is complete as UUID / Enum readiness decision, tests, static
+audit, and status work only.
+
+Slice 5 locks the current UUID readiness matrix:
+
+- `UUID` remains a current builtin scalar name.
+- UUID field facts and direct field projection remain current accepted
+  behavior and preserve declared nullability.
+- Existing direct-field `count(UUID field)` remains current accepted
+  concrete builtin non-Any count(field) behavior.
+- Existing direct-field `count_distinct(UUID field)` remains the frozen
+  accepted UUID aggregate row.
+- UUID `min`, `max`, `sum`, and `avg` remain unsupported.
+- UUID comparisons remain current generic known-child comparison behavior
+  producing `Bool UNKNOWN`, not a UUID-specific comparison compatibility
+  matrix.
+- UUID literals, casts, functions, storage, DDL, native database metadata,
+  broader SQL behavior, and public API exposure remain absent.
+
+Slice 5 locks the current Enum readiness matrix:
+
+- Enum remains a non-builtin semantic type kind, not a normal builtin scalar.
+- Enum definitions, enum field facts, `TypeKind.ENUM`, and `EnumIR` metadata
+  remain current metadata behavior.
+- Enum field direct projection remains current field-reference behavior and
+  does not imply broad Enum SQL support.
+- count(Enum field) remains a documented risk: current semantic/IR
+  acceptance with PostgreSQL/private MySQL fail-closed output. Enum is not an
+  accepted end-to-end aggregate row and requires separate explicit approval
+  before any behavior fix.
+- `count_distinct(Enum)`, `min(Enum)`, `max(Enum)`, `sum(Enum)`, and
+  `avg(Enum)` remain unsupported.
+- Enum comparisons remain current generic known-child comparison behavior
+  producing `Bool UNKNOWN`, not an Enum-specific comparison compatibility
+  matrix.
+- Enum literals, member-reference semantics, casts, functions, storage, DDL,
+  native database metadata, broad Enum SQL support, builtin scalar treatment,
+  and public API exposure remain absent.
+
+Slice 5 adds no aggregate behavior, semantic behavior, IR model, SQL backend
+behavior, diagnostic behavior, CLI/JSON behavior, public API, fixture/golden,
+grammar, generated, source implementation, package, release, runtime,
+project, relationship/JOIN, schema introspection, public MySQL API expansion,
+tooling evaluation, `ty`, coverage, Slice 6 work, v0.2 completion
+declaration in Slice 5, or Phase 32 implementation.
 
 Diagnostic / CLI / JSON Stability Hardening must not imply JSON v1 schema
 expansion. No new JSON fields, JSON v2, public MySQL API expansion, CLI
@@ -332,7 +402,15 @@ This contract does not authorize:
 - casts;
 - SQL precision/scale behavior;
 - UUID or Enum behavior implementation;
+- UUID literal implementation;
+- Enum literal implementation;
+- UUID or Enum cast implementation;
+- UUID or Enum storage, DDL, or native database metadata;
+- broader UUID SQL behavior;
+- broad Enum SQL support;
 - package version bump, release tag, publication, upload, signing,
   attestation, or release artifact changes;
+- tooling evaluation, `ty`, or coverage addition;
 - Phase 32 implementation;
-- v0.2 completion declaration in Slice 1, Slice 2, Slice 3, or Slice 4.
+- v0.2 completion declaration in Slice 1, Slice 2, Slice 3, Slice 4, or
+  Slice 5.

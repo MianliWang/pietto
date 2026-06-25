@@ -74,7 +74,9 @@ def test_phase31_slice3_plan_and_spec_lock_tests_static_audit_scope() -> None:
     for required in (
         "Phase 31 Slice 3 is complete as numeric promotion and Decimal "
         "boundary hardening, tests, static audit, and status work only",
-        "Slice 4 is complete. Slices 5 through 8 are planned only",
+        "Slice 5 is complete. Slices 6 through 8 are planned only",
+        "Phase 31 Slice 5 is complete as UUID / Enum readiness decision, "
+        "tests, static audit, and status work only",
         "Phase 29 aggregate freeze remains active",
         "Phase 30 type-system contracts are carried forward",
         "Int and Float numeric promotion remains current behavior",

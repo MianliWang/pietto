@@ -54,6 +54,7 @@ PHASE31_ARTIFACTS = (
     "tests/test_phase31_aggregate_result_matrix_hardening.py",
     "tests/test_phase31_numeric_promotion_decimal_boundary.py",
     "tests/test_phase31_date_timestamp_sql_compatibility.py",
+    "tests/test_phase31_uuid_enum_readiness_decision.py",
 )
 
 PHASE31_SLICES = (
@@ -114,7 +115,7 @@ def test_phase31_slice1_artifacts_and_preferred_paths_are_locked() -> None:
         "final Phase 30 commit: `Complete Phase 30 core type system "
         "stabilization audit`",
         "CI run: `27891119809 success`",
-        "v0.2 is not complete yet at Phase 31 Slice 4",
+        "v0.2 is not complete yet at Phase 31 Slice 5",
         "Phase 31 Slice 8 is the future v0.2 Stable Completion Audit And Status Lock",
         "Phase 31 completion may lock v0.2 stable if all criteria pass",
         "Phase 32 is post-v0.2 work",
@@ -173,7 +174,7 @@ def test_phase31_master_plan_and_slice_boundaries_are_locked() -> None:
         "compiler behavior may change only after separate explicit approval",
         "Phase 31 Slice 2 is complete as aggregate result matrix hardening, "
         "tests, static audit, and status work only",
-        "Slice 4 is complete. Slices 5 through 8 are planned only",
+        "Slice 5 is complete. Slices 6 through 8 are planned only",
         "count(Enum field) remains a documented risk",
         "semantic/IR acceptance with PostgreSQL/private MySQL fail-closed output",
         "requires separate explicit approval before any behavior fix",
@@ -209,6 +210,14 @@ def test_phase31_master_plan_and_slice_boundaries_are_locked() -> None:
         "not a Date/Timestamp-specific comparison compatibility matrix",
         "SQL renderers add no casts, temporal functions, timezone terms, "
         "precision terms, or native database metadata",
+        "Phase 31 Slice 5 is complete as UUID / Enum readiness decision, "
+        "tests, static audit, and status work only",
+        "UUID remains limited/frozen readiness",
+        "Enum remains metadata readiness only",
+        "UUID/Enum comparisons remain current generic known-child comparison "
+        "behavior producing `Bool UNKNOWN`",
+        "not a UUID- or Enum-specific comparison compatibility matrix",
+        "Enum is not an accepted end-to-end aggregate row",
         "Do not add UUID or Enum behavior without separate explicit approval",
         "This slice must not imply JSON v1 schema expansion",
         "no package version bump, release tag, publishing",
@@ -222,7 +231,7 @@ def test_phase31_master_plan_and_slice_boundaries_are_locked() -> None:
         "Later Phase 31 hardening may mean tests, specs, and static audit only",
         "Phase 31 Slice 2 is complete as aggregate result matrix hardening, "
         "tests, static audit, and status work only",
-        "Slice 4 is complete. Slices 5 through 8 are planned only",
+        "Slice 5 is complete. Slices 6 through 8 are planned only",
         "count(Enum field) remains a documented risk",
         "Phase 31 Slice 3 is complete as numeric promotion and Decimal "
         "boundary hardening, tests, static audit, and status work only",
@@ -238,6 +247,13 @@ def test_phase31_master_plan_and_slice_boundaries_are_locked() -> None:
         "Date/Timestamp comparisons remain current generic known-child "
         "comparison behavior producing `Bool UNKNOWN`",
         "not a Date/Timestamp-specific comparison compatibility matrix",
+        "Phase 31 Slice 5 is complete as UUID / Enum readiness decision, "
+        "tests, static audit, and status work only",
+        "UUID remains limited/frozen readiness",
+        "Enum remains metadata readiness only",
+        "UUID/Enum comparisons remain current generic known-child comparison "
+        "behavior producing `Bool UNKNOWN`",
+        "not a UUID- or Enum-specific comparison compatibility matrix",
         "No new JSON fields, JSON v2, public MySQL API expansion, CLI behavior "
         "change, or diagnostic behavior change may happen without later "
         "explicit approval",
@@ -258,7 +274,7 @@ def test_phase31_post_v02_roadmap_is_locked_without_phase32_start() -> None:
     for required in (
         "Phase 31 Slice 1 does not start Phase 32 or implement any post-v0.2 work",
         "Do not stage real content, commit, or push without a separate Gate 3 approval",
-        "Do not start Slice 5 or Phase 32 without separate approval",
+        "Do not start Slice 6 or Phase 32 without separate approval",
     ):
         assert required in plan
 
@@ -395,6 +411,13 @@ def test_phase31_slice1_hard_non_goals_are_locked() -> None:
         "semantic annotation syntax",
         "Decimal precision/scale carrier",
         "UUID or Enum behavior implementation",
+        "UUID literal implementation",
+        "Enum literal implementation",
+        "UUID or Enum cast implementation",
+        "UUID or Enum storage, DDL, or native database metadata",
+        "broader UUID SQL behavior",
+        "broad Enum SQL support",
+        "tooling evaluation, `ty`, or coverage addition",
         "Phase 32 implementation",
         "Date/Timestamp literal implementation",
         "temporal arithmetic implementation",
@@ -423,10 +446,12 @@ def test_phase31_status_docs_record_slice4_without_v02_completion() -> None:
             "complete as tests/static-audit/status work only",
             "Phase 31 Slice 4 Date / Timestamp SQL Compatibility Audit is "
             "complete as tests/static-audit/status work only",
+            "Phase 31 Slice 5 UUID / Enum Readiness Decision is complete as "
+            "tests/static-audit/status work only",
             "Phase 29 deferred register remains active",
             "Phase 29 aggregate freeze remains active",
             "Phase 30 type-system contracts are carried forward",
-            "v0.2 is not complete yet at Phase 31 Slice 4",
+            "v0.2 is not complete yet at Phase 31 Slice 5",
             "Phase 31 Slice 8 is the future v0.2 Stable Completion Audit And "
             "Status Lock",
             "Phase 31 completion may lock v0.2 stable if all criteria pass",
@@ -435,10 +460,12 @@ def test_phase31_status_docs_record_slice4_without_v02_completion() -> None:
             "no Phase 31 behavior implementation in Slice 2",
             "no Phase 31 behavior implementation in Slice 3",
             "no Phase 31 behavior implementation in Slice 4",
+            "no Phase 31 behavior implementation in Slice 5",
             "no Phase 32 implementation in Slice 1",
             "no Phase 32 implementation in Slice 2",
             "no Phase 32 implementation in Slice 3",
             "no Phase 32 implementation in Slice 4",
+            "no Phase 32 implementation in Slice 5",
             "Direct-field `min(Date)`, `max(Date)`, `min(Timestamp)`, and "
             "`max(Timestamp)` remain current accepted behavior",
             "`count(Date)`, `count(Timestamp)`, `count_distinct(Date)`, and "
@@ -457,6 +484,12 @@ def test_phase31_status_docs_record_slice4_without_v02_completion() -> None:
             "no Decimal precision/scale carrier",
             "count(Enum field) remains a documented risk",
             "semantic/IR acceptance with PostgreSQL/private MySQL fail-closed output",
+            "UUID remains limited/frozen readiness",
+            "Enum remains metadata readiness only",
+            "UUID/Enum comparisons remain current generic known-child "
+            "comparison behavior producing `Bool UNKNOWN`",
+            "not a UUID- or Enum-specific comparison compatibility matrix",
+            "Enum is not an accepted end-to-end aggregate row",
             "Bytes and Json are recorded only as existing count(field) "
             "concrete builtin non-Any behavior",
             "JSON v1 schema expansion",

@@ -2129,7 +2129,7 @@ expansion, or Phase 31 implementation.
 
 ### Phase 31: v0.2 Hardening And Stable Completion
 
-Status: Phase 31 Slice 4 Date / Timestamp SQL Compatibility Audit is complete
+Status: Phase 31 Slice 5 UUID / Enum Readiness Decision is complete
 as tests/static-audit/status work only.
 
 Phase 31 Slice 1 is complete as candidate decision, Phase 30 carry-forward
@@ -2148,7 +2148,7 @@ Carry-forward Audit, Aggregate Result Matrix Hardening, Numeric Promotion And
 Decimal Boundary Tests, Date / Timestamp SQL Compatibility Audit, UUID / Enum
 Readiness Decision, Diagnostic / CLI / JSON Stability Hardening, Docs /
 Examples / Package / CI v0.2 Readiness Audit, and v0.2 Stable Completion
-Audit And Status Lock. Slice 4 is complete. Slices 5 through 8 remain planned
+Audit And Status Lock. Slice 5 is complete. Slices 6 through 8 remain planned
 only.
 
 Phase 31 Slice 1 adds no Phase 31 behavior implementation in Slice 1, no
@@ -2211,12 +2211,36 @@ introspection, or type-system behavior changes. It adds no DateTime, Time,
 Interval, or timezone semantics, no Date/Timestamp literal implementation, no
 temporal arithmetic implementation, no temporal function implementation, no
 timestamp precision modeling, no native database metadata, and no Slice 5
-work. v0.2 is not complete yet at Phase 31 Slice 4, and Phase 31 Slice 8 is
-the future v0.2 Stable Completion Audit And Status Lock. Phase 31 completion
-may lock v0.2 stable if all criteria pass. Phase 32 is post-v0.2 Semantic
-Explain And Metadata Output MVP; Phase 33 is Project And Multi-file MVP;
-Phase 34 is Semantic Graph / ERD / AI Metadata Export MVP; Phase 35 is
-Relationship Grain And Narrow JOIN MVP.
+work. Phase 31 Slice 5 UUID / Enum Readiness Decision is complete as
+tests/static-audit/status work only. Slice 5 locks current UUID / Enum
+readiness only. UUID remains limited/frozen readiness as a builtin scalar name
+with field facts/projection, existing direct-field `count(UUID field)`, and
+existing direct-field `count_distinct(UUID field)`. Enum remains metadata
+readiness only through enum definitions, enum field facts, `TypeKind.ENUM`,
+and `EnumIR` metadata. count(Enum field) remains a documented risk because
+current semantic/IR acceptance has PostgreSQL/private MySQL fail-closed
+output. The risk is semantic/IR acceptance with PostgreSQL/private MySQL
+fail-closed output and requires separate explicit approval before any
+behavior fix. Enum is not an accepted end-to-end aggregate row. UUID/Enum
+comparisons remain current generic known-child
+comparison behavior producing `Bool UNKNOWN`, not a UUID- or Enum-specific
+comparison compatibility matrix. Slice 5 adds no Phase 31 behavior
+implementation in Slice 5, no Phase 32 implementation in Slice 5, no behavior
+fixes, no source implementation, grammar, generated, fixture, golden, script,
+package, CI, public API, CLI, JSON, IR, SQL, semantic, aggregate, diagnostic,
+predicate, runtime, project/multi-file, relationship/JOIN, schema
+introspection, or type-system behavior changes. It adds no UUID or Enum
+behavior implementation, no UUID literal implementation, no Enum literal
+implementation, no UUID or Enum cast implementation, no UUID or Enum storage,
+DDL, or native database metadata, no broader UUID SQL behavior, no broad Enum
+SQL support, no Slice 6 work, no tooling evaluation, no `ty`, no coverage
+addition, no v0.2 completion declaration, no package version bump, no release
+tag, and no publishing. v0.2 is not complete yet at Phase 31 Slice 5, and
+Phase 31 Slice 8 is the future v0.2 Stable Completion Audit And Status Lock.
+Phase 31 completion may lock v0.2 stable if all criteria pass. Phase 32 is
+post-v0.2 Semantic Explain And Metadata Output MVP; Phase 33 is Project And
+Multi-file MVP; Phase 34 is Semantic Graph / ERD / AI Metadata Export MVP;
+Phase 35 is Relationship Grain And Narrow JOIN MVP.
 
 ---
 
