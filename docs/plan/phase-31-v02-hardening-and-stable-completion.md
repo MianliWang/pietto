@@ -2,8 +2,8 @@
 
 ## Status
 
-Phase 31 Slice 3 is complete as numeric promotion and Decimal boundary
-hardening, tests, static audit, and status work only.
+Phase 31 Slice 4 is complete as Date / Timestamp SQL compatibility audit,
+tests, static audit, and status work only.
 
 Slice 1 selects **Phase 31 v0.2 Hardening And Stable Completion** as the
 approved Phase 31 direction. It replaces the earlier split where Phase 31 was
@@ -19,8 +19,9 @@ audit only. If a later slice exposes a concrete contract/implementation
 mismatch, compiler behavior may change only after separate explicit approval.
 
 Phase 29 deferred register remains active. Phase 29 aggregate freeze remains
-active. Phase 30 type-system contracts are carried forward. v0.2 is not
-complete yet at Phase 31 Slice 3. Phase 31 Slice 8 is the future v0.2 Stable
+active. Phase 30 type-system contracts are carried forward. Phase 30
+Date/Timestamp contracts are carried forward. v0.2 is not complete yet at
+Phase 31 Slice 4. Phase 31 Slice 8 is the future v0.2 Stable
 Completion Audit And Status Lock. Phase 31 completion may lock v0.2 stable if
 all criteria pass. Phase 32 is post-v0.2 work.
 
@@ -40,6 +41,22 @@ behavior, IR model, SQL backend behavior, diagnostic behavior, CLI/JSON
 behavior, public API, fixture/golden, grammar, generated, source
 implementation, package, release, runtime, project, relationship/JOIN, schema
 introspection, Slice 4 work, v0.2 completion declaration in Slice 3, or Phase
+32 implementation.
+
+Slice 4 locks current Date / Timestamp SQL compatibility through tests/static
+audit and status documentation only. Direct-field `min(Date)`, `max(Date)`,
+`min(Timestamp)`, and `max(Timestamp)` remain current accepted behavior.
+`count(Date)`, `count(Timestamp)`, `count_distinct(Date)`, and
+`count_distinct(Timestamp)` remain current direct-field accepted behavior.
+Date/Timestamp comparisons remain current generic known-child comparison
+behavior producing `Bool UNKNOWN`, not a Date/Timestamp-specific comparison
+compatibility matrix. SQL renderers add no casts, temporal functions, timezone
+terms, precision terms, or native database metadata. Slice 4 adds no behavior
+fix, new SQL dialect behavior, aggregate expansion, semantic behavior, IR
+model, SQL backend behavior, diagnostic behavior, CLI/JSON behavior, public
+API, public MySQL API expansion, fixture/golden, grammar, generated, source
+implementation, package, release, runtime, project, relationship/JOIN, schema
+introspection, Slice 5 work, v0.2 completion declaration in Slice 4, or Phase
 32 implementation.
 
 ## Trusted Baseline
@@ -94,7 +111,7 @@ Carry-forward facts:
 - MySQL remains private to explicit CLI dispatch;
 - JSON v1 remains the current single-file machine-readable output contract and
   has no type-output fields;
-- v0.2 is not complete yet at Phase 31 Slice 3.
+- v0.2 is not complete yet at Phase 31 Slice 4.
 
 ## Candidate Decision
 
@@ -115,7 +132,7 @@ behavior.
 
 ## Phase 31 Master Plan
 
-Slice 3 is complete. Slices 4 through 8 are planned only.
+Slice 4 is complete. Slices 5 through 8 are planned only.
 
 ### Slice 1: Candidate Decision And Phase 30 Carry-forward Audit
 
@@ -199,6 +216,9 @@ or Phase 32 implementation.
 Status: complete as numeric promotion and Decimal boundary hardening, tests,
 static audit, and status work only.
 
+Phase 31 Slice 3 is complete as numeric promotion and Decimal boundary
+hardening, tests, static audit, and status work only.
+
 Goal: harden current Int/Float promotion, Decimal `+` and `-`, deferred
 Decimal `*` and `/`, no Decimal literals, no casts, no Decimal precision/scale
 carrier, and no mixed Decimal promotion.
@@ -240,15 +260,45 @@ Artifacts:
 
 ### Slice 4: Date / Timestamp SQL Compatibility Audit
 
-Status: planned only.
+Status: complete as Date / Timestamp SQL compatibility audit, tests, static
+audit, and status work only.
 
 Goal: prove accepted Date/Timestamp SQL compatibility across PostgreSQL and
 private MySQL under the current contracts, especially current direct-field
 `min` and `max` extrema lowering.
 
-Boundary: no DateTime, Time, Interval, timezone semantics, literals, casts,
-temporal arithmetic, date/time functions, native database metadata, or SQL
-lowering expansion.
+Slice 4 Date/Timestamp facts:
+
+- Direct-field `min(Date)`, `max(Date)`, `min(Timestamp)`, and
+  `max(Timestamp)` remain current accepted behavior with nullable same-type
+  results.
+- `count(Date)`, `count(Timestamp)`, `count_distinct(Date)`, and
+  `count_distinct(Timestamp)` remain current direct-field accepted behavior.
+- Date/Timestamp comparisons remain current generic known-child comparison
+  behavior producing `Bool UNKNOWN`, not a Date/Timestamp-specific comparison
+  compatibility matrix.
+- PostgreSQL and private MySQL render accepted Date/Timestamp extrema as
+  ordinary `MIN(field)` / `MAX(field)` SQL over ordinary field references.
+- SQL renderers add no casts, temporal functions, timezone terms, precision
+  terms, or native database metadata.
+- `DateTime`, `Time`, and `Interval` remain unsupported type names.
+- Date/Timestamp literal-like calls remain unsupported.
+- Temporal arithmetic remains rejected current behavior.
+
+Boundary: no DateTime primitive or alias, no Time type, no Interval type, no
+timezone semantics, no Date/Timestamp literal implementation, no temporal
+arithmetic implementation, no temporal function implementation, no casts, no
+timestamp precision modeling, no native database metadata, no new SQL dialect
+behavior, no public MySQL API expansion, no aggregate expansion, no
+Date/Timestamp-specific comparison matrix behavior, and no Slice 5 work.
+
+Artifacts:
+
+- `tests/test_phase31_date_timestamp_sql_compatibility.py`;
+- focused updates to this plan and
+  `docs/spec/v02-hardening-and-stable-completion-v1.md`;
+- minimal status documentation updates;
+- exact hash-lock updates where status documentation changed.
 
 ### Slice 5: UUID / Enum Readiness Decision
 
@@ -308,7 +358,7 @@ Phase 31 Slice 1 does not start Phase 32 or implement any post-v0.2 work.
 
 ## Phase-wide Non-goals
 
-Phase 31 Slices 1 through 3 and this master plan do not authorize:
+Phase 31 Slices 1 through 4 and this master plan do not authorize:
 
 - source implementation changes;
 - grammar changes;
@@ -328,6 +378,12 @@ Phase 31 Slices 1 through 3 and this master plan do not authorize:
 - runtime or database execution;
 - relationship or JOIN implementation;
 - DateTime, Time, Interval, or timezone semantics;
+- Date/Timestamp literal implementation;
+- temporal arithmetic implementation;
+- temporal function implementation;
+- timestamp precision modeling;
+- native database metadata;
+- Date/Timestamp-specific comparison matrix behavior;
 - Money or Currency primitives;
 - semantic annotation syntax;
 - Decimal precision/scale carrier;
@@ -341,10 +397,10 @@ Phase 31 Slices 1 through 3 and this master plan do not authorize:
 - package version, release tag, publication, upload, signing, attestation, or
   release artifact changes;
 - Phase 32 implementation;
-- v0.2 completion declaration in Slice 1, Slice 2, or Slice 3.
+- v0.2 completion declaration in Slice 1, Slice 2, Slice 3, or Slice 4.
 
 ## Future Workflow Reminder
 
-Phase 31 Slice 3 is the latest implemented slice here. Do not stage real
+Phase 31 Slice 4 is the latest implemented slice here. Do not stage real
 content, commit, or push without a separate Gate 3 approval. Do not start
-Slice 4 or Phase 32 without separate approval.
+Slice 5 or Phase 32 without separate approval.

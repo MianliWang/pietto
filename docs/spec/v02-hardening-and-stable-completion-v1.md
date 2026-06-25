@@ -2,16 +2,17 @@
 
 ## Status
 
-Phase 31 Slice 3 is complete as numeric promotion and Decimal boundary
-hardening, tests, static audit, and status work only.
+Phase 31 Slice 4 is complete as Date / Timestamp SQL compatibility audit,
+tests, static audit, and status work only.
 
 This contract selects Phase 31 v0.2 Hardening And Stable Completion. It
 records the approved merged Phase 31 direction and master plan. Slice 2 locks
 the current aggregate result matrix through tests/static audit and status
 documentation only. Slice 3 locks current numeric promotion and Decimal
-boundaries through tests/static audit and status documentation only, without
-starting Slice 4, starting Phase 32, or changing
-compiler behavior.
+boundaries through tests/static audit and status documentation only. Slice 4
+locks current Date / Timestamp SQL compatibility through tests/static audit
+and status documentation only, without starting Slice 5, starting Phase 32, or
+changing compiler behavior.
 
 Phase 31 Slice 1 is complete as candidate decision, Phase 30 carry-forward
 audit, static audit, and status work only.
@@ -22,7 +23,7 @@ specs, and static audit only. If a later slice exposes a concrete
 contract/implementation mismatch, compiler behavior may change only after
 separate explicit approval.
 
-v0.2 is not complete yet at Phase 31 Slice 3. Phase 31 Slice 8 is the future
+v0.2 is not complete yet at Phase 31 Slice 4. Phase 31 Slice 8 is the future
 v0.2 Stable Completion Audit And Status Lock. Phase 31 completion may lock
 v0.2 stable if all criteria pass. Phase 32 is post-v0.2 work.
 
@@ -39,6 +40,22 @@ behavior, CLI/JSON behavior, public API, fixture/golden, grammar, generated,
 source implementation, package, release, runtime, project, relationship/JOIN,
 schema introspection, Slice 4 work, v0.2 completion declaration in Slice 3, or
 Phase 32 implementation.
+
+Slice 4 locks current Date / Timestamp SQL compatibility through tests/static
+audit and status documentation only. Direct-field `min(Date)`, `max(Date)`,
+`min(Timestamp)`, and `max(Timestamp)` remain current accepted behavior.
+`count(Date)`, `count(Timestamp)`, `count_distinct(Date)`, and
+`count_distinct(Timestamp)` remain current direct-field accepted behavior.
+Date/Timestamp comparisons remain current generic known-child comparison
+behavior producing `Bool UNKNOWN`, not a Date/Timestamp-specific comparison
+compatibility matrix. SQL renderers add no casts, temporal functions, timezone
+terms, precision terms, or native database metadata. Slice 4 adds no behavior
+fix, new SQL dialect behavior, aggregate expansion, semantic behavior, IR
+model, SQL backend behavior, diagnostic behavior, CLI/JSON behavior, public
+API, public MySQL API expansion, fixture/golden, grammar, generated, source
+implementation, package, release, runtime, project, relationship/JOIN, schema
+introspection, Slice 5 work, v0.2 completion declaration in Slice 4, or Phase
+32 implementation.
 
 ## Trusted Baseline
 
@@ -73,7 +90,8 @@ Rejected directions:
 ## Active Carry-forward Contracts
 
 Phase 29 deferred register remains active. Phase 29 aggregate freeze remains
-active. Phase 30 type-system contracts are carried forward.
+active. Phase 30 type-system contracts are carried forward. Phase 30
+Date/Timestamp contracts are carried forward.
 
 The active Phase 29 contracts are:
 
@@ -128,7 +146,7 @@ Slice 1 is grounded in current implementation facts:
 
 Slice 1 is complete as candidate decision, Phase 30 carry-forward audit,
 static audit, and status work only. Slice 2 is complete. Slice 3 is complete.
-Slices 4 through 8 are planned only.
+Slice 4 is complete. Slices 5 through 8 are planned only.
 
 ## Slice Boundaries
 
@@ -179,6 +197,9 @@ promotion and Decimal boundaries. It does not add Decimal literals, Decimal
 multiplication, Decimal division, mixed Decimal promotion, casts, or a Decimal
 precision/scale carrier.
 
+Phase 31 Slice 3 is complete as numeric promotion and Decimal boundary
+hardening, tests, static audit, and status work only.
+
 Slice 3 locks the current numeric and Decimal matrix:
 
 - Int and Float numeric promotion remains current behavior: Int/Int binary
@@ -212,6 +233,33 @@ Date/Timestamp SQL behavior remains within the current PostgreSQL/private
 MySQL contract. It does not add DateTime, Time, Interval, timezone semantics,
 temporal literals, casts, temporal arithmetic, date/time functions, or native
 database metadata.
+
+Phase 31 Slice 4 is complete as Date / Timestamp SQL compatibility audit,
+tests, static audit, and status work only.
+
+Slice 4 locks the current Date/Timestamp matrix:
+
+- Direct-field `min(Date)`, `max(Date)`, `min(Timestamp)`, and
+  `max(Timestamp)` remain current accepted behavior with nullable same-type
+  results.
+- `count(Date)`, `count(Timestamp)`, `count_distinct(Date)`, and
+  `count_distinct(Timestamp)` remain current direct-field accepted behavior.
+- Date/Timestamp comparisons remain current generic known-child comparison
+  behavior producing `Bool UNKNOWN`, not a Date/Timestamp-specific comparison
+  compatibility matrix.
+- PostgreSQL and private MySQL render accepted Date/Timestamp extrema as
+  ordinary `MIN(field)` / `MAX(field)` SQL over ordinary field references.
+- SQL renderers add no casts, temporal functions, timezone terms, precision
+  terms, or native database metadata.
+- `DateTime`, `Time`, and `Interval` remain unsupported type names.
+- Date/Timestamp literal-like calls remain unsupported.
+- Temporal arithmetic remains rejected current behavior.
+
+Slice 4 adds no aggregate behavior, semantic behavior, IR model, SQL backend
+behavior, diagnostic behavior, CLI/JSON behavior, public API, fixture/golden,
+grammar, generated, source implementation, package, release, runtime, project,
+relationship/JOIN, schema introspection, public MySQL API expansion, Slice 5
+work, v0.2 completion declaration in Slice 4, or Phase 32 implementation.
 
 UUID / Enum Readiness Decision is readiness-only by default. It preserves
 existing limited direct-field `count_distinct(UUID)` and Enum metadata
@@ -268,6 +316,12 @@ This contract does not authorize:
   runtime/database behavior;
 - relationship or JOIN implementation;
 - DateTime, Time, Interval, or timezone semantics;
+- Date/Timestamp literal implementation;
+- temporal arithmetic implementation;
+- temporal function implementation;
+- timestamp precision modeling;
+- native database metadata;
+- Date/Timestamp-specific comparison matrix behavior;
 - Money or Currency primitives;
 - semantic annotation syntax;
 - Decimal precision/scale carrier;
@@ -281,4 +335,4 @@ This contract does not authorize:
 - package version bump, release tag, publication, upload, signing,
   attestation, or release artifact changes;
 - Phase 32 implementation;
-- v0.2 completion declaration in Slice 1, Slice 2, or Slice 3.
+- v0.2 completion declaration in Slice 1, Slice 2, Slice 3, or Slice 4.

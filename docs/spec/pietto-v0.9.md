@@ -2129,8 +2129,8 @@ expansion, or Phase 31 implementation.
 
 ### Phase 31: v0.2 Hardening And Stable Completion
 
-Status: Phase 31 Slice 3 Numeric Promotion And Decimal Boundary Tests is
-complete as tests/static-audit/status work only.
+Status: Phase 31 Slice 4 Date / Timestamp SQL Compatibility Audit is complete
+as tests/static-audit/status work only.
 
 Phase 31 Slice 1 is complete as candidate decision, Phase 30 carry-forward
 audit, static audit, and status work only.
@@ -2148,7 +2148,7 @@ Carry-forward Audit, Aggregate Result Matrix Hardening, Numeric Promotion And
 Decimal Boundary Tests, Date / Timestamp SQL Compatibility Audit, UUID / Enum
 Readiness Decision, Diagnostic / CLI / JSON Stability Hardening, Docs /
 Examples / Package / CI v0.2 Readiness Audit, and v0.2 Stable Completion
-Audit And Status Lock. Slice 3 is complete. Slices 4 through 8 remain planned
+Audit And Status Lock. Slice 4 is complete. Slices 5 through 8 remain planned
 only.
 
 Phase 31 Slice 1 adds no Phase 31 behavior implementation in Slice 1, no
@@ -2192,12 +2192,31 @@ Phase 32 implementation in Slice 3, no behavior fixes, no source
 implementation, grammar, generated, fixture, golden, script, package, CI,
 public API, CLI, JSON, IR, SQL, semantic, aggregate, diagnostic, predicate,
 runtime, project/multi-file, relationship/JOIN, schema introspection,
-type-system behavior changes, or Slice 4 work. v0.2 is not complete yet at
-Phase 31 Slice 3, and Phase 31 Slice 8 is the future v0.2 Stable Completion
-Audit And Status Lock. Phase 31 completion may lock v0.2 stable if all
-criteria pass. Phase 32 is post-v0.2 Semantic Explain And Metadata Output
-MVP; Phase 33 is Project And Multi-file MVP; Phase 34 is Semantic Graph / ERD
-/ AI Metadata Export MVP; Phase 35 is Relationship Grain And Narrow JOIN MVP.
+type-system behavior changes, or Slice 4 work. Phase 31 Slice 4 Date /
+Timestamp SQL Compatibility Audit is complete as tests/static-audit/status
+work only. Slice 4 locks current direct-field Date/Timestamp SQL
+compatibility. Direct-field `min(Date)`, `max(Date)`, `min(Timestamp)`, and
+`max(Timestamp)` remain current accepted behavior. `count(Date)`,
+`count(Timestamp)`, `count_distinct(Date)`, and
+`count_distinct(Timestamp)` remain current direct-field accepted behavior.
+Date/Timestamp comparisons remain current generic known-child comparison
+behavior producing `Bool UNKNOWN`, not a Date/Timestamp-specific comparison
+compatibility matrix. SQL renderers add no casts, temporal functions, timezone
+terms, precision terms, or native database metadata. Slice 4 adds no Phase 31
+behavior implementation in Slice 4, no Phase 32 implementation in Slice 4, no
+behavior fixes, no source implementation, grammar, generated, fixture, golden,
+script, package, CI, public API, CLI, JSON, IR, SQL, semantic, aggregate,
+diagnostic, predicate, runtime, project/multi-file, relationship/JOIN, schema
+introspection, or type-system behavior changes. It adds no DateTime, Time,
+Interval, or timezone semantics, no Date/Timestamp literal implementation, no
+temporal arithmetic implementation, no temporal function implementation, no
+timestamp precision modeling, no native database metadata, and no Slice 5
+work. v0.2 is not complete yet at Phase 31 Slice 4, and Phase 31 Slice 8 is
+the future v0.2 Stable Completion Audit And Status Lock. Phase 31 completion
+may lock v0.2 stable if all criteria pass. Phase 32 is post-v0.2 Semantic
+Explain And Metadata Output MVP; Phase 33 is Project And Multi-file MVP;
+Phase 34 is Semantic Graph / ERD / AI Metadata Export MVP; Phase 35 is
+Relationship Grain And Narrow JOIN MVP.
 
 ---
 
