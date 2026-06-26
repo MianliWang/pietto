@@ -2306,7 +2306,12 @@ Alignment, And v0.2 Handoff Audit is complete as docs/spec/static-audit/status-o
 work. Phase 32 as a whole is not complete. Package version remains `0.1.0`.
 Phase 32 Slice 1 performed no package version bump, tag, release, publish,
 upload, signing, or attestation. No `pietto explain` CLI behavior was
-implemented in Slice 1. Active roadmap: Phase 32: Semantic Explain And Metadata Output MVP; Phase
+implemented in Slice 1. Phase 32 Slice 2 Semantic Metadata Artifact v1 Contract
+is complete. Slice 2 is docs/spec/static-audit/contract-only. No `pietto
+explain` CLI behavior was implemented in Slice 2, and no source, CLI, JSON v1,
+semantic, IR, SQL, diagnostic, fixture, golden, example, package, dependency,
+workflow, version, release, tooling, tag, publish, upload, signing, or
+attestation behavior changed. Active roadmap: Phase 32: Semantic Explain And Metadata Output MVP; Phase
 33: JSON v2 And Project / Multi-file MVP; Phase 34: Relationship Grain And
 Narrow JOIN MVP; Phase 35: Developer Experience And Delivery Pipeline MVP;
 Phase 36: Core Type System Expansion II; Phase 37: Aggregate Expansion II.

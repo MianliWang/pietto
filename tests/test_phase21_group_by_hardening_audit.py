@@ -71,17 +71,17 @@ LOCKED_FORBIDDEN_SURFACES = {
     "readme": (
         "README.md",
         1,
-        "b44e37ad89193cdf2443c6e3026aade84e192431a08134de3470df5f362e4b0c",
+        "914392e6cebf6180a4ea1fd59a9b04686ef09d0424976ef946a6d8cec0528217",
     ),
     "agents": (
         "AGENTS.md",
         1,
-        "087625f133de57638886ca0e468559da44d8d2f14e9d3699cb56948036b48f7f",
+        "981cbeb1e1e07794bb306b2d389a7d6e13c6f516208fe2a5ebaab267014c6f41",
     ),
     "pietto_v09": (
         "docs/spec/pietto-v0.9.md",
         1,
-        "a71cda1e000bed23ac685963a37195f7bf85acd3bb333ce7ed39474e8204562d",
+        "95786c47f830074d0d93f9a62fda5ecb448db7aa2a223843baed30b9173a442e",
     ),
     "diagnostics": (
         "docs/spec/diagnostics.md",

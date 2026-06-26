@@ -3,7 +3,8 @@
 ## 1. Status And Trusted Handoff
 
 Phase 32 Slice 1 is complete as Candidate Decision, Roadmap Alignment, And
-v0.2 Handoff Audit work only.
+v0.2 Handoff Audit work only. Phase 32 Slice 2 is complete as Semantic
+Metadata Artifact v1 Contract work only.
 
 Trusted handoff:
 
@@ -200,10 +201,16 @@ publishing, upload, signing, or attestation operation.
    selected direction, roadmap, and Phase 32 boundaries.
 
 2. **Semantic Metadata Artifact v1 Contract**
-   Define the normative Artifact v1 contract, including version domain,
+   Complete as docs/spec/static-audit/contract-only work. Defines the normative
+   Artifact v1 contract in `docs/spec/semantic-metadata-artifact-v1.md`,
+   including version domain,
    high-level field categories, success/failure envelope policy, path policy,
    ordering policy, and compatibility posture. Exact JSON field names belong
-   here, not Slice 1.
+   here, not Slice 1. Adds
+   `tests/test_phase32_semantic_metadata_artifact_contract.py` and no source,
+   CLI, JSON v1, semantic, IR, SQL, diagnostic, fixture, golden, example,
+   package, dependency, workflow, version, release, tooling, tag, publish,
+   upload, signing, or attestation behavior changes.
 
 3. **Private Metadata Model And Builder MVP**
    Add a private model and builder that consumes parse, semantic, and existing
@@ -259,12 +266,12 @@ workflow changes, package version changes, or release operations.
 
 ## 15. Validation Strategy
 
-Slice 1 validation:
+Slice 2 validation:
 
 ```bash
 uv run ruff format --check .
 uv run ruff check .
-uv run pytest tests/test_phase32_semantic_metadata_candidate_decision.py
+uv run pytest tests/test_phase32_semantic_metadata_artifact_contract.py
 uv run pytest
 uv run python scripts/check_generated.py
 uv run python scripts/check_goldens.py
@@ -287,6 +294,14 @@ git diff -- \
 ```
 
 The forbidden-path diff must have no output.
+
+Slice 2 does not implement `pietto explain`, CLI behavior, metadata DTOs,
+metadata builders, metadata serializers, text renderers, final runtime JSON
+output, source behavior, grammar changes, generated changes, semantic changes,
+IR changes, SQL changes, diagnostic changes, fixtures, goldens, examples,
+package-smoke changes, public API changes, dependency changes, tooling changes,
+workflow changes, package version changes, release operations, or tooling
+adoption.
 
 ## 16. Gate 2 Evidence Requirements
 

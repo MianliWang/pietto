@@ -212,9 +212,16 @@ file | locked path | old digest | new digest | reason
 
 ## 16. Slice 2 Handoff
 
-Slice 2 should define the Semantic Metadata Artifact v1 contract, including
-exact JSON property names, success envelope, failure envelope, field categories,
-ordering policy, path policy, and compatibility posture.
+Slice 2 is complete as docs/spec/static-audit/contract-only work. The normative
+contract is `docs/spec/semantic-metadata-artifact-v1.md`; it defines the
+Semantic Metadata Artifact v1 contract, including exact JSON property names,
+success envelope, failure envelope, field categories, ordering policy, path
+policy, compatibility posture, examples, and the Slice 3 handoff.
 
-Slice 2 should still avoid implementation unless separately approved for that
-slice. Slice 1 does not pre-authorize source changes.
+Slice 2 does not implement `pietto explain`, CLI behavior, metadata DTOs,
+metadata builders, metadata serializers, text renderers, source behavior,
+grammar changes, generated changes, semantic changes, IR changes, SQL changes,
+diagnostic changes, public API changes, tooling changes, dependency changes,
+workflow changes, package version changes, or release operations. Slice 1 did
+not pre-authorize source changes, and Slice 2 keeps that implementation
+boundary.
