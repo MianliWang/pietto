@@ -5,7 +5,8 @@
 Phase 32 Slice 1 is complete as Candidate Decision, Roadmap Alignment, And
 v0.2 Handoff Audit work only. Phase 32 Slice 2 is complete as Semantic
 Metadata Artifact v1 Contract work only. Phase 32 Slice 3 is complete as
-Private Metadata Model And Builder MVP work only.
+Private Metadata Model And Builder MVP work only. Phase 32 Slice 4 is complete
+as Definition, Schema, Type, And Nullability Metadata work only.
 
 Trusted handoff:
 
@@ -224,8 +225,14 @@ publishing, upload, signing, or attestation operation.
    upload, signing, or attestation behavior changes.
 
 4. **Definition, Schema, Type, And Nullability Metadata**
-   Populate Artifact v1 facts for definitions, relation/table/query schemas,
-   field names, resolved type posture, and effective nullability posture.
+   Complete as tests, status, and hash-lock work only. Hardens private metadata
+   definition/schema/type/nullability coverage for definitions,
+   relation/table/query schemas, field names, resolved type posture, and
+   effective nullability posture. Slice 4 implements no `pietto explain` CLI
+   behavior, JSON serializer, text renderer, public API, JSON v1 mutation, SQL
+   behavior, semantic behavior change, IR behavior change, grammar, generated
+   file, fixture, golden, example, package, dependency, workflow, version,
+   release, tag, publish, upload, signing, or attestation behavior changes.
 
 5. **Query Posture, Aggregate, And Basic Lineage Metadata**
    Populate query posture, aggregate posture, and narrow basic lineage facts

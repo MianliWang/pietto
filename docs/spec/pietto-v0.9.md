@@ -2317,7 +2317,14 @@ source, tests, status, and hash-lock updates. Phase 32 as a whole is not
 complete. No `pietto explain` CLI behavior, JSON serializer, text renderer,
 public API, JSON v1, SQL, semantic behavior, IR behavior, grammar, generated,
 fixture, golden, example, package, dependency, workflow, version, release, tag,
-publish, upload, signing, or attestation behavior changed. Active roadmap: Phase 32: Semantic Explain And Metadata Output MVP; Phase
+publish, upload, signing, or attestation behavior changed. Phase 32 Slice 4
+Definition, Schema, Type, And Nullability Metadata is complete. Slice 4 hardens
+private metadata definition/schema/type/nullability coverage with tests, status,
+and hash-lock updates only. Phase 32 as a whole is not complete. No `pietto
+explain` CLI behavior, JSON serializer, text renderer, public API, JSON v1
+mutation, SQL behavior, semantic behavior change, IR behavior change, grammar,
+generated, fixture, golden, example, package, dependency, workflow, version,
+release, tag, publish, upload, signing, or attestation behavior changed. Active roadmap: Phase 32: Semantic Explain And Metadata Output MVP; Phase
 33: JSON v2 And Project / Multi-file MVP; Phase 34: Relationship Grain And
 Narrow JOIN MVP; Phase 35: Developer Experience And Delivery Pipeline MVP;
 Phase 36: Core Type System Expansion II; Phase 37: Aggregate Expansion II.
