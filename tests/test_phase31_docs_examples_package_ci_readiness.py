@@ -42,21 +42,20 @@ def test_phase31_slice7_plan_and_spec_lock_readiness_audit_scope() -> None:
     for required in (
         "Phase 31 Slice 7 is complete as Docs / Examples / Package / CI "
         "v0.2 readiness audit, tests, static audit, status, and docs work only",
-        "Slice 7 is complete. Slice 8 is planned only",
+        "Slice 8 is complete",
         "Version Labels",
         "`docs/spec/pietto-v0.9.md` remains the current specification document "
         "path and label",
         "It is not the package version and is not a release tag",
-        "`v0.2` remains the internal single-file stable compiler boundary",
-        "It is not complete until a future Slice 8 approval and status lock",
+        "`v0.2` is the internal single-file stable compiler boundary",
+        "It is complete as of Phase 31 Slice 8 after repository-local "
+        "validation and status lock",
         "`0.1.0` remains the current package and installed CLI version",
-        "README, AGENTS, `docs/spec/pietto-v0.9.md`, Phase 31 plan/spec, "
-        "examples, package smoke, validation entrypoint, and CI workflow are "
-        "ready for the future Slice 8 completion audit",
+        "Pietto v0.2 single-file stable complete",
+        "Phase 31 Slice 8 complete",
         "Phase 29 historical Phase 32 completion-audit wording is superseded by "
         "the current Phase 31 merged roadmap",
-        "v0.2 is not complete yet at Phase 31 Slice 7",
-        "Phase 31 Slice 8 is the future v0.2 Stable Completion Audit And Status Lock",
+        "Phase 32 remains post-v0.2 and has not started",
         "Phase 32 is post-v0.2 Semantic Explain And Metadata Output MVP",
     ):
         assert required in combined
@@ -113,9 +112,9 @@ def test_docs_status_and_post_v02_roadmap_are_consistent() -> None:
         for required in (
             "Phase 31 Slice 7 Docs / Examples / Package / CI v0.2 Readiness "
             "Audit is complete as tests/static-audit/status/docs work only",
-            "v0.2 is not complete yet at Phase 31 Slice 7",
-            "Phase 31 Slice 8 is the future v0.2 Stable Completion Audit And "
-            "Status Lock",
+            "Pietto v0.2 single-file stable complete",
+            "Phase 31 Slice 8 complete",
+            "Phase 32 remains post-v0.2 and has not started",
             "Phase 32 is post-v0.2 Semantic Explain And Metadata Output MVP",
             "Phase 33 is Project And Multi-file MVP",
             "Phase 34 is Semantic Graph / ERD / AI Metadata Export MVP",
@@ -124,8 +123,7 @@ def test_docs_status_and_post_v02_roadmap_are_consistent() -> None:
             "Phase 29 historical Phase 32 completion-audit wording is "
             "superseded by the current Phase 31 merged roadmap",
             "no Phase 31 behavior implementation in Slice 7",
-            "no Phase 32 implementation in Slice 7",
-            "v0.2 completion declaration",
+            "no Phase 32 implementation in Slices 1 through 8",
         ):
             assert required in text, path
 
@@ -312,7 +310,7 @@ def test_tooling_evaluation_is_advisory_and_not_adopted() -> None:
     assert "astral-sh/ty" not in workflow
 
 
-def test_slice8_readiness_precheck_does_not_declare_v02_complete() -> None:
+def test_slice8_completion_status_keeps_release_ops_separate() -> None:
     plan_spec = f"{_normalized(PLAN_PATH)} {_normalized(SPEC_PATH)}"
 
     for required in (
@@ -330,16 +328,19 @@ def test_slice8_readiness_precheck_does_not_declare_v02_complete() -> None:
         "CI readiness",
         "deferred register",
         "clean worktree",
-        "CI headSha matching final commit",
+        "CI `headSha` exactly matching the final Slice 8 commit",
         "no package version/release/tag/publish implication",
-        "must wait for Slice 8",
+        "Pietto v0.2 single-file stable complete",
+        "Phase 31 complete",
+        "Phase 31 Slice 8 complete",
+        "Phase 32 remains post-v0.2 and has not started",
     ):
         assert required in plan_spec
 
     for forbidden in (
-        "v0.2 is complete",
-        "v0.2 stable completion is locked",
-        "Phase 31 is complete",
+        "Pietto 0.2.0 released",
+        "v0.2 package published",
+        "v0.2 Git tag created",
         "Phase 32 is complete",
     ):
         assert forbidden not in plan_spec
@@ -392,7 +393,7 @@ def test_static_audit_no_release_tooling_or_post_v02_surface_was_added() -> None
         "runtime or database execution",
         "schema introspection",
         "relationship or JOIN implementation",
-        "no Phase 32 implementation in Slice 7",
+        "Phase 32 implementation",
     ):
         assert required in plan_spec
 

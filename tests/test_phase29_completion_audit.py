@@ -142,17 +142,17 @@ LOCKED_BOUNDARY_SURFACES = {
     "readme": (
         "README.md",
         1,
-        "53ba89657216be5982b895fb6ade1da4893b31ca926ca44f5ae039d5e3fc64fd",
+        "a6a5e4496403e0de7cbe9e32779fd877c4a13a37bdc03879d156e3adb0f23c22",
     ),
     "agents": (
         "AGENTS.md",
         1,
-        "801678e2817c41e743c37589da84665ef9d5d9c13f9631671363ebbb67bdcc34",
+        "eecec1a300d3640d3b3b9d969435b7c284eac0aa70c8746ddfed665a923bce7c",
     ),
     "pietto_v09": (
         "docs/spec/pietto-v0.9.md",
         1,
-        "920d9a0331cc6a07da709091f791f02c6fb7f50141bfcccbcf52e09919d5609e",
+        "fac3988be6f815986f76559950525294a7867005a8630a7a4f31496ab9461a0e",
     ),
     "phase29_plan": (
         "docs/plan/phase-29-v02-stabilization-boundary.md",
@@ -222,7 +222,7 @@ def test_phase29_status_and_artifact_inventory_are_complete() -> None:
         assert required in plan
 
 
-def test_phase29_status_docs_lock_completion_without_v02_completion() -> None:
+def test_phase29_status_docs_lock_v02_completion_after_phase31_slice8() -> None:
     for relative_path in ("README.md", "AGENTS.md", "docs/spec/pietto-v0.9.md"):
         status_doc = _normalized(REPO_ROOT / relative_path)
         for required in (
@@ -234,13 +234,14 @@ def test_phase29_status_docs_lock_completion_without_v02_completion() -> None:
             "core type-system gap matrix",
             "v0.2 exit criteria",
             "completion audit/status lock",
-            "v0.2 is not complete yet",
             "Phase 30 Core Type System Stabilization I is complete",
-            "Phase 31 v0.2 Hardening And Stable Completion is the current mainline",
-            "Phase 31 Slice 8 is the future v0.2 Stable Completion Audit And "
-            "Status Lock",
-            "Phase 31 completion may lock v0.2 stable if all criteria pass",
+            "Phase 31 v0.2 Hardening And Stable Completion is complete",
+            "Pietto v0.2 single-file stable complete",
+            "Phase 31 complete",
+            "Phase 31 Slice 8 complete",
+            "Phase 32 remains post-v0.2 and has not started",
             "Phase 32 is post-v0.2 Semantic Explain And Metadata Output MVP",
+            "internal v0.2 completion does not imply a package release",
             "package version",
             "release",
             "JSON v2",
@@ -249,11 +250,13 @@ def test_phase29_status_docs_lock_completion_without_v02_completion() -> None:
         ):
             assert required in status_doc
         for forbidden in (
-            "v0.2 is complete",
-            "v0.2 stable completion is locked",
+            "Pietto 0.2.0 released",
+            "v0.2 package published",
+            "v0.2 Git tag created",
             "Phase 30 implementation",
             "Phase 31 implementation is complete",
             "Phase 31 implementation has started",
+            "Phase 32 is complete",
             "Phase 29 implements JSON v2",
             "Phase 29 changes public `emit_mysql_sql`",
             "public `emit_mysql_sql`",

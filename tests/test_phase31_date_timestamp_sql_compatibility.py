@@ -59,7 +59,7 @@ def test_phase31_slice4_plan_and_spec_lock_tests_static_audit_scope() -> None:
     for required in (
         "Phase 31 Slice 4 is complete as Date / Timestamp SQL compatibility "
         "audit, tests, static audit, and status work only",
-        "Slice 7 is complete. Slice 8 is planned only",
+        "Slice 8 is complete",
         "Phase 31 Slice 5 is complete as UUID / Enum readiness decision, "
         "tests, static audit, and status work only",
         "Phase 31 Slice 6 is complete as Diagnostic / CLI / JSON stability "

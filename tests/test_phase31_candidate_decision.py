@@ -57,6 +57,7 @@ PHASE31_ARTIFACTS = (
     "tests/test_phase31_uuid_enum_readiness_decision.py",
     "tests/test_phase31_diagnostic_cli_json_stability.py",
     "tests/test_phase31_docs_examples_package_ci_readiness.py",
+    "tests/test_phase31_v02_stable_completion_audit.py",
 )
 
 PHASE31_SLICES = (
@@ -78,12 +79,16 @@ POST_V02_ROADMAP = (
 )
 
 FORBIDDEN_BOUNDARY_PHRASES = (
-    "v0.2 is complete",
-    "v0.2 stable completion is locked",
-    "Phase 31 is complete",
     "Phase 31 implementation is complete",
     "Phase 31 implementation has started",
     "Phase 32 is complete",
+    "Pietto 0.2.0 released",
+    "v0.2 package published",
+    "v0.2 Git tag created",
+    "JSON v2 complete",
+    "MySQL public API complete",
+    "project/multi-file complete",
+    "JOIN complete",
     "JSON v2 is implemented",
     "public `emit_mysql_sql`",
     "Decimal precision/scale carrier is implemented",
@@ -117,10 +122,11 @@ def test_phase31_slice1_artifacts_and_preferred_paths_are_locked() -> None:
         "final Phase 30 commit: `Complete Phase 30 core type system "
         "stabilization audit`",
         "CI run: `27891119809 success`",
-        "v0.2 is not complete yet at Phase 31 Slice 7",
-        "Phase 31 Slice 8 is the future v0.2 Stable Completion Audit And Status Lock",
-        "Phase 31 completion may lock v0.2 stable if all criteria pass",
-        "Phase 32 is post-v0.2 work",
+        "Pietto v0.2 single-file stable complete",
+        "Phase 31 complete",
+        "Phase 31 Slice 8 complete",
+        "Phase 32 remains post-v0.2 and has not started",
+        "Phase 32 is post-v0.2 Semantic Explain And Metadata Output MVP",
     ):
         assert required in plan
         assert required in spec
@@ -176,7 +182,7 @@ def test_phase31_master_plan_and_slice_boundaries_are_locked() -> None:
         "compiler behavior may change only after separate explicit approval",
         "Phase 31 Slice 2 is complete as aggregate result matrix hardening, "
         "tests, static audit, and status work only",
-        "Slice 7 is complete. Slice 8 is planned only",
+        "Slice 8 is complete",
         "count(Enum field) remains a documented risk",
         "semantic/IR acceptance with PostgreSQL/private MySQL fail-closed output",
         "requires separate explicit approval before any behavior fix",
@@ -221,11 +227,11 @@ def test_phase31_master_plan_and_slice_boundaries_are_locked() -> None:
         "Version Labels",
         "`docs/spec/pietto-v0.9.md` remains the current specification document "
         "path and label",
-        "`v0.2` remains the internal single-file stable compiler boundary",
+        "`v0.2` is the internal single-file stable compiler boundary",
         "`0.1.0` remains the current package and installed CLI version",
-        "README, AGENTS, `docs/spec/pietto-v0.9.md`, Phase 31 plan/spec, "
-        "examples, package smoke, validation entrypoint, and CI workflow are "
-        "ready for the future Slice 8 completion audit",
+        "Pietto v0.2 single-file stable complete",
+        "Phase 31 Slice 8 complete",
+        "Phase 32 remains post-v0.2 and has not started",
         "Phase 29 historical Phase 32 completion-audit wording is superseded "
         "by the current Phase 31 merged roadmap",
         "Diagnostic inventory audit distinguishes active diagnostics from "
@@ -246,8 +252,9 @@ def test_phase31_master_plan_and_slice_boundaries_are_locked() -> None:
         "Do not add UUID or Enum behavior without separate explicit approval",
         "This slice must not imply JSON v1 schema expansion",
         "no package version bump, release tag, publishing",
-        "Slice 8 is the only Phase 31 slice that may declare v0.2 stable completion",
-        "Slice 1 does not declare v0.2 complete",
+        "Slice 8 declares v0.2 stable completion for the internal "
+        "single-file compiler boundary only",
+        "internal v0.2 completion does not imply a package release",
     ):
         assert required in plan
 
@@ -256,7 +263,7 @@ def test_phase31_master_plan_and_slice_boundaries_are_locked() -> None:
         "Later Phase 31 hardening may mean tests, specs, and static audit only",
         "Phase 31 Slice 2 is complete as aggregate result matrix hardening, "
         "tests, static audit, and status work only",
-        "Slice 7 is complete. Slice 8 is planned only",
+        "Slice 8 is complete",
         "count(Enum field) remains a documented risk",
         "Phase 31 Slice 3 is complete as numeric promotion and Decimal "
         "boundary hardening, tests, static audit, and status work only",
@@ -281,7 +288,7 @@ def test_phase31_master_plan_and_slice_boundaries_are_locked() -> None:
         "Version Labels",
         "`docs/spec/pietto-v0.9.md` remains the current specification document "
         "path and label",
-        "`v0.2` remains the internal single-file stable compiler boundary",
+        "`v0.2` is the internal single-file stable compiler boundary",
         "`0.1.0` remains the current package and installed CLI version",
         "Diagnostic inventory audit distinguishes active diagnostics from "
         "historical/retired diagnostics",
@@ -298,8 +305,8 @@ def test_phase31_master_plan_and_slice_boundaries_are_locked() -> None:
         "changes are authorized",
         "No CLI behavior change, JSON v1 schema expansion, new JSON fields, "
         "JSON v2, public MySQL API expansion",
-        "v0.2 Stable Completion Audit And Status Lock is the future Phase 31 Slice 8",
-        "Slice 1 does not declare v0.2 complete",
+        "Phase 31 Slice 8 is complete as v0.2 Stable Completion Audit And Status Lock",
+        "internal v0.2 completion does not imply a package release",
     ):
         assert required in spec
 
@@ -315,11 +322,11 @@ def test_phase31_post_v02_roadmap_is_locked_without_phase32_start() -> None:
     for required in (
         "Phase 31 Slice 1 does not start Phase 32 or implement any post-v0.2 work",
         "Do not stage real content, commit, or push without a separate Gate 3 approval",
-        "Do not start Slice 8 or Phase 32 without separate approval",
+        "Do not start Phase 32 without separate approval",
     ):
         assert required in plan
 
-    assert "Phase 32 is post-v0.2 work" in spec
+    assert "Phase 32 is post-v0.2 Semantic Explain And Metadata Output MVP" in spec
     assert "Phase 31 Slice 1 does not start Phase 32" in spec
 
 
@@ -493,6 +500,8 @@ def test_phase31_status_docs_record_slice7_without_v02_completion() -> None:
             "complete as tests/static-audit/status/docs work only",
             "Phase 31 Slice 7 Docs / Examples / Package / CI v0.2 Readiness "
             "Audit is complete as tests/static-audit/status/docs work only",
+            "Phase 31 Slice 8 v0.2 Stable Completion Audit And Status Lock "
+            "is complete as tests/spec/static-audit/status-lock/hash-lock work only",
             "Phase 29 deferred register remains active",
             "Phase 29 aggregate freeze remains active",
             "Phase 30 type-system contracts are carried forward",
@@ -500,13 +509,18 @@ def test_phase31_status_docs_record_slice7_without_v02_completion() -> None:
             "docs/spec/pietto-v0.9.md` remains the current specification "
             "document path/label",
             "it is not the package version and is not a release tag",
-            "`v0.2` remains the internal single-file stable compiler boundary",
-            "it is not complete until a future Slice 8 approval and status lock",
+            "`v0.2` is the internal single-file stable compiler boundary",
+            "it is complete as of Phase 31 Slice 8 after repository-local "
+            "validation and status lock",
             "`0.1.0` is the current package and installed CLI version",
-            "v0.2 is not complete yet at Phase 31 Slice 7",
-            "Phase 31 Slice 8 is the future v0.2 Stable Completion Audit And "
-            "Status Lock",
-            "Phase 31 completion may lock v0.2 stable if all criteria pass",
+            "Pietto v0.2 single-file stable complete",
+            "Phase 31 complete",
+            "Phase 31 Slice 8 complete",
+            "Phase 32 remains post-v0.2 and has not started",
+            "Package version remains `0.1.0`",
+            "Slice 8 performed no package version bump, release tag, publish, "
+            "upload, signing, or attestation operation",
+            "internal v0.2 completion does not imply a package release",
             "Phase 32 is post-v0.2 Semantic Explain And Metadata Output MVP",
             "no Phase 31 behavior implementation in Slice 1",
             "no Phase 31 behavior implementation in Slice 2",
@@ -515,15 +529,9 @@ def test_phase31_status_docs_record_slice7_without_v02_completion() -> None:
             "no Phase 31 behavior implementation in Slice 5",
             "no Phase 31 behavior implementation in Slice 6",
             "no Phase 31 behavior implementation in Slice 7",
-            "no Phase 32 implementation in Slice 1",
-            "no Phase 32 implementation in Slice 2",
-            "no Phase 32 implementation in Slice 3",
-            "no Phase 32 implementation in Slice 4",
-            "no Phase 32 implementation in Slice 5",
-            "no Phase 32 implementation in Slice 6",
-            "no Phase 32 implementation in Slice 7",
+            "no Phase 31 behavior implementation in Slice 8",
+            "no Phase 32 implementation in Slices 1 through 8",
             "diagnostic code/message/severity/order/location behavior changes",
-            "no Slice 8 work",
             "Direct-field `min(Date)`, `max(Date)`, `min(Timestamp)`, and "
             "`max(Timestamp)` remain current accepted behavior",
             "`count(Date)`, `count(Timestamp)`, `count_distinct(Date)`, and "

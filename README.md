@@ -72,9 +72,10 @@ The current implementation status is:
   compiler boundary, adds the deferred feature register, freezes the Phase 19
   through Phase 28 aggregate surface for v0.2 except bug fixes, records the
   core type-system gap matrix, defines v0.2 exit criteria, and locks the Phase
-  30 through merged Phase 31 handoff. v0.2 is not complete yet; Phase 30 Core
-  Type System Stabilization I is complete and Phase 31 v0.2 Hardening And
-  Stable Completion is the current mainline**.
+  30 through merged Phase 31 handoff. Phase 30 Core Type System Stabilization
+  I is complete, Phase 31 v0.2 Hardening And Stable Completion is complete,
+  and Pietto v0.2 single-file stable is complete as an internal compiler
+  boundary**.
 - **Phase 30 Core Type System Stabilization I: complete as
   docs/spec/static-audit/status work only. Slice 2 is complete as canonical
   scalar type registry contract, static audit, and status work only. It
@@ -111,12 +112,12 @@ The current implementation status is:
   no UUID comparison, cast, literal, storage, DDL, wider SQL, or public API
   behavior. Enum remains a non-builtin semantic type kind, and Bytes and Json
   remain deferred/unsupported behavior built-ins. Slice 8 is complete as
-  completion audit and status lock work only. Phase 30 is complete, but v0.2
-  is not complete. Phase 31 v0.2 Hardening And Stable Completion is the
-  current mainline. Phase 31 Slice 8 is the future v0.2 Stable Completion
-  Audit And Status Lock. Phase 30 adds no package version, release, tag,
-  publication, JSON v2, public MySQL API expansion, or Phase 31
-  implementation**.
+  completion audit and status lock work only. Phase 30 is complete, and
+  Phase 31 v0.2 Hardening And Stable Completion is complete as the merged
+  v0.2 status-lock phase. Phase 31 Slice 8 locks Pietto v0.2 single-file
+  stable complete for the internal compiler boundary only. Phase 30 adds no
+  package version, release, tag, publication, JSON v2, public MySQL API
+  expansion, or Phase 31 implementation**.
 - **Phase 31 v0.2 Hardening And Stable Completion: Phase 31 Slice 1 is
   complete as candidate decision, Phase 30 carry-forward audit, static audit,
   and status work only. Phase 31 Slice 2 Aggregate Result Matrix Hardening is
@@ -128,7 +129,9 @@ The current implementation status is:
   Phase 31 Slice 6 Diagnostic / CLI / JSON Stability Hardening is complete as
   tests/static-audit/status/docs work only. Phase 31 Slice 7 Docs / Examples /
   Package / CI v0.2 Readiness Audit is complete as
-  tests/static-audit/status/docs work only.
+  tests/static-audit/status/docs work only. Phase 31 Slice 8 v0.2 Stable
+  Completion Audit And Status Lock is complete as
+  tests/spec/static-audit/status-lock/hash-lock work only.
   Phase 29 deferred register
   remains active, Phase 29 aggregate freeze remains active, and Phase 30
   type-system contracts are carried forward. Slice 2 locks the current
@@ -175,9 +178,15 @@ The current implementation status is:
   entrypoint, CI, and tooling-readiness evidence without behavior changes.
   Version Labels: `docs/spec/pietto-v0.9.md` remains the current
   specification document path/label and is not the package version or a
-  release tag; `v0.2` remains the internal single-file stable compiler
-  boundary and is not complete until a future Slice 8 approval and status
-  lock; `0.1.0` is the current package and installed CLI version. Phase 29
+  release tag; `v0.2` is the internal single-file stable compiler boundary
+  and is complete as of Phase 31 Slice 8 after repository-local validation and
+  status lock; `0.1.0` is the current package and installed CLI version.
+  Pietto v0.2 single-file stable complete. Phase 31 complete. Phase 31
+  Slice 8 complete. Phase 32 remains post-v0.2 and has not started. Package
+  version remains `0.1.0`. Slice 8 performed no package version bump, release
+  tag, publish, upload, signing, or attestation operation. internal v0.2
+  completion does not imply a package release.
+  Phase 29
   historical Phase 32 completion-audit wording is superseded by the current
   Phase 31 merged roadmap. Phase 31 Slice 1
   adds no Phase 31 behavior implementation in Slice 1, Slice 2 adds no
@@ -185,9 +194,10 @@ The current implementation status is:
   behavior implementation in Slice 3, and Slice 4 adds no Phase 31 behavior
   implementation in Slice 4, and Slice 5 adds no Phase 31 behavior
   implementation in Slice 5, and Slice 6 adds no Phase 31 behavior
-  implementation in Slice 6, and Slice 7 adds no Phase 31 behavior
-  implementation in Slice 7, no Phase 32 implementation in Slices 1 through
-  7, no JSON v1 schema expansion, no JSON v2, no public MySQL API expansion,
+  implementation in Slice 6, Slice 7 adds no Phase 31 behavior implementation
+  in Slice 7, and Slice 8 adds no Phase 31 behavior implementation in Slice
+  8. There is no Phase 32 implementation in Slices 1 through 8, no JSON v1
+  schema expansion, no JSON v2, no public MySQL API expansion,
   no CLI, diagnostic, semantic, IR, SQL, aggregate, type-system, runtime,
   project, relationship/JOIN, schema introspection, UUID or Enum behavior
   implementation, UUID literal implementation, Enum literal implementation,
@@ -198,11 +208,10 @@ The current implementation status is:
   implementation, no temporal arithmetic implementation, no temporal function
   implementation, no timestamp precision modeling, and no native database
   metadata, no diagnostic code/message/severity/order/location behavior
-  changes, no tooling adoption, no `ty` adoption, and no coverage threshold.
-  v0.2 is not complete yet at Phase 31 Slice 7. Phase 31 Slice 8 is the
-  future v0.2 Stable Completion Audit And Status Lock, and Phase 31 completion
-  may lock v0.2 stable if all criteria pass. Phase 32 is post-v0.2 Semantic
-  Explain And Metadata Output MVP**.
+  changes, no tooling adoption, no `ty` adoption, no coverage threshold, no
+  package version bump, no release tag, no publishing, and no Phase 32
+  implementation. Phase 32 is post-v0.2 Semantic Explain And Metadata Output
+  MVP**.
 
 The current compiler pipeline parses one Pietto file, performs semantic
 analysis, builds immutable Semantic IR, emits explicitly selected PostgreSQL
@@ -327,11 +336,11 @@ Phase 29 v0.2 Stabilization Boundary is complete as docs/spec/static-audit and
 status work only. Slices 1 through 6 cover the v0.2 boundary contract, deferred
 feature register, aggregate surface freeze, core type-system gap matrix, v0.2
 exit criteria and validation strategy, and completion audit/status lock. Phase
-29 defines v0.2 as a stable single-file typed SQL authoring compiler, but v0.2
-is not complete yet. Phase 30 Core Type System Stabilization I is complete,
-Phase 31 v0.2 Hardening And Stable Completion is the current mainline. Phase
-31 Slice 8 is the future v0.2 Stable Completion Audit And Status Lock, and
-Phase 31 completion may lock v0.2 stable if all criteria pass. Phase 29 adds
+29 defines v0.2 as a stable single-file typed SQL authoring compiler. Phase 30
+Core Type System Stabilization I is complete, Phase 31 v0.2 Hardening And
+Stable Completion is complete, and Pietto v0.2 single-file stable is complete
+as an internal compiler boundary. Phase 31 Slice 8 is complete as v0.2 Stable
+Completion Audit And Status Lock. Phase 29 adds
 no source implementation, grammar, generated,
 CLI/JSON/API, IR, SQL, semantic, aggregate, diagnostic, runtime/database,
 schema introspection, project/multi-file, public MySQL API, relationship/JOIN,
@@ -392,9 +401,10 @@ cast, comparison validation, Text concatenation, Decimal precision/scale
 semantics/carrier/propagation/validation, SQL precision guarantees, Decimal
 literal, Decimal multiplication/division, mixed Decimal promotion,
 Currency/Money, or semantic annotation syntax changes. Phase 30 is complete,
-but v0.2 is not complete. Phase 31 v0.2 Hardening And Stable Completion is
-the current mainline, Phase 31 Slice 8 is the future v0.2 Stable Completion
-Audit And Status Lock, and Phase 30 adds no Phase 31 implementation.
+and Phase 31 v0.2 Hardening And Stable Completion is complete as the merged
+v0.2 status-lock phase. Phase 31 Slice 8 locks Pietto v0.2 single-file stable
+complete for the internal compiler boundary only, and Phase 30 adds no Phase
+31 implementation.
 
 Phase 31 v0.2 Hardening And Stable Completion Slice 1 is complete as
 candidate decision, Phase 30 carry-forward audit, static audit, and status
@@ -456,14 +466,15 @@ explicitly historical/retired. Phase 31 Slice 7 Docs / Examples / Package /
 CI v0.2 Readiness Audit is complete as tests/static-audit/status/docs work
 only. Version Labels: `docs/spec/pietto-v0.9.md` remains the current
 specification document path/label; it is not the package version and is not a
-release tag. `v0.2` remains the internal single-file stable compiler boundary;
-it is not complete until a future Slice 8 approval and status lock. `0.1.0`
-is the current package and installed CLI version. Slice 7 locks docs,
+release tag. `v0.2` is the internal single-file stable compiler boundary; it
+is complete as of Phase 31 Slice 8 after repository-local validation and
+status lock. `0.1.0` is the current package and installed CLI version. Slice
+7 locks docs,
 examples, package, validation
 entrypoint, CI, and tooling-readiness evidence without behavior changes.
 README, AGENTS, `docs/spec/pietto-v0.9.md`, Phase 31 plan/spec, examples,
-package smoke, validation entrypoint, and CI workflow are ready for the
-future Slice 8 completion audit. All current tracked Pietto examples are
+package smoke, validation entrypoint, and CI workflow feed the Slice 8
+completion audit. All current tracked Pietto examples are
 included in the readiness audit; the tracked examples inventory is non-empty;
 every current tracked Pietto example parses and passes the applicable semantic
 checks. `scripts/package_smoke.py` already verifies
@@ -476,22 +487,22 @@ package smoke checks. CI headSha verification remains an external Gate 3
 process. `ty` remains deferred; Pyright remains the source-of-truth type
 checker. Coverage remains advisory, and no coverage threshold is adopted.
 Phase 29 historical Phase 32 completion-audit wording is superseded by the
-current Phase 31 merged roadmap. Phase 31 as a whole is not complete, v0.2 is
-not complete yet at Phase 31 Slice 7, and Phase 31 Slice 8 is the future v0.2
-Stable Completion Audit And Status Lock. Phase 31 completion may lock v0.2
-stable if all criteria pass. Phase 32 is post-v0.2 Semantic Explain And
-Metadata Output MVP; Phase 33 is Project And Multi-file MVP; Phase 34 is
-Semantic Graph / ERD / AI Metadata Export MVP; Phase 35 is Relationship Grain
-And Narrow JOIN MVP. Slice 1 adds no Phase 31 behavior implementation in Slice
-1, Slice 2 adds no Phase 31 behavior implementation in Slice 2, Slice 3 adds
-no Phase 31 behavior implementation in Slice 3, Slice 4 adds no Phase 31
-behavior implementation in Slice 4, Slice 5 adds no Phase 31 behavior
-implementation in Slice 5, Slice 6 adds no Phase 31 behavior implementation
-in Slice 6, and Slice 7 adds no Phase 31 behavior implementation in Slice 7.
-There is no Phase 32 implementation in Slice 1, no Phase 32 implementation in
-Slice 2, no Phase 32 implementation in Slice 3, no Phase 32 implementation in
-Slice 4, no Phase 32 implementation in Slice 5, no Phase 32 implementation in
-Slice 6, and no Phase 32 implementation in Slice 7. It adds no behavior
+current Phase 31 merged roadmap. Pietto v0.2 single-file stable complete.
+Phase 31 complete. Phase 31 Slice 8 complete. Phase 32 remains post-v0.2 and
+has not started. Package version remains `0.1.0`. Slice 8 performed no
+package version bump, release tag, publish, upload, signing, or attestation
+operation. internal v0.2 completion does not imply a package release. Phase
+32 is post-v0.2 Semantic Explain And Metadata Output
+MVP; Phase 33 is Project And Multi-file MVP; Phase 34 is Semantic Graph / ERD
+/ AI Metadata Export MVP; Phase 35 is Relationship Grain And Narrow JOIN MVP.
+Slice 1 adds no Phase 31 behavior implementation in Slice 1, Slice 2 adds no
+Phase 31 behavior implementation in Slice 2, Slice 3 adds no Phase 31 behavior
+implementation in Slice 3, Slice 4 adds no Phase 31 behavior implementation
+in Slice 4, Slice 5 adds no Phase 31 behavior implementation in Slice 5,
+Slice 6 adds no Phase 31 behavior implementation in Slice 6, Slice 7 adds no
+Phase 31 behavior implementation in Slice 7, and Slice 8 adds no Phase 31
+behavior implementation in Slice 8. There is no Phase 32 implementation in
+Slices 1 through 8. It adds no behavior
 fixes, no source implementation, grammar, generated, example, fixture,
 golden, script, package, dependency, lockfile, CI workflow, public API, CLI,
 JSON, IR, SQL, semantic, aggregate, diagnostic, predicate, runtime,
@@ -505,9 +516,9 @@ syntax, Decimal precision/scale carrier, UUID or Enum behavior
 implementation, UUID literal implementation, Enum literal implementation,
 UUID or Enum cast implementation, UUID or Enum storage, DDL, or native
 database metadata, broader UUID SQL behavior, broad Enum SQL support,
-diagnostic code/message/severity/order/location behavior changes, no Slice 8
-work, tooling adoption, `ty` adoption, coverage threshold, v0.2 completion
-declaration, package version bump, release tag, or publishing.
+diagnostic code/message/severity/order/location behavior changes, tooling
+adoption, `ty` adoption, coverage threshold, package version bump, release
+tag, publishing, or Phase 32 implementation.
 
 The supported single-file CLI commands and forms include:
 

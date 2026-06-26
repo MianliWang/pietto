@@ -660,11 +660,10 @@ def test_handoff_non_goals_and_status_docs_are_locked() -> None:
             "Bytes and Json remain deferred/unsupported behavior built-ins",
             "Slice 8 is complete as completion audit and status lock work only",
             "Phase 30 is complete",
-            "v0.2 is not complete",
-            "Phase 31 v0.2 Hardening And Stable Completion is the current mainline",
-            "Phase 31 Slice 8 is the future v0.2 Stable Completion Audit And "
-            "Status Lock",
-            "Phase 31 completion may lock v0.2 stable if all criteria pass",
+            "Phase 31 v0.2 Hardening And Stable Completion is complete",
+            "Pietto v0.2 single-file stable complete",
+            "Phase 31 Slice 8 complete",
+            "Phase 32 remains post-v0.2 and has not started",
             "Phase 32 is post-v0.2 Semantic Explain And Metadata Output MVP",
         ):
             assert required in status_doc

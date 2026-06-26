@@ -2,8 +2,11 @@
 
 ## Status
 
-Phase 31 Slice 7 is complete as Docs / Examples / Package / CI v0.2
-readiness audit, tests, static audit, status, and docs work only.
+Phase 31 Slice 8 is complete as v0.2 Stable Completion Audit And Status Lock,
+tests/spec/static-audit/status-lock/hash-lock work only.
+
+Pietto v0.2 single-file stable complete. Phase 31 complete. Phase 31 Slice 8
+complete. Phase 32 remains post-v0.2 and has not started.
 
 This contract selects Phase 31 v0.2 Hardening And Stable Completion. It
 records the approved merged Phase 31 direction and master plan. Slice 2 locks
@@ -18,8 +21,9 @@ selected backend diagnostic posture through tests/static audit, status
 documentation, and narrow docs-only diagnostics inventory corrections. Slice 7
 locks documentation, examples, package, validation-entrypoint, CI, and
 tooling-readiness evidence through tests/static audit and status documentation
-only, without starting Slice 8, starting Phase 32, or changing compiler
-behavior.
+only. Slice 8 locks v0.2 stable completion through tests/spec/static audit,
+completion audit, status lock, and exact hash-lock updates only, without
+starting Phase 32 or changing compiler behavior.
 
 Phase 31 Slice 1 is complete as candidate decision, Phase 30 carry-forward
 audit, static audit, and status work only.
@@ -30,9 +34,8 @@ specs, and static audit only. If a later slice exposes a concrete
 contract/implementation mismatch, compiler behavior may change only after
 separate explicit approval.
 
-v0.2 is not complete yet at Phase 31 Slice 7. Phase 31 Slice 8 is the future
-v0.2 Stable Completion Audit And Status Lock. Phase 31 completion may lock
-v0.2 stable if all criteria pass. Phase 32 is post-v0.2 work. Phase 32 is
+Pietto v0.2 single-file stable complete. Phase 31 complete. Phase 31 Slice 8
+complete. Phase 32 remains post-v0.2 and has not started. Phase 32 is
 post-v0.2 Semantic Explain And Metadata Output MVP.
 
 Slice 2 adds no aggregate behavior, semantic behavior, IR model, SQL backend
@@ -106,8 +109,8 @@ implementation is authorized.
 Slice 7 adds only tests/static audit, status documentation, and docs-only
 version-label/readiness clarification. README, AGENTS,
 `docs/spec/pietto-v0.9.md`, Phase 31 plan/spec, examples, package smoke,
-validation entrypoint, and CI workflow are ready for the future Slice 8
-completion audit. CI separately runs generated, golden, and package smoke
+validation entrypoint, and CI workflow feed the Slice 8 completion audit. CI
+separately runs generated, golden, and package smoke
 checks after `scripts/validate.py`; CI headSha verification remains an
 external Gate 3 process. Phase 29 historical Phase 32 completion-audit wording
 is superseded by the current Phase 31 merged roadmap. Slice 7 adds no source
@@ -119,20 +122,31 @@ bump, release tag, publishing, dependency change, lockfile change, workflow
 change, fixture or golden change, tooling adoption, `ty` adoption, coverage
 threshold, v0.2 completion declaration in Slice 7, or Phase 32 implementation.
 
+Slice 8 adds only tests/spec/static audit, status documentation, completion
+audit, and exact hash-lock updates. It locks v0.2 stable completion for the
+internal single-file compiler boundary only. Slice 8 adds no source
+implementation, grammar, generated, example, fixture, golden, script, package,
+dependency, lockfile, CI workflow, public API, CLI, JSON, IR, SQL, semantic,
+aggregate, diagnostic, predicate, runtime, project, relationship/JOIN, schema
+introspection, or type-system behavior changes. It adds no package version
+bump, release tag, publishing, signing, upload, attestation, JSON v2, public
+MySQL API expansion, tooling adoption, `ty` adoption, coverage threshold, or
+Phase 32 implementation.
+
 ## Version Labels
 
 The current repository intentionally has three distinct labels:
 
 - `docs/spec/pietto-v0.9.md` remains the current specification document path
   and label. It is not the package version and is not a release tag. The
-  pietto-v0.9.md is not renamed in Slice 7.
-- `v0.2` remains the internal single-file stable compiler boundary. It is not
-  complete until a future Slice 8 approval and status lock.
+  pietto-v0.9.md is not renamed in Slice 8.
+- `v0.2` is the internal single-file stable compiler boundary. It is complete
+  as of Phase 31 Slice 8 after repository-local validation and status lock.
 - `0.1.0` remains the current package and installed CLI version.
 
 No package version bump, release tag, publication, upload, signing,
 attestation, PyPI publishing, `docs/spec/pietto-v0.9.md` rename, global v0.9
-to v0.2 replacement, or v0.2 completion declaration is part of Slice 7.
+to v0.2 replacement, or release artifact publication is part of Slice 8.
 
 ## Trusted Baseline
 
@@ -224,7 +238,7 @@ Slice 1 is grounded in current implementation facts:
 Slice 1 is complete as candidate decision, Phase 30 carry-forward audit,
 static audit, and status work only. Slice 2 is complete. Slice 3 is complete.
 Slice 4 is complete. Slice 5 is complete. Slice 6 is complete. Slice 7 is
-complete. Slice 8 is planned only.
+complete. Slice 8 is complete.
 
 ## Slice Boundaries
 
@@ -424,8 +438,8 @@ audit, tests, static audit, status, and docs work only.
 Slice 7 locks current readiness facts:
 
 - README, AGENTS, `docs/spec/pietto-v0.9.md`, Phase 31 plan/spec, examples,
-  package smoke, validation entrypoint, and CI workflow are ready for the
-  future Slice 8 completion audit.
+  package smoke, validation entrypoint, and CI workflow feed the Slice 8
+  completion audit.
 - All current tracked Pietto examples are included in the readiness audit; the
   tracked examples inventory is non-empty; every current tracked Pietto
   example parses and passes the applicable semantic checks.
@@ -458,26 +472,85 @@ Slice 7 locks current readiness facts:
   advisory tooling candidates only and are not added to dependencies, CI,
   Makefile, or validation.
 - Phase 29 historical Phase 32 completion-audit wording is superseded by the
-  current Phase 31 merged roadmap and may need explicit final treatment during
-  Slice 8 status lock. Slice 7 does not broadly rewrite historical Phase 29
-  plan/spec artifacts.
+  current Phase 31 merged roadmap. Slice 7 does not broadly rewrite historical
+  Phase 29 plan/spec artifacts.
 
-Slice 8 readiness pre-check locks these rows as ready based on current
-evidence: single-file compiler boundary, parser/generated stability,
+Slice 8 readiness and completion posture locks these rows as ready based on
+current evidence: single-file compiler boundary, parser/generated stability,
 semantic/type/nullability stability, aggregate freeze, PostgreSQL SQL
 stability, private MySQL CLI boundary, diagnostic stability, CLI stability,
 JSON v1 stability, examples readiness, package readiness, CI readiness,
 deferred register, and no package version/release/tag/publish implication.
-Clean worktree and CI headSha matching final commit must wait for Slice 8.
+Clean worktree and CI headSha matching final commit remain Gate 3 external
+proof.
 
 Slice 7 must not imply package version bump, release tag, publishing,
 dependency change, lockfile change, workflow change, example change, fixture
 or golden change, script change, tooling adoption, `ty` adoption, coverage
-threshold, behavior fix, Slice 8 work, v0.2 completion declaration in Slice
+threshold, behavior fix, v0.2 completion declaration in Slice
 7, or Phase 32 implementation. There is no Phase 32 implementation in Slice
 7.
 
-v0.2 Stable Completion Audit And Status Lock is the future Phase 31 Slice 8.
+Phase 31 Slice 8 is complete as v0.2 Stable Completion Audit And Status Lock,
+tests/spec/static-audit/status-lock/hash-lock work only.
+
+Slice 8 completion wording:
+
+- Pietto v0.2 single-file stable complete.
+- Phase 31 complete.
+- Phase 31 Slice 8 complete.
+- Phase 32 remains post-v0.2 and has not started.
+- Package version remains `0.1.0`.
+- `docs/spec/pietto-v0.9.md` remains the current spec document path.
+- Slice 8 performed no package version bump, release tag, publish, upload,
+  signing, or attestation operation.
+- internal v0.2 completion does not imply a package release.
+
+Slice 8 completion criteria:
+
+- single-file compiler boundary: passed;
+- parser/generated stability: passed;
+- AST/parser contract: passed;
+- semantic/type/nullability stability: passed;
+- core scalar registry: passed;
+- Bool/predicate semantics: passed;
+- Date/Timestamp boundary: passed;
+- Decimal boundary: passed;
+- operator/comparison boundary: passed;
+- aggregate surface freeze: passed;
+- aggregate result matrix: passed;
+- numeric promotion and Decimal boundaries: passed;
+- UUID readiness: passed;
+- Enum readiness/risk posture: passed;
+- PostgreSQL SQL stability: passed;
+- private MySQL CLI boundary: passed;
+- public Python SQL API posture: passed;
+- diagnostic inventory and presentation: passed;
+- CLI behavior stability: passed;
+- JSON v1 stability: passed;
+- JSON v2 deferral: passed;
+- examples readiness: passed;
+- package readiness: passed;
+- validation entrypoint readiness: passed;
+- CI workflow readiness: passed;
+- deferred feature register: passed;
+- project/multi-file deferral: passed;
+- runtime/database and schema introspection deferral: passed;
+- relationship/JOIN deferral: passed;
+- release-ops separation: passed.
+
+Gate 3 trust conditions remain external proof: clean worktree, committed Slice
+8 status lock, pushed final commit, successful GitHub Actions run, and CI
+`headSha` exactly matching the final Slice 8 commit. If Gate 3 CI fails or the
+CI `headSha` does not match, the completion state is not trusted and must be
+corrected before it is accepted.
+
+Slice 8 declares v0.2 stable completion for the internal single-file compiler
+boundary only. It does not create a package version `0.2.0`, Git tag, PyPI
+release, published release artifact, spec-file rename, public release
+announcement, JSON v2, public MySQL API, project/multi-file, JOIN, or Phase
+32 implementation.
+
 Slice 1 does not declare v0.2 complete.
 
 ## Post-v0.2 Roadmap
