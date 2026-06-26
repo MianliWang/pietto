@@ -2279,10 +2279,18 @@ Phase 29 historical Phase 32 completion-audit wording is superseded by the
 current Phase 31 merged roadmap. Phase 31 Slice 8 v0.2 Stable Completion Audit
 And Status Lock is complete as tests/spec/static-audit/status-lock/hash-lock
 work only. Pietto v0.2 single-file stable complete. Phase 31 complete.
-Phase 31 Slice 8 complete. Phase 32 remains post-v0.2 and has not started.
-Package version remains `0.1.0`. Slice 8 performed no package version bump,
-release tag, publish, upload, signing, or attestation operation. internal
-v0.2 completion does not imply a package release.
+Phase 31 Slice 8 complete. Phase 32 has started. Phase 32 Slice 1 Candidate
+Decision, Roadmap Alignment, And v0.2 Handoff Audit is complete as
+docs/spec/static-audit/status-only work. Phase 32 as a whole is not complete.
+Package version remains `0.1.0`. Phase 32 Slice 1 performed no package version
+bump, tag, release, publish, upload, signing, or attestation. No `pietto
+explain` CLI behavior was implemented in Slice 1. Active roadmap: Phase 32:
+Semantic Explain And Metadata Output MVP; Phase 33: JSON v2 And Project /
+Multi-file MVP; Phase 34: Relationship Grain And Narrow JOIN MVP; Phase 35:
+Developer Experience And Delivery Pipeline MVP; Phase 36: Core Type System
+Expansion II; Phase 37: Aggregate Expansion II. Semantic Graph / ERD / AI
+Metadata Export remains a post-Phase-37 deferred candidate without an assigned
+phase number. Internal v0.2 completion does not imply a package release.
 Slice 7 adds no Phase 31 behavior implementation in Slice 7, and Slice 8 adds
 no Phase 31 behavior implementation in Slice 8. There is no Phase 32
 implementation in Slices 1 through 8. It adds no behavior
@@ -2292,10 +2300,18 @@ SQL, semantic, aggregate, diagnostic, predicate, runtime, project/multi-file,
 relationship/JOIN, schema introspection, or type-system behavior changes. It
 adds no JSON v1 schema expansion, JSON v2, public MySQL API expansion, no
 tooling adoption, no `ty` adoption, no coverage threshold, no package version
-bump, no release tag, no publishing, and no Phase 32 implementation. Phase 32
-is post-v0.2 Semantic Explain And Metadata Output MVP; Phase 33 is Project
-And Multi-file MVP; Phase 34 is Semantic Graph / ERD / AI Metadata Export
-MVP; Phase 35 is Relationship Grain And Narrow JOIN MVP.
+bump, no release tag, no publishing, and no Phase 32 implementation in Phase
+31. Phase 32 has started. Phase 32 Slice 1 Candidate Decision, Roadmap
+Alignment, And v0.2 Handoff Audit is complete as docs/spec/static-audit/status-only
+work. Phase 32 as a whole is not complete. Package version remains `0.1.0`.
+Phase 32 Slice 1 performed no package version bump, tag, release, publish,
+upload, signing, or attestation. No `pietto explain` CLI behavior was
+implemented in Slice 1. Active roadmap: Phase 32: Semantic Explain And Metadata Output MVP; Phase
+33: JSON v2 And Project / Multi-file MVP; Phase 34: Relationship Grain And
+Narrow JOIN MVP; Phase 35: Developer Experience And Delivery Pipeline MVP;
+Phase 36: Core Type System Expansion II; Phase 37: Aggregate Expansion II.
+Semantic Graph / ERD / AI Metadata Export remains a post-Phase-37 deferred
+candidate without an assigned phase number.
 
 ---
 

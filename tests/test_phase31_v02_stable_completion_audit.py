@@ -227,7 +227,7 @@ def test_version_labels_remain_distinct_after_v02_completion() -> None:
     assert "Pietto v0.2 single-file stable complete" in status
     assert "`0.1.0` is the current package and installed CLI version" in status
     assert "Package version remains `0.1.0`" in status
-    assert "internal v0.2 completion does not imply a package release" in status
+    assert "Internal v0.2 completion does not imply a package release" in status
 
 
 def test_package_version_release_tag_and_publish_are_not_implied() -> None:
@@ -242,8 +242,8 @@ def test_package_version_release_tag_and_publish_are_not_implied() -> None:
     assert 'version = "0.2.0"' not in pyproject
     status_lower = status.lower()
     assert (
-        "slice 8 performed no package version bump, release tag, publish, "
-        "upload, signing, or attestation operation"
+        "phase 32 slice 1 performed no package version bump, tag, release, "
+        "publish, upload, signing, or attestation"
     ) in status_lower
     assert "internal v0.2 completion does not imply a package release" in status_lower
     for forbidden in (
@@ -263,20 +263,33 @@ def test_package_version_release_tag_and_publish_are_not_implied() -> None:
 
 def test_phase32_post_v02_roadmap_is_locked_without_implementation() -> None:
     combined = _phase31_text()
-    status = " ".join(_normalized(path) for path in STATUS_DOCS)
-
-    assert "Phase 32 remains post-v0.2 and has not started" in status
     assert "Phase 32 is post-v0.2 Semantic Explain And Metadata Output MVP" in (
         combined
     )
-    assert "Phase 33: Project And Multi-file MVP" in combined
-    assert "Phase 34: Semantic Graph / ERD / AI Metadata Export MVP" in combined
-    assert "Phase 35: Relationship Grain And Narrow JOIN MVP" in combined
+    assert "Phase 32 remains post-v0.2 and has not started" in combined
     assert "Phase 32 complete" not in combined
-    assert not tuple((REPO_ROOT / "tests").glob("test_phase32_*.py"))
-    assert not (
-        REPO_ROOT / "docs/plan/phase-32-semantic-explain-metadata-output.md"
-    ).exists()
+
+    for path in STATUS_DOCS:
+        status = _normalized(path)
+        assert "Phase 32 has started" in status, path
+        assert (
+            "Phase 32 Slice 1 Candidate Decision, Roadmap Alignment, And v0.2 "
+            "Handoff Audit is complete as docs/spec/static-audit/status-only work"
+        ) in status, path
+        assert "Phase 32 as a whole is not complete" in status, path
+        assert "Phase 32: Semantic Explain And Metadata Output MVP" in status, path
+        assert "Phase 33: JSON v2 And Project / Multi-file MVP" in status, path
+        assert "Phase 34: Relationship Grain And Narrow JOIN MVP" in status, path
+        assert ("Phase 35: Developer Experience And Delivery Pipeline MVP") in status, (
+            path
+        )
+        assert "Phase 36: Core Type System Expansion II" in status, path
+        assert "Phase 37: Aggregate Expansion II" in status, path
+        assert (
+            "Semantic Graph / ERD / AI Metadata Export remains a post-Phase-37 "
+            "deferred candidate without an assigned phase number"
+        ) in status, path
+        assert "Phase 32 remains post-v0.2 and has not started" not in status, path
 
 
 def test_historical_phase29_route_is_classified_without_contract_weakening() -> None:
@@ -294,7 +307,8 @@ def test_historical_phase29_route_is_classified_without_contract_weakening() -> 
         current
     )
     assert "current Phase 31 merged roadmap" in current
-    assert "Phase 32 remains post-v0.2 and has not started" in status
+    assert "Phase 32 has started" in status
+    assert "Phase 32 remains post-v0.2 and has not started" not in status
 
 
 def test_validation_package_examples_and_ci_readiness_are_locked() -> None:

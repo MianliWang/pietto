@@ -114,16 +114,23 @@ def test_docs_status_and_post_v02_roadmap_are_consistent() -> None:
             "Audit is complete as tests/static-audit/status/docs work only",
             "Pietto v0.2 single-file stable complete",
             "Phase 31 Slice 8 complete",
-            "Phase 32 remains post-v0.2 and has not started",
-            "Phase 32 is post-v0.2 Semantic Explain And Metadata Output MVP",
-            "Phase 33 is Project And Multi-file MVP",
-            "Phase 34 is Semantic Graph / ERD / AI Metadata Export MVP",
-            "Phase 35 is Relationship Grain And Narrow JOIN MVP",
+            "Phase 32 has started",
+            "Phase 32 Slice 1 Candidate Decision, Roadmap Alignment, And v0.2 "
+            "Handoff Audit is complete as docs/spec/static-audit/status-only work",
+            "Phase 32 as a whole is not complete",
+            "Phase 32: Semantic Explain And Metadata Output MVP",
+            "Phase 33: JSON v2 And Project / Multi-file MVP",
+            "Phase 34: Relationship Grain And Narrow JOIN MVP",
+            "Phase 35: Developer Experience And Delivery Pipeline MVP",
+            "Phase 36: Core Type System Expansion II",
+            "Phase 37: Aggregate Expansion II",
+            "Semantic Graph / ERD / AI Metadata Export remains a post-Phase-37 "
+            "deferred candidate without an assigned phase number",
             "Version Labels",
             "Phase 29 historical Phase 32 completion-audit wording is "
             "superseded by the current Phase 31 merged roadmap",
             "no Phase 31 behavior implementation in Slice 7",
-            "no Phase 32 implementation in Slices 1 through 8",
+            "No `pietto explain` CLI behavior was implemented in Slice 1",
         ):
             assert required in text, path
 
@@ -135,6 +142,7 @@ def test_docs_status_and_post_v02_roadmap_are_consistent() -> None:
         ):
             assert required in text_lower, path
 
+        assert "Phase 32 remains post-v0.2 and has not started" not in text, path
         assert "v0.2 is not complete yet at Phase 31 Slice 5" not in text
         assert "v0.2 is not complete yet at Phase 31 Slice 6" not in text
         assert "Phase 32 remains required before v0.2 stable completion" not in text

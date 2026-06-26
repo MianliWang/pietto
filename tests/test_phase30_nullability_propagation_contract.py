@@ -434,10 +434,14 @@ def test_status_docs_record_slice3_without_v02_completion_or_behavior_change() -
             "Phase 31 v0.2 Hardening And Stable Completion is complete",
             "Pietto v0.2 single-file stable complete",
             "Phase 31 Slice 8 complete",
-            "Phase 32 remains post-v0.2 and has not started",
-            "Phase 32 is post-v0.2 Semantic Explain And Metadata Output MVP",
+            "Phase 32 has started",
+            "Phase 32 Slice 1 Candidate Decision, Roadmap Alignment, And v0.2 "
+            "Handoff Audit is complete as docs/spec/static-audit/status-only work",
+            "Phase 32 as a whole is not complete",
+            "Phase 32: Semantic Explain And Metadata Output MVP",
         ):
             assert required in status_doc
+        assert "Phase 32 remains post-v0.2 and has not started" not in status_doc
 
         for forbidden in (
             "v0.2 is complete",

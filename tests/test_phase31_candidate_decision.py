@@ -516,12 +516,15 @@ def test_phase31_status_docs_record_slice7_without_v02_completion() -> None:
             "Pietto v0.2 single-file stable complete",
             "Phase 31 complete",
             "Phase 31 Slice 8 complete",
-            "Phase 32 remains post-v0.2 and has not started",
+            "Phase 32 has started",
+            "Phase 32 Slice 1 Candidate Decision, Roadmap Alignment, And v0.2 "
+            "Handoff Audit is complete as docs/spec/static-audit/status-only work",
+            "Phase 32 as a whole is not complete",
             "Package version remains `0.1.0`",
-            "Slice 8 performed no package version bump, release tag, publish, "
-            "upload, signing, or attestation operation",
-            "internal v0.2 completion does not imply a package release",
-            "Phase 32 is post-v0.2 Semantic Explain And Metadata Output MVP",
+            "Phase 32 Slice 1 performed no package version bump, tag, release, "
+            "publish, upload, signing, or attestation",
+            "Internal v0.2 completion does not imply a package release",
+            "Phase 32: Semantic Explain And Metadata Output MVP",
             "no Phase 31 behavior implementation in Slice 1",
             "no Phase 31 behavior implementation in Slice 2",
             "no Phase 31 behavior implementation in Slice 3",
@@ -568,6 +571,7 @@ def test_phase31_status_docs_record_slice7_without_v02_completion() -> None:
             "publishing",
         ):
             assert required in status_doc
+        assert "Phase 32 remains post-v0.2 and has not started" not in status_doc
 
         assert "Phase 32 remains required before v0.2 stable completion" not in (
             status_doc
