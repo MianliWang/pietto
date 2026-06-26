@@ -429,7 +429,13 @@ docs/spec/static-audit/contract-only. No `pietto explain` CLI behavior was
 implemented in Slice 2, and no source, CLI, JSON v1, semantic, IR, SQL,
 diagnostic, fixture, golden, example, package, dependency, workflow, version,
 release, tooling, tag, publish, upload, signing, or attestation behavior
-changed.
+changed. Phase 32 Slice 3 Private Metadata Model And Builder MVP is complete.
+Slice 3 adds only private metadata model/builder source, tests, status, and
+hash-lock updates. Phase 32 as a whole is not complete. No `pietto explain` CLI
+behavior, JSON serializer, text renderer, public API, JSON v1, SQL, semantic
+behavior, IR behavior, grammar, generated, fixture, golden, example, package,
+dependency, workflow, version, release, tag, publish, upload, signing, or
+attestation behavior changed.
 Phase 32: Semantic Explain And Metadata Output MVP; Phase 33: JSON v2 And
 Project / Multi-file MVP; Phase 34: Relationship Grain And Narrow JOIN MVP;
 Phase 35: Developer Experience And Delivery Pipeline MVP; Phase 36: Core Type

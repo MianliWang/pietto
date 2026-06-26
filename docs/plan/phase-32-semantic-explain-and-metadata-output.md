@@ -4,7 +4,8 @@
 
 Phase 32 Slice 1 is complete as Candidate Decision, Roadmap Alignment, And
 v0.2 Handoff Audit work only. Phase 32 Slice 2 is complete as Semantic
-Metadata Artifact v1 Contract work only.
+Metadata Artifact v1 Contract work only. Phase 32 Slice 3 is complete as
+Private Metadata Model And Builder MVP work only.
 
 Trusted handoff:
 
@@ -213,9 +214,14 @@ publishing, upload, signing, or attestation operation.
    upload, signing, or attestation behavior changes.
 
 3. **Private Metadata Model And Builder MVP**
-   Add a private model and builder that consumes parse, semantic, and existing
-   IR facts and emits a normalized internal artifact only after the pipeline
-   succeeds.
+   Complete as private source, tests, status, and hash-lock work only. Adds a
+   private `_metadata` model and success-only builder that consumes parse,
+   semantic, and existing IR facts and emits a normalized internal artifact only
+   after the pipeline succeeds. Slice 3 implements no `pietto explain` CLI
+   behavior, JSON serializer, text renderer, public API, JSON v1 mutation, SQL,
+   semantic behavior, IR behavior, grammar, generated file, fixture, golden,
+   example, package, dependency, workflow, version, release, tag, publish,
+   upload, signing, or attestation behavior changes.
 
 4. **Definition, Schema, Type, And Nullability Metadata**
    Populate Artifact v1 facts for definitions, relation/table/query schemas,
