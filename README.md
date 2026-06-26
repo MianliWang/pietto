@@ -126,6 +126,8 @@ The current implementation status is:
   complete as tests/static-audit/status work only. Phase 31 Slice 5 UUID /
   Enum Readiness Decision is complete as tests/static-audit/status work only.
   Phase 31 Slice 6 Diagnostic / CLI / JSON Stability Hardening is complete as
+  tests/static-audit/status/docs work only. Phase 31 Slice 7 Docs / Examples /
+  Package / CI v0.2 Readiness Audit is complete as
   tests/static-audit/status/docs work only.
   Phase 29 deferred register
   remains active, Phase 29 aggregate freeze remains active, and Phase 30
@@ -169,14 +171,23 @@ The current implementation status is:
   documents current selected PostgreSQL/private MySQL backend fail-closed
   behavior, `PIE-S2307` is active in the central diagnostics inventory with
   the existing static LIMIT message, and `PIE-S2322` remains explicitly
-  historical/retired. Phase 31 Slice 1
+  historical/retired. Slice 7 locks docs, examples, package, validation
+  entrypoint, CI, and tooling-readiness evidence without behavior changes.
+  Version Labels: `docs/spec/pietto-v0.9.md` remains the current
+  specification document path/label and is not the package version or a
+  release tag; `v0.2` remains the internal single-file stable compiler
+  boundary and is not complete until a future Slice 8 approval and status
+  lock; `0.1.0` is the current package and installed CLI version. Phase 29
+  historical Phase 32 completion-audit wording is superseded by the current
+  Phase 31 merged roadmap. Phase 31 Slice 1
   adds no Phase 31 behavior implementation in Slice 1, Slice 2 adds no
   Phase 31 behavior implementation in Slice 2, Slice 3 adds no Phase 31
   behavior implementation in Slice 3, and Slice 4 adds no Phase 31 behavior
   implementation in Slice 4, and Slice 5 adds no Phase 31 behavior
   implementation in Slice 5, and Slice 6 adds no Phase 31 behavior
-  implementation in Slice 6, no Phase 32 implementation in Slices 1 through
-  6, no JSON v1 schema expansion, no JSON v2, no public MySQL API expansion,
+  implementation in Slice 6, and Slice 7 adds no Phase 31 behavior
+  implementation in Slice 7, no Phase 32 implementation in Slices 1 through
+  7, no JSON v1 schema expansion, no JSON v2, no public MySQL API expansion,
   no CLI, diagnostic, semantic, IR, SQL, aggregate, type-system, runtime,
   project, relationship/JOIN, schema introspection, UUID or Enum behavior
   implementation, UUID literal implementation, Enum literal implementation,
@@ -187,8 +198,8 @@ The current implementation status is:
   implementation, no temporal arithmetic implementation, no temporal function
   implementation, no timestamp precision modeling, and no native database
   metadata, no diagnostic code/message/severity/order/location behavior
-  changes, no tooling evaluation, no `ty`, and no coverage addition. v0.2 is
-  not complete yet at Phase 31 Slice 6. Phase 31 Slice 8 is the
+  changes, no tooling adoption, no `ty` adoption, and no coverage threshold.
+  v0.2 is not complete yet at Phase 31 Slice 7. Phase 31 Slice 8 is the
   future v0.2 Stable Completion Audit And Status Lock, and Phase 31 completion
   may lock v0.2 stable if all criteria pass. Phase 32 is post-v0.2 Semantic
   Explain And Metadata Output MVP**.
@@ -434,8 +445,39 @@ fail-closed output and requires separate explicit approval before any
 behavior fix. Enum is not an accepted end-to-end aggregate row. UUID/Enum
 comparisons remain current generic known-child
 comparison behavior producing `Bool UNKNOWN`, not a UUID- or Enum-specific
-comparison compatibility matrix. Phase 31 as a whole is not complete, v0.2 is
-not complete yet at Phase 31 Slice 5, and Phase 31 Slice 8 is the future v0.2
+comparison compatibility matrix. Phase 31 Slice 6 Diagnostic / CLI / JSON
+Stability Hardening is complete as tests/static-audit/status/docs work only.
+Slice 6 locks diagnostic inventory, CLI JSON v1 shape, public SQL API
+posture, and selected backend diagnostic posture without behavior changes.
+`PIE-B1000` documents current selected PostgreSQL/private MySQL backend
+fail-closed behavior, `PIE-S2307` is active in the central diagnostics
+inventory with the existing static LIMIT message, and `PIE-S2322` remains
+explicitly historical/retired. Phase 31 Slice 7 Docs / Examples / Package /
+CI v0.2 Readiness Audit is complete as tests/static-audit/status/docs work
+only. Version Labels: `docs/spec/pietto-v0.9.md` remains the current
+specification document path/label; it is not the package version and is not a
+release tag. `v0.2` remains the internal single-file stable compiler boundary;
+it is not complete until a future Slice 8 approval and status lock. `0.1.0`
+is the current package and installed CLI version. Slice 7 locks docs,
+examples, package, validation
+entrypoint, CI, and tooling-readiness evidence without behavior changes.
+README, AGENTS, `docs/spec/pietto-v0.9.md`, Phase 31 plan/spec, examples,
+package smoke, validation entrypoint, and CI workflow are ready for the
+future Slice 8 completion audit. All current tracked Pietto examples are
+included in the readiness audit; the tracked examples inventory is non-empty;
+every current tracked Pietto example parses and passes the applicable semantic
+checks. `scripts/package_smoke.py` already verifies
+sdist/wheel metadata, generated parser inclusion, installed CLI
+version/help/check behavior, PostgreSQL byte-exact text output, and private
+MySQL JSON v1 structure. `scripts/validate.py` remains the authoritative
+local validation entrypoint for lockfile, format, lint, production Pyright,
+test Pyright, and full pytest. CI separately runs generated, golden, and
+package smoke checks. CI headSha verification remains an external Gate 3
+process. `ty` remains deferred; Pyright remains the source-of-truth type
+checker. Coverage remains advisory, and no coverage threshold is adopted.
+Phase 29 historical Phase 32 completion-audit wording is superseded by the
+current Phase 31 merged roadmap. Phase 31 as a whole is not complete, v0.2 is
+not complete yet at Phase 31 Slice 7, and Phase 31 Slice 8 is the future v0.2
 Stable Completion Audit And Status Lock. Phase 31 completion may lock v0.2
 stable if all criteria pass. Phase 32 is post-v0.2 Semantic Explain And
 Metadata Output MVP; Phase 33 is Project And Multi-file MVP; Phase 34 is
@@ -443,25 +485,28 @@ Semantic Graph / ERD / AI Metadata Export MVP; Phase 35 is Relationship Grain
 And Narrow JOIN MVP. Slice 1 adds no Phase 31 behavior implementation in Slice
 1, Slice 2 adds no Phase 31 behavior implementation in Slice 2, Slice 3 adds
 no Phase 31 behavior implementation in Slice 3, Slice 4 adds no Phase 31
-behavior implementation in Slice 4, and Slice 5 adds no Phase 31 behavior
-implementation in Slice 5, and Slice 6 adds no Phase 31 behavior
-implementation in Slice 6, no Phase 32 implementation in Slice 1, no Phase 32
-implementation in Slice 2, no Phase 32 implementation in Slice 3, no Phase 32
-implementation in Slice 4, no Phase 32 implementation in Slice 5, no Phase 32
-implementation in Slice 6, no behavior fixes, no source implementation, grammar, generated, fixture, golden, script,
-package, CI, public API, CLI, JSON, IR, SQL, semantic, aggregate, diagnostic,
-predicate, runtime, project/multi-file, relationship/JOIN, schema
-introspection, or type-system behavior changes. It adds no JSON v1 schema
-expansion, JSON v2, public MySQL API expansion, no DateTime/Time/Interval/
-timezone semantics, no Date/Timestamp literal implementation, no temporal
-arithmetic implementation, no temporal function implementation, no timestamp
-precision modeling, no native database metadata, Money/Currency primitive,
-semantic annotation syntax, Decimal precision/scale carrier, UUID or Enum
-behavior implementation, UUID literal implementation, Enum literal
-implementation, UUID or Enum cast implementation, UUID or Enum storage, DDL,
-or native database metadata, broader UUID SQL behavior, broad Enum SQL
-support, diagnostic code/message/severity/order/location behavior changes,
-no Slice 7 work, tooling evaluation, `ty`, coverage addition, v0.2 completion
+behavior implementation in Slice 4, Slice 5 adds no Phase 31 behavior
+implementation in Slice 5, Slice 6 adds no Phase 31 behavior implementation
+in Slice 6, and Slice 7 adds no Phase 31 behavior implementation in Slice 7.
+There is no Phase 32 implementation in Slice 1, no Phase 32 implementation in
+Slice 2, no Phase 32 implementation in Slice 3, no Phase 32 implementation in
+Slice 4, no Phase 32 implementation in Slice 5, no Phase 32 implementation in
+Slice 6, and no Phase 32 implementation in Slice 7. It adds no behavior
+fixes, no source implementation, grammar, generated, example, fixture,
+golden, script, package, dependency, lockfile, CI workflow, public API, CLI,
+JSON, IR, SQL, semantic, aggregate, diagnostic, predicate, runtime,
+project/multi-file, relationship/JOIN, schema introspection, or type-system
+behavior changes. It adds no JSON v1 schema expansion, JSON v2, public MySQL
+API expansion, no DateTime/Time/Interval/timezone semantics, no
+Date/Timestamp literal implementation, no temporal arithmetic implementation,
+no temporal function implementation, no timestamp precision modeling, no
+native database metadata, Money/Currency primitive, semantic annotation
+syntax, Decimal precision/scale carrier, UUID or Enum behavior
+implementation, UUID literal implementation, Enum literal implementation,
+UUID or Enum cast implementation, UUID or Enum storage, DDL, or native
+database metadata, broader UUID SQL behavior, broad Enum SQL support,
+diagnostic code/message/severity/order/location behavior changes, no Slice 8
+work, tooling adoption, `ty` adoption, coverage threshold, v0.2 completion
 declaration, package version bump, release tag, or publishing.
 
 The supported single-file CLI commands and forms include:

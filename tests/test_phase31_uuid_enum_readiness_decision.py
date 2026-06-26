@@ -60,7 +60,7 @@ def test_phase31_slice5_plan_and_spec_lock_readiness_only_scope() -> None:
     for required in (
         "Phase 31 Slice 5 is complete as UUID / Enum readiness decision, "
         "tests, static audit, and status work only",
-        "Slice 6 is complete. Slices 7 and 8 are planned only",
+        "Slice 7 is complete. Slice 8 is planned only",
         "Phase 31 Slice 6 is complete as Diagnostic / CLI / JSON stability "
         "hardening, tests, static audit, status, and docs work only",
         "UUID remains limited/frozen readiness",
@@ -71,7 +71,7 @@ def test_phase31_slice5_plan_and_spec_lock_readiness_only_scope() -> None:
         "UUID/Enum comparisons remain current generic known-child comparison "
         "behavior producing `Bool UNKNOWN`",
         "not a UUID- or Enum-specific comparison compatibility matrix",
-        "v0.2 is not complete yet at Phase 31 Slice 6",
+        "v0.2 is not complete yet at Phase 31 Slice 7",
         "Phase 31 Slice 8 is the future v0.2 Stable Completion Audit And Status Lock",
     ):
         assert required in combined
@@ -87,7 +87,7 @@ def test_phase31_slice5_plan_and_spec_lock_readiness_only_scope() -> None:
         "behavior fix",
         "v0.2 completion declaration in Slice 5",
         "Phase 32 implementation",
-        "Slice 7 work",
+        "Slice 8 work",
     ):
         assert non_goal in combined
 

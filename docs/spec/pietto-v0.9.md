@@ -2129,8 +2129,8 @@ expansion, or Phase 31 implementation.
 
 ### Phase 31: v0.2 Hardening And Stable Completion
 
-Status: Phase 31 Slice 6 Diagnostic / CLI / JSON Stability Hardening is
-complete as tests/static-audit/status/docs work only.
+Status: Phase 31 Slice 7 Docs / Examples / Package / CI v0.2 Readiness Audit
+is complete as tests/static-audit/status/docs work only.
 
 Phase 31 Slice 1 is complete as candidate decision, Phase 30 carry-forward
 audit, static audit, and status work only.
@@ -2148,8 +2148,7 @@ Carry-forward Audit, Aggregate Result Matrix Hardening, Numeric Promotion And
 Decimal Boundary Tests, Date / Timestamp SQL Compatibility Audit, UUID / Enum
 Readiness Decision, Diagnostic / CLI / JSON Stability Hardening, Docs /
 Examples / Package / CI v0.2 Readiness Audit, and v0.2 Stable Completion
-Audit And Status Lock. Slice 6 is complete. Slices 7 and 8 remain planned
-only.
+Audit And Status Lock. Slice 7 is complete. Slice 8 remains planned only.
 
 Phase 31 Slice 1 adds no Phase 31 behavior implementation in Slice 1, no
 behavior fixes, no source implementation, grammar, generated, fixture, golden,
@@ -2253,13 +2252,45 @@ Slice 6, no diagnostic code/message/severity/order/location behavior changes,
 no diagnostic behavior change, no CLI behavior change, no JSON v1 schema
 expansion, no new JSON fields, no JSON v2, no public MySQL API expansion, no
 tooling evaluation, no `ty`, no coverage addition, no package version bump,
-no release tag, no publishing, and no Slice 7 work. v0.2 is not complete yet
-at Phase 31 Slice 6, and
-Phase 31 Slice 8 is the future v0.2 Stable Completion Audit And Status Lock.
-Phase 31 completion may lock v0.2 stable if all criteria pass. Phase 32 is
-post-v0.2 Semantic Explain And Metadata Output MVP; Phase 33 is Project And
-Multi-file MVP; Phase 34 is Semantic Graph / ERD / AI Metadata Export MVP;
-Phase 35 is Relationship Grain And Narrow JOIN MVP.
+no release tag, no publishing, and no Slice 7 work. Phase 31 Slice 7 Docs /
+Examples / Package / CI v0.2 Readiness Audit is complete as
+tests/static-audit/status/docs work only. Version Labels:
+`docs/spec/pietto-v0.9.md` remains the current specification document
+path/label; it is not the package version and is not a release tag. `v0.2`
+remains the internal single-file stable compiler boundary; it is not complete
+until a future Slice 8 approval and status lock. `0.1.0` is the current
+package and installed CLI version. Slice 7 locks docs, examples, package,
+validation entrypoint, CI, and tooling-readiness evidence without behavior
+changes. README, AGENTS, `docs/spec/pietto-v0.9.md`, Phase 31 plan/spec,
+examples, package smoke, validation entrypoint, and CI workflow are ready for
+the future Slice 8 completion audit. All current tracked Pietto examples are
+included in the readiness audit; the tracked examples inventory is non-empty;
+every current tracked Pietto example parses and passes the applicable semantic
+checks. `scripts/package_smoke.py` already verifies
+sdist/wheel metadata, generated parser inclusion, installed CLI
+version/help/check behavior, PostgreSQL byte-exact text output, and private
+MySQL JSON v1 structure. `scripts/validate.py` remains the authoritative
+local validation entrypoint for lockfile, format, lint, production Pyright,
+test Pyright, and full pytest. CI separately runs generated, golden, and
+package smoke checks. CI headSha verification remains an external Gate 3
+process. `ty` remains deferred; Pyright remains the source-of-truth type
+checker. Coverage remains advisory, and no coverage threshold is adopted.
+Phase 29 historical Phase 32 completion-audit wording is superseded by the
+current Phase 31 merged roadmap. Slice 7 adds no Phase 31 behavior
+implementation in Slice 7, no Phase 32 implementation in Slice 7, no behavior
+fixes, no source implementation, grammar, generated, example, fixture, golden,
+script, package, dependency, lockfile, CI workflow, public API, CLI, JSON, IR,
+SQL, semantic, aggregate, diagnostic, predicate, runtime, project/multi-file,
+relationship/JOIN, schema introspection, or type-system behavior changes. It
+adds no JSON v1 schema expansion, JSON v2, public MySQL API expansion, no
+tooling adoption, no `ty` adoption, no coverage threshold, no v0.2 completion
+declaration, no package version bump, no release tag, no publishing, and no
+Slice 8 work. v0.2 is not complete yet at Phase 31 Slice 7, and Phase 31
+Slice 8 is the future v0.2 Stable Completion Audit And Status Lock. Phase 31
+completion may lock v0.2 stable if all criteria pass. Phase 32 is post-v0.2
+Semantic Explain And Metadata Output MVP; Phase 33 is Project And Multi-file
+MVP; Phase 34 is Semantic Graph / ERD / AI Metadata Export MVP; Phase 35 is
+Relationship Grain And Narrow JOIN MVP.
 
 ---
 

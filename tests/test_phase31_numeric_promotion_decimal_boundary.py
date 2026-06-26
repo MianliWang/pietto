@@ -74,7 +74,7 @@ def test_phase31_slice3_plan_and_spec_lock_tests_static_audit_scope() -> None:
     for required in (
         "Phase 31 Slice 3 is complete as numeric promotion and Decimal "
         "boundary hardening, tests, static audit, and status work only",
-        "Slice 6 is complete. Slices 7 and 8 are planned only",
+        "Slice 7 is complete. Slice 8 is planned only",
         "Phase 31 Slice 5 is complete as UUID / Enum readiness decision, "
         "tests, static audit, and status work only",
         "Phase 31 Slice 6 is complete as Diagnostic / CLI / JSON stability "

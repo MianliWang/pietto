@@ -37,7 +37,7 @@ def test_phase31_slice6_plan_and_spec_lock_static_audit_scope() -> None:
     for required in (
         "Phase 31 Slice 6 is complete as Diagnostic / CLI / JSON stability "
         "hardening, tests, static audit, status, and docs work only",
-        "Slice 6 is complete. Slices 7 and 8 are planned only",
+        "Slice 7 is complete. Slice 8 is planned only",
         "Diagnostic inventory audit distinguishes active diagnostics from "
         "historical/retired diagnostics",
         "every currently source-emitted PIE diagnostic code is documented",
@@ -63,12 +63,12 @@ def test_phase31_slice6_plan_and_spec_lock_static_audit_scope() -> None:
         "new JSON fields",
         "JSON v2",
         "public MySQL API expansion",
-        "tooling evaluation",
-        "`ty`",
-        "coverage addition",
+        "tooling adoption",
+        "`ty` adoption",
+        "coverage threshold",
         "v0.2 completion declaration in Slice 6",
         "Phase 32 implementation",
-        "Slice 7 work",
+        "Slice 8 work",
     ):
         assert forbidden in combined
 

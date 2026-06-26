@@ -2,8 +2,8 @@
 
 ## Status
 
-Phase 31 Slice 6 is complete as Diagnostic / CLI / JSON stability hardening,
-tests, static audit, status, and docs work only.
+Phase 31 Slice 7 is complete as Docs / Examples / Package / CI v0.2
+readiness audit, tests, static audit, status, and docs work only.
 
 Slice 1 selects **Phase 31 v0.2 Hardening And Stable Completion** as the
 approved Phase 31 direction. It replaces the earlier split where Phase 31 was
@@ -21,9 +21,10 @@ mismatch, compiler behavior may change only after separate explicit approval.
 Phase 29 deferred register remains active. Phase 29 aggregate freeze remains
 active. Phase 30 type-system contracts are carried forward. Phase 30
 Date/Timestamp contracts are carried forward. v0.2 is not complete yet at
-Phase 31 Slice 6. Phase 31 Slice 8 is the future v0.2 Stable
+Phase 31 Slice 7. Phase 31 Slice 8 is the future v0.2 Stable
 Completion Audit And Status Lock. Phase 31 completion may lock v0.2 stable if
-all criteria pass. Phase 32 is post-v0.2 work.
+all criteria pass. Phase 32 is post-v0.2 work. Phase 32 is post-v0.2 Semantic
+Explain And Metadata Output MVP.
 
 Slice 2 locks the current aggregate result matrix through tests/static audit
 and status documentation only. Slice 2 adds no aggregate behavior, semantic
@@ -105,6 +106,38 @@ No diagnostic code, message, severity, ordering, or location behavior changes
 are authorized. No CLI behavior change, JSON v1 schema expansion, new JSON
 fields, JSON v2, or public MySQL API expansion is authorized.
 
+Slice 7 locks documentation, examples, package, validation-entrypoint, CI, and
+tooling-readiness evidence through tests/static audit and status documentation
+only. README, AGENTS, `docs/spec/pietto-v0.9.md`, Phase 31 plan/spec,
+examples, package smoke, validation entrypoint, and CI workflow are ready for
+the future Slice 8 completion audit. CI separately runs generated, golden, and
+package smoke checks after `scripts/validate.py`; CI headSha verification
+remains an external Gate 3 process. Phase 29 historical Phase 32
+completion-audit wording is superseded by the current Phase 31 merged roadmap.
+Slice 7 adds no source implementation, grammar, generated, example, fixture,
+golden, script, package, dependency, lockfile, CI workflow, public API, CLI,
+JSON, IR, SQL, semantic, aggregate, diagnostic, predicate, runtime, project,
+relationship/JOIN, schema introspection, or type-system behavior changes. It
+adds no package version bump, release tag, publishing, dependency change,
+lockfile change, workflow change, fixture or golden change, tooling adoption,
+`ty` adoption, coverage threshold, v0.2 completion declaration in Slice 7, or
+Phase 32 implementation.
+
+## Version Labels
+
+The current repository intentionally has three distinct labels:
+
+- `docs/spec/pietto-v0.9.md` remains the current specification document path
+  and label. It is not the package version and is not a release tag. The
+  pietto-v0.9.md is not renamed in Slice 7.
+- `v0.2` remains the internal single-file stable compiler boundary. It is not
+  complete until a future Slice 8 approval and status lock.
+- `0.1.0` remains the current package and installed CLI version.
+
+No package version bump, release tag, publication, upload, signing,
+attestation, PyPI publishing, `docs/spec/pietto-v0.9.md` rename, global v0.9
+to v0.2 replacement, or v0.2 completion declaration is part of Slice 7.
+
 ## Trusted Baseline
 
 Slice 1 starts from the final Phase 30 baseline:
@@ -157,7 +190,7 @@ Carry-forward facts:
 - MySQL remains private to explicit CLI dispatch;
 - JSON v1 remains the current single-file machine-readable output contract and
   has no type-output fields;
-- v0.2 is not complete yet at Phase 31 Slice 6.
+- v0.2 is not complete yet at Phase 31 Slice 7.
 
 ## Candidate Decision
 
@@ -178,7 +211,7 @@ behavior.
 
 ## Phase 31 Master Plan
 
-Slice 6 is complete. Slices 7 and 8 are planned only.
+Slice 7 is complete. Slice 8 is planned only.
 
 ### Slice 1: Candidate Decision And Phase 30 Carry-forward Audit
 
@@ -416,6 +449,9 @@ Artifacts:
 
 Status: complete as tests/static-audit/status/docs work only.
 
+Phase 31 Slice 6 is complete as Diagnostic / CLI / JSON stability hardening,
+tests, static audit, status, and docs work only.
+
 Goal: lock diagnostic code/order/shape and prove CLI/JSON v1 type-related
 output remains stable.
 
@@ -447,14 +483,80 @@ Artifacts:
 
 ### Slice 7: Docs / Examples / Package / CI v0.2 Readiness Audit
 
-Status: planned only.
+Status: complete as docs/examples/package/CI v0.2 readiness audit, tests,
+static audit, status, and docs work only.
 
 Goal: audit README, specs, examples, package metadata, validation commands,
 and CI readiness against the v0.2 single-file stable boundary.
 
-Boundary: no package version bump, release tag, publishing, dependency,
-lockfile, workflow, fixture, or golden change unless separately approved and
-proved necessary by the readiness audit.
+Slice 7 readiness facts:
+
+- README, AGENTS, `docs/spec/pietto-v0.9.md`, this plan, and
+  `docs/spec/v02-hardening-and-stable-completion-v1.md` distinguish the
+  current spec document label, the internal v0.2 boundary, and package version
+  `0.1.0`.
+- All current tracked Pietto examples are included in the readiness audit; the
+  tracked examples inventory is non-empty; every current tracked Pietto
+  example parses and passes the applicable semantic checks.
+- Examples demonstrate current single-file accepted behavior only. They do
+  not imply JSON v2, project/multi-file behavior, runtime/database execution,
+  relationship/JOIN behavior, schema introspection, broad UUID/Enum behavior,
+  unsupported temporal behavior, or Decimal precision/scale semantics.
+- Current package metadata remains `pietto` version `0.1.0`, Python
+  `>=3.12`, runtime dependency `antlr4-python3-runtime>=4.13.2`, build backend
+  `uv_build`, and console entrypoint `pietto = pietto.cli:main`.
+- `scripts/package_smoke.py` already verifies sdist/wheel metadata, generated
+  parser inclusion, installed CLI version/help/check behavior, PostgreSQL
+  byte-exact text output, and private MySQL JSON v1 structure.
+- `scripts/validate.py` remains the authoritative local validation entrypoint
+  for lockfile, format, lint, production Pyright, test Pyright, and full
+  pytest. CI separately runs generated, golden, and package smoke checks.
+- `scripts/validate.py` command order remains `uv lock --check`,
+  `uv run ruff format --check .`, `uv run ruff check .`, `uv run pyright`,
+  `uv run pyright --project pyrightconfig.tests.json`, and `uv run pytest`.
+- The GitHub Actions workflow remains read-only, pinned, and validation-only.
+  It has no artifact upload, release, publish, signing, upload, or attestation
+  behavior. CI headSha verification remains an external Gate 3 process.
+- `ty` was not adopted in Slice 7. A future separately approved tooling
+  evaluation may consider `ty` as advisory. Pyright remains the
+  source-of-truth type checker, and ty is not a blocking local-validation or CI
+  requirement.
+- Coverage remains advisory. No coverage threshold was adopted, and generated
+  parser/visitor coverage should not drive a global threshold.
+- import-linter, deptry, Hypothesis, and mutation testing remain future
+  advisory tooling candidates only and are not added to dependencies, CI,
+  Makefile, or validation.
+- Phase 29 historical Phase 32 completion-audit wording is superseded by the
+  current Phase 31 merged roadmap and may need explicit final treatment during
+  Slice 8 status lock. Slice 7 does not broadly rewrite historical Phase 29
+  plan/spec artifacts.
+
+Slice 8 readiness pre-check:
+
+| Area | Slice 7 posture |
+|---|---|
+| single-file compiler boundary | ready based on current evidence |
+| parser/generated stability | ready based on current evidence |
+| semantic/type/nullability stability | ready based on current evidence |
+| aggregate freeze | ready based on current evidence |
+| PostgreSQL SQL stability | ready based on current evidence |
+| private MySQL CLI boundary | ready based on current evidence |
+| diagnostic stability | ready based on current evidence |
+| CLI stability | ready based on current evidence |
+| JSON v1 stability | ready based on current evidence |
+| examples readiness | ready based on current evidence |
+| package readiness | ready based on current evidence |
+| CI readiness | ready based on current evidence |
+| deferred register | ready based on current evidence |
+| clean worktree | must wait for Slice 8 |
+| CI headSha matching final commit | must wait for Slice 8 |
+| no package version/release/tag/publish implication | ready based on current evidence |
+
+Boundary: no package version bump, release tag, publishing, dependency change,
+lockfile change, workflow change, example change, fixture or golden change,
+script change, tooling adoption, `ty` adoption, coverage threshold, behavior
+fix, Slice 8 work, v0.2 completion declaration in Slice 7, or Phase 32
+implementation. There is no Phase 32 implementation in Slice 7.
 
 ### Slice 8: v0.2 Stable Completion Audit And Status Lock
 
@@ -481,7 +583,7 @@ Phase 31 Slice 1 does not start Phase 32 or implement any post-v0.2 work.
 
 ## Phase-wide Non-goals
 
-Phase 31 Slices 1 through 6 and this master plan do not authorize:
+Phase 31 Slices 1 through 7 and this master plan do not authorize:
 
 - source implementation changes;
 - grammar changes;
@@ -526,13 +628,13 @@ Phase 31 Slices 1 through 6 and this master plan do not authorize:
 - broad Enum SQL support;
 - package version, release tag, publication, upload, signing, attestation, or
   release artifact changes;
-- tooling evaluation, `ty`, or coverage addition;
+- tooling adoption, `ty` adoption, or coverage threshold;
 - Phase 32 implementation;
 - v0.2 completion declaration in Slice 1, Slice 2, Slice 3, Slice 4, Slice 5,
-  or Slice 6.
+  Slice 6, or Slice 7.
 
 ## Future Workflow Reminder
 
-Phase 31 Slice 6 is the latest implemented slice here. Do not stage real
+Phase 31 Slice 7 is the latest implemented slice here. Do not stage real
 content, commit, or push without a separate Gate 3 approval. Do not start
-Slice 7 or Phase 32 without separate approval.
+Slice 8 or Phase 32 without separate approval.

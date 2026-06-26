@@ -2,8 +2,8 @@
 
 ## Status
 
-Phase 31 Slice 6 is complete as Diagnostic / CLI / JSON stability hardening,
-tests, static audit, status, and docs work only.
+Phase 31 Slice 7 is complete as Docs / Examples / Package / CI v0.2
+readiness audit, tests, static audit, status, and docs work only.
 
 This contract selects Phase 31 v0.2 Hardening And Stable Completion. It
 records the approved merged Phase 31 direction and master plan. Slice 2 locks
@@ -15,8 +15,11 @@ and status documentation only. Slice 5 locks the UUID / Enum readiness
 decision through tests/static audit and status documentation only. Slice 6
 locks diagnostic inventory, CLI JSON v1 shape, public SQL API posture, and
 selected backend diagnostic posture through tests/static audit, status
-documentation, and narrow docs-only diagnostics inventory corrections,
-without starting Slice 7, starting Phase 32, or changing compiler behavior.
+documentation, and narrow docs-only diagnostics inventory corrections. Slice 7
+locks documentation, examples, package, validation-entrypoint, CI, and
+tooling-readiness evidence through tests/static audit and status documentation
+only, without starting Slice 8, starting Phase 32, or changing compiler
+behavior.
 
 Phase 31 Slice 1 is complete as candidate decision, Phase 30 carry-forward
 audit, static audit, and status work only.
@@ -27,9 +30,10 @@ specs, and static audit only. If a later slice exposes a concrete
 contract/implementation mismatch, compiler behavior may change only after
 separate explicit approval.
 
-v0.2 is not complete yet at Phase 31 Slice 6. Phase 31 Slice 8 is the future
+v0.2 is not complete yet at Phase 31 Slice 7. Phase 31 Slice 8 is the future
 v0.2 Stable Completion Audit And Status Lock. Phase 31 completion may lock
-v0.2 stable if all criteria pass. Phase 32 is post-v0.2 work.
+v0.2 stable if all criteria pass. Phase 32 is post-v0.2 work. Phase 32 is
+post-v0.2 Semantic Explain And Metadata Output MVP.
 
 Slice 2 adds no aggregate behavior, semantic behavior, IR model, SQL backend
 behavior, diagnostic behavior, CLI/JSON behavior, public API, fixture/golden,
@@ -98,6 +102,37 @@ CLI behavior change, JSON v1 schema expansion, new JSON fields, JSON v2,
 public MySQL API expansion, tooling evaluation, `ty`, coverage addition, no
 Slice 7 work, v0.2 completion declaration in Slice 6, or Phase 32
 implementation is authorized.
+
+Slice 7 adds only tests/static audit, status documentation, and docs-only
+version-label/readiness clarification. README, AGENTS,
+`docs/spec/pietto-v0.9.md`, Phase 31 plan/spec, examples, package smoke,
+validation entrypoint, and CI workflow are ready for the future Slice 8
+completion audit. CI separately runs generated, golden, and package smoke
+checks after `scripts/validate.py`; CI headSha verification remains an
+external Gate 3 process. Phase 29 historical Phase 32 completion-audit wording
+is superseded by the current Phase 31 merged roadmap. Slice 7 adds no source
+implementation, grammar, generated, example, fixture, golden, script, package,
+dependency, lockfile, CI workflow, public API, CLI, JSON, IR, SQL, semantic,
+aggregate, diagnostic, predicate, runtime, project, relationship/JOIN, schema
+introspection, or type-system behavior changes. It adds no package version
+bump, release tag, publishing, dependency change, lockfile change, workflow
+change, fixture or golden change, tooling adoption, `ty` adoption, coverage
+threshold, v0.2 completion declaration in Slice 7, or Phase 32 implementation.
+
+## Version Labels
+
+The current repository intentionally has three distinct labels:
+
+- `docs/spec/pietto-v0.9.md` remains the current specification document path
+  and label. It is not the package version and is not a release tag. The
+  pietto-v0.9.md is not renamed in Slice 7.
+- `v0.2` remains the internal single-file stable compiler boundary. It is not
+  complete until a future Slice 8 approval and status lock.
+- `0.1.0` remains the current package and installed CLI version.
+
+No package version bump, release tag, publication, upload, signing,
+attestation, PyPI publishing, `docs/spec/pietto-v0.9.md` rename, global v0.9
+to v0.2 replacement, or v0.2 completion declaration is part of Slice 7.
 
 ## Trusted Baseline
 
@@ -188,8 +223,8 @@ Slice 1 is grounded in current implementation facts:
 
 Slice 1 is complete as candidate decision, Phase 30 carry-forward audit,
 static audit, and status work only. Slice 2 is complete. Slice 3 is complete.
-Slice 4 is complete. Slice 5 is complete. Slice 6 is complete. Slices 7 and 8
-are planned only.
+Slice 4 is complete. Slice 5 is complete. Slice 6 is complete. Slice 7 is
+complete. Slice 8 is planned only.
 
 ## Slice Boundaries
 
@@ -383,10 +418,64 @@ tooling evaluation, `ty`, coverage addition, package version bump, release
 tag, publishing, no Slice 7 work, v0.2 completion declaration in Slice 6, or
 Phase 32 implementation.
 
-Docs / Examples / Package / CI v0.2 Readiness Audit must not imply package
-version bump, release tag, publishing, dependency, lockfile, workflow, fixture,
-or golden changes unless separately approved and proved necessary by the
-readiness audit.
+Phase 31 Slice 7 is complete as Docs / Examples / Package / CI v0.2 readiness
+audit, tests, static audit, status, and docs work only.
+
+Slice 7 locks current readiness facts:
+
+- README, AGENTS, `docs/spec/pietto-v0.9.md`, Phase 31 plan/spec, examples,
+  package smoke, validation entrypoint, and CI workflow are ready for the
+  future Slice 8 completion audit.
+- All current tracked Pietto examples are included in the readiness audit; the
+  tracked examples inventory is non-empty; every current tracked Pietto
+  example parses and passes the applicable semantic checks.
+- Examples demonstrate current single-file accepted behavior only and do not
+  imply JSON v2, project/multi-file behavior, runtime/database execution,
+  relationship/JOIN behavior, schema introspection, broad UUID/Enum behavior,
+  unsupported temporal behavior, or Decimal precision/scale semantics.
+- Current package metadata remains `pietto` version `0.1.0`, Python `>=3.12`,
+  runtime dependency `antlr4-python3-runtime>=4.13.2`, build backend
+  `uv_build`, and console entrypoint `pietto = pietto.cli:main`.
+- `scripts/package_smoke.py` already verifies sdist/wheel metadata, generated
+  parser inclusion, installed CLI version/help/check behavior, PostgreSQL
+  byte-exact text output, and private MySQL JSON v1 structure.
+- `scripts/validate.py` remains the authoritative local validation entrypoint
+  for lockfile, format, lint, production Pyright, test Pyright, and full
+  pytest. CI separately runs generated, golden, and package smoke checks.
+- `scripts/validate.py` command order remains `uv lock --check`,
+  `uv run ruff format --check .`, `uv run ruff check .`, `uv run pyright`,
+  `uv run pyright --project pyrightconfig.tests.json`, and `uv run pytest`.
+- The GitHub Actions workflow remains read-only, pinned, and validation-only.
+  It has no artifact upload, release, publish, signing, upload, or attestation
+  behavior. CI headSha verification remains an external Gate 3 process.
+- `ty` was not adopted in Slice 7. A future separately approved tooling
+  evaluation may consider `ty` as advisory. Pyright remains the
+  source-of-truth type checker, and ty is not a blocking local-validation or CI
+  requirement.
+- Coverage remains advisory. No coverage threshold was adopted, and generated
+  parser/visitor coverage should not drive a global threshold.
+- import-linter, deptry, Hypothesis, and mutation testing remain future
+  advisory tooling candidates only and are not added to dependencies, CI,
+  Makefile, or validation.
+- Phase 29 historical Phase 32 completion-audit wording is superseded by the
+  current Phase 31 merged roadmap and may need explicit final treatment during
+  Slice 8 status lock. Slice 7 does not broadly rewrite historical Phase 29
+  plan/spec artifacts.
+
+Slice 8 readiness pre-check locks these rows as ready based on current
+evidence: single-file compiler boundary, parser/generated stability,
+semantic/type/nullability stability, aggregate freeze, PostgreSQL SQL
+stability, private MySQL CLI boundary, diagnostic stability, CLI stability,
+JSON v1 stability, examples readiness, package readiness, CI readiness,
+deferred register, and no package version/release/tag/publish implication.
+Clean worktree and CI headSha matching final commit must wait for Slice 8.
+
+Slice 7 must not imply package version bump, release tag, publishing,
+dependency change, lockfile change, workflow change, example change, fixture
+or golden change, script change, tooling adoption, `ty` adoption, coverage
+threshold, behavior fix, Slice 8 work, v0.2 completion declaration in Slice
+7, or Phase 32 implementation. There is no Phase 32 implementation in Slice
+7.
 
 v0.2 Stable Completion Audit And Status Lock is the future Phase 31 Slice 8.
 Slice 1 does not declare v0.2 complete.
@@ -454,7 +543,7 @@ This contract does not authorize:
 - broad Enum SQL support;
 - package version bump, release tag, publication, upload, signing,
   attestation, or release artifact changes;
-- tooling evaluation, `ty`, or coverage addition;
+- tooling adoption, `ty` adoption, or coverage threshold;
 - Phase 32 implementation;
 - v0.2 completion declaration in Slice 1, Slice 2, Slice 3, Slice 4, Slice 5,
-  or Slice 6.
+  Slice 6, or Slice 7.
