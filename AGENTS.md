@@ -466,6 +466,15 @@ adds no package version bump, tag, release, publish, upload, signing, or
 attestation. Slice 7 adds no SQL execution, database, or runtime behavior and
 changes no parser, semantic, IR, or SQL behavior except CLI orchestration over
 existing facts.
+Phase 32 Slice 8 Completion Audit And Status Lock is complete. Phase 32
+Semantic Explain And Metadata Output MVP is complete. Slice 8 completes
+completion audit and status lock only. `pietto explain <file> [--format
+text|json]` is available, and Semantic Metadata Artifact v1 JSON is available
+through `pietto explain --format json`. Slice 8 confirms package version
+remains `0.1.0`, no package release/tag/publish/upload/signing/attestation
+occurred, no JSON v2/project/multi-file behavior was started, no
+relationship/JOIN/graph/runtime/database/schema-introspection behavior was
+started, and Phase 33 has not started.
 Phase 32: Semantic Explain And Metadata Output MVP; Phase 33: JSON v2 And
 Project / Multi-file MVP; Phase 34: Relationship Grain And Narrow JOIN MVP;
 Phase 35: Developer Experience And Delivery Pipeline MVP; Phase 36: Post-v0.2 Core Type System Expansion MVP;
@@ -495,6 +504,15 @@ storage, DDL, or native database metadata, broader UUID SQL behavior, broad
 Enum SQL support, no diagnostic code/message/severity/order/location behavior
 changes, tooling adoption, `ty` adoption, coverage threshold, package version
 bump, release tag, publishing, or Phase 32 implementation.
+Phase 32 Slice 8 Completion Audit And Status Lock is complete. Phase 32
+Semantic Explain And Metadata Output MVP is complete. Slice 8 completes
+completion audit and status lock only. `pietto explain <file> [--format
+text|json]` is available, and Semantic Metadata Artifact v1 JSON is available
+through `pietto explain --format json`. Slice 8 confirms package version
+remains `0.1.0`, no package release/tag/publish/upload/signing/attestation
+occurred, no JSON v2/project/multi-file behavior was started, no
+relationship/JOIN/graph/runtime/database/schema-introspection behavior was
+started, and Phase 33 has not started.
 
 Phase 13 Relation Composition And Relationship Planning is complete as
 planning, contract, and audit work only. Slices 1 through 6 are complete.

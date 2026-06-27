@@ -10,7 +10,8 @@ as Definition, Schema, Type, And Nullability Metadata work only. Phase 32 Slice
 5 is complete as Query Posture, Aggregate, And Basic Lineage Metadata work
 only. Phase 32 Slice 6 is complete as JSON Serializer And Fail-closed Error
 Envelope work only. Phase 32 Slice 7 is complete as Explain CLI Text/JSON
-Integration, Docs, Examples, And Package Smoke Readiness work only.
+Integration, Docs, Examples, And Package Smoke Readiness work only. Phase 32
+Slice 8 is complete as Completion Audit And Status Lock work only.
 
 Trusted handoff:
 
@@ -22,7 +23,7 @@ Trusted handoff:
 - no release tag, package release, publishing, upload, signing, or attestation
   operation is part of this slice.
 
-Phase 32 has started. Phase 32 as a whole is not complete.
+Phase 32 Semantic Explain And Metadata Output MVP is complete.
 
 ## 2. Baseline Evidence
 
@@ -271,8 +272,17 @@ publishing, upload, signing, or attestation operation.
    publish, upload, signing, or attestation behavior changes.
 
 8. **Completion Audit And Status Lock**
-   Lock Phase 32 completion with final validation, status docs, hash-locks, and
-   Gate 3 commit/CI proof.
+   Phase 32 Slice 8 Completion Audit And Status Lock is complete. Phase 32
+   Semantic Explain And Metadata Output MVP is complete. Slice 8 completes
+   completion audit and status lock only. Locks final status docs, completion
+   audit coverage, validation evidence, and Gate 3 commit/CI proof. `pietto
+   explain <file> [--format text|json]` is available, and Semantic Metadata
+   Artifact v1 JSON is available through `pietto explain --format json`. Slice
+   8 confirms package version remains `0.1.0`, no package
+   release/tag/publish/upload/signing/attestation occurred, no JSON
+   v2/project/multi-file behavior was started, no
+   relationship/JOIN/graph/runtime/database/schema-introspection behavior was
+   started, and Phase 33 has not started.
 
 ## 14. Slice 1 Implementation Scope
 
@@ -391,7 +401,7 @@ Deferred beyond Phase 32:
 - JSON v2 and project/multi-file: Phase 33;
 - relationship grain and narrow JOIN: Phase 34;
 - developer experience and delivery pipeline: Phase 35;
-- core type system expansion II: Phase 36;
-- aggregate expansion II: Phase 37;
+- Post-v0.2 Core Type System Expansion MVP: Phase 36;
+- Post-v0.2 Aggregate Surface Expansion MVP: Phase 37;
 - Semantic Graph / ERD / AI Metadata Export: post-Phase-37 deferred candidate
   without an assigned phase number.
