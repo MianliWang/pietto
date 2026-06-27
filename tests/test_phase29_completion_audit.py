@@ -142,17 +142,17 @@ LOCKED_BOUNDARY_SURFACES = {
     "readme": (
         "README.md",
         1,
-        "6d419ad578ccba1827c82f041d02b513006b2b4648b041aa891df3670b7ad1b1",
+        "a11700c1fc9d16db55ef323f11c8d8f4746d0d96ce2e3cd497fa51c910e63cf8",
     ),
     "agents": (
         "AGENTS.md",
         1,
-        "11a46ae90198f188e7a5d8fa19ea9db8da6ea76a8b4a7d26639c3ae3be8c5762",
+        "2f8022e7f683f4a2baca4c02c0ed9e4cbded996310298f68c26d5151a1723ec0",
     ),
     "pietto_v09": (
         "docs/spec/pietto-v0.9.md",
         1,
-        "e95bec30836e5191a9d4330f9fd198bc62c5ba2bc6c53b46c240ebdef652992b",
+        "bb3fc653e0cde9e74dffdcaa2d2bb83285c4cf84cb35d298a22c3193fc9a2d19",
     ),
     "phase29_plan": (
         "docs/plan/phase-29-v02-stabilization-boundary.md",

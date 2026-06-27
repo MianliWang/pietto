@@ -29,7 +29,7 @@ PHASE32_SLICE_STATUS = (
     "Phase 32 Slice 8 is complete as Completion Audit And Status Lock work only",
 )
 
-FINAL_STATUS_TEXT = (
+PLAN_FINAL_STATUS_TEXT = (
     "Phase 32 Slice 8 Completion Audit And Status Lock is complete",
     "Phase 32 Semantic Explain And Metadata Output MVP is complete",
     "Slice 8 completes completion audit and status lock only",
@@ -42,6 +42,23 @@ FINAL_STATUS_TEXT = (
     "no relationship/JOIN/graph/runtime/database/schema-introspection behavior "
     "was started",
     "Phase 33 has not started",
+)
+
+CURRENT_STATUS_DOC_TEXT = (
+    "Phase 32 Slice 8 Completion Audit And Status Lock is complete",
+    "Phase 32 Semantic Explain And Metadata Output MVP is complete",
+    "Slice 8 completes completion audit and status lock only",
+    "`pietto explain <file> [--format text|json]` is available",
+    "Semantic Metadata Artifact v1 JSON is available through `pietto explain "
+    "--format json`",
+    "package version remains `0.1.0`",
+    "no package release/tag/publish/upload/signing/attestation occurred",
+    "no JSON v2/project/multi-file implementation behavior was added",
+    "no relationship/JOIN/graph/runtime/database/schema-introspection behavior "
+    "was started",
+    "Phase 33 Slice 1, Slice 2, and Slice 3 are complete, pushed, and CI green",
+    "Phase 33 as a whole is not complete",
+    "Phase 33 Slice 4 has not started",
 )
 
 ROADMAP_STATUS = (
@@ -96,7 +113,7 @@ def test_phase32_plan_records_all_slices_and_phase_completion() -> None:
 
     for required in PHASE32_SLICE_STATUS:
         assert required in plan, required
-    for required in FINAL_STATUS_TEXT:
+    for required in PLAN_FINAL_STATUS_TEXT:
         assert required in plan, required
 
     assert "Phase 32 has started. Phase 32 as a whole is not complete." not in plan
@@ -105,8 +122,9 @@ def test_phase32_plan_records_all_slices_and_phase_completion() -> None:
 def test_status_docs_record_phase32_completion_and_release_boundary() -> None:
     for path in STATUS_DOCS:
         status = _normalized(path)
-        for required in FINAL_STATUS_TEXT:
+        for required in CURRENT_STATUS_DOC_TEXT:
             assert required in status, f"{path}: missing {required!r}"
+        assert "Phase 33 has not started" not in status, path
 
 
 def test_artifact_implementation_and_phase32_tests_remain_present() -> None:
