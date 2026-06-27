@@ -5,6 +5,8 @@
 Phase 33 Slice 1 Candidate Decision, Scope, Boundary, And Phase 32 Handoff
 Audit is complete as docs/spec/static-audit/status-only work. Phase 33 Slice 2
 JSON v2 Project Result Envelope Contract is complete as
+docs/spec/static-audit/status-only work. Phase 33 Slice 3 Project Root,
+Config, Path, And Discovery Contract Reconciliation is complete as
 docs/spec/static-audit/status-only work. Phase 33 as a whole is not complete.
 
 Trusted handoff:
@@ -36,6 +38,18 @@ multi-file compilation, no metadata aggregation, no SQL artifact generation, no
 relationship/JOIN behavior, no runtime/database/schema-introspection behavior,
 no grammar/generated/fixture/golden/script/package/dependency/workflow change,
 no package version change, and no release operation.
+
+Slice 3 adds only the contract at
+`docs/spec/project-root-config-path-discovery-v1.md`, static audit coverage in
+`tests/test_phase33_project_root_config_path_discovery_contract.py`, and this
+status update. Slice 3 adds no source implementation, no CLI behavior, no
+project CLI, no `--project` parser behavior, no JSON v2 serializer, no TOML
+parser, no TOML loader, no configuration loader, no path traversal runtime, no
+glob expansion, no project discovery runtime, no multi-file compilation, no
+metadata aggregation, no SQL artifact generation, no relationship/JOIN
+behavior, no runtime/database/schema-introspection behavior, no
+grammar/generated/fixture/golden/script/package/dependency/workflow change, no
+package version change, and no release operation.
 
 ## 2. Candidate Decision
 
