@@ -2287,8 +2287,8 @@ bump, tag, release, publish, upload, signing, or attestation. No `pietto
 explain` CLI behavior was implemented in Slice 1. Active roadmap: Phase 32:
 Semantic Explain And Metadata Output MVP; Phase 33: JSON v2 And Project /
 Multi-file MVP; Phase 34: Relationship Grain And Narrow JOIN MVP; Phase 35:
-Developer Experience And Delivery Pipeline MVP; Phase 36: Core Type System
-Expansion II; Phase 37: Aggregate Expansion II. Semantic Graph / ERD / AI
+Developer Experience And Delivery Pipeline MVP; Phase 36: Post-v0.2 Core Type System Expansion MVP;
+Phase 37: Post-v0.2 Aggregate Surface Expansion MVP. Semantic Graph / ERD / AI
 Metadata Export remains a post-Phase-37 deferred candidate without an assigned
 phase number. Internal v0.2 completion does not imply a package release.
 Slice 7 adds no Phase 31 behavior implementation in Slice 7, and Slice 8 adds
@@ -2327,7 +2327,7 @@ generated, fixture, golden, example, package, dependency, workflow, version,
 release, tag, publish, upload, signing, or attestation behavior changed. Active roadmap: Phase 32: Semantic Explain And Metadata Output MVP; Phase
 33: JSON v2 And Project / Multi-file MVP; Phase 34: Relationship Grain And
 Narrow JOIN MVP; Phase 35: Developer Experience And Delivery Pipeline MVP;
-Phase 36: Core Type System Expansion II; Phase 37: Aggregate Expansion II.
+Phase 36: Post-v0.2 Core Type System Expansion MVP; Phase 37: Post-v0.2 Aggregate Surface Expansion MVP.
 Semantic Graph / ERD / AI Metadata Export remains a post-Phase-37 deferred
 candidate without an assigned phase number.
 

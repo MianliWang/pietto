@@ -283,8 +283,8 @@ def test_phase32_post_v02_roadmap_is_locked_without_implementation() -> None:
         assert ("Phase 35: Developer Experience And Delivery Pipeline MVP") in status, (
             path
         )
-        assert "Phase 36: Core Type System Expansion II" in status, path
-        assert "Phase 37: Aggregate Expansion II" in status, path
+        assert "Phase 36: Post-v0.2 Core Type System Expansion MVP" in status, path
+        assert "Phase 37: Post-v0.2 Aggregate Surface Expansion MVP" in status, path
         assert (
             "Semantic Graph / ERD / AI Metadata Export remains a post-Phase-37 "
             "deferred candidate without an assigned phase number"

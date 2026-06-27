@@ -122,8 +122,8 @@ def test_docs_status_and_post_v02_roadmap_are_consistent() -> None:
             "Phase 33: JSON v2 And Project / Multi-file MVP",
             "Phase 34: Relationship Grain And Narrow JOIN MVP",
             "Phase 35: Developer Experience And Delivery Pipeline MVP",
-            "Phase 36: Core Type System Expansion II",
-            "Phase 37: Aggregate Expansion II",
+            "Phase 36: Post-v0.2 Core Type System Expansion MVP",
+            "Phase 37: Post-v0.2 Aggregate Surface Expansion MVP",
             "Semantic Graph / ERD / AI Metadata Export remains a post-Phase-37 "
             "deferred candidate without an assigned phase number",
             "Version Labels",

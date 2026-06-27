@@ -445,9 +445,9 @@ fixture, golden, example, package, dependency, workflow, version, release, tag,
 publish, upload, signing, or attestation behavior changed.
 Phase 32: Semantic Explain And Metadata Output MVP; Phase 33: JSON v2 And
 Project / Multi-file MVP; Phase 34: Relationship Grain And Narrow JOIN MVP;
-Phase 35: Developer Experience And Delivery Pipeline MVP; Phase 36: Core Type
-System Expansion II; Phase 37: Aggregate Expansion II. Semantic Graph / ERD /
-AI Metadata Export remains a post-Phase-37 deferred candidate without an
+Phase 35: Developer Experience And Delivery Pipeline MVP; Phase 36: Post-v0.2 Core Type System Expansion MVP;
+Phase 37: Post-v0.2 Aggregate Surface Expansion MVP.
+Semantic Graph / ERD / AI Metadata Export remains a post-Phase-37 deferred candidate without an
 assigned phase number.
 Slice 1 adds no Phase 31 behavior implementation in Slice 1, Slice 2 adds no
 Phase 31 behavior implementation in Slice 2, Slice 3 adds no Phase 31 behavior
