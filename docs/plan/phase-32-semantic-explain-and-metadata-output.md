@@ -8,7 +8,8 @@ Metadata Artifact v1 Contract work only. Phase 32 Slice 3 is complete as
 Private Metadata Model And Builder MVP work only. Phase 32 Slice 4 is complete
 as Definition, Schema, Type, And Nullability Metadata work only. Phase 32 Slice
 5 is complete as Query Posture, Aggregate, And Basic Lineage Metadata work
-only.
+only. Phase 32 Slice 6 is complete as JSON Serializer And Fail-closed Error
+Envelope work only.
 
 Trusted handoff:
 
@@ -247,8 +248,14 @@ publishing, upload, signing, or attestation operation.
    attestation behavior changes.
 
 6. **JSON Serializer And Fail-closed Error Envelope**
-   Add the Artifact v1 JSON serializer and diagnostics/error-only failure
-   envelope while preserving existing CLI JSON v1.
+   Complete as private source, tests, status, and hash-lock work only. Adds the
+   private Artifact v1 JSON-compatible serializer and diagnostics/error-only
+   failure envelope while preserving existing CLI JSON v1. Slice 6 implements no
+   `pietto explain` CLI behavior, text renderer, public API, JSON v1 mutation,
+   SQL behavior, semantic behavior change, IR behavior change, grammar,
+   generated file, fixture, golden, example, package, dependency, workflow,
+   version, release, tag, publish, upload, signing, or attestation behavior
+   changes.
 
 7. **Explain CLI Text/JSON Integration, Docs, Examples, And Package Smoke Readiness**
    Integrate `pietto explain <file> [--format text|json]`, derive text from the

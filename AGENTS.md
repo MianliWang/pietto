@@ -450,7 +450,14 @@ not complete. No `pietto explain` CLI behavior was implemented, JSON serializer,
 text renderer, public API, JSON v1 mutation, SQL behavior, semantic behavior
 change, IR behavior change, grammar, generated, fixture, golden, example,
 package, dependency, workflow, version, release, tag, publish, upload, signing,
-or attestation behavior changed.
+or attestation behavior changed. Phase 32 Slice 6 JSON Serializer And
+Fail-closed Error Envelope is complete. Slice 6 adds private Artifact v1
+JSON-compatible serializer and fail-closed diagnostics/error-only envelope
+coverage. Phase 32 as a whole is not complete, and no `pietto explain` CLI
+behavior was implemented, no text renderer, no public API, no JSON v1 mutation,
+no SQL behavior, no semantic behavior change, no IR behavior change, no
+grammar/generated/fixture/golden/example/package/dependency/workflow/version/
+release/tag/publish/upload/signing or attestation behavior changed.
 Phase 32: Semantic Explain And Metadata Output MVP; Phase 33: JSON v2 And
 Project / Multi-file MVP; Phase 34: Relationship Grain And Narrow JOIN MVP;
 Phase 35: Developer Experience And Delivery Pipeline MVP; Phase 36: Post-v0.2 Core Type System Expansion MVP;
