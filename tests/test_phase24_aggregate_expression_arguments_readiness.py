@@ -70,7 +70,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "cli": (
         "src/pietto/cli.py",
         1,
-        "af378ad655ed3ffc230983e94ee40cfef3b4f67e01d902901c5933c317c1f90f",
+        "e3357cbee66ef1a219a85085bdbfd51278812e0dec74b2f9ca0196c68e92bb48",
     ),
     "pyproject": (
         "pyproject.toml",
@@ -95,17 +95,17 @@ LOCKED_BOUNDARY_SURFACES = {
     "readme": (
         "README.md",
         1,
-        "984ec5de5f4f38d024d33357f93ebd87c7387b8b7e8bdec6dabcf182367320bf",
+        "d5ec2ae1a090c0e3a16ee48c96c9b33dc338fd83d99e436819368c25396b8771",
     ),
     "agents": (
         "AGENTS.md",
         1,
-        "0523d7bf83ec2280511a5ee3d87a7988a65581b0f3cab5b3a0deb599f13d81b9",
+        "ec9307595432c96228521c457c7a54f272a5779927cf09b92cf797bee7826984",
     ),
     "pietto_v09": (
         "docs/spec/pietto-v0.9.md",
         1,
-        "05a79d593c626f3702e69dc7190fb6b787fecf86c4254e8703191a102d2a3655",
+        "a76a4e352d57e06d887508eff981bb33a1672bfddf4673a00cfd9667e872dd07",
     ),
 }
 

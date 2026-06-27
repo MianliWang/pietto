@@ -36,13 +36,13 @@ ALL_GOLDENS_HASH = "0e26a0b367a2ae849e5ec1e9a239be42765bea2c352242db5da930ab56b4
 HISTORICAL_GOLDENS_HASH = (
     "11d4343245dc18fd574999cbef5bff7c316d90975b3856ed729e8d2c1d579cf0"
 )
-BOUNDARY_HASH = "6bc82bd0256d195ef18f6484c4d5207f007496f80035f1f922e0160906c711b5"
+BOUNDARY_HASH = "df05370c2c2527b829444441823f3cae5461aba371d01edf63cf20c9fdf2004d"
 GENERATED_HASH = "25bd5df39d46749ad59e2b805bd85cce52e708cdf56bda6ee365615c419e17d1"
 EXPECTED_BLOBS = {
     "scripts/validate.py": "4387101bc68e13539c74c45b595ba742ca17c9c0",
     "scripts/check_generated.py": "51081d5337e0659e73f8666ba639c0d4c3fe3a4b",
     "scripts/check_goldens.py": "4f49ddc0a8a6836b68a83a98cc9c05389d4519a3",
-    "scripts/package_smoke.py": "a8f191cb52fbaf4c2c1a2dac4a500fd6a107e859",
+    "scripts/package_smoke.py": "8beb291a12e69dab64e36541e9eef9b648007706",
     ".github/workflows/ci.yml": "bd8fb78e0c491041906d13865b8267bf5d7e7050",
 }
 EXPECTED_GATES = (
@@ -382,7 +382,7 @@ def test_public_api_json_cli_package_and_dependency_contracts_are_unchanged() ->
         if action.dest == "command"
     )
 
-    assert set(cast(Any, subparsers).choices) == {"check", "emit-sql"}
+    assert set(cast(Any, subparsers).choices) == {"check", "emit-sql", "explain"}
     assert vars(check) == {
         "command": "check",
         "path": Path("file.pietto"),

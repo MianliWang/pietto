@@ -47,7 +47,7 @@ EXPECTED_BLOBS = {
     "scripts/validate.py": "4387101bc68e13539c74c45b595ba742ca17c9c0",
     "scripts/check_generated.py": "51081d5337e0659e73f8666ba639c0d4c3fe3a4b",
     "scripts/check_goldens.py": "4f49ddc0a8a6836b68a83a98cc9c05389d4519a3",
-    "scripts/package_smoke.py": "a8f191cb52fbaf4c2c1a2dac4a500fd6a107e859",
+    "scripts/package_smoke.py": "8beb291a12e69dab64e36541e9eef9b648007706",
     ".github/workflows/ci.yml": "bd8fb78e0c491041906d13865b8267bf5d7e7050",
 }
 EXPECTED_FILES = {
@@ -64,7 +64,7 @@ EXPECTED_GROUPS = {
     "ir": "7438c72875751eeadf8b12b3aad1825499061f3f4e0dd73d8c1a339c614ae884",
     "sql": "67aeafa622d3147b08930cebcf18862322eec692d547d328b18966afa81f3530",
     "generated": "25bd5df39d46749ad59e2b805bd85cce52e708cdf56bda6ee365615c419e17d1",
-    "cli": "235d4e50c3474306253dfc6b118e2518b3e300e90f7fbe9903263a39cbdc42a0",
+    "cli": "80ee94ec6da227123b3ae116b622c4a7257408e1e1b62d607c85c9a012f43dc3",
 }
 POSTGRES_GOLDENS = {
     "emit_sql_active_user_emails.sql": (
@@ -98,7 +98,7 @@ MYSQL_GOLDENS = {
     ),
 }
 ALL_GOLDENS_HASH = "0e26a0b367a2ae849e5ec1e9a239be42765bea2c352242db5da930ab56b43004"
-BOUNDARY_HASH = "6bc82bd0256d195ef18f6484c4d5207f007496f80035f1f922e0160906c711b5"
+BOUNDARY_HASH = "df05370c2c2527b829444441823f3cae5461aba371d01edf63cf20c9fdf2004d"
 
 
 def _load_module(name: str, path: Path) -> ModuleType:

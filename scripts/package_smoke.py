@@ -326,7 +326,7 @@ def _smoke_installed_cli(
         stage="installed CLI help",
         environment=environment,
     )
-    for marker in (b"usage: pietto", b"check", b"emit-sql"):
+    for marker in (b"usage: pietto", b"check", b"emit-sql", b"explain"):
         if marker not in help_result.stdout:
             raise SmokeFailure(f"installed CLI --help is missing {marker!r}")
     if help_result.stderr:
@@ -339,6 +339,46 @@ def _smoke_installed_cli(
         stage="installed CLI check",
         environment=environment,
     )
+
+    explain_text = _run_installed_cli(
+        cli_path,
+        ("explain", CHECK_INPUT.as_posix()),
+        scratch_dir=scratch_dir,
+        stage="installed CLI explain text",
+        environment=environment,
+    )
+    if b"Semantic Metadata Artifact v1\n" not in explain_text.stdout:
+        raise SmokeFailure(
+            "installed CLI explain text output is missing artifact header"
+        )
+    if explain_text.stderr:
+        raise SmokeFailure("installed CLI explain text wrote unexpected stderr")
+
+    explain_json = _run_installed_cli(
+        cli_path,
+        ("explain", CHECK_INPUT.as_posix(), "--format", "json"),
+        scratch_dir=scratch_dir,
+        stage="installed CLI explain JSON",
+        environment=environment,
+    )
+    try:
+        explain_document = json.loads(explain_json.stdout)
+    except (UnicodeError, json.JSONDecodeError) as error:
+        raise SmokeFailure(
+            f"cannot decode explain Artifact v1 JSON: {error}"
+        ) from error
+    if explain_document.get("artifact") != "Semantic Metadata Artifact v1":
+        raise SmokeFailure("installed CLI explain JSON artifact identity is unexpected")
+    if explain_document.get("command") != "explain":
+        raise SmokeFailure("installed CLI explain JSON command is unexpected")
+    if explain_document.get("schema_version") != 1:
+        raise SmokeFailure("installed CLI explain JSON schema_version is unexpected")
+    if explain_document.get("ok") is not True:
+        raise SmokeFailure("installed CLI explain JSON ok field is unexpected")
+    if "metadata" not in explain_document or "error" in explain_document:
+        raise SmokeFailure("installed CLI explain JSON envelope is unexpected")
+    if explain_json.stderr:
+        raise SmokeFailure("installed CLI explain JSON wrote unexpected stderr")
 
     postgres = _run_installed_cli(
         cli_path,
@@ -386,7 +426,7 @@ def _smoke_installed_cli(
 
     print(f"[package-smoke] installed CLI version: {version.stdout.decode().strip()}")
     print(
-        "[package-smoke] installed CLI verified: --help, check, "
+        "[package-smoke] installed CLI verified: --help, check, explain, "
         "PostgreSQL byte-exact text, MySQL JSON v1 structure",
         flush=True,
     )

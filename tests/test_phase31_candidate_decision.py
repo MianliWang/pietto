@@ -533,7 +533,9 @@ def test_phase31_status_docs_record_slice7_without_v02_completion() -> None:
             "no Phase 31 behavior implementation in Slice 6",
             "no Phase 31 behavior implementation in Slice 7",
             "no Phase 31 behavior implementation in Slice 8",
-            "no Phase 32 implementation in Slices 1 through 8",
+            "Slice 7 adds `pietto explain` CLI text/JSON integration using "
+            "private Artifact v1 metadata",
+            "Slice 8 remains completion audit/status lock",
             "diagnostic code/message/severity/order/location behavior changes",
             "Direct-field `min(Date)`, `max(Date)`, `min(Timestamp)`, and "
             "`max(Timestamp)` remain current accepted behavior",

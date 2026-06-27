@@ -17,6 +17,13 @@ import pietto.ir as ir_api
 import pietto.sql as sql_api
 import pietto.sql.mysql as mysql_backend
 from pietto import cli_json
+from pietto._metadata.builder import build_semantic_metadata_artifact
+from pietto._metadata.serializer import (
+    SemanticMetadataFailureStage,
+    build_semantic_metadata_error_envelope,
+    semantic_metadata_artifact_to_json_dict,
+)
+from pietto._metadata.text import render_semantic_metadata_text
 from pietto.errors import Diagnostic, Severity
 
 _FALLBACK_VERSION = "0.1.0"
@@ -25,6 +32,11 @@ _EXIT_USAGE_ERROR = 2
 _FORMAT_TEXT = "text"
 _FORMAT_JSON = "json"
 _ENABLED_SQL_DIALECTS = ("postgres", "mysql")
+_METADATA_FAILURE_MESSAGES = {
+    "parse": "Semantic Metadata Artifact v1 metadata is unavailable because parsing failed.",
+    "semantic": "Semantic Metadata Artifact v1 metadata is unavailable because semantic analysis failed.",
+    "ir": "Semantic Metadata Artifact v1 metadata is unavailable because IR construction failed.",
+}
 
 type _SqlEmitter = Callable[[ir_api.ScriptIR], sql_api.SqlResult]
 
@@ -88,6 +100,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             dialect=namespace.dialect,
             output_path=namespace.output,
         )
+    if namespace.command == "explain":
+        return _run_explain(namespace.path, output_format=namespace.format)
     return 0
 
 
@@ -114,6 +128,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="emit SQL for one Pietto file",
     )
     _configure_emit_sql_parser(emit_parser)
+    explain_parser = subparsers.add_parser(
+        "explain",
+        help="explain semantic metadata for one Pietto file",
+    )
+    _configure_explain_parser(explain_parser)
     return parser
 
 
@@ -144,6 +163,18 @@ def _configure_emit_sql_parser(parser: argparse.ArgumentParser) -> None:
         type=Path,
         help="write SQL artifacts to this file instead of stdout",
     )
+    parser.add_argument(
+        "--format",
+        choices=(_FORMAT_TEXT, _FORMAT_JSON),
+        default=_FORMAT_TEXT,
+        help="output format",
+    )
+
+
+def _configure_explain_parser(parser: argparse.ArgumentParser) -> None:
+    """Add the single-file explain arguments to one parser."""
+
+    parser.add_argument("path", type=Path, help="Pietto source file")
     parser.add_argument(
         "--format",
         choices=(_FORMAT_TEXT, _FORMAT_JSON),
@@ -413,6 +444,134 @@ def _print_check_json(
         diagnostics=diagnostics,
         cli_errors=cli_errors,
     )
+    print(cli_json.render_json_document(document), end="")
+
+
+def _run_explain(path: Path, *, output_format: str = _FORMAT_TEXT) -> int:
+    """Build and render Semantic Metadata Artifact v1 for one Pietto file."""
+
+    try:
+        parse_result = parser_api.parse_file(path)
+    except (OSError, UnicodeError) as error:
+        if output_format == _FORMAT_JSON:
+            _print_explain_failure_json(
+                path=path,
+                stage="parse",
+                diagnostics=(),
+                message=(
+                    "Semantic Metadata Artifact v1 metadata is unavailable "
+                    "because the input file could not be read or decoded."
+                ),
+            )
+            return _EXIT_USAGE_ERROR
+        _print_cli_error(path, str(error))
+        return _EXIT_USAGE_ERROR
+
+    diagnostics = parse_result.diagnostics
+    if _has_errors(diagnostics):
+        return _render_explain_failure(
+            path=path,
+            output_format=output_format,
+            stage="parse",
+            diagnostics=diagnostics,
+        )
+
+    if parse_result.ast is None:
+        return _render_explain_failure(
+            path=path,
+            output_format=output_format,
+            stage="parse",
+            diagnostics=diagnostics,
+            fallback_message="parser produced no AST",
+        )
+
+    semantic_result = semantic_api.analyze(parse_result.ast)
+    diagnostics = (*diagnostics, *semantic_result.diagnostics)
+    if _has_errors(semantic_result.diagnostics):
+        return _render_explain_failure(
+            path=path,
+            output_format=output_format,
+            stage="semantic",
+            diagnostics=diagnostics,
+        )
+
+    ir_result = ir_api.build_ir(parse_result.ast, semantic_result.model)
+    diagnostics = (*diagnostics, *ir_result.diagnostics)
+    if _has_errors(ir_result.diagnostics):
+        return _render_explain_failure(
+            path=path,
+            output_format=output_format,
+            stage="ir",
+            diagnostics=diagnostics,
+        )
+
+    if ir_result.ir is None:
+        return _render_explain_failure(
+            path=path,
+            output_format=output_format,
+            stage="ir",
+            diagnostics=diagnostics,
+            fallback_message="IR builder produced no IR",
+        )
+
+    artifact = build_semantic_metadata_artifact(
+        path=path,
+        script=parse_result.ast,
+        semantic_result=semantic_result,
+        ir=ir_result.ir,
+        diagnostics=diagnostics,
+    )
+    if output_format == _FORMAT_JSON:
+        _print_explain_json(semantic_metadata_artifact_to_json_dict(artifact))
+        return 0
+
+    _render_diagnostics(diagnostics, fallback_path=path)
+    print(render_semantic_metadata_text(artifact))
+    return 0
+
+
+def _render_explain_failure(
+    *,
+    path: Path,
+    output_format: str,
+    stage: SemanticMetadataFailureStage,
+    diagnostics: tuple[Diagnostic, ...],
+    fallback_message: str | None = None,
+) -> int:
+    if output_format == _FORMAT_JSON:
+        _print_explain_failure_json(
+            path=path,
+            stage=stage,
+            diagnostics=diagnostics,
+            message=_METADATA_FAILURE_MESSAGES[stage],
+        )
+    else:
+        _render_diagnostics(diagnostics, fallback_path=path)
+        if fallback_message is not None:
+            _print_cli_error(path, fallback_message)
+    return _EXIT_DIAGNOSTIC_ERROR
+
+
+def _print_explain_failure_json(
+    *,
+    path: str | Path | None,
+    stage: SemanticMetadataFailureStage,
+    diagnostics: Sequence[Diagnostic],
+    message: str,
+) -> None:
+    _print_explain_json(
+        build_semantic_metadata_error_envelope(
+            path=path,
+            stage=stage,
+            diagnostics=diagnostics,
+            message=message,
+        )
+    )
+
+
+def _print_explain_json(document: dict[str, object]) -> None:
+    """Print one complete Semantic Metadata Artifact v1 JSON document."""
+
     print(cli_json.render_json_document(document), end="")
 
 

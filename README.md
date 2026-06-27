@@ -222,7 +222,14 @@ The current implementation status is:
   renderer, no public API, no JSON v1 mutation, no SQL behavior, no semantic
   behavior change, no IR behavior change, no grammar/generated/fixture/golden/
   example/package/dependency/workflow/version/release/tag/publish/upload/signing
-  or attestation behavior changed.
+  or attestation behavior changed. Phase 32 Slice 7 Explain CLI Text/JSON
+  Integration, Docs, Examples, And Package Smoke Readiness is complete. Slice 7
+  adds `pietto explain` CLI text/JSON integration using private Artifact v1
+  metadata and package smoke readiness. Phase 32 as a whole is not complete;
+  Slice 8 remains completion audit/status lock. Slice 7 adds no package version
+  bump, tag, release, publish, upload, signing, or attestation. Slice 7 adds no
+  SQL execution, database, or runtime behavior and changes no parser, semantic,
+  IR, or SQL behavior except CLI orchestration over existing facts.
   Phase 32: Semantic Explain And Metadata Output MVP; Phase 33: JSON v2 And
   Project / Multi-file MVP; Phase 34: Relationship Grain And Narrow JOIN MVP;
   Phase 35: Developer Experience And Delivery Pipeline MVP; Phase 36: Post-v0.2 Core Type System Expansion MVP;
@@ -240,9 +247,9 @@ The current implementation status is:
   implementation in Slice 5, and Slice 6 adds no Phase 31 behavior
   implementation in Slice 6, Slice 7 adds no Phase 31 behavior implementation
   in Slice 7, and Slice 8 adds no Phase 31 behavior implementation in Slice
-  8. There is no Phase 32 implementation in Slices 1 through 8, no JSON v1
-  schema expansion, no JSON v2, no public MySQL API expansion,
-  no CLI, diagnostic, semantic, IR, SQL, aggregate, type-system, runtime,
+  8. Apart from the approved Slice 7 `pietto explain` CLI orchestration, there
+  is no JSON v1 schema expansion, no JSON v2, no public MySQL API expansion,
+  no diagnostic, semantic, IR, SQL, aggregate, type-system, runtime,
   project, relationship/JOIN, schema introspection, UUID or Enum behavior
   implementation, UUID literal implementation, Enum literal implementation,
   UUID or Enum cast implementation, UUID or Enum storage, DDL, or native
@@ -551,13 +558,13 @@ implementation in Slice 3, Slice 4 adds no Phase 31 behavior implementation
 in Slice 4, Slice 5 adds no Phase 31 behavior implementation in Slice 5,
 Slice 6 adds no Phase 31 behavior implementation in Slice 6, Slice 7 adds no
 Phase 31 behavior implementation in Slice 7, and Slice 8 adds no Phase 31
-behavior implementation in Slice 8. There is no Phase 32 implementation in
-Slices 1 through 8. It adds no behavior
-fixes, no source implementation, grammar, generated, example, fixture,
-golden, script, package, dependency, lockfile, CI workflow, public API, CLI,
-JSON, IR, SQL, semantic, aggregate, diagnostic, predicate, runtime,
-project/multi-file, relationship/JOIN, schema introspection, or type-system
-behavior changes. It adds no JSON v1 schema expansion, JSON v2, public MySQL
+behavior implementation in Slice 8. Apart from the approved Phase 32 Slice 7
+`pietto explain` CLI/source/test/docs/package-smoke work, Phase 32 through
+Slice 7 adds no behavior fixes, grammar, generated, example, fixture, golden,
+package, dependency, lockfile, CI workflow, public API, JSON v1, IR, SQL,
+semantic, aggregate, diagnostic, predicate, runtime, project/multi-file,
+relationship/JOIN, schema introspection, or type-system behavior changes. It
+adds no JSON v1 schema expansion, JSON v2, public MySQL
 API expansion, no DateTime/Time/Interval/timezone semantics, no
 Date/Timestamp literal implementation, no temporal arithmetic implementation,
 no temporal function implementation, no timestamp precision modeling, no
@@ -586,6 +593,8 @@ pietto emit-sql file.pietto --dialect postgres --format json --output out.sql
 pietto emit-sql file.pietto --dialect mysql
 pietto emit-sql file.pietto --dialect mysql --format json
 pietto emit-sql file.pietto --dialect mysql --output out.sql
+pietto explain file.pietto
+pietto explain file.pietto --format json
 ```
 
 `check` performs parser and semantic validation only. `emit-sql` explicitly
@@ -593,7 +602,10 @@ runs parse, semantic, IR, and the explicitly selected PostgreSQL or MySQL
 backend. SQL defaults to stdout; `--output` atomically replaces a safe regular
 output file after successful rendering. Text diagnostics remain on stderr.
 Recognized JSON requests produce one versioned machine-readable document on
-stdout.
+stdout. `explain` runs parse, semantic analysis, IR construction, the private
+Semantic Metadata Artifact v1 builder, and the private text/JSON renderers. It
+does not accept `--dialect` or `--output`, does not generate or execute SQL, and
+does not connect to a database or connector.
 
 The CLI remains single-file developer tooling. It does not execute SQL,
 connect to databases or connectors, introspect schemas, or provide project

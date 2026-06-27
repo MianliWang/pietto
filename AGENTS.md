@@ -457,7 +457,15 @@ coverage. Phase 32 as a whole is not complete, and no `pietto explain` CLI
 behavior was implemented, no text renderer, no public API, no JSON v1 mutation,
 no SQL behavior, no semantic behavior change, no IR behavior change, no
 grammar/generated/fixture/golden/example/package/dependency/workflow/version/
-release/tag/publish/upload/signing or attestation behavior changed.
+release/tag/publish/upload/signing or attestation behavior changed. Phase 32
+Slice 7 Explain CLI Text/JSON Integration, Docs, Examples, And Package Smoke
+Readiness is complete. Slice 7 adds `pietto explain` CLI text/JSON integration
+using private Artifact v1 metadata and package smoke readiness. Phase 32 as a
+whole is not complete; Slice 8 remains completion audit/status lock. Slice 7
+adds no package version bump, tag, release, publish, upload, signing, or
+attestation. Slice 7 adds no SQL execution, database, or runtime behavior and
+changes no parser, semantic, IR, or SQL behavior except CLI orchestration over
+existing facts.
 Phase 32: Semantic Explain And Metadata Output MVP; Phase 33: JSON v2 And
 Project / Multi-file MVP; Phase 34: Relationship Grain And Narrow JOIN MVP;
 Phase 35: Developer Experience And Delivery Pipeline MVP; Phase 36: Post-v0.2 Core Type System Expansion MVP;
@@ -470,11 +478,11 @@ implementation in Slice 3, Slice 4 adds no Phase 31 behavior implementation
 in Slice 4, Slice 5 adds no Phase 31 behavior implementation in Slice 5,
 Slice 6 adds no Phase 31 behavior implementation in Slice 6, Slice 7 adds no
 Phase 31 behavior implementation in Slice 7, and Slice 8 adds no Phase 31
-behavior implementation in Slice 8. There is no Phase 32 implementation in
-Slices 1 through 8. It adds no behavior fixes, no source
-implementation, grammar, generated, example, fixture, golden, script, package,
-dependency, lockfile, CI workflow, public API, CLI, JSON, IR, SQL, semantic,
-aggregate, diagnostic, predicate, runtime, project/multi-file,
+behavior implementation in Slice 8. Apart from the approved Phase 32 Slice 7
+`pietto explain` CLI/source/test/docs/package-smoke work, Phase 32 through
+Slice 7 adds no behavior fixes, grammar, generated, example, fixture, golden,
+package, dependency, lockfile, CI workflow, public API, JSON v1, IR, SQL,
+semantic, aggregate, diagnostic, predicate, runtime, project/multi-file,
 relationship/JOIN, schema introspection, or type-system behavior changes. It
 adds no JSON v1 schema expansion, JSON v2, public MySQL API expansion, no
 DateTime/Time/Interval/timezone semantics, no Date/Timestamp literal
@@ -660,7 +668,11 @@ but never execute SQL or connect to a database or connector. SQL defaults to
 stdout;
 `--output path` atomically replaces one regular file after successful
 rendering, rejects the input file and symbolic-link outputs, and leaves
-diagnostics on stderr. CLI diagnostics use
+diagnostics on stderr. The CLI also provides
+`pietto explain file.pietto` and `pietto explain file.pietto --format json`,
+which orchestrate parse, semantic, IR, and private Semantic Metadata Artifact
+v1 rendering without SQL generation, SQL execution, database connections,
+connector execution, `--dialect`, or `--output`. CLI diagnostics use
 `path:line:column CODE severity: message`, preserve compiler order, and are
 written to stderr with C0 control characters and DEL rendered as visible
 escapes.

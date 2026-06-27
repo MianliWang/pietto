@@ -9,7 +9,8 @@ Private Metadata Model And Builder MVP work only. Phase 32 Slice 4 is complete
 as Definition, Schema, Type, And Nullability Metadata work only. Phase 32 Slice
 5 is complete as Query Posture, Aggregate, And Basic Lineage Metadata work
 only. Phase 32 Slice 6 is complete as JSON Serializer And Fail-closed Error
-Envelope work only.
+Envelope work only. Phase 32 Slice 7 is complete as Explain CLI Text/JSON
+Integration, Docs, Examples, And Package Smoke Readiness work only.
 
 Trusted handoff:
 
@@ -258,9 +259,16 @@ publishing, upload, signing, or attestation operation.
    changes.
 
 7. **Explain CLI Text/JSON Integration, Docs, Examples, And Package Smoke Readiness**
-   Integrate `pietto explain <file> [--format text|json]`, derive text from the
-   normalized artifact, and update docs/examples/package-smoke readiness as
-   separately approved.
+   Complete as CLI integration, private text renderer, tests, docs/status,
+   package-smoke readiness, and hash-lock work only. Adds
+   `pietto explain <file> [--format text|json]`, derives text from the
+   normalized private Artifact v1 metadata, emits Semantic Metadata Artifact v1
+   JSON for `--format json`, and keeps package version `0.1.0`. Slice 7 does not
+   mark Phase 32 complete, does not add JSON v2 or a public Python API, and adds
+   no SQL execution, database/runtime behavior, parser behavior, semantic
+   behavior, IR behavior, SQL backend/lowering behavior, grammar, generated
+   file, fixture, golden, example, dependency, workflow, version, release, tag,
+   publish, upload, signing, or attestation behavior changes.
 
 8. **Completion Audit And Status Lock**
    Lock Phase 32 completion with final validation, status docs, hash-locks, and

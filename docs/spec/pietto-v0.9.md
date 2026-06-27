@@ -1154,12 +1154,26 @@ pietto emit-sql app.pietto --dialect postgres --format json --output out.sql
 PostgreSQL SQL emission. It prints or writes generated SQL but never executes
 it.
 
+### `pietto explain`
+
+```bash
+pietto explain app.pietto
+pietto explain app.pietto --format json
+```
+
+`explain` explicitly runs parsing, semantic analysis, IR construction, and the
+private Semantic Metadata Artifact v1 builder/renderer. Text is the default
+human-readable output. JSON output is Semantic Metadata Artifact v1, not CLI
+JSON v1 and not future project JSON v2. `explain` does not accept `--dialect`
+or `--output`, does not generate SQL, and never executes SQL, connects to a
+database, or executes connector logic.
+
 ### Deferred CLI ideas
 
-Earlier design notes discussed commands such as `compile`, `validate`,
-`describe`, and `explain`, plus a CLI `--mode` override. These are not current
-commands or flags. They remain deferred ideas and require separate accepted
-plans before implementation.
+Earlier design notes discussed commands such as `compile`, `validate`, and
+`describe`, plus a CLI `--mode` override. These are not current commands or
+flags. They remain deferred ideas and require separate accepted plans before
+implementation.
 
 The CLI does not load project configuration, analyze multiple files, watch the
 filesystem, provide an LSP, connect to a database, introspect schemas, execute
@@ -1332,6 +1346,7 @@ Status: single-file CLI MVP complete. Implemented commands are:
 
 - `pietto check`;
 - `pietto emit-sql`;
+- `pietto explain`;
 - `pietto --help`;
 - `pietto --version`.
 
@@ -2292,10 +2307,10 @@ Phase 37: Post-v0.2 Aggregate Surface Expansion MVP. Semantic Graph / ERD / AI
 Metadata Export remains a post-Phase-37 deferred candidate without an assigned
 phase number. Internal v0.2 completion does not imply a package release.
 Slice 7 adds no Phase 31 behavior implementation in Slice 7, and Slice 8 adds
-no Phase 31 behavior implementation in Slice 8. There is no Phase 32
-implementation in Slices 1 through 8. It adds no behavior
-fixes, no source implementation, grammar, generated, example, fixture, golden,
-script, package, dependency, lockfile, CI workflow, public API, CLI, JSON, IR,
+no Phase 31 behavior implementation in Slice 8. Apart from the approved Phase
+32 Slice 7 `pietto explain` CLI/source/test/docs/package-smoke work, Phase 32
+through Slice 7 adds no behavior fixes, grammar, generated, example, fixture,
+golden, package, dependency, lockfile, CI workflow, public API, JSON v1, IR,
 SQL, semantic, aggregate, diagnostic, predicate, runtime, project/multi-file,
 relationship/JOIN, schema introspection, or type-system behavior changes. It
 adds no JSON v1 schema expansion, JSON v2, public MySQL API expansion, no
@@ -2339,7 +2354,15 @@ coverage. Phase 32 as a whole is not complete, and no `pietto explain` CLI
 behavior was implemented, no text renderer, no public API, no JSON v1 mutation,
 no SQL behavior, no semantic behavior change, no IR behavior change, no
 grammar/generated/fixture/golden/example/package/dependency/workflow/version/
-release/tag/publish/upload/signing or attestation behavior changed. Active
+release/tag/publish/upload/signing or attestation behavior changed. Phase 32
+Slice 7 Explain CLI Text/JSON Integration, Docs, Examples, And Package
+Smoke Readiness is complete. Slice 7 adds `pietto explain` CLI text/JSON
+integration using private Artifact v1 metadata and package smoke readiness.
+Phase 32 as a whole is not complete; Slice 8 remains completion audit/status
+lock. Slice 7 adds no package version bump, tag, release, publish, upload,
+signing, or attestation. Slice 7 adds no SQL execution, database, or runtime
+behavior and changes no parser, semantic, IR, or SQL behavior except CLI
+orchestration over existing facts. Active
 roadmap: Phase 32: Semantic
 Explain And Metadata Output MVP; Phase 33: JSON v2 And Project / Multi-file
 MVP; Phase 34: Relationship Grain And Narrow JOIN MVP; Phase 35: Developer
