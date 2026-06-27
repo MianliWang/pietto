@@ -3,8 +3,9 @@
 ## 1. Status And Trusted Handoff
 
 Phase 33 Slice 1 Candidate Decision, Scope, Boundary, And Phase 32 Handoff
-Audit is complete as docs/spec/static-audit/status-only work. Phase 33 as a
-whole is not complete.
+Audit is complete as docs/spec/static-audit/status-only work. Phase 33 Slice 2
+JSON v2 Project Result Envelope Contract is complete as
+docs/spec/static-audit/status-only work. Phase 33 as a whole is not complete.
 
 Trusted handoff:
 
@@ -25,6 +26,16 @@ introspection behavior, no relationship/JOIN behavior, no public API expansion,
 no grammar changes, no generated changes, no fixture or golden changes, no
 script changes, no package metadata changes, no dependency changes, no workflow
 changes, no package version change, and no release operation.
+
+Slice 2 adds only the contract at
+`docs/spec/project-json-v2-result-envelope-v1.md`, static audit coverage in
+`tests/test_phase33_json_v2_project_envelope_contract.py`, and this status
+update. Slice 2 adds no source implementation, no JSON v2 serializer, no
+project discovery runtime, no project CLI, no `--project` parser behavior, no
+multi-file compilation, no metadata aggregation, no SQL artifact generation, no
+relationship/JOIN behavior, no runtime/database/schema-introspection behavior,
+no grammar/generated/fixture/golden/script/package/dependency/workflow change,
+no package version change, and no release operation.
 
 ## 2. Candidate Decision
 
@@ -70,17 +81,26 @@ mutate:
 Initial JSON v2 candidate boundary:
 
 - `schema_version: 2`;
+- `command: "check"` initially;
 - `mode: "project"`;
+- `ok`;
 - explicit project identity;
 - ordered project inputs;
 - diagnostics;
 - CLI errors;
-- command-specific payloads.
+- command-specific payloads, represented initially by the `result` field.
 
 Initial JSON v2 should represent project checking/reporting. It does not
 represent project SQL artifact emission in Slice 1. It does not embed Semantic
 Metadata Artifact v1 by default. It does not aggregate Semantic Metadata
 Artifact v1 across files by default.
+
+Slice 2 locks the initial project check JSON v2 result envelope in
+`docs/spec/project-json-v2-result-envelope-v1.md`. The initial top-level fields
+are `schema_version`, `command`, `mode`, `ok`, `project`, `inputs`,
+`diagnostics`, `cli_errors`, and `result`. The command-specific summary uses
+`result.check.files_total`, `result.check.files_ok`, and
+`result.check.files_with_errors`.
 
 Explicit JSON v2 deferrals:
 
