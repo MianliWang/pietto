@@ -442,7 +442,15 @@ updates only. Phase 32 as a whole is not complete. No `pietto explain` CLI
 behavior, JSON serializer, text renderer, public API, JSON v1 mutation, SQL
 behavior, semantic behavior change, IR behavior change, grammar, generated,
 fixture, golden, example, package, dependency, workflow, version, release, tag,
-publish, upload, signing, or attestation behavior changed.
+publish, upload, signing, or attestation behavior changed. Phase 32 Slice 5
+Query Posture, Aggregate, And Basic Lineage Metadata is complete. Slice 5
+hardens private metadata query posture, aggregate, and bounded basic lineage
+coverage with tests, status, and hash-lock updates only. Phase 32 as a whole is
+not complete. No `pietto explain` CLI behavior was implemented, JSON serializer,
+text renderer, public API, JSON v1 mutation, SQL behavior, semantic behavior
+change, IR behavior change, grammar, generated, fixture, golden, example,
+package, dependency, workflow, version, release, tag, publish, upload, signing,
+or attestation behavior changed.
 Phase 32: Semantic Explain And Metadata Output MVP; Phase 33: JSON v2 And
 Project / Multi-file MVP; Phase 34: Relationship Grain And Narrow JOIN MVP;
 Phase 35: Developer Experience And Delivery Pipeline MVP; Phase 36: Post-v0.2 Core Type System Expansion MVP;
