@@ -56,9 +56,19 @@ CURRENT_STATUS_DOC_TEXT = (
     "no JSON v2/project/multi-file implementation behavior was added",
     "no relationship/JOIN/graph/runtime/database/schema-introspection behavior "
     "was started",
-    "Phase 33 Slice 1, Slice 2, and Slice 3 are complete, pushed, and CI green",
+    "Phase 33 Slice 1, Slice 2, and Slice 3 remain complete, pushed, and CI green",
+    "Phase 33 Slice 4 Private Project Discovery Model MVP is complete",
+    "Slice 4 adds only private `_project` model/discovery source, focused tests, "
+    "status, and hash-lock updates",
     "Phase 33 as a whole is not complete",
-    "Phase 33 Slice 4 has not started",
+    "Phase 33 Slice 5 has not started",
+    "No CLI behavior changed",
+    "No JSON v1 behavior changed",
+    "No JSON v2 behavior implemented",
+    "No project mode CLI behavior implemented",
+    "No source parsing or compiler pipeline integration was added",
+    "No grammar/generated/fixtures/goldens/scripts/package/dependency/workflow "
+    "behavior changed",
 )
 
 ROADMAP_STATUS = (
@@ -125,6 +135,7 @@ def test_status_docs_record_phase32_completion_and_release_boundary() -> None:
         for required in CURRENT_STATUS_DOC_TEXT:
             assert required in status, f"{path}: missing {required!r}"
         assert "Phase 33 has not started" not in status, path
+        assert "Phase 33 Slice 4 has not started" not in status, path
 
 
 def test_artifact_implementation_and_phase32_tests_remain_present() -> None:

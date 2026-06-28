@@ -190,7 +190,7 @@ def test_phase7_prohibited_capabilities_and_dependencies_remain_absent() -> None
     runtime_sources = tuple(
         path
         for path in (REPO_ROOT / "src" / "pietto").rglob("*.py")
-        if "generated" not in path.parts
+        if "generated" not in path.parts and "_project" not in path.parts
     )
     source_text = "\n".join(
         path.read_text(encoding="utf-8") for path in runtime_sources

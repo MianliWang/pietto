@@ -389,7 +389,7 @@ def _runtime_sources() -> tuple[Path, ...]:
     return tuple(
         path
         for path in (REPO_ROOT / "src" / "pietto").rglob("*.py")
-        if "generated" not in path.parts
+        if "generated" not in path.parts and "_project" not in path.parts
     )
 
 

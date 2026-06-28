@@ -7,7 +7,14 @@ Audit is complete as docs/spec/static-audit/status-only work. Phase 33 Slice 2
 JSON v2 Project Result Envelope Contract is complete as
 docs/spec/static-audit/status-only work. Phase 33 Slice 3 Project Root,
 Config, Path, And Discovery Contract Reconciliation is complete as
-docs/spec/static-audit/status-only work. Phase 33 as a whole is not complete.
+docs/spec/static-audit/status-only work. Phase 33 Slice 4 Private Project
+Discovery Model MVP is complete. Slice 4 adds only private `_project`
+model/discovery source, focused tests, status, and hash-lock updates. No CLI
+behavior changed. No JSON v1 behavior changed. No JSON v2 behavior implemented.
+No project mode CLI behavior implemented. No source parsing or compiler
+pipeline integration was added. No grammar/generated/fixtures/goldens/scripts/
+package/dependency/workflow behavior changed. Phase 33 as a whole is not
+complete. Phase 33 Slice 5 has not started.
 
 Trusted handoff:
 
@@ -50,6 +57,14 @@ metadata aggregation, no SQL artifact generation, no relationship/JOIN
 behavior, no runtime/database/schema-introspection behavior, no
 grammar/generated/fixture/golden/script/package/dependency/workflow change, no
 package version change, and no release operation.
+
+Slice 4 adds only private `_project` model/discovery source, focused tests,
+status, and hash-lock updates. Slice 4 detects an explicit project root, direct
+`pietto.toml` presence, and caller-provided project-relative source path
+selection without TOML schema parsing, glob expansion, source reading, source
+parsing, compiler pipeline integration, CLI wiring, JSON v1 behavior changes,
+JSON v2 serialization, public API expansion, package/dependency/workflow
+changes, package version change, or release operation.
 
 ## 2. Candidate Decision
 
