@@ -13,6 +13,10 @@ Phase 34 Slice 3 Narrow JOIN Syntax And Semantic Contract is the current
 docs/spec/static-audit/status-only contract slice for future narrow JOIN source
 shape and semantic preconditions.
 
+Phase 34 Slice 4 Parser / AST Readiness Contract And Static Audit is the current
+docs/spec/static-audit/status-only readiness slice for future narrow JOIN parser
+and AST implementation planning.
+
 Trusted baseline:
 
 - baseline HEAD: `8f62905c4552ec2855ac04646044978bcdc74f56`;
@@ -83,6 +87,27 @@ Slice 3 approved file scope is limited to:
 - `docs/plan/phase-34-relationship-grain-narrow-join-mvp.md`;
 - `docs/spec/phase-34-narrow-join-syntax-semantic-contract-v1.md`;
 - `tests/test_phase34_narrow_join_contract.py`.
+
+Proceed with Phase 34 Slice 4 as docs/spec/static-audit/status-only: define
+Parser / AST readiness requirements for future narrow JOIN work, preserving
+current single-input grammar and AST behavior and deferring final token
+spelling, grammar productions, AST class names/fields, semantic model changes,
+diagnostics, IR shape, SQL lowering, CLI/JSON/project behavior,
+fixtures/goldens, scripts, package/dependency/workflow changes, and release
+operations.
+
+Slice 4 adds a Parser / AST readiness contract and focused static audit tests
+for future narrow JOIN work. Slice 4 does not implement JOIN, JOIN syntax,
+grain syntax, parser behavior, AST nodes, semantic validation, semantic model
+changes, IR, SQL, CLI, JSON, project, runtime, database, fixtures, goldens,
+scripts, package metadata, dependencies, workflows, tag/release/publish/upload,
+signing, or attestation behavior.
+
+Slice 4 approved file scope is limited to:
+
+- `docs/plan/phase-34-relationship-grain-narrow-join-mvp.md`;
+- `docs/spec/phase-34-parser-ast-readiness-contract-v1.md`;
+- `tests/test_phase34_parser_ast_readiness_contract.py`.
 
 ## 3. Relationship Grain Definition
 
@@ -216,6 +241,10 @@ coverage; it does not authorize Slice 3 or any implementation slice.
 Slice 3 adds only a narrow JOIN syntax and semantic contract plus focused
 static audit coverage; it does not authorize grammar, parser, AST, semantic,
 IR, SQL, CLI, JSON, project, runtime, or database implementation.
+Slice 4 adds only a Parser / AST readiness contract plus focused static audit
+coverage; it does not authorize grammar, generated parser, parser behavior,
+AST node, semantic, IR, SQL, CLI, JSON, project, runtime, or database
+implementation.
 
 ## 8. Slice 1 Status
 
@@ -265,3 +294,30 @@ project/JSON preservation boundaries remain locked, package version remains
 
 Future implementation slices remain tentative and require separate approval.
 Phase 34 remains in progress after Slice 3.
+
+## 11. Slice 4 Status
+
+Slice 4 is the current docs/spec/static-audit/status-only readiness slice. It
+adds only the Parser / AST readiness contract at
+`docs/spec/phase-34-parser-ast-readiness-contract-v1.md` and focused static
+audit coverage in `tests/test_phase34_parser_ast_readiness_contract.py`.
+
+Slice 4 implements no JOIN, no JOIN syntax, no relationship grain syntax, no
+parser behavior, no AST nodes, no semantic validation, and no semantic model
+changes. Slice 4 changes no grammar, generated parser, parser behavior, AST,
+semantic model, IR, SQL backend, CLI, JSON v1, Project JSON v2, Semantic
+Metadata Artifact v1, project behavior, fixture, golden, script, package
+metadata, dependency, workflow, runtime, database, tag, release, publish,
+upload, signing, or attestation behavior.
+
+Slice 4 preserves the Phase 33 project/JSON boundaries: `pietto check --project
+ROOT` remains root/config-only, project source selection remains deferred,
+project JSON v2 remains check root/config-only, project emit-sql remains
+rejected, project explain remains rejected, single-file `check` and `emit-sql`
+JSON remain JSON v1, and single-file `explain --format json` remains Semantic
+Metadata Artifact v1.
+
+Package version remains `0.1.0`. No tag/release/publish/upload/signing/
+attestation is performed by Slice 4. Future implementation slices remain
+tentative and require separate approval. Phase 34 remains in progress after
+Slice 4. Phase 34 is not complete.
