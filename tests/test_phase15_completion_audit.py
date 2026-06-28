@@ -36,7 +36,7 @@ PHASE15_ARTIFACT_HASHES = {
         "e2a4219d2e0a0b7cc2d739475e39022df931c58171a87f96436286008a4be3b3"
     ),
     PRIOR_AUDIT_PATH: (
-        "6caedeb6d0890160e6c9b9265bb86cdc79c5edced10b2ef7c4137b7b49da6819"
+        "2b6cfa50724b95ad18fb25188d2b9c6c146555ae05c048953e22eedcfe51220c"
     ),
 }
 
@@ -57,7 +57,7 @@ LOCKED_FILE_HASHES = {
         "7aa9622bde3eb07bb64bb5c932dc69e48d635e89790b26e8090b9309c5cf62f6"
     ),
     "src/pietto/cli.py": (
-        "457faf1e1f89ef6d082e060a48ea4b8f99f5b519f395aba62ff99c7be0f2c319"
+        "2fd94faa26f298d86a08a46f0824a595f38443572fb0ab0f9160428bcedbe848"
     ),
     "src/pietto/cli_json.py": (
         "ccee00529ee36b123f70d418105609dbb4906f2ccc1c1f5653527b1168fb6d91"
@@ -351,9 +351,19 @@ def test_deferred_capabilities_remain_absent_and_unauthorized() -> None:
         "database connection",
         "schema introspection",
         "execute sql",
-        "json v2",
         "sqlglot",
         "compile_to_sql",
+    ):
+        assert marker not in runtime
+
+    assert "project json output is deferred" in runtime
+    for marker in (
+        "schema_version = 2",
+        '"schema_version": 2',
+        "json_v2",
+        "compile_project",
+        "load_project_config",
+        "project_loader",
     ):
         assert marker not in runtime
 

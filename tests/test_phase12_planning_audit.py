@@ -44,7 +44,7 @@ GROUP_HASHES = {
     "ir": "7438c72875751eeadf8b12b3aad1825499061f3f4e0dd73d8c1a339c614ae884",
     "sql": "67aeafa622d3147b08930cebcf18862322eec692d547d328b18966afa81f3530",
     "generated": "25bd5df39d46749ad59e2b805bd85cce52e708cdf56bda6ee365615c419e17d1",
-    "cli": "80ee94ec6da227123b3ae116b622c4a7257408e1e1b62d607c85c9a012f43dc3",
+    "cli": "91f2a4459e16b5072c26e1a785ff5227e90c0aee3c3f1202c8f5786f8006aa70",
 }
 
 GOLDENS_HASH = "0e26a0b367a2ae849e5ec1e9a239be42765bea2c352242db5da930ab56b43004"
@@ -237,9 +237,14 @@ def test_suffix_diagnostics_and_deferred_capabilities_remain_locked() -> None:
     ):
         assert required in plan
 
-    assert "--project" not in cli_source
+    assert '"--project"' in cli_source
+    assert "def _run_project_check(" in cli_source
+    assert "discover_project_inputs(root)" in cli_source
     assert not (REPO_ROOT / "pietto.toml").exists()
     assert "sqlglot" not in runtime_text
+    assert "compile_project" not in runtime_text
+    assert "load_project_config" not in runtime_text
+    assert "project_loader" not in runtime_text
     for module_name in (
         "database.py",
         "executor.py",

@@ -282,7 +282,6 @@ def test_phase8_prohibited_runtime_capabilities_remain_absent() -> None:
     runtime_sources = _runtime_sources()
     source_text = "\n".join(_read_path(path) for path in runtime_sources).lower()
     for forbidden_fragment in (
-        "--project",
         "pietto.toml",
         "schema_version = 2",
         '"schema_version": 2',
@@ -295,6 +294,13 @@ def test_phase8_prohibited_runtime_capabilities_remain_absent() -> None:
         "sqlglot",
     ):
         assert forbidden_fragment not in source_text
+
+    cli_source = _read_path(REPO_ROOT / "src/pietto/cli.py")
+    assert '"--project"' in cli_source
+    assert "def _run_project_check(" in cli_source
+    assert "discover_project_inputs(root)" in cli_source
+    assert "Project check OK: ." in cli_source
+    assert "Files checked: 0" in cli_source
 
     forbidden_imports = {
         "click",

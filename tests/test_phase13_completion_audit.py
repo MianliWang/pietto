@@ -51,7 +51,7 @@ GROUP_HASHES = {
     "ir": "7438c72875751eeadf8b12b3aad1825499061f3f4e0dd73d8c1a339c614ae884",
     "sql": "67aeafa622d3147b08930cebcf18862322eec692d547d328b18966afa81f3530",
     "generated": "25bd5df39d46749ad59e2b805bd85cce52e708cdf56bda6ee365615c419e17d1",
-    "cli": "80ee94ec6da227123b3ae116b622c4a7257408e1e1b62d607c85c9a012f43dc3",
+    "cli": "91f2a4459e16b5072c26e1a785ff5227e90c0aee3c3f1202c8f5786f8006aa70",
 }
 
 CONTRACT_HASHES = {
@@ -251,13 +251,19 @@ def test_json_cli_golden_audits_and_ci_remain_unchanged() -> None:
     for marker in (
         '"project"',
         '"watch"',
-        "--project",
         "--watch",
         "playground",
         "lsp",
         "web ui",
     ):
         assert marker not in cli.lower()
+
+    assert '"--project"' in cli
+    assert "def _run_project_check(" in cli
+    assert "discover_project_inputs(root)" in cli
+    assert "compile_project" not in cli.lower()
+    assert "load_project_config" not in cli.lower()
+    assert "project_loader" not in cli.lower()
 
     assert len(goldens) == 37
     assert _aggregate_files(goldens) == GOLDENS_HASH

@@ -62,7 +62,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "cli": (
         "src/pietto/cli.py",
         1,
-        "e3357cbee66ef1a219a85085bdbfd51278812e0dec74b2f9ca0196c68e92bb48",
+        "92523f3b28d51722947b23845c99e412f7daa743d1724c85eb18d723b0b5fbce",
     ),
     "cli_json": (
         "src/pietto/cli_json.py",

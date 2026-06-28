@@ -334,7 +334,13 @@ def test_public_api_dependency_json_and_deferred_boundaries_remain_closed() -> N
     assert "def emit_sql(" not in runtime_text
     assert "schema_version = 2" not in runtime_text
     assert '"schema_version": 2' not in runtime_text
-    assert "--project" not in _read("src/pietto/cli.py")
+    cli_source = _read("src/pietto/cli.py")
+    assert '"--project"' in cli_source
+    assert "def _run_project_check(" in cli_source
+    assert "discover_project_inputs(root)" in cli_source
+    assert "compile_project" not in runtime_text
+    assert "load_project_config" not in runtime_text
+    assert "project_loader" not in runtime_text
     assert not (REPO_ROOT / "pietto.toml").exists()
     for module_name in (
         "database.py",

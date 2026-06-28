@@ -40,7 +40,7 @@ PHASE13_HASHES = {
         "2383731c2b9d78f8cf73da8e9d47f973b6eef93eb20e0f03d8f045307b788534"
     ),
     "tests/test_phase13_completion_audit.py": (
-        "1970ff2275011a4ff42c7eacc96ab03eca2b633dd0ed94b0f87cf47fb32580a1"
+        "9b5c9c0b1b5e9709e3c60f158d8905e27dfaf84c86ed3042c6623eed067970c8"
     ),
 }
 
@@ -74,7 +74,7 @@ GROUP_HASHES = {
     "ir": "7438c72875751eeadf8b12b3aad1825499061f3f4e0dd73d8c1a339c614ae884",
     "sql": "67aeafa622d3147b08930cebcf18862322eec692d547d328b18966afa81f3530",
     "generated": "25bd5df39d46749ad59e2b805bd85cce52e708cdf56bda6ee365615c419e17d1",
-    "cli": "80ee94ec6da227123b3ae116b622c4a7257408e1e1b62d607c85c9a012f43dc3",
+    "cli": "91f2a4459e16b5072c26e1a785ff5227e90c0aee3c3f1202c8f5786f8006aa70",
 }
 
 GOLDENS_HASH = "0e26a0b367a2ae849e5ec1e9a239be42765bea2c352242db5da930ab56b43004"

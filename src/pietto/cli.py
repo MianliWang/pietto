@@ -24,6 +24,8 @@ from pietto._metadata.serializer import (
     semantic_metadata_artifact_to_json_dict,
 )
 from pietto._metadata.text import render_semantic_metadata_text
+from pietto._project.discovery import discover_project_inputs
+from pietto._project.model import ProjectDiscoveryError
 from pietto.errors import Diagnostic, Severity
 
 _FALLBACK_VERSION = "0.1.0"
@@ -93,7 +95,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except SystemExit as error:
         return _system_exit_code(error)
     if namespace.command == "check":
-        return _run_check(namespace.path, output_format=namespace.format)
+        return _run_check_command(namespace)
     if namespace.command == "emit-sql":
         return _run_emit_sql(
             namespace.path,
@@ -137,9 +139,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _configure_check_parser(parser: argparse.ArgumentParser) -> None:
-    """Add the single-file check arguments to one parser."""
+    """Add the check arguments to one parser."""
 
-    parser.add_argument("path", type=Path, help="Pietto source file")
+    parser.add_argument("path", type=Path, nargs="?", help="Pietto source file")
+    parser.add_argument(
+        "--project",
+        type=Path,
+        help="explicit Pietto project root",
+    )
     parser.add_argument(
         "--format",
         choices=(_FORMAT_TEXT, _FORMAT_JSON),
@@ -190,7 +197,13 @@ def _build_check_json_parser() -> argparse.ArgumentParser:
         prog="pietto check",
         add_help=True,
     )
-    _configure_check_parser(parser)
+    parser.add_argument("path", type=Path, help="Pietto source file")
+    parser.add_argument(
+        "--format",
+        choices=(_FORMAT_TEXT, _FORMAT_JSON),
+        default=_FORMAT_JSON,
+        help="output format",
+    )
     return parser
 
 
@@ -239,7 +252,7 @@ def _system_exit_code(error: SystemExit) -> int:
 def _is_check_json_request(arguments: Sequence[str]) -> bool:
     """Return whether argv reliably selects check JSON presentation."""
 
-    if not arguments or arguments[0] != "check":
+    if not arguments or arguments[0] != "check" or _has_project_flag(arguments):
         return False
     return any(
         argument == "--format=json"
@@ -249,6 +262,15 @@ def _is_check_json_request(arguments: Sequence[str]) -> bool:
             and arguments[index + 1] == _FORMAT_JSON
         )
         for index, argument in enumerate(arguments)
+    )
+
+
+def _has_project_flag(arguments: Sequence[str]) -> bool:
+    """Return whether argv mentions project mode explicitly."""
+
+    return any(
+        argument == "--project" or argument.startswith("--project=")
+        for argument in arguments
     )
 
 
@@ -359,6 +381,69 @@ def _select_sql_emitter(dialect: str) -> _SqlEmitter | None:
     if dialect == "mysql":
         return mysql_backend.emit_mysql_sql
     raise AssertionError(f"enabled SQL dialect has no emitter: {dialect}")
+
+
+def _run_check_command(namespace: argparse.Namespace) -> int:
+    """Dispatch check between single-file and project-root modes."""
+
+    path: Path | None = namespace.path
+    project_root: Path | None = namespace.project
+    output_format: str = namespace.format
+
+    if path is None and project_root is None:
+        _print_check_usage_error("the following arguments are required: path")
+        return _EXIT_USAGE_ERROR
+    if path is not None and project_root is not None:
+        _print_check_usage_error("path and --project are mutually exclusive")
+        return _EXIT_USAGE_ERROR
+    if project_root is not None:
+        return _run_project_check(project_root, output_format=output_format)
+    if path is None:
+        raise AssertionError("check path was required before single-file mode")
+    return _run_check(path, output_format=output_format)
+
+
+def _run_project_check(root: Path, *, output_format: str) -> int:
+    """Validate one explicit project root/config boundary without compiling."""
+
+    if output_format == _FORMAT_JSON:
+        print(
+            (
+                "pietto check: error: project JSON output is deferred until "
+                "Phase 33 Slice 6 JSON v2 Serializer MVP"
+            ),
+            file=sys.stderr,
+        )
+        return _EXIT_USAGE_ERROR
+
+    discovery_result = discover_project_inputs(root)
+    if discovery_result.errors:
+        for error in discovery_result.errors:
+            _print_project_error(error)
+        return _EXIT_USAGE_ERROR
+
+    print("Project check OK: .")
+    print("Files checked: 0")
+    return 0
+
+
+def _print_check_usage_error(message: str) -> None:
+    """Render one check usage error after cross-argument validation."""
+
+    print(
+        "usage: pietto check [-h] [--project PROJECT] [--format {text,json}] [path]",
+        file=sys.stderr,
+    )
+    print(f"pietto check: error: {_escape_cli_text(message)}", file=sys.stderr)
+
+
+def _print_project_error(error: ProjectDiscoveryError) -> None:
+    """Render one project discovery error without leaking host paths."""
+
+    message = f"project error: {error.kind.value}: {_escape_cli_text(error.message)}"
+    if error.path is not None:
+        message = f"{message} (path: {_escape_cli_text(error.path)})"
+    print(message, file=sys.stderr)
 
 
 def _run_check(path: Path, *, output_format: str = _FORMAT_TEXT) -> int:

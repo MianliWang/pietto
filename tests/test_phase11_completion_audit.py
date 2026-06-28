@@ -64,7 +64,7 @@ EXPECTED_GROUPS = {
     "ir": "7438c72875751eeadf8b12b3aad1825499061f3f4e0dd73d8c1a339c614ae884",
     "sql": "67aeafa622d3147b08930cebcf18862322eec692d547d328b18966afa81f3530",
     "generated": "25bd5df39d46749ad59e2b805bd85cce52e708cdf56bda6ee365615c419e17d1",
-    "cli": "80ee94ec6da227123b3ae116b622c4a7257408e1e1b62d607c85c9a012f43dc3",
+    "cli": "91f2a4459e16b5072c26e1a785ff5227e90c0aee3c3f1202c8f5786f8006aa70",
 }
 POSTGRES_GOLDENS = {
     "emit_sql_active_user_emails.sql": (
@@ -98,7 +98,7 @@ MYSQL_GOLDENS = {
     ),
 }
 ALL_GOLDENS_HASH = "0e26a0b367a2ae849e5ec1e9a239be42765bea2c352242db5da930ab56b43004"
-BOUNDARY_HASH = "7a4387d183d801fff86890423cbb07596fe3ebacf6ef9e2c887da2aaf588f4d7"
+BOUNDARY_HASH = "46fb1b946164981a8f8681e455cee503da3962682b571e4c9bfa338136ed2b97"
 
 
 def _load_module(name: str, path: Path) -> ModuleType:
@@ -414,9 +414,14 @@ def test_deferred_sql_runtime_project_and_web_capabilities_remain_absent() -> No
     ):
         assert not (REPO_ROOT / "src/pietto" / module_name).exists()
 
-    assert "--project" not in cli_source
+    assert '"--project"' in cli_source
+    assert "def _run_project_check(" in cli_source
+    assert "discover_project_inputs(root)" in cli_source
     assert not (REPO_ROOT / "pietto.toml").exists()
     assert "sqlglot" not in runtime_text
+    assert "project_loader" not in runtime_text
+    assert "load_project_config" not in runtime_text
+    assert "compile_project" not in runtime_text
     for public_wrapper in ("def compile_to_ir(", "def compile_to_sql("):
         assert public_wrapper not in runtime_text
 

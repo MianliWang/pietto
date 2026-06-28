@@ -243,12 +243,17 @@ def test_phase9_prohibited_production_capabilities_remain_absent() -> None:
         "sqlglot",
         "compile_to_ir",
         "compile_to_sql",
-        "--project",
         "schema_version = 2",
         '"schema_version": 2',
     ):
         assert forbidden_fragment.lower() not in lowered_source
 
+    assert '"--project"' in cli_source
+    assert "def _run_project_check(" in cli_source
+    assert "discover_project_inputs(root)" in cli_source
+    assert "compile_project" not in lowered_source
+    assert "load_project_config" not in lowered_source
+    assert "project_loader" not in lowered_source
     assert '_ENABLED_SQL_DIALECTS = ("postgres", "mysql")' in cli_source
     assert "mysql.table" in source_text
     assert "def emit_mysql_sql(" in source_text

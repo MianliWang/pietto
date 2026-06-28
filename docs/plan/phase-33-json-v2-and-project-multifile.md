@@ -9,12 +9,21 @@ docs/spec/static-audit/status-only work. Phase 33 Slice 3 Project Root,
 Config, Path, And Discovery Contract Reconciliation is complete as
 docs/spec/static-audit/status-only work. Phase 33 Slice 4 Private Project
 Discovery Model MVP is complete. Slice 4 adds only private `_project`
-model/discovery source, focused tests, status, and hash-lock updates. No CLI
-behavior changed. No JSON v1 behavior changed. No JSON v2 behavior implemented.
-No project mode CLI behavior implemented. No source parsing or compiler
-pipeline integration was added. No grammar/generated/fixtures/goldens/scripts/
-package/dependency/workflow behavior changed. Phase 33 as a whole is not
-complete. Phase 33 Slice 5 has not started.
+model/discovery source, focused tests, status, and hash-lock updates, and
+added no CLI behavior, JSON v1 behavior change, JSON v2 behavior, project mode
+CLI behavior, source parsing, compiler pipeline integration, or
+grammar/generated/fixtures/goldens/scripts/package/dependency/workflow
+behavior change. Phase 33 as a whole is not complete. Phase 33 Slice 5 Project
+Check CLI MVP is complete. Slice 5 adds only text-mode
+`pietto check --project ROOT` root/config validation. Project source selection
+remains deferred; Slice 5 checks zero source files and reports
+`Files checked: 0`. Phase 33 Slice 6 has not started. No JSON v2 serializer
+was implemented. No project JSON output was implemented. No TOML schema
+parsing, glob expansion, source reading/parsing, multi-file semantic analysis,
+IR, SQL, or metadata aggregation was added. No JSON v1 behavior changed. No
+single-file CLI behavior changed. No
+grammar/generated/fixtures/goldens/scripts/package/dependency/workflow behavior
+changed.
 
 Trusted handoff:
 
@@ -65,6 +74,17 @@ selection without TOML schema parsing, glob expansion, source reading, source
 parsing, compiler pipeline integration, CLI wiring, JSON v1 behavior changes,
 JSON v2 serialization, public API expansion, package/dependency/workflow
 changes, package version change, or release operation.
+
+Slice 5 adds only text-mode `pietto check --project ROOT` root/config
+validation using private `_project` discovery. Project source selection remains
+deferred; Slice 5 checks zero source files and reports `Files checked: 0`.
+Project JSON output is rejected until the JSON v2 Serializer MVP. Slice 5 adds
+no JSON v2 serializer, no TOML schema parsing, no configured source selection,
+no glob expansion, no source reading/parsing, no multi-file semantic analysis,
+no project IR, SQL, or metadata aggregation, no JSON v1 behavior change, no
+single-file CLI behavior change, no
+grammar/generated/fixtures/goldens/scripts/package/dependency/workflow change,
+no package version change, and no release operation.
 
 ## 2. Candidate Decision
 

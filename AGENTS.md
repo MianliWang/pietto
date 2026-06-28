@@ -477,10 +477,15 @@ relationship/JOIN/graph/runtime/database/schema-introspection behavior was
 started. Phase 33 Slice 1, Slice 2, and Slice 3 remain complete, pushed, and CI
 green. Phase 33 Slice 4 Private Project Discovery Model MVP is complete. Slice
 4 adds only private `_project` model/discovery source, focused tests, status,
-and hash-lock updates. Phase 33 as a whole is not complete. Phase 33 Slice 5
-has not started. No CLI behavior changed. No JSON v1 behavior changed. No JSON
-v2 behavior implemented. No project mode CLI behavior implemented. No source
-parsing or compiler pipeline integration was added. No
+and hash-lock updates. Phase 33 Slice 5 Project Check CLI MVP is complete.
+Slice 5 adds only text-mode `pietto check --project ROOT` root/config
+validation. Project source selection remains deferred; Slice 5 checks zero
+source files and reports `Files checked: 0`. Phase 33 as a whole is not
+complete. Phase 33 Slice 6 has not started. No JSON v2 serializer was
+implemented. No project JSON output was implemented. No TOML schema parsing,
+glob expansion, source reading/parsing, multi-file semantic analysis, IR, SQL,
+or metadata aggregation was added. No JSON v1 behavior changed. No single-file
+CLI behavior changed. No
 grammar/generated/fixtures/goldens/scripts/package/dependency/workflow behavior
 changed.
 Phase 32: Semantic Explain And Metadata Output MVP; Phase 33: JSON v2 And
@@ -523,10 +528,15 @@ relationship/JOIN/graph/runtime/database/schema-introspection behavior was
 started. Phase 33 Slice 1, Slice 2, and Slice 3 remain complete, pushed, and CI
 green. Phase 33 Slice 4 Private Project Discovery Model MVP is complete. Slice
 4 adds only private `_project` model/discovery source, focused tests, status,
-and hash-lock updates. Phase 33 as a whole is not complete. Phase 33 Slice 5
-has not started. No CLI behavior changed. No JSON v1 behavior changed. No JSON
-v2 behavior implemented. No project mode CLI behavior implemented. No source
-parsing or compiler pipeline integration was added. No
+and hash-lock updates. Phase 33 Slice 5 Project Check CLI MVP is complete.
+Slice 5 adds only text-mode `pietto check --project ROOT` root/config
+validation. Project source selection remains deferred; Slice 5 checks zero
+source files and reports `Files checked: 0`. Phase 33 as a whole is not
+complete. Phase 33 Slice 6 has not started. No JSON v2 serializer was
+implemented. No project JSON output was implemented. No TOML schema parsing,
+glob expansion, source reading/parsing, multi-file semantic analysis, IR, SQL,
+or metadata aggregation was added. No JSON v1 behavior changed. No single-file
+CLI behavior changed. No
 grammar/generated/fixtures/goldens/scripts/package/dependency/workflow behavior
 changed.
 
