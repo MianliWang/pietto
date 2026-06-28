@@ -21,6 +21,10 @@ Phase 34 Slice 5 Semantic Readiness Contract And Static Audit is the current
 docs/spec/static-audit/status-only readiness slice for future relationship grain
 and narrow JOIN semantic validation/model integration planning.
 
+Phase 34 Slice 6 First Implementation Candidate Decision For Narrow JOIN
+Parser / AST Surface is the current docs/spec/static-audit/status-only
+candidate decision slice for the future narrow JOIN parser/AST surface.
+
 Trusted baseline:
 
 - baseline HEAD: `8f62905c4552ec2855ac04646044978bcdc74f56`;
@@ -45,7 +49,8 @@ graph/ERD/AI metadata export.
 Phase 34 has started only as Slice 1 planning, boundary, and static-audit work,
 Slice 2 relationship grain contract work, Slice 3 narrow JOIN syntax and
 semantic contract work, Slice 4 parser/AST readiness contract work, and Slice 5
-semantic readiness contract work. Phase 34 is not complete.
+semantic readiness contract work. Slice 6 adds first-implementation candidate
+decision contract work. Phase 34 is not complete.
 
 ## 2. Candidate Decision
 
@@ -133,6 +138,32 @@ Slice 5 approved file scope is limited to:
 - `docs/plan/phase-34-relationship-grain-narrow-join-mvp.md`;
 - `docs/spec/phase-34-semantic-readiness-contract-v1.md`;
 - `tests/test_phase34_semantic_readiness_contract.py`.
+
+Proceed with Phase 34 Slice 6 as docs/spec/static-audit/status-only: decide
+that actual narrow JOIN parser/AST implementation is not approved yet; lock
+first-implementation entry criteria, smallest future implementation surface,
+generated-file implications, semantic fail-closed requirements, and forbidden
+behaviors; implement no grammar, generated parser, parser behavior, AST nodes,
+semantic model changes, semantic validation, diagnostics, IR, SQL, CLI, JSON,
+project, or runtime behavior.
+
+Slice 6 adds a First Implementation Candidate Decision contract and focused
+static audit tests for the future narrow JOIN parser/AST surface. Actual narrow
+JOIN parser/AST implementation is not approved yet. Implementation is deferred
+because final syntax/AST shape remains deferred and parser acceptance would
+require semantic fail-closed behavior that is not approved in Slice 6.
+
+Slice 6 does not implement JOIN, JOIN syntax, grain syntax, parser behavior,
+AST nodes, semantic model changes, semantic validation, diagnostic codes, IR,
+SQL, CLI, JSON, project, runtime, database, fixtures, goldens, scripts,
+package metadata, dependencies, workflows, tag/release/publish/upload,
+signing, or attestation behavior.
+
+Slice 6 approved file scope is limited to:
+
+- `docs/plan/phase-34-relationship-grain-narrow-join-mvp.md`;
+- `docs/spec/phase-34-first-implementation-candidate-decision-v1.md`;
+- `tests/test_phase34_first_implementation_candidate_decision.py`.
 
 ## 3. Relationship Grain Definition
 
@@ -274,6 +305,11 @@ Slice 5 adds only a Semantic Readiness Contract plus focused static audit
 coverage; it does not authorize semantic model changes, semantic validation,
 diagnostic code additions, grammar, parser, AST, IR, SQL, CLI, JSON, project,
 runtime, database, or relationship/JOIN implementation.
+Slice 6 adds only a First Implementation Candidate Decision contract plus
+focused static audit coverage; it does not authorize grammar, generated parser,
+parser behavior, AST nodes, semantic model changes, semantic validation,
+diagnostic code additions, IR, SQL, CLI, JSON, project, runtime, database, or
+relationship/JOIN implementation.
 
 ## 8. Slice 1 Status
 
@@ -385,3 +421,46 @@ Package version remains `0.1.0`. No tag/release/publish/upload/signing/
 attestation is performed by Slice 5. Future implementation slices remain
 tentative and require separate approval. Phase 34 remains in progress after
 Slice 5. Phase 34 is not complete.
+
+## 13. Slice 6 Status
+
+Slice 6 is the current docs/spec/static-audit/status-only candidate decision
+slice. It adds only the First Implementation Candidate Decision contract at
+`docs/spec/phase-34-first-implementation-candidate-decision-v1.md` and focused
+static audit coverage in
+`tests/test_phase34_first_implementation_candidate_decision.py`.
+
+Slice 6 documents why actual narrow JOIN parser/AST implementation is not
+approved yet, first-implementation entry criteria, smallest future
+implementation surface, generated-file implications, semantic fail-closed
+requirements, current behavior preservation, Phase 33 project/JSON
+preservation, and forbidden implementation surfaces.
+
+Actual narrow JOIN parser/AST implementation is not approved yet in Slice 6.
+Implementation is deferred because final syntax/AST shape remains deferred and
+parser acceptance would require semantic fail-closed behavior that is not
+approved in Slice 6.
+
+Slice 6 implements no JOIN, no JOIN syntax, no relationship grain syntax, no
+relationship grain semantic storage, no grammar changes, no generated parser
+changes, no parser behavior changes, no AST nodes, no semantic model changes,
+no semantic validation, no diagnostic codes, no IR, no SQL, no CLI, no JSON,
+no project behavior, no runtime, no database behavior, no fixtures, no
+goldens, no scripts, no package metadata, no dependencies, no workflows, no
+tag, no release, no publish, no upload, no signing, and no attestation
+behavior.
+
+Slice 6 preserves the Phase 33 project/JSON boundaries: `pietto check --project
+ROOT` remains root/config-only, project source selection remains deferred,
+TOML schema parsing remains deferred, glob expansion remains deferred, project
+source parsing remains deferred, multi-file semantic analysis remains
+deferred, project JSON v2 remains check root/config-only, project emit-sql
+remains rejected, project explain remains rejected, project metadata
+aggregation remains deferred, single-file `check` and `emit-sql` JSON remain
+JSON v1, and single-file `explain --format json` remains Semantic Metadata
+Artifact v1.
+
+Package version remains `0.1.0`. No tag/release/publish/upload/signing/
+attestation is performed by Slice 6. Future implementation slices remain
+tentative and require separate approval. Phase 34 remains in progress after
+Slice 6. Phase 34 is not complete.
