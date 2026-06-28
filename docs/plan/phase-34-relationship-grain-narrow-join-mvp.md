@@ -3,7 +3,11 @@
 ## 1. Status And Trusted Handoff
 
 Phase 34 Slice 1 Candidate Decision, Scope, Boundary, And Phase 33 Handoff
-Audit is the current docs/spec/static-audit/status-only slice.
+Audit is complete as docs/spec/static-audit/status-only work. Slice 1 is
+docs/spec/static-audit/status-only.
+
+Phase 34 Slice 2 Relationship Grain Contract And Static Audit is the current
+docs/spec/static-audit/status-only contract slice.
 
 Trusted baseline:
 
@@ -26,8 +30,8 @@ project IR/SQL, project emit-sql, project explain, metadata aggregation,
 relationship/JOIN behavior, runtime/database/schema introspection, db pull, or
 graph/ERD/AI metadata export.
 
-Phase 34 has started only as this Slice 1 planning, contract, and static-audit
-work. Phase 34 is not complete.
+Phase 34 has started only as Slice 1 planning, boundary, and static-audit work
+plus Slice 2 relationship grain contract work. Phase 34 is not complete.
 
 ## 2. Candidate Decision
 
@@ -43,18 +47,55 @@ scope boundary, Phase 33 handoff audit, and focused static tests. Slice 1 does
 not implement grammar, parser, AST, semantic model, IR, SQL backend, CLI, JSON,
 runtime, database, project, package, release, or workflow behavior.
 
+Proceed with Phase 34 Slice 2 as docs/spec/static-audit/status-only: define
+relationship grain terminology, accepted future grain facts, non-goals,
+fail-closed requirements, and preservation boundaries; implement no grammar,
+semantic, IR, SQL, CLI, JSON, project, or runtime behavior.
+
+Slice 2 defines the relationship grain terminology and future acceptance
+contract needed before any narrow JOIN implementation can be considered. Slice
+2 implements no JOIN, no grain syntax, and no grain semantic storage or
+semantic validation.
+
+Slice 2 approved file scope is limited to:
+
+- `docs/plan/phase-34-relationship-grain-narrow-join-mvp.md`;
+- `docs/spec/phase-34-relationship-grain-contract-v1.md`;
+- `tests/test_phase34_relationship_grain_contract.py`.
+
 ## 3. Relationship Grain Definition
 
 Grain is compile-time metadata describing expected row identity/cardinality
 behavior around relationship endpoints.
 
+Relationship grain is a compile-time metadata contract around endpoint row
+identity and cardinality expectations. It may later constrain whether a
+relationship edge is safe for narrow JOIN acceptance.
+
 Grain is not runtime enforcement, not database constraint introspection, not
 authorization, not optimization proof, and not a security guarantee.
+
+For Slice 2, relationship grain is a contract vocabulary for future work:
+
+- endpoint grain describes an endpoint's expected row identity, optionality,
+  and multiplicity posture;
+- relationship-edge grain describes the pairwise cardinality and fanout posture
+  across two relationship endpoints;
+- relation grain is a future relation identity/schema prerequisite, not a
+  Slice 2 relation metadata carrier;
+- fanout risk is the possibility that future relationship-aware composition can
+  multiply rows, duplicate rows, or change aggregate, ordering, limit, or
+  downstream row semantics;
+- unknown, unsafe, contradictory, or ambiguous grain facts must fail closed
+  before any future narrow JOIN acceptance.
 
 Phase 34 may use the validated relationship metadata facts introduced by Phase
 14 and Phase 15 as a foundation, but Slice 1 does not add grain syntax, grain
 semantic behavior, endpoint-role enforcement, cardinality validation, fanout
 validation, or JOIN behavior.
+
+Slice 2 also does not add grain syntax, grain semantic behavior, endpoint-role
+enforcement, cardinality validation, fanout validation, or JOIN behavior.
 
 Before any JOIN implementation is approved, a later slice must define how grain
 facts are represented, how they relate to endpoint cardinality and fanout, what
@@ -149,6 +190,8 @@ Tentative future slices, subject to separate approval:
 8. Completion Audit And Status Lock, if explicitly approved.
 
 This breakdown authorizes no implementation beyond Slice 1.
+Slice 2 adds only a relationship grain contract and focused static audit
+coverage; it does not authorize Slice 3 or any implementation slice.
 
 ## 8. Slice 1 Status
 
@@ -160,3 +203,19 @@ specification, and focused static audit coverage in
 
 Slice 1 implements no JOIN and no relationship grain behavior. Phase 34 remains
 in progress after Slice 1.
+
+## 9. Slice 2 Status
+
+Slice 2 is the current docs/spec/static-audit/status-only contract slice. It
+adds only the relationship grain contract at
+`docs/spec/phase-34-relationship-grain-contract-v1.md` and focused static audit
+coverage in `tests/test_phase34_relationship_grain_contract.py`.
+
+Slice 2 implements no JOIN, no relationship grain syntax, and no relationship
+grain semantic behavior. Slice 2 changes no grammar, generated parser, AST,
+semantic model, IR, SQL backend, CLI, JSON v1, Project JSON v2, Semantic
+Metadata Artifact v1, project behavior, fixture, golden, script, package
+metadata, dependency, workflow, runtime, database, release, tag, publish,
+upload, signing, or attestation behavior.
+
+Phase 34 remains in progress after Slice 2.
