@@ -25,6 +25,10 @@ Phase 34 Slice 6 First Implementation Candidate Decision For Narrow JOIN
 Parser / AST Surface is the current docs/spec/static-audit/status-only
 candidate decision slice for the future narrow JOIN parser/AST surface.
 
+Phase 34 Slice 7 Re-scope / Completion Candidate Decision And Static Audit is
+the current docs/spec/static-audit/status-only candidate decision slice for
+Phase 34 completion wording and future implementation deferral.
+
 Trusted baseline:
 
 - baseline HEAD: `8f62905c4552ec2855ac04646044978bcdc74f56`;
@@ -164,6 +168,29 @@ Slice 6 approved file scope is limited to:
 - `docs/plan/phase-34-relationship-grain-narrow-join-mvp.md`;
 - `docs/spec/phase-34-first-implementation-candidate-decision-v1.md`;
 - `tests/test_phase34_first_implementation_candidate_decision.py`.
+
+Proceed with Phase 34 Slice 7 as docs/spec/static-audit/status-only: re-scope
+Phase 34 completion language so that Phase 34 can later complete as a
+relationship grain and narrow JOIN readiness/contracts foundation, not as
+implemented JOIN behavior. Actual relationship grain syntax, JOIN syntax,
+parser/AST behavior, semantic validation, IR/SQL lowering, CLI/JSON/project
+behavior, runtime/database behavior, and release operations remain deferred to
+later separately approved phases/slices.
+
+Phase 34 Relationship Grain And Narrow JOIN readiness foundation can be
+completed as docs/spec/static-audit/status-only work. The original behavior MVP
+remains future implementation deferred.
+
+Slice 7 adds a Re-scope / Completion Candidate Decision contract and focused
+static audit tests. Slice 7 does not complete Phase 34 yet, does not implement
+JOIN or grain behavior, and does not authorize actual parser/AST, semantic, IR,
+SQL, CLI, JSON, project, runtime, database, or release behavior.
+
+Slice 7 approved file scope is limited to:
+
+- `docs/plan/phase-34-relationship-grain-narrow-join-mvp.md`;
+- `docs/spec/phase-34-rescope-completion-candidate-decision-v1.md`;
+- `tests/test_phase34_rescope_completion_candidate_decision.py`.
 
 ## 3. Relationship Grain Definition
 
@@ -309,6 +336,11 @@ Slice 6 adds only a First Implementation Candidate Decision contract plus
 focused static audit coverage; it does not authorize grammar, generated parser,
 parser behavior, AST nodes, semantic model changes, semantic validation,
 diagnostic code additions, IR, SQL, CLI, JSON, project, runtime, database, or
+relationship/JOIN implementation.
+Slice 7 adds only a Re-scope / Completion Candidate Decision contract plus
+focused static audit coverage; it does not authorize relationship grain syntax,
+JOIN syntax, parser/AST behavior, semantic validation, diagnostic codes, IR,
+SQL, CLI, JSON, project, runtime, database, release operations, or
 relationship/JOIN implementation.
 
 ## 8. Slice 1 Status
@@ -464,3 +496,48 @@ Package version remains `0.1.0`. No tag/release/publish/upload/signing/
 attestation is performed by Slice 6. Future implementation slices remain
 tentative and require separate approval. Phase 34 remains in progress after
 Slice 6. Phase 34 is not complete.
+
+## 14. Slice 7 Status
+
+Slice 7 is the current docs/spec/static-audit/status-only candidate decision
+slice. It adds only the Re-scope / Completion Candidate Decision contract at
+`docs/spec/phase-34-rescope-completion-candidate-decision-v1.md` and focused
+static audit coverage in
+`tests/test_phase34_rescope_completion_candidate_decision.py`.
+
+Slice 7 documents the candidate decision that Phase 34 should later complete as
+a relationship grain and narrow JOIN readiness/contracts foundation, not as
+implemented JOIN behavior. Phase 34 Relationship Grain And Narrow JOIN
+readiness foundation can be completed as docs/spec/static-audit/status-only
+work. The original behavior MVP remains future implementation deferred.
+
+Slice 7 is a completion-candidate decision only. Slice 7 does not complete
+Phase 34 yet. Phase 34 remains in progress and is not complete after Slice 7.
+A later Slice 8 may perform completion audit/status lock if separately
+approved.
+
+Actual relationship grain syntax, JOIN syntax, parser/AST behavior, semantic
+validation, diagnostic codes, IR/SQL lowering, CLI/JSON/project behavior,
+runtime/database behavior, release operations, relationship graph traversal,
+relationship chaining, automatic join inference, SQL execution, runtime
+security, database/schema introspection, db pull, project source selection,
+TOML schema parsing, glob expansion, multi-file semantic analysis, project
+emit-sql, project explain, project metadata aggregation, and graph/ERD/AI
+metadata export remain deferred.
+
+Slice 7 preserves the Phase 33 project/JSON boundaries: `pietto check --project
+ROOT` remains root/config-only, project source selection remains deferred,
+TOML schema parsing remains deferred, glob expansion remains deferred, project
+source parsing remains deferred, multi-file semantic analysis remains
+deferred, project JSON v2 remains check root/config-only, project emit-sql
+remains rejected, project explain remains rejected, project metadata
+aggregation remains deferred, single-file `check` and `emit-sql` JSON remain
+JSON v1, and single-file `explain --format json` remains Semantic Metadata
+Artifact v1.
+
+Package version remains `0.1.0`. No tag/release/publish/upload/signing/
+attestation is performed by Slice 7. Future implementation slices remain
+tentative and require separate approval.
+
+README, AGENTS, and `docs/spec/pietto-v0.9.md` status updates are deferred to a
+later completion audit slice unless separately approved.
