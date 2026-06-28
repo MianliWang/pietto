@@ -58,40 +58,26 @@ CURRENT_STATUS_DOC_TEXT = (
     "was started",
     "Phase 33 Slice 1, Slice 2, and Slice 3 remain complete, pushed, and CI green",
     "Phase 33 Slice 4 Private Project Discovery Model MVP is complete",
-    "Slice 4 adds only private `_project` model/discovery source, focused tests, "
-    "status, and hash-lock updates",
     "Phase 33 Slice 5 Project Check CLI MVP is complete",
-    "Slice 5 adds only text-mode `pietto check --project ROOT` root/config validation",
-    "Project source selection remains deferred",
-    "Slice 5 checks zero source files and reports `Files checked: 0`",
     "Phase 33 Slice 6 JSON v2 Serializer MVP is complete",
-    "Slice 6 adds private project JSON v2 serialization and wires "
-    "`pietto check --project ROOT --format json`",
-    "Project JSON v2 covers root/config project check results only",
-    "Slice 6 reports `inputs: []` and `files_total/files_ok/files_with_errors` as `0`",
     "Phase 33 Slice 7 Project Explain/Metadata Aggregation Contract is complete",
-    "Slice 7 adds only project explain/metadata aggregation boundary contract",
     "Phase 33 Slice 8 CLI, Package Smoke, Docs, And Compatibility Hardening is complete",
-    "Slice 8 hardens existing project check CLI text/JSON v2, package "
-    "smoke/readiness, docs, and compatibility boundaries",
-    "Installed package smoke now covers `pietto check --project ROOT` text mode "
-    "and `pietto check --project ROOT --format json` root/config-only JSON v2",
-    "No new project capability was implemented",
-    "`pietto explain --project ROOT` and `pietto emit-sql --project ROOT` "
-    "remain rejected/unaccepted",
-    "`pietto check --project ROOT` text and JSON v2 remain root/config-only",
-    "Semantic Metadata Artifact v1 remains strictly single-file and unchanged",
-    "Phase 33 as a whole is not complete",
-    "Phase 33 Slice 9 has not started",
-    "No TOML schema parsing, configured source selection, glob expansion, "
-    "source reading/parsing, multi-file semantic analysis, project IR, SQL, "
-    "project explain, project emit-sql, or metadata aggregation was added",
-    "No JSON v1 behavior changed",
-    "No Semantic Metadata Artifact v1 behavior changed",
-    "No single-file CLI behavior changed",
-    "No grammar/generated/fixtures/goldens/package/dependency/workflow "
-    "behavior changed",
+    "Phase 33 Slice 9 Completion Audit And Status Lock is complete",
+    "Phase 33 JSON v2 And Project / Multi-file MVP is complete",
+    "Phase 33 delivered a conservative project-mode foundation",
+    "private `_project` model/discovery source",
+    "text-mode `pietto check --project ROOT` root/config validation",
+    "project JSON v2 for `pietto check --project ROOT --format json`",
+    "project explain / metadata aggregation boundary contract",
+    "package smoke / compatibility hardening",
+    "Phase 33 did not implement source selection, TOML schema parsing, glob "
+    "expansion, project source reading/parsing, multi-file semantic analysis",
+    "project IR/SQL, project emit-sql, project explain, metadata aggregation",
+    "relationship/JOIN, runtime/database/schema introspection, db pull, "
+    "graph/ERD/AI metadata export",
+    "Phase 34 has not started",
     "Package version remains `0.1.0`",
+    "No tag/release/publish/upload/signing/attestation occurred",
 )
 
 ROADMAP_STATUS = (
@@ -163,6 +149,8 @@ def test_status_docs_record_phase32_completion_and_release_boundary() -> None:
         assert "Phase 33 Slice 6 has not started" not in status, path
         assert "Phase 33 Slice 7 has not started" not in status, path
         assert "Phase 33 Slice 8 has not started" not in status, path
+        assert "Phase 33 Slice 9 has not started" not in status, path
+        assert "Phase 33 as a whole is not complete" not in status, path
 
 
 def test_artifact_implementation_and_phase32_tests_remain_present() -> None:

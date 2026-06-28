@@ -8,40 +8,23 @@ JSON v2 Project Result Envelope Contract is complete as
 docs/spec/static-audit/status-only work. Phase 33 Slice 3 Project Root,
 Config, Path, And Discovery Contract Reconciliation is complete as
 docs/spec/static-audit/status-only work. Phase 33 Slice 4 Private Project
-Discovery Model MVP is complete. Slice 4 adds only private `_project`
-model/discovery source, focused tests, status, and hash-lock updates, and
-added no CLI behavior, JSON v1 behavior change, JSON v2 behavior, project mode
-CLI behavior, source parsing, compiler pipeline integration, or
-grammar/generated/fixtures/goldens/scripts/package/dependency/workflow
-behavior change. Phase 33 as a whole is not complete. Phase 33 Slice 5 Project
-Check CLI MVP is complete. Slice 5 adds only text-mode
-`pietto check --project ROOT` root/config validation. Project source selection
-remains deferred; Slice 5 checks zero source files and reports
-`Files checked: 0`. Phase 33 Slice 6 JSON v2 Serializer MVP is complete. Slice
-6 adds private project JSON v2 serialization and wires
-`pietto check --project ROOT --format json`. Project JSON v2 covers root/config
-project check results only. Project source selection remains deferred; Slice 6
-reports `inputs: []` and `files_total/files_ok/files_with_errors` as `0`.
-Phase 33 Slice 7 Project Explain/Metadata Aggregation Contract is complete as
-docs/spec/static-audit/status-only work. Slice 7 adds only project
-explain/metadata aggregation boundary contract and focused boundary tests. Phase
-33 Slice 8 CLI, Package Smoke, Docs, And Compatibility Hardening is complete.
-Slice 8 hardens existing project check CLI text/JSON v2, package
-smoke/readiness, docs, and compatibility boundaries. Installed package smoke now
-covers `pietto check --project ROOT` text mode and
-`pietto check --project ROOT --format json` root/config-only JSON v2. Phase 33
-as a whole is not complete. Phase 33 Slice 9 has not started. No new project
-capability was implemented. `pietto explain --project ROOT` and
-`pietto emit-sql --project ROOT` remain rejected/unaccepted.
-`pietto check --project ROOT` text and JSON v2 remain root/config-only; check
-project JSON v2 still reports `inputs: []` and zero file counters. Semantic
-Metadata Artifact v1 remains strictly single-file and unchanged. No TOML schema
-parsing, configured source selection, glob expansion, source reading/parsing,
-multi-file semantic analysis, project IR, SQL, project explain, project
-emit-sql, or metadata aggregation was added. No JSON v1 behavior changed. No
-Semantic Metadata Artifact v1 behavior changed. No single-file CLI behavior
-changed. No grammar/generated/fixtures/goldens/package/dependency/workflow
-behavior changed. Package version remains `0.1.0`.
+Discovery Model MVP is complete. Phase 33 Slice 5 Project Check CLI MVP is
+complete. Phase 33 Slice 6 JSON v2 Serializer MVP is complete. Phase 33 Slice 7
+Project Explain/Metadata Aggregation Contract is complete as
+docs/spec/static-audit/status-only work. Phase 33 Slice 8 CLI, Package Smoke,
+Docs, And Compatibility Hardening is complete. Phase 33 Slice 9 Completion Audit
+And Status Lock is complete as tests/spec/static-audit/status-lock/hash-lock
+work only. Phase 33 JSON v2 And Project / Multi-file MVP is complete. Phase 33
+delivered a conservative project-mode foundation: private `_project`
+model/discovery source, text-mode `pietto check --project ROOT` root/config
+validation, project JSON v2 for `pietto check --project ROOT --format json`,
+project explain / metadata aggregation boundary contract, and package smoke /
+compatibility hardening. Phase 33 did not implement source selection, TOML
+schema parsing, glob expansion, project source reading/parsing, multi-file
+semantic analysis, project IR/SQL, project emit-sql, project explain, metadata
+aggregation, relationship/JOIN, runtime/database/schema introspection, db pull,
+graph/ERD/AI metadata export. Phase 34 has not started. Package version remains
+`0.1.0`. No tag/release/publish/upload/signing/attestation occurred.
 
 Trusted handoff:
 
@@ -125,6 +108,16 @@ aggregation, no JSON v1 behavior change, no Semantic Metadata Artifact v1
 behavior change, no single-file CLI behavior change, no
 grammar/generated/fixtures/goldens/package/dependency/workflow behavior change,
 no package version change, and no release operation.
+
+Slice 9 adds only `tests/test_phase33_completion_audit.py`, final status-lock
+documentation, and exact hash-lock/static-audit updates. Slice 9 completes Phase
+33 JSON v2 And Project / Multi-file MVP without source implementation changes,
+runtime behavior changes, source selection, TOML schema parsing, glob expansion,
+project source reading/parsing, multi-file semantic analysis, project IR, SQL,
+project emit-sql, project explain, metadata aggregation, relationship/JOIN,
+runtime/database/schema introspection, db pull, graph/ERD/AI metadata export,
+grammar/generated/fixtures/goldens/scripts/package/dependency/workflow changes,
+package version change, or release operation.
 
 ## 2. Candidate Decision
 

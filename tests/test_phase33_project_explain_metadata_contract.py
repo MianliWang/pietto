@@ -60,8 +60,8 @@ def test_slice7_contract_is_static_boundary_only() -> None:
         "Phase 33 Slice 7 Project Explain/Metadata Aggregation Contract is complete",
         "Slice 7 adds only project explain/metadata aggregation boundary contract",
         "Phase 33 Slice 8 CLI, Package Smoke, Docs, And Compatibility Hardening is complete",
-        "Phase 33 Slice 9 has not started",
-        "No new project capability was implemented",
+        "Phase 33 Slice 9 Completion Audit And Status Lock is complete",
+        "Phase 33 JSON v2 And Project / Multi-file MVP is complete",
     ):
         assert required in plan, required
 
@@ -194,14 +194,13 @@ def test_status_docs_record_slice7_completion_and_roadmap_lock() -> None:
         status = _normalized(path)
         for required in (
             "Phase 33 Slice 7 Project Explain/Metadata Aggregation Contract is complete",
-            "Slice 7 adds only project explain/metadata aggregation boundary contract",
-            "`pietto explain --project ROOT` and `pietto emit-sql --project ROOT` "
-            "remain rejected/unaccepted",
-            "`pietto check --project ROOT` text and JSON v2 remain root/config-only",
-            "Semantic Metadata Artifact v1 remains strictly single-file and unchanged",
+            "project explain / metadata aggregation boundary contract",
+            "Phase 33 did not implement source selection, TOML schema parsing",
+            "project emit-sql, project explain, metadata aggregation",
             "Phase 33 Slice 8 CLI, Package Smoke, Docs, And Compatibility Hardening is complete",
-            "Phase 33 Slice 9 has not started",
-            "No new project capability was implemented",
+            "Phase 33 Slice 9 Completion Audit And Status Lock is complete",
+            "Phase 33 JSON v2 And Project / Multi-file MVP is complete",
+            "Phase 34 has not started",
             "Phase 34: Relationship Grain And Narrow JOIN MVP",
             "Phase 35: Developer Experience And Delivery Pipeline MVP",
             "Phase 36: Post-v0.2 Core Type System Expansion MVP",
@@ -214,6 +213,8 @@ def test_status_docs_record_slice7_completion_and_roadmap_lock() -> None:
         for stale in (
             "Phase 33 Slice 7 has not started",
             "Phase 33 Slice 8 has not started",
+            "Phase 33 Slice 9 has not started",
+            "Phase 33 as a whole is not complete",
             "Phase 34: Semantic Graph / ERD / AI Metadata Export MVP",
             "Semantic Graph / ERD / AI Metadata Export: Phase",
         ):

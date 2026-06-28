@@ -73,7 +73,8 @@ def test_phase33_slice1_artifacts_and_status_are_static_audit_only() -> None:
     for required in (
         "Phase 33 Slice 1 Candidate Decision, Scope, Boundary, And Phase 32 "
         "Handoff Audit is complete as docs/spec/static-audit/status-only work",
-        "Phase 33 as a whole is not complete",
+        "Phase 33 Slice 9 Completion Audit And Status Lock is complete",
+        "Phase 33 JSON v2 And Project / Multi-file MVP is complete",
         "baseline HEAD: `045e08bfb15f88b526e856aee7ca585f1998071e`",
         "Phase 32 Semantic Explain And Metadata Output MVP is complete",
         "`pietto explain <file> [--format text|json]` is available",
