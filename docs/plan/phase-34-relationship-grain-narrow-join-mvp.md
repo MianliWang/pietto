@@ -9,6 +9,10 @@ docs/spec/static-audit/status-only.
 Phase 34 Slice 2 Relationship Grain Contract And Static Audit is the current
 docs/spec/static-audit/status-only contract slice.
 
+Phase 34 Slice 3 Narrow JOIN Syntax And Semantic Contract is the current
+docs/spec/static-audit/status-only contract slice for future narrow JOIN source
+shape and semantic preconditions.
+
 Trusted baseline:
 
 - baseline HEAD: `8f62905c4552ec2855ac04646044978bcdc74f56`;
@@ -30,8 +34,9 @@ project IR/SQL, project emit-sql, project explain, metadata aggregation,
 relationship/JOIN behavior, runtime/database/schema introspection, db pull, or
 graph/ERD/AI metadata export.
 
-Phase 34 has started only as Slice 1 planning, boundary, and static-audit work
-plus Slice 2 relationship grain contract work. Phase 34 is not complete.
+Phase 34 has started only as Slice 1 planning, boundary, and static-audit work,
+Slice 2 relationship grain contract work, and Slice 3 narrow JOIN syntax and
+semantic contract work. Phase 34 is not complete.
 
 ## 2. Candidate Decision
 
@@ -62,6 +67,22 @@ Slice 2 approved file scope is limited to:
 - `docs/plan/phase-34-relationship-grain-narrow-join-mvp.md`;
 - `docs/spec/phase-34-relationship-grain-contract-v1.md`;
 - `tests/test_phase34_relationship_grain_contract.py`.
+
+Proceed with Phase 34 Slice 3 as docs/spec/static-audit/status-only: define a
+future narrow JOIN syntax/semantic contract for one explicit relationship edge,
+one base relation plus one joined endpoint, deterministic endpoint
+qualification, required grain facts, and fail-closed behavior; implement no
+grammar, AST, semantic, IR, SQL, CLI, JSON, project, or runtime behavior.
+
+Slice 3 may discuss future source shape and future syntax requirements, but it
+does not define accepted Pietto syntax. Final token spelling and grammar remain
+deferred to a later explicitly approved implementation slice.
+
+Slice 3 approved file scope is limited to:
+
+- `docs/plan/phase-34-relationship-grain-narrow-join-mvp.md`;
+- `docs/spec/phase-34-narrow-join-syntax-semantic-contract-v1.md`;
+- `tests/test_phase34_narrow_join_contract.py`.
 
 ## 3. Relationship Grain Definition
 
@@ -192,6 +213,9 @@ Tentative future slices, subject to separate approval:
 This breakdown authorizes no implementation beyond Slice 1.
 Slice 2 adds only a relationship grain contract and focused static audit
 coverage; it does not authorize Slice 3 or any implementation slice.
+Slice 3 adds only a narrow JOIN syntax and semantic contract plus focused
+static audit coverage; it does not authorize grammar, parser, AST, semantic,
+IR, SQL, CLI, JSON, project, runtime, or database implementation.
 
 ## 8. Slice 1 Status
 
@@ -219,3 +243,25 @@ metadata, dependency, workflow, runtime, database, release, tag, publish,
 upload, signing, or attestation behavior.
 
 Phase 34 remains in progress after Slice 2.
+
+## 10. Slice 3 Status
+
+Slice 3 is the current docs/spec/static-audit/status-only contract slice. It
+adds only the narrow JOIN syntax and semantic contract at
+`docs/spec/phase-34-narrow-join-syntax-semantic-contract-v1.md` and focused
+static audit coverage in `tests/test_phase34_narrow_join_contract.py`.
+
+Slice 3 implements no JOIN, no JOIN syntax, no relationship grain syntax, and
+no semantic validation. Slice 3 changes no grammar, generated parser, parser
+behavior, AST, semantic model, IR, SQL backend, CLI, JSON v1, Project JSON v2,
+Semantic Metadata Artifact v1, project behavior, fixture, golden, script,
+package metadata, dependency, workflow, runtime, database, release, tag,
+publish, upload, signing, or attestation behavior.
+
+Slice 1 remains complete as the candidate, boundary, and Phase 33 handoff.
+Slice 2 remains complete as the relationship grain contract handoff. Phase 33
+project/JSON preservation boundaries remain locked, package version remains
+`0.1.0`, and no tag/release/publish/upload/signing/attestation occurred.
+
+Future implementation slices remain tentative and require separate approval.
+Phase 34 remains in progress after Slice 3.
