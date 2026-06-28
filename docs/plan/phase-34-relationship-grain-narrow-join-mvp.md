@@ -17,6 +17,10 @@ Phase 34 Slice 4 Parser / AST Readiness Contract And Static Audit is the current
 docs/spec/static-audit/status-only readiness slice for future narrow JOIN parser
 and AST implementation planning.
 
+Phase 34 Slice 5 Semantic Readiness Contract And Static Audit is the current
+docs/spec/static-audit/status-only readiness slice for future relationship grain
+and narrow JOIN semantic validation/model integration planning.
+
 Trusted baseline:
 
 - baseline HEAD: `8f62905c4552ec2855ac04646044978bcdc74f56`;
@@ -39,8 +43,9 @@ relationship/JOIN behavior, runtime/database/schema introspection, db pull, or
 graph/ERD/AI metadata export.
 
 Phase 34 has started only as Slice 1 planning, boundary, and static-audit work,
-Slice 2 relationship grain contract work, and Slice 3 narrow JOIN syntax and
-semantic contract work. Phase 34 is not complete.
+Slice 2 relationship grain contract work, Slice 3 narrow JOIN syntax and
+semantic contract work, Slice 4 parser/AST readiness contract work, and Slice 5
+semantic readiness contract work. Phase 34 is not complete.
 
 ## 2. Candidate Decision
 
@@ -108,6 +113,26 @@ Slice 4 approved file scope is limited to:
 - `docs/plan/phase-34-relationship-grain-narrow-join-mvp.md`;
 - `docs/spec/phase-34-parser-ast-readiness-contract-v1.md`;
 - `tests/test_phase34_parser_ast_readiness_contract.py`.
+
+Proceed with Phase 34 Slice 5 as docs/spec/static-audit/status-only: define
+Semantic Readiness Contract for future relationship grain and narrow JOIN
+semantic validation/model integration; implement no semantic model changes, no
+semantic validation, no diagnostics, no JOIN, no grain behavior, no IR/SQL
+lowering, and no CLI/JSON/project/runtime behavior.
+
+Slice 5 adds a Semantic Readiness Contract and focused static audit tests for
+future relationship grain and narrow JOIN semantic validation/model
+integration. Slice 5 does not implement JOIN, JOIN syntax, grain syntax, grain
+semantic storage, semantic model changes, semantic validation, diagnostic
+codes, IR, SQL, CLI, JSON, project, runtime, database, fixtures, goldens,
+scripts, package metadata, dependencies, workflows, tag/release/publish/upload,
+signing, or attestation behavior.
+
+Slice 5 approved file scope is limited to:
+
+- `docs/plan/phase-34-relationship-grain-narrow-join-mvp.md`;
+- `docs/spec/phase-34-semantic-readiness-contract-v1.md`;
+- `tests/test_phase34_semantic_readiness_contract.py`.
 
 ## 3. Relationship Grain Definition
 
@@ -245,6 +270,10 @@ Slice 4 adds only a Parser / AST readiness contract plus focused static audit
 coverage; it does not authorize grammar, generated parser, parser behavior,
 AST node, semantic, IR, SQL, CLI, JSON, project, runtime, or database
 implementation.
+Slice 5 adds only a Semantic Readiness Contract plus focused static audit
+coverage; it does not authorize semantic model changes, semantic validation,
+diagnostic code additions, grammar, parser, AST, IR, SQL, CLI, JSON, project,
+runtime, database, or relationship/JOIN implementation.
 
 ## 8. Slice 1 Status
 
@@ -321,3 +350,38 @@ Package version remains `0.1.0`. No tag/release/publish/upload/signing/
 attestation is performed by Slice 4. Future implementation slices remain
 tentative and require separate approval. Phase 34 remains in progress after
 Slice 4. Phase 34 is not complete.
+
+## 12. Slice 5 Status
+
+Slice 5 is the current docs/spec/static-audit/status-only readiness slice. It
+adds only the Semantic Readiness Contract at
+`docs/spec/phase-34-semantic-readiness-contract-v1.md` and focused static audit
+coverage in `tests/test_phase34_semantic_readiness_contract.py`.
+
+Slice 5 documents current relationship semantic facts, current relationship
+validation behavior, current single-input field lookup constraints, future
+semantic prerequisites, endpoint ownership, field ownership, endpoint
+qualification, diagnostics readiness risks, preservation boundaries, and
+forbidden implementation surfaces.
+
+Slice 5 implements no JOIN, no JOIN syntax, no relationship grain syntax, no
+relationship grain semantic storage, no semantic model changes, no semantic
+validation, no diagnostic codes, no IR, no SQL, no CLI, no JSON, no project,
+no runtime, no database behavior, no fixtures, no goldens, no scripts, no
+package metadata, no dependencies, no workflows, no tag, no release, no
+publish, no upload, no signing, and no attestation behavior.
+
+Slice 5 preserves the Phase 33 project/JSON boundaries: `pietto check --project
+ROOT` remains root/config-only, project source selection remains deferred,
+TOML schema parsing remains deferred, glob expansion remains deferred, project
+source parsing remains deferred, multi-file semantic analysis remains
+deferred, project JSON v2 remains check root/config-only, project emit-sql
+remains rejected, project explain remains rejected, project metadata
+aggregation remains deferred, single-file `check` and `emit-sql` JSON remain
+JSON v1, and single-file `explain --format json` remains Semantic Metadata
+Artifact v1.
+
+Package version remains `0.1.0`. No tag/release/publish/upload/signing/
+attestation is performed by Slice 5. Future implementation slices remain
+tentative and require separate approval. Phase 34 remains in progress after
+Slice 5. Phase 34 is not complete.
