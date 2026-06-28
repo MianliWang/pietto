@@ -71,19 +71,27 @@ CURRENT_STATUS_DOC_TEXT = (
     "Slice 6 reports `inputs: []` and `files_total/files_ok/files_with_errors` as `0`",
     "Phase 33 Slice 7 Project Explain/Metadata Aggregation Contract is complete",
     "Slice 7 adds only project explain/metadata aggregation boundary contract",
+    "Phase 33 Slice 8 CLI, Package Smoke, Docs, And Compatibility Hardening is complete",
+    "Slice 8 hardens existing project check CLI text/JSON v2, package "
+    "smoke/readiness, docs, and compatibility boundaries",
+    "Installed package smoke now covers `pietto check --project ROOT` text mode "
+    "and `pietto check --project ROOT --format json` root/config-only JSON v2",
+    "No new project capability was implemented",
     "`pietto explain --project ROOT` and `pietto emit-sql --project ROOT` "
     "remain rejected/unaccepted",
     "`pietto check --project ROOT` text and JSON v2 remain root/config-only",
     "Semantic Metadata Artifact v1 remains strictly single-file and unchanged",
     "Phase 33 as a whole is not complete",
-    "Phase 33 Slice 8 has not started",
+    "Phase 33 Slice 9 has not started",
     "No TOML schema parsing, configured source selection, glob expansion, "
     "source reading/parsing, multi-file semantic analysis, project IR, SQL, "
-    "project explain runtime, or metadata aggregation was added",
+    "project explain, project emit-sql, or metadata aggregation was added",
     "No JSON v1 behavior changed",
+    "No Semantic Metadata Artifact v1 behavior changed",
     "No single-file CLI behavior changed",
-    "No grammar/generated/fixtures/goldens/scripts/package/dependency/workflow "
+    "No grammar/generated/fixtures/goldens/package/dependency/workflow "
     "behavior changed",
+    "Package version remains `0.1.0`",
 )
 
 ROADMAP_STATUS = (
@@ -154,6 +162,7 @@ def test_status_docs_record_phase32_completion_and_release_boundary() -> None:
         assert "Phase 33 Slice 5 has not started" not in status, path
         assert "Phase 33 Slice 6 has not started" not in status, path
         assert "Phase 33 Slice 7 has not started" not in status, path
+        assert "Phase 33 Slice 8 has not started" not in status, path
 
 
 def test_artifact_implementation_and_phase32_tests_remain_present() -> None:
@@ -165,10 +174,20 @@ def test_artifact_implementation_and_phase32_tests_remain_present() -> None:
         assert (REPO_ROOT / relative_path).is_file(), relative_path
 
 
-def test_package_smoke_includes_explain_text_and_json_coverage() -> None:
+def test_package_smoke_includes_explain_and_project_check_coverage() -> None:
     smoke = _read(PACKAGE_SMOKE_PATH)
 
     for required in (
+        '("check", "--project", project_root.as_posix())',
+        '("check", "--project", project_root.as_posix(), "--format", "json")',
+        "Project check OK: .",
+        "Files checked: 0",
+        '"schema_version": 2',
+        '"mode": "project"',
+        '"inputs": []',
+        '"files_total": 0',
+        "installed CLI project check text",
+        "installed CLI project check JSON v2",
         '("explain", CHECK_INPUT.as_posix())',
         '("explain", CHECK_INPUT.as_posix(), "--format", "json")',
         "Semantic Metadata Artifact v1",

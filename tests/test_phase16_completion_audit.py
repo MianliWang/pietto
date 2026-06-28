@@ -36,7 +36,7 @@ PHASE16_ARTIFACT_HASHES = {
         "580ebcfcc78102d902110d864eb80c7f1a57ffcb6b4b33e1160c9abd17ba07a6"
     ),
     SLICE1_AUDIT_PATH: (
-        "8a3c705a5f9a7b8e379657563ae5cf55c5803de0927ba3e0aad88614ec3629c4"
+        "60ec6f33bda10ecd819d58b85db3f05e108335326529b17bc29e16e2c249013c"
     ),
     SLICE2_AUDIT_PATH: (
         "69461388a311bb30de9ebd28ccc8b2880d8889f7f98e5d390fec9a6029e8268a"
@@ -96,7 +96,7 @@ LOCKED_FILE_HASHES = {
         "23e271e0138e6b7ac189e27f33c557e04300301adff8f49747999e0c4b50c2e9"
     ),
     "scripts/package_smoke.py": (
-        "2cd2ae8ec3ad5fdd87fd85099def9796ea0dca38e6480bfedadfec5f70b49de4"
+        "5640b45133915b03bc6457f9eb2429832d547b1118f25f972e82a97d34ec5535"
     ),
 }
 

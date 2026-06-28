@@ -253,17 +253,23 @@ The current implementation status is:
   Explain/Metadata Aggregation Contract is complete as
   docs/spec/static-audit/status-only work. Slice 7 adds only project
   explain/metadata aggregation boundary contract and focused boundary tests.
-  Phase 33 as a whole is not complete. Phase 33 Slice 8 has not started.
-  `pietto explain --project ROOT` and `pietto emit-sql --project ROOT` remain
-  rejected/unaccepted. `pietto check --project ROOT` text and JSON v2 remain
-  root/config-only; check project JSON v2 still reports `inputs: []` and zero
-  file counters. Semantic Metadata Artifact v1 remains strictly single-file and
-  unchanged. No TOML schema parsing, configured source selection, glob
-  expansion, source reading/parsing, multi-file semantic analysis, project IR,
-  SQL, project explain runtime, or metadata aggregation was added. No JSON v1
-  behavior changed. No single-file CLI behavior changed. No
-  grammar/generated/fixtures/goldens/scripts/package/dependency/workflow
-  behavior changed.
+  Phase 33 Slice 8 CLI, Package Smoke, Docs, And Compatibility Hardening is
+  complete. Slice 8 hardens existing project check CLI text/JSON v2, package
+  smoke/readiness, docs, and compatibility boundaries. Installed package smoke
+  now covers `pietto check --project ROOT` text mode and
+  `pietto check --project ROOT --format json` root/config-only JSON v2. Phase 33
+  as a whole is not complete. Phase 33 Slice 9 has not started. No new project
+  capability was implemented. `pietto explain --project ROOT` and
+  `pietto emit-sql --project ROOT` remain rejected/unaccepted.
+  `pietto check --project ROOT` text and JSON v2 remain root/config-only; check
+  project JSON v2 still reports `inputs: []` and zero file counters. Semantic
+  Metadata Artifact v1 remains strictly single-file and unchanged. No TOML schema
+  parsing, configured source selection, glob expansion, source reading/parsing,
+  multi-file semantic analysis, project IR, SQL, project explain, project
+  emit-sql, or metadata aggregation was added. No JSON v1 behavior changed. No
+  Semantic Metadata Artifact v1 behavior changed. No single-file CLI behavior
+  changed. No grammar/generated/fixtures/goldens/package/dependency/workflow
+  behavior changed. Package version remains `0.1.0`.
   Phase 32: Semantic Explain And Metadata Output MVP; Phase 33: JSON v2 And
   Project / Multi-file MVP; Phase 34: Relationship Grain And Narrow JOIN MVP;
   Phase 35: Developer Experience And Delivery Pipeline MVP; Phase 36: Post-v0.2 Core Type System Expansion MVP;
@@ -633,17 +639,23 @@ deferred; Slice 6 reports `inputs: []` and
 Explain/Metadata Aggregation Contract is complete as
 docs/spec/static-audit/status-only work. Slice 7 adds only project
 explain/metadata aggregation boundary contract and focused boundary tests. Phase
-33 as a whole is not complete. Phase 33 Slice 8 has not started. `pietto explain
---project ROOT` and `pietto emit-sql --project ROOT` remain rejected/unaccepted.
+33 Slice 8 CLI, Package Smoke, Docs, And Compatibility Hardening is complete.
+Slice 8 hardens existing project check CLI text/JSON v2, package
+smoke/readiness, docs, and compatibility boundaries. Installed package smoke now
+covers `pietto check --project ROOT` text mode and
+`pietto check --project ROOT --format json` root/config-only JSON v2. Phase 33
+as a whole is not complete. Phase 33 Slice 9 has not started. No new project
+capability was implemented. `pietto explain --project ROOT` and
+`pietto emit-sql --project ROOT` remain rejected/unaccepted.
 `pietto check --project ROOT` text and JSON v2 remain root/config-only; check
 project JSON v2 still reports `inputs: []` and zero file counters. Semantic
 Metadata Artifact v1 remains strictly single-file and unchanged. No TOML schema
 parsing, configured source selection, glob expansion, source reading/parsing,
-multi-file semantic analysis, project IR, SQL, project explain runtime, or
-metadata aggregation was added. No JSON v1 behavior changed. No single-file CLI
-behavior changed. No
-grammar/generated/fixtures/goldens/scripts/package/dependency/workflow behavior
-changed.
+multi-file semantic analysis, project IR, SQL, project explain, project
+emit-sql, or metadata aggregation was added. No JSON v1 behavior changed. No
+Semantic Metadata Artifact v1 behavior changed. No single-file CLI behavior
+changed. No grammar/generated/fixtures/goldens/package/dependency/workflow
+behavior changed. Package version remains `0.1.0`.
 
 The supported single-file CLI commands and forms include:
 

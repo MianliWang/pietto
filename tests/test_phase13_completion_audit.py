@@ -41,7 +41,7 @@ FILE_HASHES = {
         "23e271e0138e6b7ac189e27f33c557e04300301adff8f49747999e0c4b50c2e9"
     ),
     "scripts/package_smoke.py": (
-        "2cd2ae8ec3ad5fdd87fd85099def9796ea0dca38e6480bfedadfec5f70b49de4"
+        "5640b45133915b03bc6457f9eb2429832d547b1118f25f972e82a97d34ec5535"
     ),
 }
 

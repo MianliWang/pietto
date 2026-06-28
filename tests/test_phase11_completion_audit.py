@@ -47,7 +47,7 @@ EXPECTED_BLOBS = {
     "scripts/validate.py": "4387101bc68e13539c74c45b595ba742ca17c9c0",
     "scripts/check_generated.py": "51081d5337e0659e73f8666ba639c0d4c3fe3a4b",
     "scripts/check_goldens.py": "4f49ddc0a8a6836b68a83a98cc9c05389d4519a3",
-    "scripts/package_smoke.py": "8beb291a12e69dab64e36541e9eef9b648007706",
+    "scripts/package_smoke.py": "edda34f1012010f250f8fc099806bea49dda75ea",
     ".github/workflows/ci.yml": "bd8fb78e0c491041906d13865b8267bf5d7e7050",
 }
 EXPECTED_FILES = {

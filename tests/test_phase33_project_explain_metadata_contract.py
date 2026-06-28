@@ -59,7 +59,9 @@ def test_slice7_contract_is_static_boundary_only() -> None:
     for required in (
         "Phase 33 Slice 7 Project Explain/Metadata Aggregation Contract is complete",
         "Slice 7 adds only project explain/metadata aggregation boundary contract",
-        "Phase 33 Slice 8 has not started",
+        "Phase 33 Slice 8 CLI, Package Smoke, Docs, And Compatibility Hardening is complete",
+        "Phase 33 Slice 9 has not started",
+        "No new project capability was implemented",
     ):
         assert required in plan, required
 
@@ -197,7 +199,9 @@ def test_status_docs_record_slice7_completion_and_roadmap_lock() -> None:
             "remain rejected/unaccepted",
             "`pietto check --project ROOT` text and JSON v2 remain root/config-only",
             "Semantic Metadata Artifact v1 remains strictly single-file and unchanged",
-            "Phase 33 Slice 8 has not started",
+            "Phase 33 Slice 8 CLI, Package Smoke, Docs, And Compatibility Hardening is complete",
+            "Phase 33 Slice 9 has not started",
+            "No new project capability was implemented",
             "Phase 34: Relationship Grain And Narrow JOIN MVP",
             "Phase 35: Developer Experience And Delivery Pipeline MVP",
             "Phase 36: Post-v0.2 Core Type System Expansion MVP",
@@ -209,6 +213,7 @@ def test_status_docs_record_slice7_completion_and_roadmap_lock() -> None:
 
         for stale in (
             "Phase 33 Slice 7 has not started",
+            "Phase 33 Slice 8 has not started",
             "Phase 34: Semantic Graph / ERD / AI Metadata Export MVP",
             "Semantic Graph / ERD / AI Metadata Export: Phase",
         ):

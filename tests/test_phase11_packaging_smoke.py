@@ -166,6 +166,19 @@ def test_installed_cli_uses_console_executable_and_reviewed_comparisons() -> Non
     assert '"--version"' in source
     assert '"--help"' in source
     assert '"check"' in source
+    assert '"--project"' in source
+    assert '"installed CLI project check text"' in source
+    assert '"installed CLI project check JSON v2"' in source
+    assert '"pietto.toml"' in source
+    assert "not valid = [" in source
+    assert "Project check OK: ." in source
+    assert "Files checked: 0" in source
+    assert '"schema_version": 2' in source
+    assert '"mode": "project"' in source
+    assert '"inputs": []' in source
+    assert '"files_total": 0' in source
+    assert '"files_ok": 0' in source
+    assert '"files_with_errors": 0' in source
     assert '"explain"' in source
     assert "Semantic Metadata Artifact v1" in source
     assert "explain_document.get" in source

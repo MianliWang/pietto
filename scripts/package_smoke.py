@@ -340,6 +340,61 @@ def _smoke_installed_cli(
         environment=environment,
     )
 
+    project_root = scratch_dir / "project-check"
+    project_root.mkdir()
+    # Invalid TOML is intentional: Slice 8 package smoke proves project check
+    # requires direct config presence only and still does not parse config text.
+    (project_root / "pietto.toml").write_text("not valid = [\n", encoding="utf-8")
+
+    project_check_text = _run_installed_cli(
+        cli_path,
+        ("check", "--project", project_root.as_posix()),
+        scratch_dir=scratch_dir,
+        stage="installed CLI project check text",
+        environment=environment,
+    )
+    if project_check_text.stdout != b"Project check OK: .\nFiles checked: 0\n":
+        raise SmokeFailure("installed CLI project check text output is unexpected")
+    if project_check_text.stderr:
+        raise SmokeFailure("installed CLI project check text wrote unexpected stderr")
+
+    project_check_json = _run_installed_cli(
+        cli_path,
+        ("check", "--project", project_root.as_posix(), "--format", "json"),
+        scratch_dir=scratch_dir,
+        stage="installed CLI project check JSON v2",
+        environment=environment,
+    )
+    try:
+        project_check_document = json.loads(project_check_json.stdout)
+    except (UnicodeError, json.JSONDecodeError) as error:
+        raise SmokeFailure(f"cannot decode project check JSON v2: {error}") from error
+    if project_check_document != {
+        "schema_version": 2,
+        "command": "check",
+        "mode": "project",
+        "ok": True,
+        "project": {
+            "root": ".",
+            "config_path": "pietto.toml",
+        },
+        "inputs": [],
+        "diagnostics": [],
+        "cli_errors": [],
+        "result": {
+            "check": {
+                "files_total": 0,
+                "files_ok": 0,
+                "files_with_errors": 0,
+            }
+        },
+    }:
+        raise SmokeFailure("installed CLI project check JSON v2 envelope is unexpected")
+    if project_check_json.stderr:
+        raise SmokeFailure(
+            "installed CLI project check JSON v2 wrote unexpected stderr"
+        )
+
     explain_text = _run_installed_cli(
         cli_path,
         ("explain", CHECK_INPUT.as_posix()),
@@ -426,8 +481,8 @@ def _smoke_installed_cli(
 
     print(f"[package-smoke] installed CLI version: {version.stdout.decode().strip()}")
     print(
-        "[package-smoke] installed CLI verified: --help, check, explain, "
-        "PostgreSQL byte-exact text, MySQL JSON v1 structure",
+        "[package-smoke] installed CLI verified: --help, check, project check, "
+        "explain, PostgreSQL byte-exact text, MySQL JSON v1 structure",
         flush=True,
     )
 

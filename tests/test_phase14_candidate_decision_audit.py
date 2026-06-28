@@ -43,7 +43,7 @@ INPUT_HASHES = {
         "2383731c2b9d78f8cf73da8e9d47f973b6eef93eb20e0f03d8f045307b788534"
     ),
     "tests/test_phase13_completion_audit.py": (
-        "e722a53dc964b88b9146d5f6b6389a0bc609476e0f323fb82e805f20e6b21bc6"
+        "bfee4334b4cb458508a1a6016d9e66a818f650f67bbc1d4b880d00d4825eb675"
     ),
 }
 
@@ -67,7 +67,7 @@ FILE_HASHES = {
         "23e271e0138e6b7ac189e27f33c557e04300301adff8f49747999e0c4b50c2e9"
     ),
     "scripts/package_smoke.py": (
-        "2cd2ae8ec3ad5fdd87fd85099def9796ea0dca38e6480bfedadfec5f70b49de4"
+        "5640b45133915b03bc6457f9eb2429832d547b1118f25f972e82a97d34ec5535"
     ),
 }
 

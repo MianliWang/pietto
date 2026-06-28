@@ -25,17 +25,23 @@ reports `inputs: []` and `files_total/files_ok/files_with_errors` as `0`.
 Phase 33 Slice 7 Project Explain/Metadata Aggregation Contract is complete as
 docs/spec/static-audit/status-only work. Slice 7 adds only project
 explain/metadata aggregation boundary contract and focused boundary tests. Phase
-33 as a whole is not complete. Phase 33 Slice 8 has not started. `pietto
-explain --project ROOT` and `pietto emit-sql --project ROOT` remain
-rejected/unaccepted. `pietto check --project ROOT` text and JSON v2 remain
-root/config-only; check project JSON v2 still reports `inputs: []` and zero file
-counters. Semantic Metadata Artifact v1 remains strictly single-file and
-unchanged. No TOML schema parsing, configured source selection, glob expansion,
-source reading/parsing, multi-file semantic analysis, project IR, SQL, project
-explain runtime, or metadata aggregation was added. No JSON v1 behavior changed.
-No single-file CLI behavior changed. No
-grammar/generated/fixtures/goldens/scripts/package/dependency/workflow behavior
-changed.
+33 Slice 8 CLI, Package Smoke, Docs, And Compatibility Hardening is complete.
+Slice 8 hardens existing project check CLI text/JSON v2, package
+smoke/readiness, docs, and compatibility boundaries. Installed package smoke now
+covers `pietto check --project ROOT` text mode and
+`pietto check --project ROOT --format json` root/config-only JSON v2. Phase 33
+as a whole is not complete. Phase 33 Slice 9 has not started. No new project
+capability was implemented. `pietto explain --project ROOT` and
+`pietto emit-sql --project ROOT` remain rejected/unaccepted.
+`pietto check --project ROOT` text and JSON v2 remain root/config-only; check
+project JSON v2 still reports `inputs: []` and zero file counters. Semantic
+Metadata Artifact v1 remains strictly single-file and unchanged. No TOML schema
+parsing, configured source selection, glob expansion, source reading/parsing,
+multi-file semantic analysis, project IR, SQL, project explain, project
+emit-sql, or metadata aggregation was added. No JSON v1 behavior changed. No
+Semantic Metadata Artifact v1 behavior changed. No single-file CLI behavior
+changed. No grammar/generated/fixtures/goldens/package/dependency/workflow
+behavior changed. Package version remains `0.1.0`.
 
 Trusted handoff:
 
@@ -96,6 +102,28 @@ no glob expansion, no source reading/parsing, no multi-file semantic analysis,
 no project IR, SQL, or metadata aggregation, no JSON v1 behavior change, no
 single-file CLI behavior change, no
 grammar/generated/fixtures/goldens/scripts/package/dependency/workflow change,
+no package version change, and no release operation.
+
+Slice 6 adds only private project JSON v2 serialization and wires
+`pietto check --project ROOT --format json`. Project JSON v2 covers root/config
+project check results only. Project source selection remains deferred; Slice 6
+reports `inputs: []` and `files_total/files_ok/files_with_errors` as `0`.
+
+Slice 7 adds only project explain/metadata aggregation boundary contract and
+focused boundary tests. `pietto explain --project ROOT` and
+`pietto emit-sql --project ROOT` remain rejected/unaccepted, and Semantic
+Metadata Artifact v1 remains strictly single-file and unchanged.
+
+Slice 8 hardens existing project check CLI text/JSON v2, package
+smoke/readiness, docs, and compatibility boundaries. Installed package smoke now
+covers `pietto check --project ROOT` text mode and
+`pietto check --project ROOT --format json` root/config-only JSON v2. Slice 8
+adds no new project capability, no TOML schema parsing, no configured source
+selection, no glob expansion, no source reading/parsing, no multi-file semantic
+analysis, no project IR, SQL, project explain, project emit-sql, or metadata
+aggregation, no JSON v1 behavior change, no Semantic Metadata Artifact v1
+behavior change, no single-file CLI behavior change, no
+grammar/generated/fixtures/goldens/package/dependency/workflow behavior change,
 no package version change, and no release operation.
 
 ## 2. Candidate Decision
