@@ -2382,12 +2382,19 @@ Serializer MVP is complete. Slice 6 adds private project JSON v2 serialization
 and wires `pietto check --project ROOT --format json`. Project JSON v2 covers
 root/config project check results only. Project source selection remains
 deferred; Slice 6 reports `inputs: []` and
-`files_total/files_ok/files_with_errors` as `0`. Phase 33 as a whole is not
-complete. Phase 33 Slice 7 has not started. No TOML schema parsing, configured
-source selection, glob expansion, source reading/parsing, multi-file semantic
-analysis, project IR, SQL, or metadata aggregation was added. No JSON v1
-behavior changed. No Semantic Metadata Artifact v1 behavior changed. No
-single-file CLI behavior changed. No
+`files_total/files_ok/files_with_errors` as `0`. Phase 33 Slice 7 Project
+Explain/Metadata Aggregation Contract is complete as
+docs/spec/static-audit/status-only work. Slice 7 adds only project
+explain/metadata aggregation boundary contract and focused boundary tests. Phase
+33 as a whole is not complete. Phase 33 Slice 8 has not started. `pietto explain
+--project ROOT` and `pietto emit-sql --project ROOT` remain rejected/unaccepted.
+`pietto check --project ROOT` text and JSON v2 remain root/config-only; check
+project JSON v2 still reports `inputs: []` and zero file counters. Semantic
+Metadata Artifact v1 remains strictly single-file and unchanged. No TOML schema
+parsing, configured source selection, glob expansion, source reading/parsing,
+multi-file semantic analysis, project IR, SQL, project explain runtime, or
+metadata aggregation was added. No JSON v1 behavior changed. No single-file CLI
+behavior changed. No
 grammar/generated/fixtures/goldens/scripts/package/dependency/workflow behavior
 changed.
 Active roadmap: Phase 32: Semantic
