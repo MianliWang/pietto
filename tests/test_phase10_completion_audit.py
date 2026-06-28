@@ -333,6 +333,7 @@ def test_public_api_dependency_json_and_deferred_boundaries_remain_closed() -> N
     assert not hasattr(sql_api, "emit_sql")
     assert "def emit_sql(" not in runtime_text
     assert "schema_version = 2" not in runtime_text
+    assert "project_check_result_to_json_dict" in runtime_text
     assert '"schema_version": 2' not in runtime_text
     cli_source = _read("src/pietto/cli.py")
     assert '"--project"' in cli_source

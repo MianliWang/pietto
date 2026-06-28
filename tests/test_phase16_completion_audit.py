@@ -36,13 +36,13 @@ PHASE16_ARTIFACT_HASHES = {
         "580ebcfcc78102d902110d864eb80c7f1a57ffcb6b4b33e1160c9abd17ba07a6"
     ),
     SLICE1_AUDIT_PATH: (
-        "08e231a28cd8d30afb4ffc8be0bf82452e0ee4e758ad41ef63f2c2a60b2a2a25"
+        "8a3c705a5f9a7b8e379657563ae5cf55c5803de0927ba3e0aad88614ec3629c4"
     ),
     SLICE2_AUDIT_PATH: (
-        "eaf96f0ac25cafea0c8898c1bc4cba0b3eadaf2f24eeadf0e0043b41f05a6e6e"
+        "69461388a311bb30de9ebd28ccc8b2880d8889f7f98e5d390fec9a6029e8268a"
     ),
     SLICE3_AUDIT_PATH: (
-        "4f02932ccbefb3f8e4eaad3c338ca7503cbcb95add7eb569cca85c57e1769b54"
+        "2c4afd6623b7b44c657364a5476e6deee9e39bd2a33909d1a1384c9914c37b0e"
     ),
     PLAN_PATH: "adfb0d99075299049c790f465fab7453e0ed73b985e9cff19c6aeb38f94c7f5a",
 }
@@ -67,7 +67,7 @@ LOCKED_FILE_HASHES = {
         "7aa9622bde3eb07bb64bb5c932dc69e48d635e89790b26e8090b9309c5cf62f6"
     ),
     "src/pietto/cli.py": (
-        "2fd94faa26f298d86a08a46f0824a595f38443572fb0ab0f9160428bcedbe848"
+        "cdf08c85afbfc0d1d8bfb12bcd6332e33d2a94c6a5dc79da0e28383418bc2a2e"
     ),
     "src/pietto/cli_json.py": (
         "ccee00529ee36b123f70d418105609dbb4906f2ccc1c1f5653527b1168fb6d91"
@@ -363,11 +363,11 @@ def test_runtime_database_composition_and_policy_behavior_remain_absent() -> Non
     ):
         assert marker not in runtime
 
-    assert "project json output is deferred" in runtime
+    assert "pietto._project.json_v2" in runtime
+    assert "project_check_result_to_json_dict" in runtime
     for marker in (
         "schema_version = 2",
         '"schema_version": 2',
-        "json_v2",
         "compile_project",
         "load_project_config",
         "project_loader",

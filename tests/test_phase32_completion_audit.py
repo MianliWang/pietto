@@ -64,13 +64,18 @@ CURRENT_STATUS_DOC_TEXT = (
     "Slice 5 adds only text-mode `pietto check --project ROOT` root/config validation",
     "Project source selection remains deferred",
     "Slice 5 checks zero source files and reports `Files checked: 0`",
+    "Phase 33 Slice 6 JSON v2 Serializer MVP is complete",
+    "Slice 6 adds private project JSON v2 serialization and wires "
+    "`pietto check --project ROOT --format json`",
+    "Project JSON v2 covers root/config project check results only",
+    "Slice 6 reports `inputs: []` and `files_total/files_ok/files_with_errors` as `0`",
     "Phase 33 as a whole is not complete",
-    "Phase 33 Slice 6 has not started",
-    "No JSON v2 serializer was implemented",
-    "No project JSON output was implemented",
-    "No TOML schema parsing, glob expansion, source reading/parsing, "
-    "multi-file semantic analysis, IR, SQL, or metadata aggregation was added",
+    "Phase 33 Slice 7 has not started",
+    "No TOML schema parsing, configured source selection, glob expansion, "
+    "source reading/parsing, multi-file semantic analysis, project IR, SQL, or "
+    "metadata aggregation was added",
     "No JSON v1 behavior changed",
+    "No Semantic Metadata Artifact v1 behavior changed",
     "No single-file CLI behavior changed",
     "No grammar/generated/fixtures/goldens/scripts/package/dependency/workflow "
     "behavior changed",
@@ -142,6 +147,7 @@ def test_status_docs_record_phase32_completion_and_release_boundary() -> None:
         assert "Phase 33 has not started" not in status, path
         assert "Phase 33 Slice 4 has not started" not in status, path
         assert "Phase 33 Slice 5 has not started" not in status, path
+        assert "Phase 33 Slice 6 has not started" not in status, path
 
 
 def test_artifact_implementation_and_phase32_tests_remain_present() -> None:
@@ -209,9 +215,14 @@ def test_phase33_and_forbidden_runtime_surfaces_were_not_started() -> None:
         "schema_introspection",
         "graph_runtime",
     )
+    approved_slice6_files = {
+        "src/pietto/_project/json_v2.py",
+    }
 
     for relative_path in src_paths:
         for fragment in forbidden_name_fragments:
+            if fragment == "json_v2" and relative_path in approved_slice6_files:
+                continue
             assert fragment not in relative_path, relative_path
 
 

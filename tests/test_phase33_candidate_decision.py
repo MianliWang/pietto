@@ -57,6 +57,10 @@ FORBIDDEN_SOURCE_NAME_FRAGMENTS = (
     "graph_runtime",
 )
 
+APPROVED_SLICE6_SOURCE_PATHS = {
+    "src/pietto/_project/json_v2.py",
+}
+
 
 def test_phase33_slice1_artifacts_and_status_are_static_audit_only() -> None:
     combined = _phase33_docs()
@@ -221,6 +225,8 @@ def test_slice1_does_not_add_forbidden_implementation_surfaces() -> None:
     )
     for relative_path in src_paths:
         for fragment in FORBIDDEN_SOURCE_NAME_FRAGMENTS:
+            if fragment == "json_v2" and relative_path in APPROVED_SLICE6_SOURCE_PATHS:
+                continue
             assert fragment not in relative_path, relative_path
 
     for required in (

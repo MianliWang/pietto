@@ -41,7 +41,7 @@ LOCKED_FILE_HASHES = {
         "7aa9622bde3eb07bb64bb5c932dc69e48d635e89790b26e8090b9309c5cf62f6"
     ),
     "src/pietto/cli.py": (
-        "2fd94faa26f298d86a08a46f0824a595f38443572fb0ab0f9160428bcedbe848"
+        "cdf08c85afbfc0d1d8bfb12bcd6332e33d2a94c6a5dc79da0e28383418bc2a2e"
     ),
     "src/pietto/cli_json.py": (
         "ccee00529ee36b123f70d418105609dbb4906f2ccc1c1f5653527b1168fb6d91"
@@ -300,11 +300,11 @@ def test_deferred_runtime_composition_and_security_capabilities_are_absent() -> 
     ):
         assert marker not in runtime
 
-    assert "project json output is deferred" in runtime
+    assert "pietto._project.json_v2" in runtime
+    assert "project_check_result_to_json_dict" in runtime
     for marker in (
         "schema_version = 2",
         '"schema_version": 2',
-        "json_v2",
         "compile_project",
         "load_project_config",
         "project_loader",

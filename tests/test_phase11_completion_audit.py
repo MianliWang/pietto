@@ -64,7 +64,7 @@ EXPECTED_GROUPS = {
     "ir": "7438c72875751eeadf8b12b3aad1825499061f3f4e0dd73d8c1a339c614ae884",
     "sql": "67aeafa622d3147b08930cebcf18862322eec692d547d328b18966afa81f3530",
     "generated": "25bd5df39d46749ad59e2b805bd85cce52e708cdf56bda6ee365615c419e17d1",
-    "cli": "91f2a4459e16b5072c26e1a785ff5227e90c0aee3c3f1202c8f5786f8006aa70",
+    "cli": "bab5a160ac57ad45045836f2f4396e7383baf03c20bb8a18d51e9fd2476a716f",
 }
 POSTGRES_GOLDENS = {
     "emit_sql_active_user_emails.sql": (
@@ -98,7 +98,7 @@ MYSQL_GOLDENS = {
     ),
 }
 ALL_GOLDENS_HASH = "0e26a0b367a2ae849e5ec1e9a239be42765bea2c352242db5da930ab56b43004"
-BOUNDARY_HASH = "46fb1b946164981a8f8681e455cee503da3962682b571e4c9bfa338136ed2b97"
+BOUNDARY_HASH = "8ebb9ada8e8b088c39512c87c4f37c11382a4abbe11b60f9e61b5cd496fdbc87"
 
 
 def _load_module(name: str, path: Path) -> ModuleType:

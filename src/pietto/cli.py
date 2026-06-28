@@ -25,7 +25,11 @@ from pietto._metadata.serializer import (
 )
 from pietto._metadata.text import render_semantic_metadata_text
 from pietto._project.discovery import discover_project_inputs
-from pietto._project.model import ProjectDiscoveryError
+from pietto._project.json_v2 import (
+    project_check_result_to_json_dict,
+    render_project_json_document,
+)
+from pietto._project.model import ProjectDiscoveryError, ProjectDiscoveryResult
 from pietto.errors import Diagnostic, Severity
 
 _FALLBACK_VERSION = "0.1.0"
@@ -406,17 +410,13 @@ def _run_check_command(namespace: argparse.Namespace) -> int:
 def _run_project_check(root: Path, *, output_format: str) -> int:
     """Validate one explicit project root/config boundary without compiling."""
 
+    discovery_result = discover_project_inputs(root)
     if output_format == _FORMAT_JSON:
-        print(
-            (
-                "pietto check: error: project JSON output is deferred until "
-                "Phase 33 Slice 6 JSON v2 Serializer MVP"
-            ),
-            file=sys.stderr,
-        )
+        _print_project_check_json(discovery_result)
+        if discovery_result.ok:
+            return 0
         return _EXIT_USAGE_ERROR
 
-    discovery_result = discover_project_inputs(root)
     if discovery_result.errors:
         for error in discovery_result.errors:
             _print_project_error(error)
@@ -425,6 +425,13 @@ def _run_project_check(root: Path, *, output_format: str) -> int:
     print("Project check OK: .")
     print("Files checked: 0")
     return 0
+
+
+def _print_project_check_json(discovery_result: ProjectDiscoveryResult) -> None:
+    """Print one complete project JSON v2 check document to stdout."""
+
+    document = project_check_result_to_json_dict(discovery_result)
+    print(render_project_json_document(document), end="")
 
 
 def _print_check_usage_error(message: str) -> None:

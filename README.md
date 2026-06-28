@@ -244,12 +244,17 @@ The current implementation status is:
   status, and hash-lock updates. Phase 33 Slice 5 Project Check CLI MVP is
   complete. Slice 5 adds only text-mode `pietto check --project ROOT`
   root/config validation. Project source selection remains deferred; Slice 5
-  checks zero source files and reports `Files checked: 0`. Phase 33 as a whole
-  is not complete. Phase 33 Slice 6 has not started. No JSON v2 serializer was
-  implemented. No project JSON output was implemented. No TOML schema parsing,
-  glob expansion, source reading/parsing, multi-file semantic analysis, IR,
-  SQL, or metadata aggregation was added. No JSON v1 behavior changed. No
-  single-file CLI behavior changed. No
+  checks zero source files and reports `Files checked: 0`. Phase 33 Slice 6 JSON
+  v2 Serializer MVP is complete. Slice 6 adds private project JSON v2
+  serialization and wires `pietto check --project ROOT --format json`. Project
+  JSON v2 covers root/config project check results only. Project source
+  selection remains deferred; Slice 6 reports `inputs: []` and
+  `files_total/files_ok/files_with_errors` as `0`. Phase 33 as a whole is not
+  complete. Phase 33 Slice 7 has not started. No TOML schema parsing,
+  configured source selection, glob expansion, source reading/parsing,
+  multi-file semantic analysis, project IR, SQL, or metadata aggregation was
+  added. No JSON v1 behavior changed. No Semantic Metadata Artifact v1 behavior
+  changed. No single-file CLI behavior changed. No
   grammar/generated/fixtures/goldens/scripts/package/dependency/workflow
   behavior changed.
   Phase 32: Semantic Explain And Metadata Output MVP; Phase 33: JSON v2 And
@@ -612,12 +617,17 @@ green. Phase 33 Slice 4 Private Project Discovery Model MVP is complete. Slice
 and hash-lock updates. Phase 33 Slice 5 Project Check CLI MVP is complete.
 Slice 5 adds only text-mode `pietto check --project ROOT` root/config
 validation. Project source selection remains deferred; Slice 5 checks zero
-source files and reports `Files checked: 0`. Phase 33 as a whole is not
-complete. Phase 33 Slice 6 has not started. No JSON v2 serializer was
-implemented. No project JSON output was implemented. No TOML schema parsing,
-glob expansion, source reading/parsing, multi-file semantic analysis, IR, SQL,
-or metadata aggregation was added. No JSON v1 behavior changed. No single-file
-CLI behavior changed. No
+source files and reports `Files checked: 0`. Phase 33 Slice 6 JSON v2
+Serializer MVP is complete. Slice 6 adds private project JSON v2 serialization
+and wires `pietto check --project ROOT --format json`. Project JSON v2 covers
+root/config project check results only. Project source selection remains
+deferred; Slice 6 reports `inputs: []` and
+`files_total/files_ok/files_with_errors` as `0`. Phase 33 as a whole is not
+complete. Phase 33 Slice 7 has not started. No TOML schema parsing, configured
+source selection, glob expansion, source reading/parsing, multi-file semantic
+analysis, project IR, SQL, or metadata aggregation was added. No JSON v1
+behavior changed. No Semantic Metadata Artifact v1 behavior changed. No
+single-file CLI behavior changed. No
 grammar/generated/fixtures/goldens/scripts/package/dependency/workflow behavior
 changed.
 
