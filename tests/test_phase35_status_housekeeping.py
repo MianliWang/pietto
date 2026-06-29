@@ -69,7 +69,7 @@ def test_global_status_docs_record_phase35_slice2_housekeeping() -> None:
         assert "No tag/release/publish/upload/signing/attestation occurred" in status
 
 
-def test_phase35_plan_records_slice2_through_slice4_scope_without_renaming_phase35() -> (
+def test_phase35_plan_records_slice2_through_slice5_scope_without_renaming_phase35() -> (
     None
 ):
     plan = _normalized(PHASE35_PLAN_PATH)
@@ -79,8 +79,10 @@ def test_phase35_plan_records_slice2_through_slice4_scope_without_renaming_phase
         "Scope is complete",
         "Phase 35 Slice 2 Status Housekeeping is complete",
         "Phase 35 Slice 3 Static Audit Helper Simplification is complete",
-        "Phase 35 Slice 4 Validation And Delivery Workflow Polish is the current "
-        "docs/static-audit-only delivery guidance slice",
+        "Phase 35 Slice 4 Validation And Delivery Workflow Polish is complete",
+        "Phase 35 Slice 5 Internal Helper Simplification Candidate Decision is "
+        "the current docs/static-audit-only candidate-decision and "
+        "source-refactor deferral slice",
         "Slice 3 does not extract or centralize `_paths`, `_digest`, "
         "`LOCKED_BOUNDARY_SURFACES`, `FORBIDDEN_DIFF_PATHS`, "
         "`POSITIVE_RELEASE_CLAIMS`, `PHASE34_TESTS`, phase artifact "
@@ -97,6 +99,15 @@ def test_phase35_plan_records_slice2_through_slice4_scope_without_renaming_phase
         "long evidence should be written in small chunks",
         "`scripts/validate.py` remains the authoritative local gate",
         "Generated, golden, and package smoke checks remain separate commands",
+        "Phase 35 Slice 5 Internal Helper Simplification Candidate Decision is "
+        "docs/static-audit candidate-decision work only",
+        "selects no production/internal helper extraction for Phase 35 Slice 5",
+        "defer source refactor because all concrete candidates are behavior-adjacent",
+        "CLI pipeline helper extraction is deferred",
+        "JSON helper extraction is deferred",
+        "SQL renderer helper extraction is deferred",
+        "Semantic helper extraction is deferred",
+        "Metadata builder/serializer/text helper extraction is deferred",
         PHASE34_COMPLETION_STATEMENT,
         PHASE35_ACTIVE_STATEMENT,
         PHASE35_SLICE1_LOCK,
@@ -108,6 +119,7 @@ def test_phase35_plan_records_slice2_through_slice4_scope_without_renaming_phase
         "attestation is performed by Slice 2",
         "attestation is performed by Slice 3",
         "attestation is performed by Slice 4",
+        "attestation is performed by Slice 5",
     ):
         assert required in plan, required
 

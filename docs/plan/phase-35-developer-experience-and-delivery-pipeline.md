@@ -5,8 +5,9 @@
 Phase 35 Slice 1 Candidate Decision, Inventory, And Safe Simplification Scope
 is complete. Phase 35 Slice 2 Status Housekeeping is complete. Phase 35 Slice
 3 Static Audit Helper Simplification is complete. Phase 35 Slice 4 Validation
-And Delivery Workflow Polish is the current docs/static-audit-only delivery
-guidance slice.
+And Delivery Workflow Polish is complete. Phase 35 Slice 5 Internal Helper
+Simplification Candidate Decision is the current docs/static-audit-only
+candidate-decision and source-refactor deferral slice.
 
 Trusted handoff:
 
@@ -91,6 +92,8 @@ Current Phase 35 inventory:
 - `safe internal helper simplification with proof`: CLI parse/analyze/IR flow
   and project/metadata serializers have helper opportunities but touch public
   CLI, JSON v1, Project JSON v2, or Semantic Metadata Artifact v1 behavior.
+  Slice 5 investigates these opportunities and selects no production/internal
+  helper extraction because the concrete candidates are behavior-adjacent.
 - `behavior-risky refactor`: PostgreSQL/MySQL expression and relation renderer
   de-duplication can change SQL bytes or backend fail-closed errors.
 - `defer / do not touch`: grammar, generated parser, fixtures, goldens, package
@@ -223,6 +226,9 @@ expectations for future Gate 2-style runs without changing script behavior,
 workflow behavior, package metadata, dependencies, lockfiles, release,
 publish, upload, signing, or attestation behavior.
 
+Historical Slice 4 status lock: Phase 35 Slice 4 Validation And Delivery
+Workflow Polish is the current docs/static-audit-only delivery guidance slice.
+
 Slice 4 documents that `UV_CACHE_DIR=/tmp/...` is the preferred sandbox-local
 workaround when the default `uv` cache under `/home/mianliwang/.cache/uv` is
 read-only. Sandbox DNS/PyPI failures in `scripts/package_smoke.py` are
@@ -248,6 +254,32 @@ operation.
 
 Package version remains `0.1.0`. No tag/release/publish/upload/signing/
 attestation is performed by Slice 4.
+
+## 13. Slice 5 Status
+
+Phase 35 Slice 5 Internal Helper Simplification Candidate Decision is
+docs/static-audit candidate-decision work only. Slice 5 investigated internal
+helper simplification candidates and selects no production/internal helper
+extraction for Phase 35 Slice 5. The decision is to defer source refactor
+because all concrete candidates are behavior-adjacent.
+
+CLI pipeline helper extraction is deferred because it can affect stdout/stderr,
+exit codes, JSON envelopes, diagnostics, and output-write safety. JSON helper
+extraction is deferred because it can affect JSON v1, Project JSON v2, and
+Semantic Metadata Artifact v1 byte contracts. SQL renderer helper extraction is
+deferred because it can affect SQL bytes and backend fail-closed `PIE-B1000`
+behavior. Semantic helper extraction is deferred because it can affect
+accepted/rejected programs and diagnostic code/message/order/span. Metadata
+builder/serializer/text helper extraction is deferred because it can affect
+Semantic Metadata Artifact v1 JSON/text output and source-location semantics.
+
+Source/compiler behavior, CLI behavior, JSON behavior, SQL behavior,
+diagnostics, fixtures, goldens, scripts, workflows, package metadata,
+lockfiles, release, tag, publish, upload, signing, and attestation all remain
+unchanged.
+
+Package version remains `0.1.0`. No tag/release/publish/upload/signing/
+attestation is performed by Slice 5.
 
 ## 9. Slice 1 Status
 
