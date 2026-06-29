@@ -2387,7 +2387,13 @@ Phase 33 did not implement source selection, TOML schema parsing, glob
 expansion, project source reading/parsing, multi-file semantic analysis, project
 IR/SQL, project emit-sql, project explain, metadata aggregation,
 relationship/JOIN, runtime/database/schema introspection, db pull, graph/ERD/AI
-metadata export. Phase 34 has not started. Package version remains `0.1.0`. No
+metadata export. Phase 34 Relationship Grain And Narrow JOIN readiness
+foundation is complete as docs/spec/static-audit/status-only work. The original
+behavior MVP remains future implementation deferred. Phase 35 is active as
+Developer Experience And Delivery Pipeline MVP. Phase 35 Slice 1 is complete at
+`cd6a727989f3ba47ea9e7dcd7c04b6a2a7cb1071`. Safe Simplification remains a
+scoped discipline and future-slice discipline, not a roadmap title change and
+not source-refactor authorization. Package version remains `0.1.0`. No
 tag/release/publish/upload/signing/attestation occurred.
 Active roadmap: Phase 32: Semantic
 Explain And Metadata Output MVP; Phase 33: JSON v2 And Project / Multi-file

@@ -200,7 +200,11 @@ def test_status_docs_record_slice7_completion_and_roadmap_lock() -> None:
             "Phase 33 Slice 8 CLI, Package Smoke, Docs, And Compatibility Hardening is complete",
             "Phase 33 Slice 9 Completion Audit And Status Lock is complete",
             "Phase 33 JSON v2 And Project / Multi-file MVP is complete",
-            "Phase 34 has not started",
+            "Phase 34 Relationship Grain And Narrow JOIN readiness foundation is "
+            "complete as docs/spec/static-audit/status-only work",
+            "Phase 35 is active as Developer Experience And Delivery Pipeline MVP",
+            "Phase 35 Slice 1 is complete at "
+            "`cd6a727989f3ba47ea9e7dcd7c04b6a2a7cb1071`",
             "Phase 34: Relationship Grain And Narrow JOIN MVP",
             "Phase 35: Developer Experience And Delivery Pipeline MVP",
             "Phase 36: Post-v0.2 Core Type System Expansion MVP",
@@ -209,6 +213,7 @@ def test_status_docs_record_slice7_completion_and_roadmap_lock() -> None:
             "deferred candidate without an assigned phase number",
         ):
             assert required in status, f"{path}: missing {required!r}"
+        assert "Phase 34 has not started" not in status, path
 
         for stale in (
             "Phase 33 Slice 7 has not started",

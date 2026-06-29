@@ -1,0 +1,109 @@
+from __future__ import annotations
+
+import tomllib
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+README_PATH = REPO_ROOT / "README.md"
+AGENTS_PATH = REPO_ROOT / "AGENTS.md"
+PIETTO_SPEC_PATH = REPO_ROOT / "docs/spec/pietto-v0.9.md"
+PHASE35_PLAN_PATH = (
+    REPO_ROOT / "docs/plan/phase-35-developer-experience-and-delivery-pipeline.md"
+)
+PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
+
+STATUS_DOCS = (README_PATH, AGENTS_PATH, PIETTO_SPEC_PATH)
+STATUS_AND_PLAN_DOCS = (*STATUS_DOCS, PHASE35_PLAN_PATH)
+
+PHASE34_COMPLETION_STATEMENT = (
+    "Phase 34 Relationship Grain And Narrow JOIN readiness foundation is "
+    "complete as docs/spec/static-audit/status-only work"
+)
+PHASE35_ACTIVE_STATEMENT = (
+    "Phase 35 is active as Developer Experience And Delivery Pipeline MVP"
+)
+PHASE35_SLICE1_LOCK = (
+    "Phase 35 Slice 1 is complete at `cd6a727989f3ba47ea9e7dcd7c04b6a2a7cb1071`"
+)
+OFFICIAL_PHASE35_TITLE = "Developer Experience And Delivery Pipeline MVP"
+UNAPPROVED_PHASE35_TITLE = (
+    "Developer Experience, Delivery Pipeline, And Safe Simplification MVP"
+)
+SAFE_SIMPLIFICATION_SCOPE = (
+    "Safe Simplification remains a scoped discipline and future-slice discipline"
+)
+POSITIVE_RELEASE_CLAIMS = (
+    "tag created",
+    "release created",
+    "package release occurred",
+    "published package",
+    "uploaded package",
+    "signing completed",
+    "attestation completed",
+    "release operation occurred",
+)
+
+
+def test_global_status_docs_record_phase35_slice2_housekeeping() -> None:
+    for path in STATUS_DOCS:
+        status = _normalized(path)
+
+        assert "Phase 34 has not started" not in status, str(path)
+        assert PHASE34_COMPLETION_STATEMENT in status, str(path)
+        assert (
+            "The original behavior MVP remains future implementation deferred" in status
+        )
+        assert PHASE35_ACTIVE_STATEMENT in status, str(path)
+        assert PHASE35_SLICE1_LOCK in status, str(path)
+        assert OFFICIAL_PHASE35_TITLE in status, str(path)
+        assert UNAPPROVED_PHASE35_TITLE not in status, str(path)
+        assert SAFE_SIMPLIFICATION_SCOPE in status, str(path)
+        assert "not a roadmap title change" in status, str(path)
+        assert "not source-refactor authorization" in status, str(path)
+        assert "Package version remains `0.1.0`" in status, str(path)
+        assert "No tag/release/publish/upload/signing/attestation occurred" in status
+
+
+def test_phase35_plan_records_slice2_scope_without_renaming_phase35() -> None:
+    plan = _normalized(PHASE35_PLAN_PATH)
+
+    for required in (
+        "Phase 35 Slice 1 Candidate Decision, Inventory, And Safe Simplification "
+        "Scope is complete",
+        "Phase 35 Slice 2 Status Housekeeping is the current "
+        "docs/status/static-audit/hash-lock slice",
+        PHASE34_COMPLETION_STATEMENT,
+        PHASE35_ACTIVE_STATEMENT,
+        PHASE35_SLICE1_LOCK,
+        SAFE_SIMPLIFICATION_SCOPE,
+        "not a Phase 35 title change",
+        "not a roadmap title change",
+        "not source-refactor authorization",
+        "Package version remains `0.1.0`",
+        "attestation is performed by Slice 2",
+    ):
+        assert required in plan, required
+
+    assert OFFICIAL_PHASE35_TITLE in plan
+    assert UNAPPROVED_PHASE35_TITLE not in plan
+
+
+def test_package_version_and_release_boundaries_remain_locked() -> None:
+    project = tomllib.loads(_read(PYPROJECT_PATH))["project"]
+    combined = " ".join(_normalized(path) for path in STATUS_AND_PLAN_DOCS)
+
+    assert project["version"] == "0.1.0"
+    assert 'version = "0.1.0"' in _read(PYPROJECT_PATH)
+    assert 'version = "0.2.0"' not in _read(PYPROJECT_PATH)
+
+    lowered = combined.lower()
+    for forbidden in POSITIVE_RELEASE_CLAIMS:
+        assert forbidden not in lowered, forbidden
+
+
+def _read(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+
+
+def _normalized(path: Path) -> str:
+    return " ".join(_read(path).split())

@@ -3,7 +3,8 @@
 ## 1. Status And Trusted Handoff
 
 Phase 35 Slice 1 Candidate Decision, Inventory, And Safe Simplification Scope
-is the current docs/spec/static-audit-only slice.
+is complete. Phase 35 Slice 2 Status Housekeeping is the current
+docs/status/static-audit/hash-lock slice.
 
 Trusted handoff:
 
@@ -49,8 +50,9 @@ Slice 1 adds only:
 - `tests/test_phase35_safe_simplification_candidate_decision.py`.
 
 Slice 1 does not update `README.md`, `AGENTS.md`, or
-`docs/spec/pietto-v0.9.md`. Those global status-housekeeping files are stale
-after Phase 34 and remain a later dedicated slice candidate.
+`docs/spec/pietto-v0.9.md`. Slice 2 updates those global
+status-housekeeping files to record Phase 34 complete, Phase 35 active, and
+Phase 35 Slice 1 complete at `cd6a727989f3ba47ea9e7dcd7c04b6a2a7cb1071`.
 
 ## 3. Slice 1 Objective
 
@@ -73,10 +75,11 @@ categories:
 - `behavior-risky refactor`;
 - `defer / do not touch`.
 
-Current Slice 1 inventory:
+Current Slice 2 inventory:
 
-- `safe docs/status housekeeping`: later update `AGENTS.md`, `README.md`, and
-  `docs/spec/pietto-v0.9.md` to record Phase 34 complete and Phase 35 active.
+- `safe docs/status housekeeping`: update `AGENTS.md`, `README.md`, and
+  `docs/spec/pietto-v0.9.md` to record Phase 34 complete, Phase 35 active, and
+  Phase 35 Slice 1 complete at `cd6a727989f3ba47ea9e7dcd7c04b6a2a7cb1071`.
 - `safe test-helper simplification`: repeated Phase 34 static-audit helpers such
   as `_read`, `_normalized`, `_phase34_docs`, `_git_diff_name_only`,
   release-claim constants, and forbidden path lists are later candidates.
@@ -149,8 +152,8 @@ feature.
 Tentative future slices, subject to separate approval:
 
 1. Candidate Decision, Inventory, And Safe Simplification Scope.
-2. Status-housekeeping for `README.md`, `AGENTS.md`, and
-   `docs/spec/pietto-v0.9.md`, if explicitly approved.
+2. Status Housekeeping for `README.md`, `AGENTS.md`, and
+   `docs/spec/pietto-v0.9.md`.
 3. Shared test helper simplification, if focused static-audit helper proof is
    approved.
 4. Validation/delivery workflow polish, if it does not mutate package metadata,
@@ -159,7 +162,28 @@ Tentative future slices, subject to separate approval:
    full public-surface proof.
 6. Completion Audit And Status Lock.
 
-This breakdown authorizes no implementation beyond Slice 1.
+This breakdown authorizes no implementation beyond the current explicitly
+approved slice.
+
+## 10. Slice 2 Status
+
+Phase 35 Slice 2 Status Housekeeping is docs/status/static-audit/hash-lock work
+only. It updates current global status text in `README.md`, `AGENTS.md`, and
+`docs/spec/pietto-v0.9.md`; adds focused static-audit coverage; and refreshes
+only required stale status locks or hashes in existing tests.
+
+Slice 2 records that Phase 34 Relationship Grain And Narrow JOIN readiness
+foundation is complete as docs/spec/static-audit/status-only work, the original
+behavior MVP remains future implementation deferred, Phase 35 is active as
+Developer Experience And Delivery Pipeline MVP, and Phase 35 Slice 1 is complete
+at `cd6a727989f3ba47ea9e7dcd7c04b6a2a7cb1071`.
+
+Safe Simplification remains a scoped discipline and future-slice discipline. It
+is not a Phase 35 title change, not a roadmap title change, and not
+source-refactor authorization.
+
+Package version remains `0.1.0`. No tag/release/publish/upload/signing/
+attestation is performed by Slice 2.
 
 ## 9. Slice 1 Status
 

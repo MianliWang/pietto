@@ -39,9 +39,6 @@ NO_BEHAVIOR_STANDARD = (
     "public CLI behavior",
 )
 FORBIDDEN_DIFF_PATHS = (
-    "README.md",
-    "AGENTS.md",
-    "docs/spec/pietto-v0.9.md",
     "docs/plan/phase-34-relationship-grain-narrow-join-mvp.md",
     "grammar/Pietto.g4",
     "src/pietto/generated",
@@ -142,15 +139,16 @@ def test_ponytail_inspired_style_rules_are_documented() -> None:
         assert required in spec, required
 
 
-def test_status_housekeeping_is_deferred_to_later_dedicated_slice() -> None:
+def test_status_housekeeping_is_locked_to_approved_slice2_scope() -> None:
     combined = _phase35_docs()
 
     for required in (
         "`README.md`, `AGENTS.md`, or `docs/spec/pietto-v0.9.md`",
-        "global status-housekeeping files are stale after Phase 34",
-        "later dedicated slice candidate",
-        "Status-housekeeping for `README.md`, `AGENTS.md`, and "
-        "`docs/spec/pietto-v0.9.md`, if explicitly approved",
+        "Slice 2 updates those global status-housekeeping files",
+        "Phase 34 complete, Phase 35 active, and Phase 35 Slice 1 complete",
+        "Status Housekeeping for `README.md`, `AGENTS.md`, and "
+        "`docs/spec/pietto-v0.9.md`",
+        "docs/status/static-audit/hash-lock work only",
     ):
         assert required in combined, required
 

@@ -26,10 +26,6 @@ FORBIDDEN_DIFF_PATHS = (
     "pyproject.toml",
     "uv.lock",
     ".github",
-    "README.md",
-    "AGENTS.md",
-    "docs/spec/pietto-v0.9.md",
-    "tests/test_phase33_completion_audit.py",
 )
 
 POSITIVE_RELEASE_CLAIMS = (

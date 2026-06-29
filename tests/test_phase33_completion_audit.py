@@ -73,6 +73,27 @@ PHASE33_COMPLETION_STATUS = (
     "No tag/release/publish/upload/signing/attestation occurred",
 )
 
+PHASE34_COMPLETION_STATEMENT = (
+    "Phase 34 Relationship Grain And Narrow JOIN readiness foundation is "
+    "complete as docs/spec/static-audit/status-only work"
+)
+PHASE35_ACTIVE_STATEMENT = (
+    "Phase 35 is active as Developer Experience And Delivery Pipeline MVP"
+)
+PHASE35_SLICE1_LOCK = (
+    "Phase 35 Slice 1 is complete at `cd6a727989f3ba47ea9e7dcd7c04b6a2a7cb1071`"
+)
+CURRENT_STATUS_DOC_TEXT = (
+    *PHASE33_COMPLETION_STATUS[:-3],
+    PHASE34_COMPLETION_STATEMENT,
+    "The original behavior MVP remains future implementation deferred",
+    PHASE35_ACTIVE_STATEMENT,
+    PHASE35_SLICE1_LOCK,
+    "Safe Simplification remains a scoped discipline and future-slice discipline",
+    "Package version remains `0.1.0`",
+    "No tag/release/publish/upload/signing/attestation occurred",
+)
+
 ROADMAP_STATUS = (
     "Phase 33: JSON v2 And Project / Multi-file MVP",
     "Phase 34: Relationship Grain And Narrow JOIN MVP",
@@ -107,17 +128,17 @@ LOCKED_PHASE33_SURFACES = {
     "readme": (
         "README.md",
         1,
-        "bb2abac2646218daa0d67157d40acda237b9a2072c0a2482a7cbc7249c57806c",
+        "b29f6e4c1d6d1bdad9e2155a58ca94efb39c510d0212ad48c1816c255395b21d",
     ),
     "agents": (
         "AGENTS.md",
         1,
-        "6639d453d7b7ef3ebd926e72b2c05ec94c2018cc858968ea584d5bbd97750fce",
+        "67c997602979825a85da15835958e429b6a700e96b91bc302e19b727e5c32c17",
     ),
     "pietto_v09": (
         "docs/spec/pietto-v0.9.md",
         1,
-        "aa0b2c3889c67b7c71c3deba8e2daa54297bf154c3922aed4c9a31b095a9ecc9",
+        "ae317e0b5f6139f1a8adcf1604abcfcdfe069e37e250a831bdfe00286fa9498e",
     ),
 }
 
@@ -155,7 +176,7 @@ def test_status_docs_record_phase33_completion_and_phase34_boundary() -> None:
         status = _normalized(path)
         for required in (
             *PHASE33_SLICE_STATUS[3:],
-            *PHASE33_COMPLETION_STATUS,
+            *CURRENT_STATUS_DOC_TEXT,
             *ROADMAP_STATUS,
         ):
             assert required in status, f"{path}: missing {required!r}"
@@ -163,6 +184,7 @@ def test_status_docs_record_phase33_completion_and_phase34_boundary() -> None:
         for stale in (
             "Phase 33 as a whole is not complete",
             "Phase 33 Slice 9 has not started",
+            "Phase 34 has not started",
             "Phase 34: Semantic Graph / ERD / AI Metadata Export MVP",
             "Semantic Graph / ERD / AI Metadata Export: Phase",
         ):
@@ -328,7 +350,10 @@ def test_package_version_release_and_later_phase_boundaries_are_locked() -> None
 
     for required in ROADMAP_STATUS:
         assert required in combined_status, required
-    assert "Phase 34 has not started" in combined_status
+    assert "Phase 34 has not started" not in combined_status
+    assert PHASE34_COMPLETION_STATEMENT in combined_status
+    assert PHASE35_ACTIVE_STATEMENT in combined_status
+    assert PHASE35_SLICE1_LOCK in combined_status
     assert (
         "Phase 34: Semantic Graph / ERD / AI Metadata Export MVP" not in combined_status
     )

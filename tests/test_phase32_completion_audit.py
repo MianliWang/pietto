@@ -44,6 +44,17 @@ PLAN_FINAL_STATUS_TEXT = (
     "Phase 33 has not started",
 )
 
+PHASE34_COMPLETION_STATEMENT = (
+    "Phase 34 Relationship Grain And Narrow JOIN readiness foundation is "
+    "complete as docs/spec/static-audit/status-only work"
+)
+PHASE35_ACTIVE_STATEMENT = (
+    "Phase 35 is active as Developer Experience And Delivery Pipeline MVP"
+)
+PHASE35_SLICE1_LOCK = (
+    "Phase 35 Slice 1 is complete at `cd6a727989f3ba47ea9e7dcd7c04b6a2a7cb1071`"
+)
+
 CURRENT_STATUS_DOC_TEXT = (
     "Phase 32 Slice 8 Completion Audit And Status Lock is complete",
     "Phase 32 Semantic Explain And Metadata Output MVP is complete",
@@ -75,7 +86,11 @@ CURRENT_STATUS_DOC_TEXT = (
     "project IR/SQL, project emit-sql, project explain, metadata aggregation",
     "relationship/JOIN, runtime/database/schema introspection, db pull, "
     "graph/ERD/AI metadata export",
-    "Phase 34 has not started",
+    PHASE34_COMPLETION_STATEMENT,
+    "The original behavior MVP remains future implementation deferred",
+    PHASE35_ACTIVE_STATEMENT,
+    PHASE35_SLICE1_LOCK,
+    "Safe Simplification remains a scoped discipline and future-slice discipline",
     "Package version remains `0.1.0`",
     "No tag/release/publish/upload/signing/attestation occurred",
 )
@@ -151,6 +166,7 @@ def test_status_docs_record_phase32_completion_and_release_boundary() -> None:
         assert "Phase 33 Slice 8 has not started" not in status, path
         assert "Phase 33 Slice 9 has not started" not in status, path
         assert "Phase 33 as a whole is not complete" not in status, path
+        assert "Phase 34 has not started" not in status, path
 
 
 def test_artifact_implementation_and_phase32_tests_remain_present() -> None:
