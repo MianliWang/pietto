@@ -48,6 +48,50 @@ separately approved.
 | type alias / domain refinement | type alias exists; domain refinement deferred | medium | Defer; no domain annotation syntax. |
 | scalar/operator matrix formalization | current contracts/tests already exist | low-medium | Carry forward Phase 30/31 contracts; no new matrix behavior. |
 
+## Slice 2 Rescope And Candidate Resolution Matrix
+
+Phase 36 is now a broader core type resolution phase, not Decimal-only. Slice 1
+remains complete as the first docs/spec/static-audit boundary, and Slice 2
+rescopes the phase into a Post-v0.2 Core Type System Expansion / Candidate
+Resolution phase without changing behavior.
+
+For Phase 36, resolve means one of:
+
+- safe implementation;
+- fail-closed contract;
+- readiness/spec;
+- defer with exact prerequisites.
+
+Resolve does not mean blindly implementing every candidate. Currency/Money is
+deferred. Native DB metadata is deferred. Remaining type candidates should be
+resolved as much as safely possible by choosing one of the approved resolution
+modes in the slice that owns the candidate.
+
+Target Phase 36 slice shape:
+
+| Slice | Name | Slice posture |
+|---:|---|---|
+| 1 | Candidate Decision And Type Expansion Boundary | complete docs/spec/static-audit boundary |
+| 2 | Rescope And Candidate Resolution Matrix | docs/plan/static-audit only |
+| 3 | Decimal Precision-scale Carrier MVP Decision | decide private carrier skeleton versus exact deferral prerequisites |
+| 4 | UUID Support Completion | resolve UUID field/projection/count/count_distinct/comparison/order/aggregate boundaries |
+| 5 | Enum Support Resolution | resolve Enum metadata readiness and current SQL risk |
+| 6 | DateTime / Time / Interval Boundary | resolve unsupported temporal type posture |
+| 7 | Any / Bytes / Json Support Posture | clarify top/deferred builtin behavior and fail-closed boundaries |
+| 8 | Type Alias / Domain Refinement Boundary | clarify type alias versus future domain refinement |
+| 9 | Expanded Scalar / Operator Matrix | formalize scalar/operator/comparison/aggregate posture |
+| 10 | Public Surface Stability Hardening | lock CLI, JSON v1, Project JSON v2, metadata, SQL, and package-smoke boundaries |
+| 11 | Phase 36 Status Housekeeping | update global status docs only if separately approved |
+| 12 | Completion Audit And Status Lock | final audit, validation, and Gate 3 evidence |
+
+Slice 2 authorizes no implementation behavior. It does not authorize source
+compiler behavior changes, grammar changes, generated parser changes, parser or
+AST changes, semantic behavior changes, IR or SQL behavior changes, CLI
+behavior changes, JSON v1 changes, Project JSON v2 changes, Semantic Metadata
+Artifact v1 schema or output changes, fixtures, goldens, examples, package
+metadata, lockfiles, scripts, workflows, tag/release/publish/upload, signing, or
+attestation.
+
 ## Slice 1 Boundary
 
 Slice 1 may:
