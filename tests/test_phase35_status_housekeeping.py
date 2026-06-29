@@ -3,6 +3,11 @@ from __future__ import annotations
 import tomllib
 from pathlib import Path
 
+from _static_audit_helpers import (
+    normalized_text as _normalized,
+    read_text as _read,
+)
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 README_PATH = REPO_ROOT / "README.md"
 AGENTS_PATH = REPO_ROOT / "AGENTS.md"
@@ -64,14 +69,22 @@ def test_global_status_docs_record_phase35_slice2_housekeeping() -> None:
         assert "No tag/release/publish/upload/signing/attestation occurred" in status
 
 
-def test_phase35_plan_records_slice2_scope_without_renaming_phase35() -> None:
+def test_phase35_plan_records_slice2_and_slice3_scope_without_renaming_phase35() -> (
+    None
+):
     plan = _normalized(PHASE35_PLAN_PATH)
 
     for required in (
         "Phase 35 Slice 1 Candidate Decision, Inventory, And Safe Simplification "
         "Scope is complete",
-        "Phase 35 Slice 2 Status Housekeeping is the current "
-        "docs/status/static-audit/hash-lock slice",
+        "Phase 35 Slice 2 Status Housekeeping is complete",
+        "Phase 35 Slice 3 Static Audit Helper Simplification is the current "
+        "tests-only static-audit helper simplification slice",
+        "Slice 3 does not extract or centralize `_paths`, `_digest`, "
+        "`LOCKED_BOUNDARY_SURFACES`, `FORBIDDEN_DIFF_PATHS`, "
+        "`POSITIVE_RELEASE_CLAIMS`, `PHASE34_TESTS`, phase artifact "
+        "inventories, status-doc hash-lock constants, or release-claim "
+        "constants",
         PHASE34_COMPLETION_STATEMENT,
         PHASE35_ACTIVE_STATEMENT,
         PHASE35_SLICE1_LOCK,
@@ -81,6 +94,7 @@ def test_phase35_plan_records_slice2_scope_without_renaming_phase35() -> None:
         "not source-refactor authorization",
         "Package version remains `0.1.0`",
         "attestation is performed by Slice 2",
+        "attestation is performed by Slice 3",
     ):
         assert required in plan, required
 
@@ -99,11 +113,3 @@ def test_package_version_and_release_boundaries_remain_locked() -> None:
     lowered = combined.lower()
     for forbidden in POSITIVE_RELEASE_CLAIMS:
         assert forbidden not in lowered, forbidden
-
-
-def _read(path: Path) -> str:
-    return path.read_text(encoding="utf-8")
-
-
-def _normalized(path: Path) -> str:
-    return " ".join(_read(path).split())

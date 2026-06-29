@@ -3,8 +3,9 @@
 ## 1. Status And Trusted Handoff
 
 Phase 35 Slice 1 Candidate Decision, Inventory, And Safe Simplification Scope
-is complete. Phase 35 Slice 2 Status Housekeeping is the current
-docs/status/static-audit/hash-lock slice.
+is complete. Phase 35 Slice 2 Status Housekeeping is complete. Phase 35 Slice
+3 Static Audit Helper Simplification is the current tests-only static-audit
+helper simplification slice.
 
 Trusted handoff:
 
@@ -75,14 +76,17 @@ categories:
 - `behavior-risky refactor`;
 - `defer / do not touch`.
 
-Current Slice 2 inventory:
+Current Phase 35 inventory:
 
 - `safe docs/status housekeeping`: update `AGENTS.md`, `README.md`, and
   `docs/spec/pietto-v0.9.md` to record Phase 34 complete, Phase 35 active, and
   Phase 35 Slice 1 complete at `cd6a727989f3ba47ea9e7dcd7c04b6a2a7cb1071`.
-- `safe test-helper simplification`: repeated Phase 34 static-audit helpers such
-  as `_read`, `_normalized`, `_phase34_docs`, `_git_diff_name_only`,
-  release-claim constants, and forbidden path lists are later candidates.
+- `safe test-helper simplification`: Slice 3 extracts only exact repeated
+  static-audit helpers for UTF-8 text reads, normalized text, and
+  `git diff --name-only` forbidden-surface checks. It does not extract
+  `_paths`, `_digest`, `LOCKED_BOUNDARY_SURFACES`, `FORBIDDEN_DIFF_PATHS`,
+  `POSITIVE_RELEASE_CLAIMS`, `PHASE34_TESTS`, phase artifact inventories,
+  status-doc hash-lock constants, or release-claim constants.
 - `safe internal helper simplification with proof`: CLI parse/analyze/IR flow
   and project/metadata serializers have helper opportunities but touch public
   CLI, JSON v1, Project JSON v2, or Semantic Metadata Artifact v1 behavior.
@@ -154,8 +158,7 @@ Tentative future slices, subject to separate approval:
 1. Candidate Decision, Inventory, And Safe Simplification Scope.
 2. Status Housekeeping for `README.md`, `AGENTS.md`, and
    `docs/spec/pietto-v0.9.md`.
-3. Shared test helper simplification, if focused static-audit helper proof is
-   approved.
+3. Static Audit Helper Simplification for repeated test-only helpers.
 4. Validation/delivery workflow polish, if it does not mutate package metadata,
    dependencies, lockfiles, or workflows without separate approval.
 5. Internal helper simplification candidates only with explicit approval and
@@ -184,6 +187,32 @@ source-refactor authorization.
 
 Package version remains `0.1.0`. No tag/release/publish/upload/signing/
 attestation is performed by Slice 2.
+
+## 11. Slice 3 Status
+
+Phase 35 Slice 3 Static Audit Helper Simplification is tests-only
+static-audit helper simplification work. It adds a small shared test helper
+module for exactly `read_text(path: Path) -> str`,
+`normalized_text(path: Path) -> str`, and
+`git_diff_name_only(repo_root: Path, paths: tuple[str, ...]) -> str`, plus
+focused helper coverage.
+
+Slice 3 updates only approved Phase 34/35 static-audit tests where the local
+helper semantics are identical. It preserves subprocess stderr assertion,
+explicit `REPO_ROOT` working-directory selection, path ordering controlled by
+each caller, and all phase-specific audit constants.
+
+Slice 3 does not extract or centralize `_paths`, `_digest`,
+`LOCKED_BOUNDARY_SURFACES`, `FORBIDDEN_DIFF_PATHS`,
+`POSITIVE_RELEASE_CLAIMS`, `PHASE34_TESTS`, phase artifact inventories,
+status-doc hash-lock constants, or release-claim constants.
+
+Slice 3 implements no source/compiler behavior change, no grammar or generated
+change, no fixture or golden change, no script change, no package/dependency/
+workflow change, and no release operation.
+
+Package version remains `0.1.0`. No tag/release/publish/upload/signing/
+attestation is performed by Slice 3.
 
 ## 9. Slice 1 Status
 
