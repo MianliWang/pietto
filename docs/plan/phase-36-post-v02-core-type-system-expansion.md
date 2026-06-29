@@ -92,6 +92,36 @@ Artifact v1 schema or output changes, fixtures, goldens, examples, package
 metadata, lockfiles, scripts, workflows, tag/release/publish/upload, signing, or
 attestation.
 
+## Slice 3 Decimal Precision-scale Carrier MVP Decision
+
+Phase 36 Slice 3 selects Option B: exact deferral prerequisites only. The
+private Decimal precision-scale carrier skeleton is deferred for now, and the
+chosen resolution mode is defer with exact prerequisites.
+
+Slice 3 does not implement a carrier. It does not change source/compiler
+behavior, source syntax, grammar, generated ANTLR files, parser or AST behavior,
+semantic behavior, IR or SQL behavior, CLI behavior, JSON v1, Project JSON v2,
+Semantic Metadata Artifact v1 schema or output, fixtures, goldens, examples,
+package metadata, package version, lockfiles, scripts, workflows, or release
+surfaces.
+
+The deferral is intentional. The obvious carrier locations are public-ish or
+output-adjacent: `ResolvedType`, `ValueType`, `TypeRefIR`,
+`SemanticMetadataType`, and metadata/explain output surfaces. Existing Phase
+30, Phase 31, and Phase 32 tests intentionally lock that these surfaces do not
+carry precision or scale fields.
+
+Future Decimal precision-scale carrier work requires separately approved Gate 1
+and Gate 2 decisions. That later work must first prove a private carrier
+ownership boundary, source of precision/scale facts, unknown/missing/invalid
+encoding, propagation policy, public output compatibility policy, Semantic
+Metadata Artifact v1 schema/output policy, JSON v1 and Project JSON v2
+compatibility policy, SQL dialect policy without silent `DECIMAL(p, s)` or
+`NUMERIC(p, s)` promises, diagnostic policy, and validation proving no
+accidental syntax, SQL, JSON, metadata, or arithmetic expansion.
+
+Slice 3 keeps the broader 12-slice Phase 36 plan intact.
+
 ## Slice 1 Boundary
 
 Slice 1 may:
