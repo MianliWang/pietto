@@ -35,6 +35,10 @@ from pietto.sql.mysql import emit_mysql_sql
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLAN_PATH = REPO_ROOT / "docs/plan/phase-31-v02-hardening-and-stable-completion.md"
 SPEC_PATH = REPO_ROOT / "docs/spec/v02-hardening-and-stable-completion-v1.md"
+PHASE36_PLAN_PATH = (
+    REPO_ROOT / "docs/plan/phase-36-post-v02-core-type-system-expansion.md"
+)
+PHASE36_ENUM_SPEC_PATH = REPO_ROOT / "docs/spec/enum-support-resolution-v1.md"
 
 MATRIX_SHAPE = (
     "shape Order:\n"
@@ -147,6 +151,7 @@ GROUPED_ROW_SCHEMA = (
 def test_phase31_slice2_plan_and_spec_lock_tests_static_audit_scope() -> None:
     plan = _normalized(PLAN_PATH)
     spec = _normalized(SPEC_PATH)
+    phase36 = f"{_normalized(PHASE36_PLAN_PATH)} {_normalized(PHASE36_ENUM_SPEC_PATH)}"
     combined = f"{plan} {spec}"
 
     for required in (
@@ -190,6 +195,13 @@ def test_phase31_slice2_plan_and_spec_lock_tests_static_audit_scope() -> None:
     ):
         assert forbidden in combined
 
+    for required in (
+        "Phase 36 Slice 5 selects Option C: narrow semantic fail-closed behavior change",
+        "`count(Enum field)` now fails in semantic aggregate validation with existing diagnostic `PIE-S2314`",
+        "Enum remains metadata/readiness, not a builtin scalar",
+    ):
+        assert required in phase36
+
 
 def test_semantic_aggregate_result_helper_matrix_is_locked() -> None:
     accepted = (
@@ -204,7 +216,6 @@ def test_semantic_aggregate_result_helper_matrix_is_locked() -> None:
         ("count", _builtin("Bytes"), "Int", EffectiveNullability.NON_NULL),
         ("count", _builtin("Json"), "Int", EffectiveNullability.NON_NULL),
         ("count", _builtin("UUID"), "Int", EffectiveNullability.NON_NULL),
-        ("count", _enum("Status"), "Int", EffectiveNullability.NON_NULL),
         ("count_distinct", _builtin("Bool"), "Int", EffectiveNullability.NON_NULL),
         ("count_distinct", _builtin("Int"), "Int", EffectiveNullability.NON_NULL),
         ("count_distinct", _builtin("Float"), "Int", EffectiveNullability.NON_NULL),
@@ -253,6 +264,7 @@ def test_semantic_aggregate_result_helper_matrix_is_locked() -> None:
 
     for function, argument in (
         ("count", _builtin("Any")),
+        ("count", _enum("Status")),
         ("count", _unknown()),
         ("count_distinct", None),
         ("count_distinct", _builtin("Bytes")),
@@ -440,7 +452,7 @@ def test_postgres_and_private_mysql_sql_matrix_is_stable() -> None:
             assert fragment in sql
 
 
-def test_count_field_boundary_types_are_locked_without_enum_fix() -> None:
+def test_count_field_boundary_types_are_locked_with_enum_fail_closed() -> None:
     accepted_cases = (
         ("Bytes", "raw", 'COUNT("raw")', "COUNT(`raw`)"),
         ("Json", "payload", 'COUNT("payload")', "COUNT(`payload`)"),
@@ -463,28 +475,25 @@ def test_count_field_boundary_types_are_locked_without_enum_fix() -> None:
     )
     assert _error_codes(any_result) == ["PIE-S2314"]
 
-    for connector, emitter in (
-        ("postgres.table", emit_postgres_sql),
-        ("mysql.table", emit_mysql_sql),
-    ):
+    for connector in ("postgres.table", "mysql.table"):
         script = _parse(_enum_count_source(connector))
         semantic_result = analyze(script)
         ir_result = build_ir(script, semantic_result.model)
 
-        assert _error_codes(semantic_result) == []
-        assert ir_result.diagnostics == ()
+        assert _error_codes(semantic_result) == ["PIE-S2314"]
         assert ir_result.ir is not None
-        result = emitter(ir_result.ir)
-        assert result.artifacts == ()
-        assert [diagnostic.code for diagnostic in result.diagnostics] == ["PIE-B1000"]
+        projection = _relation_ir(ir_result.ir).projections[0]
+        assert not isinstance(projection.expression, AggregateCallIR)
 
-    combined = f"{_normalized(PLAN_PATH)} {_normalized(SPEC_PATH)}"
-    assert "count(Enum field) remains a documented risk" in combined
+    combined = f"{_normalized(PHASE36_PLAN_PATH)} {_normalized(PHASE36_ENUM_SPEC_PATH)}"
     assert (
-        "semantic/IR acceptance with PostgreSQL/private MySQL fail-closed output"
-        in (combined)
+        "Direct `count(Enum field)` must fail closed in semantic aggregate validation using existing diagnostic `PIE-S2314`"
+        in combined
     )
-    assert "requires separate explicit approval before any behavior fix" in combined
+    assert (
+        "It no longer reaches IR and PostgreSQL/private MySQL SQL backend fail-closed output as `PIE-B1000`"
+        in combined
+    )
 
 
 @pytest.mark.parametrize(

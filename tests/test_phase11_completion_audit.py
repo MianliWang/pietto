@@ -60,7 +60,7 @@ EXPECTED_FILES = {
 }
 EXPECTED_GROUPS = {
     "frontend": "06ff1d647427b4e937321ed525866059266ddc2bc292c050a458647365d95123",
-    "semantic": "dfa4af8c0dd699431ac068f1ee007e3a744d9384fe1b602aa5ab682a1f42579b",
+    "semantic": "ef953e6d59861ba4f450f84d3626f2830609353ad612c246fad0da0fa2edb2c5",
     "ir": "7438c72875751eeadf8b12b3aad1825499061f3f4e0dd73d8c1a339c614ae884",
     "sql": "67aeafa622d3147b08930cebcf18862322eec692d547d328b18966afa81f3530",
     "generated": "25bd5df39d46749ad59e2b805bd85cce52e708cdf56bda6ee365615c419e17d1",
@@ -98,7 +98,7 @@ MYSQL_GOLDENS = {
     ),
 }
 ALL_GOLDENS_HASH = "0e26a0b367a2ae849e5ec1e9a239be42765bea2c352242db5da930ab56b43004"
-BOUNDARY_HASH = "8ebb9ada8e8b088c39512c87c4f37c11382a4abbe11b60f9e61b5cd496fdbc87"
+BOUNDARY_HASH = "625c4e97ea81c94bbdd5bcb32054c139b6145c5121e25526ec80e184041fea4a"
 
 
 def _load_module(name: str, path: Path) -> ModuleType:

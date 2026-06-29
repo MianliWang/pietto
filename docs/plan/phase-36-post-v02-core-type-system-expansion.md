@@ -158,6 +158,47 @@ expansion.
 
 Slice 4 keeps the broader 12-slice Phase 36 plan intact.
 
+## Slice 5 Enum Support Resolution
+
+Phase 36 Slice 5 selects Option C: narrow semantic fail-closed behavior change.
+The only behavior change is that `count(Enum field)` now fails in semantic
+aggregate validation with existing diagnostic `PIE-S2314` instead of being
+accepted by semantic/IR and then reaching PostgreSQL/private MySQL SQL backend
+fail-closed output with `PIE-B1000`.
+
+Enum remains metadata/readiness, not a builtin scalar. Enum definitions, enum
+field facts, `TypeKind.ENUM`, `TypeKindIR.ENUM`, `EnumIR`, and
+metadata/explain `support_posture="metadata_only"` remain the current supported
+readiness surfaces. Slice 5 does not make Enum a fully stable SQL scalar and
+does not broaden Enum aggregate behavior.
+
+Broader Enum surfaces remain closed or deferred:
+
+- enum literals and enum member references;
+- casts;
+- native DB enum metadata;
+- DDL/storage behavior;
+- runtime/database execution;
+- schema introspection or db pull;
+- enum comparison, ordering, group-key, and `satisfying` policy;
+- SQL portability policy beyond this fail-closed fix;
+- JSON/schema/metadata output expansion.
+
+Slice 5 does not change grammar, generated ANTLR files, parser or AST behavior,
+IR model shape, SQL renderers, CLI behavior, JSON v1, Project JSON v2, Semantic
+Metadata Artifact v1 schema or output, fixtures, goldens, examples, package
+metadata, package version, lockfiles, scripts, workflows, tags, release,
+publish/upload, signing, or attestation.
+
+Any future Enum behavior changes require separately approved Gate 1 and Gate 2
+decisions. Future work must first define comparison policy, ordering policy,
+group-key policy, satisfying/result predicate policy, aggregate matrix policy,
+PostgreSQL/private MySQL portability policy, public output compatibility
+policy, diagnostics policy, and validation proving no accidental literal, cast,
+native metadata, runtime, JSON, metadata, or SQL expansion.
+
+Slice 5 keeps the broader 12-slice Phase 36 plan intact.
+
 ## Slice 1 Boundary
 
 Slice 1 may:

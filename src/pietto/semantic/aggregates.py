@@ -331,9 +331,10 @@ def is_supported_extrema_argument(value_type: ValueType) -> bool:
 def is_supported_count_argument(value_type: ValueType) -> bool:
     """Return whether count(field) may use this direct field type."""
 
-    return value_type.resolved_type.kind is not TypeKind.UNKNOWN and not _is_builtin(
-        value_type, "Any"
-    )
+    return value_type.resolved_type.kind not in {
+        TypeKind.ENUM,
+        TypeKind.UNKNOWN,
+    } and not _is_builtin(value_type, "Any")
 
 
 def is_supported_count_distinct_argument(value_type: ValueType) -> bool:

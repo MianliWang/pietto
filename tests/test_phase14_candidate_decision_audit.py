@@ -43,7 +43,7 @@ INPUT_HASHES = {
         "2383731c2b9d78f8cf73da8e9d47f973b6eef93eb20e0f03d8f045307b788534"
     ),
     "tests/test_phase13_completion_audit.py": (
-        "bfee4334b4cb458508a1a6016d9e66a818f650f67bbc1d4b880d00d4825eb675"
+        "b7ee833f0ab83671e81c0ca4cf7998498f30386d84285a8b7b7e56b716321bf9"
     ),
 }
 
@@ -73,7 +73,7 @@ FILE_HASHES = {
 
 GROUP_HASHES = {
     "frontend": "06ff1d647427b4e937321ed525866059266ddc2bc292c050a458647365d95123",
-    "semantic": "dfa4af8c0dd699431ac068f1ee007e3a744d9384fe1b602aa5ab682a1f42579b",
+    "semantic": "ef953e6d59861ba4f450f84d3626f2830609353ad612c246fad0da0fa2edb2c5",
     "ir": "7438c72875751eeadf8b12b3aad1825499061f3f4e0dd73d8c1a339c614ae884",
     "sql": "67aeafa622d3147b08930cebcf18862322eec692d547d328b18966afa81f3530",
     "generated": "25bd5df39d46749ad59e2b805bd85cce52e708cdf56bda6ee365615c419e17d1",

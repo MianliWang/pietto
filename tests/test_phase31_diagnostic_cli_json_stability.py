@@ -195,7 +195,7 @@ def test_private_mysql_backend_diagnostic_json_shape_is_stable(
     assert document["output"] is None
 
     diagnostics = cast(list[dict[str, object]], document["diagnostics"])
-    assert [diagnostic["code"] for diagnostic in diagnostics] == ["PIE-B1000"]
+    assert [diagnostic["code"] for diagnostic in diagnostics] == ["PIE-S2314"]
     assert [diagnostic["severity"] for diagnostic in diagnostics] == ["error"]
     assert all(
         set(diagnostic)

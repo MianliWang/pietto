@@ -30,6 +30,10 @@ from pietto.sql.mysql import emit_mysql_sql
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLAN_PATH = REPO_ROOT / "docs/plan/phase-31-v02-hardening-and-stable-completion.md"
 SPEC_PATH = REPO_ROOT / "docs/spec/v02-hardening-and-stable-completion-v1.md"
+PHASE36_PLAN_PATH = (
+    REPO_ROOT / "docs/plan/phase-36-post-v02-core-type-system-expansion.md"
+)
+PHASE36_ENUM_SPEC_PATH = REPO_ROOT / "docs/spec/enum-support-resolution-v1.md"
 
 CATALOG_PATH = REPO_ROOT / "src/pietto/semantic/catalog.py"
 SEMANTIC_MODEL_PATH = REPO_ROOT / "src/pietto/semantic/model.py"
@@ -55,6 +59,7 @@ READINESS_HEADER = (
 def test_phase31_slice5_plan_and_spec_lock_readiness_only_scope() -> None:
     plan = _normalized(PLAN_PATH)
     spec = _normalized(SPEC_PATH)
+    phase36 = f"{_normalized(PHASE36_PLAN_PATH)} {_normalized(PHASE36_ENUM_SPEC_PATH)}"
     combined = f"{plan} {spec}"
 
     for required in (
@@ -65,9 +70,6 @@ def test_phase31_slice5_plan_and_spec_lock_readiness_only_scope() -> None:
         "hardening, tests, static audit, status, and docs work only",
         "UUID remains limited/frozen readiness",
         "Enum remains metadata readiness only",
-        "count(Enum field) remains a documented risk",
-        "semantic/IR acceptance with PostgreSQL/private MySQL fail-closed output",
-        "requires separate explicit approval before any behavior fix",
         "UUID/Enum comparisons remain current generic known-child comparison "
         "behavior producing `Bool UNKNOWN`",
         "not a UUID- or Enum-specific comparison compatibility matrix",
@@ -90,6 +92,13 @@ def test_phase31_slice5_plan_and_spec_lock_readiness_only_scope() -> None:
         "Phase 32 implementation",
     ):
         assert non_goal in combined
+
+    for required in (
+        "Phase 36 Slice 5 selects Option C: narrow semantic fail-closed behavior change",
+        "`count(Enum field)` now fails in semantic aggregate validation with existing diagnostic `PIE-S2314`",
+        "instead of being accepted by semantic/IR and then reaching PostgreSQL/private MySQL SQL backend fail-closed output with `PIE-B1000`",
+    ):
+        assert required in phase36
 
 
 def test_uuid_builtin_field_projection_and_nullability_readiness_is_locked() -> None:
@@ -375,11 +384,8 @@ def test_enum_metadata_and_field_projection_readiness_is_locked() -> None:
     assert '"Enum"' not in _read(CATALOG_PATH)
 
 
-def test_enum_aggregate_risk_is_documented_without_fix() -> None:
-    for connector, emitter in (
-        ("postgres.table", emit_postgres_sql),
-        ("mysql.table", emit_mysql_sql),
-    ):
+def test_enum_count_field_now_fails_closed_at_semantic_validation() -> None:
+    for connector in ("postgres.table", "mysql.table"):
         script = _parse(
             _source(
                 connector,
@@ -389,29 +395,19 @@ def test_enum_aggregate_risk_is_documented_without_fix() -> None:
         semantic_result = analyze(script)
         ir_result = build_ir(script, semantic_result.model)
 
-        assert _error_codes(semantic_result) == []
-        assert ir_result.diagnostics == ()
+        assert _error_codes(semantic_result) == ["PIE-S2314"]
         assert ir_result.ir is not None
-        relation = _relation_ir(ir_result.ir)
-        aggregate = relation.projections[0].expression
-        assert isinstance(aggregate, AggregateCallIR)
-        assert aggregate.function == "count"
-        assert aggregate.value_type.canonical_kind is TypeKindIR.BUILTIN
-        assert aggregate.value_type.canonical_name == "Int"
-        assert aggregate.value_type.nullability is NullabilityIR.NON_NULL
+        projection = _relation_ir(ir_result.ir).projections[0]
+        assert not isinstance(projection.expression, AggregateCallIR)
 
-        sql_result = emitter(ir_result.ir)
-        assert sql_result.artifacts == ()
-        assert [diagnostic.code for diagnostic in sql_result.diagnostics] == [
-            "PIE-B1000"
-        ]
-
-    combined = f"{_normalized(PLAN_PATH)} {_normalized(SPEC_PATH)}"
+    combined = f"{_normalized(PHASE36_PLAN_PATH)} {_normalized(PHASE36_ENUM_SPEC_PATH)}"
     for required in (
-        "count(Enum field) remains a documented risk",
-        "semantic/IR acceptance with PostgreSQL/private MySQL fail-closed output",
-        "requires separate explicit approval before any behavior fix",
-        "Enum is not an accepted end-to-end aggregate row",
+        "Direct `count(Enum field)` must fail closed in semantic aggregate validation using existing diagnostic `PIE-S2314`",
+        "`count_distinct(Enum field)` remains rejected with `PIE-S2314`",
+        "`min(Enum field)` remains rejected with `PIE-S2314`",
+        "`max(Enum field)` remains rejected with `PIE-S2314`",
+        "`sum(Enum field)` remains rejected with `PIE-S2314`",
+        "`avg(Enum field)` remains rejected with `PIE-S2314`",
     ):
         assert required in combined
 
