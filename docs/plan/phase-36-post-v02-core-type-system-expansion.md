@@ -226,6 +226,51 @@ compatibility.
 
 Slice 6 keeps the broader 12-slice Phase 36 plan intact.
 
+## Slice 7 Any / Bytes / Json Support Posture
+
+Phase 36 Slice 7 selects Option B: tests-only hardening with a docs/spec
+decision record. Slice 7 documents and tests the current Any / Bytes / Json
+support posture without changing compiler behavior.
+
+`Any`, `Bytes`, and `Json` remain builtin names. `Any` remains a top/deferred
+boundary type and does not authorize dynamic typing, runtime casts, permissive
+SQL fallback, schema introspection, db pull, or runtime/database behavior.
+`Bytes` and `Json` remain deferred builtin behavior surfaces: `Bytes` does not
+authorize binary literals, encoding policy, byte functions or operators,
+native binary metadata, storage/DDL, or runtime behavior, and `Json` does not
+authorize structural typing, JSON path extraction, JSON operators or functions,
+object/array schema validation, native DB JSON metadata, storage/DDL, or
+runtime JSON processing.
+
+Current narrow behavior remains documented and tested. Any / Bytes / Json field
+declarations, source facts, projection, and aliases remain current generic
+builtin behavior. Direct `count(Bytes field)` and `count(Json field)` remain
+current accepted concrete non-Any `count(field)` behavior and may emit SQL
+through existing generic paths. Direct `count(Any field)`,
+`count_distinct(Any field)`, `count_distinct(Bytes field)`,
+`count_distinct(Json field)`, and `min`/`max`/`sum`/`avg` over Any, Bytes, or
+Json remain fail-closed with existing diagnostic `PIE-S2314`.
+
+Generic comparison, ordering, `order by`, `group by`, and `satisfying` paths
+over Any / Bytes / Json are documented as current risky shared behavior, not a
+stable Any/Bytes/Json-specific compatibility guarantee and not newly authorized
+type-specific semantics.
+
+Slice 7 does not change source/compiler behavior, grammar, generated ANTLR
+files, parser or AST behavior, semantic behavior, IR or SQL behavior, CLI
+behavior, JSON v1, Project JSON v2, Semantic Metadata Artifact v1 schema or
+output, fixtures, goldens, examples, package metadata, package version,
+lockfiles, scripts, workflows, tags, release, publish/upload, signing, or
+attestation.
+
+Future Any / Bytes / Json work requires separately approved Gate 1 and Gate 2
+decisions. That work must first define explicit policy for Any dynamic
+behavior, Bytes encoding and storage, Json structural and path semantics,
+PostgreSQL/private MySQL dialect portability, diagnostics, SQL output, and
+public output compatibility.
+
+Slice 7 keeps the broader 12-slice Phase 36 plan intact.
+
 ## Slice 1 Boundary
 
 Slice 1 may:
