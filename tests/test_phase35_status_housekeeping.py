@@ -69,7 +69,7 @@ def test_global_status_docs_record_phase35_slice2_housekeeping() -> None:
         assert "No tag/release/publish/upload/signing/attestation occurred" in status
 
 
-def test_phase35_plan_records_slice2_and_slice3_scope_without_renaming_phase35() -> (
+def test_phase35_plan_records_slice2_through_slice4_scope_without_renaming_phase35() -> (
     None
 ):
     plan = _normalized(PHASE35_PLAN_PATH)
@@ -78,13 +78,25 @@ def test_phase35_plan_records_slice2_and_slice3_scope_without_renaming_phase35()
         "Phase 35 Slice 1 Candidate Decision, Inventory, And Safe Simplification "
         "Scope is complete",
         "Phase 35 Slice 2 Status Housekeeping is complete",
-        "Phase 35 Slice 3 Static Audit Helper Simplification is the current "
-        "tests-only static-audit helper simplification slice",
+        "Phase 35 Slice 3 Static Audit Helper Simplification is complete",
+        "Phase 35 Slice 4 Validation And Delivery Workflow Polish is the current "
+        "docs/static-audit-only delivery guidance slice",
         "Slice 3 does not extract or centralize `_paths`, `_digest`, "
         "`LOCKED_BOUNDARY_SURFACES`, `FORBIDDEN_DIFF_PATHS`, "
         "`POSITIVE_RELEASE_CLAIMS`, `PHASE34_TESTS`, phase artifact "
         "inventories, status-doc hash-lock constants, or release-claim "
         "constants",
+        "Phase 35 Slice 4 Validation And Delivery Workflow Polish is "
+        "docs/static-audit delivery guidance work only",
+        "`UV_CACHE_DIR=/tmp/...` is the preferred sandbox-local workaround",
+        "Sandbox DNS/PyPI failures in `scripts/package_smoke.py` are "
+        "environment/network failures",
+        "record the raw failure and rerun only `scripts/package_smoke.py` with "
+        "network access if available",
+        "Gate 2 evidence should be `.txt`, not `.md`",
+        "long evidence should be written in small chunks",
+        "`scripts/validate.py` remains the authoritative local gate",
+        "Generated, golden, and package smoke checks remain separate commands",
         PHASE34_COMPLETION_STATEMENT,
         PHASE35_ACTIVE_STATEMENT,
         PHASE35_SLICE1_LOCK,
@@ -95,6 +107,7 @@ def test_phase35_plan_records_slice2_and_slice3_scope_without_renaming_phase35()
         "Package version remains `0.1.0`",
         "attestation is performed by Slice 2",
         "attestation is performed by Slice 3",
+        "attestation is performed by Slice 4",
     ):
         assert required in plan, required
 

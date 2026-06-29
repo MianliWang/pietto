@@ -4,8 +4,9 @@
 
 Phase 35 Slice 1 Candidate Decision, Inventory, And Safe Simplification Scope
 is complete. Phase 35 Slice 2 Status Housekeeping is complete. Phase 35 Slice
-3 Static Audit Helper Simplification is the current tests-only static-audit
-helper simplification slice.
+3 Static Audit Helper Simplification is complete. Phase 35 Slice 4 Validation
+And Delivery Workflow Polish is the current docs/static-audit-only delivery
+guidance slice.
 
 Trusted handoff:
 
@@ -213,6 +214,40 @@ workflow change, and no release operation.
 
 Package version remains `0.1.0`. No tag/release/publish/upload/signing/
 attestation is performed by Slice 3.
+
+## 12. Slice 4 Status
+
+Phase 35 Slice 4 Validation And Delivery Workflow Polish is docs/static-audit
+delivery guidance work only. It records validation and evidence-handling
+expectations for future Gate 2-style runs without changing script behavior,
+workflow behavior, package metadata, dependencies, lockfiles, release,
+publish, upload, signing, or attestation behavior.
+
+Slice 4 documents that `UV_CACHE_DIR=/tmp/...` is the preferred sandbox-local
+workaround when the default `uv` cache under `/home/mianliwang/.cache/uv` is
+read-only. Sandbox DNS/PyPI failures in `scripts/package_smoke.py` are
+environment/network failures, not repository correctness failures, when the
+recorded failure is limited to dependency fetch or name resolution. In that
+case, record the raw failure and rerun only `scripts/package_smoke.py` with
+network access if available. Do not change repository files to fix sandbox
+cache, DNS, or PyPI environment failures.
+
+Slice 4 also records that Gate 2 evidence should be `.txt`, not `.md`; long
+evidence should be written in small chunks, not one giant shell block; and full
+diff, full cat, and validation output should go into evidence files rather
+than chat.
+
+`scripts/validate.py` remains the authoritative local gate for lockfile,
+format, lint, production typing, test typing, and pytest. Generated, golden,
+and package smoke checks remain separate commands in CI and Gate validation.
+
+Slice 4 implements no source/compiler behavior change, no grammar or generated
+change, no fixture or golden change, no script change, no workflow change, no
+package metadata change, no dependency or lockfile change, and no release
+operation.
+
+Package version remains `0.1.0`. No tag/release/publish/upload/signing/
+attestation is performed by Slice 4.
 
 ## 9. Slice 1 Status
 
