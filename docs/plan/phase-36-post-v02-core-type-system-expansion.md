@@ -199,6 +199,33 @@ native metadata, runtime, JSON, metadata, or SQL expansion.
 
 Slice 5 keeps the broader 12-slice Phase 36 plan intact.
 
+## Slice 6 DateTime / Time / Interval Boundary
+
+Phase 36 Slice 6 selects Option B: tests-only hardening with a docs/spec
+decision record. Slice 6 documents and tests the current DateTime / Time /
+Interval boundary without changing compiler behavior.
+
+`Date` and `Timestamp` remain the existing current supported builtins.
+`DateTime`, `Time`, and `Interval` remain unsupported/deferred candidates.
+`DateTime` is not an alias of `Timestamp`, and `Time` and `Interval` are not
+builtins. The current fail-closed behavior for these candidate type names is
+semantic type resolution with existing diagnostic `PIE-S2002`.
+
+Slice 6 does not change source/compiler behavior, grammar, generated ANTLR
+files, parser or AST behavior, semantic behavior, IR or SQL behavior, CLI
+behavior, JSON v1, Project JSON v2, Semantic Metadata Artifact v1 schema or
+output, fixtures, goldens, examples, package metadata, package version,
+lockfiles, scripts, workflows, tags, release, publish/upload, signing, or
+attestation.
+
+Future temporal work requires separately approved Gate 1 and Gate 2 decisions.
+That work must first define explicit policy for timezone semantics, timestamp
+precision semantics, time-of-day semantics, interval/duration semantics,
+temporal arithmetic, dialect portability, diagnostics, and public output
+compatibility.
+
+Slice 6 keeps the broader 12-slice Phase 36 plan intact.
+
 ## Slice 1 Boundary
 
 Slice 1 may:
