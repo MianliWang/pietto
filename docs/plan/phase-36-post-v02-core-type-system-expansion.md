@@ -122,6 +122,42 @@ accidental syntax, SQL, JSON, metadata, or arithmetic expansion.
 
 Slice 3 keeps the broader 12-slice Phase 36 plan intact.
 
+## Slice 4 UUID Support Completion
+
+Phase 36 Slice 4 selects Option A: docs/spec/static-audit only. UUID Support
+Completion documents the current limited/frozen UUID boundary and does not
+authorize UUID behavior implementation.
+
+`UUID` remains a limited/frozen scalar name, not a fully stable UUID scalar.
+Current safe documented support includes field declaration and shape facts,
+source field facts, projection, aliases through the generic projection schema,
+direct `count(UUID field)`, direct `count_distinct(UUID field)`, and Semantic
+Metadata Artifact v1 `support_posture="limited_frozen"`.
+
+Slice 4 also documents risky generic shared paths without changing them:
+equality and inequality comparisons, ordering comparisons, `order by UUID`
+field, `group by UUID` field, `satisfying` predicates involving UUID, SQL
+portability, and the UUID `min`/`max` boundary. These paths are broad
+semantic/IR/SQL surfaces and are not safe to change inside this docs/spec/static
+audit slice.
+
+Slice 4 does not change source/compiler behavior, source implementation,
+grammar, generated ANTLR files, parser or AST behavior, semantic behavior, IR or
+SQL behavior, CLI behavior, JSON v1, Project JSON v2, Semantic Metadata
+Artifact v1 schema or output, fixtures, goldens, examples, package metadata,
+package version, lockfiles, scripts, workflows, or release surfaces. Slice 4
+does not change public outputs.
+
+Any future UUID behavior changes require separately approved Gate 1 and Gate 2
+decisions. Future work must first define comparison policy, ordering policy,
+group-key policy, satisfying/result predicate policy, aggregate matrix policy,
+PostgreSQL/private MySQL dialect portability policy, public output
+compatibility policy, diagnostics/fail-closed policy, and validation proving no
+accidental literal, cast, native metadata, runtime, JSON, metadata, or SQL
+expansion.
+
+Slice 4 keeps the broader 12-slice Phase 36 plan intact.
+
 ## Slice 1 Boundary
 
 Slice 1 may:
