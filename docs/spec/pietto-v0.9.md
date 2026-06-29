@@ -2389,11 +2389,19 @@ IR/SQL, project emit-sql, project explain, metadata aggregation,
 relationship/JOIN, runtime/database/schema introspection, db pull, graph/ERD/AI
 metadata export. Phase 34 Relationship Grain And Narrow JOIN readiness
 foundation is complete as docs/spec/static-audit/status-only work. The original
-behavior MVP remains future implementation deferred. Phase 35 is active as
-Developer Experience And Delivery Pipeline MVP. Phase 35 Slice 1 is complete at
-`cd6a727989f3ba47ea9e7dcd7c04b6a2a7cb1071`. Safe Simplification remains a
-scoped discipline and future-slice discipline, not a roadmap title change and
-not source-refactor authorization. Package version remains `0.1.0`. No
+behavior MVP remains future implementation deferred. Phase 35 Developer
+Experience And Delivery Pipeline MVP is complete. Phase 35 Slice 1 remains
+complete at `cd6a727989f3ba47ea9e7dcd7c04b6a2a7cb1071`, and Slices 2 through 6
+complete status housekeeping, tests-only static-audit helper simplification,
+validation/delivery workflow polish, internal helper simplification candidate
+deferral, and completion audit/status lock work. Safe Simplification remains a
+scoped discipline, not a roadmap title change and not source-refactor
+authorization. Phase 35 added no source/compiler, parser/AST, semantic, IR/SQL,
+CLI, JSON v1, Project JSON v2, Semantic Metadata Artifact v1, JOIN/grain,
+project source selection, multi-file semantic, runtime/database, schema
+introspection, graph/ERD/AI export, fixture/golden/script/workflow/package
+metadata/lockfile/dependency, package version, or release-operation behavior.
+Package version remains `0.1.0`. No
 tag/release/publish/upload/signing/attestation occurred.
 Active roadmap: Phase 32: Semantic
 Explain And Metadata Output MVP; Phase 33: JSON v2 And Project / Multi-file

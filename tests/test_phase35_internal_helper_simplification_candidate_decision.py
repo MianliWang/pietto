@@ -20,14 +20,10 @@ UNAPPROVED_PHASE35_TITLE = (
     "Developer Experience, Delivery Pipeline, And Safe Simplification MVP"
 )
 FORBIDDEN_DIFF_PATHS = (
-    "README.md",
-    "AGENTS.md",
-    "docs/spec/pietto-v0.9.md",
     "docs/spec/phase-35-safe-simplification-contract-v1.md",
     "tests/_static_audit_helpers.py",
     "tests/test_phase35_safe_simplification_candidate_decision.py",
     "tests/test_phase35_static_audit_helper_simplification.py",
-    "tests/test_phase35_validation_delivery_workflow_polish.py",
     "src/pietto/cli.py",
     "src/pietto/cli_json.py",
     "src/pietto/_project",
@@ -63,8 +59,7 @@ def test_phase35_title_and_slice5_deferral_decision_are_locked() -> None:
     assert UNAPPROVED_PHASE35_TITLE not in plan
     for required in (
         "Phase 35 Slice 5 Internal Helper Simplification Candidate Decision is "
-        "the current docs/static-audit-only candidate-decision and "
-        "source-refactor deferral slice",
+        "complete",
         "Phase 35 Slice 5 Internal Helper Simplification Candidate Decision is "
         "docs/static-audit candidate-decision work only",
         "Slice 5 investigated internal helper simplification candidates",

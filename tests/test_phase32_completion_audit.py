@@ -48,11 +48,11 @@ PHASE34_COMPLETION_STATEMENT = (
     "Phase 34 Relationship Grain And Narrow JOIN readiness foundation is "
     "complete as docs/spec/static-audit/status-only work"
 )
-PHASE35_ACTIVE_STATEMENT = (
-    "Phase 35 is active as Developer Experience And Delivery Pipeline MVP"
+PHASE35_COMPLETION_STATEMENT = (
+    "Phase 35 Developer Experience And Delivery Pipeline MVP is complete"
 )
 PHASE35_SLICE1_LOCK = (
-    "Phase 35 Slice 1 is complete at `cd6a727989f3ba47ea9e7dcd7c04b6a2a7cb1071`"
+    "Phase 35 Slice 1 remains complete at `cd6a727989f3ba47ea9e7dcd7c04b6a2a7cb1071`"
 )
 
 CURRENT_STATUS_DOC_TEXT = (
@@ -88,9 +88,9 @@ CURRENT_STATUS_DOC_TEXT = (
     "graph/ERD/AI metadata export",
     PHASE34_COMPLETION_STATEMENT,
     "The original behavior MVP remains future implementation deferred",
-    PHASE35_ACTIVE_STATEMENT,
+    PHASE35_COMPLETION_STATEMENT,
     PHASE35_SLICE1_LOCK,
-    "Safe Simplification remains a scoped discipline and future-slice discipline",
+    "Safe Simplification remains a scoped discipline",
     "Package version remains `0.1.0`",
     "No tag/release/publish/upload/signing/attestation occurred",
 )

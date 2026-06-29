@@ -202,8 +202,8 @@ def test_status_docs_record_slice7_completion_and_roadmap_lock() -> None:
             "Phase 33 JSON v2 And Project / Multi-file MVP is complete",
             "Phase 34 Relationship Grain And Narrow JOIN readiness foundation is "
             "complete as docs/spec/static-audit/status-only work",
-            "Phase 35 is active as Developer Experience And Delivery Pipeline MVP",
-            "Phase 35 Slice 1 is complete at "
+            "Phase 35 Developer Experience And Delivery Pipeline MVP is complete",
+            "Phase 35 Slice 1 remains complete at "
             "`cd6a727989f3ba47ea9e7dcd7c04b6a2a7cb1071`",
             "Phase 34: Relationship Grain And Narrow JOIN MVP",
             "Phase 35: Developer Experience And Delivery Pipeline MVP",

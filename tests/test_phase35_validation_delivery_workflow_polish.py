@@ -19,9 +19,6 @@ CI_WORKFLOW_PATH = REPO_ROOT / ".github/workflows/ci.yml"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
 FORBIDDEN_DIFF_PATHS = (
-    "README.md",
-    "AGENTS.md",
-    "docs/spec/pietto-v0.9.md",
     "docs/spec/phase-35-safe-simplification-contract-v1.md",
     "tests/_static_audit_helpers.py",
     "tests/test_phase35_safe_simplification_candidate_decision.py",

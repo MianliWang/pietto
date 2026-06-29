@@ -6,8 +6,9 @@ Phase 35 Slice 1 Candidate Decision, Inventory, And Safe Simplification Scope
 is complete. Phase 35 Slice 2 Status Housekeeping is complete. Phase 35 Slice
 3 Static Audit Helper Simplification is complete. Phase 35 Slice 4 Validation
 And Delivery Workflow Polish is complete. Phase 35 Slice 5 Internal Helper
-Simplification Candidate Decision is the current docs/static-audit-only
-candidate-decision and source-refactor deferral slice.
+Simplification Candidate Decision is complete. Phase 35 Slice 6 Completion
+Audit And Status Lock is complete. Phase 35 Developer Experience And Delivery
+Pipeline MVP is complete.
 
 Trusted handoff:
 
@@ -56,6 +57,8 @@ Slice 1 does not update `README.md`, `AGENTS.md`, or
 `docs/spec/pietto-v0.9.md`. Slice 2 updates those global
 status-housekeeping files to record Phase 34 complete, Phase 35 active, and
 Phase 35 Slice 1 complete at `cd6a727989f3ba47ea9e7dcd7c04b6a2a7cb1071`.
+Slice 6 updates those global status-housekeeping files to record Phase 35
+complete as Developer Experience And Delivery Pipeline MVP.
 
 ## 3. Slice 1 Objective
 
@@ -80,9 +83,11 @@ categories:
 
 Current Phase 35 inventory:
 
-- `safe docs/status housekeeping`: update `AGENTS.md`, `README.md`, and
-  `docs/spec/pietto-v0.9.md` to record Phase 34 complete, Phase 35 active, and
-  Phase 35 Slice 1 complete at `cd6a727989f3ba47ea9e7dcd7c04b6a2a7cb1071`.
+- `safe docs/status housekeeping`: Slice 2 updates `AGENTS.md`, `README.md`,
+  and `docs/spec/pietto-v0.9.md` to record Phase 34 complete, Phase 35 active,
+  and Phase 35 Slice 1 complete at
+  `cd6a727989f3ba47ea9e7dcd7c04b6a2a7cb1071`. Slice 6 updates those current
+  global status surfaces to record Phase 35 complete.
 - `safe test-helper simplification`: Slice 3 extracts only exact repeated
   static-audit helpers for UTF-8 text reads, normalized text, and
   `git diff --name-only` forbidden-surface checks. It does not extract
@@ -155,9 +160,9 @@ project source selection, multi-file semantic behavior, runtime/database
 behavior, schema introspection, graph/ERD/AI metadata export, or any deferred
 feature.
 
-## 8. Tentative Later Slices
+## 8. Completed Slice Sequence
 
-Tentative future slices, subject to separate approval:
+Phase 35 completed these six slices:
 
 1. Candidate Decision, Inventory, And Safe Simplification Scope.
 2. Status Housekeeping for `README.md`, `AGENTS.md`, and
@@ -169,8 +174,8 @@ Tentative future slices, subject to separate approval:
    full public-surface proof.
 6. Completion Audit And Status Lock.
 
-This breakdown authorizes no implementation beyond the current explicitly
-approved slice.
+This completed breakdown authorizes no implementation beyond the explicitly
+approved slice scopes.
 
 ## 10. Slice 2 Status
 
@@ -280,6 +285,33 @@ unchanged.
 
 Package version remains `0.1.0`. No tag/release/publish/upload/signing/
 attestation is performed by Slice 5.
+
+## 14. Slice 6 Status
+
+Phase 35 Slice 6 Completion Audit And Status Lock is docs/static-audit/status
+lock work only. Slice 6 completes Phase 35 as Developer Experience And Delivery
+Pipeline MVP and updates current global status text in `README.md`, `AGENTS.md`,
+and `docs/spec/pietto-v0.9.md`.
+
+Slice 6 locks that Phase 35 Slice 1 remains complete at
+`cd6a727989f3ba47ea9e7dcd7c04b6a2a7cb1071`. Slice 1 completed the candidate
+decision and Safe Simplification scope; Slice 2 completed status housekeeping;
+Slice 3 completed tests-only static-audit helper simplification; Slice 4
+completed validation/delivery workflow polish; Slice 5 completed the internal
+helper simplification candidate decision and selected no production/internal
+helper extraction; and Slice 6 completes this audit/status-lock handoff.
+
+Safe Simplification remains a scoped discipline, not a roadmap title change and
+not source-refactor authorization. Phase 35 added no source/compiler behavior,
+parser/AST behavior, semantic behavior, IR/SQL behavior, CLI behavior, JSON v1,
+Project JSON v2, Semantic Metadata Artifact v1, JOIN/grain behavior, project
+source selection, multi-file semantic behavior, runtime/database behavior,
+schema introspection, graph/ERD/AI export, fixture/golden/script/workflow/
+package metadata/lockfile/dependency change, package version change, or release
+operation.
+
+Package version remains `0.1.0`. No tag/release/publish/upload/signing/
+attestation is performed by Slice 6.
 
 ## 9. Slice 1 Status
 

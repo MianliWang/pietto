@@ -24,19 +24,17 @@ PHASE34_COMPLETION_STATEMENT = (
     "Phase 34 Relationship Grain And Narrow JOIN readiness foundation is "
     "complete as docs/spec/static-audit/status-only work"
 )
-PHASE35_ACTIVE_STATEMENT = (
-    "Phase 35 is active as Developer Experience And Delivery Pipeline MVP"
+PHASE35_COMPLETION_STATEMENT = (
+    "Phase 35 Developer Experience And Delivery Pipeline MVP is complete"
 )
 PHASE35_SLICE1_LOCK = (
-    "Phase 35 Slice 1 is complete at `cd6a727989f3ba47ea9e7dcd7c04b6a2a7cb1071`"
+    "Phase 35 Slice 1 remains complete at `cd6a727989f3ba47ea9e7dcd7c04b6a2a7cb1071`"
 )
 OFFICIAL_PHASE35_TITLE = "Developer Experience And Delivery Pipeline MVP"
 UNAPPROVED_PHASE35_TITLE = (
     "Developer Experience, Delivery Pipeline, And Safe Simplification MVP"
 )
-SAFE_SIMPLIFICATION_SCOPE = (
-    "Safe Simplification remains a scoped discipline and future-slice discipline"
-)
+SAFE_SIMPLIFICATION_SCOPE = "Safe Simplification remains a scoped discipline"
 POSITIVE_RELEASE_CLAIMS = (
     "tag created",
     "release created",
@@ -58,7 +56,11 @@ def test_global_status_docs_record_phase35_slice2_housekeeping() -> None:
         assert (
             "The original behavior MVP remains future implementation deferred" in status
         )
-        assert PHASE35_ACTIVE_STATEMENT in status, str(path)
+        assert PHASE35_COMPLETION_STATEMENT in status, str(path)
+        assert (
+            "Phase 35 is active as Developer Experience And Delivery Pipeline MVP"
+            not in status
+        )
         assert PHASE35_SLICE1_LOCK in status, str(path)
         assert OFFICIAL_PHASE35_TITLE in status, str(path)
         assert UNAPPROVED_PHASE35_TITLE not in status, str(path)
@@ -69,7 +71,7 @@ def test_global_status_docs_record_phase35_slice2_housekeeping() -> None:
         assert "No tag/release/publish/upload/signing/attestation occurred" in status
 
 
-def test_phase35_plan_records_slice2_through_slice5_scope_without_renaming_phase35() -> (
+def test_phase35_plan_records_slice2_through_slice6_scope_without_renaming_phase35() -> (
     None
 ):
     plan = _normalized(PHASE35_PLAN_PATH)
@@ -81,8 +83,9 @@ def test_phase35_plan_records_slice2_through_slice5_scope_without_renaming_phase
         "Phase 35 Slice 3 Static Audit Helper Simplification is complete",
         "Phase 35 Slice 4 Validation And Delivery Workflow Polish is complete",
         "Phase 35 Slice 5 Internal Helper Simplification Candidate Decision is "
-        "the current docs/static-audit-only candidate-decision and "
-        "source-refactor deferral slice",
+        "complete",
+        "Phase 35 Slice 6 Completion Audit And Status Lock is complete",
+        PHASE35_COMPLETION_STATEMENT,
         "Slice 3 does not extract or centralize `_paths`, `_digest`, "
         "`LOCKED_BOUNDARY_SURFACES`, `FORBIDDEN_DIFF_PATHS`, "
         "`POSITIVE_RELEASE_CLAIMS`, `PHASE34_TESTS`, phase artifact "
@@ -109,7 +112,7 @@ def test_phase35_plan_records_slice2_through_slice5_scope_without_renaming_phase
         "Semantic helper extraction is deferred",
         "Metadata builder/serializer/text helper extraction is deferred",
         PHASE34_COMPLETION_STATEMENT,
-        PHASE35_ACTIVE_STATEMENT,
+        PHASE35_COMPLETION_STATEMENT,
         PHASE35_SLICE1_LOCK,
         SAFE_SIMPLIFICATION_SCOPE,
         "not a Phase 35 title change",
@@ -120,6 +123,7 @@ def test_phase35_plan_records_slice2_through_slice5_scope_without_renaming_phase
         "attestation is performed by Slice 3",
         "attestation is performed by Slice 4",
         "attestation is performed by Slice 5",
+        "attestation is performed by Slice 6",
     ):
         assert required in plan, required
 

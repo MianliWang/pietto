@@ -77,19 +77,19 @@ PHASE34_COMPLETION_STATEMENT = (
     "Phase 34 Relationship Grain And Narrow JOIN readiness foundation is "
     "complete as docs/spec/static-audit/status-only work"
 )
-PHASE35_ACTIVE_STATEMENT = (
-    "Phase 35 is active as Developer Experience And Delivery Pipeline MVP"
+PHASE35_COMPLETION_STATEMENT = (
+    "Phase 35 Developer Experience And Delivery Pipeline MVP is complete"
 )
 PHASE35_SLICE1_LOCK = (
-    "Phase 35 Slice 1 is complete at `cd6a727989f3ba47ea9e7dcd7c04b6a2a7cb1071`"
+    "Phase 35 Slice 1 remains complete at `cd6a727989f3ba47ea9e7dcd7c04b6a2a7cb1071`"
 )
 CURRENT_STATUS_DOC_TEXT = (
     *PHASE33_COMPLETION_STATUS[:-3],
     PHASE34_COMPLETION_STATEMENT,
     "The original behavior MVP remains future implementation deferred",
-    PHASE35_ACTIVE_STATEMENT,
+    PHASE35_COMPLETION_STATEMENT,
     PHASE35_SLICE1_LOCK,
-    "Safe Simplification remains a scoped discipline and future-slice discipline",
+    "Safe Simplification remains a scoped discipline",
     "Package version remains `0.1.0`",
     "No tag/release/publish/upload/signing/attestation occurred",
 )
@@ -128,17 +128,17 @@ LOCKED_PHASE33_SURFACES = {
     "readme": (
         "README.md",
         1,
-        "b29f6e4c1d6d1bdad9e2155a58ca94efb39c510d0212ad48c1816c255395b21d",
+        "c6719e6670203ed99f48c30838da3bf09126aa4845817c0dc08146bf80cc6739",
     ),
     "agents": (
         "AGENTS.md",
         1,
-        "67c997602979825a85da15835958e429b6a700e96b91bc302e19b727e5c32c17",
+        "0bee06d21c2fa29cd5835634547bc5239599e5af7db818cd840c2d2d7dc22b93",
     ),
     "pietto_v09": (
         "docs/spec/pietto-v0.9.md",
         1,
-        "ae317e0b5f6139f1a8adcf1604abcfcdfe069e37e250a831bdfe00286fa9498e",
+        "16c40f4f8b0babe3d42f2b001280542f7386e055385c3e905cedb8bf5df73843",
     ),
 }
 
@@ -352,7 +352,7 @@ def test_package_version_release_and_later_phase_boundaries_are_locked() -> None
         assert required in combined_status, required
     assert "Phase 34 has not started" not in combined_status
     assert PHASE34_COMPLETION_STATEMENT in combined_status
-    assert PHASE35_ACTIVE_STATEMENT in combined_status
+    assert PHASE35_COMPLETION_STATEMENT in combined_status
     assert PHASE35_SLICE1_LOCK in combined_status
     assert (
         "Phase 34: Semantic Graph / ERD / AI Metadata Export MVP" not in combined_status
