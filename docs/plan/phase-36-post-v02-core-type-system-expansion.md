@@ -353,6 +353,60 @@ SQL output, and public output compatibility.
 
 Slice 9 keeps the broader 12-slice Phase 36 plan intact.
 
+## Slice 10 Public Surface Stability Hardening
+
+Phase 36 Slice 10 selects Option B: tests-only hardening with a docs/spec
+decision record. Slice 10 locks public surface stability after Phase 36 Slices
+3 through 9 without changing compiler behavior.
+
+The locked public surfaces are:
+
+- CLI text output;
+- CLI JSON v1;
+- Project JSON v2;
+- Semantic Metadata Artifact v1 JSON and text output;
+- PostgreSQL SQL output;
+- private MySQL SQL and JSON output;
+- diagnostic envelope shape;
+- fixture and golden inventory;
+- generated parser inventory;
+- package metadata, package version, and package-smoke policy;
+- validation scripts and CI workflow role;
+- release, publish/upload, signing, and attestation non-authorization.
+
+Slice 10 makes no behavior change. It does not change source/compiler
+behavior, grammar, generated ANTLR files, parser or AST behavior, semantic
+behavior, IR or SQL behavior, CLI behavior, CLI text output, CLI JSON v1,
+Project JSON v2, Semantic Metadata Artifact v1 schema or output, fixtures,
+goldens, examples, package metadata, package version, lockfiles, validation
+scripts, workflows, tags, release, publish/upload, signing, or attestation.
+Slice 10 records:
+
+- No behavior change.
+- No source/compiler behavior change.
+- No schema/output change.
+- No package/workflow/release change.
+
+The only approved Phase 36 behavior change so far remains Slice 5:
+`count(Enum field)` now fails closed with diagnostic `PIE-S2314`. Slice 10
+treats that as a diagnostic behavior boundary, not a JSON schema, diagnostic
+envelope, or public output shape change.
+
+`README.md`, `AGENTS.md`, and `docs/spec/pietto-v0.9.md` remain deferred to
+Slice 11 status housekeeping unless separately approved. Slice 10 does not
+perform global status housekeeping.
+
+Sandbox DNS/PyPI failures in `scripts/package_smoke.py` are environment-only
+when the raw failure clearly shows dependency fetch, name resolution, or
+package index access failure. Gate 2 evidence should record the raw failure and
+must not patch repository files for an environment-only package smoke failure.
+
+Future public surface changes require separately approved Gate 1 and Gate 2
+decisions. That future work must explicitly define schema compatibility,
+diagnostic envelope compatibility, SQL/golden expectations, package metadata
+policy, workflow policy, and release-operation boundaries before any public
+surface implementation changes are made.
+
 ## Slice 1 Boundary
 
 Slice 1 may:
