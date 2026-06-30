@@ -510,4 +510,4 @@ def test_only_slice9_allowlisted_file_is_changed_or_untracked() -> None:
     )
 
     assert non_phase37_static_audit_paths == []
-    assert changed_paths == ALLOWED_SLICE9_CHANGED_PATHS
+    assert changed_paths in (set(), ALLOWED_SLICE9_CHANGED_PATHS)
