@@ -307,6 +307,52 @@ domain support, SQL output, diagnostics, and public output compatibility.
 
 Slice 8 keeps the broader 12-slice Phase 36 plan intact.
 
+## Slice 9 Expanded Scalar / Operator Matrix
+
+Phase 36 Slice 9 selects Option B: tests-only hardening with a docs/spec
+decision record. Slice 9 consolidates the current scalar, operator,
+comparison, and aggregate posture from Phase 30/31 contracts and Phase 36
+Slices 3 through 8 without changing compiler behavior.
+
+The expanded matrix is documentation and test hardening, not new
+implementation. Core current scalar rows remain current: `Bool`, `Int`,
+`Float`, `Decimal`, `Text`, `Date`, and `Timestamp`. Special and deferred rows
+remain in their current postures: `UUID` remains `limited_frozen`, Enum remains
+`metadata_only`, `DateTime` / `Time` / `Interval` remain unsupported,
+`Any` remains a top/deferred boundary, `Bytes` / `Json` remain
+`deferred_builtin`, type aliases remain current alias behavior, domain
+refinement remains deferred, Currency/Money remains deferred, and native DB
+metadata remains deferred.
+
+Risky generic comparison, order, group, and `satisfying` paths are documented as
+current shared behavior where already implemented, not stable type-specific
+compatibility guarantees. This includes risky generic shared paths for `UUID`,
+Enum, `Any`, `Bytes`, `Json`, and alias participation through canonical type
+paths.
+
+Slice 9 makes no behavior change. It does not authorize new arithmetic
+behavior, comparison behavior, ordering behavior, aggregate behavior, Bool
+predicate behavior, Decimal precision/scale carrier work, DateTime / Time /
+Interval behavior, domain refinement behavior, Currency/Money behavior, native
+DB metadata, DDL/storage behavior, runtime/database execution, schema
+introspection or db pull, SQL golden output changes, CLI output changes, JSON
+schema changes, Semantic Metadata Artifact v1 schema or output changes,
+fixtures, goldens, examples, package metadata, package version, lockfiles,
+scripts, workflows, tags, release, publish/upload, signing, or attestation.
+
+Slice 9 does not change grammar, generated ANTLR files, parser or AST behavior,
+source/compiler behavior, semantic behavior, IR or SQL behavior, CLI behavior,
+JSON v1, Project JSON v2, or Semantic Metadata Artifact v1 behavior.
+
+Future operator or matrix behavior work requires separately approved Gate 1 and
+Gate 2 decisions. That work must first define explicit policy for operator
+compatibility, comparison compatibility, ordering, group keys, `satisfying`,
+aggregate rows, `Any` / `Bytes` / `Json`, `UUID`, Enum, temporal candidates,
+Decimal precision/scale, domain refinement, native DB metadata, diagnostics,
+SQL output, and public output compatibility.
+
+Slice 9 keeps the broader 12-slice Phase 36 plan intact.
+
 ## Slice 1 Boundary
 
 Slice 1 may:
