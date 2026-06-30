@@ -49,9 +49,6 @@ FORBIDDEN_DIFF_PATHS = (
     ".github",
     "scripts",
     "examples",
-    "README.md",
-    "AGENTS.md",
-    "docs/spec/pietto-v0.9.md",
 )
 
 

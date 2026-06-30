@@ -15,9 +15,6 @@ SPEC_PATH = (
 )
 
 FORBIDDEN_DIFF_PATHS = (
-    "README.md",
-    "AGENTS.md",
-    "docs/spec/pietto-v0.9.md",
     "grammar/Pietto.g4",
     "src/pietto/generated",
     "src/pietto/cli.py",

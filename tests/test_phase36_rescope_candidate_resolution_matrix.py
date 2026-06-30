@@ -12,9 +12,6 @@ PLAN_PATH = REPO_ROOT / "docs/plan/phase-36-post-v02-core-type-system-expansion.
 SPEC_PATH = REPO_ROOT / "docs/spec/phase36-core-type-resolution-matrix-v1.md"
 
 FORBIDDEN_DIFF_PATHS = (
-    "README.md",
-    "AGENTS.md",
-    "docs/spec/pietto-v0.9.md",
     "grammar/Pietto.g4",
     "src/pietto/generated",
     "src/pietto/cli.py",

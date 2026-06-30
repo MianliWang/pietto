@@ -27,9 +27,6 @@ MYSQL_EXPRESSIONS_PATH = REPO_ROOT / "src/pietto/sql/mysql_expressions.py"
 CLI_JSON_PATH = REPO_ROOT / "src/pietto/cli_json.py"
 
 FORBIDDEN_DIFF_PATHS = (
-    "README.md",
-    "AGENTS.md",
-    "docs/spec/pietto-v0.9.md",
     "grammar/Pietto.g4",
     "src/pietto/generated",
     "src/pietto/cli.py",

@@ -407,6 +407,34 @@ diagnostic envelope compatibility, SQL/golden expectations, package metadata
 policy, workflow policy, and release-operation boundaries before any public
 surface implementation changes are made.
 
+## Slice 11 Phase 36 Status Housekeeping
+
+Phase 36 Slice 11 selects Option B: docs/status-only housekeeping with a
+static-audit test and required audit maintenance. Slice 11 updates
+`README.md`, `AGENTS.md`, and `docs/spec/pietto-v0.9.md` to record that Phase
+36 is complete through Slice 10. Slice 11 does not claim Phase 36 final
+completion; Slice 12 remains Completion Audit And Status Lock.
+
+Slice 11 may update existing audit tests only to account for intentional status
+document changes and digest refreshes. Those updates must preserve the original
+audit intent: status wording expectations may be refreshed, true content digest
+locks may update only expected digest literals, and dynamic git-diff guards may
+allow the approved Slice 11 status documents without weakening
+grammar/generated/source/compiler/semantic/IR/SQL/CLI/JSON/metadata,
+fixtures/goldens, scripts, workflows, package metadata, lockfile, or release
+guards.
+
+Slice 11 makes no behavior change. It does not change source/compiler behavior,
+grammar, generated ANTLR files, parser or AST behavior, semantic behavior, IR
+or SQL behavior, CLI behavior, CLI text output, CLI JSON v1, Project JSON v2,
+Semantic Metadata Artifact v1 schema or output, diagnostic envelope shape,
+fixtures, goldens, examples, validation scripts, workflows, package metadata,
+package version, lockfiles, tags, release, publish/upload, signing, or
+attestation.
+
+Package version remains `0.1.0`. No tag/release/publish/upload/signing or
+attestation is performed by Slice 11.
+
 ## Slice 1 Boundary
 
 Slice 1 may:

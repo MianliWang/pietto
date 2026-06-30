@@ -2231,11 +2231,14 @@ readiness only. UUID remains limited/frozen readiness as a builtin scalar name
 with field facts/projection, existing direct-field `count(UUID field)`, and
 existing direct-field `count_distinct(UUID field)`. Enum remains metadata
 readiness only through enum definitions, enum field facts, `TypeKind.ENUM`,
-and `EnumIR` metadata. count(Enum field) remains a documented risk because
-current semantic/IR acceptance has PostgreSQL/private MySQL fail-closed
-output. The risk is semantic/IR acceptance with PostgreSQL/private MySQL
-fail-closed output and requires separate explicit approval before any
-behavior fix. Enum is not an accepted end-to-end aggregate row. UUID/Enum
+and `EnumIR` metadata. Phase 31 originally documented `count(Enum field)` as a
+backend fail-closed risk; Phase 36 Slice 5 later resolved that unsafe path by
+making `count(Enum field)` fail closed in semantic aggregate validation with
+`PIE-S2314`. The historical Phase 31 phrase "count(Enum field) remains a
+documented risk because semantic/IR acceptance with PostgreSQL/private MySQL
+fail-closed output" is retained as history only and is superseded by the
+Phase 36 Slice 5 `PIE-S2314` behavior. Enum is not an accepted end-to-end
+aggregate row. UUID/Enum
 comparisons remain current generic known-child
 comparison behavior producing `Bool UNKNOWN`, not a UUID- or Enum-specific
 comparison compatibility matrix. Slice 5 adds no Phase 31 behavior
@@ -2299,7 +2302,21 @@ Decision, Roadmap Alignment, And v0.2 Handoff Audit is complete as
 docs/spec/static-audit/status-only work. Phase 32 as a whole is not complete.
 Package version remains `0.1.0`. Phase 32 Slice 1 performed no package version
 bump, tag, release, publish, upload, signing, or attestation. No `pietto
-explain` CLI behavior was implemented in Slice 1. Active roadmap: Phase 32:
+explain` CLI behavior was implemented in Slice 1. Phase 36 Slices 1 through
+10 are complete. Phase 36 remains in progress; Slice 12 remains the final
+completion audit/status lock. Slice 5 is the only Phase 36 behavior change so
+far: `count(Enum field)` now fails closed in semantic aggregate validation
+with `PIE-S2314`. The Phase 36 type-candidate resolutions are: Decimal
+precision-scale carrier deferred with exact prerequisites; UUID
+`limited_frozen` with no behavior expansion; Enum count fail-closed with
+`PIE-S2314`; DateTime, Time, and Interval unsupported/deferred; Any, Bytes,
+and Json posture documented without behavior change; type alias current
+behavior preserved while domain refinement remains deferred; expanded
+scalar/operator matrix documented without behavior change; and public surface
+stability locked without behavior change. Currency/Money and native DB
+metadata remain deferred. No public schema/output expansion occurred. Package
+version remains `0.1.0`. No tag/release/publish/upload/signing/attestation
+occurred. Active roadmap: Phase 32:
 Semantic Explain And Metadata Output MVP; Phase 33: JSON v2 And Project /
 Multi-file MVP; Phase 34: Relationship Grain And Narrow JOIN MVP; Phase 35:
 Developer Experience And Delivery Pipeline MVP; Phase 36: Post-v0.2 Core Type System Expansion MVP;
@@ -2402,6 +2419,25 @@ project source selection, multi-file semantic, runtime/database, schema
 introspection, graph/ERD/AI export, fixture/golden/script/workflow/package
 metadata/lockfile/dependency, package version, or release-operation behavior.
 Package version remains `0.1.0`. No
+tag/release/publish/upload/signing/attestation occurred.
+Phase 36 Slices 1 through 10 are complete. Phase 36 remains in progress;
+Slice 12 remains the final completion audit/status lock. Slice 5 is the only
+Phase 36 behavior change so far: `count(Enum field)` now fails closed in
+semantic aggregate validation with `PIE-S2314`. The Phase 36 type-candidate
+resolutions are: Decimal precision-scale carrier deferred with exact
+prerequisites; UUID `limited_frozen` with no behavior expansion; Enum count
+fail-closed with `PIE-S2314`; DateTime, Time, and Interval
+unsupported/deferred; Any, Bytes, and Json posture documented without behavior
+change; type alias current behavior preserved while domain refinement remains
+deferred; expanded scalar/operator matrix documented without behavior change;
+and public surface stability locked without behavior change. Currency/Money
+and native DB metadata remain deferred. No public schema/output expansion
+occurred. CLI JSON v1, Project JSON v2, Semantic Metadata Artifact v1
+schema/output, diagnostic envelope, SQL golden bytes, fixtures/goldens,
+workflows, scripts, lockfiles, and package metadata are unchanged. Slice 11
+status housekeeping authorizes no source/compiler behavior changes, workflow
+changes, release operations, public schema changes, fixtures/goldens, scripts,
+or generated artifacts. Package version remains `0.1.0`. No
 tag/release/publish/upload/signing/attestation occurred.
 Active roadmap: Phase 32: Semantic
 Explain And Metadata Output MVP; Phase 33: JSON v2 And Project / Multi-file

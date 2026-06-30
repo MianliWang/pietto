@@ -270,6 +270,26 @@ The current implementation status is:
   fixture/golden/script/workflow/package metadata/lockfile/dependency, package
   version, or release-operation behavior. Package version remains `0.1.0`. No
   tag/release/publish/upload/signing/attestation occurred.
+  Phase 36 Slices 1 through 10 are complete. Phase 36 remains in progress;
+  Slice 12 remains the final completion audit/status lock. Slice 5 is the only
+  Phase 36 behavior change so far: `count(Enum field)` now fails closed in
+  semantic aggregate validation with `PIE-S2314`. Slices 3, 4, 6, 7, 8, 9, and
+  10 are docs/spec/static-audit or tests-only hardening with no behavior
+  change. Decimal precision-scale carrier work is deferred with exact
+  prerequisites; UUID remains `limited_frozen` without behavior expansion;
+  DateTime, Time, and Interval remain unsupported/deferred; Any, Bytes, and
+  Json posture is documented without behavior change; type alias behavior
+  remains current while domain refinement is deferred; the expanded
+  scalar/operator matrix is documented without behavior change; and public
+  surface stability is locked without behavior change. Currency/Money and
+  native DB metadata remain deferred. Public schemas and outputs remain
+  unchanged: CLI JSON v1, Project JSON v2, Semantic Metadata Artifact v1
+  schema/output, diagnostic envelope, SQL golden bytes, fixtures/goldens,
+  workflows, scripts, lockfiles, and package metadata are unchanged. Slice 11
+  status housekeeping authorizes no source/compiler behavior changes, workflow
+  changes, release operations, public schema changes, fixtures/goldens,
+  scripts, or generated artifacts. Package version remains `0.1.0`. No
+  tag/release/publish/upload/signing/attestation occurred.
   Phase 32: Semantic Explain And Metadata Output MVP; Phase 33: JSON v2 And
   Project / Multi-file MVP; Phase 34: Relationship Grain And Narrow JOIN MVP;
   Phase 35: Developer Experience And Delivery Pipeline MVP; Phase 36: Post-v0.2 Core Type System Expansion MVP;
@@ -509,10 +529,13 @@ and `max` are included only as current accepted behavior with existing
 semantic, IR, and SQL test evidence. Bytes and Json are recorded only as
 existing count(field) concrete builtin non-Any behavior; this does not imply
 broader Bytes or Json expression, comparison, SQL, or type-system support.
-count(Enum field) remains a documented risk because current semantic/IR
-acceptance has PostgreSQL/private MySQL fail-closed output. The risk is
-semantic/IR acceptance with PostgreSQL/private MySQL fail-closed output and
-requires separate explicit approval before any behavior fix. Phase 31 Slice 3
+Phase 31 originally documented `count(Enum field)` as a backend fail-closed
+risk; Phase 36 Slice 5 later resolved that unsafe path by making
+`count(Enum field)` fail closed in semantic aggregate validation with
+`PIE-S2314`. The historical Phase 31 phrase "count(Enum field) remains a
+documented risk because semantic/IR acceptance with PostgreSQL/private MySQL
+fail-closed output" is retained as history only and is superseded by the
+Phase 36 Slice 5 `PIE-S2314` behavior. Phase 31 Slice 3
 Numeric Promotion And Decimal Boundary Tests is complete as
 tests/static-audit/status work only. Slice 3 locks current Int/Float numeric
 promotion, Decimal `+` and `-`, deferred/unknown division `/`, no Decimal
@@ -539,11 +562,14 @@ readiness only. UUID remains limited/frozen readiness as a builtin scalar name
 with field facts/projection, existing direct-field `count(UUID field)`, and
 existing direct-field `count_distinct(UUID field)`. Enum remains metadata
 readiness only through enum definitions, enum field facts, `TypeKind.ENUM`,
-and `EnumIR` metadata. count(Enum field) remains a documented risk because
-current semantic/IR acceptance has PostgreSQL/private MySQL fail-closed
-output. The risk is semantic/IR acceptance with PostgreSQL/private MySQL
-fail-closed output and requires separate explicit approval before any
-behavior fix. Enum is not an accepted end-to-end aggregate row. UUID/Enum
+and `EnumIR` metadata. Phase 31 originally documented `count(Enum field)` as a
+backend fail-closed risk; Phase 36 Slice 5 later resolved that unsafe path by
+making `count(Enum field)` fail closed in semantic aggregate validation with
+`PIE-S2314`. The historical Phase 31 phrase "count(Enum field) remains a
+documented risk because semantic/IR acceptance with PostgreSQL/private MySQL
+fail-closed output" is retained as history only and is superseded by the
+Phase 36 Slice 5 `PIE-S2314` behavior. Enum is not an accepted end-to-end
+aggregate row. UUID/Enum
 comparisons remain current generic known-child
 comparison behavior producing `Bool UNKNOWN`, not a UUID- or Enum-specific
 comparison compatibility matrix. Phase 31 Slice 6 Diagnostic / CLI / JSON
@@ -656,6 +682,26 @@ introspection, graph/ERD/AI export, fixture/golden/script/workflow/package
 metadata/lockfile/dependency, package version, or release-operation behavior.
 Package version remains `0.1.0`. No
 tag/release/publish/upload/signing/attestation occurred.
+Phase 36 Slices 1 through 10 are complete. Phase 36 remains in progress;
+Slice 12 remains the final completion audit/status lock. Slice 5 is the only
+Phase 36 behavior change so far: `count(Enum field)` now fails closed in
+semantic aggregate validation with `PIE-S2314`. Slices 3, 4, 6, 7, 8, 9, and
+10 are docs/spec/static-audit or tests-only hardening with no behavior change.
+Decimal precision-scale carrier work is deferred with exact prerequisites;
+UUID remains `limited_frozen` without behavior expansion; DateTime, Time, and
+Interval remain unsupported/deferred; Any, Bytes, and Json posture is
+documented without behavior change; type alias behavior remains current while
+domain refinement is deferred; the expanded scalar/operator matrix is
+documented without behavior change; and public surface stability is locked
+without behavior change. Currency/Money and native DB metadata remain
+deferred. Public schemas and outputs remain unchanged: CLI JSON v1, Project
+JSON v2, Semantic Metadata Artifact v1 schema/output, diagnostic envelope, SQL
+golden bytes, fixtures/goldens, workflows, scripts, lockfiles, and package
+metadata are unchanged. Slice 11 status housekeeping authorizes no
+source/compiler behavior changes, workflow changes, release operations, public
+schema changes, fixtures/goldens, scripts, or generated artifacts. Package
+version remains `0.1.0`. No tag/release/publish/upload/signing/attestation
+occurred.
 
 The supported single-file CLI commands and forms include:
 

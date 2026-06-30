@@ -51,9 +51,6 @@ FORBIDDEN_DIFF_PATHS = (
     ".github",
     "scripts",
     "examples",
-    "README.md",
-    "AGENTS.md",
-    "docs/spec/pietto-v0.9.md",
 )
 
 PHASE36_CANDIDATE_PUBLIC_FIELD_FRAGMENTS = (
@@ -383,13 +380,16 @@ def test_package_version_smoke_scripts_and_workflow_boundaries_are_locked() -> N
         assert forbidden not in combined_release_surface, forbidden
 
 
-def test_status_docs_remain_deferred_to_slice11() -> None:
+def test_status_docs_are_deferred_until_slice11_and_housekeeping_is_recorded() -> None:
     docs = _slice10_docs()
 
     for required in (
         "`README.md`, `AGENTS.md`, and `docs/spec/pietto-v0.9.md` remain deferred to Slice 11",
         "Slice 10 does not perform global status housekeeping",
         "Slice 11 status housekeeping",
+        "Phase 36 Slice 11 selects Option B",
+        "updates `README.md`, `AGENTS.md`, and `docs/spec/pietto-v0.9.md`",
+        "does not claim Phase 36 final completion",
     ):
         assert required in docs, required
 
