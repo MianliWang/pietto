@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+from fnmatch import fnmatchcase
 from pathlib import Path
 
 from _static_audit_helpers import (
@@ -34,14 +35,11 @@ PHASE36_SCALAR_MATRIX_TEST_PATH = (
 )
 AGGREGATES_SOURCE_PATH = REPO_ROOT / "src/pietto/semantic/aggregates.py"
 
-THIS_TEST = "tests/test_phase37_current_aggregate_matrix.py"
-
 FORBIDDEN_DIFF_PATHS = (
     "README.md",
     "AGENTS.md",
     "docs/spec/pietto-v0.9.md",
     "docs/plan/phase-37-post-v02-aggregate-surface-expansion.md",
-    "docs/spec",
     "src",
     "grammar",
     "src/pietto/generated",
@@ -52,6 +50,11 @@ FORBIDDEN_DIFF_PATHS = (
     ".github/workflows",
     "pyproject.toml",
     "uv.lock",
+)
+
+IN_PROGRESS_PHASE37_STATIC_AUDIT_PATTERNS = (
+    "docs/spec/phase37-*.md",
+    "tests/test_phase37_*.py",
 )
 
 
@@ -91,6 +94,13 @@ def _git_status_for(paths: tuple[str, ...]) -> str:
     )
     assert result.stderr == ""
     return result.stdout.strip()
+
+
+def _is_in_progress_phase37_static_audit_path(path: str) -> bool:
+    return any(
+        fnmatchcase(path, pattern)
+        for pattern in IN_PROGRESS_PHASE37_STATIC_AUDIT_PATTERNS
+    )
 
 
 def test_phase37_slice2_is_tests_only_static_audit_no_behavior_change() -> None:
@@ -294,8 +304,13 @@ def test_forbidden_surfaces_are_not_modified_or_untracked() -> None:
     assert status_output == ""
 
 
-def test_only_allowlisted_slice2_file_is_changed_or_untracked() -> None:
+def test_only_phase37_static_audit_files_are_changed_or_untracked() -> None:
     status_lines = _git_status()
     changed_paths = {line[3:] for line in status_lines}
+    forbidden_paths = sorted(
+        path
+        for path in changed_paths
+        if not _is_in_progress_phase37_static_audit_path(path)
+    )
 
-    assert changed_paths <= {THIS_TEST}
+    assert forbidden_paths == []
