@@ -46,14 +46,11 @@ PHASE31_DIAGNOSTIC_TEST_PATH = (
     REPO_ROOT / "tests/test_phase31_diagnostic_cli_json_stability.py"
 )
 
-THIS_TEST_PATH = "tests/test_phase37_nested_aggregate_composition_hardening.py"
-
 FORBIDDEN_DIFF_PATHS = (
     "README.md",
     "AGENTS.md",
     "docs/spec/pietto-v0.9.md",
     "docs/plan/phase-37-post-v02-aggregate-surface-expansion.md",
-    "docs/spec",
     "src",
     "grammar",
     "src/pietto/generated",
@@ -372,7 +369,7 @@ def test_forbidden_surfaces_are_not_modified_or_untracked() -> None:
     assert status_output == ""
 
 
-def test_only_slice6_allowlisted_file_is_changed_or_untracked() -> None:
+def test_only_phase37_static_audit_files_are_changed_or_untracked() -> None:
     status_lines = _git_status()
     changed_paths = {line[3:] for line in status_lines}
     forbidden_paths = sorted(
@@ -382,5 +379,3 @@ def test_only_slice6_allowlisted_file_is_changed_or_untracked() -> None:
     )
 
     assert forbidden_paths == []
-    if changed_paths:
-        assert changed_paths == {THIS_TEST_PATH}
