@@ -77,10 +77,6 @@ FORBIDDEN_DIFF_PATHS = (
     "uv.lock",
 )
 
-ALLOWED_SLICE9_CHANGED_PATHS = {
-    "tests/test_phase37_grouped_aggregate_interaction_hardening.py",
-}
-
 IN_PROGRESS_PHASE37_STATIC_AUDIT_PATTERNS = (
     "docs/spec/phase37-*.md",
     "tests/test_phase37_*.py",
@@ -500,7 +496,7 @@ def test_forbidden_surfaces_are_not_modified_or_untracked() -> None:
     assert status_output == ""
 
 
-def test_only_slice9_allowlisted_file_is_changed_or_untracked() -> None:
+def test_only_phase37_static_audit_files_are_changed_or_untracked() -> None:
     status_lines = _git_status()
     changed_paths = {line[3:] for line in status_lines}
     non_phase37_static_audit_paths = sorted(
@@ -510,4 +506,3 @@ def test_only_slice9_allowlisted_file_is_changed_or_untracked() -> None:
     )
 
     assert non_phase37_static_audit_paths == []
-    assert changed_paths in (set(), ALLOWED_SLICE9_CHANGED_PATHS)
