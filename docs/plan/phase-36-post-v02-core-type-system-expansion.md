@@ -271,6 +271,42 @@ public output compatibility.
 
 Slice 7 keeps the broader 12-slice Phase 36 plan intact.
 
+## Slice 8 Type Alias / Domain Refinement Boundary
+
+Phase 36 Slice 8 selects Option B: tests-only hardening with a docs/spec
+decision record. Slice 8 documents and tests the current Type Alias / Domain
+Refinement boundary without changing compiler behavior.
+
+Existing type aliases are current behavior. Type aliases preserve current
+declared and canonical facts through semantic analysis, IR lowering, SQL paths
+that use canonical type facts, and Semantic Metadata Artifact v1 output. Domain
+refinement remains deferred. Type aliases do not imply new scalar primitives,
+domain constraints, unit semantics, Currency/Money semantics, semantic/domain
+annotations, casts, coercions, validation rules, runtime checks, native DB
+domains, native DB metadata, DDL/storage behavior, schema introspection, db
+pull, or runtime/database execution.
+
+Existing type `ensure` syntax, where present at parse/AST level, remains
+parse/AST-only for this boundary. It is not semantic validation, IR lowering,
+SQL generation, metadata schema or output expansion, runtime validation, or
+database validation.
+
+Currency/Money remain deferred and are not implemented as aliases or domains.
+
+Slice 8 does not change source/compiler behavior, grammar, generated ANTLR
+files, parser or AST behavior, semantic behavior, IR or SQL behavior, CLI
+behavior, JSON v1, Project JSON v2, Semantic Metadata Artifact v1 schema or
+output, fixtures, goldens, examples, package metadata, package version,
+lockfiles, scripts, workflows, tags, release, publish/upload, signing, or
+attestation.
+
+Future domain refinement work requires separately approved Gate 1 and Gate 2
+decisions. That work must first define explicit policy for constraints,
+units/currency, annotations, validation, coercion, native DB metadata and
+domain support, SQL output, diagnostics, and public output compatibility.
+
+Slice 8 keeps the broader 12-slice Phase 36 plan intact.
+
 ## Slice 1 Boundary
 
 Slice 1 may:
