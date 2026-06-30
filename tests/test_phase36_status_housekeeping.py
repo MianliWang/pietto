@@ -38,11 +38,9 @@ FORBIDDEN_DIFF_PATHS = (
     "examples",
 )
 
-POSITIVE_PHASE36_COMPLETION_CLAIMS = (
-    "Phase 36 is complete.",
-    "Phase 36 complete.",
-    "Phase 36 Post-v0.2 Core Type System Expansion MVP is complete",
-    "Phase 36 is fully complete",
+STALE_PHASE36_IN_PROGRESS_CLAIMS = (
+    "Phase 36 Slices 1 through 10 are complete",
+    "Phase 36 remains in progress",
 )
 
 POSITIVE_RELEASE_CLAIMS = (
@@ -61,16 +59,16 @@ def _status(path: Path) -> str:
     return _normalized(path)
 
 
-def test_status_docs_record_phase36_through_slice10_not_final_completion() -> None:
+def test_status_docs_record_phase36_final_completion_after_slice12() -> None:
     for path in STATUS_DOCS:
         status = _status(path)
 
-        assert "Phase 36 Slices 1 through 10 are complete" in status, str(path)
-        assert "Phase 36 remains in progress" in status, str(path)
-        assert "Slice 12 remains the final completion audit/status lock" in status, str(
-            path
-        )
-        for forbidden in POSITIVE_PHASE36_COMPLETION_CLAIMS:
+        assert (
+            "Phase 36 Post-v0.2 Core Type System Expansion MVP is complete "
+            "as of Slice 12 Completion Audit And Status Lock"
+        ) in status, str(path)
+        assert "Slice 12 is the final completion audit/status lock" in status, str(path)
+        for forbidden in STALE_PHASE36_IN_PROGRESS_CLAIMS:
             assert forbidden not in status, f"{path}: {forbidden}"
 
 
@@ -78,7 +76,7 @@ def test_status_docs_identify_slice5_as_only_phase36_behavior_change() -> None:
     for path in STATUS_DOCS:
         status = _status(path)
 
-        assert "Slice 5 is the only Phase 36 behavior change so far" in status
+        assert "Slice 5 is the only Phase 36 behavior change" in status
         assert "`count(Enum field)`" in status
         assert "`PIE-S2314`" in status
         assert (

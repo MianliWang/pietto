@@ -435,6 +435,43 @@ attestation.
 Package version remains `0.1.0`. No tag/release/publish/upload/signing or
 attestation is performed by Slice 11.
 
+## Slice 12 Completion Audit And Status Lock
+
+Phase 36 Slice 12 selects Option B: completion audit plus final status lock.
+Slice 12 completes Phase 36 Post-v0.2 Core Type System Expansion MVP as
+docs/spec/static-audit/status-lock work only. Slice 12 is the final completion
+audit/status lock for this phase.
+
+Slice 5 is the only Phase 36 behavior change: `count(Enum field)` now fails
+closed in semantic aggregate validation with `PIE-S2314`. All other Phase 36
+slices are docs/spec/static-audit, tests-only hardening, status housekeeping,
+or completion-audit/status-lock work with no behavior change.
+
+The final Phase 36 candidate resolution remains:
+
+- Decimal precision-scale carrier is deferred with exact prerequisites;
+- UUID remains `limited_frozen` without behavior expansion;
+- Enum remains metadata/readiness except the Slice 5 fail-closed fix;
+- DateTime, Time, and Interval remain unsupported/deferred;
+- Any, Bytes, and Json posture is documented without behavior expansion;
+- type alias behavior remains current and domain refinement remains deferred;
+- expanded scalar/operator matrix is documented without behavior change;
+- public surface stability is locked without behavior change;
+- Currency/Money remains deferred;
+- native DB metadata remains deferred.
+
+Slice 12 makes no source/compiler behavior change. It does not change grammar,
+generated ANTLR files, parser or AST behavior, semantic behavior, IR or SQL
+behavior, CLI output, CLI JSON v1, Project JSON v2, Semantic Metadata Artifact
+v1 schema or output, diagnostic envelope shape, SQL golden bytes, fixtures,
+goldens, examples, validation scripts, workflows, package metadata, package
+version, lockfiles, tags, release, publish/upload, signing, or attestation.
+
+Package version remains `0.1.0`. No tag/release/publish/upload/signing or
+attestation is performed by Slice 12. Gate 3 remains responsible for final
+staging, commit, push, and natural CI `headSha` verification for the exact
+Slice 12 commit.
+
 ## Slice 1 Boundary
 
 Slice 1 may:

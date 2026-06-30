@@ -509,28 +509,31 @@ introspection, graph/ERD/AI export, fixture/golden/script/workflow/package
 metadata/lockfile/dependency, package version, or release-operation behavior.
 Package version remains `0.1.0`. No
 tag/release/publish/upload/signing/attestation occurred.
-Phase 36 Slices 1 through 10 are complete. Phase 36 remains in progress;
-Slice 12 remains the final completion audit/status lock. Slice 5 is the only
-Phase 36 behavior change so far: `count(Enum field)` now fails closed in
-semantic aggregate validation with `PIE-S2314`. Slices 3, 4, 6, 7, 8, 9, and
-10 are docs/spec/static-audit or tests-only hardening with no behavior change.
-Decimal precision-scale carrier work is deferred with exact prerequisites;
-UUID remains `limited_frozen` without behavior expansion; DateTime, Time, and
+Phase 36 Post-v0.2 Core Type System Expansion MVP is complete as of Slice 12
+Completion Audit And Status Lock. Slice 12 is the final completion
+audit/status lock. Slice 5 is the only Phase 36 behavior change:
+`count(Enum field)` now fails closed in semantic aggregate validation with
+`PIE-S2314`. Slices 1, 2, 3, 4, 6, 7, 8, 9, 10, 11, and 12 are
+docs/spec/static-audit, tests-only hardening, status housekeeping, or
+completion-audit/status-lock work with no behavior change. Decimal
+precision-scale carrier work is deferred with exact prerequisites; UUID
+remains `limited_frozen` without behavior expansion; Enum remains
+metadata/readiness except the Slice 5 fail-closed fix; DateTime, Time, and
 Interval remain unsupported/deferred; Any, Bytes, and Json posture is
-documented without behavior change; type alias behavior remains current while
-domain refinement is deferred; the expanded scalar/operator matrix is
+documented without behavior expansion; type alias behavior remains current
+while domain refinement is deferred; the expanded scalar/operator matrix is
 documented without behavior change; and public surface stability is locked
-without behavior change. Currency/Money and native DB metadata remain
-deferred. Public schemas and outputs remain unchanged: CLI JSON v1, Project
-JSON v2, Semantic Metadata Artifact v1 schema/output, diagnostic envelope, SQL
-golden bytes, fixtures/goldens, workflows, scripts, lockfiles, and package
-metadata are unchanged. Slice 11 status housekeeping authorizes no
-source/compiler behavior changes, workflow changes, release operations, public
-schema changes, fixtures/goldens, scripts, or generated artifacts. Gate
-workflow remains: Gate 1 = read-only planning; Gate 2 = implementation +
-evidence only and must not stage, commit, push, or poll CI; Gate 3 = exact
-staging, commit, push, and CI `headSha` verification. Package version remains
-`0.1.0`. No tag/release/publish/upload/signing/attestation occurred.
+without behavior change. Currency/Money and native DB metadata remain deferred.
+No public schema/output expansion occurred: CLI JSON v1, Project JSON v2,
+Semantic Metadata Artifact v1 schema/output, diagnostic envelope, SQL golden
+bytes, fixtures/goldens, workflows, scripts, lockfiles, and package metadata
+are unchanged. Slice 12 authorizes no source/compiler behavior changes,
+workflow changes, release operations, public schema changes, fixtures/goldens,
+scripts, or generated artifacts. Gate workflow remains: Gate 1 = read-only
+planning; Gate 2 = implementation + evidence only and must not stage, commit,
+push, or poll CI; Gate 3 = exact staging, commit, push, and CI `headSha`
+verification. Package version remains `0.1.0`. No
+tag/release/publish/upload/signing/attestation occurred.
 Phase 32: Semantic Explain And Metadata Output MVP; Phase 33: JSON v2 And
 Project / Multi-file MVP; Phase 34: Relationship Grain And Narrow JOIN MVP;
 Phase 35: Developer Experience And Delivery Pipeline MVP; Phase 36: Post-v0.2 Core Type System Expansion MVP;
@@ -600,28 +603,31 @@ introspection, graph/ERD/AI export, fixture/golden/script/workflow/package
 metadata/lockfile/dependency, package version, or release-operation behavior.
 Package version remains `0.1.0`. No
 tag/release/publish/upload/signing/attestation occurred.
-Phase 36 Slices 1 through 10 are complete. Phase 36 remains in progress;
-Slice 12 remains the final completion audit/status lock. Slice 5 is the only
-Phase 36 behavior change so far: `count(Enum field)` now fails closed in
-semantic aggregate validation with `PIE-S2314`. Slices 3, 4, 6, 7, 8, 9, and
-10 are docs/spec/static-audit or tests-only hardening with no behavior change.
-Decimal precision-scale carrier work is deferred with exact prerequisites;
-UUID remains `limited_frozen` without behavior expansion; DateTime, Time, and
+Phase 36 Post-v0.2 Core Type System Expansion MVP is complete as of Slice 12
+Completion Audit And Status Lock. Slice 12 is the final completion
+audit/status lock. Slice 5 is the only Phase 36 behavior change:
+`count(Enum field)` now fails closed in semantic aggregate validation with
+`PIE-S2314`. Slices 1, 2, 3, 4, 6, 7, 8, 9, 10, 11, and 12 are
+docs/spec/static-audit, tests-only hardening, status housekeeping, or
+completion-audit/status-lock work with no behavior change. Decimal
+precision-scale carrier work is deferred with exact prerequisites; UUID
+remains `limited_frozen` without behavior expansion; Enum remains
+metadata/readiness except the Slice 5 fail-closed fix; DateTime, Time, and
 Interval remain unsupported/deferred; Any, Bytes, and Json posture is
-documented without behavior change; type alias behavior remains current while
-domain refinement is deferred; the expanded scalar/operator matrix is
+documented without behavior expansion; type alias behavior remains current
+while domain refinement is deferred; the expanded scalar/operator matrix is
 documented without behavior change; and public surface stability is locked
-without behavior change. Currency/Money and native DB metadata remain
-deferred. Public schemas and outputs remain unchanged: CLI JSON v1, Project
-JSON v2, Semantic Metadata Artifact v1 schema/output, diagnostic envelope, SQL
-golden bytes, fixtures/goldens, workflows, scripts, lockfiles, and package
-metadata are unchanged. Slice 11 status housekeeping authorizes no
-source/compiler behavior changes, workflow changes, release operations, public
-schema changes, fixtures/goldens, scripts, or generated artifacts. Gate
-workflow remains: Gate 1 = read-only planning; Gate 2 = implementation +
-evidence only and must not stage, commit, push, or poll CI; Gate 3 = exact
-staging, commit, push, and CI `headSha` verification. Package version remains
-`0.1.0`. No tag/release/publish/upload/signing/attestation occurred.
+without behavior change. Currency/Money and native DB metadata remain deferred.
+No public schema/output expansion occurred: CLI JSON v1, Project JSON v2,
+Semantic Metadata Artifact v1 schema/output, diagnostic envelope, SQL golden
+bytes, fixtures/goldens, workflows, scripts, lockfiles, and package metadata
+are unchanged. Slice 12 authorizes no source/compiler behavior changes,
+workflow changes, release operations, public schema changes, fixtures/goldens,
+scripts, or generated artifacts. Gate workflow remains: Gate 1 = read-only
+planning; Gate 2 = implementation + evidence only and must not stage, commit,
+push, or poll CI; Gate 3 = exact staging, commit, push, and CI `headSha`
+verification. Package version remains `0.1.0`. No
+tag/release/publish/upload/signing/attestation occurred.
 
 Phase 13 Relation Composition And Relationship Planning is complete as
 planning, contract, and audit work only. Slices 1 through 6 are complete.
