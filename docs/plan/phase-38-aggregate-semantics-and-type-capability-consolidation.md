@@ -297,3 +297,80 @@ validation output, and final confirmations.
 
 Gate 2 must not stage, commit, push, start or poll CI, tag, release,
 publish/upload, sign, or attest.
+
+## Slice 7 Completion Audit And Public Surface Lock
+
+Phase 38 Slice 7 is Completion Audit And Public Surface Lock. Slice 7 is
+docs/plan/static-audit/tests-only and authorizes no behavior change.
+
+Slice 7 closes Phase 38 as an aggregate semantics and type capability
+consolidation phase. Phase 38 is complete as docs/plan/spec/static-audit and
+tests-only work:
+
+- Slice 1 recorded the candidate decision and scope inventory;
+- Slice 2 recorded the count-family semantics contract;
+- Slice 3 recorded the type capability matrix contract;
+- Slice 4 recorded the Any / Json / Bytes / Enum / UUID capability boundary;
+- Slice 5 recorded distinct, collation, and ordering readiness;
+- Slice 6 recorded the binding, aggregate-filter, and post-aggregate roadmap;
+- Slice 7 records completion audit and public surface lock.
+
+The Slice 6 CI repair is part of the trusted completion posture. The repair
+commit `23ad6264281bb5e4ed20db546f4f51cf30a21066` keeps the Slice 6 static
+audit compatible with both a clean CI checkout and a dirty Gate 2 or repair
+working tree by using an allowed-path subset guard instead of requiring a
+non-empty changed set.
+
+Gate 2 must not guess the final Gate 3 commit SHA. Gate 3 remains responsible
+for final staging, commit, push, and natural CI `headSha` verification.
+
+Phase 38 completion authorizes no source/compiler behavior change, source
+implementation, grammar change, generated ANTLR change, parser or AST behavior
+change, semantic behavior change, IR behavior change, SQL behavior change, CLI
+behavior change, JSON v1 change, Project JSON v2 change, Semantic Metadata
+Artifact v1 schema or output change, diagnostic envelope change, SQL golden
+byte change, fixture or golden change, script change, workflow change, package
+metadata change, lockfile change, package version change, tag, release,
+publish/upload, signing, or attestation.
+
+Phase 38 keeps these deferred boundaries deferred:
+
+- `count(expression)`, `count(constant)`, `count(1)`, and `count_if(predicate)`;
+- broad `count_distinct(expression)`;
+- `min/max(expression)`;
+- broad `sum/avg(expression)`;
+- `count_distinct(Json/Bytes/Any/Enum)`;
+- `min/max(Text|UUID|Enum|Json|Bytes|Any)`;
+- SQL-style aggregate modifiers, aggregate filters, `WITHIN GROUP`, and
+  window functions;
+- explicit `let:` / `with:` binding syntax and same-`select` alias reuse;
+- post-aggregate expression composition, relation-layer IR, subquery lowering,
+  and CTE insertion;
+- Decimal precision-scale carrier, Float NaN/signed-zero policy, Text
+  collation/normalization policy, UUID ordering metadata, and Enum ordering
+  metadata;
+- relationship-aware aggregate rewrites, fanout warnings, grain inference,
+  endpoint-qualified lookup, relation composition, and JOIN behavior;
+- runtime/database execution, schema introspection, db pull, native database
+  metadata, raw SQL escape hatches, public MySQL API expansion, package
+  release, publication, upload, signing, and attestation.
+
+Slice 7 keeps public surfaces unchanged:
+
+- source/compiler behavior unchanged;
+- grammar and generated parser inventory unchanged;
+- parser and AST behavior unchanged;
+- semantic behavior unchanged;
+- IR behavior unchanged;
+- SQL behavior unchanged;
+- CLI text output unchanged;
+- CLI JSON v1 unchanged;
+- Project JSON v2 unchanged;
+- Semantic Metadata Artifact v1 unchanged;
+- diagnostic envelope unchanged;
+- SQL golden bytes unchanged;
+- fixtures/goldens unchanged;
+- scripts/workflows unchanged;
+- package metadata unchanged;
+- package version remains `0.1.0`;
+- no tag/release/publish/upload/signing/attestation.
