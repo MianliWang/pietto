@@ -45,7 +45,11 @@ ALLOWED_SLICE1_CHANGED_PATHS = {
     "src/pietto/generated/PiettoVisitor.py",
     "src/pietto/generated/__init__.py",
     "src/pietto/semantic/analyzer.py",
+    "src/pietto/semantic/expressions.py",
+    "src/pietto/semantic/let_bindings.py",
+    "src/pietto/semantic/relation_schemas.py",
     "tests/test_phase40_let_binding_parser_ast.py",
+    "tests/test_phase40_let_binding_row_level_semantics.py",
     "tests/test_phase40_let_binding_syntax_scope_contract.py",
 }
 ALLOWED_SLICE1_CHANGED_PATHS = (

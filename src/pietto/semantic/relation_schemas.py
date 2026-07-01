@@ -171,8 +171,19 @@ def _project_schema(
             continue
         if input_field is None:
             if item.alias is None and isinstance(expression, NameExpr):
-                diagnostics.append(_unknown_field_diagnostic(expression))
-                has_unknown_field = True
+                if _has_known_expression_type(
+                    expression,
+                    expression_value_types=expression_value_types,
+                ):
+                    fields[output_name] = _computed_row_field(
+                        output_name,
+                        expression,
+                        expression_value_types=expression_value_types,
+                    )
+                    continue
+                else:
+                    diagnostics.append(_unknown_field_diagnostic(expression))
+                    has_unknown_field = True
             elif isinstance(expression, DottedNameExpr):
                 has_unknown_field = True
             fields[output_name] = _computed_row_field(
@@ -393,6 +404,19 @@ def _computed_row_field(
         resolved_type=value_type.resolved_type,
         nullability=value_type.nullability,
     )
+
+
+def _has_known_expression_type(
+    expression: Expression,
+    *,
+    expression_value_types: Mapping[Expression, ValueType] | None,
+) -> bool:
+    value_type = (
+        None
+        if expression_value_types is None
+        else expression_value_types.get(expression)
+    )
+    return value_type is not None and value_type.kind is not ValueTypeKind.UNKNOWN
 
 
 def _unknown_schema() -> RowSchema:

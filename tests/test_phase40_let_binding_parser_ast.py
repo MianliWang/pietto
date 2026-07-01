@@ -307,8 +307,8 @@ def test_parsed_let_produces_semantic_unsupported_diagnostic() -> None:
     assert error_codes == ["PIE-S2328"]
     diagnostic = semantic_result.diagnostics[0]
     assert diagnostic.location.line == 9
-    assert "parsed" in diagnostic.message
-    assert "not semantically supported yet" in diagnostic.message
+    assert "semantically validated" in diagnostic.message
+    assert "IR/SQL lowering is not supported yet" in diagnostic.message
 
 
 def test_cli_check_does_not_silently_accept_parsed_let(

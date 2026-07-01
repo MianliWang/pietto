@@ -34,6 +34,7 @@ from pietto.semantic.expressions import (
     type_source_connector_arguments,
 )
 from pietto.semantic.field_derive_cycles import check_field_derive_cycles
+from pietto.semantic.let_bindings import analyze_relation_let_bindings
 from pietto.semantic.model import (
     CheckMode,
     EffectiveNullability,
@@ -280,12 +281,25 @@ def _analyze_relation_schema_expressions(
     stabilized = False
 
     for _ in range(iteration_limit):
+        temporary_let_scopes, temporary_let_value_types, _ = (
+            analyze_relation_let_bindings(
+                script.definitions,
+                from_resolutions=from_resolutions,
+                source_row_schemas=source_row_schemas,
+                relation_row_schemas=relation_row_schemas,
+            )
+        )
         temporary_value_types, _ = type_relation_expressions(
             script,
             from_resolutions=from_resolutions,
             source_row_schemas=source_row_schemas,
             relation_row_schemas=relation_row_schemas,
+            relation_let_value_types={
+                definition: scope.value_types
+                for definition, scope in temporary_let_scopes.items()
+            },
         )
+        temporary_value_types.update(temporary_let_value_types)
         refined_schemas, _ = propagate_relation_schemas(
             script,
             mode=mode,
@@ -302,12 +316,23 @@ def _analyze_relation_schema_expressions(
             break
         relation_row_schemas = refined_schemas
 
+    let_scopes, let_value_types, let_diagnostics = analyze_relation_let_bindings(
+        script.definitions,
+        from_resolutions=from_resolutions,
+        source_row_schemas=source_row_schemas,
+        relation_row_schemas=relation_row_schemas,
+    )
     relation_value_types, relation_expression_diagnostics = type_relation_expressions(
         script,
         from_resolutions=from_resolutions,
         source_row_schemas=source_row_schemas,
         relation_row_schemas=relation_row_schemas,
+        relation_let_value_types={
+            definition: scope.value_types for definition, scope in let_scopes.items()
+        },
     )
+    relation_value_types.update(let_value_types)
+    relation_expression_diagnostics.extend(let_diagnostics)
     final_schemas, schema_diagnostics = propagate_relation_schemas(
         script,
         mode=mode,
@@ -407,7 +432,7 @@ def _duplicate_diagnostic(
 
 
 def _unsupported_let_clause_diagnostics(script: Script) -> list[Diagnostic]:
-    """Fail closed until let binding semantics are explicitly implemented."""
+    """Fail closed until let binding IR/SQL lowering is implemented."""
 
     diagnostics: list[Diagnostic] = []
     for definition in script.definitions:
@@ -422,7 +447,8 @@ def _unsupported_let_clause_diagnostics(script: Script) -> list[Diagnostic]:
                 code="PIE-S2328",
                 severity=Severity.ERROR,
                 message=(
-                    "`let:` bindings are parsed but are not semantically supported yet."
+                    "`let:` bindings are semantically validated but IR/SQL "
+                    "lowering is not supported yet."
                 ),
                 location=SourceLocation(
                     path=span.path,
