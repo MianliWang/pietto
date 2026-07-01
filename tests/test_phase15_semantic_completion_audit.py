@@ -21,13 +21,13 @@ RELATIONSHIP_MODULE = "src/pietto/semantic/relationship_metadata.py"
 
 LOCKED_FILE_HASHES = {
     "grammar/Pietto.g4": (
-        "d75052cfc4c5de426388cc9d8a34eef607e8023a5e1789f2e497979ea2dde9f6"
+        "54484b73f76ae051e0e4f27cc47bc99a0687da7c0e4f40ab4da06a640a54369a"
     ),
     "src/pietto/ast_nodes.py": (
-        "2ea40611346889186ed87c4235e6987fa41e9e4832fdceb58748eee2720fb058"
+        "0464445d598b676bfd65ebb0cc59db8cc5f51acea919704c918473bb63be7d0a"
     ),
     "src/pietto/ast_builder.py": (
-        "e28f084e3b7862c3e47a0f9478cc92539f4f1e113438060f0d0c4927b928ccae"
+        "358de38055709b343237ccdde18b3964aacba285a5f0f5d68cdc38530fb95c22"
     ),
     "src/pietto/parser_api.py": (
         "aa744c3ee334c8729917ae2aed2ee906874f927d47e99542d5accb8a98aa456b"
@@ -56,7 +56,7 @@ LOCKED_FILE_HASHES = {
 LOCKED_GROUP_HASHES = {
     "generated": (
         8,
-        "25bd5df39d46749ad59e2b805bd85cce52e708cdf56bda6ee365615c419e17d1",
+        "7ac3aea913b1453a972456be0171a2c292991e71bde3e94a4056b4bf537b5c4e",
     ),
     "unchanged_semantic": (
         17,

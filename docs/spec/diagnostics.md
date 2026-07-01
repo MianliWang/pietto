@@ -71,6 +71,7 @@ stored separately and is never encoded in the code.
 | `PIE-S2325` | Input field referenced instead of select output in `satisfying` |
 | `PIE-S2326` | Unsupported select output referenced in `satisfying` |
 | `PIE-S2327` | Unsupported expression form in `satisfying` |
+| `PIE-S2328` | Parsed `let:` binding is not semantically supported yet; fail-closed guard before let binding semantics |
 | `PIE-S2401` | Constraint return type does not expand to `Bool` |
 | `PIE-S2402` | Callable or field derive body type mismatch |
 | `PIE-S2501` | Duplicate shape item name |

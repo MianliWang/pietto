@@ -30,6 +30,8 @@ from pietto.ast_nodes import (
     Header,
     IndexDef,
     IsNullExpr,
+    LetBinding,
+    LetClause,
     LimitClause,
     LiteralExpr,
     NameExpr,
@@ -367,6 +369,7 @@ class AstBuilder(PiettoVisitor):
 
         (
             from_clause,
+            let_clause,
             where_clause,
             group_by_clause,
             select_items,
@@ -384,6 +387,7 @@ class AstBuilder(PiettoVisitor):
             order_by_clause=order_by_clause,
             limit_clause=limit_clause,
             satisfying_clause=satisfying_clause,
+            let_clause=let_clause,
         )
 
     def visitQueryDefinition(self, ctx: _AntlrContext) -> QueryDef:
@@ -391,6 +395,7 @@ class AstBuilder(PiettoVisitor):
 
         (
             from_clause,
+            let_clause,
             where_clause,
             group_by_clause,
             select_items,
@@ -408,6 +413,7 @@ class AstBuilder(PiettoVisitor):
             order_by_clause=order_by_clause,
             limit_clause=limit_clause,
             satisfying_clause=satisfying_clause,
+            let_clause=let_clause,
         )
 
     def visitFromClause(self, ctx: _AntlrContext) -> FromClause:
@@ -423,6 +429,23 @@ class AstBuilder(PiettoVisitor):
 
         return WhereClause(
             span=self._span(ctx),
+            expression=self.visit(ctx.expression()),
+        )
+
+    def visitLetClause(self, ctx: _AntlrContext) -> LetClause:
+        """Build a parse-only let block without binding or type checks."""
+
+        return LetClause(
+            span=self._span(ctx),
+            bindings=tuple(self.visit(item) for item in ctx.letBody().letBinding()),
+        )
+
+    def visitLetBinding(self, ctx: _AntlrContext) -> LetBinding:
+        """Build one source-ordered parse-only let binding."""
+
+        return LetBinding(
+            span=self._span(ctx),
+            name=ctx.identifier().getText(),
             expression=self.visit(ctx.expression()),
         )
 
@@ -501,6 +524,7 @@ class AstBuilder(PiettoVisitor):
         self, ctx: _AntlrContext
     ) -> tuple[
         FromClause,
+        LetClause | None,
         WhereClause | None,
         GroupByClause | None,
         tuple[SelectItem, ...],
@@ -512,6 +536,7 @@ class AstBuilder(PiettoVisitor):
 
         return (
             self.visit(ctx.fromClause()),
+            self.visit(ctx.letClause()) if ctx.letClause() is not None else None,
             self.visit(ctx.whereClause()) if ctx.whereClause() is not None else None,
             (
                 self.visit(ctx.groupByClause())

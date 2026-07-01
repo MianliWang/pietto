@@ -31,16 +31,16 @@ LOCKED_FILE_HASHES = {
     ),
     PLAN_PATH: "adfb0d99075299049c790f465fab7453e0ed73b985e9cff19c6aeb38f94c7f5a",
     "grammar/Pietto.g4": (
-        "d75052cfc4c5de426388cc9d8a34eef607e8023a5e1789f2e497979ea2dde9f6"
+        "54484b73f76ae051e0e4f27cc47bc99a0687da7c0e4f40ab4da06a640a54369a"
     ),
     "src/pietto/__init__.py": (
         "669ac67bb23a0c8179995e0e415d76c46210c12311e29cd89d2612b45b0a194d"
     ),
     "src/pietto/ast_nodes.py": (
-        "2ea40611346889186ed87c4235e6987fa41e9e4832fdceb58748eee2720fb058"
+        "0464445d598b676bfd65ebb0cc59db8cc5f51acea919704c918473bb63be7d0a"
     ),
     "src/pietto/ast_builder.py": (
-        "e28f084e3b7862c3e47a0f9478cc92539f4f1e113438060f0d0c4927b928ccae"
+        "358de38055709b343237ccdde18b3964aacba285a5f0f5d68cdc38530fb95c22"
     ),
     "src/pietto/parser_api.py": (
         "aa744c3ee334c8729917ae2aed2ee906874f927d47e99542d5accb8a98aa456b"
@@ -58,7 +58,7 @@ LOCKED_FILE_HASHES = {
         "e40bd3eee7f76bc68313adb8237a7a6c5d84286197261f70c827a4219c9e3418"
     ),
     "docs/spec/diagnostics.md": (
-        "f9d184baa45cca862be8c2f150c7e93d3b464a51f4355c39034c3e8b46b9f9c1"
+        "0f5eebd7957a7b22902163b723ea55df6017644ddf8fcbb191ea49b3ab778f70"
     ),
     "pyproject.toml": (
         "021682ef880fe748f1655d4d70fcc549db4336ac39db2b29a835762ab1723d50"
@@ -73,11 +73,11 @@ LOCKED_FILE_HASHES = {
 LOCKED_GROUP_HASHES = {
     "generated": (
         8,
-        "25bd5df39d46749ad59e2b805bd85cce52e708cdf56bda6ee365615c419e17d1",
+        "7ac3aea913b1453a972456be0171a2c292991e71bde3e94a4056b4bf537b5c4e",
     ),
     "semantic": (
         20,
-        "ee02e4084d1ddd3c37e359d879a9daad31ae47272a3e0b42fe6f8aa4cde2be28",
+        "ae11cc451716e18b62917d37122c9659e51e974ee074c17dd3cb8028d8253151",
     ),
     "ir": (
         5,
@@ -186,9 +186,13 @@ def test_grammar_surface_matches_the_documented_inventory() -> None:
         "| queryDefinition ;",
         "relationshipBody : NEWLINE* relationshipEndpoint NEWLINE* "
         "relationshipEndpoint NEWLINE* ;",
-        "tableBody : NEWLINE* fromClause NEWLINE* whereClause? NEWLINE* "
-        "groupByClause? NEWLINE* selectClause NEWLINE* satisfyingClause? "
-        "NEWLINE* orderByClause? NEWLINE* limitClause? NEWLINE* ;",
+        "tableBody : NEWLINE* fromClause NEWLINE* letClause? NEWLINE* "
+        "whereClause? NEWLINE* groupByClause? NEWLINE* selectClause NEWLINE* "
+        "satisfyingClause? NEWLINE* orderByClause? NEWLINE* limitClause? "
+        "NEWLINE* ;",
+        "letClause : LET COLON NEWLINE NEWLINE* INDENT letBody DEDENT ;",
+        "letBody : NEWLINE* letBinding (letBinding | NEWLINE)* ;",
+        "letBinding : identifier ASSIGN expression NEWLINE ;",
         "groupByClause : GROUP BY COLON NEWLINE NEWLINE* INDENT groupByBody DEDENT ;",
         "groupByItem : dottedName NEWLINE ;",
         "selectItem : identifier ASSIGN expression NEWLINE | expression NEWLINE ;",

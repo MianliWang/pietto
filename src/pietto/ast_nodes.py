@@ -301,6 +301,21 @@ class FromClause(Node):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class LetBinding(Node):
+    """One parse-only relation-local let binding."""
+
+    name: str
+    expression: Expression
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class LetClause(Node):
+    """A parse-only relation let block with source-ordered bindings."""
+
+    bindings: tuple[LetBinding, ...]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class WhereClause(Node):
     """A parse-only relation row filter."""
 
@@ -370,6 +385,7 @@ class TableDef(Node):
     order_by_clause: OrderByClause | None = None
     limit_clause: LimitClause | None = None
     satisfying_clause: SatisfyingClause | None = None
+    let_clause: LetClause | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -384,6 +400,7 @@ class QueryDef(Node):
     order_by_clause: OrderByClause | None = None
     limit_clause: LimitClause | None = None
     satisfying_clause: SatisfyingClause | None = None
+    let_clause: LetClause | None = None
 
 
 Definition = (

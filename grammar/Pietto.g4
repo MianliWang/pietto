@@ -213,11 +213,23 @@ queryDefinition
     ;
 
 tableBody
-    : NEWLINE* fromClause NEWLINE* whereClause? NEWLINE* groupByClause? NEWLINE* selectClause NEWLINE* satisfyingClause? NEWLINE* orderByClause? NEWLINE* limitClause? NEWLINE*
+    : NEWLINE* fromClause NEWLINE* letClause? NEWLINE* whereClause? NEWLINE* groupByClause? NEWLINE* selectClause NEWLINE* satisfyingClause? NEWLINE* orderByClause? NEWLINE* limitClause? NEWLINE*
     ;
 
 fromClause
     : FROM identifier NEWLINE
+    ;
+
+letClause
+    : LET COLON NEWLINE NEWLINE* INDENT letBody DEDENT
+    ;
+
+letBody
+    : NEWLINE* letBinding (letBinding | NEWLINE)*
+    ;
+
+letBinding
+    : identifier ASSIGN expression NEWLINE
     ;
 
 whereClause
@@ -337,6 +349,7 @@ namePart
     | IS
     | TABLE
     | FROM
+    | LET
     | WHERE
     | GROUP
     | SELECT
@@ -355,6 +368,7 @@ identifier
     | ASC
     | DESC
     | GROUP
+    | LET
     | SATISFYING
     | RELATIONSHIP
     | ENDPOINT
@@ -392,6 +406,7 @@ WHEN: 'when';
 SOURCE: 'source';
 TABLE: 'table';
 FROM: 'from';
+LET: 'let';
 WHERE: 'where';
 GROUP: 'group';
 SELECT: 'select';

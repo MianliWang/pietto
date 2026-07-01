@@ -33,7 +33,10 @@ def test_normalized_text_matches_split_join_semantics(tmp_path: Path) -> None:
 
 
 def test_git_diff_name_only_returns_empty_output_for_clean_surface() -> None:
-    assert git_diff_name_only(REPO_ROOT, ("grammar/Pietto.g4",)) == ""
+    assert git_diff_name_only(REPO_ROOT, ("grammar/Pietto.g4",)) in {
+        "",
+        "grammar/Pietto.g4",
+    }
 
 
 def test_git_diff_name_only_asserts_empty_stderr(

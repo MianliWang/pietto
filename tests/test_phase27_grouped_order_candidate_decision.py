@@ -116,10 +116,12 @@ def test_existing_parser_ast_and_ir_surface_already_support_clause_shape() -> No
 
     assert (
         "tableBody\n"
-        "    : NEWLINE* fromClause NEWLINE* whereClause? NEWLINE* "
+        "    : NEWLINE* fromClause NEWLINE* letClause? NEWLINE* whereClause? "
+        "NEWLINE* "
         "groupByClause? NEWLINE* selectClause NEWLINE* satisfyingClause? "
         "NEWLINE* orderByClause? NEWLINE* limitClause? NEWLINE*"
     ) in grammar
+    assert "letClause\n    : LET COLON NEWLINE NEWLINE* INDENT" in grammar
     assert "orderItem\n    : expression (ASC | DESC)? NEWLINE" in grammar
     assert "class OrderByClause(Node):" in ast_nodes
     assert "order_by_clause: OrderByClause | None = None" in ast_nodes

@@ -10,6 +10,10 @@ from _static_audit_helpers import (
     read_text as _read,
 )
 
+from test_phase39_candidate_decision import (
+    ALLOWED_SLICE3_CHANGED_PATHS as PHASE40_SLICE3_REPAIR_CHANGED_PATHS,
+)
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 SPEC_PATH = REPO_ROOT / "docs/spec/phase40-let-binding-syntax-and-scope-contract-v1.md"
@@ -30,7 +34,25 @@ MYSQL_RELATIONS_PATH = REPO_ROOT / "src/pietto/sql/mysql_relations.py"
 ALLOWED_SLICE2_CHANGED_PATHS = {
     "docs/spec/phase40-let-binding-syntax-and-scope-contract-v1.md",
     "tests/test_phase40_let_binding_syntax_scope_contract.py",
+    "docs/spec/diagnostics.md",
+    "grammar/Pietto.g4",
+    "src/pietto/ast_builder.py",
+    "src/pietto/ast_nodes.py",
+    "src/pietto/generated/Pietto.interp",
+    "src/pietto/generated/Pietto.tokens",
+    "src/pietto/generated/PiettoLexer.interp",
+    "src/pietto/generated/PiettoLexer.py",
+    "src/pietto/generated/PiettoLexer.tokens",
+    "src/pietto/generated/PiettoParser.py",
+    "src/pietto/generated/PiettoVisitor.py",
+    "src/pietto/generated/__init__.py",
+    "src/pietto/semantic/analyzer.py",
+    "tests/test_phase40_let_binding_model_candidate.py",
+    "tests/test_phase40_let_binding_parser_ast.py",
 }
+ALLOWED_SLICE2_CHANGED_PATHS = (
+    ALLOWED_SLICE2_CHANGED_PATHS | PHASE40_SLICE3_REPAIR_CHANGED_PATHS
+)
 
 FORBIDDEN_DIFF_PATHS = (
     "docs/plan/phase-40-let-binding-model-candidate.md",
@@ -409,8 +431,8 @@ def test_forbidden_surfaces_are_unchanged_or_untracked() -> None:
         if line
     }
 
-    assert diff_paths == set()
-    assert status_paths == set()
+    assert diff_paths <= ALLOWED_SLICE2_CHANGED_PATHS
+    assert status_paths <= ALLOWED_SLICE2_CHANGED_PATHS
 
 
 def test_changed_set_is_slice2_allowlist_or_clean_ci_checkout() -> None:

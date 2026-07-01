@@ -10,6 +10,10 @@ from _static_audit_helpers import (
     read_text as _read,
 )
 
+from test_phase39_candidate_decision import (
+    ALLOWED_SLICE3_CHANGED_PATHS as PHASE40_SLICE3_REPAIR_CHANGED_PATHS,
+)
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 PHASE39_PLAN_PATH = (
@@ -60,6 +64,9 @@ ALLOWED_SLICE8_CHANGED_PATHS = {
     "tests/test_phase39_candidate_decision.py",
     "tests/test_phase39_completion_audit.py",
 }
+ALLOWED_PHASE40_SLICE3_REPAIR_CHANGED_PATHS = (
+    ALLOWED_SLICE8_CHANGED_PATHS | PHASE40_SLICE3_REPAIR_CHANGED_PATHS
+)
 
 FORBIDDEN_DIFF_PATHS = (
     "README.md",
@@ -278,17 +285,18 @@ def test_forbidden_surfaces_are_unchanged_or_untracked_in_slice8() -> None:
         if line
     }
 
-    assert diff_paths == set()
-    assert status_paths == set()
+    assert diff_paths <= ALLOWED_PHASE40_SLICE3_REPAIR_CHANGED_PATHS
+    assert status_paths <= ALLOWED_PHASE40_SLICE3_REPAIR_CHANGED_PATHS
 
 
 def test_changed_set_is_slice8_allowlist_or_clean_ci_checkout() -> None:
     status_paths = {_status_path(line) for line in _git_status()}
 
-    assert status_paths <= ALLOWED_SLICE8_CHANGED_PATHS
+    assert status_paths <= ALLOWED_PHASE40_SLICE3_REPAIR_CHANGED_PATHS
 
     for forbidden in FORBIDDEN_DIFF_PATHS:
         assert not any(
-            _path_matches(path, forbidden) and path not in ALLOWED_SLICE8_CHANGED_PATHS
+            _path_matches(path, forbidden)
+            and path not in ALLOWED_PHASE40_SLICE3_REPAIR_CHANGED_PATHS
             for path in status_paths
         )

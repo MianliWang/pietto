@@ -22,12 +22,12 @@ LOCKED_FORBIDDEN_SURFACES = {
     "grammar": (
         "grammar",
         1,
-        "4078b89d21126706746e07052ac8870a70f7275bd02dfc0433552f5edf06c082",
+        "03f2eb98ab656dfe4c33bd8088306f3525150c738f42bf09640c02d973d54a2f",
     ),
     "generated": (
         "src/pietto/generated",
         8,
-        "25bd5df39d46749ad59e2b805bd85cce52e708cdf56bda6ee365615c419e17d1",
+        "7ac3aea913b1453a972456be0171a2c292991e71bde3e94a4056b4bf537b5c4e",
     ),
     "parser_ast": (
         (
@@ -36,12 +36,12 @@ LOCKED_FORBIDDEN_SURFACES = {
             "src/pietto/parser_api.py",
         ),
         3,
-        "6c2ee7dc25365c5ab4097de4b7e6c4949b49446e6555eae19a99395c0d2f7f55",
+        "7da1ba78a5539eaf773fab499b235170f9d9c57f65b68ef56eb9f7cdfb8cdc56",
     ),
     "semantic": (
         "src/pietto/semantic",
         20,
-        "ee02e4084d1ddd3c37e359d879a9daad31ae47272a3e0b42fe6f8aa4cde2be28",
+        "ae11cc451716e18b62917d37122c9659e51e974ee074c17dd3cb8028d8253151",
     ),
     "ir": (
         "src/pietto/ir",
@@ -86,7 +86,7 @@ LOCKED_FORBIDDEN_SURFACES = {
     "diagnostics": (
         "docs/spec/diagnostics.md",
         1,
-        "0c82aa6cde14aac504cca5028f28365c1127e59a748827a2108ced224bbbd7a4",
+        "581640789b2a51ba8b95a0839bb96ef983d6c1684d58db57de2240978d16b9ad",
     ),
     "pyproject": (
         "pyproject.toml",

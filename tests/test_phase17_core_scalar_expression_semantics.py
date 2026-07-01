@@ -28,8 +28,8 @@ from pietto.sql import emit_postgres_sql
 from pietto.sql.mysql import emit_mysql_sql
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-GRAMMAR_HASH = "d75052cfc4c5de426388cc9d8a34eef607e8023a5e1789f2e497979ea2dde9f6"
-GENERATED_HASH = "25bd5df39d46749ad59e2b805bd85cce52e708cdf56bda6ee365615c419e17d1"
+GRAMMAR_HASH = "54484b73f76ae051e0e4f27cc47bc99a0687da7c0e4f40ab4da06a640a54369a"
+GENERATED_HASH = "7ac3aea913b1453a972456be0171a2c292991e71bde3e94a4056b4bf537b5c4e"
 
 SOURCE_PREFIX = (
     "shape Row:\n"

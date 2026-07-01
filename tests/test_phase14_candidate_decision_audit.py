@@ -43,7 +43,7 @@ INPUT_HASHES = {
         "2383731c2b9d78f8cf73da8e9d47f973b6eef93eb20e0f03d8f045307b788534"
     ),
     "tests/test_phase13_completion_audit.py": (
-        "3c047f8ff8afabd53dbdae433525f24dbfcbede013c78a927c196cc01bd1bfc7"
+        "a9e3aad32cabc6218473a05c0c01fdacf0c0b9093b0e175c91255a1f8271a04b"
     ),
 }
 
@@ -52,7 +52,7 @@ FILE_HASHES = {
     "uv.lock": "996f7bcb04c380c2b3855167d33ffbd462c902245e63bee6e626ab1789d65071",
     "Makefile": "dbd38c41e2af5275c379de0b88c92f3861efb90724c7de1a291e0aa007ce2db7",
     "grammar/Pietto.g4": (
-        "d75052cfc4c5de426388cc9d8a34eef607e8023a5e1789f2e497979ea2dde9f6"
+        "54484b73f76ae051e0e4f27cc47bc99a0687da7c0e4f40ab4da06a640a54369a"
     ),
     ".github/workflows/ci.yml": (
         "c2ba73d04dab3331ca19577f2cf4250274671aa37ec4f84f293429e118b6c4c5"
@@ -72,11 +72,11 @@ FILE_HASHES = {
 }
 
 GROUP_HASHES = {
-    "frontend": "06ff1d647427b4e937321ed525866059266ddc2bc292c050a458647365d95123",
-    "semantic": "ee02e4084d1ddd3c37e359d879a9daad31ae47272a3e0b42fe6f8aa4cde2be28",
+    "frontend": "7ecd994ab99d95af792ea628de9de236940c1c46ced49599ea482cffab49ee4f",
+    "semantic": "ae11cc451716e18b62917d37122c9659e51e974ee074c17dd3cb8028d8253151",
     "ir": "7438c72875751eeadf8b12b3aad1825499061f3f4e0dd73d8c1a339c614ae884",
     "sql": "f23a79dd0b5620f04ad3329abcd7ad368c1b223ded90fed0f52f1f35b9de18d3",
-    "generated": "25bd5df39d46749ad59e2b805bd85cce52e708cdf56bda6ee365615c419e17d1",
+    "generated": "7ac3aea913b1453a972456be0171a2c292991e71bde3e94a4056b4bf537b5c4e",
     "cli": "bab5a160ac57ad45045836f2f4396e7383baf03c20bb8a18d51e9fd2476a716f",
 }
 

@@ -29,22 +29,22 @@ LOCKED_BOUNDARY_SURFACES = {
     "grammar": (
         "grammar/Pietto.g4",
         1,
-        "4078b89d21126706746e07052ac8870a70f7275bd02dfc0433552f5edf06c082",
+        "03f2eb98ab656dfe4c33bd8088306f3525150c738f42bf09640c02d973d54a2f",
     ),
     "generated": (
         "src/pietto/generated",
         8,
-        "25bd5df39d46749ad59e2b805bd85cce52e708cdf56bda6ee365615c419e17d1",
+        "7ac3aea913b1453a972456be0171a2c292991e71bde3e94a4056b4bf537b5c4e",
     ),
     "ast_nodes": (
         "src/pietto/ast_nodes.py",
         1,
-        "f12e5e0460169056e28f6b2081d755eb2bc84c70550adc1d837d44e300c302ae",
+        "9946bd71566f8c7fd72dfa22b972722922087b7588b435cce59daa1fc25c560d",
     ),
     "ast_builder": (
         "src/pietto/ast_builder.py",
         1,
-        "9a9c7bd4b0ad3a55354b89474b1b6a94319cf167250697e891e2af93fd0599b4",
+        "c351d001982ee52274ec21fd6af151baea8b9153caf524415f50bfee17fbcf3d",
     ),
     "parser_api": (
         "src/pietto/parser_api.py",
@@ -54,7 +54,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "semantic": (
         "src/pietto/semantic",
         20,
-        "ee02e4084d1ddd3c37e359d879a9daad31ae47272a3e0b42fe6f8aa4cde2be28",
+        "ae11cc451716e18b62917d37122c9659e51e974ee074c17dd3cb8028d8253151",
     ),
     "ir": (
         "src/pietto/ir",
@@ -79,7 +79,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "diagnostics": (
         "docs/spec/diagnostics.md",
         1,
-        "0c82aa6cde14aac504cca5028f28365c1127e59a748827a2108ced224bbbd7a4",
+        "581640789b2a51ba8b95a0839bb96ef983d6c1684d58db57de2240978d16b9ad",
     ),
     "fixtures": (
         "tests/fixtures",
@@ -328,7 +328,10 @@ def test_phase27_diagnostics_and_unsupported_boundaries_are_locked() -> None:
     semantic_group_by = _read(REPO_ROOT / "src/pietto/semantic/group_by.py")
 
     assert "| `PIE-S2321` | Grouped ORDER BY is deferred |" in diagnostics
-    assert "PIE-S2328" not in diagnostics
+    assert (
+        "| `PIE-S2328` | Parsed `let:` binding is not semantically supported "
+        "yet; fail-closed guard before let binding semantics |"
+    ) in diagnostics
     assert "PIE-S2328" not in semantics_tests
     assert (
         "Unsupported grouped ORDER BY item; expected a supported select output name"
