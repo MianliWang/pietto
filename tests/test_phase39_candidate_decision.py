@@ -165,6 +165,7 @@ ALLOWED_SLICE3_CHANGED_PATHS = {
     "tests/test_phase39_candidate_decision.py",
     "tests/test_phase39_count_expression_mvp_contract.py",
     "tests/test_phase39_count_expression_ir.py",
+    "tests/test_phase39_count_expression_cli_json_output.py",
     "tests/test_phase39_count_expression_semantics.py",
     "tests/test_phase39_count_expression_sql.py",
     "tests/test_sql_mysql_expressions.py",
