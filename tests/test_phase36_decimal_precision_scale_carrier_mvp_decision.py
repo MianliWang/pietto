@@ -7,6 +7,9 @@ from _static_audit_helpers import (
     normalized_text as _normalized,
     read_text as _read,
 )
+from test_phase39_candidate_decision import (
+    _non_slice3_repair_diff_paths,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLAN_PATH = REPO_ROOT / "docs/plan/phase-36-post-v02-core-type-system-expansion.md"
@@ -240,7 +243,7 @@ def test_slice3_explicit_non_authorization_is_documented() -> None:
 def test_forbidden_surfaces_are_not_modified_by_slice3() -> None:
     diff_output = _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS)
 
-    assert diff_output == ""
+    assert _non_slice3_repair_diff_paths(diff_output) == set()
 
 
 def _class_body(source: str, marker: str) -> str:

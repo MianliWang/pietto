@@ -282,7 +282,7 @@ def test_phase26_field_only_expression_aggregate_arguments_still_lower() -> None
         ("value = sum(amount + len(status))", "PIE-S2315"),
         ("value = sum(avg(amount))", "PIE-S2311"),
         ("value = sum(amount) + 1", "PIE-S2310"),
-        ("value = count(amount + 1)", "PIE-S2315"),
+        ("value = count(1)", "PIE-S2315"),
         ("value = min(amount + 1)", "PIE-S2315"),
         ("value = max(score * 2)", "PIE-S2315"),
         ("value = count_distinct(len(status))", "PIE-S2315"),

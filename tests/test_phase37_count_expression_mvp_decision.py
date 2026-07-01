@@ -9,6 +9,11 @@ from _static_audit_helpers import (
     normalized_text as _normalized,
     read_text as _read,
 )
+from test_phase39_candidate_decision import (
+    ALLOWED_SLICE3_CHANGED_PATHS,
+    _non_slice3_repair_diff_paths,
+    _non_slice3_repair_status_paths,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -23,6 +28,9 @@ PHASE36_PLAN_PATH = (
 )
 PHASE23_SEMANTICS_TEST_PATH = REPO_ROOT / "tests/test_phase23_count_field_semantics.py"
 PHASE23_IR_TEST_PATH = REPO_ROOT / "tests/test_phase23_count_field_ir.py"
+PHASE39_SEMANTICS_TEST_PATH = (
+    REPO_ROOT / "tests/test_phase39_count_expression_semantics.py"
+)
 PHASE26_SEMANTICS_TEST_PATH = (
     REPO_ROOT / "tests/test_phase26_aggregate_expression_argument_semantics.py"
 )
@@ -195,8 +203,12 @@ def test_current_count_surface_and_deferred_state_are_locked() -> None:
     current_evidence = _combined_current_deferred_evidence()
     phase23_semantics = _read(PHASE23_SEMANTICS_TEST_PATH)
     phase23_ir = _read(PHASE23_IR_TEST_PATH)
+    phase39_semantics = _read(PHASE39_SEMANTICS_TEST_PATH)
     aggregate_source = _read(AGGREGATES_SOURCE_PATH)
-    combined = f"{spec} {current_evidence} {phase23_semantics} {phase23_ir}"
+    combined = (
+        f"{spec} {current_evidence} {phase23_semantics} "
+        f"{phase23_ir} {phase39_semantics}"
+    )
 
     for required in (
         "`count()`",
@@ -205,11 +217,13 @@ def test_current_count_surface_and_deferred_state_are_locked() -> None:
         "Accepted as SQL `COUNT(*)`; result is `Int not null`",
         "concrete non-`Any` and not Enum",
         "Current `count(field)` counts non-null field values",
-        "`count(expression)` remains deferred and fail-closed today",
-        "`count(expression)` as a rejected aggregate expansion",
+        "test_no_group_count_expression_arguments_are_semantically_accepted",
+        "test_literal_only_and_leaf_policy_risks_remain_deferred",
         "new aggregate functions, modifiers, filters, window functions, `count(expression)`",
         "known_values = count(amount + amount)",
         "known_values = count(lower(status))",
+        "known_values = count(1)",
+        'known_values = count("x")',
         "known_values = count(count())",
         "known_values = count(amount) + 1",
         "PIE-S2315",
@@ -244,8 +258,7 @@ def test_existing_tests_prove_count_expression_remains_deferred_today() -> None:
     )
 
     for required in (
-        "value = count(amount + tax)",
-        "value = count(amount + 1)",
+        "value = count(1)",
         "value = count_distinct(len(status))",
         "value = min(amount + tax)",
         "value = max(score * weight)",
@@ -388,8 +401,8 @@ def test_forbidden_surfaces_are_not_modified_or_untracked() -> None:
     diff_output = _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS)
     status_output = _git_status_for(FORBIDDEN_DIFF_PATHS)
 
-    assert diff_output == ""
-    assert status_output == ""
+    assert _non_slice3_repair_diff_paths(diff_output) == set()
+    assert _non_slice3_repair_status_paths(status_output) == set()
 
 
 def test_only_phase37_static_audit_files_are_changed_or_untracked() -> None:
@@ -401,4 +414,4 @@ def test_only_phase37_static_audit_files_are_changed_or_untracked() -> None:
         if not _is_in_progress_phase37_static_audit_path(path)
     )
 
-    assert forbidden_paths == []
+    assert set(forbidden_paths) <= ALLOWED_SLICE3_CHANGED_PATHS

@@ -65,6 +65,116 @@ ALLOWED_SLICE1_CHANGED_PATHS = {
     "docs/plan/phase-39-count-family-implementation-candidate.md",
     "tests/test_phase39_candidate_decision.py",
 }
+ALLOWED_SLICE3_CHANGED_PATHS = {
+    "docs/plan/phase-39-count-family-implementation-candidate.md",
+    "src/pietto/semantic/aggregates.py",
+    "tests/test_phase11_ci_workflow.py",
+    "tests/test_phase11_completion_audit.py",
+    "tests/test_phase11_generated_guard.py",
+    "tests/test_phase11_golden_policy.py",
+    "tests/test_phase11_packaging_smoke.py",
+    "tests/test_phase11_planning_audit.py",
+    "tests/test_phase11_validation_entrypoint.py",
+    "tests/test_phase12_completion_audit.py",
+    "tests/test_phase12_composition_cli_json_goldens.py",
+    "tests/test_phase12_order_limit_contract.py",
+    "tests/test_phase12_planning_audit.py",
+    "tests/test_phase13_completion_audit.py",
+    "tests/test_phase13_planning_audit.py",
+    "tests/test_phase14_candidate_decision_audit.py",
+    "tests/test_phase14_completion_audit.py",
+    "tests/test_phase14_planning_audit.py",
+    "tests/test_phase14_relationship_metadata_completion_audit.py",
+    "tests/test_phase15_completion_audit.py",
+    "tests/test_phase15_semantic_completion_audit.py",
+    "tests/test_phase16_completion_audit.py",
+    "tests/test_phase16_current_syntax_surface_audit.py",
+    "tests/test_phase16_language_direction_audit.py",
+    "tests/test_phase16_safety_deferral_sql_portability.py",
+    "tests/test_phase21_group_by_hardening_audit.py",
+    "tests/test_phase23_count_field_ir.py",
+    "tests/test_phase23_count_field_semantics.py",
+    "tests/test_phase24_aggregate_expression_arguments_readiness.py",
+    "tests/test_phase24_cli_json_output_hardening.py",
+    "tests/test_phase24_completion_audit.py",
+    "tests/test_phase25_completion_audit.py",
+    "tests/test_phase26_aggregate_expression_argument_cli_json_output.py",
+    "tests/test_phase26_aggregate_expression_argument_ir.py",
+    "tests/test_phase26_aggregate_expression_argument_semantics.py",
+    "tests/test_phase26_aggregate_expression_argument_sql.py",
+    "tests/test_phase26_completion_audit.py",
+    "tests/test_phase26_count_distinct_text_transform_semantics.py",
+    "tests/test_phase27_completion_audit.py",
+    "tests/test_phase28_completion_audit.py",
+    "tests/test_phase28_numeric_literal_aggregate_cli_json_output.py",
+    "tests/test_phase28_numeric_literal_aggregate_ir.py",
+    "tests/test_phase28_numeric_literal_aggregate_semantics.py",
+    "tests/test_phase28_numeric_literal_aggregate_sql.py",
+    "tests/test_phase29_completion_audit.py",
+    "tests/test_phase30_completion_audit.py",
+    "tests/test_phase31_aggregate_result_matrix_hardening.py",
+    "tests/test_phase31_numeric_promotion_decimal_boundary.py",
+    "tests/test_phase34_candidate_decision.py",
+    "tests/test_phase34_completion_audit.py",
+    "tests/test_phase34_first_implementation_candidate_decision.py",
+    "tests/test_phase34_narrow_join_contract.py",
+    "tests/test_phase34_parser_ast_readiness_contract.py",
+    "tests/test_phase34_relationship_grain_contract.py",
+    "tests/test_phase34_rescope_completion_candidate_decision.py",
+    "tests/test_phase34_semantic_readiness_contract.py",
+    "tests/test_phase35_completion_audit.py",
+    "tests/test_phase35_internal_helper_simplification_candidate_decision.py",
+    "tests/test_phase35_safe_simplification_candidate_decision.py",
+    "tests/test_phase35_validation_delivery_workflow_polish.py",
+    "tests/test_phase36_any_bytes_json_support_posture.py",
+    "tests/test_phase36_candidate_decision.py",
+    "tests/test_phase36_completion_audit.py",
+    "tests/test_phase36_datetime_time_interval_boundary.py",
+    "tests/test_phase36_decimal_precision_scale_carrier_mvp_decision.py",
+    "tests/test_phase36_expanded_scalar_operator_matrix.py",
+    "tests/test_phase36_public_surface_stability_hardening.py",
+    "tests/test_phase36_rescope_candidate_resolution_matrix.py",
+    "tests/test_phase36_status_housekeeping.py",
+    "tests/test_phase36_type_alias_domain_refinement_boundary.py",
+    "tests/test_phase36_uuid_support_completion.py",
+    "tests/test_phase37_aggregate_filter_distinct_modifier_deferral.py",
+    "tests/test_phase37_candidate_decision.py",
+    "tests/test_phase37_completion_audit.py",
+    "tests/test_phase37_count_distinct_expression_widening_boundary.py",
+    "tests/test_phase37_count_expression_mvp_decision.py",
+    "tests/test_phase37_current_aggregate_matrix.py",
+    "tests/test_phase37_decimal_aggregate_expression_boundary.py",
+    "tests/test_phase37_grouped_aggregate_interaction_hardening.py",
+    "tests/test_phase37_min_max_expression_boundary.py",
+    "tests/test_phase37_nested_aggregate_composition_hardening.py",
+    "tests/test_phase38_binding_filter_post_aggregate_roadmap.py",
+    "tests/test_phase38_boundary_types_capability_contract.py",
+    "tests/test_phase38_candidate_decision.py",
+    "tests/test_phase38_completion_audit.py",
+    "tests/test_phase38_count_family_semantics_contract.py",
+    "tests/test_phase38_distinct_collation_ordering_readiness.py",
+    "tests/test_phase38_type_capability_matrix_contract.py",
+    "tests/test_phase39_candidate_decision.py",
+    "tests/test_phase39_count_expression_mvp_contract.py",
+    "tests/test_phase39_count_expression_semantics.py",
+}
+
+
+def _non_slice3_repair_diff_paths(diff_output: str) -> set[str]:
+    return {
+        path
+        for path in diff_output.splitlines()
+        if path and path not in ALLOWED_SLICE3_CHANGED_PATHS
+    }
+
+
+def _non_slice3_repair_status_paths(status_output: str) -> set[str]:
+    return {
+        _status_path(line)
+        for line in status_output.splitlines()
+        if line and _status_path(line) not in ALLOWED_SLICE3_CHANGED_PATHS
+    }
+
 
 FORBIDDEN_DIFF_PATHS = (
     "README.md",
@@ -153,7 +263,9 @@ def _git_status_for(paths: tuple[str, ...]) -> str:
 
 
 def _status_path(line: str) -> str:
-    return line[3:]
+    if len(line) > 2 and line[2] == " ":
+        return line[3:]
+    return line.split(maxsplit=1)[1]
 
 
 def _path_matches(path: str, prefix: str) -> bool:
@@ -318,9 +430,12 @@ def test_phase39_slice_sequence_is_locked() -> None:
     for required in (
         "| 1 | Candidate Decision And Implementation Readiness Scope | docs/plan/static-audit/tests-only; no behavior change |",
         "| 2 | Count Expression MVP Contract | docs/spec/static-audit first; no behavior change unless separately approved |",
-        "| 3 | Narrow Count Expression Behavior MVP | implementation only if Slice 2 locks exact scope and Gate 1/Gate 2 approve it |",
-        "| 4 | SQL / CLI / JSON / Fixture Compatibility Hardening | compatibility proof for the approved `count(expression)` MVP only |",
-        "| 5 | Completion Audit And Status Lock | audit/status; no new behavior unless a prior slice separately approved implementation |",
+        "| 3 | Count Expression Semantic MVP | semantic acceptance only for the approved narrow `count(expression)` boundary |",
+        "| 4 | Count Expression IR Lowering MVP | IR lowering for the semantically approved `count(expression)` subset |",
+        "| 5 | Count Expression SQL Lowering MVP | PostgreSQL/private MySQL lowering for the approved IR subset |",
+        "| 6 | Count Expression CLI / JSON / Golden Compatibility | CLI, JSON, fixture, and golden compatibility for the approved behavior |",
+        "| 7 | Count Family Boundary Regression Matrix | regression matrix for count-family acceptance and exclusions |",
+        "| 8 | Completion Audit And Status Lock | audit/status; no new behavior unless a prior slice separately approved implementation |",
         "Later phases or separately approved slices must handle `count(1)`",
         "`count_if(predicate)`, broad `count_distinct(expression)`, `min/max(expression)`",
         "`RelationLayerIR`",
@@ -381,18 +496,30 @@ def test_forbidden_surfaces_are_documented_and_unchanged_or_untracked() -> None:
     ):
         assert required in plan, required
 
-    diff_output = _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS)
-    status_output = _git_status_for(FORBIDDEN_DIFF_PATHS)
+    diff_paths = set(
+        filter(
+            None,
+            _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS).splitlines(),
+        )
+    )
+    status_paths = {
+        _status_path(line)
+        for line in _git_status_for(FORBIDDEN_DIFF_PATHS).splitlines()
+        if line
+    }
 
-    assert diff_output == ""
-    assert status_output == ""
+    assert diff_paths <= ALLOWED_SLICE3_CHANGED_PATHS
+    assert status_paths <= ALLOWED_SLICE3_CHANGED_PATHS
 
 
-def test_changed_set_is_slice1_allowlist_or_clean_ci_checkout() -> None:
+def test_changed_set_is_current_slice_allowlist_or_clean_ci_checkout() -> None:
     status_paths = {_status_path(line) for line in _git_status()}
 
     # Accept both clean CI checkout and dirty Gate 2 working trees.
-    assert status_paths <= ALLOWED_SLICE1_CHANGED_PATHS
+    assert status_paths <= ALLOWED_SLICE3_CHANGED_PATHS
 
     for forbidden in FORBIDDEN_DIFF_PATHS:
-        assert not any(_path_matches(path, forbidden) for path in status_paths)
+        assert not any(
+            _path_matches(path, forbidden) and path not in ALLOWED_SLICE3_CHANGED_PATHS
+            for path in status_paths
+        )

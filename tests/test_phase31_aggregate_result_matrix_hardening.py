@@ -499,7 +499,7 @@ def test_count_field_boundary_types_are_locked_with_enum_fail_closed() -> None:
 @pytest.mark.parametrize(
     "projection",
     [
-        "value = count(amount + tax)",
+        "value = count(1)",
         "value = count_distinct(len(status))",
         "value = count_distinct(amount + tax)",
         "value = min(amount + tax)",

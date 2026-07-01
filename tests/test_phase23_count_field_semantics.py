@@ -152,6 +152,31 @@ def test_grouped_qualified_count_field_projection_is_accepted() -> None:
     _assert_field(schema.fields["known_scores"], "Int", EffectiveNullability.NON_NULL)
 
 
+def test_count_expression_semantic_mvp_accepts_former_deferred_field_bearing_cases() -> (
+    None
+):
+    script = _parse(
+        SOURCE_PREFIX + "table order_completeness:\n"
+        "    from orders\n"
+        "    select:\n"
+        "        known_values = count(amount + amount)\n"
+        "        known_statuses = count(lower(status))\n"
+    )
+    relation = _relation(script)
+
+    result = analyze(script)
+    schema = result.model.relation_row_schemas[relation]
+
+    assert _errors(result) == []
+    assert list(schema.fields) == ["known_values", "known_statuses"]
+    _assert_field(schema.fields["known_values"], "Int", EffectiveNullability.NON_NULL)
+    _assert_field(
+        schema.fields["known_statuses"],
+        "Int",
+        EffectiveNullability.NON_NULL,
+    )
+
+
 def test_count_any_field_is_rejected_with_existing_unsupported_type_diagnostic() -> (
     None
 ):
@@ -196,7 +221,7 @@ def test_count_missing_field_uses_existing_unresolved_field_diagnostic_only() ->
             ),
         ),
         (
-            "known_values = count(amount + amount)",
+            "known_values = count(1)",
             (
                 "PIE-S2315",
                 "Aggregate function count requires a direct field argument; "
@@ -204,7 +229,7 @@ def test_count_missing_field_uses_existing_unresolved_field_diagnostic_only() ->
             ),
         ),
         (
-            "known_values = count(lower(status))",
+            'known_values = count("x")',
             (
                 "PIE-S2315",
                 "Aggregate function count requires a direct field argument; "

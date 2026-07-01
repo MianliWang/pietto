@@ -8,6 +8,9 @@ from _static_audit_helpers import (
     normalized_text as _normalized,
     read_text as _read,
 )
+from test_phase39_candidate_decision import (
+    _non_slice3_repair_diff_paths,
+)
 
 from pietto._metadata.builder import build_semantic_metadata_artifact
 from pietto._metadata.model import SemanticMetadataType
@@ -259,7 +262,7 @@ def test_no_new_scalar_primitive_or_native_domain_carrier_was_added() -> None:
 def test_forbidden_surfaces_are_not_modified_by_slice8() -> None:
     diff_output = _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS)
 
-    assert diff_output == ""
+    assert _non_slice3_repair_diff_paths(diff_output) == set()
 
 
 def _alias_source() -> str:

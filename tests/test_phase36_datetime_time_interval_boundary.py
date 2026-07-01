@@ -8,6 +8,9 @@ from _static_audit_helpers import (
     normalized_text as _normalized,
     read_text as _read,
 )
+from test_phase39_candidate_decision import (
+    _non_slice3_repair_diff_paths,
+)
 
 import pietto.cli as cli
 from pietto.ast_nodes import Expression, QueryDef, Script, TableDef
@@ -287,7 +290,7 @@ def test_future_prerequisites_and_non_authorization_are_documented() -> None:
 def test_forbidden_surfaces_are_not_modified_by_slice6() -> None:
     diff_output = _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS)
 
-    assert diff_output == ""
+    assert _non_slice3_repair_diff_paths(diff_output) == set()
 
 
 def _source(type_name: str, projection: str) -> str:

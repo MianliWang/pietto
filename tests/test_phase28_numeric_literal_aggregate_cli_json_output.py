@@ -264,7 +264,7 @@ def test_json_output_writes_numeric_literal_aggregate_sql_and_keeps_artifacts(
     [
         "value = sum(1)",
         "value = sum(amount / tax)",
-        "value = count(amount + 1)",
+        "value = count(1)",
     ],
 )
 def test_invalid_numeric_literal_aggregate_text_fails_before_sql(
@@ -293,7 +293,7 @@ def test_invalid_numeric_literal_aggregate_json_fails_without_artifacts(
     path = _write(
         tmp_path,
         "invalid-numeric-literal-aggregate-json.pietto",
-        _invalid_source("postgres.table", "value = count(amount + 1)"),
+        _invalid_source("postgres.table", "value = count(1)"),
     )
 
     assert (

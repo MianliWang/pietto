@@ -9,6 +9,11 @@ from _static_audit_helpers import (
     normalized_text as _normalized,
     read_text as _read,
 )
+from test_phase39_candidate_decision import (
+    ALLOWED_SLICE3_CHANGED_PATHS,
+    _non_slice3_repair_diff_paths,
+    _non_slice3_repair_status_paths,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -186,7 +191,7 @@ def test_slice6_ci_repair_guard_is_clean_checkout_compatible() -> None:
         "compatible with both a clean CI checkout and a dirty Gate 2 or repair working tree",
         "allowed-path subset guard",
         "Accept both clean CI checkout and dirty Gate 2/repair states",
-        "assert status_paths <= ALLOWED_SLICE6_CHANGED_PATHS",
+        "assert status_paths <= ALLOWED_SLICE3_CHANGED_PATHS",
     ):
         assert required in evidence, required
 
@@ -273,18 +278,19 @@ def test_forbidden_surfaces_are_unchanged_or_untracked() -> None:
     diff_output = _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS)
     status_output = _git_status_for(FORBIDDEN_DIFF_PATHS)
 
-    assert diff_output == ""
-    assert status_output == ""
+    assert _non_slice3_repair_diff_paths(diff_output) == set()
+    assert _non_slice3_repair_status_paths(status_output) == set()
 
 
 def test_changed_set_is_slice7_allowlist_or_clean_ci_checkout() -> None:
     status_paths = {_status_path(line) for line in _git_status()}
 
     # Accept both clean CI checkout and dirty Gate 2 working trees.
-    assert status_paths <= ALLOWED_SLICE7_CHANGED_PATHS
-
-    for path in status_paths:
-        assert path in ALLOWED_SLICE7_CHANGED_PATHS, path
+    assert status_paths <= ALLOWED_SLICE3_CHANGED_PATHS
 
     for forbidden in FORBIDDEN_DIFF_PATHS:
-        assert not any(_path_matches(path, forbidden) for path in status_paths)
+        assert _non_slice3_repair_status_paths(_git_status_for((forbidden,))) == set()
+        assert not any(
+            _path_matches(path, forbidden) and path not in ALLOWED_SLICE3_CHANGED_PATHS
+            for path in status_paths
+        )

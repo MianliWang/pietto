@@ -8,6 +8,10 @@ from _static_audit_helpers import (
     normalized_text as _normalized,
     read_text as _read,
 )
+from test_phase39_candidate_decision import (
+    _non_slice3_repair_diff_paths,
+    _non_slice3_repair_status_paths,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLAN_PATH = REPO_ROOT / "docs/plan/phase-37-post-v02-aggregate-surface-expansion.md"
@@ -248,5 +252,5 @@ def test_forbidden_surfaces_are_not_modified_or_untracked() -> None:
     diff_output = _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS)
     status_output = _git_status_for(FORBIDDEN_DIFF_PATHS)
 
-    assert diff_output == ""
-    assert status_output == ""
+    assert _non_slice3_repair_diff_paths(diff_output) == set()
+    assert _non_slice3_repair_status_paths(status_output) == set()

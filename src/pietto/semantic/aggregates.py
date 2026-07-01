@@ -284,6 +284,8 @@ def is_supported_semantic_aggregate_argument_expression(
 
     if is_direct_field_argument(expression):
         return is_supported_semantic_aggregate_argument(function_name, value_type)
+    if function_name == COUNT_AGGREGATE_NAME:
+        return _is_supported_count_expression_shape(expression, value_type)
     if function_name == COUNT_DISTINCT_AGGREGATE_NAME:
         return _is_builtin(value_type, "Text") and _is_lower_trim_text_transform_chain(
             expression
@@ -353,6 +355,45 @@ def is_supported_count_distinct_argument(value_type: ValueType) -> bool:
             "UUID",
         )
     )
+
+
+def _is_supported_count_expression_shape(
+    expression: Expression,
+    value_type: ValueType,
+) -> bool:
+    if not is_supported_count_argument(value_type):
+        return False
+
+    is_valid, has_field = _count_expression_shape(expression)
+    return is_valid and has_field
+
+
+def _count_expression_shape(expression: Expression) -> tuple[bool, bool]:
+    """Return (valid shape, has direct field leaf) for count expressions."""
+
+    if isinstance(expression, (NameExpr, DottedNameExpr)):
+        return True, True
+    if isinstance(expression, LiteralExpr):
+        return True, False
+    if isinstance(expression, UnaryExpr):
+        if expression.operator not in {"+", "-"}:
+            return False, False
+        return _count_expression_shape(expression.operand)
+    if isinstance(expression, BinaryExpr):
+        if expression.operator not in {"+", "-", "*", "%", "and", "or"}:
+            return False, False
+        left_valid, left_has_field = _count_expression_shape(expression.left)
+        right_valid, right_has_field = _count_expression_shape(expression.right)
+        return left_valid and right_valid, left_has_field or right_has_field
+    if isinstance(expression, CallExpr):
+        if not isinstance(expression.callee, NameExpr):
+            return False, False
+        if expression.callee.name not in {"lower", "trim", "len"}:
+            return False, False
+        if len(expression.arguments) != 1:
+            return False, False
+        return _count_expression_shape(expression.arguments[0])
+    return False, False
 
 
 def _is_field_only_numeric_shape(expression: Expression) -> bool:

@@ -268,14 +268,14 @@ def test_direct_lower_expr_for_valid_count_field_uses_aggregate_call_ir() -> Non
             SOURCE_PREFIX + "table order_completeness:\n"
             "    from orders\n"
             "    select:\n"
-            "        known_values = count(amount + amount)\n",
+            "        known_values = count(1)\n",
             "PIE-S2315",
         ),
         (
             SOURCE_PREFIX + "table order_completeness:\n"
             "    from orders\n"
             "    select:\n"
-            "        known_values = count(lower(status))\n",
+            '        known_values = count("x")\n',
             "PIE-S2315",
         ),
         (

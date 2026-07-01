@@ -371,7 +371,7 @@ def test_phase26_field_only_expression_aggregate_sql_remains_supported(
         ("value = sum(amount / tax)", "PIE-S2315"),
         ("value = sum(amount % tax)", "PIE-S2315"),
         ("value = sum(amount + len(status))", "PIE-S2315"),
-        ("value = count(amount + 1)", "PIE-S2315"),
+        ("value = count(1)", "PIE-S2315"),
         ("value = min(amount + 1)", "PIE-S2315"),
         ("value = max(score * 2)", "PIE-S2315"),
         ("value = count_distinct(len(status))", "PIE-S2315"),

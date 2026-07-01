@@ -11,6 +11,9 @@ from _static_audit_helpers import (
     normalized_text as _normalized,
     read_text as _read,
 )
+from test_phase39_candidate_decision import (
+    _non_slice3_repair_diff_paths,
+)
 
 from pietto import cli_json
 from pietto._metadata import model as metadata_model
@@ -409,7 +412,7 @@ def test_package_smoke_network_policy_is_documented() -> None:
 def test_forbidden_surfaces_are_not_modified() -> None:
     diff_output = _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS)
 
-    assert diff_output == ""
+    assert _non_slice3_repair_diff_paths(diff_output) == set()
 
 
 def _tracked_files(relative_path: str) -> tuple[str, ...]:

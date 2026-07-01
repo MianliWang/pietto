@@ -11,6 +11,7 @@ from _static_audit_helpers import (
     normalized_text as _normalized,
     read_text as _read,
 )
+from test_phase39_candidate_decision import ALLOWED_SLICE3_CHANGED_PATHS
 from pietto.errors import Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
@@ -81,7 +82,6 @@ IN_PROGRESS_PHASE37_STATIC_AUDIT_PATTERNS = (
     "docs/spec/phase37-*.md",
     "tests/test_phase37_*.py",
 )
-
 SOURCE_PREFIX = (
     "shape Order:\n"
     "    region: Text not null\n"
@@ -412,7 +412,8 @@ def test_computed_grouped_order_output_remains_deferred() -> None:
         ("total = sum(amount) + 1", "PIE-S2310"),
         ("total = lower(min(amount))", "PIE-S2310"),
         ("total = sum(total_amount)", "PIE-S2102"),
-        ("total = count(amount + tax)", "PIE-S2315"),
+        # Phase 39 Slice 3 accepts "total = count(amount + tax)" semantically.
+        ("total = count(1)", "PIE-S2315"),
         ("total = count_distinct(amount + tax)", "PIE-S2315"),
         ("total = min(amount + tax)", "PIE-S2315"),
         ("total = max(amount + tax)", "PIE-S2315"),
@@ -489,11 +490,20 @@ def test_public_output_schema_and_release_surfaces_remain_unchanged() -> None:
 
 
 def test_forbidden_surfaces_are_not_modified_or_untracked() -> None:
-    diff_output = _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS)
-    status_output = _git_status_for(FORBIDDEN_DIFF_PATHS)
+    diff_paths = set(
+        filter(
+            None,
+            _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS).splitlines(),
+        )
+    )
+    status_paths = {
+        line.split(maxsplit=1)[1]
+        for line in _git_status_for(FORBIDDEN_DIFF_PATHS).splitlines()
+        if line
+    }
 
-    assert diff_output == ""
-    assert status_output == ""
+    assert diff_paths <= ALLOWED_SLICE3_CHANGED_PATHS
+    assert status_paths <= ALLOWED_SLICE3_CHANGED_PATHS
 
 
 def test_only_phase37_static_audit_files_are_changed_or_untracked() -> None:
@@ -503,6 +513,7 @@ def test_only_phase37_static_audit_files_are_changed_or_untracked() -> None:
         path
         for path in changed_paths
         if not _is_in_progress_phase37_static_audit_path(path)
+        and path not in ALLOWED_SLICE3_CHANGED_PATHS
     )
 
     assert non_phase37_static_audit_paths == []

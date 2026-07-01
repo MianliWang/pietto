@@ -9,6 +9,11 @@ from _static_audit_helpers import (
     normalized_text as _normalized,
     read_text as _read,
 )
+from test_phase39_candidate_decision import (
+    ALLOWED_SLICE3_CHANGED_PATHS,
+    _non_slice3_repair_diff_paths,
+    _non_slice3_repair_status_paths,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -455,8 +460,8 @@ def test_forbidden_surfaces_are_not_modified_or_untracked() -> None:
     diff_output = _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS)
     status_output = _git_status_for(FORBIDDEN_DIFF_PATHS)
 
-    assert diff_output == ""
-    assert status_output == ""
+    assert _non_slice3_repair_diff_paths(diff_output) == set()
+    assert _non_slice3_repair_status_paths(status_output) == set()
 
 
 def test_only_phase37_static_audit_files_are_changed_or_untracked() -> None:
@@ -468,4 +473,4 @@ def test_only_phase37_static_audit_files_are_changed_or_untracked() -> None:
         if not _is_in_progress_phase37_static_audit_path(path)
     )
 
-    assert forbidden_paths == []
+    assert set(forbidden_paths) <= ALLOWED_SLICE3_CHANGED_PATHS

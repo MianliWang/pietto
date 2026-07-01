@@ -9,6 +9,7 @@ from _static_audit_helpers import (
     normalized_text as _normalized,
     read_text as _read,
 )
+from test_phase39_candidate_decision import ALLOWED_SLICE3_CHANGED_PATHS
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -36,7 +37,6 @@ ALLOWED_SLICE2_CHANGED_PATHS = {
     "docs/spec/phase39-count-expression-mvp-contract-v1.md",
     "tests/test_phase39_count_expression_mvp_contract.py",
 }
-
 FORBIDDEN_DIFF_PATHS = (
     "README.md",
     "AGENTS.md",
@@ -91,7 +91,9 @@ def _git_status() -> list[str]:
 
 
 def _status_path(line: str) -> str:
-    return line[3:]
+    if len(line) > 2 and line[2] == " ":
+        return line[3:]
+    return line.split(maxsplit=1)[1]
 
 
 def _path_matches(path: str, prefix: str) -> bool:
@@ -140,11 +142,12 @@ def test_slice2_allowlist_and_forbidden_surfaces_are_locked() -> None:
     }
 
     status_paths = {_status_path(line) for line in _git_status()}
-    assert status_paths <= ALLOWED_SLICE2_CHANGED_PATHS
+    assert status_paths <= ALLOWED_SLICE3_CHANGED_PATHS
 
     for path in status_paths:
         for forbidden in FORBIDDEN_DIFF_PATHS:
-            assert not _path_matches(path, forbidden), path
+            if path not in ALLOWED_SLICE3_CHANGED_PATHS:
+                assert not _path_matches(path, forbidden), path
 
     tracked_diff_paths = set(
         filter(
@@ -152,10 +155,12 @@ def test_slice2_allowlist_and_forbidden_surfaces_are_locked() -> None:
             _git_diff_name_only(REPO_ROOT, tuple(FORBIDDEN_DIFF_PATHS)).splitlines(),
         )
     )
-    assert tracked_diff_paths == set()
+    assert tracked_diff_paths <= ALLOWED_SLICE3_CHANGED_PATHS
 
 
-def test_repo_evidence_confirms_current_count_expression_is_not_implemented() -> None:
+def test_repo_evidence_confirms_slice3_semantic_acceptance_and_lowering_deferral() -> (
+    None
+):
     evidence = _repo_evidence()
 
     for required in (
@@ -167,8 +172,9 @@ def test_repo_evidence_confirms_current_count_expression_is_not_implemented() ->
         "expected_semantic_aggregate_arities",
         "return (0, 1)",
         "def is_supported_semantic_aggregate_argument_expression",
-        "if function_name not in {SUM_AGGREGATE_NAME, AVG_AGGREGATE_NAME}",
-        "return False",
+        "_is_supported_count_expression_shape",
+        "_count_expression_shape",
+        '{"lower", "trim", "len"}',
         "Validate the direct aliased no-GROUP aggregate projection shape",
         "project_grouped_schema",
         "class AggregateCallIR",

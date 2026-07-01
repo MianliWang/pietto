@@ -424,7 +424,7 @@ def test_sum_avg_numeric_expression_boundaries_are_locked() -> None:
         "value = sum(price * discount)",
         "value = sum(amount / tax)",
         "value = sum(amount % tax)",
-        "value = count(amount + 1)",
+        "value = count(1)",
         "value = min(amount + 1)",
         "value = max(score * 2)",
     ],

@@ -8,6 +8,10 @@ from _static_audit_helpers import (
     normalized_text as _normalized,
     read_text as _read,
 )
+from test_phase39_candidate_decision import (
+    ALLOWED_SLICE3_CHANGED_PATHS,
+    _non_slice3_repair_status_paths,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -401,7 +405,7 @@ def test_deferred_surfaces_future_prerequisites_and_public_lock_are_documented()
 def test_forbidden_surfaces_and_phase38_plan_remain_unchanged() -> None:
     changed_paths = {_status_path(line) for line in _git_status()}
 
-    assert changed_paths <= ALLOWED_SLICE5_CHANGED_PATHS
+    assert changed_paths <= ALLOWED_SLICE3_CHANGED_PATHS
     assert (
         _git_status_for(
             (
@@ -411,6 +415,10 @@ def test_forbidden_surfaces_and_phase38_plan_remain_unchanged() -> None:
         == ""
     )
 
-    for changed_path in changed_paths:
-        for forbidden in FORBIDDEN_DIFF_PATHS:
-            assert not _path_matches(changed_path, forbidden), changed_path
+    for forbidden in FORBIDDEN_DIFF_PATHS:
+        assert _non_slice3_repair_status_paths(_git_status_for((forbidden,))) == set()
+        assert not any(
+            _path_matches(changed_path, forbidden)
+            and changed_path not in ALLOWED_SLICE3_CHANGED_PATHS
+            for changed_path in changed_paths
+        )

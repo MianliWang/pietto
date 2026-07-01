@@ -335,7 +335,8 @@ def test_direct_field_aggregate_lowering_remains_unchanged() -> None:
         ("value = avg(price * price)", "PIE-S2315"),
         ("value = count_distinct(len(status))", "PIE-S2315"),
         ("value = count_distinct(lower(amount))", "PIE-S2315"),
-        ("value = count(amount + tax)", "PIE-S2315"),
+        # Phase 39 Slice 3 accepts "value = count(amount + tax)" semantically.
+        ("value = count(1)", "PIE-S2315"),
         ("value = min(amount + tax)", "PIE-S2315"),
         ("value = max(score * weight)", "PIE-S2315"),
         ("value = sum(avg(amount))", "PIE-S2311"),

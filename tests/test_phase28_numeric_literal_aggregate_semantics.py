@@ -181,7 +181,7 @@ def test_cli_check_accepts_numeric_literal_aggregate_arguments(
         ("value = sum(amount / tax)", "sum"),
         ("value = sum(amount % tax)", "sum"),
         ("value = sum(amount + len(status))", "sum"),
-        ("value = count(amount + 1)", "count"),
+        ("value = count(1)", "count"),
         ("value = min(amount + 1)", "min"),
         ("value = max(score * 2)", "max"),
         ("value = count_distinct(len(status))", "count_distinct"),

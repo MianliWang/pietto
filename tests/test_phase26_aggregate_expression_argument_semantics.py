@@ -181,7 +181,7 @@ def test_qualified_field_leaves_are_semantically_accepted() -> None:
         ("value = avg(price * price)", "avg"),
         ("value = sum(price + amount)", "sum"),
         ("value = sum(price + score)", "sum"),
-        ("value = count(amount + tax)", "count"),
+        ("value = count(1)", "count"),
         ("value = count_distinct(len(status))", "count_distinct"),
         ("value = min(amount + tax)", "min"),
         ("value = max(score * weight)", "max"),

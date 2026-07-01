@@ -7,6 +7,9 @@ from _static_audit_helpers import (
     normalized_text as _normalized,
     read_text as _read,
 )
+from test_phase39_candidate_decision import (
+    _non_slice3_repair_diff_paths,
+)
 
 from pietto._metadata.builder import build_semantic_metadata_artifact
 from pietto.ast_nodes import QueryDef, Script, TableDef
@@ -298,7 +301,7 @@ def test_unsupported_and_future_surfaces_remain_closed() -> None:
 def test_forbidden_surfaces_are_not_modified_by_slice7() -> None:
     diff_output = _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS)
 
-    assert diff_output == ""
+    assert _non_slice3_repair_diff_paths(diff_output) == set()
 
 
 def _projection_source() -> str:

@@ -176,7 +176,7 @@ def test_satisfying_resolves_count_distinct_transform_projection_alias() -> None
             ),
         ),
         (
-            "value = count(amount + tax)",
+            "value = count(1)",
             (
                 "PIE-S2315",
                 "Aggregate function count requires a direct field argument; "

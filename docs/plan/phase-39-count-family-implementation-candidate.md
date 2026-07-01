@@ -101,7 +101,7 @@ Slice 1:
 | Semantic aggregate names | `src/pietto/semantic/aggregates.py` recognizes `count`, `count_distinct`, `sum`, `avg`, `min`, and `max` for semantic aggregate checks. |
 | `count` arity | `expected_semantic_aggregate_arities("count")` accepts `0` or `1`; direct `count(field)` is already semantic behavior. |
 | Direct count type rule | `is_supported_count_argument` accepts non-Enum, non-Unknown, non-`Any` direct fields. |
-| Expression-argument failure | non-direct `count(...)` arguments such as `count(amount + tax)` remain `PIE-S2315`. |
+| Count expression semantic MVP | Slice 3 accepts narrow field-bearing `count(expression)` arguments semantically; literal-only and unsupported shapes remain `PIE-S2315`. |
 | Projection validation | `src/pietto/semantic/relation_schemas.py` and `src/pietto/semantic/group_by.py` validate direct aliased aggregate projections and reject composition/nesting. |
 | IR lowering | `src/pietto/ir/lowering.py` lowers aggregate calls only when semantic value type and row schema projection facts agree. |
 | Aggregate IR | `AggregateCallIR` carries expression arguments, but `RelationIR` has no `RelationLayerIR` or approved post-aggregate layer. |
@@ -158,9 +158,12 @@ release, publication, upload, signing, and attestation.
 |---:|---|---|
 | 1 | Candidate Decision And Implementation Readiness Scope | docs/plan/static-audit/tests-only; no behavior change |
 | 2 | Count Expression MVP Contract | docs/spec/static-audit first; no behavior change unless separately approved |
-| 3 | Narrow Count Expression Behavior MVP | implementation only if Slice 2 locks exact scope and Gate 1/Gate 2 approve it |
-| 4 | SQL / CLI / JSON / Fixture Compatibility Hardening | compatibility proof for the approved `count(expression)` MVP only |
-| 5 | Completion Audit And Status Lock | audit/status; no new behavior unless a prior slice separately approved implementation |
+| 3 | Count Expression Semantic MVP | semantic acceptance only for the approved narrow `count(expression)` boundary |
+| 4 | Count Expression IR Lowering MVP | IR lowering for the semantically approved `count(expression)` subset |
+| 5 | Count Expression SQL Lowering MVP | PostgreSQL/private MySQL lowering for the approved IR subset |
+| 6 | Count Expression CLI / JSON / Golden Compatibility | CLI, JSON, fixture, and golden compatibility for the approved behavior |
+| 7 | Count Family Boundary Regression Matrix | regression matrix for count-family acceptance and exclusions |
+| 8 | Completion Audit And Status Lock | audit/status; no new behavior unless a prior slice separately approved implementation |
 
 Later phases or separately approved slices must handle `count(1)`,
 `count_if(predicate)`, broad `count_distinct(expression)`, `min/max(expression)`,

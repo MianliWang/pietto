@@ -7,6 +7,10 @@ from pathlib import Path
 from _static_audit_helpers import (
     normalized_text as _normalized,
 )
+from test_phase39_candidate_decision import (
+    ALLOWED_SLICE3_CHANGED_PATHS,
+    _non_slice3_repair_status_paths,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -394,11 +398,14 @@ def test_only_slice6_files_are_changed_and_forbidden_surfaces_are_clean() -> Non
     status_paths = {_status_path(line) for line in status}
 
     # Accept both clean CI checkout and dirty Gate 2/repair states.
-    assert status_paths <= ALLOWED_SLICE6_CHANGED_PATHS
+    assert status_paths <= ALLOWED_SLICE3_CHANGED_PATHS
 
     for forbidden in FORBIDDEN_DIFF_PATHS:
-        assert _git_status_for((forbidden,)) == ""
-        assert not any(_path_matches(path, forbidden) for path in status_paths)
+        assert _non_slice3_repair_status_paths(_git_status_for((forbidden,))) == set()
+        assert not any(
+            _path_matches(path, forbidden) and path not in ALLOWED_SLICE3_CHANGED_PATHS
+            for path in status_paths
+        )
 
 
 def test_phase38_plan_already_records_slice6_without_plan_edit() -> None:
