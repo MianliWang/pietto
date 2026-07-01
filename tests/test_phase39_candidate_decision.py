@@ -163,6 +163,7 @@ ALLOWED_SLICE3_CHANGED_PATHS = {
     "tests/test_phase38_distinct_collation_ordering_readiness.py",
     "tests/test_phase38_type_capability_matrix_contract.py",
     "tests/test_phase39_candidate_decision.py",
+    "tests/test_phase39_count_family_boundary_regression_matrix.py",
     "tests/test_phase39_count_expression_mvp_contract.py",
     "tests/test_phase39_count_expression_ir.py",
     "tests/test_phase39_count_expression_cli_json_output.py",
