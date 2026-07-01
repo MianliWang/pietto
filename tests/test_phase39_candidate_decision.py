@@ -156,6 +156,7 @@ ALLOWED_SLICE3_CHANGED_PATHS = {
     "tests/test_phase38_type_capability_matrix_contract.py",
     "tests/test_phase39_candidate_decision.py",
     "tests/test_phase39_count_expression_mvp_contract.py",
+    "tests/test_phase39_count_expression_ir.py",
     "tests/test_phase39_count_expression_semantics.py",
 }
 
