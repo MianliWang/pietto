@@ -67,6 +67,7 @@ _SUPPORTED_COUNT_DISTINCT_ARGUMENT_TYPES = frozenset(
     {"Bool", "Int", "Float", "Decimal", "Text", "Date", "Timestamp", "UUID"}
 )
 _COUNT_DISTINCT_TRANSFORM_NAMES = frozenset({"lower", "trim"})
+_COUNT_EXPRESSION_CALL_NAMES = frozenset({"lower", "trim", "len"})
 
 
 def render_mysql_expression(expression: ExpressionIR) -> str:
@@ -154,14 +155,21 @@ def _render_count_aggregate(expression: AggregateCallIR) -> str:
     if len(expression.arguments) != 1:
         raise MySqlRenderError("MySQL aggregate count expects 0 or 1 argument(s)")
     argument = expression.arguments[0]
-    if not isinstance(argument, FieldRefIR) or argument.field is None:
-        raise MySqlRenderError("MySQL aggregate count expects a direct field argument")
     if (
-        argument.value_type.canonical_kind is not TypeKindIR.BUILTIN
-        or argument.value_type.canonical_name == "Any"
+        isinstance(argument, FieldRefIR)
+        and argument.field is not None
+        and not (
+            argument.value_type.canonical_kind is TypeKindIR.BUILTIN
+            and argument.value_type.canonical_name != "Any"
+        )
     ):
         raise MySqlRenderError(
             "MySQL aggregate count supports only concrete non-Any field arguments"
+        )
+    if not _is_count_argument_expression(argument):
+        raise MySqlRenderError(
+            "MySQL aggregate count expects a direct field argument or approved "
+            "field-bearing expression argument"
         )
     return f"COUNT({_render_mysql_expression(argument, nested=True)})"
 
@@ -334,6 +342,47 @@ def _is_count_distinct_text_transform_argument(expression: ExpressionIR) -> bool
     if isinstance(argument, FieldRefIR):
         return argument.field is not None and _builtin_type_name(argument) == "Text"
     return _is_count_distinct_text_transform_argument(argument)
+
+
+def _is_count_argument_expression(expression: ExpressionIR) -> bool:
+    is_valid, has_field = _count_argument_expression_shape(expression)
+    return is_valid and has_field
+
+
+def _count_argument_expression_shape(
+    expression: ExpressionIR,
+) -> tuple[bool, bool]:
+    """Return (valid shape, has resolved field leaf) for count expressions."""
+
+    if _builtin_type_name(expression) in {None, "Any"}:
+        return False, False
+
+    if isinstance(expression, FieldRefIR):
+        return expression.field is not None, expression.field is not None
+    if isinstance(expression, LiteralIR):
+        return True, False
+    if isinstance(expression, UnaryIR):
+        if expression.operator not in _UNARY_OPERATORS:
+            return False, False
+        return _count_argument_expression_shape(expression.operand)
+    if isinstance(expression, BinaryIR):
+        if expression.operator not in {"+", "-", "*", "%", "and", "or"}:
+            return False, False
+        left_valid, left_has_field = _count_argument_expression_shape(expression.left)
+        right_valid, right_has_field = _count_argument_expression_shape(
+            expression.right
+        )
+        return left_valid and right_valid, left_has_field or right_has_field
+    if isinstance(expression, CallIR):
+        if expression.callee not in _COUNT_EXPRESSION_CALL_NAMES:
+            return False, False
+        expected_symbol = SymbolId(SymbolNamespace.CALLABLE, expression.callee)
+        if expression.callee_symbol != expected_symbol:
+            return False, False
+        if len(expression.arguments) != 1:
+            return False, False
+        return _count_argument_expression_shape(expression.arguments[0])
+    return False, False
 
 
 def _builtin_type_name(expression: ExpressionIR) -> str | None:

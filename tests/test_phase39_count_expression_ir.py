@@ -32,7 +32,6 @@ from pietto.parser_api import parse_source
 from pietto.semantic import analyze
 from pietto.sql.expressions import render_expression_sql
 from pietto.sql.mysql_expressions import render_mysql_expression
-from pietto.sql.mysql_render import MySqlRenderError
 
 SOURCE_PREFIX = (
     "shape Order:\n"
@@ -258,7 +257,7 @@ def test_deferred_count_expression_shapes_stop_before_meaningful_aggregate_ir(
         assert _aggregate_expressions(ir_result.ir) == ()
 
 
-def test_sql_renderers_still_fail_closed_for_count_expression_ir_until_slice5() -> None:
+def test_sql_renderers_accept_count_expression_ir_after_slice5() -> None:
     relation = _compile_relation(
         SOURCE_PREFIX + "table order_counts:\n"
         "    from orders\n"
@@ -270,16 +269,8 @@ def test_sql_renderers_still_fail_closed_for_count_expression_ir_until_slice5() 
     )
     assert isinstance(aggregate.arguments[0], BinaryIR)
 
-    with pytest.raises(
-        ValueError,
-        match="PostgreSQL aggregate count expects a direct field argument",
-    ):
-        render_expression_sql(aggregate)
-    with pytest.raises(
-        MySqlRenderError,
-        match="MySQL aggregate count expects a direct field argument",
-    ):
-        render_mysql_expression(aggregate)
+    assert render_expression_sql(aggregate) == 'COUNT(("amount" + "tax"))'
+    assert render_mysql_expression(aggregate) == "COUNT((`amount` + `tax`))"
 
 
 def _compile_relation(source: str) -> RelationIR:

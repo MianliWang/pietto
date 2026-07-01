@@ -62,7 +62,7 @@ EXPECTED_GROUPS = {
     "frontend": "06ff1d647427b4e937321ed525866059266ddc2bc292c050a458647365d95123",
     "semantic": "ee02e4084d1ddd3c37e359d879a9daad31ae47272a3e0b42fe6f8aa4cde2be28",
     "ir": "7438c72875751eeadf8b12b3aad1825499061f3f4e0dd73d8c1a339c614ae884",
-    "sql": "67aeafa622d3147b08930cebcf18862322eec692d547d328b18966afa81f3530",
+    "sql": "f23a79dd0b5620f04ad3329abcd7ad368c1b223ded90fed0f52f1f35b9de18d3",
     "generated": "25bd5df39d46749ad59e2b805bd85cce52e708cdf56bda6ee365615c419e17d1",
     "cli": "bab5a160ac57ad45045836f2f4396e7383baf03c20bb8a18d51e9fd2476a716f",
 }
@@ -98,7 +98,7 @@ MYSQL_GOLDENS = {
     ),
 }
 ALL_GOLDENS_HASH = "0e26a0b367a2ae849e5ec1e9a239be42765bea2c352242db5da930ab56b43004"
-BOUNDARY_HASH = "9163ab48ef37fdd4643ea42005c3804bd60fe2f2919c7aa7dba5221e96eb6e98"
+BOUNDARY_HASH = "43775af41d4bca28074927979c91e4f7c8af3b0f838b766e26446e2d96de1efa"
 
 
 def _load_module(name: str, path: Path) -> ModuleType:

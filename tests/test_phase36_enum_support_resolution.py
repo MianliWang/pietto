@@ -53,6 +53,10 @@ FORBIDDEN_DIFF_PATHS = (
     "scripts",
     "examples",
 )
+ALLOWED_PHASE39_SLICE5_SQL_DIFF_PATHS = {
+    "src/pietto/sql/expressions.py",
+    "src/pietto/sql/mysql_expressions.py",
+}
 
 ENUM_SOURCE_HEADER = (
     "enum Status:\n"
@@ -254,9 +258,9 @@ def test_json_metadata_schema_expansion_is_not_authorized() -> None:
 
 
 def test_forbidden_surfaces_are_not_modified_by_slice5() -> None:
-    diff_output = _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS)
+    diff_paths = set(_git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS).splitlines())
 
-    assert diff_output == ""
+    assert diff_paths <= ALLOWED_PHASE39_SLICE5_SQL_DIFF_PATHS
 
 
 def _source(connector: str, projections: str) -> str:

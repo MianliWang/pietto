@@ -415,7 +415,7 @@ def test_unsupported_source_shapes_stop_before_sql_with_semantic_diagnostics(
         "sum_division_argument",
         "sum_modulo_argument",
         "sum_arbitrary_call_argument",
-        "count_expression_argument",
+        "count_division_argument",
         "min_expression_argument",
         "max_expression_argument",
         "count_distinct_binary_argument",
@@ -574,9 +574,9 @@ def _malformed_aggregate(case: str) -> AggregateCallIR:
             INT_NULLABLE,
             _binary(amount, "+", _call("len", INT_NON_NULL, status), INT_NON_NULL),
         )
-    if case == "count_expression_argument":
+    if case == "count_division_argument":
         return _aggregate(
-            "count", INT_NON_NULL, _binary(amount, "+", tax, INT_NON_NULL)
+            "count", INT_NON_NULL, _binary(amount, "/", tax, INT_NON_NULL)
         )
     if case == "min_expression_argument":
         return _aggregate("min", INT_NULLABLE, _binary(amount, "+", tax, INT_NON_NULL))

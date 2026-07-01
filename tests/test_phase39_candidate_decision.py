@@ -68,6 +68,11 @@ ALLOWED_SLICE1_CHANGED_PATHS = {
 ALLOWED_SLICE3_CHANGED_PATHS = {
     "docs/plan/phase-39-count-family-implementation-candidate.md",
     "src/pietto/semantic/aggregates.py",
+    "src/pietto/sql/expressions.py",
+    "src/pietto/sql/mysql_expressions.py",
+    "tests/test_phase10_completion_audit.py",
+    "tests/test_phase10_mysql_backend_skeleton.py",
+    "tests/test_phase10_mysql_golden_corpus.py",
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
     "tests/test_phase11_generated_guard.py",
@@ -86,6 +91,7 @@ ALLOWED_SLICE3_CHANGED_PATHS = {
     "tests/test_phase14_planning_audit.py",
     "tests/test_phase14_relationship_metadata_completion_audit.py",
     "tests/test_phase15_completion_audit.py",
+    "tests/test_phase15_relationship_name_ownership_contract.py",
     "tests/test_phase15_semantic_completion_audit.py",
     "tests/test_phase16_completion_audit.py",
     "tests/test_phase16_current_syntax_surface_audit.py",
@@ -94,6 +100,7 @@ ALLOWED_SLICE3_CHANGED_PATHS = {
     "tests/test_phase21_group_by_hardening_audit.py",
     "tests/test_phase23_count_field_ir.py",
     "tests/test_phase23_count_field_semantics.py",
+    "tests/test_phase23_count_field_sql.py",
     "tests/test_phase24_aggregate_expression_arguments_readiness.py",
     "tests/test_phase24_cli_json_output_hardening.py",
     "tests/test_phase24_completion_audit.py",
@@ -131,6 +138,7 @@ ALLOWED_SLICE3_CHANGED_PATHS = {
     "tests/test_phase36_completion_audit.py",
     "tests/test_phase36_datetime_time_interval_boundary.py",
     "tests/test_phase36_decimal_precision_scale_carrier_mvp_decision.py",
+    "tests/test_phase36_enum_support_resolution.py",
     "tests/test_phase36_expanded_scalar_operator_matrix.py",
     "tests/test_phase36_public_surface_stability_hardening.py",
     "tests/test_phase36_rescope_candidate_resolution_matrix.py",
@@ -158,6 +166,9 @@ ALLOWED_SLICE3_CHANGED_PATHS = {
     "tests/test_phase39_count_expression_mvp_contract.py",
     "tests/test_phase39_count_expression_ir.py",
     "tests/test_phase39_count_expression_semantics.py",
+    "tests/test_phase39_count_expression_sql.py",
+    "tests/test_sql_mysql_expressions.py",
+    "tests/test_sql_postgres_expressions.py",
 }
 
 
