@@ -10,7 +10,7 @@ import pytest
 import pietto.cli as cli
 import pietto.ir as ir_api
 import pietto.sql as sql_api
-from pietto.ast_nodes import Script
+from pietto.ast_nodes import QueryDef, Script, TableDef
 from pietto.errors import Severity
 from pietto.ir import (
     AggregateCallIR,
@@ -387,9 +387,9 @@ def _compile_relation(source: str) -> RelationIR:
     return _relation_ir(_compile_script_ir(source))
 
 
-def _semantic_relation(result: SemanticResult) -> object:
+def _semantic_relation(result: SemanticResult) -> TableDef | QueryDef:
     relation = next(iter(result.model.relation_row_schemas))
-    assert hasattr(relation, "select_items")
+    assert isinstance(relation, (TableDef, QueryDef))
     return relation
 
 
