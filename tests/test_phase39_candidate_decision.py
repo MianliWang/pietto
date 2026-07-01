@@ -169,6 +169,7 @@ ALLOWED_SLICE3_CHANGED_PATHS = {
     "tests/test_phase39_count_expression_cli_json_output.py",
     "tests/test_phase39_count_expression_semantics.py",
     "tests/test_phase39_count_expression_sql.py",
+    "tests/test_phase39_completion_audit.py",
     "tests/test_sql_mysql_expressions.py",
     "tests/test_sql_postgres_expressions.py",
 }

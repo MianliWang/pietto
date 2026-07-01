@@ -46,7 +46,7 @@ Slice 1 chooses a behavior-preserving readiness boundary:
   candidate;
 - reject or defer broader aggregate, filter, post-aggregate, and relation-layer
   work;
-- define a five-slice Phase 39 roadmap.
+- define an eight-slice Phase 39 roadmap.
 
 Slice 1 authorizes no source/compiler behavior change, source implementation,
 grammar change, generated ANTLR change, parser or AST behavior change,
@@ -169,6 +169,79 @@ Later phases or separately approved slices must handle `count(1)`,
 `count_if(predicate)`, broad `count_distinct(expression)`, `min/max(expression)`,
 broad `sum/avg(expression)`, aggregate filters, post-aggregate expressions, and
 `RelationLayerIR`.
+
+## Slice 8 Completion Audit And Status Lock
+
+Phase 39 Slice 8 is Completion Audit And Status Lock. Slice 8 is
+docs/plan/static-audit/tests-only completion work and authorizes no source,
+compiler, grammar/generated, fixture/golden, script/workflow, package metadata,
+lockfile, README, AGENTS, public spec, tag, release, publish/upload, signing,
+or attestation change.
+
+Phase 39 is complete as an implementation-oriented 8-slice phase:
+
+- Slice 1 candidate/readiness is complete;
+- Slice 2 `count(expression)` MVP contract is complete;
+- Slice 3 semantic MVP is complete;
+- Slice 4 IR lowering proof is complete;
+- Slice 5 PostgreSQL/private MySQL SQL lowering MVP is complete;
+- Slice 6 CLI/JSON/output compatibility is complete without fixture/golden
+  additions;
+- Slice 7 count-family boundary regression matrix is complete after CI repair;
+- Slice 8 completion audit/status lock is complete once Gate 3 records the
+  final staging, commit, push, and natural CI `headSha` verification.
+
+Slice 7 CI repair is part of the trusted Phase 39 completion posture:
+
+- failed Slice 7 commit:
+  `2de5a0791e3b7ca84605bffa98d11c54fffac6fa`;
+- failed Slice 7 CI run: `28508292364`, `completed / failure` due to Pyright
+  typing in `tests/test_phase39_count_family_boundary_regression_matrix.py`;
+- repair commit: `7f299a227f9656bc8151cd738d9f9207a98e34ce`;
+- repair CI run: `28508625025`, `completed / success`;
+- final trusted HEAD for the Slice 8 handoff:
+  `7f299a227f9656bc8151cd738d9f9207a98e34ce`.
+
+The completed accepted count-family behavior is:
+
+- `count()`;
+- `count(field)` and `count(source.field)`;
+- supported direct `count(Json/Bytes/UUID field)`;
+- narrow field-bearing `count(expression)`;
+- Bool expression count as SQL non-`NULL` expression-result count, not
+  `count_if(predicate)`;
+- existing `count_distinct(field)`;
+- existing `count_distinct(lower/trim Text chain)`.
+
+The still rejected or deferred count-family and aggregate behavior is:
+
+- `count(1)`, `count(constant)`, and literal-only count expressions;
+- `count_if(predicate)`;
+- `count(Enum field)`;
+- `count(Any field)`;
+- broad `count_distinct(expression)`;
+- `min/max(expression)`;
+- aggregate filters;
+- post-aggregate expressions;
+- `RelationLayerIR`;
+- JOIN/fanout-aware semantics;
+- runtime/database execution;
+- public MySQL API expansion.
+
+Slice 8 locks the public and release surfaces:
+
+- no source/compiler behavior change in Slice 8;
+- no semantic, IR, SQL, CLI, or JSON implementation change in Slice 8;
+- no grammar/generated change in Slice 8;
+- no fixtures/goldens change in Slice 8;
+- `scripts/check_goldens.py` remains green;
+- package version remains `0.1.0`;
+- no tag/release/publish/upload/signing/attestation;
+- no release workflow;
+- no manual workflow run and no `gh workflow run`.
+
+Gate 2 must not guess the final Gate 3 commit SHA. Gate 3 remains responsible
+for final staging, commit, push, and natural CI `headSha` verification.
 
 ## Slice 1 Public Surface Constraints
 
