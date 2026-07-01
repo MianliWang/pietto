@@ -393,8 +393,8 @@ def test_only_slice6_files_are_changed_and_forbidden_surfaces_are_clean() -> Non
     status = _git_status()
     status_paths = {_status_path(line) for line in status}
 
+    # Accept both clean CI checkout and dirty Gate 2/repair states.
     assert status_paths <= ALLOWED_SLICE6_CHANGED_PATHS
-    assert status_paths == ALLOWED_SLICE6_CHANGED_PATHS
 
     for forbidden in FORBIDDEN_DIFF_PATHS:
         assert _git_status_for((forbidden,)) == ""
