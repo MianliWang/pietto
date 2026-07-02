@@ -203,6 +203,69 @@ post-aggregate expression layers, `RelationLayerIR`, subquery/CTE insertion,
 relationship/JOIN-aware binding, project/multi-file binding, schema
 introspection, and public API expansion.
 
+## Slice 10 Completion Audit And Status Lock
+
+Phase 40 Slice 10 is Completion Audit And Status Lock. Slice 10 is
+docs/plan status-lock and tests/static-audit completion work only. It adds no
+new language behavior and does not start Phase 41.
+
+Phase 40 is complete as a ten-slice let binding phase:
+
+- Slice 1 Let Binding Model Candidate Decision is complete;
+- Slice 2 Let Binding Syntax And Scope Contract is complete;
+- Slice 3 Let Binding Parser And AST Surface is complete;
+- Slice 4 Row-level Let Semantic Validation is complete;
+- Slice 5 Let Binding Semantic Model Storage is complete;
+- Slice 6 Let Binding Row-level IR/SQL Inline Expansion MVP is complete;
+- Slice 7 CLI / JSON / Metadata Compatibility Hardening is complete;
+- Slice 8 Aggregate Interaction Boundary Hardening is complete;
+- Slice 9 Boundary Regression Matrix is complete;
+- Slice 10 completion audit/status lock is complete once Gate 3 records the
+  final staging, commit, push, and natural CI `headSha` verification.
+
+The final supported Phase 40 row-level `let:` surface is:
+
+- row-level `where` may reference let names;
+- grouped pre-aggregate `where` may reference let names;
+- no-GROUP non-aggregate `select` may reference let names;
+- no-GROUP input-scope `order by` may reference let names;
+- supported let references are IR inline-expanded;
+- PostgreSQL and private MySQL SQL are emitted through existing renderers as
+  inline expressions;
+- supported row-level let programs can pass `check`, `emit-sql`,
+  `emit-sql --format json`, `emit-sql --output`, `explain`, and
+  `explain --format json`.
+
+The final deferred or fail-closed Phase 40 boundary remains:
+
+- aggregate-let remains deferred for `sum(gross)`, `avg(gross)`,
+  `count(gross)`, and `count_distinct(gross)` where `gross` is a let name;
+- `group by gross` remains deferred/fail-closed;
+- `satisfying: gross > 0` remains deferred/fail-closed;
+- grouped `order by gross` remains deferred/fail-closed;
+- `limit gross` remains deferred/fail-closed;
+- qualified let references such as `orders.gross` remain rejected;
+- duplicate, shadowing, self-reference, later-reference, and cycle-like let
+  cases remain rejected;
+- projection aliases remain output names only and do not become expression
+  leaves.
+
+Slice 10 locks these negative guardrails:
+
+- no `LetBindingIR`;
+- no `RelationLayerIR`;
+- no hidden CTE insertion;
+- no hidden subquery insertion;
+- no public `let_scopes` metadata key;
+- no metadata schema expansion;
+- no grammar/generated change;
+- no semantic, IR, SQL, SQL renderer, CLI/JSON, or metadata implementation
+  change;
+- no examples, fixtures, or goldens;
+- no package metadata or package version change;
+- package version remains `0.1.0`;
+- no release/tag/publish/upload/signing/attestation.
+
 ## Slice 1 Public Surface Constraints
 
 Slice 1 keeps public surfaces unchanged:
