@@ -55,6 +55,7 @@ ALLOWED_SLICE2_CHANGED_PATHS = {
     "src/pietto/semantic/relation_schemas.py",
     "tests/test_phase40_let_binding_cli_json_metadata.py",
     "tests/test_phase40_let_binding_aggregate_interaction_boundary.py",
+    "tests/test_phase40_let_binding_boundary_regression_matrix.py",
     "tests/test_phase40_let_binding_ir_sql_lowering.py",
     "tests/test_phase40_let_binding_model_candidate.py",
     "tests/test_phase40_let_binding_parser_ast.py",
