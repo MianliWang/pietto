@@ -14,6 +14,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 PLAN_PATH = REPO_ROOT / "docs/plan/phase-41-decimal-precision-scale-mvp.md"
 TEST_PATH = REPO_ROOT / "tests/test_phase41_decimal_precision_scale_candidate.py"
+SLICE2_TEST_PATH = (
+    REPO_ROOT / "tests/test_phase41_decimal_precision_scale_semantic_validation.py"
+)
+ANALYZER_PATH = REPO_ROOT / "src/pietto/semantic/analyzer.py"
+DIAGNOSTICS_PATH = REPO_ROOT / "docs/spec/diagnostics.md"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
 ALLOWED_SLICE1_CHANGED_PATHS = {
@@ -24,6 +29,56 @@ ALLOWED_REPAIR_GATE2_CHANGED_PATHS = ALLOWED_SLICE1_CHANGED_PATHS | {
     "tests/test_phase39_candidate_decision.py",
     "tests/test_phase40_completion_audit.py",
 }
+PHASE41_SLICE2_CHANGED_PATHS = {
+    "src/pietto/semantic/analyzer.py",
+    "docs/spec/diagnostics.md",
+    "tests/test_phase41_decimal_precision_scale_semantic_validation.py",
+    "tests/test_phase41_decimal_precision_scale_candidate.py",
+    "tests/test_phase30_decimal_precision_scale_contract.py",
+    "tests/test_phase31_numeric_promotion_decimal_boundary.py",
+    "tests/test_phase36_decimal_precision_scale_carrier_mvp_decision.py",
+    "tests/test_phase39_candidate_decision.py",
+    "tests/test_phase40_completion_audit.py",
+}
+PHASE41_SLICE2_REPAIR_HASH_LOCK_CHANGED_PATHS = {
+    "tests/test_phase11_ci_workflow.py",
+    "tests/test_phase11_completion_audit.py",
+    "tests/test_phase11_generated_guard.py",
+    "tests/test_phase11_golden_policy.py",
+    "tests/test_phase11_packaging_smoke.py",
+    "tests/test_phase11_planning_audit.py",
+    "tests/test_phase11_validation_entrypoint.py",
+    "tests/test_phase12_completion_audit.py",
+    "tests/test_phase12_composition_cli_json_goldens.py",
+    "tests/test_phase12_order_limit_contract.py",
+    "tests/test_phase12_planning_audit.py",
+    "tests/test_phase13_completion_audit.py",
+    "tests/test_phase13_planning_audit.py",
+    "tests/test_phase14_candidate_decision_audit.py",
+    "tests/test_phase14_completion_audit.py",
+    "tests/test_phase14_planning_audit.py",
+    "tests/test_phase14_relationship_metadata_completion_audit.py",
+    "tests/test_phase15_completion_audit.py",
+    "tests/test_phase16_completion_audit.py",
+    "tests/test_phase16_current_syntax_surface_audit.py",
+    "tests/test_phase16_language_direction_audit.py",
+    "tests/test_phase16_safety_deferral_sql_portability.py",
+    "tests/test_phase21_group_by_hardening_audit.py",
+    "tests/test_phase24_aggregate_expression_arguments_readiness.py",
+    "tests/test_phase24_cli_json_output_hardening.py",
+    "tests/test_phase24_completion_audit.py",
+    "tests/test_phase25_completion_audit.py",
+    "tests/test_phase26_completion_audit.py",
+    "tests/test_phase27_completion_audit.py",
+    "tests/test_phase28_completion_audit.py",
+    "tests/test_phase29_completion_audit.py",
+    "tests/test_phase30_completion_audit.py",
+}
+ALLOWED_PHASE41_GATE2_CHANGED_PATHS = (
+    ALLOWED_REPAIR_GATE2_CHANGED_PATHS
+    | PHASE41_SLICE2_CHANGED_PATHS
+    | PHASE41_SLICE2_REPAIR_HASH_LOCK_CHANGED_PATHS
+)
 
 FORBIDDEN_DIFF_PATHS = (
     "README.md",
@@ -203,7 +258,7 @@ def test_forbidden_surfaces_and_out_of_scope_items_are_locked() -> None:
         assert required in plan, required
 
 
-def test_slice1_allowlist_is_exact_and_phase41_inventory_is_bounded() -> None:
+def test_phase41_file_inventory_and_gate2_allowlist_are_bounded() -> None:
     plan = _plan()
 
     for relative_path in ALLOWED_SLICE1_CHANGED_PATHS:
@@ -217,9 +272,41 @@ def test_slice1_allowlist_is_exact_and_phase41_inventory_is_bounded() -> None:
         if path.is_file() and "__pycache__" not in path.parts
     }
 
-    assert discovered == ALLOWED_SLICE1_CHANGED_PATHS
+    assert discovered == ALLOWED_SLICE1_CHANGED_PATHS | {
+        "tests/test_phase41_decimal_precision_scale_semantic_validation.py",
+    }
+    assert PHASE41_SLICE2_CHANGED_PATHS <= ALLOWED_PHASE41_GATE2_CHANGED_PATHS
     assert "No other file is approved" in plan
     assert "stop and request a Repair Gate 1 and allowlist expansion" in plan
+
+
+def test_slice2_decimal_semantic_validation_boundary_is_locked() -> None:
+    analyzer = _read(ANALYZER_PATH)
+    diagnostics = _read(DIAGNOSTICS_PATH)
+    slice2_tests = _read(SLICE2_TEST_PATH)
+
+    for required in (
+        "_DECIMAL_PRECISION_MAX = 38",
+        "def _decimal_precision_scale_diagnostic(",
+        'if type_expr.name != "Decimal":',
+        "if not arguments:",
+        "return None",
+        "PIE-S2004",
+    ):
+        assert required in analyzer, required
+
+    assert "| `PIE-S2004` | Invalid Decimal precision-scale type arguments |" in (
+        diagnostics
+    )
+
+    for required in (
+        "test_valid_decimal_precision_scale_type_arguments_remain_plain_decimal",
+        "test_invalid_decimal_precision_scale_type_arguments_fail_closed",
+        "test_empty_decimal_arguments_preserve_plain_decimal_compatibility",
+        "test_non_decimal_type_arguments_remain_compatibility_surface",
+        "test_decimal_precision_scale_validation_adds_no_carrier_or_sql_output",
+    ):
+        assert required in slice2_tests, required
 
 
 def test_deferred_inventory_impact_is_explicit() -> None:
@@ -273,18 +360,18 @@ def test_forbidden_surfaces_are_unchanged_or_untracked() -> None:
         if line
     }
 
-    assert diff_paths <= ALLOWED_REPAIR_GATE2_CHANGED_PATHS
-    assert status_paths <= ALLOWED_REPAIR_GATE2_CHANGED_PATHS
+    assert diff_paths <= ALLOWED_PHASE41_GATE2_CHANGED_PATHS
+    assert status_paths <= ALLOWED_PHASE41_GATE2_CHANGED_PATHS
 
 
 def test_changed_set_is_slice1_allowlist_or_clean_ci_checkout() -> None:
     status_paths = {_status_path(line) for line in _git_status_all().splitlines()}
 
-    assert status_paths <= ALLOWED_REPAIR_GATE2_CHANGED_PATHS
+    assert status_paths <= ALLOWED_PHASE41_GATE2_CHANGED_PATHS
 
     for forbidden in FORBIDDEN_DIFF_PATHS:
         assert not any(
             _path_matches(path, forbidden)
-            and path not in ALLOWED_REPAIR_GATE2_CHANGED_PATHS
+            and path not in ALLOWED_PHASE41_GATE2_CHANGED_PATHS
             for path in status_paths
         )

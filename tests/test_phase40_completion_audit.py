@@ -9,7 +9,11 @@ from _static_audit_helpers import (
     normalized_text as _normalized,
     read_text as _read,
 )
-from test_phase39_candidate_decision import PHASE41_SLICE1_CARRYOVER_CHANGED_PATHS
+from test_phase39_candidate_decision import (
+    PHASE41_SLICE1_CARRYOVER_CHANGED_PATHS,
+    PHASE41_SLICE2_CHANGED_PATHS,
+    PHASE41_SLICE2_REPAIR_HASH_LOCK_CHANGED_PATHS,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -69,7 +73,10 @@ ALLOWED_SLICE10_CHANGED_PATHS = {
     "tests/test_phase40_let_binding_syntax_scope_contract.py",
 }
 ALLOWED_PHASE41_SLICE1_REPAIR_CHANGED_PATHS = (
-    ALLOWED_SLICE10_CHANGED_PATHS | PHASE41_SLICE1_CARRYOVER_CHANGED_PATHS
+    ALLOWED_SLICE10_CHANGED_PATHS
+    | PHASE41_SLICE1_CARRYOVER_CHANGED_PATHS
+    | PHASE41_SLICE2_CHANGED_PATHS
+    | PHASE41_SLICE2_REPAIR_HASH_LOCK_CHANGED_PATHS
 )
 
 FORBIDDEN_DIFF_PATHS = (

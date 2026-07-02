@@ -37,6 +37,7 @@ stored separately and is never encoded in the code.
 | `PIE-S2001` | Duplicate name in one semantic scope or namespace |
 | `PIE-S2002` | Unknown type |
 | `PIE-S2003` | Type alias cycle |
+| `PIE-S2004` | Invalid Decimal precision-scale type arguments |
 | `PIE-S2005` | Implicit nullability |
 | `PIE-S2006` | Semantic analysis recursion limit exceeded |
 | `PIE-S2102` | Unknown field |

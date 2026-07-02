@@ -395,7 +395,7 @@ def test_sql_renderers_keep_decimal_as_logical_shape_not_precision_contract() ->
             assert forbidden not in source
 
 
-def test_generic_type_arguments_are_not_decimal_precision_scale_contract() -> None:
+def test_generic_type_arguments_have_phase41_decimal_validation_boundary() -> None:
     spec = _normalized(SPEC_PATH)
     grammar = _read(GRAMMAR_PATH)
     ast_nodes = _read(AST_NODES_PATH)
@@ -453,10 +453,22 @@ def test_generic_type_arguments_are_not_decimal_precision_scale_contract() -> No
         "def _resolve_type(",
         "if type_expr.name in BUILTIN_TYPE_NAMES:",
         "return ResolvedType(name=type_expr.name, kind=TypeKind.BUILTIN)",
+        "def _decimal_precision_scale_diagnostic(",
+        'if type_expr.name != "Decimal":',
+        "arguments = type_expr.arguments",
+        "_DECIMAL_PRECISION_MAX = 38",
+        "PIE-S2004",
     ):
         assert required in analyzer
 
     assert "type_expr.arguments" not in _function_body(analyzer, "def _resolve_type(")
+    decimal_validator = _function_body(
+        analyzer,
+        "def _decimal_precision_scale_diagnostic(",
+    )
+    assert "arguments = type_expr.arguments" in decimal_validator
+    assert 'if type_expr.name != "Decimal":' in decimal_validator
+    assert "if not arguments:" in decimal_validator
 
     for required in (
         "test_nullable_parameterized_type_definition_parses",

@@ -155,13 +155,12 @@ def test_no_precision_scale_carrier_exists_on_publicish_type_surfaces() -> None:
         )
 
 
-def test_decimal_type_arguments_remain_generic_not_accepted_precision_scale() -> None:
+def test_decimal_type_arguments_have_phase41_validation_without_carrier() -> None:
     decimal_contract = _normalized(DECIMAL_CONTRACT_PATH)
     analyzer = _read(SEMANTIC_ANALYZER_PATH)
 
     for required in (
         "`Decimal(12, 2)` may parse as a generic `TypeExpr` with arguments",
-        "Those parsed arguments are not a Decimal precision/scale contract",
         "Future Decimal precision/scale work must be explicit",
     ):
         assert required in decimal_contract, required
@@ -170,6 +169,14 @@ def test_decimal_type_arguments_remain_generic_not_accepted_precision_scale() ->
         analyzer,
         "def _resolve_type(",
     )
+    decimal_validator = _function_body(
+        analyzer,
+        "def _decimal_precision_scale_diagnostic(",
+    )
+    assert 'if type_expr.name != "Decimal":' in decimal_validator
+    assert "arguments = type_expr.arguments" in decimal_validator
+    assert "_DECIMAL_PRECISION_MAX = 38" in analyzer
+    assert "PIE-S2004" in analyzer
 
 
 def test_public_outputs_expose_no_precision_scale_fields() -> None:

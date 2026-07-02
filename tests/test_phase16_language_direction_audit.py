@@ -50,7 +50,7 @@ LOCKED_FILE_HASHES = {
         "e40bd3eee7f76bc68313adb8237a7a6c5d84286197261f70c827a4219c9e3418"
     ),
     "docs/spec/diagnostics.md": (
-        "8e64076814adc0baaa0c1be773b97a935d2317dad6e182b02118443689f0967f"
+        "d70d62c76ddb25a8c2000a7cd1cb2f8071e90d3ed62fb6b8cf3b8c0655ff7c98"
     ),
     "pyproject.toml": (
         "021682ef880fe748f1655d4d70fcc549db4336ac39db2b29a835762ab1723d50"
@@ -81,7 +81,7 @@ LOCKED_GROUP_HASHES = {
     ),
     "semantic": (
         21,
-        "a6ae54fc0bbe6edbd8b511bc3303f8c0a79b24c24972a4064e327aa3ed49d53f",
+        "2addc70d00c5c42dc78543e2a28d5936ec4de2f1ff256d66578e5a7b0e1b74a0",
     ),
     "ir": (
         5,

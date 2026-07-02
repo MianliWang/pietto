@@ -11,6 +11,7 @@ from pietto.ast_nodes import (
     EnumDef,
     Expression,
     FromClause,
+    LiteralExpr,
     Nullability,
     QueryDef,
     Script,
@@ -57,6 +58,8 @@ from pietto.semantic.satisfying import check_satisfying_clauses
 from pietto.semantic.sources import check_sources
 from pietto.semantic.predicate_checks import check_predicates
 from pietto.semantic.type_aliases import expand_type_aliases
+
+_DECIMAL_PRECISION_MAX = 38
 
 
 def analyze(
@@ -130,6 +133,9 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
 
         if resolved_type.kind is TypeKind.UNKNOWN:
             diagnostics.append(_unknown_type_diagnostic(type_expr))
+        decimal_diagnostic = _decimal_precision_scale_diagnostic(type_expr)
+        if decimal_diagnostic is not None:
+            diagnostics.append(decimal_diagnostic)
         implicit_diagnostic = _implicit_nullability_diagnostic(type_expr, mode)
         if implicit_diagnostic is not None:
             diagnostics.append(implicit_diagnostic)
@@ -453,7 +459,7 @@ def _resolve_type(
     type_expr: TypeExpr,
     type_symbols: dict[str, Definition],
 ) -> ResolvedType:
-    """Resolve one type name without alias expansion or argument validation."""
+    """Resolve one type name without alias expansion."""
 
     if type_expr.name in BUILTIN_TYPE_NAMES:
         return ResolvedType(name=type_expr.name, kind=TypeKind.BUILTIN)
@@ -474,6 +480,51 @@ def _resolve_type(
     )
 
 
+def _decimal_precision_scale_diagnostic(type_expr: TypeExpr) -> Diagnostic | None:
+    """Validate Slice 2 Decimal precision-scale type arguments."""
+
+    if type_expr.name != "Decimal":
+        return None
+
+    arguments = type_expr.arguments
+    if not arguments:
+        return None
+
+    if len(arguments) != 2 or any(argument.name is not None for argument in arguments):
+        return _invalid_decimal_type_arguments_diagnostic(
+            type_expr,
+            "Decimal precision-scale requires exactly two positional integer literal arguments",
+        )
+
+    precision = _integer_literal_value(arguments[0].value)
+    scale = _integer_literal_value(arguments[1].value)
+    if precision is None or scale is None:
+        return _invalid_decimal_type_arguments_diagnostic(
+            type_expr,
+            "Decimal precision and scale must be integer literals",
+        )
+
+    if precision < 1 or precision > _DECIMAL_PRECISION_MAX:
+        return _invalid_decimal_type_arguments_diagnostic(
+            type_expr,
+            f"Decimal precision must be an integer from 1 to {_DECIMAL_PRECISION_MAX}",
+        )
+
+    if scale < 0 or scale > precision:
+        return _invalid_decimal_type_arguments_diagnostic(
+            type_expr,
+            "Decimal scale must be an integer from 0 to precision",
+        )
+
+    return None
+
+
+def _integer_literal_value(expression: Expression) -> int | None:
+    if isinstance(expression, LiteralExpr) and type(expression.value) is int:
+        return expression.value
+    return None
+
+
 def _effective_nullability(type_expr: TypeExpr) -> EffectiveNullability:
     """Map parsed nullability syntax to the initial semantic state."""
 
@@ -492,6 +543,20 @@ def _unknown_type_diagnostic(type_expr: TypeExpr) -> Diagnostic:
         code="PIE-S2002",
         severity=Severity.ERROR,
         message=f"Unknown type: {type_expr.name}",
+    )
+
+
+def _invalid_decimal_type_arguments_diagnostic(
+    type_expr: TypeExpr,
+    message: str,
+) -> Diagnostic:
+    """Report invalid Decimal precision-scale arguments."""
+
+    return _type_diagnostic(
+        type_expr,
+        code="PIE-S2004",
+        severity=Severity.ERROR,
+        message=message,
     )
 
 

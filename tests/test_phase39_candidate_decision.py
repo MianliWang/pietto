@@ -302,13 +302,60 @@ PHASE41_SLICE1_CARRYOVER_CHANGED_PATHS = {
     "docs/plan/phase-41-decimal-precision-scale-mvp.md",
     "tests/test_phase41_decimal_precision_scale_candidate.py",
 }
+PHASE41_SLICE2_CHANGED_PATHS = {
+    "src/pietto/semantic/analyzer.py",
+    "docs/spec/diagnostics.md",
+    "tests/test_phase41_decimal_precision_scale_semantic_validation.py",
+    "tests/test_phase41_decimal_precision_scale_candidate.py",
+    "tests/test_phase30_decimal_precision_scale_contract.py",
+    "tests/test_phase31_numeric_promotion_decimal_boundary.py",
+    "tests/test_phase36_decimal_precision_scale_carrier_mvp_decision.py",
+    "tests/test_phase39_candidate_decision.py",
+    "tests/test_phase40_completion_audit.py",
+}
+PHASE41_SLICE2_REPAIR_HASH_LOCK_CHANGED_PATHS = {
+    "tests/test_phase11_ci_workflow.py",
+    "tests/test_phase11_completion_audit.py",
+    "tests/test_phase11_generated_guard.py",
+    "tests/test_phase11_golden_policy.py",
+    "tests/test_phase11_packaging_smoke.py",
+    "tests/test_phase11_planning_audit.py",
+    "tests/test_phase11_validation_entrypoint.py",
+    "tests/test_phase12_completion_audit.py",
+    "tests/test_phase12_composition_cli_json_goldens.py",
+    "tests/test_phase12_order_limit_contract.py",
+    "tests/test_phase12_planning_audit.py",
+    "tests/test_phase13_completion_audit.py",
+    "tests/test_phase13_planning_audit.py",
+    "tests/test_phase14_candidate_decision_audit.py",
+    "tests/test_phase14_completion_audit.py",
+    "tests/test_phase14_planning_audit.py",
+    "tests/test_phase14_relationship_metadata_completion_audit.py",
+    "tests/test_phase15_completion_audit.py",
+    "tests/test_phase16_completion_audit.py",
+    "tests/test_phase16_current_syntax_surface_audit.py",
+    "tests/test_phase16_language_direction_audit.py",
+    "tests/test_phase16_safety_deferral_sql_portability.py",
+    "tests/test_phase21_group_by_hardening_audit.py",
+    "tests/test_phase24_aggregate_expression_arguments_readiness.py",
+    "tests/test_phase24_cli_json_output_hardening.py",
+    "tests/test_phase24_completion_audit.py",
+    "tests/test_phase25_completion_audit.py",
+    "tests/test_phase26_completion_audit.py",
+    "tests/test_phase27_completion_audit.py",
+    "tests/test_phase28_completion_audit.py",
+    "tests/test_phase29_completion_audit.py",
+    "tests/test_phase30_completion_audit.py",
+}
 ALLOWED_PHASE41_SLICE1_REPAIR_CHANGED_PATHS = (
     ALLOWED_SLICE3_CHANGED_PATHS
     | PHASE40_SLICE3_REPAIR_CHANGED_PATHS
     | PHASE41_SLICE1_CARRYOVER_CHANGED_PATHS
+    | PHASE41_SLICE2_CHANGED_PATHS
+    | PHASE41_SLICE2_REPAIR_HASH_LOCK_CHANGED_PATHS
 )
 # Preserve the historical exported name because legacy Phase 37-40 dirty-tree
-# guards import it directly; the Phase 41 paths are Repair Gate 2 carry-over
+# guards import it directly; the Phase 41 paths are named Gate 2 carry-over
 # files, not original Phase 37/38/39/40 slice files.
 ALLOWED_SLICE3_CHANGED_PATHS = ALLOWED_PHASE41_SLICE1_REPAIR_CHANGED_PATHS
 

@@ -47,7 +47,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "semantic": (
         "src/pietto/semantic",
         21,
-        "a6ae54fc0bbe6edbd8b511bc3303f8c0a79b24c24972a4064e327aa3ed49d53f",
+        "2addc70d00c5c42dc78543e2a28d5936ec4de2f1ff256d66578e5a7b0e1b74a0",
     ),
     "ir": (
         "src/pietto/ir",
@@ -72,7 +72,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "diagnostics": (
         "docs/spec/diagnostics.md",
         1,
-        "0ecbb69f97c30e0fdc6645a95c22f29b0a08e6ad399be6e871065abe7ad768ca",
+        "677b1e4f29d16f7bc90335afcfdb36fed42761795814adbf37d657eae267983d",
     ),
     "check_generated": (
         "scripts/check_generated.py",

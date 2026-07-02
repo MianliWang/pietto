@@ -502,6 +502,14 @@ def test_decimal_precision_scale_literal_and_cast_boundaries_remain_absent() -> 
             assert forbidden not in model_source
 
     assert "type_expr.arguments" not in _function_body(analyzer, "def _resolve_type(")
+    decimal_validator = _function_body(
+        analyzer,
+        "def _decimal_precision_scale_diagnostic(",
+    )
+    assert 'if type_expr.name != "Decimal":' in decimal_validator
+    assert "arguments = type_expr.arguments" in decimal_validator
+    assert "_DECIMAL_PRECISION_MAX = 38" in analyzer
+    assert "PIE-S2004" in analyzer
     assert 'if expression.operator == "/":' in expressions
     assert "return _UNKNOWN_VALUE_TYPE" in expressions
     assert "Decimal" not in _function_body(expressions, "def _is_numeric(")
