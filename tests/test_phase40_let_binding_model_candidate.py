@@ -51,6 +51,7 @@ ALLOWED_SLICE1_CHANGED_PATHS = {
     "src/pietto/semantic/let_bindings.py",
     "src/pietto/semantic/model.py",
     "src/pietto/semantic/relation_schemas.py",
+    "tests/test_phase40_let_binding_cli_json_metadata.py",
     "tests/test_phase40_let_binding_ir_sql_lowering.py",
     "tests/test_phase40_let_binding_parser_ast.py",
     "tests/test_phase40_let_binding_row_level_semantics.py",

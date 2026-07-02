@@ -285,6 +285,7 @@ PHASE40_SLICE3_REPAIR_CHANGED_PATHS = {
     "tests/test_phase39_candidate_decision.py",
     "tests/test_phase39_completion_audit.py",
     "tests/test_phase39_count_expression_mvp_contract.py",
+    "tests/test_phase40_let_binding_cli_json_metadata.py",
     "tests/test_phase40_let_binding_ir_sql_lowering.py",
     "tests/test_phase40_let_binding_model_candidate.py",
     "tests/test_phase40_let_binding_parser_ast.py",
