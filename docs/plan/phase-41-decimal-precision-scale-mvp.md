@@ -10,6 +10,12 @@ Slices 2 through 6 are complete. Slice 7 is docs/static-audit/readiness work
 only and implements no new compiler behavior. Slice 8 remains the completion
 audit/status lock; Phase 41 is not complete in Slice 7.
 
+Phase 41 Slice 8 is Completion Audit And Status Lock. Slice 8 is
+docs/plan/status-lock and tests/static-audit completion work only, adds no new
+compiler behavior, and marks Phase 41 complete only after Slice 8. Slices 1
+through 8 are complete. Phase 41 is complete as the Decimal precision-scale
+MVP. No remaining Phase 41 slice is pending.
+
 Phase 41 theme: Decimal precision-scale MVP.
 
 Trusted Phase 40 handoff:
@@ -34,6 +40,10 @@ Status housekeeping remains future dedicated work unless separately approved.
 Slice 7 updates only the approved Phase 41 plan, deferred register, Decimal
 specs, and static-audit tests. It does not update `README.md`, `AGENTS.md`, or
 `docs/spec/pietto-v0.9.md`; broad status lock remains reserved for Slice 8.
+
+Slice 8 updates only this approved Phase 41 plan/status artifact and focused
+static-audit tests. It does not update `README.md`, `AGENTS.md`, or
+`docs/spec/pietto-v0.9.md`.
 
 ## Candidate Decision
 
@@ -162,7 +172,7 @@ deferred items have these dispositions:
 | 5 | Aggregate / Numeric Boundary Hardening | prove existing Decimal aggregate and numeric behavior remains stable |
 | 6 | Metadata / CLI JSON / Explain Compatibility | prove public JSON and metadata schemas do not expand |
 | 7 | Docs, Deferred Register, And Package Smoke Readiness | current docs/static-audit readiness slice; no release or package changes |
-| 8 | Completion Audit And Status Lock | remaining final completion audit/status lock only |
+| 8 | Completion Audit And Status Lock | complete docs/plan/status-lock and tests/static-audit completion work only |
 
 Later phases must handle Decimal literals, full numeric promotion, SQL native
 type output, public precision-scale metadata fields, native DB metadata,
@@ -187,6 +197,56 @@ Package smoke readiness remains covered by the standard validation stack and
 version, workflow, release, upload, signing, or attestation behavior. Sandbox
 DNS/PyPI failures remain evidence-only infrastructure notes and must not be
 fixed by repository changes.
+
+## Slice 8 Completion Audit And Status Lock
+
+Slice 8 is the final completion audit/status lock for Phase 41. It confirms:
+
+- Slice 1 Candidate Decision And Scope Lock is complete;
+- Slice 2 Decimal Precision-Scale Semantic Validation is complete with
+  `PIE-S2004`;
+- Slice 3 Internal Type Carrier MVP is complete with the private
+  `DecimalPrecisionScale` carrier, `SemanticModel.decimal_precision_scales`,
+  `decimal_precision_scale_for`, and safe alias-chain facts;
+- Slice 4 IR Compatibility Carrier Boundary is complete and keeps `TypeRefIR`
+  precision-scale-field-free;
+- Slice 5 Aggregate / Numeric Boundary Hardening is complete and preserves the
+  existing Decimal aggregate/numeric boundaries;
+- Slice 6 Metadata / CLI JSON / Explain Compatibility is complete and keeps
+  CLI JSON v1, Project JSON v2, explain text/JSON, and Semantic Metadata
+  Artifact v1 precision-scale-field-free;
+- Slice 7 Docs, Deferred Register, And Package Smoke Readiness is complete;
+- Slice 8 completion audit/status lock is complete once Gate 3 records the
+  final staging, commit, push, and natural CI `headSha` verification.
+
+Phase 41 is complete as the Decimal precision-scale MVP after Slice 8. The
+completed MVP includes the existing generic parse surface, `Decimal(p,s)`
+semantic validation, `PIE-S2004`, the private internal carrier, alias
+precision-scale fact propagation, IR compatibility, aggregate/numeric boundary
+hardening, metadata/CLI/explain compatibility, and docs/deferred-register
+readiness. It does not add public JSON precision-scale fields, Semantic
+Metadata Artifact v1 precision-scale fields, SQL `DECIMAL(p,s)` /
+`NUMERIC(p,s)` output, fixtures, goldens, examples, workflows, package
+metadata, release files, or production behavior in Slice 8.
+
+Package version remains `0.1.0`. No tag/release/publish/upload/signing/
+attestation occurred. No manual workflow trigger and no `gh workflow run`
+occurred.
+
+Remaining deferred work keeps named prerequisites:
+
+- Decimal literals: Phase 42 numeric/literal work;
+- Int/Float/Decimal promotion: Phase 42;
+- Float/Decimal mixing: Phase 42 decision;
+- Decimal multiplication/division: Phase 42 or later numeric operator matrix;
+- Cast syntax: future cast syntax/design prerequisite;
+- Aggregate precision propagation: future aggregate/type propagation phase;
+- SQL `DECIMAL(p,s)` / `NUMERIC(p,s)` output: native SQL type/DDL/dialect
+  contract;
+- DDL/native DB metadata: native DB metadata prerequisite;
+- Public JSON precision-scale fields: schema-versioned public output contract;
+- Metadata/explain precision-scale display: Artifact v2/display contract;
+- Non-Decimal type argument policy: future type-argument policy phase.
 
 ## Slice 1 Gate 2 Allowlist
 
