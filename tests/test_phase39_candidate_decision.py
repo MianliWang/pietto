@@ -313,6 +313,19 @@ PHASE41_SLICE2_CHANGED_PATHS = {
     "tests/test_phase39_candidate_decision.py",
     "tests/test_phase40_completion_audit.py",
 }
+PHASE41_SLICE3_CHANGED_PATHS = {
+    "src/pietto/semantic/model.py",
+    "src/pietto/semantic/analyzer.py",
+    "tests/test_phase41_decimal_precision_scale_type_carrier.py",
+    "tests/test_phase41_decimal_precision_scale_semantic_validation.py",
+    "tests/test_phase41_decimal_precision_scale_candidate.py",
+    "tests/test_phase30_decimal_precision_scale_contract.py",
+    "tests/test_phase31_numeric_promotion_decimal_boundary.py",
+    "tests/test_phase36_decimal_precision_scale_carrier_mvp_decision.py",
+    "tests/test_phase39_candidate_decision.py",
+    "tests/test_phase40_completion_audit.py",
+    "tests/test_phase31_date_timestamp_sql_compatibility.py",
+}
 PHASE41_SLICE2_REPAIR_HASH_LOCK_CHANGED_PATHS = {
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
@@ -352,6 +365,7 @@ ALLOWED_PHASE41_SLICE1_REPAIR_CHANGED_PATHS = (
     | PHASE40_SLICE3_REPAIR_CHANGED_PATHS
     | PHASE41_SLICE1_CARRYOVER_CHANGED_PATHS
     | PHASE41_SLICE2_CHANGED_PATHS
+    | PHASE41_SLICE3_CHANGED_PATHS
     | PHASE41_SLICE2_REPAIR_HASH_LOCK_CHANGED_PATHS
 )
 # Preserve the historical exported name because legacy Phase 37-40 dirty-tree

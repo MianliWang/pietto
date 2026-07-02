@@ -17,7 +17,12 @@ TEST_PATH = REPO_ROOT / "tests/test_phase41_decimal_precision_scale_candidate.py
 SLICE2_TEST_PATH = (
     REPO_ROOT / "tests/test_phase41_decimal_precision_scale_semantic_validation.py"
 )
+CARRIER_TEST_PATH = (
+    REPO_ROOT / "tests/test_phase41_decimal_precision_scale_type_carrier.py"
+)
 ANALYZER_PATH = REPO_ROOT / "src/pietto/semantic/analyzer.py"
+MODEL_PATH = REPO_ROOT / "src/pietto/semantic/model.py"
+SEMANTIC_API_PATH = REPO_ROOT / "src/pietto/semantic/__init__.py"
 DIAGNOSTICS_PATH = REPO_ROOT / "docs/spec/diagnostics.md"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
@@ -28,10 +33,23 @@ ALLOWED_SLICE1_CHANGED_PATHS = {
 ALLOWED_REPAIR_GATE2_CHANGED_PATHS = ALLOWED_SLICE1_CHANGED_PATHS | {
     "tests/test_phase39_candidate_decision.py",
     "tests/test_phase40_completion_audit.py",
+    "tests/test_phase31_date_timestamp_sql_compatibility.py",
 }
 PHASE41_SLICE2_CHANGED_PATHS = {
     "src/pietto/semantic/analyzer.py",
     "docs/spec/diagnostics.md",
+    "tests/test_phase41_decimal_precision_scale_semantic_validation.py",
+    "tests/test_phase41_decimal_precision_scale_candidate.py",
+    "tests/test_phase30_decimal_precision_scale_contract.py",
+    "tests/test_phase31_numeric_promotion_decimal_boundary.py",
+    "tests/test_phase36_decimal_precision_scale_carrier_mvp_decision.py",
+    "tests/test_phase39_candidate_decision.py",
+    "tests/test_phase40_completion_audit.py",
+}
+PHASE41_SLICE3_CHANGED_PATHS = {
+    "src/pietto/semantic/model.py",
+    "src/pietto/semantic/analyzer.py",
+    "tests/test_phase41_decimal_precision_scale_type_carrier.py",
     "tests/test_phase41_decimal_precision_scale_semantic_validation.py",
     "tests/test_phase41_decimal_precision_scale_candidate.py",
     "tests/test_phase30_decimal_precision_scale_contract.py",
@@ -77,6 +95,7 @@ PHASE41_SLICE2_REPAIR_HASH_LOCK_CHANGED_PATHS = {
 ALLOWED_PHASE41_GATE2_CHANGED_PATHS = (
     ALLOWED_REPAIR_GATE2_CHANGED_PATHS
     | PHASE41_SLICE2_CHANGED_PATHS
+    | PHASE41_SLICE3_CHANGED_PATHS
     | PHASE41_SLICE2_REPAIR_HASH_LOCK_CHANGED_PATHS
 )
 
@@ -274,26 +293,42 @@ def test_phase41_file_inventory_and_gate2_allowlist_are_bounded() -> None:
 
     assert discovered == ALLOWED_SLICE1_CHANGED_PATHS | {
         "tests/test_phase41_decimal_precision_scale_semantic_validation.py",
+        "tests/test_phase41_decimal_precision_scale_type_carrier.py",
     }
     assert PHASE41_SLICE2_CHANGED_PATHS <= ALLOWED_PHASE41_GATE2_CHANGED_PATHS
+    assert PHASE41_SLICE3_CHANGED_PATHS <= ALLOWED_PHASE41_GATE2_CHANGED_PATHS
     assert "No other file is approved" in plan
     assert "stop and request a Repair Gate 1 and allowlist expansion" in plan
 
 
-def test_slice2_decimal_semantic_validation_boundary_is_locked() -> None:
+def test_decimal_semantic_validation_and_carrier_boundaries_are_locked() -> None:
     analyzer = _read(ANALYZER_PATH)
+    model = _read(MODEL_PATH)
+    semantic_api = _read(SEMANTIC_API_PATH)
     diagnostics = _read(DIAGNOSTICS_PATH)
     slice2_tests = _read(SLICE2_TEST_PATH)
+    carrier_tests = _read(CARRIER_TEST_PATH)
 
     for required in (
         "_DECIMAL_PRECISION_MAX = 38",
-        "def _decimal_precision_scale_diagnostic(",
+        "def _decimal_precision_scale_fact(",
+        "DecimalPrecisionScale",
         'if type_expr.name != "Decimal":',
         "if not arguments:",
-        "return None",
+        "_propagate_decimal_precision_scale_aliases",
         "PIE-S2004",
     ):
         assert required in analyzer, required
+
+    for required in (
+        "class DecimalPrecisionScale:",
+        "precision: int",
+        "scale: int",
+        "decimal_precision_scales: Mapping[TypeExpr, DecimalPrecisionScale]",
+        "def decimal_precision_scale_for(",
+    ):
+        assert required in model, required
+    assert "DecimalPrecisionScale" not in semantic_api
 
     assert "| `PIE-S2004` | Invalid Decimal precision-scale type arguments |" in (
         diagnostics
@@ -304,9 +339,18 @@ def test_slice2_decimal_semantic_validation_boundary_is_locked() -> None:
         "test_invalid_decimal_precision_scale_type_arguments_fail_closed",
         "test_empty_decimal_arguments_preserve_plain_decimal_compatibility",
         "test_non_decimal_type_arguments_remain_compatibility_surface",
-        "test_decimal_precision_scale_validation_adds_no_carrier_or_sql_output",
+        "test_decimal_precision_scale_validation_adds_internal_carrier_without_sql_output",
     ):
         assert required in slice2_tests, required
+
+    for required in (
+        "test_decimal_precision_scale_facts_are_stored_for_supported_type_sites",
+        "test_decimal_precision_scale_facts_propagate_through_safe_alias_chains",
+        "test_decimal_precision_scale_facts_skip_invalid_plain_empty_and_non_decimal",
+        "test_decimal_precision_scale_carrier_does_not_expand_public_output_surfaces",
+        "test_decimal_precision_scale_carrier_is_not_exported_from_semantic_api",
+    ):
+        assert required in carrier_tests, required
 
 
 def test_deferred_inventory_impact_is_explicit() -> None:

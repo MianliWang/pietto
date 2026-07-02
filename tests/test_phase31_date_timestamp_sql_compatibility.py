@@ -452,13 +452,17 @@ def test_static_audit_no_temporal_runtime_or_metadata_surface_was_added() -> Non
         for forbidden in (
             "timezone",
             "time_zone",
-            "precision",
             "native_database",
             "native_db",
             "database_metadata",
             "temporal_metadata",
         ):
             assert forbidden not in model_source
+
+    for forbidden in ("precision", "scale"):
+        assert forbidden not in _class_body(semantic_model, "class ResolvedType:")
+        assert forbidden not in _class_body(semantic_model, "class ValueType:")
+        assert forbidden not in _class_body(ir_model, "class TypeRefIR:")
 
     for renderer_source in (postgres, mysql):
         assert (
@@ -624,3 +628,10 @@ def _read(path: Path) -> str:
 
 def _normalized(path: Path) -> str:
     return " ".join(_read(path).split())
+
+
+def _class_body(source: str, marker: str) -> str:
+    start = source.index(marker)
+    rest = source[start:]
+    next_class = rest.find("\n\n@dataclass", len(marker))
+    return rest if next_class == -1 else rest[:next_class]

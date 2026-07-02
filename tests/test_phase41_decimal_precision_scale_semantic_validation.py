@@ -7,6 +7,7 @@ from pietto.errors import Diagnostic, Severity
 from pietto.ir import build_ir
 from pietto.parser_api import parse_source
 from pietto.semantic import TypeKind, analyze
+from pietto.semantic.model import DecimalPrecisionScale
 from pietto.sql import emit_postgres_sql
 
 
@@ -134,7 +135,9 @@ def test_non_decimal_type_arguments_remain_compatibility_surface() -> None:
     assert analyze(script).diagnostics == ()
 
 
-def test_decimal_precision_scale_validation_adds_no_carrier_or_sql_output() -> None:
+def test_decimal_precision_scale_validation_adds_internal_carrier_without_sql_output() -> (
+    None
+):
     source = (
         "shape Product:\n"
         "    price: Decimal(12, 2) not null\n"
@@ -145,8 +148,12 @@ def test_decimal_precision_scale_validation_adds_no_carrier_or_sql_output() -> N
         "        price\n"
     )
     script = _parse(source)
+    field_type = _shape(script).fields[0].type_expr
     semantic_result = analyze(script)
     assert semantic_result.diagnostics == ()
+    assert semantic_result.model.decimal_precision_scale_for(field_type) == (
+        DecimalPrecisionScale(12, 2)
+    )
 
     script_ir = build_ir(script, semantic_result.model)
 

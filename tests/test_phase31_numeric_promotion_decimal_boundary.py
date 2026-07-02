@@ -497,14 +497,23 @@ def test_decimal_precision_scale_literal_and_cast_boundaries_remain_absent() -> 
     postgres = _read(POSTGRES_EXPRESSIONS_PATH)
     mysql = _read(MYSQL_EXPRESSIONS_PATH)
 
-    for model_source in (semantic_model, ir_model):
-        for forbidden in ("precision", "scale"):
-            assert forbidden not in model_source
+    for required in (
+        "class DecimalPrecisionScale:",
+        "precision: int",
+        "scale: int",
+        "decimal_precision_scales: Mapping[TypeExpr, DecimalPrecisionScale]",
+    ):
+        assert required in semantic_model
+
+    for forbidden in ("precision", "scale"):
+        assert forbidden not in _class_body(semantic_model, "class ResolvedType:")
+        assert forbidden not in _class_body(semantic_model, "class ValueType:")
+        assert forbidden not in _class_body(ir_model, "class TypeRefIR:")
 
     assert "type_expr.arguments" not in _function_body(analyzer, "def _resolve_type(")
     decimal_validator = _function_body(
         analyzer,
-        "def _decimal_precision_scale_diagnostic(",
+        "def _decimal_precision_scale_fact(",
     )
     assert 'if type_expr.name != "Decimal":' in decimal_validator
     assert "arguments = type_expr.arguments" in decimal_validator
@@ -638,3 +647,10 @@ def _function_body(source: str, marker: str) -> str:
     rest = source[start:]
     next_def = rest.find("\n\ndef ", len(marker))
     return rest if next_def == -1 else rest[:next_def]
+
+
+def _class_body(source: str, marker: str) -> str:
+    start = source.index(marker)
+    rest = source[start:]
+    next_class = rest.find("\n\n@dataclass", len(marker))
+    return rest if next_class == -1 else rest[:next_class]

@@ -111,6 +111,15 @@ def test_no_precision_scale_carrier_exists_on_publicish_type_surfaces() -> None:
     metadata_model = _read(METADATA_MODEL_PATH)
 
     for required in (
+        "class DecimalPrecisionScale:",
+        "precision: int",
+        "scale: int",
+        "decimal_precision_scales: Mapping[TypeExpr, DecimalPrecisionScale]",
+        "def decimal_precision_scale_for(",
+    ):
+        assert required in semantic_model, required
+
+    for required in (
         "class ResolvedType:",
         "name: str",
         "kind: TypeKind",
@@ -155,7 +164,7 @@ def test_no_precision_scale_carrier_exists_on_publicish_type_surfaces() -> None:
         )
 
 
-def test_decimal_type_arguments_have_phase41_validation_without_carrier() -> None:
+def test_decimal_type_arguments_have_phase41_validation_with_internal_carrier() -> None:
     decimal_contract = _normalized(DECIMAL_CONTRACT_PATH)
     analyzer = _read(SEMANTIC_ANALYZER_PATH)
 
@@ -171,7 +180,7 @@ def test_decimal_type_arguments_have_phase41_validation_without_carrier() -> Non
     )
     decimal_validator = _function_body(
         analyzer,
-        "def _decimal_precision_scale_diagnostic(",
+        "def _decimal_precision_scale_fact(",
     )
     assert 'if type_expr.name != "Decimal":' in decimal_validator
     assert "arguments = type_expr.arguments" in decimal_validator

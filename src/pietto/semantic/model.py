@@ -78,6 +78,14 @@ class ValueType:
     kind: ValueTypeKind = ValueTypeKind.KNOWN
 
 
+@dataclass(frozen=True, slots=True)
+class DecimalPrecisionScale:
+    """Validated Decimal precision-scale facts for one type expression."""
+
+    precision: int
+    scale: int
+
+
 def _readonly_mapping(
     values: Mapping[_Key, _Value] | None = None,
 ) -> Mapping[_Key, _Value]:
@@ -190,6 +198,9 @@ class SemanticModel:
     type_nullability: Mapping[TypeExpr, EffectiveNullability] = field(
         default_factory=lambda: _readonly_mapping()
     )
+    decimal_precision_scales: Mapping[TypeExpr, DecimalPrecisionScale] = field(
+        default_factory=lambda: _readonly_mapping()
+    )
     source_row_schemas: Mapping[SourceDef, RowSchema] = field(
         default_factory=lambda: _readonly_mapping()
     )
@@ -244,6 +255,11 @@ class SemanticModel:
         )
         object.__setattr__(
             self,
+            "decimal_precision_scales",
+            _readonly_mapping(self.decimal_precision_scales),
+        )
+        object.__setattr__(
+            self,
             "source_row_schemas",
             _readonly_mapping(self.source_row_schemas),
         )
@@ -268,6 +284,14 @@ class SemanticModel:
             _readonly_mapping(self.result_predicates),
         )
         object.__setattr__(self, "let_scopes", _readonly_mapping(self.let_scopes))
+
+    def decimal_precision_scale_for(
+        self,
+        type_expr: TypeExpr,
+    ) -> DecimalPrecisionScale | None:
+        """Return validated Decimal precision-scale facts for a type expression."""
+
+        return self.decimal_precision_scales.get(type_expr)
 
 
 @dataclass(frozen=True, slots=True)

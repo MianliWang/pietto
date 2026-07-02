@@ -453,7 +453,7 @@ def test_generic_type_arguments_have_phase41_decimal_validation_boundary() -> No
         "def _resolve_type(",
         "if type_expr.name in BUILTIN_TYPE_NAMES:",
         "return ResolvedType(name=type_expr.name, kind=TypeKind.BUILTIN)",
-        "def _decimal_precision_scale_diagnostic(",
+        "def _decimal_precision_scale_fact(",
         'if type_expr.name != "Decimal":',
         "arguments = type_expr.arguments",
         "_DECIMAL_PRECISION_MAX = 38",
@@ -464,7 +464,7 @@ def test_generic_type_arguments_have_phase41_decimal_validation_boundary() -> No
     assert "type_expr.arguments" not in _function_body(analyzer, "def _resolve_type(")
     decimal_validator = _function_body(
         analyzer,
-        "def _decimal_precision_scale_diagnostic(",
+        "def _decimal_precision_scale_fact(",
     )
     assert "arguments = type_expr.arguments" in decimal_validator
     assert 'if type_expr.name != "Decimal":' in decimal_validator

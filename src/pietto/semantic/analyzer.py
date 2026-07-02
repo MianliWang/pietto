@@ -38,6 +38,7 @@ from pietto.semantic.field_derive_cycles import check_field_derive_cycles
 from pietto.semantic.let_bindings import analyze_relation_let_bindings
 from pietto.semantic.model import (
     CheckMode,
+    DecimalPrecisionScale,
     EffectiveNullability,
     LetScopeSemanticInfo,
     ResolvedType,
@@ -106,6 +107,7 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
     type_resolutions: dict[TypeExpr, ResolvedType] = {}
     type_expansions: dict[TypeExpr, ResolvedType] = {}
     type_nullability: dict[TypeExpr, EffectiveNullability] = {}
+    decimal_precision_scales: dict[TypeExpr, DecimalPrecisionScale] = {}
     diagnostics: list[Diagnostic] = []
 
     for definition in script.definitions:
@@ -133,7 +135,11 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
 
         if resolved_type.kind is TypeKind.UNKNOWN:
             diagnostics.append(_unknown_type_diagnostic(type_expr))
-        decimal_diagnostic = _decimal_precision_scale_diagnostic(type_expr)
+        decimal_precision_scale, decimal_diagnostic = _decimal_precision_scale_fact(
+            type_expr
+        )
+        if decimal_precision_scale is not None:
+            decimal_precision_scales[type_expr] = decimal_precision_scale
         if decimal_diagnostic is not None:
             diagnostics.append(decimal_diagnostic)
         implicit_diagnostic = _implicit_nullability_diagnostic(type_expr, mode)
@@ -146,6 +152,12 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
         type_resolutions=type_resolutions,
     )
     diagnostics.extend(alias_diagnostics)
+    decimal_precision_scales.update(
+        _propagate_decimal_precision_scale_aliases(
+            type_resolutions=type_resolutions,
+            decimal_precision_scales=decimal_precision_scales,
+        )
+    )
     diagnostics.extend(check_callable_signatures(script, type_expansions))
     diagnostics.extend(check_shape_structures(script))
     diagnostics.extend(check_field_derive_cycles(script))
@@ -242,6 +254,7 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
             type_resolutions=type_resolutions,
             type_expansions=type_expansions,
             type_nullability=type_nullability,
+            decimal_precision_scales=decimal_precision_scales,
             source_row_schemas=source_row_schemas,
             from_resolutions=from_resolutions,
             relation_row_schemas=relation_row_schemas,
@@ -480,42 +493,101 @@ def _resolve_type(
     )
 
 
-def _decimal_precision_scale_diagnostic(type_expr: TypeExpr) -> Diagnostic | None:
-    """Validate Slice 2 Decimal precision-scale type arguments."""
+def _decimal_precision_scale_fact(
+    type_expr: TypeExpr,
+) -> tuple[DecimalPrecisionScale | None, Diagnostic | None]:
+    """Validate and return internal Decimal precision-scale facts."""
 
     if type_expr.name != "Decimal":
-        return None
+        return None, None
 
     arguments = type_expr.arguments
     if not arguments:
-        return None
+        return None, None
 
     if len(arguments) != 2 or any(argument.name is not None for argument in arguments):
-        return _invalid_decimal_type_arguments_diagnostic(
-            type_expr,
-            "Decimal precision-scale requires exactly two positional integer literal arguments",
+        return (
+            None,
+            _invalid_decimal_type_arguments_diagnostic(
+                type_expr,
+                "Decimal precision-scale requires exactly two positional integer literal arguments",
+            ),
         )
 
     precision = _integer_literal_value(arguments[0].value)
     scale = _integer_literal_value(arguments[1].value)
     if precision is None or scale is None:
-        return _invalid_decimal_type_arguments_diagnostic(
-            type_expr,
-            "Decimal precision and scale must be integer literals",
+        return (
+            None,
+            _invalid_decimal_type_arguments_diagnostic(
+                type_expr,
+                "Decimal precision and scale must be integer literals",
+            ),
         )
 
     if precision < 1 or precision > _DECIMAL_PRECISION_MAX:
-        return _invalid_decimal_type_arguments_diagnostic(
-            type_expr,
-            f"Decimal precision must be an integer from 1 to {_DECIMAL_PRECISION_MAX}",
+        return (
+            None,
+            _invalid_decimal_type_arguments_diagnostic(
+                type_expr,
+                f"Decimal precision must be an integer from 1 to {_DECIMAL_PRECISION_MAX}",
+            ),
         )
 
     if scale < 0 or scale > precision:
-        return _invalid_decimal_type_arguments_diagnostic(
-            type_expr,
-            "Decimal scale must be an integer from 0 to precision",
+        return (
+            None,
+            _invalid_decimal_type_arguments_diagnostic(
+                type_expr,
+                "Decimal scale must be an integer from 0 to precision",
+            ),
         )
 
+    return DecimalPrecisionScale(precision=precision, scale=scale), None
+
+
+def _propagate_decimal_precision_scale_aliases(
+    *,
+    type_resolutions: Mapping[TypeExpr, ResolvedType],
+    decimal_precision_scales: Mapping[TypeExpr, DecimalPrecisionScale],
+) -> dict[TypeExpr, DecimalPrecisionScale]:
+    """Copy Decimal precision-scale facts to safe alias-use type expressions."""
+
+    propagated: dict[TypeExpr, DecimalPrecisionScale] = {}
+    for type_expr, resolved_type in type_resolutions.items():
+        if type_expr in decimal_precision_scales:
+            continue
+        if resolved_type.kind is not TypeKind.TYPE_ALIAS:
+            continue
+        fact = _decimal_precision_scale_for_alias_target(
+            resolved_type,
+            type_resolutions=type_resolutions,
+            decimal_precision_scales=decimal_precision_scales,
+        )
+        if fact is not None:
+            propagated[type_expr] = fact
+    return propagated
+
+
+def _decimal_precision_scale_for_alias_target(
+    resolved_type: ResolvedType,
+    *,
+    type_resolutions: Mapping[TypeExpr, ResolvedType],
+    decimal_precision_scales: Mapping[TypeExpr, DecimalPrecisionScale],
+) -> DecimalPrecisionScale | None:
+    """Resolve an alias target to existing Decimal precision-scale facts."""
+
+    visited: set[TypeDef] = set()
+    current = resolved_type.definition
+    while isinstance(current, TypeDef) and current not in visited:
+        visited.add(current)
+        fact = decimal_precision_scales.get(current.base)
+        if fact is not None:
+            return fact
+        direct = type_resolutions.get(current.base)
+        if direct is None or direct.kind is not TypeKind.TYPE_ALIAS:
+            return None
+        current = direct.definition
     return None
 
 
