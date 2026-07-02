@@ -12,6 +12,8 @@ from pietto.ast_nodes import (
     Expression,
     FieldDef,
     FromClause,
+    LetBinding,
+    LetClause,
     Node,
     QueryDef,
     SatisfyingClause,
@@ -151,6 +153,21 @@ class SatisfyingResultPredicateInfo:
 
 
 @dataclass(frozen=True, slots=True)
+class LetScopeSemanticInfo:
+    """Validated relation-local let binding facts for later compiler stages."""
+
+    clause: LetClause
+    bindings: tuple[LetBinding, ...]
+    value_types: Mapping[str, ValueType]
+
+    def __post_init__(self) -> None:
+        """Copy let binding facts into immutable containers."""
+
+        object.__setattr__(self, "bindings", tuple(self.bindings))
+        object.__setattr__(self, "value_types", _readonly_mapping(self.value_types))
+
+
+@dataclass(frozen=True, slots=True)
 class SemanticModel:
     """Readonly semantic state built incrementally across Phase 2."""
 
@@ -189,6 +206,10 @@ class SemanticModel:
     result_predicates: Mapping[
         TableDef | QueryDef,
         SatisfyingResultPredicateInfo,
+    ] = field(default_factory=lambda: _readonly_mapping())
+    let_scopes: Mapping[
+        TableDef | QueryDef,
+        LetScopeSemanticInfo,
     ] = field(default_factory=lambda: _readonly_mapping())
     relationships: tuple[RelationshipSemanticInfo, ...] = ()
 
@@ -246,6 +267,7 @@ class SemanticModel:
             "result_predicates",
             _readonly_mapping(self.result_predicates),
         )
+        object.__setattr__(self, "let_scopes", _readonly_mapping(self.let_scopes))
 
 
 @dataclass(frozen=True, slots=True)

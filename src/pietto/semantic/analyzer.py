@@ -38,6 +38,7 @@ from pietto.semantic.let_bindings import analyze_relation_let_bindings
 from pietto.semantic.model import (
     CheckMode,
     EffectiveNullability,
+    LetScopeSemanticInfo,
     ResolvedType,
     RowSchema,
     SemanticModel,
@@ -167,6 +168,7 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
         schema_diagnostics,
         relation_value_types,
         relation_expression_diagnostics,
+        let_scopes,
     ) = _analyze_relation_schema_expressions(
         script,
         mode=mode,
@@ -241,6 +243,7 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
             relation_row_schemas=relation_row_schemas,
             expression_value_types=expression_value_types,
             result_predicates=result_predicates,
+            let_scopes=let_scopes,
             relationships=relationships,
         ),
         diagnostics=tuple(sorted(diagnostics, key=_diagnostic_order)),
@@ -263,6 +266,7 @@ def _analyze_relation_schema_expressions(
     list[Diagnostic],
     dict[Expression, ValueType],
     list[Diagnostic],
+    dict[DerivedRelation, LetScopeSemanticInfo],
 ]:
     """Refine relation schemas from computed projection expression types."""
 
@@ -349,6 +353,7 @@ def _analyze_relation_schema_expressions(
         schema_diagnostics,
         relation_value_types,
         relation_expression_diagnostics,
+        let_scopes,
     )
 
 

@@ -188,6 +188,7 @@ PHASE40_SLICE3_REPAIR_CHANGED_PATHS = {
     "src/pietto/semantic/analyzer.py",
     "src/pietto/semantic/expressions.py",
     "src/pietto/semantic/let_bindings.py",
+    "src/pietto/semantic/model.py",
     "src/pietto/semantic/relation_schemas.py",
     "tests/test_phase8_completion_audit.py",
     "tests/test_phase9_completion_audit.py",
@@ -284,6 +285,7 @@ PHASE40_SLICE3_REPAIR_CHANGED_PATHS = {
     "tests/test_phase40_let_binding_model_candidate.py",
     "tests/test_phase40_let_binding_parser_ast.py",
     "tests/test_phase40_let_binding_row_level_semantics.py",
+    "tests/test_phase40_let_binding_semantic_model_ir_readiness.py",
     "tests/test_phase40_let_binding_syntax_scope_contract.py",
 }
 ALLOWED_SLICE3_CHANGED_PATHS = (

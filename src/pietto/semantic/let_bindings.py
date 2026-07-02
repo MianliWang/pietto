@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
 
 from pietto.ast_nodes import (
     BetweenExpr,
@@ -30,19 +29,13 @@ from pietto.semantic.aggregates import (
 )
 from pietto.semantic.expressions import infer_row_expression
 from pietto.semantic.model import (
+    LetScopeSemanticInfo,
     RowSchema,
     ValueType,
 )
 
 DerivedRelation = TableDef | QueryDef
 RelationDefinition = SourceDef | TableDef | QueryDef
-
-
-@dataclass(frozen=True, slots=True)
-class LetScope:
-    """Resolved relation-local let value facts visible as bare names only."""
-
-    value_types: Mapping[str, ValueType]
 
 
 def analyze_relation_let_bindings(
@@ -52,11 +45,13 @@ def analyze_relation_let_bindings(
     source_row_schemas: Mapping[SourceDef, RowSchema],
     relation_row_schemas: Mapping[DerivedRelation, RowSchema],
 ) -> tuple[
-    dict[DerivedRelation, LetScope], dict[Expression, ValueType], list[Diagnostic]
+    dict[DerivedRelation, LetScopeSemanticInfo],
+    dict[Expression, ValueType],
+    list[Diagnostic],
 ]:
     """Validate relation-local let clauses and return private value scopes."""
 
-    scopes: dict[DerivedRelation, LetScope] = {}
+    scopes: dict[DerivedRelation, LetScopeSemanticInfo] = {}
     value_types: dict[Expression, ValueType] = {}
     diagnostics: list[Diagnostic] = []
 
@@ -84,7 +79,7 @@ def analyze_relation_let_bindings(
 
 def let_projection_conflict_diagnostics(
     definition: DerivedRelation,
-    let_scope: LetScope | None,
+    let_scope: LetScopeSemanticInfo | None,
 ) -> list[Diagnostic]:
     """Report projection output names that collide with relation let names."""
 
@@ -108,7 +103,7 @@ def let_projection_conflict_diagnostics(
 def _analyze_relation_let_clause(
     definition: DerivedRelation,
     input_schema: RowSchema,
-) -> tuple[LetScope, dict[Expression, ValueType], list[Diagnostic]]:
+) -> tuple[LetScopeSemanticInfo, dict[Expression, ValueType], list[Diagnostic]]:
     assert definition.let_clause is not None
 
     diagnostics: list[Diagnostic] = []
@@ -148,7 +143,15 @@ def _analyze_relation_let_clause(
             scope_values[binding.name] = value_type
         seen_names.add(binding.name)
 
-    return LetScope(value_types=dict(scope_values)), value_types, diagnostics
+    return (
+        LetScopeSemanticInfo(
+            clause=definition.let_clause,
+            bindings=tuple(definition.let_clause.bindings),
+            value_types=dict(scope_values),
+        ),
+        value_types,
+        diagnostics,
+    )
 
 
 def _invalid_binding_names(
