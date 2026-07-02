@@ -27,6 +27,10 @@ AGGREGATE_NUMERIC_BOUNDARY_TEST_PATH = (
     REPO_ROOT
     / "tests/test_phase41_decimal_precision_scale_aggregate_numeric_boundary.py"
 )
+METADATA_CLI_COMPAT_TEST_PATH = (
+    REPO_ROOT
+    / "tests/test_phase41_decimal_precision_scale_metadata_cli_compatibility.py"
+)
 ANALYZER_PATH = REPO_ROOT / "src/pietto/semantic/analyzer.py"
 MODEL_PATH = REPO_ROOT / "src/pietto/semantic/model.py"
 SEMANTIC_API_PATH = REPO_ROOT / "src/pietto/semantic/__init__.py"
@@ -77,6 +81,12 @@ PHASE41_SLICE5_CHANGED_PATHS = {
     "tests/test_phase39_candidate_decision.py",
     "tests/test_phase40_completion_audit.py",
 }
+PHASE41_SLICE6_CHANGED_PATHS = {
+    "tests/test_phase41_decimal_precision_scale_metadata_cli_compatibility.py",
+    "tests/test_phase41_decimal_precision_scale_candidate.py",
+    "tests/test_phase39_candidate_decision.py",
+    "tests/test_phase40_completion_audit.py",
+}
 PHASE41_SLICE2_REPAIR_HASH_LOCK_CHANGED_PATHS = {
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
@@ -117,6 +127,7 @@ ALLOWED_PHASE41_GATE2_CHANGED_PATHS = (
     | PHASE41_SLICE3_CHANGED_PATHS
     | PHASE41_SLICE4_CHANGED_PATHS
     | PHASE41_SLICE5_CHANGED_PATHS
+    | PHASE41_SLICE6_CHANGED_PATHS
     | PHASE41_SLICE2_REPAIR_HASH_LOCK_CHANGED_PATHS
 )
 
@@ -317,11 +328,13 @@ def test_phase41_file_inventory_and_gate2_allowlist_are_bounded() -> None:
         "tests/test_phase41_decimal_precision_scale_type_carrier.py",
         "tests/test_phase41_decimal_precision_scale_ir_compatibility.py",
         "tests/test_phase41_decimal_precision_scale_aggregate_numeric_boundary.py",
+        "tests/test_phase41_decimal_precision_scale_metadata_cli_compatibility.py",
     }
     assert PHASE41_SLICE2_CHANGED_PATHS <= ALLOWED_PHASE41_GATE2_CHANGED_PATHS
     assert PHASE41_SLICE3_CHANGED_PATHS <= ALLOWED_PHASE41_GATE2_CHANGED_PATHS
     assert PHASE41_SLICE4_CHANGED_PATHS <= ALLOWED_PHASE41_GATE2_CHANGED_PATHS
     assert PHASE41_SLICE5_CHANGED_PATHS <= ALLOWED_PHASE41_GATE2_CHANGED_PATHS
+    assert PHASE41_SLICE6_CHANGED_PATHS <= ALLOWED_PHASE41_GATE2_CHANGED_PATHS
     assert "No other file is approved" in plan
     assert "stop and request a Repair Gate 1 and allowlist expansion" in plan
 
@@ -335,6 +348,7 @@ def test_decimal_semantic_validation_and_carrier_boundaries_are_locked() -> None
     carrier_tests = _read(CARRIER_TEST_PATH)
     ir_compat_tests = _read(IR_COMPAT_TEST_PATH)
     aggregate_numeric_boundary_tests = _read(AGGREGATE_NUMERIC_BOUNDARY_TEST_PATH)
+    metadata_cli_compat_tests = _read(METADATA_CLI_COMPAT_TEST_PATH)
 
     for required in (
         "_DECIMAL_PRECISION_MAX = 38",
@@ -398,6 +412,17 @@ def test_decimal_semantic_validation_and_carrier_boundaries_are_locked() -> None
         "test_public_type_surfaces_still_have_no_precision_scale_fields",
     ):
         assert required in aggregate_numeric_boundary_tests, required
+
+    for required in (
+        "test_check_json_valid_decimal_precision_scale_keeps_json_v1_shape",
+        "test_emit_sql_json_and_output_keep_sql_unparameterized",
+        "test_explain_text_keeps_logical_decimal_and_alias_type_labels",
+        "test_explain_json_keeps_artifact_v1_logical_decimal_schema",
+        "test_semantic_metadata_artifact_json_does_not_serialize_internal_carrier",
+        "test_project_json_v2_remains_discovery_only_for_decimal_sources",
+        "test_invalid_decimal_precision_scale_check_json_keeps_diagnostic_schema",
+    ):
+        assert required in metadata_cli_compat_tests, required
 
 
 def test_deferred_inventory_impact_is_explicit() -> None:

@@ -338,6 +338,12 @@ PHASE41_SLICE5_CHANGED_PATHS = {
     "tests/test_phase39_candidate_decision.py",
     "tests/test_phase40_completion_audit.py",
 }
+PHASE41_SLICE6_CHANGED_PATHS = {
+    "tests/test_phase41_decimal_precision_scale_metadata_cli_compatibility.py",
+    "tests/test_phase41_decimal_precision_scale_candidate.py",
+    "tests/test_phase39_candidate_decision.py",
+    "tests/test_phase40_completion_audit.py",
+}
 PHASE41_SLICE2_REPAIR_HASH_LOCK_CHANGED_PATHS = {
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
@@ -380,6 +386,7 @@ ALLOWED_PHASE41_SLICE1_REPAIR_CHANGED_PATHS = (
     | PHASE41_SLICE3_CHANGED_PATHS
     | PHASE41_SLICE4_CHANGED_PATHS
     | PHASE41_SLICE5_CHANGED_PATHS
+    | PHASE41_SLICE6_CHANGED_PATHS
     | PHASE41_SLICE2_REPAIR_HASH_LOCK_CHANGED_PATHS
 )
 # Preserve the historical exported name because legacy Phase 37-40 dirty-tree
