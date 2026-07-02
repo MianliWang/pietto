@@ -285,6 +285,8 @@ PHASE40_SLICE3_REPAIR_CHANGED_PATHS = {
     "tests/test_phase39_candidate_decision.py",
     "tests/test_phase39_completion_audit.py",
     "tests/test_phase39_count_expression_mvp_contract.py",
+    "docs/spec/phase40-let-binding-aggregate-interaction-boundary-v1.md",
+    "tests/test_phase40_let_binding_aggregate_interaction_boundary.py",
     "tests/test_phase40_let_binding_cli_json_metadata.py",
     "tests/test_phase40_let_binding_ir_sql_lowering.py",
     "tests/test_phase40_let_binding_model_candidate.py",
