@@ -298,9 +298,19 @@ PHASE40_SLICE3_REPAIR_CHANGED_PATHS = {
     "tests/test_phase40_let_binding_semantic_model_ir_readiness.py",
     "tests/test_phase40_let_binding_syntax_scope_contract.py",
 }
-ALLOWED_SLICE3_CHANGED_PATHS = (
-    ALLOWED_SLICE3_CHANGED_PATHS | PHASE40_SLICE3_REPAIR_CHANGED_PATHS
+PHASE41_SLICE1_CARRYOVER_CHANGED_PATHS = {
+    "docs/plan/phase-41-decimal-precision-scale-mvp.md",
+    "tests/test_phase41_decimal_precision_scale_candidate.py",
+}
+ALLOWED_PHASE41_SLICE1_REPAIR_CHANGED_PATHS = (
+    ALLOWED_SLICE3_CHANGED_PATHS
+    | PHASE40_SLICE3_REPAIR_CHANGED_PATHS
+    | PHASE41_SLICE1_CARRYOVER_CHANGED_PATHS
 )
+# Preserve the historical exported name because legacy Phase 37-40 dirty-tree
+# guards import it directly; the Phase 41 paths are Repair Gate 2 carry-over
+# files, not original Phase 37/38/39/40 slice files.
+ALLOWED_SLICE3_CHANGED_PATHS = ALLOWED_PHASE41_SLICE1_REPAIR_CHANGED_PATHS
 
 
 def _non_slice3_repair_diff_paths(diff_output: str) -> set[str]:
