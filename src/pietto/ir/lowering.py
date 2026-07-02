@@ -131,6 +131,7 @@ def lower_expr(
     fields: Mapping[str, RowField] | None = None,
     field_owner: SymbolId | None = None,
     field_qualifier: str | None = None,
+    let_expansions: Mapping[str, Expression] | None = None,
 ) -> ExpressionLoweringResult:
     """Lower one typed expression without re-running semantic analysis."""
 
@@ -148,16 +149,25 @@ def lower_expr(
             ),
         )
 
-    return ExpressionLoweringResult(
-        expression=_lower_expr_node(
+    try:
+        lowered = _lower_expr_node(
             expression,
             semantic_model,
             fields=fields or {},
             field_owner=field_owner,
             field_qualifier=field_qualifier,
-        ),
-        diagnostics=(),
-    )
+            let_expansions=let_expansions or {},
+            let_stack=frozenset(),
+        )
+    except _LetExpansionLoweringError as error:
+        return ExpressionLoweringResult(
+            expression=None,
+            diagnostics=(
+                missing_semantic_fact_diagnostic(error.expression, error.fact),
+            ),
+        )
+
+    return ExpressionLoweringResult(expression=lowered, diagnostics=())
 
 
 def lower_group_key_ref(
@@ -198,6 +208,8 @@ def _lower_expr_node(
     fields: Mapping[str, RowField],
     field_owner: SymbolId | None,
     field_qualifier: str | None,
+    let_expansions: Mapping[str, Expression],
+    let_stack: frozenset[str],
 ) -> ExpressionIR:
     """Recursively copy one expression into parser-independent IR."""
 
@@ -216,6 +228,27 @@ def _lower_expr_node(
     if isinstance(expression, LiteralExpr):
         return LiteralIR(value=expression.value, **common)
     if isinstance(expression, NameExpr):
+        if expression.name in let_expansions:
+            if expression.name in let_stack:
+                raise _LetExpansionLoweringError(
+                    expression,
+                    "acyclic let binding expansion",
+                )
+            expanded = let_expansions[expression.name]
+            if expanded not in semantic_model.expression_value_types:
+                raise _LetExpansionLoweringError(
+                    expanded,
+                    "let binding expression value type",
+                )
+            return _lower_expr_node(
+                expanded,
+                semantic_model,
+                fields=fields,
+                field_owner=field_owner,
+                field_qualifier=field_qualifier,
+                let_expansions=let_expansions,
+                let_stack=let_stack | frozenset((expression.name,)),
+            )
         field = None
         if expression.name in fields:
             field = FieldId(owner=field_owner, name=expression.name)
@@ -251,6 +284,8 @@ def _lower_expr_node(
                         fields=fields,
                         field_owner=field_owner,
                         field_qualifier=field_qualifier,
+                        let_expansions={},
+                        let_stack=frozenset(),
                     )
                     for argument in expression.arguments
                 ),
@@ -269,6 +304,8 @@ def _lower_expr_node(
                     fields=fields,
                     field_owner=field_owner,
                     field_qualifier=field_qualifier,
+                    let_expansions=let_expansions,
+                    let_stack=let_stack,
                 )
                 for argument in expression.arguments
             ),
@@ -283,6 +320,8 @@ def _lower_expr_node(
                 fields=fields,
                 field_owner=field_owner,
                 field_qualifier=field_qualifier,
+                let_expansions=let_expansions,
+                let_stack=let_stack,
             ),
             **common,
         )
@@ -294,6 +333,8 @@ def _lower_expr_node(
                 fields=fields,
                 field_owner=field_owner,
                 field_qualifier=field_qualifier,
+                let_expansions=let_expansions,
+                let_stack=let_stack,
             ),
             operator=expression.operator,
             right=_lower_expr_node(
@@ -302,6 +343,8 @@ def _lower_expr_node(
                 fields=fields,
                 field_owner=field_owner,
                 field_qualifier=field_qualifier,
+                let_expansions=let_expansions,
+                let_stack=let_stack,
             ),
             **common,
         )
@@ -313,6 +356,8 @@ def _lower_expr_node(
                 fields=fields,
                 field_owner=field_owner,
                 field_qualifier=field_qualifier,
+                let_expansions=let_expansions,
+                let_stack=let_stack,
             ),
             operator=expression.operator,
             right=_lower_expr_node(
@@ -321,6 +366,8 @@ def _lower_expr_node(
                 fields=fields,
                 field_owner=field_owner,
                 field_qualifier=field_qualifier,
+                let_expansions=let_expansions,
+                let_stack=let_stack,
             ),
             **common,
         )
@@ -332,6 +379,8 @@ def _lower_expr_node(
                 fields=fields,
                 field_owner=field_owner,
                 field_qualifier=field_qualifier,
+                let_expansions=let_expansions,
+                let_stack=let_stack,
             ),
             lower=_lower_expr_node(
                 expression.lower,
@@ -339,6 +388,8 @@ def _lower_expr_node(
                 fields=fields,
                 field_owner=field_owner,
                 field_qualifier=field_qualifier,
+                let_expansions=let_expansions,
+                let_stack=let_stack,
             ),
             upper=_lower_expr_node(
                 expression.upper,
@@ -346,6 +397,8 @@ def _lower_expr_node(
                 fields=fields,
                 field_owner=field_owner,
                 field_qualifier=field_qualifier,
+                let_expansions=let_expansions,
+                let_stack=let_stack,
             ),
             **common,
         )
@@ -357,6 +410,8 @@ def _lower_expr_node(
                 fields=fields,
                 field_owner=field_owner,
                 field_qualifier=field_qualifier,
+                let_expansions=let_expansions,
+                let_stack=let_stack,
             ),
             negated=expression.negated,
             **common,
@@ -370,6 +425,15 @@ def _callee_name(expression: CallExpr) -> str:
     if isinstance(expression.callee, NameExpr):
         return expression.callee.name
     return ".".join(expression.callee.parts)
+
+
+class _LetExpansionLoweringError(Exception):
+    """Internal fail-closed guard for inconsistent let lowering facts."""
+
+    def __init__(self, expression: Expression, fact: str) -> None:
+        super().__init__(fact)
+        self.expression = expression
+        self.fact = fact
 
 
 def _is_valid_aggregate_projection(

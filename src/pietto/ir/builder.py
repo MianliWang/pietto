@@ -411,6 +411,7 @@ def _lower_relation(
     target_symbol = _symbol(SymbolNamespace.RELATION, target.name)
     row_schema = lower_row_schema(schema, semantic_model)
     output_fields = {field.name: field for field in row_schema.fields}
+    let_expansions = _let_expansions(definition, semantic_model)
 
     filter_ir = None
     if definition.where_clause is not None:
@@ -420,6 +421,7 @@ def _lower_relation(
             fields=input_schema.fields,
             field_owner=target_symbol,
             field_qualifier=target.name,
+            let_expansions=let_expansions,
         )
         filter_ir = FilterIR(
             expression=expression,
@@ -433,6 +435,9 @@ def _lower_relation(
             input_schema=input_schema,
             target_symbol=target_symbol,
             output_fields=output_fields,
+            let_expansions=(
+                let_expansions if definition.group_by_clause is None else {}
+            ),
         )
         for item in definition.select_items
     )
@@ -450,6 +455,7 @@ def _lower_relation(
         target_symbol=target_symbol,
         projections=projections,
         group_keys=group_keys,
+        let_expansions=let_expansions,
     )
     limit = _lower_limit(definition)
     result_predicate = _lower_result_predicate(
@@ -544,6 +550,7 @@ def _lower_order_by(
     target_symbol: SymbolId,
     projections: tuple[ProjectionIR, ...],
     group_keys: tuple[FieldRefIR, ...],
+    let_expansions: Mapping[str, Expression],
 ) -> tuple[OrderItemIR, ...]:
     """Lower input-scope or grouped result-scope sorting expressions."""
 
@@ -564,6 +571,7 @@ def _lower_order_by(
                 fields=input_schema.fields,
                 field_owner=target_symbol,
                 field_qualifier=target_symbol.name,
+                let_expansions=let_expansions,
             ),
             direction=_lower_order_direction(item.direction),
             span=lower_span(item.span),
@@ -773,6 +781,23 @@ def _relation_schema(
     return schema
 
 
+def _let_expansions(
+    definition: DerivedRelation,
+    semantic_model: SemanticModel,
+) -> Mapping[str, Expression]:
+    """Return admitted relation-local let bindings for row-level IR expansion."""
+
+    let_scope = semantic_model.let_scopes.get(definition)
+    if let_scope is None:
+        return {}
+    admitted_names = set(let_scope.value_types)
+    return {
+        binding.name: binding.expression
+        for binding in let_scope.bindings
+        if binding.name in admitted_names
+    }
+
+
 def _lower_projection(
     item: SelectItem,
     semantic_model: SemanticModel,
@@ -780,6 +805,7 @@ def _lower_projection(
     input_schema: RowSchema,
     target_symbol: SymbolId,
     output_fields: Mapping[str, RowFieldIR],
+    let_expansions: Mapping[str, Expression],
 ) -> ProjectionIR:
     """Lower one projection using existing semantic output-name behavior."""
 
@@ -789,6 +815,7 @@ def _lower_projection(
         fields=input_schema.fields,
         field_owner=target_symbol,
         field_qualifier=target_symbol.name,
+        let_expansions=let_expansions,
     )
     output_name = _projection_output_name(item)
     output_field = output_fields.get(output_name) if output_name is not None else None
@@ -820,6 +847,7 @@ def _require_lowered_expression(
     fields: Mapping[str, RowField],
     field_owner: SymbolId,
     field_qualifier: str | None = None,
+    let_expansions: Mapping[str, Expression] | None = None,
 ) -> ExpressionIR:
     """Lower a relation expression or convert its diagnostic into IR failure."""
 
@@ -829,6 +857,7 @@ def _require_lowered_expression(
         fields=fields,
         field_owner=field_owner,
         field_qualifier=field_qualifier,
+        let_expansions=let_expansions,
     )
     if result.expression is None:
         raise _MissingSemanticFact(expression, "expression value type")

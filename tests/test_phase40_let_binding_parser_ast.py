@@ -21,7 +21,6 @@ from pietto.ast_nodes import (
     TableDef,
     UnaryExpr,
 )
-from pietto.errors import Severity
 from pietto.parser_api import ParseResult, parse_source
 from pietto.semantic import analyze
 
@@ -284,7 +283,7 @@ def test_rejected_let_binding_shapes_are_parser_errors(body: str) -> None:
     assert _has_code(result, "PIE-P1000")
 
 
-def test_parsed_let_produces_semantic_unsupported_diagnostic() -> None:
+def test_parsed_supported_let_has_no_semantic_unsupported_diagnostic() -> None:
     result = parse_source(
         VALID_SOURCE_PREFIX
         + "query enriched_orders:\n"
@@ -298,20 +297,11 @@ def test_parsed_let_produces_semantic_unsupported_diagnostic() -> None:
     assert result.diagnostics == ()
     assert result.ast is not None
     semantic_result = analyze(result.ast)
-    error_codes = [
-        diagnostic.code
-        for diagnostic in semantic_result.diagnostics
-        if diagnostic.severity is Severity.ERROR
-    ]
 
-    assert error_codes == ["PIE-S2328"]
-    diagnostic = semantic_result.diagnostics[0]
-    assert diagnostic.location.line == 9
-    assert "semantically validated" in diagnostic.message
-    assert "IR/SQL lowering is not supported yet" in diagnostic.message
+    assert semantic_result.diagnostics == ()
 
 
-def test_cli_check_does_not_silently_accept_parsed_let(
+def test_cli_check_accepts_supported_parsed_let(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -330,9 +320,9 @@ def test_cli_check_does_not_silently_accept_parsed_let(
     exit_code = cli.main(["check", str(source_path)])
     captured = capsys.readouterr()
 
-    assert exit_code == 1
-    assert "PIE-S2328" in captured.err
-    assert "OK:" not in captured.out
+    assert exit_code == 0
+    assert captured.err == ""
+    assert f"OK: {source_path}" in captured.out
 
 
 def test_let_ast_does_not_expose_antlr_nodes() -> None:

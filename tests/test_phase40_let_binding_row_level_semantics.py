@@ -31,7 +31,7 @@ SOURCE_PREFIX = (
 
 
 @pytest.mark.parametrize("keyword", ["table", "query"])
-def test_valid_table_and_query_let_validate_row_scope_but_fail_closed(
+def test_valid_table_and_query_let_validate_row_scope_and_succeed(
     keyword: str,
 ) -> None:
     relation, semantic = _analyze_relation(
@@ -47,7 +47,7 @@ def test_valid_table_and_query_let_validate_row_scope_but_fail_closed(
     )
 
     assert isinstance(relation, (TableDef, QueryDef))
-    assert _error_codes(semantic) == ["PIE-S2328"]
+    assert _error_codes(semantic) == []
     assert "PIE-S2102" not in _error_codes(semantic)
 
     assert relation.where_clause is not None
@@ -72,7 +72,7 @@ def test_source_qualified_input_fields_work_inside_let_expression() -> None:
         "        gross_value = gross\n"
     )
 
-    assert _error_codes(semantic) == ["PIE-S2328"]
+    assert _error_codes(semantic) == []
     assert "PIE-S2102" not in _error_codes(semantic)
     assert relation.let_clause is not None
     binding_expr = relation.let_clause.bindings[0].expression
@@ -92,7 +92,7 @@ def test_function_calls_and_earlier_let_references_type_in_binding_order() -> No
         "        status_length = status_len\n"
     )
 
-    assert _error_codes(semantic) == ["PIE-S2328"]
+    assert _error_codes(semantic) == []
     assert relation.let_clause is not None
     normalized, status_len = relation.let_clause.bindings
     assert _value_type_name(semantic, normalized.expression) == "Text"
@@ -117,7 +117,7 @@ def test_unary_binary_comparison_and_is_null_value_types_are_preserved() -> None
         "        missing_value = tax_missing\n"
     )
 
-    assert _error_codes(semantic) == ["PIE-S2328"]
+    assert _error_codes(semantic) == []
     assert relation.let_clause is not None
     negative, gross, is_large, tax_missing = relation.let_clause.bindings
 
@@ -225,7 +225,6 @@ def test_invalid_let_binding_cases_fail_closed(
     _, semantic = _analyze_relation("query enriched_orders:\n" + body)
 
     codes = _error_codes(semantic)
-    assert "PIE-S2328" in codes
     assert expected_code in codes
 
 
@@ -295,11 +294,10 @@ def test_non_row_level_consumers_do_not_see_let_names(
     _, semantic = _analyze_relation("query enriched_orders:\n" + body)
 
     codes = _error_codes(semantic)
-    assert "PIE-S2328" in codes
     assert expected_code in codes
 
 
-def test_cli_check_fails_closed_for_let(
+def test_cli_check_succeeds_for_supported_let(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -308,18 +306,16 @@ def test_cli_check_fails_closed_for_let(
     exit_code = cli.main(["check", str(source_path)])
     captured = capsys.readouterr()
 
-    assert exit_code == 1
-    assert "PIE-S2328" in captured.err
-    assert "OK:" not in captured.out
+    assert exit_code == 0
+    assert captured.err == ""
+    assert f"OK: {source_path}" in captured.out
 
 
-def test_emit_sql_json_fails_closed_before_ir_for_let(
+def test_emit_sql_json_succeeds_for_supported_let(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source_path = _write_source(tmp_path)
-    _forbid_ir_and_sql(monkeypatch)
 
     exit_code = cli.main(
         [
@@ -333,28 +329,28 @@ def test_emit_sql_json_fails_closed_before_ir_for_let(
     captured = capsys.readouterr()
     document = json.loads(captured.out)
 
-    assert exit_code == 1
+    assert exit_code == 0
     assert captured.err == ""
-    assert document["ok"] is False
-    assert document["artifacts"] == []
+    assert document["ok"] is True
+    assert len(document["artifacts"]) == 1
+    assert document["diagnostics"] == []
+    assert "let_scopes" not in json.dumps(document)
     diagnostics = cast(list[dict[str, object]], document["diagnostics"])
-    assert [diagnostic["code"] for diagnostic in diagnostics] == ["PIE-S2328"]
+    assert diagnostics == []
 
 
-def test_explain_fails_closed_before_ir_for_let(
+def test_explain_succeeds_for_supported_let(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source_path = _write_source(tmp_path)
-    _forbid_ir_and_sql(monkeypatch)
 
     exit_code = cli.main(["explain", str(source_path)])
     captured = capsys.readouterr()
 
-    assert exit_code == 1
-    assert "PIE-S2328" in captured.err
-    assert "Semantic Metadata Artifact" not in captured.out
+    assert exit_code == 0
+    assert captured.err == ""
+    assert "Semantic Metadata Artifact v1" in captured.out
 
 
 def _analyze_relation(source: str) -> tuple[TableDef | QueryDef, SemanticResult]:
@@ -392,12 +388,3 @@ def _write_source(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     return path
-
-
-def _forbid_ir_and_sql(monkeypatch: pytest.MonkeyPatch) -> None:
-    def unexpected_call(*args: object, **kwargs: object) -> object:
-        del args, kwargs
-        raise AssertionError("let semantic diagnostics must stop before IR/SQL")
-
-    monkeypatch.setattr(cli.ir_api, "build_ir", unexpected_call)
-    monkeypatch.setattr(cli.sql_api, "emit_postgres_sql", unexpected_call)

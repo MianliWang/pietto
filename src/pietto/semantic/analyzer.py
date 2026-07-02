@@ -117,8 +117,6 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
             continue
         namespace[definition.name] = definition
 
-    diagnostics.extend(_unsupported_let_clause_diagnostics(script))
-
     relationships, relationship_diagnostics = check_relationship_metadata(
         script,
         relation_symbols,
@@ -434,37 +432,6 @@ def _duplicate_diagnostic(
             end_column=span.end_column,
         ),
     )
-
-
-def _unsupported_let_clause_diagnostics(script: Script) -> list[Diagnostic]:
-    """Fail closed until let binding IR/SQL lowering is implemented."""
-
-    diagnostics: list[Diagnostic] = []
-    for definition in script.definitions:
-        if not isinstance(definition, (TableDef, QueryDef)):
-            continue
-        let_clause = definition.let_clause
-        if let_clause is None:
-            continue
-        span = let_clause.span
-        diagnostics.append(
-            Diagnostic(
-                code="PIE-S2328",
-                severity=Severity.ERROR,
-                message=(
-                    "`let:` bindings are semantically validated but IR/SQL "
-                    "lowering is not supported yet."
-                ),
-                location=SourceLocation(
-                    path=span.path,
-                    line=span.line,
-                    column=span.column,
-                    end_line=span.end_line,
-                    end_column=span.end_column,
-                ),
-            )
-        )
-    return diagnostics
 
 
 def _iter_type_expressions(script: Script) -> Iterator[TypeExpr]:

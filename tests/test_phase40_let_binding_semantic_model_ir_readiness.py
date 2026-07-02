@@ -58,7 +58,7 @@ def test_table_and_query_let_scopes_store_clause_and_bindings(
 
     assert isinstance(relation, (TableDef, QueryDef))
     assert relation.let_clause is not None
-    assert _error_codes(semantic) == ["PIE-S2328"]
+    assert _error_codes(semantic) == []
 
     scope = semantic.model.let_scopes[relation]
     assert scope.clause is relation.let_clause
@@ -127,7 +127,6 @@ def test_invalid_binding_names_are_excluded_from_admitted_value_types() -> None:
 
     assert relation.let_clause is not None
     codes = _error_codes(semantic)
-    assert "PIE-S2328" in codes
     assert codes.count("PIE-S2329") == 2
 
     scope = semantic.model.let_scopes[relation]
@@ -150,7 +149,7 @@ def test_dependency_order_storage_is_deterministic() -> None:
         "        status_length = status_len\n"
     )
 
-    assert _error_codes(semantic) == ["PIE-S2328"]
+    assert _error_codes(semantic) == []
     scope = semantic.model.let_scopes[relation]
     assert tuple(scope.value_types) == ("normalized", "status_len")
     assert _scope_value_type_name(scope.value_types["normalized"]) == "Text"
@@ -179,7 +178,7 @@ def test_semantic_model_let_scope_mappings_are_read_only() -> None:
         cast(MutableMapping[str, object], scope.value_types)["other"] = object()
 
 
-def test_pie_s2328_still_appears_for_every_let_relation() -> None:
+def test_pie_s2328_is_not_emitted_for_supported_row_level_let_relations() -> None:
     result = parse_source(
         SOURCE_PREFIX
         + "table enriched_orders:\n"
@@ -200,10 +199,10 @@ def test_pie_s2328_still_appears_for_every_let_relation() -> None:
 
     semantic = analyze(result.ast)
 
-    assert _error_codes(semantic).count("PIE-S2328") == 2
+    assert _error_codes(semantic).count("PIE-S2328") == 0
 
 
-def test_cli_check_fails_closed_for_let(
+def test_cli_check_succeeds_for_supported_let(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -212,18 +211,16 @@ def test_cli_check_fails_closed_for_let(
     exit_code = cli.main(["check", str(source_path)])
     captured = capsys.readouterr()
 
-    assert exit_code == 1
-    assert "PIE-S2328" in captured.err
-    assert "OK:" not in captured.out
+    assert exit_code == 0
+    assert captured.err == ""
+    assert f"OK: {source_path}" in captured.out
 
 
-def test_emit_sql_fails_closed_for_let_without_sql_artifacts(
+def test_emit_sql_succeeds_for_supported_let_with_sql_artifact(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source_path = _write_let_source(tmp_path)
-    _forbid_ir_and_sql(monkeypatch)
 
     exit_code = cli.main(
         [
@@ -238,33 +235,32 @@ def test_emit_sql_fails_closed_for_let_without_sql_artifacts(
     captured = capsys.readouterr()
     document = json.loads(captured.out)
 
-    assert exit_code == 1
+    assert exit_code == 0
     assert captured.err == ""
-    assert document["ok"] is False
-    assert document["artifacts"] == []
+    assert document["ok"] is True
+    assert len(document["artifacts"]) == 1
+    assert document["diagnostics"] == []
     diagnostics = cast(list[dict[str, object]], document["diagnostics"])
-    assert [diagnostic["code"] for diagnostic in diagnostics] == ["PIE-S2328"]
+    assert diagnostics == []
 
 
-def test_explain_fails_closed_for_let_without_metadata_artifact(
+def test_explain_succeeds_for_supported_let_without_schema_churn(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source_path = _write_let_source(tmp_path)
-    _forbid_ir_and_sql(monkeypatch)
 
     exit_code = cli.main(["explain", str(source_path), "--format", "json"])
     captured = capsys.readouterr()
     document = json.loads(captured.out)
 
-    assert exit_code == 1
+    assert exit_code == 0
     assert captured.err == ""
-    assert document["ok"] is False
-    assert document["error"]["stage"] == "semantic"
+    assert document["ok"] is True
+    assert "metadata" in document
+    assert "let_scopes" not in json.dumps(document)
     diagnostics = cast(list[dict[str, object]], document["diagnostics"])
-    assert [diagnostic["code"] for diagnostic in diagnostics] == ["PIE-S2328"]
-    assert "metadata" not in document
+    assert diagnostics == []
 
 
 def test_non_let_explain_json_schema_remains_unchanged(
@@ -352,14 +348,3 @@ def _write_let_source(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     return source_path
-
-
-def _forbid_ir_and_sql(monkeypatch: pytest.MonkeyPatch) -> None:
-    def unexpected_call(*args: object, **kwargs: object) -> object:
-        del args, kwargs
-        raise AssertionError("let semantic diagnostics must stop before IR/SQL")
-
-    monkeypatch.setattr(cli.ir_api, "build_ir", unexpected_call)
-    monkeypatch.setattr(cli.sql_api, "emit_postgres_sql", unexpected_call)
-    monkeypatch.setattr(cli.mysql_backend, "emit_mysql_sql", unexpected_call)
-    monkeypatch.setattr(cli, "build_semantic_metadata_artifact", unexpected_call)

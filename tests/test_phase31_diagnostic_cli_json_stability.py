@@ -27,6 +27,7 @@ SRC_ROOT = REPO_ROOT / "src/pietto"
 
 LIMIT_MESSAGE = "Limit must be a static integer from 0 to 9223372036854775807"
 HISTORICAL_DIAGNOSTIC_CODES = frozenset({"PIE-S2316", "PIE-S2322"})
+RESERVED_DIAGNOSTIC_CODES = frozenset({"PIE-S2328"})
 
 
 def test_phase31_slice6_plan_and_spec_lock_static_audit_scope() -> None:
@@ -82,6 +83,12 @@ def test_diagnostics_inventory_active_and_historical_codes_are_classified() -> N
         for code, meaning in rows.items()
         if "Historical" in meaning or "retired" in meaning.lower()
     }
+    reserved_codes = {
+        code
+        for code, meaning in rows.items()
+        if "unsupported lowering boundary outside the current row-level inline "
+        "expansion MVP" in meaning
+    }
 
     assert "PIE-S2307" in source_codes
     assert rows["PIE-S2307"] == (
@@ -95,7 +102,14 @@ def test_diagnostics_inventory_active_and_historical_codes_are_classified() -> N
         "Historical `satisfying` IR/SQL lowering gate, retired after source "
         "pipeline enablement"
     )
-    assert source_codes == documented_codes - historical_codes
+    assert reserved_codes == RESERVED_DIAGNOSTIC_CODES
+    assert "PIE-S2328" in reserved_codes
+    assert "PIE-S2328" not in source_codes
+    assert rows["PIE-S2328"] == (
+        "Parsed `let:` binding uses an unsupported lowering boundary outside "
+        "the current row-level inline expansion MVP"
+    )
+    assert source_codes == documented_codes - historical_codes - reserved_codes
 
 
 def test_limit_diagnostic_current_behavior_and_json_shape_are_stable(
