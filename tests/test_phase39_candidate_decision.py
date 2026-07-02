@@ -344,6 +344,31 @@ PHASE41_SLICE6_CHANGED_PATHS = {
     "tests/test_phase39_candidate_decision.py",
     "tests/test_phase40_completion_audit.py",
 }
+PHASE41_SLICE7_CHANGED_PATHS = {
+    "docs/plan/phase-41-decimal-precision-scale-mvp.md",
+    "docs/spec/v02-deferred-feature-register-v1.md",
+    "docs/spec/decimal-precision-scale-contract-v1.md",
+    "docs/spec/decimal-precision-scale-metadata-carrier-readiness-v1.md",
+    "docs/spec/decimal-precision-scale-carrier-mvp-decision-v1.md",
+    "docs/spec/phase36-core-type-resolution-matrix-v1.md",
+    "docs/spec/phase38-type-capability-matrix-contract-v1.md",
+    "docs/spec/expanded-scalar-operator-matrix-v1.md",
+    "tests/test_phase41_decimal_precision_scale_docs_readiness.py",
+    "tests/test_phase41_decimal_precision_scale_candidate.py",
+    "tests/test_phase29_v02_deferred_feature_register.py",
+    "tests/test_phase29_completion_audit.py",
+    "tests/test_phase30_decimal_precision_scale_contract.py",
+    "tests/test_phase30_candidate_decision.py",
+    "tests/test_phase30_completion_audit.py",
+    "tests/test_phase36_candidate_decision.py",
+    "tests/test_phase36_rescope_candidate_resolution_matrix.py",
+    "tests/test_phase36_decimal_precision_scale_carrier_mvp_decision.py",
+    "tests/test_phase36_expanded_scalar_operator_matrix.py",
+    "tests/test_phase38_type_capability_matrix_contract.py",
+    "tests/test_phase38_candidate_decision.py",
+    "tests/test_phase39_candidate_decision.py",
+    "tests/test_phase40_completion_audit.py",
+}
 PHASE41_SLICE2_REPAIR_HASH_LOCK_CHANGED_PATHS = {
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
@@ -387,6 +412,7 @@ ALLOWED_PHASE41_SLICE1_REPAIR_CHANGED_PATHS = (
     | PHASE41_SLICE4_CHANGED_PATHS
     | PHASE41_SLICE5_CHANGED_PATHS
     | PHASE41_SLICE6_CHANGED_PATHS
+    | PHASE41_SLICE7_CHANGED_PATHS
     | PHASE41_SLICE2_REPAIR_HASH_LOCK_CHANGED_PATHS
 )
 # Preserve the historical exported name because legacy Phase 37-40 dirty-tree

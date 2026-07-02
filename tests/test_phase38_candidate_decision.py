@@ -291,8 +291,9 @@ def test_type_system_inventory_details_are_preserved() -> None:
     for required in (
         "`DateTime` / `Time` / `Interval` remain unsupported/deferred",
         "fail semantic type resolution with `PIE-S2002`",
-        "Decimal precision-scale carrier work remains deferred",
-        "`Decimal(12, 2)` generic `TypeExpr.arguments` do not create accepted precision/scale semantics",
+        "Phase 41 adds internal precision-scale validation and private semantic facts only",
+        "`Decimal(p,s)` semantic validation is implemented with `PIE-S2004`",
+        "metadata/explain precision-scale display",
         "`Float` has current direct `count_distinct(Float)` and direct `min/max(Float)` support",
         "No Float-specific caveat is currently documented",
         "`Text` has current direct `count_distinct(Text)` and lower/trim Text-chain support",

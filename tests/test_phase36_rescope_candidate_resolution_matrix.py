@@ -121,6 +121,24 @@ def test_candidate_matrix_covers_required_candidates() -> None:
         assert required in spec, required
 
 
+def test_phase41_update_records_decimal_internal_mvp_without_public_outputs() -> None:
+    spec = _normalized(SPEC_PATH)
+
+    for required in (
+        "## Phase 41 Update",
+        "This Phase 36 matrix remains the historical candidate-resolution record",
+        "semantic validation for `Decimal(p,s)` with `PIE-S2004`",
+        "private `DecimalPrecisionScale` facts",
+        "`SemanticModel.decimal_precision_scales`",
+        "`decimal_precision_scale_for(type_expr)` as the internal lookup helper",
+        "compatibility proofs that IR, SQL, CLI JSON v1, Project JSON v2, explain",
+        "Semantic Metadata Artifact v1 do not expose precision-scale fields",
+        "schema-versioned public output contracts for public JSON fields",
+        "Artifact v2/display contracts for metadata/explain display",
+    ):
+        assert required in spec, required
+
+
 def test_slice2_authorizes_no_implementation_behavior() -> None:
     combined = _phase36_slice2_docs()
 

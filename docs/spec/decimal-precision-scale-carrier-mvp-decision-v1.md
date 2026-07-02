@@ -28,6 +28,27 @@ publish/upload, signing, or attestation.
 Option B is selected. The Decimal precision-scale carrier MVP is deferred with
 exact prerequisites. Slice 3 does not implement a carrier.
 
+## Phase 41 Update
+
+This Phase 36 Slice 3 decision remains historical. Phase 41 later implemented
+the minimal private internal carrier that this document required a future
+approved slice to prove:
+
+- `Decimal(p,s)` semantic validation is implemented with `PIE-S2004`;
+- `DecimalPrecisionScale` is private to `pietto.semantic.model`;
+- `SemanticModel.decimal_precision_scales` and
+  `decimal_precision_scale_for(type_expr)` own the internal carrier surface;
+- safe alias-chain internal fact propagation is implemented;
+- IR, SQL, CLI JSON v1, Project JSON v2, explain output, and Semantic Metadata
+  Artifact v1 remain precision-scale compatible without schema/output
+  expansion.
+
+Phase 41 still rejects public precision-scale fields, metadata/explain
+precision-scale display, SQL `DECIMAL(p,s)` / `NUMERIC(p,s)` output, Decimal
+literals, mixed Decimal promotion, Decimal multiplication/division, casts, and
+aggregate precision propagation. Those require their named future phases or
+contracts.
+
 ## Why Option A Is Not Approved Now
 
 The private Decimal precision-scale carrier skeleton is not safely private yet.

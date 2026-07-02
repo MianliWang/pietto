@@ -105,6 +105,26 @@ def test_current_decimal_facts_remain_behavior_preserving() -> None:
         assert required in combined, required
 
 
+def test_phase41_update_records_minimal_private_carrier_is_now_implemented() -> None:
+    spec = _normalized(SPEC_PATH)
+
+    for required in (
+        "## Phase 41 Update",
+        "This Phase 36 Slice 3 decision remains historical",
+        "`Decimal(p,s)` semantic validation is implemented with `PIE-S2004`",
+        "`DecimalPrecisionScale` is private to `pietto.semantic.model`",
+        "`SemanticModel.decimal_precision_scales`",
+        "`decimal_precision_scale_for(type_expr)` own the internal carrier surface",
+        "safe alias-chain internal fact propagation is implemented",
+        "IR, SQL, CLI JSON v1, Project JSON v2, explain output, and Semantic Metadata",
+        "Artifact v1 remain precision-scale compatible",
+        "Phase 41 still rejects public precision-scale fields",
+        "metadata/explain precision-scale display",
+        "aggregate precision propagation",
+    ):
+        assert required in spec, required
+
+
 def test_no_precision_scale_carrier_exists_on_publicish_type_surfaces() -> None:
     semantic_model = _read(SEMANTIC_MODEL_PATH)
     ir_model = _read(IR_MODEL_PATH)

@@ -15,6 +15,27 @@ release surfaces.
 
 Slice 2 does not change Semantic Metadata Artifact v1 schema or output.
 
+## Phase 41 Update
+
+This Phase 36 matrix remains the historical candidate-resolution record. Phase
+41 later implemented the Decimal precision-scale internal MVP:
+
+- semantic validation for `Decimal(p,s)` with `PIE-S2004`;
+- private `DecimalPrecisionScale` facts in
+  `SemanticModel.decimal_precision_scales`;
+- `decimal_precision_scale_for(type_expr)` as the internal lookup helper;
+- safe alias-chain internal fact propagation;
+- compatibility proofs that IR, SQL, CLI JSON v1, Project JSON v2, explain,
+  and Semantic Metadata Artifact v1 do not expose precision-scale fields.
+
+The remaining Decimal work keeps named prerequisites: Phase 42 for Decimal
+literals and numeric promotion decisions, a future aggregate/type propagation
+phase for precision propagation, native SQL type/DDL/dialect contracts for SQL
+`DECIMAL(p,s)` / `NUMERIC(p,s)` output, native DB metadata prerequisites for
+DDL/native metadata, schema-versioned public output contracts for public JSON
+fields, Artifact v2/display contracts for metadata/explain display, and cast
+syntax/design prerequisites for casts.
+
 For Phase 36, resolve means one of:
 
 - safe implementation;

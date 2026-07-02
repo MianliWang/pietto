@@ -15,6 +15,34 @@ resolution, expression typing, predicate validation, diagnostics, IR, SQL
 lowering, CLI behavior, JSON behavior, public APIs, fixtures, goldens,
 package metadata, or CI.
 
+## Phase 41 Supersession Note
+
+This Phase 30 contract remains the historical v0.2 boundary. Phase 41 later
+implemented the internal Decimal precision-scale MVP without changing grammar
+or public output schemas:
+
+- `Decimal(p,s)` semantic validation is implemented for exactly two positional
+  integer literal arguments;
+- invalid Decimal precision-scale forms fail closed with `PIE-S2004`;
+- the private internal `DecimalPrecisionScale` carrier is implemented through
+  `SemanticModel.decimal_precision_scales`;
+- `decimal_precision_scale_for(type_expr)` is the internal lookup helper;
+- safe alias-chain internal fact propagation is implemented;
+- plain `Decimal` remains unchanged;
+- `Decimal()` remains compatible because the current AST cannot distinguish it
+  from no-argument `Decimal`;
+- non-Decimal type arguments remain the current compatibility surface.
+
+Phase 41 does not implement Decimal literal typing, the Int/Float/Decimal
+promotion matrix, Float/Decimal mixing, Decimal multiplication/division, casts,
+aggregate precision propagation, SQL `DECIMAL(p,s)` / `NUMERIC(p,s)` output,
+DDL/native DB metadata, public JSON precision-scale fields, or
+metadata/explain precision-scale display. Those remain owned by Phase 42
+numeric/literal work, Phase 42 numeric promotion decisions, a future
+aggregate/type propagation phase, native SQL type/DDL/dialect contracts, native
+DB metadata prerequisites, schema-versioned public output contracts, Artifact
+v2/display contracts, and cast syntax/design prerequisites.
+
 ## Trusted Baseline
 
 Slice 6 starts from the completed Phase 30 Slice 5 baseline:

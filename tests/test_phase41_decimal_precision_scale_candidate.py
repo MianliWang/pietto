@@ -31,6 +31,9 @@ METADATA_CLI_COMPAT_TEST_PATH = (
     REPO_ROOT
     / "tests/test_phase41_decimal_precision_scale_metadata_cli_compatibility.py"
 )
+DOCS_READINESS_TEST_PATH = (
+    REPO_ROOT / "tests/test_phase41_decimal_precision_scale_docs_readiness.py"
+)
 ANALYZER_PATH = REPO_ROOT / "src/pietto/semantic/analyzer.py"
 MODEL_PATH = REPO_ROOT / "src/pietto/semantic/model.py"
 SEMANTIC_API_PATH = REPO_ROOT / "src/pietto/semantic/__init__.py"
@@ -87,6 +90,31 @@ PHASE41_SLICE6_CHANGED_PATHS = {
     "tests/test_phase39_candidate_decision.py",
     "tests/test_phase40_completion_audit.py",
 }
+PHASE41_SLICE7_CHANGED_PATHS = {
+    "docs/plan/phase-41-decimal-precision-scale-mvp.md",
+    "docs/spec/v02-deferred-feature-register-v1.md",
+    "docs/spec/decimal-precision-scale-contract-v1.md",
+    "docs/spec/decimal-precision-scale-metadata-carrier-readiness-v1.md",
+    "docs/spec/decimal-precision-scale-carrier-mvp-decision-v1.md",
+    "docs/spec/phase36-core-type-resolution-matrix-v1.md",
+    "docs/spec/phase38-type-capability-matrix-contract-v1.md",
+    "docs/spec/expanded-scalar-operator-matrix-v1.md",
+    "tests/test_phase41_decimal_precision_scale_docs_readiness.py",
+    "tests/test_phase41_decimal_precision_scale_candidate.py",
+    "tests/test_phase29_v02_deferred_feature_register.py",
+    "tests/test_phase29_completion_audit.py",
+    "tests/test_phase30_decimal_precision_scale_contract.py",
+    "tests/test_phase30_candidate_decision.py",
+    "tests/test_phase30_completion_audit.py",
+    "tests/test_phase36_candidate_decision.py",
+    "tests/test_phase36_rescope_candidate_resolution_matrix.py",
+    "tests/test_phase36_decimal_precision_scale_carrier_mvp_decision.py",
+    "tests/test_phase36_expanded_scalar_operator_matrix.py",
+    "tests/test_phase38_type_capability_matrix_contract.py",
+    "tests/test_phase38_candidate_decision.py",
+    "tests/test_phase39_candidate_decision.py",
+    "tests/test_phase40_completion_audit.py",
+}
 PHASE41_SLICE2_REPAIR_HASH_LOCK_CHANGED_PATHS = {
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
@@ -128,6 +156,7 @@ ALLOWED_PHASE41_GATE2_CHANGED_PATHS = (
     | PHASE41_SLICE4_CHANGED_PATHS
     | PHASE41_SLICE5_CHANGED_PATHS
     | PHASE41_SLICE6_CHANGED_PATHS
+    | PHASE41_SLICE7_CHANGED_PATHS
     | PHASE41_SLICE2_REPAIR_HASH_LOCK_CHANGED_PATHS
 )
 
@@ -329,12 +358,14 @@ def test_phase41_file_inventory_and_gate2_allowlist_are_bounded() -> None:
         "tests/test_phase41_decimal_precision_scale_ir_compatibility.py",
         "tests/test_phase41_decimal_precision_scale_aggregate_numeric_boundary.py",
         "tests/test_phase41_decimal_precision_scale_metadata_cli_compatibility.py",
+        "tests/test_phase41_decimal_precision_scale_docs_readiness.py",
     }
     assert PHASE41_SLICE2_CHANGED_PATHS <= ALLOWED_PHASE41_GATE2_CHANGED_PATHS
     assert PHASE41_SLICE3_CHANGED_PATHS <= ALLOWED_PHASE41_GATE2_CHANGED_PATHS
     assert PHASE41_SLICE4_CHANGED_PATHS <= ALLOWED_PHASE41_GATE2_CHANGED_PATHS
     assert PHASE41_SLICE5_CHANGED_PATHS <= ALLOWED_PHASE41_GATE2_CHANGED_PATHS
     assert PHASE41_SLICE6_CHANGED_PATHS <= ALLOWED_PHASE41_GATE2_CHANGED_PATHS
+    assert PHASE41_SLICE7_CHANGED_PATHS <= ALLOWED_PHASE41_GATE2_CHANGED_PATHS
     assert "No other file is approved" in plan
     assert "stop and request a Repair Gate 1 and allowlist expansion" in plan
 
@@ -349,6 +380,7 @@ def test_decimal_semantic_validation_and_carrier_boundaries_are_locked() -> None
     ir_compat_tests = _read(IR_COMPAT_TEST_PATH)
     aggregate_numeric_boundary_tests = _read(AGGREGATE_NUMERIC_BOUNDARY_TEST_PATH)
     metadata_cli_compat_tests = _read(METADATA_CLI_COMPAT_TEST_PATH)
+    docs_readiness_tests = _read(DOCS_READINESS_TEST_PATH)
 
     for required in (
         "_DECIMAL_PRECISION_MAX = 38",
@@ -424,20 +456,40 @@ def test_decimal_semantic_validation_and_carrier_boundaries_are_locked() -> None
     ):
         assert required in metadata_cli_compat_tests, required
 
+    for required in (
+        "test_slice7_plan_status_records_completed_slices_without_completion_claim",
+        "test_deferred_register_splits_phase41_internal_mvp_from_remaining_work",
+        "test_historical_decimal_specs_have_phase41_supersession_notes",
+        "test_phase38_and_scalar_matrices_reflect_internal_carrier_only",
+        "test_package_smoke_readiness_is_documented_without_script_or_package_changes",
+    ):
+        assert required in docs_readiness_tests, required
+
 
 def test_deferred_inventory_impact_is_explicit() -> None:
     plan = _plan()
 
     for required in (
-        "| Decimal precision-scale carrier | Implement in Phase 41",
-        "| Invalid Decimal precision-scale diagnostics | Implement in Phase 41 fail-closed",
+        "| Decimal precision-scale parse surface | Implemented by Phase 41",
+        "| Decimal precision-scale semantic validation | Implemented by Phase 41",
+        "| Invalid Decimal precision-scale diagnostics | Implemented by Phase 41 fail-closed",
+        "| Decimal precision-scale carrier | Implemented by Phase 41 as private semantic facts",
+        "| Alias-chain precision-scale facts | Implemented by Phase 41",
+        "| IR compatibility | Implemented by Phase 41 as compatibility proof only",
+        "| Aggregate/numeric boundary hardening | Implemented by Phase 41 as tests/static-audit proof only",
+        "| CLI JSON / Project JSON v2 / explain / Artifact v1 compatibility | Implemented by Phase 41 as tests/static-audit proof only",
         "| Plain `Decimal` | Unaffected",
-        "| Decimal aggregate precision propagation | Still deferred",
+        "| Non-Decimal type arguments | Unaffected compatibility surface",
+        "| Decimal aggregate precision propagation | Still deferred with named prerequisite",
         "| Decimal literals | Explicitly rejected in Phase 41",
         "| Full Int/Float/Decimal promotion matrix | Explicitly rejected in Phase 41",
-        "| Decimal `*` and `/` | Still deferred",
-        "| SQL `DECIMAL(p, s)` / native DB metadata / DDL | Still deferred",
+        "| Float/Decimal mixing | Explicitly rejected in Phase 41",
+        "| Decimal `*` and `/` | Still deferred with named prerequisite",
+        "| Cast syntax | Explicitly rejected in Phase 41",
+        "| SQL `DECIMAL(p, s)` / `NUMERIC(p, s)` output | Still deferred with named prerequisite",
+        "| DDL/native DB metadata | Still deferred with named prerequisite",
         "| Public JSON precision-scale fields | Explicitly rejected in Phase 41",
+        "| Metadata/explain precision-scale display | Explicitly rejected in Phase 41",
         "| Broad aggregate features | Unaffected",
     ):
         assert required in plan, required

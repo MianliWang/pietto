@@ -24,7 +24,7 @@ behavior into a stable type-specific compatibility guarantee.
 | `Bool` | current builtin | Current predicate and Bool operator behavior remains unchanged. |
 | `Int` | current builtin numeric | Current numeric arithmetic, aggregate, and literal behavior remains unchanged. |
 | `Float` | current builtin numeric | Current numeric promotion with `Int` remains unchanged. |
-| `Decimal` | current logical exact numeric builtin | `Decimal + Decimal` and `Decimal - Decimal` remain accepted; precision/scale carrier remains deferred. |
+| `Decimal` | current logical exact numeric builtin | `Decimal + Decimal` and `Decimal - Decimal` remain accepted; Phase 41 adds internal precision-scale validation and private semantic facts only. |
 | `Text` | current builtin | Current string literal, projection, and lower/trim/len/matches support remains unchanged. |
 | `Date` | current builtin temporal | Current direct-field aggregate and generic comparison behavior remains unchanged. |
 | `Timestamp` | current builtin temporal | Current direct-field aggregate and generic comparison behavior remains unchanged. |
@@ -56,6 +56,19 @@ division remains deferred/unsupported as currently documented. Mixed Decimal
 promotion remains closed/deferred as currently documented.
 
 No new arithmetic behavior is authorized.
+
+Phase 41 Decimal precision-scale validation and private `DecimalPrecisionScale`
+facts do not change this arithmetic matrix. Decimal literal typing remains
+owned by Phase 42 numeric/literal work, the Int/Float/Decimal promotion matrix
+and Float/Decimal mixing remain owned by Phase 42 numeric promotion decisions,
+Decimal multiplication/division remains owned by Phase 42 or later numeric
+operator matrix work, aggregate precision propagation remains owned by a future
+aggregate/type propagation phase, SQL `DECIMAL(p,s)` / `NUMERIC(p,s)` output
+remains owned by native SQL type/DDL/dialect contracts, DDL/native DB metadata
+remains owned by native DB metadata prerequisites, public JSON precision-scale
+fields remain owned by schema-versioned public output contracts, and
+metadata/explain precision-scale display remains owned by Artifact v2/display
+contracts.
 
 ## Comparison And Bool Predicate Posture
 

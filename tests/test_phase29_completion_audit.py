@@ -167,7 +167,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "phase29_deferred_register": (
         "docs/spec/v02-deferred-feature-register-v1.md",
         1,
-        "d70ef67d401535f6f5ad86af19da78e97b125cb019deaa8a431f69f8611936da",
+        "f3dc67e7290bb7947a34b1cc49e5d6d6d0d0a31a21254f64619b357ffa300ca3",
     ),
     "phase29_aggregate_freeze": (
         "docs/spec/v02-aggregate-surface-freeze-v1.md",

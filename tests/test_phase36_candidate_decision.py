@@ -70,6 +70,24 @@ def test_decimal_precision_scale_readiness_candidate_is_selected() -> None:
         assert required in combined, required
 
 
+def test_phase41_update_records_private_carrier_prerequisite_satisfied() -> None:
+    spec = _normalized(SPEC_PATH)
+
+    for required in (
+        "## Phase 41 Update",
+        "This Phase 36 Slice 1 readiness document remains historical",
+        "Phase 41 later satisfied the private-carrier prerequisite",
+        "`DecimalPrecisionScale` is implemented as a private semantic-model fact",
+        "`SemanticModel.decimal_precision_scales` stores facts keyed by `TypeExpr`",
+        "`decimal_precision_scale_for(type_expr)` provides internal lookup",
+        "valid direct `Decimal(p,s)` and safe alias-chain facts are recorded",
+        "plain `Decimal`, `Decimal()`, invalid `Decimal(...)`, and non-Decimal type",
+        "The Phase 41 carrier remains internal",
+        "It does not add precision/scale fields",
+    ):
+        assert required in spec, required
+
+
 def test_slice1_does_not_authorize_carrier_or_behavior_implementation() -> None:
     combined = _phase36_docs()
 

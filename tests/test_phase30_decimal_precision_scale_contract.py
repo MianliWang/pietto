@@ -122,6 +122,31 @@ def test_slice6_artifacts_baseline_and_status_are_locked() -> None:
     assert "Slice 6 Decimal Precision / Scale Contract" in date_contract
 
 
+def test_phase41_supersession_note_records_internal_mvp_and_deferred_public_work() -> (
+    None
+):
+    spec = _normalized(SPEC_PATH)
+
+    for required in (
+        "## Phase 41 Supersession Note",
+        "This Phase 30 contract remains the historical v0.2 boundary",
+        "`Decimal(p,s)` semantic validation is implemented for exactly two positional",
+        "invalid Decimal precision-scale forms fail closed with `PIE-S2004`",
+        "the private internal `DecimalPrecisionScale` carrier is implemented through",
+        "`SemanticModel.decimal_precision_scales`",
+        "`decimal_precision_scale_for(type_expr)` is the internal lookup helper",
+        "safe alias-chain internal fact propagation is implemented",
+        "`Decimal()` remains compatible because the current AST cannot distinguish it",
+        "non-Decimal type arguments remain the current compatibility surface",
+        "Phase 41 does not implement Decimal literal typing",
+        "aggregate precision propagation",
+        "SQL `DECIMAL(p,s)` / `NUMERIC(p,s)` output",
+        "public JSON precision-scale fields",
+        "metadata/explain precision-scale display",
+    ):
+        assert required in spec
+
+
 def test_slice6_candidate_decision_is_docs_static_audit_status_only() -> None:
     spec = _normalized(SPEC_PATH)
 

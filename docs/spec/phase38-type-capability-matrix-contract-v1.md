@@ -108,7 +108,7 @@ This table records current behavior only:
 | `Bool` | current builtin projection | generic yes | yes | yes | no | no | Bool `and` / `or` only | generic comparison path, not pair-specific | no | unsupported aggregates use `PIE-S2314` |
 | `Int` | current builtin projection | generic yes | yes | yes | yes; `avg(Int)` returns `Float` | yes | `+`, `-`, `*`, `%` with `Int` | generic comparison/order | no | `/` unknown |
 | `Float` | current builtin projection | generic yes | yes | yes | yes | yes | `+`, `-`, `*` with numeric promotion | generic comparison/order; no Float-specific caveat found beyond general portability | no | no new Float policy |
-| `Decimal` | current builtin projection | generic yes | yes | yes | yes | yes | current `Decimal + Decimal` and `Decimal - Decimal` only | generic comparison/order | no | precision-scale carrier, literals, multiplication, division, and mixed promotion deferred |
+| `Decimal` | current builtin projection | generic yes | yes | yes | yes | yes | current `Decimal + Decimal` and `Decimal - Decimal` only | generic comparison/order | no | internal precision-scale carrier implemented by Phase 41; literals, multiplication, division, mixed promotion, propagation, and public output fields remain deferred with named prerequisites |
 | `Text` | current builtin projection | generic yes | yes | yes | no | no | no Text arithmetic | generic comparison/order; collation/order expansion deferred | `lower`, `trim`, `len`, `matches`; distinct chain only lower/trim | collation, Unicode, locale, and backend equality deferred |
 | `Date` | current builtin temporal projection | generic yes | yes | yes | no | yes | no temporal arithmetic | generic comparison/order, not Date-specific matrix | no | temporal functions/casts deferred |
 | `Timestamp` | current builtin temporal projection | generic yes | yes | yes | no | yes | no temporal arithmetic | generic comparison/order, not Timestamp-specific matrix | no | timezone, precision, and native metadata deferred |
@@ -185,11 +185,16 @@ Slice 3 preserves the current boundary:
 
 ## Decimal / Float / Text Readiness Caveats
 
-Decimal precision-scale carrier remains deferred. `Decimal(12, 2)` generic
-`TypeExpr.arguments` do not create accepted precision/scale semantics. Decimal
-literals, multiplication, division, mixed Decimal promotion, precision
-propagation, SQL precision guarantees, and native DB metadata remain future
-work.
+Phase 41 implements Decimal precision-scale semantic validation and a private
+internal carrier. `Decimal(12, 2)` now validates as a logical Decimal type form
+with internal `DecimalPrecisionScale` facts; `Decimal()` remains compatible
+because the current AST cannot distinguish it from no-argument `Decimal`.
+Non-Decimal type arguments remain the current compatibility surface.
+
+Decimal literals, multiplication, division, mixed Decimal promotion, precision
+propagation, SQL precision guarantees, public JSON precision-scale fields,
+metadata/explain precision-scale display, casts, and native DB metadata remain
+future work with named prerequisites.
 
 Float currently participates in direct `count_distinct(Float)` and direct
 `min/max(Float)`. Slice 3 found no Float-specific distinct/order caveat beyond

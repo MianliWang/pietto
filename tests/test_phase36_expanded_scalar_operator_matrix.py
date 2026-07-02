@@ -131,6 +131,7 @@ def test_arithmetic_and_decimal_boundaries_remain_current() -> None:
         "`Decimal + Decimal` and `Decimal - Decimal` remain the current accepted Decimal behavior",
         "Decimal multiplication remains rejected with `PIE-S2105`",
         "Mixed Decimal promotion remains closed/deferred",
+        "Phase 41 Decimal precision-scale validation and private `DecimalPrecisionScale` facts do not change this arithmetic matrix",
         "No new arithmetic behavior is authorized",
     ):
         assert required in combined, required

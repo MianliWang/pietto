@@ -5,6 +5,11 @@
 Phase 41 Slice 1 is Candidate Decision And Scope Lock. Slice 1 is
 docs/plan/static-audit/tests-only and implements no behavior change.
 
+Phase 41 Slice 7 is Docs, Deferred Register, And Package Smoke Readiness.
+Slices 2 through 6 are complete. Slice 7 is docs/static-audit/readiness work
+only and implements no new compiler behavior. Slice 8 remains the completion
+audit/status lock; Phase 41 is not complete in Slice 7.
+
 Phase 41 theme: Decimal precision-scale MVP.
 
 Trusted Phase 40 handoff:
@@ -25,6 +30,10 @@ production compiler behavior is authorized.
 Slice 1 does not update `README.md`, `AGENTS.md`,
 `docs/spec/pietto-v0.9.md`, the deferred register, or status-lock files.
 Status housekeeping remains future dedicated work unless separately approved.
+
+Slice 7 updates only the approved Phase 41 plan, deferred register, Decimal
+specs, and static-audit tests. It does not update `README.md`, `AGENTS.md`, or
+`docs/spec/pietto-v0.9.md`; broad status lock remains reserved for Slice 8.
 
 ## Candidate Decision
 
@@ -120,15 +129,26 @@ deferred items have these dispositions:
 
 | Item | Phase 41 disposition | Prerequisite / owner |
 |---|---|---|
-| Decimal precision-scale carrier | Implement in Phase 41 after Slice 1 scope lock. | Slice 2 semantic validation and approved carrier ownership. |
-| Invalid Decimal precision-scale diagnostics | Implement in Phase 41 fail-closed. | Slice 2 diagnostic policy. |
+| Decimal precision-scale parse surface | Implemented by Phase 41 using the existing generic type-argument parse surface. `Decimal()` remains compatible because the current AST cannot distinguish it from no-argument `Decimal`. | Completed by Slice 2 semantic validation without grammar/generated changes. |
+| Decimal precision-scale semantic validation | Implemented by Phase 41 for exactly two positional integer literal arguments with precision `1..38` and scale `0..precision`. | Completed by Slice 2. |
+| Invalid Decimal precision-scale diagnostics | Implemented by Phase 41 fail-closed with `PIE-S2004`. | Completed by Slice 2 diagnostic policy. |
+| Decimal precision-scale carrier | Implemented by Phase 41 as private semantic facts: `DecimalPrecisionScale`, `SemanticModel.decimal_precision_scales`, and `decimal_precision_scale_for(type_expr)`. | Completed by Slice 3 carrier ownership. |
+| Alias-chain precision-scale facts | Implemented by Phase 41 for safe aliases that terminate in a valid Decimal precision-scale fact. | Completed by Slice 3 alias propagation. |
+| IR compatibility | Implemented by Phase 41 as compatibility proof only; `TypeRefIR` has no precision/scale fields. | Completed by Slice 4. |
+| Aggregate/numeric boundary hardening | Implemented by Phase 41 as tests/static-audit proof only. | Completed by Slice 5. |
+| CLI JSON / Project JSON v2 / explain / Artifact v1 compatibility | Implemented by Phase 41 as tests/static-audit proof only. | Completed by Slice 6. |
 | Plain `Decimal` | Unaffected. | Existing behavior must remain byte and type compatible. |
-| Decimal aggregate precision propagation | Still deferred. | Later precision propagation phase after internal carrier is stable. |
+| Non-Decimal type arguments | Unaffected compatibility surface. | Future type-argument policy phase. |
+| Decimal aggregate precision propagation | Still deferred with named prerequisite. | Future aggregate/type propagation phase after internal carrier stability. |
 | Decimal literals | Explicitly rejected in Phase 41. | Phase 42 numeric/literal work. |
 | Full Int/Float/Decimal promotion matrix | Explicitly rejected in Phase 41. | Phase 42 numeric promotion work. |
-| Decimal `*` and `/` | Still deferred. | Later numeric operator matrix expansion. |
-| SQL `DECIMAL(p, s)` / native DB metadata / DDL | Still deferred. | Later native database metadata and dialect contract. |
+| Float/Decimal mixing | Explicitly rejected in Phase 41. | Phase 42 numeric promotion decision. |
+| Decimal `*` and `/` | Still deferred with named prerequisite. | Phase 42 or later numeric operator matrix expansion. |
+| Cast syntax | Explicitly rejected in Phase 41. | Future cast syntax/design prerequisite. |
+| SQL `DECIMAL(p, s)` / `NUMERIC(p, s)` output | Still deferred with named prerequisite. | Native SQL type/DDL/dialect contract. |
+| DDL/native DB metadata | Still deferred with named prerequisite. | Native DB metadata prerequisite. |
 | Public JSON precision-scale fields | Explicitly rejected in Phase 41. | Future schema-versioned output contract. |
+| Metadata/explain precision-scale display | Explicitly rejected in Phase 41. | Artifact v2/display contract prerequisite. |
 | Broad aggregate features | Unaffected. | Future aggregate phases with separate approval. |
 
 ## Phase 41 Slice Sequence
@@ -141,12 +161,32 @@ deferred items have these dispositions:
 | 4 | IR Compatibility Carrier Boundary | preserve SQL compatibility and only pass internal facts where explicitly approved |
 | 5 | Aggregate / Numeric Boundary Hardening | prove existing Decimal aggregate and numeric behavior remains stable |
 | 6 | Metadata / CLI JSON / Explain Compatibility | prove public JSON and metadata schemas do not expand |
-| 7 | Docs, Deferred Register, And Package Smoke Readiness | update approved docs/tests without release or package changes |
-| 8 | Completion Audit And Status Lock | final completion audit/status lock only |
+| 7 | Docs, Deferred Register, And Package Smoke Readiness | current docs/static-audit readiness slice; no release or package changes |
+| 8 | Completion Audit And Status Lock | remaining final completion audit/status lock only |
 
 Later phases must handle Decimal literals, full numeric promotion, SQL native
 type output, public precision-scale metadata fields, native DB metadata,
 domain annotations, Money/Currency semantics, and runtime/database behavior.
+
+## Slice 7 Docs, Deferred Register, And Package Smoke Readiness
+
+Slice 7 records the current post-Slice-6 Phase 41 status:
+
+- Slice 2 implemented Decimal precision-scale semantic validation and
+  `PIE-S2004`;
+- Slice 3 implemented the private internal `DecimalPrecisionScale` carrier,
+  `SemanticModel.decimal_precision_scales`, `decimal_precision_scale_for`, and
+  safe alias-chain internal fact propagation;
+- Slice 4 proved IR compatibility with no `TypeRefIR` precision/scale fields;
+- Slice 5 proved aggregate/numeric boundaries remain stable;
+- Slice 6 proved CLI JSON v1, Project JSON v2, explain text/JSON, and
+  Semantic Metadata Artifact v1 compatibility.
+
+Package smoke readiness remains covered by the standard validation stack and
+`scripts/package_smoke.py`; Slice 7 changes no script, package metadata,
+version, workflow, release, upload, signing, or attestation behavior. Sandbox
+DNS/PyPI failures remain evidence-only infrastructure notes and must not be
+fixed by repository changes.
 
 ## Slice 1 Gate 2 Allowlist
 

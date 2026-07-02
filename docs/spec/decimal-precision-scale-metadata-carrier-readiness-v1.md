@@ -17,6 +17,22 @@ attestation.
 
 Slice 1 does not change Semantic Metadata Artifact v1 schema or output.
 
+## Phase 41 Update
+
+This Phase 36 Slice 1 readiness document remains historical. Phase 41 later
+satisfied the private-carrier prerequisite for a minimal internal MVP:
+
+- `DecimalPrecisionScale` is implemented as a private semantic-model fact;
+- `SemanticModel.decimal_precision_scales` stores facts keyed by `TypeExpr`;
+- `decimal_precision_scale_for(type_expr)` provides internal lookup;
+- valid direct `Decimal(p,s)` and safe alias-chain facts are recorded;
+- plain `Decimal`, `Decimal()`, invalid `Decimal(...)`, and non-Decimal type
+  arguments do not receive Decimal precision-scale facts.
+
+The Phase 41 carrier remains internal. It does not add precision/scale fields
+to `ResolvedType`, `ValueType`, `TypeRefIR`, CLI JSON v1, Project JSON v2, or
+Semantic Metadata Artifact v1, and it does not change SQL output.
+
 ## Current Decimal Facts
 
 Current Decimal behavior remains the behavior documented by Phase 30 and

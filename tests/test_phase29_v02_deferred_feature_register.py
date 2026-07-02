@@ -31,6 +31,7 @@ ALLOWED_BEFORE_V02_CATEGORIES = (
     "contracts/tests only",
     "readiness or narrow-MVP decision only",
     "Phase 30/31 stabilization only if explicitly approved",
+    "implemented by Phase 41 for semantic validation and private carrier only",
     "no before v0.2",
 )
 
@@ -97,7 +98,7 @@ def test_allowed_before_v02_decisions_are_locked() -> None:
         "UUID": "readiness or narrow-MVP decision only",
         "Enum": "readiness or narrow-MVP decision only",
         "Decimal precision/scale": (
-            "Phase 30/31 stabilization only if explicitly approved"
+            "implemented by Phase 41 for semantic validation and private carrier only"
         ),
         "Native DB type metadata": "no before v0.2",
         "DB pull/schema introspection": "no before v0.2",
@@ -132,6 +133,10 @@ def test_blockers_unfreeze_targets_and_non_goals_are_locked() -> None:
         "Phase 31 UUID readiness or narrow-MVP decision",
         "Phase 31 enum readiness or lowering decision",
         "Phase 30 Decimal precision/scale contract",
+        "Phase 41 Slices 2-6",
+        "Phase 42 numeric/literal work",
+        "schema-versioned public output contract",
+        "Artifact v2/display contract",
         "Runtime threat model, connector auth policy, resource limits",
         "Project loader, path model, config model, cross-file semantics",
         "Relationship composition contract, JOIN SQL shape contract",
@@ -168,8 +173,13 @@ def test_register_hard_boundaries_do_not_authorize_implementation() -> None:
         "expand aggregate behavior",
         "No `DateTime`, timezone, `Time`, or `Interval` primitive",
         "Money and Currency are not primitive scalar types",
-        "No Decimal syntax, carriers, semantic behavior, SQL behavior, "
-        "precision propagation, or widening in Slice 2",
+        "No Decimal literal typing, Int/Float/Decimal promotion matrix, "
+        "Float/Decimal mixing, Decimal multiplication/division",
+        "aggregate precision propagation",
+        "SQL `DECIMAL(p,s)` / `NUMERIC(p,s)` output",
+        "public JSON precision-scale fields",
+        "metadata/explain precision-scale display",
+        "non-Decimal type-argument policy",
         "No UUID functions, casts, literals, storage semantics, DDL, or SQL behavior",
         "No enum DDL, runtime mapping, SQL lowering, value validation changes",
         "No `pietto explain`, audit JSON, provenance output, CLI option, or JSON v2 output",

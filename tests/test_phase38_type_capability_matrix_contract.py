@@ -312,8 +312,13 @@ def test_decimal_float_text_readiness_caveats_are_documented() -> None:
     evidence = _combined_capability_evidence()
 
     for required in (
-        "Decimal precision-scale carrier remains deferred",
-        "`Decimal(12, 2)` generic `TypeExpr.arguments` do not create accepted precision/scale semantics",
+        "internal precision-scale carrier implemented by Phase 41",
+        "Phase 41 implements Decimal precision-scale semantic validation and a private",
+        "`Decimal(12, 2)` now validates as a logical Decimal type form",
+        "internal `DecimalPrecisionScale` facts",
+        "`Decimal()` remains compatible",
+        "Non-Decimal type arguments remain the current compatibility surface",
+        "metadata/explain precision-scale display",
         "Decimal literals, multiplication, division, mixed Decimal promotion",
         "Float currently participates in direct `count_distinct(Float)` and direct",
         "`min/max(Float)`",
