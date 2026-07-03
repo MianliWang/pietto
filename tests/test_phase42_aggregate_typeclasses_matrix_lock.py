@@ -63,6 +63,7 @@ NO_GROUP_PROJECTIONS = (
     "        count_customer = count(customer_id)\n"
     "        known_amount_expr = count(amount + tax)\n"
     "        known_amount_literal_expr = count(amount + 1)\n"
+    "        known_decimal_int_expr = count(price + amount)\n"
     "        known_status_expr = count(lower(trim(status)))\n"
     "        unique_status = count_distinct(status)\n"
     "        unique_customer = count_distinct(customer_id)\n"
@@ -79,6 +80,8 @@ NO_GROUP_PROJECTIONS = (
     "        average_literal_expr = avg(score + 1.5)\n"
     "        decimal_total_expr = sum(price + discount)\n"
     "        decimal_average_expr = avg(price - discount)\n"
+    "        decimal_int_total_expr = sum(price + amount)\n"
+    "        decimal_int_average_expr = avg(price - amount)\n"
     "        smallest_amount = min(amount)\n"
     "        smallest_score = min(score)\n"
     "        smallest_price = min(price)\n"
@@ -99,6 +102,7 @@ NO_GROUP_ROW_SCHEMA = (
     ("count_customer", "Int", EffectiveNullability.NON_NULL),
     ("known_amount_expr", "Int", EffectiveNullability.NON_NULL),
     ("known_amount_literal_expr", "Int", EffectiveNullability.NON_NULL),
+    ("known_decimal_int_expr", "Int", EffectiveNullability.NON_NULL),
     ("known_status_expr", "Int", EffectiveNullability.NON_NULL),
     ("unique_status", "Int", EffectiveNullability.NON_NULL),
     ("unique_customer", "Int", EffectiveNullability.NON_NULL),
@@ -115,6 +119,8 @@ NO_GROUP_ROW_SCHEMA = (
     ("average_literal_expr", "Float", EffectiveNullability.NULLABLE),
     ("decimal_total_expr", "Decimal", EffectiveNullability.NULLABLE),
     ("decimal_average_expr", "Decimal", EffectiveNullability.NULLABLE),
+    ("decimal_int_total_expr", "Decimal", EffectiveNullability.NULLABLE),
+    ("decimal_int_average_expr", "Decimal", EffectiveNullability.NULLABLE),
     ("smallest_amount", "Int", EffectiveNullability.NULLABLE),
     ("smallest_score", "Float", EffectiveNullability.NULLABLE),
     ("smallest_price", "Decimal", EffectiveNullability.NULLABLE),
@@ -132,11 +138,13 @@ GROUPED_PROJECTIONS = (
     "        total = count()\n"
     "        count_customer = count(customer_id)\n"
     "        known_amount_expr = count(amount + tax)\n"
+    "        known_decimal_int_expr = count(price + amount)\n"
     "        unique_normalized = count_distinct(lower(trim(status)))\n"
     "        total_amount = sum(amount)\n"
     "        total_literal_expr = sum(amount + 1)\n"
     "        average_expr = avg(score * weight)\n"
     "        decimal_average_expr = avg(price - discount)\n"
+    "        decimal_int_total_expr = sum(price + amount)\n"
     "        smallest_price = min(price)\n"
     "        latest_created_at = max(created_at)\n"
 )
@@ -146,11 +154,13 @@ GROUPED_ROW_SCHEMA = (
     ("total", "Int", EffectiveNullability.NON_NULL),
     ("count_customer", "Int", EffectiveNullability.NON_NULL),
     ("known_amount_expr", "Int", EffectiveNullability.NON_NULL),
+    ("known_decimal_int_expr", "Int", EffectiveNullability.NON_NULL),
     ("unique_normalized", "Int", EffectiveNullability.NON_NULL),
     ("total_amount", "Int", EffectiveNullability.NULLABLE),
     ("total_literal_expr", "Int", EffectiveNullability.NULLABLE),
     ("average_expr", "Float", EffectiveNullability.NULLABLE),
     ("decimal_average_expr", "Decimal", EffectiveNullability.NULLABLE),
+    ("decimal_int_total_expr", "Decimal", EffectiveNullability.NULLABLE),
     ("smallest_price", "Decimal", EffectiveNullability.NULLABLE),
     ("latest_created_at", "Timestamp", EffectiveNullability.NULLABLE),
 )
@@ -272,11 +282,13 @@ def test_no_group_aggregate_typeclass_matrix_semantic_ir_and_sql_are_locked() ->
                 'COUNT("raw") AS "count_raw"',
                 'COUNT("payload") AS "count_payload"',
                 'COUNT(("amount" + "tax")) AS "known_amount_expr"',
+                'COUNT(("price" + "amount")) AS "known_decimal_int_expr"',
                 'COUNT(DISTINCT lower(trim("status"))) AS "unique_normalized"',
                 'SUM("price") AS "total_price"',
                 'AVG("price") AS "average_price"',
                 'SUM(("amount" + 1)) AS "total_literal_expr"',
                 'AVG(("price" - "discount")) AS "decimal_average_expr"',
+                'SUM(("price" + "amount")) AS "decimal_int_total_expr"',
                 'MIN("created_at") AS "first_created_at"',
                 'MAX("order_date") AS "latest_order_date"',
             ),
@@ -289,11 +301,13 @@ def test_no_group_aggregate_typeclass_matrix_semantic_ir_and_sql_are_locked() ->
                 "COUNT(`raw`) AS `count_raw`",
                 "COUNT(`payload`) AS `count_payload`",
                 "COUNT((`amount` + `tax`)) AS `known_amount_expr`",
+                "COUNT((`price` + `amount`)) AS `known_decimal_int_expr`",
                 "COUNT(DISTINCT LOWER(TRIM(`status`))) AS `unique_normalized`",
                 "SUM(`price`) AS `total_price`",
                 "AVG(`price`) AS `average_price`",
                 "SUM((`amount` + 1)) AS `total_literal_expr`",
                 "AVG((`price` - `discount`)) AS `decimal_average_expr`",
+                "SUM((`price` + `amount`)) AS `decimal_int_total_expr`",
                 "MIN(`created_at`) AS `first_created_at`",
                 "MAX(`order_date`) AS `latest_order_date`",
             ),
@@ -343,7 +357,6 @@ def test_grouped_aggregate_typeclass_matrix_semantic_and_ir_are_locked() -> None
         ("value = min(enum_status)", "PIE-S2314"),
         ("value = sum(price * discount)", "PIE-S2315"),
         ("value = avg(price * discount)", "PIE-S2315"),
-        ("value = sum(price + amount)", "PIE-S2315"),
         ("value = sum(price + score)", "PIE-S2315"),
     ],
 )
@@ -534,6 +547,7 @@ def _assert_aggregate_ir_matrix(
         "count_customer": ("count", 1, ("customer_id",)),
         "known_amount_expr": ("count", 1, ("amount", "tax")),
         "known_amount_literal_expr": ("count", 1, ("amount",)),
+        "known_decimal_int_expr": ("count", 1, ("price", "amount")),
         "known_status_expr": ("count", 1, ("status",)),
         "unique_status": ("count_distinct", 1, ("status",)),
         "unique_customer": ("count_distinct", 1, ("customer_id",)),
@@ -550,6 +564,8 @@ def _assert_aggregate_ir_matrix(
         "average_literal_expr": ("avg", 1, ("score",)),
         "decimal_total_expr": ("sum", 1, ("price", "discount")),
         "decimal_average_expr": ("avg", 1, ("price", "discount")),
+        "decimal_int_total_expr": ("sum", 1, ("price", "amount")),
+        "decimal_int_average_expr": ("avg", 1, ("price", "amount")),
         "smallest_amount": ("min", 1, ("amount",)),
         "smallest_score": ("min", 1, ("score",)),
         "smallest_price": ("min", 1, ("price",)),

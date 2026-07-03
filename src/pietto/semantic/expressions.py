@@ -944,7 +944,15 @@ def _binary_arithmetic_result_type(
         and _is_builtin(right_type, "Decimal")
     ):
         return "Decimal"
+    if operator in {"+", "-"} and _is_decimal_int_pair(left_type, right_type):
+        return "Decimal"
     return None
+
+
+def _is_decimal_int_pair(left_type: ValueType, right_type: ValueType) -> bool:
+    return (_is_builtin(left_type, "Decimal") and _is_builtin(right_type, "Int")) or (
+        _is_builtin(left_type, "Int") and _is_builtin(right_type, "Decimal")
+    )
 
 
 def _is_builtin(value_type: ValueType, name: str) -> bool:

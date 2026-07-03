@@ -335,11 +335,11 @@ def _numeric_aggregate_argument_shape(
         if left_type is None or right_type is None:
             return None, False, False
         if expression_type == "Decimal":
-            if (
-                expression.operator == "*"
-                or left_type != "Decimal"
-                or right_type != "Decimal"
-            ):
+            if expression.operator == "*":
+                return None, False, False
+            if {left_type, right_type} - {"Decimal", "Int"}:
+                return None, False, False
+            if "Decimal" not in {left_type, right_type}:
                 return None, False, False
             return (
                 expression_type,

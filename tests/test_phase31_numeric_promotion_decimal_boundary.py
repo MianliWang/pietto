@@ -172,8 +172,6 @@ def test_semantic_numeric_promotion_matrix_is_locked() -> None:
     [
         "value = +price",
         "value = price * discount",
-        "value = price + amount",
-        "value = amount + price",
         "value = score + price",
         "value = status + status",
         "value = order_date + amount",

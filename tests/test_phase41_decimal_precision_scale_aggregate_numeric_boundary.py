@@ -249,7 +249,6 @@ def test_deferred_decimal_numeric_aggregate_boundaries_remain_s2315(
 @pytest.mark.parametrize(
     ("projection", "expected_code"),
     [
-        ("value = amount + 1", "PIE-S2105"),
         ("value = 1.0 + amount", "PIE-S2105"),
         ("value = amount * tax", "PIE-S2105"),
     ],
