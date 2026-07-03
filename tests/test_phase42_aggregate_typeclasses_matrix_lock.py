@@ -244,7 +244,9 @@ def test_semantic_aggregate_result_typeclass_adjacent_matrix_is_locked() -> None
 
 
 def test_no_group_aggregate_typeclass_matrix_semantic_ir_and_sql_are_locked() -> None:
-    script, semantic, script_ir = _compile(_matrix_source("postgres.table", grouped=False))
+    script, semantic, script_ir = _compile(
+        _matrix_source("postgres.table", grouped=False)
+    )
     relation = _relation_ast(script)
     schema = semantic.model.relation_row_schemas[relation]
 
@@ -306,7 +308,9 @@ def test_no_group_aggregate_typeclass_matrix_semantic_ir_and_sql_are_locked() ->
 
 
 def test_grouped_aggregate_typeclass_matrix_semantic_and_ir_are_locked() -> None:
-    script, semantic, script_ir = _compile(_matrix_source("postgres.table", grouped=True))
+    script, semantic, script_ir = _compile(
+        _matrix_source("postgres.table", grouped=True)
+    )
     relation = _relation_ast(script)
     schema = semantic.model.relation_row_schemas[relation]
 
@@ -433,7 +437,9 @@ def test_decimal_precision_scale_aggregates_remain_logical_non_public_decimal() 
             EffectiveNullability.NULLABLE,
         )
     for field_name in ("known_values", "unique_values"):
-        _assert_value_type(semantic_fields[field_name], "Int", EffectiveNullability.NON_NULL)
+        _assert_value_type(
+            semantic_fields[field_name], "Int", EffectiveNullability.NON_NULL
+        )
 
     for type_surface in (ResolvedType, ValueType, TypeRefIR):
         assert {"precision", "scale"}.isdisjoint(
@@ -602,7 +608,9 @@ def _assert_value_type(
 
 def _shape_field_type_expr(script: Script, field_name: str) -> TypeExpr:
     shape = next(
-        definition for definition in script.definitions if isinstance(definition, ShapeDef)
+        definition
+        for definition in script.definitions
+        if isinstance(definition, ShapeDef)
     )
     field = next(field for field in shape.fields if field.name == field_name)
     return field.type_expr
