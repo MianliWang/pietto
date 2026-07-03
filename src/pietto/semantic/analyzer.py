@@ -5,13 +5,20 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping
 
 from pietto.ast_nodes import (
+    BetweenExpr,
+    BinaryExpr,
+    CallExpr,
+    ComparisonExpr,
     ConstraintDef,
     Definition,
     DeriveDef,
+    DottedNameExpr,
     EnumDef,
     Expression,
     FromClause,
+    IsNullExpr,
     LiteralExpr,
+    NameExpr,
     Nullability,
     QueryDef,
     Script,
@@ -20,6 +27,7 @@ from pietto.ast_nodes import (
     TableDef,
     TypeDef,
     TypeExpr,
+    UnaryExpr,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.callables import (
@@ -42,11 +50,13 @@ from pietto.semantic.model import (
     EffectiveNullability,
     LetScopeSemanticInfo,
     ResolvedType,
+    RowField,
     RowSchema,
     SemanticModel,
     SemanticResult,
     TypeKind,
     ValueType,
+    ValueTypeKind,
 )
 from pietto.semantic.relation_cycles import check_relation_cycles
 from pietto.semantic.relation_limits import check_relation_limits
@@ -244,6 +254,14 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
             expression_value_types=expression_value_types,
         )
     )
+    decimal_expression_precision_scales = _decimal_expression_precision_scales(
+        script,
+        from_resolutions=from_resolutions,
+        source_row_schemas=source_row_schemas,
+        relation_row_schemas=relation_row_schemas,
+        expression_value_types=expression_value_types,
+        decimal_precision_scales=decimal_precision_scales,
+    )
 
     return SemanticResult(
         model=SemanticModel(
@@ -255,6 +273,7 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
             type_expansions=type_expansions,
             type_nullability=type_nullability,
             decimal_precision_scales=decimal_precision_scales,
+            decimal_expression_precision_scales=decimal_expression_precision_scales,
             source_row_schemas=source_row_schemas,
             from_resolutions=from_resolutions,
             relation_row_schemas=relation_row_schemas,
@@ -269,6 +288,186 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
 
 RelationDefinition = SourceDef | TableDef | QueryDef
 DerivedRelation = TableDef | QueryDef
+
+
+def _decimal_expression_precision_scales(
+    script: Script,
+    *,
+    from_resolutions: Mapping[FromClause, RelationDefinition],
+    source_row_schemas: Mapping[SourceDef, RowSchema],
+    relation_row_schemas: Mapping[DerivedRelation, RowSchema],
+    expression_value_types: Mapping[Expression, ValueType],
+    decimal_precision_scales: Mapping[TypeExpr, DecimalPrecisionScale],
+) -> dict[Expression, DecimalPrecisionScale]:
+    """Collect private Decimal precision facts for safe direct field leaves."""
+
+    facts: dict[Expression, DecimalPrecisionScale] = {}
+    for definition in script.definitions:
+        if not isinstance(definition, (TableDef, QueryDef)):
+            continue
+        input_schema = _relation_input_schema(
+            definition,
+            from_resolutions=from_resolutions,
+            source_row_schemas=source_row_schemas,
+            relation_row_schemas=relation_row_schemas,
+        )
+        if definition.let_clause is not None:
+            for binding in definition.let_clause.bindings:
+                _collect_decimal_expression_precision_scales(
+                    binding.expression,
+                    input_schema=input_schema,
+                    field_qualifier=definition.from_clause.source_name,
+                    expression_value_types=expression_value_types,
+                    decimal_precision_scales=decimal_precision_scales,
+                    facts=facts,
+                )
+        if definition.where_clause is not None:
+            _collect_decimal_expression_precision_scales(
+                definition.where_clause.expression,
+                input_schema=input_schema,
+                field_qualifier=definition.from_clause.source_name,
+                expression_value_types=expression_value_types,
+                decimal_precision_scales=decimal_precision_scales,
+                facts=facts,
+            )
+        for item in definition.select_items:
+            _collect_decimal_expression_precision_scales(
+                item.expression,
+                input_schema=input_schema,
+                field_qualifier=definition.from_clause.source_name,
+                expression_value_types=expression_value_types,
+                decimal_precision_scales=decimal_precision_scales,
+                facts=facts,
+            )
+        if definition.order_by_clause is not None:
+            for item in definition.order_by_clause.items:
+                _collect_decimal_expression_precision_scales(
+                    item.expression,
+                    input_schema=input_schema,
+                    field_qualifier=definition.from_clause.source_name,
+                    expression_value_types=expression_value_types,
+                    decimal_precision_scales=decimal_precision_scales,
+                    facts=facts,
+                )
+    return facts
+
+
+def _relation_input_schema(
+    definition: DerivedRelation,
+    *,
+    from_resolutions: Mapping[FromClause, RelationDefinition],
+    source_row_schemas: Mapping[SourceDef, RowSchema],
+    relation_row_schemas: Mapping[DerivedRelation, RowSchema],
+) -> RowSchema:
+    """Return a relation input schema for private post-analysis fact collection."""
+
+    target = from_resolutions.get(definition.from_clause)
+    if isinstance(target, SourceDef):
+        return source_row_schemas[target]
+    if isinstance(target, (TableDef, QueryDef)):
+        return relation_row_schemas[target]
+    return RowSchema(is_unknown=True)
+
+
+def _collect_decimal_expression_precision_scales(
+    expression: Expression,
+    *,
+    input_schema: RowSchema,
+    field_qualifier: str,
+    expression_value_types: Mapping[Expression, ValueType],
+    decimal_precision_scales: Mapping[TypeExpr, DecimalPrecisionScale],
+    facts: dict[Expression, DecimalPrecisionScale],
+) -> None:
+    """Walk expression children while assigning facts only to direct fields."""
+
+    direct_fact = _direct_decimal_expression_precision_scale(
+        expression,
+        input_schema=input_schema,
+        field_qualifier=field_qualifier,
+        expression_value_types=expression_value_types,
+        decimal_precision_scales=decimal_precision_scales,
+    )
+    if direct_fact is not None:
+        facts[expression] = direct_fact
+        return
+
+    for child in _expression_children(expression):
+        _collect_decimal_expression_precision_scales(
+            child,
+            input_schema=input_schema,
+            field_qualifier=field_qualifier,
+            expression_value_types=expression_value_types,
+            decimal_precision_scales=decimal_precision_scales,
+            facts=facts,
+        )
+
+
+def _direct_decimal_expression_precision_scale(
+    expression: Expression,
+    *,
+    input_schema: RowSchema,
+    field_qualifier: str,
+    expression_value_types: Mapping[Expression, ValueType],
+    decimal_precision_scales: Mapping[TypeExpr, DecimalPrecisionScale],
+) -> DecimalPrecisionScale | None:
+    """Return a Decimal precision fact only for direct Decimal field references."""
+
+    row_field = _direct_expression_row_field(
+        expression,
+        input_schema=input_schema,
+        field_qualifier=field_qualifier,
+    )
+    if row_field is None or row_field.definition is None:
+        return None
+
+    expression_type = expression_value_types.get(expression)
+    if expression_type is None or expression_type.kind is not ValueTypeKind.KNOWN:
+        return None
+    if (
+        expression_type.resolved_type.kind is not TypeKind.BUILTIN
+        or expression_type.resolved_type.name != "Decimal"
+    ):
+        return None
+
+    type_expr = row_field.definition.type_expr
+    if type_expr.name != "Decimal":
+        return None
+    return decimal_precision_scales.get(type_expr)
+
+
+def _direct_expression_row_field(
+    expression: Expression,
+    *,
+    input_schema: RowSchema,
+    field_qualifier: str,
+) -> RowField | None:
+    if input_schema.is_unknown:
+        return None
+    if isinstance(expression, NameExpr):
+        return input_schema.fields.get(expression.name)
+    if (
+        isinstance(expression, DottedNameExpr)
+        and len(expression.parts) == 2
+        and expression.parts[0] == field_qualifier
+    ):
+        return input_schema.fields.get(expression.parts[1])
+    return None
+
+
+def _expression_children(expression: Expression) -> tuple[Expression, ...]:
+    if isinstance(expression, CallExpr):
+        return expression.arguments
+    if isinstance(expression, UnaryExpr):
+        return (expression.operand,)
+    if isinstance(expression, BinaryExpr):
+        return (expression.left, expression.right)
+    if isinstance(expression, ComparisonExpr):
+        return (expression.left, expression.right)
+    if isinstance(expression, BetweenExpr):
+        return (expression.value, expression.lower, expression.upper)
+    if isinstance(expression, IsNullExpr):
+        return (expression.value,)
+    return ()
 
 
 def _analyze_relation_schema_expressions(

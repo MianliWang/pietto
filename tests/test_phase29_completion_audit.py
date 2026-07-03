@@ -77,7 +77,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "semantic": (
         "src/pietto/semantic",
         21,
-        "3cf1feab9ae171aaf7e09b76a1a6e178e6bbdf437917fb388d87075b1d0a97ff",
+        "9afb6e653e83aa6b6bf60bb639a917cf101ebee5f51c6129cc859330554e2163",
     ),
     "ir": (
         "src/pietto/ir",
@@ -167,7 +167,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "phase29_deferred_register": (
         "docs/spec/v02-deferred-feature-register-v1.md",
         1,
-        "466068cca6bf43fef473a597e8c345c39ffad50af0872ff7be08d8db68bb66c9",
+        "665e69ce549f2568ba6b16473527fa10d6f7988b051f72504a3332c43f3ae4b9",
     ),
     "phase29_aggregate_freeze": (
         "docs/spec/v02-aggregate-surface-freeze-v1.md",

@@ -201,6 +201,10 @@ class SemanticModel:
     decimal_precision_scales: Mapping[TypeExpr, DecimalPrecisionScale] = field(
         default_factory=lambda: _readonly_mapping()
     )
+    decimal_expression_precision_scales: Mapping[
+        Expression,
+        DecimalPrecisionScale,
+    ] = field(default_factory=lambda: _readonly_mapping())
     source_row_schemas: Mapping[SourceDef, RowSchema] = field(
         default_factory=lambda: _readonly_mapping()
     )
@@ -260,6 +264,11 @@ class SemanticModel:
         )
         object.__setattr__(
             self,
+            "decimal_expression_precision_scales",
+            _readonly_mapping(self.decimal_expression_precision_scales),
+        )
+        object.__setattr__(
+            self,
             "source_row_schemas",
             _readonly_mapping(self.source_row_schemas),
         )
@@ -292,6 +301,14 @@ class SemanticModel:
         """Return validated Decimal precision-scale facts for a type expression."""
 
         return self.decimal_precision_scales.get(type_expr)
+
+    def decimal_expression_precision_scale_for(
+        self,
+        expression: Expression,
+    ) -> DecimalPrecisionScale | None:
+        """Return private Decimal precision-scale facts for a safe expression."""
+
+        return self.decimal_expression_precision_scales.get(expression)
 
 
 @dataclass(frozen=True, slots=True)

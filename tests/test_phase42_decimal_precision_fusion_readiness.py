@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import fields
 from pathlib import Path
+from types import MappingProxyType
 
 import pytest
 
@@ -12,7 +13,7 @@ from pietto._metadata.model import SemanticMetadataType
 from pietto._metadata.serializer import semantic_metadata_artifact_to_json_dict
 from pietto._project.json_v2 import project_check_result_to_json_dict
 from pietto._project.model import ProjectConfigPath, ProjectDiscoveryResult, ProjectRoot
-from pietto.ast_nodes import BinaryExpr, FieldDef, Script, ShapeDef, TableDef
+from pietto.ast_nodes import BinaryExpr, FieldDef, NameExpr, Script, ShapeDef, TableDef
 from pietto.errors import Severity
 from pietto.ir import AggregateCallIR, NullabilityIR, RelationIR, ScriptIR, TypeRefIR
 from pietto.ir import build_ir
@@ -45,7 +46,7 @@ BASE_SHAPE = (
 )
 
 
-def test_phase41_decimal_precision_carrier_remains_type_expr_keyed_only() -> None:
+def test_decimal_precision_carriers_remain_private_and_non_public() -> None:
     script, semantic, _ = _compile(
         _source(
             "postgres.table",
@@ -53,6 +54,9 @@ def test_phase41_decimal_precision_carrier_remains_type_expr_keyed_only() -> Non
         )
     )
     fields_by_name = _shape_fields(script, "Order")
+    relation = _relation_ast(script)
+    price_expression = relation.select_items[0].expression
+    assert isinstance(price_expression, NameExpr)
 
     assert DecimalPrecisionScale(12, 2) == semantic.model.decimal_precision_scale_for(
         fields_by_name["price"].type_expr
@@ -64,14 +68,20 @@ def test_phase41_decimal_precision_carrier_remains_type_expr_keyed_only() -> Non
         hasattr(type_expr, "name")
         for type_expr in semantic.model.decimal_precision_scales
     )
-    assert not hasattr(semantic.model, "decimal_expression_precision_scales")
-    assert not hasattr(semantic.model, "decimal_expression_precision_scale_for")
+    assert isinstance(
+        semantic.model.decimal_expression_precision_scales,
+        MappingProxyType,
+    )
+    assert semantic.model.decimal_expression_precision_scale_for(
+        price_expression
+    ) == DecimalPrecisionScale(12, 2)
 
     assert "decimal_precision_scales" in {field.name for field in fields(SemanticModel)}
     assert "decimal_precision_scale_for" in dir(SemanticModel)
-    assert "decimal_expression_precision_scales" not in {
+    assert "decimal_expression_precision_scales" in {
         field.name for field in fields(SemanticModel)
     }
+    assert "decimal_expression_precision_scale_for" in dir(SemanticModel)
 
 
 def test_direct_field_type_expr_facts_are_recoverable_but_computed_outputs_are_not() -> (
@@ -128,10 +138,8 @@ def test_fusion_formulas_and_overflow_policy_are_future_constraints_only() -> No
     ):
         assert expected in spec_text
 
-    assert (
-        "There is no expression-level precision/scale map keyed by `Expression`"
-        in scope_lock_test
-    )
+    assert "private expression-level Decimal precision facts" in scope_lock_test
+    assert "computed expression precision facts" in spec_text
 
 
 def test_decimal_int_and_decimal_decimal_expressions_stay_logical_without_precision_fact() -> (
@@ -163,8 +171,14 @@ def test_decimal_int_and_decimal_decimal_expressions_stay_logical_without_precis
         assert not hasattr(value_type, "precision")
         assert not hasattr(value_type, "scale")
 
-    assert not hasattr(semantic.model, "decimal_expression_precision_scales")
-    assert not hasattr(semantic.model, "decimal_expression_precision_scale_for")
+    for alias in (
+        "decimal_total",
+        "decimal_int",
+        "int_decimal",
+        "decimal_minus_int",
+    ):
+        expression = _select_expression(relation, alias)
+        assert semantic.model.decimal_expression_precision_scale_for(expression) is None
 
 
 @pytest.mark.parametrize(

@@ -39,9 +39,10 @@ Slice 1 records these decisions:
   token preservation are approved;
 - keep `Float` and `Decimal` mixed arithmetic fail-closed unless an explicit
   conversion design is later approved;
-- treat `Int` and `Decimal` arithmetic as a future exact-arithmetic candidate;
+- treat Slice 3 `Int` and `Decimal` `+` / `-` arithmetic as logical Decimal
+  only, without precision propagation;
 - treat Decimal precision/scale expression fusion as future work requiring
-  expression-level Decimal facts;
+  computed expression-level Decimal facts;
 - keep Decimal division out of Phase 42 Slice 1 behavior;
 - keep literal-only aggregate arguments such as `sum(1 + 2)` future-only until
   semantic, IR, and SQL renderer guard changes are approved together;
@@ -111,9 +112,10 @@ Current arithmetic typing is:
   promotes the result to `Float`, otherwise the result is `Int`;
 - `Decimal + Decimal` and `Decimal - Decimal` are accepted and return logical
   `Decimal UNKNOWN`;
-- `Decimal * Decimal`, mixed `Decimal`/`Int`, mixed `Decimal`/`Float`, and
-  mixed `Float`/`Decimal` arithmetic fail closed with `PIE-S2105` in ordinary
-  scalar contexts;
+- `Decimal + Int`, `Int + Decimal`, `Decimal - Int`, and `Int - Decimal`
+  are accepted and return logical `Decimal UNKNOWN`;
+- Decimal multiplication, mixed `Decimal`/`Float`, and mixed `Float`/`Decimal`
+  arithmetic fail closed with `PIE-S2105` in ordinary scalar contexts;
 - `/` currently returns Unknown without a diagnostic;
 - `%` is accepted only for `Int`/`Int`, otherwise `PIE-S2105`;
 - unary `+` and `-` currently treat only `Int` and `Float` as numeric.
@@ -141,9 +143,11 @@ The carrier remains private and non-public:
 
 Facts exist only at type-expression sites. There is no expression-level
 precision/scale map keyed by `Expression`, no `ValueType` precision/scale, and
-no IR precision/scale. Decimal precision fusion therefore requires a later
-design for expression-level Decimal facts, field-to-type-expression fact
-lookup, fusion helpers, overflow handling, and unknown-fact fallback.
+no IR precision/scale in Slice 1. Phase 42 Slice 5 supersedes that Slice 1
+posture with a private expression-level fact carrier scaffold for direct
+`Decimal(p,s)` field references only. Decimal precision fusion still requires
+a later design for computed expression facts, fusion helpers, overflow
+handling, and unknown-fact fallback.
 
 Safe type-alias aggregate canonicalization remains future work. Existing
 alias-chain facts are safe metadata, but current aggregate argument validation
@@ -210,9 +214,10 @@ Slice 1. Slice 1 adds no warning/lint infrastructure.
 | 1 | Aggregate Function Typeclasses And Decimal Arithmetic Scope Lock | docs/spec/deferred-register/static-audit only; no behavior change |
 | 2 | Aggregate Typeclass Vocabulary Or Tests-First Matrix | future behavior-preserving semantic capability vocabulary or tests-first lock, if approved |
 | 3 | Exact Decimal/Int Arithmetic Candidate | future semantic behavior slice, if approved |
-| 4 | Decimal Precision Fusion Candidate | future expression-level Decimal precision fact slice, if approved |
-| 5 | Literal-only Aggregate Argument Candidate | future semantic/IR/SQL renderer guard slice, if approved |
-| 6 | Completion Audit And Status Lock | future completion-audit/status-lock slice |
+| 4 | Decimal Precision Fusion Readiness Lock | tests-first readiness lock; no production behavior |
+| 5 | Private Decimal Expression Precision Fact Carrier Scaffold | private direct-field expression fact carrier only; no fusion or public output |
+| 6 | Literal-only Aggregate Argument Candidate | future semantic/IR/SQL renderer guard slice, if approved |
+| 7 | Completion Audit And Status Lock | future completion-audit/status-lock slice |
 
 Sequence may change only through a later Gate 1. Slice 2 should not start
 literal-only `SUM(constant)` unless PostgreSQL and private MySQL aggregate

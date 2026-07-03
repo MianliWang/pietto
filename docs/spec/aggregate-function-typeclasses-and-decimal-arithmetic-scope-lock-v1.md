@@ -6,6 +6,9 @@ Phase 42 Slice 1 is a scope-lock and static-audit slice only. It records
 current aggregate validation, numeric expression typing, Decimal
 precision-scale carrier posture, literal/constant posture, alias aggregate
 boundaries, warning/lint posture, and the future implementation sequence.
+Phase 42 Slice 5 supersedes the original no-expression-fact posture only by
+adding a private expression-level fact carrier scaffold for direct
+`Decimal(p,s)` field references.
 
 This document does not implement aggregate typeclasses, Decimal arithmetic,
 Decimal literals, casts, aggregate precision propagation, literal-only
@@ -43,14 +46,17 @@ Current numeric expression typing is intentionally narrow:
 - `Int` and `Float` support binary `+`, `-`, and `*`;
 - mixed `Int`/`Float` arithmetic promotes to `Float`;
 - `Decimal + Decimal` and `Decimal - Decimal` return logical `Decimal`;
+- `Decimal + Int`, `Int + Decimal`, `Decimal - Int`, and `Int - Decimal`
+  return logical `Decimal`;
 - Decimal multiplication remains unsupported;
 - Decimal division remains deferred;
-- mixed `Decimal`/`Int` and `Decimal`/`Float` arithmetic remains fail-closed;
+- mixed `Decimal`/`Float` arithmetic remains fail-closed;
 - dotted numeric literals such as `1.23` remain `Float`.
 
 Phase 42 future implementation may consider exact `Int`/`Decimal` arithmetic,
-but Slice 1 does not implement it. `Float`/`Decimal` mixing must remain
-fail-closed unless a future explicit conversion design is approved.
+but Slice 5 does not change the Slice 3 logical Decimal result policy.
+`Float`/`Decimal` mixing must remain fail-closed unless a future explicit
+conversion design is approved.
 
 Future Decimal precision/scale fusion is scoped as:
 
@@ -68,28 +74,37 @@ Future Decimal precision/scale fusion is scoped as:
   may fail closed if separately approved.
 
 Those formulas are planning constraints only. They require expression-level
-Decimal precision facts that do not exist today.
+computed Decimal precision facts that do not exist today.
 
 ## Decimal Carrier Boundary
 
-Phase 41 added a private type-expression-level carrier only:
+Phase 41 added a private type-expression-level carrier:
 
 - `DecimalPrecisionScale`;
 - `SemanticModel.decimal_precision_scales`;
 - `SemanticModel.decimal_precision_scale_for(type_expr)`;
 - safe alias-chain internal fact propagation.
 
-Slice 1 locks the current non-public boundary:
+Phase 42 Slice 5 adds private expression-level Decimal precision facts through
+a carrier scaffold for direct field references only:
+
+- `SemanticModel.decimal_expression_precision_scales`;
+- `SemanticModel.decimal_expression_precision_scale_for(expression)`;
+- facts only for safe direct `Decimal(p,s)` field references that still point
+  to an original `FieldDef`.
+
+Slice 5 preserves the non-public boundary:
 
 - no `DecimalPrecisionScale` export from `pietto.semantic`;
 - no precision/scale fields on `ResolvedType`, `ValueType`, or `TypeRefIR`;
 - no precision/scale fields in CLI JSON v1, Project JSON v2, explain output,
   Semantic Metadata Artifact v1, SQL output, or IR output;
-- no expression-level Decimal precision facts.
+- no computed expression precision facts;
+- no aggregate precision propagation.
 
-Future Decimal fusion requires an explicit expression-level fact carrier and a
-field/type-expression fact lookup design. It must not reuse public output
-schemas as private propagation storage.
+Future Decimal fusion requires explicit computed expression fact propagation,
+fusion helpers, overflow handling, and aggregate/output policy. It must not
+reuse public output schemas as private propagation storage.
 
 ## Literal And Constant Boundary
 
