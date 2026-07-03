@@ -67,7 +67,7 @@ def test_deferred_register_splits_phase41_internal_mvp_from_remaining_work() -> 
     for required in (
         "Phase 41 implemented `Decimal(p,s)` semantic validation",
         "`PIE-S2004`",
-        "private internal `DecimalPrecisionScale` carrier",
+        "private internal `DecimalPrecisionScale` type-expression carrier",
         "`SemanticModel.decimal_precision_scales`",
         "`decimal_precision_scale_for(type_expr)`",
         "safe alias-chain internal fact propagation",

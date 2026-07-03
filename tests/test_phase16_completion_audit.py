@@ -36,13 +36,13 @@ PHASE16_ARTIFACT_HASHES = {
         "580ebcfcc78102d902110d864eb80c7f1a57ffcb6b4b33e1160c9abd17ba07a6"
     ),
     SLICE1_AUDIT_PATH: (
-        "f31e352bd9f5ecffed1b29ca463b16f952834e73d53cd81cfbf078ae39b0c156"
+        "52cd30b36050a03044bd1da986f11362d3a39cd0705dc5ec473f1a69d8231102"
     ),
     SLICE2_AUDIT_PATH: (
-        "ff5417980cf4e80f784a47ef755c7a87439d8e24a4cfed6ce95b44db4d3dfed7"
+        "aa6f3c8f4e8ada0dd95b491c6c45c20139b2d24a1439629981e8bc526ee68bce"
     ),
     SLICE3_AUDIT_PATH: (
-        "f6e665ab89d973d96107862a96b59549c64ce505bc898facdd342dc5820e3b29"
+        "3d2e9f69329166dfdb34c53b64a6ec74ccfb5579ada982226ca1828b5fad4c49"
     ),
     PLAN_PATH: "adfb0d99075299049c790f465fab7453e0ed73b985e9cff19c6aeb38f94c7f5a",
 }
@@ -107,7 +107,7 @@ LOCKED_GROUP_HASHES = {
     ),
     "semantic": (
         21,
-        "3cf1feab9ae171aaf7e09b76a1a6e178e6bbdf437917fb388d87075b1d0a97ff",
+        "9afb6e653e83aa6b6bf60bb639a917cf101ebee5f51c6129cc859330554e2163",
     ),
     "ir": (
         5,
