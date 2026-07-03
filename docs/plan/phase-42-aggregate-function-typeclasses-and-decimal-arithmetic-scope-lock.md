@@ -21,6 +21,13 @@ update `README.md`, `AGENTS.md`, `docs/spec/pietto-v0.9.md`, production
 source, generated artifacts, fixtures, goldens, examples, scripts, workflows,
 package metadata, lockfiles, release files, or CI configuration.
 
+Phase 42 has reached its completion-audit/status-lock slice. Phase 42 Slice 7
+is Completion Audit And Status Lock. Slice 7 is docs/plan status-lock and
+tests/static-audit completion work only. It adds no compiler behavior, does
+not start a later phase, and does not claim Gate 3 natural CI success before
+Gate 3. Final trusted completion requires the later Gate 3 commit, push, and
+natural CI `headSha` verification.
+
 ## Candidate Decision
 
 The selected Phase 42 Slice 1 candidate is:
@@ -211,17 +218,69 @@ Slice 1. Slice 1 adds no warning/lint infrastructure.
 
 | Slice | Name | Slice posture |
 |---:|---|---|
-| 1 | Aggregate Function Typeclasses And Decimal Arithmetic Scope Lock | docs/spec/deferred-register/static-audit only; no behavior change |
-| 2 | Aggregate Typeclass Vocabulary Or Tests-First Matrix | future behavior-preserving semantic capability vocabulary or tests-first lock, if approved |
-| 3 | Exact Decimal/Int Arithmetic Candidate | future semantic behavior slice, if approved |
-| 4 | Decimal Precision Fusion Readiness Lock | tests-first readiness lock; no production behavior |
-| 5 | Private Decimal Expression Precision Fact Carrier Scaffold | private direct-field expression fact carrier only; no fusion or public output |
-| 6 | Literal-only Aggregate Argument Candidate | future semantic/IR/SQL renderer guard slice, if approved |
-| 7 | Completion Audit And Status Lock | future completion-audit/status-lock slice |
+| 1 | Aggregate Function Typeclasses And Decimal Arithmetic Scope Lock | complete docs/spec/deferred-register/static-audit only; no behavior change |
+| 2 | Aggregate Typeclass Vocabulary Or Tests-First Matrix | complete tests-first aggregate typeclass matrix/readiness lock; no production behavior |
+| 3 | Exact Decimal/Int Arithmetic Candidate | complete exact Decimal/Int arithmetic MVP; no precision propagation |
+| 4 | Decimal Precision Fusion Readiness Lock | complete tests-first readiness lock; no production behavior |
+| 5 | Private Decimal Expression Precision Fact Carrier Scaffold | complete private direct-field expression fact carrier only; no fusion or public output |
+| 6 | Literal-only Aggregate Argument Candidate | complete tests-only literal-only aggregate candidate readiness lock; no behavior change |
+| 7 | Completion Audit And Status Lock | docs/plan status-lock and tests/static-audit completion work only; no behavior change |
 
 Sequence may change only through a later Gate 1. Slice 2 should not start
 literal-only `SUM(constant)` unless PostgreSQL and private MySQL aggregate
 renderer guard changes are explicitly approved in the same slice.
+
+## Slice 1 Through Slice 7 Status Lock
+
+Phase 42 Slice 1 Scope Lock / Static Audit is complete. It recorded aggregate
+validation, numeric expression typing, Decimal carrier, literal/constant,
+alias aggregate, warning/lint, forbidden-surface, and deferred-register
+boundaries without behavior change.
+
+Phase 42 Slice 2 Aggregate Typeclass Matrix / Readiness Lock is complete. It
+locked the aggregate typeclass matrix and current accepted/fail-closed
+aggregate behavior with tests only.
+
+Phase 42 Slice 3 Exact Decimal/Int Arithmetic MVP is complete. It implements
+only `Decimal + Int`, `Int + Decimal`, `Decimal - Int`, and `Int - Decimal`
+as logical `Decimal` results without precision/scale propagation.
+
+Phase 42 Slice 4 Decimal Precision Fusion Readiness Lock is complete. It
+locks future fusion formulas and public-surface boundaries with tests only;
+Decimal precision fusion remains deferred.
+
+Phase 42 Slice 5 Private Decimal Expression Precision Fact Carrier Scaffold
+is complete. It adds only private direct-field expression precision facts for
+safe `Decimal(p,s)` field references. It adds no computed expression fusion,
+aggregate precision propagation, or public precision/scale output.
+
+Phase 42 Slice 6 Literal-only Aggregate Candidate Readiness Lock is complete.
+It is tests-only readiness work. Literal-only aggregate behavior remains
+unimplemented and still requires semantic, IR, PostgreSQL, and private MySQL
+guard changes together in a later approved slice.
+
+Phase 42 Slice 7 Completion Audit And Status Lock is docs/status/static-audit
+work only. It updates this Phase 42 plan/status artifact and adds
+`tests/test_phase42_completion_audit.py`. It implements no behavior, changes
+no public output surface, and does not claim Gate 3 natural CI success before
+Gate 3.
+
+Package version remains `0.1.0`. No tag/release/publish/upload/signing or
+attestation is authorized by Slice 7.
+
+Slice 7 preserves these boundaries:
+
+- no literal-only aggregate behavior;
+- no Decimal precision fusion;
+- no aggregate typeclass behavior;
+- no Decimal literal or cast syntax;
+- no Decimal multiplication/division/modulo or Float/Decimal widening;
+- no aggregate precision propagation;
+- no SQL, IR, CLI JSON, Project JSON, explain, or Semantic Metadata Artifact
+  public-surface change;
+- no production source, grammar/generated, fixture/golden/example,
+  package/workflow/CI/release, diagnostic, warning/lint, runtime/database,
+  project/multi-file, public MySQL API, or relationship/JOIN behavior change.
 
 ## Slice 1 Gate 2 Allowlist
 
