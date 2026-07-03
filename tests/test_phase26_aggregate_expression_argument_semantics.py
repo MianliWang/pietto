@@ -85,6 +85,12 @@ def test_slice4_status_is_semantic_only_with_fail_closed_guard() -> None:
             "Decimal",
         ),
         (
+            "value = sum(price + amount)",
+            "Decimal",
+            EffectiveNullability.UNKNOWN,
+            "Decimal",
+        ),
+        (
             "value = avg(price - discount)",
             "Decimal",
             EffectiveNullability.UNKNOWN,
@@ -179,7 +185,6 @@ def test_qualified_field_leaves_are_semantically_accepted() -> None:
         ("value = sum(amount % tax)", "sum"),
         ("value = sum(price * discount)", "sum"),
         ("value = avg(price * price)", "avg"),
-        ("value = sum(price + amount)", "sum"),
         ("value = sum(price + score)", "sum"),
         ("value = count(1)", "count"),
         ("value = count_distinct(len(status))", "count_distinct"),

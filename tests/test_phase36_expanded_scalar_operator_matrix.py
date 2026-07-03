@@ -159,8 +159,8 @@ def test_arithmetic_and_decimal_boundaries_remain_current() -> None:
     assert _error_codes(decimal_divide) == []
     assert _output_type_kind(decimal_divide, "value") is TypeKind.UNKNOWN
 
-    assert _error_codes(mixed_decimal) == ["PIE-S2105"]
-    assert _output_type_kind(mixed_decimal, "value") is TypeKind.UNKNOWN
+    assert _error_codes(mixed_decimal) == []
+    _assert_output_type(mixed_decimal, "value", "Decimal", EffectiveNullability.UNKNOWN)
 
     assert _error_codes(decimal_add) == []
     _assert_output_type(decimal_add, "value", "Decimal", EffectiveNullability.UNKNOWN)

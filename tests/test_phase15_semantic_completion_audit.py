@@ -60,7 +60,7 @@ LOCKED_GROUP_HASHES = {
     ),
     "unchanged_semantic": (
         18,
-        "3d79d94cc55e8540ab8de44bdc131e16f522127c5a6a7d1ca031bed6e0c79de0",
+        "7875e8a5c20e4411c01cbddf69dccc9245ec30120cb4c7c1e79c7680e1d6380b",
     ),
     "ir": (
         5,
@@ -68,7 +68,7 @@ LOCKED_GROUP_HASHES = {
     ),
     "sql": (
         10,
-        "f23a79dd0b5620f04ad3329abcd7ad368c1b223ded90fed0f52f1f35b9de18d3",
+        "b18229fbda079d706416119002a70d091e7f5b79e0e4818a5b1292d9b88e898b",
     ),
     "examples": (
         10,

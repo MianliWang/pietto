@@ -117,9 +117,19 @@ BASE_SHAPE = (
             "SUM((`price` + `price`))",
         ),
         (
+            "mixed_decimal_total = sum(price + amount)",
+            'SUM(("price" + "amount"))',
+            "SUM((`price` + `amount`))",
+        ),
+        (
             "decimal_average = avg(price - price)",
             'AVG(("price" - "price"))',
             "AVG((`price` - `price`))",
+        ),
+        (
+            "mixed_decimal_average = avg(price - amount)",
+            'AVG(("price" - "amount"))',
+            "AVG((`price` - `amount`))",
         ),
         (
             "normalized = count_distinct(lower(status))",
@@ -629,7 +639,6 @@ def test_unsupported_semantic_shapes_stop_before_sql_without_artifacts(
         "min_expression_argument",
         "max_expression_argument",
         "decimal_multiplication_argument",
-        "mixed_decimal_int_argument",
     ],
 )
 def test_malformed_hand_built_aggregate_expression_ir_fails_closed_with_pie_b1000(
@@ -755,12 +764,6 @@ def _malformed_aggregate(case: str) -> AggregateCallIR:
             "sum",
             DECIMAL_NULLABLE,
             _binary(price, "*", price, DECIMAL_NON_NULL),
-        )
-    if case == "mixed_decimal_int_argument":
-        return _aggregate(
-            "sum",
-            DECIMAL_NULLABLE,
-            _binary(price, "+", amount, DECIMAL_NON_NULL),
         )
     raise AssertionError(f"Unknown malformed aggregate case: {case}")
 

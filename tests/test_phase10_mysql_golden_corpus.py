@@ -85,7 +85,7 @@ POSTGRES_LOCKS = {
         "e40bd3eee7f76bc68313adb8237a7a6c5d84286197261f70c827a4219c9e3418"
     ),
     "src/pietto/sql/expressions.py": (
-        "70b4dc787aea195d28e46476d3428676d429d80cfbf5ee7eff7aed6863fc9250"
+        "a03f0d4f72080e5902c2ad18e21f4a86ae50abe5eca915f8dabdf47f1d3318ac"
     ),
     "src/pietto/sql/model.py": (
         "0b5f096fbd9b2fdcc0c92cf65e50de90d64b134fd7479a3314ee05c348ab69f1"
