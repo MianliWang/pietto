@@ -131,8 +131,8 @@ LOCKED_BOUNDARY_SURFACES = {
     ),
     "github": (
         ".github",
-        1,
-        "129f96212b5025e66254b2485195977770cf7765bd8977215c6dfaefd9e6e5ae",
+        2,
+        "e3207eb20ce246421963ee1697d35a4dfd6fb791aec721f8f476a51b94c0e168",
     ),
     "makefile": (
         "Makefile",
