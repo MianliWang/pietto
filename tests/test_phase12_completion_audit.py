@@ -43,7 +43,7 @@ EXPECTED_BLOBS = {
     "scripts/check_generated.py": "51081d5337e0659e73f8666ba639c0d4c3fe3a4b",
     "scripts/check_goldens.py": "4f49ddc0a8a6836b68a83a98cc9c05389d4519a3",
     "scripts/package_smoke.py": "edda34f1012010f250f8fc099806bea49dda75ea",
-    ".github/workflows/ci.yml": "bd8fb78e0c491041906d13865b8267bf5d7e7050",
+    ".github/workflows/ci.yml": "db6dd59160291fd8e993882bc345afc921043553",
 }
 EXPECTED_GATES = (
     ("lockfile", ("uv", "lock", "--check")),

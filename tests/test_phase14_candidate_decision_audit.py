@@ -43,7 +43,7 @@ INPUT_HASHES = {
         "2383731c2b9d78f8cf73da8e9d47f973b6eef93eb20e0f03d8f045307b788534"
     ),
     "tests/test_phase13_completion_audit.py": (
-        "9623b4dd3977aa8a5cf03be4b4f51431322507ba9e5a8ef1035918940dd5dad2"
+        "ef4c60181b7d721cbee8df49f2f0af736c933dbf033a96654f4d860c9f0168f6"
     ),
 }
 
@@ -55,7 +55,7 @@ FILE_HASHES = {
         "54484b73f76ae051e0e4f27cc47bc99a0687da7c0e4f40ab4da06a640a54369a"
     ),
     ".github/workflows/ci.yml": (
-        "c2ba73d04dab3331ca19577f2cf4250274671aa37ec4f84f293429e118b6c4c5"
+        "d0b8023d05232673e2e3f05b27e34e5d4a53249633f48371a17fc07fdb406605"
     ),
     "scripts/validate.py": (
         "6a52494385d5c010101e2304b554ff76afcd9bb44d101783c43b205af688e6a4"

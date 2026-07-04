@@ -36,13 +36,13 @@ PHASE16_ARTIFACT_HASHES = {
         "580ebcfcc78102d902110d864eb80c7f1a57ffcb6b4b33e1160c9abd17ba07a6"
     ),
     SLICE1_AUDIT_PATH: (
-        "ad1d647f7d4455e8f96876d263ba4e7726ecbb817296700d5fb9b4deafc20afa"
+        "00f0c92839ff5b0622fad9aa0c55f979312b5379a42b3fc32d74588296de99c6"
     ),
     SLICE2_AUDIT_PATH: (
-        "2ec6fc26a5ad95ddc3f9dea9d28fc5e511c78601063ff62417347accfbe058a0"
+        "58cfc22eadd91277127b467ad6896470380c1771cd2d14265342ded6d9c2c7ae"
     ),
     SLICE3_AUDIT_PATH: (
-        "f35f2cdcd02ca963772a643f2133c0a563d13ad104e4463ab5706db3542ff97a"
+        "788af68979e2286b56cec34c5d5c580b0079395782624e8132aa92df647504fc"
     ),
     PLAN_PATH: "adfb0d99075299049c790f465fab7453e0ed73b985e9cff19c6aeb38f94c7f5a",
 }
@@ -84,7 +84,7 @@ LOCKED_FILE_HASHES = {
     "uv.lock": "996f7bcb04c380c2b3855167d33ffbd462c902245e63bee6e626ab1789d65071",
     "Makefile": "dbd38c41e2af5275c379de0b88c92f3861efb90724c7de1a291e0aa007ce2db7",
     ".github/workflows/ci.yml": (
-        "c2ba73d04dab3331ca19577f2cf4250274671aa37ec4f84f293429e118b6c4c5"
+        "d0b8023d05232673e2e3f05b27e34e5d4a53249633f48371a17fc07fdb406605"
     ),
     "scripts/validate.py": (
         "6a52494385d5c010101e2304b554ff76afcd9bb44d101783c43b205af688e6a4"
