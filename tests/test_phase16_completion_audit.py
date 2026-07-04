@@ -36,13 +36,13 @@ PHASE16_ARTIFACT_HASHES = {
         "580ebcfcc78102d902110d864eb80c7f1a57ffcb6b4b33e1160c9abd17ba07a6"
     ),
     SLICE1_AUDIT_PATH: (
-        "00f0c92839ff5b0622fad9aa0c55f979312b5379a42b3fc32d74588296de99c6"
+        "7379dfb2613dab5a3aed6e76bdbda19667b4f34c9235afe8b1fb20b6618058a5"
     ),
     SLICE2_AUDIT_PATH: (
-        "58cfc22eadd91277127b467ad6896470380c1771cd2d14265342ded6d9c2c7ae"
+        "60dd3f2ed4ab0b7e1b66dc0920ba45fd670b1e00f91b0293f9d1fe4fd9288d01"
     ),
     SLICE3_AUDIT_PATH: (
-        "788af68979e2286b56cec34c5d5c580b0079395782624e8132aa92df647504fc"
+        "01b1b106ca7d26453281ee04b69339bc0083a6f0ba8bc28e917e24d866967304"
     ),
     PLAN_PATH: "adfb0d99075299049c790f465fab7453e0ed73b985e9cff19c6aeb38f94c7f5a",
 }
@@ -79,9 +79,9 @@ LOCKED_FILE_HASHES = {
         "d70d62c76ddb25a8c2000a7cd1cb2f8071e90d3ed62fb6b8cf3b8c0655ff7c98"
     ),
     "pyproject.toml": (
-        "021682ef880fe748f1655d4d70fcc549db4336ac39db2b29a835762ab1723d50"
+        "bc17aff5ff3c3e4db0e954d9c42297c00256ce27d2061abe779a76fa3f4ce7ef"
     ),
-    "uv.lock": "996f7bcb04c380c2b3855167d33ffbd462c902245e63bee6e626ab1789d65071",
+    "uv.lock": "7582351d1319c6f34087178ce629bac889c2806353b30195317268bd3b23cd51",
     "Makefile": "dbd38c41e2af5275c379de0b88c92f3861efb90724c7de1a291e0aa007ce2db7",
     ".github/workflows/ci.yml": (
         "d0b8023d05232673e2e3f05b27e34e5d4a53249633f48371a17fc07fdb406605"

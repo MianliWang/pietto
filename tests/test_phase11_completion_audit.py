@@ -51,8 +51,8 @@ EXPECTED_BLOBS = {
     ".github/workflows/ci.yml": "db6dd59160291fd8e993882bc345afc921043553",
 }
 EXPECTED_FILES = {
-    "pyproject.toml": "021682ef880fe748f1655d4d70fcc549db4336ac39db2b29a835762ab1723d50",
-    "uv.lock": "996f7bcb04c380c2b3855167d33ffbd462c902245e63bee6e626ab1789d65071",
+    "pyproject.toml": "bc17aff5ff3c3e4db0e954d9c42297c00256ce27d2061abe779a76fa3f4ce7ef",
+    "uv.lock": "7582351d1319c6f34087178ce629bac889c2806353b30195317268bd3b23cd51",
     "grammar/Pietto.g4": (
         "54484b73f76ae051e0e4f27cc47bc99a0687da7c0e4f40ab4da06a640a54369a"
     ),
@@ -98,7 +98,7 @@ MYSQL_GOLDENS = {
     ),
 }
 ALL_GOLDENS_HASH = "0e26a0b367a2ae849e5ec1e9a239be42765bea2c352242db5da930ab56b43004"
-BOUNDARY_HASH = "5b50c0da8a26e7c5020c0d9ef6e41ac4256827a3b7eb3c7fcd0fc3c50abe5bce"
+BOUNDARY_HASH = "b139768f0fa3a2238a515dc8a8523472f34eecd09cb6804a2f45f8c8469adfaf"
 
 
 def _load_module(name: str, path: Path) -> ModuleType:

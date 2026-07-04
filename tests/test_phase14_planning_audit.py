@@ -40,13 +40,13 @@ PHASE13_HASHES = {
         "2383731c2b9d78f8cf73da8e9d47f973b6eef93eb20e0f03d8f045307b788534"
     ),
     "tests/test_phase13_completion_audit.py": (
-        "ef4c60181b7d721cbee8df49f2f0af736c933dbf033a96654f4d860c9f0168f6"
+        "a5abe73ea3b7585c8e067c9a0e3d6a78bac47d0558ae053b36b7f59112289613"
     ),
 }
 
 FILE_HASHES = {
-    "pyproject.toml": "021682ef880fe748f1655d4d70fcc549db4336ac39db2b29a835762ab1723d50",
-    "uv.lock": "996f7bcb04c380c2b3855167d33ffbd462c902245e63bee6e626ab1789d65071",
+    "pyproject.toml": "bc17aff5ff3c3e4db0e954d9c42297c00256ce27d2061abe779a76fa3f4ce7ef",
+    "uv.lock": "7582351d1319c6f34087178ce629bac889c2806353b30195317268bd3b23cd51",
     "Makefile": "dbd38c41e2af5275c379de0b88c92f3861efb90724c7de1a291e0aa007ce2db7",
     "grammar/Pietto.g4": (
         "54484b73f76ae051e0e4f27cc47bc99a0687da7c0e4f40ab4da06a640a54369a"

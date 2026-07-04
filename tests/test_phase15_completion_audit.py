@@ -36,7 +36,7 @@ PHASE15_ARTIFACT_HASHES = {
         "e2a4219d2e0a0b7cc2d739475e39022df931c58171a87f96436286008a4be3b3"
     ),
     PRIOR_AUDIT_PATH: (
-        "d3c6d0c0e740fa770b4601030e4675c6ea961c8f597663223e17380734f3c931"
+        "ba8f3afe9d6765a56a7881f4b1a116cabb7983fd4badb2cbebec47847b7da742"
     ),
 }
 
@@ -66,9 +66,9 @@ LOCKED_FILE_HASHES = {
         "e40bd3eee7f76bc68313adb8237a7a6c5d84286197261f70c827a4219c9e3418"
     ),
     "pyproject.toml": (
-        "021682ef880fe748f1655d4d70fcc549db4336ac39db2b29a835762ab1723d50"
+        "bc17aff5ff3c3e4db0e954d9c42297c00256ce27d2061abe779a76fa3f4ce7ef"
     ),
-    "uv.lock": "996f7bcb04c380c2b3855167d33ffbd462c902245e63bee6e626ab1789d65071",
+    "uv.lock": "7582351d1319c6f34087178ce629bac889c2806353b30195317268bd3b23cd51",
     ".github/workflows/ci.yml": (
         "d0b8023d05232673e2e3f05b27e34e5d4a53249633f48371a17fc07fdb406605"
     ),

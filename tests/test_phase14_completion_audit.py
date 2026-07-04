@@ -55,9 +55,9 @@ LOCKED_FILE_HASHES = {
         "e40bd3eee7f76bc68313adb8237a7a6c5d84286197261f70c827a4219c9e3418"
     ),
     "pyproject.toml": (
-        "021682ef880fe748f1655d4d70fcc549db4336ac39db2b29a835762ab1723d50"
+        "bc17aff5ff3c3e4db0e954d9c42297c00256ce27d2061abe779a76fa3f4ce7ef"
     ),
-    "uv.lock": "996f7bcb04c380c2b3855167d33ffbd462c902245e63bee6e626ab1789d65071",
+    "uv.lock": "7582351d1319c6f34087178ce629bac889c2806353b30195317268bd3b23cd51",
     ".github/workflows/ci.yml": (
         "d0b8023d05232673e2e3f05b27e34e5d4a53249633f48371a17fc07fdb406605"
     ),
