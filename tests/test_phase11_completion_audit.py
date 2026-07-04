@@ -41,14 +41,14 @@ EXPECTED_ACTIONS = {
     "actions/checkout": "df4cb1c069e1874edd31b4311f1884172cec0e10",
     "actions/setup-python": "a309ff8b426b58ec0e2a45f0f869d46889d02405",
     "actions/setup-java": "be666c2fcd27ec809703dec50e508c2fdc7f6654",
-    "astral-sh/setup-uv": "37802adc94f370d6bfd71619e3f0bf239e1f3b78",
+    "astral-sh/setup-uv": "fac544c07dec837d0ccb6301d7b5580bf5edae39",
 }
 EXPECTED_BLOBS = {
     "scripts/validate.py": "4387101bc68e13539c74c45b595ba742ca17c9c0",
     "scripts/check_generated.py": "51081d5337e0659e73f8666ba639c0d4c3fe3a4b",
     "scripts/check_goldens.py": "4f49ddc0a8a6836b68a83a98cc9c05389d4519a3",
     "scripts/package_smoke.py": "edda34f1012010f250f8fc099806bea49dda75ea",
-    ".github/workflows/ci.yml": "bd8fb78e0c491041906d13865b8267bf5d7e7050",
+    ".github/workflows/ci.yml": "db6dd59160291fd8e993882bc345afc921043553",
 }
 EXPECTED_FILES = {
     "pyproject.toml": "021682ef880fe748f1655d4d70fcc549db4336ac39db2b29a835762ab1723d50",
