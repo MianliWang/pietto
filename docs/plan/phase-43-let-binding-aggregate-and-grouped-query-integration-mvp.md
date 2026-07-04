@@ -38,6 +38,11 @@ Phase 43 Slice 7 is CLI / JSON / Metadata / SQL Compatibility Hardening. Slice
 7 is tests/static-audit/docs compatibility hardening only and implements no
 compiler behavior change.
 
+Phase 43 Slice 8 is Completion Audit And Status Lock. Slice 8 is
+docs/spec/static-audit/status-lock work only and implements no compiler behavior
+change. Slice 8 does not claim Gate 3 natural CI success before Gate 3 records
+the commit, push, and natural CI `headSha` verification.
+
 Trusted Phase 42 handoff:
 
 - baseline HEAD: `2e9bb45623a7bf98ed430b9b9ab76404402b9a5e`;
@@ -79,7 +84,9 @@ Phase 43 follows the unresolved Phase 40 and Phase 42 boundary:
 relation-local `let:` names are row-level inline bindings today. Slices 2
 through 6 unfreeze only direct inline-expansion subsets for current accepted
 aggregate, group-key, grouped-order, and selected result-predicate rules. Slice
-7 locks compatibility for that approved surface without adding behavior.
+7 locks compatibility for that approved surface without adding behavior. Slice
+8 closes Phase 43 with completion-audit/status-lock work only and no behavior
+expansion.
 
 ## Candidate Decision
 
@@ -194,6 +201,11 @@ text/JSON, Semantic Metadata Artifact v1, PostgreSQL SQL, and private MySQL SQL.
 It adds no production source changes, no SQL renderer changes, no public schema
 keys, no metadata keys, no hidden relation layer, and no release work.
 
+Slice 8 does not extend the compiler behavior surface. It records Phase 43 as
+complete once Gate 3 records the final commit, push, and natural CI `headSha`
+verification. Slice 8 adds only completion audit and status-lock coverage for
+the approved Slices 1 through 7 surface.
+
 The current fail-closed boundary remains:
 
 - aggregate-let remains deferred for `min(gross)` and `max(gross)` where
@@ -259,14 +271,69 @@ The phase-level guardrails are:
 | 5 | Grouped `order by row_let` Safe Subset | complete production behavior |
 | 6 | `satisfying` Boundary For Aggregate-Wrapped Let | complete production behavior for selected aggregate-wrapped let calls; raw row-let remains rejected |
 | 7 | CLI / JSON / Metadata / SQL Compatibility Hardening | complete compatibility hardening; no behavior change |
-| 8 | Completion Audit And Status Lock | completion audit/status lock |
+| 8 | Completion Audit And Status Lock | complete completion audit/status lock; no behavior change |
 
-Sequence may change only through a later Gate 1. Slice 7 must not start raw
+No remaining Phase 43 slice is pending after Slice 8. Slice 8 must not start raw
 `satisfying` let-name, `limit row_let`, `min(row_let)`, `max(row_let)`,
 literal-only group keys, expression group keys, literal-only count, broad
 `count_distinct(expression)`, public JSON/metadata schema expansion, SQL
 renderer redesign, hidden relation-layer, Dependabot, maintenance, package, or
 release behavior unless the user explicitly widens that slice.
+
+## Slice 8 Completion Audit And Status Lock
+
+Phase 43 Slice 8 is Completion Audit And Status Lock. It is
+docs/spec/static-audit/status-lock work only, adds no new compiler behavior,
+does not start Phase 44 or any maintenance/Dependabot work, and does not change
+production source, grammar/generated files, IR, SQL renderers, CLI JSON,
+Project JSON v2, explain, Semantic Metadata Artifact v1, fixtures, goldens,
+examples, package metadata, lockfiles, scripts, workflows, `README.md`,
+`AGENTS.md`, or `docs/spec/pietto-v0.9.md`.
+
+Phase 43 is complete as an eight-slice let-binding aggregate/grouped-query
+integration phase once Gate 3 records the final commit, push, and natural CI
+`headSha` verification. Slice 8 deliberately does not claim Gate 3 natural CI
+success before that Gate 3 evidence exists.
+
+The completed Phase 43 surface is limited to:
+
+- Slice 1 identity/scope lock/static audit;
+- Slice 2 direct `sum(row_let)` / `avg(row_let)` inline aggregate arguments;
+- Slice 3 direct `count(row_let)` / `count_distinct(row_let)` inline aggregate
+  arguments;
+- Slice 4 direct field-backed `group by row_let`;
+- Slice 5 selected field-backed grouped `order by row_let`;
+- Slice 6 selected aggregate-wrapped `satisfying` let calls;
+- Slice 7 CLI / JSON / metadata / SQL compatibility hardening for the approved
+  Slice 2 through Slice 6 surface;
+- Slice 8 completion audit/status lock with no behavior change.
+
+The final deferred Phase 43 boundary remains:
+
+- raw `satisfying: row_let > 0`;
+- `limit row_let`;
+- qualified let references such as `orders.gross`;
+- projection aliases as same-select expression leaves;
+- `min(row_let)` and `max(row_let)`;
+- literal-only aggregate behavior, including literal-only behavior hidden behind
+  row-level lets;
+- expression or literal group keys;
+- arbitrary grouped order expressions;
+- broad direct aggregate calls inside `satisfying:`;
+- unselected aggregate-let calls inside `satisfying:`;
+- broad `count_distinct(expression)` hidden behind row-level lets;
+- Decimal precision fusion;
+- aggregate typeclass registry implementation;
+- public JSON, Project JSON v2, explain, or Semantic Metadata Artifact v1 schema
+  expansion;
+- hidden CTE, hidden subquery, relation layer, `LetBindingIR`, or
+  `RelationLayerIR`;
+- runtime/database, project/multi-file, LSP/editor, Arrow/PyArrow,
+  relationship/JOIN, Dependabot, maintenance, package, tag, release, publish,
+  upload, signing, or attestation work.
+
+Package version remains `0.1.0`. No tag/release/publish/upload/signing or
+attestation is authorized by Slice 8.
 
 ## Slice 1 Gate 2 Allowlist
 

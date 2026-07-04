@@ -193,6 +193,8 @@ def test_register_hard_boundaries_do_not_authorize_implementation() -> None:
         "let arguments",
         "Phase 43 Slice 7 hardens CLI/JSON/metadata/SQL compatibility for "
         "approved Slice 2-6 behavior without behavior expansion",
+        "Phase 43 Slice 8 completes the let-binding aggregate/grouped integration "
+        "completion audit and status lock without behavior expansion",
         "grouped let ordering outside the approved Phase 43 Slice 5 direct "
         "selected-field subset",
         "raw `satisfying` let-name behavior outside the approved Phase 43 Slice 6 "
@@ -213,6 +215,8 @@ def test_register_hard_boundaries_do_not_authorize_implementation() -> None:
         "Slice 4 implements expression group keys",
         "Slice 5 implements all grouped order behavior",
         "Slice 5 implements expression grouped ordering",
+        "Slice 8 implements aggregate behavior",
+        "Slice 8 authorizes aggregate expansion",
         "implementation authorized",
         "register authorizes",
         "DateTime primitive is allowed",

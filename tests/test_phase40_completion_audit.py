@@ -78,6 +78,15 @@ ALLOWED_SLICE10_CHANGED_PATHS = {
     "tests/test_phase40_let_binding_model_candidate.py",
     "tests/test_phase40_let_binding_syntax_scope_contract.py",
 }
+PHASE43_SLICE8_CHANGED_PATHS = {
+    "docs/plan/phase-43-let-binding-aggregate-and-grouped-query-integration-mvp.md",
+    "docs/spec/phase43-let-binding-aggregate-grouped-integration-scope-lock-v1.md",
+    "docs/spec/v02-deferred-feature-register-v1.md",
+    "tests/test_phase29_completion_audit.py",
+    "tests/test_phase29_v02_deferred_feature_register.py",
+    "tests/test_phase43_completion_audit.py",
+    "tests/test_phase43_let_binding_aggregate_grouped_scope_lock.py",
+}
 ALLOWED_PHASE41_SLICE1_REPAIR_CHANGED_PATHS = (
     ALLOWED_SLICE10_CHANGED_PATHS
     | PHASE41_SLICE1_CARRYOVER_CHANGED_PATHS
@@ -89,6 +98,7 @@ ALLOWED_PHASE41_SLICE1_REPAIR_CHANGED_PATHS = (
     | PHASE41_SLICE7_CHANGED_PATHS
     | PHASE41_SLICE8_CHANGED_PATHS
     | PHASE41_SLICE2_REPAIR_HASH_LOCK_CHANGED_PATHS
+    | PHASE43_SLICE8_CHANGED_PATHS
 )
 
 FORBIDDEN_DIFF_PATHS = (

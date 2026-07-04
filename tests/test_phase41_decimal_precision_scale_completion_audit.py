@@ -49,6 +49,13 @@ ALLOWED_SLICE8_CHANGED_PATHS = {
     "tests/test_phase41_decimal_precision_scale_candidate.py",
     "tests/test_phase39_candidate_decision.py",
     "tests/test_phase40_completion_audit.py",
+    "docs/plan/phase-43-let-binding-aggregate-and-grouped-query-integration-mvp.md",
+    "docs/spec/phase43-let-binding-aggregate-grouped-integration-scope-lock-v1.md",
+    "docs/spec/v02-deferred-feature-register-v1.md",
+    "tests/test_phase29_completion_audit.py",
+    "tests/test_phase29_v02_deferred_feature_register.py",
+    "tests/test_phase43_completion_audit.py",
+    "tests/test_phase43_let_binding_aggregate_grouped_scope_lock.py",
 }
 
 FORBIDDEN_DIFF_PATHS = (

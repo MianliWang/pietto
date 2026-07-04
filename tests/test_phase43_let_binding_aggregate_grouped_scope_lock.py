@@ -83,6 +83,9 @@ def test_phase43_slice1_artifacts_and_trusted_handoff_are_locked() -> None:
         "Slice 6 is a production behavior slice",
         "Phase 43 Slice 7 is CLI / JSON / Metadata / SQL Compatibility Hardening",
         "Slice 7 is tests/static-audit/docs compatibility hardening only and implements no compiler behavior change",
+        "Phase 43 Slice 8 is Completion Audit And Status Lock",
+        "Slice 8 is docs/spec/static-audit/status-lock work only and implements no compiler behavior change",
+        "Slice 8 does not claim Gate 3 natural CI success before Gate 3",
     ):
         assert required in docs, required
 
@@ -149,6 +152,8 @@ def test_phase40_and_phase42_boundaries_are_carried_forward() -> None:
         "Slice 7 does not extend the compiler behavior surface",
         "approved Slices 2 through 6 across CLI text, CLI JSON v1, explain text/JSON, Semantic Metadata Artifact v1, PostgreSQL SQL, and private MySQL SQL",
         "adds no production source changes, no SQL renderer changes, no public schema keys, no metadata keys, no hidden relation layer, and no release work",
+        "Slice 8 does not extend the compiler behavior surface",
+        "adds only completion audit and status-lock coverage for the approved Slices 1 through 7 surface",
         "`group by gross` remains fail-closed when `gross` expands to an expression that is not a current accepted direct group-key field",
         "`satisfying: gross > 0` remains deferred/fail-closed",
         "grouped `order by gross` remains deferred/fail-closed when `gross` does not expand to an already selected supported grouped order field",
@@ -202,12 +207,14 @@ def test_phase43_slice_sequence_and_inline_policy_are_locked() -> None:
         "| 6 | `satisfying` Boundary For Aggregate-Wrapped Let |",
         "| 7 | CLI / JSON / Metadata / SQL Compatibility Hardening |",
         "| 8 | Completion Audit And Status Lock |",
+        "complete completion audit/status lock; no behavior change",
+        "No remaining Phase 43 slice is pending after Slice 8",
         "Future Phase 43 behavior slices must prefer inline expansion through existing semantic validation",
         "Phase 43 must not invent special aggregate-only let semantics",
         "`satisfying: row_let > 0` must remain rejected unless",
         "`limit row_let` must continue to reject",
         "qualified let references must continue to reject",
-        "Slice 7 must not start raw",
+        "Slice 8 must not start raw",
         "`min(row_let)`",
         "`max(row_let)`",
         "literal-only group keys",
@@ -261,6 +268,7 @@ def test_deferred_register_records_phase43_scope_lock() -> None:
         "Phase 43 Slice 5 implements only direct grouped `order by let_name` items",
         "Phase 43 Slice 6 implements only direct aggregate-wrapped `satisfying` let arguments",
         "Phase 43 Slice 7 hardens CLI/JSON/metadata/SQL compatibility for approved Slice 2-6 behavior without behavior expansion",
+        "Phase 43 Slice 8 completes the let-binding aggregate/grouped integration completion audit and status lock without behavior expansion",
         "grouped let ordering outside the approved Phase 43 Slice 5 direct selected-field subset",
         "raw `satisfying` let-name behavior outside the approved Phase 43 Slice 6 selected aggregate-wrapped let subset",
         "`limit let_name` behavior unfreeze only when a later implementation slice is explicitly approved",
@@ -298,6 +306,8 @@ def test_ir_package_and_release_boundaries_remain_locked() -> None:
         "no Project JSON v2 key",
         "no explain/metadata schema key",
         "No compiler behavior is implemented by this slice",
+        "Slice 8 adds no compiler behavior",
+        "no global status-doc change",
     ):
         assert required in docs, required
 

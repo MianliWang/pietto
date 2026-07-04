@@ -15,12 +15,13 @@ supported grouped order output. Phase 43 Slice 6 implements only selected
 aggregate-wrapped `satisfying` let calls when the aggregate-let call corresponds
 to an already selected supported aggregate projection. Phase 43 Slice 7 is
 CLI / JSON / Metadata / SQL Compatibility Hardening and implements no compiler
-behavior change. Slices 2 through 7 do not implement raw `satisfying` let-name
-behavior, diagnostic code changes, SQL renderer changes, CLI/JSON schema
-changes, explain schema changes, metadata schemas, fixtures, goldens, examples,
-package metadata, workflow changes, release operations, runtime/database
-behavior, project/multi-file behavior, LSP/editor behavior, Arrow/PyArrow
-integration, or relationship/JOIN behavior.
+behavior change. Phase 43 Slice 8 is Completion Audit And Status Lock and
+implements no compiler behavior change. Slices 2 through 8 do not implement raw
+`satisfying` let-name behavior, diagnostic code changes, SQL renderer changes,
+CLI/JSON schema changes, explain schema changes, metadata schemas, fixtures,
+goldens, examples, package metadata, workflow changes, release operations,
+runtime/database behavior, project/multi-file behavior, LSP/editor behavior,
+Arrow/PyArrow integration, or relationship/JOIN behavior.
 
 Package version remains `0.1.0`.
 
@@ -174,6 +175,31 @@ Slice 7 adds no compiler behavior, no production source changes, no SQL renderer
 changes, no public JSON key, no Project JSON v2 key, no explain/metadata schema
 key, no `let_scopes` key, no `LetBindingIR`, no `RelationLayerIR`, no hidden
 CTE/subquery/relation layer, no package version bump, and no release operation.
+
+## Slice 8 Completion Audit And Status Lock
+
+Slice 8 adds docs/spec/static-audit/status-lock completion coverage only. It
+records Phase 43 as complete once Gate 3 records the final commit, push, and
+natural CI `headSha` verification, and it deliberately does not claim Gate 3
+natural CI success before that evidence exists.
+
+The completed Phase 43 surface is limited to:
+
+- Slice 1 identity/scope lock/static audit;
+- Slice 2 direct `sum(row_let)` / `avg(row_let)` inline aggregate arguments;
+- Slice 3 direct `count(row_let)` / `count_distinct(row_let)` inline aggregate
+  arguments;
+- Slice 4 direct field-backed `group by row_let`;
+- Slice 5 selected field-backed grouped `order by row_let`;
+- Slice 6 selected aggregate-wrapped `satisfying` let calls;
+- Slice 7 CLI / JSON / metadata / SQL compatibility hardening;
+- Slice 8 completion audit/status lock with no behavior change.
+
+Slice 8 adds no compiler behavior, no production source changes, no SQL renderer
+changes, no IR model changes, no public JSON key, no Project JSON v2 key, no
+explain/metadata schema key, no `let_scopes` key, no `LetBindingIR`, no
+`RelationLayerIR`, no hidden CTE/subquery/relation layer, no global status-doc
+change, no package version bump, and no release operation.
 
 ## Current Fail-Closed Boundary
 
