@@ -183,11 +183,14 @@ def test_register_hard_boundaries_do_not_authorize_implementation() -> None:
         "No UUID functions, casts, literals, storage semantics, DDL, or SQL behavior",
         "No enum DDL, runtime mapping, SQL lowering, value validation changes",
         "No `pietto explain`, audit JSON, provenance output, CLI option, or JSON v2 output",
+        "Phase 43 Slice 2 implements only direct `sum(let_name)` / `avg(let_name)` "
+        "inline aggregate arguments",
     ):
         assert required in register
 
     for forbidden in (
-        "Slice 2 implements",
+        "Slice 2 implements all aggregate behavior",
+        "Slice 2 implements count(let_name)",
         "implementation authorized",
         "register authorizes",
         "DateTime primitive is allowed",
