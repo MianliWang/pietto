@@ -84,6 +84,11 @@ from pietto.ir.model import (
     TypeRefIR,
 )
 from pietto.semantic import RowField, RowSchema, SemanticModel
+from pietto.semantic.aggregates import (
+    aggregate_argument_can_use_let_scope,
+    effective_semantic_aggregate_argument_expression,
+    semantic_aggregate_call_name,
+)
 from pietto.semantic.model import SatisfyingResultPredicateInfo
 
 DerivedRelation = TableDef | QueryDef
@@ -469,6 +474,7 @@ def _lower_relation(
         semantic_model,
         input_schema=input_schema,
         target_symbol=target_symbol,
+        let_expansions=let_expansions,
     )
     return RelationIR(
         symbol=_symbol(SymbolNamespace.RELATION, definition.name),
@@ -772,6 +778,7 @@ def _lower_result_predicate(
     *,
     input_schema: RowSchema,
     target_symbol: SymbolId,
+    let_expansions: Mapping[str, Expression],
 ) -> ResultPredicateIR | None:
     clause = definition.satisfying_clause
     if clause is None:
@@ -786,6 +793,7 @@ def _lower_result_predicate(
             semantic_model,
             input_schema=input_schema,
             target_symbol=target_symbol,
+            let_expansions=let_expansions,
         ),
         span=lower_span(clause.span),
     )
@@ -798,6 +806,7 @@ def _lower_satisfying_expression(
     *,
     input_schema: RowSchema,
     target_symbol: SymbolId,
+    let_expansions: Mapping[str, Expression],
 ) -> ExpressionIR:
     if isinstance(expression, NameExpr):
         output_expression = predicate_info.output_expressions.get(expression.name)
@@ -809,6 +818,26 @@ def _lower_satisfying_expression(
             fields=input_schema.fields,
             field_owner=target_symbol,
             field_qualifier=target_symbol.name,
+            let_expansions=let_expansions,
+        )
+    if isinstance(expression, CallExpr):
+        output_expression = _satisfying_aggregate_let_output_expression(
+            expression,
+            predicate_info,
+            let_expansions=let_expansions,
+        )
+        if output_expression is None:
+            raise _MissingSemanticFact(
+                expression,
+                "supported satisfying aggregate let expression",
+            )
+        return _require_lowered_expression(
+            output_expression,
+            semantic_model,
+            fields=input_schema.fields,
+            field_owner=target_symbol,
+            field_qualifier=target_symbol.name,
+            let_expansions=let_expansions,
         )
 
     span, value_type = _satisfying_expression_common(
@@ -830,6 +859,7 @@ def _lower_satisfying_expression(
                 semantic_model,
                 input_schema=input_schema,
                 target_symbol=target_symbol,
+                let_expansions=let_expansions,
             ),
             operator=expression.operator,
             right=_lower_satisfying_expression(
@@ -838,6 +868,7 @@ def _lower_satisfying_expression(
                 semantic_model,
                 input_schema=input_schema,
                 target_symbol=target_symbol,
+                let_expansions=let_expansions,
             ),
             span=span,
             value_type=value_type,
@@ -850,6 +881,7 @@ def _lower_satisfying_expression(
                 semantic_model,
                 input_schema=input_schema,
                 target_symbol=target_symbol,
+                let_expansions=let_expansions,
             ),
             operator=expression.operator,
             right=_lower_satisfying_expression(
@@ -858,11 +890,50 @@ def _lower_satisfying_expression(
                 semantic_model,
                 input_schema=input_schema,
                 target_symbol=target_symbol,
+                let_expansions=let_expansions,
             ),
             span=span,
             value_type=value_type,
         )
     raise _MissingSemanticFact(expression, "supported satisfying expression")
+
+
+def _satisfying_aggregate_let_output_expression(
+    expression: CallExpr,
+    predicate_info: SatisfyingResultPredicateInfo,
+    *,
+    let_expansions: Mapping[str, Expression],
+) -> Expression | None:
+    function_name = semantic_aggregate_call_name(expression)
+    if function_name is None or len(expression.arguments) != 1:
+        return None
+    argument = expression.arguments[0]
+    if not aggregate_argument_can_use_let_scope(
+        function_name,
+        argument,
+        let_expansions,
+    ):
+        return None
+    effective_argument = effective_semantic_aggregate_argument_expression(
+        function_name,
+        argument,
+        let_expansions=let_expansions,
+    )
+    for output_expression in predicate_info.output_expressions.values():
+        if not isinstance(output_expression, CallExpr):
+            continue
+        if semantic_aggregate_call_name(output_expression) != function_name:
+            continue
+        if len(output_expression.arguments) != 1:
+            continue
+        output_argument = effective_semantic_aggregate_argument_expression(
+            function_name,
+            output_expression.arguments[0],
+            let_expansions=let_expansions,
+        )
+        if output_argument == effective_argument:
+            return output_expression
+    return None
 
 
 def _satisfying_expression_common(

@@ -171,6 +171,9 @@ The current fail-closed boundary remains:
 - `group by gross` remains fail-closed when `gross` expands to an expression
   that is not a current accepted direct group-key field;
 - `satisfying: gross > 0` remains deferred/fail-closed;
+- `satisfying: sum(gross) > 0` is accepted only when `gross` is a direct
+  admitted row-level let argument for an already selected supported aggregate
+  projection under the approved Slice 2/3 aggregate-let rules;
 - grouped `order by gross` remains deferred/fail-closed when `gross` does not
   expand to an already selected supported grouped order field;
 - `limit gross` remains deferred/fail-closed;
@@ -221,11 +224,11 @@ The phase-level guardrails are:
 | 3 | `count(row_let)` / `count_distinct(row_let)` Inline Aggregate Arguments | complete production behavior |
 | 4 | `group by row_let` Inline Group Key MVP | complete production behavior |
 | 5 | Grouped `order by row_let` Safe Subset | production behavior |
-| 6 | `satisfying` Boundary For Aggregate-Wrapped Let | production behavior with raw row-let still rejected unless group-key/result-scope safe |
+| 6 | `satisfying` Boundary For Aggregate-Wrapped Let | complete production behavior for selected aggregate-wrapped let calls; raw row-let remains rejected |
 | 7 | CLI / JSON / Metadata / SQL Compatibility Hardening | compatibility hardening |
 | 8 | Completion Audit And Status Lock | completion audit/status lock |
 
-Sequence may change only through a later Gate 1. Slice 5 must not start raw
+Sequence may change only through a later Gate 1. Slice 6 must not start raw
 `satisfying` let-name, `limit row_let`, `min(row_let)`,
 `max(row_let)`, literal-only group keys, expression group keys, literal-only
 count, or broad `count_distinct(expression)` behavior unless the user

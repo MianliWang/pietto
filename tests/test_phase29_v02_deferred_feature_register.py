@@ -189,10 +189,16 @@ def test_register_hard_boundaries_do_not_authorize_implementation() -> None:
         "`count_distinct(let_name)` inline aggregate arguments",
         "Phase 43 Slice 4 implements only direct `group by let_name` group keys",
         "Phase 43 Slice 5 implements only direct grouped `order by let_name` items",
+        "Phase 43 Slice 6 implements only direct aggregate-wrapped `satisfying` "
+        "let arguments",
         "grouped let ordering outside the approved Phase 43 Slice 5 direct "
         "selected-field subset",
-        "raw `satisfying` let-name behavior, and `limit let_name` behavior "
-        "unfreeze only when a later implementation slice is explicitly approved",
+        "raw `satisfying` let-name behavior outside the approved Phase 43 Slice 6 "
+        "selected aggregate-wrapped let subset",
+        "`limit let_name` behavior unfreeze only when a later implementation "
+        "slice is explicitly approved",
+        "`satisfying` aggregate-let calls outside the approved Phase 43 Slice 6 "
+        "selected aggregate-wrapped subset",
     ):
         assert required in register
 

@@ -77,12 +77,12 @@ LOCKED_BOUNDARY_SURFACES = {
     "semantic": (
         "src/pietto/semantic",
         21,
-        "d40719ed18d7a5b8e76d998dc8879f8c9ca2e745beb5de52203758e7f1071413",
+        "de7bc94d972739411d98458a89d293aecd5cea4326a9cf51a8b065c2cf8846cd",
     ),
     "ir": (
         "src/pietto/ir",
         5,
-        "8fb63e77baf5b8f3dbc1721789647248235fb9ff056c745171931ca8373f5c43",
+        "57097f43ba5e0ffa8d531b827b7029c9104b85ab3dc0657889cccd28caec5249",
     ),
     "sql": (
         "src/pietto/sql",
@@ -167,7 +167,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "phase29_deferred_register": (
         "docs/spec/v02-deferred-feature-register-v1.md",
         1,
-        "2f98721646f918c76b555b2fcb0daacf7df722643b14431f594f7ad2d5e805b2",
+        "a4e0ea27d5a5d97a37adaf9f3ba1c5430e564a6aa884f3fddb3a5313d1d1118c",
     ),
     "phase29_aggregate_freeze": (
         "docs/spec/v02-aggregate-surface-freeze-v1.md",

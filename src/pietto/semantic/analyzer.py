@@ -238,6 +238,9 @@ def _analyze(script: Script, *, mode: CheckMode) -> SemanticResult:
         from_resolutions=from_resolutions,
         source_row_schemas=source_row_schemas,
         relation_row_schemas=relation_row_schemas,
+        relation_let_expressions=_relation_let_expressions_for_satisfying(
+            let_scopes,
+        ),
     )
     diagnostics.extend(satisfying_diagnostics)
     diagnostics.extend(
@@ -601,6 +604,21 @@ def _relation_schema_fingerprint(
         )
         for definition, schema in relation_row_schemas.items()
     )
+
+
+def _relation_let_expressions_for_satisfying(
+    let_scopes: Mapping[DerivedRelation, LetScopeSemanticInfo],
+) -> dict[DerivedRelation, dict[str, Expression]]:
+    """Return admitted relation-local let expressions for satisfying checks."""
+
+    return {
+        definition: {
+            binding.name: binding.expression
+            for binding in scope.bindings
+            if binding.name in scope.value_types
+        }
+        for definition, scope in let_scopes.items()
+    }
 
 
 def _mode_from_script(script: Script) -> CheckMode:

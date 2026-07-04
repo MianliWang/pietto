@@ -24,9 +24,12 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
+    aggregate_argument_can_use_let_scope,
     contains_semantic_aggregate,
+    effective_semantic_aggregate_argument_expression,
     invalid_context_diagnostic,
     is_semantic_aggregate_call,
+    semantic_aggregate_call_name,
 )
 from pietto.semantic.model import (
     EffectiveNullability,
@@ -69,6 +72,11 @@ def check_satisfying_clauses(
     from_resolutions: Mapping[FromClause, RelationDefinition],
     source_row_schemas: Mapping[SourceDef, RowSchema],
     relation_row_schemas: Mapping[DerivedRelation, RowSchema],
+    relation_let_expressions: Mapping[
+        DerivedRelation,
+        Mapping[str, Expression],
+    ]
+    | None = None,
 ) -> tuple[dict[DerivedRelation, SatisfyingResultPredicateInfo], list[Diagnostic]]:
     """Validate parsed satisfying clauses and collect lowering facts."""
 
@@ -81,19 +89,23 @@ def check_satisfying_clauses(
             continue
 
         expression = definition.satisfying_clause.expression
-        if contains_semantic_aggregate(expression):
-            diagnostics.append(
-                invalid_context_diagnostic(
-                    expression,
-                    context="satisfying clause",
-                )
-            )
-            continue
-
         if definition.group_by_clause is None:
+            if contains_semantic_aggregate(expression):
+                diagnostics.append(
+                    invalid_context_diagnostic(
+                        expression,
+                        context="satisfying clause",
+                    )
+                )
+                continue
             diagnostics.append(_no_group_diagnostic(definition))
             continue
 
+        let_expansions = (
+            {}
+            if relation_let_expressions is None
+            else relation_let_expressions.get(definition, {})
+        )
         input_schema = _input_schema(
             definition,
             from_resolutions=from_resolutions,
@@ -111,6 +123,7 @@ def check_satisfying_clauses(
             expression,
             output_scope,
             input_schema=input_schema,
+            let_expansions=let_expansions,
             diagnostics=relation_diagnostics,
             value_types=expression_value_types,
         )
@@ -246,14 +259,16 @@ def _infer_predicate(
     output_scope: Mapping[str, _SatisfyingOutput],
     *,
     input_schema: RowSchema,
+    let_expansions: Mapping[str, Expression],
     diagnostics: list[Diagnostic],
     value_types: dict[Expression, ValueType],
 ) -> ValueType:
-    if isinstance(expression, (NameExpr, LiteralExpr)):
+    if isinstance(expression, (NameExpr, LiteralExpr, CallExpr)):
         value_type = _infer_value(
             expression,
             output_scope,
             input_schema=input_schema,
+            let_expansions=let_expansions,
             diagnostics=diagnostics,
             value_types=value_types,
         )
@@ -274,6 +289,7 @@ def _infer_predicate(
             expression.left,
             output_scope,
             input_schema=input_schema,
+            let_expansions=let_expansions,
             diagnostics=diagnostics,
             value_types=value_types,
         )
@@ -281,6 +297,7 @@ def _infer_predicate(
             expression.right,
             output_scope,
             input_schema=input_schema,
+            let_expansions=let_expansions,
             diagnostics=diagnostics,
             value_types=value_types,
         )
@@ -298,6 +315,7 @@ def _infer_predicate(
             expression.left,
             output_scope,
             input_schema=input_schema,
+            let_expansions=let_expansions,
             diagnostics=diagnostics,
             value_types=value_types,
         )
@@ -305,6 +323,7 @@ def _infer_predicate(
             expression.right,
             output_scope,
             input_schema=input_schema,
+            let_expansions=let_expansions,
             diagnostics=diagnostics,
             value_types=value_types,
         )
@@ -331,6 +350,7 @@ def _infer_value(
     output_scope: Mapping[str, _SatisfyingOutput],
     *,
     input_schema: RowSchema,
+    let_expansions: Mapping[str, Expression],
     diagnostics: list[Diagnostic],
     value_types: dict[Expression, ValueType],
 ) -> ValueType:
@@ -347,9 +367,99 @@ def _infer_value(
         )
         value_types[expression] = value_type
         return value_type
+    if isinstance(expression, CallExpr):
+        if is_semantic_aggregate_call(expression):
+            value_type = _aggregate_let_call_value_type(
+                expression,
+                output_scope,
+                let_expansions=let_expansions,
+                diagnostics=diagnostics,
+            )
+            value_types[expression] = value_type
+            return value_type
+        diagnostics.append(_unsupported_expression_diagnostic(expression))
+        value_types[expression] = _UNKNOWN_VALUE_TYPE
+        return _UNKNOWN_VALUE_TYPE
+    if contains_semantic_aggregate(expression):
+        diagnostics.append(
+            invalid_context_diagnostic(
+                expression,
+                context="satisfying clause",
+            )
+        )
+        value_types[expression] = _UNKNOWN_VALUE_TYPE
+        return _UNKNOWN_VALUE_TYPE
     diagnostics.append(_unsupported_expression_diagnostic(expression))
     value_types[expression] = _UNKNOWN_VALUE_TYPE
     return _UNKNOWN_VALUE_TYPE
+
+
+def _aggregate_let_call_value_type(
+    expression: CallExpr,
+    output_scope: Mapping[str, _SatisfyingOutput],
+    *,
+    let_expansions: Mapping[str, Expression],
+    diagnostics: list[Diagnostic],
+) -> ValueType:
+    output = _matching_aggregate_let_output(
+        expression,
+        output_scope,
+        let_expansions=let_expansions,
+    )
+    if output is None:
+        diagnostics.append(
+            invalid_context_diagnostic(
+                expression,
+                context="satisfying clause",
+            )
+        )
+        return _UNKNOWN_VALUE_TYPE
+    field = output.field
+    if field is None or field.resolved_type.kind is TypeKind.UNKNOWN:
+        return _UNKNOWN_VALUE_TYPE
+    return ValueType(
+        resolved_type=field.resolved_type,
+        nullability=field.nullability,
+    )
+
+
+def _matching_aggregate_let_output(
+    expression: CallExpr,
+    output_scope: Mapping[str, _SatisfyingOutput],
+    *,
+    let_expansions: Mapping[str, Expression],
+) -> _SatisfyingOutput | None:
+    function_name = semantic_aggregate_call_name(expression)
+    if function_name is None or len(expression.arguments) != 1:
+        return None
+    argument = expression.arguments[0]
+    if not aggregate_argument_can_use_let_scope(
+        function_name,
+        argument,
+        let_expansions,
+    ):
+        return None
+    effective_argument = effective_semantic_aggregate_argument_expression(
+        function_name,
+        argument,
+        let_expansions=let_expansions,
+    )
+    for output in output_scope.values():
+        output_expression = output.expression
+        if not output.supported or not isinstance(output_expression, CallExpr):
+            continue
+        if semantic_aggregate_call_name(output_expression) != function_name:
+            continue
+        if len(output_expression.arguments) != 1:
+            continue
+        output_argument = effective_semantic_aggregate_argument_expression(
+            function_name,
+            output_expression.arguments[0],
+            let_expansions=let_expansions,
+        )
+        if output_argument == effective_argument:
+            return output
+    return None
 
 
 def _literal_value_type(expression: LiteralExpr) -> ValueType:

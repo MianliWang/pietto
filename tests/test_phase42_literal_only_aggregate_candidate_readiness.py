@@ -80,7 +80,7 @@ def test_phase42_slice6_plan_alignment_and_guardrails_are_documented() -> None:
         "SQL `SUM` over empty input returns `NULL` while `COUNT(*)` returns `0`",
         "Decimal literal syntax requires future grammar/AST/parser approval",
         "Phase 42 Slice 5 adds only a private direct-field expression fact carrier scaffold",
-        "Aggregate typeclass, literal-only aggregate behavior, expression/literal group keys, grouped let ordering outside the approved Phase 43 Slice 5 direct selected-field subset, raw `satisfying` let-name behavior, and `limit let_name` behavior unfreeze only when a later implementation slice is explicitly approved",
+        "Aggregate typeclass, literal-only aggregate behavior, expression/literal group keys, grouped let ordering outside the approved Phase 43 Slice 5 direct selected-field subset, raw `satisfying` let-name behavior outside the approved Phase 43 Slice 6 selected aggregate-wrapped let subset, and `limit let_name` behavior unfreeze only when a later implementation slice is explicitly approved",
     ):
         assert required in combined, required
 

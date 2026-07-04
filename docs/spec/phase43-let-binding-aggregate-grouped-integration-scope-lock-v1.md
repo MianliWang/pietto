@@ -150,6 +150,9 @@ Let names also remain unavailable in non-row-level or result-scope positions:
 - `group by gross` remains fail-closed when `gross` expands to an expression
   that is not a current accepted direct group-key field;
 - `satisfying: gross > 0` remains fail-closed/deferred;
+- `satisfying: sum(gross) > 0` is accepted only when `gross` is a direct
+  admitted row-level let argument for an already selected supported aggregate
+  projection under the approved Slice 2/3 aggregate-let rules;
 - grouped `order by gross` remains fail-closed/deferred when `gross` does not
   expand to an already selected supported grouped order field;
 - `limit gross` remains fail-closed/deferred;
@@ -172,15 +175,18 @@ source-ordered row-level expression already recorded for that binding, then
 applying the existing aggregate, group-key, satisfying, grouped-order, or SQL
 guard for the expanded expression.
 
-Policy candidates after Slice 5:
+Policy after Slice 6:
 
 - expression or literal group keys hidden behind let names remain rejected
   unless a later slice explicitly approves expression group-key semantics;
 - expression, literal, lower/trim, unselected-field, or arbitrary grouped
   ordering hidden behind let names remains rejected unless a later slice
   explicitly approves broader grouped order semantics;
-- `satisfying: sum(row_let) > 0` may be supported through the existing selected
-  aggregate result-predicate model;
+- `satisfying: sum(row_let) > 0` is supported only through the existing selected
+  aggregate result-predicate model when the aggregate-let call corresponds to
+  an already selected supported aggregate projection;
+- direct non-let aggregate calls inside `satisfying:` remain rejected;
+- unselected aggregate-let calls inside `satisfying:` remain rejected;
 - `satisfying: row_let > 0` must remain rejected unless a later slice proves
   the row let is group-key or result-scope safe;
 - `limit row_let` must continue to reject;
