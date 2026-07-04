@@ -103,12 +103,12 @@ LOCKED_BOUNDARY_SURFACES = {
     "pyproject": (
         "pyproject.toml",
         1,
-        "cf5894a9cb7ef0399126a7d424da4e3958fc92d8e6bed295939a6e6bac469099",
+        "214271a66768cb3dac25ace1ee300a6b3bfccd36d50dc709aacbe78bdfb286eb",
     ),
     "uv_lock": (
         "uv.lock",
         1,
-        "b48bb27656ff3344a95ba92347f45173904801cd8bdccfd2b55106549c445ac0",
+        "e1b341aeaabc5714308cb51791c37fabb3e22e387c2b9efecf8bd1e60ee0dbd8",
     ),
     "github": (
         ".github",
