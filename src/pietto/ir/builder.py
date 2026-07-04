@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 
 from pietto.ast_nodes import (
     BinaryExpr,
@@ -88,6 +89,12 @@ from pietto.semantic.model import SatisfyingResultPredicateInfo
 DerivedRelation = TableDef | QueryDef
 RelationDefinition = SourceDef | TableDef | QueryDef
 CallableDefinition = ConstraintDef | DeriveDef
+
+
+@dataclass(frozen=True, slots=True)
+class _GroupedOrderExpression:
+    expression: ExpressionIR
+    field_identity: str | None = None
 
 
 def build_ir(
@@ -590,8 +597,11 @@ def _lower_order_by(
     if definition.group_by_clause is not None:
         return _lower_grouped_order_by(
             definition,
+            input_schema=input_schema,
+            field_qualifier=target_symbol.name,
             projections=projections,
             group_keys=group_keys,
+            let_expansions=let_expansions,
         )
     return tuple(
         OrderItemIR(
@@ -613,8 +623,11 @@ def _lower_order_by(
 def _lower_grouped_order_by(
     definition: DerivedRelation,
     *,
+    input_schema: RowSchema,
+    field_qualifier: str,
     projections: tuple[ProjectionIR, ...],
     group_keys: tuple[FieldRefIR, ...],
+    let_expansions: Mapping[str, Expression],
 ) -> tuple[OrderItemIR, ...]:
     clause = definition.order_by_clause
     if clause is None:
@@ -627,7 +640,18 @@ def _lower_grouped_order_by(
     for item in clause.items:
         if not isinstance(item.expression, NameExpr):
             raise _MissingSemanticFact(item.expression, "grouped order output")
-        expression = output_expressions.get(item.expression.name)
+        scoped = output_expressions.get(item.expression.name)
+        expression = (
+            scoped.expression
+            if scoped is not None
+            else _grouped_order_let_expression(
+                item.expression,
+                output_expressions=output_expressions,
+                input_schema=input_schema,
+                field_qualifier=field_qualifier,
+                let_expansions=let_expansions,
+            )
+        )
         if expression is None:
             raise _MissingSemanticFact(item.expression, "grouped order output")
         order_by.append(
@@ -644,23 +668,79 @@ def _grouped_order_output_expressions(
     projections: tuple[ProjectionIR, ...],
     *,
     group_keys: tuple[FieldRefIR, ...],
-) -> dict[str, ExpressionIR]:
+) -> dict[str, _GroupedOrderExpression]:
     group_key_fields = {key.field for key in group_keys if key.field is not None}
-    output_expressions: dict[str, ExpressionIR] = {}
+    output_expressions: dict[str, _GroupedOrderExpression] = {}
     for projection in projections:
         if projection.name is None or projection.name in output_expressions:
             continue
         expression = projection.expression
         if isinstance(expression, AggregateCallIR):
-            output_expressions[projection.name] = expression
+            output_expressions[projection.name] = _GroupedOrderExpression(expression)
             continue
         if (
             isinstance(expression, FieldRefIR)
             and expression.field is not None
             and expression.field in group_key_fields
         ):
-            output_expressions[projection.name] = expression
+            output_expressions[projection.name] = _GroupedOrderExpression(
+                expression,
+                field_identity=expression.field.name,
+            )
     return output_expressions
+
+
+def _grouped_order_let_expression(
+    expression: NameExpr,
+    *,
+    output_expressions: Mapping[str, _GroupedOrderExpression],
+    input_schema: RowSchema,
+    field_qualifier: str,
+    let_expansions: Mapping[str, Expression],
+) -> ExpressionIR | None:
+    if expression.name not in let_expansions:
+        return None
+    effective_expression = _effective_field_let_expression(
+        expression,
+        let_expansions=let_expansions,
+        let_stack=frozenset(),
+    )
+    if effective_expression is None:
+        return None
+    field = _group_key_field(
+        effective_expression,
+        input_schema=input_schema,
+        field_qualifier=field_qualifier,
+    )
+    if field is None:
+        return None
+    for output in output_expressions.values():
+        if output.field_identity == field.name:
+            return output.expression
+    return None
+
+
+def _effective_field_let_expression(
+    expression: NameExpr,
+    *,
+    let_expansions: Mapping[str, Expression],
+    let_stack: frozenset[str],
+) -> NameExpr | DottedNameExpr | None:
+    if expression.name not in let_expansions:
+        return expression
+    if expression.name in let_stack:
+        return None
+
+    expanded = let_expansions[expression.name]
+    if isinstance(expanded, DottedNameExpr):
+        return expanded
+    if isinstance(expanded, NameExpr):
+        return _effective_field_let_expression(
+            expanded,
+            let_expansions=let_expansions,
+            let_stack=let_stack | frozenset((expression.name,)),
+        )
+    return None
 
 
 def _lower_order_direction(direction: str | None) -> OrderDirectionIR:

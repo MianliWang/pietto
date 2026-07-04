@@ -188,9 +188,11 @@ def test_register_hard_boundaries_do_not_authorize_implementation() -> None:
         "Phase 43 Slice 3 implements only direct `count(let_name)` / "
         "`count_distinct(let_name)` inline aggregate arguments",
         "Phase 43 Slice 4 implements only direct `group by let_name` group keys",
-        "expression/literal group keys, grouped let ordering, raw `satisfying` "
-        "let-name behavior, and `limit let_name` behavior unfreeze only when a "
-        "later implementation slice is explicitly approved",
+        "Phase 43 Slice 5 implements only direct grouped `order by let_name` items",
+        "grouped let ordering outside the approved Phase 43 Slice 5 direct "
+        "selected-field subset",
+        "raw `satisfying` let-name behavior, and `limit let_name` behavior "
+        "unfreeze only when a later implementation slice is explicitly approved",
     ):
         assert required in register
 
@@ -201,6 +203,8 @@ def test_register_hard_boundaries_do_not_authorize_implementation() -> None:
         "Slice 3 implements broad count_distinct expression behavior",
         "Slice 4 implements all grouped let support",
         "Slice 4 implements expression group keys",
+        "Slice 5 implements all grouped order behavior",
+        "Slice 5 implements expression grouped ordering",
         "implementation authorized",
         "register authorizes",
         "DateTime primitive is allowed",

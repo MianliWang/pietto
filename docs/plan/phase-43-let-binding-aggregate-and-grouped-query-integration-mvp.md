@@ -23,6 +23,11 @@ production behavior slice. It admits only direct `group by row_let` keys when
 the row-level binding recursively expands inline to a current accepted direct
 group-key field.
 
+Phase 43 Slice 5 is Grouped `order by row_let` Safe Subset. Slice 5 is a
+production behavior slice. It admits only grouped `order by row_let` items when
+the row-level binding recursively expands inline to a direct field that is
+already selected as a supported grouped order output.
+
 Trusted Phase 42 handoff:
 
 - baseline HEAD: `2e9bb45623a7bf98ed430b9b9ab76404402b9a5e`;
@@ -142,6 +147,20 @@ Slice 4 extends that surface narrowly:
 - CLI text, CLI JSON v1, explain text/JSON, and Semantic Metadata Artifact v1
   remain structurally compatible and expose no public `let_scopes` key.
 
+Slice 5 extends that surface narrowly:
+
+- grouped `order by row_let` may use a direct bare row-level let name only when
+  the binding recursively expands to a direct field already selected as a
+  supported grouped order output;
+- direct bare field lets, same-source qualified input-field lets, and
+  source-ordered chained lets are accepted only when the final expanded field
+  is selected and orderable by the current grouped result-order rules;
+- the grouped order item is IR inline-expanded to the selected output's
+  existing underlying `FieldRefIR` expression and PostgreSQL/private MySQL SQL
+  renders the expanded selected field in `ORDER BY`;
+- CLI text, CLI JSON v1, explain text/JSON, and Semantic Metadata Artifact v1
+  remain structurally compatible and expose no public `let_scopes` key.
+
 The current fail-closed boundary remains:
 
 - aggregate-let remains deferred for `min(gross)` and `max(gross)` where
@@ -152,7 +171,8 @@ The current fail-closed boundary remains:
 - `group by gross` remains fail-closed when `gross` expands to an expression
   that is not a current accepted direct group-key field;
 - `satisfying: gross > 0` remains deferred/fail-closed;
-- grouped `order by gross` remains deferred/fail-closed;
+- grouped `order by gross` remains deferred/fail-closed when `gross` does not
+  expand to an already selected supported grouped order field;
 - `limit gross` remains deferred/fail-closed;
 - qualified let references such as `orders.gross` remain rejected;
 - projection aliases remain output names only and do not become expression
@@ -205,8 +225,8 @@ The phase-level guardrails are:
 | 7 | CLI / JSON / Metadata / SQL Compatibility Hardening | compatibility hardening |
 | 8 | Completion Audit And Status Lock | completion audit/status lock |
 
-Sequence may change only through a later Gate 1. Slice 4 must not start grouped
-`order by row_let`, raw `satisfying` let-name, `limit row_let`, `min(row_let)`,
+Sequence may change only through a later Gate 1. Slice 5 must not start raw
+`satisfying` let-name, `limit row_let`, `min(row_let)`,
 `max(row_let)`, literal-only group keys, expression group keys, literal-only
 count, or broad `count_distinct(expression)` behavior unless the user
 explicitly widens that slice.

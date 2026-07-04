@@ -129,7 +129,7 @@ def test_phase42_forbidden_behavior_and_public_surfaces_remain_locked() -> None:
         "no aggregate precision propagation",
         "no SQL, IR, CLI JSON, Project JSON, explain, or Semantic Metadata Artifact public-surface change",
         "no production source, grammar/generated, fixture/golden/example, package/workflow/CI/release, diagnostic, warning/lint, runtime/database, project/multi-file, public MySQL API, or relationship/JOIN behavior change",
-        "Aggregate typeclass, literal-only aggregate behavior, expression/literal group keys, grouped let ordering, raw `satisfying` let-name behavior, and `limit let_name` behavior unfreeze only when a later implementation slice is explicitly approved",
+        "Aggregate typeclass, literal-only aggregate behavior, expression/literal group keys, grouped let ordering outside the approved Phase 43 Slice 5 direct selected-field subset, raw `satisfying` let-name behavior, and `limit let_name` behavior unfreeze only when a later implementation slice is explicitly approved",
         "Decimal fusion, Decimal multiplication, literal-only aggregate arguments, and Decimal literal syntax each require separate approval",
     ):
         assert required in docs, required

@@ -68,6 +68,7 @@ class _GroupKey:
 @dataclass(frozen=True, slots=True)
 class _GroupedOrderOutput:
     supported: bool
+    field_identity: str | None = None
 
 
 def check_group_by_deferred(script: Script) -> list[Diagnostic]:
@@ -150,6 +151,7 @@ def project_grouped_schema(
                 )
                 grouped_order_outputs[output_name] = _GroupedOrderOutput(
                     supported=True,
+                    field_identity=key_identity,
                 )
             continue
 
@@ -192,7 +194,14 @@ def project_grouped_schema(
             grouped_order_outputs[output_name] = _GroupedOrderOutput(supported=False)
         saw_invalid_projection = True
 
-    diagnostics.extend(_grouped_order_by_diagnostics(definition, grouped_order_outputs))
+    diagnostics.extend(
+        _grouped_order_by_diagnostics(
+            definition,
+            grouped_order_outputs,
+            input_schema=input_schema,
+            let_expansions=let_expansions,
+        )
+    )
 
     if not saw_valid_aggregate and not saw_invalid_projection:
         diagnostics.append(_pure_grouped_output_deferred_diagnostic(definition))
@@ -406,6 +415,9 @@ def _has_unknown_argument(
 def _grouped_order_by_diagnostics(
     definition: DerivedRelation,
     output_scope: Mapping[str, _GroupedOrderOutput] | None = None,
+    *,
+    input_schema: RowSchema | None = None,
+    let_expansions: Mapping[str, Expression] | None = None,
 ) -> list[Diagnostic]:
     if definition.order_by_clause is None:
         return []
@@ -424,11 +436,70 @@ def _grouped_order_by_diagnostics(
             )
             continue
         scoped = output_scope.get(item.expression.name)
-        if scoped is None or not scoped.supported:
+        if scoped is not None:
+            if not scoped.supported:
+                diagnostics.append(
+                    _grouped_order_by_unsupported_diagnostic(item.expression)
+                )
+            continue
+        field_identity = _grouped_order_let_field_identity(
+            definition,
+            item.expression,
+            input_schema=input_schema,
+            let_expansions=let_expansions,
+        )
+        if field_identity is None or not any(
+            output.supported and output.field_identity == field_identity
+            for output in output_scope.values()
+        ):
             diagnostics.append(
                 _grouped_order_by_unsupported_diagnostic(item.expression)
             )
     return diagnostics
+
+
+def _grouped_order_let_field_identity(
+    definition: DerivedRelation,
+    expression: NameExpr,
+    *,
+    input_schema: RowSchema | None,
+    let_expansions: Mapping[str, Expression] | None,
+) -> str | None:
+    if input_schema is None or let_expansions is None:
+        return None
+    if expression.name not in let_expansions:
+        return None
+    effective_expression = _effective_field_let_expression(
+        expression,
+        let_expansions=let_expansions,
+        let_stack=frozenset(),
+    )
+    if effective_expression is None:
+        return None
+    return _field_identity(definition, effective_expression, input_schema)
+
+
+def _effective_field_let_expression(
+    expression: NameExpr,
+    *,
+    let_expansions: Mapping[str, Expression],
+    let_stack: frozenset[str],
+) -> NameExpr | DottedNameExpr | None:
+    if expression.name not in let_expansions:
+        return expression
+    if expression.name in let_stack:
+        return None
+
+    expanded = let_expansions[expression.name]
+    if isinstance(expanded, DottedNameExpr):
+        return expanded
+    if isinstance(expanded, NameExpr):
+        return _effective_field_let_expression(
+            expanded,
+            let_expansions=let_expansions,
+            let_stack=let_stack | frozenset((expression.name,)),
+        )
+    return None
 
 
 def _projection_output_name(item: SelectItem) -> str | None:

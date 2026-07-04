@@ -8,9 +8,12 @@ only. Phase 43 Slice 2 implements only the direct `sum(row_let)` /
 only the direct `count(row_let)` / `count_distinct(row_let)` inline aggregate
 argument subset. Phase 43 Slice 4 implements only the direct
 `group by row_let` inline group-key subset when the row-level binding
-recursively expands to a current accepted direct group-key field. Slices 2
-through 4 do not implement grouped let ordering, raw `satisfying` let-name
-behavior, diagnostic code changes, SQL renderer changes, CLI/JSON schema
+recursively expands to a current accepted direct group-key field. Phase 43
+Slice 5 implements only the grouped `order by row_let` safe subset when the
+row-level binding recursively expands to a direct field already selected as a
+supported grouped order output. Slices 2 through 5 do not implement raw
+`satisfying` let-name behavior, diagnostic code changes, SQL renderer changes,
+CLI/JSON schema
 changes, explain behavior changes, metadata schemas, fixtures, goldens,
 examples, package metadata, workflow changes, release operations,
 runtime/database behavior, project/multi-file behavior, LSP/editor behavior,
@@ -108,6 +111,28 @@ literal-only group keys, lower/trim group keys, grouped projection alias reuse,
 hidden CTE, hidden subquery, relation layer, public metadata key, public output
 schema field, or SQL renderer contract change.
 
+## Slice 5 Grouped Order-By Let Subset
+
+Slice 5 allows grouped `order by row_let` only when the row-level let binding
+recursively inline-expands to a direct field that is already selected as a
+supported grouped order output:
+
+- direct bare field lets such as `key = status`;
+- same-source qualified input-field lets such as `key = orders.status`;
+- source-ordered chained lets whose final expanded expression is a current
+  accepted `NameExpr` or same-source `DottedNameExpr` field selected by the
+  grouped projection list.
+
+The compiler validates the expanded field through the existing grouped
+result-order rules and lowers the order item as the selected output's existing
+underlying `FieldRefIR` expression. PostgreSQL/private MySQL SQL renders the
+expanded selected field in `ORDER BY`, not the let name. Slice 5 adds no
+arbitrary grouped `ORDER BY` expressions, expression or literal ordering hidden
+behind let names, lower/trim ordering hidden behind let names, grouped order
+over unselected fields, projection alias expression leaves, hidden CTE, hidden
+subquery, relation layer, public metadata key, public output schema field, or
+SQL renderer contract change.
+
 ## Current Fail-Closed Boundary
 
 The following forms remain fail-closed and deferred when `gross` is a let
@@ -125,7 +150,8 @@ Let names also remain unavailable in non-row-level or result-scope positions:
 - `group by gross` remains fail-closed when `gross` expands to an expression
   that is not a current accepted direct group-key field;
 - `satisfying: gross > 0` remains fail-closed/deferred;
-- grouped `order by gross` remains fail-closed/deferred;
+- grouped `order by gross` remains fail-closed/deferred when `gross` does not
+  expand to an already selected supported grouped order field;
 - `limit gross` remains fail-closed/deferred;
 - qualified let references such as `orders.gross` remain rejected.
 
@@ -146,10 +172,13 @@ source-ordered row-level expression already recorded for that binding, then
 applying the existing aggregate, group-key, satisfying, grouped-order, or SQL
 guard for the expanded expression.
 
-Policy candidates after Slice 4:
+Policy candidates after Slice 5:
 
 - expression or literal group keys hidden behind let names remain rejected
   unless a later slice explicitly approves expression group-key semantics;
+- expression, literal, lower/trim, unselected-field, or arbitrary grouped
+  ordering hidden behind let names remains rejected unless a later slice
+  explicitly approves broader grouped order semantics;
 - `satisfying: sum(row_let) > 0` may be supported through the existing selected
   aggregate result-predicate model;
 - `satisfying: row_let > 0` must remain rejected unless a later slice proves

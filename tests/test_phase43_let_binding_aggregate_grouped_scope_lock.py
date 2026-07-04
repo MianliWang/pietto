@@ -77,6 +77,8 @@ def test_phase43_slice1_artifacts_and_trusted_handoff_are_locked() -> None:
         "Slice 3 is a production behavior slice",
         "Phase 43 Slice 4 is `group by row_let` Inline Group Key MVP",
         "Slice 4 is a production behavior slice",
+        "Phase 43 Slice 5 is Grouped `order by row_let` Safe Subset",
+        "Slice 5 is a production behavior slice",
     ):
         assert required in docs, required
 
@@ -133,9 +135,12 @@ def test_phase40_and_phase42_boundaries_are_carried_forward() -> None:
         "`group by row_let` may use a direct bare row-level let name only",
         "current accepted direct group-key field",
         "the group key is IR inline-expanded as the existing `FieldRefIR` group-key shape",
+        "grouped `order by row_let` may use a direct bare row-level let name only",
+        "already selected as a supported grouped order output",
+        "the grouped order item is IR inline-expanded to the selected output's existing underlying `FieldRefIR` expression",
         "`group by gross` remains fail-closed when `gross` expands to an expression that is not a current accepted direct group-key field",
         "`satisfying: gross > 0` remains deferred/fail-closed",
-        "grouped `order by gross` remains deferred/fail-closed",
+        "grouped `order by gross` remains deferred/fail-closed when `gross` does not expand to an already selected supported grouped order field",
         "`limit gross` remains deferred/fail-closed",
         "qualified let references such as `orders.gross` remain rejected",
         "Projection aliases remain output names only",
@@ -191,7 +196,7 @@ def test_phase43_slice_sequence_and_inline_policy_are_locked() -> None:
         "`satisfying: row_let > 0` must remain rejected unless",
         "`limit row_let` must continue to reject",
         "qualified let references must continue to reject",
-        "Slice 4 must not start grouped",
+        "Slice 5 must not start raw",
         "`min(row_let)`",
         "`max(row_let)`",
         "literal-only group keys",
@@ -238,7 +243,9 @@ def test_deferred_register_records_phase43_scope_lock() -> None:
         "Phase 43 Slice 2 implements only direct `sum(let_name)` / `avg(let_name)` inline aggregate arguments",
         "Phase 43 Slice 3 implements only direct `count(let_name)` / `count_distinct(let_name)` inline aggregate arguments",
         "Phase 43 Slice 4 implements only direct `group by let_name` group keys",
-        "expression/literal group keys, grouped let ordering, raw `satisfying` let-name behavior, and `limit let_name` behavior unfreeze only when a later implementation slice is explicitly approved",
+        "Phase 43 Slice 5 implements only direct grouped `order by let_name` items",
+        "grouped let ordering outside the approved Phase 43 Slice 5 direct selected-field subset",
+        "raw `satisfying` let-name behavior, and `limit let_name` behavior unfreeze only when a later implementation slice is explicitly approved",
         "hidden relation layer, CTE, subquery, JOIN, relationship traversal, public schema change, LSP, Arrow/PyArrow, runtime/database, or project/multi-file behavior",
     ):
         assert required in register, required
