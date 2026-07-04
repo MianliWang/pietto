@@ -306,6 +306,11 @@ def test_golden_inventory_and_no_group_sql_stability_are_locked() -> None:
 def test_slice9_non_goals_and_forbidden_surface_locks_remain_explicit() -> None:
     plan = _normalized(PLAN_PATH)
     hardening_audit = REPO_ROOT / "tests/test_phase21_group_by_hardening_audit.py"
+    maintenance_helper = REPO_ROOT / "tests/_maintenance_surface_helpers.py"
+    dependency_surface_tests = (
+        REPO_ROOT / "tests/test_dependency_maintenance_surface.py"
+    )
+    workflow_surface_tests = REPO_ROOT / "tests/test_workflow_maintenance_surface.py"
     audit_source = _read(hardening_audit)
 
     for required in (
@@ -328,12 +333,37 @@ def test_slice9_non_goals_and_forbidden_surface_locks_remain_explicit() -> None:
         '"agents"',
         '"pietto_v09"',
         '"diagnostics"',
-        '"pyproject"',
-        '"uv_lock"',
-        '"github"',
     ):
         assert locked_surface in audit_source
     assert "test_slice8_forbidden_implementation_surfaces_are_unchanged" in audit_source
+
+    for path in (
+        maintenance_helper,
+        dependency_surface_tests,
+        workflow_surface_tests,
+    ):
+        assert path.is_file()
+    _assert_functions(
+        maintenance_helper,
+        {
+            "assert_dependency_maintenance_surface",
+            "assert_pyproject_maintenance_surface",
+            "assert_uv_lock_maintenance_surface",
+            "assert_workflow_maintenance_surface",
+        },
+    )
+    _assert_functions(
+        dependency_surface_tests,
+        {
+            "test_pyproject_dependency_surface_is_semantically_locked",
+            "test_uv_lock_surface_is_semantically_locked_without_byte_locking",
+            "test_dependency_maintenance_surface_accepts_version_churn_only",
+        },
+    )
+    _assert_functions(
+        workflow_surface_tests,
+        {"test_workflow_and_github_maintenance_surface_is_semantically_locked"},
+    )
 
 
 def _assert_functions(path: Path, expected: set[str]) -> None:
