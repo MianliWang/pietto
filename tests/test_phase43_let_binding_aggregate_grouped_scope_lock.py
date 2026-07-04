@@ -75,6 +75,8 @@ def test_phase43_slice1_artifacts_and_trusted_handoff_are_locked() -> None:
         "Slice 2 is a production behavior slice",
         "Phase 43 Slice 3 is `count(row_let)` / `count_distinct(row_let)` Inline Aggregate Arguments",
         "Slice 3 is a production behavior slice",
+        "Phase 43 Slice 4 is `group by row_let` Inline Group Key MVP",
+        "Slice 4 is a production behavior slice",
     ):
         assert required in docs, required
 
@@ -128,7 +130,10 @@ def test_phase40_and_phase42_boundaries_are_carried_forward() -> None:
         "grouped aggregate select projections may use the same `count(row_let)` and",
         "`count(gross)`",
         "`count_distinct(row_let)` may use only",
-        "`group by gross` remains deferred/fail-closed",
+        "`group by row_let` may use a direct bare row-level let name only",
+        "current accepted direct group-key field",
+        "the group key is IR inline-expanded as the existing `FieldRefIR` group-key shape",
+        "`group by gross` remains fail-closed when `gross` expands to an expression that is not a current accepted direct group-key field",
         "`satisfying: gross > 0` remains deferred/fail-closed",
         "grouped `order by gross` remains deferred/fail-closed",
         "`limit gross` remains deferred/fail-closed",
@@ -186,9 +191,11 @@ def test_phase43_slice_sequence_and_inline_policy_are_locked() -> None:
         "`satisfying: row_let > 0` must remain rejected unless",
         "`limit row_let` must continue to reject",
         "qualified let references must continue to reject",
-        "Slice 3 must not start",
+        "Slice 4 must not start grouped",
         "`min(row_let)`",
         "`max(row_let)`",
+        "literal-only group keys",
+        "expression group keys",
     ):
         assert required in docs, required
 
@@ -230,7 +237,8 @@ def test_deferred_register_records_phase43_scope_lock() -> None:
         "old Phase 37 LSP/Arrow/JOIN labels are historical planning-only context",
         "Phase 43 Slice 2 implements only direct `sum(let_name)` / `avg(let_name)` inline aggregate arguments",
         "Phase 43 Slice 3 implements only direct `count(let_name)` / `count_distinct(let_name)` inline aggregate arguments",
-        "grouped let keys, grouped let ordering, raw `satisfying` let-name behavior, and `limit let_name` behavior unfreeze only when a later implementation slice is explicitly approved",
+        "Phase 43 Slice 4 implements only direct `group by let_name` group keys",
+        "expression/literal group keys, grouped let ordering, raw `satisfying` let-name behavior, and `limit let_name` behavior unfreeze only when a later implementation slice is explicitly approved",
         "hidden relation layer, CTE, subquery, JOIN, relationship traversal, public schema change, LSP, Arrow/PyArrow, runtime/database, or project/multi-file behavior",
     ):
         assert required in register, required
@@ -238,7 +246,7 @@ def test_deferred_register_records_phase43_scope_lock() -> None:
     for forbidden in (
         "all count-family aggregate behavior is implemented",
         "broad count_distinct expression behavior is implemented",
-        "grouped let support is implemented",
+        "all grouped let support is implemented",
         "Phase 43 implements LSP",
         "Arrow/PyArrow integration is implemented",
         "JOIN readiness is implemented",

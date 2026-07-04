@@ -97,6 +97,7 @@ def project_grouped_schema(
     group_keys, unknown_key_texts, key_diagnostics = _resolve_group_keys(
         definition,
         input_schema,
+        let_expansions=let_expansions,
     )
     diagnostics.extend(key_diagnostics)
 
@@ -202,6 +203,8 @@ def project_grouped_schema(
 def _resolve_group_keys(
     definition: DerivedRelation,
     input_schema: RowSchema,
+    *,
+    let_expansions: Mapping[str, Expression] | None,
 ) -> tuple[list[_GroupKey], set[str], list[Diagnostic]]:
     keys: list[_GroupKey] = []
     unknown_key_texts: set[str] = set()
@@ -210,7 +213,12 @@ def _resolve_group_keys(
 
     assert definition.group_by_clause is not None
     for item in definition.group_by_clause.items:
-        identity = _field_identity(definition, item.key, input_schema)
+        effective_key = _effective_group_key_expression(
+            item.key,
+            let_expansions=let_expansions,
+            let_stack=frozenset(),
+        )
+        identity = _field_identity(definition, effective_key, input_schema)
         if identity is None:
             unknown_key_texts.add(_field_text(item.key))
             diagnostics.append(_unknown_field_diagnostic(item.key))
@@ -223,6 +231,31 @@ def _resolve_group_keys(
         keys.append(_GroupKey(identity=identity, field=field, item=item))
 
     return keys, unknown_key_texts, diagnostics
+
+
+def _effective_group_key_expression(
+    expression: NameExpr | DottedNameExpr,
+    *,
+    let_expansions: Mapping[str, Expression] | None,
+    let_stack: frozenset[str],
+) -> NameExpr | DottedNameExpr:
+    if not isinstance(expression, NameExpr):
+        return expression
+    if let_expansions is None or expression.name not in let_expansions:
+        return expression
+    if expression.name in let_stack:
+        return expression
+
+    expanded = let_expansions[expression.name]
+    if isinstance(expanded, DottedNameExpr):
+        return expanded
+    if isinstance(expanded, NameExpr):
+        return _effective_group_key_expression(
+            expanded,
+            let_expansions=let_expansions,
+            let_stack=let_stack | frozenset((expression.name,)),
+        )
+    return expression
 
 
 def _field_identity(

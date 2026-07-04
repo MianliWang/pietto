@@ -18,6 +18,11 @@ direct aliased `count(row_let)` and `count_distinct(row_let)` aggregate
 projections when the row-level binding expands inline to an expression already
 accepted by the current count-family aggregate argument rules.
 
+Phase 43 Slice 4 is `group by row_let` Inline Group Key MVP. Slice 4 is a
+production behavior slice. It admits only direct `group by row_let` keys when
+the row-level binding recursively expands inline to a current accepted direct
+group-key field.
+
 Trusted Phase 42 handoff:
 
 - baseline HEAD: `2e9bb45623a7bf98ed430b9b9ab76404402b9a5e`;
@@ -122,6 +127,21 @@ Slice 3 extends that surface narrowly:
 - CLI text, CLI JSON v1, explain text/JSON, and Semantic Metadata Artifact v1
   remain structurally compatible and expose no public `let_scopes` key.
 
+Slice 4 extends that surface narrowly:
+
+- `group by row_let` may use a direct bare row-level let name only when the
+  binding recursively expands to a current accepted direct group-key field;
+- direct bare field lets, same-source qualified input-field lets, and
+  source-ordered chained lets are accepted only when the final expanded
+  expression is a current accepted `group by:` field key;
+- grouped projections still use current grouped projection semantics and do not
+  select the let name as a grouped output field;
+- the group key is IR inline-expanded as the existing `FieldRefIR` group-key
+  shape and PostgreSQL/private MySQL SQL renders the expanded field in
+  `GROUP BY`;
+- CLI text, CLI JSON v1, explain text/JSON, and Semantic Metadata Artifact v1
+  remain structurally compatible and expose no public `let_scopes` key.
+
 The current fail-closed boundary remains:
 
 - aggregate-let remains deferred for `min(gross)` and `max(gross)` where
@@ -129,7 +149,8 @@ The current fail-closed boundary remains:
 - count-family let expansion remains fail-closed when the expanded expression is
   not accepted by the existing count-family rules, such as literal-only
   `count(one)` or broad `count_distinct(amount + tax)`;
-- `group by gross` remains deferred/fail-closed;
+- `group by gross` remains fail-closed when `gross` expands to an expression
+  that is not a current accepted direct group-key field;
 - `satisfying: gross > 0` remains deferred/fail-closed;
 - grouped `order by gross` remains deferred/fail-closed;
 - `limit gross` remains deferred/fail-closed;
@@ -178,17 +199,17 @@ The phase-level guardrails are:
 | 1 | Identity, Scope Lock, And Static Audit | docs/spec/deferred-register/static-audit only; no behavior change |
 | 2 | `sum(row_let)` / `avg(row_let)` Inline Aggregate Arguments | complete production behavior |
 | 3 | `count(row_let)` / `count_distinct(row_let)` Inline Aggregate Arguments | complete production behavior |
-| 4 | `group by row_let` Inline Group Key MVP | production behavior |
+| 4 | `group by row_let` Inline Group Key MVP | complete production behavior |
 | 5 | Grouped `order by row_let` Safe Subset | production behavior |
 | 6 | `satisfying` Boundary For Aggregate-Wrapped Let | production behavior with raw row-let still rejected unless group-key/result-scope safe |
 | 7 | CLI / JSON / Metadata / SQL Compatibility Hardening | compatibility hardening |
 | 8 | Completion Audit And Status Lock | completion audit/status lock |
 
-Sequence may change only through a later Gate 1. Slice 3 must not start
-`group by row_let`, grouped `order by row_let`, raw `satisfying` let-name,
-`limit row_let`, `min(row_let)`, `max(row_let)`, literal-only count, or broad
-`count_distinct(expression)` behavior unless the user explicitly widens that
-slice.
+Sequence may change only through a later Gate 1. Slice 4 must not start grouped
+`order by row_let`, raw `satisfying` let-name, `limit row_let`, `min(row_let)`,
+`max(row_let)`, literal-only group keys, expression group keys, literal-only
+count, or broad `count_distinct(expression)` behavior unless the user
+explicitly widens that slice.
 
 ## Slice 1 Gate 2 Allowlist
 

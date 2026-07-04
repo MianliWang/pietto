@@ -6,12 +6,15 @@ Phase 43 Slice 1 is docs/spec/deferred-register/static-audit scope-lock work
 only. Phase 43 Slice 2 implements only the direct `sum(row_let)` /
 `avg(row_let)` inline aggregate argument subset. Phase 43 Slice 3 implements
 only the direct `count(row_let)` / `count_distinct(row_let)` inline aggregate
-argument subset. Slices 2 and 3 do not implement grouped let keys, grouped let
-ordering, raw `satisfying` let-name behavior, diagnostic code changes, SQL
-renderer changes, CLI/JSON schema changes, explain behavior changes, metadata
-schemas, fixtures, goldens, examples, package metadata, workflow changes,
-release operations, runtime/database behavior, project/multi-file behavior,
-LSP/editor behavior, Arrow/PyArrow integration, or relationship/JOIN behavior.
+argument subset. Phase 43 Slice 4 implements only the direct
+`group by row_let` inline group-key subset when the row-level binding
+recursively expands to a current accepted direct group-key field. Slices 2
+through 4 do not implement grouped let ordering, raw `satisfying` let-name
+behavior, diagnostic code changes, SQL renderer changes, CLI/JSON schema
+changes, explain behavior changes, metadata schemas, fixtures, goldens,
+examples, package metadata, workflow changes, release operations,
+runtime/database behavior, project/multi-file behavior, LSP/editor behavior,
+Arrow/PyArrow integration, or relationship/JOIN behavior.
 
 Package version remains `0.1.0`.
 
@@ -86,6 +89,25 @@ adds no aggregate-only let semantics, hidden CTE, hidden subquery, relation
 layer, SQL alias reuse layer, public metadata key, public output schema field,
 literal-only count behavior, or broad `count_distinct(expression)` behavior.
 
+## Slice 4 Direct Group-Key Let Subset
+
+Slice 4 allows a direct `group by row_let` key only when the row-level let
+binding recursively inline-expands to a current accepted direct group-key
+field:
+
+- direct bare field lets such as `key = status`;
+- same-source qualified input-field lets such as `key = orders.status`;
+- source-ordered chained lets whose final expanded expression is a current
+  accepted `NameExpr` or same-source `DottedNameExpr` group-key field.
+
+The compiler validates the expanded field through the existing group-key rules
+and lowers the group key as the current `FieldRefIR` shape. PostgreSQL/private
+MySQL SQL renders the expanded field in `GROUP BY`, not the let name. Slice 4
+adds no expression group-key IR model, arbitrary expression group keys,
+literal-only group keys, lower/trim group keys, grouped projection alias reuse,
+hidden CTE, hidden subquery, relation layer, public metadata key, public output
+schema field, or SQL renderer contract change.
+
 ## Current Fail-Closed Boundary
 
 The following forms remain fail-closed and deferred when `gross` is a let
@@ -100,7 +122,8 @@ literal-only `count(one)` and broad `count_distinct(amount + tax)`.
 
 Let names also remain unavailable in non-row-level or result-scope positions:
 
-- `group by gross` remains fail-closed/deferred;
+- `group by gross` remains fail-closed when `gross` expands to an expression
+  that is not a current accepted direct group-key field;
 - `satisfying: gross > 0` remains fail-closed/deferred;
 - grouped `order by gross` remains fail-closed/deferred;
 - `limit gross` remains fail-closed/deferred;
@@ -123,10 +146,10 @@ source-ordered row-level expression already recorded for that binding, then
 applying the existing aggregate, group-key, satisfying, grouped-order, or SQL
 guard for the expanded expression.
 
-Policy candidates after Slice 3:
+Policy candidates after Slice 4:
 
-- `group by row_let` may be supported when the expanded expression is a safe
-  row-level group-key expression;
+- expression or literal group keys hidden behind let names remain rejected
+  unless a later slice explicitly approves expression group-key semantics;
 - `satisfying: sum(row_let) > 0` may be supported through the existing selected
   aggregate result-predicate model;
 - `satisfying: row_let > 0` must remain rejected unless a later slice proves

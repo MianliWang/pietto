@@ -445,6 +445,7 @@ def _lower_relation(
         input_schema=input_schema,
         target_symbol=target_symbol,
         field_qualifier=target.name,
+        let_expansions=let_expansions,
     )
     order_by = _lower_order_by(
         definition,
@@ -493,6 +494,7 @@ def _lower_group_keys(
     input_schema: RowSchema,
     target_symbol: SymbolId,
     field_qualifier: str,
+    let_expansions: Mapping[str, Expression],
 ) -> tuple[FieldRefIR, ...]:
     """Lower accepted unique GROUP BY keys from semantic row facts."""
 
@@ -503,8 +505,13 @@ def _lower_group_keys(
     group_keys: list[FieldRefIR] = []
     seen_identities: set[str] = set()
     for item in clause.items:
-        field = _group_key_field(
+        effective_key = _effective_group_key_expression(
             item.key,
+            let_expansions=let_expansions,
+            let_stack=frozenset(),
+        )
+        field = _group_key_field(
+            effective_key,
             input_schema=input_schema,
             field_qualifier=field_qualifier,
         )
@@ -516,13 +523,38 @@ def _lower_group_keys(
         seen_identities.add(identity)
         group_keys.append(
             lower_group_key_ref(
-                item.key,
+                effective_key,
                 semantic_model,
                 field=field,
                 field_owner=target_symbol,
             )
         )
     return tuple(group_keys)
+
+
+def _effective_group_key_expression(
+    expression: NameExpr | DottedNameExpr,
+    *,
+    let_expansions: Mapping[str, Expression],
+    let_stack: frozenset[str],
+) -> NameExpr | DottedNameExpr:
+    if not isinstance(expression, NameExpr):
+        return expression
+    if expression.name not in let_expansions:
+        return expression
+    if expression.name in let_stack:
+        return expression
+
+    expanded = let_expansions[expression.name]
+    if isinstance(expanded, DottedNameExpr):
+        return expanded
+    if isinstance(expanded, NameExpr):
+        return _effective_group_key_expression(
+            expanded,
+            let_expansions=let_expansions,
+            let_stack=let_stack | frozenset((expression.name,)),
+        )
+    return expression
 
 
 def _group_key_field(
