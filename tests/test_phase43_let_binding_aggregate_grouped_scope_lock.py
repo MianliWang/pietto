@@ -71,6 +71,8 @@ def test_phase43_slice1_artifacts_and_trusted_handoff_are_locked() -> None:
         "final Phase 42 CI run: `28671500608`",
         "package version remains `0.1.0`",
         "no tag/release/publish/upload/signing/attestation is authorized by Slice 1",
+        "Phase 43 Slice 2 is `sum(row_let)` / `avg(row_let)` Inline Aggregate Arguments",
+        "Slice 2 is a production behavior slice",
     ):
         assert required in docs, required
 
@@ -118,6 +120,20 @@ def test_phase40_and_phase42_boundaries_are_carried_forward() -> None:
         "no-GROUP non-aggregate `select` may reference let names",
         "no-GROUP input-scope `order by` may reference let names",
         "supported let references are IR inline-expanded",
+        "no-GROUP aggregate select projections may use `sum(row_let)` and",
+        "grouped aggregate select projections may use the same `sum(row_let)` and",
+        "`count(gross)`",
+        "`count_distinct(gross)`",
+        "`group by gross` remains deferred/fail-closed",
+        "`satisfying: gross > 0` remains deferred/fail-closed",
+        "grouped `order by gross` remains deferred/fail-closed",
+        "`limit gross` remains deferred/fail-closed",
+        "qualified let references such as `orders.gross` remain rejected",
+        "Projection aliases remain output names only",
+    ):
+        assert required in docs, required
+
+    for required in (
         "aggregate-let remains deferred",
         "`sum(gross)`",
         "`avg(gross)`",
@@ -130,8 +146,15 @@ def test_phase40_and_phase42_boundaries_are_carried_forward() -> None:
         "qualified let references such as `orders.gross` remain rejected",
         "Projection aliases remain output names only",
     ):
-        assert required in docs, required
         assert required in source_docs, required
+
+    for required in (
+        "Historical Phase 42 evidence confirmed that aggregate arguments did not see let names before Slice 2",
+        "type_relation_expressions",
+        "passes no let scope into direct aggregate projection argument typing",
+        "IR lowering passes empty `let_expansions` while lowering aggregate arguments",
+    ):
+        assert required in docs, required
 
     for required in (
         "Aggregate arguments do not see let names",
@@ -139,7 +162,6 @@ def test_phase40_and_phase42_boundaries_are_carried_forward() -> None:
         "passes no let scope into direct aggregate projection argument typing",
         "IR lowering passes empty `let_expansions` while lowering aggregate arguments",
     ):
-        assert required in docs, required
         assert required in source_docs, required
 
 
@@ -199,13 +221,15 @@ def test_deferred_register_records_phase43_scope_lock() -> None:
     for required in (
         "Phase 43 Slice 1 scope-lock selects let-binding aggregate/grouped integration as the active Phase 43 identity",
         "old Phase 37 LSP/Arrow/JOIN labels are historical planning-only context",
-        "No `sum(let_name)`, `avg(let_name)`, `count(let_name)`, `count_distinct(let_name)`, `group by let_name`, grouped `order by let_name`, or `satisfying` let-name behavior unfreezes until its later Phase 43 implementation slice is explicitly approved",
+        "Phase 43 Slice 2 implements only direct `sum(let_name)` / `avg(let_name)` inline aggregate arguments",
+        "No `count(let_name)`, `count_distinct(let_name)`, `group by let_name`, grouped `order by let_name`, or raw `satisfying` let-name behavior unfreezes until its later Phase 43 implementation slice is explicitly approved",
         "hidden relation layer, CTE, subquery, JOIN, relationship traversal, public schema change, LSP, Arrow/PyArrow, runtime/database, or project/multi-file behavior",
     ):
         assert required in register, required
 
     for forbidden in (
-        "aggregate over let names is implemented",
+        "count over let names is implemented",
+        "count_distinct over let names is implemented",
         "grouped let support is implemented",
         "Phase 43 implements LSP",
         "Arrow/PyArrow integration is implemented",

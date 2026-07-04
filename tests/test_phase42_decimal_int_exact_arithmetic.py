@@ -4,7 +4,7 @@ from dataclasses import fields
 
 import pytest
 
-from pietto.ast_nodes import BinaryExpr, Script, TableDef
+from pietto.ast_nodes import BinaryExpr, QueryDef, Script, TableDef
 from pietto.errors import Severity
 from pietto.ir import (
     AggregateCallIR,
@@ -229,20 +229,25 @@ def test_projection_alias_let_and_type_alias_aggregate_arguments_stay_closed() -
     )
     assert "PIE-S2102" in _error_codes(projection_alias)
 
-    let_name = analyze(
-        _parse(
-            _source(
-                "postgres.table",
-                "query aggregate_stats:\n"
-                "    from orders\n"
-                "    let:\n"
-                "        gross = price + amount\n"
-                "    select:\n"
-                "        value = sum(gross)\n",
-            )
+    let_script = _parse(
+        _source(
+            "postgres.table",
+            "query aggregate_stats:\n"
+            "    from orders\n"
+            "    let:\n"
+            "        gross = price + amount\n"
+            "    select:\n"
+            "        value = sum(gross)\n",
         )
     )
-    assert "PIE-S2102" in _error_codes(let_name)
+    let_name = analyze(let_script)
+    let_relation = let_script.definitions[-1]
+    assert isinstance(let_relation, QueryDef)
+    assert _error_codes(let_name) == []
+    _assert_value_type(
+        let_name.model.relation_row_schemas[let_relation].fields["value"],
+        "Decimal",
+    )
 
     type_alias = analyze(
         _parse(

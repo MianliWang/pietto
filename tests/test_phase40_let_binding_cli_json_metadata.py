@@ -216,7 +216,7 @@ def test_supported_let_emit_sql_output_writes_only_inline_sql(
             "    let:\n"
             "        gross = amount + tax\n"
             "    select:\n"
-            "        total = sum(gross)\n",
+            "        counted = count(gross)\n",
             "PIE-S2102",
         ),
         (
@@ -383,7 +383,7 @@ def test_unsupported_let_explain_json_fails_without_metadata(
         "    let:\n"
         "        gross = amount + tax\n"
         "    select:\n"
-        "        total = sum(gross)\n",
+        "        counted = count(gross)\n",
     )
 
     assert cli.main(["explain", str(path), "--format", "json"]) == 1

@@ -227,22 +227,6 @@ def test_cli_check_emit_sql_and_explain_succeed_for_supported_let(
             "    let:\n"
             "        gross = amount + tax\n"
             "    select:\n"
-            "        total = sum(gross)\n",
-            "PIE-S2102",
-        ),
-        (
-            "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
-            "    select:\n"
-            "        average = avg(gross)\n",
-            "PIE-S2102",
-        ),
-        (
-            "    from orders\n"
-            "    let:\n"
-            "        gross = amount + tax\n"
-            "    select:\n"
             "        counted = count(gross)\n",
             "PIE-S2102",
         ),

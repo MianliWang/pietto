@@ -30,6 +30,7 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
+    aggregate_argument_can_use_let_scope,
     contains_semantic_aggregate,
     has_unknown_field_reference,
     invalid_context_diagnostic,
@@ -220,12 +221,19 @@ def type_relation_expressions(
     relation_row_schemas: Mapping[DerivedRelation, RowSchema],
     relation_let_value_types: Mapping[DerivedRelation, Mapping[str, ValueType]]
     | None = None,
+    relation_let_expressions: Mapping[DerivedRelation, Mapping[str, Expression]]
+    | None = None,
 ) -> tuple[dict[Expression, ValueType], list[Diagnostic]]:
     """Type supported table/query expressions without validating consumers."""
 
     value_types: dict[Expression, ValueType] = {}
     diagnostics: list[Diagnostic] = []
     relation_let_value_types = relation_let_value_types or {}
+    relation_let_expressions = (
+        relation_let_expressions
+        if relation_let_expressions is not None
+        else _relation_let_expressions(script, relation_let_value_types)
+    )
 
     for definition in script.definitions:
         if not isinstance(definition, (TableDef, QueryDef)):
@@ -237,6 +245,7 @@ def type_relation_expressions(
             relation_row_schemas=relation_row_schemas,
         )
         let_value_types = relation_let_value_types.get(definition)
+        let_expressions = relation_let_expressions.get(definition)
         if definition.where_clause is not None:
             _append_invalid_count_context_diagnostic(
                 definition.where_clause.expression,
@@ -255,8 +264,11 @@ def type_relation_expressions(
         for item in definition.select_items:
             select_let_value_types = (
                 let_value_types
-                if definition.group_by_clause is None
-                and not contains_semantic_aggregate(item.expression)
+                if (
+                    definition.group_by_clause is None
+                    and not contains_semantic_aggregate(item.expression)
+                )
+                or _is_direct_aggregate_projection(item)
                 else None
             )
             _infer(
@@ -269,6 +281,7 @@ def type_relation_expressions(
                 field_qualifier=definition.from_clause.source_name,
                 allow_aggregate_projection=_is_direct_aggregate_projection(item),
                 bare_value_types=select_let_value_types,
+                bare_value_expressions=let_expressions,
             )
         if (
             definition.order_by_clause is not None
@@ -288,6 +301,7 @@ def type_relation_expressions(
                     report_unknown_name=True,
                     field_qualifier=definition.from_clause.source_name,
                     bare_value_types=let_value_types,
+                    bare_value_expressions=let_expressions,
                 )
 
     return value_types, diagnostics
@@ -302,6 +316,7 @@ def infer_row_expression(
     report_unknown_name: bool,
     field_qualifier: str | None = None,
     bare_value_types: Mapping[str, ValueType] | None = None,
+    bare_value_expressions: Mapping[str, Expression] | None = None,
     suppressed_unknown_names: set[str] | None = None,
 ) -> ValueType:
     """Infer one row-level expression with optional bare-only local bindings."""
@@ -314,6 +329,7 @@ def infer_row_expression(
         report_unknown_name=report_unknown_name,
         field_qualifier=field_qualifier,
         bare_value_types=bare_value_types,
+        bare_value_expressions=bare_value_expressions,
         suppressed_unknown_names=suppressed_unknown_names,
     )
 
@@ -385,6 +401,27 @@ def _is_direct_aggregate_projection(item: SelectItem) -> bool:
     )
 
 
+def _relation_let_expressions(
+    script: Script,
+    relation_let_value_types: Mapping[DerivedRelation, Mapping[str, ValueType]],
+) -> dict[DerivedRelation, dict[str, Expression]]:
+    expressions: dict[DerivedRelation, dict[str, Expression]] = {}
+    for definition in script.definitions:
+        if not isinstance(definition, (TableDef, QueryDef)):
+            continue
+        if definition.let_clause is None:
+            continue
+        admitted_names = relation_let_value_types.get(definition)
+        if not admitted_names:
+            continue
+        expressions[definition] = {
+            binding.name: binding.expression
+            for binding in definition.let_clause.bindings
+            if binding.name in admitted_names
+        }
+    return expressions
+
+
 def _infer(
     expression: Expression,
     row_schema: RowSchema,
@@ -395,6 +432,7 @@ def _infer(
     field_qualifier: str | None = None,
     allow_aggregate_projection: bool = False,
     bare_value_types: Mapping[str, ValueType] | None = None,
+    bare_value_expressions: Mapping[str, Expression] | None = None,
     suppressed_unknown_names: set[str] | None = None,
 ) -> ValueType:
     """Infer only the expression forms supported by this scaffold."""
@@ -432,6 +470,7 @@ def _infer(
             field_qualifier=field_qualifier,
             allow_aggregate_projection=allow_aggregate_projection,
             bare_value_types=bare_value_types,
+            bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
         )
     elif isinstance(expression, IsNullExpr):
@@ -443,6 +482,7 @@ def _infer(
             report_unknown_name=report_unknown_name,
             field_qualifier=field_qualifier,
             bare_value_types=bare_value_types,
+            bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
         )
         value_type = _builtin_value_type(
@@ -458,6 +498,7 @@ def _infer(
             report_unknown_name=report_unknown_name,
             field_qualifier=field_qualifier,
             bare_value_types=bare_value_types,
+            bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
         )
     elif isinstance(expression, BinaryExpr):
@@ -469,6 +510,7 @@ def _infer(
             report_unknown_name=report_unknown_name,
             field_qualifier=field_qualifier,
             bare_value_types=bare_value_types,
+            bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
         )
     elif isinstance(expression, ComparisonExpr):
@@ -480,6 +522,7 @@ def _infer(
             report_unknown_name=report_unknown_name,
             field_qualifier=field_qualifier,
             bare_value_types=bare_value_types,
+            bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
         )
         _infer(
@@ -490,6 +533,7 @@ def _infer(
             report_unknown_name=report_unknown_name,
             field_qualifier=field_qualifier,
             bare_value_types=bare_value_types,
+            bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
         )
         value_type = _builtin_value_type(
@@ -505,6 +549,7 @@ def _infer(
             report_unknown_name=report_unknown_name,
             field_qualifier=field_qualifier,
             bare_value_types=bare_value_types,
+            bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
         )
     else:
@@ -525,6 +570,7 @@ def _unary_value_type(
     report_unknown_name: bool,
     field_qualifier: str | None,
     bare_value_types: Mapping[str, ValueType] | None,
+    bare_value_expressions: Mapping[str, Expression] | None,
     suppressed_unknown_names: set[str] | None,
 ) -> ValueType:
     """Type one prefix arithmetic expression."""
@@ -537,6 +583,7 @@ def _unary_value_type(
         report_unknown_name=report_unknown_name,
         field_qualifier=field_qualifier,
         bare_value_types=bare_value_types,
+        bare_value_expressions=bare_value_expressions,
         suppressed_unknown_names=suppressed_unknown_names,
     )
     if operand_type.kind is ValueTypeKind.UNKNOWN:
@@ -564,6 +611,7 @@ def _binary_value_type(
     report_unknown_name: bool,
     field_qualifier: str | None,
     bare_value_types: Mapping[str, ValueType] | None,
+    bare_value_expressions: Mapping[str, Expression] | None,
     suppressed_unknown_names: set[str] | None,
 ) -> ValueType:
     """Type one arithmetic or Boolean binary expression."""
@@ -576,6 +624,7 @@ def _binary_value_type(
         report_unknown_name=report_unknown_name,
         field_qualifier=field_qualifier,
         bare_value_types=bare_value_types,
+        bare_value_expressions=bare_value_expressions,
         suppressed_unknown_names=suppressed_unknown_names,
     )
     right_type = _infer(
@@ -586,6 +635,7 @@ def _binary_value_type(
         report_unknown_name=report_unknown_name,
         field_qualifier=field_qualifier,
         bare_value_types=bare_value_types,
+        bare_value_expressions=bare_value_expressions,
         suppressed_unknown_names=suppressed_unknown_names,
     )
     if expression.operator == "/":
@@ -646,6 +696,7 @@ def _between_value_type(
     report_unknown_name: bool,
     field_qualifier: str | None,
     bare_value_types: Mapping[str, ValueType] | None,
+    bare_value_expressions: Mapping[str, Expression] | None,
     suppressed_unknown_names: set[str] | None,
 ) -> ValueType:
     """Type an inclusive between predicate without compatibility checks."""
@@ -659,6 +710,7 @@ def _between_value_type(
             report_unknown_name=report_unknown_name,
             field_qualifier=field_qualifier,
             bare_value_types=bare_value_types,
+            bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
         )
         for child in (expression.value, expression.lower, expression.upper)
@@ -678,6 +730,7 @@ def _call_value_type(
     field_qualifier: str | None,
     allow_aggregate_projection: bool,
     bare_value_types: Mapping[str, ValueType] | None,
+    bare_value_expressions: Mapping[str, Expression] | None,
     suppressed_unknown_names: set[str] | None,
 ) -> ValueType:
     """Type one exact built-in call while suppressing Unknown cascades."""
@@ -692,6 +745,7 @@ def _call_value_type(
         field_qualifier=field_qualifier,
         allow_aggregate_projection=allow_aggregate_projection,
         bare_value_types=bare_value_types,
+        bare_value_expressions=bare_value_expressions,
         suppressed_unknown_names=suppressed_unknown_names,
     )
     if any(
@@ -701,7 +755,11 @@ def _call_value_type(
 
     if is_semantic_aggregate_call(expression):
         if allow_aggregate_projection:
-            result_type = _aggregate_value_type(expression, argument_types)
+            result_type = _aggregate_value_type(
+                expression,
+                argument_types,
+                let_expansions=bare_value_expressions,
+            )
             if result_type is not None:
                 return result_type
         return _UNKNOWN_VALUE_TYPE
@@ -750,6 +808,7 @@ def _call_argument_types(
     field_qualifier: str | None,
     allow_aggregate_projection: bool,
     bare_value_types: Mapping[str, ValueType] | None,
+    bare_value_expressions: Mapping[str, Expression] | None,
     suppressed_unknown_names: set[str] | None,
 ) -> tuple[ValueType, ...]:
     if (
@@ -760,6 +819,16 @@ def _call_argument_types(
     ):
         argument = expression.arguments[0]
         temporary_diagnostics: list[Diagnostic] = []
+        function_name = _callee_name(expression)
+        argument_bare_value_types = (
+            bare_value_types
+            if aggregate_argument_can_use_let_scope(
+                function_name,
+                argument,
+                bare_value_expressions,
+            )
+            else None
+        )
         argument_type = _infer(
             argument,
             row_schema,
@@ -767,13 +836,15 @@ def _call_argument_types(
             temporary_diagnostics,
             report_unknown_name=report_unknown_name,
             field_qualifier=field_qualifier,
-            bare_value_types=bare_value_types,
+            bare_value_types=argument_bare_value_types,
+            bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
         )
         if is_supported_semantic_aggregate_argument_expression(
-            _callee_name(expression),
+            function_name,
             argument,
             argument_type,
+            let_expansions=bare_value_expressions,
         ) or has_unknown_field_reference(argument, value_types):
             diagnostics.extend(temporary_diagnostics)
         return (argument_type,)
@@ -787,6 +858,7 @@ def _call_argument_types(
             report_unknown_name=report_unknown_name,
             field_qualifier=field_qualifier,
             bare_value_types=bare_value_types,
+            bare_value_expressions=bare_value_expressions,
             suppressed_unknown_names=suppressed_unknown_names,
         )
         for argument in expression.arguments
@@ -805,6 +877,8 @@ def _callee_name(expression: CallExpr) -> str:
 def _aggregate_value_type(
     expression: CallExpr,
     argument_types: tuple[ValueType, ...],
+    *,
+    let_expansions: Mapping[str, Expression] | None,
 ) -> ValueType | None:
     """Return a precise aggregate type only for approved direct projections."""
 
@@ -820,6 +894,7 @@ def _aggregate_value_type(
         function_name,
         argument,
         argument_types[0],
+        let_expansions=let_expansions,
     ):
         return None
     return semantic_projection_aggregate_result_value_type(

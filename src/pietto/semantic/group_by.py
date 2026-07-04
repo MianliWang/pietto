@@ -24,6 +24,7 @@ from pietto.semantic.aggregates import (
     contains_semantic_aggregate,
     deferred_argument_expression_diagnostic,
     deferred_composition_diagnostic,
+    effective_semantic_aggregate_argument_expression,
     has_unknown_field_reference,
     is_semantic_aggregate_call,
     is_supported_semantic_aggregate_arity,
@@ -81,6 +82,7 @@ def project_grouped_schema(
     input_schema: RowSchema,
     *,
     expression_value_types: Mapping[Expression, ValueType] | None,
+    let_expansions: Mapping[str, Expression] | None = None,
 ) -> tuple[RowSchema, list[Diagnostic]]:
     """Build grouped row schema facts while keeping lowering fail-closed."""
 
@@ -119,6 +121,7 @@ def project_grouped_schema(
                 item,
                 output_name=output_name,
                 expression_value_types=expression_value_types,
+                let_expansions=let_expansions,
             )
             diagnostics.extend(aggregate_diagnostics)
             if aggregate_field is not None:
@@ -255,6 +258,7 @@ def _aggregate_output_field(
     *,
     output_name: str | None,
     expression_value_types: Mapping[Expression, ValueType] | None,
+    let_expansions: Mapping[str, Expression] | None,
 ) -> tuple[RowField | None, list[Diagnostic], bool]:
     expression = item.expression
     diagnostics: list[Diagnostic] = []
@@ -289,8 +293,13 @@ def _aggregate_output_field(
     argument_type = None
     if expression.arguments:
         argument = expression.arguments[0]
-        has_unknown_reference = has_unknown_field_reference(
+        effective_argument = effective_semantic_aggregate_argument_expression(
+            function_name,
             argument,
+            let_expansions=let_expansions,
+        )
+        has_unknown_reference = has_unknown_field_reference(
+            effective_argument,
             expression_value_types,
         )
 
@@ -318,6 +327,7 @@ def _aggregate_output_field(
             function_name,
             argument,
             argument_type,
+            let_expansions=let_expansions,
         ):
             diagnostics.append(deferred_argument_expression_diagnostic(expression))
             return _unknown_row_field(item.alias), diagnostics, False

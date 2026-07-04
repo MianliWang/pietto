@@ -3,12 +3,14 @@
 ## Status
 
 Phase 43 Slice 1 is docs/spec/deferred-register/static-audit scope-lock work
-only. It does not implement aggregate-let support, grouped let support,
-diagnostic changes, semantic implementation changes, IR or SQL lowering
-changes, CLI/JSON behavior, explain behavior, metadata schemas, fixtures,
-goldens, examples, package metadata, workflow changes, release operations,
-runtime/database behavior, project/multi-file behavior, LSP/editor behavior,
-Arrow/PyArrow integration, or relationship/JOIN behavior.
+only. Phase 43 Slice 2 implements only the direct `sum(row_let)` /
+`avg(row_let)` inline aggregate argument subset. It does not implement
+`count(row_let)`, `count_distinct(row_let)`, grouped let keys, grouped let
+ordering, raw `satisfying` let-name behavior, diagnostic code changes, SQL
+renderer changes, CLI/JSON schema changes, explain behavior changes, metadata
+schemas, fixtures, goldens, examples, package metadata, workflow changes,
+release operations, runtime/database behavior, project/multi-file behavior,
+LSP/editor behavior, Arrow/PyArrow integration, or relationship/JOIN behavior.
 
 Package version remains `0.1.0`.
 
@@ -50,13 +52,26 @@ These supported scopes inline the let expression at the reference site. They do
 not create a relation layer, a SQL alias-reuse layer, hidden CTEs, hidden
 subqueries, or public metadata keys.
 
-## Current Fail-Closed Boundary
+## Slice 2 Aggregate-Let Subset
 
-Aggregate arguments do not see let names today. The following forms remain
-fail-closed and deferred when `gross` is a let binding:
+Slice 2 allows these aggregate arguments when `gross` is a row-level let
+binding whose inline-expanded expression is already accepted by current
+`sum`/`avg` numeric aggregate argument rules:
 
 - `sum(gross)`;
 - `avg(gross)`;
+
+The compiler validates the expanded row-level binding expression through the
+existing aggregate argument rules and lowers the argument as an inline
+expression. It adds no aggregate-only let semantics, hidden CTE, hidden
+subquery, relation layer, SQL alias reuse layer, public metadata key, or public
+output schema field.
+
+## Current Fail-Closed Boundary
+
+The following forms remain fail-closed and deferred when `gross` is a let
+binding:
+
 - `count(gross)`;
 - `count_distinct(gross)`.
 
@@ -85,10 +100,8 @@ source-ordered row-level expression already recorded for that binding, then
 applying the existing aggregate, group-key, satisfying, grouped-order, or SQL
 guard for the expanded expression.
 
-Policy candidates for later slices:
+Policy candidates after Slice 2:
 
-- `sum(row_let)` and `avg(row_let)` may be supported when the expanded
-  expression fits current numeric aggregate argument rules;
 - `count(row_let)` and `count_distinct(row_let)` may be supported when the
   expanded expression fits current count-family aggregate rules;
 - `group by row_let` may be supported when the expanded expression is a safe

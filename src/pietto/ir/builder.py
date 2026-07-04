@@ -435,9 +435,7 @@ def _lower_relation(
             input_schema=input_schema,
             target_symbol=target_symbol,
             output_fields=output_fields,
-            let_expansions=(
-                let_expansions if definition.group_by_clause is None else {}
-            ),
+            let_expansions=let_expansions,
         )
         for item in definition.select_items
     )

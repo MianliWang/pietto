@@ -279,9 +279,16 @@ def is_supported_semantic_aggregate_argument_expression(
     function_name: str,
     expression: Expression,
     value_type: ValueType,
+    *,
+    let_expansions: Mapping[str, Expression] | None = None,
 ) -> bool:
     """Return whether an aggregate accepts this argument expression."""
 
+    expression = effective_semantic_aggregate_argument_expression(
+        function_name,
+        expression,
+        let_expansions=let_expansions,
+    )
     if is_direct_field_argument(expression):
         return is_supported_semantic_aggregate_argument(function_name, value_type)
     if function_name == COUNT_AGGREGATE_NAME:
@@ -296,6 +303,141 @@ def is_supported_semantic_aggregate_argument_expression(
         expression,
         value_type,
     )
+
+
+def effective_semantic_aggregate_argument_expression(
+    function_name: str,
+    expression: Expression,
+    *,
+    let_expansions: Mapping[str, Expression] | None,
+) -> Expression:
+    """Return the expression shape used for approved aggregate argument checks."""
+
+    if function_name not in {SUM_AGGREGATE_NAME, AVG_AGGREGATE_NAME}:
+        return expression
+    if not isinstance(expression, NameExpr):
+        return expression
+    if let_expansions is None or expression.name not in let_expansions:
+        return expression
+    return _expand_let_references(
+        let_expansions[expression.name],
+        let_expansions=let_expansions,
+        let_stack=frozenset((expression.name,)),
+    )
+
+
+def aggregate_argument_can_use_let_scope(
+    function_name: str,
+    expression: Expression,
+    let_expansions: Mapping[str, Expression] | None,
+) -> bool:
+    """Return whether this aggregate argument is the approved direct let form."""
+
+    return (
+        function_name in {SUM_AGGREGATE_NAME, AVG_AGGREGATE_NAME}
+        and isinstance(expression, NameExpr)
+        and let_expansions is not None
+        and expression.name in let_expansions
+    )
+
+
+def _expand_let_references(
+    expression: Expression,
+    *,
+    let_expansions: Mapping[str, Expression],
+    let_stack: frozenset[str],
+) -> Expression:
+    if isinstance(expression, NameExpr) and expression.name in let_expansions:
+        if expression.name in let_stack:
+            return expression
+        return _expand_let_references(
+            let_expansions[expression.name],
+            let_expansions=let_expansions,
+            let_stack=let_stack | frozenset((expression.name,)),
+        )
+    if isinstance(expression, UnaryExpr):
+        return UnaryExpr(
+            operator=expression.operator,
+            operand=_expand_let_references(
+                expression.operand,
+                let_expansions=let_expansions,
+                let_stack=let_stack,
+            ),
+            span=expression.span,
+        )
+    if isinstance(expression, BinaryExpr):
+        return BinaryExpr(
+            left=_expand_let_references(
+                expression.left,
+                let_expansions=let_expansions,
+                let_stack=let_stack,
+            ),
+            operator=expression.operator,
+            right=_expand_let_references(
+                expression.right,
+                let_expansions=let_expansions,
+                let_stack=let_stack,
+            ),
+            span=expression.span,
+        )
+    if isinstance(expression, CallExpr):
+        return CallExpr(
+            callee=expression.callee,
+            arguments=tuple(
+                _expand_let_references(
+                    argument,
+                    let_expansions=let_expansions,
+                    let_stack=let_stack,
+                )
+                for argument in expression.arguments
+            ),
+            span=expression.span,
+        )
+    if isinstance(expression, ComparisonExpr):
+        return ComparisonExpr(
+            left=_expand_let_references(
+                expression.left,
+                let_expansions=let_expansions,
+                let_stack=let_stack,
+            ),
+            operator=expression.operator,
+            right=_expand_let_references(
+                expression.right,
+                let_expansions=let_expansions,
+                let_stack=let_stack,
+            ),
+            span=expression.span,
+        )
+    if isinstance(expression, BetweenExpr):
+        return BetweenExpr(
+            value=_expand_let_references(
+                expression.value,
+                let_expansions=let_expansions,
+                let_stack=let_stack,
+            ),
+            lower=_expand_let_references(
+                expression.lower,
+                let_expansions=let_expansions,
+                let_stack=let_stack,
+            ),
+            upper=_expand_let_references(
+                expression.upper,
+                let_expansions=let_expansions,
+                let_stack=let_stack,
+            ),
+            span=expression.span,
+        )
+    if isinstance(expression, IsNullExpr):
+        return IsNullExpr(
+            value=_expand_let_references(
+                expression.value,
+                let_expansions=let_expansions,
+                let_stack=let_stack,
+            ),
+            negated=expression.negated,
+            span=expression.span,
+        )
+    return expression
 
 
 def has_unknown_field_reference(

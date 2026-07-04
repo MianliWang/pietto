@@ -6,6 +6,12 @@ Phase 43 Slice 1 is Identity, Scope Lock, And Static Audit. Slice 1 is
 docs/spec/deferred-register/static-audit work only and implements no behavior
 change.
 
+Phase 43 Slice 2 is `sum(row_let)` / `avg(row_let)` Inline Aggregate
+Arguments. Slice 2 is a production behavior slice. It admits only direct
+aliased `sum(row_let)` and `avg(row_let)` aggregate projections when the
+row-level binding expands inline to an expression already accepted by the
+current `sum`/`avg` numeric aggregate argument rules.
+
 Trusted Phase 42 handoff:
 
 - baseline HEAD: `2e9bb45623a7bf98ed430b9b9ab76404402b9a5e`;
@@ -43,9 +49,10 @@ relationship/JOIN-driven query behavior, runtime/database execution, and
 project/multi-file semantic expansion remain outside the current approved
 single-file compiler boundary.
 
-Phase 43 instead follows the unresolved Phase 40 and Phase 42 boundary:
-relation-local `let:` names are row-level inline bindings today, while aggregate
-arguments and grouped result-scope consumers still fail closed.
+Phase 43 follows the unresolved Phase 40 and Phase 42 boundary:
+relation-local `let:` names are row-level inline bindings today. Slice 2
+unfreezes only the `sum(row_let)` / `avg(row_let)` aggregate-argument subset;
+the remaining grouped and result-scope consumers still fail closed.
 
 ## Candidate Decision
 
@@ -81,10 +88,22 @@ The final supported Phase 40 row-level `let:` surface remains:
   `emit-sql --format json`, `emit-sql --output`, `explain`, and
   `explain --format json`.
 
+Slice 2 extends that surface narrowly:
+
+- no-GROUP aggregate select projections may use `sum(row_let)` and
+  `avg(row_let)` when the row-level binding expands to a current accepted
+  numeric aggregate argument expression;
+- grouped aggregate select projections may use the same `sum(row_let)` and
+  `avg(row_let)` subset;
+- the aggregate argument is IR inline-expanded and PostgreSQL/private MySQL SQL
+  renders the expanded expression inside `SUM(...)` or `AVG(...)`;
+- CLI text, CLI JSON v1, explain text/JSON, and Semantic Metadata Artifact v1
+  remain structurally compatible and expose no public `let_scopes` key.
+
 The current fail-closed boundary remains:
 
-- aggregate-let remains deferred for `sum(gross)`, `avg(gross)`,
-  `count(gross)`, and `count_distinct(gross)` where `gross` is a let name;
+- aggregate-let remains deferred for `count(gross)` and
+  `count_distinct(gross)` where `gross` is a let name;
 - `group by gross` remains deferred/fail-closed;
 - `satisfying: gross > 0` remains deferred/fail-closed;
 - grouped `order by gross` remains deferred/fail-closed;
@@ -93,7 +112,8 @@ The current fail-closed boundary remains:
 - projection aliases remain output names only and do not become expression
   leaves.
 
-Phase 42 confirms that aggregate arguments still do not see let names:
+Historical Phase 42 evidence confirmed that aggregate arguments did not see let
+names before Slice 2:
 `type_relation_expressions` passes no let scope into direct aggregate projection
 argument typing, and IR lowering passes empty `let_expansions` while lowering
 aggregate arguments.
@@ -131,7 +151,7 @@ The phase-level guardrails are:
 | Slice | Name | Slice posture |
 |---:|---|---|
 | 1 | Identity, Scope Lock, And Static Audit | docs/spec/deferred-register/static-audit only; no behavior change |
-| 2 | `sum(row_let)` / `avg(row_let)` Inline Aggregate Arguments | production behavior |
+| 2 | `sum(row_let)` / `avg(row_let)` Inline Aggregate Arguments | complete production behavior |
 | 3 | `count(row_let)` / `count_distinct(row_let)` Inline Aggregate Arguments | production behavior |
 | 4 | `group by row_let` Inline Group Key MVP | production behavior |
 | 5 | Grouped `order by row_let` Safe Subset | production behavior |

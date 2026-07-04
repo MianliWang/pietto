@@ -378,7 +378,7 @@ def test_fail_closed_aggregate_typeclass_boundaries_are_locked(
     assert expected_code in _error_codes(semantic)
 
 
-def test_projection_alias_let_and_type_alias_aggregate_arguments_fail_closed() -> None:
+def test_projection_alias_type_alias_and_phase43_row_let_boundaries() -> None:
     projection_alias = analyze(
         _parse(
             MATRIX_SHAPE
@@ -392,19 +392,25 @@ def test_projection_alias_let_and_type_alias_aggregate_arguments_fail_closed() -
     )
     assert "PIE-S2102" in _error_codes(projection_alias)
 
-    let_name = analyze(
-        _parse(
-            MATRIX_SHAPE
-            + 'source orders: Order is postgres.table("orders")\n'
-            + "query aggregate_stats:\n"
-            + "    from orders\n"
-            + "    let:\n"
-            + "        gross = amount + tax\n"
-            + "    select:\n"
-            + "        value = sum(gross)\n"
-        )
+    let_script = _parse(
+        MATRIX_SHAPE
+        + 'source orders: Order is postgres.table("orders")\n'
+        + "query aggregate_stats:\n"
+        + "    from orders\n"
+        + "    let:\n"
+        + "        gross = amount + tax\n"
+        + "    select:\n"
+        + "        value = sum(gross)\n"
     )
-    assert "PIE-S2102" in _error_codes(let_name)
+    let_name = analyze(let_script)
+    relation = _relation_ast(let_script)
+
+    assert _error_codes(let_name) == []
+    _assert_value_type(
+        let_name.model.relation_row_schemas[relation].fields["value"],
+        "Int",
+        EffectiveNullability.NULLABLE,
+    )
 
     type_alias = analyze(
         _parse(

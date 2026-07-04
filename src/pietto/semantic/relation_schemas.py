@@ -22,6 +22,7 @@ from pietto.semantic.aggregates import (
     contains_semantic_aggregate,
     deferred_composition_diagnostic,
     deferred_argument_expression_diagnostic,
+    effective_semantic_aggregate_argument_expression,
     has_unknown_field_reference,
     is_semantic_aggregate_call,
     is_supported_semantic_aggregate_arity,
@@ -35,6 +36,7 @@ from pietto.semantic.aggregates import (
     wrong_argument_type_diagnostic,
 )
 from pietto.semantic.group_by import project_grouped_schema
+from pietto.semantic.let_bindings import admitted_relation_let_expressions
 from pietto.semantic.model import (
     CheckMode,
     EffectiveNullability,
@@ -60,6 +62,8 @@ def propagate_relation_schemas(
     source_row_schemas: Mapping[SourceDef, RowSchema],
     cyclic_relations: set[DerivedRelation],
     expression_value_types: Mapping[Expression, ValueType] | None = None,
+    relation_let_expressions: Mapping[DerivedRelation, Mapping[str, Expression]]
+    | None = None,
 ) -> tuple[dict[DerivedRelation, RowSchema], list[Diagnostic]]:
     """Propagate stable projection names through table and query relations."""
 
@@ -76,6 +80,7 @@ def propagate_relation_schemas(
                 _unknown_schema(),
                 mode=mode,
                 expression_value_types=expression_value_types,
+                relation_let_expressions=relation_let_expressions,
             )
             schemas[definition] = schema
             diagnostics.extend(relation_diagnostics)
@@ -97,6 +102,7 @@ def propagate_relation_schemas(
             input_schema,
             mode=mode,
             expression_value_types=expression_value_types,
+            relation_let_expressions=relation_let_expressions,
         )
         visiting.remove(definition)
         schemas[definition] = schema
@@ -116,14 +122,21 @@ def _project_schema(
     *,
     mode: CheckMode,
     expression_value_types: Mapping[Expression, ValueType] | None,
+    relation_let_expressions: Mapping[DerivedRelation, Mapping[str, Expression]] | None,
 ) -> tuple[RowSchema, list[Diagnostic]]:
     """Build ordered output fields from stable projection names."""
 
+    let_expansions = _let_expansions_for_definition(
+        definition,
+        input_schema,
+        relation_let_expressions=relation_let_expressions,
+    )
     if definition.group_by_clause is not None:
         return project_grouped_schema(
             definition,
             input_schema,
             expression_value_types=expression_value_types,
+            let_expansions=let_expansions,
         )
 
     fields: dict[str, RowField] = {}
@@ -133,6 +146,7 @@ def _project_schema(
     aggregate_diagnostics, invalid_aggregate_items = _aggregate_projection_diagnostics(
         definition,
         expression_value_types=expression_value_types,
+        let_expansions=let_expansions,
     )
     diagnostics.extend(aggregate_diagnostics)
 
@@ -200,10 +214,22 @@ def _project_schema(
     ), diagnostics
 
 
+def _let_expansions_for_definition(
+    definition: DerivedRelation,
+    input_schema: RowSchema,
+    *,
+    relation_let_expressions: Mapping[DerivedRelation, Mapping[str, Expression]] | None,
+) -> Mapping[str, Expression] | None:
+    if relation_let_expressions is not None:
+        return relation_let_expressions.get(definition)
+    return admitted_relation_let_expressions(definition, input_schema)
+
+
 def _aggregate_projection_diagnostics(
     definition: DerivedRelation,
     *,
     expression_value_types: Mapping[Expression, ValueType] | None,
+    let_expansions: Mapping[str, Expression] | None,
 ) -> tuple[list[Diagnostic], set[SelectItem]]:
     """Validate the direct aliased no-GROUP aggregate projection shape."""
 
@@ -249,8 +275,13 @@ def _aggregate_projection_diagnostics(
 
         if expression.arguments:
             argument = expression.arguments[0]
-            has_unknown_reference = has_unknown_field_reference(
+            effective_argument = effective_semantic_aggregate_argument_expression(
+                function_name,
                 argument,
+                let_expansions=let_expansions,
+            )
+            has_unknown_reference = has_unknown_field_reference(
+                effective_argument,
                 expression_value_types,
             )
             argument_type = (
@@ -281,6 +312,7 @@ def _aggregate_projection_diagnostics(
                 function_name,
                 argument,
                 argument_type,
+                let_expansions=let_expansions,
             ):
                 diagnostics.append(deferred_argument_expression_diagnostic(expression))
                 invalid_items.add(item)

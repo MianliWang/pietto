@@ -77,6 +77,24 @@ def analyze_relation_let_bindings(
     return scopes, value_types, diagnostics
 
 
+def admitted_relation_let_expressions(
+    definition: DerivedRelation,
+    input_schema: RowSchema,
+) -> dict[str, Expression]:
+    """Return relation-local let expressions admitted into the private scope."""
+
+    if definition.let_clause is None:
+        return {}
+    invalid_names = _invalid_binding_names(definition, input_schema, [])
+    expressions: dict[str, Expression] = {}
+    seen_names: set[str] = set()
+    for binding in definition.let_clause.bindings:
+        if binding.name not in invalid_names and binding.name not in seen_names:
+            expressions[binding.name] = binding.expression
+        seen_names.add(binding.name)
+    return expressions
+
+
 def let_projection_conflict_diagnostics(
     definition: DerivedRelation,
     let_scope: LetScopeSemanticInfo | None,

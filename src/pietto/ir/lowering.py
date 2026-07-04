@@ -44,6 +44,7 @@ from pietto.ir.model import (
 )
 from pietto.semantic.catalog import BUILTIN_FUNCTIONS
 from pietto.semantic.aggregates import (
+    aggregate_argument_can_use_let_scope,
     semantic_aggregate_call_name,
     semantic_aggregate_result_value_type,
 )
@@ -284,7 +285,11 @@ def _lower_expr_node(
                         fields=fields,
                         field_owner=field_owner,
                         field_qualifier=field_qualifier,
-                        let_expansions={},
+                        let_expansions=_aggregate_argument_let_expansions(
+                            callee,
+                            argument,
+                            let_expansions,
+                        ),
                         let_stack=frozenset(),
                     )
                     for argument in expression.arguments
@@ -417,6 +422,20 @@ def _lower_expr_node(
             **common,
         )
     raise TypeError(f"Unsupported expression AST node: {type(expression).__name__}")
+
+
+def _aggregate_argument_let_expansions(
+    function_name: str,
+    argument: Expression,
+    let_expansions: Mapping[str, Expression],
+) -> Mapping[str, Expression]:
+    if aggregate_argument_can_use_let_scope(
+        function_name,
+        argument,
+        let_expansions,
+    ):
+        return let_expansions
+    return {}
 
 
 def _callee_name(expression: CallExpr) -> str:
