@@ -4,8 +4,9 @@
 
 Phase 43 Slice 1 is docs/spec/deferred-register/static-audit scope-lock work
 only. Phase 43 Slice 2 implements only the direct `sum(row_let)` /
-`avg(row_let)` inline aggregate argument subset. It does not implement
-`count(row_let)`, `count_distinct(row_let)`, grouped let keys, grouped let
+`avg(row_let)` inline aggregate argument subset. Phase 43 Slice 3 implements
+only the direct `count(row_let)` / `count_distinct(row_let)` inline aggregate
+argument subset. Slices 2 and 3 do not implement grouped let keys, grouped let
 ordering, raw `satisfying` let-name behavior, diagnostic code changes, SQL
 renderer changes, CLI/JSON schema changes, explain behavior changes, metadata
 schemas, fixtures, goldens, examples, package metadata, workflow changes,
@@ -67,13 +68,35 @@ expression. It adds no aggregate-only let semantics, hidden CTE, hidden
 subquery, relation layer, SQL alias reuse layer, public metadata key, or public
 output schema field.
 
+## Slice 3 Count-Family Aggregate-Let Subset
+
+Slice 3 allows these aggregate arguments when `gross` or `normalized` is a
+row-level let binding whose inline-expanded expression is already accepted by
+current count-family aggregate argument rules:
+
+- `count(gross)`;
+- `count_distinct(normalized)`.
+
+The compiler validates the expanded row-level binding expression through the
+existing count-family aggregate argument rules and lowers the argument as an
+inline expression. `count(row_let)` may use only current accepted
+field-bearing count argument shapes. `count_distinct(row_let)` may use only
+current accepted direct fields or lower/trim Text transform chains. Slice 3
+adds no aggregate-only let semantics, hidden CTE, hidden subquery, relation
+layer, SQL alias reuse layer, public metadata key, public output schema field,
+literal-only count behavior, or broad `count_distinct(expression)` behavior.
+
 ## Current Fail-Closed Boundary
 
 The following forms remain fail-closed and deferred when `gross` is a let
 binding:
 
-- `count(gross)`;
-- `count_distinct(gross)`.
+- `min(gross)`;
+- `max(gross)`.
+
+Count-family aggregate-let support also remains fail-closed when the expanded
+let expression is not accepted by current count-family rules, including
+literal-only `count(one)` and broad `count_distinct(amount + tax)`.
 
 Let names also remain unavailable in non-row-level or result-scope positions:
 
@@ -100,10 +123,8 @@ source-ordered row-level expression already recorded for that binding, then
 applying the existing aggregate, group-key, satisfying, grouped-order, or SQL
 guard for the expanded expression.
 
-Policy candidates after Slice 2:
+Policy candidates after Slice 3:
 
-- `count(row_let)` and `count_distinct(row_let)` may be supported when the
-  expanded expression fits current count-family aggregate rules;
 - `group by row_let` may be supported when the expanded expression is a safe
   row-level group-key expression;
 - `satisfying: sum(row_let) > 0` may be supported through the existing selected

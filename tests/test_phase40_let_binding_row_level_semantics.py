@@ -247,7 +247,7 @@ def test_invalid_let_binding_cases_fail_closed(
             "    let:\n"
             "        gross = amount + tax\n"
             "    select:\n"
-            "        total_amount = count(gross)\n",
+            "        total_amount = min(gross)\n",
             "PIE-S2102",
         ),
         (

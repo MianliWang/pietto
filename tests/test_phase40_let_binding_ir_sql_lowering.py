@@ -227,7 +227,7 @@ def test_cli_check_emit_sql_and_explain_succeed_for_supported_let(
             "    let:\n"
             "        gross = amount + tax\n"
             "    select:\n"
-            "        counted = count(gross)\n",
+            "        smallest = min(gross)\n",
             "PIE-S2102",
         ),
         (

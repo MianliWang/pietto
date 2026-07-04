@@ -47,6 +47,14 @@ SEMANTIC_AGGREGATE_NAMES = AGGREGATE_NAMES | frozenset(
         MAX_AGGREGATE_NAME,
     }
 )
+LET_EXPANDABLE_AGGREGATE_ARGUMENT_NAMES = frozenset(
+    {
+        COUNT_AGGREGATE_NAME,
+        COUNT_DISTINCT_AGGREGATE_NAME,
+        SUM_AGGREGATE_NAME,
+        AVG_AGGREGATE_NAME,
+    }
+)
 
 COUNT_VALUE_TYPE = ValueType(
     resolved_type=ResolvedType(name="Int", kind=TypeKind.BUILTIN),
@@ -313,7 +321,7 @@ def effective_semantic_aggregate_argument_expression(
 ) -> Expression:
     """Return the expression shape used for approved aggregate argument checks."""
 
-    if function_name not in {SUM_AGGREGATE_NAME, AVG_AGGREGATE_NAME}:
+    if function_name not in LET_EXPANDABLE_AGGREGATE_ARGUMENT_NAMES:
         return expression
     if not isinstance(expression, NameExpr):
         return expression
@@ -334,7 +342,7 @@ def aggregate_argument_can_use_let_scope(
     """Return whether this aggregate argument is the approved direct let form."""
 
     return (
-        function_name in {SUM_AGGREGATE_NAME, AVG_AGGREGATE_NAME}
+        function_name in LET_EXPANDABLE_AGGREGATE_ARGUMENT_NAMES
         and isinstance(expression, NameExpr)
         and let_expansions is not None
         and expression.name in let_expansions

@@ -13,6 +13,7 @@ from pietto.errors import Severity
 from pietto.ir import (
     AggregateCallIR,
     BinaryIR,
+    CallIR,
     FieldRefIR,
     RelationIR,
     ScriptIR,
@@ -24,76 +25,106 @@ from pietto.sql import SqlArtifactKind, emit_postgres_sql
 from pietto.sql.mysql import emit_mysql_sql
 
 SOURCE_PREFIX = (
+    "enum Status:\n"
+    "    active\n"
+    "    paused\n"
     "shape Order:\n"
     "    id: Int not null\n"
     "    amount: Int not null\n"
     "    tax: Int not null\n"
     "    discount: Int not null\n"
     "    score: Float not null\n"
-    "    weight: Float nullable\n"
     "    status: Text not null\n"
     "    active: Bool not null\n"
-    "    price: Decimal not null\n"
+    "    raw: Bytes not null\n"
+    "    payload: Json not null\n"
+    "    anything: Any nullable\n"
+    "    enum_status: Status not null\n"
     'source orders: Order is postgres.table("orders")\n'
 )
 MYSQL_SOURCE_PREFIX = SOURCE_PREFIX.replace("postgres.table", "mysql.table")
 
 
-def test_sum_avg_row_let_arguments_are_semantically_accepted() -> None:
+def test_count_row_let_arguments_are_semantically_accepted() -> None:
     semantic = _semantic_for(
         "query aggregate_orders:\n"
         "    from orders\n"
         "    let:\n"
+        "        amount_value = amount\n"
         "        gross = amount + tax\n"
         "        net = gross - discount\n"
-        "        weighted = score * weight\n"
+        "        normalized = lower(trim(status))\n"
         "    select:\n"
-        "        total = sum(gross)\n"
-        "        average_net = avg(net)\n"
-        "        average_weighted = avg(weighted)\n"
+        "        known_amounts = count(amount_value)\n"
+        "        known_gross = count(gross)\n"
+        "        known_net = count(net)\n"
+        "        known_normalized = count(normalized)\n"
     )
     relation = _relation_ast(semantic)
     schema = semantic.model.relation_row_schemas[relation]
 
     assert _errors(semantic) == []
-    _assert_field(schema.fields["total"], "Int", EffectiveNullability.NULLABLE)
-    _assert_field(
-        schema.fields["average_net"],
-        "Float",
-        EffectiveNullability.NULLABLE,
-    )
-    _assert_field(
-        schema.fields["average_weighted"],
-        "Float",
-        EffectiveNullability.NULLABLE,
-    )
+    assert list(schema.fields) == [
+        "known_amounts",
+        "known_gross",
+        "known_net",
+        "known_normalized",
+    ]
+    for field_name in schema.fields:
+        _assert_field(schema.fields[field_name], "Int", EffectiveNullability.NON_NULL)
 
 
-def test_grouped_sum_avg_row_let_arguments_are_semantically_accepted() -> None:
+def test_count_distinct_row_let_arguments_are_semantically_accepted() -> None:
+    semantic = _semantic_for(
+        "query aggregate_orders:\n"
+        "    from orders\n"
+        "    let:\n"
+        "        amount_value = amount\n"
+        "        label = status\n"
+        "        normalized = lower(trim(status))\n"
+        "    select:\n"
+        "        unique_amounts = count_distinct(amount_value)\n"
+        "        unique_labels = count_distinct(label)\n"
+        "        unique_normalized = count_distinct(normalized)\n"
+    )
+    relation = _relation_ast(semantic)
+    schema = semantic.model.relation_row_schemas[relation]
+
+    assert _errors(semantic) == []
+    assert list(schema.fields) == [
+        "unique_amounts",
+        "unique_labels",
+        "unique_normalized",
+    ]
+    for field_name in schema.fields:
+        _assert_field(schema.fields[field_name], "Int", EffectiveNullability.NON_NULL)
+
+
+def test_grouped_count_family_row_let_arguments_are_semantically_accepted() -> None:
     semantic = _semantic_for(
         "query aggregate_orders:\n"
         "    from orders\n"
         "    let:\n"
         "        gross = amount + tax\n"
-        "        weighted = score * weight\n"
+        "        normalized = lower(trim(status))\n"
         "    group by:\n"
         "        status\n"
         "    select:\n"
         "        status\n"
-        "        total = sum(gross)\n"
-        "        average_weighted = avg(weighted)\n"
+        "        known_gross = count(gross)\n"
+        "        unique_normalized = count_distinct(normalized)\n"
     )
     relation = _relation_ast(semantic)
     schema = semantic.model.relation_row_schemas[relation]
 
     assert _errors(semantic) == []
-    assert list(schema.fields) == ["status", "total", "average_weighted"]
+    assert list(schema.fields) == ["status", "known_gross", "unique_normalized"]
     _assert_field(schema.fields["status"], "Text", EffectiveNullability.NON_NULL)
-    _assert_field(schema.fields["total"], "Int", EffectiveNullability.NULLABLE)
+    _assert_field(schema.fields["known_gross"], "Int", EffectiveNullability.NON_NULL)
     _assert_field(
-        schema.fields["average_weighted"],
-        "Float",
-        EffectiveNullability.NULLABLE,
+        schema.fields["unique_normalized"],
+        "Int",
+        EffectiveNullability.NON_NULL,
     )
 
 
@@ -104,23 +135,23 @@ def test_grouped_sum_avg_row_let_arguments_are_semantically_accepted() -> None:
             SOURCE_PREFIX,
             "postgres",
             (
-                'SUM(("amount" + "tax")) AS "total"',
-                'AVG((("amount" + "tax") - "discount")) AS "average_net"',
+                'COUNT((("amount" + "tax") - "discount")) AS "known_net"',
+                'COUNT(DISTINCT lower(trim("status"))) AS "unique_normalized"',
             ),
-            ('"gross"', '"net"', "WITH ", "FROM (SELECT"),
+            ('"gross"', '"net"', '"normalized"', "WITH ", "FROM (SELECT"),
         ),
         (
             MYSQL_SOURCE_PREFIX,
             "mysql",
             (
-                "SUM((`amount` + `tax`)) AS `total`",
-                "AVG(((`amount` + `tax`) - `discount`)) AS `average_net`",
+                "COUNT(((`amount` + `tax`) - `discount`)) AS `known_net`",
+                "COUNT(DISTINCT LOWER(TRIM(`status`))) AS `unique_normalized`",
             ),
-            ("`gross`", "`net`", "WITH ", "FROM (SELECT"),
+            ("`gross`", "`net`", "`normalized`", "WITH ", "FROM (SELECT"),
         ),
     ],
 )
-def test_sql_inlines_sum_avg_row_let_arguments_without_hidden_layers(
+def test_sql_inlines_count_family_row_let_arguments_without_hidden_layers(
     prefix: str,
     dialect: str,
     expected_fragments: tuple[str, str],
@@ -132,9 +163,10 @@ def test_sql_inlines_sum_avg_row_let_arguments_without_hidden_layers(
         "    let:\n"
         "        gross = amount + tax\n"
         "        net = gross - discount\n"
+        "        normalized = lower(trim(status))\n"
         "    select:\n"
-        "        total = sum(gross)\n"
-        "        average_net = avg(net)\n",
+        "        known_net = count(net)\n"
+        "        unique_normalized = count_distinct(normalized)\n",
         prefix=prefix,
         dialect=dialect,
     )
@@ -148,24 +180,25 @@ def test_sql_inlines_sum_avg_row_let_arguments_without_hidden_layers(
             assert fragment not in sql
 
 
-def test_ir_aggregate_arguments_inline_expand_row_let_names() -> None:
+def test_ir_count_family_aggregate_arguments_inline_expand_row_let_names() -> None:
     relation = _relation_ir(
         "query aggregate_orders:\n"
         "    from orders\n"
         "    let:\n"
         "        gross = amount + tax\n"
         "        net = gross - discount\n"
+        "        normalized = lower(trim(status))\n"
         "    select:\n"
-        "        total = sum(gross)\n"
-        "        average_net = avg(net)\n"
+        "        known_net = count(net)\n"
+        "        unique_normalized = count_distinct(normalized)\n"
     )
 
-    total = _aggregate_projection(relation, "total")
-    average_net = _aggregate_projection(relation, "average_net")
+    known_net = _aggregate_projection(relation, "known_net")
+    unique_normalized = _aggregate_projection(relation, "unique_normalized")
 
-    assert isinstance(total.arguments[0], BinaryIR)
-    assert isinstance(average_net.arguments[0], BinaryIR)
-    assert not _field_refs_named(relation, {"gross", "net"})
+    assert isinstance(known_net.arguments[0], BinaryIR)
+    assert isinstance(unique_normalized.arguments[0], CallIR)
+    assert not _field_refs_named(relation, {"gross", "net", "normalized"})
 
 
 def test_cli_json_and_explain_shapes_remain_compatible(
@@ -174,13 +207,15 @@ def test_cli_json_and_explain_shapes_remain_compatible(
 ) -> None:
     source_path = _write_source(
         tmp_path,
-        "aggregate_let.pietto",
+        "count_aggregate_let.pietto",
         "query aggregate_orders:\n"
         "    from orders\n"
         "    let:\n"
         "        gross = amount + tax\n"
+        "        normalized = lower(trim(status))\n"
         "    select:\n"
-        "        total = sum(gross)\n",
+        "        known_gross = count(gross)\n"
+        "        unique_normalized = count_distinct(normalized)\n",
     )
 
     assert cli.main(["check", str(source_path)]) == 0
@@ -216,6 +251,41 @@ def test_cli_json_and_explain_shapes_remain_compatible(
 
 
 @pytest.mark.parametrize(
+    ("binding", "projection", "expected_code"),
+    [
+        ("one = 1", "known = count(one)", "PIE-S2315"),
+        ("label = status", "known = count_distinct(len(label))", "PIE-S2102"),
+        ("gross = amount + tax", "known = count_distinct(gross)", "PIE-S2315"),
+        ("raw_value = raw", "known = count_distinct(raw_value)", "PIE-S2314"),
+        (
+            "payload_value = payload",
+            "known = count_distinct(payload_value)",
+            "PIE-S2314",
+        ),
+        ("anything_value = anything", "known = count(anything_value)", "PIE-S2314"),
+        ("enum_value = enum_status", "known = count(enum_value)", "PIE-S2314"),
+        ("gross = amount + tax", "smallest = min(gross)", "PIE-S2102"),
+        ("gross = amount + tax", "largest = max(gross)", "PIE-S2102"),
+    ],
+)
+def test_unsupported_count_family_let_expansion_shapes_keep_existing_diagnostics(
+    binding: str,
+    projection: str,
+    expected_code: str,
+) -> None:
+    semantic = _semantic_for(
+        "query aggregate_orders:\n"
+        "    from orders\n"
+        "    let:\n"
+        f"        {binding}\n"
+        "    select:\n"
+        f"        {projection}\n"
+    )
+
+    assert _error_codes(semantic) == [expected_code]
+
+
+@pytest.mark.parametrize(
     ("body", "expected_code"),
     [
         (
@@ -226,7 +296,7 @@ def test_cli_json_and_explain_shapes_remain_compatible(
             "        gross\n"
             "    select:\n"
             "        status\n"
-            "        total = sum(amount)\n",
+            "        known = count(amount)\n",
             "PIE-S2102",
         ),
         (
@@ -237,7 +307,7 @@ def test_cli_json_and_explain_shapes_remain_compatible(
             "        status\n"
             "    select:\n"
             "        status\n"
-            "        total = sum(amount)\n"
+            "        known = count(amount)\n"
             "    order by:\n"
             "        gross\n",
             "PIE-S2321",
@@ -250,7 +320,7 @@ def test_cli_json_and_explain_shapes_remain_compatible(
             "        status\n"
             "    select:\n"
             "        status\n"
-            "        total = sum(amount)\n"
+            "        known = count(amount)\n"
             "    satisfying:\n"
             "        gross > 0\n",
             "PIE-S2324",
@@ -269,19 +339,19 @@ def test_cli_json_and_explain_shapes_remain_compatible(
             "    let:\n"
             "        gross = amount + tax\n"
             "    select:\n"
-            "        total = sum(orders.gross)\n",
+            "        known = count(orders.gross)\n",
             "PIE-S2102",
         ),
         (
             "    from orders\n"
             "    select:\n"
             "        gross = amount + tax\n"
-            "        total = sum(gross)\n",
+            "        known = count(gross)\n",
             "PIE-S2102",
         ),
     ],
 )
-def test_remaining_non_slice2_let_consumers_remain_rejected(
+def test_non_slice3_let_consumers_remain_rejected(
     body: str,
     expected_code: str,
 ) -> None:
@@ -290,34 +360,8 @@ def test_remaining_non_slice2_let_consumers_remain_rejected(
     assert expected_code in _error_codes(semantic)
 
 
-@pytest.mark.parametrize(
-    ("binding", "projection", "expected_code"),
-    [
-        ("one = 1", "total = sum(one)", "PIE-S2315"),
-        ("ratio = amount / tax", "total = sum(ratio)", "PIE-S2315"),
-        ("label = status", "total = sum(label)", "PIE-S2314"),
-        ("flag = active", "average = avg(flag)", "PIE-S2314"),
-    ],
-)
-def test_unsupported_sum_avg_let_expansion_shapes_keep_existing_diagnostics(
-    binding: str,
-    projection: str,
-    expected_code: str,
-) -> None:
-    semantic = _semantic_for(
-        "query aggregate_orders:\n"
-        "    from orders\n"
-        "    let:\n"
-        f"        {binding}\n"
-        "    select:\n"
-        f"        {projection}\n"
-    )
-
-    assert _error_codes(semantic) == [expected_code]
-
-
 def _semantic_for(source: str) -> SemanticResult:
-    result = parse_source(SOURCE_PREFIX + source, path="phase43-slice2.pietto")
+    result = parse_source(SOURCE_PREFIX + source, path="phase43-slice3.pietto")
     assert result.diagnostics == ()
     assert result.ast is not None
     return analyze(result.ast)
@@ -338,7 +382,7 @@ def _relation_ir(source: str, *, prefix: str = SOURCE_PREFIX) -> RelationIR:
 
 
 def _script_ir(source: str, *, prefix: str = SOURCE_PREFIX) -> ScriptIR:
-    result = parse_source(prefix + source, path="phase43-slice2.pietto")
+    result = parse_source(prefix + source, path="phase43-slice3.pietto")
     assert result.diagnostics == ()
     assert result.ast is not None
     semantic = analyze(result.ast)

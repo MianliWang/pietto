@@ -240,9 +240,9 @@ def test_cli_json_output_and_explain_supported_matrix_is_schema_stable(
             "    let:\n"
             "        gross = amount + tax\n"
             "    select:\n"
-            "        counted = count(gross)\n",
+            "        smallest = min(gross)\n",
             "PIE-S2102",
-            id="count-let-argument",
+            id="min-let-argument",
         ),
         pytest.param(
             "    from orders\n"
@@ -250,8 +250,8 @@ def test_cli_json_output_and_explain_supported_matrix_is_schema_stable(
             "        gross = amount + tax\n"
             "    select:\n"
             "        distinct_count = count_distinct(gross)\n",
-            "PIE-S2102",
-            id="count-distinct-let-argument",
+            "PIE-S2315",
+            id="count-distinct-let-unsupported-expanded-shape",
         ),
         pytest.param(
             "    from orders\n"
@@ -408,14 +408,14 @@ def test_deferred_and_fail_closed_matrix_preserves_diagnostics(
     assert "PIE-S2328" not in codes
 
 
-def test_unsupported_non_sum_avg_aggregate_let_stops_before_ir() -> None:
+def test_unsupported_min_max_aggregate_let_stops_before_ir() -> None:
     semantic = _semantic_for(
         "query boundary_matrix:\n"
         "    from orders\n"
         "    let:\n"
         "        gross = amount + tax\n"
         "    select:\n"
-        "        counted = count(gross)\n"
+        "        smallest = min(gross)\n"
     )
 
     assert "PIE-S2102" in _error_codes(semantic)
@@ -443,7 +443,7 @@ def test_unsupported_matrix_emit_sql_json_and_output_fail_closed(
         "    let:\n"
         "        gross = amount + tax\n"
         "    select:\n"
-        "        counted = count(gross)\n",
+        "        smallest = min(gross)\n",
     )
     missing_output = tmp_path / "missing.sql"
 

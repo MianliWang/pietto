@@ -114,6 +114,7 @@ def test_deferred_register_classifies_phase42_related_future_work_only() -> None
     for required in (
         "Phase 42 Slice 1 scope-lock records the current aggregate validation map",
         "Phase 43 Slice 2 implements only direct `sum(let_name)` / `avg(let_name)` inline aggregate arguments",
+        "Phase 43 Slice 3 implements only direct `count(let_name)` / `count_distinct(let_name)` inline aggregate arguments",
         "Phase 42 Slice 1 scope-lock records the current numeric expression typing map",
         "Phase 42 Slice 3 implements only exact Decimal/Int `+` and `-` as logical Decimal",
         "Phase 42 Slice 5 adds only a private direct-field expression fact carrier scaffold",

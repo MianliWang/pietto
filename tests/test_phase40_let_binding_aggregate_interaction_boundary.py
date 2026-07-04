@@ -79,7 +79,7 @@ def test_aggregate_interaction_boundary_contract_doc_is_locked() -> None:
             "    let:\n"
             "        gross = amount + tax\n"
             "    select:\n"
-            "        counted = count(gross)\n",
+            "        smallest = min(gross)\n",
             "PIE-S2102",
         ),
         (
@@ -88,7 +88,7 @@ def test_aggregate_interaction_boundary_contract_doc_is_locked() -> None:
             "        gross = amount + tax\n"
             "    select:\n"
             "        distinct_count = count_distinct(gross)\n",
-            "PIE-S2102",
+            "PIE-S2315",
         ),
         (
             "    from orders\n"
@@ -164,14 +164,14 @@ def test_aggregate_and_result_scope_let_consumers_fail_closed(
     assert "PIE-S2328" not in codes
 
 
-def test_unsupported_non_sum_avg_aggregate_let_never_reaches_successful_ir() -> None:
+def test_unsupported_min_max_aggregate_let_never_reaches_successful_ir() -> None:
     semantic = _semantic_for(
         "query aggregate_boundary:\n"
         "    from orders\n"
         "    let:\n"
         "        gross = amount + tax\n"
         "    select:\n"
-        "        counted = count(gross)\n"
+        "        smallest = min(gross)\n"
     )
 
     assert "PIE-S2102" in _error_codes(semantic)
@@ -227,7 +227,7 @@ def test_unsupported_aggregate_let_emit_sql_json_and_output_fail_closed(
         "    let:\n"
         "        gross = amount + tax\n"
         "    select:\n"
-        "        counted = count(gross)\n",
+        "        smallest = min(gross)\n",
     )
     missing_output = tmp_path / "missing.sql"
 
@@ -341,7 +341,7 @@ def test_unsupported_aggregate_let_explain_json_fails_without_metadata(
         "    let:\n"
         "        gross = amount + tax\n"
         "    select:\n"
-        "        counted = count(gross)\n",
+        "        smallest = min(gross)\n",
     )
 
     assert cli.main(["explain", str(path), "--format", "json"]) == 1
