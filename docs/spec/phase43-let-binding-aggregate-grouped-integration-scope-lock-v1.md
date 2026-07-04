@@ -11,13 +11,16 @@ argument subset. Phase 43 Slice 4 implements only the direct
 recursively expands to a current accepted direct group-key field. Phase 43
 Slice 5 implements only the grouped `order by row_let` safe subset when the
 row-level binding recursively expands to a direct field already selected as a
-supported grouped order output. Slices 2 through 5 do not implement raw
-`satisfying` let-name behavior, diagnostic code changes, SQL renderer changes,
-CLI/JSON schema
-changes, explain behavior changes, metadata schemas, fixtures, goldens,
-examples, package metadata, workflow changes, release operations,
-runtime/database behavior, project/multi-file behavior, LSP/editor behavior,
-Arrow/PyArrow integration, or relationship/JOIN behavior.
+supported grouped order output. Phase 43 Slice 6 implements only selected
+aggregate-wrapped `satisfying` let calls when the aggregate-let call corresponds
+to an already selected supported aggregate projection. Phase 43 Slice 7 is
+CLI / JSON / Metadata / SQL Compatibility Hardening and implements no compiler
+behavior change. Slices 2 through 7 do not implement raw `satisfying` let-name
+behavior, diagnostic code changes, SQL renderer changes, CLI/JSON schema
+changes, explain schema changes, metadata schemas, fixtures, goldens, examples,
+package metadata, workflow changes, release operations, runtime/database
+behavior, project/multi-file behavior, LSP/editor behavior, Arrow/PyArrow
+integration, or relationship/JOIN behavior.
 
 Package version remains `0.1.0`.
 
@@ -133,6 +136,45 @@ over unselected fields, projection alias expression leaves, hidden CTE, hidden
 subquery, relation layer, public metadata key, public output schema field, or
 SQL renderer contract change.
 
+## Slice 6 Aggregate-Wrapped Satisfying Let Subset
+
+Slice 6 allows a direct aggregate call inside `satisfying:` only when all of the
+following are true:
+
+- the aggregate name is one of `sum`, `avg`, `count`, or `count_distinct`;
+- the aggregate call has exactly one bare admitted row-level let argument;
+- the recursively expanded argument is accepted by the approved Slice 2/3
+  aggregate-let rules for that aggregate;
+- the normalized aggregate-let call corresponds to an already selected supported
+  aggregate projection in the same grouped relation.
+
+The compiler lowers the accepted predicate to the selected aggregate expression.
+PostgreSQL/private MySQL SQL renders the expanded aggregate in `HAVING`, not the
+let name and not a SELECT alias. Slice 6 adds no broad direct aggregate calls
+inside `satisfying:`, no unselected aggregate-let calls, no raw
+`satisfying: row_let > 0`, no user-facing `HAVING` syntax, no hidden CTE, hidden
+subquery, relation layer, public metadata key, public output schema field, or
+SQL renderer contract change.
+
+## Slice 7 Compatibility Hardening
+
+Slice 7 adds tests/static-audit/docs compatibility hardening only. It records
+and verifies that the approved Slice 2 through Slice 6 inline-expansion behavior
+keeps these surfaces structurally compatible:
+
+- CLI text output;
+- CLI JSON v1;
+- `emit-sql --output`;
+- explain text/JSON;
+- Semantic Metadata Artifact v1;
+- PostgreSQL SQL;
+- private MySQL SQL.
+
+Slice 7 adds no compiler behavior, no production source changes, no SQL renderer
+changes, no public JSON key, no Project JSON v2 key, no explain/metadata schema
+key, no `let_scopes` key, no `LetBindingIR`, no `RelationLayerIR`, no hidden
+CTE/subquery/relation layer, no package version bump, and no release operation.
+
 ## Current Fail-Closed Boundary
 
 The following forms remain fail-closed and deferred when `gross` is a let
@@ -175,7 +217,7 @@ source-ordered row-level expression already recorded for that binding, then
 applying the existing aggregate, group-key, satisfying, grouped-order, or SQL
 guard for the expanded expression.
 
-Policy after Slice 6:
+Policy after Slice 7:
 
 - expression or literal group keys hidden behind let names remain rejected
   unless a later slice explicitly approves expression group-key semantics;

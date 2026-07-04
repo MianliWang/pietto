@@ -79,6 +79,10 @@ def test_phase43_slice1_artifacts_and_trusted_handoff_are_locked() -> None:
         "Slice 4 is a production behavior slice",
         "Phase 43 Slice 5 is Grouped `order by row_let` Safe Subset",
         "Slice 5 is a production behavior slice",
+        "Phase 43 Slice 6 is `satisfying` Boundary For Aggregate-Wrapped Let",
+        "Slice 6 is a production behavior slice",
+        "Phase 43 Slice 7 is CLI / JSON / Metadata / SQL Compatibility Hardening",
+        "Slice 7 is tests/static-audit/docs compatibility hardening only and implements no compiler behavior change",
     ):
         assert required in docs, required
 
@@ -142,6 +146,9 @@ def test_phase40_and_phase42_boundaries_are_carried_forward() -> None:
         "already selected supported aggregate projection",
         "direct non-let aggregate calls inside `satisfying:` remain rejected",
         "unselected aggregate-let calls inside `satisfying:` remain rejected",
+        "Slice 7 does not extend the compiler behavior surface",
+        "approved Slices 2 through 6 across CLI text, CLI JSON v1, explain text/JSON, Semantic Metadata Artifact v1, PostgreSQL SQL, and private MySQL SQL",
+        "adds no production source changes, no SQL renderer changes, no public schema keys, no metadata keys, no hidden relation layer, and no release work",
         "`group by gross` remains fail-closed when `gross` expands to an expression that is not a current accepted direct group-key field",
         "`satisfying: gross > 0` remains deferred/fail-closed",
         "grouped `order by gross` remains deferred/fail-closed when `gross` does not expand to an already selected supported grouped order field",
@@ -200,11 +207,15 @@ def test_phase43_slice_sequence_and_inline_policy_are_locked() -> None:
         "`satisfying: row_let > 0` must remain rejected unless",
         "`limit row_let` must continue to reject",
         "qualified let references must continue to reject",
-        "Slice 6 must not start raw",
+        "Slice 7 must not start raw",
         "`min(row_let)`",
         "`max(row_let)`",
         "literal-only group keys",
         "expression group keys",
+        "public JSON/metadata schema expansion",
+        "SQL renderer redesign",
+        "Dependabot",
+        "maintenance",
     ):
         assert required in docs, required
 
@@ -249,6 +260,7 @@ def test_deferred_register_records_phase43_scope_lock() -> None:
         "Phase 43 Slice 4 implements only direct `group by let_name` group keys",
         "Phase 43 Slice 5 implements only direct grouped `order by let_name` items",
         "Phase 43 Slice 6 implements only direct aggregate-wrapped `satisfying` let arguments",
+        "Phase 43 Slice 7 hardens CLI/JSON/metadata/SQL compatibility for approved Slice 2-6 behavior without behavior expansion",
         "grouped let ordering outside the approved Phase 43 Slice 5 direct selected-field subset",
         "raw `satisfying` let-name behavior outside the approved Phase 43 Slice 6 selected aggregate-wrapped let subset",
         "`limit let_name` behavior unfreeze only when a later implementation slice is explicitly approved",
@@ -283,6 +295,8 @@ def test_ir_package_and_release_boundaries_remain_locked() -> None:
         "no hidden CTE insertion",
         "no hidden subquery insertion",
         "no public `let_scopes` metadata key",
+        "no Project JSON v2 key",
+        "no explain/metadata schema key",
         "No compiler behavior is implemented by this slice",
     ):
         assert required in docs, required

@@ -28,6 +28,16 @@ production behavior slice. It admits only grouped `order by row_let` items when
 the row-level binding recursively expands inline to a direct field that is
 already selected as a supported grouped order output.
 
+Phase 43 Slice 6 is `satisfying` Boundary For Aggregate-Wrapped Let. Slice 6 is
+a production behavior slice. It admits only selected aggregate-wrapped
+`satisfying` calls when a supported aggregate uses one admitted row-level let
+argument and the normalized aggregate-let call corresponds to an already
+selected supported aggregate projection.
+
+Phase 43 Slice 7 is CLI / JSON / Metadata / SQL Compatibility Hardening. Slice
+7 is tests/static-audit/docs compatibility hardening only and implements no
+compiler behavior change.
+
 Trusted Phase 42 handoff:
 
 - baseline HEAD: `2e9bb45623a7bf98ed430b9b9ab76404402b9a5e`;
@@ -66,9 +76,10 @@ project/multi-file semantic expansion remain outside the current approved
 single-file compiler boundary.
 
 Phase 43 follows the unresolved Phase 40 and Phase 42 boundary:
-relation-local `let:` names are row-level inline bindings today. Slices 2 and 3
-unfreeze only direct aggregate-argument subsets for current accepted aggregate
-argument rules; grouped and result-scope consumers still fail closed.
+relation-local `let:` names are row-level inline bindings today. Slices 2
+through 6 unfreeze only direct inline-expansion subsets for current accepted
+aggregate, group-key, grouped-order, and selected result-predicate rules. Slice
+7 locks compatibility for that approved surface without adding behavior.
 
 ## Candidate Decision
 
@@ -161,6 +172,28 @@ Slice 5 extends that surface narrowly:
 - CLI text, CLI JSON v1, explain text/JSON, and Semantic Metadata Artifact v1
   remain structurally compatible and expose no public `let_scopes` key.
 
+Slice 6 extends that surface narrowly:
+
+- `satisfying: sum(row_let) > ...`, `avg(row_let)`, `count(row_let)`, and
+  `count_distinct(row_let)` may be used only when the aggregate-let call uses
+  one admitted row-level let argument, the expanded argument passes the approved
+  Slice 2/3 aggregate-let rules, and the normalized aggregate-let call
+  corresponds to an already selected supported aggregate projection;
+- raw `satisfying: row_let > 0` remains fail-closed;
+- direct non-let aggregate calls and unselected aggregate-let calls inside
+  `satisfying:` remain fail-closed;
+- the accepted predicate is IR inline-expanded to the selected aggregate
+  expression and PostgreSQL/private MySQL SQL renders the expanded aggregate in
+  `HAVING`;
+- CLI text, CLI JSON v1, explain text/JSON, and Semantic Metadata Artifact v1
+  remain structurally compatible and expose no public `let_scopes` key.
+
+Slice 7 does not extend the compiler behavior surface. It hardens compatibility
+coverage for approved Slices 2 through 6 across CLI text, CLI JSON v1, explain
+text/JSON, Semantic Metadata Artifact v1, PostgreSQL SQL, and private MySQL SQL.
+It adds no production source changes, no SQL renderer changes, no public schema
+keys, no metadata keys, no hidden relation layer, and no release work.
+
 The current fail-closed boundary remains:
 
 - aggregate-let remains deferred for `min(gross)` and `max(gross)` where
@@ -223,16 +256,17 @@ The phase-level guardrails are:
 | 2 | `sum(row_let)` / `avg(row_let)` Inline Aggregate Arguments | complete production behavior |
 | 3 | `count(row_let)` / `count_distinct(row_let)` Inline Aggregate Arguments | complete production behavior |
 | 4 | `group by row_let` Inline Group Key MVP | complete production behavior |
-| 5 | Grouped `order by row_let` Safe Subset | production behavior |
+| 5 | Grouped `order by row_let` Safe Subset | complete production behavior |
 | 6 | `satisfying` Boundary For Aggregate-Wrapped Let | complete production behavior for selected aggregate-wrapped let calls; raw row-let remains rejected |
-| 7 | CLI / JSON / Metadata / SQL Compatibility Hardening | compatibility hardening |
+| 7 | CLI / JSON / Metadata / SQL Compatibility Hardening | complete compatibility hardening; no behavior change |
 | 8 | Completion Audit And Status Lock | completion audit/status lock |
 
-Sequence may change only through a later Gate 1. Slice 6 must not start raw
-`satisfying` let-name, `limit row_let`, `min(row_let)`,
-`max(row_let)`, literal-only group keys, expression group keys, literal-only
-count, or broad `count_distinct(expression)` behavior unless the user
-explicitly widens that slice.
+Sequence may change only through a later Gate 1. Slice 7 must not start raw
+`satisfying` let-name, `limit row_let`, `min(row_let)`, `max(row_let)`,
+literal-only group keys, expression group keys, literal-only count, broad
+`count_distinct(expression)`, public JSON/metadata schema expansion, SQL
+renderer redesign, hidden relation-layer, Dependabot, maintenance, package, or
+release behavior unless the user explicitly widens that slice.
 
 ## Slice 1 Gate 2 Allowlist
 
