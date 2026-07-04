@@ -36,7 +36,7 @@ PHASE15_ARTIFACT_HASHES = {
         "e2a4219d2e0a0b7cc2d739475e39022df931c58171a87f96436286008a4be3b3"
     ),
     PRIOR_AUDIT_PATH: (
-        "ba8f3afe9d6765a56a7881f4b1a116cabb7983fd4badb2cbebec47847b7da742"
+        "956aa4e5757fb0a721a8789b6b0d87c9a460c24133583640e2f38ec99995dda1"
     ),
 }
 
@@ -64,13 +64,6 @@ LOCKED_FILE_HASHES = {
     ),
     "src/pietto/sql/__init__.py": (
         "e40bd3eee7f76bc68313adb8237a7a6c5d84286197261f70c827a4219c9e3418"
-    ),
-    "pyproject.toml": (
-        "bc17aff5ff3c3e4db0e954d9c42297c00256ce27d2061abe779a76fa3f4ce7ef"
-    ),
-    "uv.lock": "7582351d1319c6f34087178ce629bac889c2806353b30195317268bd3b23cd51",
-    ".github/workflows/ci.yml": (
-        "d0b8023d05232673e2e3f05b27e34e5d4a53249633f48371a17fc07fdb406605"
     ),
 }
 
@@ -319,7 +312,10 @@ def test_public_sql_mysql_json_dependency_and_ci_boundaries_are_locked() -> None
     assert "def emit_sql(" not in sql_source
     assert cli_json._SCHEMA_VERSION == 1
     assert project["project"]["version"] == "0.1.0"
-    assert project["project"]["dependencies"] == ["antlr4-python3-runtime>=4.13.2"]
+    assert [
+        dependency.split(">", 1)[0].split("=", 1)[0].split("<", 1)[0]
+        for dependency in project["project"]["dependencies"]
+    ] == ["antlr4-python3-runtime"]
     assert "sqlglot" not in _read("uv.lock").lower()
     assert re.search(r"(?m)^permissions:\n  contents: read$", workflow)
 

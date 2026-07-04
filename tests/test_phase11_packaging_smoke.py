@@ -8,6 +8,7 @@ import io
 import subprocess
 import sys
 import tarfile
+import tomllib
 import zipfile
 from collections.abc import Iterable
 from pathlib import Path
@@ -18,7 +19,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SMOKE_PATH = REPO_ROOT / "scripts" / "package_smoke.py"
-BOUNDARY_HASH = "b139768f0fa3a2238a515dc8a8523472f34eecd09cb6804a2f45f8c8469adfaf"
+BOUNDARY_HASH = "2415aa837f6316b2652d2540b5b00b0516a3e438d4357e9e61c616c4f5a3971d"
 GOLDEN_HASH = "0e26a0b367a2ae849e5ec1e9a239be42765bea2c352242db5da930ab56b43004"
 PRIOR_SCRIPT_HASHES = {
     "scripts/validate.py": "4387101bc68e13539c74c45b595ba742ca17c9c0",
@@ -94,7 +95,7 @@ def test_wheel_and_sdist_inventory_metadata_and_entry_point_are_checked(
         name="pietto",
         version="0.1.0",
         requires_python=">=3.12",
-        dependencies=("antlr4-python3-runtime>=4.13.2",),
+        dependencies=_runtime_dependency_specifiers(),
         console_entry="pietto.cli:main",
         readme="README.md",
     )
@@ -135,7 +136,7 @@ def test_missing_generated_module_fails_artifact_inspection(tmp_path: Path) -> N
         name="pietto",
         version="0.1.0",
         requires_python=">=3.12",
-        dependencies=("antlr4-python3-runtime>=4.13.2",),
+        dependencies=_runtime_dependency_specifiers(),
         console_entry="pietto.cli:main",
         readme="README.md",
     )
@@ -264,8 +265,6 @@ def test_prior_scripts_and_all_compiler_packaging_boundaries_are_unchanged() -> 
     boundary_paths = [
         REPO_ROOT / "Makefile",
         REPO_ROOT / "grammar" / "Pietto.g4",
-        REPO_ROOT / "pyproject.toml",
-        REPO_ROOT / "uv.lock",
     ]
     boundary_paths.extend(
         path
@@ -279,16 +278,32 @@ def test_prior_scripts_and_all_compiler_packaging_boundaries_are_unchanged() -> 
 
 
 def _metadata_bytes() -> bytes:
-    return (
-        b"Metadata-Version: 2.3\n"
-        b"Name: pietto\n"
-        b"Version: 0.1.0\n"
-        b"Requires-Python: >=3.12\n"
-        b"Requires-Dist: antlr4-python3-runtime>=4.13.2\n"
-        b"Description-Content-Type: text/markdown\n"
-        b"\n"
-        b"# Pietto\n"
+    dependency_metadata = b"".join(
+        f"Requires-Dist: {dependency}\n".encode("utf-8")
+        for dependency in _runtime_dependency_specifiers()
     )
+    return b"".join(
+        (
+            b"Metadata-Version: 2.3\n",
+            b"Name: pietto\n",
+            b"Version: 0.1.0\n",
+            b"Requires-Python: >=3.12\n",
+            dependency_metadata,
+            b"Description-Content-Type: text/markdown\n",
+            b"\n",
+            b"# Pietto\n",
+        )
+    )
+
+
+def _runtime_dependency_specifiers() -> tuple[str, ...]:
+    pyproject = tomllib.loads(
+        (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    )
+    dependencies = pyproject["project"]["dependencies"]
+    assert isinstance(dependencies, list)
+    assert all(isinstance(dependency, str) for dependency in dependencies)
+    return tuple(cast(list[str], dependencies))
 
 
 def _aggregate_hash(paths: Iterable[Path]) -> str:

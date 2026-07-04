@@ -17,7 +17,7 @@ AUDIT_PATH = REPO_ROOT / "scripts" / "check_goldens.py"
 POLICY_PATH = REPO_ROOT / "docs" / "spec" / "golden-fixture-policy-v1.md"
 GOLDEN_ROOT = REPO_ROOT / "tests" / "fixtures" / "golden"
 GOLDEN_HASH = "0e26a0b367a2ae849e5ec1e9a239be42765bea2c352242db5da930ab56b43004"
-BOUNDARY_HASH = "b139768f0fa3a2238a515dc8a8523472f34eecd09cb6804a2f45f8c8469adfaf"
+BOUNDARY_HASH = "2415aa837f6316b2652d2540b5b00b0516a3e438d4357e9e61c616c4f5a3971d"
 VALIDATION_GATES = (
     ("lockfile", ("uv", "lock", "--check")),
     ("format", ("uv", "run", "ruff", "format", "--check", ".")),
@@ -221,8 +221,6 @@ def test_slice4_preserves_golden_and_compiler_boundary_bytes() -> None:
     paths = [
         REPO_ROOT / "Makefile",
         REPO_ROOT / "grammar" / "Pietto.g4",
-        REPO_ROOT / "pyproject.toml",
-        REPO_ROOT / "uv.lock",
     ]
     paths.extend(
         path

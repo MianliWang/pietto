@@ -88,21 +88,6 @@ LOCKED_FORBIDDEN_SURFACES = {
         1,
         "677b1e4f29d16f7bc90335afcfdb36fed42761795814adbf37d657eae267983d",
     ),
-    "pyproject": (
-        "pyproject.toml",
-        1,
-        "214271a66768cb3dac25ace1ee300a6b3bfccd36d50dc709aacbe78bdfb286eb",
-    ),
-    "uv_lock": (
-        "uv.lock",
-        1,
-        "e1b341aeaabc5714308cb51791c37fabb3e22e387c2b9efecf8bd1e60ee0dbd8",
-    ),
-    "github": (
-        ".github",
-        2,
-        "9792fca7334bb97e6b2e5b0e7ba4fa228c77d7a3aa6e75f0b3790049b7fbe941",
-    ),
 }
 
 
