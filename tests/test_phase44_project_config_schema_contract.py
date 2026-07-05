@@ -1,0 +1,221 @@
+from __future__ import annotations
+
+import subprocess
+from pathlib import Path
+
+from _static_audit_helpers import normalized_text as _normalized
+from _static_audit_helpers import read_text as _read
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+PLAN_PATH = (
+    REPO_ROOT
+    / "docs/plan/phase-44-project-source-selection-parse-only-project-check-mvp.md"
+)
+SPEC_PATH = REPO_ROOT / "docs/spec/phase44-project-config-schema-contract-v1.md"
+PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
+
+ALLOWED_GATE2_PATHS = {
+    "docs/plan/phase-44-project-source-selection-parse-only-project-check-mvp.md",
+    "docs/spec/phase44-project-config-schema-contract-v1.md",
+    "tests/test_phase44_project_config_schema_contract.py",
+}
+
+FORBIDDEN_DIFF_PATHS = (
+    "src",
+    "grammar",
+    "tests/fixtures",
+    "scripts",
+    "pyproject.toml",
+    "uv.lock",
+    ".github",
+    "README.md",
+    "AGENTS.md",
+    "docs/spec/pietto-v0.9.md",
+    "docs/spec/v02-deferred-feature-register-v1.md",
+)
+
+
+def test_slice2_artifacts_and_status_are_locked() -> None:
+    assert PLAN_PATH.is_file()
+    assert SPEC_PATH.is_file()
+
+    combined = _phase44_slice2_text()
+    for required in (
+        "Phase 44 Slice 2 is Project Config Schema Contract",
+        "docs/spec/static-audit work only and implements no behavior change",
+        "the narrow active `pietto.toml` schema contract",
+        "does not implement a config loader, source selection, glob expansion",
+        "source reading, parser aggregation, Project JSON v2 input reporting",
+        "Package version remains `0.1.0`",
+    ):
+        assert required in combined, required
+
+
+def test_active_schema_version_and_sources_contract_are_minimal() -> None:
+    combined = _phase44_slice2_text()
+
+    for required in (
+        "schema_version = 1",
+        "[sources]",
+        'include = ["models/**/*.pietto"]',
+        "exclude = []",
+        "`schema_version = 1` is required",
+        "`[sources]` is required",
+        "`sources.include` is required, must be an array of strings, and must be non-empty",
+        "`sources.exclude` is optional",
+        "a missing `sources.exclude` means the empty list `[]`",
+        "there is no implicit include default",
+        "a missing `sources.include` is a schema error",
+    ):
+        assert required in combined, required
+
+    for forbidden in (
+        "`sources.exclude` is required",
+        "missing `sources.include` means",
+    ):
+        assert forbidden not in combined, forbidden
+
+
+def test_pattern_path_and_wildcard_rules_are_unambiguous() -> None:
+    combined = _phase44_slice2_text()
+
+    for required in (
+        "Configured source patterns use normalized project-relative text",
+        "`/` is the only separator",
+        "paths and patterns are relative to the explicit project root",
+        "absolute POSIX paths are rejected",
+        "Windows drive paths and UNC paths are rejected",
+        "`.` and `..` path segments are rejected",
+        "empty path segments from repeated `/` are rejected",
+        "leading `/` and trailing `/` are rejected",
+        "backslashes and NUL are rejected",
+        "no environment-variable expansion, tilde expansion",
+        "shell interpretation",
+        "`**` may appear only as a complete path segment",
+        "`*` may appear inside a normal path segment",
+        "`?` may appear inside a normal path segment",
+        "*.pietto",
+        "models/**/*.pietto",
+        "character classes such as `[a-z]`",
+        "brace expansion such as `{src,test}`",
+        "extglob or shell-specific forms",
+        "negated glob syntax",
+    ):
+        assert required in combined, required
+
+
+def test_slice2_reporting_and_future_slice_boundaries_are_locked() -> None:
+    combined = _phase44_slice2_text()
+
+    for required in (
+        "config, path, glob, resource, and source-read failures remain project `cli_errors`",
+        "not new `PIE-*` compiler diagnostics",
+        "`config_read`",
+        "`config_parse`",
+        "`config_schema`",
+        "`project_path`",
+        "`project_glob`",
+        "`project_resource`",
+        "`source_read`",
+        "does not change current root/config-only Project JSON v2 output",
+        "Slice 3 may implement a private config loader only after a separate Gate 1 and Gate 2 approval",
+        "Slice 4 may implement deterministic source selection only after a separate Gate 1 and Gate 2 approval",
+        "Slice 5 may implement source read plus parse-only project check only after a separate Gate 1 and Gate 2 approval",
+        "Slice 6 may implement Project JSON v2 `inputs[]` and project check counters only after a separate Gate 1 and Gate 2 approval",
+    ):
+        assert required in combined, required
+
+
+def test_slice2_allowlist_validation_and_stop_conditions_are_locked() -> None:
+    plan = _normalized(PLAN_PATH)
+
+    for required in (
+        "Phase 44 Slice 2 Gate 2 is limited to:",
+        "docs/plan/phase-44-project-source-selection-parse-only-project-check-mvp.md",
+        "docs/spec/phase44-project-config-schema-contract-v1.md",
+        "tests/test_phase44_project_config_schema_contract.py",
+        "No other file is approved in this Gate 2",
+        "git diff --check",
+        "uv run pytest tests/test_phase44_project_source_selection_scope_lock.py",
+        "uv run pytest tests/test_phase44_project_config_schema_contract.py",
+        "Stop and return to Repair Gate 1 if:",
+        "any needed change falls outside the Slice 2 allowlist",
+        "implementation of config loader, source selection, glob expansion",
+        "source reading, parser aggregation",
+        "JSON v1, Project JSON v2, or Semantic Metadata Artifact v1 output behavior",
+    ):
+        assert required in plan, required
+
+
+def test_forbidden_implementation_surfaces_are_not_modified() -> None:
+    assert _git_diff_name_only(FORBIDDEN_DIFF_PATHS) == ""
+    assert _git_status_paths().issubset(ALLOWED_GATE2_PATHS)
+
+
+def test_package_version_release_and_public_output_boundaries_remain_locked() -> None:
+    pyproject = _read(PYPROJECT_PATH)
+    combined = _phase44_slice2_text()
+    lowered = combined.lower()
+
+    assert 'version = "0.1.0"' in pyproject
+    assert 'version = "0.2.0"' not in pyproject
+    assert "Package version remains `0.1.0`" in combined
+
+    for forbidden in (
+        "tag created",
+        "release created",
+        "package release occurred",
+        "published package",
+        "uploaded package",
+        "signing completed",
+        "attestation completed",
+    ):
+        assert forbidden not in lowered, forbidden
+
+    for required in (
+        "CLI JSON v1 mutation",
+        "Project JSON v2 serializer changes",
+        "Semantic Metadata Artifact v1 mutation",
+        "`src/pietto/**` changes",
+        "grammar or generated parser changes",
+        "fixtures or goldens",
+        "package, dependency, workflow, or lockfile changes",
+        "tag, release, publish, upload, signing, or attestation",
+    ):
+        assert required in combined, required
+
+
+def _phase44_slice2_text() -> str:
+    return " ".join(_normalized(path) for path in (PLAN_PATH, SPEC_PATH))
+
+
+def _git_diff_name_only(paths: tuple[str, ...]) -> str:
+    result = subprocess.run(
+        ["git", "diff", "--name-only", "--", *paths],
+        cwd=REPO_ROOT,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert result.stderr == ""
+    return result.stdout.strip()
+
+
+def _git_status_paths() -> set[str]:
+    result = subprocess.run(
+        ["git", "status", "--short"],
+        cwd=REPO_ROOT,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert result.stderr == ""
+    paths: set[str] = set()
+    for line in result.stdout.splitlines():
+        path = line[3:]
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        paths.add(path)
+    return paths

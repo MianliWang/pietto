@@ -27,6 +27,13 @@ conditions. Slice 1 does not implement config loading, source selection, glob
 expansion, source reading, parser aggregation, Project JSON v2 input reporting,
 or compiler behavior.
 
+Phase 44 Slice 2 is Project Config Schema Contract. Slice 2 is
+docs/spec/static-audit work only and implements no behavior change. It locks
+the narrow active `pietto.toml` schema contract needed before the future private
+config loader and source selection slices. Slice 2 does not implement a config
+loader, source selection, glob expansion, source reading, parser aggregation,
+Project JSON v2 input reporting, CLI behavior, or compiler behavior.
+
 ## Candidate Decision
 
 The selected Phase 44 candidate is:
@@ -98,12 +105,65 @@ The current repository facts that Slice 1 locks are:
   normalized project-relative paths, duplicate physical identity rejection,
   parse aggregation before semantic gates, and Project JSON v2 input statuses.
 
+## Slice 2 Project Config Schema Contract
+
+Phase 44 Slice 2 locks the minimal active project configuration schema for the
+Phase 44 project source-selection path:
+
+```toml
+schema_version = 1
+
+[sources]
+include = ["models/**/*.pietto"]
+exclude = []
+```
+
+The active Slice 2 contract is:
+
+- `schema_version = 1` is required;
+- `[sources]` is required;
+- `sources.include` is required, must be an array of strings, and must be
+  non-empty;
+- `sources.exclude` is optional and, when present, must be an array of strings;
+- a missing `sources.exclude` means the empty list `[]`;
+- there is no implicit include default, so a missing `sources.include` is a
+  schema error.
+
+Configured source patterns use `/` separators and are project-root-relative.
+The future loader/source-selection implementation must reject absolute paths,
+Windows drive paths, UNC paths, `.`, `..`, empty segments, backslashes, NUL,
+leading `/`, trailing `/`, environment-variable expansion, tilde expansion, and
+shell expansion. Strings are literal configuration data.
+
+The Phase 44 wildcard subset is intentionally small:
+
+- `**` may appear only as a complete path segment;
+- `*` and `?` may appear inside a normal path segment, so `*.pietto` and
+  `models/**/*.pietto` are valid examples;
+- character classes, brace expansion, extglob forms, and negated glob syntax
+  are not part of Phase 44.
+
+Slice 2 prepares future Project JSON v2 reporting only by documenting that
+config, path, glob, resource, and source-read failures remain project
+`cli_errors`, not new `PIE-*` compiler diagnostics. Slice 2 does not change the
+current root/config-only Project JSON v2 output, the single-file CLI JSON v1
+contract, or Semantic Metadata Artifact v1.
+
+The older `docs/spec/pietto-config-v1.md` remains a historical broader project
+configuration reference. Slice 2 narrows the active Phase 44 contract to the
+`schema_version` and `[sources]` keys needed for project source selection and
+parse-only project check readiness. It does not activate `[project]`,
+`project.name`, `project.default_dialect`, output configuration, resource-budget
+configuration, hooks, plugins, secrets, runtime settings, or database settings.
+
 ## Explicit Non-goals
 
-Phase 44 Slice 1 does not authorize:
+Phase 44 Slice 1 and Slice 2 do not authorize:
 
 - config loader implementation;
 - source selection implementation;
+- glob expansion implementation;
+- source reading;
 - parser aggregation implementation;
 - CLI behavior changes;
 - `src/pietto/**` changes;
@@ -196,3 +256,61 @@ Stop and return to Repair Gate 1 if:
   LSP/UI, runtime/database, schema introspection, or db pull appears necessary;
 - static-audit or hash-lock fanout becomes broader than a narrow Slice 1
   scope-lock package.
+
+## Slice 2 Gate 2 Allowlist
+
+Phase 44 Slice 2 Gate 2 is limited to:
+
+- `docs/plan/phase-44-project-source-selection-parse-only-project-check-mvp.md`;
+- `docs/spec/phase44-project-config-schema-contract-v1.md`;
+- `tests/test_phase44_project_config_schema_contract.py`.
+
+No other file is approved in this Gate 2. No production source, CLI behavior,
+Project JSON v2 serializer, grammar/generated artifact, fixture, golden,
+package file, workflow, lockfile, `README.md`, `AGENTS.md`,
+`docs/spec/pietto-v0.9.md`, or deferred-register edit is approved by Slice 2.
+
+## Slice 2 Validation Focus
+
+Slice 2 validation should prove:
+
+- the three-file allowlist is the complete changed surface;
+- the active `pietto.toml` contract is limited to required
+  `schema_version = 1`, required `[sources]`, required non-empty
+  `sources.include`, and optional `sources.exclude`;
+- missing `sources.exclude` means `[]`, while missing `sources.include` remains
+  a future schema error;
+- path and pattern syntax is strict, project-root-relative, `/`-separated, and
+  limited to the Phase 44 wildcard subset;
+- no config loader, source selection, glob expansion, source reading, parser
+  aggregation, CLI/JSON behavior, compiler behavior, package, workflow, lockfile,
+  generated, fixture, golden, release, or public API change is introduced.
+
+Approved Gate 2 validation for Slice 2 is limited to:
+
+```bash
+git diff --check
+uv run pytest tests/test_phase44_project_source_selection_scope_lock.py
+uv run pytest tests/test_phase44_project_config_schema_contract.py
+```
+
+## Slice 2 Stop Conditions
+
+Stop and return to Repair Gate 1 if:
+
+- branch, HEAD, clean status, package version, or no-tag baseline is not trusted;
+- any needed change falls outside the Slice 2 allowlist;
+- production source, CLI behavior, Project JSON v2 serializer, grammar/generated,
+  fixture, golden, package, workflow, lockfile, or release changes appear
+  necessary;
+- `docs/spec/v02-deferred-feature-register-v1.md`, `README.md`, `AGENTS.md`, or
+  `docs/spec/pietto-v0.9.md` appears necessary;
+- implementation of config loader, source selection, glob expansion, source
+  reading, parser aggregation, project semantic, IR, SQL, `emit-sql --project`,
+  or `explain --project` appears necessary;
+- JSON v1, Project JSON v2, or Semantic Metadata Artifact v1 output behavior
+  changes appear necessary;
+- JOIN/relationship behavior, `RelationLayerIR`, `LetBindingIR`, Arrow/PyArrow,
+  LSP/UI, runtime/database, schema introspection, or db pull appears necessary;
+- static-audit or hash-lock fanout becomes broader than a narrow Slice 2
+  project-config-schema contract package.
