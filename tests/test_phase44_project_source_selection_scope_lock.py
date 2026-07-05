@@ -161,8 +161,8 @@ def test_current_project_mode_text_parse_only_and_json_root_config_boundary() ->
     assert "check_project_parse_only(root)" in cli_source
     assert "Files checked: {len(parse_result.inputs)}" in cli_source
     for required in (
-        "_JSON_INPUT_KIND = \"source\"",
-        "_JSON_INPUT_STATUSES = frozenset({\"parsed\", \"error\"})",
+        '_JSON_INPUT_KIND = "source"',
+        '_JSON_INPUT_STATUSES = frozenset({"parsed", "error"})',
         '"inputs": inputs',
         '"diagnostics": diagnostics',
         '"cli_errors": [_cli_error_to_json_dict(error) for error in result.errors]',
