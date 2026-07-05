@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
+from pietto.ast_nodes import Script
 from pietto.errors import Diagnostic, Severity
 
 
@@ -41,6 +42,14 @@ class ProjectInput:
 
     path: str
     status: str
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectParsedInput:
+    """One successfully parsed selected project input for later semantics."""
+
+    path: str
+    script: Script
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +118,7 @@ class ProjectParseCheckResult:
     inputs: tuple[ProjectInput, ...]
     errors: tuple[ProjectDiscoveryError, ...]
     diagnostics: tuple[Diagnostic, ...]
+    parsed_inputs: tuple[ProjectParsedInput, ...] = ()
 
     @property
     def ok(self) -> bool:

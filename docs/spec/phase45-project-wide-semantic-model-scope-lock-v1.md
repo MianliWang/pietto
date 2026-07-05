@@ -187,6 +187,34 @@ Slice 1 is docs/spec/static-audit only.
 Slice 1 has no source behavior, no CLI behavior, no JSON behavior, and no
 semantic implementation. Slice 1 does not add or change `src/**`.
 
+## Slice 2 Parsed Project Semantic Input Units
+
+Slice 2 adds private parsed project semantic input units. The unit records the
+project-relative path and the retained parsed `Script` AST for a selected input
+that was successfully readable and successfully parsed.
+
+Slice 2 locks these rules:
+
+- retained parsed ASTs are private plumbing for later project-wide semantic
+  analysis;
+- retained parsed units use project-relative identity, not absolute filesystem
+  identity;
+- retained parsed unit order follows deterministic selected input ordering;
+- files with parser errors are excluded from retained parsed units;
+- source-read failures are excluded from retained parsed units;
+- parser diagnostics remain project-relative where observable;
+- there is no semantic analysis yet;
+- there is no JSON/text behavior change;
+- there is no IR, SQL, project `emit-sql`, or project `explain` path.
+
+Slice 2 does not add a project semantic model catalog beyond parsed input
+plumbing. It does not add duplicate top-level diagnostics, cross-file type
+namespace resolution, cross-file relation namespace resolution,
+imports/modules/export behavior, JOIN/relationship query behavior,
+runtime/database/db introspection, Arrow/PyArrow, LSP/UI, release behavior,
+external plugin behavior, external script/hook/MCP behavior, or copied external
+code.
+
 ## Slice 1 Gate 2 Allowlist
 
 Phase 45 Slice 1 Gate 2 is limited to:

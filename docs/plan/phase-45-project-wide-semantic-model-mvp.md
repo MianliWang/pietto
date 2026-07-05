@@ -9,6 +9,10 @@ Phase 45 Slice 1 is Candidate / Scope Lock for:
 Slice 1 is docs/spec/static-audit work only. It implements no source behavior,
 no CLI behavior, no JSON behavior, and no semantic implementation.
 
+Phase 45 Slice 2 is `Parsed project semantic input units`. Slice 2 adds
+private parsed project semantic input units for later project-wide semantic
+analysis, but it does not implement project semantic analysis.
+
 Package version remains `0.1.0`.
 
 ## Trusted Baseline
@@ -138,6 +142,35 @@ later behavior slices.
 | 8 | Project JSON v2 semantic diagnostics | report semantic diagnostics without changing read/parse counters |
 | 9 | Compatibility hardening | prove single-file and forbidden project surfaces remain unchanged |
 | 10 | Completion audit and status lock | lock Phase 45 completion without release behavior |
+
+## Slice 2 Parsed Project Semantic Input Units
+
+Slice 2 adds private parsed project semantic input units. The slice retains
+parsed ASTs for successfully readable and successfully parsed selected project
+inputs, records project-relative identity for each retained unit, and preserves
+deterministic selected input ordering.
+
+The retained AST root is the existing `Script` AST node. The private project
+parse/check result may carry a default-empty tuple of parsed input units for
+future project-wide semantic analysis. Files with parser diagnostics or
+source-read failures must not appear in that retained parsed input unit tuple.
+
+Slice 2 has no semantic analysis yet. It does not build a project semantic
+catalog, does not resolve cross-file references, and does not perform duplicate
+top-level detection. Those behaviors remain later Phase 45 slices.
+
+Slice 2 has no JSON/text behavior change. Project JSON v2 continues to expose
+only the existing project check shape, `inputs[]`, `diagnostics[]`,
+`cli_errors[]`, and read/parse counters. Text-mode project check output remains
+unchanged. Private parsed input units are not serialized.
+
+Slice 2 enters no IR, SQL, project `emit-sql`, or project `explain` path. It
+does not change parser public API, grammar, generated parser artifacts,
+semantic analyzer behavior, semantic model behavior, CLI routing, Project JSON
+v2 shape, CLI JSON v1, Semantic Metadata Artifact v1, fixtures, goldens,
+scripts, workflows, dependency files, package metadata, package version,
+diagnostic inventory, release behavior, external plugin behavior, or copied
+external code.
 
 ## Slice 1 Gate 2 Allowlist
 

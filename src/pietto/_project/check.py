@@ -12,14 +12,16 @@ from pietto._project.model import (
     ProjectDiscoveryError,
     ProjectDiscoveryErrorKind,
     ProjectInput,
+    ProjectParsedInput,
     ProjectParseCheckResult,
     ProjectRoot,
 )
 from pietto._project.source_selection import select_project_sources
-from pietto.errors import Diagnostic, Severity
+from pietto.errors import Diagnostic, Severity, SourceLocation
 
 _PROJECT_ROOT_PATH = "."
 _PROJECT_CONFIG_PATH = "pietto.toml"
+_PROJECT_SOURCE_UTF8_BYTES = 1_048_576
 _PARSED_STATUS = "parsed"
 _ERROR_STATUS = "error"
 
@@ -47,14 +49,22 @@ def check_project_parse_only(root: str | Path) -> ProjectParseCheckResult:
         return _root_error("Project root must be an existing directory.")
 
     inputs: list[ProjectInput] = []
+    parsed_inputs: list[ProjectParsedInput] = []
     errors: list[ProjectDiscoveryError] = []
     diagnostics: list[Diagnostic] = []
     for selected_input in selection_result.inputs:
-        parsed_input, input_errors, input_diagnostics = _parse_selected_input(
+        (
+            parsed_input,
+            parsed_semantic_input,
+            input_errors,
+            input_diagnostics,
+        ) = _parse_selected_input(
             resolved_root,
             selected_input,
         )
         inputs.append(parsed_input)
+        if parsed_semantic_input is not None:
+            parsed_inputs.append(parsed_semantic_input)
         errors.extend(input_errors)
         diagnostics.extend(input_diagnostics)
 
@@ -65,16 +75,22 @@ def check_project_parse_only(root: str | Path) -> ProjectParseCheckResult:
         inputs=tuple(inputs),
         errors=tuple(errors),
         diagnostics=tuple(diagnostics),
+        parsed_inputs=tuple(parsed_inputs),
     )
 
 
 def _parse_selected_input(
     root: Path,
     selected_input: ProjectInput,
-) -> tuple[ProjectInput, tuple[ProjectDiscoveryError, ...], tuple[Diagnostic, ...]]:
+) -> tuple[
+    ProjectInput,
+    ProjectParsedInput | None,
+    tuple[ProjectDiscoveryError, ...],
+    tuple[Diagnostic, ...],
+]:
     source_path = root / selected_input.path
     try:
-        parse_result = parser_api.parse_file(source_path)
+        source_text = _read_project_source_text(source_path, selected_input.path)
     except UnicodeDecodeError:
         return _source_read_failure(
             selected_input,
@@ -86,6 +102,15 @@ def _parse_selected_input(
             "Project source file is not readable.",
         )
 
+    if isinstance(source_text, Diagnostic):
+        return (
+            ProjectInput(path=selected_input.path, status=_ERROR_STATUS),
+            None,
+            (),
+            (source_text,),
+        )
+
+    parse_result = parser_api.parse_source(source_text, path=selected_input.path)
     diagnostics = tuple(
         _with_project_relative_path(diagnostic, selected_input.path)
         for diagnostic in parse_result.diagnostics
@@ -93,12 +118,14 @@ def _parse_selected_input(
     if _has_errors(diagnostics):
         return (
             ProjectInput(path=selected_input.path, status=_ERROR_STATUS),
+            None,
             (),
             diagnostics,
         )
     if parse_result.ast is None:
         return (
             ProjectInput(path=selected_input.path, status=_ERROR_STATUS),
+            None,
             (
                 ProjectDiscoveryError(
                     ProjectDiscoveryErrorKind.PROJECT_RESOURCE,
@@ -110,17 +137,46 @@ def _parse_selected_input(
         )
     return (
         ProjectInput(path=selected_input.path, status=_PARSED_STATUS),
+        ProjectParsedInput(path=selected_input.path, script=parse_result.ast),
         (),
         diagnostics,
     )
 
 
+def _read_project_source_text(
+    source_path: Path, relative_path: str
+) -> str | Diagnostic:
+    with source_path.open("rb") as source_file:
+        source_bytes = source_file.read(_PROJECT_SOURCE_UTF8_BYTES + 1)
+    if len(source_bytes) > _PROJECT_SOURCE_UTF8_BYTES:
+        return Diagnostic(
+            code="PIE-P1006",
+            severity=Severity.ERROR,
+            message=(
+                "Source exceeds the maximum supported size of "
+                f"{_PROJECT_SOURCE_UTF8_BYTES} UTF-8 bytes."
+            ),
+            location=SourceLocation(
+                path=relative_path,
+                line=1,
+                column=1,
+            ),
+        )
+    return source_bytes.decode("utf-8")
+
+
 def _source_read_failure(
     selected_input: ProjectInput,
     message: str,
-) -> tuple[ProjectInput, tuple[ProjectDiscoveryError, ...], tuple[Diagnostic, ...]]:
+) -> tuple[
+    ProjectInput,
+    ProjectParsedInput | None,
+    tuple[ProjectDiscoveryError, ...],
+    tuple[Diagnostic, ...],
+]:
     return (
         ProjectInput(path=selected_input.path, status=_ERROR_STATUS),
+        None,
         (
             ProjectDiscoveryError(
                 ProjectDiscoveryErrorKind.SOURCE_READ,
