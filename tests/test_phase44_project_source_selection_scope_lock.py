@@ -245,6 +245,11 @@ def test_slice_sequence_allowlist_validation_and_stop_conditions_are_locked() ->
         "| 7 | CLI / Package / Compatibility Hardening |",
         "tests/docs/static-audit compatibility hardening only; no production or package-smoke source changes",
         "| 8 | Completion Audit And Status Lock |",
+        "complete docs/spec/static-audit/status lock only; no new behavior",
+        "Phase 44 Slice 8 is Completion Audit And Status Lock",
+        "Slice 8 is docs/spec/static-audit/status-lock work only and implements no behavior change",
+        "Phase 44 is complete as an internal Project Source Selection And Parse-only Project Check MVP status lock after Slice 8",
+        "does not claim Gate 3 natural CI success inside this document",
         "Sequence may change only through a later Gate 1",
         "Phase 44 Slice 1 Gate 2 is limited to:",
         "docs/plan/phase-44-project-source-selection-parse-only-project-check-mvp.md",
@@ -290,6 +295,13 @@ def test_slice_sequence_allowlist_validation_and_stop_conditions_are_locked() ->
         "`scripts/package_smoke.py`, package metadata, workflows, dependencies",
         "uv run ruff format --check tests/test_phase44_project_cli_package_compatibility.py",
         "uv run pytest tests/test_phase44_project_cli_package_compatibility.py",
+        "Phase 44 Slice 8 Gate 2 is limited to:",
+        "tests/test_phase44_completion_audit.py",
+        "tests/test_phase44_project_json_v2_inputs_counters.py",
+        "Slice 8 must not change `src/**`",
+        "`scripts/**`, `README.md`, `AGENTS.md`, `docs/spec/pietto-v0.9.md`",
+        "uv run ruff format --check tests/test_phase44_completion_audit.py",
+        "uv run pytest tests/test_phase44_completion_audit.py",
     ):
         assert required in docs, required
 
@@ -303,6 +315,7 @@ def test_slice_sequence_allowlist_validation_and_stop_conditions_are_locked() ->
         "LSP/UI, runtime/database, schema introspection, or db pull",
         "production source, `scripts/package_smoke.py`, CLI behavior, Project JSON v2",
         "narrow Slice 7 compatibility-hardening package",
+        "narrow Slice 8 completion-audit/status-lock package",
     ):
         assert required in docs, required
 

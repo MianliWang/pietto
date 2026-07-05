@@ -222,6 +222,17 @@ Semantic Metadata Artifact v1, semantic analysis, IR, SQL, project `emit-sql`,
 project `explain`, package metadata, workflow, dependency, fixture, golden,
 generated, or release behavior.
 
+Phase 44 Slice 8 is Completion Audit And Status Lock. Slice 8 adds only
+docs/spec/static-audit/status-lock completion coverage for the approved Slices 1
+through 7 project source-selection and parse-only project check surface. Slice 8
+adds no production behavior, no `src/**` changes, no `scripts/**` changes, no
+public output schema expansion, no package metadata change, and no release
+behavior. It does not claim Gate 3 natural CI success inside this specification.
+
+Phase 44 is complete as an internal Project Source Selection And Parse-only
+Project Check MVP status lock after Slice 8. Gate 3 commit, push, and natural CI
+`headSha` verification remain external publish proof and are not claimed here.
+
 ## Slice 7 CLI / Package / Compatibility Hardening Boundary
 
 Slice 7 compatibility hardening must:
@@ -242,6 +253,29 @@ Project JSON v2 schema expansion beyond Slice 6, CLI JSON v1 mutation, Semantic
 Metadata Artifact v1 mutation, public diagnostics, new `PIE-*` codes,
 semantic/IR/SQL behavior, package metadata, workflow, dependency, generated,
 fixture, golden, tag, release, publish, upload, signing, or attestation work.
+
+## Slice 8 Completion Audit And Status Lock Boundary
+
+Slice 8 completion audit/status lock must:
+
+- lock that Slices 1 through 7 complete the Phase 44 MVP surface;
+- lock the active config schema contract and path/wildcard rules;
+- lock private config loading and private deterministic source selection as
+  internal project boundaries;
+- lock parse-only text-mode `pietto check --project ROOT`;
+- lock Project JSON v2 parse-only inputs, diagnostics, `cli_errors`, and check
+  counters;
+- lock CLI/package compatibility coverage for project text and JSON success;
+- lock that CLI JSON v1 and Semantic Metadata Artifact v1 remain unchanged;
+- lock that project semantic analysis, IR, SQL, project `emit-sql`, project
+  `explain`, imports/modules/export/cross-file semantics, runtime/database/JOIN,
+  public diagnostics, and release behavior remain deferred.
+
+Slice 8 does not authorize `src/**` changes, `scripts/**` changes, Project JSON
+v2 schema expansion beyond Slice 6, CLI JSON v1 mutation, Semantic Metadata
+Artifact v1 mutation, semantic/IR/SQL behavior, package metadata, workflow,
+dependency, generated, fixture, golden, tag, release, publish, upload, signing,
+or attestation work.
 
 ## Project JSON And Compatibility Boundary
 

@@ -23,6 +23,7 @@ ALLOWED_GATE2_PATHS = {
     "src/pietto/_project/json_v2.py",
     "src/pietto/cli.py",
     "scripts/package_smoke.py",
+    "tests/test_phase44_completion_audit.py",
     "tests/test_phase44_project_cli_package_compatibility.py",
     "tests/test_phase44_project_json_v2_inputs_counters.py",
     "tests/test_phase44_project_parse_only_check.py",
@@ -190,6 +191,8 @@ def test_slice2_reporting_and_slice6_json_boundary_are_locked() -> None:
         "Slice 7 implements CLI/package compatibility hardening through docs, tests, and",
         "static audits only",
         "does not change this config schema contract",
+        "Slice 8 implements completion audit and status lock through docs/spec/static",
+        "does not claim Gate 3 natural CI success inside this contract",
     ):
         assert required in combined, required
 
@@ -232,6 +235,13 @@ def test_slice2_allowlist_validation_and_stop_conditions_are_locked() -> None:
         "No other file is approved in this Gate 2",
         "uv run pytest tests/test_phase44_project_cli_package_compatibility.py",
         "uv run python scripts/package_smoke.py",
+        "Phase 44 Slice 8 Gate 2 is limited to:",
+        "tests/test_phase44_completion_audit.py",
+        "tests/test_phase44_project_json_v2_inputs_counters.py",
+        "Slice 8 must not change `src/**`",
+        "`scripts/**`, `README.md`, `AGENTS.md`, `docs/spec/pietto-v0.9.md`",
+        "uv run ruff format --check tests/test_phase44_completion_audit.py",
+        "uv run pytest tests/test_phase44_completion_audit.py",
     ):
         assert required in plan, required
 

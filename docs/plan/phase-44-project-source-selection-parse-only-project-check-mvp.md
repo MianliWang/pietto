@@ -86,6 +86,16 @@ Artifact v1, project `emit-sql`, project `explain`, semantic analysis, IR, SQL,
 package metadata, workflows, fixtures, goldens, generated files, dependencies,
 and release behavior.
 
+Phase 44 Slice 8 is Completion Audit And Status Lock. Slice 8 is
+docs/spec/static-audit/status-lock work only and implements no behavior change.
+It locks the completed Phase 44 project source selection and parse-only project
+check MVP across Slices 1 through 7, adds `tests/test_phase44_completion_audit.py`,
+and does not claim Gate 3 natural CI success inside this document.
+
+Phase 44 is complete as an internal Project Source Selection And Parse-only
+Project Check MVP status lock after Slice 8. Gate 3 commit, push, and natural CI
+`headSha` verification remain external publish proof and are not claimed here.
+
 ## Candidate Decision
 
 The selected Phase 44 candidate is:
@@ -255,7 +265,7 @@ Phase 44 Slice 1 and Slice 2 do not authorize:
 | 5 | Parse-only Project Check Frontend | text-mode project check source read and parser aggregation only; Project JSON v2 remains root/config-only until Slice 6 |
 | 6 | Project JSON v2 Inputs And Counters | project check JSON v2 inputs and counters only; no JSON v1, Artifact v1, semantic, IR, or SQL change |
 | 7 | CLI / Package / Compatibility Hardening | tests/docs/static-audit compatibility hardening only; no production or package-smoke source changes |
-| 8 | Completion Audit And Status Lock | future docs/tests/status lock only; no new behavior |
+| 8 | Completion Audit And Status Lock | complete docs/spec/static-audit/status lock only; no new behavior |
 
 Sequence may change only through a later Gate 1. Slice 1 must not implement
 Slice 2 through Slice 8 behavior by accident.
@@ -865,3 +875,83 @@ Stop and return to Repair Gate 1 if:
   or release changes appear necessary;
 - validation fails or static-audit/hash-lock fanout becomes broader than a
   narrow Slice 7 compatibility-hardening package.
+
+## Slice 8 Gate 2 Allowlist
+
+Phase 44 Slice 8 Gate 2 is limited to:
+
+- `docs/plan/phase-44-project-source-selection-parse-only-project-check-mvp.md`;
+- `docs/spec/phase44-project-source-selection-scope-lock-v1.md`;
+- `docs/spec/phase44-project-config-schema-contract-v1.md`;
+- `tests/test_phase44_completion_audit.py`;
+- `tests/test_phase44_project_source_selection_scope_lock.py`;
+- `tests/test_phase44_project_config_schema_contract.py`;
+- `tests/test_phase44_project_cli_package_compatibility.py`;
+- `tests/test_phase44_project_json_v2_inputs_counters.py`.
+
+No other file is approved in this Gate 2. Slice 8 must not change `src/**`,
+`scripts/**`, `README.md`, `AGENTS.md`, `docs/spec/pietto-v0.9.md`, package
+metadata, workflows, dependencies, lockfiles, fixtures, goldens, generated
+files, or release surfaces. If top-level status docs, production source,
+package-smoke source, or legacy Phase 8-43 hash-lock updates appear necessary,
+stop and return to Gate 1 with a revised allowlist.
+
+## Slice 8 Validation Focus
+
+Slice 8 validation should prove:
+
+- the exact allowlist is the complete changed surface;
+- Slice 8 is docs/spec/static-audit/status-lock work only;
+- Phase 44 records Slices 1 through 7 as the completed project source selection
+  and parse-only project check MVP surface;
+- project text check, Project JSON v2 inputs/diagnostics/cli_errors/counters,
+  config schema, source selection, and package compatibility remain locked;
+- CLI JSON v1, Semantic Metadata Artifact v1, project semantic analysis, IR,
+  SQL, project `emit-sql`, project `explain`, imports/modules/export/cross-file
+  semantics, runtime/database/JOIN, public diagnostics, package metadata,
+  workflows, generated files, fixtures, goldens, and release surfaces remain
+  forbidden;
+- package version remains `0.1.0`, with no tag/release/publish/upload/signing
+  or attestation behavior;
+- Slice 8 does not claim Gate 3 natural CI success before Gate 3.
+
+Approved Gate 2 validation for Slice 8 is:
+
+```bash
+git diff --check
+uv run ruff format --check tests/test_phase44_completion_audit.py tests/test_phase44_project_source_selection_scope_lock.py tests/test_phase44_project_config_schema_contract.py tests/test_phase44_project_cli_package_compatibility.py tests/test_phase44_project_json_v2_inputs_counters.py
+uv run ruff check tests/test_phase44_completion_audit.py tests/test_phase44_project_source_selection_scope_lock.py tests/test_phase44_project_config_schema_contract.py tests/test_phase44_project_cli_package_compatibility.py tests/test_phase44_project_json_v2_inputs_counters.py
+uv run pyright --project pyrightconfig.tests.json
+uv run pytest tests/test_phase44_completion_audit.py
+uv run pytest tests/test_phase44_project_config_loader.py tests/test_phase44_project_source_selection.py tests/test_phase44_project_parse_only_check.py tests/test_phase44_project_json_v2_inputs_counters.py tests/test_phase44_project_cli_package_compatibility.py tests/test_phase44_project_config_schema_contract.py tests/test_phase44_project_source_selection_scope_lock.py
+uv run pytest tests/test_phase33_project_check_cli.py tests/test_phase33_project_json_v2_serializer.py tests/test_phase33_cli_package_compatibility_hardening.py tests/test_phase33_completion_audit.py
+uv run pytest tests/test_cli_check.py tests/test_cli_check_json.py tests/test_cli_output.py
+uv run python scripts/package_smoke.py
+```
+
+Full `scripts/validate.py`, `scripts/check_generated.py`, and
+`scripts/check_goldens.py` are not required in dirty Slice 8 Gate 2. Natural
+clean-checkout CI after Gate 3 remains authoritative for the full validation
+entrypoint.
+
+## Slice 8 Stop Conditions
+
+Stop and return to Repair Gate 1 if:
+
+- branch, HEAD, dirty status, package version, or no-tag baseline is not trusted;
+- any needed change falls outside the Slice 8 allowlist;
+- production source, `scripts/**`, CLI behavior, Project JSON v2 serializer
+  behavior, CLI JSON v1 behavior, or Semantic Metadata Artifact v1 behavior
+  changes appear necessary;
+- top-level status docs, legacy Phase 8-43 audits, package metadata, workflows,
+  dependencies, lockfiles, fixtures, goldens, or generated files appear
+  necessary;
+- project semantic analysis, IR, SQL, project `emit-sql`, or project `explain`
+  appears necessary;
+- imports, modules, export, package semantics, visibility rules, or cross-file
+  semantic behavior appears necessary;
+- public diagnostics or new `PIE-*` codes appear necessary;
+- runtime/database/JOIN, `RelationLayerIR`, `LetBindingIR`, Arrow/PyArrow,
+  LSP/UI, schema introspection, or db pull appears necessary;
+- validation fails or static-audit/hash-lock fanout becomes broader than a
+  narrow Slice 8 completion-audit/status-lock package.

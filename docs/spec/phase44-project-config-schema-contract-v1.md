@@ -260,3 +260,13 @@ Semantic Metadata Artifact v1, project semantic analysis, IR, SQL, project
 public diagnostics, new `PIE-*` codes, runtime, database, fixtures, goldens,
 generated files, workflows, dependencies, package metadata, or release
 behavior.
+
+Slice 8 implements completion audit and status lock through docs/spec/static
+audits only. It records Phase 44 completion for the approved Slices 1 through 7
+surface and does not change this config schema contract, production source,
+`scripts/**`, Project JSON v2 schema, CLI JSON v1, Semantic Metadata Artifact
+v1, project semantic analysis, IR, SQL, project `emit-sql`, project `explain`,
+imports/modules/export/cross-file semantics, public diagnostics, new `PIE-*`
+codes, runtime, database, fixtures, goldens, generated files, workflows,
+dependencies, package metadata, or release behavior. Slice 8 does not claim
+Gate 3 natural CI success inside this contract.
