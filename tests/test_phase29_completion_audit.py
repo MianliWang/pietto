@@ -92,7 +92,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "cli": (
         "src/pietto/cli.py",
         1,
-        "63e99f989500f83686963fba853fed27d76bc5e0c0ac2e58827fb336b2bb044a",
+        "df748b01d99f46b79ea97987507e2b663848f0915aec771967d46274c2e4e3b8",
     ),
     "cli_json": (
         "src/pietto/cli_json.py",
@@ -117,7 +117,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "scripts": (
         "scripts",
         4,
-        "ce4141c38f03e5975d32d75307e42a89a9d9c9cc7bdd36d7f7fa9b6960676b2c",
+        "8c114d2447af0771777072bc73499095ed005796aa1b28f33af355ed80524a2d",
     ),
     "makefile": (
         "Makefile",

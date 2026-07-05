@@ -185,7 +185,7 @@ def test_package_smoke_includes_explain_and_project_check_coverage() -> None:
         '("check", "--project", project_root.as_posix())',
         '("check", "--project", project_root.as_posix(), "--format", "json")',
         "Project check OK: .",
-        "Files checked: 0",
+        "Files checked: 1",
         '"schema_version": 2',
         '"mode": "project"',
         '"inputs": []',

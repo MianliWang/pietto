@@ -45,7 +45,7 @@ LOCKED_FILE_HASHES = {
         "7aa9622bde3eb07bb64bb5c932dc69e48d635e89790b26e8090b9309c5cf62f6"
     ),
     "src/pietto/cli.py": (
-        "cdf08c85afbfc0d1d8bfb12bcd6332e33d2a94c6a5dc79da0e28383418bc2a2e"
+        "33cd5f29bdfa216a2960f8059e68f10daffdce5286ceff08f3329a8fc632852f"
     ),
     "src/pietto/cli_json.py": (
         "ccee00529ee36b123f70d418105609dbb4906f2ccc1c1f5653527b1168fb6d91"

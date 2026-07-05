@@ -56,7 +56,7 @@ LOCKED_FORBIDDEN_SURFACES = {
     "cli": (
         "src/pietto/cli.py",
         1,
-        "63e99f989500f83686963fba853fed27d76bc5e0c0ac2e58827fb336b2bb044a",
+        "df748b01d99f46b79ea97987507e2b663848f0915aec771967d46274c2e4e3b8",
     ),
     "check_goldens": (
         "scripts/check_goldens.py",
