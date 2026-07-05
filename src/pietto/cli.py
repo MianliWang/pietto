@@ -24,6 +24,7 @@ from pietto._metadata.serializer import (
     semantic_metadata_artifact_to_json_dict,
 )
 from pietto._metadata.text import render_semantic_metadata_text
+from pietto._project.check import check_project_parse_only
 from pietto._project.discovery import discover_project_inputs
 from pietto._project.json_v2 import (
     project_check_result_to_json_dict,
@@ -408,22 +409,28 @@ def _run_check_command(namespace: argparse.Namespace) -> int:
 
 
 def _run_project_check(root: Path, *, output_format: str) -> int:
-    """Validate one explicit project root/config boundary without compiling."""
+    """Run project check while keeping JSON v2 on the root/config-only path."""
 
-    discovery_result = discover_project_inputs(root)
     if output_format == _FORMAT_JSON:
+        discovery_result = discover_project_inputs(root)
         _print_project_check_json(discovery_result)
         if discovery_result.ok:
             return 0
         return _EXIT_USAGE_ERROR
 
-    if discovery_result.errors:
-        for error in discovery_result.errors:
+    parse_result = check_project_parse_only(root)
+    if parse_result.errors:
+        for error in parse_result.errors:
             _print_project_error(error)
+        _render_diagnostics(parse_result.diagnostics, fallback_path=Path("."))
         return _EXIT_USAGE_ERROR
 
+    _render_diagnostics(parse_result.diagnostics, fallback_path=Path("."))
+    if _has_errors(parse_result.diagnostics):
+        return _EXIT_DIAGNOSTIC_ERROR
+
     print("Project check OK: .")
-    print("Files checked: 0")
+    print(f"Files checked: {len(parse_result.inputs)}")
     return 0
 
 

@@ -29,13 +29,13 @@ def test_project_check_valid_root_config_is_text_only_and_pipeline_free(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    root = _project_root(tmp_path, config_text="not valid = [")
-    _forbid_project_pipeline(monkeypatch)
+    root = _project_root_with_source(tmp_path)
+    _forbid_project_compiler_pipeline(monkeypatch)
 
     assert cli.main(["check", "--project", str(root)]) == 0
 
     captured = capsys.readouterr()
-    assert captured.out == "Project check OK: .\nFiles checked: 0\n"
+    assert captured.out == "Project check OK: .\nFiles checked: 1\n"
     assert captured.err == ""
     assert str(root) not in captured.out
 
@@ -44,12 +44,12 @@ def test_project_check_explicit_text_format_matches_default(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    root = _project_root(tmp_path)
+    root = _project_root_with_source(tmp_path)
 
     assert cli.main(["check", "--project", str(root), "--format", "text"]) == 0
 
     captured = capsys.readouterr()
-    assert captured.out == "Project check OK: .\nFiles checked: 0\n"
+    assert captured.out == "Project check OK: .\nFiles checked: 1\n"
     assert captured.err == ""
 
 
@@ -318,6 +318,14 @@ def _forbid_project_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:
         raise AssertionError("project check must not enter the compiler pipeline")
 
     monkeypatch.setattr(cli.parser_api, "parse_file", unexpected_call)
+    _forbid_project_compiler_pipeline(monkeypatch)
+
+
+def _forbid_project_compiler_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:
+    def unexpected_call(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        raise AssertionError("project check must not enter the compiler pipeline")
+
     monkeypatch.setattr(cli.semantic_api, "analyze", unexpected_call)
     monkeypatch.setattr(cli.ir_api, "build_ir", unexpected_call)
     monkeypatch.setattr(cli.sql_api, "emit_postgres_sql", unexpected_call)
@@ -341,6 +349,17 @@ def _project_root(path: Path, *, config_text: str = "") -> Path:
     return path
 
 
+def _project_root_with_source(path: Path) -> Path:
+    root = _project_root(
+        path,
+        config_text=(
+            'schema_version = 1\n\n[sources]\ninclude = ["models/*.pietto"]\n'
+        ),
+    )
+    _write(root, "models/user.pietto", "shape User:\n    id: Int\n")
+    return root
+
+
 def _root_with_config_directory(path: Path) -> Path:
     path.mkdir(parents=True, exist_ok=True)
     (path / "pietto.toml").mkdir()
@@ -349,5 +368,6 @@ def _root_with_config_directory(path: Path) -> Path:
 
 def _write(tmp_path: Path, name: str, source: str) -> Path:
     path = tmp_path / name
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(source, encoding="utf-8")
     return path

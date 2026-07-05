@@ -22,6 +22,7 @@ from pietto.sql.mysql import emit_mysql_sql
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_CONFIG_SOURCE = REPO_ROOT / "src" / "pietto" / "_project" / "config.py"
+PROJECT_CHECK_SOURCE = REPO_ROOT / "src" / "pietto" / "_project" / "check.py"
 PHASE10_PLAN = "docs/plan/phase-10-mysql-sql-generation-mvp.md"
 MYSQL_SOURCE = "tests/fixtures/mysql/compatibility_ordering_metadata.pietto"
 MYSQL_FAILURES = "tests/fixtures/mysql/compatibility_failures.pietto"
@@ -320,7 +321,7 @@ def test_public_api_dependency_json_and_deferred_boundaries_remain_closed() -> N
     runtime_text_without_project_config = "\n".join(
         path.read_text(encoding="utf-8")
         for path in runtime_paths
-        if path != PROJECT_CONFIG_SOURCE
+        if path not in {PROJECT_CONFIG_SOURCE, PROJECT_CHECK_SOURCE}
     ).lower()
     postgres_signature = inspect.signature(sql_api.emit_postgres_sql)
 

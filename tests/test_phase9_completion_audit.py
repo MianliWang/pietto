@@ -18,6 +18,7 @@ import pietto.sql as sql_api
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_CONFIG_SOURCE = REPO_ROOT / "src" / "pietto" / "_project" / "config.py"
+PROJECT_CHECK_SOURCE = REPO_ROOT / "src" / "pietto" / "_project" / "check.py"
 PHASE9_PLAN = "docs/plan/phase-9-sql-backend-architecture-dialect-strategy.md"
 PHASE9_DOCUMENTS = (
     "docs/spec/sql-dialect-source-contract-v1.md",
@@ -231,12 +232,14 @@ def test_phase9_public_postgres_api_cli_and_json_v1_are_unchanged(
 
 def test_phase9_prohibited_production_capabilities_remain_absent() -> None:
     runtime_sources = _runtime_sources()
-    runtime_sources_without_project_config = tuple(
-        path for path in runtime_sources if path != PROJECT_CONFIG_SOURCE
+    runtime_sources_without_project_config_or_check = tuple(
+        path
+        for path in runtime_sources
+        if path not in {PROJECT_CONFIG_SOURCE, PROJECT_CHECK_SOURCE}
     )
     source_text = "\n".join(_read_path(path) for path in runtime_sources)
     source_text_without_project_config = "\n".join(
-        _read_path(path) for path in runtime_sources_without_project_config
+        _read_path(path) for path in runtime_sources_without_project_config_or_check
     )
     lowered_source = source_text.lower()
     lowered_source_without_project_config = source_text_without_project_config.lower()
@@ -285,9 +288,9 @@ def test_phase9_prohibited_production_capabilities_remain_absent() -> None:
         "urllib",
         "watchdog",
     }
-    assert _runtime_import_roots(runtime_sources_without_project_config).isdisjoint(
-        forbidden_imports
-    )
+    assert _runtime_import_roots(
+        runtime_sources_without_project_config_or_check
+    ).isdisjoint(forbidden_imports)
     assert _runtime_call_attributes(runtime_sources).isdisjoint(
         {"connect", "execute", "glob", "rglob", "walk"}
     )

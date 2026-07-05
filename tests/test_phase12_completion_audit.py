@@ -36,13 +36,13 @@ ALL_GOLDENS_HASH = "0e26a0b367a2ae849e5ec1e9a239be42765bea2c352242db5da930ab56b4
 HISTORICAL_GOLDENS_HASH = (
     "11d4343245dc18fd574999cbef5bff7c316d90975b3856ed729e8d2c1d579cf0"
 )
-BOUNDARY_HASH = "d61f6bb932dca619dc644093828e0b063c822bb5af6f44616c23f4427daeddd0"
+BOUNDARY_HASH = "139c7c275dfa5c09f24da17f358e713c84bc66efa391b7a2607eedaa1d2a5d6a"
 GENERATED_HASH = "7ac3aea913b1453a972456be0171a2c292991e71bde3e94a4056b4bf537b5c4e"
 EXPECTED_BLOBS = {
     "scripts/validate.py": "4387101bc68e13539c74c45b595ba742ca17c9c0",
     "scripts/check_generated.py": "51081d5337e0659e73f8666ba639c0d4c3fe3a4b",
     "scripts/check_goldens.py": "4f49ddc0a8a6836b68a83a98cc9c05389d4519a3",
-    "scripts/package_smoke.py": "edda34f1012010f250f8fc099806bea49dda75ea",
+    "scripts/package_smoke.py": "732899e424b751a09d8818a18ce038cb57009c3a",
 }
 EXPECTED_GATES = (
     ("lockfile", ("uv", "lock", "--check")),

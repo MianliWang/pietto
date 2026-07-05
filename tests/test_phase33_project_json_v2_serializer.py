@@ -166,11 +166,12 @@ def test_project_json_v2_rendering_is_ascii_safe() -> None:
     assert json.loads(rendered)["cli_errors"][0]["message"] == "配置失败"
 
 
-def test_project_json_v2_fails_closed_for_selected_inputs() -> None:
+@pytest.mark.parametrize("status", ["selected", "parsed", "error"])
+def test_project_json_v2_fails_closed_for_non_empty_inputs(status: str) -> None:
     discovery_result = ProjectDiscoveryResult(
         root=ProjectRoot(path="."),
         config_path=ProjectConfigPath(path="pietto.toml"),
-        inputs=(ProjectInput(path="models/users.pietto", status="selected"),),
+        inputs=(ProjectInput(path="models/users.pietto", status=status),),
         errors=(),
     )
 

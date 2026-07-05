@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
+from pietto.errors import Diagnostic, Severity
+
 
 class ProjectDiscoveryErrorKind(StrEnum):
     """Private project discovery error categories."""
@@ -96,3 +98,22 @@ class ProjectConfigLoadResult:
         """Return whether configuration loading completed without errors."""
 
         return not self.errors
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectParseCheckResult:
+    """Private parse-only project check result."""
+
+    root: ProjectRoot | None
+    config_path: ProjectConfigPath | None
+    inputs: tuple[ProjectInput, ...]
+    errors: tuple[ProjectDiscoveryError, ...]
+    diagnostics: tuple[Diagnostic, ...]
+
+    @property
+    def ok(self) -> bool:
+        """Return whether parse-only project check completed without errors."""
+
+        return not self.errors and not any(
+            diagnostic.severity is Severity.ERROR for diagnostic in self.diagnostics
+        )

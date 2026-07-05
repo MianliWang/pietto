@@ -342,9 +342,16 @@ def _smoke_installed_cli(
 
     project_root = scratch_dir / "project-check"
     project_root.mkdir()
-    # Invalid TOML is intentional: Slice 8 package smoke proves project check
-    # requires direct config presence only and still does not parse config text.
-    (project_root / "pietto.toml").write_text("not valid = [\n", encoding="utf-8")
+    project_models = project_root / "models"
+    project_models.mkdir()
+    (project_root / "pietto.toml").write_text(
+        'schema_version = 1\n\n[sources]\ninclude = ["models/*.pietto"]\n',
+        encoding="utf-8",
+    )
+    (project_models / "user.pietto").write_text(
+        "shape User:\n    id: Int\n",
+        encoding="utf-8",
+    )
 
     project_check_text = _run_installed_cli(
         cli_path,
@@ -353,7 +360,7 @@ def _smoke_installed_cli(
         stage="installed CLI project check text",
         environment=environment,
     )
-    if project_check_text.stdout != b"Project check OK: .\nFiles checked: 0\n":
+    if project_check_text.stdout != b"Project check OK: .\nFiles checked: 1\n":
         raise SmokeFailure("installed CLI project check text output is unexpected")
     if project_check_text.stderr:
         raise SmokeFailure("installed CLI project check text wrote unexpected stderr")

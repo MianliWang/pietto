@@ -38,6 +38,7 @@ PROJECT_CONFIG_SOURCE_PATH = REPO_ROOT / "src/pietto/_project/config.py"
 PROJECT_SOURCE_SELECTION_SOURCE_PATH = (
     REPO_ROOT / "src/pietto/_project/source_selection.py"
 )
+PROJECT_CHECK_SOURCE_PATH = REPO_ROOT / "src/pietto/_project/check.py"
 PROJECT_JSON_SOURCE_PATH = REPO_ROOT / "src/pietto/_project/json_v2.py"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
@@ -115,7 +116,7 @@ def test_old_phase44_arrow_label_is_historical_only() -> None:
         assert required in phase44_docs, required
 
 
-def test_current_project_mode_root_config_only_baseline_is_recorded() -> None:
+def test_current_project_mode_text_parse_only_and_json_root_config_boundary() -> None:
     docs = _phase44_docs()
     phase33 = _normalized(PHASE33_COMPLETION_TEST_PATH)
     project_explain = _normalized(PROJECT_EXPLAIN_SPEC_PATH)
@@ -141,19 +142,23 @@ def test_current_project_mode_root_config_only_baseline_is_recorded() -> None:
         assert required in project_explain, required
 
     for required in (
-        "`pietto check --project ROOT` currently routes only through",
+        "text-mode `pietto check --project ROOT` now routes through the private",
+        "parse-only project check frontend",
+        "`pietto check --project ROOT --format json` still routes only through",
         "`discover_project_inputs(root)`",
-        "Project JSON v2 currently rejects non-empty project inputs until project source parsing exists",
+        "Project JSON v2 currently rejects non-empty project inputs until the later",
+        "Project JSON v2 input-reporting slice exists",
         "`emit-sql --project` and `explain --project` remain rejected",
         "Project check OK: .",
-        "Files checked: 0",
+        "Files checked: N",
         "inputs: []",
         "files_total: 0",
     ):
         assert required in docs, required
 
+    assert "check_project_parse_only(root)" in cli_source
     assert "discover_project_inputs(root)" in cli_source
-    assert "Files checked: 0" in cli_source
+    assert "Files checked: {len(parse_result.inputs)}" in cli_source
     for required in (
         "if discovery_result.inputs:",
         "raise ValueError(",
@@ -281,6 +286,7 @@ def test_forbidden_surfaces_and_public_outputs_remain_locked() -> None:
     cli_source = _read(CLI_PATH)
     config_source = _read(PROJECT_CONFIG_SOURCE_PATH)
     source_selection_source = _read(PROJECT_SOURCE_SELECTION_SOURCE_PATH)
+    check_source = _read(PROJECT_CHECK_SOURCE_PATH)
     project_json_source = _read(PROJECT_JSON_SOURCE_PATH)
     emit_section = _parser_section(cli_source, "emit_sql")
     explain_section = _parser_section(cli_source, "explain")
@@ -328,6 +334,10 @@ def test_forbidden_surfaces_and_public_outputs_remain_locked() -> None:
     assert "def select_project_sources" in source_selection_source
     assert "load_project_config" not in source_selection_source
     assert "tomllib" not in source_selection_source
+    assert "def check_project_parse_only" in check_source
+    assert "load_project_config" in check_source
+    assert "select_project_sources" in check_source
+    assert "parse_file" in check_source
     for forbidden in (
         ".glob(",
         ".rglob(",

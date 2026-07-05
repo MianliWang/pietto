@@ -16,6 +16,7 @@ from pietto._project.model import (
     ProjectDiscoveryErrorKind,
     ProjectDiscoveryResult,
     ProjectInput,
+    ProjectParseCheckResult,
     ProjectRoot,
 )
 
@@ -43,6 +44,18 @@ def test_private_model_is_frozen_tuple_based_and_not_reexported() -> None:
     assert isinstance(result.inputs, tuple)
     assert isinstance(result.errors, tuple)
     assert result.ok is True
+
+    parse_result = ProjectParseCheckResult(
+        root=result.root,
+        config_path=result.config_path,
+        inputs=result.inputs,
+        errors=(),
+        diagnostics=(),
+    )
+    assert is_dataclass(parse_result)
+    assert parse_result.ok is True
+    assert "ProjectParseCheckResult" not in getattr(pietto, "__all__", ())
+    assert not hasattr(pietto, "ProjectParseCheckResult")
 
 
 def test_missing_root_and_file_as_root_return_project_root(tmp_path: Path) -> None:

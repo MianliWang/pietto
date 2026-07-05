@@ -11,6 +11,7 @@ import pietto.cli as cli
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_CONFIG_SOURCE = REPO_ROOT / "src" / "pietto" / "_project" / "config.py"
+PROJECT_CHECK_SOURCE = REPO_ROOT / "src" / "pietto" / "_project" / "check.py"
 
 _RELATION_SOURCE = (
     "shape User:\n"
@@ -27,16 +28,16 @@ _RELATION_SOURCE = (
 )
 
 
-def test_project_check_text_mode_remains_root_config_only(
+def test_project_check_text_mode_is_parse_only(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    root = _project_root(tmp_path, config_text="not valid = [")
+    root = _project_root_with_source(tmp_path)
 
     assert cli.main(["check", "--project", str(root)]) == 0
 
     captured = capsys.readouterr()
-    assert captured.out == "Project check OK: .\nFiles checked: 0\n"
+    assert captured.out == "Project check OK: .\nFiles checked: 1\n"
     assert captured.err == ""
     assert str(root) not in captured.out
 
@@ -198,10 +199,13 @@ def test_slice8_does_not_add_deferred_project_capabilities() -> None:
         for path in sorted((REPO_ROOT / "src" / "pietto").rglob("*.py"))
         if "__pycache__" not in path.parts
     )
-    source_tree_without_project_config = "\n".join(
+    source_tree_without_project_config_or_check = "\n".join(
         _read(path.relative_to(REPO_ROOT).as_posix())
         for path in sorted((REPO_ROOT / "src" / "pietto").rglob("*.py"))
-        if "__pycache__" not in path.parts and path != PROJECT_CONFIG_SOURCE
+        if (
+            "__pycache__" not in path.parts
+            and path not in {PROJECT_CONFIG_SOURCE, PROJECT_CHECK_SOURCE}
+        )
     )
 
     for forbidden in (
@@ -214,7 +218,7 @@ def test_slice8_does_not_add_deferred_project_capabilities() -> None:
     ):
         assert forbidden not in project_source
 
-    assert "load_project_config" not in source_tree_without_project_config
+    assert "load_project_config" not in source_tree_without_project_config_or_check
     for forbidden in (
         "configured_source_selection",
         "compile_project",
@@ -240,6 +244,17 @@ def _project_root(path: Path, *, config_text: str = "") -> Path:
     path.mkdir(parents=True, exist_ok=True)
     (path / "pietto.toml").write_text(config_text, encoding="utf-8")
     return path
+
+
+def _project_root_with_source(path: Path) -> Path:
+    root = _project_root(
+        path,
+        config_text=(
+            'schema_version = 1\n\n[sources]\ninclude = ["models/*.pietto"]\n'
+        ),
+    )
+    _write(root, "models/user.pietto", "shape User:\n    id: Int\n")
+    return root
 
 
 def _write(root: Path, relative_path: str, text: str) -> Path:

@@ -19,6 +19,7 @@ PIETTO_SPEC_PATH = REPO_ROOT / "docs/spec/pietto-v0.9.md"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 PACKAGE_SMOKE_PATH = REPO_ROOT / "scripts/package_smoke.py"
 PROJECT_CONFIG_SOURCE_PATH = REPO_ROOT / "src/pietto/_project/config.py"
+PROJECT_CHECK_SOURCE_PATH = REPO_ROOT / "src/pietto/_project/check.py"
 
 STATUS_DOCS = (README_PATH, AGENTS_PATH, PIETTO_SPEC_PATH)
 
@@ -108,18 +109,18 @@ ROADMAP_STATUS = (
 LOCKED_PHASE33_SURFACES = {
     "project_private": (
         "src/pietto/_project",
-        6,
-        "443cd4c499bf2bde7372a8703053b54020fe04dce885c84a607f78eaf4a3a920",
+        7,
+        "4cbd008027d1cee47d6e24303ad82623f2f9a2511663249dc0fb08fbf3c507dc",
     ),
     "cli": (
         "src/pietto/cli.py",
         1,
-        "63e99f989500f83686963fba853fed27d76bc5e0c0ac2e58827fb336b2bb044a",
+        "df748b01d99f46b79ea97987507e2b663848f0915aec771967d46274c2e4e3b8",
     ),
     "package_smoke": (
         "scripts/package_smoke.py",
         1,
-        "2b16b23c7431513c0ec57db4ff59ffc1847990deb967dd7b0b5f1a8a60bf75ee",
+        "8147086d900ccd1e63edde30eabfa4ebfe231c710e122af53d0d9b655f3886b8",
     ),
     "phase33_plan": (
         "docs/plan/phase-33-json-v2-and-project-multifile.md",
@@ -192,15 +193,15 @@ def test_status_docs_record_phase33_completion_and_phase34_boundary() -> None:
             assert stale not in status, f"{path}: stale {stale!r}"
 
 
-def test_project_check_text_and_json_v2_remain_root_config_only(
+def test_project_check_text_is_parse_only_and_json_v2_remains_root_config_only(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    root = _project_root(tmp_path, config_text="not valid = [")
+    root = _project_root_with_source(tmp_path)
 
     assert cli.main(["check", "--project", str(root)]) == 0
     captured = capsys.readouterr()
-    assert captured.out == "Project check OK: .\nFiles checked: 0\n"
+    assert captured.out == "Project check OK: .\nFiles checked: 1\n"
     assert captured.err == ""
     assert str(root) not in captured.out
 
@@ -291,7 +292,7 @@ def test_package_smoke_keeps_installed_project_check_coverage() -> None:
         '("check", "--project", project_root.as_posix())',
         '("check", "--project", project_root.as_posix(), "--format", "json")',
         "Project check OK: .",
-        "Files checked: 0",
+        "Files checked: 1",
         '"schema_version": 2',
         '"mode": "project"',
         '"inputs": []',
@@ -318,10 +319,13 @@ def test_deferred_project_runtime_surfaces_remain_absent() -> None:
         for path in sorted((REPO_ROOT / "src" / "pietto").rglob("*.py"))
         if "__pycache__" not in path.parts
     )
-    source_tree_without_config = "\n".join(
+    source_tree_without_config_or_check = "\n".join(
         path.read_text(encoding="utf-8")
         for path in sorted((REPO_ROOT / "src" / "pietto").rglob("*.py"))
-        if "__pycache__" not in path.parts and path != PROJECT_CONFIG_SOURCE_PATH
+        if (
+            "__pycache__" not in path.parts
+            and path not in {PROJECT_CONFIG_SOURCE_PATH, PROJECT_CHECK_SOURCE_PATH}
+        )
     )
     cli_source = _read(REPO_ROOT / "src" / "pietto" / "cli.py")
 
@@ -351,7 +355,7 @@ def test_deferred_project_runtime_surfaces_remain_absent() -> None:
     ):
         assert forbidden not in source_tree
 
-    assert "load_project_config" not in source_tree_without_config
+    assert "load_project_config" not in source_tree_without_config_or_check
     assert '"--project"' not in _configure_parser_source(cli_source, "emit_sql")
     assert '"--project"' not in _configure_parser_source(cli_source, "explain")
 
@@ -408,8 +412,20 @@ def _project_root(path: Path, *, config_text: str = "") -> Path:
     return path
 
 
+def _project_root_with_source(path: Path) -> Path:
+    root = _project_root(
+        path,
+        config_text=(
+            'schema_version = 1\n\n[sources]\ninclude = ["models/*.pietto"]\n'
+        ),
+    )
+    _write(root, "models/user.pietto", "shape User:\n    id: Int\n")
+    return root
+
+
 def _write(tmp_path: Path, name: str, source: str) -> Path:
     path = tmp_path / name
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(source, encoding="utf-8")
     return path
 

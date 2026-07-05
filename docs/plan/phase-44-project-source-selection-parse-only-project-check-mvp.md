@@ -52,6 +52,19 @@ when detectable. It does not wire source selection into CLI behavior, Project
 JSON v2 output, source reading, `.pietto` parsing, parser aggregation, semantic
 analysis, IR, SQL, runtime, database, public diagnostics, or release behavior.
 
+Phase 44 Slice 5 is Parse-only Project Check Frontend. Slice 5 implements only
+private parse-only project check orchestration and text-mode
+`pietto check --project ROOT` wiring. It loads the Slice 2 config, selects
+sources through Slice 4, reads and parses selected `.pietto` files through the
+existing parser boundary, aggregates parser diagnostics, reports project
+source-read failures through the private project error model, and stops before
+semantic analysis. Slice 5 keeps `pietto check --project ROOT --format json` on
+the existing root/config-only Project JSON v2 path and does not change Project
+JSON v2 serializer behavior, CLI JSON v1, Semantic Metadata Artifact v1, IR,
+SQL, project `emit-sql`, project `explain`, imports/modules/export/cross-file
+semantics, public diagnostics, package metadata, workflows, or release
+behavior.
+
 ## Candidate Decision
 
 The selected Phase 44 candidate is:
@@ -113,8 +126,11 @@ The current repository facts that Slice 1 locks are:
   project IR/SQL, project `emit-sql`, project `explain`, metadata aggregation,
   relationship/JOIN, runtime/database/schema introspection, db pull, or
   graph/ERD/AI metadata export;
-- `pietto check --project ROOT` currently routes only through
-  `discover_project_inputs(root)` and prints `Files checked: 0`;
+- text-mode `pietto check --project ROOT` now routes through the private
+  parse-only project check frontend and prints the selected parsed source count;
+- `pietto check --project ROOT --format json` still routes only through
+  `discover_project_inputs(root)` and reports `inputs: []` plus zero file
+  counters;
 - Project JSON v2 currently rejects non-empty project inputs until project
   source parsing exists;
 - `emit-sql --project` and `explain --project` remain rejected or unaccepted by
@@ -212,7 +228,7 @@ Phase 44 Slice 1 and Slice 2 do not authorize:
 | 2 | Project Config Schema Contract | docs/spec/static-audit readiness first; no behavior change unless separately approved |
 | 3 | Private Project Config Loader MVP | private config loader/schema validator only; no CLI or JSON behavior |
 | 4 | Deterministic Source Selection MVP | private deterministic source selection only; no CLI or JSON behavior |
-| 5 | Parse-only Project Check Frontend | future implementation only after a new Gate 1 and Gate 2 approval |
+| 5 | Parse-only Project Check Frontend | text-mode project check source read and parser aggregation only; Project JSON v2 remains root/config-only |
 | 6 | Project JSON v2 Inputs And Counters | future implementation only after a new Gate 1 and Gate 2 approval |
 | 7 | CLI / Package / Compatibility Hardening | future compatibility work only after approved behavior slices |
 | 8 | Completion Audit And Status Lock | future docs/tests/status lock only; no new behavior |
@@ -508,3 +524,109 @@ Stop and return to Repair Gate 1 if:
   LSP/UI, runtime/database, schema introspection, or db pull appears necessary;
 - validation fails or static-audit/hash-lock fanout becomes broader than a narrow
   Slice 4 private source-selection package.
+
+## Slice 5 Gate 2 Allowlist
+
+Phase 44 Slice 5 Gate 2 is limited to:
+
+- `docs/plan/phase-44-project-source-selection-parse-only-project-check-mvp.md`;
+- `docs/spec/phase44-project-source-selection-scope-lock-v1.md`;
+- `docs/spec/phase44-project-config-schema-contract-v1.md`;
+- `src/pietto/_project/check.py`;
+- `src/pietto/_project/model.py`;
+- `src/pietto/cli.py`;
+- `scripts/package_smoke.py`;
+- `tests/test_phase44_project_parse_only_check.py`;
+- `tests/test_phase44_project_config_schema_contract.py`;
+- `tests/test_phase44_project_source_selection_scope_lock.py`;
+- `tests/test_phase33_project_check_cli.py`;
+- `tests/test_phase33_private_project_discovery_model.py`;
+- `tests/test_phase33_project_json_v2_serializer.py`;
+- `tests/test_phase33_completion_audit.py`;
+- `tests/test_phase33_cli_package_compatibility_hardening.py`;
+- `tests/test_phase9_completion_audit.py`;
+- `tests/test_phase10_completion_audit.py`;
+- `tests/test_phase11_ci_workflow.py`;
+- `tests/test_phase11_completion_audit.py`;
+- `tests/test_phase11_generated_guard.py`;
+- `tests/test_phase11_golden_policy.py`;
+- `tests/test_phase11_packaging_smoke.py`;
+- `tests/test_phase11_validation_entrypoint.py`;
+- `tests/test_phase12_completion_audit.py`;
+- `tests/test_phase12_composition_cli_json_goldens.py`;
+- `tests/test_phase12_planning_audit.py`.
+
+No other file is approved in this Gate 2. Legacy static-audit files may change
+only to recognize the approved private `src/pietto/_project/check.py`
+implementation, text-mode `pietto check --project ROOT` parse-only wiring,
+package smoke update, and necessary hash-lock fanout. They must not weaken the
+forbidden Project JSON v2, CLI JSON v1, semantic, IR, SQL, project `emit-sql`,
+project `explain`, imports/modules/export/cross-file semantics, runtime,
+JOIN, Arrow/PyArrow, LSP/UI, dependency, workflow, package metadata, or release
+boundaries.
+
+## Slice 5 Validation Focus
+
+Slice 5 validation should prove:
+
+- the twenty-six-file allowlist is the complete changed surface;
+- private parse-only project check reuses the Slice 3 config loader and Slice 4
+  deterministic source selection;
+- selected `.pietto` files are read and parsed through the existing parser
+  boundary;
+- parser diagnostics are aggregated with normalized project-relative paths;
+- source-read and UTF-8 failures use the existing private project error model;
+- text-mode `pietto check --project ROOT` reports the selected parsed source
+  count;
+- `pietto check --project ROOT --format json` remains on the existing
+  root/config-only Project JSON v2 path with empty `inputs` and zero counters;
+- non-project `pietto check`, CLI JSON v1, and text output behavior are
+  unchanged;
+- no public diagnostics or new `PIE-*` codes are introduced;
+- no semantic analysis, IR, SQL, project `emit-sql`, project `explain`,
+  imports/modules/export/cross-file semantics, package metadata, workflow,
+  lockfile, generated, fixture, golden, release, or public API change is
+  introduced.
+
+Approved Gate 2 validation for Slice 5 is:
+
+```bash
+git diff --check
+uv run ruff format --check src/pietto/_project src/pietto/cli.py scripts/package_smoke.py tests/test_phase44_project_parse_only_check.py tests/test_phase44_project_config_schema_contract.py tests/test_phase44_project_source_selection_scope_lock.py tests/test_phase33_project_check_cli.py tests/test_phase33_private_project_discovery_model.py tests/test_phase33_project_json_v2_serializer.py tests/test_phase33_completion_audit.py tests/test_phase33_cli_package_compatibility_hardening.py tests/test_phase9_completion_audit.py tests/test_phase10_completion_audit.py tests/test_phase11_ci_workflow.py tests/test_phase11_completion_audit.py tests/test_phase11_generated_guard.py tests/test_phase11_golden_policy.py tests/test_phase11_packaging_smoke.py tests/test_phase11_validation_entrypoint.py tests/test_phase12_completion_audit.py tests/test_phase12_composition_cli_json_goldens.py tests/test_phase12_planning_audit.py
+uv run ruff check src/pietto/_project src/pietto/cli.py scripts/package_smoke.py tests/test_phase44_project_parse_only_check.py tests/test_phase44_project_config_schema_contract.py tests/test_phase44_project_source_selection_scope_lock.py tests/test_phase33_project_check_cli.py tests/test_phase33_private_project_discovery_model.py tests/test_phase33_project_json_v2_serializer.py tests/test_phase33_completion_audit.py tests/test_phase33_cli_package_compatibility_hardening.py tests/test_phase9_completion_audit.py tests/test_phase10_completion_audit.py tests/test_phase11_ci_workflow.py tests/test_phase11_completion_audit.py tests/test_phase11_generated_guard.py tests/test_phase11_golden_policy.py tests/test_phase11_packaging_smoke.py tests/test_phase11_validation_entrypoint.py tests/test_phase12_completion_audit.py tests/test_phase12_composition_cli_json_goldens.py tests/test_phase12_planning_audit.py
+uv run pyright --project pyrightconfig.json
+uv run pyright --project pyrightconfig.tests.json
+uv run pytest tests/test_phase44_project_parse_only_check.py
+uv run pytest tests/test_phase33_project_check_cli.py tests/test_phase33_private_project_discovery_model.py tests/test_phase33_project_json_v2_serializer.py
+uv run pytest tests/test_phase44_project_config_loader.py tests/test_phase44_project_source_selection.py tests/test_phase44_project_config_schema_contract.py tests/test_phase44_project_source_selection_scope_lock.py
+uv run pytest tests/test_phase33_completion_audit.py tests/test_phase33_cli_package_compatibility_hardening.py
+uv run pytest tests/test_cli_check.py tests/test_cli_check_json.py tests/test_cli_output.py
+uv run pytest tests/test_phase9_completion_audit.py tests/test_phase10_completion_audit.py tests/test_phase11_ci_workflow.py tests/test_phase11_completion_audit.py tests/test_phase11_generated_guard.py tests/test_phase11_golden_policy.py tests/test_phase11_packaging_smoke.py tests/test_phase11_validation_entrypoint.py tests/test_phase12_completion_audit.py tests/test_phase12_composition_cli_json_goldens.py tests/test_phase12_planning_audit.py
+uv run python scripts/package_smoke.py
+```
+
+Full `scripts/validate.py` is not required in dirty Slice 5 Gate 2 when the
+only expected failures are dirty-working-tree changed-set artifacts. Natural
+clean-checkout CI after Gate 3 remains authoritative.
+
+## Slice 5 Stop Conditions
+
+Stop and return to Repair Gate 1 if:
+
+- branch, HEAD, dirty status, package version, or no-tag baseline is not trusted;
+- any needed change falls outside the Slice 5 allowlist;
+- Project JSON v2 serializer behavior, CLI JSON v1 behavior, grammar/generated,
+  fixture, golden, workflow, lockfile, dependency, package metadata, or release
+  changes appear necessary;
+- non-project `pietto check`, JSON v1, or text output behavior changes outside
+  the approved project text-mode path;
+- project semantic analysis, IR, SQL, project `emit-sql`, or project `explain`
+  appears necessary;
+- imports, modules, export, package semantics, visibility rules, or cross-file
+  semantic behavior appear necessary;
+- public diagnostics or new `PIE-*` codes appear necessary;
+- JSON v2 `inputs[]` or project check counters appear necessary before Slice 6;
+- JOIN/relationship behavior, `RelationLayerIR`, `LetBindingIR`, Arrow/PyArrow,
+  LSP/UI, runtime/database, schema introspection, or db pull appears necessary;
+- validation fails or static-audit/hash-lock fanout becomes broader than a narrow
+  Slice 5 parse-only project-check frontend package.

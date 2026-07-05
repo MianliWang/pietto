@@ -236,8 +236,12 @@ deterministic ordering, containment, symlink/hard-link duplicate identity
 rejection, and source-selection resource limits. It does not own source reading,
 parser aggregation, CLI behavior, or Project JSON v2 output.
 
-Slice 5 may implement source read plus parse-only project check only after a
-separate Gate 1 and Gate 2 approval.
+Slice 5 implements source read plus parse-only text-mode project check only. It
+loads the Slice 2 config, selects sources through Slice 4, reads and parses
+selected `.pietto` files through the existing parser boundary, aggregates parser
+diagnostics, reports source-read failures through private project errors, and
+stops before semantic analysis. It does not implement Project JSON v2
+`inputs[]` or project check counters.
 
 Slice 6 may implement Project JSON v2 `inputs[]` and project check counters only
 after a separate Gate 1 and Gate 2 approval.

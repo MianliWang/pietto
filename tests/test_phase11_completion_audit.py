@@ -16,6 +16,7 @@ import pietto.sql as sql_api
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PROJECT_CONFIG_SOURCE = REPO_ROOT / "src" / "pietto" / "_project" / "config.py"
+PROJECT_CHECK_SOURCE = REPO_ROOT / "src" / "pietto" / "_project" / "check.py"
 PLAN_PATH = (
     REPO_ROOT / "docs/plan/phase-11-release-readiness-reproducible-validation.md"
 )
@@ -48,7 +49,7 @@ EXPECTED_BLOBS = {
     "scripts/validate.py": "4387101bc68e13539c74c45b595ba742ca17c9c0",
     "scripts/check_generated.py": "51081d5337e0659e73f8666ba639c0d4c3fe3a4b",
     "scripts/check_goldens.py": "4f49ddc0a8a6836b68a83a98cc9c05389d4519a3",
-    "scripts/package_smoke.py": "edda34f1012010f250f8fc099806bea49dda75ea",
+    "scripts/package_smoke.py": "732899e424b751a09d8818a18ce038cb57009c3a",
 }
 EXPECTED_FILES = {
     "grammar/Pietto.g4": (
@@ -62,7 +63,7 @@ EXPECTED_GROUPS = {
     "ir": "57097f43ba5e0ffa8d531b827b7029c9104b85ab3dc0657889cccd28caec5249",
     "sql": "b18229fbda079d706416119002a70d091e7f5b79e0e4818a5b1292d9b88e898b",
     "generated": "7ac3aea913b1453a972456be0171a2c292991e71bde3e94a4056b4bf537b5c4e",
-    "cli": "bab5a160ac57ad45045836f2f4396e7383baf03c20bb8a18d51e9fd2476a716f",
+    "cli": "2e6ad48bcbfe773e55ed9e4ed5e3a35d88f7fd36926e85fddcbc23d356fac7e8",
 }
 POSTGRES_GOLDENS = {
     "emit_sql_active_user_emails.sql": (
@@ -96,7 +97,7 @@ MYSQL_GOLDENS = {
     ),
 }
 ALL_GOLDENS_HASH = "0e26a0b367a2ae849e5ec1e9a239be42765bea2c352242db5da930ab56b43004"
-BOUNDARY_HASH = "d61f6bb932dca619dc644093828e0b063c822bb5af6f44616c23f4427daeddd0"
+BOUNDARY_HASH = "139c7c275dfa5c09f24da17f358e713c84bc66efa391b7a2607eedaa1d2a5d6a"
 
 
 def _load_module(name: str, path: Path) -> ModuleType:
@@ -441,7 +442,10 @@ def _runtime_text(*, include_project_config: bool = True) -> str:
         path.read_text(encoding="utf-8")
         for path in sorted((REPO_ROOT / "src/pietto").rglob("*.py"))
         if "generated" not in path.parts
-        and (include_project_config or path != PROJECT_CONFIG_SOURCE)
+        and (
+            include_project_config
+            or path not in {PROJECT_CONFIG_SOURCE, PROJECT_CHECK_SOURCE}
+        )
     )
 
 

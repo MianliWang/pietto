@@ -27,6 +27,18 @@ JSON v2 output, source reading, `.pietto` parsing, parser aggregation, project
 semantic analysis, project IR, project SQL, runtime behavior, database behavior,
 or release behavior.
 
+Phase 44 Slice 5 implements only private parse-only project check orchestration
+and text-mode `pietto check --project ROOT` wiring. It loads the Slice 2 config,
+selects sources through Slice 4, reads and parses selected `.pietto` files
+through the existing parser boundary, aggregates parser diagnostics, reports
+project source-read failures through private project errors, and stops before
+semantic analysis. Slice 5 keeps `pietto check --project ROOT --format json` on
+the existing root/config-only Project JSON v2 path and does not change Project
+JSON v2 serializer behavior, CLI JSON v1, Semantic Metadata Artifact v1, IR,
+SQL, project `emit-sql`, project `explain`, imports/modules/export/cross-file
+semantics, public diagnostics, runtime behavior, database behavior, or release
+behavior.
+
 Package version remains `0.1.0`.
 
 ## Trusted Baseline
@@ -66,14 +78,15 @@ That behavior validates only the explicit project root and direct
 `pietto.toml` presence. It does not select, read, parse, analyze, or aggregate
 source files.
 
-Current project check text output remains root/config-only and reports:
+Text-mode project check now performs parse-only selected-source checking and
+reports the selected parsed source count:
 
 ```text
 Project check OK: .
-Files checked: 0
+Files checked: N
 ```
 
-Current Project JSON v2 remains a project check result only:
+Current Project JSON v2 remains root/config-only for Slice 5:
 
 ```text
 schema_version: 2
@@ -86,8 +99,8 @@ result.check.files_ok: 0
 result.check.files_with_errors: 0
 ```
 
-Project JSON v2 currently rejects non-empty project inputs until project source
-parsing exists.
+Project JSON v2 currently rejects non-empty project inputs until the later
+Project JSON v2 input-reporting slice exists.
 
 `emit-sql --project` and `explain --project` remain rejected or unaccepted by
 the current CLI.
@@ -147,6 +160,31 @@ Slice 4 source selection must:
 Slice 4 does not authorize CLI wiring, Project JSON v2 input reporting, source
 file content reading, parser aggregation, semantic analysis, IR, SQL, runtime,
 database, or public diagnostic behavior.
+
+## Slice 5 Parse-only Project Check Boundary
+
+Slice 5 text-mode project check is limited to producing a parse-only frontend
+result. It may use the existing private project input statuses `selected`,
+`parsed`, and `error`, but Project JSON v2 still rejects non-empty inputs until
+Slice 6.
+
+Slice 5 project check must:
+
+- load and validate `pietto.toml` through the private Slice 3 loader;
+- select configured sources through the private Slice 4 selector;
+- read and parse only selected `.pietto` files through the existing parser
+  boundary;
+- aggregate parser diagnostics with normalized project-relative paths;
+- report source-read and UTF-8 failures through private project errors;
+- stop before semantic analysis, IR, SQL, project `emit-sql`, and project
+  `explain`;
+- keep `pietto check --project ROOT --format json` on the existing
+  root/config-only Project JSON v2 path.
+
+Slice 5 does not authorize Project JSON v2 input/counter reporting, CLI JSON v1
+mutation, Semantic Metadata Artifact v1 mutation, public diagnostics, new
+`PIE-*` codes, imports/modules/export/cross-file semantics, project semantic
+analysis, project IR, project SQL, runtime, database, or release behavior.
 
 ## Project JSON And Compatibility Boundary
 
@@ -211,8 +249,8 @@ Slice 1 validation should prove:
 - Phase 44 uses the project source selection and parse-only project check
   identity;
 - old Arrow/PyArrow Phase 44 wording is historical only;
-- current project behavior remains root/config-only until later implementation
-  slices;
+- text-mode project behavior is parse-only while Project JSON v2 remains
+  root/config-only until the later input-reporting slice;
 - forbidden surfaces remain absent from implementation and public output
   changes;
 - package version remains `0.1.0`.
