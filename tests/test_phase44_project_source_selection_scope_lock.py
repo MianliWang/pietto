@@ -431,7 +431,9 @@ def test_forbidden_surfaces_and_public_outputs_remain_locked() -> None:
     assert "def check_project_parse_only" in check_source
     assert "load_project_config" in check_source
     assert "select_project_sources" in check_source
-    assert "parse_file" in check_source
+    assert "parse_source" in check_source
+    assert "path=selected_input.path" in check_source
+    assert "parse_file" not in check_source
     for forbidden in (
         ".glob(",
         ".rglob(",

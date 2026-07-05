@@ -110,7 +110,7 @@ LOCKED_PHASE33_SURFACES = {
     "project_private": (
         "src/pietto/_project",
         7,
-        "f5c7fab887c551b4ed6687869dbb13efd495e2df463e28e1677632db98911788",
+        "d00d42f0df1925567e1e9fe1a575fecea81e523cec7eb079e36b62a8d2ac5cc9",
     ),
     "cli": (
         "src/pietto/cli.py",
@@ -322,6 +322,11 @@ def test_deferred_project_runtime_surfaces_remain_absent() -> None:
         for path, source in project_sources.items()
         if path != PROJECT_CONFIG_SOURCE_PATH
     )
+    project_source_without_config_or_check = "\n".join(
+        source
+        for path, source in project_sources.items()
+        if path not in {PROJECT_CONFIG_SOURCE_PATH, PROJECT_CHECK_SOURCE_PATH}
+    )
     source_tree = "\n".join(
         path.read_text(encoding="utf-8")
         for path in sorted((REPO_ROOT / "src" / "pietto").rglob("*.py"))
@@ -347,9 +352,10 @@ def test_deferred_project_runtime_surfaces_remain_absent() -> None:
         "tomllib",
         "read_text(",
         "read_bytes(",
-        "open(",
     ):
         assert forbidden not in project_source_without_config
+
+    assert "open(" not in project_source_without_config_or_check
 
     for forbidden in (
         "configured_source_selection",
