@@ -18,6 +18,10 @@ Maintenance Phase 2 Slice 5 is External Skills Detailed Evaluation Matrix.
 Slice 5 is docs/spec/plan/static-audit work only and implements no
 source/compiler behavior change.
 
+Maintenance Phase 2 Slice 6 is Completion Audit And Status Lock. Slice 6 is
+docs/plan/static-audit work only and implements no source/compiler behavior
+change.
+
 Trusted Gate 2 baseline:
 
 - baseline HEAD: `e567ee0be3e8bbdb52570efa9c098589c9400b89`;
@@ -158,6 +162,45 @@ The Slice 5 matrix must cover:
 - the recommendation that Maintenance Phase 2 likely needs one completion
   audit/status-lock slice before Phase 45.
 
+## Slice 6 Deliverables
+
+Maintenance Phase 2 Slice 6 closes Maintenance Phase 2 as completion
+audit/status-lock work only. Gate 2 is limited to:
+
+- `docs/plan/maintenance-phase-2-agent-workflow-roadmap-and-skills-audit.md`;
+- `tests/test_maintenance_phase2_completion_audit.py`;
+- `tests/test_maintenance_phase2_agent_workflow_and_roadmap.py`;
+- `tests/test_maintenance_phase2_code_audit_security_review.py`;
+- `tests/test_maintenance_phase2_external_skills_evaluation.py`.
+
+No other file is approved in this Gate 2.
+
+Slice 6 records that Maintenance Phase 2 is complete as a Pietto-local policy,
+roadmap, workflow, code-audit, and external-skills-evaluation maintenance
+phase. It does not install external plugins, execute external repo scripts, run
+external scanners, copy external code, import hooks, import MCP configs, change
+compiler behavior, change `AGENTS.md`, trigger CI, stage, commit, push, tag,
+release, publish, upload, sign, or attest anything.
+
+The Slice 6 completion audit must lock:
+
+- Slice 1 external workflow/skills audit was read-only;
+- Slice 2 roadmap and skills policy was docs/spec/plan/static-audit;
+- Slice 3 code-audit/security checklist was docs/spec/plan/static-audit;
+- Slice 4 `AGENTS.md` pointer was narrow and local;
+- Slice 5 external skills matrix was docs/spec/plan/static-audit;
+- no external plugins were installed;
+- no external scripts or scanners were run;
+- no external code was copied;
+- external repositories remain text-only references only;
+- `AGENTS.md` points only to local policy docs;
+- Phase 45 remains `Project-wide Semantic Model Design And MVP`;
+- hybrid namespace, cross-file reference, and Python-like import/export
+  long-term decisions remain locked;
+- package version remains `0.1.0`;
+- no release, tag, publish, upload, signing, or attestation occurred;
+- no production source/compiler behavior changed.
+
 ## Roadmap And Namespace Decisions
 
 Slice 2 locks Phase 45 as `Project-wide Semantic Model Design And MVP`.
@@ -233,6 +276,14 @@ tag, publish, upload, signing, or attestation surfaces.
 
 Slice 5 authorizes only the approved docs/spec/plan/static-audit updates listed
 in Slice 5 Deliverables. Slice 5 does not authorize changes to `AGENTS.md`,
+`README.md`, `docs/spec/pietto-v0.9.md`, `src/**`, `scripts/**`, `.github/**`,
+`pyproject.toml`, `uv.lock`, `tests/fixtures/**`, `tests/goldens/**`,
+generated artifacts, grammar, external repo files, dependencies, workflows,
+package metadata, CI, release, tag, publish, upload, signing, or attestation
+surfaces.
+
+Slice 6 authorizes only the approved docs/plan/static-audit updates listed in
+Slice 6 Deliverables. Slice 6 does not authorize changes to `AGENTS.md`,
 `README.md`, `docs/spec/pietto-v0.9.md`, `src/**`, `scripts/**`, `.github/**`,
 `pyproject.toml`, `uv.lock`, `tests/fixtures/**`, `tests/goldens/**`,
 generated artifacts, grammar, external repo files, dependencies, workflows,
@@ -326,6 +377,31 @@ script execution, external scanner execution, commit, push, branch, tag,
 release, publish, upload, signing, attestation, CI trigger, CI rerun, or CI
 cancellation is authorized by Slice 5.
 
+Slice 6 Gate 2 validation is limited to focused completion audit/status-lock
+checks:
+
+```bash
+git diff --check
+uv run ruff format --check tests/test_maintenance_phase2_completion_audit.py tests/test_maintenance_phase2_agent_workflow_and_roadmap.py tests/test_maintenance_phase2_code_audit_security_review.py tests/test_maintenance_phase2_external_skills_evaluation.py
+uv run ruff check tests/test_maintenance_phase2_completion_audit.py tests/test_maintenance_phase2_agent_workflow_and_roadmap.py tests/test_maintenance_phase2_code_audit_security_review.py tests/test_maintenance_phase2_external_skills_evaluation.py
+uv run pyright --project pyrightconfig.tests.json
+uv run pytest tests/test_maintenance_phase2_completion_audit.py
+uv run pytest tests/test_maintenance_phase2_agent_workflow_and_roadmap.py
+uv run pytest tests/test_maintenance_phase2_code_audit_security_review.py
+uv run pytest tests/test_maintenance_phase2_external_skills_evaluation.py
+```
+
+If local uv cache is read-only, Slice 6 Gate 2 may use:
+
+```bash
+UV_CACHE_DIR=/tmp/pietto_maintenance_phase2_uv_cache uv run ...
+```
+
+No broad validation, full test suite, codegen, formatter rewrite, external
+script execution, external scanner execution, commit, push, branch, tag,
+release, publish, upload, signing, attestation, CI trigger, CI rerun, or CI
+cancellation is authorized by Slice 6.
+
 ## Stop Conditions
 
 Stop and return to Gate 1 if any of these appears necessary:
@@ -344,6 +420,7 @@ Stop and return to Gate 1 if any of these appears necessary:
 - broadening agent authority;
 - need to implement Phase 45 compiler behavior instead of documenting
   roadmap/policy.
+- need to expand Slice 6 beyond completion audit/status-lock docs/tests.
 
 ## Gate 2 Evidence Requirements
 
@@ -363,6 +440,7 @@ Gate 2 reporting should include:
   asset was copied into Pietto;
 - confirmation that `AGENTS.md` changed only as the approved local-policy
   pointer;
+- confirmation that Slice 6 did not modify `AGENTS.md`;
 - confirmation that production code, dependencies, workflows, package
   metadata, release artifacts, and CI were untouched.
 
@@ -371,6 +449,10 @@ Gate 2 reporting should include:
 Maintenance Phase 2 Slice 2 performs no release operation. Package version
 remains `0.1.0`. Maintenance Phase 2 Slice 3 also performs no release
 operation. Maintenance Phase 2 Slice 4 also performs no release operation.
-Maintenance Phase 2 Slice 5 also performs no release operation. No package
-version change, tag, release, publish, upload, signing, or attestation is
-authorized.
+Maintenance Phase 2 Slice 5 also performs no release operation. Maintenance
+Phase 2 Slice 6 also performs no release operation. No package version change,
+tag, release, publish, upload, signing, or attestation is authorized.
+
+Maintenance Phase 2 is complete after Slice 6 completion audit/status lock,
+pending the separately approved Gate 3 publish and natural CI observation.
+Phase 45 remains not started by Maintenance Phase 2.

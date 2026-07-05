@@ -29,6 +29,18 @@ ALLOWED_SLICE5_GATE2_PATHS = {
     "tests/test_maintenance_phase2_code_audit_security_review.py",
 }
 
+ALLOWED_SLICE6_GATE2_PATHS = {
+    "docs/plan/maintenance-phase-2-agent-workflow-roadmap-and-skills-audit.md",
+    "tests/test_maintenance_phase2_completion_audit.py",
+    "tests/test_maintenance_phase2_agent_workflow_and_roadmap.py",
+    "tests/test_maintenance_phase2_code_audit_security_review.py",
+    "tests/test_maintenance_phase2_external_skills_evaluation.py",
+}
+
+ALLOWED_CURRENT_MAINTENANCE_PHASE2_GATE2_PATHS = (
+    ALLOWED_SLICE5_GATE2_PATHS | ALLOWED_SLICE6_GATE2_PATHS
+)
+
 FORBIDDEN_DIFF_PATHS = (
     "AGENTS.md",
     "README.md",
@@ -180,6 +192,25 @@ def test_pietto_local_adoption_strategy_and_next_slice_are_locked() -> None:
         assert required in docs, required
 
 
+def test_slice6_completion_lock_preserves_external_skills_policy() -> None:
+    docs = _docs()
+    for required in (
+        "Maintenance Phase 2 Slice 6 is Completion Audit And Status Lock",
+        "tests/test_maintenance_phase2_completion_audit.py",
+        "Slice 6 records that Maintenance Phase 2 is complete",
+        "Slice 5 external skills matrix was docs/spec/plan/static-audit",
+        "no external plugins were installed",
+        "no external scripts or scanners were run",
+        "no external code was copied",
+        "external repositories remain text-only references only",
+        "Phase 45 remains not started by Maintenance Phase 2",
+        "Slice 6 did not modify `AGENTS.md`",
+    ):
+        assert required in docs, required
+
+    assert _git_status_paths().issubset(ALLOWED_CURRENT_MAINTENANCE_PHASE2_GATE2_PATHS)
+
+
 def test_gate2_allowlist_validation_and_stop_conditions_are_locked() -> None:
     docs = _docs()
     for required in (
@@ -197,6 +228,10 @@ def test_gate2_allowlist_validation_and_stop_conditions_are_locked() -> None:
         "uv run pytest tests/test_maintenance_phase2_agent_workflow_and_roadmap.py",
         "uv run pytest tests/test_maintenance_phase2_code_audit_security_review.py",
         "UV_CACHE_DIR=/tmp/pietto_maintenance_phase2_slice5_uv_cache uv run ...",
+        "Slice 6 Gate 2 validation is limited to focused completion audit/status-lock checks",
+        "uv run ruff format --check tests/test_maintenance_phase2_completion_audit.py tests/test_maintenance_phase2_agent_workflow_and_roadmap.py tests/test_maintenance_phase2_code_audit_security_review.py tests/test_maintenance_phase2_external_skills_evaluation.py",
+        "uv run ruff check tests/test_maintenance_phase2_completion_audit.py tests/test_maintenance_phase2_agent_workflow_and_roadmap.py tests/test_maintenance_phase2_code_audit_security_review.py tests/test_maintenance_phase2_external_skills_evaluation.py",
+        "uv run pytest tests/test_maintenance_phase2_completion_audit.py",
         "any `src/**` change",
         "external plugin installation",
         "external script execution",
@@ -205,7 +240,7 @@ def test_gate2_allowlist_validation_and_stop_conditions_are_locked() -> None:
     ):
         assert required in docs, required
 
-    assert _git_status_paths().issubset(ALLOWED_SLICE5_GATE2_PATHS)
+    assert _git_status_paths().issubset(ALLOWED_CURRENT_MAINTENANCE_PHASE2_GATE2_PATHS)
 
 
 def test_forbidden_surfaces_release_and_ci_boundaries_are_locked() -> None:
@@ -216,7 +251,7 @@ def test_forbidden_surfaces_release_and_ci_boundaries_are_locked() -> None:
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
     assert _git_diff_name_only(FORBIDDEN_DIFF_PATHS) == ""
-    assert _git_status_paths().issubset(ALLOWED_SLICE5_GATE2_PATHS)
+    assert _git_status_paths().issubset(ALLOWED_CURRENT_MAINTENANCE_PHASE2_GATE2_PATHS)
 
     for required in (
         "`AGENTS.md`",

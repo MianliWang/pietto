@@ -47,8 +47,19 @@ ALLOWED_SLICE5_GATE2_PATHS = {
     "tests/test_maintenance_phase2_code_audit_security_review.py",
 }
 
+ALLOWED_SLICE6_GATE2_PATHS = {
+    "docs/plan/maintenance-phase-2-agent-workflow-roadmap-and-skills-audit.md",
+    "tests/test_maintenance_phase2_completion_audit.py",
+    "tests/test_maintenance_phase2_agent_workflow_and_roadmap.py",
+    "tests/test_maintenance_phase2_code_audit_security_review.py",
+    "tests/test_maintenance_phase2_external_skills_evaluation.py",
+}
+
 ALLOWED_CURRENT_MAINTENANCE_PHASE2_GATE2_PATHS = (
-    ALLOWED_SLICE3_GATE2_PATHS | ALLOWED_SLICE4_GATE2_PATHS | ALLOWED_SLICE5_GATE2_PATHS
+    ALLOWED_SLICE3_GATE2_PATHS
+    | ALLOWED_SLICE4_GATE2_PATHS
+    | ALLOWED_SLICE5_GATE2_PATHS
+    | ALLOWED_SLICE6_GATE2_PATHS
 )
 
 FORBIDDEN_DIFF_PATHS = (
@@ -253,6 +264,28 @@ def test_slice5_external_skills_matrix_preserves_code_audit_policy() -> None:
     assert _git_status_paths().issubset(ALLOWED_CURRENT_MAINTENANCE_PHASE2_GATE2_PATHS)
 
 
+def test_slice6_completion_audit_preserves_code_audit_policy() -> None:
+    docs = _docs()
+    agents = _agents()
+
+    for required in (
+        "Maintenance Phase 2 Slice 6 is Completion Audit And Status Lock",
+        "tests/test_maintenance_phase2_completion_audit.py",
+        "Slice 6 records that Maintenance Phase 2 is complete",
+        "Slice 3 code-audit/security checklist was docs/spec/plan/static-audit",
+        "no external scripts or scanners were run",
+        "no external code was copied",
+        "external repositories remain text-only references only",
+        "no production source/compiler behavior changed",
+        "Slice 6 did not modify `AGENTS.md`",
+        "Phase 45 remains not started by Maintenance Phase 2",
+    ):
+        assert required in docs, required
+
+    assert "docs/spec/external-skills-evaluation-matrix-v1.md" not in agents
+    assert _git_status_paths().issubset(ALLOWED_CURRENT_MAINTENANCE_PHASE2_GATE2_PATHS)
+
+
 def test_gate_workflow_allowlist_and_validation_plan_are_locked() -> None:
     docs = _docs()
     for required in (
@@ -277,6 +310,11 @@ def test_gate_workflow_allowlist_and_validation_plan_are_locked() -> None:
         "uv run ruff check tests/test_maintenance_phase2_agent_workflow_and_roadmap.py tests/test_maintenance_phase2_code_audit_security_review.py",
         "uv run pytest tests/test_maintenance_phase2_agent_workflow_and_roadmap.py",
         "uv run pytest tests/test_maintenance_phase2_code_audit_security_review.py",
+        "Slice 6 Gate 2 validation is limited to focused completion audit/status-lock checks",
+        "uv run ruff format --check tests/test_maintenance_phase2_completion_audit.py tests/test_maintenance_phase2_agent_workflow_and_roadmap.py tests/test_maintenance_phase2_code_audit_security_review.py tests/test_maintenance_phase2_external_skills_evaluation.py",
+        "uv run ruff check tests/test_maintenance_phase2_completion_audit.py tests/test_maintenance_phase2_agent_workflow_and_roadmap.py tests/test_maintenance_phase2_code_audit_security_review.py tests/test_maintenance_phase2_external_skills_evaluation.py",
+        "uv run pytest tests/test_maintenance_phase2_completion_audit.py",
+        "uv run pytest tests/test_maintenance_phase2_external_skills_evaluation.py",
     ):
         assert required in docs, required
 
