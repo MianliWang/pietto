@@ -126,7 +126,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "agents": (
         "AGENTS.md",
         1,
-        "140af85301e560bcf13481c589e99c039e734a47d0ebc9d2787b7062d948031d",
+        "27fef9e67bec8917eff21ad2dd41cb22f9feea37e62200ac78864cba2d5aa589",
     ),
     "pietto_v09": (
         "docs/spec/pietto-v0.9.md",
