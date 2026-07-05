@@ -215,6 +215,34 @@ imports/modules/export/cross-file semantics, project semantic analysis, project
 IR, project SQL, runtime, database, fixture/golden, generated, workflow,
 dependency, package metadata, or release behavior.
 
+Phase 44 Slice 7 hardens CLI/package compatibility through docs, tests, and
+static audits only. It adds no production source behavior, does not change
+`scripts/package_smoke.py`, and does not change Project JSON v2, CLI JSON v1,
+Semantic Metadata Artifact v1, semantic analysis, IR, SQL, project `emit-sql`,
+project `explain`, package metadata, workflow, dependency, fixture, golden,
+generated, or release behavior.
+
+## Slice 7 CLI / Package / Compatibility Hardening Boundary
+
+Slice 7 compatibility hardening must:
+
+- lock current text-mode `pietto check --project ROOT` success and failure
+  output;
+- lock current Project JSON v2 success, parser-diagnostic, source-read, config,
+  and source-selection error shapes;
+- prove single-file `check` and `emit-sql` still use CLI JSON v1;
+- prove single-file `explain` still uses Semantic Metadata Artifact v1;
+- prove `emit-sql --project` and `explain --project` remain rejected;
+- prove project check does not enter semantic analysis, IR, SQL, metadata
+  artifact building, project `emit-sql`, or project `explain`;
+- lock that installed package smoke already covers project text and JSON success.
+
+Slice 7 does not authorize `src/**` changes, `scripts/package_smoke.py` changes,
+Project JSON v2 schema expansion beyond Slice 6, CLI JSON v1 mutation, Semantic
+Metadata Artifact v1 mutation, public diagnostics, new `PIE-*` codes,
+semantic/IR/SQL behavior, package metadata, workflow, dependency, generated,
+fixture, golden, tag, release, publish, upload, signing, or attestation work.
+
 ## Project JSON And Compatibility Boundary
 
 Phase 44 may not mutate CLI JSON v1 for single-file `check` or `emit-sql`.

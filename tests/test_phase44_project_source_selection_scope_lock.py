@@ -40,6 +40,10 @@ PROJECT_SOURCE_SELECTION_SOURCE_PATH = (
 )
 PROJECT_CHECK_SOURCE_PATH = REPO_ROOT / "src/pietto/_project/check.py"
 PROJECT_JSON_SOURCE_PATH = REPO_ROOT / "src/pietto/_project/json_v2.py"
+PROJECT_COMPAT_TEST_PATH = (
+    REPO_ROOT / "tests/test_phase44_project_cli_package_compatibility.py"
+)
+PACKAGE_SMOKE_PATH = REPO_ROOT / "scripts/package_smoke.py"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
 
@@ -239,6 +243,7 @@ def test_slice_sequence_allowlist_validation_and_stop_conditions_are_locked() ->
         "| 5 | Parse-only Project Check Frontend |",
         "| 6 | Project JSON v2 Inputs And Counters |",
         "| 7 | CLI / Package / Compatibility Hardening |",
+        "tests/docs/static-audit compatibility hardening only; no production or package-smoke source changes",
         "| 8 | Completion Audit And Status Lock |",
         "Sequence may change only through a later Gate 1",
         "Phase 44 Slice 1 Gate 2 is limited to:",
@@ -277,6 +282,14 @@ def test_slice_sequence_allowlist_validation_and_stop_conditions_are_locked() ->
         "Project JSON v2 counters reflect serialized parse-attempted inputs",
         "uv run pytest tests/test_phase44_project_json_v2_inputs_counters.py",
         "uv run python scripts/package_smoke.py",
+        "Phase 44 Slice 7 Gate 2 is limited to:",
+        "tests/test_phase44_project_cli_package_compatibility.py",
+        "tests/test_phase11_packaging_smoke.py",
+        "No other file is approved in this Gate 2",
+        "Slice 7 must not change `src/**`",
+        "`scripts/package_smoke.py`, package metadata, workflows, dependencies",
+        "uv run ruff format --check tests/test_phase44_project_cli_package_compatibility.py",
+        "uv run pytest tests/test_phase44_project_cli_package_compatibility.py",
     ):
         assert required in docs, required
 
@@ -288,8 +301,64 @@ def test_slice_sequence_allowlist_validation_and_stop_conditions_are_locked() ->
         "project semantic, IR, SQL, `emit-sql --project`, or `explain --project`",
         "JOIN/relationship behavior, `RelationLayerIR`, `LetBindingIR`, Arrow/PyArrow",
         "LSP/UI, runtime/database, schema introspection, or db pull",
+        "production source, `scripts/package_smoke.py`, CLI behavior, Project JSON v2",
+        "narrow Slice 7 compatibility-hardening package",
     ):
         assert required in docs, required
+
+
+def test_slice7_cli_package_compatibility_hardening_is_locked() -> None:
+    docs = _phase44_docs()
+    compat_test = _read(PROJECT_COMPAT_TEST_PATH)
+    package_smoke = _read(PACKAGE_SMOKE_PATH)
+
+    assert PROJECT_COMPAT_TEST_PATH.is_file()
+
+    for required in (
+        "Phase 44 Slice 7 is CLI / Package / Compatibility Hardening",
+        "tests/docs/static-audit compatibility hardening only",
+        "keeps `scripts/package_smoke.py` unchanged",
+        "Slice 7 compatibility hardening must:",
+        "lock current text-mode `pietto check --project ROOT` success and failure",
+        "lock current Project JSON v2 success, parser-diagnostic, source-read, config",
+        "prove single-file `check` and `emit-sql` still use CLI JSON v1",
+        "prove single-file `explain` still uses Semantic Metadata Artifact v1",
+        "prove `emit-sql --project` and `explain --project` remain rejected",
+        "prove project check does not enter semantic analysis, IR, SQL",
+        "lock that installed package smoke already covers project text and JSON success",
+        "Slice 7 does not authorize `src/**` changes",
+        "Project JSON v2 schema expansion beyond Slice 6",
+    ):
+        assert required in docs, required
+
+    for required in (
+        "test_project_check_text_and_json_success_remain_compatible",
+        "test_project_check_json_parser_diagnostics_do_not_enter_semantics",
+        "test_project_check_json_source_read_and_config_errors_stay_cli_errors",
+        "test_single_file_json_v1_and_artifact_v1_surfaces_remain_separate",
+        "test_project_flag_remains_rejected_outside_check",
+        "test_installed_package_smoke_locks_project_text_and_json_success",
+        "_forbid_project_compiler_pipeline",
+        "semantic_api",
+        "ir_api",
+        "sql_api",
+        "mysql_backend",
+        "build_semantic_metadata_artifact",
+    ):
+        assert required in compat_test, required
+
+    for required in (
+        '"installed CLI project check text"',
+        '"installed CLI project check JSON v2"',
+        "Project check OK: .",
+        "Files checked: 1",
+        '"schema_version": 2',
+        '"status": "parsed"',
+        '"files_total": 1',
+        '"files_ok": 1',
+        '"files_with_errors": 0',
+    ):
+        assert required in package_smoke, required
 
 
 def test_forbidden_surfaces_and_public_outputs_remain_locked() -> None:

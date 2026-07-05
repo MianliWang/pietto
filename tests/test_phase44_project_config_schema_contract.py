@@ -23,6 +23,7 @@ ALLOWED_GATE2_PATHS = {
     "src/pietto/_project/json_v2.py",
     "src/pietto/cli.py",
     "scripts/package_smoke.py",
+    "tests/test_phase44_project_cli_package_compatibility.py",
     "tests/test_phase44_project_json_v2_inputs_counters.py",
     "tests/test_phase44_project_parse_only_check.py",
     "tests/test_phase44_project_config_schema_contract.py",
@@ -186,6 +187,9 @@ def test_slice2_reporting_and_slice6_json_boundary_are_locked() -> None:
         "keeps pre-parse root/config/source-selection failures at empty `inputs` plus",
         "zero counters",
         "does not implement CLI JSON v1 changes",
+        "Slice 7 implements CLI/package compatibility hardening through docs, tests, and",
+        "static audits only",
+        "does not change this config schema contract",
     ):
         assert required in combined, required
 
@@ -223,6 +227,11 @@ def test_slice2_allowlist_validation_and_stop_conditions_are_locked() -> None:
         "tests/test_phase9_completion_audit.py",
         "tests/test_phase33_cli_package_compatibility_hardening.py",
         "source selection does not call `Path.glob`, `Path.rglob`, or `os.walk`",
+        "Phase 44 Slice 7 Gate 2 is limited to:",
+        "tests/test_phase44_project_cli_package_compatibility.py",
+        "No other file is approved in this Gate 2",
+        "uv run pytest tests/test_phase44_project_cli_package_compatibility.py",
+        "uv run python scripts/package_smoke.py",
     ):
         assert required in plan, required
 

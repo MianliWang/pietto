@@ -77,6 +77,15 @@ IR, SQL, project `emit-sql`, project `explain`,
 imports/modules/export/cross-file semantics, public diagnostics, package metadata, workflows, fixtures,
 goldens, generated files, dependencies, or release behavior.
 
+Phase 44 Slice 7 is CLI / Package / Compatibility Hardening. Slice 7 is
+tests/docs/static-audit compatibility hardening only. It adds no production
+source behavior, keeps `scripts/package_smoke.py` unchanged because installed
+project text and JSON success are already covered there, and locks the current
+project check frontend against regressions in CLI JSON v1, Semantic Metadata
+Artifact v1, project `emit-sql`, project `explain`, semantic analysis, IR, SQL,
+package metadata, workflows, fixtures, goldens, generated files, dependencies,
+and release behavior.
+
 ## Candidate Decision
 
 The selected Phase 44 candidate is:
@@ -245,7 +254,7 @@ Phase 44 Slice 1 and Slice 2 do not authorize:
 | 4 | Deterministic Source Selection MVP | private deterministic source selection only; no CLI or JSON behavior |
 | 5 | Parse-only Project Check Frontend | text-mode project check source read and parser aggregation only; Project JSON v2 remains root/config-only until Slice 6 |
 | 6 | Project JSON v2 Inputs And Counters | project check JSON v2 inputs and counters only; no JSON v1, Artifact v1, semantic, IR, or SQL change |
-| 7 | CLI / Package / Compatibility Hardening | future compatibility work only after approved behavior slices |
+| 7 | CLI / Package / Compatibility Hardening | tests/docs/static-audit compatibility hardening only; no production or package-smoke source changes |
 | 8 | Completion Audit And Status Lock | future docs/tests/status lock only; no new behavior |
 
 Sequence may change only through a later Gate 1. Slice 1 must not implement
@@ -770,3 +779,89 @@ Stop and return to Repair Gate 1 if:
   or release changes appear necessary;
 - validation fails or static-audit/hash-lock fanout becomes broader than a
   narrow Slice 6 Project JSON v2 input/counter package.
+
+## Slice 7 Gate 2 Allowlist
+
+Phase 44 Slice 7 Gate 2 is limited to:
+
+- `docs/plan/phase-44-project-source-selection-parse-only-project-check-mvp.md`;
+- `docs/spec/phase44-project-source-selection-scope-lock-v1.md`;
+- `docs/spec/phase44-project-config-schema-contract-v1.md`;
+- `tests/test_phase44_project_cli_package_compatibility.py`;
+- `tests/test_phase44_project_json_v2_inputs_counters.py`;
+- `tests/test_phase44_project_parse_only_check.py`;
+- `tests/test_phase44_project_config_schema_contract.py`;
+- `tests/test_phase44_project_source_selection_scope_lock.py`;
+- `tests/test_phase33_project_check_cli.py`;
+- `tests/test_phase33_project_json_v2_serializer.py`;
+- `tests/test_phase33_cli_package_compatibility_hardening.py`;
+- `tests/test_phase33_completion_audit.py`;
+- `tests/test_phase11_packaging_smoke.py`.
+
+No other file is approved in this Gate 2. Slice 7 must not change `src/**`,
+`scripts/package_smoke.py`, package metadata, workflows, dependencies,
+lockfiles, fixtures, goldens, generated files, or release surfaces. If a
+production, package-smoke source, or legacy Phase 8-32 hash-lock update appears
+necessary, stop and return to Gate 1 with a revised allowlist.
+
+## Slice 7 Validation Focus
+
+Slice 7 validation should prove:
+
+- the exact allowlist is the complete changed surface;
+- project text check remains parse-only and reports the selected parsed source
+  count;
+- project JSON check remains Project JSON v2 with stable key order, selected
+  `source` inputs, `parsed`/`error` statuses, top-level diagnostics,
+  `cli_errors`, and computed counters;
+- project parser diagnostics, source-read errors, config errors, and
+  source-selection failures keep their current exit-code and output-channel
+  separation;
+- single-file `check` and `emit-sql` remain CLI JSON v1;
+- single-file `explain` remains Semantic Metadata Artifact v1;
+- `emit-sql --project` and `explain --project` remain rejected;
+- project check does not enter semantic analysis, IR, SQL, metadata artifact
+  building, project `emit-sql`, or project `explain`;
+- installed package smoke continues to cover project text and JSON success;
+- package version remains `0.1.0`, with no tag/release/publish/upload/signing
+  or attestation behavior.
+
+Approved Gate 2 validation for Slice 7 is:
+
+```bash
+git diff --check
+uv run ruff format --check tests/test_phase44_project_cli_package_compatibility.py tests/test_phase44_project_json_v2_inputs_counters.py tests/test_phase44_project_parse_only_check.py tests/test_phase44_project_config_schema_contract.py tests/test_phase44_project_source_selection_scope_lock.py tests/test_phase33_project_check_cli.py tests/test_phase33_project_json_v2_serializer.py tests/test_phase33_cli_package_compatibility_hardening.py tests/test_phase33_completion_audit.py tests/test_phase11_packaging_smoke.py
+uv run ruff check tests/test_phase44_project_cli_package_compatibility.py tests/test_phase44_project_json_v2_inputs_counters.py tests/test_phase44_project_parse_only_check.py tests/test_phase44_project_config_schema_contract.py tests/test_phase44_project_source_selection_scope_lock.py tests/test_phase33_project_check_cli.py tests/test_phase33_project_json_v2_serializer.py tests/test_phase33_cli_package_compatibility_hardening.py tests/test_phase33_completion_audit.py tests/test_phase11_packaging_smoke.py
+uv run pyright --project pyrightconfig.tests.json
+uv run pytest tests/test_phase44_project_cli_package_compatibility.py
+uv run pytest tests/test_phase44_project_json_v2_inputs_counters.py tests/test_phase44_project_parse_only_check.py
+uv run pytest tests/test_phase44_project_config_loader.py tests/test_phase44_project_source_selection.py tests/test_phase44_project_config_schema_contract.py tests/test_phase44_project_source_selection_scope_lock.py
+uv run pytest tests/test_phase33_project_check_cli.py tests/test_phase33_project_json_v2_serializer.py tests/test_phase33_cli_package_compatibility_hardening.py tests/test_phase33_completion_audit.py tests/test_phase11_packaging_smoke.py
+uv run pytest tests/test_cli_check.py tests/test_cli_check_json.py tests/test_cli_output.py
+uv run python scripts/package_smoke.py
+```
+
+Full `scripts/validate.py` is not required in dirty Slice 7 Gate 2. Natural
+clean-checkout CI after Gate 3 remains authoritative for the full validation
+entrypoint.
+
+## Slice 7 Stop Conditions
+
+Stop and return to Repair Gate 1 if:
+
+- branch, HEAD, dirty status, package version, or no-tag baseline is not trusted;
+- any needed change falls outside the Slice 7 allowlist;
+- production source, `scripts/package_smoke.py`, CLI behavior, Project JSON v2
+  serializer behavior, CLI JSON v1 behavior, or Semantic Metadata Artifact v1
+  behavior changes appear necessary;
+- non-project `pietto check`, JSON v1, or text output behavior changes outside
+  the approved compatibility-hardening tests;
+- project semantic analysis, IR, SQL, project `emit-sql`, or project `explain`
+  appears necessary;
+- imports, modules, export, package semantics, visibility rules, or cross-file
+  semantic behavior appears necessary;
+- public diagnostics or new `PIE-*` codes appear necessary;
+- fixture, golden, generated, workflow, lockfile, dependency, package metadata,
+  or release changes appear necessary;
+- validation fails or static-audit/hash-lock fanout becomes broader than a
+  narrow Slice 7 compatibility-hardening package.

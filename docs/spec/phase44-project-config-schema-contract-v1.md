@@ -251,3 +251,12 @@ Artifact v1 changes, project semantic analysis, IR, SQL, project `emit-sql`,
 project `explain`, imports/modules/export/cross-file semantics, public
 diagnostics, new `PIE-*` codes, runtime, database, fixtures, goldens, generated
 files, workflows, dependencies, package metadata, or release behavior.
+
+Slice 7 implements CLI/package compatibility hardening through docs, tests, and
+static audits only. It does not change this config schema contract, production
+source, `scripts/package_smoke.py`, Project JSON v2 schema, CLI JSON v1,
+Semantic Metadata Artifact v1, project semantic analysis, IR, SQL, project
+`emit-sql`, project `explain`, imports/modules/export/cross-file semantics,
+public diagnostics, new `PIE-*` codes, runtime, database, fixtures, goldens,
+generated files, workflows, dependencies, package metadata, or release
+behavior.
