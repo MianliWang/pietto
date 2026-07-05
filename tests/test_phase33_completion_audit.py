@@ -18,6 +18,7 @@ AGENTS_PATH = REPO_ROOT / "AGENTS.md"
 PIETTO_SPEC_PATH = REPO_ROOT / "docs/spec/pietto-v0.9.md"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 PACKAGE_SMOKE_PATH = REPO_ROOT / "scripts/package_smoke.py"
+PROJECT_CONFIG_SOURCE_PATH = REPO_ROOT / "src/pietto/_project/config.py"
 
 STATUS_DOCS = (README_PATH, AGENTS_PATH, PIETTO_SPEC_PATH)
 
@@ -107,8 +108,8 @@ ROADMAP_STATUS = (
 LOCKED_PHASE33_SURFACES = {
     "project_private": (
         "src/pietto/_project",
-        4,
-        "16204f61b6a4e3788e06186ff8259539dfb7645b81d4592654fd69d242506e29",
+        5,
+        "ce42d67ee12c6b012da71fb4edd09edc0cc892a908a54ceac95a3c30421107d0",
     ),
     "cli": (
         "src/pietto/cli.py",
@@ -302,29 +303,43 @@ def test_package_smoke_keeps_installed_project_check_coverage() -> None:
 
 
 def test_deferred_project_runtime_surfaces_remain_absent() -> None:
-    project_source = "\n".join(
-        path.read_text(encoding="utf-8")
+    project_sources = {
+        path: path.read_text(encoding="utf-8")
         for path in sorted((REPO_ROOT / "src" / "pietto" / "_project").glob("*.py"))
+    }
+    project_source = "\n".join(project_sources.values())
+    project_source_without_config = "\n".join(
+        source
+        for path, source in project_sources.items()
+        if path != PROJECT_CONFIG_SOURCE_PATH
     )
     source_tree = "\n".join(
         path.read_text(encoding="utf-8")
         for path in sorted((REPO_ROOT / "src" / "pietto").rglob("*.py"))
         if "__pycache__" not in path.parts
     )
+    source_tree_without_config = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted((REPO_ROOT / "src" / "pietto").rglob("*.py"))
+        if "__pycache__" not in path.parts and path != PROJECT_CONFIG_SOURCE_PATH
+    )
     cli_source = _read(REPO_ROOT / "src" / "pietto" / "cli.py")
 
     for forbidden in (
-        "tomllib",
         ".glob(",
         ".rglob(",
-        "read_text(",
-        "read_bytes(",
-        "open(",
     ):
         assert forbidden not in project_source
 
     for forbidden in (
-        "load_project_config",
+        "tomllib",
+        "read_text(",
+        "read_bytes(",
+        "open(",
+    ):
+        assert forbidden not in project_source_without_config
+
+    for forbidden in (
         "configured_source_selection",
         "compile_project",
         "project_explain",
@@ -336,6 +351,7 @@ def test_deferred_project_runtime_surfaces_remain_absent() -> None:
     ):
         assert forbidden not in source_tree
 
+    assert "load_project_config" not in source_tree_without_config
     assert '"--project"' not in _configure_parser_source(cli_source, "emit_sql")
     assert '"--project"' not in _configure_parser_source(cli_source, "explain")
 

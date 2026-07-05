@@ -1,4 +1,4 @@
-"""Private immutable models for project discovery."""
+"""Private immutable models for project discovery and configuration."""
 
 from __future__ import annotations
 
@@ -42,6 +42,22 @@ class ProjectInput:
 
 
 @dataclass(frozen=True, slots=True)
+class ProjectSourceConfig:
+    """Private project source pattern configuration."""
+
+    include_patterns: tuple[str, ...]
+    exclude_patterns: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectConfig:
+    """Private parsed project configuration."""
+
+    schema_version: int
+    sources: ProjectSourceConfig
+
+
+@dataclass(frozen=True, slots=True)
 class ProjectDiscoveryError:
     """One private project discovery error."""
 
@@ -62,5 +78,21 @@ class ProjectDiscoveryResult:
     @property
     def ok(self) -> bool:
         """Return whether discovery completed without private project errors."""
+
+        return not self.errors
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectConfigLoadResult:
+    """Private project configuration load result."""
+
+    root: ProjectRoot | None
+    config_path: ProjectConfigPath | None
+    config: ProjectConfig | None
+    errors: tuple[ProjectDiscoveryError, ...]
+
+    @property
+    def ok(self) -> bool:
+        """Return whether configuration loading completed without errors."""
 
         return not self.errors

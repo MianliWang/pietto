@@ -12,6 +12,12 @@ reading, parser aggregation, Project JSON v2 input reporting, CLI behavior,
 project semantic analysis, project IR, project SQL, runtime behavior, database
 behavior, or release behavior.
 
+Phase 44 Slice 3 implements only a private config loader and schema validator
+for this contract under `src/pietto/_project/**`. Slice 3 does not wire the
+loader into CLI behavior, Project JSON v2 output, source selection, glob
+expansion, source reading, parser aggregation, public diagnostics, semantic
+analysis, IR, SQL, runtime behavior, database behavior, or release behavior.
+
 Package version remains `0.1.0`.
 
 ## Active Schema
@@ -34,7 +40,7 @@ The accepted top-level keys in this Slice 2 contract are exactly:
 - `schema_version`;
 - `sources`.
 
-The future loader must reject unknown top-level keys, unknown tables, unknown
+The private loader must reject unknown top-level keys, unknown tables, unknown
 keys inside `[sources]`, duplicate keys or tables prohibited by TOML, and known
 keys with the wrong TOML type.
 
@@ -47,7 +53,7 @@ The rules are:
 - `schema_version` is a top-level key;
 - its value must be an integer, not a string or floating-point number;
 - the only accepted value in this contract is `1`;
-- a missing, wrong-typed, or unsupported schema version is a future
+- a missing, wrong-typed, or unsupported schema version is a private loader
   `config_schema` error;
 - no implementation may silently migrate or reinterpret an older file.
 
@@ -68,8 +74,10 @@ There is no implicit include default. A missing `sources.include` is a future
 `config_schema` error. A missing `sources.exclude` means no configured
 exclusions.
 
-The future loader must reject non-string elements. Slice 2 does not implement
-TOML parsing, schema validation, source selection, or glob expansion.
+The private loader must reject non-string elements. Slice 2 does not implement
+TOML parsing, schema validation, source selection, or glob expansion. Slice 3
+implements only private TOML parsing and schema validation, without source
+selection or glob expansion.
 
 ## Path Contract
 
@@ -124,8 +132,11 @@ directory name. Projects must express exclusions explicitly through
 
 ## Future Reporting Boundary
 
-Future config, path, glob, resource, and source-read failures are project
+Future runtime config, path, glob, resource, and source-read failures are project
 `cli_errors`, not fabricated compiler diagnostics and not new `PIE-*` codes.
+Slice 3 reports config and configured-pattern failures only through the private
+project error model; it does not expose them through CLI output or Project JSON
+v2 output.
 
 Expected future Project JSON v2 error ownership:
 
@@ -200,10 +211,13 @@ Slice 2 does not authorize:
 - LSP, editor server, playground, or UI behavior;
 - tag, release, publish, upload, signing, or attestation.
 
-## Future Slice Responsibilities
+## Slice Responsibilities
 
-Slice 3 may implement a private config loader only after a separate Gate 1 and
-Gate 2 approval.
+Slice 3 implements a private config loader only. It owns TOML reading, TOML parse
+classification, schema validation, configured pattern lexical validation, and
+normalization of missing `sources.exclude` to an empty list. It does not own
+source selection, glob expansion, source reading, parser aggregation, CLI
+behavior, or Project JSON v2 output.
 
 Slice 4 may implement deterministic source selection only after a separate Gate
 1 and Gate 2 approval. It owns include/exclude expansion, exclude precedence,

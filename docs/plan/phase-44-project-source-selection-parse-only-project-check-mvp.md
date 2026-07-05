@@ -34,6 +34,13 @@ config loader and source selection slices. Slice 2 does not implement a config
 loader, source selection, glob expansion, source reading, parser aggregation,
 Project JSON v2 input reporting, CLI behavior, or compiler behavior.
 
+Phase 44 Slice 3 is Private Project Config Loader MVP. Slice 3 implements only a
+private `pietto.toml` loader and schema validator for the Slice 2 contract under
+`src/pietto/_project/**`. It does not wire the loader into CLI behavior, Project
+JSON v2 output, source selection, glob expansion, source reading, parser
+aggregation, semantic analysis, IR, SQL, runtime, database, public diagnostics,
+or release behavior.
+
 ## Candidate Decision
 
 The selected Phase 44 candidate is:
@@ -192,7 +199,7 @@ Phase 44 Slice 1 and Slice 2 do not authorize:
 |---:|---|---|
 | 1 | Project Source Selection Scope Lock | docs/spec/plan/static-audit/status planning only; no behavior change |
 | 2 | Project Config Schema Contract | docs/spec/static-audit readiness first; no behavior change unless separately approved |
-| 3 | Private Project Config Loader MVP | future implementation only after a new Gate 1 and Gate 2 approval |
+| 3 | Private Project Config Loader MVP | private config loader/schema validator only; no CLI or JSON behavior |
 | 4 | Deterministic Source Selection MVP | future implementation only after a new Gate 1 and Gate 2 approval |
 | 5 | Parse-only Project Check Frontend | future implementation only after a new Gate 1 and Gate 2 approval |
 | 6 | Project JSON v2 Inputs And Counters | future implementation only after a new Gate 1 and Gate 2 approval |
@@ -314,3 +321,81 @@ Stop and return to Repair Gate 1 if:
   LSP/UI, runtime/database, schema introspection, or db pull appears necessary;
 - static-audit or hash-lock fanout becomes broader than a narrow Slice 2
   project-config-schema contract package.
+
+## Slice 3 Gate 2 Allowlist
+
+Phase 44 Slice 3 Gate 2 is limited to:
+
+- `docs/plan/phase-44-project-source-selection-parse-only-project-check-mvp.md`;
+- `docs/spec/phase44-project-config-schema-contract-v1.md`;
+- `src/pietto/_project/config.py`;
+- `src/pietto/_project/model.py`;
+- `tests/test_phase44_project_config_loader.py`;
+- `tests/test_phase44_project_config_schema_contract.py`;
+- `tests/test_phase44_project_source_selection_scope_lock.py`;
+- `tests/test_phase33_completion_audit.py`.
+
+No other file is approved in this Gate 2. `tests/test_phase44_project_source_selection_scope_lock.py`
+may change only to recognize Slice 3's approved private config-loader scope. It
+must not weaken forbidden surfaces or allow CLI behavior, Project JSON v2
+serializer behavior, source selection, glob expansion, source reading, parser
+aggregation, semantic analysis, IR, SQL, runtime behavior, JOIN behavior,
+Arrow/PyArrow, LSP/UI, or release behavior.
+
+## Slice 3 Validation Focus
+
+Slice 3 validation should prove:
+
+- the eight-file allowlist is the complete changed surface;
+- the private loader accepts only `schema_version = 1`, required `[sources]`,
+  required non-empty string-array `sources.include`, and optional string-array
+  `sources.exclude`;
+- missing `sources.exclude` normalizes to `[]`, while missing
+  `sources.include` remains a schema error;
+- configured patterns are lexically validated with `/` separators, normalized
+  project-relative paths, and the Phase 44 wildcard subset;
+- invalid config read, TOML parse, schema, and configured path failures use the
+  existing private project error model;
+- no public diagnostics or new `PIE-*` codes are introduced;
+- no CLI behavior, Project JSON v2 output behavior, source selection, glob
+  expansion, source reading, parser aggregation, package, workflow, lockfile,
+  generated, fixture, golden, release, or public API change is introduced.
+
+Approved Gate 2 validation for Slice 3 is limited to:
+
+```bash
+git diff --check
+uv run ruff format --check src/pietto/_project tests/test_phase44_project_config_loader.py tests/test_phase44_project_config_schema_contract.py tests/test_phase44_project_source_selection_scope_lock.py tests/test_phase33_completion_audit.py
+uv run ruff check src/pietto/_project tests/test_phase44_project_config_loader.py tests/test_phase44_project_config_schema_contract.py tests/test_phase44_project_source_selection_scope_lock.py tests/test_phase33_completion_audit.py
+uv run pyright --project pyrightconfig.json
+uv run pyright --project pyrightconfig.tests.json
+uv run pytest tests/test_phase44_project_config_loader.py
+uv run pytest tests/test_phase44_project_config_schema_contract.py
+uv run pytest tests/test_phase33_completion_audit.py
+uv run pytest tests/test_phase44_project_source_selection_scope_lock.py
+```
+
+Full `scripts/validate.py`, package smoke, generated checks, and golden checks
+are not required for Slice 3 unless the approved surface broadens.
+
+## Slice 3 Stop Conditions
+
+Stop and return to Repair Gate 1 if:
+
+- branch, HEAD, clean status, package version, or no-tag baseline is not trusted;
+- any needed change falls outside the Slice 3 allowlist;
+- `tests/test_phase44_project_source_selection_scope_lock.py` requires a broader
+  rewrite or broader Phase 44 scope change;
+- CLI behavior, Project JSON v2 serializer behavior, grammar/generated, fixture,
+  golden, package, workflow, lockfile, or release changes appear necessary;
+- source selection, glob expansion, source reading, parser aggregation, project
+  semantic, IR, SQL, `emit-sql --project`, or `explain --project` appears
+  necessary;
+- the private error model conflicts with the Slice 2 contract in a way that
+  would require CLI or JSON behavior changes;
+- JSON v1, Project JSON v2, or Semantic Metadata Artifact v1 output behavior
+  changes appear necessary;
+- JOIN/relationship behavior, `RelationLayerIR`, `LetBindingIR`, Arrow/PyArrow,
+  LSP/UI, runtime/database, schema introspection, or db pull appears necessary;
+- validation fails or static-audit/hash-lock fanout becomes broader than a narrow
+  Slice 3 private config-loader package.

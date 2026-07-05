@@ -17,11 +17,18 @@ PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 ALLOWED_GATE2_PATHS = {
     "docs/plan/phase-44-project-source-selection-parse-only-project-check-mvp.md",
     "docs/spec/phase44-project-config-schema-contract-v1.md",
+    "src/pietto/_project/config.py",
+    "src/pietto/_project/model.py",
+    "tests/test_phase44_project_config_loader.py",
     "tests/test_phase44_project_config_schema_contract.py",
+    "tests/test_phase44_project_source_selection_scope_lock.py",
+    "tests/test_phase33_completion_audit.py",
 }
 
 FORBIDDEN_DIFF_PATHS = (
-    "src",
+    "src/pietto/cli.py",
+    "src/pietto/_project/discovery.py",
+    "src/pietto/_project/json_v2.py",
     "grammar",
     "tests/fixtures",
     "scripts",
@@ -46,6 +53,9 @@ def test_slice2_artifacts_and_status_are_locked() -> None:
         "the narrow active `pietto.toml` schema contract",
         "does not implement a config loader, source selection, glob expansion",
         "source reading, parser aggregation, Project JSON v2 input reporting",
+        "Phase 44 Slice 3 is Private Project Config Loader MVP",
+        "implements only a private `pietto.toml` loader and schema validator",
+        "does not wire the loader into CLI behavior, Project JSON v2 output",
         "Package version remains `0.1.0`",
     ):
         assert required in combined, required
@@ -108,8 +118,10 @@ def test_slice2_reporting_and_future_slice_boundaries_are_locked() -> None:
     combined = _phase44_slice2_text()
 
     for required in (
-        "config, path, glob, resource, and source-read failures remain project `cli_errors`",
+        "Future runtime config, path, glob, resource, and source-read failures are project",
         "not new `PIE-*` compiler diagnostics",
+        "Slice 3 reports config and configured-pattern failures only through the private",
+        "project error model",
         "`config_read`",
         "`config_parse`",
         "`config_schema`",
@@ -118,7 +130,7 @@ def test_slice2_reporting_and_future_slice_boundaries_are_locked() -> None:
         "`project_resource`",
         "`source_read`",
         "does not change current root/config-only Project JSON v2 output",
-        "Slice 3 may implement a private config loader only after a separate Gate 1 and Gate 2 approval",
+        "Slice 3 implements a private config loader only",
         "Slice 4 may implement deterministic source selection only after a separate Gate 1 and Gate 2 approval",
         "Slice 5 may implement source read plus parse-only project check only after a separate Gate 1 and Gate 2 approval",
         "Slice 6 may implement Project JSON v2 `inputs[]` and project check counters only after a separate Gate 1 and Gate 2 approval",
@@ -143,6 +155,15 @@ def test_slice2_allowlist_validation_and_stop_conditions_are_locked() -> None:
         "implementation of config loader, source selection, glob expansion",
         "source reading, parser aggregation",
         "JSON v1, Project JSON v2, or Semantic Metadata Artifact v1 output behavior",
+        "Phase 44 Slice 3 Gate 2 is limited to:",
+        "src/pietto/_project/config.py",
+        "src/pietto/_project/model.py",
+        "tests/test_phase44_project_config_loader.py",
+        "tests/test_phase44_project_source_selection_scope_lock.py",
+        "tests/test_phase33_completion_audit.py",
+        "uv run ruff format --check src/pietto/_project",
+        "uv run pyright --project pyrightconfig.json",
+        "uv run pyright --project pyrightconfig.tests.json",
     ):
         assert required in plan, required
 

@@ -34,6 +34,7 @@ PROJECT_JSON_SPEC_PATH = REPO_ROOT / "docs/spec/project-json-v2-result-envelope-
 PROJECT_MULTIFILE_SPEC_PATH = REPO_ROOT / "docs/spec/project-multifile-semantics-v1.md"
 PROJECT_PATH_SPEC_PATH = REPO_ROOT / "docs/spec/project-path-semantics-v1.md"
 CLI_PATH = REPO_ROOT / "src/pietto/cli.py"
+PROJECT_CONFIG_SOURCE_PATH = REPO_ROOT / "src/pietto/_project/config.py"
 PROJECT_JSON_SOURCE_PATH = REPO_ROOT / "src/pietto/_project/json_v2.py"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
@@ -220,6 +221,7 @@ def test_slice_sequence_allowlist_validation_and_stop_conditions_are_locked() ->
         "| 1 | Project Source Selection Scope Lock |",
         "| 2 | Project Config Schema Contract |",
         "| 3 | Private Project Config Loader MVP |",
+        "private config loader/schema validator only; no CLI or JSON behavior",
         "| 4 | Deterministic Source Selection MVP |",
         "| 5 | Parse-only Project Check Frontend |",
         "| 6 | Project JSON v2 Inputs And Counters |",
@@ -234,6 +236,15 @@ def test_slice_sequence_allowlist_validation_and_stop_conditions_are_locked() ->
         "The deferred register is not touched by Slice 1",
         "git diff --check",
         "uv run pytest tests/test_phase44_project_source_selection_scope_lock.py",
+        "Phase 44 Slice 3 Gate 2 is limited to:",
+        "src/pietto/_project/config.py",
+        "src/pietto/_project/model.py",
+        "tests/test_phase44_project_config_loader.py",
+        "tests/test_phase44_project_config_schema_contract.py",
+        "tests/test_phase44_project_source_selection_scope_lock.py",
+        "tests/test_phase33_completion_audit.py",
+        "uv run pyright --project pyrightconfig.json",
+        "uv run pyright --project pyrightconfig.tests.json",
     ):
         assert required in docs, required
 
@@ -253,11 +264,14 @@ def test_forbidden_surfaces_and_public_outputs_remain_locked() -> None:
     docs = _phase44_docs()
     project_root = _normalized(PROJECT_ROOT_SPEC_PATH)
     cli_source = _read(CLI_PATH)
+    config_source = _read(PROJECT_CONFIG_SOURCE_PATH)
+    project_json_source = _read(PROJECT_JSON_SOURCE_PATH)
     emit_section = _parser_section(cli_source, "emit_sql")
     explain_section = _parser_section(cli_source, "explain")
 
     for required in (
-        "config loader implementation",
+        "implements only a private `pietto.toml` loader and schema validator",
+        "does not wire the loader into CLI behavior, Project JSON v2 output",
         "source selection implementation",
         "parser aggregation implementation",
         "CLI behavior changes",
@@ -291,6 +305,12 @@ def test_forbidden_surfaces_and_public_outputs_remain_locked() -> None:
     ):
         assert required in project_root, required
 
+    assert "def load_project_config" in config_source
+    assert "tomllib" in config_source
+    assert "load_project_config" not in cli_source
+    assert "tomllib" not in cli_source
+    assert "load_project_config" not in project_json_source
+    assert "tomllib" not in project_json_source
     assert "--project" not in emit_section
     assert "--project" not in explain_section
 
