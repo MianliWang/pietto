@@ -20,7 +20,8 @@ PHASE43_PLAN_PATH = (
     / "docs/plan/phase-43-let-binding-aggregate-and-grouped-query-integration-mvp.md"
 )
 PHASE43_SPEC_PATH = (
-    REPO_ROOT / "docs/spec/phase43-let-binding-aggregate-grouped-integration-scope-lock-v1.md"
+    REPO_ROOT
+    / "docs/spec/phase43-let-binding-aggregate-grouped-integration-scope-lock-v1.md"
 )
 PHASE33_COMPLETION_TEST_PATH = REPO_ROOT / "tests/test_phase33_completion_audit.py"
 PROJECT_EXPLAIN_SPEC_PATH = (
@@ -179,8 +180,8 @@ def test_source_selection_and_parse_only_readiness_is_repo_grounded() -> None:
     for required in (
         "The `inputs` array contains selected project sources in stable reporting order",
         "`path` | string | Normalized project-relative path",
-        "`kind` | string | Initially `\"source\"`",
-        "`status` | string | Initially `\"parsed\"` or `\"error\"`",
+        '`kind` | string | Initially `"source"`',
+        '`status` | string | Initially `"parsed"` or `"error"`',
         "Source-read failures are reported as `cli_errors`",
         "Parser failures are reported as compiler `diagnostics`",
     ):
