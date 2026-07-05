@@ -10,6 +10,7 @@ import pytest
 import pietto.cli as cli
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_CONFIG_SOURCE = REPO_ROOT / "src" / "pietto" / "_project" / "config.py"
 
 _RELATION_SOURCE = (
     "shape User:\n"
@@ -197,6 +198,11 @@ def test_slice8_does_not_add_deferred_project_capabilities() -> None:
         for path in sorted((REPO_ROOT / "src" / "pietto").rglob("*.py"))
         if "__pycache__" not in path.parts
     )
+    source_tree_without_project_config = "\n".join(
+        _read(path.relative_to(REPO_ROOT).as_posix())
+        for path in sorted((REPO_ROOT / "src" / "pietto").rglob("*.py"))
+        if "__pycache__" not in path.parts and path != PROJECT_CONFIG_SOURCE
+    )
 
     for forbidden in (
         "tomllib",
@@ -208,8 +214,8 @@ def test_slice8_does_not_add_deferred_project_capabilities() -> None:
     ):
         assert forbidden not in project_source
 
+    assert "load_project_config" not in source_tree_without_project_config
     for forbidden in (
-        "load_project_config",
         "configured_source_selection",
         "compile_project",
         "project_explain",

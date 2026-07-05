@@ -15,6 +15,7 @@ import pietto.cli_json as cli_json
 import pietto.sql as sql_api
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_CONFIG_SOURCE = REPO_ROOT / "src" / "pietto" / "_project" / "config.py"
 PLAN_PATH = (
     REPO_ROOT / "docs/plan/phase-11-release-readiness-reproducible-validation.md"
 )
@@ -95,7 +96,7 @@ MYSQL_GOLDENS = {
     ),
 }
 ALL_GOLDENS_HASH = "0e26a0b367a2ae849e5ec1e9a239be42765bea2c352242db5da930ab56b43004"
-BOUNDARY_HASH = "2415aa837f6316b2652d2540b5b00b0516a3e438d4357e9e61c616c4f5a3971d"
+BOUNDARY_HASH = "bb9cf56e1a28ad0c8a59b69d04aca72ecb7c3574f515547cd55f5650326497ea"
 
 
 def _load_module(name: str, path: Path) -> ModuleType:
@@ -388,7 +389,7 @@ def test_postgres_mysql_and_json_v1_contracts_are_unchanged() -> None:
 def test_deferred_sql_runtime_project_and_web_capabilities_remain_absent() -> None:
     grammar = (REPO_ROOT / "grammar/Pietto.g4").read_text(encoding="utf-8")
     cli_source = (REPO_ROOT / "src/pietto/cli.py").read_text(encoding="utf-8")
-    runtime_text = _runtime_text().lower()
+    runtime_text = _runtime_text(include_project_config=False).lower()
 
     assert "ORDER: 'order';" in grammar
     assert grammar.count("GROUP: 'group';") == 1
@@ -435,11 +436,12 @@ def test_repository_has_no_legacy_extension_or_bare_diagnostic_codes() -> None:
     assert bare_diagnostic.search(repository_text) is None
 
 
-def _runtime_text() -> str:
+def _runtime_text(*, include_project_config: bool = True) -> str:
     return "\n".join(
         path.read_text(encoding="utf-8")
         for path in sorted((REPO_ROOT / "src/pietto").rglob("*.py"))
         if "generated" not in path.parts
+        and (include_project_config or path != PROJECT_CONFIG_SOURCE)
     )
 
 

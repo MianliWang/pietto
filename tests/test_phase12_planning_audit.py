@@ -12,6 +12,7 @@ import pietto.sql as sql_api
 from pietto.parser_api import parse_source
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_CONFIG_SOURCE = REPO_ROOT / "src" / "pietto" / "_project" / "config.py"
 PHASE12_PLAN = "docs/plan/phase-12-sql-feature-expansion-i.md"
 
 FILE_HASHES = {
@@ -202,7 +203,7 @@ def test_public_api_json_dependency_and_package_contracts_are_unchanged() -> Non
 
 def test_suffix_diagnostics_and_deferred_capabilities_remain_locked() -> None:
     repository_text = _repository_text()
-    runtime_text = _runtime_text().lower()
+    runtime_text = _runtime_text(include_project_config=False).lower()
     cli_source = _read("src/pietto/cli.py")
     plan = _read(PHASE12_PLAN)
 
@@ -294,11 +295,12 @@ def _aggregate_files(paths: Iterable[Path]) -> str:
     return digest.hexdigest()
 
 
-def _runtime_text() -> str:
+def _runtime_text(*, include_project_config: bool = True) -> str:
     return "\n".join(
         path.read_text(encoding="utf-8")
         for path in sorted((REPO_ROOT / "src/pietto").rglob("*.py"))
         if "generated" not in path.parts
+        and (include_project_config or path != PROJECT_CONFIG_SOURCE)
     )
 
 

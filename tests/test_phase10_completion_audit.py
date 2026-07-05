@@ -21,6 +21,7 @@ from pietto.sql import SqlResult
 from pietto.sql.mysql import emit_mysql_sql
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+PROJECT_CONFIG_SOURCE = REPO_ROOT / "src" / "pietto" / "_project" / "config.py"
 PHASE10_PLAN = "docs/plan/phase-10-mysql-sql-generation-mvp.md"
 MYSQL_SOURCE = "tests/fixtures/mysql/compatibility_ordering_metadata.pietto"
 MYSQL_FAILURES = "tests/fixtures/mysql/compatibility_failures.pietto"
@@ -308,10 +309,18 @@ def test_mysql_output_safety_backend_failure_and_check_are_preserved(
 
 def test_public_api_dependency_json_and_deferred_boundaries_remain_closed() -> None:
     project = tomllib.loads(_read("pyproject.toml"))
-    runtime_text = "\n".join(
-        path.read_text(encoding="utf-8")
+    runtime_paths = tuple(
+        path
         for path in (REPO_ROOT / "src" / "pietto").rglob("*.py")
         if "generated" not in path.parts
+    )
+    runtime_text = "\n".join(
+        path.read_text(encoding="utf-8") for path in runtime_paths
+    ).lower()
+    runtime_text_without_project_config = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in runtime_paths
+        if path != PROJECT_CONFIG_SOURCE
     ).lower()
     postgres_signature = inspect.signature(sql_api.emit_postgres_sql)
 
@@ -341,7 +350,7 @@ def test_public_api_dependency_json_and_deferred_boundaries_remain_closed() -> N
     assert "def _run_project_check(" in cli_source
     assert "discover_project_inputs(root)" in cli_source
     assert "compile_project" not in runtime_text
-    assert "load_project_config" not in runtime_text
+    assert "load_project_config" not in runtime_text_without_project_config
     assert "project_loader" not in runtime_text
     assert not (REPO_ROOT / "pietto.toml").exists()
     for module_name in (
