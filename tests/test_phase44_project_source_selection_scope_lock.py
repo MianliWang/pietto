@@ -35,6 +35,9 @@ PROJECT_MULTIFILE_SPEC_PATH = REPO_ROOT / "docs/spec/project-multifile-semantics
 PROJECT_PATH_SPEC_PATH = REPO_ROOT / "docs/spec/project-path-semantics-v1.md"
 CLI_PATH = REPO_ROOT / "src/pietto/cli.py"
 PROJECT_CONFIG_SOURCE_PATH = REPO_ROOT / "src/pietto/_project/config.py"
+PROJECT_SOURCE_SELECTION_SOURCE_PATH = (
+    REPO_ROOT / "src/pietto/_project/source_selection.py"
+)
 PROJECT_JSON_SOURCE_PATH = REPO_ROOT / "src/pietto/_project/json_v2.py"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
@@ -68,6 +71,9 @@ def test_slice1_artifacts_baseline_and_candidate_identity_are_locked() -> None:
         "Project Source Selection And Parse-only Project Check MVP",
         "Slice 1 does not implement config loading, source selection, glob expansion",
         "source reading, parser aggregation, Project JSON v2 input reporting",
+        "Phase 44 Slice 4 is Deterministic Source Selection MVP",
+        "implements only private deterministic source selection",
+        "does not wire source selection into CLI behavior, Project JSON v2 output",
     ):
         assert required in docs, required
 
@@ -223,6 +229,7 @@ def test_slice_sequence_allowlist_validation_and_stop_conditions_are_locked() ->
         "| 3 | Private Project Config Loader MVP |",
         "private config loader/schema validator only; no CLI or JSON behavior",
         "| 4 | Deterministic Source Selection MVP |",
+        "private deterministic source selection only; no CLI or JSON behavior",
         "| 5 | Parse-only Project Check Frontend |",
         "| 6 | Project JSON v2 Inputs And Counters |",
         "| 7 | CLI / Package / Compatibility Hardening |",
@@ -245,6 +252,14 @@ def test_slice_sequence_allowlist_validation_and_stop_conditions_are_locked() ->
         "tests/test_phase33_completion_audit.py",
         "uv run pyright --project pyrightconfig.json",
         "uv run pyright --project pyrightconfig.tests.json",
+        "Phase 44 Slice 4 Gate 2 is limited to:",
+        "docs/spec/phase44-project-source-selection-scope-lock-v1.md",
+        "src/pietto/_project/source_selection.py",
+        "tests/test_phase44_project_source_selection.py",
+        "tests/test_phase9_completion_audit.py",
+        "tests/test_phase33_cli_package_compatibility_hardening.py",
+        "source selection accepts an already loaded private config result",
+        "source selection does not call `Path.glob`, `Path.rglob`, or `os.walk`",
     ):
         assert required in docs, required
 
@@ -265,6 +280,7 @@ def test_forbidden_surfaces_and_public_outputs_remain_locked() -> None:
     project_root = _normalized(PROJECT_ROOT_SPEC_PATH)
     cli_source = _read(CLI_PATH)
     config_source = _read(PROJECT_CONFIG_SOURCE_PATH)
+    source_selection_source = _read(PROJECT_SOURCE_SELECTION_SOURCE_PATH)
     project_json_source = _read(PROJECT_JSON_SOURCE_PATH)
     emit_section = _parser_section(cli_source, "emit_sql")
     explain_section = _parser_section(cli_source, "explain")
@@ -272,7 +288,9 @@ def test_forbidden_surfaces_and_public_outputs_remain_locked() -> None:
     for required in (
         "implements only a private `pietto.toml` loader and schema validator",
         "does not wire the loader into CLI behavior, Project JSON v2 output",
-        "source selection implementation",
+        "implements only private deterministic source selection",
+        "does not wire source selection into CLI behavior, Project JSON v2 output",
+        "`src/pietto/_project/source_selection.py`",
         "parser aggregation implementation",
         "CLI behavior changes",
         "`src/pietto/**` changes",
@@ -307,9 +325,24 @@ def test_forbidden_surfaces_and_public_outputs_remain_locked() -> None:
 
     assert "def load_project_config" in config_source
     assert "tomllib" in config_source
+    assert "def select_project_sources" in source_selection_source
+    assert "load_project_config" not in source_selection_source
+    assert "tomllib" not in source_selection_source
+    for forbidden in (
+        ".glob(",
+        ".rglob(",
+        "os.walk",
+        "read_text(",
+        "read_bytes(",
+        "open(",
+        "parse_file",
+    ):
+        assert forbidden not in source_selection_source, forbidden
     assert "load_project_config" not in cli_source
+    assert "select_project_sources" not in cli_source
     assert "tomllib" not in cli_source
     assert "load_project_config" not in project_json_source
+    assert "select_project_sources" not in project_json_source
     assert "tomllib" not in project_json_source
     assert "--project" not in emit_section
     assert "--project" not in explain_section

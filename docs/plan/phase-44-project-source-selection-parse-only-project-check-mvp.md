@@ -41,6 +41,17 @@ JSON v2 output, source selection, glob expansion, source reading, parser
 aggregation, semantic analysis, IR, SQL, runtime, database, public diagnostics,
 or release behavior.
 
+Phase 44 Slice 4 is Deterministic Source Selection MVP. Slice 4 implements only
+private deterministic source selection under
+`src/pietto/_project/source_selection.py` over an already loaded private config
+result. It expands configured include patterns, applies configured exclude
+patterns, returns deterministic project-relative private `ProjectInput` entries
+with the existing private `selected` status, verifies physical containment
+before any future read boundary, and rejects duplicate physical file identity
+when detectable. It does not wire source selection into CLI behavior, Project
+JSON v2 output, source reading, `.pietto` parsing, parser aggregation, semantic
+analysis, IR, SQL, runtime, database, public diagnostics, or release behavior.
+
 ## Candidate Decision
 
 The selected Phase 44 candidate is:
@@ -200,7 +211,7 @@ Phase 44 Slice 1 and Slice 2 do not authorize:
 | 1 | Project Source Selection Scope Lock | docs/spec/plan/static-audit/status planning only; no behavior change |
 | 2 | Project Config Schema Contract | docs/spec/static-audit readiness first; no behavior change unless separately approved |
 | 3 | Private Project Config Loader MVP | private config loader/schema validator only; no CLI or JSON behavior |
-| 4 | Deterministic Source Selection MVP | future implementation only after a new Gate 1 and Gate 2 approval |
+| 4 | Deterministic Source Selection MVP | private deterministic source selection only; no CLI or JSON behavior |
 | 5 | Parse-only Project Check Frontend | future implementation only after a new Gate 1 and Gate 2 approval |
 | 6 | Project JSON v2 Inputs And Counters | future implementation only after a new Gate 1 and Gate 2 approval |
 | 7 | CLI / Package / Compatibility Hardening | future compatibility work only after approved behavior slices |
@@ -399,3 +410,101 @@ Stop and return to Repair Gate 1 if:
   LSP/UI, runtime/database, schema introspection, or db pull appears necessary;
 - validation fails or static-audit/hash-lock fanout becomes broader than a narrow
   Slice 3 private config-loader package.
+
+## Slice 4 Gate 2 Allowlist
+
+Phase 44 Slice 4 Gate 2 is limited to:
+
+- `docs/plan/phase-44-project-source-selection-parse-only-project-check-mvp.md`;
+- `docs/spec/phase44-project-source-selection-scope-lock-v1.md`;
+- `docs/spec/phase44-project-config-schema-contract-v1.md`;
+- `src/pietto/_project/source_selection.py`;
+- `tests/test_phase44_project_source_selection.py`;
+- `tests/test_phase44_project_config_schema_contract.py`;
+- `tests/test_phase44_project_source_selection_scope_lock.py`;
+- `tests/test_phase33_completion_audit.py`;
+- `tests/test_phase9_completion_audit.py`;
+- `tests/test_phase10_completion_audit.py`;
+- `tests/test_phase11_ci_workflow.py`;
+- `tests/test_phase11_completion_audit.py`;
+- `tests/test_phase11_generated_guard.py`;
+- `tests/test_phase11_golden_policy.py`;
+- `tests/test_phase11_packaging_smoke.py`;
+- `tests/test_phase11_validation_entrypoint.py`;
+- `tests/test_phase12_completion_audit.py`;
+- `tests/test_phase12_composition_cli_json_goldens.py`;
+- `tests/test_phase12_planning_audit.py`;
+- `tests/test_phase33_cli_package_compatibility_hardening.py`.
+
+No other file is approved in this Gate 2. Legacy static-audit files may change
+only to recognize the approved private `src/pietto/_project/source_selection.py`
+implementation and necessary hash-lock fanout. They must not weaken the
+forbidden project, CLI, JSON, source-read, parser, semantic, IR, SQL, runtime,
+JOIN, Arrow/PyArrow, LSP/UI, dependency, workflow, package, or release
+boundaries.
+
+## Slice 4 Validation Focus
+
+Slice 4 validation should prove:
+
+- the twenty-file allowlist is the complete changed surface;
+- source selection accepts an already loaded private config result and does not
+  call the private config loader;
+- include patterns are expanded before configured exclude patterns are applied;
+- final selected sources are reported as sorted project-relative paths with the
+  existing private `selected` status;
+- source selection verifies physical containment before any future read boundary;
+- symlink directory traversal is not followed;
+- symlink or hardlink aliases that duplicate a selected physical file are
+  rejected when detectable;
+- source selection does not read source contents and does not parse `.pietto`
+  files;
+- source selection does not call `Path.glob`, `Path.rglob`, or `os.walk`;
+- no public diagnostics or new `PIE-*` codes are introduced;
+- no CLI behavior, Project JSON v2 output behavior, source reading, parser
+  aggregation, package, workflow, lockfile, generated, fixture, golden, release,
+  or public API change is introduced.
+
+Approved Gate 2 validation for Slice 4 is:
+
+```bash
+git diff --check
+uv run ruff format --check src/pietto/_project tests/test_phase44_project_source_selection.py tests/test_phase44_project_config_schema_contract.py tests/test_phase44_project_source_selection_scope_lock.py tests/test_phase33_completion_audit.py tests/test_phase9_completion_audit.py tests/test_phase10_completion_audit.py tests/test_phase11_ci_workflow.py tests/test_phase11_completion_audit.py tests/test_phase11_generated_guard.py tests/test_phase11_golden_policy.py tests/test_phase11_packaging_smoke.py tests/test_phase11_validation_entrypoint.py tests/test_phase12_completion_audit.py tests/test_phase12_composition_cli_json_goldens.py tests/test_phase12_planning_audit.py tests/test_phase33_cli_package_compatibility_hardening.py
+uv run ruff check src/pietto/_project tests/test_phase44_project_source_selection.py tests/test_phase44_project_config_schema_contract.py tests/test_phase44_project_source_selection_scope_lock.py tests/test_phase33_completion_audit.py tests/test_phase9_completion_audit.py tests/test_phase10_completion_audit.py tests/test_phase11_ci_workflow.py tests/test_phase11_completion_audit.py tests/test_phase11_generated_guard.py tests/test_phase11_golden_policy.py tests/test_phase11_packaging_smoke.py tests/test_phase11_validation_entrypoint.py tests/test_phase12_completion_audit.py tests/test_phase12_composition_cli_json_goldens.py tests/test_phase12_planning_audit.py tests/test_phase33_cli_package_compatibility_hardening.py
+uv run pyright --project pyrightconfig.json
+uv run pyright --project pyrightconfig.tests.json
+uv run pytest tests/test_phase44_project_source_selection.py
+uv run pytest tests/test_phase44_project_config_loader.py
+uv run pytest tests/test_phase44_project_config_schema_contract.py
+uv run pytest tests/test_phase44_project_source_selection_scope_lock.py
+uv run pytest tests/test_phase33_completion_audit.py
+uv run pytest tests/test_phase9_completion_audit.py tests/test_phase10_completion_audit.py tests/test_phase11_ci_workflow.py tests/test_phase11_completion_audit.py tests/test_phase11_generated_guard.py tests/test_phase11_golden_policy.py tests/test_phase11_packaging_smoke.py tests/test_phase11_validation_entrypoint.py tests/test_phase12_completion_audit.py tests/test_phase12_composition_cli_json_goldens.py tests/test_phase12_planning_audit.py tests/test_phase33_cli_package_compatibility_hardening.py
+```
+
+Full `scripts/validate.py` is not required in dirty Slice 4 Gate 2 when the
+only expected failures are dirty-working-tree changed-set artifacts. Natural
+clean-checkout CI after Gate 3 remains authoritative.
+
+## Slice 4 Stop Conditions
+
+Stop and return to Repair Gate 1 if:
+
+- branch, HEAD, dirty status, package version, or no-tag baseline is not trusted;
+- any needed change falls outside the Slice 4 allowlist;
+- legacy static audits require a broader rewrite or broader Phase 44 scope
+  change;
+- CLI behavior, Project JSON v2 serializer behavior, grammar/generated, fixture,
+  golden, package, workflow, lockfile, dependency, or release changes appear
+  necessary;
+- source content reading, `.pietto` parsing, parser aggregation, project
+  semantic analysis, IR, SQL, `emit-sql --project`, or `explain --project`
+  appears necessary;
+- JSON v1, Project JSON v2, or Semantic Metadata Artifact v1 output behavior
+  changes appear necessary;
+- `ProjectInput.status` cannot use an existing private project input status;
+- custom traversal without `Path.glob`, `Path.rglob`, or `os.walk` becomes too
+  large or unsafe;
+- JOIN/relationship behavior, `RelationLayerIR`, `LetBindingIR`, Arrow/PyArrow,
+  LSP/UI, runtime/database, schema introspection, or db pull appears necessary;
+- validation fails or static-audit/hash-lock fanout becomes broader than a narrow
+  Slice 4 private source-selection package.

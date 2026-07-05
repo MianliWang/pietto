@@ -16,6 +16,17 @@ behavior, project semantic analysis, project IR, project SQL, project
 `emit-sql`, project `explain`, runtime behavior, database behavior, or release
 behavior.
 
+Phase 44 Slice 4 implements only private deterministic source selection under
+`src/pietto/_project/source_selection.py`. It accepts an already loaded private
+config result, expands configured include patterns, applies configured exclude
+patterns, returns deterministic project-relative selected inputs with the
+existing private `selected` status, verifies physical containment before any
+future read boundary, and rejects duplicate physical file identity when
+detectable. Slice 4 does not wire source selection into CLI behavior, Project
+JSON v2 output, source reading, `.pietto` parsing, parser aggregation, project
+semantic analysis, project IR, project SQL, runtime behavior, database behavior,
+or release behavior.
+
 Package version remains `0.1.0`.
 
 ## Trusted Baseline
@@ -110,6 +121,32 @@ The future candidate may use:
 The future candidate must keep source-read failures as project `cli_errors` and
 parser failures as compiler `diagnostics`, preserving the current separation
 between project usage/configuration errors and compiler diagnostics.
+
+## Slice 4 Private Source Selection Boundary
+
+Slice 4 private source selection is limited to producing the selected source
+path list for a later project-check frontend. It may use the existing private
+project input status `selected` because Project JSON v2 still rejects non-empty
+project inputs until project source parsing exists.
+
+Slice 4 source selection must:
+
+- use normalized project-relative `/` paths;
+- expand include patterns before applying exclude patterns;
+- let exclude patterns win over include patterns;
+- return stable sorted selected source paths;
+- retain only `.pietto` file paths after configured selection;
+- verify selected physical paths remain inside the project root before any
+  future source-read boundary;
+- avoid following symlink directories;
+- reject duplicate physical file identity through aliases, symlinks, or
+  hardlinks when detectable;
+- avoid `Path.glob`, `Path.rglob`, and `os.walk`;
+- avoid reading source contents and avoid parsing `.pietto` files.
+
+Slice 4 does not authorize CLI wiring, Project JSON v2 input reporting, source
+file content reading, parser aggregation, semantic analysis, IR, SQL, runtime,
+database, or public diagnostic behavior.
 
 ## Project JSON And Compatibility Boundary
 

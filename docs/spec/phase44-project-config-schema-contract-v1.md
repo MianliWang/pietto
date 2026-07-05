@@ -18,6 +18,16 @@ loader into CLI behavior, Project JSON v2 output, source selection, glob
 expansion, source reading, parser aggregation, public diagnostics, semantic
 analysis, IR, SQL, runtime behavior, database behavior, or release behavior.
 
+Phase 44 Slice 4 implements only private deterministic source selection over
+the loaded config contract. It expands configured include patterns, applies
+configured exclude patterns, reports deterministic project-relative selected
+inputs through the existing private project model, verifies physical
+containment, and rejects duplicate physical file identity when detectable.
+Slice 4 does not wire source selection into CLI behavior, Project JSON v2
+output, source reading, `.pietto` parsing, parser aggregation, public
+diagnostics, semantic analysis, IR, SQL, runtime behavior, database behavior, or
+release behavior.
+
 Package version remains `0.1.0`.
 
 ## Active Schema
@@ -75,9 +85,10 @@ There is no implicit include default. A missing `sources.include` is a future
 exclusions.
 
 The private loader must reject non-string elements. Slice 2 does not implement
-TOML parsing, schema validation, source selection, or glob expansion. Slice 3
-implements only private TOML parsing and schema validation, without source
-selection or glob expansion.
+TOML parsing, schema validation, source selection, or pattern expansion. Slice 3
+implements only private TOML parsing and schema validation. Slice 4 implements
+only private source selection and pattern expansion over the already loaded
+private config model.
 
 ## Path Contract
 
@@ -219,11 +230,11 @@ normalization of missing `sources.exclude` to an empty list. It does not own
 source selection, glob expansion, source reading, parser aggregation, CLI
 behavior, or Project JSON v2 output.
 
-Slice 4 may implement deterministic source selection only after a separate Gate
-1 and Gate 2 approval. It owns include/exclude expansion, exclude precedence,
-empty final source-set handling, deterministic ordering, containment,
-symlink/hard-link duplicate identity rejection, and source-selection resource
-limits.
+Slice 4 implements private deterministic source selection only. It owns
+include/exclude expansion, exclude precedence, empty final source-set handling,
+deterministic ordering, containment, symlink/hard-link duplicate identity
+rejection, and source-selection resource limits. It does not own source reading,
+parser aggregation, CLI behavior, or Project JSON v2 output.
 
 Slice 5 may implement source read plus parse-only project check only after a
 separate Gate 1 and Gate 2 approval.
