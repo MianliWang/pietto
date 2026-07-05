@@ -14,6 +14,10 @@ Maintenance Phase 2 Slice 4 is AGENTS.md Adoption Pointer. Slice 4 is
 docs/plan/static-audit plus one tiny `AGENTS.md` local-policy pointer only. It
 implements no source/compiler behavior change.
 
+Maintenance Phase 2 Slice 5 is External Skills Detailed Evaluation Matrix.
+Slice 5 is docs/spec/plan/static-audit work only and implements no
+source/compiler behavior change.
+
 Trusted Gate 2 baseline:
 
 - baseline HEAD: `e567ee0be3e8bbdb52570efa9c098589c9400b89`;
@@ -118,6 +122,42 @@ instructions, broaden agent authority, install plugins, execute external repo
 scripts, copy external code, trigger CI, stage, commit, push, tag, release,
 publish, upload, sign, or attest anything.
 
+## Slice 5 Deliverables
+
+Maintenance Phase 2 Slice 5 records a detailed Pietto-owned external skills
+evaluation matrix. Gate 2 is limited to:
+
+- `docs/spec/external-skills-evaluation-matrix-v1.md`;
+- `docs/plan/maintenance-phase-2-agent-workflow-roadmap-and-skills-audit.md`;
+- `tests/test_maintenance_phase2_external_skills_evaluation.py`;
+- `tests/test_maintenance_phase2_agent_workflow_and_roadmap.py`;
+- `tests/test_maintenance_phase2_code_audit_security_review.py`.
+
+No other file is approved in this Gate 2.
+
+Slice 5 records the inspected external repo snapshots, skill counts, direct
+adoption risks, safe text-only process practices, forbidden adoption surfaces,
+and recommended local adoption strategy. It does not install external plugins,
+execute external repo scripts, run external scanners, copy external code,
+import hooks, import MCP configs, change compiler behavior, change `AGENTS.md`,
+trigger CI, stage, commit, push, tag, release, publish, upload, sign, or attest
+anything.
+
+The Slice 5 matrix must cover:
+
+- `obra/superpowers` at snapshot `d884ae0`;
+- `EveryInc/compound-engineering-plugin` at snapshot `d3f3529`;
+- `trailofbits/skills` at snapshot `cfe5d7b`;
+- `trailofbits/skills-curated` at snapshot `022fa09`;
+- `trailofbits/claude-code-config` at snapshot `7db11a2`;
+- observed skill counts and adoption surfaces;
+- direct adoption risk ratings;
+- safe text-only practices worth borrowing;
+- forbidden elements not to adopt;
+- Trail of Bits-style code-audit practices worth translating locally;
+- the recommendation that Maintenance Phase 2 likely needs one completion
+  audit/status-lock slice before Phase 45.
+
 ## Roadmap And Namespace Decisions
 
 Slice 2 locks Phase 45 as `Project-wide Semantic Model Design And MVP`.
@@ -157,6 +197,11 @@ Trail of Bits-style code audit practices are valuable when translated into
 local text-only process. External code, scripts, hooks, MCP configs, plugins,
 and command bundles are not trusted by default.
 
+Slice 5 keeps this borrowing policy explicit: external skills may inform local
+Pietto docs, but plugin installation, external scripts, scanners, hooks, MCP
+configs, package metadata, workflow files, command bundles, prompt assets, and
+copied external code remain prohibited unless separately approved.
+
 ## Forbidden Surfaces
 
 Slice 2 and Slice 3 do not authorize changes to:
@@ -185,6 +230,14 @@ not authorize changes to `README.md`, `docs/spec/pietto-v0.9.md`, `src/**`,
 `tests/fixtures/**`, `tests/goldens/**`, generated artifacts, grammar,
 external repo files, dependencies, workflows, package metadata, CI, release,
 tag, publish, upload, signing, or attestation surfaces.
+
+Slice 5 authorizes only the approved docs/spec/plan/static-audit updates listed
+in Slice 5 Deliverables. Slice 5 does not authorize changes to `AGENTS.md`,
+`README.md`, `docs/spec/pietto-v0.9.md`, `src/**`, `scripts/**`, `.github/**`,
+`pyproject.toml`, `uv.lock`, `tests/fixtures/**`, `tests/goldens/**`,
+generated artifacts, grammar, external repo files, dependencies, workflows,
+package metadata, CI, release, tag, publish, upload, signing, or attestation
+surfaces.
 
 ## Gate 2 Validation Plan
 
@@ -250,6 +303,29 @@ No broad validation, full test suite, codegen, formatter rewrite, external
 script execution, commit, push, branch, tag, release, publish, upload, signing,
 attestation, CI trigger, CI rerun, or CI cancellation is authorized by Slice 4.
 
+Slice 5 Gate 2 validation is limited to focused docs/static-audit checks:
+
+```bash
+git diff --check
+uv run ruff format --check tests/test_maintenance_phase2_external_skills_evaluation.py tests/test_maintenance_phase2_agent_workflow_and_roadmap.py tests/test_maintenance_phase2_code_audit_security_review.py
+uv run ruff check tests/test_maintenance_phase2_external_skills_evaluation.py tests/test_maintenance_phase2_agent_workflow_and_roadmap.py tests/test_maintenance_phase2_code_audit_security_review.py
+uv run pyright --project pyrightconfig.tests.json
+uv run pytest tests/test_maintenance_phase2_external_skills_evaluation.py
+uv run pytest tests/test_maintenance_phase2_agent_workflow_and_roadmap.py
+uv run pytest tests/test_maintenance_phase2_code_audit_security_review.py
+```
+
+If local uv cache is read-only, Slice 5 Gate 2 may use:
+
+```bash
+UV_CACHE_DIR=/tmp/pietto_maintenance_phase2_slice5_uv_cache uv run ...
+```
+
+No broad validation, full test suite, codegen, formatter rewrite, external
+script execution, external scanner execution, commit, push, branch, tag,
+release, publish, upload, signing, attestation, CI trigger, CI rerun, or CI
+cancellation is authorized by Slice 5.
+
 ## Stop Conditions
 
 Stop and return to Gate 1 if any of these appears necessary:
@@ -258,6 +334,7 @@ Stop and return to Gate 1 if any of these appears necessary:
 - any `AGENTS.md` change beyond the approved local-policy pointer;
 - external plugin installation;
 - external script execution;
+- external scanner execution;
 - dependency, workflow, package metadata, or lockfile changes;
 - release, tag, publish, upload, signing, or attestation work;
 - scope expansion beyond docs/spec/plan/static-audit files;
@@ -281,6 +358,9 @@ Gate 2 reporting should include:
 - static audit test body or clear diff excerpt;
 - confirmation that no external plugin was installed and no external repo
   script was executed;
+- confirmation that no external scanner was executed and no external code,
+  hook, MCP config, package manifest, workflow file, command bundle, or prompt
+  asset was copied into Pietto;
 - confirmation that `AGENTS.md` changed only as the approved local-policy
   pointer;
 - confirmation that production code, dependencies, workflows, package
@@ -290,6 +370,7 @@ Gate 2 reporting should include:
 
 Maintenance Phase 2 Slice 2 performs no release operation. Package version
 remains `0.1.0`. Maintenance Phase 2 Slice 3 also performs no release
-operation. Maintenance Phase 2 Slice 4 also performs no release operation. No
-package version change, tag, release, publish, upload, signing, or attestation
-is authorized.
+operation. Maintenance Phase 2 Slice 4 also performs no release operation.
+Maintenance Phase 2 Slice 5 also performs no release operation. No package
+version change, tag, release, publish, upload, signing, or attestation is
+authorized.

@@ -13,6 +13,9 @@ ROADMAP_SPEC_PATH = REPO_ROOT / "docs/spec/pietto-roadmap-phase45-60-v1.md"
 AGENT_POLICY_SPEC_PATH = (
     REPO_ROOT / "docs/spec/agent-workflow-and-skills-adoption-v1.md"
 )
+EXTERNAL_SKILLS_SPEC_PATH = (
+    REPO_ROOT / "docs/spec/external-skills-evaluation-matrix-v1.md"
+)
 PLAN_PATH = (
     REPO_ROOT
     / "docs/plan/maintenance-phase-2-agent-workflow-roadmap-and-skills-audit.md"
@@ -37,6 +40,20 @@ ALLOWED_SLICE4_GATE2_PATHS = {
     "tests/test_maintenance_phase2_agent_workflow_and_roadmap.py",
     "tests/test_maintenance_phase2_code_audit_security_review.py",
 }
+
+ALLOWED_SLICE5_GATE2_PATHS = {
+    "docs/spec/external-skills-evaluation-matrix-v1.md",
+    "docs/plan/maintenance-phase-2-agent-workflow-roadmap-and-skills-audit.md",
+    "tests/test_maintenance_phase2_external_skills_evaluation.py",
+    "tests/test_maintenance_phase2_agent_workflow_and_roadmap.py",
+    "tests/test_maintenance_phase2_code_audit_security_review.py",
+}
+
+ALLOWED_CURRENT_MAINTENANCE_PHASE2_GATE2_PATHS = (
+    ALLOWED_MAINTENANCE_PHASE2_DIRTY_PATHS
+    | ALLOWED_SLICE4_GATE2_PATHS
+    | ALLOWED_SLICE5_GATE2_PATHS
+)
 
 FORBIDDEN_DIFF_PATHS = (
     "README.md",
@@ -70,7 +87,12 @@ def _agents() -> str:
 def _docs() -> str:
     return " ".join(
         _normalized(path)
-        for path in (ROADMAP_SPEC_PATH, AGENT_POLICY_SPEC_PATH, PLAN_PATH)
+        for path in (
+            ROADMAP_SPEC_PATH,
+            AGENT_POLICY_SPEC_PATH,
+            EXTERNAL_SKILLS_SPEC_PATH,
+            PLAN_PATH,
+        )
     )
 
 
@@ -171,7 +193,33 @@ def test_slice4_agents_pointer_is_narrow_and_local() -> None:
     ):
         assert forbidden not in agents, forbidden
 
-    assert _git_status_paths().issubset(ALLOWED_SLICE4_GATE2_PATHS)
+    assert _git_status_paths().issubset(ALLOWED_CURRENT_MAINTENANCE_PHASE2_GATE2_PATHS)
+
+
+def test_slice5_external_skills_matrix_policy_is_locked() -> None:
+    assert EXTERNAL_SKILLS_SPEC_PATH.is_file()
+
+    docs = _docs()
+    agents = _agents()
+    for required in (
+        "Maintenance Phase 2 Slice 5 is External Skills Detailed Evaluation Matrix",
+        "docs/spec/plan/static-audit work only",
+        "docs/spec/external-skills-evaluation-matrix-v1.md",
+        "Slice 5 records the inspected external repo snapshots",
+        "direct adoption risks",
+        "safe text-only process practices",
+        "forbidden adoption surfaces",
+        "does not install external plugins",
+        "execute external repo scripts",
+        "run external scanners",
+        "copy external code",
+        "change `AGENTS.md`",
+        "No other file is approved in this Gate 2",
+    ):
+        assert required in docs, required
+
+    assert "docs/spec/external-skills-evaluation-matrix-v1.md" not in agents
+    assert _git_status_paths().issubset(ALLOWED_CURRENT_MAINTENANCE_PHASE2_GATE2_PATHS)
 
 
 def test_phase45_60_roadmap_and_phase45_target_are_locked() -> None:
@@ -260,7 +308,7 @@ def test_gate2_allowlist_validation_and_stop_conditions_are_locked() -> None:
     ):
         assert required in docs, required
 
-    assert _git_status_paths().issubset(ALLOWED_SLICE4_GATE2_PATHS)
+    assert _git_status_paths().issubset(ALLOWED_CURRENT_MAINTENANCE_PHASE2_GATE2_PATHS)
 
 
 def test_forbidden_surfaces_package_release_and_ci_boundaries_are_locked() -> None:
@@ -271,7 +319,7 @@ def test_forbidden_surfaces_package_release_and_ci_boundaries_are_locked() -> No
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
     assert _git_diff_name_only(FORBIDDEN_DIFF_PATHS) == ""
-    assert _git_status_paths().issubset(ALLOWED_SLICE4_GATE2_PATHS)
+    assert _git_status_paths().issubset(ALLOWED_CURRENT_MAINTENANCE_PHASE2_GATE2_PATHS)
 
     for required in (
         "`AGENTS.md`",
