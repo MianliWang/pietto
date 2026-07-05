@@ -1477,3 +1477,13 @@ Rules:
 - update keyword list if needed.
 
 External skills can be considered later for GitHub PRs, docs, database integration, security review, or web UI, but they are not needed for Phase 1.
+
+For Pietto-specific agent workflow, external skills adoption, roadmap, and
+code-audit policy, follow:
+
+- `docs/spec/agent-workflow-and-skills-adoption-v1.md`
+- `docs/spec/pietto-code-audit-and-security-review-v1.md`
+- `docs/spec/pietto-roadmap-phase45-60-v1.md`
+
+Do not install external plugins, run external repository scripts, import
+external hooks/MCP configs, or copy external code unless separately approved.

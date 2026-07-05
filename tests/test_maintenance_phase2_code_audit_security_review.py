@@ -8,6 +8,7 @@ from _static_audit_helpers import read_text as _read
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
+AGENTS_PATH = REPO_ROOT / "AGENTS.md"
 CHECKLIST_SPEC_PATH = (
     REPO_ROOT / "docs/spec/pietto-code-audit-and-security-review-v1.md"
 )
@@ -28,8 +29,14 @@ ALLOWED_SLICE3_GATE2_PATHS = {
     "tests/test_maintenance_phase2_agent_workflow_and_roadmap.py",
 }
 
-FORBIDDEN_DIFF_PATHS = (
+ALLOWED_SLICE4_GATE2_PATHS = {
     "AGENTS.md",
+    "docs/plan/maintenance-phase-2-agent-workflow-roadmap-and-skills-audit.md",
+    "tests/test_maintenance_phase2_agent_workflow_and_roadmap.py",
+    "tests/test_maintenance_phase2_code_audit_security_review.py",
+}
+
+FORBIDDEN_DIFF_PATHS = (
     "README.md",
     "docs/spec/pietto-v0.9.md",
     "src",
@@ -52,6 +59,10 @@ POSITIVE_RELEASE_CLAIMS = (
     "attestation completed",
     "release operation occurred",
 )
+
+
+def _agents() -> str:
+    return _normalized(AGENTS_PATH)
 
 
 def _docs() -> str:
@@ -152,6 +163,45 @@ def test_external_audit_practices_remain_text_only_and_local() -> None:
         assert required in docs, required
 
 
+def test_slice4_agents_pointer_preserves_code_audit_policy() -> None:
+    docs = _docs()
+    agents = _agents()
+
+    for required in (
+        "Maintenance Phase 2 Slice 4 is AGENTS.md Adoption Pointer",
+        "Slice 4 adopts the already-locked local policies into `AGENTS.md`",
+        "`docs/spec/pietto-code-audit-and-security-review-v1.md`",
+        "Slice 4 does not copy external framework instructions into `AGENTS.md`",
+        "mention external installation commands",
+        "add external script/hook/MCP setup instructions",
+        "broaden agent authority",
+        "No other file is approved in this Gate 2",
+    ):
+        assert required in docs, required
+
+    for required in (
+        "For Pietto-specific agent workflow, external skills adoption, roadmap, and code-audit policy, follow:",
+        "docs/spec/pietto-code-audit-and-security-review-v1.md",
+        "Do not install external plugins, run external repository scripts, import external hooks/MCP configs, or copy external code unless separately approved.",
+    ):
+        assert required in agents, required
+
+    for forbidden in (
+        "obra/superpowers",
+        "EveryInc/compound-engineering-plugin",
+        "trailofbits/skills",
+        "trailofbits/skills-curated",
+        "trailofbits/claude-code-config",
+        "pip install",
+        "npm install",
+        "uv tool install",
+        "claude mcp add",
+    ):
+        assert forbidden not in agents, forbidden
+
+    assert _git_status_paths().issubset(ALLOWED_SLICE4_GATE2_PATHS)
+
+
 def test_gate_workflow_allowlist_and_validation_plan_are_locked() -> None:
     docs = _docs()
     for required in (
@@ -171,10 +221,15 @@ def test_gate_workflow_allowlist_and_validation_plan_are_locked() -> None:
         "uv run pytest tests/test_maintenance_phase2_code_audit_security_review.py",
         "uv run pytest tests/test_maintenance_phase2_agent_workflow_and_roadmap.py",
         "UV_CACHE_DIR=/tmp/pietto_maintenance_phase2_uv_cache uv run ...",
+        "Slice 4 Gate 2 validation is limited to focused AGENTS/docs/static-audit checks",
+        "uv run ruff format --check tests/test_maintenance_phase2_agent_workflow_and_roadmap.py tests/test_maintenance_phase2_code_audit_security_review.py",
+        "uv run ruff check tests/test_maintenance_phase2_agent_workflow_and_roadmap.py tests/test_maintenance_phase2_code_audit_security_review.py",
+        "uv run pytest tests/test_maintenance_phase2_agent_workflow_and_roadmap.py",
+        "uv run pytest tests/test_maintenance_phase2_code_audit_security_review.py",
     ):
         assert required in docs, required
 
-    assert _git_status_paths().issubset(ALLOWED_SLICE3_GATE2_PATHS)
+    assert _git_status_paths().issubset(ALLOWED_SLICE4_GATE2_PATHS)
 
 
 def test_forbidden_surfaces_package_release_and_ci_boundaries_are_locked() -> None:
@@ -185,7 +240,7 @@ def test_forbidden_surfaces_package_release_and_ci_boundaries_are_locked() -> No
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
     assert _git_diff_name_only(FORBIDDEN_DIFF_PATHS) == ""
-    assert _git_status_paths().issubset(ALLOWED_SLICE3_GATE2_PATHS)
+    assert _git_status_paths().issubset(ALLOWED_SLICE4_GATE2_PATHS)
 
     for required in (
         "`AGENTS.md`",
@@ -202,6 +257,7 @@ def test_forbidden_surfaces_package_release_and_ci_boundaries_are_locked() -> No
         "external repo files under `/tmp/pietto_maintenance_phase2_external_repos/**`",
         "trigger CI",
         "release, tag, publish, upload, signing, or attestation",
+        "AGENTS.md` changed only as the approved local-policy pointer",
     ):
         assert required in docs, required
 
