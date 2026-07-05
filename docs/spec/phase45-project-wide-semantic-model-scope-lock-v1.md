@@ -215,6 +215,44 @@ runtime/database/db introspection, Arrow/PyArrow, LSP/UI, release behavior,
 external plugin behavior, external script/hook/MCP behavior, or copied external
 code.
 
+## Slice 3 Private Project Semantic Model Scaffold
+
+Slice 3 adds a private project semantic model scaffold for later project-wide
+semantic analysis. The scaffold is private plumbing only and consists of:
+
+- `ProjectSemanticCatalog`;
+- `ProjectSemanticModel`;
+- `ProjectSemanticResult`;
+- `build_empty_project_semantic_result(...)`.
+
+The scaffold is built from `ProjectParseCheckResult.parsed_inputs`. A
+successful parse-only project check may produce an empty private project
+semantic model scaffold that preserves project root identity, configuration
+path identity, deterministic retained parsed input order, project-relative
+input paths, and retained `Script` AST roots.
+
+`ProjectSemanticCatalog` is an empty catalog placeholder only in Slice 3.
+Slice 3 performs no symbol collection, no duplicate diagnostics, no cross-file
+type namespace resolution, and no cross-file relation namespace resolution. It
+does not inspect top-level definitions.
+
+Slice 3 has no semantic analysis yet. It does not call the existing single-file
+semantic analyzer, has no import from `pietto.semantic`, and does not reuse
+single-file `SemanticModel` or `SemanticResult`.
+
+Slice 3 has no CLI/JSON/text behavior change. Project JSON v2 continues to use
+the existing project check shape and does not expose the private scaffold.
+Text-mode project check remains parse-only. The scaffold is not wired into
+`pietto check --project`.
+
+Slice 3 has no IR, SQL, project `emit-sql`, or project `explain` path. It does
+not change parser public API, grammar, generated parser artifacts, semantic
+analyzer behavior, semantic model behavior, CLI routing, Project JSON v2 shape,
+CLI JSON v1, Semantic Metadata Artifact v1, fixtures, goldens, scripts,
+workflows, dependency files, package metadata, package version, diagnostic
+inventory, release behavior, external plugin behavior, external
+script/hook/MCP behavior, or copied external code.
+
 ## Slice 1 Gate 2 Allowlist
 
 Phase 45 Slice 1 Gate 2 is limited to:

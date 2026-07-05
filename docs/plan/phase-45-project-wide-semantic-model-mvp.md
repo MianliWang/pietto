@@ -13,6 +13,10 @@ Phase 45 Slice 2 is `Parsed project semantic input units`. Slice 2 adds
 private parsed project semantic input units for later project-wide semantic
 analysis, but it does not implement project semantic analysis.
 
+Phase 45 Slice 3 is `Private project semantic model scaffold`. Slice 3 adds a
+private project semantic model scaffold for later project-wide semantic
+analysis, but it does not implement project semantic analysis.
+
 Package version remains `0.1.0`.
 
 ## Trusted Baseline
@@ -165,6 +169,42 @@ only the existing project check shape, `inputs[]`, `diagnostics[]`,
 unchanged. Private parsed input units are not serialized.
 
 Slice 2 enters no IR, SQL, project `emit-sql`, or project `explain` path. It
+does not change parser public API, grammar, generated parser artifacts,
+semantic analyzer behavior, semantic model behavior, CLI routing, Project JSON
+v2 shape, CLI JSON v1, Semantic Metadata Artifact v1, fixtures, goldens,
+scripts, workflows, dependency files, package metadata, package version,
+diagnostic inventory, release behavior, external plugin behavior, or copied
+external code.
+
+## Slice 3 Private Project Semantic Model Scaffold
+
+Slice 3 adds a private project semantic model scaffold. The scaffold consists
+of private `ProjectSemanticCatalog`, `ProjectSemanticModel`, and
+`ProjectSemanticResult` dataclasses plus
+`build_empty_project_semantic_result(...)`.
+
+The Slice 3 scaffold is built from `ProjectParseCheckResult.parsed_inputs`.
+For a successful parse-only project check, the helper preserves the project
+root, configuration path, and retained parsed input order exactly. The retained
+inputs stay as private `ProjectParsedInput` units with project-relative paths
+and retained `Script` AST roots.
+
+`ProjectSemanticCatalog` is an empty catalog placeholder only. Slice 3 performs
+no symbol collection, no duplicate diagnostics, no cross-file type namespace
+resolution, and no cross-file relation namespace resolution. The scaffold does
+not inspect top-level definitions and has no import from `pietto.semantic`.
+
+Slice 3 has no semantic analysis yet. It does not call the single-file semantic
+analyzer and does not import or reuse single-file `SemanticModel` or
+`SemanticResult`. Later slices own project catalog population, duplicate
+top-level detection, and cross-file reference resolution.
+
+Slice 3 has no CLI/JSON/text behavior change. Project JSON v2 continues to
+serialize only the existing project check shape, and text-mode project check
+output remains parse-only. The private scaffold is not serialized and is not
+wired into `pietto check --project`.
+
+Slice 3 enters no IR, SQL, project `emit-sql`, or project `explain` path. It
 does not change parser public API, grammar, generated parser artifacts,
 semantic analyzer behavior, semantic model behavior, CLI routing, Project JSON
 v2 shape, CLI JSON v1, Semantic Metadata Artifact v1, fixtures, goldens,

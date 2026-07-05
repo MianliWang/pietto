@@ -127,3 +127,64 @@ class ProjectParseCheckResult:
         return not self.errors and not any(
             diagnostic.severity is Severity.ERROR for diagnostic in self.diagnostics
         )
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectSemanticCatalog:
+    """Empty private project semantic catalog placeholder for later slices."""
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectSemanticModel:
+    """Private project-wide semantic model scaffold."""
+
+    root: ProjectRoot
+    config_path: ProjectConfigPath
+    inputs: tuple[ProjectParsedInput, ...]
+    catalog: ProjectSemanticCatalog
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectSemanticResult:
+    """Private project-wide semantic scaffold result."""
+
+    root: ProjectRoot | None
+    config_path: ProjectConfigPath | None
+    model: ProjectSemanticModel | None
+    diagnostics: tuple[Diagnostic, ...] = ()
+
+    @property
+    def ok(self) -> bool:
+        """Return whether project semantic scaffolding completed without errors."""
+
+        return self.model is not None and not any(
+            diagnostic.severity is Severity.ERROR for diagnostic in self.diagnostics
+        )
+
+
+def build_empty_project_semantic_result(
+    parse_result: ProjectParseCheckResult,
+) -> ProjectSemanticResult:
+    """Build the empty private project semantic scaffold from parse-only input."""
+
+    if (
+        not parse_result.ok
+        or parse_result.root is None
+        or parse_result.config_path is None
+    ):
+        return ProjectSemanticResult(
+            root=parse_result.root,
+            config_path=parse_result.config_path,
+            model=None,
+        )
+
+    return ProjectSemanticResult(
+        root=parse_result.root,
+        config_path=parse_result.config_path,
+        model=ProjectSemanticModel(
+            root=parse_result.root,
+            config_path=parse_result.config_path,
+            inputs=parse_result.parsed_inputs,
+            catalog=ProjectSemanticCatalog(),
+        ),
+    )
