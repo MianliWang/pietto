@@ -236,7 +236,10 @@ def test_project_json_v2_remains_discovery_only_for_decimal_sources(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    _write(Path("pietto.toml"), "")
+    _write(
+        Path("pietto.toml"),
+        'schema_version = 1\n\n[sources]\ninclude = ["slice6_valid.pietto"]\n',
+    )
     _write(Path("slice6_valid.pietto"), VALID_SOURCE)
 
     assert cli.main(["check", "--project", ".", "--format", "json"]) == 0
@@ -256,9 +259,23 @@ def test_project_json_v2_remains_discovery_only_for_decimal_sources(
     assert document["schema_version"] == 2
     assert document["command"] == "check"
     assert document["mode"] == "project"
-    assert document["inputs"] == []
+    assert document["ok"] is True
+    assert document["inputs"] == [
+        {
+            "path": "slice6_valid.pietto",
+            "kind": "source",
+            "status": "parsed",
+        }
+    ]
     assert document["diagnostics"] == []
     assert document["cli_errors"] == []
+    assert document["result"] == {
+        "check": {
+            "files_total": 1,
+            "files_ok": 1,
+            "files_with_errors": 0,
+        }
+    }
     _assert_no_precision_scale_keys(document)
     _assert_no_carrier_tokens(json.dumps(document))
 

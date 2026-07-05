@@ -85,16 +85,23 @@ def test_project_check_json_v2_remains_root_config_only(
 ) -> None:
     root = _project_root(tmp_path, config_text="not valid = [")
 
-    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 0
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 2
 
     document = _read_json_document(capsys)
     assert document["schema_version"] == 2
     assert document["command"] == "check"
     assert document["mode"] == "project"
+    assert document["ok"] is False
     assert document["project"] == {"root": ".", "config_path": "pietto.toml"}
     assert document["inputs"] == []
     assert document["diagnostics"] == []
-    assert document["cli_errors"] == []
+    cli_errors = cast(list[dict[str, object]], document["cli_errors"])
+    assert len(cli_errors) == 1
+    assert cli_errors[0]["kind"] == "config_parse"
+    assert "Project configuration TOML is invalid" in cast(
+        str, cli_errors[0]["message"]
+    )
+    assert cli_errors[0]["path"] == "pietto.toml"
     assert document["result"] == {
         "check": {
             "files_total": 0,
