@@ -6,6 +6,10 @@ Maintenance Phase 2 Slice 2 is Agent Workflow Policy And Roadmap Lock. Slice 2
 is docs/spec/plan/static-audit work only and implements no source/compiler
 behavior change.
 
+Maintenance Phase 2 Slice 3 is Code Audit And Security Review Checklist. Slice
+3 is docs/spec/plan/static-audit work only and implements no source/compiler
+behavior change.
+
 Trusted Gate 2 baseline:
 
 - baseline HEAD: `e567ee0be3e8bbdb52570efa9c098589c9400b89`;
@@ -48,6 +52,44 @@ Phase 2 Slice 2 creates exactly these default Gate 2 artifacts:
 
 No other file is approved in this Gate 2.
 
+## Slice 3 Deliverables
+
+Maintenance Phase 2 Slice 3 creates and locks the local Pietto code audit and
+security review checklist. Gate 2 is limited to:
+
+- `docs/spec/pietto-code-audit-and-security-review-v1.md`;
+- `docs/spec/agent-workflow-and-skills-adoption-v1.md`;
+- `docs/plan/maintenance-phase-2-agent-workflow-roadmap-and-skills-audit.md`;
+- `tests/test_maintenance_phase2_code_audit_security_review.py`;
+- `tests/test_maintenance_phase2_agent_workflow_and_roadmap.py`.
+
+No other file is approved in this Gate 2.
+
+Slice 3 translates Trail of Bits-style audit practices into Pietto-owned
+text-only process. It does not install external plugins, execute external repo
+scripts, copy external code, import hooks, import MCP configs, run scanners,
+change compiler behavior, or modify `AGENTS.md`.
+
+The Slice 3 checklist must cover:
+
+- path traversal and root containment;
+- source selection and glob policy;
+- TOML config parsing;
+- UTF-8 and source-read boundaries;
+- parser diagnostics and project-relative paths;
+- Project JSON v2 schema stability;
+- CLI JSON v1 separation;
+- Semantic Metadata Artifact v1 separation;
+- semantic, IR, and SQL fail-closed boundaries;
+- generated, golden, and fixture boundaries;
+- dependency, workflow, lockfile, and package metadata boundaries;
+- release, tag, publish, upload, signing, and attestation boundaries;
+- external plugin and script prohibition;
+- false-positive handling discipline;
+- evidence-first review;
+- exact allowlist enforcement;
+- Gate 1 / Gate 2 / Gate 3 discipline.
+
 ## Roadmap And Namespace Decisions
 
 Slice 2 locks Phase 45 as `Project-wide Semantic Model Design And MVP`.
@@ -89,7 +131,7 @@ and command bundles are not trusted by default.
 
 ## Forbidden Surfaces
 
-Slice 2 does not authorize changes to:
+Slice 2 and Slice 3 do not authorize changes to:
 
 - `AGENTS.md`;
 - `README.md`;
@@ -104,13 +146,13 @@ Slice 2 does not authorize changes to:
 - generated artifacts;
 - external repo files under `/tmp/pietto_maintenance_phase2_external_repos/**`.
 
-Slice 2 must not install plugins, run external scripts, copy external code,
+Slice 2 and Slice 3 must not install plugins, run external scripts, copy external code,
 change dependencies, change workflows, trigger CI, implement Phase 45 behavior,
 or modify production compiler/runtime code.
 
 ## Gate 2 Validation Plan
 
-Gate 2 validation is limited to focused docs/static-audit checks:
+Slice 2 Gate 2 validation is limited to focused docs/static-audit checks:
 
 ```bash
 git diff --check
@@ -129,6 +171,27 @@ UV_CACHE_DIR=/tmp/pietto_maintenance_phase2_uv_cache uv run ...
 No broad validation, full test suite, codegen, formatter rewrite, external
 script execution, commit, push, branch, tag, release, publish, upload, signing,
 attestation, or CI action is authorized by Slice 2.
+
+Slice 3 Gate 2 validation is limited to focused docs/static-audit checks:
+
+```bash
+git diff --check
+uv run ruff format --check tests/test_maintenance_phase2_code_audit_security_review.py tests/test_maintenance_phase2_agent_workflow_and_roadmap.py
+uv run ruff check tests/test_maintenance_phase2_code_audit_security_review.py tests/test_maintenance_phase2_agent_workflow_and_roadmap.py
+uv run pyright --project pyrightconfig.tests.json
+uv run pytest tests/test_maintenance_phase2_code_audit_security_review.py
+uv run pytest tests/test_maintenance_phase2_agent_workflow_and_roadmap.py
+```
+
+If local uv cache is read-only, Slice 3 Gate 2 may use:
+
+```bash
+UV_CACHE_DIR=/tmp/pietto_maintenance_phase2_uv_cache uv run ...
+```
+
+No broad validation, full test suite, codegen, formatter rewrite, external
+script execution, commit, push, branch, tag, release, publish, upload, signing,
+attestation, or CI action is authorized by Slice 3.
 
 ## Stop Conditions
 
@@ -163,5 +226,6 @@ Gate 2 reporting should include:
 ## Release Posture
 
 Maintenance Phase 2 Slice 2 performs no release operation. Package version
-remains `0.1.0`. No package version change, tag, release, publish, upload,
-signing, or attestation is authorized.
+remains `0.1.0`. Maintenance Phase 2 Slice 3 also performs no release
+operation. No package version change, tag, release, publish, upload, signing,
+or attestation is authorized.

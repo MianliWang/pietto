@@ -1,0 +1,241 @@
+from __future__ import annotations
+
+import subprocess
+from pathlib import Path
+
+from _static_audit_helpers import normalized_text as _normalized
+from _static_audit_helpers import read_text as _read
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+CHECKLIST_SPEC_PATH = (
+    REPO_ROOT / "docs/spec/pietto-code-audit-and-security-review-v1.md"
+)
+AGENT_POLICY_SPEC_PATH = (
+    REPO_ROOT / "docs/spec/agent-workflow-and-skills-adoption-v1.md"
+)
+PLAN_PATH = (
+    REPO_ROOT
+    / "docs/plan/maintenance-phase-2-agent-workflow-roadmap-and-skills-audit.md"
+)
+PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
+
+ALLOWED_SLICE3_GATE2_PATHS = {
+    "docs/spec/pietto-code-audit-and-security-review-v1.md",
+    "docs/spec/agent-workflow-and-skills-adoption-v1.md",
+    "docs/plan/maintenance-phase-2-agent-workflow-roadmap-and-skills-audit.md",
+    "tests/test_maintenance_phase2_code_audit_security_review.py",
+    "tests/test_maintenance_phase2_agent_workflow_and_roadmap.py",
+}
+
+FORBIDDEN_DIFF_PATHS = (
+    "AGENTS.md",
+    "README.md",
+    "docs/spec/pietto-v0.9.md",
+    "src",
+    "scripts",
+    ".github",
+    "pyproject.toml",
+    "uv.lock",
+    "tests/fixtures",
+    "tests/goldens",
+    "grammar",
+)
+
+POSITIVE_RELEASE_CLAIMS = (
+    "tag created",
+    "release created",
+    "package release occurred",
+    "published package",
+    "uploaded package",
+    "signing completed",
+    "attestation completed",
+    "release operation occurred",
+)
+
+
+def _docs() -> str:
+    return " ".join(
+        _normalized(path)
+        for path in (CHECKLIST_SPEC_PATH, AGENT_POLICY_SPEC_PATH, PLAN_PATH)
+    )
+
+
+def test_slice3_artifacts_exist_and_remain_non_behavioral() -> None:
+    assert CHECKLIST_SPEC_PATH.is_file()
+    assert AGENT_POLICY_SPEC_PATH.is_file()
+    assert PLAN_PATH.is_file()
+
+    docs = _docs()
+    for required in (
+        "Maintenance Phase 2 Slice 3",
+        "Code Audit And Security Review Checklist",
+        "docs/spec/static-audit work only",
+        "implements no behavior change",
+        "implements no source/compiler behavior change",
+        "does not install external plugins",
+        "run external scripts",
+        "copy external code",
+        "run scanners",
+        "modify `AGENTS.md`",
+        "Package version remains `0.1.0`",
+    ):
+        assert required in docs, required
+
+
+def test_review_posture_and_finding_discipline_are_locked() -> None:
+    docs = _docs()
+    for required in (
+        "evidence-first",
+        "exact claim",
+        "trust boundary",
+        "source-to-sink data flow",
+        "validation points",
+        "sink",
+        "expected impact",
+        "confirmed issue",
+        "false positive",
+        "robustness issue",
+        "deferred design risk",
+        "report only claims supported by concrete evidence",
+        "A dangerous-looking operation is not a confirmed issue",
+        "False-positive handling should document the reason for rejection",
+        "missing attacker control",
+        "existing validation",
+        "fail-closed diagnostics",
+        "future-only design status",
+    ):
+        assert required in docs, required
+
+
+def test_pietto_security_audit_surface_matrix_is_complete() -> None:
+    docs = _docs()
+    for required in (
+        "Path traversal / root containment",
+        "Source selection / glob policy",
+        "TOML config parsing",
+        "UTF-8 / source-read boundaries",
+        "Parser diagnostics and location paths",
+        "Project JSON v2 schema stability",
+        "CLI JSON v1 separation",
+        "Semantic Metadata Artifact v1 separation",
+        "Semantic / IR / SQL boundaries",
+        "Generated / golden / fixture changes",
+        "Dependency / workflow / lockfile / package metadata changes",
+        "Release / tag / publish / signing / attestation boundaries",
+        "External plugin / script prohibition",
+        "symlinks, hard links, aliases",
+        "unsupported glob forms rejected rather than ignored",
+        "unknown keys, duplicate TOML keys/tables",
+        "source-read and UTF-8 failures",
+        "normalized project-relative paths",
+        "without adding SQL, metadata, graph, runtime, database, or release data",
+        "single-file `check` and `emit-sql` remain in CLI JSON v1",
+        "single-file `explain` remain Semantic Metadata Artifact v1",
+        "faithful selected-dialect SQL lowering",
+    ):
+        assert required in docs, required
+
+
+def test_external_audit_practices_remain_text_only_and_local() -> None:
+    docs = _docs()
+    for required in (
+        "Trail of Bits-style review practices are useful as text-only process",
+        "Compound Engineering-style security review personas are useful as text-only",
+        "`obra/superpowers` planning and review habits are useful only as local process ideas",
+        "None of these sources are trusted automation for Pietto by default",
+        "External code, scripts, hooks, MCP configs, package manifests, scanner rules",
+        "must not be imported, installed, or executed",
+        "local Pietto checklist",
+        "not an imported external skill, plugin, scanner, hook, MCP config, or script bundle",
+    ):
+        assert required in docs, required
+
+
+def test_gate_workflow_allowlist_and_validation_plan_are_locked() -> None:
+    docs = _docs()
+    for required in (
+        "Gate 1 is read-only planning",
+        "Gate 2 is bounded implementation or docs/static-audit work",
+        "Gate 3 is stage, commit, push, and natural CI observation",
+        "docs/spec/pietto-code-audit-and-security-review-v1.md",
+        "docs/spec/agent-workflow-and-skills-adoption-v1.md",
+        "docs/plan/maintenance-phase-2-agent-workflow-roadmap-and-skills-audit.md",
+        "tests/test_maintenance_phase2_code_audit_security_review.py",
+        "tests/test_maintenance_phase2_agent_workflow_and_roadmap.py",
+        "No other file is approved in this Gate 2",
+        "git diff --check",
+        "uv run ruff format --check tests/test_maintenance_phase2_code_audit_security_review.py tests/test_maintenance_phase2_agent_workflow_and_roadmap.py",
+        "uv run ruff check tests/test_maintenance_phase2_code_audit_security_review.py tests/test_maintenance_phase2_agent_workflow_and_roadmap.py",
+        "uv run pyright --project pyrightconfig.tests.json",
+        "uv run pytest tests/test_maintenance_phase2_code_audit_security_review.py",
+        "uv run pytest tests/test_maintenance_phase2_agent_workflow_and_roadmap.py",
+        "UV_CACHE_DIR=/tmp/pietto_maintenance_phase2_uv_cache uv run ...",
+    ):
+        assert required in docs, required
+
+    assert _git_status_paths().issubset(ALLOWED_SLICE3_GATE2_PATHS)
+
+
+def test_forbidden_surfaces_package_release_and_ci_boundaries_are_locked() -> None:
+    docs = _docs()
+    lowered_docs = docs.lower()
+    pyproject = _read(PYPROJECT_PATH)
+
+    assert 'version = "0.1.0"' in pyproject
+    assert 'version = "0.2.0"' not in pyproject
+    assert _git_diff_name_only(FORBIDDEN_DIFF_PATHS) == ""
+    assert _git_status_paths().issubset(ALLOWED_SLICE3_GATE2_PATHS)
+
+    for required in (
+        "`AGENTS.md`",
+        "`README.md`",
+        "`docs/spec/pietto-v0.9.md`",
+        "`src/**`",
+        "`scripts/**`",
+        "`.github/**`",
+        "`pyproject.toml`",
+        "`uv.lock`",
+        "`tests/fixtures/**`",
+        "`tests/goldens/**`",
+        "generated artifacts",
+        "external repo files under `/tmp/pietto_maintenance_phase2_external_repos/**`",
+        "trigger CI",
+        "release, tag, publish, upload, signing, or attestation",
+    ):
+        assert required in docs, required
+
+    for forbidden in POSITIVE_RELEASE_CLAIMS:
+        assert forbidden not in lowered_docs, forbidden
+
+
+def _git_diff_name_only(paths: tuple[str, ...]) -> str:
+    result = subprocess.run(
+        ["git", "diff", "--name-only", "--", *paths],
+        cwd=REPO_ROOT,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert result.stderr == ""
+    return result.stdout.strip()
+
+
+def _git_status_paths() -> set[str]:
+    result = subprocess.run(
+        ["git", "status", "--short", "--untracked-files=all"],
+        cwd=REPO_ROOT,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert result.stderr == ""
+    paths: set[str] = set()
+    for line in result.stdout.splitlines():
+        path = line[3:]
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        paths.add(path)
+    return paths

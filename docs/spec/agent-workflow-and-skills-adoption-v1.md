@@ -78,6 +78,16 @@ External code, scripts, hooks, MCP configs, plugins, and command bundles from
 Trail of Bits repositories are not trusted by default and must not be executed
 or imported without a separate approval.
 
+Maintenance Phase 2 Slice 3 records the local Pietto checklist for code audit
+and security review in `docs/spec/pietto-code-audit-and-security-review-v1.md`.
+That checklist is a Pietto-owned docs/spec artifact, not an imported external
+skill, plugin, scanner, hook, MCP config, or script bundle.
+
+Slice 3 keeps audit guidance evidence-first: reviewers must trace concrete
+Pietto data flow, distinguish confirmed issues from false positives,
+robustness issues, and deferred design risks, and preserve the Gate 1 / Gate 2
+/ Gate 3 workflow before reporting security claims.
+
 ## Agent Workflow For Pietto Gates
 
 Pietto's local workflow remains repo-specific:
@@ -104,6 +114,6 @@ policy is stable, explicitly approved, and bounded by a new allowlist.
 
 ## Release Posture
 
-Maintenance Phase 2 Slice 2 performs no release operation. It authorizes no
-package version change, tag, release, publish, upload, signing, or
+Maintenance Phase 2 Slice 2 and Slice 3 perform no release operation. They
+authorize no package version change, tag, release, publish, upload, signing, or
 attestation.

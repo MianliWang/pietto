@@ -25,6 +25,11 @@ ALLOWED_SLICE2_GATE2_PATHS = {
     "tests/test_maintenance_phase2_agent_workflow_and_roadmap.py",
 }
 
+ALLOWED_MAINTENANCE_PHASE2_DIRTY_PATHS = ALLOWED_SLICE2_GATE2_PATHS | {
+    "docs/spec/pietto-code-audit-and-security-review-v1.md",
+    "tests/test_maintenance_phase2_code_audit_security_review.py",
+}
+
 FORBIDDEN_DIFF_PATHS = (
     "AGENTS.md",
     "README.md",
@@ -96,6 +101,21 @@ def test_agent_workflow_and_external_skills_policy_is_locked() -> None:
         "Gate 3 is publish work only when separately approved",
         "`AGENTS.md` remains unchanged by default",
         "requires a separate approval after this docs/spec policy is locked",
+    ):
+        assert required in docs, required
+
+
+def test_slice3_code_audit_policy_extension_is_locked() -> None:
+    docs = _docs()
+    for required in (
+        "Maintenance Phase 2 Slice 3 records the local Pietto checklist",
+        "docs/spec/pietto-code-audit-and-security-review-v1.md",
+        "not an imported external skill, plugin, scanner, hook, MCP config, or script bundle",
+        "reviewers must trace concrete Pietto data flow",
+        "distinguish confirmed issues from false positives",
+        "robustness issues, and deferred design risks",
+        "preserve the Gate 1 / Gate 2 / Gate 3 workflow",
+        "Maintenance Phase 2 Slice 2 and Slice 3 perform no release operation",
     ):
         assert required in docs, required
 
@@ -185,7 +205,7 @@ def test_gate2_allowlist_validation_and_stop_conditions_are_locked() -> None:
     ):
         assert required in docs, required
 
-    assert _git_status_paths().issubset(ALLOWED_SLICE2_GATE2_PATHS)
+    assert _git_status_paths().issubset(ALLOWED_MAINTENANCE_PHASE2_DIRTY_PATHS)
 
 
 def test_forbidden_surfaces_package_release_and_ci_boundaries_are_locked() -> None:
@@ -196,7 +216,7 @@ def test_forbidden_surfaces_package_release_and_ci_boundaries_are_locked() -> No
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
     assert _git_diff_name_only(FORBIDDEN_DIFF_PATHS) == ""
-    assert _git_status_paths().issubset(ALLOWED_SLICE2_GATE2_PATHS)
+    assert _git_status_paths().issubset(ALLOWED_MAINTENANCE_PHASE2_DIRTY_PATHS)
 
     for required in (
         "`AGENTS.md`",
