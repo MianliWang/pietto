@@ -385,13 +385,19 @@ def _smoke_installed_cli(
             "root": ".",
             "config_path": "pietto.toml",
         },
-        "inputs": [],
+        "inputs": [
+            {
+                "path": "models/user.pietto",
+                "kind": "source",
+                "status": "parsed",
+            }
+        ],
         "diagnostics": [],
         "cli_errors": [],
         "result": {
             "check": {
-                "files_total": 0,
-                "files_ok": 0,
+                "files_total": 1,
+                "files_ok": 1,
                 "files_with_errors": 0,
             }
         },

@@ -65,6 +65,18 @@ SQL, project `emit-sql`, project `explain`, imports/modules/export/cross-file
 semantics, public diagnostics, package metadata, workflows, or release
 behavior.
 
+Phase 44 Slice 6 is Project JSON v2 Inputs And Counters. Slice 6 implements
+only Project JSON v2 `inputs[]` and `result.check` counters for parse-only
+`pietto check --project ROOT --format json`. It routes project JSON check
+through the same private parse-only project check result as text mode, reports
+JSON-visible input statuses `parsed` and `error`, keeps internal `selected` out
+of JSON, reports parser diagnostics in top-level Project JSON v2 diagnostics,
+reports private project failures as `cli_errors`, and stops before semantic
+analysis. Slice 6 does not change CLI JSON v1, Semantic Metadata Artifact v1,
+IR, SQL, project `emit-sql`, project `explain`,
+imports/modules/export/cross-file semantics, public diagnostics, package metadata, workflows, fixtures,
+goldens, generated files, dependencies, or release behavior.
+
 ## Candidate Decision
 
 The selected Phase 44 candidate is:
@@ -81,9 +93,11 @@ pietto check --project ROOT
 pietto check --project ROOT --format json
 ```
 
-Current project check does not select, read, parse, analyze, or aggregate source
-files. Current Project JSON v2 remains root/config-only, with empty `inputs`
-and zero file counters.
+At the Slice 1 baseline, project check did not select, read, parse, analyze, or
+aggregate source files, and Project JSON v2 remained root/config-only with empty
+`inputs` and zero file counters. Slice 5 later added parse-only text-mode
+project check. Slice 6 now adds Project JSON v2 `inputs[]` and `result.check`
+counters for parse-only project check only.
 
 The Phase 44 candidate is stronger than the historical Arrow/PyArrow label
 because it extends already implemented project-mode plumbing without crossing
@@ -119,8 +133,9 @@ project semantic analysis.
 The current repository facts that Slice 1 locks are:
 
 - Phase 33 delivered a private `_project` foundation, text-mode
-  `pietto check --project ROOT` root/config validation, root/config-only Project
-  JSON v2, and a project explain/metadata aggregation boundary contract;
+  `pietto check --project ROOT` root/config validation, the initial
+  root/config-only Project JSON v2 foundation, and a project explain/metadata
+  aggregation boundary contract;
 - Phase 33 did not implement source selection, TOML schema parsing, glob
   expansion, project source reading/parsing, multi-file semantic analysis,
   project IR/SQL, project `emit-sql`, project `explain`, metadata aggregation,
@@ -128,11 +143,11 @@ The current repository facts that Slice 1 locks are:
   graph/ERD/AI metadata export;
 - text-mode `pietto check --project ROOT` now routes through the private
   parse-only project check frontend and prints the selected parsed source count;
-- `pietto check --project ROOT --format json` still routes only through
-  `discover_project_inputs(root)` and reports `inputs: []` plus zero file
-  counters;
-- Project JSON v2 currently rejects non-empty project inputs until project
-  source parsing exists;
+- `pietto check --project ROOT --format json` now routes through the private
+  parse-only project check result and reports Project JSON v2 `inputs[]` plus
+  `result.check` counters for parsed/error selected sources;
+- Project JSON v2 still keeps root/config/source-selection failures that stop
+  before parsing at `inputs: []` plus zero file counters;
 - `emit-sql --project` and `explain --project` remain rejected or unaccepted by
   the current CLI;
 - project specs already record deterministic configured source selection,
@@ -228,8 +243,8 @@ Phase 44 Slice 1 and Slice 2 do not authorize:
 | 2 | Project Config Schema Contract | docs/spec/static-audit readiness first; no behavior change unless separately approved |
 | 3 | Private Project Config Loader MVP | private config loader/schema validator only; no CLI or JSON behavior |
 | 4 | Deterministic Source Selection MVP | private deterministic source selection only; no CLI or JSON behavior |
-| 5 | Parse-only Project Check Frontend | text-mode project check source read and parser aggregation only; Project JSON v2 remains root/config-only |
-| 6 | Project JSON v2 Inputs And Counters | future implementation only after a new Gate 1 and Gate 2 approval |
+| 5 | Parse-only Project Check Frontend | text-mode project check source read and parser aggregation only; Project JSON v2 remains root/config-only until Slice 6 |
+| 6 | Project JSON v2 Inputs And Counters | project check JSON v2 inputs and counters only; no JSON v1, Artifact v1, semantic, IR, or SQL change |
 | 7 | CLI / Package / Compatibility Hardening | future compatibility work only after approved behavior slices |
 | 8 | Completion Audit And Status Lock | future docs/tests/status lock only; no new behavior |
 
@@ -625,8 +640,133 @@ Stop and return to Repair Gate 1 if:
 - imports, modules, export, package semantics, visibility rules, or cross-file
   semantic behavior appear necessary;
 - public diagnostics or new `PIE-*` codes appear necessary;
-- JSON v2 `inputs[]` or project check counters appear necessary before Slice 6;
+- Project JSON v2 behavior outside Slice 6 inputs/counters appears necessary;
 - JOIN/relationship behavior, `RelationLayerIR`, `LetBindingIR`, Arrow/PyArrow,
   LSP/UI, runtime/database, schema introspection, or db pull appears necessary;
 - validation fails or static-audit/hash-lock fanout becomes broader than a narrow
   Slice 5 parse-only project-check frontend package.
+
+## Slice 6 Gate 2 Allowlist
+
+Phase 44 Slice 6 Gate 2 is limited to:
+
+- `docs/plan/phase-44-project-source-selection-parse-only-project-check-mvp.md`;
+- `docs/spec/phase44-project-source-selection-scope-lock-v1.md`;
+- `docs/spec/phase44-project-config-schema-contract-v1.md`;
+- `docs/spec/project-json-v2-result-envelope-v1.md`;
+- `docs/spec/project-cli-json-v2.md`;
+- `src/pietto/_project/json_v2.py`;
+- `src/pietto/cli.py`;
+- `scripts/package_smoke.py`;
+- `tests/test_phase44_project_json_v2_inputs_counters.py`;
+- `tests/test_phase44_project_parse_only_check.py`;
+- `tests/test_phase44_project_config_schema_contract.py`;
+- `tests/test_phase44_project_source_selection_scope_lock.py`;
+- `tests/test_phase33_project_json_v2_serializer.py`;
+- `tests/test_phase33_project_check_cli.py`;
+- `tests/test_phase33_json_v2_project_envelope_contract.py`;
+- `tests/test_phase33_project_root_config_path_discovery_contract.py`;
+- `tests/test_phase33_completion_audit.py`;
+- `tests/test_phase33_cli_package_compatibility_hardening.py`;
+- `tests/test_phase11_packaging_smoke.py`;
+- `tests/test_phase8_completion_audit.py`;
+- `tests/test_phase9_completion_audit.py`;
+- `tests/test_phase10_completion_audit.py`;
+- `tests/test_phase11_ci_workflow.py`;
+- `tests/test_phase11_completion_audit.py`;
+- `tests/test_phase11_generated_guard.py`;
+- `tests/test_phase11_golden_policy.py`;
+- `tests/test_phase11_planning_audit.py`;
+- `tests/test_phase11_validation_entrypoint.py`;
+- `tests/test_phase12_completion_audit.py`;
+- `tests/test_phase12_composition_cli_json_goldens.py`;
+- `tests/test_phase12_planning_audit.py`;
+- `tests/test_phase12_order_limit_contract.py`;
+- `tests/test_phase13_completion_audit.py`;
+- `tests/test_phase13_planning_audit.py`;
+- `tests/test_phase14_candidate_decision_audit.py`;
+- `tests/test_phase14_completion_audit.py`;
+- `tests/test_phase14_planning_audit.py`;
+- `tests/test_phase14_relationship_metadata_completion_audit.py`;
+- `tests/test_phase15_completion_audit.py`;
+- `tests/test_phase15_semantic_completion_audit.py`;
+- `tests/test_phase16_completion_audit.py`;
+- `tests/test_phase16_current_syntax_surface_audit.py`;
+- `tests/test_phase16_language_direction_audit.py`;
+- `tests/test_phase16_safety_deferral_sql_portability.py`;
+- `tests/test_phase21_group_by_hardening_audit.py`;
+- `tests/test_phase24_aggregate_expression_arguments_readiness.py`;
+- `tests/test_phase24_cli_json_output_hardening.py`;
+- `tests/test_phase24_completion_audit.py`;
+- `tests/test_phase25_completion_audit.py`;
+- `tests/test_phase26_completion_audit.py`;
+- `tests/test_phase27_completion_audit.py`;
+- `tests/test_phase28_completion_audit.py`;
+- `tests/test_phase29_completion_audit.py`;
+- `tests/test_phase30_completion_audit.py`;
+- `tests/test_phase32_completion_audit.py`.
+
+No other file is approved in this Gate 2. Legacy static-audit files may change
+only to recognize the approved Project JSON v2 `inputs[]` and `result.check`
+counters for parse-only `pietto check --project ROOT --format json`, the
+package smoke expectation update, and necessary hash-lock fanout.
+
+## Slice 6 Validation Focus
+
+Slice 6 validation should prove:
+
+- the exact allowlist is the complete changed surface;
+- Project JSON v2 reports parse-only project inputs with `kind: "source"` and
+  status `parsed` or `error`;
+- Project JSON v2 counters reflect serialized parse-attempted inputs;
+- parser diagnostics remain top-level Project JSON v2 diagnostics with
+  `related_locations: []`;
+- project root, config, source-selection, source-read, and project resource
+  failures remain private project `cli_errors`;
+- root/config/source-selection failures before parsing keep empty `inputs` and
+  zero counters;
+- CLI JSON v1, Semantic Metadata Artifact v1, non-project check behavior, text
+  output behavior, project `emit-sql`, project `explain`, semantic analysis,
+  IR, and SQL remain unchanged.
+
+Approved Gate 2 validation for Slice 6 is:
+
+```bash
+git diff --check
+uv run ruff format --check src/pietto/_project src/pietto/cli.py scripts/package_smoke.py tests/test_phase44_project_json_v2_inputs_counters.py tests/test_phase44_project_parse_only_check.py tests/test_phase44_project_config_schema_contract.py tests/test_phase44_project_source_selection_scope_lock.py tests/test_phase33_project_json_v2_serializer.py tests/test_phase33_project_check_cli.py tests/test_phase33_json_v2_project_envelope_contract.py tests/test_phase33_project_root_config_path_discovery_contract.py tests/test_phase33_completion_audit.py tests/test_phase33_cli_package_compatibility_hardening.py tests/test_phase11_packaging_smoke.py tests/test_phase8_completion_audit.py tests/test_phase9_completion_audit.py tests/test_phase10_completion_audit.py tests/test_phase11_ci_workflow.py tests/test_phase11_completion_audit.py tests/test_phase11_generated_guard.py tests/test_phase11_golden_policy.py tests/test_phase11_planning_audit.py tests/test_phase11_validation_entrypoint.py tests/test_phase12_completion_audit.py tests/test_phase12_composition_cli_json_goldens.py tests/test_phase12_planning_audit.py tests/test_phase12_order_limit_contract.py tests/test_phase13_completion_audit.py tests/test_phase13_planning_audit.py tests/test_phase14_candidate_decision_audit.py tests/test_phase14_completion_audit.py tests/test_phase14_planning_audit.py tests/test_phase14_relationship_metadata_completion_audit.py tests/test_phase15_completion_audit.py tests/test_phase15_semantic_completion_audit.py tests/test_phase16_completion_audit.py tests/test_phase16_current_syntax_surface_audit.py tests/test_phase16_language_direction_audit.py tests/test_phase16_safety_deferral_sql_portability.py tests/test_phase21_group_by_hardening_audit.py tests/test_phase24_aggregate_expression_arguments_readiness.py tests/test_phase24_cli_json_output_hardening.py tests/test_phase24_completion_audit.py tests/test_phase25_completion_audit.py tests/test_phase26_completion_audit.py tests/test_phase27_completion_audit.py tests/test_phase28_completion_audit.py tests/test_phase29_completion_audit.py tests/test_phase30_completion_audit.py tests/test_phase32_completion_audit.py
+uv run ruff check src/pietto/_project src/pietto/cli.py scripts/package_smoke.py tests/test_phase44_project_json_v2_inputs_counters.py tests/test_phase44_project_parse_only_check.py tests/test_phase44_project_config_schema_contract.py tests/test_phase44_project_source_selection_scope_lock.py tests/test_phase33_project_json_v2_serializer.py tests/test_phase33_project_check_cli.py tests/test_phase33_json_v2_project_envelope_contract.py tests/test_phase33_project_root_config_path_discovery_contract.py tests/test_phase33_completion_audit.py tests/test_phase33_cli_package_compatibility_hardening.py tests/test_phase11_packaging_smoke.py tests/test_phase8_completion_audit.py tests/test_phase9_completion_audit.py tests/test_phase10_completion_audit.py tests/test_phase11_ci_workflow.py tests/test_phase11_completion_audit.py tests/test_phase11_generated_guard.py tests/test_phase11_golden_policy.py tests/test_phase11_planning_audit.py tests/test_phase11_validation_entrypoint.py tests/test_phase12_completion_audit.py tests/test_phase12_composition_cli_json_goldens.py tests/test_phase12_planning_audit.py tests/test_phase12_order_limit_contract.py tests/test_phase13_completion_audit.py tests/test_phase13_planning_audit.py tests/test_phase14_candidate_decision_audit.py tests/test_phase14_completion_audit.py tests/test_phase14_planning_audit.py tests/test_phase14_relationship_metadata_completion_audit.py tests/test_phase15_completion_audit.py tests/test_phase15_semantic_completion_audit.py tests/test_phase16_completion_audit.py tests/test_phase16_current_syntax_surface_audit.py tests/test_phase16_language_direction_audit.py tests/test_phase16_safety_deferral_sql_portability.py tests/test_phase21_group_by_hardening_audit.py tests/test_phase24_aggregate_expression_arguments_readiness.py tests/test_phase24_cli_json_output_hardening.py tests/test_phase24_completion_audit.py tests/test_phase25_completion_audit.py tests/test_phase26_completion_audit.py tests/test_phase27_completion_audit.py tests/test_phase28_completion_audit.py tests/test_phase29_completion_audit.py tests/test_phase30_completion_audit.py tests/test_phase32_completion_audit.py
+uv run pyright --project pyrightconfig.json
+uv run pyright --project pyrightconfig.tests.json
+uv run pytest tests/test_phase44_project_json_v2_inputs_counters.py
+uv run pytest tests/test_phase44_project_parse_only_check.py
+uv run pytest tests/test_phase44_project_config_loader.py tests/test_phase44_project_source_selection.py tests/test_phase44_project_config_schema_contract.py tests/test_phase44_project_source_selection_scope_lock.py
+uv run pytest tests/test_phase33_project_json_v2_serializer.py tests/test_phase33_project_check_cli.py tests/test_phase33_json_v2_project_envelope_contract.py tests/test_phase33_project_root_config_path_discovery_contract.py
+uv run pytest tests/test_phase33_completion_audit.py tests/test_phase33_cli_package_compatibility_hardening.py
+uv run pytest tests/test_cli_check.py tests/test_cli_check_json.py tests/test_cli_output.py
+uv run pytest tests/test_phase11_packaging_smoke.py tests/test_phase8_completion_audit.py tests/test_phase9_completion_audit.py tests/test_phase10_completion_audit.py tests/test_phase11_ci_workflow.py tests/test_phase11_completion_audit.py tests/test_phase11_generated_guard.py tests/test_phase11_golden_policy.py tests/test_phase11_planning_audit.py tests/test_phase11_validation_entrypoint.py tests/test_phase12_completion_audit.py tests/test_phase12_composition_cli_json_goldens.py tests/test_phase12_planning_audit.py tests/test_phase12_order_limit_contract.py tests/test_phase13_completion_audit.py tests/test_phase13_planning_audit.py tests/test_phase14_candidate_decision_audit.py tests/test_phase14_completion_audit.py tests/test_phase14_planning_audit.py tests/test_phase14_relationship_metadata_completion_audit.py tests/test_phase15_completion_audit.py tests/test_phase15_semantic_completion_audit.py tests/test_phase16_completion_audit.py tests/test_phase16_current_syntax_surface_audit.py tests/test_phase16_language_direction_audit.py tests/test_phase16_safety_deferral_sql_portability.py tests/test_phase21_group_by_hardening_audit.py tests/test_phase24_aggregate_expression_arguments_readiness.py tests/test_phase24_cli_json_output_hardening.py tests/test_phase24_completion_audit.py tests/test_phase25_completion_audit.py tests/test_phase26_completion_audit.py tests/test_phase27_completion_audit.py tests/test_phase28_completion_audit.py tests/test_phase29_completion_audit.py tests/test_phase30_completion_audit.py tests/test_phase32_completion_audit.py
+uv run python scripts/package_smoke.py
+```
+
+Full `scripts/validate.py` is not required in dirty Slice 6 Gate 2 when the
+only expected failures are dirty-working-tree changed-set artifacts. Natural
+clean-checkout CI after Gate 3 remains authoritative.
+
+## Slice 6 Stop Conditions
+
+Stop and return to Repair Gate 1 if:
+
+- branch, HEAD, dirty status, package version, or no-tag baseline is not trusted;
+- any needed change falls outside the Slice 6 allowlist;
+- CLI JSON v1 or Semantic Metadata Artifact v1 behavior changes appear
+  necessary;
+- non-project `pietto check`, JSON v1, or text output behavior changes outside
+  the approved project JSON v2 path;
+- project semantic analysis, IR, SQL, project `emit-sql`, or project `explain`
+  appears necessary;
+- imports, modules, export, package semantics, visibility rules, or cross-file
+  semantic behavior appear necessary;
+- public diagnostics or new `PIE-*` codes appear necessary;
+- fixture, golden, generated, workflow, lockfile, dependency, package metadata,
+  or release changes appear necessary;
+- validation fails or static-audit/hash-lock fanout becomes broader than a
+  narrow Slice 6 Project JSON v2 input/counter package.

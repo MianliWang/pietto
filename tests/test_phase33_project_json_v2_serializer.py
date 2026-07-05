@@ -15,8 +15,10 @@ from pietto._project.model import (
     ProjectDiscoveryErrorKind,
     ProjectDiscoveryResult,
     ProjectInput,
+    ProjectParseCheckResult,
     ProjectRoot,
 )
+from pietto.errors import Diagnostic, Severity, SourceLocation
 
 _TOP_LEVEL_KEYS = (
     "schema_version",
@@ -33,11 +35,26 @@ _TOP_LEVEL_KEYS = (
 
 def test_project_json_v2_success_shape_and_rendering_are_locked() -> None:
     document = project_check_result_to_json_dict(
-        ProjectDiscoveryResult(
+        ProjectParseCheckResult(
             root=ProjectRoot(path="."),
             config_path=ProjectConfigPath(path="pietto.toml"),
-            inputs=(),
+            inputs=(
+                ProjectInput(path="models/users.pietto", status="parsed"),
+                ProjectInput(path="reports/broken.pietto", status="error"),
+            ),
             errors=(),
+            diagnostics=(
+                Diagnostic(
+                    code="PIE-P1000",
+                    severity=Severity.ERROR,
+                    message="mismatched input",
+                    location=SourceLocation(
+                        path="reports/broken.pietto",
+                        line=1,
+                        column=7,
+                    ),
+                ),
+            ),
         )
     )
 
@@ -46,19 +63,45 @@ def test_project_json_v2_success_shape_and_rendering_are_locked() -> None:
         "schema_version": 2,
         "command": "check",
         "mode": "project",
-        "ok": True,
+        "ok": False,
         "project": {
             "root": ".",
             "config_path": "pietto.toml",
         },
-        "inputs": [],
-        "diagnostics": [],
+        "inputs": [
+            {
+                "path": "models/users.pietto",
+                "kind": "source",
+                "status": "parsed",
+            },
+            {
+                "path": "reports/broken.pietto",
+                "kind": "source",
+                "status": "error",
+            },
+        ],
+        "diagnostics": [
+            {
+                "code": "PIE-P1000",
+                "severity": "error",
+                "message": "mismatched input",
+                "location": {
+                    "path": "reports/broken.pietto",
+                    "line": 1,
+                    "column": 7,
+                    "end_line": None,
+                    "end_column": None,
+                },
+                "suggestion": None,
+                "related_locations": [],
+            }
+        ],
         "cli_errors": [],
         "result": {
             "check": {
-                "files_total": 0,
-                "files_ok": 0,
-                "files_with_errors": 0,
+                "files_total": 2,
+                "files_ok": 1,
+                "files_with_errors": 1,
             }
         },
     }
@@ -167,7 +210,9 @@ def test_project_json_v2_rendering_is_ascii_safe() -> None:
 
 
 @pytest.mark.parametrize("status", ["selected", "parsed", "error"])
-def test_project_json_v2_fails_closed_for_non_empty_inputs(status: str) -> None:
+def test_project_json_v2_fails_closed_for_non_parse_discovery_inputs(
+    status: str,
+) -> None:
     discovery_result = ProjectDiscoveryResult(
         root=ProjectRoot(path="."),
         config_path=ProjectConfigPath(path="pietto.toml"),
@@ -177,6 +222,6 @@ def test_project_json_v2_fails_closed_for_non_empty_inputs(status: str) -> None:
 
     with pytest.raises(
         ValueError,
-        match="project input JSON serialization is deferred",
+        match="project input JSON serialization requires parse-only project check",
     ):
         project_check_result_to_json_dict(discovery_result)

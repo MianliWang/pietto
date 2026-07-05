@@ -260,7 +260,7 @@ def test_phase9_prohibited_production_capabilities_remain_absent() -> None:
 
     assert '"--project"' in cli_source
     assert "def _run_project_check(" in cli_source
-    assert "discover_project_inputs(root)" in cli_source
+    assert "check_project_parse_only(root)" in cli_source
     assert "compile_project" not in lowered_source
     assert "load_project_config" not in lowered_source_without_project_config
     assert "project_loader" not in lowered_source

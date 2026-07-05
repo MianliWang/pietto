@@ -22,7 +22,7 @@ GROUP_HASHES = {
     "ir": "57097f43ba5e0ffa8d531b827b7029c9104b85ab3dc0657889cccd28caec5249",
     "sql": "b18229fbda079d706416119002a70d091e7f5b79e0e4818a5b1292d9b88e898b",
     "generated": "7ac3aea913b1453a972456be0171a2c292991e71bde3e94a4056b4bf537b5c4e",
-    "cli": "2e6ad48bcbfe773e55ed9e4ed5e3a35d88f7fd36926e85fddcbc23d356fac7e8",
+    "cli": "31d91f9a6f7d0705398add8c8516cf3b9b81c09cb3a7fb9141b6f96470f0216b",
 }
 
 
@@ -229,7 +229,7 @@ def test_deferred_capabilities_remain_absent_after_phase12_feature_expansion() -
 
     assert '"--project"' in cli_source
     assert "def _run_project_check(" in cli_source
-    assert "discover_project_inputs(root)" in cli_source
+    assert "check_project_parse_only(root)" in cli_source
     assert not (REPO_ROOT / "pietto.toml").exists()
     assert "compile_project" not in cli_source
     assert "load_project_config" not in cli_source

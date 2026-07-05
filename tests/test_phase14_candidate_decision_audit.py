@@ -43,7 +43,7 @@ INPUT_HASHES = {
         "2383731c2b9d78f8cf73da8e9d47f973b6eef93eb20e0f03d8f045307b788534"
     ),
     "tests/test_phase13_completion_audit.py": (
-        "96b05f716a92ac8ffa9436c3b8c0f610a86709ce4e75f387b08d2f5221957c57"
+        "e375d58a320dd053412cb2888aad8acb89cf450f9ade40fa5900752345357383"
     ),
 }
 
@@ -62,7 +62,7 @@ FILE_HASHES = {
         "23e271e0138e6b7ac189e27f33c557e04300301adff8f49747999e0c4b50c2e9"
     ),
     "scripts/package_smoke.py": (
-        "2f3da092d90a39dd1604e2f84b84deebe6ad1c737ebd53c303c5b7cb299fa18b"
+        "aa6ab2ddf8ed8e889e8d75de224467565b7e6034cf068b44d602807fdd554924"
     ),
 }
 
@@ -72,7 +72,7 @@ GROUP_HASHES = {
     "ir": "57097f43ba5e0ffa8d531b827b7029c9104b85ab3dc0657889cccd28caec5249",
     "sql": "b18229fbda079d706416119002a70d091e7f5b79e0e4818a5b1292d9b88e898b",
     "generated": "7ac3aea913b1453a972456be0171a2c292991e71bde3e94a4056b4bf537b5c4e",
-    "cli": "2e6ad48bcbfe773e55ed9e4ed5e3a35d88f7fd36926e85fddcbc23d356fac7e8",
+    "cli": "31d91f9a6f7d0705398add8c8516cf3b9b81c09cb3a7fb9141b6f96470f0216b",
 }
 
 GOLDENS_HASH = "0e26a0b367a2ae849e5ec1e9a239be42765bea2c352242db5da930ab56b43004"

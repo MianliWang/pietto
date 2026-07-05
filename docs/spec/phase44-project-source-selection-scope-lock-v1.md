@@ -86,21 +86,24 @@ Project check OK: .
 Files checked: N
 ```
 
-Current Project JSON v2 remains root/config-only for Slice 5:
+Slice 6 Project JSON v2 now reports parse-only project check inputs and
+counters:
 
 ```text
 schema_version: 2
 command: "check"
 mode: "project"
-inputs: []
+inputs: [{path: "models/user.pietto", kind: "source", status: "parsed"}]
 diagnostics: []
-result.check.files_total: 0
-result.check.files_ok: 0
+result.check.files_total: N
+result.check.files_ok: N
 result.check.files_with_errors: 0
 ```
 
-Project JSON v2 currently rejects non-empty project inputs until the later
-Project JSON v2 input-reporting slice exists.
+Project JSON v2 root/config/source-selection failures that stop before parsing
+still report empty `inputs` plus zero `result.check` counters. Internal
+`selected` inputs are not emitted; JSON-visible statuses are `parsed` and
+`error`.
 
 `emit-sql --project` and `explain --project` remain rejected or unaccepted by
 the current CLI.
@@ -139,8 +142,8 @@ between project usage/configuration errors and compiler diagnostics.
 
 Slice 4 private source selection is limited to producing the selected source
 path list for a later project-check frontend. It may use the existing private
-project input status `selected` because Project JSON v2 still rejects non-empty
-project inputs until project source parsing exists.
+project input status `selected`; Slice 6 keeps that status internal and emits
+only JSON-visible `parsed` or `error` statuses after parse/read attribution.
 
 Slice 4 source selection must:
 
@@ -165,8 +168,7 @@ database, or public diagnostic behavior.
 
 Slice 5 text-mode project check is limited to producing a parse-only frontend
 result. It may use the existing private project input statuses `selected`,
-`parsed`, and `error`, but Project JSON v2 still rejects non-empty inputs until
-Slice 6.
+`parsed`, and `error`.
 
 Slice 5 project check must:
 
@@ -178,13 +180,40 @@ Slice 5 project check must:
 - report source-read and UTF-8 failures through private project errors;
 - stop before semantic analysis, IR, SQL, project `emit-sql`, and project
   `explain`;
-- keep `pietto check --project ROOT --format json` on the existing
-  root/config-only Project JSON v2 path.
+- leave Project JSON v2 input/counter reporting for Slice 6.
 
 Slice 5 does not authorize Project JSON v2 input/counter reporting, CLI JSON v1
 mutation, Semantic Metadata Artifact v1 mutation, public diagnostics, new
 `PIE-*` codes, imports/modules/export/cross-file semantics, project semantic
 analysis, project IR, project SQL, runtime, database, or release behavior.
+
+## Slice 6 Project JSON v2 Inputs And Counters Boundary
+
+Slice 6 implements only Project JSON v2 `inputs[]` and `result.check` counters
+for parse-only `pietto check --project ROOT --format json`.
+
+Slice 6 project JSON must:
+
+- route project JSON check through the same private parse-only project check
+  result as text mode;
+- report selected parse-attempted `.pietto` inputs with `kind: "source"` and
+  status `parsed` or `error`;
+- report parser diagnostics in top-level Project JSON v2 `diagnostics[]` with
+  `related_locations: []`;
+- report project root, config, source-selection, source-read, and project
+  resource failures as private project `cli_errors`;
+- count only serialized parse-attempted inputs in `files_total`, `files_ok`, and
+  `files_with_errors`;
+- keep pre-parse root/config/source-selection failures at empty `inputs` and
+  zero counters;
+- stop before semantic analysis, IR, SQL, project `emit-sql`, and project
+  `explain`.
+
+Slice 6 does not authorize CLI JSON v1 mutation, Semantic Metadata Artifact v1
+mutation, public diagnostics, new `PIE-*` codes,
+imports/modules/export/cross-file semantics, project semantic analysis, project
+IR, project SQL, runtime, database, fixture/golden, generated, workflow,
+dependency, package metadata, or release behavior.
 
 ## Project JSON And Compatibility Boundary
 
@@ -192,8 +221,8 @@ Phase 44 may not mutate CLI JSON v1 for single-file `check` or `emit-sql`.
 Phase 44 may not mutate Semantic Metadata Artifact v1 for single-file
 `explain`.
 
-Future Project JSON v2 input reporting must remain under the project `check`
-command shape. It must not add top-level `artifact`, top-level `metadata`,
+Project JSON v2 input reporting remains under the project `check` command
+shape. It must not add top-level `artifact`, top-level `metadata`,
 Semantic Metadata Artifact v1 payloads, dependency graphs, semantic graphs,
 relationship graphs, ERD output, AI metadata export, runtime results, database
 introspection results, SQL artifacts, or package release metadata.
@@ -249,8 +278,8 @@ Slice 1 validation should prove:
 - Phase 44 uses the project source selection and parse-only project check
   identity;
 - old Arrow/PyArrow Phase 44 wording is historical only;
-- text-mode project behavior is parse-only while Project JSON v2 remains
-  root/config-only until the later input-reporting slice;
+- text-mode project behavior is parse-only while Project JSON v2 input/counter
+  reporting remains reserved to Slice 6;
 - forbidden surfaces remain absent from implementation and public output
   changes;
 - package version remains `0.1.0`.

@@ -144,30 +144,31 @@ def test_current_project_mode_text_parse_only_and_json_root_config_boundary() ->
     for required in (
         "text-mode `pietto check --project ROOT` now routes through the private",
         "parse-only project check frontend",
-        "`pietto check --project ROOT --format json` still routes only through",
-        "`discover_project_inputs(root)`",
-        "Project JSON v2 currently rejects non-empty project inputs until the later",
-        "Project JSON v2 input-reporting slice exists",
+        "`pietto check --project ROOT --format json` now routes through the private",
+        "parse-only project check result",
+        "Project JSON v2 `inputs[]` plus",
+        "`result.check` counters for parsed/error selected sources",
+        "root/config/source-selection failures that stop",
+        "before parsing at `inputs: []` plus zero file counters",
         "`emit-sql --project` and `explain --project` remain rejected",
         "Project check OK: .",
         "Files checked: N",
-        "inputs: []",
-        "files_total: 0",
+        'status: "parsed"',
+        "result.check.files_total: N",
     ):
         assert required in docs, required
 
     assert "check_project_parse_only(root)" in cli_source
-    assert "discover_project_inputs(root)" in cli_source
     assert "Files checked: {len(parse_result.inputs)}" in cli_source
     for required in (
-        "if discovery_result.inputs:",
-        "raise ValueError(",
-        "project input JSON serialization is deferred until project source",
-        "parsing exists",
-        '"inputs": []',
-        '"files_total": _FILES_TOTAL',
-        '"files_ok": _FILES_OK',
-        '"files_with_errors": _FILES_WITH_ERRORS',
+        "_JSON_INPUT_KIND = \"source\"",
+        "_JSON_INPUT_STATUSES = frozenset({\"parsed\", \"error\"})",
+        '"inputs": inputs',
+        '"diagnostics": diagnostics',
+        '"cli_errors": [_cli_error_to_json_dict(error) for error in result.errors]',
+        '"files_total": len(inputs)',
+        '"files_ok": files_ok',
+        '"files_with_errors": files_with_errors',
     ):
         assert required in json_source, required
 
@@ -265,6 +266,17 @@ def test_slice_sequence_allowlist_validation_and_stop_conditions_are_locked() ->
         "tests/test_phase33_cli_package_compatibility_hardening.py",
         "source selection accepts an already loaded private config result",
         "source selection does not call `Path.glob`, `Path.rglob`, or `os.walk`",
+        "Phase 44 Slice 6 Gate 2 is limited to:",
+        "src/pietto/_project/json_v2.py",
+        "tests/test_phase44_project_json_v2_inputs_counters.py",
+        "tests/test_phase33_json_v2_project_envelope_contract.py",
+        "tests/test_phase33_project_root_config_path_discovery_contract.py",
+        "tests/test_phase12_order_limit_contract.py",
+        "tests/test_phase32_completion_audit.py",
+        "Project JSON v2 reports parse-only project inputs",
+        "Project JSON v2 counters reflect serialized parse-attempted inputs",
+        "uv run pytest tests/test_phase44_project_json_v2_inputs_counters.py",
+        "uv run python scripts/package_smoke.py",
     ):
         assert required in docs, required
 

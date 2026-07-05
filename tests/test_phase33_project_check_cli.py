@@ -101,8 +101,8 @@ def test_project_check_json_success_emits_json_v2_stdout_only(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    root = _project_root(tmp_path, config_text="not valid = [")
-    _forbid_project_pipeline(monkeypatch)
+    root = _project_root_with_source(tmp_path)
+    _forbid_project_compiler_pipeline(monkeypatch)
 
     assert cli.main(["check", "--project", str(root), *format_args]) == 0
 
@@ -127,13 +127,19 @@ def test_project_check_json_success_emits_json_v2_stdout_only(
             "root": ".",
             "config_path": "pietto.toml",
         },
-        "inputs": [],
+        "inputs": [
+            {
+                "path": "models/user.pietto",
+                "kind": "source",
+                "status": "parsed",
+            }
+        ],
         "diagnostics": [],
         "cli_errors": [],
         "result": {
             "check": {
-                "files_total": 0,
-                "files_ok": 0,
+                "files_total": 1,
+                "files_ok": 1,
                 "files_with_errors": 0,
             }
         },

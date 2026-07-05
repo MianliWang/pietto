@@ -349,7 +349,7 @@ def test_public_api_dependency_json_and_deferred_boundaries_remain_closed() -> N
     cli_source = _read("src/pietto/cli.py")
     assert '"--project"' in cli_source
     assert "def _run_project_check(" in cli_source
-    assert "discover_project_inputs(root)" in cli_source
+    assert "check_project_parse_only(root)" in cli_source
     assert "compile_project" not in runtime_text
     assert "load_project_config" not in runtime_text_without_project_config
     assert "project_loader" not in runtime_text

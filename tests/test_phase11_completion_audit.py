@@ -49,7 +49,7 @@ EXPECTED_BLOBS = {
     "scripts/validate.py": "4387101bc68e13539c74c45b595ba742ca17c9c0",
     "scripts/check_generated.py": "51081d5337e0659e73f8666ba639c0d4c3fe3a4b",
     "scripts/check_goldens.py": "4f49ddc0a8a6836b68a83a98cc9c05389d4519a3",
-    "scripts/package_smoke.py": "732899e424b751a09d8818a18ce038cb57009c3a",
+    "scripts/package_smoke.py": "f490e50aacd07132948fe2fd826eb5053b5e1c59",
 }
 EXPECTED_FILES = {
     "grammar/Pietto.g4": (
@@ -63,7 +63,7 @@ EXPECTED_GROUPS = {
     "ir": "57097f43ba5e0ffa8d531b827b7029c9104b85ab3dc0657889cccd28caec5249",
     "sql": "b18229fbda079d706416119002a70d091e7f5b79e0e4818a5b1292d9b88e898b",
     "generated": "7ac3aea913b1453a972456be0171a2c292991e71bde3e94a4056b4bf537b5c4e",
-    "cli": "2e6ad48bcbfe773e55ed9e4ed5e3a35d88f7fd36926e85fddcbc23d356fac7e8",
+    "cli": "31d91f9a6f7d0705398add8c8516cf3b9b81c09cb3a7fb9141b6f96470f0216b",
 }
 POSTGRES_GOLDENS = {
     "emit_sql_active_user_emails.sql": (
@@ -97,7 +97,7 @@ MYSQL_GOLDENS = {
     ),
 }
 ALL_GOLDENS_HASH = "0e26a0b367a2ae849e5ec1e9a239be42765bea2c352242db5da930ab56b43004"
-BOUNDARY_HASH = "139c7c275dfa5c09f24da17f358e713c84bc66efa391b7a2607eedaa1d2a5d6a"
+BOUNDARY_HASH = "c3c0eed32a7e458bc06400b86cb2d82e108e94f8f7bed232729b06377f355fd7"
 
 
 def _load_module(name: str, path: Path) -> ModuleType:
@@ -418,7 +418,7 @@ def test_deferred_sql_runtime_project_and_web_capabilities_remain_absent() -> No
 
     assert '"--project"' in cli_source
     assert "def _run_project_check(" in cli_source
-    assert "discover_project_inputs(root)" in cli_source
+    assert "check_project_parse_only(root)" in cli_source
     assert not (REPO_ROOT / "pietto.toml").exists()
     assert "sqlglot" not in runtime_text
     assert "project_loader" not in runtime_text

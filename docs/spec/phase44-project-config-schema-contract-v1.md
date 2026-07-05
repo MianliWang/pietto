@@ -240,8 +240,14 @@ Slice 5 implements source read plus parse-only text-mode project check only. It
 loads the Slice 2 config, selects sources through Slice 4, reads and parses
 selected `.pietto` files through the existing parser boundary, aggregates parser
 diagnostics, reports source-read failures through private project errors, and
-stops before semantic analysis. It does not implement Project JSON v2
-`inputs[]` or project check counters.
+stops before semantic analysis.
 
-Slice 6 may implement Project JSON v2 `inputs[]` and project check counters only
-after a separate Gate 1 and Gate 2 approval.
+Slice 6 implements Project JSON v2 `inputs[]` and project check counters for
+parse-only `pietto check --project ROOT --format json`. It reports JSON-visible
+input statuses `parsed` and `error`, keeps internal `selected` out of JSON, and
+keeps pre-parse root/config/source-selection failures at empty `inputs` plus
+zero counters. It does not implement CLI JSON v1 changes, Semantic Metadata
+Artifact v1 changes, project semantic analysis, IR, SQL, project `emit-sql`,
+project `explain`, imports/modules/export/cross-file semantics, public
+diagnostics, new `PIE-*` codes, runtime, database, fixtures, goldens, generated
+files, workflows, dependencies, package metadata, or release behavior.

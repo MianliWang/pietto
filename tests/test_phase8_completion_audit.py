@@ -297,7 +297,7 @@ def test_phase8_prohibited_runtime_capabilities_remain_absent() -> None:
     cli_source = _read_path(REPO_ROOT / "src/pietto/cli.py")
     assert '"--project"' in cli_source
     assert "def _run_project_check(" in cli_source
-    assert "discover_project_inputs(root)" in cli_source
+    assert "check_project_parse_only(root)" in cli_source
     assert "Project check OK: ." in cli_source
     assert 'print(f"Files checked: {len(parse_result.inputs)}")' in cli_source
 

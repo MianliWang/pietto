@@ -110,17 +110,17 @@ LOCKED_PHASE33_SURFACES = {
     "project_private": (
         "src/pietto/_project",
         7,
-        "4cbd008027d1cee47d6e24303ad82623f2f9a2511663249dc0fb08fbf3c507dc",
+        "f5c7fab887c551b4ed6687869dbb13efd495e2df463e28e1677632db98911788",
     ),
     "cli": (
         "src/pietto/cli.py",
         1,
-        "df748b01d99f46b79ea97987507e2b663848f0915aec771967d46274c2e4e3b8",
+        "6ef8429a10984e2755d5508d0d8d7efd0f41b809c2abfd66acdb8febf487cf29",
     ),
     "package_smoke": (
         "scripts/package_smoke.py",
         1,
-        "8147086d900ccd1e63edde30eabfa4ebfe231c710e122af53d0d9b655f3886b8",
+        "9df83ad4944b2fffa46e4a5d5608f0868e7c556feb739703f0862fec452a3aa1",
     ),
     "phase33_plan": (
         "docs/plan/phase-33-json-v2-and-project-multifile.md",
@@ -193,7 +193,7 @@ def test_status_docs_record_phase33_completion_and_phase34_boundary() -> None:
             assert stale not in status, f"{path}: stale {stale!r}"
 
 
-def test_project_check_text_is_parse_only_and_json_v2_remains_root_config_only(
+def test_project_check_text_and_json_v2_are_parse_only_for_project_check(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -216,13 +216,19 @@ def test_project_check_text_is_parse_only_and_json_v2_remains_root_config_only(
             "root": ".",
             "config_path": "pietto.toml",
         },
-        "inputs": [],
+        "inputs": [
+            {
+                "path": "models/user.pietto",
+                "kind": "source",
+                "status": "parsed",
+            }
+        ],
         "diagnostics": [],
         "cli_errors": [],
         "result": {
             "check": {
-                "files_total": 0,
-                "files_ok": 0,
+                "files_total": 1,
+                "files_ok": 1,
                 "files_with_errors": 0,
             }
         },
@@ -295,8 +301,10 @@ def test_package_smoke_keeps_installed_project_check_coverage() -> None:
         "Files checked: 1",
         '"schema_version": 2',
         '"mode": "project"',
-        '"inputs": []',
-        '"files_total": 0',
+        '"path": "models/user.pietto"',
+        '"status": "parsed"',
+        '"files_total": 1',
+        '"files_ok": 1',
         "installed CLI project check text",
         "installed CLI project check JSON v2",
     ):

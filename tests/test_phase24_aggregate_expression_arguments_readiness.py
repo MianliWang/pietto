@@ -70,7 +70,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "cli": (
         "src/pietto/cli.py",
         1,
-        "df748b01d99f46b79ea97987507e2b663848f0915aec771967d46274c2e4e3b8",
+        "6ef8429a10984e2755d5508d0d8d7efd0f41b809c2abfd66acdb8febf487cf29",
     ),
     "makefile": (
         "Makefile",

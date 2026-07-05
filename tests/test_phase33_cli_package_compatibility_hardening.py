@@ -49,12 +49,12 @@ def test_project_check_text_mode_is_parse_only(
         ["--format=json"],
     ],
 )
-def test_project_check_json_v2_success_remains_root_config_only(
+def test_project_check_json_v2_success_reports_inputs_and_counters(
     format_args: list[str],
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    root = _project_root(tmp_path, config_text="not valid = [")
+    root = _project_root_with_source(tmp_path)
 
     assert cli.main(["check", "--project", str(root), *format_args]) == 0
 
@@ -68,13 +68,19 @@ def test_project_check_json_v2_success_remains_root_config_only(
             "root": ".",
             "config_path": "pietto.toml",
         },
-        "inputs": [],
+        "inputs": [
+            {
+                "path": "models/user.pietto",
+                "kind": "source",
+                "status": "parsed",
+            }
+        ],
         "diagnostics": [],
         "cli_errors": [],
         "result": {
             "check": {
-                "files_total": 0,
-                "files_ok": 0,
+                "files_total": 1,
+                "files_ok": 1,
                 "files_with_errors": 0,
             }
         },

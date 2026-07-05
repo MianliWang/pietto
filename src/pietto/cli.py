@@ -25,12 +25,11 @@ from pietto._metadata.serializer import (
 )
 from pietto._metadata.text import render_semantic_metadata_text
 from pietto._project.check import check_project_parse_only
-from pietto._project.discovery import discover_project_inputs
 from pietto._project.json_v2 import (
     project_check_result_to_json_dict,
     render_project_json_document,
 )
-from pietto._project.model import ProjectDiscoveryError, ProjectDiscoveryResult
+from pietto._project.model import ProjectDiscoveryError, ProjectParseCheckResult
 from pietto.errors import Diagnostic, Severity
 
 _FALLBACK_VERSION = "0.1.0"
@@ -409,16 +408,17 @@ def _run_check_command(namespace: argparse.Namespace) -> int:
 
 
 def _run_project_check(root: Path, *, output_format: str) -> int:
-    """Run project check while keeping JSON v2 on the root/config-only path."""
-
-    if output_format == _FORMAT_JSON:
-        discovery_result = discover_project_inputs(root)
-        _print_project_check_json(discovery_result)
-        if discovery_result.ok:
-            return 0
-        return _EXIT_USAGE_ERROR
+    """Run project check in text or project JSON v2 mode."""
 
     parse_result = check_project_parse_only(root)
+    if output_format == _FORMAT_JSON:
+        _print_project_check_json(parse_result)
+        if parse_result.errors:
+            return _EXIT_USAGE_ERROR
+        if _has_errors(parse_result.diagnostics):
+            return _EXIT_DIAGNOSTIC_ERROR
+        return 0
+
     if parse_result.errors:
         for error in parse_result.errors:
             _print_project_error(error)
@@ -434,10 +434,10 @@ def _run_project_check(root: Path, *, output_format: str) -> int:
     return 0
 
 
-def _print_project_check_json(discovery_result: ProjectDiscoveryResult) -> None:
+def _print_project_check_json(parse_result: ProjectParseCheckResult) -> None:
     """Print one complete project JSON v2 check document to stdout."""
 
-    document = project_check_result_to_json_dict(discovery_result)
+    document = project_check_result_to_json_dict(parse_result)
     print(render_project_json_document(document), end="")
 
 
