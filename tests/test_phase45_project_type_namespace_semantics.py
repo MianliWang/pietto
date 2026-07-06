@@ -281,16 +281,18 @@ def test_duplicate_type_namespace_short_circuits_type_resolution(
     assert semantic_result.model.source_shape_resolutions == {}
 
 
-def test_unresolved_relation_references_remain_out_of_scope(tmp_path: Path) -> None:
+def test_type_namespace_behavior_remains_stable_with_valid_relation(
+    tmp_path: Path,
+) -> None:
     root = _project_root(tmp_path, include=("*.pietto",))
     _write(
         root,
-        "relation_deferred.pietto",
+        "type_namespace_with_relation.pietto",
         "shape Row:\n"
         "    id: Int\n"
         'source rows: Row is postgres.table("rows")\n'
         "table projected:\n"
-        "    from missing_relation\n"
+        "    from rows\n"
         "    select:\n"
         "        id\n",
     )
@@ -304,6 +306,7 @@ def test_unresolved_relation_references_remain_out_of_scope(tmp_path: Path) -> N
         "rows",
         "projected",
     )
+    assert semantic_result.model.source_shape_resolutions
 
 
 def test_parse_check_failures_do_not_create_type_namespace_diagnostics(

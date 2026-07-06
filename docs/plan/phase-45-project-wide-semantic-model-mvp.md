@@ -27,6 +27,11 @@ private cross-file type namespace checks and type-resolution facts, but it does
 not implement relation namespace resolution, row schema propagation, CLI/JSON
 behavior, IR, or SQL.
 
+Phase 45 Slice 6 is `Cross-file relation namespace semantics`. Slice 6 adds
+private cross-file relation namespace checks and relation-resolution facts, but
+it does not implement row schema propagation, relation cycle detection,
+CLI/JSON behavior, IR, or SQL.
+
 Package version remains `0.1.0`.
 
 ## Trusted Baseline
@@ -301,6 +306,50 @@ output remains parse-only. The private type-resolution facts are not serialized
 and are not wired into `pietto check --project`.
 
 Slice 5 enters no IR, SQL, project `emit-sql`, or project `explain` path. It
+has no import from `pietto.semantic` and does not call the single-file semantic
+analyzer. It does not change parser public API, grammar, generated parser
+artifacts, semantic analyzer behavior, semantic model behavior, CLI routing,
+Project JSON v2 shape, CLI JSON v1, Semantic Metadata Artifact v1, fixtures,
+goldens, scripts, workflows, dependency files, package metadata, package
+version, diagnostic inventory, release behavior, external plugin behavior, or
+copied external code.
+
+## Slice 6 Cross-file Relation Namespace Semantics
+
+Slice 6 adds private cross-file relation namespace semantics. It extends the
+private project semantic model with private relation-resolution facts:
+`ProjectSemanticModel.relation_resolutions`.
+
+table and query `from` targets are checked. Project relation namespace
+references resolve through `ProjectSemanticCatalog.relation_symbols`, and
+relation targets may be source, table, or query. Successful relation facts map
+the retained `FromClause` AST node to the resolved private `ProjectSymbol`.
+
+Missing table/query relation targets use existing diagnostic code `PIE-S2301`.
+Slice 6 adds no `related_locations`, no public diagnostic code, and no public
+diagnostic shape expansion.
+
+duplicate catalog diagnostics short-circuit relation resolution. When Slice 4
+duplicate diagnostics exist, the private model keeps the populated catalog but
+leaves `type_resolutions`, `source_shape_resolutions`, and
+`relation_resolutions` empty and returns only the duplicate diagnostics.
+
+type/source-shape diagnostics do not short-circuit relation checks. For
+non-duplicate projects, Slice 6 keeps deterministic diagnostic order by
+reporting Slice 5 type/source-shape diagnostics before Slice 6 relation
+diagnostics.
+
+relation cycle detection is deferred, and `PIE-S2302` is not emitted in Slice
+6. row schema propagation is deferred. projection/body semantic validation is
+deferred. Source connector checking, callable body checking, and relationship
+metadata endpoints are out of scope.
+
+Slice 6 has no CLI/JSON/text behavior change. Project JSON v2 continues to
+serialize only the existing project check shape and does not expose private
+relation-resolution facts. Text-mode project check remains parse-only. The
+relation-resolution facts are not wired into `pietto check --project`.
+
+Slice 6 enters no IR, SQL, project `emit-sql`, or project `explain` path. It
 has no import from `pietto.semantic` and does not call the single-file semantic
 analyzer. It does not change parser public API, grammar, generated parser
 artifacts, semantic analyzer behavior, semantic model behavior, CLI routing,

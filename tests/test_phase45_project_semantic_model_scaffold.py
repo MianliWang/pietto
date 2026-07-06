@@ -295,20 +295,20 @@ def test_project_duplicate_symbols_fail_closed_and_keep_first_symbol(
     assert catalog.relation_symbols["rows"].kind is ProjectSymbolKind.SOURCE
 
 
-def test_relation_references_remain_unresolved_until_slice6(
+def test_relation_body_semantics_remain_deferred_after_resolution(
     tmp_path: Path,
 ) -> None:
     root = _project_root(tmp_path, include=("*.pietto",))
     _write(
         root,
-        "unresolved.pietto",
+        "body_deferred.pietto",
         "shape Raw:\n"
         "    id: Int\n"
         'source raw: Raw is postgres.table("raw")\n'
         "table projected:\n"
-        "    from missing_relation\n"
+        "    from raw\n"
         "    select:\n"
-        "        id\n",
+        "        missing_field\n",
     )
 
     parse_result = check_project_parse_only(root)
@@ -319,6 +319,11 @@ def test_relation_references_remain_unresolved_until_slice6(
     assert semantic_result.diagnostics == ()
     assert semantic_result.model is not None
     assert tuple(semantic_result.model.catalog.relation_symbols) == ("raw", "projected")
+    projected = semantic_result.model.catalog.relation_symbols["projected"].definition
+    assert isinstance(projected, TableDef)
+    assert (
+        semantic_result.model.relation_resolutions[projected.from_clause].name == "raw"
+    )
 
 
 def test_project_semantic_result_defaults_and_ok_behavior() -> None:

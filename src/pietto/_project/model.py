@@ -13,6 +13,7 @@ from pietto.ast_nodes import (
     Definition,
     DeriveDef,
     EnumDef,
+    FromClause,
     QueryDef,
     Script,
     ShapeDef,
@@ -271,6 +272,9 @@ class ProjectSemanticModel:
     source_shape_resolutions: Mapping[SourceDef, ProjectSymbol] = field(
         default_factory=lambda: _readonly_mapping()
     )
+    relation_resolutions: Mapping[FromClause, ProjectSymbol] = field(
+        default_factory=lambda: _readonly_mapping()
+    )
 
     def __post_init__(self) -> None:
         """Copy private project semantic maps into immutable mappings."""
@@ -284,6 +288,11 @@ class ProjectSemanticModel:
             self,
             "source_shape_resolutions",
             _readonly_mapping(self.source_shape_resolutions),
+        )
+        object.__setattr__(
+            self,
+            "relation_resolutions",
+            _readonly_mapping(self.relation_resolutions),
         )
 
 
@@ -343,6 +352,12 @@ def build_empty_project_semantic_result(
             catalog=catalog,
         )
     )
+    relation_resolutions, relation_diagnostics = (
+        _build_project_relation_namespace_facts(
+            parsed_inputs=parse_result.parsed_inputs,
+            catalog=catalog,
+        )
+    )
     return ProjectSemanticResult(
         root=parse_result.root,
         config_path=parse_result.config_path,
@@ -353,9 +368,35 @@ def build_empty_project_semantic_result(
             catalog=catalog,
             type_resolutions=type_resolutions,
             source_shape_resolutions=source_shape_resolutions,
+            relation_resolutions=relation_resolutions,
         ),
-        diagnostics=type_diagnostics,
+        diagnostics=(*type_diagnostics, *relation_diagnostics),
     )
+
+
+def _build_project_relation_namespace_facts(
+    *,
+    parsed_inputs: tuple[ProjectParsedInput, ...],
+    catalog: ProjectSemanticCatalog,
+) -> tuple[dict[FromClause, ProjectSymbol], tuple[Diagnostic, ...]]:
+    """Resolve top-level project relation namespace references."""
+
+    relation_resolutions: dict[FromClause, ProjectSymbol] = {}
+    diagnostics: list[Diagnostic] = []
+
+    for parsed_input in parsed_inputs:
+        for definition in parsed_input.script.definitions:
+            if not isinstance(definition, (TableDef, QueryDef)):
+                continue
+
+            from_clause = definition.from_clause
+            symbol = catalog.relation_symbols.get(from_clause.source_name)
+            if symbol is None:
+                diagnostics.append(_unknown_project_relation_diagnostic(from_clause))
+                continue
+            relation_resolutions[from_clause] = symbol
+
+    return relation_resolutions, tuple(diagnostics)
 
 
 def _build_project_type_namespace_facts(
@@ -612,6 +653,24 @@ def _project_source_shape_diagnostic(
         code="PIE-S2303",
         severity=Severity.ERROR,
         message=message,
+        location=SourceLocation(
+            path=span.path,
+            line=span.line,
+            column=span.column,
+            end_line=span.end_line,
+            end_column=span.end_column,
+        ),
+    )
+
+
+def _unknown_project_relation_diagnostic(from_clause: FromClause) -> Diagnostic:
+    """Report an unresolved project relation input at the from-clause span."""
+
+    span = from_clause.span
+    return Diagnostic(
+        code="PIE-S2301",
+        severity=Severity.ERROR,
+        message=f"Unknown relation: {from_clause.source_name}",
         location=SourceLocation(
             path=span.path,
             line=span.line,
