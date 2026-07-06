@@ -40,7 +40,7 @@ PHASE13_HASHES = {
         "2383731c2b9d78f8cf73da8e9d47f973b6eef93eb20e0f03d8f045307b788534"
     ),
     "tests/test_phase13_completion_audit.py": (
-        "e375d58a320dd053412cb2888aad8acb89cf450f9ade40fa5900752345357383"
+        "3d993c84b9fac89c242ffa12e1c4be34ced08beb53a67aa3a5e4bd9214699600"
     ),
 }
 

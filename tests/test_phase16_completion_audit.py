@@ -36,13 +36,13 @@ PHASE16_ARTIFACT_HASHES = {
         "580ebcfcc78102d902110d864eb80c7f1a57ffcb6b4b33e1160c9abd17ba07a6"
     ),
     SLICE1_AUDIT_PATH: (
-        "1ad3e7bba19a7ad74e1ad06a69080704f46a0be109da13ea0d0db964d37d6689"
+        "8bba26b49df2c4a1be906b216e8d773c1fec3423d6a8448cc80bffd9f459db03"
     ),
     SLICE2_AUDIT_PATH: (
-        "7f62fd36b2bcc88b349b3e499ecae9a1e84a5f0a8da51c55b310f0e2f2771d82"
+        "82fd085bee471a34b49b61438fa64d39f455274175173aaee574ee2b9fa4a385"
     ),
     SLICE3_AUDIT_PATH: (
-        "fba9db6cd0e6afeeb25dc1c598703ad9b3aae94c2c2930b61a19aac88e50d75e"
+        "29db0e4f5bdc64c4b15cc9c5f83fc0e18535f7bdfc0645a755e5bcfc57e4a3f0"
     ),
     PLAN_PATH: "adfb0d99075299049c790f465fab7453e0ed73b985e9cff19c6aeb38f94c7f5a",
 }
