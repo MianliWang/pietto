@@ -225,6 +225,43 @@ class ProjectResolvedType:
 
 
 @dataclass(frozen=True, slots=True)
+class ProjectRelationDependencyNode:
+    """One private relation dependency graph node."""
+
+    symbol: ProjectSymbol
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectRelationDependencySource:
+    """One private source location for a future relation dependency edge."""
+
+    from_clause: FromClause
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectRelationDependencyEdge:
+    """One private relation dependency graph edge."""
+
+    origin: ProjectRelationDependencyNode
+    target: ProjectRelationDependencyNode
+    dependency_source: ProjectRelationDependencySource
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectRelationDependencyGraph:
+    """Private relation dependency graph scaffold."""
+
+    nodes: tuple[ProjectRelationDependencyNode, ...] = ()
+    edges: tuple[ProjectRelationDependencyEdge, ...] = ()
+
+    def __post_init__(self) -> None:
+        """Copy graph collections into immutable tuples."""
+
+        object.__setattr__(self, "nodes", tuple(self.nodes))
+        object.__setattr__(self, "edges", tuple(self.edges))
+
+
+@dataclass(frozen=True, slots=True)
 class ProjectSemanticCatalog:
     """Private project semantic catalog populated before reference resolution."""
 
@@ -274,6 +311,9 @@ class ProjectSemanticModel:
     )
     relation_resolutions: Mapping[FromClause, ProjectSymbol] = field(
         default_factory=lambda: _readonly_mapping()
+    )
+    relation_dependency_graph: ProjectRelationDependencyGraph = field(
+        default_factory=ProjectRelationDependencyGraph
     )
 
     def __post_init__(self) -> None:
@@ -333,6 +373,7 @@ def build_empty_project_semantic_result(
     catalog, catalog_diagnostics = _build_project_semantic_catalog(
         parse_result.parsed_inputs
     )
+    relation_dependency_graph = _build_project_relation_dependency_graph(catalog)
     if catalog_diagnostics:
         return ProjectSemanticResult(
             root=parse_result.root,
@@ -342,6 +383,7 @@ def build_empty_project_semantic_result(
                 config_path=parse_result.config_path,
                 inputs=parse_result.parsed_inputs,
                 catalog=catalog,
+                relation_dependency_graph=relation_dependency_graph,
             ),
             diagnostics=catalog_diagnostics,
         )
@@ -369,9 +411,23 @@ def build_empty_project_semantic_result(
             type_resolutions=type_resolutions,
             source_shape_resolutions=source_shape_resolutions,
             relation_resolutions=relation_resolutions,
+            relation_dependency_graph=relation_dependency_graph,
         ),
         diagnostics=(*type_diagnostics, *relation_diagnostics),
     )
+
+
+def _build_project_relation_dependency_graph(
+    catalog: ProjectSemanticCatalog,
+) -> ProjectRelationDependencyGraph:
+    """Build the private relation dependency graph scaffold."""
+
+    nodes = tuple(
+        ProjectRelationDependencyNode(symbol=symbol)
+        for symbol in catalog.relation_symbols.values()
+        if symbol.kind in (ProjectSymbolKind.TABLE, ProjectSymbolKind.QUERY)
+    )
+    return ProjectRelationDependencyGraph(nodes=nodes)
 
 
 def _build_project_relation_namespace_facts(
