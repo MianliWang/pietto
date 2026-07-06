@@ -47,6 +47,16 @@ production behavior, `scripts/package_smoke.py`, Project JSON v2 schema fields,
 single-file behavior, IR, SQL, project emit/explain paths, package metadata, or
 release surfaces.
 
+Phase 45 Slice 10 is `Completion audit and status lock`. Slice 10 is
+docs/tests/static-audit/status-lock only. It locks the Phase 45 completion
+boundary after Slices 1 through 9 without changing production source behavior,
+parser behavior, Project JSON v2 behavior, single-file behavior, package
+metadata, workflow/dependency files, or release surfaces.
+
+Phase 45 is complete after Slice 10 as the planned status-lock boundary for
+`Project-wide Semantic Model Design And MVP`. Gate 3 commit, push, and natural
+CI proof remain separate and are not claimed by this document.
+
 Package version remains `0.1.0`.
 
 ## Trusted Baseline
@@ -477,6 +487,56 @@ Slice 9 has no parser public API, grammar, generated parser artifact, public
 diagnostic inventory, fixture, golden, package version, workflow, dependency,
 release, tag, publish, upload, signing, attestation, external plugin, external
 script, hook, MCP, or copied-code action.
+
+## Slice 10 Completion Audit And Status Lock
+
+Slice 10 is docs/tests/static-audit/status-lock only. It adds the final Phase
+45 completion audit and updates the Phase 45 plan/spec status lock. Slice 10
+does not change production source behavior.
+
+The Phase 45 completion boundary is locked by Slice 10. Phase 45 is complete
+after Slice 10 as `Project-wide Semantic Model Design And MVP`, with the final
+Gate 3 commit, push, and natural CI proof handled outside this Gate 2 document.
+
+The final delivered Phase 45 boundary includes:
+
+- parsed project semantic input units;
+- private project semantic model scaffold;
+- project catalog and duplicate detection;
+- cross-file type namespace semantics;
+- cross-file relation namespace semantics;
+- project text semantic CLI gate;
+- Project JSON v2 semantic diagnostics;
+- compatibility hardening;
+- completion audit and status lock.
+
+Slice 10 changes no parser public API, grammar, generated parser artifact,
+Project JSON v2 schema field, read/parse `inputs[]` behavior, read/parse
+`result.check` counter behavior, `cli_errors[]` behavior, single-file `check`,
+CLI JSON v1, single-file `emit-sql`, single-file `explain`, package version,
+workflow, dependency file, package metadata, tag, release, publish, upload,
+signing, attestation, external plugin, external script, hook, MCP config, or
+copied external code.
+
+No project IR, project SQL, project `emit-sql`, or project `explain` path
+exists after Phase 45 completion. Project runtime/database execution, DB
+introspection, Arrow/PyArrow, LSP/UI, imports/modules/export behavior,
+JOIN/relationship query behavior, relation cycle detection, row schema
+propagation, and projection/body semantic validation remain out of scope.
+
+Private project semantic facts remain private and un-serialized. Project JSON
+v2 does not expose the private catalog, `ProjectSymbol`, `type_resolutions`,
+`source_shape_resolutions`, `relation_resolutions`, or project semantic model
+internals. Semantic diagnostics remain top-level `diagnostics[]`; `cli_errors[]`
+remains project/config/source-selection/source-read only; `inputs[]` and
+`result.check` remain read/parse based; no semantic input statuses or semantic
+file counters are introduced.
+
+Package smoke policy remains success/read-parse smoke only for project mode.
+Semantic-error Project JSON compatibility remains focused in-process test
+coverage, not package-smoke expansion. Dependabot policy maintenance is
+separate from Phase 45 completion, and Slice 10 requires no
+`.github/dependabot.yml`, `pyproject.toml`, `uv.lock`, or workflow edit.
 
 ## Slice 1 Gate 2 Allowlist
 
