@@ -373,7 +373,10 @@ def build_empty_project_semantic_result(
     catalog, catalog_diagnostics = _build_project_semantic_catalog(
         parse_result.parsed_inputs
     )
-    relation_dependency_graph = _build_project_relation_dependency_graph(catalog)
+    relation_dependency_graph = _build_project_relation_dependency_graph(
+        parsed_inputs=parse_result.parsed_inputs,
+        catalog=catalog,
+    )
     if catalog_diagnostics:
         return ProjectSemanticResult(
             root=parse_result.root,
@@ -400,6 +403,11 @@ def build_empty_project_semantic_result(
             catalog=catalog,
         )
     )
+    relation_dependency_graph = _build_project_relation_dependency_graph(
+        parsed_inputs=parse_result.parsed_inputs,
+        catalog=catalog,
+        relation_resolutions=relation_resolutions,
+    )
     return ProjectSemanticResult(
         root=parse_result.root,
         config_path=parse_result.config_path,
@@ -418,16 +426,53 @@ def build_empty_project_semantic_result(
 
 
 def _build_project_relation_dependency_graph(
+    *,
+    parsed_inputs: tuple[ProjectParsedInput, ...],
     catalog: ProjectSemanticCatalog,
+    relation_resolutions: Mapping[FromClause, ProjectSymbol] | None = None,
 ) -> ProjectRelationDependencyGraph:
-    """Build the private relation dependency graph scaffold."""
+    """Build the private relation dependency graph."""
 
     nodes = tuple(
         ProjectRelationDependencyNode(symbol=symbol)
         for symbol in catalog.relation_symbols.values()
         if symbol.kind in (ProjectSymbolKind.TABLE, ProjectSymbolKind.QUERY)
     )
-    return ProjectRelationDependencyGraph(nodes=nodes)
+    node_by_name = {node.symbol.name: node for node in nodes}
+    resolutions = relation_resolutions or {}
+    edges: list[ProjectRelationDependencyEdge] = []
+
+    for parsed_input in parsed_inputs:
+        for definition in parsed_input.script.definitions:
+            if not isinstance(definition, (TableDef, QueryDef)):
+                continue
+
+            origin = node_by_name.get(definition.name)
+            if origin is None:
+                continue
+
+            target_symbol = resolutions.get(definition.from_clause)
+            if target_symbol is None or target_symbol.kind not in (
+                ProjectSymbolKind.TABLE,
+                ProjectSymbolKind.QUERY,
+            ):
+                continue
+
+            target = node_by_name.get(target_symbol.name)
+            if target is None:
+                continue
+
+            edges.append(
+                ProjectRelationDependencyEdge(
+                    origin=origin,
+                    target=target,
+                    dependency_source=ProjectRelationDependencySource(
+                        from_clause=definition.from_clause
+                    ),
+                )
+            )
+
+    return ProjectRelationDependencyGraph(nodes=nodes, edges=tuple(edges))
 
 
 def _build_project_relation_namespace_facts(

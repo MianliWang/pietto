@@ -28,9 +28,10 @@ from pietto.ast_nodes import QueryDef, TableDef
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
-ALLOWED_SLICE2_GATE2_PATHS = {
+ALLOWED_SLICE3_GATE2_PATHS = {
     "src/pietto/_project/model.py",
     "tests/test_phase46_project_relation_dependency_graph_scaffold.py",
+    "tests/test_phase46_project_relation_dependency_edge_collection.py",
 }
 
 
@@ -96,7 +97,7 @@ def test_relation_dependency_graph_nodes_are_table_query_only_and_ordered(
         ProjectSymbolKind.QUERY,
     )
     assert "rows" not in {node.symbol.name for node in graph.nodes}
-    assert graph.edges == ()
+    assert "rows" not in {edge.target.symbol.name for edge in graph.edges}
 
     projected = _derived_definition(parse_result, "projected")
     exported = _derived_definition(parse_result, "exported")
@@ -108,7 +109,7 @@ def test_relation_dependency_graph_nodes_are_table_query_only_and_ordered(
     )
 
 
-def test_cycle_project_keeps_graph_edges_empty_and_emits_no_cycle_diagnostic(
+def test_cycle_project_keeps_no_cycle_diagnostic(
     tmp_path: Path,
 ) -> None:
     root = _project_root(tmp_path, include=("*.pietto",))
@@ -134,7 +135,6 @@ def test_cycle_project_keeps_graph_edges_empty_and_emits_no_cycle_diagnostic(
         for node in semantic_result.model.relation_dependency_graph.nodes
     )
     assert node_names == ("first", "second")
-    assert semantic_result.model.relation_dependency_graph.edges == ()
     assert semantic_result.diagnostics == ()
     assert "PIE-S2302" not in {
         diagnostic.code for diagnostic in semantic_result.diagnostics
@@ -187,12 +187,12 @@ def test_project_json_v2_does_not_expose_relation_dependency_graph(
         assert private_fact not in serialized
 
 
-def test_phase46_slice2_package_version_and_dirty_paths_are_locked() -> None:
+def test_phase46_slice3_package_version_and_dirty_paths_are_locked() -> None:
     pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
 
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
-    assert _git_status_paths().issubset(ALLOWED_SLICE2_GATE2_PATHS)
+    assert _git_status_paths().issubset(ALLOWED_SLICE3_GATE2_PATHS)
 
 
 def _project_semantic_result(
