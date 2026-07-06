@@ -11,30 +11,36 @@ updates:
   - package-ecosystem: "uv"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "daily"
       time: "09:00"
       timezone: "America/Toronto"
-    open-pull-requests-limit: 1
+    open-pull-requests-limit: 5
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "daily"
       time: "09:30"
       timezone: "America/Toronto"
-    open-pull-requests-limit: 1
+    open-pull-requests-limit: 5
 """
 
 FORBIDDEN_LOW_NOISE_KEYS = (
     "registries",
     "groups",
+    "automerge",
+    "auto-merge",
     "assignees",
     "reviewers",
     "milestone",
     "target-branch",
     "labels",
+)
+
+FORBIDDEN_POLICY_SURFACE_REFERENCES = (
+    ".github/workflows",
+    "pyproject.toml",
+    "uv.lock",
 )
 
 
@@ -58,10 +64,12 @@ def test_dependabot_config_tracks_only_uv_and_github_actions() -> None:
     assert config.count('package-ecosystem: "github-actions"') == 1
     assert config.count("package-ecosystem:") == 2
     assert config.count('directory: "/"') == 2
-    assert config.count('interval: "weekly"') == 2
-    assert config.count('day: "monday"') == 2
+    assert config.count('interval: "daily"') == 2
+    assert 'interval: "weekly"' not in config
+    assert "day:" not in config
     assert config.count('timezone: "America/Toronto"') == 2
-    assert config.count("open-pull-requests-limit: 1") == 2
+    assert config.count("open-pull-requests-limit: 5") == 2
+    assert "open-pull-requests-limit: 1" not in config
 
 
 def test_dependabot_config_omits_unapproved_noise_controls() -> None:
@@ -69,3 +77,10 @@ def test_dependabot_config_omits_unapproved_noise_controls() -> None:
 
     for key in FORBIDDEN_LOW_NOISE_KEYS:
         assert f"{key}:" not in config
+
+
+def test_dependabot_policy_does_not_reference_other_update_surfaces() -> None:
+    config = _read_config()
+
+    for reference in FORBIDDEN_POLICY_SURFACE_REFERENCES:
+        assert reference not in config
