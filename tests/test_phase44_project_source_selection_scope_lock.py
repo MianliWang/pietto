@@ -120,7 +120,7 @@ def test_old_phase44_arrow_label_is_historical_only() -> None:
         assert required in phase44_docs, required
 
 
-def test_current_project_mode_text_parse_only_and_json_root_config_boundary() -> None:
+def test_current_project_mode_text_semantic_gate_and_json_parse_only_boundary() -> None:
     docs = _phase44_docs()
     phase33 = _normalized(PHASE33_COMPLETION_TEST_PATH)
     project_explain = _normalized(PROJECT_EXPLAIN_SPEC_PATH)
@@ -175,6 +175,8 @@ def test_current_project_mode_text_parse_only_and_json_root_config_boundary() ->
         '"files_with_errors": files_with_errors',
     ):
         assert required in json_source, required
+    assert "build_empty_project_semantic_result(parse_result)" in cli_source
+    assert "_print_project_check_json(parse_result)" in cli_source
 
 
 def test_source_selection_and_parse_only_readiness_is_repo_grounded() -> None:
@@ -337,7 +339,6 @@ def test_slice7_cli_package_compatibility_hardening_is_locked() -> None:
         "prove single-file `check` and `emit-sql` still use CLI JSON v1",
         "prove single-file `explain` still uses Semantic Metadata Artifact v1",
         "prove `emit-sql --project` and `explain --project` remain rejected",
-        "prove project check does not enter semantic analysis, IR, SQL",
         "lock that installed package smoke already covers project text and JSON success",
         "Slice 7 does not authorize `src/**` changes",
         "Project JSON v2 schema expansion beyond Slice 6",
@@ -447,6 +448,7 @@ def test_forbidden_surfaces_and_public_outputs_remain_locked() -> None:
     assert "load_project_config" not in cli_source
     assert "select_project_sources" not in cli_source
     assert "tomllib" not in cli_source
+    assert "build_empty_project_semantic_result(parse_result)" in cli_source
     assert "load_project_config" not in project_json_source
     assert "select_project_sources" not in project_json_source
     assert "tomllib" not in project_json_source

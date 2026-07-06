@@ -29,7 +29,11 @@ from pietto._project.json_v2 import (
     project_check_result_to_json_dict,
     render_project_json_document,
 )
-from pietto._project.model import ProjectDiscoveryError, ProjectParseCheckResult
+from pietto._project.model import (
+    ProjectDiscoveryError,
+    ProjectParseCheckResult,
+    build_empty_project_semantic_result,
+)
 from pietto.errors import Diagnostic, Severity
 
 _FALLBACK_VERSION = "0.1.0"
@@ -427,6 +431,11 @@ def _run_project_check(root: Path, *, output_format: str) -> int:
 
     _render_diagnostics(parse_result.diagnostics, fallback_path=Path("."))
     if _has_errors(parse_result.diagnostics):
+        return _EXIT_DIAGNOSTIC_ERROR
+
+    semantic_result = build_empty_project_semantic_result(parse_result)
+    _render_diagnostics(semantic_result.diagnostics, fallback_path=Path("."))
+    if not semantic_result.ok:
         return _EXIT_DIAGNOSTIC_ERROR
 
     print("Project check OK: .")

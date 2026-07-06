@@ -32,6 +32,10 @@ private cross-file relation namespace checks and relation-resolution facts, but
 it does not implement row schema propagation, relation cycle detection,
 CLI/JSON behavior, IR, or SQL.
 
+Phase 45 Slice 7 is `Project semantic CLI gate`. Slice 7 adds a text-only
+project semantic CLI gate for `pietto check --project ROOT`, but it keeps
+Project JSON v2 semantic diagnostics deferred to Slice 8.
+
 Package version remains `0.1.0`.
 
 ## Trusted Baseline
@@ -357,6 +361,38 @@ Project JSON v2 shape, CLI JSON v1, Semantic Metadata Artifact v1, fixtures,
 goldens, scripts, workflows, dependency files, package metadata, package
 version, diagnostic inventory, release behavior, external plugin behavior, or
 copied external code.
+
+## Slice 7 Project Semantic CLI Gate
+
+Slice 7 adds a text-only project semantic CLI gate. `pietto check --project
+ROOT` text mode runs private project semantic checks after parse success.
+Text mode renders project semantic diagnostics with the existing diagnostic
+renderer. Text mode returns `1` on project semantic errors and does not print
+success output when semantic errors exist. Text mode does not print success
+output when semantic errors exist. Parse/project errors short-circuit semantic
+checks and keep the existing config, source-selection, source-read, and parser
+diagnostic behavior.
+
+Valid cross-file projects still print the existing success output:
+
+```text
+Project check OK: .
+Files checked: N
+```
+
+`pietto check --project ROOT --format json` remains parse-only until Slice 8.
+Project JSON v2 semantic diagnostics are deferred to Slice 8. No Project JSON
+v2 shape, counter, input-status, or semantic `ok` behavior changes in Slice 7.
+The JSON path does not compute hidden project semantics in Slice 7.
+
+Slice 7 has no IR, SQL, project `emit-sql`, or project `explain` path. It has
+no import from `pietto.semantic` and does not call the single-file semantic
+analyzer for project checks. It makes no single-file behavior change and does
+not change parser public API, grammar, generated parser artifacts, semantic
+analyzer behavior, semantic model behavior, Project JSON v2 shape, CLI JSON v1,
+Semantic Metadata Artifact v1, fixtures, goldens, scripts, workflows,
+dependency files, package metadata, package version, diagnostic inventory,
+release behavior, external plugin behavior, or copied external code.
 
 ## Slice 1 Gate 2 Allowlist
 

@@ -274,7 +274,7 @@ def test_project_json_v2_does_not_expose_relation_resolution_facts(
     assert "catalog" not in serialized
 
 
-def test_project_text_check_output_remains_parse_only(
+def test_project_text_check_reports_relation_diagnostics_after_slice7(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -287,11 +287,12 @@ def test_project_text_check_output_remains_parse_only(
         "table projected:\n    from missing_relation\n    select:\n        id\n",
     )
 
-    assert cli.main(["check", "--project", str(root)]) == 0
+    assert cli.main(["check", "--project", str(root)]) == 1
 
     captured = capsys.readouterr()
-    assert captured.out == "Project check OK: .\nFiles checked: 1\n"
-    assert captured.err == ""
+    assert captured.out == ""
+    assert "private_relation_error.pietto:2:5 PIE-S2301 error" in captured.err
+    assert "Unknown relation: missing_relation" in captured.err
 
 
 def test_slice6_does_not_import_semantic_or_enter_output_paths() -> None:
