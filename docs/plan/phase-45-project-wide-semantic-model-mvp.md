@@ -41,6 +41,12 @@ Project JSON v2 semantic diagnostics for `pietto check --project ROOT --format
 json` after parse success, while keeping input statuses and counters
 read/parse based.
 
+Phase 45 Slice 9 is `Compatibility hardening`. Slice 9 is tests/docs/static-
+audit only. It locks compatibility after Slices 7 and 8 without changing
+production behavior, `scripts/package_smoke.py`, Project JSON v2 schema fields,
+single-file behavior, IR, SQL, project emit/explain paths, package metadata, or
+release surfaces.
+
 Package version remains `0.1.0`.
 
 ## Trusted Baseline
@@ -434,6 +440,43 @@ parser public API, grammar, generated parser artifacts, fixtures, goldens,
 scripts, workflows, dependency files, package metadata, package version,
 diagnostic inventory, release behavior, external plugin behavior, external
 script/hook/MCP behavior, or copied external code.
+
+## Slice 9 Compatibility Hardening
+
+Slice 9 is tests/docs/static-audit only. It locks compatibility after Slices 7
+and 8 and does not change production source behavior.
+
+Slice 9 does not change `scripts/package_smoke.py`. Package smoke remains
+installed CLI success/read-parse smoke only: it checks the installed CLI project
+text success path and Project JSON v2 success/read-parse envelope.
+Semantic-error Project JSON compatibility is covered by focused in-process
+tests, not by broadening package smoke.
+
+Project text mode and JSON mode preserve parser/project short-circuit behavior:
+project/config/source-selection/source-read failures and parser diagnostics stop
+before project semantic building. Project text semantic errors render existing
+diagnostics, return diagnostic status, and do not print success output. Valid
+project text checks keep the existing `Project check OK: .` and `Files checked:
+N` output.
+
+Project JSON v2 schema shape remains stable. Semantic diagnostics remain in
+top-level `diagnostics[]`; `cli_errors[]` remains project/config/
+source-selection/source-read only. `inputs[]` and `result.check` remain
+read/parse based: Slice 9 adds no semantic input statuses and no semantic file
+counters. No new Project JSON v2 fields are added.
+
+Private project semantic facts remain private and un-serialized: no
+`ProjectSymbol`, catalog, `type_resolutions`, `source_shape_resolutions`,
+`relation_resolutions`, or project semantic model internals are exposed.
+
+Single-file `check`, CLI JSON v1, `emit-sql`, and `explain` remain separate and
+unchanged. Project `emit-sql` and project `explain` remain unsupported or
+absent. Slice 9 has no IR, SQL, project `emit-sql`, or project `explain` path.
+
+Slice 9 has no parser public API, grammar, generated parser artifact, public
+diagnostic inventory, fixture, golden, package version, workflow, dependency,
+release, tag, publish, upload, signing, attestation, external plugin, external
+script, hook, MCP, or copied-code action.
 
 ## Slice 1 Gate 2 Allowlist
 
