@@ -2,11 +2,36 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from enum import StrEnum
+from types import MappingProxyType
+from typing import TypeVar
 
-from pietto.ast_nodes import Script
-from pietto.errors import Diagnostic, Severity
+from pietto.ast_nodes import (
+    ConstraintDef,
+    Definition,
+    DeriveDef,
+    EnumDef,
+    QueryDef,
+    Script,
+    ShapeDef,
+    SourceDef,
+    TableDef,
+    TypeDef,
+)
+from pietto.errors import Diagnostic, Severity, SourceLocation
+
+_Key = TypeVar("_Key")
+_Value = TypeVar("_Value")
+
+
+def _readonly_mapping(
+    values: Mapping[_Key, _Value] | None = None,
+) -> Mapping[_Key, _Value]:
+    """Copy values into an immutable private mapping."""
+
+    return MappingProxyType(dict(values or {}))
 
 
 class ProjectDiscoveryErrorKind(StrEnum):
@@ -129,9 +154,71 @@ class ProjectParseCheckResult:
         )
 
 
+class ProjectSymbolNamespace(StrEnum):
+    """Project-wide namespace assigned to a top-level symbol."""
+
+    TYPE = "type"
+    RELATION = "relation"
+    CALLABLE = "callable"
+
+
+class ProjectSymbolKind(StrEnum):
+    """Project-wide kind assigned to a top-level symbol."""
+
+    TYPE_ALIAS = "type"
+    ENUM = "enum"
+    SHAPE = "shape"
+    SOURCE = "source"
+    TABLE = "table"
+    QUERY = "query"
+    CONSTRAINT = "constraint"
+    DERIVE = "derive"
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectSymbol:
+    """One private project-wide top-level symbol."""
+
+    namespace: ProjectSymbolNamespace
+    kind: ProjectSymbolKind
+    name: str
+    path: str
+    location: SourceLocation
+    definition: Definition
+
+
 @dataclass(frozen=True, slots=True)
 class ProjectSemanticCatalog:
-    """Empty private project semantic catalog placeholder for later slices."""
+    """Private project semantic catalog populated before reference resolution."""
+
+    type_symbols: Mapping[str, ProjectSymbol] = field(
+        default_factory=lambda: _readonly_mapping()
+    )
+    relation_symbols: Mapping[str, ProjectSymbol] = field(
+        default_factory=lambda: _readonly_mapping()
+    )
+    callable_symbols: Mapping[str, ProjectSymbol] = field(
+        default_factory=lambda: _readonly_mapping()
+    )
+
+    def __post_init__(self) -> None:
+        """Copy symbol maps into immutable mappings."""
+
+        object.__setattr__(
+            self,
+            "type_symbols",
+            _readonly_mapping(self.type_symbols),
+        )
+        object.__setattr__(
+            self,
+            "relation_symbols",
+            _readonly_mapping(self.relation_symbols),
+        )
+        object.__setattr__(
+            self,
+            "callable_symbols",
+            _readonly_mapping(self.callable_symbols),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,7 +252,7 @@ class ProjectSemanticResult:
 def build_empty_project_semantic_result(
     parse_result: ProjectParseCheckResult,
 ) -> ProjectSemanticResult:
-    """Build the empty private project semantic scaffold from parse-only input."""
+    """Build the private project semantic scaffold from parse-only input."""
 
     if (
         not parse_result.ok
@@ -178,6 +265,7 @@ def build_empty_project_semantic_result(
             model=None,
         )
 
+    catalog, diagnostics = _build_project_semantic_catalog(parse_result.parsed_inputs)
     return ProjectSemanticResult(
         root=parse_result.root,
         config_path=parse_result.config_path,
@@ -185,6 +273,128 @@ def build_empty_project_semantic_result(
             root=parse_result.root,
             config_path=parse_result.config_path,
             inputs=parse_result.parsed_inputs,
-            catalog=ProjectSemanticCatalog(),
+            catalog=catalog,
         ),
+        diagnostics=diagnostics,
+    )
+
+
+def _build_project_semantic_catalog(
+    parsed_inputs: tuple[ProjectParsedInput, ...],
+) -> tuple[ProjectSemanticCatalog, tuple[Diagnostic, ...]]:
+    """Collect deterministic top-level project symbols before resolution."""
+
+    type_symbols: dict[str, ProjectSymbol] = {}
+    relation_symbols: dict[str, ProjectSymbol] = {}
+    callable_symbols: dict[str, ProjectSymbol] = {}
+    diagnostics: list[Diagnostic] = []
+
+    for parsed_input in parsed_inputs:
+        for definition in parsed_input.script.definitions:
+            symbol = _project_symbol(parsed_input, definition)
+            namespace = _symbol_map(
+                symbol,
+                type_symbols=type_symbols,
+                relation_symbols=relation_symbols,
+                callable_symbols=callable_symbols,
+            )
+            if symbol.name in namespace:
+                diagnostics.append(_duplicate_project_symbol_diagnostic(symbol))
+                continue
+            namespace[symbol.name] = symbol
+
+    return (
+        ProjectSemanticCatalog(
+            type_symbols=type_symbols,
+            relation_symbols=relation_symbols,
+            callable_symbols=callable_symbols,
+        ),
+        tuple(diagnostics),
+    )
+
+
+def _project_symbol(
+    parsed_input: ProjectParsedInput,
+    definition: Definition,
+) -> ProjectSymbol:
+    """Create one private project symbol for a top-level definition."""
+
+    namespace, kind = _classify_project_definition(definition)
+    location = _definition_location(definition, path=parsed_input.path)
+    return ProjectSymbol(
+        namespace=namespace,
+        kind=kind,
+        name=definition.name,
+        path=parsed_input.path,
+        location=location,
+        definition=definition,
+    )
+
+
+def _classify_project_definition(
+    definition: Definition,
+) -> tuple[ProjectSymbolNamespace, ProjectSymbolKind]:
+    """Classify a top-level definition into the Phase 45 hybrid namespace."""
+
+    if isinstance(definition, TypeDef):
+        return ProjectSymbolNamespace.TYPE, ProjectSymbolKind.TYPE_ALIAS
+    if isinstance(definition, EnumDef):
+        return ProjectSymbolNamespace.TYPE, ProjectSymbolKind.ENUM
+    if isinstance(definition, ShapeDef):
+        return ProjectSymbolNamespace.TYPE, ProjectSymbolKind.SHAPE
+    if isinstance(definition, SourceDef):
+        return ProjectSymbolNamespace.RELATION, ProjectSymbolKind.SOURCE
+    if isinstance(definition, TableDef):
+        return ProjectSymbolNamespace.RELATION, ProjectSymbolKind.TABLE
+    if isinstance(definition, QueryDef):
+        return ProjectSymbolNamespace.RELATION, ProjectSymbolKind.QUERY
+    if isinstance(definition, ConstraintDef):
+        return ProjectSymbolNamespace.CALLABLE, ProjectSymbolKind.CONSTRAINT
+    if isinstance(definition, DeriveDef):
+        return ProjectSymbolNamespace.CALLABLE, ProjectSymbolKind.DERIVE
+    raise AssertionError(f"Unsupported project definition: {type(definition).__name__}")
+
+
+def _symbol_map(
+    symbol: ProjectSymbol,
+    *,
+    type_symbols: dict[str, ProjectSymbol],
+    relation_symbols: dict[str, ProjectSymbol],
+    callable_symbols: dict[str, ProjectSymbol],
+) -> dict[str, ProjectSymbol]:
+    """Return the mutable catalog map for a classified project symbol."""
+
+    if symbol.namespace is ProjectSymbolNamespace.TYPE:
+        return type_symbols
+    if symbol.namespace is ProjectSymbolNamespace.RELATION:
+        return relation_symbols
+    if symbol.namespace is ProjectSymbolNamespace.CALLABLE:
+        return callable_symbols
+    raise AssertionError(f"Unsupported project namespace: {symbol.namespace}")
+
+
+def _definition_location(definition: Definition, *, path: str) -> SourceLocation:
+    """Convert a top-level definition span into a project diagnostic location."""
+
+    span = definition.span
+    return SourceLocation(
+        path=span.path or path,
+        line=span.line,
+        column=span.column,
+        end_line=span.end_line,
+        end_column=span.end_column,
+    )
+
+
+def _duplicate_project_symbol_diagnostic(symbol: ProjectSymbol) -> Diagnostic:
+    """Report a duplicate at the later project definition's complete span."""
+
+    return Diagnostic(
+        code="PIE-S2001",
+        severity=Severity.ERROR,
+        message=(
+            "Duplicate symbol name in "
+            f"{symbol.namespace.value} namespace: {symbol.name}"
+        ),
+        location=symbol.location,
     )

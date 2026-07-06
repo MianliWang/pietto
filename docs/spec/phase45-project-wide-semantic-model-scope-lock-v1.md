@@ -253,6 +253,51 @@ workflows, dependency files, package metadata, package version, diagnostic
 inventory, release behavior, external plugin behavior, external
 script/hook/MCP behavior, or copied external code.
 
+## Slice 4 Project Catalog And Duplicate Detection
+
+Slice 4 adds private project catalog population and duplicate detection. The
+catalog is private project-wide semantic scaffold state only, and it remains
+pre-resolution plumbing for later project semantic slices.
+
+Slice 4 extends the scaffold with `ProjectSymbolNamespace`,
+`ProjectSymbolKind`, `ProjectSymbol`, and a populated `ProjectSemanticCatalog`.
+The catalog uses type, relation, and callable maps according to the Phase 45
+hybrid namespace policy.
+
+Project top-level symbols are collected from retained `ProjectParsedInput`
+units in deterministic selected-input order and source definition order. Each
+private symbol records its namespace, kind, name, project-relative path, source
+location, and original top-level AST definition.
+
+For Slice 4, duplicates are detected within the same namespace. The first
+deterministic symbol is preserved in the catalog. Later duplicates produce
+`PIE-S2001` error diagnostics at the later duplicate definition location. Slice
+4 has no `related_locations` in Slice 4 and does not add public diagnostic
+codes or expand the diagnostic shape.
+
+In this slice, unresolved references are not diagnosed in Slice 4. Slice 4 does
+not resolve source shape bindings, table/query `from` targets, constraints,
+derives, or any other cross-file reference. It performs no cross-file type
+namespace resolution, no cross-file relation namespace resolution, no row
+schema propagation, and no semantic type checking.
+
+Slice 4 has no CLI/JSON/text behavior change. Project JSON v2 continues to use
+the existing project check shape and does not expose private catalog fields.
+Text-mode project check remains parse-only. The catalog is not wired into
+`pietto check --project`.
+
+Slice 4 has no import from `pietto.semantic`, does not call the single-file
+semantic analyzer, and does not reuse single-file `SemanticModel` or
+`SemanticResult`.
+
+Slice 4 has no IR, SQL, project `emit-sql`, or project `explain` path. It does
+not change parser public API, grammar, generated parser artifacts, semantic
+analyzer behavior, semantic model behavior, CLI routing, Project JSON v2 shape,
+CLI JSON v1, Semantic Metadata Artifact v1, fixtures, goldens, scripts,
+workflows, dependency files, package metadata, package version, diagnostic
+inventory, release behavior, external plugin behavior, external
+script/hook/MCP behavior, or copied external code.
+
 ## Slice 1 Gate 2 Allowlist
 
 Phase 45 Slice 1 Gate 2 is limited to:

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import FrozenInstanceError, fields, is_dataclass
 import json
 from pathlib import Path
+from types import MappingProxyType
 
 import pytest
 
@@ -19,9 +20,11 @@ from pietto._project.model import (
     ProjectSemanticCatalog,
     ProjectSemanticModel,
     ProjectSemanticResult,
+    ProjectSymbolKind,
+    ProjectSymbolNamespace,
     build_empty_project_semantic_result,
 )
-from pietto.ast_nodes import Script
+from pietto.ast_nodes import DeriveDef, ShapeDef, SourceDef, TableDef, TypeDef, Script
 from pietto.errors import Diagnostic, Severity, SourceLocation
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -44,22 +47,24 @@ def test_project_semantic_scaffold_types_are_frozen_slots_dataclasses() -> None:
         setattr(result, "diagnostics", ())
 
 
-def test_project_semantic_catalog_is_empty_placeholder_only() -> None:
+def test_project_semantic_catalog_has_readonly_namespace_maps() -> None:
     catalog = ProjectSemanticCatalog()
 
-    assert fields(ProjectSemanticCatalog) == ()
-    assert ProjectSemanticCatalog.__slots__ == ()
-    assert not hasattr(catalog, "__dict__")
-    for deferred_field in (
+    assert tuple(field.name for field in fields(ProjectSemanticCatalog)) == (
         "type_symbols",
         "relation_symbols",
         "callable_symbols",
-        "diagnostics",
-    ):
-        assert not hasattr(catalog, deferred_field)
+    )
+    assert not hasattr(catalog, "__dict__")
+    assert isinstance(catalog.type_symbols, MappingProxyType)
+    assert isinstance(catalog.relation_symbols, MappingProxyType)
+    assert isinstance(catalog.callable_symbols, MappingProxyType)
+    assert catalog.type_symbols == {}
+    assert catalog.relation_symbols == {}
+    assert catalog.callable_symbols == {}
 
 
-def test_empty_project_semantic_result_preserves_successful_parse_inputs(
+def test_project_semantic_result_preserves_successful_parse_inputs(
     tmp_path: Path,
 ) -> None:
     root = _project_root(
@@ -96,7 +101,78 @@ def test_empty_project_semantic_result_preserves_successful_parse_inputs(
         assert parsed_input.script.span.path == parsed_input.path
 
 
-def test_empty_project_semantic_model_has_empty_catalog() -> None:
+def test_project_semantic_catalog_populates_symbols_in_deterministic_order(
+    tmp_path: Path,
+) -> None:
+    root = _project_root(tmp_path, include=("models/*.pietto",))
+    _write(
+        root,
+        "models/a.pietto",
+        "type Age = Int not null\n"
+        "enum Status:\n"
+        "    ACTIVE\n"
+        "    PAUSED\n"
+        "shape User:\n"
+        "    id: Int\n"
+        "constraint usable(value: Text not null) -> Bool not null:\n"
+        "    value is not null\n",
+    )
+    _write(
+        root,
+        "models/b.pietto",
+        "derive normalize(value: Text not null) -> Text not null:\n"
+        "    lower(value)\n"
+        'source users: User is postgres.table("users")\n'
+        "table active_users:\n"
+        "    from users\n"
+        "    select:\n"
+        "        id\n"
+        "query user_ids:\n"
+        "    from active_users\n"
+        "    select:\n"
+        "        id\n",
+    )
+
+    parse_result = check_project_parse_only(root)
+    semantic_result = build_empty_project_semantic_result(parse_result)
+
+    assert parse_result.ok
+    assert semantic_result.ok
+    assert semantic_result.model is not None
+    catalog = semantic_result.model.catalog
+    assert tuple(catalog.type_symbols) == ("Age", "Status", "User")
+    assert tuple(catalog.callable_symbols) == ("usable", "normalize")
+    assert tuple(catalog.relation_symbols) == ("users", "active_users", "user_ids")
+
+    age = catalog.type_symbols["Age"]
+    assert age.namespace is ProjectSymbolNamespace.TYPE
+    assert age.kind is ProjectSymbolKind.TYPE_ALIAS
+    assert age.name == "Age"
+    assert age.path == "models/a.pietto"
+    assert age.location == SourceLocation(
+        path="models/a.pietto",
+        line=1,
+        column=1,
+        end_line=1,
+        end_column=24,
+    )
+    assert isinstance(age.definition, TypeDef)
+    assert age.definition.name == "Age"
+
+    assert catalog.type_symbols["Status"].kind is ProjectSymbolKind.ENUM
+    assert catalog.type_symbols["User"].kind is ProjectSymbolKind.SHAPE
+    assert catalog.callable_symbols["usable"].kind is ProjectSymbolKind.CONSTRAINT
+    assert catalog.callable_symbols["normalize"].kind is ProjectSymbolKind.DERIVE
+    assert catalog.relation_symbols["users"].kind is ProjectSymbolKind.SOURCE
+    assert catalog.relation_symbols["active_users"].kind is ProjectSymbolKind.TABLE
+    assert catalog.relation_symbols["user_ids"].kind is ProjectSymbolKind.QUERY
+    assert isinstance(catalog.type_symbols["User"].definition, ShapeDef)
+    assert isinstance(catalog.relation_symbols["users"].definition, SourceDef)
+    assert isinstance(catalog.relation_symbols["active_users"].definition, TableDef)
+    assert isinstance(catalog.callable_symbols["normalize"].definition, DeriveDef)
+
+
+def test_project_semantic_catalog_can_still_be_empty() -> None:
     model = ProjectSemanticModel(
         root=ProjectRoot(path="."),
         config_path=ProjectConfigPath(path="pietto.toml"),
@@ -105,9 +181,142 @@ def test_empty_project_semantic_model_has_empty_catalog() -> None:
     )
 
     assert model.catalog == ProjectSemanticCatalog()
-    assert fields(model.catalog) == ()
-    assert not hasattr(model.catalog, "type_symbols")
-    assert not hasattr(model.catalog, "relation_symbols")
+    assert model.catalog.type_symbols == {}
+    assert model.catalog.relation_symbols == {}
+    assert model.catalog.callable_symbols == {}
+
+
+def test_same_name_across_project_namespaces_is_allowed(tmp_path: Path) -> None:
+    root = _project_root(tmp_path, include=("*.pietto",))
+    _write(
+        root,
+        "shared.pietto",
+        "shape Shared:\n"
+        "    id: Int\n"
+        "derive Shared(value: Text not null) -> Text not null:\n"
+        "    value\n"
+        'source Shared: Shared is postgres.table("shared")\n',
+    )
+
+    parse_result = check_project_parse_only(root)
+    semantic_result = build_empty_project_semantic_result(parse_result)
+
+    assert parse_result.ok
+    assert semantic_result.ok
+    assert semantic_result.diagnostics == ()
+    assert semantic_result.model is not None
+    catalog = semantic_result.model.catalog
+    assert set(catalog.type_symbols) == {"Shared"}
+    assert set(catalog.callable_symbols) == {"Shared"}
+    assert set(catalog.relation_symbols) == {"Shared"}
+
+
+def test_project_duplicate_symbols_fail_closed_and_keep_first_symbol(
+    tmp_path: Path,
+) -> None:
+    root = _project_root(tmp_path, include=("models/*.pietto",))
+    _write(
+        root,
+        "models/a.pietto",
+        "shape Shared:\n"
+        "    id: Int\n"
+        "derive normalize(value: Text not null) -> Text not null:\n"
+        "    value\n",
+    )
+    _write(
+        root,
+        "models/b.pietto",
+        "enum Shared:\n"
+        "    ACTIVE\n"
+        "constraint normalize(value: Text not null) -> Bool not null:\n"
+        "    value is not null\n"
+        'source rows: Shared is postgres.table("rows")\n',
+    )
+    _write(
+        root,
+        "models/c.pietto",
+        "table rows:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        "query rows:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n",
+    )
+
+    parse_result = check_project_parse_only(root)
+    semantic_result = build_empty_project_semantic_result(parse_result)
+
+    assert parse_result.ok
+    assert not semantic_result.ok
+    assert semantic_result.model is not None
+    assert [
+        (diagnostic.code, diagnostic.severity, diagnostic.message)
+        for diagnostic in semantic_result.diagnostics
+    ] == [
+        (
+            "PIE-S2001",
+            Severity.ERROR,
+            "Duplicate symbol name in type namespace: Shared",
+        ),
+        (
+            "PIE-S2001",
+            Severity.ERROR,
+            "Duplicate symbol name in callable namespace: normalize",
+        ),
+        (
+            "PIE-S2001",
+            Severity.ERROR,
+            "Duplicate symbol name in relation namespace: rows",
+        ),
+        (
+            "PIE-S2001",
+            Severity.ERROR,
+            "Duplicate symbol name in relation namespace: rows",
+        ),
+    ]
+    assert [
+        (diagnostic.location.path, diagnostic.location.line, diagnostic.location.column)
+        for diagnostic in semantic_result.diagnostics
+    ] == [
+        ("models/b.pietto", 1, 1),
+        ("models/b.pietto", 3, 1),
+        ("models/c.pietto", 1, 1),
+        ("models/c.pietto", 5, 1),
+    ]
+
+    catalog = semantic_result.model.catalog
+    assert catalog.type_symbols["Shared"].path == "models/a.pietto"
+    assert catalog.type_symbols["Shared"].kind is ProjectSymbolKind.SHAPE
+    assert catalog.callable_symbols["normalize"].path == "models/a.pietto"
+    assert catalog.callable_symbols["normalize"].kind is ProjectSymbolKind.DERIVE
+    assert catalog.relation_symbols["rows"].path == "models/b.pietto"
+    assert catalog.relation_symbols["rows"].kind is ProjectSymbolKind.SOURCE
+
+
+def test_unresolved_cross_file_references_are_not_diagnosed_in_slice4(
+    tmp_path: Path,
+) -> None:
+    root = _project_root(tmp_path, include=("*.pietto",))
+    _write(
+        root,
+        "unresolved.pietto",
+        'source raw: MissingShape is postgres.table("raw")\n'
+        "table projected:\n"
+        "    from missing_relation\n"
+        "    select:\n"
+        "        id\n",
+    )
+
+    parse_result = check_project_parse_only(root)
+    semantic_result = build_empty_project_semantic_result(parse_result)
+
+    assert parse_result.ok
+    assert semantic_result.ok
+    assert semantic_result.diagnostics == ()
+    assert semantic_result.model is not None
+    assert tuple(semantic_result.model.catalog.relation_symbols) == ("raw", "projected")
 
 
 def test_project_semantic_result_defaults_and_ok_behavior() -> None:
@@ -253,7 +462,7 @@ def test_project_text_output_remains_parse_only(
     assert captured.err == ""
 
 
-def test_slice3_docs_lock_private_scaffold_only_scope() -> None:
+def test_slice4_docs_lock_private_catalog_and_duplicate_scope() -> None:
     docs = " ".join(_normalized(path) for path in (PLAN_PATH, SPEC_PATH))
 
     for required in (
@@ -263,10 +472,17 @@ def test_slice3_docs_lock_private_scaffold_only_scope() -> None:
         "`ProjectSemanticResult`",
         "`build_empty_project_semantic_result(...)`",
         "`ProjectParseCheckResult.parsed_inputs`",
-        "empty catalog placeholder only",
-        "no semantic analysis yet",
-        "no symbol collection",
-        "no duplicate diagnostics",
+        "Slice 4 adds private project catalog population and duplicate detection",
+        "`ProjectSymbolNamespace`",
+        "`ProjectSymbolKind`",
+        "`ProjectSymbol`",
+        "type, relation, and callable maps",
+        "deterministic selected-input order and source definition order",
+        "duplicates are detected within the same namespace",
+        "first deterministic symbol is preserved",
+        "`PIE-S2001`",
+        "no `related_locations` in Slice 4",
+        "unresolved references are not diagnosed in Slice 4",
         "no cross-file type namespace resolution",
         "no cross-file relation namespace resolution",
         "no CLI/JSON/text behavior change",

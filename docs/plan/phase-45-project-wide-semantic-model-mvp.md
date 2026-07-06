@@ -17,6 +17,11 @@ Phase 45 Slice 3 is `Private project semantic model scaffold`. Slice 3 adds a
 private project semantic model scaffold for later project-wide semantic
 analysis, but it does not implement project semantic analysis.
 
+Phase 45 Slice 4 is `Project catalog and duplicate detection`. Slice 4 adds
+private project catalog population and duplicate top-level detection before
+cross-file reference resolution, but it does not implement cross-file reference
+resolution or real project semantic analysis.
+
 Package version remains `0.1.0`.
 
 ## Trusted Baseline
@@ -205,6 +210,47 @@ output remains parse-only. The private scaffold is not serialized and is not
 wired into `pietto check --project`.
 
 Slice 3 enters no IR, SQL, project `emit-sql`, or project `explain` path. It
+does not change parser public API, grammar, generated parser artifacts,
+semantic analyzer behavior, semantic model behavior, CLI routing, Project JSON
+v2 shape, CLI JSON v1, Semantic Metadata Artifact v1, fixtures, goldens,
+scripts, workflows, dependency files, package metadata, package version,
+diagnostic inventory, release behavior, external plugin behavior, or copied
+external code.
+
+## Slice 4 Project Catalog And Duplicate Detection
+
+Slice 4 adds private project catalog population and duplicate detection. It
+extends the private project semantic scaffold with `ProjectSymbolNamespace`,
+`ProjectSymbolKind`, `ProjectSymbol`, and a populated `ProjectSemanticCatalog`.
+
+The project catalog uses the Phase 45 hybrid namespace policy. It stores type,
+relation, and callable maps. Type symbols include type aliases, enums, and
+shapes. Relation symbols include sources, tables, and queries. Callable symbols
+include constraints and derives.
+
+Catalog symbols are collected from retained `ProjectParsedInput` units in
+deterministic selected-input order and source definition order. Each symbol
+records its namespace, kind, name, project-relative path, source location, and
+original top-level AST definition.
+
+For Slice 4, duplicates are detected within the same namespace. The first
+deterministic symbol is preserved in the catalog, and later duplicates produce
+`PIE-S2001` error diagnostics at the later duplicate definition's
+project-relative location. Slice 4 adds no `related_locations` in Slice 4 and
+adds no public diagnostic code or diagnostic shape.
+
+In this slice, unresolved references are not diagnosed in Slice 4. Slice 4
+performs no cross-file type namespace resolution, no cross-file relation
+namespace resolution, no callable resolution, no row-schema inference, and no
+semantic type checking. It has no import from `pietto.semantic` and does not
+import or reuse single-file `SemanticModel` or `SemanticResult`.
+
+Slice 4 has no CLI/JSON/text behavior change. Project JSON v2 continues to
+serialize only the existing project check shape, and text-mode project check
+output remains parse-only. The private catalog is not serialized and is not
+wired into `pietto check --project`.
+
+Slice 4 enters no IR, SQL, project `emit-sql`, or project `explain` path. It
 does not change parser public API, grammar, generated parser artifacts,
 semantic analyzer behavior, semantic model behavior, CLI routing, Project JSON
 v2 shape, CLI JSON v1, Semantic Metadata Artifact v1, fixtures, goldens,
