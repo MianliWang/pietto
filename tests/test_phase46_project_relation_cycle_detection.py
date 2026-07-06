@@ -1,17 +1,19 @@
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError, is_dataclass
 import json
 from pathlib import Path
 import subprocess
+
+import pytest
 
 from pietto._project.check import check_project_parse_only
 from pietto._project.json_v2 import project_check_result_to_json_dict
 from pietto._project.model import (
     ProjectParseCheckResult,
-    ProjectRelationDependencyEdge,
     ProjectRelationDependencyCycle,
-    ProjectRelationDependencyNode,
-    ProjectRelationDependencySource,
+    ProjectRelationDependencyEdge,
+    ProjectRelationDependencyGraph,
     ProjectSemanticResult,
     ProjectSymbolKind,
     build_empty_project_semantic_result,
@@ -41,9 +43,24 @@ ALLOWED_SLICE4_GATE2_PATHS = {
 }
 
 
-def test_table_query_dependencies_get_deterministic_private_edges(
-    tmp_path: Path,
-) -> None:
+def test_project_relation_dependency_cycle_carrier_and_default_graph() -> None:
+    assert is_dataclass(ProjectRelationDependencyCycle)
+    assert hasattr(ProjectRelationDependencyCycle, "__slots__")
+
+    cycle = ProjectRelationDependencyCycle(nodes=(), edges=())
+    assert not hasattr(cycle, "__dict__")
+    assert cycle.nodes == ()
+    assert cycle.edges == ()
+    with pytest.raises(FrozenInstanceError):
+        setattr(cycle, "nodes", ())
+
+    graph = ProjectRelationDependencyGraph()
+    assert graph.nodes == ()
+    assert graph.edges == ()
+    assert graph.cycles == ()
+
+
+def test_acyclic_project_has_no_private_cycles(tmp_path: Path) -> None:
     root = _project_root(tmp_path, include=("models/*.pietto",))
     _write(
         root,
@@ -60,98 +77,149 @@ def test_table_query_dependencies_get_deterministic_private_edges(
         "models/c_query.pietto",
         "query exported:\n    from staged\n    select:\n        id\n",
     )
-    _write(
-        root,
-        "models/d_from_query.pietto",
-        "table table_from_query:\n"
-        "    from exported\n"
-        "    select:\n"
-        "        id\n"
-        "query query_from_query:\n"
-        "    from exported\n"
-        "    select:\n"
-        "        id\n",
-    )
 
-    parse_result, semantic_result = _project_semantic_result(root)
+    _, semantic_result = _project_semantic_result(root)
 
     assert semantic_result.ok
     assert semantic_result.diagnostics == ()
     assert semantic_result.model is not None
     graph = semantic_result.model.relation_dependency_graph
-    assert tuple(node.symbol.name for node in graph.nodes) == (
-        "staged",
-        "exported",
-        "table_from_query",
-        "query_from_query",
+    assert _edge_names(graph.edges) == (("exported", "staged"),)
+    assert graph.cycles == ()
+
+
+def test_self_cycle_creates_one_private_cycle_fact(tmp_path: Path) -> None:
+    root = _project_root(tmp_path, include=("*.pietto",))
+    _write(
+        root,
+        "self_cycle.pietto",
+        "table loop:\n    from loop\n    select:\n        id\n",
     )
-    assert _edge_names(graph.edges) == (
-        ("exported", "staged"),
-        ("table_from_query", "exported"),
-        ("query_from_query", "exported"),
-    )
 
-    staged = _derived_definition(parse_result, "staged")
-    exported = _derived_definition(parse_result, "exported")
-    table_from_query = _derived_definition(parse_result, "table_from_query")
-    query_from_query = _derived_definition(parse_result, "query_from_query")
+    _, semantic_result = _project_semantic_result(root)
 
-    assert (
-        semantic_result.model.relation_resolutions[staged.from_clause].kind
-        is ProjectSymbolKind.SOURCE
-    )
-    expected_from_clauses = {
-        "exported": exported.from_clause,
-        "table_from_query": table_from_query.from_clause,
-        "query_from_query": query_from_query.from_clause,
-    }
-    for edge in graph.edges:
-        assert isinstance(edge.origin, ProjectRelationDependencyNode)
-        assert isinstance(edge.target, ProjectRelationDependencyNode)
-        assert isinstance(edge.dependency_source, ProjectRelationDependencySource)
-        assert (
-            edge.dependency_source.from_clause
-            is expected_from_clauses[edge.origin.symbol.name]
-        )
+    assert semantic_result.ok
+    assert semantic_result.diagnostics == ()
+    assert semantic_result.model is not None
+    graph = semantic_result.model.relation_dependency_graph
+    assert _edge_names(graph.edges) == (("loop", "loop"),)
+    assert _cycle_node_names(graph.cycles) == (("loop",),)
+    assert _cycle_edge_names(graph.cycles) == ((("loop", "loop"),),)
 
 
-def test_table_query_to_source_references_resolve_without_edges(
+def test_two_node_cycle_creates_canonical_private_cycle_fact(
     tmp_path: Path,
 ) -> None:
     root = _project_root(tmp_path, include=("*.pietto",))
     _write(
         root,
-        "source_target.pietto",
-        "shape Row:\n"
-        "    id: Int\n"
-        'source raw: Row is postgres.table("raw")\n'
-        "table staged:\n"
-        "    from raw\n"
+        "two_node_cycle.pietto",
+        "table first:\n"
+        "    from second\n"
+        "    select:\n"
+        "        id\n"
+        "table second:\n"
+        "    from first\n"
         "    select:\n"
         "        id\n",
     )
 
-    parse_result, semantic_result = _project_semantic_result(root)
+    _, semantic_result = _project_semantic_result(root)
 
     assert semantic_result.ok
+    assert semantic_result.diagnostics == ()
     assert semantic_result.model is not None
-    staged = _derived_definition(parse_result, "staged")
-    assert (
-        semantic_result.model.relation_resolutions[staged.from_clause].kind
-        is ProjectSymbolKind.SOURCE
-    )
     graph = semantic_result.model.relation_dependency_graph
-    assert tuple(node.symbol.name for node in graph.nodes) == ("staged",)
-    assert graph.edges == ()
+    assert _cycle_node_names(graph.cycles) == (("first", "second"),)
+    assert _cycle_edge_names(graph.cycles) == (
+        (("first", "second"), ("second", "first")),
+    )
+    assert "PIE-S2302" not in {
+        diagnostic.code for diagnostic in semantic_result.diagnostics
+    }
 
 
-def test_unresolved_relation_diagnostics_do_not_create_edges(
+def test_three_node_cycle_keeps_edges_in_forward_cycle_order(
     tmp_path: Path,
 ) -> None:
     root = _project_root(tmp_path, include=("*.pietto",))
     _write(
         root,
-        "mixed_relations.pietto",
+        "three_node_cycle.pietto",
+        "table first:\n"
+        "    from second\n"
+        "    select:\n"
+        "        id\n"
+        "query second:\n"
+        "    from third\n"
+        "    select:\n"
+        "        id\n"
+        "table third:\n"
+        "    from first\n"
+        "    select:\n"
+        "        id\n",
+    )
+
+    _, semantic_result = _project_semantic_result(root)
+
+    assert semantic_result.ok
+    assert semantic_result.diagnostics == ()
+    assert semantic_result.model is not None
+    graph = semantic_result.model.relation_dependency_graph
+    assert _cycle_node_names(graph.cycles) == (("first", "second", "third"),)
+    assert _cycle_edge_names(graph.cycles) == (
+        (("first", "second"), ("second", "third"), ("third", "first")),
+    )
+
+
+def test_disjoint_cycles_are_ordered_by_canonical_node_order(
+    tmp_path: Path,
+) -> None:
+    root = _project_root(tmp_path, include=("*.pietto",))
+    _write(
+        root,
+        "disjoint_cycles.pietto",
+        "table alpha:\n"
+        "    from beta\n"
+        "    select:\n"
+        "        id\n"
+        "table beta:\n"
+        "    from alpha\n"
+        "    select:\n"
+        "        id\n"
+        "table gamma:\n"
+        "    from delta\n"
+        "    select:\n"
+        "        id\n"
+        "table delta:\n"
+        "    from gamma\n"
+        "    select:\n"
+        "        id\n",
+    )
+
+    _, semantic_result = _project_semantic_result(root)
+
+    assert semantic_result.ok
+    assert semantic_result.diagnostics == ()
+    assert semantic_result.model is not None
+    graph = semantic_result.model.relation_dependency_graph
+    assert _cycle_node_names(graph.cycles) == (
+        ("alpha", "beta"),
+        ("gamma", "delta"),
+    )
+    assert _cycle_edge_names(graph.cycles) == (
+        (("alpha", "beta"), ("beta", "alpha")),
+        (("gamma", "delta"), ("delta", "gamma")),
+    )
+
+
+def test_source_targets_and_unresolved_targets_do_not_create_cycles(
+    tmp_path: Path,
+) -> None:
+    root = _project_root(tmp_path, include=("*.pietto",))
+    _write(
+        root,
+        "mixed_targets.pietto",
         "shape Row:\n"
         "    id: Int\n"
         'source raw: Row is postgres.table("raw")\n'
@@ -179,20 +247,25 @@ def test_unresolved_relation_diagnostics_do_not_create_edges(
     ] == [
         ("PIE-S2301", Severity.ERROR, "Unknown relation: missing_relation"),
     ]
+    staged = _derived_definition(parse_result, "staged")
     broken = _derived_definition(parse_result, "broken")
-    assert broken.from_clause not in semantic_result.model.relation_resolutions
-    assert _edge_names(semantic_result.model.relation_dependency_graph.edges) == (
-        ("exported", "staged"),
+    assert (
+        semantic_result.model.relation_resolutions[staged.from_clause].kind
+        is ProjectSymbolKind.SOURCE
     )
+    assert broken.from_clause not in semantic_result.model.relation_resolutions
+    graph = semantic_result.model.relation_dependency_graph
+    assert _edge_names(graph.edges) == (("exported", "staged"),)
+    assert graph.cycles == ()
 
 
-def test_cycle_shaped_dependencies_collect_edges_without_cycle_diagnostic(
+def test_project_json_v2_does_not_expose_relation_cycle_facts(
     tmp_path: Path,
 ) -> None:
     root = _project_root(tmp_path, include=("*.pietto",))
     _write(
         root,
-        "cycle_deferred.pietto",
+        "cycle_private.pietto",
         "table first:\n"
         "    from second\n"
         "    select:\n"
@@ -203,50 +276,6 @@ def test_cycle_shaped_dependencies_collect_edges_without_cycle_diagnostic(
         "        id\n",
     )
 
-    _, semantic_result = _project_semantic_result(root)
-
-    assert semantic_result.ok
-    assert semantic_result.diagnostics == ()
-    assert semantic_result.model is not None
-    graph = semantic_result.model.relation_dependency_graph
-    assert _edge_names(graph.edges) == (
-        ("first", "second"),
-        ("second", "first"),
-    )
-    assert len(graph.cycles) == 1
-    assert isinstance(graph.cycles[0], ProjectRelationDependencyCycle)
-    assert _cycle_node_names(graph.cycles[0]) == ("first", "second")
-    assert _cycle_edge_names(graph.cycles[0]) == (
-        ("first", "second"),
-        ("second", "first"),
-    )
-    assert "PIE-S2302" not in {
-        diagnostic.code for diagnostic in semantic_result.diagnostics
-    }
-    for cycle_fact in ("cycle_candidates", "cyclic_relations", "traversal_state"):
-        assert not hasattr(graph, cycle_fact)
-
-
-def test_project_json_v2_does_not_expose_relation_dependency_edges(
-    tmp_path: Path,
-) -> None:
-    root = _project_root(tmp_path, include=("models/*.pietto",))
-    _write(
-        root,
-        "models/a_source.pietto",
-        'shape Row:\n    id: Int\nsource raw: Row is postgres.table("raw")\n',
-    )
-    _write(
-        root,
-        "models/b_table.pietto",
-        "table staged:\n    from raw\n    select:\n        id\n",
-    )
-    _write(
-        root,
-        "models/c_query.pietto",
-        "query exported:\n    from staged\n    select:\n        id\n",
-    )
-
     parse_result, semantic_result = _project_semantic_result(root)
     document = project_check_result_to_json_dict(
         parse_result,
@@ -254,10 +283,12 @@ def test_project_json_v2_does_not_expose_relation_dependency_edges(
     )
     serialized = json.dumps(document)
 
+    assert semantic_result.ok
     assert semantic_result.model is not None
-    assert semantic_result.model.relation_dependency_graph.edges
+    assert semantic_result.model.relation_dependency_graph.cycles
     assert tuple(document) == PROJECT_JSON_TOP_LEVEL_KEYS
     assert document["ok"] is True
+    assert document["diagnostics"] == []
     for private_fact in (
         "ProjectRelationDependencyGraph",
         "ProjectRelationDependencyNode",
@@ -309,15 +340,15 @@ def _edge_names(
 
 
 def _cycle_node_names(
-    cycle: ProjectRelationDependencyCycle,
-) -> tuple[str, ...]:
-    return tuple(node.symbol.name for node in cycle.nodes)
+    cycles: tuple[ProjectRelationDependencyCycle, ...],
+) -> tuple[tuple[str, ...], ...]:
+    return tuple(tuple(node.symbol.name for node in cycle.nodes) for cycle in cycles)
 
 
 def _cycle_edge_names(
-    cycle: ProjectRelationDependencyCycle,
-) -> tuple[tuple[str, str], ...]:
-    return _edge_names(cycle.edges)
+    cycles: tuple[ProjectRelationDependencyCycle, ...],
+) -> tuple[tuple[tuple[str, str], ...], ...]:
+    return tuple(_edge_names(cycle.edges) for cycle in cycles)
 
 
 def _project_root(

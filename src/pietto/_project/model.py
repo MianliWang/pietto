@@ -248,17 +248,33 @@ class ProjectRelationDependencyEdge:
 
 
 @dataclass(frozen=True, slots=True)
+class ProjectRelationDependencyCycle:
+    """One private relation dependency cycle fact."""
+
+    nodes: tuple[ProjectRelationDependencyNode, ...]
+    edges: tuple[ProjectRelationDependencyEdge, ...]
+
+    def __post_init__(self) -> None:
+        """Copy cycle collections into immutable tuples."""
+
+        object.__setattr__(self, "nodes", tuple(self.nodes))
+        object.__setattr__(self, "edges", tuple(self.edges))
+
+
+@dataclass(frozen=True, slots=True)
 class ProjectRelationDependencyGraph:
     """Private relation dependency graph scaffold."""
 
     nodes: tuple[ProjectRelationDependencyNode, ...] = ()
     edges: tuple[ProjectRelationDependencyEdge, ...] = ()
+    cycles: tuple[ProjectRelationDependencyCycle, ...] = ()
 
     def __post_init__(self) -> None:
         """Copy graph collections into immutable tuples."""
 
         object.__setattr__(self, "nodes", tuple(self.nodes))
         object.__setattr__(self, "edges", tuple(self.edges))
+        object.__setattr__(self, "cycles", tuple(self.cycles))
 
 
 @dataclass(frozen=True, slots=True)
@@ -472,7 +488,107 @@ def _build_project_relation_dependency_graph(
                 )
             )
 
-    return ProjectRelationDependencyGraph(nodes=nodes, edges=tuple(edges))
+    graph_edges = tuple(edges)
+    cycles = _detect_project_relation_dependency_cycles(
+        nodes=nodes,
+        edges=graph_edges,
+    )
+    return ProjectRelationDependencyGraph(nodes=nodes, edges=graph_edges, cycles=cycles)
+
+
+def _detect_project_relation_dependency_cycles(
+    *,
+    nodes: tuple[ProjectRelationDependencyNode, ...],
+    edges: tuple[ProjectRelationDependencyEdge, ...],
+) -> tuple[ProjectRelationDependencyCycle, ...]:
+    """Detect private relation dependency cycles without emitting diagnostics."""
+
+    if not nodes or not edges:
+        return ()
+
+    node_order = {node.symbol.name: index for index, node in enumerate(nodes)}
+    edges_by_origin: dict[str, list[ProjectRelationDependencyEdge]] = {
+        node.symbol.name: [] for node in nodes
+    }
+    for edge in edges:
+        origin_name = edge.origin.symbol.name
+        target_name = edge.target.symbol.name
+        if origin_name not in node_order or target_name not in node_order:
+            continue
+        edges_by_origin[origin_name].append(edge)
+
+    for origin_edges in edges_by_origin.values():
+        origin_edges.sort(key=lambda edge: node_order[edge.target.symbol.name])
+
+    state: dict[str, int] = {}
+    stack_nodes: list[ProjectRelationDependencyNode] = []
+    stack_edges: list[ProjectRelationDependencyEdge] = []
+    stack_indexes: dict[str, int] = {}
+    cycles_by_members: dict[tuple[int, ...], ProjectRelationDependencyCycle] = {}
+
+    def visit(node: ProjectRelationDependencyNode) -> None:
+        node_name = node.symbol.name
+        state[node_name] = 1
+        stack_indexes[node_name] = len(stack_nodes)
+        stack_nodes.append(node)
+
+        for edge in edges_by_origin[node_name]:
+            target_name = edge.target.symbol.name
+            target_state = state.get(target_name, 0)
+            if target_state == 0:
+                stack_edges.append(edge)
+                visit(edge.target)
+                stack_edges.pop()
+            elif target_state == 1:
+                cycle_start = stack_indexes[target_name]
+                cycle = _canonical_project_relation_dependency_cycle(
+                    nodes=tuple(stack_nodes[cycle_start:]),
+                    edges=tuple((*stack_edges[cycle_start:], edge)),
+                    node_order=node_order,
+                )
+                cycle_key = tuple(
+                    sorted(
+                        node_order[cycle_node.symbol.name] for cycle_node in cycle.nodes
+                    )
+                )
+                cycles_by_members.setdefault(cycle_key, cycle)
+
+        stack_nodes.pop()
+        stack_indexes.pop(node_name)
+        state[node_name] = 2
+
+    for node in nodes:
+        if state.get(node.symbol.name, 0) == 0:
+            visit(node)
+
+    return tuple(
+        sorted(
+            cycles_by_members.values(),
+            key=lambda cycle: tuple(
+                node_order[cycle_node.symbol.name] for cycle_node in cycle.nodes
+            ),
+        )
+    )
+
+
+def _canonical_project_relation_dependency_cycle(
+    *,
+    nodes: tuple[ProjectRelationDependencyNode, ...],
+    edges: tuple[ProjectRelationDependencyEdge, ...],
+    node_order: Mapping[str, int],
+) -> ProjectRelationDependencyCycle:
+    """Rotate one cycle to its lowest graph-node-order participant."""
+
+    if not nodes:
+        raise AssertionError("Relation dependency cycle requires at least one node")
+    start = min(
+        range(len(nodes)),
+        key=lambda index: node_order[nodes[index].symbol.name],
+    )
+    return ProjectRelationDependencyCycle(
+        nodes=(*nodes[start:], *nodes[:start]),
+        edges=(*edges[start:], *edges[:start]),
+    )
 
 
 def _build_project_relation_namespace_facts(
