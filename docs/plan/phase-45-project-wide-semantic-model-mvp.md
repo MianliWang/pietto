@@ -22,6 +22,11 @@ private project catalog population and duplicate top-level detection before
 cross-file reference resolution, but it does not implement cross-file reference
 resolution or real project semantic analysis.
 
+Phase 45 Slice 5 is `Cross-file type namespace semantics`. Slice 5 adds
+private cross-file type namespace checks and type-resolution facts, but it does
+not implement relation namespace resolution, row schema propagation, CLI/JSON
+behavior, IR, or SQL.
+
 Package version remains `0.1.0`.
 
 ## Trusted Baseline
@@ -257,6 +262,52 @@ v2 shape, CLI JSON v1, Semantic Metadata Artifact v1, fixtures, goldens,
 scripts, workflows, dependency files, package metadata, package version,
 diagnostic inventory, release behavior, external plugin behavior, or copied
 external code.
+
+## Slice 5 Cross-file Type Namespace Semantics
+
+Slice 5 adds private cross-file type namespace semantics. It extends the
+private project semantic model with private type-resolution facts:
+`ProjectResolvedTypeKind`, `ProjectResolvedType`,
+`ProjectSemanticModel.type_resolutions`, and
+`ProjectSemanticModel.source_shape_resolutions`.
+
+builtin type names resolve privately without importing `pietto.semantic`.
+Project type namespace references resolve through
+`ProjectSemanticCatalog.type_symbols`. `TypeExpr` sites in top-level
+definitions are checked for `TypeDef.base`, `FieldDef.type_expr`,
+`Parameter.type`, `ConstraintDef.return_type`, and `DeriveDef.return_type`.
+`SourceDef.shape_name` is checked and must resolve to a shape.
+
+Missing `TypeExpr` names use existing diagnostic code `PIE-S2002`. Missing
+source shape bindings and source shape bindings that resolve to non-shape type
+namespace symbols use existing diagnostic code `PIE-S2303`. Slice 5 adds no
+new public diagnostic code, no public diagnostic shape expansion, and no
+`related_locations`.
+
+duplicate catalog diagnostics short-circuit type resolution. When Slice 4
+duplicate diagnostics exist, the private model keeps the populated catalog but
+leaves `type_resolutions` and `source_shape_resolutions` empty and returns only
+the duplicate diagnostics.
+
+unresolved relation references are not diagnosed in Slice 5. Slice 5 performs
+no relation namespace resolution, no row schema propagation, no alias expansion
+or alias cycle detection, no callable body checking, no source connector
+checking, and no semantic type checking beyond the explicit private
+top-level type namespace reference checks.
+
+Slice 5 has no CLI/JSON/text behavior change. Project JSON v2 continues to
+serialize only the existing project check shape, and text-mode project check
+output remains parse-only. The private type-resolution facts are not serialized
+and are not wired into `pietto check --project`.
+
+Slice 5 enters no IR, SQL, project `emit-sql`, or project `explain` path. It
+has no import from `pietto.semantic` and does not call the single-file semantic
+analyzer. It does not change parser public API, grammar, generated parser
+artifacts, semantic analyzer behavior, semantic model behavior, CLI routing,
+Project JSON v2 shape, CLI JSON v1, Semantic Metadata Artifact v1, fixtures,
+goldens, scripts, workflows, dependency files, package metadata, package
+version, diagnostic inventory, release behavior, external plugin behavior, or
+copied external code.
 
 ## Slice 1 Gate 2 Allowlist
 

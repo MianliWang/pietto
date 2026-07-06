@@ -298,6 +298,52 @@ workflows, dependency files, package metadata, package version, diagnostic
 inventory, release behavior, external plugin behavior, external
 script/hook/MCP behavior, or copied external code.
 
+## Slice 5 Cross-file Type Namespace Semantics
+
+Slice 5 adds private cross-file type namespace semantics. It extends the
+private project semantic model with private type-resolution facts:
+`ProjectResolvedTypeKind`, `ProjectResolvedType`,
+`ProjectSemanticModel.type_resolutions`, and
+`ProjectSemanticModel.source_shape_resolutions`.
+
+builtin type names resolve privately. Project type namespace references resolve
+through `ProjectSemanticCatalog.type_symbols`. `TypeExpr` sites in top-level
+definitions are checked for `TypeDef.base`, `FieldDef.type_expr`,
+`Parameter.type`, `ConstraintDef.return_type`, and `DeriveDef.return_type`.
+`SourceDef.shape_name` is checked and must resolve to a shape.
+
+Missing `TypeExpr` names use existing diagnostic code `PIE-S2002`. Missing
+source shape bindings and source shape bindings that resolve to enum or type
+alias symbols instead of shapes use existing diagnostic code `PIE-S2303`. Slice
+5 adds no `related_locations`, no public diagnostic code, and no public
+diagnostic shape expansion.
+
+duplicate catalog diagnostics short-circuit type resolution. If duplicate
+project catalog diagnostics exist, the model keeps the populated catalog,
+leaves `type_resolutions` and `source_shape_resolutions` empty, and reports
+only the duplicate diagnostics.
+
+unresolved relation references are not diagnosed in Slice 5. Slice 5 performs
+no relation namespace resolution, no row schema propagation, no alias expansion
+or alias cycle detection, no source connector checking, no callable body
+checking, and no semantic type checking beyond explicit private type namespace
+reference checks.
+
+Slice 5 has no CLI/JSON/text behavior change. Project JSON v2 continues to use
+the existing project check shape and does not expose private type-resolution
+facts. Text-mode project check remains parse-only. The type-resolution facts
+are not wired into `pietto check --project`.
+
+Slice 5 has no IR, SQL, project `emit-sql`, or project `explain` path. It has
+no import from `pietto.semantic`, does not call the single-file semantic
+analyzer, and does not reuse single-file `SemanticModel` or `SemanticResult`.
+It does not change parser public API, grammar, generated parser artifacts,
+semantic analyzer behavior, semantic model behavior, CLI routing, Project JSON
+v2 shape, CLI JSON v1, Semantic Metadata Artifact v1, fixtures, goldens,
+scripts, workflows, dependency files, package metadata, package version,
+diagnostic inventory, release behavior, external plugin behavior, external
+script/hook/MCP behavior, or copied external code.
+
 ## Slice 1 Gate 2 Allowlist
 
 Phase 45 Slice 1 Gate 2 is limited to:

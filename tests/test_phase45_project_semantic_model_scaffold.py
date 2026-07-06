@@ -295,14 +295,16 @@ def test_project_duplicate_symbols_fail_closed_and_keep_first_symbol(
     assert catalog.relation_symbols["rows"].kind is ProjectSymbolKind.SOURCE
 
 
-def test_unresolved_cross_file_references_are_not_diagnosed_in_slice4(
+def test_relation_references_remain_unresolved_until_slice6(
     tmp_path: Path,
 ) -> None:
     root = _project_root(tmp_path, include=("*.pietto",))
     _write(
         root,
         "unresolved.pietto",
-        'source raw: MissingShape is postgres.table("raw")\n'
+        "shape Raw:\n"
+        "    id: Int\n"
+        'source raw: Raw is postgres.table("raw")\n'
         "table projected:\n"
         "    from missing_relation\n"
         "    select:\n"

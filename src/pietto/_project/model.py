@@ -19,11 +19,28 @@ from pietto.ast_nodes import (
     SourceDef,
     TableDef,
     TypeDef,
+    TypeExpr,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 
 _Key = TypeVar("_Key")
 _Value = TypeVar("_Value")
+
+_PROJECT_BUILTIN_TYPE_NAMES = frozenset(
+    {
+        "Any",
+        "Bool",
+        "Bytes",
+        "Date",
+        "Decimal",
+        "Float",
+        "Int",
+        "Json",
+        "Text",
+        "Timestamp",
+        "UUID",
+    }
+)
 
 
 def _readonly_mapping(
@@ -187,6 +204,25 @@ class ProjectSymbol:
     definition: Definition
 
 
+class ProjectResolvedTypeKind(StrEnum):
+    """Project-private type resolution fact kind."""
+
+    BUILTIN = "builtin"
+    TYPE_ALIAS = "type"
+    ENUM = "enum"
+    SHAPE = "shape"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectResolvedType:
+    """One project-private resolved type name fact."""
+
+    name: str
+    kind: ProjectResolvedTypeKind
+    symbol: ProjectSymbol | None = None
+
+
 @dataclass(frozen=True, slots=True)
 class ProjectSemanticCatalog:
     """Private project semantic catalog populated before reference resolution."""
@@ -229,6 +265,26 @@ class ProjectSemanticModel:
     config_path: ProjectConfigPath
     inputs: tuple[ProjectParsedInput, ...]
     catalog: ProjectSemanticCatalog
+    type_resolutions: Mapping[TypeExpr, ProjectResolvedType] = field(
+        default_factory=lambda: _readonly_mapping()
+    )
+    source_shape_resolutions: Mapping[SourceDef, ProjectSymbol] = field(
+        default_factory=lambda: _readonly_mapping()
+    )
+
+    def __post_init__(self) -> None:
+        """Copy private project semantic maps into immutable mappings."""
+
+        object.__setattr__(
+            self,
+            "type_resolutions",
+            _readonly_mapping(self.type_resolutions),
+        )
+        object.__setattr__(
+            self,
+            "source_shape_resolutions",
+            _readonly_mapping(self.source_shape_resolutions),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -265,7 +321,28 @@ def build_empty_project_semantic_result(
             model=None,
         )
 
-    catalog, diagnostics = _build_project_semantic_catalog(parse_result.parsed_inputs)
+    catalog, catalog_diagnostics = _build_project_semantic_catalog(
+        parse_result.parsed_inputs
+    )
+    if catalog_diagnostics:
+        return ProjectSemanticResult(
+            root=parse_result.root,
+            config_path=parse_result.config_path,
+            model=ProjectSemanticModel(
+                root=parse_result.root,
+                config_path=parse_result.config_path,
+                inputs=parse_result.parsed_inputs,
+                catalog=catalog,
+            ),
+            diagnostics=catalog_diagnostics,
+        )
+
+    type_resolutions, source_shape_resolutions, type_diagnostics = (
+        _build_project_type_namespace_facts(
+            parsed_inputs=parse_result.parsed_inputs,
+            catalog=catalog,
+        )
+    )
     return ProjectSemanticResult(
         root=parse_result.root,
         config_path=parse_result.config_path,
@@ -274,9 +351,114 @@ def build_empty_project_semantic_result(
             config_path=parse_result.config_path,
             inputs=parse_result.parsed_inputs,
             catalog=catalog,
+            type_resolutions=type_resolutions,
+            source_shape_resolutions=source_shape_resolutions,
         ),
-        diagnostics=diagnostics,
+        diagnostics=type_diagnostics,
     )
+
+
+def _build_project_type_namespace_facts(
+    *,
+    parsed_inputs: tuple[ProjectParsedInput, ...],
+    catalog: ProjectSemanticCatalog,
+) -> tuple[
+    dict[TypeExpr, ProjectResolvedType],
+    dict[SourceDef, ProjectSymbol],
+    tuple[Diagnostic, ...],
+]:
+    """Resolve top-level project type namespace references."""
+
+    type_resolutions: dict[TypeExpr, ProjectResolvedType] = {}
+    source_shape_resolutions: dict[SourceDef, ProjectSymbol] = {}
+    diagnostics: list[Diagnostic] = []
+
+    for parsed_input in parsed_inputs:
+        for definition in parsed_input.script.definitions:
+            for type_expr in _iter_project_type_expressions(definition):
+                resolved_type = _resolve_project_type(type_expr, catalog)
+                type_resolutions[type_expr] = resolved_type
+                if resolved_type.kind is ProjectResolvedTypeKind.UNKNOWN:
+                    diagnostics.append(_unknown_project_type_diagnostic(type_expr))
+
+            if isinstance(definition, SourceDef):
+                symbol, diagnostic = _resolve_project_source_shape(
+                    definition,
+                    catalog,
+                )
+                if symbol is not None:
+                    source_shape_resolutions[definition] = symbol
+                if diagnostic is not None:
+                    diagnostics.append(diagnostic)
+
+    return type_resolutions, source_shape_resolutions, tuple(diagnostics)
+
+
+def _iter_project_type_expressions(definition: Definition) -> tuple[TypeExpr, ...]:
+    """Return supported top-level type expressions in source order."""
+
+    if isinstance(definition, TypeDef):
+        return (definition.base,)
+    if isinstance(definition, (ConstraintDef, DeriveDef)):
+        return tuple(parameter.type for parameter in definition.parameters) + (
+            definition.return_type,
+        )
+    if isinstance(definition, ShapeDef):
+        return tuple(field.type_expr for field in definition.fields)
+    return ()
+
+
+def _resolve_project_type(
+    type_expr: TypeExpr,
+    catalog: ProjectSemanticCatalog,
+) -> ProjectResolvedType:
+    """Resolve one project type reference without alias expansion."""
+
+    if type_expr.name in _PROJECT_BUILTIN_TYPE_NAMES:
+        return ProjectResolvedType(
+            name=type_expr.name,
+            kind=ProjectResolvedTypeKind.BUILTIN,
+        )
+
+    symbol = catalog.type_symbols.get(type_expr.name)
+    if symbol is None:
+        return ProjectResolvedType(
+            name=type_expr.name,
+            kind=ProjectResolvedTypeKind.UNKNOWN,
+        )
+
+    if symbol.kind is ProjectSymbolKind.TYPE_ALIAS:
+        kind = ProjectResolvedTypeKind.TYPE_ALIAS
+    elif symbol.kind is ProjectSymbolKind.ENUM:
+        kind = ProjectResolvedTypeKind.ENUM
+    elif symbol.kind is ProjectSymbolKind.SHAPE:
+        kind = ProjectResolvedTypeKind.SHAPE
+    else:
+        raise AssertionError(f"Unsupported project type symbol kind: {symbol.kind}")
+    return ProjectResolvedType(name=type_expr.name, kind=kind, symbol=symbol)
+
+
+def _resolve_project_source_shape(
+    source: SourceDef,
+    catalog: ProjectSemanticCatalog,
+) -> tuple[ProjectSymbol | None, Diagnostic | None]:
+    """Resolve a source shape binding against the project type namespace."""
+
+    if source.shape_name is None:
+        return None, None
+
+    symbol = catalog.type_symbols.get(source.shape_name)
+    if symbol is None:
+        return None, _project_source_shape_diagnostic(
+            source,
+            message=f"Unknown source shape: {source.shape_name}",
+        )
+    if symbol.kind is not ProjectSymbolKind.SHAPE:
+        return None, _project_source_shape_diagnostic(
+            source,
+            message=f"Source shape must refer to a shape: {source.shape_name}",
+        )
+    return symbol, None
 
 
 def _build_project_semantic_catalog(
@@ -397,4 +579,44 @@ def _duplicate_project_symbol_diagnostic(symbol: ProjectSymbol) -> Diagnostic:
             f"{symbol.namespace.value} namespace: {symbol.name}"
         ),
         location=symbol.location,
+    )
+
+
+def _unknown_project_type_diagnostic(type_expr: TypeExpr) -> Diagnostic:
+    """Report an unresolved project type name at the type expression span."""
+
+    span = type_expr.span
+    return Diagnostic(
+        code="PIE-S2002",
+        severity=Severity.ERROR,
+        message=f"Unknown type: {type_expr.name}",
+        location=SourceLocation(
+            path=span.path,
+            line=span.line,
+            column=span.column,
+            end_line=span.end_line,
+            end_column=span.end_column,
+        ),
+    )
+
+
+def _project_source_shape_diagnostic(
+    source: SourceDef,
+    *,
+    message: str,
+) -> Diagnostic:
+    """Report an invalid project source shape binding."""
+
+    span = source.span
+    return Diagnostic(
+        code="PIE-S2303",
+        severity=Severity.ERROR,
+        message=message,
+        location=SourceLocation(
+            path=span.path,
+            line=span.line,
+            column=span.column,
+            end_line=span.end_line,
+            end_column=span.end_column,
+        ),
     )
