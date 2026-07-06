@@ -112,6 +112,64 @@ def test_project_json_v2_success_shape_and_rendering_are_locked() -> None:
     assert json.loads(rendered) == document
 
 
+def test_project_json_v2_appends_semantic_diagnostics_without_shape_change() -> None:
+    document = project_check_result_to_json_dict(
+        ProjectParseCheckResult(
+            root=ProjectRoot(path="."),
+            config_path=ProjectConfigPath(path="pietto.toml"),
+            inputs=(ProjectInput(path="models/users.pietto", status="parsed"),),
+            errors=(),
+            diagnostics=(),
+        ),
+        semantic_diagnostics=(
+            Diagnostic(
+                code="PIE-S2301",
+                severity=Severity.ERROR,
+                message="Unknown relation: missing",
+                location=SourceLocation(
+                    path="models/users.pietto",
+                    line=2,
+                    column=5,
+                ),
+            ),
+        ),
+    )
+
+    assert tuple(document) == _TOP_LEVEL_KEYS
+    assert document["ok"] is False
+    assert document["inputs"] == [
+        {
+            "path": "models/users.pietto",
+            "kind": "source",
+            "status": "parsed",
+        }
+    ]
+    assert document["cli_errors"] == []
+    assert document["result"] == {
+        "check": {
+            "files_total": 1,
+            "files_ok": 1,
+            "files_with_errors": 0,
+        }
+    }
+    assert document["diagnostics"] == [
+        {
+            "code": "PIE-S2301",
+            "severity": "error",
+            "message": "Unknown relation: missing",
+            "location": {
+                "path": "models/users.pietto",
+                "line": 2,
+                "column": 5,
+                "end_line": None,
+                "end_column": None,
+            },
+            "suggestion": None,
+            "related_locations": [],
+        }
+    ]
+
+
 def test_project_json_v2_root_failure_uses_nullable_project_identity() -> None:
     document = project_check_result_to_json_dict(
         ProjectDiscoveryResult(

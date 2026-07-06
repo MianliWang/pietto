@@ -36,13 +36,13 @@ PHASE16_ARTIFACT_HASHES = {
         "580ebcfcc78102d902110d864eb80c7f1a57ffcb6b4b33e1160c9abd17ba07a6"
     ),
     SLICE1_AUDIT_PATH: (
-        "8bba26b49df2c4a1be906b216e8d773c1fec3423d6a8448cc80bffd9f459db03"
+        "60371d6d1def3b8b9fd4a1e12e4b4a090f5ab743254edcb3dbff92aeb3169885"
     ),
     SLICE2_AUDIT_PATH: (
-        "82fd085bee471a34b49b61438fa64d39f455274175173aaee574ee2b9fa4a385"
+        "312b576f10954273f47ce127e185ee485b25a406ea00dc02fe8f58099d30c2de"
     ),
     SLICE3_AUDIT_PATH: (
-        "29db0e4f5bdc64c4b15cc9c5f83fc0e18535f7bdfc0645a755e5bcfc57e4a3f0"
+        "97bd9d96e42437553f59082f30dc72c16d358dcba203acd26fcf13792c5cd128"
     ),
     PLAN_PATH: "adfb0d99075299049c790f465fab7453e0ed73b985e9cff19c6aeb38f94c7f5a",
 }
@@ -67,7 +67,7 @@ LOCKED_FILE_HASHES = {
         "7aa9622bde3eb07bb64bb5c932dc69e48d635e89790b26e8090b9309c5cf62f6"
     ),
     "src/pietto/cli.py": (
-        "9362ed8191d2bab49ebc134ee0041c537bc5a297d373a00fd5b1b122cf858835"
+        "e9d90d40293db543c4b6c0da829e8b6a122fd2f8b29fcafdc23d4d54b1c42e09"
     ),
     "src/pietto/cli_json.py": (
         "ccee00529ee36b123f70d418105609dbb4906f2ccc1c1f5653527b1168fb6d91"

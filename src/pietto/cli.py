@@ -416,6 +416,16 @@ def _run_project_check(root: Path, *, output_format: str) -> int:
 
     parse_result = check_project_parse_only(root)
     if output_format == _FORMAT_JSON:
+        if parse_result.ok:
+            semantic_result = build_empty_project_semantic_result(parse_result)
+            _print_project_check_json(
+                parse_result,
+                semantic_diagnostics=semantic_result.diagnostics,
+            )
+            if not semantic_result.ok:
+                return _EXIT_DIAGNOSTIC_ERROR
+            return 0
+
         _print_project_check_json(parse_result)
         if parse_result.errors:
             return _EXIT_USAGE_ERROR
@@ -443,10 +453,17 @@ def _run_project_check(root: Path, *, output_format: str) -> int:
     return 0
 
 
-def _print_project_check_json(parse_result: ProjectParseCheckResult) -> None:
+def _print_project_check_json(
+    parse_result: ProjectParseCheckResult,
+    *,
+    semantic_diagnostics: Sequence[Diagnostic] = (),
+) -> None:
     """Print one complete project JSON v2 check document to stdout."""
 
-    document = project_check_result_to_json_dict(parse_result)
+    document = project_check_result_to_json_dict(
+        parse_result,
+        semantic_diagnostics=semantic_diagnostics,
+    )
     print(render_project_json_document(document), end="")
 
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from pietto import cli_json
 from pietto._project.model import (
@@ -23,18 +23,23 @@ _JSON_INPUT_STATUSES = frozenset({"parsed", "error"})
 
 def project_check_result_to_json_dict(
     result: ProjectDiscoveryResult | ProjectParseCheckResult,
+    *,
+    semantic_diagnostics: Sequence[Diagnostic] = (),
 ) -> dict[str, object]:
     """Build one project JSON v2 check result."""
 
     inputs = _inputs_to_json_list(result)
-    diagnostics = _diagnostics_to_json_list(result)
+    diagnostics = _diagnostics_to_json_list(
+        result,
+        semantic_diagnostics=semantic_diagnostics,
+    )
     counters = _check_counters(inputs)
 
     return {
         "schema_version": _PROJECT_JSON_V2_VERSION,
         "command": _COMMAND,
         "mode": _MODE,
-        "ok": result.ok,
+        "ok": result.ok and not _has_error_diagnostics(semantic_diagnostics),
         "project": _project_to_json_dict(result),
         "inputs": inputs,
         "diagnostics": diagnostics,
@@ -94,10 +99,19 @@ def _input_to_json_dict(project_input: ProjectInput) -> dict[str, object]:
 
 def _diagnostics_to_json_list(
     result: ProjectDiscoveryResult | ProjectParseCheckResult,
+    *,
+    semantic_diagnostics: Sequence[Diagnostic],
 ) -> list[dict[str, object]]:
+    diagnostics: list[Diagnostic] = []
     if not isinstance(result, ProjectParseCheckResult):
-        return []
-    return [_diagnostic_to_json_dict(diagnostic) for diagnostic in result.diagnostics]
+        return [_diagnostic_to_json_dict(diagnostic) for diagnostic in diagnostics]
+    diagnostics.extend(result.diagnostics)
+    diagnostics.extend(semantic_diagnostics)
+    return [_diagnostic_to_json_dict(diagnostic) for diagnostic in diagnostics]
+
+
+def _has_error_diagnostics(diagnostics: Sequence[Diagnostic]) -> bool:
+    return any(diagnostic.severity.value == "error" for diagnostic in diagnostics)
 
 
 def _diagnostic_to_json_dict(diagnostic: Diagnostic) -> dict[str, object]:

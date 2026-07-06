@@ -127,7 +127,7 @@ def test_parser_errors_short_circuit_project_semantic_builder(
     assert "PIE-P1000" in captured.err
 
 
-def test_project_json_mode_remains_parse_only_before_slice8(
+def test_project_json_mode_reports_semantic_diagnostics_after_slice8(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -140,13 +140,9 @@ def test_project_json_mode_remains_parse_only_before_slice8(
         "table projected:\n    from missing_relation\n    select:\n        id\n",
     )
 
-    def unexpected_builder(*args: object, **kwargs: object) -> object:
-        del args, kwargs
-        raise AssertionError("project JSON mode must stay parse-only in Slice 7")
+    _forbid_project_output_pipelines(monkeypatch)
 
-    monkeypatch.setattr(cli, "build_empty_project_semantic_result", unexpected_builder)
-
-    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 0
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
 
     document = _read_json_document(capsys)
     assert tuple(document) == (
@@ -160,7 +156,7 @@ def test_project_json_mode_remains_parse_only_before_slice8(
         "cli_errors",
         "result",
     )
-    assert document["ok"] is True
+    assert document["ok"] is False
     assert document["inputs"] == [
         {
             "path": "private_relation_error.pietto",
@@ -168,7 +164,10 @@ def test_project_json_mode_remains_parse_only_before_slice8(
             "status": "parsed",
         }
     ]
-    assert document["diagnostics"] == []
+    diagnostics = cast(list[dict[str, object]], document["diagnostics"])
+    assert [(item["code"], item["message"]) for item in diagnostics] == [
+        ("PIE-S2301", "Unknown relation: missing_relation")
+    ]
     assert document["cli_errors"] == []
     assert document["result"] == {
         "check": {
@@ -178,7 +177,7 @@ def test_project_json_mode_remains_parse_only_before_slice8(
         }
     }
     serialized = json.dumps(document)
-    assert "PIE-S2301" not in serialized
+    assert "PIE-S2301" in serialized
     assert "relation_resolutions" not in serialized
     assert "catalog" not in serialized
 
@@ -237,8 +236,8 @@ def test_slice7_docs_lock_text_only_project_semantic_cli_gate() -> None:
         "Text mode does not print success output when semantic errors exist",
         "Parse/project errors short-circuit semantic checks",
         "Valid cross-file projects still print the existing success output",
-        "`pietto check --project ROOT --format json` remains parse-only until Slice 8",
-        "Project JSON v2 semantic diagnostics are deferred to Slice 8",
+        "Slice 8 adds Project JSON v2 semantic diagnostics",
+        "JSON mode computes the private project semantic result after parse success",
         "No Project JSON v2 shape, counter, input-status, or semantic `ok` behavior changes in Slice 7",
         "no IR, SQL, project `emit-sql`, or project `explain` path",
         "no import from `pietto.semantic`",

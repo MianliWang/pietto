@@ -36,6 +36,11 @@ Phase 45 Slice 7 is `Project semantic CLI gate`. Slice 7 adds a text-only
 project semantic CLI gate for `pietto check --project ROOT`, but it keeps
 Project JSON v2 semantic diagnostics deferred to Slice 8.
 
+Phase 45 Slice 8 is `Project JSON v2 semantic diagnostics`. Slice 8 adds
+Project JSON v2 semantic diagnostics for `pietto check --project ROOT --format
+json` after parse success, while keeping input statuses and counters
+read/parse based.
+
 Package version remains `0.1.0`.
 
 ## Trusted Baseline
@@ -393,6 +398,42 @@ analyzer behavior, semantic model behavior, Project JSON v2 shape, CLI JSON v1,
 Semantic Metadata Artifact v1, fixtures, goldens, scripts, workflows,
 dependency files, package metadata, package version, diagnostic inventory,
 release behavior, external plugin behavior, or copied external code.
+
+## Slice 8 Project JSON v2 Semantic Diagnostics
+
+Slice 8 adds Project JSON v2 semantic diagnostics. `pietto check --project
+ROOT --format json` still runs the parse-only project check first. If
+project/config/source-selection/source-read errors or parser error diagnostics
+are present, JSON mode keeps the existing Project JSON v2 behavior and does not
+build project semantics.
+
+When parse succeeds, JSON mode computes the private project semantic result
+after parse success and appends semantic diagnostics to top-level
+`diagnostics[]` after parser diagnostics. Top-level `ok` becomes false on
+semantic error diagnostics, and JSON mode returns exit code `1` when semantic
+error diagnostics exist.
+
+`inputs[].status` remains read/parse based: a readable and parsed input remains
+`"parsed"` even if semantic diagnostics exist. `result.check` counters remain
+read/parse based, including `files_total`, `files_ok`, and
+`files_with_errors`. `cli_errors[]` remains project/config/source-selection/
+source-read only. Semantic diagnostics are never serialized in `cli_errors[]`.
+`cli_errors[]` remains project/config/source-selection/source-read only.
+
+No new Project JSON v2 fields are added. No private semantic facts are
+serialized: no catalog, `ProjectSymbol`, `type_resolutions`,
+`source_shape_resolutions`, `relation_resolutions`, or project semantic model
+fields are exposed.
+
+Parse/project errors short-circuit semantic checks. Text mode from Slice 7
+remains unchanged. Slice 8 has no IR, SQL, project `emit-sql`, or project
+`explain` path. It has no import from `pietto.semantic`, does not call the
+single-file semantic analyzer for project checks, and makes no single-file JSON
+behavior change. It does not change CLI JSON v1, Semantic Metadata Artifact v1,
+parser public API, grammar, generated parser artifacts, fixtures, goldens,
+scripts, workflows, dependency files, package metadata, package version,
+diagnostic inventory, release behavior, external plugin behavior, external
+script/hook/MCP behavior, or copied external code.
 
 ## Slice 1 Gate 2 Allowlist
 

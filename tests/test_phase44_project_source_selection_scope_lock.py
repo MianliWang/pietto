@@ -120,7 +120,7 @@ def test_old_phase44_arrow_label_is_historical_only() -> None:
         assert required in phase44_docs, required
 
 
-def test_current_project_mode_text_semantic_gate_and_json_parse_only_boundary() -> None:
+def test_current_project_mode_text_and_json_semantic_gate_boundaries() -> None:
     docs = _phase44_docs()
     phase33 = _normalized(PHASE33_COMPLETION_TEST_PATH)
     project_explain = _normalized(PROJECT_EXPLAIN_SPEC_PATH)
@@ -149,7 +149,7 @@ def test_current_project_mode_text_semantic_gate_and_json_parse_only_boundary() 
         "text-mode `pietto check --project ROOT` now routes through the private",
         "parse-only project check frontend",
         "`pietto check --project ROOT --format json` now routes through the private",
-        "parse-only project check result",
+        "parse-only project check result and reports Project JSON v2 `inputs[]` plus",
         "Project JSON v2 `inputs[]` plus",
         "`result.check` counters for parsed/error selected sources",
         "root/config/source-selection failures that stop",
@@ -176,7 +176,8 @@ def test_current_project_mode_text_semantic_gate_and_json_parse_only_boundary() 
     ):
         assert required in json_source, required
     assert "build_empty_project_semantic_result(parse_result)" in cli_source
-    assert "_print_project_check_json(parse_result)" in cli_source
+    assert "semantic_diagnostics=semantic_result.diagnostics" in cli_source
+    assert "semantic_diagnostics: Sequence[Diagnostic] = ()" in json_source
 
 
 def test_source_selection_and_parse_only_readiness_is_repo_grounded() -> None:

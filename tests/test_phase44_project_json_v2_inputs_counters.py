@@ -96,6 +96,42 @@ def test_project_json_v2_reports_parser_diagnostics_and_error_counter(
     assert str(tmp_path) not in json.dumps(document)
 
 
+def test_project_json_v2_keeps_read_parse_counters_for_semantic_errors(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = _project_root(tmp_path, include=("*.pietto",))
+    _write(
+        root,
+        "semantic_error.pietto",
+        "table projected:\n    from missing_relation\n    select:\n        id\n",
+    )
+
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+
+    document = _read_json_document(capsys)
+    assert document["ok"] is False
+    assert document["inputs"] == [
+        {
+            "path": "semantic_error.pietto",
+            "kind": "source",
+            "status": "parsed",
+        }
+    ]
+    assert document["cli_errors"] == []
+    assert document["result"] == {
+        "check": {
+            "files_total": 1,
+            "files_ok": 1,
+            "files_with_errors": 0,
+        }
+    }
+    diagnostics = cast(list[dict[str, object]], document["diagnostics"])
+    assert [(item["code"], item["message"]) for item in diagnostics] == [
+        ("PIE-S2301", "Unknown relation: missing_relation")
+    ]
+
+
 def test_project_json_v2_reports_source_read_errors_as_cli_errors(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

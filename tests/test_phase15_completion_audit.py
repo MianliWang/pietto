@@ -36,7 +36,7 @@ PHASE15_ARTIFACT_HASHES = {
         "e2a4219d2e0a0b7cc2d739475e39022df931c58171a87f96436286008a4be3b3"
     ),
     PRIOR_AUDIT_PATH: (
-        "1054b1e93b3b322744a576cf536edcf4cb93e23fa1dba124cc3fe8ffaa48771a"
+        "283deb2797c54657501b03648ff00ea8daa63a863922054996fe92c267d3b4f0"
     ),
 }
 
@@ -57,7 +57,7 @@ LOCKED_FILE_HASHES = {
         "7aa9622bde3eb07bb64bb5c932dc69e48d635e89790b26e8090b9309c5cf62f6"
     ),
     "src/pietto/cli.py": (
-        "9362ed8191d2bab49ebc134ee0041c537bc5a297d373a00fd5b1b122cf858835"
+        "e9d90d40293db543c4b6c0da829e8b6a122fd2f8b29fcafdc23d4d54b1c42e09"
     ),
     "src/pietto/cli_json.py": (
         "ccee00529ee36b123f70d418105609dbb4906f2ccc1c1f5653527b1168fb6d91"

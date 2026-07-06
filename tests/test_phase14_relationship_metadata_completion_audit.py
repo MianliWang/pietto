@@ -26,7 +26,7 @@ UNCHANGED_FILE_HASHES = {
         "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     ),
     "src/pietto/cli.py": (
-        "9362ed8191d2bab49ebc134ee0041c537bc5a297d373a00fd5b1b122cf858835"
+        "e9d90d40293db543c4b6c0da829e8b6a122fd2f8b29fcafdc23d4d54b1c42e09"
     ),
     "src/pietto/cli_json.py": (
         "ccee00529ee36b123f70d418105609dbb4906f2ccc1c1f5653527b1168fb6d91"
