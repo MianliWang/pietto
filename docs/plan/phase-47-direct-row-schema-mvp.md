@@ -218,34 +218,97 @@ slice unless a later Gate 1 explicitly widens scope:
 Query-to-query row schema propagation behavior should be Phase 48 or a later
 separately approved phase, not Phase 47.
 
-## Tentative Phase 47 Slice Route
+## Final Phase 47 Slice Route
 
-The tentative Phase 47 route is:
+The final Phase 47 route is complete:
 
-1. Candidate/scope lock only
-2. Route expansion and downstream readiness lock
-3. Private row schema carrier scaffold
-4. Source shape fields to source row schema
-5. Direct bare field projections from direct source inputs
-6. Qualified direct field projections: `source.field`
-7. Direct field rename projections: `alias = field`
-8. Unknown direct field diagnostics and deterministic ordering
-9. Downstream readiness hardening for Phase 48-50
-10. Project JSON/private-fact privacy and compatibility hardening
-11. Completion audit/status lock
+1. Candidate/scope lock only - complete
+2. Route expansion and downstream readiness lock - complete
+3. Private row schema carrier scaffold - complete
+4. Source shape fields to source row schema - complete
+5. Direct bare field projections from direct source inputs - complete
+6. Qualified direct field projections: `source.field` - complete
+7. Direct field rename projections: `alias = field` - complete
+8. Unknown direct field diagnostics and deterministic ordering - complete
+9. Downstream readiness hardening for Phase 48-50 - complete
+10. Project JSON/private-fact privacy and compatibility hardening - complete
+11. Completion audit/status lock - complete
 
-Any change to this route requires a later Gate 1 revision.
+Phase 47 Direct Row Schema MVP is complete after Slice 11. Slice 11 is
+docs/tests/static-audit/status-lock work only. It adds no source/compiler
+behavior and does not pre-claim the final Gate 3 natural CI proof; that proof
+belongs in the Gate 3 report.
+
+## Slice 11 Completion Audit And Status Lock
+
+Phase 47 delivered project-private direct row schema facts only. The private
+carrier inventory is:
+
+- `ProjectRowFieldNullability`;
+- `ProjectRowFieldProvenanceKind`;
+- `ProjectRowFieldProvenance`;
+- `ProjectRowField`;
+- `ProjectRowSchema`;
+- `ProjectSemanticModel.source_row_schemas`;
+- `ProjectSemanticModel.relation_row_schemas`.
+
+Source row schema propagation is complete for resolved source shape fields,
+preserving source field order, resolved project type facts, project-private
+nullability, and the original `FieldDef`.
+
+Direct-source ungrouped relation row schemas are complete for:
+
+- bare direct fields such as `id`;
+- qualified direct fields such as `users.id`;
+- renamed bare fields such as `user_id = id`;
+- renamed qualified fields such as `user_id = users.id`.
+
+Mixed direct field select order is preserved. Relation row fields preserve
+type, nullability, and `FieldDef` facts from the source schema and use private
+`SOURCE_FIELD` and `DIRECT_PROJECTION` provenance.
+
+Unknown direct field references use existing semantic diagnostics flow through
+`PIE-S2102`. Duplicate output names remain private unknown schemas without
+diagnostics. Grouped relations skip direct relation row schema population to
+preserve Phase 50 aggregate/grouped output-schema deferral.
+
+Project JSON v2 privacy and compatibility are locked: Project JSON v2 key
+order and shape remain unchanged, private row schema facts remain
+un-serialized, private relation graph and cycle facts remain un-serialized,
+and diagnostics flow only through the existing top-level `diagnostics[]`.
+
+Package version remains `0.1.0`. Slice 11 performs no tag, release, publish,
+upload, signing, or attestation. Final natural CI evidence belongs in the
+Gate 3 report and must not be pre-claimed in docs.
+
+The following remain deferred after Phase 47:
+
+- Phase 48 query-to-query row schema propagation;
+- Phase 49 computed alias schema;
+- Phase 49 `let` schema;
+- Phase 50 aggregate/grouped output schema;
+- project IR;
+- project SQL emit;
+- project `emit-sql`;
+- project `explain`;
+- public project semantic API;
+- parser/grammar/generated changes;
+- single-file behavior changes;
+- JOIN/relationship behavior;
+- runtime/database execution;
+- package version, tag, release, publish, upload, signing, or attestation.
 
 ## Gate 2 Allowlist
 
-Phase 47 Slice 2 Gate 2 is limited to:
+Phase 47 Slice 11 Gate 2 is limited to:
 
 - `docs/plan/phase-47-direct-row-schema-mvp.md`
 - `docs/spec/phase47-direct-row-schema-scope-lock-v1.md`
+- `tests/test_phase47_completion_audit.py`
 - `tests/test_phase47_direct_row_schema_scope_lock.py`
 
-No other file is approved in this Gate 2. Slice 2 must remain
-docs/spec/static-audit route expansion only.
+No other file is approved in this Gate 2. Slice 11 must remain
+docs/tests/static-audit/status-lock only.
 
 ## Forbidden Surfaces
 
@@ -277,14 +340,15 @@ The focused Gate 2 validation commands are:
 
 ```bash
 git diff --check
-uv run ruff format --check tests/test_phase47_direct_row_schema_scope_lock.py
-uv run ruff check tests/test_phase47_direct_row_schema_scope_lock.py
+git diff --no-index --check -- /dev/null tests/test_phase47_completion_audit.py || true
+uv run ruff format --check tests/test_phase47_completion_audit.py tests/test_phase47_direct_row_schema_scope_lock.py
+uv run ruff check tests/test_phase47_completion_audit.py tests/test_phase47_direct_row_schema_scope_lock.py
 uv run pyright --project pyrightconfig.tests.json
-uv run pytest tests/test_phase47_direct_row_schema_scope_lock.py
+uv run pytest tests/test_phase47_completion_audit.py tests/test_phase47_direct_row_schema_scope_lock.py
 ```
 
 Gate 2 must not run the broad test suite, `scripts/validate.py`, parser
-generation, or formatters that modify files.
+generation, or formatters that modify files outside the Slice 11 allowlist.
 
 ## Stop Conditions
 
@@ -293,14 +357,13 @@ Stop immediately if:
 - the branch is not `main`;
 - the worktree or index is dirty before edits;
 - the local branch is ahead, behind, or diverged unexpectedly;
-- HEAD is not `36ec7d25142387ef0ee48a46e68849d2647da1f5`;
 - package version is not exactly `0.1.0`;
 - any required change appears to require files outside the allowlist;
 - implementation pressure appears for `src/**`;
 - implementation pressure appears for parser/grammar/generated files;
 - implementation pressure appears for CLI or Project JSON v2;
-- private row schema carrier implementation becomes necessary in Slice 2;
-- direct row schema behavior implementation becomes necessary in Slice 2;
+- new private row schema behavior becomes necessary in Slice 11;
+- direct row schema behavior expansion becomes necessary in Slice 11;
 - broad validation appears necessary;
 - any focused validation command fails.
 

@@ -21,6 +21,7 @@ PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 ALLOWED_PHASE47_ROUTE_LOCK_GATE2_PATHS = {
     "docs/plan/phase-47-direct-row-schema-mvp.md",
     "docs/spec/phase47-direct-row-schema-scope-lock-v1.md",
+    "tests/test_phase47_completion_audit.py",
     "tests/test_phase47_direct_row_schema_scope_lock.py",
 }
 
@@ -255,6 +256,9 @@ def test_phase47_explicit_deferrals_and_future_route_are_locked() -> None:
         "9. Downstream readiness hardening for Phase 48-50",
         "10. Project JSON/private-fact privacy and compatibility hardening",
         "11. Completion audit/status lock",
+        "Phase 47 Direct Row Schema MVP is complete after Slice 11",
+        "Slice 11 is docs/tests/static-audit/status-lock work only",
+        "final Gate 3 natural CI proof",
     ):
         assert required in docs, required
 
@@ -272,10 +276,11 @@ def test_phase47_json_public_surface_and_validation_contract_are_locked() -> Non
         "`cli_errors[]` remains project/config/source-selection/source-read only",
         "`inputs[]` and `result.check` remain read/parse based",
         "git diff --check",
-        "uv run ruff format --check tests/test_phase47_direct_row_schema_scope_lock.py",
-        "uv run ruff check tests/test_phase47_direct_row_schema_scope_lock.py",
+        "git diff --no-index --check -- /dev/null tests/test_phase47_completion_audit.py || true",
+        "uv run ruff format --check tests/test_phase47_completion_audit.py tests/test_phase47_direct_row_schema_scope_lock.py",
+        "uv run ruff check tests/test_phase47_completion_audit.py tests/test_phase47_direct_row_schema_scope_lock.py",
         "uv run pyright --project pyrightconfig.tests.json",
-        "uv run pytest tests/test_phase47_direct_row_schema_scope_lock.py",
+        "uv run pytest tests/test_phase47_completion_audit.py tests/test_phase47_direct_row_schema_scope_lock.py",
     ):
         assert required in docs, required
 

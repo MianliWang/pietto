@@ -237,23 +237,85 @@ The following work is out of scope for Phase 47 Slice 1:
 - runtime/database execution behavior;
 - package version changes.
 
-## Tentative Slice Roadmap
+## Final Slice Roadmap
 
-The tentative Phase 47 route is:
+The final Phase 47 route is complete:
 
-1. Candidate/scope lock only
-2. Route expansion and downstream readiness lock
-3. Private row schema carrier scaffold
-4. Source shape fields to source row schema
-5. Direct bare field projections from direct source inputs
-6. Qualified direct field projections: `source.field`
-7. Direct field rename projections: `alias = field`
-8. Unknown direct field diagnostics and deterministic ordering
-9. Downstream readiness hardening for Phase 48-50
-10. Project JSON/private-fact privacy and compatibility hardening
-11. Completion audit/status lock
+1. Candidate/scope lock only - complete
+2. Route expansion and downstream readiness lock - complete
+3. Private row schema carrier scaffold - complete
+4. Source shape fields to source row schema - complete
+5. Direct bare field projections from direct source inputs - complete
+6. Qualified direct field projections: `source.field` - complete
+7. Direct field rename projections: `alias = field` - complete
+8. Unknown direct field diagnostics and deterministic ordering - complete
+9. Downstream readiness hardening for Phase 48-50 - complete
+10. Project JSON/private-fact privacy and compatibility hardening - complete
+11. Completion audit/status lock - complete
 
-Any change to this route requires a later Gate 1 revision.
+Phase 47 Direct Row Schema MVP is complete after Slice 11. Slice 11 is
+docs/tests/static-audit/status-lock work only. It adds no source/compiler
+behavior and does not pre-claim the final Gate 3 natural CI proof; that proof
+belongs in the Gate 3 report.
+
+## Slice 11 Completion Audit And Status Lock
+
+Phase 47 delivered project-private direct row schema facts only. The private
+carrier inventory is:
+
+- `ProjectRowFieldNullability`;
+- `ProjectRowFieldProvenanceKind`;
+- `ProjectRowFieldProvenance`;
+- `ProjectRowField`;
+- `ProjectRowSchema`;
+- `ProjectSemanticModel.source_row_schemas`;
+- `ProjectSemanticModel.relation_row_schemas`.
+
+Source row schema propagation is complete for resolved source shape fields,
+preserving source field order, resolved project type facts, project-private
+nullability, and the original `FieldDef`.
+
+Direct-source ungrouped relation row schemas are complete for:
+
+- bare direct fields such as `id`;
+- qualified direct fields such as `users.id`;
+- renamed bare fields such as `user_id = id`;
+- renamed qualified fields such as `user_id = users.id`.
+
+Mixed direct field select order is preserved. Relation row fields preserve
+type, nullability, and `FieldDef` facts from the source schema and use private
+`SOURCE_FIELD` and `DIRECT_PROJECTION` provenance.
+
+Unknown direct field references use existing semantic diagnostics flow through
+`PIE-S2102`. Duplicate output names remain private unknown schemas without
+diagnostics. Grouped relations skip direct relation row schema population to
+preserve Phase 50 aggregate/grouped output-schema deferral.
+
+Project JSON v2 privacy and compatibility are locked: Project JSON v2 key
+order and shape remain unchanged, private row schema facts remain
+un-serialized, private relation graph and cycle facts remain un-serialized,
+and diagnostics flow only through the existing top-level `diagnostics[]`.
+
+Package version remains `0.1.0`. Slice 11 performs no tag, release, publish,
+upload, signing, or attestation. Final natural CI evidence belongs in the
+Gate 3 report and must not be pre-claimed in docs.
+
+The following remain deferred after Phase 47:
+
+- Phase 48 query-to-query row schema propagation;
+- Phase 49 computed alias schema;
+- Phase 49 `let` schema;
+- Phase 50 aggregate/grouped output schema;
+- project IR;
+- project SQL emit;
+- project `emit-sql`;
+- project `explain`;
+- public project semantic API;
+- parser/grammar/generated changes;
+- single-file behavior changes;
+- JOIN/relationship behavior;
+- runtime/database execution;
+- package version, tag, release, publish, upload, signing, or attestation.
 
 ## Forbidden Surfaces
 
@@ -262,6 +324,12 @@ behavior, Project JSON v2 serializer behavior, CLI JSON v1 behavior, Semantic
 Metadata Artifact v1 behavior, fixtures, goldens, scripts, workflows,
 dependency files, package metadata, package version, tag, release, publish,
 upload, signing, or attestation behavior.
+
+Slice 11 also changes no production source, generated parser artifacts,
+grammar, CLI behavior, Project JSON v2 serializer behavior, CLI JSON v1
+behavior, Semantic Metadata Artifact v1 behavior, fixtures, goldens, scripts,
+workflows, dependency files, package metadata, package version, tag, release,
+publish, upload, signing, or attestation behavior.
 
 Slice 1 does not add or change:
 
