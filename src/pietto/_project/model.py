@@ -282,6 +282,67 @@ class ProjectRowSchema:
         object.__setattr__(self, "fields", _readonly_mapping(self.fields))
 
 
+class ProjectRelationRowSchemaStatus(StrEnum):
+    """Private relation row schema availability states for future propagation."""
+
+    CONCRETE = "concrete"
+    UNKNOWN = "unknown"
+    DEFERRED = "deferred"
+    BLOCKED = "blocked"
+
+
+class ProjectRelationRowSchemaReason(StrEnum):
+    """Private relation row schema availability reasons."""
+
+    DIRECT_SOURCE_CONCRETE = "direct_source_concrete"
+    UNKNOWN_SCHEMA = "unknown_schema"
+    DUPLICATE_OUTPUT_NAME = "duplicate_output_name"
+    DEFERRED_PHASE48_BEHAVIOR = "deferred_phase48_behavior"
+    UNRESOLVED_RELATION_BLOCKED = "unresolved_relation_blocked"
+    CYCLE_BLOCKED = "cycle_blocked"
+    UPSTREAM_UNKNOWN = "upstream_unknown"
+    UPSTREAM_DEFERRED = "upstream_deferred"
+    UPSTREAM_BLOCKED = "upstream_blocked"
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectRelationRowSchemaState:
+    """Private relation row schema availability carrier."""
+
+    status: ProjectRelationRowSchemaStatus
+    schema: ProjectRowSchema | None
+    reason: ProjectRelationRowSchemaReason
+
+    def __post_init__(self) -> None:
+        """Validate private availability carrier invariants."""
+
+        if not isinstance(self.status, ProjectRelationRowSchemaStatus):
+            raise ValueError("Project relation row schema state requires a status")
+        if not isinstance(self.reason, ProjectRelationRowSchemaReason):
+            raise ValueError("Project relation row schema state requires a reason")
+
+        if self.status is ProjectRelationRowSchemaStatus.CONCRETE:
+            if self.schema is None:
+                raise ValueError("Concrete relation row schema state requires schema")
+            if self.schema.is_unknown:
+                raise ValueError("Concrete relation row schema state cannot be unknown")
+            return
+
+        if self.status is ProjectRelationRowSchemaStatus.UNKNOWN:
+            if self.schema is None:
+                raise ValueError("Unknown relation row schema state requires schema")
+            if not self.schema.is_unknown:
+                raise ValueError(
+                    "Unknown relation row schema state requires unknown schema"
+                )
+            return
+
+        if self.schema is not None:
+            raise ValueError(
+                "Deferred or blocked relation row schema state forbids schema"
+            )
+
+
 class _ProjectDirectFieldProjectionStatus(StrEnum):
     """Private status for one direct-field projection candidate."""
 
@@ -427,6 +488,9 @@ class ProjectSemanticModel:
     relation_row_schemas: Mapping[TableDef | QueryDef, ProjectRowSchema] = field(
         default_factory=lambda: _readonly_mapping()
     )
+    relation_row_schema_states: Mapping[
+        TableDef | QueryDef, ProjectRelationRowSchemaState
+    ] = field(default_factory=lambda: _readonly_mapping())
     relation_dependency_graph: ProjectRelationDependencyGraph = field(
         default_factory=ProjectRelationDependencyGraph
     )
@@ -458,6 +522,11 @@ class ProjectSemanticModel:
             self,
             "relation_row_schemas",
             _readonly_mapping(self.relation_row_schemas),
+        )
+        object.__setattr__(
+            self,
+            "relation_row_schema_states",
+            _readonly_mapping(self.relation_row_schema_states),
         )
 
 

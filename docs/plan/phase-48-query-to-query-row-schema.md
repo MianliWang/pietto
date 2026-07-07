@@ -30,6 +30,16 @@ project semantic API, no parser/grammar/generated change, no JOIN/relationship
 behavior, no runtime/database execution, no package version change, and no tag,
 release, publish, upload, signing, or attestation.
 
+Phase 48 Slice 3 is Private schema availability state carrier and propagation
+readiness. Slice 3 adds only the private
+`ProjectRelationRowSchemaState` carrier scaffold, private status/reason
+vocabulary, `ProjectSemanticModel.relation_row_schema_states`, a Slice 3 spec,
+and focused tests. Slice 3 does not populate relation row schema states from
+checker/build logic, does not change existing `relation_row_schemas` behavior,
+does not implement propagation, adds no diagnostics, changes no diagnostic
+ordering, changes no Project JSON v2 shape, serializes no private facts, and
+adds no public project semantic API.
+
 Package version remains `0.1.0`.
 
 ## Trusted Baseline
@@ -55,6 +65,18 @@ Package version remains `0.1.0`.
 - Baseline exact-match tag: none.
 - Natural CI: `CI` run `28886882803`, event `push`, branch `main`, headSha
   `b922e240b5746db8f5fc9e2dae8309a352ca31de`, completed with success.
+
+## Slice 3 Trusted Baseline
+
+- Baseline branch: `main`.
+- Baseline HEAD: `dff8726dd86ddbcce0e3763a97b230109769849a`.
+- Baseline subject: `Add Phase 48 deterministic propagation contract`.
+- Baseline package version: `0.1.0`.
+- Baseline worktree status: clean and equivalent to `## main...origin/main`.
+- Baseline HEAD tag: none.
+- Baseline exact-match tag: none.
+- Natural CI: `CI` run `28888129097`, event `push`, branch `main`, headSha
+  `dff8726dd86ddbcce0e3763a97b230109769849a`, completed with success.
 
 ## Phase Identity And Prerequisites
 
@@ -91,8 +113,9 @@ approves a narrower route.
 ## Schema Availability State Design
 
 Phase 48 selects schema availability design B as the target private design.
-Slice 1 only locks the design and does not implement the carrier.
-`ProjectRelationRowSchemaState` is the planned private carrier name.
+Slice 1 locks the design, Slice 2 locks deterministic ordering and blocking
+semantics, and Slice 3 implements only the private carrier scaffold.
+`ProjectRelationRowSchemaState` is the private carrier name.
 
 ```text
 ProjectRelationRowSchemaState
@@ -114,7 +137,11 @@ State semantics:
   `PIE-S2302`.
 
 This state is project-private target design only. It is not Project JSON v2
-output, not public API, and not implemented in Slice 1.
+output and not public API. Slice 3 adds
+`ProjectSemanticModel.relation_row_schema_states` as a private semantic model
+mapping surface, defaulting to empty for existing callers. Slice 3 does not
+populate actual states from checker/build logic; state population remains
+deferred to later propagation slices.
 
 ## Flat Relation Schema Model
 
@@ -339,6 +366,17 @@ Phase 48 Slice 2 Gate 2 is limited to:
 
 No other file is approved in Slice 2 Gate 2.
 
+## Slice 3 Gate 2 Allowlist
+
+Phase 48 Slice 3 Gate 2 is limited to:
+
+- `docs/plan/phase-48-query-to-query-row-schema.md`
+- `docs/spec/phase48-schema-availability-state-carrier-v1.md`
+- `src/pietto/_project/model.py`
+- `tests/test_phase48_schema_availability_state_carrier.py`
+
+No other file is approved in Slice 3 Gate 2.
+
 ## Focused Validation
 
 The focused Slice 1 Gate 2 validation commands are:
@@ -376,6 +414,32 @@ uv run pytest tests/test_phase48_deterministic_propagation_order_contract.py
 Do not run broad validation, `scripts/validate.py`, code generation, parser
 generation, workflows, or CI in dirty Slice 2 Gate 2.
 
+The focused Slice 3 Gate 2 validation commands are:
+
+```bash
+git diff --check
+set +e
+git diff --no-index --check -- /dev/null docs/spec/phase48-schema-availability-state-carrier-v1.md
+rc_spec=$?
+git diff --no-index --check -- /dev/null tests/test_phase48_schema_availability_state_carrier.py
+rc_test=$?
+set -e
+test "$rc_spec" -le 1
+test "$rc_test" -le 1
+uv run ruff format --check src/pietto/_project/model.py tests/test_phase48_schema_availability_state_carrier.py
+uv run ruff check src/pietto/_project/model.py tests/test_phase48_schema_availability_state_carrier.py
+uv run pyright --project pyrightconfig.json
+uv run pyright --project pyrightconfig.tests.json
+uv run pytest tests/test_phase48_schema_availability_state_carrier.py
+```
+
+Do not run broad validation, `scripts/validate.py`, code generation, parser
+generation, workflows, or CI in dirty Slice 3 Gate 2.
+Prior-slice dirty-path guard tests should not be required during dirty Slice 3
+Gate 2 because they intentionally inspect the current dirty working tree and
+may reject newer-slice allowlists. They remain clean-tree/CI compatibility
+coverage after commit.
+
 ## Stop Conditions
 
 Stop immediately if implementation would require files outside the Slice 1
@@ -394,3 +458,14 @@ aggregate/grouped schema, JOIN/relationship behavior, project
 IR/SQL/emit/explain, public API, downstream readiness behavior implementation,
 package version changes, release actions, docs outside the allowlist, or
 hash-lock churn.
+
+For Slice 3, stop immediately if implementation would require files outside the
+Slice 3 allowlist, `src/pietto/_project/check.py`,
+`src/pietto/_project/json_v2.py`, state population from checker/build logic,
+table-to-table propagation, table-to-query propagation, query-to-query
+propagation, multi-hop propagation, parser/generated files, Project JSON
+v2/CLI/check changes, new diagnostics, diagnostic wording or ordering changes,
+computed alias schema, `let` schema, aggregate/grouped schema,
+JOIN/relationship behavior, project IR/SQL/emit/explain, public API,
+downstream readiness behavior implementation, package version changes, release
+actions, docs outside the allowlist, or hash-lock churn.
