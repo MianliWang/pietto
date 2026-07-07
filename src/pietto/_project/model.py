@@ -864,19 +864,15 @@ def _project_direct_field_projection(
     source_name: str,
     fallback_path: str,
 ) -> _ProjectDirectFieldProjection:
-    """Decode one bare or qualified direct-field projection candidate."""
-
-    if item.alias is not None:
-        return _ProjectDirectFieldProjection(
-            status=_ProjectDirectFieldProjectionStatus.DEFERRED
-        )
+    """Decode one direct field projection or direct field rename candidate."""
 
     expression = item.expression
     if isinstance(expression, NameExpr):
+        lookup_name = expression.name
         return _ProjectDirectFieldProjection(
             status=_ProjectDirectFieldProjectionStatus.SUPPORTED,
-            output_name=expression.name,
-            lookup_name=expression.name,
+            output_name=item.alias or lookup_name,
+            lookup_name=lookup_name,
             location=_project_expression_location(
                 expression,
                 fallback_path=fallback_path,
@@ -890,7 +886,7 @@ def _project_direct_field_projection(
         field_name = expression.parts[1]
         return _ProjectDirectFieldProjection(
             status=_ProjectDirectFieldProjectionStatus.SUPPORTED,
-            output_name=field_name,
+            output_name=item.alias or field_name,
             lookup_name=field_name,
             location=_project_expression_location(
                 expression,

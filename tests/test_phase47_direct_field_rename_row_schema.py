@@ -14,7 +14,6 @@ from pietto._project.json_v2 import project_check_result_to_json_dict
 from pietto._project.model import (
     ProjectParseCheckResult,
     ProjectRowField,
-    ProjectRowFieldNullability,
     ProjectRowFieldProvenanceKind,
     ProjectSemanticResult,
     build_empty_project_semantic_result,
@@ -24,7 +23,7 @@ from pietto.ast_nodes import QueryDef, SourceDef, TableDef
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
-ALLOWED_SLICE5_GATE2_PATHS = {
+ALLOWED_SLICE7_GATE2_PATHS = {
     "src/pietto/_project/model.py",
     "tests/test_phase47_private_row_schema_scaffold.py",
     "tests/test_phase47_source_row_schema_propagation.py",
@@ -43,11 +42,11 @@ ALLOWED_SLICE5_GATE2_PATHS = {
 }
 
 
-def test_table_from_direct_source_populates_relation_row_schema_for_bare_fields(
+def test_table_from_direct_source_populates_relation_row_schema_for_renamed_bare_field(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(
-        _direct_projection_project(
+        _renamed_projection_project(
             tmp_path,
             relation_kind="table",
             relation_name="active_users",
@@ -61,29 +60,36 @@ def test_table_from_direct_source_populates_relation_row_schema_for_bare_fields(
     table = _derived_definition(parse_result, "active_users")
     source_schema = semantic_result.model.source_row_schemas[source]
     relation_schema = semantic_result.model.relation_row_schemas[table]
+    source_symbol = semantic_result.model.relation_resolutions[table.from_clause]
 
     assert isinstance(semantic_result.model.relation_row_schemas, MappingProxyType)
     assert isinstance(relation_schema.fields, MappingProxyType)
     assert tuple(semantic_result.model.relation_row_schemas) == (table,)
-    assert tuple(relation_schema.fields) == ("id", "email")
+    assert tuple(relation_schema.fields) == ("user_id", "contact")
+    assert relation_schema.is_unknown is False
     with pytest.raises(TypeError):
         cast(MutableMapping[str, ProjectRowField], relation_schema.fields)["extra"] = (
-            relation_schema.fields["id"]
+            relation_schema.fields["user_id"]
         )
+    _assert_direct_projection_field(
+        relation_field=relation_schema.fields["user_id"],
+        source_field=source_schema.fields["id"],
+        source_symbol=source_symbol,
+        expected_name="user_id",
+    )
+    _assert_direct_projection_field(
+        relation_field=relation_schema.fields["contact"],
+        source_field=source_schema.fields["email"],
+        source_symbol=source_symbol,
+        expected_name="contact",
+    )
 
-    for name in ("id", "email"):
-        _assert_direct_projection_field(
-            relation_field=relation_schema.fields[name],
-            source_field=source_schema.fields[name],
-            source_symbol=semantic_result.model.relation_resolutions[table.from_clause],
-        )
 
-
-def test_query_from_direct_source_populates_relation_row_schema_for_bare_fields(
+def test_query_from_direct_source_populates_relation_row_schema_for_renamed_bare_field(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(
-        _direct_projection_project(
+        _renamed_projection_project(
             tmp_path,
             relation_kind="query",
             relation_name="active_users",
@@ -97,131 +103,164 @@ def test_query_from_direct_source_populates_relation_row_schema_for_bare_fields(
     query = _derived_definition(parse_result, "active_users")
     source_schema = semantic_result.model.source_row_schemas[source]
     relation_schema = semantic_result.model.relation_row_schemas[query]
+    source_symbol = semantic_result.model.relation_resolutions[query.from_clause]
 
     assert tuple(semantic_result.model.relation_row_schemas) == (query,)
-    assert tuple(relation_schema.fields) == ("id", "email")
-    for name in ("id", "email"):
-        _assert_direct_projection_field(
-            relation_field=relation_schema.fields[name],
-            source_field=source_schema.fields[name],
-            source_symbol=semantic_result.model.relation_resolutions[query.from_clause],
-        )
-
-
-def test_direct_bare_projection_preserves_select_order_not_source_order(
-    tmp_path: Path,
-) -> None:
-    root = _project_root(tmp_path, include=("*.pietto",))
-    _write(
-        root,
-        "models.pietto",
-        "shape User:\n"
-        "    id: Int not null\n"
-        "    email: Text nullable\n"
-        "    created_at: Timestamp\n"
-        'source users: User is postgres.table("users")\n'
-        "table projected:\n"
-        "    from users\n"
-        "    select:\n"
-        "        email\n"
-        "        id\n",
+    assert tuple(relation_schema.fields) == ("user_id", "contact")
+    _assert_direct_projection_field(
+        relation_field=relation_schema.fields["user_id"],
+        source_field=source_schema.fields["id"],
+        source_symbol=source_symbol,
+        expected_name="user_id",
+    )
+    _assert_direct_projection_field(
+        relation_field=relation_schema.fields["contact"],
+        source_field=source_schema.fields["email"],
+        source_symbol=source_symbol,
+        expected_name="contact",
     )
 
-    parse_result, semantic_result = _project_semantic_result(root)
 
-    assert semantic_result.ok
-    assert semantic_result.model is not None
-    table = _derived_definition(parse_result, "projected")
-    relation_schema = semantic_result.model.relation_row_schemas[table]
-    assert tuple(relation_schema.fields) == ("email", "id")
-
-
-def test_direct_bare_projection_preserves_nullability_and_type(
+def test_direct_qualified_rename_populates_relation_row_schema(
     tmp_path: Path,
 ) -> None:
-    root = _project_root(tmp_path, include=("*.pietto",))
-    _write(
-        root,
-        "models.pietto",
-        "shape User:\n"
-        "    required: Int not null\n"
-        "    optional: Text nullable\n"
-        "    implicit: Bool\n"
-        'source users: User is postgres.table("users")\n'
-        "table projected:\n"
-        "    from users\n"
-        "    select:\n"
-        "        optional\n"
-        "        required\n"
-        "        implicit\n",
+    parse_result, semantic_result = _project_semantic_result(
+        _project_with_select(tmp_path, "        user_id = users.id\n")
     )
 
-    parse_result, semantic_result = _project_semantic_result(root)
-
     assert semantic_result.ok
+    assert semantic_result.diagnostics == ()
     assert semantic_result.model is not None
     source = _source_definition(parse_result, "users")
     table = _derived_definition(parse_result, "projected")
     source_schema = semantic_result.model.source_row_schemas[source]
     relation_schema = semantic_result.model.relation_row_schemas[table]
+    source_symbol = semantic_result.model.relation_resolutions[table.from_clause]
 
-    assert tuple(relation_schema.fields) == ("optional", "required", "implicit")
-    assert (
-        relation_schema.fields["required"].nullability
-        is ProjectRowFieldNullability.NON_NULL
-    )
-    assert (
-        relation_schema.fields["optional"].nullability
-        is ProjectRowFieldNullability.NULLABLE
-    )
-    assert (
-        relation_schema.fields["implicit"].nullability
-        is ProjectRowFieldNullability.UNKNOWN
-    )
-    for name in ("required", "optional", "implicit"):
-        assert (
-            relation_schema.fields[name].resolved_type
-            is source_schema.fields[name].resolved_type
-        )
-
-
-def test_qualified_source_field_projection_is_supported_by_slice6(
-    tmp_path: Path,
-) -> None:
-    parse_result, semantic_result = _project_semantic_result(
-        _project_with_select(tmp_path, "        users.id\n")
-    )
-
-    assert semantic_result.ok
-    assert semantic_result.diagnostics == ()
-    assert semantic_result.model is not None
-    table = _derived_definition(parse_result, "projected")
-    relation_schema = semantic_result.model.relation_row_schemas[table]
-    assert tuple(relation_schema.fields) == ("id",)
-    assert relation_schema.fields["id"].name == "id"
-    assert "PIE-S2102" not in _diagnostic_codes(semantic_result)
-
-
-def test_direct_field_rename_projection_is_supported_by_slice7(
-    tmp_path: Path,
-) -> None:
-    parse_result, semantic_result = _project_semantic_result(
-        _project_with_select(tmp_path, "        user_id = id\n")
-    )
-
-    assert semantic_result.ok
-    assert semantic_result.diagnostics == ()
-    assert semantic_result.model is not None
-    table = _derived_definition(parse_result, "projected")
-    relation_schema = semantic_result.model.relation_row_schemas[table]
     assert tuple(relation_schema.fields) == ("user_id",)
-    assert relation_schema.fields["user_id"].name == "user_id"
+    _assert_direct_projection_field(
+        relation_field=relation_schema.fields["user_id"],
+        source_field=source_schema.fields["id"],
+        source_symbol=source_symbol,
+        expected_name="user_id",
+    )
+
+
+def test_mixed_bare_qualified_and_renamed_direct_fields_preserve_select_order(
+    tmp_path: Path,
+) -> None:
+    parse_result, semantic_result = _project_semantic_result(
+        _project_with_select(
+            tmp_path,
+            "        users.email\n        id\n        user_id = id\n",
+        )
+    )
+
+    assert semantic_result.ok
+    assert semantic_result.model is not None
+    table = _derived_definition(parse_result, "projected")
+    relation_schema = semantic_result.model.relation_row_schemas[table]
+    assert tuple(relation_schema.fields) == ("email", "id", "user_id")
+
+
+def test_distinct_alias_for_same_input_field_is_valid(tmp_path: Path) -> None:
+    parse_result, semantic_result = _project_semantic_result(
+        _project_with_select(tmp_path, "        id\n        id_alias = id\n")
+    )
+
+    assert semantic_result.ok
+    assert semantic_result.diagnostics == ()
+    assert semantic_result.model is not None
+    table = _derived_definition(parse_result, "projected")
+    relation_schema = semantic_result.model.relation_row_schemas[table]
+    assert tuple(relation_schema.fields) == ("id", "id_alias")
+    assert relation_schema.is_unknown is False
+
+
+def test_duplicate_output_from_rename_marks_relation_row_schema_unknown(
+    tmp_path: Path,
+) -> None:
+    parse_result, semantic_result = _project_semantic_result(
+        _project_with_select(tmp_path, "        id\n        id = users.id\n")
+    )
+
+    assert semantic_result.ok
+    assert semantic_result.model is not None
+    table = _derived_definition(parse_result, "projected")
+    relation_schema = semantic_result.model.relation_row_schemas[table]
+    assert relation_schema.is_unknown is True
+    assert relation_schema.fields == {}
+    assert "PIE-S2102" not in _diagnostic_codes(semantic_result)
+    assert "PIE-S2305" not in _diagnostic_codes(semantic_result)
+
+
+def test_wrong_qualifier_in_renamed_qualified_field_marks_unknown_without_diagnostic(
+    tmp_path: Path,
+) -> None:
+    parse_result, semantic_result = _project_semantic_result(
+        _project_with_select(tmp_path, "        user_id = orders.id\n")
+    )
+
+    assert semantic_result.ok
+    assert semantic_result.model is not None
+    table = _derived_definition(parse_result, "projected")
+    relation_schema = semantic_result.model.relation_row_schemas[table]
+    assert relation_schema.is_unknown is True
+    assert relation_schema.fields == {}
     assert "PIE-S2102" not in _diagnostic_codes(semantic_result)
 
 
-def test_computed_alias_projection_remains_deferred(tmp_path: Path) -> None:
+def test_unknown_renamed_bare_field_marks_unknown_without_diagnostic(
+    tmp_path: Path,
+) -> None:
     parse_result, semantic_result = _project_semantic_result(
-        _project_with_select(tmp_path, "        next_score = score + 1\n")
+        _project_with_select(tmp_path, "        user_id = missing_field\n")
+    )
+
+    assert semantic_result.ok
+    assert semantic_result.model is not None
+    table = _derived_definition(parse_result, "projected")
+    relation_schema = semantic_result.model.relation_row_schemas[table]
+    assert relation_schema.is_unknown is True
+    assert relation_schema.fields == {}
+    assert "PIE-S2102" not in _diagnostic_codes(semantic_result)
+
+
+def test_unknown_renamed_qualified_field_marks_unknown_without_diagnostic(
+    tmp_path: Path,
+) -> None:
+    parse_result, semantic_result = _project_semantic_result(
+        _project_with_select(tmp_path, "        user_id = users.missing_field\n")
+    )
+
+    assert semantic_result.ok
+    assert semantic_result.model is not None
+    table = _derived_definition(parse_result, "projected")
+    relation_schema = semantic_result.model.relation_row_schemas[table]
+    assert relation_schema.is_unknown is True
+    assert relation_schema.fields == {}
+    assert "PIE-S2102" not in _diagnostic_codes(semantic_result)
+
+
+def test_multi_part_renamed_dotted_projection_marks_unknown_without_diagnostic(
+    tmp_path: Path,
+) -> None:
+    parse_result, semantic_result = _project_semantic_result(
+        _project_with_select(tmp_path, "        user_id = db.users.id\n")
+    )
+
+    assert semantic_result.ok
+    assert semantic_result.model is not None
+    table = _derived_definition(parse_result, "projected")
+    relation_schema = semantic_result.model.relation_row_schemas[table]
+    assert relation_schema.is_unknown is True
+    assert relation_schema.fields == {}
+    assert "PIE-S2102" not in _diagnostic_codes(semantic_result)
+
+
+def test_computed_alias_remains_deferred_to_phase49(tmp_path: Path) -> None:
+    parse_result, semantic_result = _project_semantic_result(
+        _project_with_select(tmp_path, "        total = score + 1\n")
     )
 
     assert semantic_result.ok
@@ -231,43 +270,7 @@ def test_computed_alias_projection_remains_deferred(tmp_path: Path) -> None:
     assert table not in semantic_result.model.relation_row_schemas
 
 
-def test_unknown_bare_field_marks_relation_row_schema_unknown_without_diagnostic(
-    tmp_path: Path,
-) -> None:
-    parse_result, semantic_result = _project_semantic_result(
-        _project_with_select(tmp_path, "        missing_field\n")
-    )
-
-    assert semantic_result.ok
-    assert semantic_result.diagnostics == ()
-    assert semantic_result.model is not None
-    table = _derived_definition(parse_result, "projected")
-    relation_schema = semantic_result.model.relation_row_schemas[table]
-    assert relation_schema.is_unknown is True
-    assert relation_schema.fields == {}
-    assert "PIE-S2102" not in _diagnostic_codes(semantic_result)
-
-
-def test_duplicate_bare_field_marks_relation_row_schema_unknown_without_diagnostic(
-    tmp_path: Path,
-) -> None:
-    parse_result, semantic_result = _project_semantic_result(
-        _project_with_select(tmp_path, "        id\n        id\n")
-    )
-
-    assert semantic_result.ok
-    assert semantic_result.diagnostics == ()
-    assert semantic_result.model is not None
-    table = _derived_definition(parse_result, "projected")
-    relation_schema = semantic_result.model.relation_row_schemas[table]
-    assert relation_schema.is_unknown is True
-    assert relation_schema.fields == {}
-    assert "PIE-S2305" not in _diagnostic_codes(semantic_result)
-
-
-def test_query_to_query_relation_row_schema_propagation_remains_absent(
-    tmp_path: Path,
-) -> None:
+def test_query_to_query_rename_projection_remains_absent(tmp_path: Path) -> None:
     root = _project_root(tmp_path, include=("*.pietto",))
     _write(
         root,
@@ -282,7 +285,7 @@ def test_query_to_query_relation_row_schema_propagation_remains_absent(
         "query exported:\n"
         "    from staged\n"
         "    select:\n"
-        "        id\n",
+        "        user_id = id\n",
     )
 
     parse_result, semantic_result = _project_semantic_result(root)
@@ -296,11 +299,11 @@ def test_query_to_query_relation_row_schema_propagation_remains_absent(
     assert exported not in semantic_result.model.relation_row_schemas
 
 
-def test_project_json_v2_does_not_expose_relation_row_schema_private_facts(
+def test_project_json_v2_does_not_expose_rename_relation_row_schema_private_facts(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(
-        _direct_projection_project(
+        _renamed_projection_project(
             tmp_path,
             relation_kind="table",
             relation_name="active_users",
@@ -328,12 +331,12 @@ def test_project_json_v2_does_not_expose_relation_row_schema_private_facts(
         assert private_fact not in serialized
 
 
-def test_phase47_slice5_package_version_and_dirty_paths_are_locked() -> None:
+def test_phase47_slice7_package_version_and_dirty_paths_are_locked() -> None:
     pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
 
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
-    assert _git_status_paths().issubset(ALLOWED_SLICE5_GATE2_PATHS)
+    assert _git_status_paths().issubset(ALLOWED_SLICE7_GATE2_PATHS)
 
 
 def _assert_direct_projection_field(
@@ -341,8 +344,9 @@ def _assert_direct_projection_field(
     relation_field: ProjectRowField,
     source_field: ProjectRowField,
     source_symbol: object,
+    expected_name: str,
 ) -> None:
-    assert relation_field.name == source_field.name
+    assert relation_field.name == expected_name
     assert relation_field.resolved_type is source_field.resolved_type
     assert relation_field.nullability is source_field.nullability
     assert relation_field.field_def is source_field.field_def
@@ -364,7 +368,7 @@ def _project_semantic_result(
     return parse_result, build_empty_project_semantic_result(parse_result)
 
 
-def _direct_projection_project(
+def _renamed_projection_project(
     tmp_path: Path,
     *,
     relation_kind: str,
@@ -381,8 +385,8 @@ def _direct_projection_project(
         f"{relation_kind} {relation_name}:\n"
         "    from users\n"
         "    select:\n"
-        "        id\n"
-        "        email\n",
+        "        user_id = id\n"
+        "        contact = email\n",
     )
     return root
 
@@ -393,7 +397,8 @@ def _project_with_select(tmp_path: Path, select_body: str) -> Path:
         root,
         "models.pietto",
         "shape User:\n"
-        "    id: Int\n"
+        "    id: Int not null\n"
+        "    email: Text nullable\n"
         "    score: Int\n"
         'source users: User is postgres.table("users")\n'
         "table projected:\n"

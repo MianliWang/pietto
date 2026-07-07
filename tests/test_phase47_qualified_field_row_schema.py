@@ -25,6 +25,7 @@ ALLOWED_SLICE6_GATE2_PATHS = {
     "tests/test_phase47_source_row_schema_propagation.py",
     "tests/test_phase47_direct_bare_field_row_schema.py",
     "tests/test_phase47_qualified_field_row_schema.py",
+    "tests/test_phase47_direct_field_rename_row_schema.py",
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
     "tests/test_phase11_generated_guard.py",
@@ -243,7 +244,7 @@ def test_duplicate_output_from_bare_and_qualified_marks_relation_row_schema_unkn
     assert "PIE-S2305" not in _diagnostic_codes(semantic_result)
 
 
-def test_qualified_field_rename_remains_deferred_to_slice7(tmp_path: Path) -> None:
+def test_qualified_field_rename_is_supported_by_slice7(tmp_path: Path) -> None:
     parse_result, semantic_result = _project_semantic_result(
         _project_with_select(tmp_path, "        user_id = users.id\n")
     )
@@ -252,7 +253,9 @@ def test_qualified_field_rename_remains_deferred_to_slice7(tmp_path: Path) -> No
     assert semantic_result.diagnostics == ()
     assert semantic_result.model is not None
     table = _derived_definition(parse_result, "projected")
-    assert table not in semantic_result.model.relation_row_schemas
+    relation_schema = semantic_result.model.relation_row_schemas[table]
+    assert tuple(relation_schema.fields) == ("user_id",)
+    assert relation_schema.fields["user_id"].name == "user_id"
     assert "PIE-S2102" not in _diagnostic_codes(semantic_result)
 
 
