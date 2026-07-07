@@ -11,6 +11,16 @@ dependency graph implementation, no relation cycle detection implementation, no
 row schema implementation, no CLI behavior, no Project JSON v2 behavior, no IR,
 no SQL, no project `emit-sql`, no project `explain`, and no release behavior.
 
+Phase 46 Slice 8 is `Completion audit and status lock`. Slice 8 is
+docs/tests/static-audit/status-lock only. It locks the Phase 46 completion
+boundary after Slices 1 through 7 without changing production source behavior,
+parser behavior, Project JSON v2 behavior, single-file behavior, package
+metadata, workflow/dependency files, or release surfaces.
+
+Phase 46 is complete after Slice 8 as `Project Semantic Continuation`, with
+the final Gate 3 commit, push, and natural CI proof handled outside this Gate 2
+specification.
+
 Package version remains `0.1.0`.
 
 ## Selected Candidate
@@ -192,3 +202,53 @@ The tentative Phase 46 route is:
 8. Completion audit/status lock
 
 Any change to this route requires a later Gate 1 revision.
+
+## Slice 8 Completion Audit And Status Lock
+
+Slice 8 is docs/tests/static-audit/status-lock only. It adds the final Phase
+46 completion audit and updates the Phase 46 plan/spec status lock. Slice 8
+does not change production source behavior.
+
+The Phase 46 completion boundary is locked by Slice 8. Phase 46 is complete
+after Slice 8 as `Project Semantic Continuation`, with the final Gate 3 commit,
+push, and natural CI proof handled outside this Gate 2 specification.
+
+The final delivered Phase 46 boundary includes:
+
+- candidate decision and scope lock;
+- private relation dependency graph scaffold;
+- relation edge collection from existing table/query `from` dependencies;
+- deterministic private relation cycle facts;
+- project relation cycle diagnostics through `PIE-S2302`;
+- Project JSON v2 relation cycle diagnostics compatibility through existing
+  `diagnostics[]`;
+- project compatibility hardening;
+- completion audit and status lock.
+
+Private graph and cycle facts remain private and un-serialized. Project JSON
+v2 does not expose `ProjectRelationDependencyGraph`,
+`ProjectRelationDependencyCycle`, `relation_dependency_graph`, `cycles`,
+graph nodes, graph edges, dependency sources, or private semantic model
+internals. Semantic diagnostics remain top-level `diagnostics[]`;
+`cli_errors[]` remains project/config/source-selection/source-read only;
+`inputs[]` and `result.check` remain read/parse based; no semantic input
+statuses or semantic file counters are introduced.
+
+Single-file `check`, CLI JSON v1, `emit-sql`, and `explain` remain separate and
+unchanged. Project `emit-sql` and project `explain` remain unsupported or
+absent. Slice 8 has no IR, SQL, project `emit-sql`, or project `explain` path.
+
+Slice 8 changes no row schema behavior, projection/body validation,
+query-to-query schema propagation, computed alias schema, `let` schema,
+aggregate output schema, project IR, project SQL, project `emit-sql`, project
+`explain`, public project semantic API, private semantic fact serialization,
+Project JSON v2 shape, parser public API, grammar, generated parser artifact,
+single-file behavior, JOIN behavior, relationship-driven query behavior,
+runtime/database behavior, fixture, golden, package version, workflow,
+dependency file, package metadata, tag, release, publish, upload, signing, or
+attestation behavior.
+
+Phase 47 entry direction is direct row schema MVP candidate work only. Slice 8
+does not implement row schema propagation. Phase 48 through Phase 50 and later
+project IR, project SQL, and import/module/export work remain future Gate 1
+planning topics and are not authorized by this Phase 46 closeout.
