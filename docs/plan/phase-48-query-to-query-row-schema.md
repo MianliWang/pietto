@@ -17,6 +17,19 @@ no public project semantic API, no parser/grammar/generated change, no
 JOIN/relationship behavior, no runtime/database execution, no package version
 change, and no tag, release, publish, upload, signing, or attestation.
 
+Phase 48 Slice 2 is Deterministic propagation order and cycle-blocking
+contract work only. Slice 2 adds
+`docs/spec/phase48-deterministic-propagation-order-cycle-blocking-contract-v1.md`
+and a focused static-audit test. It implements no production code, no
+source/compiler behavior, no topological propagation helper, no query-to-query
+propagation, no private schema availability carrier, no new diagnostics, no
+diagnostic code or message change, no Project JSON v2 shape change, no private
+fact serialization, no CLI/check orchestration change, no project IR, no
+project SQL emit, no project `emit-sql`, no project `explain`, no public
+project semantic API, no parser/grammar/generated change, no JOIN/relationship
+behavior, no runtime/database execution, no package version change, and no tag,
+release, publish, upload, signing, or attestation.
+
 Package version remains `0.1.0`.
 
 ## Trusted Baseline
@@ -30,6 +43,18 @@ Package version remains `0.1.0`.
 - Baseline exact-match tag: none.
 - Natural CI: `CI` run `28882949450`, event `push`, branch `main`, headSha
   `e92f8763dbb97d031e71e3c9c57660802ade856c`, completed with success.
+
+## Slice 2 Trusted Baseline
+
+- Baseline branch: `main`.
+- Baseline HEAD: `b922e240b5746db8f5fc9e2dae8309a352ca31de`.
+- Baseline subject: `Add Phase 48 query row schema scope lock`.
+- Baseline package version: `0.1.0`.
+- Baseline worktree status: clean and equivalent to `## main...origin/main`.
+- Baseline HEAD tag: none.
+- Baseline exact-match tag: none.
+- Natural CI: `CI` run `28886882803`, event `push`, branch `main`, headSha
+  `b922e240b5746db8f5fc9e2dae8309a352ca31de`, completed with success.
 
 ## Phase Identity And Prerequisites
 
@@ -197,10 +222,53 @@ Direct field diagnostics preserve parsed input order, definition order, and
 select item order. Implementation must avoid relying on incidental dict order
 unless maps are built from canonical ordered facts and locked by tests.
 
+## Slice 2 Deterministic Propagation Order Contract
+
+Slice 2 locks the deterministic propagation order and cycle-blocking contract
+without implementing propagation behavior.
+
+Canonical relation order is the parsed project input order followed by
+definition order within each input. Future propagation must preserve that order
+for private relation facts, diagnostics, and tie-breaking among independent
+relations.
+
+Future propagation is dependency-first for acyclic `TableDef | QueryDef`
+relations. Source-backed direct-source relations are propagation seeds. A
+table/query relation that depends on another table/query may propagate only
+after the upstream relation's schema availability is known. Multi-hop
+propagation must therefore process upstream availability before downstream
+dependents.
+
+The current relation dependency graph edge direction is dependent relation ->
+dependency relation. Any future topological traversal must invert that edge
+direction or otherwise account for it explicitly before deriving
+dependency-first propagation order.
+
+Existing unresolved-relation diagnostics remain authoritative. An unresolved
+`from` relation uses existing `PIE-S2301`; the future private
+`ProjectRelationRowSchemaState` for that relation is `BLOCKED`; Slice 2 adds no
+diagnostic.
+
+Existing cycle diagnostics remain authoritative. A relation dependency cycle
+uses existing `PIE-S2302`; every cycle member is a future private `BLOCKED`
+state; concrete schemas must not be propagated for cycle members.
+
+`CONCRETE`, `UNKNOWN`, `DEFERRED`, and `BLOCKED` remain private availability
+vocabulary only in Slice 2. `ProjectRelationRowSchemaState` is still planned
+vocabulary only; the actual private carrier implementation belongs to Slice 3.
+
+Slice 2 keeps Project JSON v2 unchanged. It serializes no private row schema
+facts, schema availability facts, relation graph facts, or cycle facts. It adds
+no public Project JSON v2 keys and no public project semantic API.
+
 ## Downstream Phase 51-55 Readiness
 
 Phase 48 prepares private facts for later phases without implementing those
 behaviors:
+
+The numbered readiness labels below are tentative Phase 48-local planning
+labels. They do not amend the older global Phase 45-60 roadmap and do not
+authorize the named downstream behaviors.
 
 - Phase 51 relationship/grain/fanout readiness: field existence,
   type/nullability, origin `FieldDef`, immediate upstream provenance, and schema
@@ -261,6 +329,16 @@ Phase 48 Slice 1 Gate 2 is limited to:
 
 No other file is approved in Slice 1 Gate 2.
 
+## Slice 2 Gate 2 Allowlist
+
+Phase 48 Slice 2 Gate 2 is limited to:
+
+- `docs/plan/phase-48-query-to-query-row-schema.md`
+- `docs/spec/phase48-deterministic-propagation-order-cycle-blocking-contract-v1.md`
+- `tests/test_phase48_deterministic_propagation_order_contract.py`
+
+No other file is approved in Slice 2 Gate 2.
+
 ## Focused Validation
 
 The focused Slice 1 Gate 2 validation commands are:
@@ -277,6 +355,27 @@ uv run pytest tests/test_phase48_query_to_query_row_schema_scope_lock.py
 Do not run hash-lock tests, full pytest, `scripts/validate.py`, or CI in dirty
 Gate 2.
 
+The focused Slice 2 Gate 2 validation commands are:
+
+```bash
+git diff --check
+set +e
+git diff --no-index --check -- /dev/null docs/spec/phase48-deterministic-propagation-order-cycle-blocking-contract-v1.md
+rc_spec=$?
+git diff --no-index --check -- /dev/null tests/test_phase48_deterministic_propagation_order_contract.py
+rc_test=$?
+set -e
+test "$rc_spec" -le 1
+test "$rc_test" -le 1
+uv run ruff format --check tests/test_phase48_deterministic_propagation_order_contract.py
+uv run ruff check tests/test_phase48_deterministic_propagation_order_contract.py
+uv run pyright --project pyrightconfig.tests.json
+uv run pytest tests/test_phase48_deterministic_propagation_order_contract.py
+```
+
+Do not run broad validation, `scripts/validate.py`, code generation, parser
+generation, workflows, or CI in dirty Slice 2 Gate 2.
+
 ## Stop Conditions
 
 Stop immediately if implementation would require files outside the Slice 1
@@ -286,3 +385,12 @@ changes, computed alias schema, `let` schema, aggregate/grouped schema,
 JOIN/relationship behavior, project IR/SQL/emit/explain, public API, Phase
 51-55 behavior implementation, package version changes, release actions, docs
 outside the allowlist, or hash-lock churn.
+
+For Slice 2, stop immediately if implementation would require files outside the
+Slice 2 allowlist, production code, schema availability carrier implementation,
+parser/generated files, Project JSON v2/CLI/check changes, new diagnostics,
+diagnostic wording changes, computed alias schema, `let` schema,
+aggregate/grouped schema, JOIN/relationship behavior, project
+IR/SQL/emit/explain, public API, downstream readiness behavior implementation,
+package version changes, release actions, docs outside the allowlist, or
+hash-lock churn.
