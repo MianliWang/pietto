@@ -110,7 +110,7 @@ LOCKED_PHASE33_SURFACES = {
     "project_private": (
         "src/pietto/_project",
         7,
-        "73bd358bdaf3f38e00451294ebab4417b4d528e4ac3b75b6a20e7b69e41921f5",
+        "b02e53575e2edb0f10946ba9db27d6779db40372202893c4571a3bb292c709a3",
     ),
     "cli": (
         "src/pietto/cli.py",

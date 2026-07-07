@@ -15,6 +15,7 @@ from pietto.ast_nodes import (
     EnumDef,
     FieldDef,
     FromClause,
+    NameExpr,
     Nullability,
     QueryDef,
     Script,
@@ -494,6 +495,11 @@ def build_empty_project_semantic_result(
             catalog=catalog,
         )
     )
+    relation_row_schemas = _build_project_relation_row_schemas(
+        parsed_inputs=parse_result.parsed_inputs,
+        relation_resolutions=relation_resolutions,
+        source_row_schemas=source_row_schemas,
+    )
     relation_dependency_graph = _build_project_relation_dependency_graph(
         parsed_inputs=parse_result.parsed_inputs,
         catalog=catalog,
@@ -514,6 +520,7 @@ def build_empty_project_semantic_result(
             source_shape_resolutions=source_shape_resolutions,
             source_row_schemas=source_row_schemas,
             relation_resolutions=relation_resolutions,
+            relation_row_schemas=relation_row_schemas,
             relation_dependency_graph=relation_dependency_graph,
         ),
         diagnostics=(*type_diagnostics, *relation_diagnostics, *cycle_diagnostics),
@@ -739,6 +746,90 @@ def _build_project_relation_namespace_facts(
     return relation_resolutions, tuple(diagnostics)
 
 
+def _build_project_relation_row_schemas(
+    *,
+    parsed_inputs: tuple[ProjectParsedInput, ...],
+    relation_resolutions: Mapping[FromClause, ProjectSymbol],
+    source_row_schemas: Mapping[SourceDef, ProjectRowSchema],
+) -> dict[TableDef | QueryDef, ProjectRowSchema]:
+    """Build private relation row schemas for direct-source bare projections."""
+
+    relation_row_schemas: dict[TableDef | QueryDef, ProjectRowSchema] = {}
+    for parsed_input in parsed_inputs:
+        for definition in parsed_input.script.definitions:
+            if not isinstance(definition, (TableDef, QueryDef)):
+                continue
+
+            source_symbol = relation_resolutions.get(definition.from_clause)
+            if (
+                source_symbol is None
+                or source_symbol.kind is not ProjectSymbolKind.SOURCE
+            ):
+                continue
+
+            source = source_symbol.definition
+            if not isinstance(source, SourceDef):
+                continue
+
+            source_schema = source_row_schemas.get(source)
+            if source_schema is None:
+                continue
+
+            relation_schema = _project_direct_bare_relation_row_schema(
+                definition,
+                source_schema=source_schema,
+                source_symbol=source_symbol,
+                fallback_path=parsed_input.path,
+            )
+            if relation_schema is not None:
+                relation_row_schemas[definition] = relation_schema
+
+    return relation_row_schemas
+
+
+def _project_direct_bare_relation_row_schema(
+    definition: TableDef | QueryDef,
+    *,
+    source_schema: ProjectRowSchema,
+    source_symbol: ProjectSymbol,
+    fallback_path: str,
+) -> ProjectRowSchema | None:
+    """Project direct bare fields from one direct source input."""
+
+    fields: dict[str, ProjectRowField] = {}
+    if source_schema.is_unknown:
+        return ProjectRowSchema(is_unknown=True)
+
+    for item in definition.select_items:
+        expression = item.expression
+        if item.alias is not None or not isinstance(expression, NameExpr):
+            return None
+
+        if expression.name in fields:
+            return ProjectRowSchema(is_unknown=True)
+
+        source_field = source_schema.fields.get(expression.name)
+        if source_field is None:
+            return ProjectRowSchema(is_unknown=True)
+
+        fields[expression.name] = ProjectRowField(
+            name=expression.name,
+            resolved_type=source_field.resolved_type,
+            nullability=source_field.nullability,
+            field_def=source_field.field_def,
+            provenance=ProjectRowFieldProvenance(
+                kind=ProjectRowFieldProvenanceKind.DIRECT_PROJECTION,
+                symbol=source_symbol,
+                location=_project_name_expression_location(
+                    expression,
+                    fallback_path=fallback_path,
+                ),
+            ),
+        )
+
+    return ProjectRowSchema(fields=fields)
+
+
 def _build_project_type_namespace_facts(
     *,
     parsed_inputs: tuple[ProjectParsedInput, ...],
@@ -840,6 +931,23 @@ def _project_field_location(
     """Convert one shape field span into a private project source location."""
 
     span = field_def.span
+    return SourceLocation(
+        path=span.path or fallback_path,
+        line=span.line,
+        column=span.column,
+        end_line=span.end_line,
+        end_column=span.end_column,
+    )
+
+
+def _project_name_expression_location(
+    expression: NameExpr,
+    *,
+    fallback_path: str,
+) -> SourceLocation:
+    """Convert one projection name span into a private project source location."""
+
+    span = expression.span
     return SourceLocation(
         path=span.path or fallback_path,
         line=span.line,

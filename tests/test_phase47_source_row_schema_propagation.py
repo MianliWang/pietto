@@ -20,15 +20,16 @@ from pietto._project.model import (
     ProjectSemanticResult,
     build_empty_project_semantic_result,
 )
-from pietto.ast_nodes import ShapeDef, SourceDef
+from pietto.ast_nodes import QueryDef, ShapeDef, SourceDef, TableDef
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
-ALLOWED_SLICE4_GATE2_PATHS = {
+ALLOWED_SLICE5_GATE2_PATHS = {
     "src/pietto/_project/model.py",
     "tests/test_phase47_private_row_schema_scaffold.py",
     "tests/test_phase47_source_row_schema_propagation.py",
+    "tests/test_phase47_direct_bare_field_row_schema.py",
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
     "tests/test_phase11_generated_guard.py",
@@ -221,7 +222,7 @@ def test_source_row_schema_private_facts_do_not_leak_to_project_json_v2(
         assert private_fact not in serialized
 
 
-def test_source_row_schema_does_not_enable_direct_projection_validation_yet(
+def test_source_row_schema_missing_direct_projection_stays_private_without_diagnostics(
     tmp_path: Path,
 ) -> None:
     root = _project_root(tmp_path, include=("*.pietto",))
@@ -244,7 +245,10 @@ def test_source_row_schema_does_not_enable_direct_projection_validation_yet(
     assert semantic_result.model is not None
     source = _source_definition(parse_result, "rows")
     assert source in semantic_result.model.source_row_schemas
-    assert semantic_result.model.relation_row_schemas == {}
+    table = _derived_definition(parse_result, "projected")
+    relation_schema = semantic_result.model.relation_row_schemas[table]
+    assert relation_schema.is_unknown is True
+    assert relation_schema.fields == {}
     assert "PIE-S2102" not in {
         diagnostic.code for diagnostic in semantic_result.diagnostics
     }
@@ -255,7 +259,7 @@ def test_phase47_slice4_package_version_and_dirty_paths_are_locked() -> None:
 
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
-    assert _git_status_paths().issubset(ALLOWED_SLICE4_GATE2_PATHS)
+    assert _git_status_paths().issubset(ALLOWED_SLICE5_GATE2_PATHS)
 
 
 def _project_semantic_result(
@@ -298,6 +302,17 @@ def _shape_definition(
             if isinstance(definition, ShapeDef) and definition.name == name:
                 return definition
     raise AssertionError(f"Shape definition not found: {name}")
+
+
+def _derived_definition(
+    parse_result: ProjectParseCheckResult,
+    name: str,
+) -> TableDef | QueryDef:
+    for parsed_input in parse_result.parsed_inputs:
+        for definition in parsed_input.script.definitions:
+            if isinstance(definition, (TableDef, QueryDef)) and definition.name == name:
+                return definition
+    raise AssertionError(f"Derived relation not found: {name}")
 
 
 def _project_root(

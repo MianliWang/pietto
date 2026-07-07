@@ -33,10 +33,11 @@ from pietto.ast_nodes import QueryDef, SourceDef, TableDef
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
-ALLOWED_SLICE4_GATE2_PATHS = {
+ALLOWED_SLICE5_GATE2_PATHS = {
     "src/pietto/_project/model.py",
     "tests/test_phase47_private_row_schema_scaffold.py",
     "tests/test_phase47_source_row_schema_propagation.py",
+    "tests/test_phase47_direct_bare_field_row_schema.py",
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
     "tests/test_phase11_generated_guard.py",
@@ -134,7 +135,7 @@ def test_project_row_schema_maps_accept_ast_definition_keys_as_private_facts(
         )[table] = schema
 
 
-def test_project_semantic_build_populates_source_row_schemas_only(
+def test_project_semantic_build_populates_source_and_direct_relation_row_schemas(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(
@@ -160,7 +161,19 @@ def test_project_semantic_build_populates_source_row_schemas_only(
         field.provenance.symbol
         is semantic_result.model.source_shape_resolutions[source]
     )
-    assert semantic_result.model.relation_row_schemas == {}
+    table = _derived_definition(parse_result, "projected")
+    relation_schema = semantic_result.model.relation_row_schemas[table]
+    relation_field = relation_schema.fields["id"]
+    assert tuple(relation_schema.fields) == ("id",)
+    assert relation_field.name == "id"
+    assert relation_field.resolved_type is field.resolved_type
+    assert relation_field.nullability is field.nullability
+    assert relation_field.field_def is field.field_def
+    assert relation_field.provenance is not None
+    assert (
+        relation_field.provenance.kind
+        is ProjectRowFieldProvenanceKind.DIRECT_PROJECTION
+    )
 
 
 def test_project_json_v2_does_not_expose_row_schema_private_facts(
@@ -203,7 +216,7 @@ def test_phase47_slice3_package_version_and_dirty_paths_are_locked() -> None:
 
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
-    assert _git_status_paths().issubset(ALLOWED_SLICE4_GATE2_PATHS)
+    assert _git_status_paths().issubset(ALLOWED_SLICE5_GATE2_PATHS)
 
 
 def _row_field(
