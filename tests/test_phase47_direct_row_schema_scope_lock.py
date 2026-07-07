@@ -18,7 +18,7 @@ PHASE46_SPEC_PATH = (
 ROADMAP_PATH = REPO_ROOT / "docs/spec/pietto-roadmap-phase45-60-v1.md"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
-ALLOWED_SLICE1_GATE2_PATHS = {
+ALLOWED_PHASE47_ROUTE_LOCK_GATE2_PATHS = {
     "docs/plan/phase-47-direct-row-schema-mvp.md",
     "docs/spec/phase47-direct-row-schema-scope-lock-v1.md",
     "tests/test_phase47_direct_row_schema_scope_lock.py",
@@ -76,6 +76,34 @@ def test_phase47_identity_selected_candidate_and_slice1_scope_are_locked() -> No
         assert rejected in docs, rejected
 
 
+def test_phase47_slice2_route_expansion_scope_is_locked() -> None:
+    docs = _docs()
+
+    for required in (
+        "Phase 47 Slice 2 is Route Expansion And Downstream Readiness Lock",
+        "Slice 2 is docs/spec/static-audit",
+        "additive route update",
+        "B. Add Phase 47 Slice 2 Gate 2 route expansion/static-audit update",
+        "expands Phase 47 to an eleven-slice route",
+        "without implementing behavior",
+        "without amending, rebasing, resetting, or rewriting Slice 1 history",
+        "no private row schema carrier scaffold",
+        "no source row schema propagation",
+        "no table/query output schema propagation",
+        "no unknown field diagnostics implementation",
+        "no query-to-query propagation",
+        "no computed aliases",
+        "no `let` schema",
+        "no aggregate output schema",
+        "no CLI behavior",
+        "no Project JSON v2 behavior",
+        "no IR, no SQL",
+        "no project `emit-sql`",
+        "no project `explain`",
+    ):
+        assert required in docs, required
+
+
 def test_phase47_predecessor_evidence_and_roadmap_supersession_are_locked() -> None:
     docs = _docs()
     phase46_docs = " ".join(
@@ -112,12 +140,19 @@ def test_future_private_row_schema_boundary_is_locked() -> None:
         "frozen, slots-based",
         "independent from the single-file `pietto.semantic` row schema classes",
         "`ProjectEffectiveNullability`",
-        "`ProjectRowField`",
-        "`ProjectRowSchema`",
+        "`ProjectRowField.name`",
+        "`ProjectRowField.resolved_type`",
+        "`ProjectRowField.nullability`",
+        "`ProjectRowField.field_def`",
+        "`ProjectRowField.provenance` or an equivalent private origin slot",
+        "`ProjectRowSchema.fields`",
+        "`ProjectRowSchema.is_unknown`",
         "`ProjectSemanticModel.source_row_schemas`",
         "`ProjectSemanticModel.relation_row_schemas`",
         "must not reuse single-file `pietto.semantic.RowSchema`",
         "project checks do not call the single-file semantic analyzer",
+        "planned private carrier concepts, not Slice 2 implementation",
+        "private provenance or origin structure",
     ):
         assert required in docs, required
 
@@ -132,13 +167,60 @@ def test_source_and_direct_projection_scope_decisions_are_locked() -> None:
         "explicit nullability as project-private nullability",
         "original `FieldDef` owner",
         "bare `field`",
-        "optionally `source.field`",
+        "`source.field` when the qualifier matches",
+        "separate bounded behavior slice",
         "qualifier matches the table/query",
         "direct source inputs",
         "Unknown direct field references",
-        "preferably existing `PIE-S2102`",
-        "top-level semantic diagnostics path",
+        "`PIE-S2102` as the preferred existing diagnostic candidate",
+        "final diagnostic code, message, and location policy must be confirmed",
+        "behavior slice Gate 1 before implementation",
+        "`ProjectSemanticResult.diagnostics`",
+        "existing top-level semantic diagnostics path",
         "Project JSON v2 shape must not change",
+    ):
+        assert required in docs, required
+
+
+def test_phase47_alias_direct_rename_boundary_is_locked() -> None:
+    docs = _docs()
+
+    for required in (
+        "`alias = field` is a direct field rename",
+        "user_id = id",
+        "preserves the input field type",
+        "nullability",
+        "provenance",
+        "differs from bare `field`",
+        "differs from a computed alias such as `total = price + tax`",
+        "late bounded slice after bare and qualified direct fields",
+        "`alias = source.field` may be considered",
+        "after qualified direct fields are complete",
+        "computed aliases remain deferred",
+    ):
+        assert required in docs, required
+
+
+def test_phase47_downstream_readiness_without_behavior_is_locked() -> None:
+    docs = _docs()
+
+    for required in (
+        "Phase 47 may include readiness for Phase 48 query-to-query row schema",
+        "must not implement query-to-query propagation behavior",
+        "future downstream relation schemas can be stored without refactor",
+        "relation row schema mappings should be deterministic",
+        "Phase 48 remains the behavior phase",
+        "Phase 47 may include readiness for Phase 49 computed alias schema",
+        "let-bound expression schema",
+        "must not implement computed aliases or `let` schema behavior",
+        "future expression-derived fields",
+        "No expression type inference is authorized in Phase 47",
+        "Phase 47 may include readiness for Phase 50 aggregate output schema",
+        "grouped result schema",
+        "must not implement aggregate or grouped output schema behavior",
+        "Row schema, nullability, and type vocabulary should not block",
+        "Aggregate output schema remains Phase 50 or later",
+        "No aggregate schema behavior is authorized in Phase 47",
     ):
         assert required in docs, required
 
@@ -147,7 +229,7 @@ def test_phase47_explicit_deferrals_and_future_route_are_locked() -> None:
     docs = _docs()
 
     for required in (
-        "`alias = field` is deferred",
+        "`alias = field` before its late bounded Phase 47 direct rename slice",
         "computed aliases",
         "expression typing for project relation bodies",
         "same-`select` alias reuse",
@@ -156,19 +238,23 @@ def test_phase47_explicit_deferrals_and_future_route_are_locked() -> None:
         "aggregate output schema",
         "grouped result schema",
         "`where`, `order by`, `limit`, or `satisfying` body validation",
-        "Query-to-query row schema propagation should be Phase 48",
+        "Query-to-query row schema propagation behavior should be Phase 48",
         "project IR",
         "project SQL",
         "project `emit-sql`",
         "project `explain`",
         "relationship-driven query behavior",
         "1. Candidate/scope lock only",
-        "2. Private row schema carrier scaffold",
-        "3. Source shape fields to source row schema",
-        "4. Source-input table/query direct field projections to output schema and",
-        "unknown-field diagnostics",
-        "5. Compatibility hardening",
-        "6. Completion audit/status lock",
+        "2. Route expansion and downstream readiness lock",
+        "3. Private row schema carrier scaffold",
+        "4. Source shape fields to source row schema",
+        "5. Direct bare field projections from direct source inputs",
+        "6. Qualified direct field projections: `source.field`",
+        "7. Direct field rename projections: `alias = field`",
+        "8. Unknown direct field diagnostics and deterministic ordering",
+        "9. Downstream readiness hardening for Phase 48-50",
+        "10. Project JSON/private-fact privacy and compatibility hardening",
+        "11. Completion audit/status lock",
     ):
         assert required in docs, required
 
@@ -225,7 +311,7 @@ def test_phase47_forbidden_surfaces_package_and_dirty_paths_are_locked() -> None
         assert required in docs, required
 
     assert git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS) == ""
-    assert _git_status_paths().issubset(ALLOWED_SLICE1_GATE2_PATHS)
+    assert _git_status_paths().issubset(ALLOWED_PHASE47_ROUTE_LOCK_GATE2_PATHS)
 
 
 def _git_status_paths() -> set[str]:

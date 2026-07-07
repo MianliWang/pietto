@@ -12,6 +12,15 @@ output schema propagation, no projection/body validation, no CLI behavior, no
 Project JSON v2 behavior, no IR, no SQL, no project `emit-sql`, no project
 `explain`, and no release behavior.
 
+Phase 47 Slice 2 is Route Expansion And Downstream Readiness Lock.
+Slice 2 is docs/spec/static-audit only and is additive to the committed Slice
+1 scope lock. It adds no source behavior, no private row schema carrier
+scaffold, no source row schema propagation, no table/query output schema
+propagation, no direct field diagnostics implementation, no query-to-query row
+schema propagation, no computed aliases, no `let` schema, no aggregate output
+schema, no CLI behavior, no Project JSON v2 behavior, no IR, no SQL, no
+project `emit-sql`, no project `explain`, and no release behavior.
+
 Package version remains `0.1.0`.
 
 ## Selected Candidate
@@ -30,6 +39,20 @@ The Slice 1 gate intentionally excludes:
 
 The direct row schema MVP remains the Phase 47 direction, but behavior belongs
 to later bounded slices after this scope lock.
+
+## Slice 2 Route Expansion Selection
+
+Phase 47 Slice 2 selects:
+
+```text
+B. Add Phase 47 Slice 2 Gate 2 route expansion/static-audit update
+```
+
+Slice 2 expands the tentative Phase 47 route from six slices to eleven slices
+because the six-slice route compressed too many behavior decisions into one
+direct projection slice and did not lock downstream readiness for Phase 48
+through Phase 50. Slice 2 is route expansion only and does not amend, rebase,
+reset, or rewrite Slice 1 history.
 
 ## Authoritative Roadmap Source
 
@@ -50,6 +73,12 @@ Future Phase 47 row schema facts should use project-private vocabulary:
   relation definition;
 - a project row field records an output field name plus resolved project type
   and nullability facts;
+- planned field-level concepts include `ProjectRowField.name`,
+  `ProjectRowField.resolved_type`, `ProjectRowField.nullability`,
+  `ProjectRowField.field_def`, and `ProjectRowField.provenance` or an
+  equivalent private origin slot;
+- planned schema-level concepts include `ProjectRowSchema.fields` and
+  `ProjectRowSchema.is_unknown`;
 - source row schemas come from source shape fields;
 - relation row schemas come from approved table/query direct projections;
 - unknown project row schemas are conservative private facts and do not imply
@@ -59,6 +88,21 @@ The future carriers must be private frozen slots dataclasses and must not reuse
 single-file `pietto.semantic.RowSchema` or related single-file semantic model
 classes. The project semantic builder must preserve the existing boundary that
 project checks do not call the single-file semantic analyzer.
+
+The likely private carrier vocabulary is:
+
+- `ProjectEffectiveNullability`;
+- `ProjectRowField.name`;
+- `ProjectRowField.resolved_type`;
+- `ProjectRowField.nullability`;
+- `ProjectRowField.field_def`;
+- `ProjectRowField.provenance` or an equivalent private origin slot;
+- `ProjectRowSchema.fields`;
+- `ProjectRowSchema.is_unknown`;
+- `ProjectSemanticModel.source_row_schemas`;
+- `ProjectSemanticModel.relation_row_schemas`.
+
+These are planned private carrier concepts, not Slice 2 implementation.
 
 ## Source Row Schema Boundary
 
@@ -84,21 +128,38 @@ The first table/query output schema behavior should be limited to direct source
 input projections:
 
 - bare `field`;
-- optionally `source.field` when the qualifier matches the table/query
-  `from` source name.
+- `source.field` when the qualifier matches the table/query `from` source
+  name, in a separate bounded behavior slice.
 
 The first behavior slice should not support table/query inputs whose `from`
 target resolves to another table/query. Query-to-query row schema propagation
 is deferred to Phase 48 or later separate approval.
 
 Unknown direct field references should use existing semantic diagnostics flow,
-preferably existing `PIE-S2102`, and should appear in project text and Project
-JSON v2 through the existing top-level semantic diagnostics path.
+with `PIE-S2102` as the preferred existing diagnostic candidate. The final
+diagnostic code, message, and location policy must be confirmed in the
+behavior slice Gate 1 before implementation. Direct field diagnostics should
+appear in project text and Project JSON v2 through
+`ProjectSemanticResult.diagnostics` and the existing top-level semantic
+diagnostics path. Project JSON v2 shape must remain unchanged.
 
 ## Alias And Expression Boundary
 
-`alias = field` is deferred from the first direct row schema behavior slice.
-It may be considered in a later explicit Phase 47 slice if needed.
+`alias = field` is a direct field rename, for example:
+
+```pietto
+select:
+    user_id = id
+```
+
+It preserves input field type, nullability, and provenance while changing the
+output name. It differs from bare `field` because the output name is explicit.
+It differs from computed alias syntax such as `total = price + tax` because no
+expression typing or computed value propagation is required. `alias = field`
+is deferred from the first direct row schema behavior slice and belongs in
+Phase 47 only as a late bounded slice after bare and qualified direct fields.
+`alias = source.field` may be considered in that direct field rename slice
+only after qualified direct fields are complete.
 
 The following remain out of scope:
 
@@ -111,6 +172,29 @@ The following remain out of scope:
 - grouped result schema;
 - `where`, `order by`, `limit`, or `satisfying` body validation;
 - any SQL lowering behavior.
+
+## Downstream Readiness Boundary
+
+Phase 47 may include readiness for Phase 48 query-to-query row schema
+propagation, but Phase 47 must not implement query-to-query propagation
+behavior. Private carriers should be shaped so future downstream relation
+schemas can be stored without refactor, relation row schema mappings should be
+deterministic, and Phase 48 remains the behavior phase for table/query to
+table/query row schema propagation.
+
+Phase 47 may include readiness for Phase 49 computed alias schema and
+let-bound expression schema, but Phase 47 must not implement computed aliases
+or `let` schema behavior. The row field carrier may reserve private
+provenance or origin structure for future expression-derived fields. Computed
+aliases and `let` remain deferred. No expression type inference is authorized
+in Phase 47 unless a later Gate 1 explicitly widens scope.
+
+Phase 47 may include readiness for Phase 50 aggregate output schema and
+grouped result schema, but Phase 47 must not implement aggregate or grouped
+output schema behavior. Row schema, nullability, and type vocabulary should
+not block future aggregate result fields. Aggregate output schema remains
+Phase 50 or later. No aggregate schema behavior is authorized in Phase 47
+unless a later Gate 1 explicitly widens scope.
 
 ## Public Surface Rule
 
@@ -134,7 +218,7 @@ The following work is out of scope for Phase 47 Slice 1:
 - source row schema propagation;
 - table/query output schema propagation;
 - direct field diagnostics implementation;
-- `alias = field`;
+- `alias = field` before its late bounded Phase 47 direct rename slice;
 - query-to-query row schema propagation;
 - computed aliases;
 - `let` schema;
@@ -158,12 +242,16 @@ The following work is out of scope for Phase 47 Slice 1:
 The tentative Phase 47 route is:
 
 1. Candidate/scope lock only
-2. Private row schema carrier scaffold
-3. Source shape fields to source row schema
-4. Source-input table/query direct field projections to output schema and
-   unknown-field diagnostics
-5. Compatibility hardening
-6. Completion audit/status lock
+2. Route expansion and downstream readiness lock
+3. Private row schema carrier scaffold
+4. Source shape fields to source row schema
+5. Direct bare field projections from direct source inputs
+6. Qualified direct field projections: `source.field`
+7. Direct field rename projections: `alias = field`
+8. Unknown direct field diagnostics and deterministic ordering
+9. Downstream readiness hardening for Phase 48-50
+10. Project JSON/private-fact privacy and compatibility hardening
+11. Completion audit/status lock
 
 Any change to this route requires a later Gate 1 revision.
 
