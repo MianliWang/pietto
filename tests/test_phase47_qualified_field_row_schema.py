@@ -26,6 +26,7 @@ ALLOWED_SLICE6_GATE2_PATHS = {
     "tests/test_phase47_direct_bare_field_row_schema.py",
     "tests/test_phase47_qualified_field_row_schema.py",
     "tests/test_phase47_direct_field_rename_row_schema.py",
+    "tests/test_phase47_unknown_direct_field_diagnostics.py",
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
     "tests/test_phase11_generated_guard.py",
@@ -180,52 +181,61 @@ def test_qualified_projection_preserves_nullability_and_type(tmp_path: Path) -> 
         )
 
 
-def test_wrong_qualifier_marks_relation_row_schema_unknown_without_diagnostic(
+def test_wrong_qualifier_marks_relation_row_schema_unknown_with_slice8_diagnostic(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(
         _project_with_select(tmp_path, "        orders.id\n")
     )
 
-    assert semantic_result.ok
+    assert not semantic_result.ok
     assert semantic_result.model is not None
     table = _derived_definition(parse_result, "projected")
     relation_schema = semantic_result.model.relation_row_schemas[table]
     assert relation_schema.is_unknown is True
     assert relation_schema.fields == {}
-    assert "PIE-S2102" not in _diagnostic_codes(semantic_result)
+    assert [
+        (diagnostic.code, diagnostic.message)
+        for diagnostic in semantic_result.diagnostics
+    ] == [("PIE-S2102", "Unknown field: orders.id")]
 
 
-def test_unknown_qualified_field_marks_relation_row_schema_unknown_without_diagnostic(
+def test_unknown_qualified_field_marks_relation_row_schema_unknown_with_slice8_diagnostic(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(
         _project_with_select(tmp_path, "        users.missing_field\n")
     )
 
-    assert semantic_result.ok
+    assert not semantic_result.ok
     assert semantic_result.model is not None
     table = _derived_definition(parse_result, "projected")
     relation_schema = semantic_result.model.relation_row_schemas[table]
     assert relation_schema.is_unknown is True
     assert relation_schema.fields == {}
-    assert "PIE-S2102" not in _diagnostic_codes(semantic_result)
+    assert [
+        (diagnostic.code, diagnostic.message)
+        for diagnostic in semantic_result.diagnostics
+    ] == [("PIE-S2102", "Unknown field: users.missing_field")]
 
 
-def test_multi_part_dotted_projection_marks_relation_row_schema_unknown_without_diagnostic(
+def test_multi_part_dotted_projection_marks_relation_row_schema_unknown_with_slice8_diagnostic(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(
         _project_with_select(tmp_path, "        db.users.id\n")
     )
 
-    assert semantic_result.ok
+    assert not semantic_result.ok
     assert semantic_result.model is not None
     table = _derived_definition(parse_result, "projected")
     relation_schema = semantic_result.model.relation_row_schemas[table]
     assert relation_schema.is_unknown is True
     assert relation_schema.fields == {}
-    assert "PIE-S2102" not in _diagnostic_codes(semantic_result)
+    assert [
+        (diagnostic.code, diagnostic.message)
+        for diagnostic in semantic_result.diagnostics
+    ] == [("PIE-S2102", "Unknown field: db.users.id")]
 
 
 def test_duplicate_output_from_bare_and_qualified_marks_relation_row_schema_unknown(

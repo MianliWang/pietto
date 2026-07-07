@@ -297,7 +297,24 @@ class _ProjectDirectFieldProjection:
     status: _ProjectDirectFieldProjectionStatus
     output_name: str | None = None
     lookup_name: str | None = None
+    field_text: str | None = None
     location: SourceLocation | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _ProjectRelationRowSchemaResult:
+    """Private result for one direct-source relation row schema build."""
+
+    schema: ProjectRowSchema | None
+    diagnostics: tuple[Diagnostic, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class _ProjectRelationRowSchemasResult:
+    """Private result for all project relation row schemas."""
+
+    relation_row_schemas: dict[TableDef | QueryDef, ProjectRowSchema]
+    diagnostics: tuple[Diagnostic, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -515,7 +532,7 @@ def build_empty_project_semantic_result(
             catalog=catalog,
         )
     )
-    relation_row_schemas = _build_project_relation_row_schemas(
+    relation_row_schema_result = _build_project_relation_row_schemas(
         parsed_inputs=parse_result.parsed_inputs,
         relation_resolutions=relation_resolutions,
         source_row_schemas=source_row_schemas,
@@ -540,10 +557,15 @@ def build_empty_project_semantic_result(
             source_shape_resolutions=source_shape_resolutions,
             source_row_schemas=source_row_schemas,
             relation_resolutions=relation_resolutions,
-            relation_row_schemas=relation_row_schemas,
+            relation_row_schemas=relation_row_schema_result.relation_row_schemas,
             relation_dependency_graph=relation_dependency_graph,
         ),
-        diagnostics=(*type_diagnostics, *relation_diagnostics, *cycle_diagnostics),
+        diagnostics=(
+            *type_diagnostics,
+            *relation_diagnostics,
+            *relation_row_schema_result.diagnostics,
+            *cycle_diagnostics,
+        ),
     )
 
 
@@ -771,10 +793,11 @@ def _build_project_relation_row_schemas(
     parsed_inputs: tuple[ProjectParsedInput, ...],
     relation_resolutions: Mapping[FromClause, ProjectSymbol],
     source_row_schemas: Mapping[SourceDef, ProjectRowSchema],
-) -> dict[TableDef | QueryDef, ProjectRowSchema]:
+) -> _ProjectRelationRowSchemasResult:
     """Build private relation row schemas for direct-source projections."""
 
     relation_row_schemas: dict[TableDef | QueryDef, ProjectRowSchema] = {}
+    diagnostics: list[Diagnostic] = []
     for parsed_input in parsed_inputs:
         for definition in parsed_input.script.definitions:
             if not isinstance(definition, (TableDef, QueryDef)):
@@ -795,16 +818,20 @@ def _build_project_relation_row_schemas(
             if source_schema is None:
                 continue
 
-            relation_schema = _project_direct_relation_row_schema(
+            relation_schema_result = _project_direct_relation_row_schema(
                 definition,
                 source_schema=source_schema,
                 source_symbol=source_symbol,
                 fallback_path=parsed_input.path,
             )
-            if relation_schema is not None:
-                relation_row_schemas[definition] = relation_schema
+            diagnostics.extend(relation_schema_result.diagnostics)
+            if relation_schema_result.schema is not None:
+                relation_row_schemas[definition] = relation_schema_result.schema
 
-    return relation_row_schemas
+    return _ProjectRelationRowSchemasResult(
+        relation_row_schemas=relation_row_schemas,
+        diagnostics=tuple(diagnostics),
+    )
 
 
 def _project_direct_relation_row_schema(
@@ -813,12 +840,14 @@ def _project_direct_relation_row_schema(
     source_schema: ProjectRowSchema,
     source_symbol: ProjectSymbol,
     fallback_path: str,
-) -> ProjectRowSchema | None:
+) -> _ProjectRelationRowSchemaResult:
     """Project direct fields from one direct source input."""
 
     fields: dict[str, ProjectRowField] = {}
+    diagnostics: list[Diagnostic] = []
+    is_unknown = False
     if source_schema.is_unknown:
-        return ProjectRowSchema(is_unknown=True)
+        return _ProjectRelationRowSchemaResult(schema=ProjectRowSchema(is_unknown=True))
 
     for item in definition.select_items:
         projection = _project_direct_field_projection(
@@ -827,9 +856,11 @@ def _project_direct_relation_row_schema(
             fallback_path=fallback_path,
         )
         if projection.status is _ProjectDirectFieldProjectionStatus.DEFERRED:
-            return None
+            return _ProjectRelationRowSchemaResult(schema=None)
         if projection.status is _ProjectDirectFieldProjectionStatus.INVALID:
-            return ProjectRowSchema(is_unknown=True)
+            diagnostics.append(_project_unknown_direct_field_diagnostic(projection))
+            is_unknown = True
+            continue
 
         output_name = projection.output_name
         lookup_name = projection.lookup_name
@@ -837,11 +868,14 @@ def _project_direct_relation_row_schema(
             raise AssertionError("Supported direct projection requires field names")
 
         if output_name in fields:
-            return ProjectRowSchema(is_unknown=True)
+            is_unknown = True
+            continue
 
         source_field = source_schema.fields.get(lookup_name)
         if source_field is None:
-            return ProjectRowSchema(is_unknown=True)
+            diagnostics.append(_project_unknown_direct_field_diagnostic(projection))
+            is_unknown = True
+            continue
 
         fields[output_name] = ProjectRowField(
             name=output_name,
@@ -855,7 +889,13 @@ def _project_direct_relation_row_schema(
             ),
         )
 
-    return ProjectRowSchema(fields=fields)
+    if is_unknown or diagnostics:
+        return _ProjectRelationRowSchemaResult(
+            schema=ProjectRowSchema(is_unknown=True),
+            diagnostics=tuple(diagnostics),
+        )
+
+    return _ProjectRelationRowSchemaResult(schema=ProjectRowSchema(fields=fields))
 
 
 def _project_direct_field_projection(
@@ -873,6 +913,7 @@ def _project_direct_field_projection(
             status=_ProjectDirectFieldProjectionStatus.SUPPORTED,
             output_name=item.alias or lookup_name,
             lookup_name=lookup_name,
+            field_text=lookup_name,
             location=_project_expression_location(
                 expression,
                 fallback_path=fallback_path,
@@ -881,13 +922,19 @@ def _project_direct_field_projection(
     if isinstance(expression, DottedNameExpr):
         if len(expression.parts) != 2 or expression.parts[0] != source_name:
             return _ProjectDirectFieldProjection(
-                status=_ProjectDirectFieldProjectionStatus.INVALID
+                status=_ProjectDirectFieldProjectionStatus.INVALID,
+                field_text=_project_dotted_field_text(expression),
+                location=_project_expression_location(
+                    expression,
+                    fallback_path=fallback_path,
+                ),
             )
         field_name = expression.parts[1]
         return _ProjectDirectFieldProjection(
             status=_ProjectDirectFieldProjectionStatus.SUPPORTED,
             output_name=item.alias or field_name,
             lookup_name=field_name,
+            field_text=_project_dotted_field_text(expression),
             location=_project_expression_location(
                 expression,
                 fallback_path=fallback_path,
@@ -897,6 +944,12 @@ def _project_direct_field_projection(
     return _ProjectDirectFieldProjection(
         status=_ProjectDirectFieldProjectionStatus.DEFERRED
     )
+
+
+def _project_dotted_field_text(expression: DottedNameExpr) -> str:
+    """Return the user-facing dotted field reference text."""
+
+    return ".".join(expression.parts)
 
 
 def _build_project_type_namespace_facts(
@@ -1269,4 +1322,20 @@ def _unknown_project_relation_diagnostic(from_clause: FromClause) -> Diagnostic:
             end_line=span.end_line,
             end_column=span.end_column,
         ),
+    )
+
+
+def _project_unknown_direct_field_diagnostic(
+    projection: _ProjectDirectFieldProjection,
+) -> Diagnostic:
+    """Report an unknown direct field reference at its expression span."""
+
+    if projection.field_text is None or projection.location is None:
+        raise AssertionError("Unknown direct field diagnostic requires field text")
+
+    return Diagnostic(
+        code="PIE-S2102",
+        severity=Severity.ERROR,
+        message=f"Unknown field: {projection.field_text}",
+        location=projection.location,
     )

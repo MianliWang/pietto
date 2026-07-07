@@ -32,6 +32,7 @@ ALLOWED_SLICE5_GATE2_PATHS = {
     "tests/test_phase47_direct_bare_field_row_schema.py",
     "tests/test_phase47_qualified_field_row_schema.py",
     "tests/test_phase47_direct_field_rename_row_schema.py",
+    "tests/test_phase47_unknown_direct_field_diagnostics.py",
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
     "tests/test_phase11_generated_guard.py",
@@ -242,8 +243,7 @@ def test_source_row_schema_missing_direct_projection_stays_private_without_diagn
 
     parse_result, semantic_result = _project_semantic_result(root)
 
-    assert semantic_result.ok
-    assert semantic_result.diagnostics == ()
+    assert not semantic_result.ok
     assert semantic_result.model is not None
     source = _source_definition(parse_result, "rows")
     assert source in semantic_result.model.source_row_schemas
@@ -251,9 +251,10 @@ def test_source_row_schema_missing_direct_projection_stays_private_without_diagn
     relation_schema = semantic_result.model.relation_row_schemas[table]
     assert relation_schema.is_unknown is True
     assert relation_schema.fields == {}
-    assert "PIE-S2102" not in {
-        diagnostic.code for diagnostic in semantic_result.diagnostics
-    }
+    assert [
+        (diagnostic.code, diagnostic.message)
+        for diagnostic in semantic_result.diagnostics
+    ] == [("PIE-S2102", "Unknown field: missing_field")]
 
 
 def test_phase47_slice4_package_version_and_dirty_paths_are_locked() -> None:
