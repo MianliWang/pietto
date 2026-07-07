@@ -12,6 +12,7 @@ from pietto.ast_nodes import (
     ConstraintDef,
     Definition,
     DeriveDef,
+    DottedNameExpr,
     EnumDef,
     FieldDef,
     FromClause,
@@ -19,6 +20,7 @@ from pietto.ast_nodes import (
     Nullability,
     QueryDef,
     Script,
+    SelectItem,
     ShapeDef,
     SourceDef,
     TableDef,
@@ -278,6 +280,24 @@ class ProjectRowSchema:
         """Copy row field maps into immutable mappings."""
 
         object.__setattr__(self, "fields", _readonly_mapping(self.fields))
+
+
+class _ProjectDirectFieldProjectionStatus(StrEnum):
+    """Private status for one direct-field projection candidate."""
+
+    SUPPORTED = "supported"
+    INVALID = "invalid"
+    DEFERRED = "deferred"
+
+
+@dataclass(frozen=True, slots=True)
+class _ProjectDirectFieldProjection:
+    """Private decoded direct-field projection candidate."""
+
+    status: _ProjectDirectFieldProjectionStatus
+    output_name: str | None = None
+    lookup_name: str | None = None
+    location: SourceLocation | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -752,7 +772,7 @@ def _build_project_relation_row_schemas(
     relation_resolutions: Mapping[FromClause, ProjectSymbol],
     source_row_schemas: Mapping[SourceDef, ProjectRowSchema],
 ) -> dict[TableDef | QueryDef, ProjectRowSchema]:
-    """Build private relation row schemas for direct-source bare projections."""
+    """Build private relation row schemas for direct-source projections."""
 
     relation_row_schemas: dict[TableDef | QueryDef, ProjectRowSchema] = {}
     for parsed_input in parsed_inputs:
@@ -775,7 +795,7 @@ def _build_project_relation_row_schemas(
             if source_schema is None:
                 continue
 
-            relation_schema = _project_direct_bare_relation_row_schema(
+            relation_schema = _project_direct_relation_row_schema(
                 definition,
                 source_schema=source_schema,
                 source_symbol=source_symbol,
@@ -787,47 +807,100 @@ def _build_project_relation_row_schemas(
     return relation_row_schemas
 
 
-def _project_direct_bare_relation_row_schema(
+def _project_direct_relation_row_schema(
     definition: TableDef | QueryDef,
     *,
     source_schema: ProjectRowSchema,
     source_symbol: ProjectSymbol,
     fallback_path: str,
 ) -> ProjectRowSchema | None:
-    """Project direct bare fields from one direct source input."""
+    """Project direct fields from one direct source input."""
 
     fields: dict[str, ProjectRowField] = {}
     if source_schema.is_unknown:
         return ProjectRowSchema(is_unknown=True)
 
     for item in definition.select_items:
-        expression = item.expression
-        if item.alias is not None or not isinstance(expression, NameExpr):
+        projection = _project_direct_field_projection(
+            item,
+            source_name=definition.from_clause.source_name,
+            fallback_path=fallback_path,
+        )
+        if projection.status is _ProjectDirectFieldProjectionStatus.DEFERRED:
             return None
-
-        if expression.name in fields:
+        if projection.status is _ProjectDirectFieldProjectionStatus.INVALID:
             return ProjectRowSchema(is_unknown=True)
 
-        source_field = source_schema.fields.get(expression.name)
+        output_name = projection.output_name
+        lookup_name = projection.lookup_name
+        if output_name is None or lookup_name is None:
+            raise AssertionError("Supported direct projection requires field names")
+
+        if output_name in fields:
+            return ProjectRowSchema(is_unknown=True)
+
+        source_field = source_schema.fields.get(lookup_name)
         if source_field is None:
             return ProjectRowSchema(is_unknown=True)
 
-        fields[expression.name] = ProjectRowField(
-            name=expression.name,
+        fields[output_name] = ProjectRowField(
+            name=output_name,
             resolved_type=source_field.resolved_type,
             nullability=source_field.nullability,
             field_def=source_field.field_def,
             provenance=ProjectRowFieldProvenance(
                 kind=ProjectRowFieldProvenanceKind.DIRECT_PROJECTION,
                 symbol=source_symbol,
-                location=_project_name_expression_location(
-                    expression,
-                    fallback_path=fallback_path,
-                ),
+                location=projection.location,
             ),
         )
 
     return ProjectRowSchema(fields=fields)
+
+
+def _project_direct_field_projection(
+    item: SelectItem,
+    *,
+    source_name: str,
+    fallback_path: str,
+) -> _ProjectDirectFieldProjection:
+    """Decode one bare or qualified direct-field projection candidate."""
+
+    if item.alias is not None:
+        return _ProjectDirectFieldProjection(
+            status=_ProjectDirectFieldProjectionStatus.DEFERRED
+        )
+
+    expression = item.expression
+    if isinstance(expression, NameExpr):
+        return _ProjectDirectFieldProjection(
+            status=_ProjectDirectFieldProjectionStatus.SUPPORTED,
+            output_name=expression.name,
+            lookup_name=expression.name,
+            location=_project_expression_location(
+                expression,
+                fallback_path=fallback_path,
+            ),
+        )
+    if isinstance(expression, DottedNameExpr):
+        if len(expression.parts) != 2 or expression.parts[0] != source_name:
+            return _ProjectDirectFieldProjection(
+                status=_ProjectDirectFieldProjectionStatus.INVALID
+            )
+        field_name = expression.parts[1]
+        return _ProjectDirectFieldProjection(
+            status=_ProjectDirectFieldProjectionStatus.SUPPORTED,
+            output_name=field_name,
+            lookup_name=field_name,
+            location=_project_expression_location(
+                expression,
+                fallback_path=fallback_path,
+            ),
+        )
+
+    return _ProjectDirectFieldProjection(
+        status=_ProjectDirectFieldProjectionStatus.DEFERRED
+    )
 
 
 def _build_project_type_namespace_facts(
@@ -940,12 +1013,12 @@ def _project_field_location(
     )
 
 
-def _project_name_expression_location(
-    expression: NameExpr,
+def _project_expression_location(
+    expression: NameExpr | DottedNameExpr,
     *,
     fallback_path: str,
 ) -> SourceLocation:
-    """Convert one projection name span into a private project source location."""
+    """Convert one projection expression span into a private project location."""
 
     span = expression.span
     return SourceLocation(

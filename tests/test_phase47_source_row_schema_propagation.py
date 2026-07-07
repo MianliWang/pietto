@@ -30,6 +30,7 @@ ALLOWED_SLICE5_GATE2_PATHS = {
     "tests/test_phase47_private_row_schema_scaffold.py",
     "tests/test_phase47_source_row_schema_propagation.py",
     "tests/test_phase47_direct_bare_field_row_schema.py",
+    "tests/test_phase47_qualified_field_row_schema.py",
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
     "tests/test_phase11_generated_guard.py",
