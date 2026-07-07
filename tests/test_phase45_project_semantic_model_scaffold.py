@@ -308,7 +308,7 @@ def test_relation_body_semantics_remain_deferred_after_resolution(
         "table projected:\n"
         "    from raw\n"
         "    select:\n"
-        "        missing_field\n",
+        "        total = missing_field + 1\n",
     )
 
     parse_result = check_project_parse_only(root)
