@@ -33,9 +33,19 @@ from pietto.ast_nodes import QueryDef, SourceDef, TableDef
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
-ALLOWED_SLICE3_GATE2_PATHS = {
+ALLOWED_SLICE4_GATE2_PATHS = {
     "src/pietto/_project/model.py",
     "tests/test_phase47_private_row_schema_scaffold.py",
+    "tests/test_phase47_source_row_schema_propagation.py",
+    "tests/test_phase11_ci_workflow.py",
+    "tests/test_phase11_completion_audit.py",
+    "tests/test_phase11_generated_guard.py",
+    "tests/test_phase11_golden_policy.py",
+    "tests/test_phase11_packaging_smoke.py",
+    "tests/test_phase11_validation_entrypoint.py",
+    "tests/test_phase12_completion_audit.py",
+    "tests/test_phase12_composition_cli_json_goldens.py",
+    "tests/test_phase33_completion_audit.py",
 }
 
 
@@ -124,17 +134,32 @@ def test_project_row_schema_maps_accept_ast_definition_keys_as_private_facts(
         )[table] = schema
 
 
-def test_project_semantic_build_does_not_populate_row_schemas_yet(
+def test_project_semantic_build_populates_source_row_schemas_only(
     tmp_path: Path,
 ) -> None:
-    _, semantic_result = _project_semantic_result(_row_schema_project(tmp_path))
+    parse_result, semantic_result = _project_semantic_result(
+        _row_schema_project(tmp_path)
+    )
 
     assert semantic_result.ok
     assert semantic_result.diagnostics == ()
     assert semantic_result.model is not None
     assert semantic_result.model.source_shape_resolutions
     assert semantic_result.model.relation_resolutions
-    assert semantic_result.model.source_row_schemas == {}
+    source = _source_definition(parse_result, "rows")
+    schema = semantic_result.model.source_row_schemas[source]
+    field = schema.fields["id"]
+    assert tuple(schema.fields) == ("id",)
+    assert field.name == "id"
+    assert field.field_def is not None
+    assert field.field_def.name == "id"
+    assert field.nullability is ProjectRowFieldNullability.UNKNOWN
+    assert field.provenance is not None
+    assert field.provenance.kind is ProjectRowFieldProvenanceKind.SOURCE_FIELD
+    assert (
+        field.provenance.symbol
+        is semantic_result.model.source_shape_resolutions[source]
+    )
     assert semantic_result.model.relation_row_schemas == {}
 
 
@@ -178,7 +203,7 @@ def test_phase47_slice3_package_version_and_dirty_paths_are_locked() -> None:
 
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
-    assert _git_status_paths().issubset(ALLOWED_SLICE3_GATE2_PATHS)
+    assert _git_status_paths().issubset(ALLOWED_SLICE4_GATE2_PATHS)
 
 
 def _row_field(

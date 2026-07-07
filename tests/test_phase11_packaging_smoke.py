@@ -19,7 +19,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SMOKE_PATH = REPO_ROOT / "scripts" / "package_smoke.py"
-BOUNDARY_HASH = "e4da5920d6f43f8324febb0e318d2fb0f72e31ad109b12a2a5e9a00b0c7187b7"
+BOUNDARY_HASH = "77806e1beaca32d408d16c5856af84210c77ae74546baf4522fc9ac275eaba0f"
 GOLDEN_HASH = "0e26a0b367a2ae849e5ec1e9a239be42765bea2c352242db5da930ab56b43004"
 PRIOR_SCRIPT_HASHES = {
     "scripts/validate.py": "4387101bc68e13539c74c45b595ba742ca17c9c0",

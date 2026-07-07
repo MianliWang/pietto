@@ -15,6 +15,7 @@ from pietto.ast_nodes import (
     EnumDef,
     FieldDef,
     FromClause,
+    Nullability,
     QueryDef,
     Script,
     ShapeDef,
@@ -483,6 +484,10 @@ def build_empty_project_semantic_result(
             catalog=catalog,
         )
     )
+    source_row_schemas = _build_project_source_row_schemas(
+        source_shape_resolutions=source_shape_resolutions,
+        type_resolutions=type_resolutions,
+    )
     relation_resolutions, relation_diagnostics = (
         _build_project_relation_namespace_facts(
             parsed_inputs=parse_result.parsed_inputs,
@@ -507,6 +512,7 @@ def build_empty_project_semantic_result(
             catalog=catalog,
             type_resolutions=type_resolutions,
             source_shape_resolutions=source_shape_resolutions,
+            source_row_schemas=source_row_schemas,
             relation_resolutions=relation_resolutions,
             relation_dependency_graph=relation_dependency_graph,
         ),
@@ -767,6 +773,80 @@ def _build_project_type_namespace_facts(
                     diagnostics.append(diagnostic)
 
     return type_resolutions, source_shape_resolutions, tuple(diagnostics)
+
+
+def _build_project_source_row_schemas(
+    *,
+    source_shape_resolutions: Mapping[SourceDef, ProjectSymbol],
+    type_resolutions: Mapping[TypeExpr, ProjectResolvedType],
+) -> dict[SourceDef, ProjectRowSchema]:
+    """Build private source row schemas from already-resolved source shapes."""
+
+    source_row_schemas: dict[SourceDef, ProjectRowSchema] = {}
+    for source, shape_symbol in source_shape_resolutions.items():
+        shape = shape_symbol.definition
+        if not isinstance(shape, ShapeDef):
+            continue
+
+        fields: dict[str, ProjectRowField] = {}
+        skip_schema = False
+        for field_def in shape.fields:
+            resolved_type = type_resolutions.get(field_def.type_expr)
+            if (
+                resolved_type is None
+                or resolved_type.kind is ProjectResolvedTypeKind.UNKNOWN
+            ):
+                skip_schema = True
+                break
+            if field_def.name in fields:
+                continue
+            fields[field_def.name] = ProjectRowField(
+                name=field_def.name,
+                resolved_type=resolved_type,
+                nullability=_project_row_field_nullability(field_def.type_expr),
+                field_def=field_def,
+                provenance=ProjectRowFieldProvenance(
+                    kind=ProjectRowFieldProvenanceKind.SOURCE_FIELD,
+                    symbol=shape_symbol,
+                    location=_project_field_location(
+                        field_def,
+                        fallback_path=shape_symbol.path,
+                    ),
+                ),
+            )
+        if not skip_schema:
+            source_row_schemas[source] = ProjectRowSchema(fields=fields)
+
+    return source_row_schemas
+
+
+def _project_row_field_nullability(
+    type_expr: TypeExpr,
+) -> ProjectRowFieldNullability:
+    """Map parsed type nullability to project-private row field nullability."""
+
+    if type_expr.nullability is Nullability.NOT_NULL:
+        return ProjectRowFieldNullability.NON_NULL
+    if type_expr.nullability is Nullability.NULLABLE:
+        return ProjectRowFieldNullability.NULLABLE
+    return ProjectRowFieldNullability.UNKNOWN
+
+
+def _project_field_location(
+    field_def: FieldDef,
+    *,
+    fallback_path: str,
+) -> SourceLocation:
+    """Convert one shape field span into a private project source location."""
+
+    span = field_def.span
+    return SourceLocation(
+        path=span.path or fallback_path,
+        line=span.line,
+        column=span.column,
+        end_line=span.end_line,
+        end_column=span.end_column,
+    )
 
 
 def _iter_project_type_expressions(definition: Definition) -> tuple[TypeExpr, ...]:
