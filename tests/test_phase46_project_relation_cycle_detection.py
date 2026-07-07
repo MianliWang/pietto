@@ -4,6 +4,7 @@ from dataclasses import FrozenInstanceError, is_dataclass
 import json
 from pathlib import Path
 import subprocess
+from typing import cast
 
 import pytest
 
@@ -36,10 +37,13 @@ PROJECT_JSON_TOP_LEVEL_KEYS = (
     "result",
 )
 
-ALLOWED_SLICE4_GATE2_PATHS = {
+ALLOWED_SLICE5_GATE2_PATHS = {
     "src/pietto/_project/model.py",
+    "tests/test_phase45_project_relation_namespace_semantics.py",
+    "tests/test_phase46_project_relation_dependency_graph_scaffold.py",
     "tests/test_phase46_project_relation_dependency_edge_collection.py",
     "tests/test_phase46_project_relation_cycle_detection.py",
+    "tests/test_phase46_project_relation_cycle_diagnostics.py",
 }
 
 
@@ -98,13 +102,15 @@ def test_self_cycle_creates_one_private_cycle_fact(tmp_path: Path) -> None:
 
     _, semantic_result = _project_semantic_result(root)
 
-    assert semantic_result.ok
-    assert semantic_result.diagnostics == ()
+    assert not semantic_result.ok
     assert semantic_result.model is not None
     graph = semantic_result.model.relation_dependency_graph
     assert _edge_names(graph.edges) == (("loop", "loop"),)
     assert _cycle_node_names(graph.cycles) == (("loop",),)
     assert _cycle_edge_names(graph.cycles) == ((("loop", "loop"),),)
+    assert _cycle_diagnostic_messages(semantic_result) == (
+        "Relation cycle detected: loop -> loop",
+    )
 
 
 def test_two_node_cycle_creates_canonical_private_cycle_fact(
@@ -126,17 +132,16 @@ def test_two_node_cycle_creates_canonical_private_cycle_fact(
 
     _, semantic_result = _project_semantic_result(root)
 
-    assert semantic_result.ok
-    assert semantic_result.diagnostics == ()
+    assert not semantic_result.ok
     assert semantic_result.model is not None
     graph = semantic_result.model.relation_dependency_graph
     assert _cycle_node_names(graph.cycles) == (("first", "second"),)
     assert _cycle_edge_names(graph.cycles) == (
         (("first", "second"), ("second", "first")),
     )
-    assert "PIE-S2302" not in {
-        diagnostic.code for diagnostic in semantic_result.diagnostics
-    }
+    assert _cycle_diagnostic_messages(semantic_result) == (
+        "Relation cycle detected: first -> second -> first",
+    )
 
 
 def test_three_node_cycle_keeps_edges_in_forward_cycle_order(
@@ -162,13 +167,15 @@ def test_three_node_cycle_keeps_edges_in_forward_cycle_order(
 
     _, semantic_result = _project_semantic_result(root)
 
-    assert semantic_result.ok
-    assert semantic_result.diagnostics == ()
+    assert not semantic_result.ok
     assert semantic_result.model is not None
     graph = semantic_result.model.relation_dependency_graph
     assert _cycle_node_names(graph.cycles) == (("first", "second", "third"),)
     assert _cycle_edge_names(graph.cycles) == (
         (("first", "second"), ("second", "third"), ("third", "first")),
+    )
+    assert _cycle_diagnostic_messages(semantic_result) == (
+        "Relation cycle detected: first -> second -> third -> first",
     )
 
 
@@ -199,8 +206,7 @@ def test_disjoint_cycles_are_ordered_by_canonical_node_order(
 
     _, semantic_result = _project_semantic_result(root)
 
-    assert semantic_result.ok
-    assert semantic_result.diagnostics == ()
+    assert not semantic_result.ok
     assert semantic_result.model is not None
     graph = semantic_result.model.relation_dependency_graph
     assert _cycle_node_names(graph.cycles) == (
@@ -210,6 +216,10 @@ def test_disjoint_cycles_are_ordered_by_canonical_node_order(
     assert _cycle_edge_names(graph.cycles) == (
         (("alpha", "beta"), ("beta", "alpha")),
         (("gamma", "delta"), ("delta", "gamma")),
+    )
+    assert _cycle_diagnostic_messages(semantic_result) == (
+        "Relation cycle detected: alpha -> beta -> alpha",
+        "Relation cycle detected: gamma -> delta -> gamma",
     )
 
 
@@ -283,12 +293,13 @@ def test_project_json_v2_does_not_expose_relation_cycle_facts(
     )
     serialized = json.dumps(document)
 
-    assert semantic_result.ok
+    assert not semantic_result.ok
     assert semantic_result.model is not None
     assert semantic_result.model.relation_dependency_graph.cycles
     assert tuple(document) == PROJECT_JSON_TOP_LEVEL_KEYS
-    assert document["ok"] is True
-    assert document["diagnostics"] == []
+    assert document["ok"] is False
+    diagnostics = cast(list[dict[str, object]], document["diagnostics"])
+    assert [diagnostic["code"] for diagnostic in diagnostics] == ["PIE-S2302"]
     for private_fact in (
         "ProjectRelationDependencyGraph",
         "ProjectRelationDependencyNode",
@@ -306,12 +317,12 @@ def test_project_json_v2_does_not_expose_relation_cycle_facts(
         assert private_fact not in serialized
 
 
-def test_phase46_slice4_package_version_and_dirty_paths_are_locked() -> None:
+def test_phase46_slice5_package_version_and_dirty_paths_are_locked() -> None:
     pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
 
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
-    assert _git_status_paths().issubset(ALLOWED_SLICE4_GATE2_PATHS)
+    assert _git_status_paths().issubset(ALLOWED_SLICE5_GATE2_PATHS)
 
 
 def _project_semantic_result(
@@ -349,6 +360,16 @@ def _cycle_edge_names(
     cycles: tuple[ProjectRelationDependencyCycle, ...],
 ) -> tuple[tuple[tuple[str, str], ...], ...]:
     return tuple(_edge_names(cycle.edges) for cycle in cycles)
+
+
+def _cycle_diagnostic_messages(
+    semantic_result: ProjectSemanticResult,
+) -> tuple[str, ...]:
+    return tuple(
+        diagnostic.message
+        for diagnostic in semantic_result.diagnostics
+        if diagnostic.code == "PIE-S2302"
+    )
 
 
 def _project_root(

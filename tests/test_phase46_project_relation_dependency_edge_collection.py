@@ -34,10 +34,13 @@ PROJECT_JSON_TOP_LEVEL_KEYS = (
     "result",
 )
 
-ALLOWED_SLICE4_GATE2_PATHS = {
+ALLOWED_SLICE5_GATE2_PATHS = {
     "src/pietto/_project/model.py",
+    "tests/test_phase45_project_relation_namespace_semantics.py",
+    "tests/test_phase46_project_relation_dependency_graph_scaffold.py",
     "tests/test_phase46_project_relation_dependency_edge_collection.py",
     "tests/test_phase46_project_relation_cycle_detection.py",
+    "tests/test_phase46_project_relation_cycle_diagnostics.py",
 }
 
 
@@ -186,7 +189,7 @@ def test_unresolved_relation_diagnostics_do_not_create_edges(
     )
 
 
-def test_cycle_shaped_dependencies_collect_edges_without_cycle_diagnostic(
+def test_cycle_shaped_dependencies_collect_edges_and_cycle_diagnostic(
     tmp_path: Path,
 ) -> None:
     root = _project_root(tmp_path, include=("*.pietto",))
@@ -205,8 +208,7 @@ def test_cycle_shaped_dependencies_collect_edges_without_cycle_diagnostic(
 
     _, semantic_result = _project_semantic_result(root)
 
-    assert semantic_result.ok
-    assert semantic_result.diagnostics == ()
+    assert not semantic_result.ok
     assert semantic_result.model is not None
     graph = semantic_result.model.relation_dependency_graph
     assert _edge_names(graph.edges) == (
@@ -220,9 +222,16 @@ def test_cycle_shaped_dependencies_collect_edges_without_cycle_diagnostic(
         ("first", "second"),
         ("second", "first"),
     )
-    assert "PIE-S2302" not in {
-        diagnostic.code for diagnostic in semantic_result.diagnostics
-    }
+    assert [
+        (diagnostic.code, diagnostic.severity, diagnostic.message)
+        for diagnostic in semantic_result.diagnostics
+    ] == [
+        (
+            "PIE-S2302",
+            Severity.ERROR,
+            "Relation cycle detected: first -> second -> first",
+        ),
+    ]
     for cycle_fact in ("cycle_candidates", "cyclic_relations", "traversal_state"):
         assert not hasattr(graph, cycle_fact)
 
@@ -275,12 +284,12 @@ def test_project_json_v2_does_not_expose_relation_dependency_edges(
         assert private_fact not in serialized
 
 
-def test_phase46_slice4_package_version_and_dirty_paths_are_locked() -> None:
+def test_phase46_slice5_package_version_and_dirty_paths_are_locked() -> None:
     pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
 
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
-    assert _git_status_paths().issubset(ALLOWED_SLICE4_GATE2_PATHS)
+    assert _git_status_paths().issubset(ALLOWED_SLICE5_GATE2_PATHS)
 
 
 def _project_semantic_result(

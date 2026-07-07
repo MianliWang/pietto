@@ -24,14 +24,18 @@ from pietto._project.model import (
     build_empty_project_semantic_result,
 )
 from pietto.ast_nodes import QueryDef, TableDef
+from pietto.errors import Severity
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
-ALLOWED_SLICE3_GATE2_PATHS = {
+ALLOWED_SLICE5_GATE2_PATHS = {
     "src/pietto/_project/model.py",
+    "tests/test_phase45_project_relation_namespace_semantics.py",
     "tests/test_phase46_project_relation_dependency_graph_scaffold.py",
     "tests/test_phase46_project_relation_dependency_edge_collection.py",
+    "tests/test_phase46_project_relation_cycle_detection.py",
+    "tests/test_phase46_project_relation_cycle_diagnostics.py",
 }
 
 
@@ -62,6 +66,7 @@ def test_project_semantic_model_defaults_to_empty_dependency_graph() -> None:
     assert model.relation_dependency_graph == ProjectRelationDependencyGraph()
     assert model.relation_dependency_graph.nodes == ()
     assert model.relation_dependency_graph.edges == ()
+    assert model.relation_dependency_graph.cycles == ()
 
 
 def test_relation_dependency_graph_nodes_are_table_query_only_and_ordered(
@@ -109,7 +114,7 @@ def test_relation_dependency_graph_nodes_are_table_query_only_and_ordered(
     )
 
 
-def test_cycle_project_keeps_no_cycle_diagnostic(
+def test_cycle_project_emits_relation_cycle_diagnostic(
     tmp_path: Path,
 ) -> None:
     root = _project_root(tmp_path, include=("*.pietto",))
@@ -128,17 +133,23 @@ def test_cycle_project_keeps_no_cycle_diagnostic(
 
     _, semantic_result = _project_semantic_result(root)
 
-    assert semantic_result.ok
+    assert not semantic_result.ok
     assert semantic_result.model is not None
     node_names = tuple(
         node.symbol.name
         for node in semantic_result.model.relation_dependency_graph.nodes
     )
     assert node_names == ("first", "second")
-    assert semantic_result.diagnostics == ()
-    assert "PIE-S2302" not in {
-        diagnostic.code for diagnostic in semantic_result.diagnostics
-    }
+    assert [
+        (diagnostic.code, diagnostic.severity, diagnostic.message)
+        for diagnostic in semantic_result.diagnostics
+    ] == [
+        (
+            "PIE-S2302",
+            Severity.ERROR,
+            "Relation cycle detected: first -> second -> first",
+        ),
+    ]
 
 
 def test_project_json_v2_does_not_expose_relation_dependency_graph(
@@ -187,12 +198,12 @@ def test_project_json_v2_does_not_expose_relation_dependency_graph(
         assert private_fact not in serialized
 
 
-def test_phase46_slice3_package_version_and_dirty_paths_are_locked() -> None:
+def test_phase46_slice5_package_version_and_dirty_paths_are_locked() -> None:
     pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
 
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
-    assert _git_status_paths().issubset(ALLOWED_SLICE3_GATE2_PATHS)
+    assert _git_status_paths().issubset(ALLOWED_SLICE5_GATE2_PATHS)
 
 
 def _project_semantic_result(

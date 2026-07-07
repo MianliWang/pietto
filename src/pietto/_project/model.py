@@ -424,6 +424,9 @@ def build_empty_project_semantic_result(
         catalog=catalog,
         relation_resolutions=relation_resolutions,
     )
+    cycle_diagnostics = _build_project_relation_cycle_diagnostics(
+        relation_dependency_graph
+    )
     return ProjectSemanticResult(
         root=parse_result.root,
         config_path=parse_result.config_path,
@@ -437,7 +440,7 @@ def build_empty_project_semantic_result(
             relation_resolutions=relation_resolutions,
             relation_dependency_graph=relation_dependency_graph,
         ),
-        diagnostics=(*type_diagnostics, *relation_diagnostics),
+        diagnostics=(*type_diagnostics, *relation_diagnostics, *cycle_diagnostics),
     )
 
 
@@ -589,6 +592,50 @@ def _canonical_project_relation_dependency_cycle(
         nodes=(*nodes[start:], *nodes[:start]),
         edges=(*edges[start:], *edges[:start]),
     )
+
+
+def _build_project_relation_cycle_diagnostics(
+    graph: ProjectRelationDependencyGraph,
+) -> tuple[Diagnostic, ...]:
+    """Build project relation cycle diagnostics from private cycle facts."""
+
+    return tuple(_project_relation_cycle_diagnostic(cycle) for cycle in graph.cycles)
+
+
+def _project_relation_cycle_diagnostic(
+    cycle: ProjectRelationDependencyCycle,
+) -> Diagnostic:
+    """Build one project relation cycle diagnostic."""
+
+    if not cycle.edges:
+        raise AssertionError("Relation dependency cycle requires at least one edge")
+
+    closing_edge = cycle.edges[-1]
+    span = closing_edge.dependency_source.from_clause.span
+    return Diagnostic(
+        code="PIE-S2302",
+        severity=Severity.ERROR,
+        message=f"Relation cycle detected: {_project_relation_cycle_path(cycle)}",
+        location=SourceLocation(
+            path=span.path or closing_edge.origin.symbol.path,
+            line=span.line,
+            column=span.column,
+            end_line=span.end_line,
+            end_column=span.end_column,
+        ),
+    )
+
+
+def _project_relation_cycle_path(
+    cycle: ProjectRelationDependencyCycle,
+) -> str:
+    """Return the user-facing relation cycle path."""
+
+    if not cycle.nodes:
+        raise AssertionError("Relation dependency cycle requires at least one node")
+
+    node_names = tuple(node.symbol.name for node in cycle.nodes)
+    return " -> ".join((*node_names, node_names[0]))
 
 
 def _build_project_relation_namespace_facts(

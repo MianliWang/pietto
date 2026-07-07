@@ -189,7 +189,7 @@ def test_type_and_relation_diagnostics_coexist_in_deterministic_order(
     ]
 
 
-def test_relation_cycles_remain_deferred(tmp_path: Path) -> None:
+def test_relation_cycles_emit_project_cycle_diagnostics(tmp_path: Path) -> None:
     root = _project_root(tmp_path, include=("*.pietto",))
     _write(
         root,
@@ -206,8 +206,7 @@ def test_relation_cycles_remain_deferred(tmp_path: Path) -> None:
 
     parse_result, semantic_result = _project_semantic_result(root)
 
-    assert semantic_result.ok
-    assert semantic_result.diagnostics == ()
+    assert not semantic_result.ok
     assert semantic_result.model is not None
     first = _derived_definition(parse_result, "first")
     second = _derived_definition(parse_result, "second")
@@ -217,9 +216,16 @@ def test_relation_cycles_remain_deferred(tmp_path: Path) -> None:
     assert (
         semantic_result.model.relation_resolutions[second.from_clause].name == "first"
     )
-    assert "PIE-S2302" not in {
-        diagnostic.code for diagnostic in semantic_result.diagnostics
-    }
+    assert [
+        (diagnostic.code, diagnostic.severity, diagnostic.message)
+        for diagnostic in semantic_result.diagnostics
+    ] == [
+        (
+            "PIE-S2302",
+            Severity.ERROR,
+            "Relation cycle detected: first -> second -> first",
+        ),
+    ]
 
 
 def test_sources_and_relationship_metadata_endpoints_are_out_of_scope(
@@ -295,7 +301,7 @@ def test_project_text_check_reports_relation_diagnostics_after_slice7(
     assert "Unknown relation: missing_relation" in captured.err
 
 
-def test_slice6_does_not_import_semantic_or_enter_output_paths() -> None:
+def test_project_relation_namespace_stays_out_of_output_paths() -> None:
     source = MODEL_PATH.read_text(encoding="utf-8")
 
     assert "pietto.semantic" not in source
@@ -304,7 +310,6 @@ def test_slice6_does_not_import_semantic_or_enter_output_paths() -> None:
     assert "emit_postgres_sql" not in source
     assert "emit_mysql_sql" not in source
     assert "check_relation_cycles" not in source
-    assert "PIE-S2302" not in source
 
 
 def test_slice6_docs_lock_private_relation_namespace_semantics() -> None:
