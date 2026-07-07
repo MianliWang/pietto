@@ -13,6 +13,7 @@ from pietto.ast_nodes import (
     Definition,
     DeriveDef,
     EnumDef,
+    FieldDef,
     FromClause,
     QueryDef,
     Script,
@@ -224,6 +225,59 @@ class ProjectResolvedType:
     symbol: ProjectSymbol | None = None
 
 
+class ProjectRowFieldNullability(StrEnum):
+    """Project-private row field nullability fact."""
+
+    NON_NULL = "non_null"
+    NULLABLE = "nullable"
+    UNKNOWN = "unknown"
+
+
+class ProjectRowFieldProvenanceKind(StrEnum):
+    """Project-private row field provenance categories for future slices."""
+
+    SOURCE_FIELD = "source_field"
+    DIRECT_PROJECTION = "direct_projection"
+    EXPRESSION = "expression"
+    AGGREGATE = "aggregate"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectRowFieldProvenance:
+    """Inert private origin metadata for a future project row field."""
+
+    kind: ProjectRowFieldProvenanceKind
+    symbol: ProjectSymbol | None = None
+    location: SourceLocation | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectRowField:
+    """One private project row field scaffold fact."""
+
+    name: str
+    resolved_type: ProjectResolvedType
+    nullability: ProjectRowFieldNullability
+    field_def: FieldDef | None = None
+    provenance: ProjectRowFieldProvenance | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectRowSchema:
+    """Ordered private project row schema scaffold."""
+
+    fields: Mapping[str, ProjectRowField] = field(
+        default_factory=lambda: _readonly_mapping()
+    )
+    is_unknown: bool = False
+
+    def __post_init__(self) -> None:
+        """Copy row field maps into immutable mappings."""
+
+        object.__setattr__(self, "fields", _readonly_mapping(self.fields))
+
+
 @dataclass(frozen=True, slots=True)
 class ProjectRelationDependencyNode:
     """One private relation dependency graph node."""
@@ -328,6 +382,12 @@ class ProjectSemanticModel:
     relation_resolutions: Mapping[FromClause, ProjectSymbol] = field(
         default_factory=lambda: _readonly_mapping()
     )
+    source_row_schemas: Mapping[SourceDef, ProjectRowSchema] = field(
+        default_factory=lambda: _readonly_mapping()
+    )
+    relation_row_schemas: Mapping[TableDef | QueryDef, ProjectRowSchema] = field(
+        default_factory=lambda: _readonly_mapping()
+    )
     relation_dependency_graph: ProjectRelationDependencyGraph = field(
         default_factory=ProjectRelationDependencyGraph
     )
@@ -349,6 +409,16 @@ class ProjectSemanticModel:
             self,
             "relation_resolutions",
             _readonly_mapping(self.relation_resolutions),
+        )
+        object.__setattr__(
+            self,
+            "source_row_schemas",
+            _readonly_mapping(self.source_row_schemas),
+        )
+        object.__setattr__(
+            self,
+            "relation_row_schemas",
+            _readonly_mapping(self.relation_row_schemas),
         )
 
 
