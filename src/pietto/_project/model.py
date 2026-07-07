@@ -802,6 +802,8 @@ def _build_project_relation_row_schemas(
         for definition in parsed_input.script.definitions:
             if not isinstance(definition, (TableDef, QueryDef)):
                 continue
+            if definition.group_by_clause is not None:
+                continue
 
             source_symbol = relation_resolutions.get(definition.from_clause)
             if (
