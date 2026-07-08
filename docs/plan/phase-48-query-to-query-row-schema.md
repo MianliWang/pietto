@@ -107,6 +107,26 @@ computed alias schema, no `let` expression schema, no aggregate/grouped schema,
 no project IR/SQL/emit/explain, no JOIN/relationship behavior, no package
 version, and no release operations.
 
+Phase 48 Slice 9 is Project JSON/private-fact privacy plus future
+explain/bridge readiness. Slice 9 is docs/spec/tests-only. It locks the current
+Project JSON v2 privacy boundary after propagated row schema, availability
+state, provenance, dependency graph, cycle, diagnostic, and deterministic
+ordering hardening. Project JSON v2 top-level key order remains unchanged;
+diagnostics remain public only through existing `diagnostics[]`; private row
+schemas, schema availability states, status/reason values, provenance/lineage
+facts, relation graph/cycle facts, and private ordering metadata remain
+unserialized. Slice 9 documents that these private facts may support future
+project explain, semantic metadata, bridge/export, RAG, or Arrow readiness, but
+Slice 9 exposes none of them. Existing single-file explain is not project
+explain, and Phase 52 remains the later Project Explain / Project Semantic
+Metadata Readiness direction. Slice 9 changes no `src/**`, no production
+behavior, no Project JSON v2 shape, no private fact serialization, no public
+project semantic API, no diagnostics, no diagnostic wording, no
+parser/grammar/generated files, no hash-lock tests, no computed alias schema,
+no `let` expression schema, no aggregate/grouped schema, no project
+IR/SQL/emit/explain, no bridge/export/RAG/Arrow behavior, no JOIN/relationship
+behavior, no package version, and no release operations.
+
 Package version remains `0.1.0`.
 
 ## Trusted Baseline
@@ -180,6 +200,18 @@ Package version remains `0.1.0`.
 - Baseline exact-match tag: none.
 - Natural CI: `CI` run `28917550394`, event `push`, branch `main`, headSha
   `c21b2f58e01fed2d2758752646545e3e0771e6b4`, completed with success.
+
+## Slice 9 Trusted Baseline
+
+- Baseline branch: `main`.
+- Baseline HEAD: `86c6eb43106994a486d900cae3a5f028b7de5b7e`.
+- Baseline subject: `Add Phase 48 diagnostics ordering hardening`.
+- Baseline package version: `0.1.0`.
+- Baseline worktree status: clean and equivalent to `## main...origin/main`.
+- Baseline HEAD tag: none.
+- Baseline exact-match tag: none.
+- Natural CI: `CI` run `28918581371`, event `push`, branch `main`, headSha
+  `86c6eb43106994a486d900cae3a5f028b7de5b7e`, completed with success.
 
 ## Phase Identity And Prerequisites
 
@@ -721,6 +753,21 @@ roadmap, or public JSON/CLI behavior files are approved in Slice 8 Gate 2.
 
 No other file is approved in Slice 8 Gate 2.
 
+## Slice 9 Gate 2 Allowlist
+
+Phase 48 Slice 9 Gate 2 is docs/spec/tests-only and is limited to:
+
+- `docs/plan/phase-48-query-to-query-row-schema.md`
+- `docs/spec/phase48-project-json-private-fact-privacy-readiness-v1.md`
+- `tests/test_phase48_project_json_private_fact_privacy_readiness.py`
+
+No `src/**`, hash-lock tests, parser/grammar/generated files, fixtures,
+goldens, scripts, workflows, package metadata, lockfiles, README, AGENTS, global
+roadmap, public JSON/CLI behavior files, Project JSON v2 serializer files, or
+project check orchestration files are approved in Slice 9 Gate 2.
+
+No other file is approved in Slice 9 Gate 2.
+
 ## Focused Validation
 
 The focused Slice 1 Gate 2 validation commands are:
@@ -902,6 +949,31 @@ formatting, `uv run ruff format
 tests/test_phase48_downstream_diagnostics_ordering_hardening.py` may be run and
 then the focused validation commands must be rerun.
 
+The focused Slice 9 Gate 2 validation commands are:
+
+```bash
+git diff --check
+set +e
+git diff --no-index --check -- /dev/null docs/spec/phase48-project-json-private-fact-privacy-readiness-v1.md
+rc_spec=$?
+git diff --no-index --check -- /dev/null tests/test_phase48_project_json_private_fact_privacy_readiness.py
+rc_test=$?
+set -e
+test "$rc_spec" -le 1
+test "$rc_test" -le 1
+uv run ruff format --check tests/test_phase48_project_json_private_fact_privacy_readiness.py
+uv run ruff check tests/test_phase48_project_json_private_fact_privacy_readiness.py
+uv run pyright --project pyrightconfig.tests.json
+uv run pytest tests/test_phase48_project_json_private_fact_privacy_readiness.py
+```
+
+Do not run broad validation, `scripts/validate.py`, code generation, parser
+generation, workflows, hash-lock tests, old dirty-path guard tests, or CI in
+dirty Slice 9 Gate 2. If `ruff format --check` fails only because the new Slice
+9 test file needs formatting, `uv run ruff format
+tests/test_phase48_project_json_private_fact_privacy_readiness.py` may be run
+and then the focused validation commands must be rerun.
+
 ## Stop Conditions
 
 Stop immediately if implementation would require files outside the Slice 1
@@ -988,3 +1060,17 @@ aggregate schema, grouped output schema, JOIN or relationship behavior, project
 IR, project SQL emit, project `emit-sql`, project `explain`, public project
 semantic API, runtime/database behavior, hash-lock changes, package version
 changes, or release actions.
+
+For Slice 9, stop immediately if implementation would require files outside the
+Slice 9 allowlist, any `src/**` file, `src/pietto/_project/model.py`,
+`src/pietto/_project/check.py`, `src/pietto/_project/json_v2.py`,
+`src/pietto/cli.py`, parser or generated files, fixtures or goldens, scripts,
+workflows, package metadata, lockfiles, README, AGENTS, global roadmap
+reconciliation, Project JSON v2 serializer changes, CLI/check orchestration
+changes, public JSON shape changes, private fact serialization, new
+diagnostics, diagnostic wording changes, diagnostic behavior changes,
+production behavior changes, computed alias schema, `let` expression schema,
+aggregate schema, grouped output schema, project explain, semantic metadata
+export, bridge/export/RAG/Arrow behavior, public project semantic API, JOIN or
+relationship behavior, project IR, project SQL emit, project `emit-sql`,
+hash-lock changes, package version changes, or release actions.
