@@ -66,6 +66,17 @@ serializes no private facts, and adds no parser/grammar/generated, CLI, public
 API, project IR/SQL/emit/explain, relationship/JOIN, runtime/database,
 package-version, or release behavior.
 
+Phase 48 Slice 6 is Propagated field provenance / lineage hardening. Slice 6 is
+docs/spec/tests-only. It locks the current private provenance contract:
+`ProjectRowFieldProvenance` records immediate semantic projection metadata,
+while full lineage chains remain deferred future explain/export metadata. Slice
+6 adds no production model carrier, no private lineage scaffold, no Project JSON
+v2 serialization, no public API, no selector syntax expansion, no new
+diagnostics, no computed alias schema, no `let` schema, no aggregate/grouped
+schema, no non-concrete upstream propagation, no project IR/SQL/emit/explain,
+no JOIN/relationship behavior, no parser/grammar/generated changes, no package
+version changes, and no release operations.
+
 Package version remains `0.1.0`.
 
 ## Trusted Baseline
@@ -103,6 +114,18 @@ Package version remains `0.1.0`.
 - Baseline exact-match tag: none.
 - Natural CI: `CI` run `28888129097`, event `push`, branch `main`, headSha
   `dff8726dd86ddbcce0e3763a97b230109769849a`, completed with success.
+
+## Slice 6 Trusted Baseline
+
+- Baseline branch: `main`.
+- Baseline HEAD: `d34c2077d9e45e47ef41215e7c5d718db86f2a2e`.
+- Baseline subject: `Add Phase 48 query multi-hop propagation`.
+- Baseline package version: `0.1.0`.
+- Baseline worktree status: clean and equivalent to `## main...origin/main`.
+- Baseline HEAD tag: none.
+- Baseline exact-match tag: none.
+- Natural CI: `CI` run `28915210609`, event `push`, branch `main`, headSha
+  `d34c2077d9e45e47ef41215e7c5d718db86f2a2e`, completed with success.
 
 ## Phase Identity And Prerequisites
 
@@ -406,6 +429,40 @@ Project JSON v2 top-level shape remains unchanged. Slice 5 serializes no
 private row schema facts, schema availability states, status/reason values,
 provenance facts, relation graph facts, or cycle facts.
 
+## Slice 6 Propagated Field Provenance / Lineage Hardening
+
+Slice 6 locks the current private provenance contract without production code
+changes. Provenance means immediate semantic projection metadata used by
+compiler internals. Lineage means a future explain/export chain and remains
+deferred.
+
+For propagated direct projections:
+
+- `ProjectRowField.resolved_type` is preserved from the upstream field;
+- `ProjectRowField.nullability` is preserved from the upstream field;
+- `ProjectRowField.field_def` preserves the originating source `FieldDef` when
+  available;
+- `ProjectRowField.name` is the downstream output name or alias;
+- `ProjectRowField.provenance.kind` is `DIRECT_PROJECTION`;
+- `ProjectRowField.provenance.symbol` is the immediate upstream source/table/query
+  symbol used by the current `from` clause;
+- `ProjectRowField.provenance.location` is the current downstream projection
+  expression location.
+
+Across multi-hop propagation, downstream fields keep the originating
+`FieldDef`, type, and nullability facts, but provenance stays immediate to the
+current projection step. Slice 6 deliberately does not add a full lineage chain
+carrier.
+
+The flat relation schema model remains authoritative. Downstream selectors may
+use only the immediate upstream relation qualifier. Original source qualifiers
+and multi-part lineage selectors remain invalid and continue to use existing
+`PIE-S2102` when checked against a concrete upstream schema.
+
+Project JSON v2 top-level shape remains unchanged. Slice 6 serializes no row
+schema facts, availability states, provenance facts, lineage facts, private
+model names, relation graph facts, or cycle facts.
+
 ## Downstream Phase 51-55 Readiness
 
 Phase 48 prepares private facts for later phases without implementing those
@@ -559,6 +616,16 @@ changes expected boundary hashes:
 
 No other file is approved in Slice 5 Gate 2.
 
+## Slice 6 Gate 2 Allowlist
+
+Phase 48 Slice 6 Gate 2 is limited to:
+
+- `docs/plan/phase-48-query-to-query-row-schema.md`
+- `docs/spec/phase48-propagated-field-provenance-lineage-hardening-v1.md`
+- `tests/test_phase48_propagated_field_provenance_lineage_hardening.py`
+
+No other file is approved in Slice 6 Gate 2.
+
 ## Focused Validation
 
 The focused Slice 1 Gate 2 validation commands are:
@@ -670,6 +737,27 @@ hash-lock tests in the focused ruff and pytest commands. Do not run broad
 validation, `scripts/validate.py`, code generation, parser generation,
 workflows, or CI in dirty Slice 5 Gate 2.
 
+The focused Slice 6 Gate 2 validation commands are:
+
+```bash
+git diff --check
+set +e
+git diff --no-index --check -- /dev/null docs/spec/phase48-propagated-field-provenance-lineage-hardening-v1.md
+rc_spec=$?
+git diff --no-index --check -- /dev/null tests/test_phase48_propagated_field_provenance_lineage_hardening.py
+rc_test=$?
+set -e
+test "$rc_spec" -le 1
+test "$rc_test" -le 1
+uv run ruff format --check tests/test_phase48_propagated_field_provenance_lineage_hardening.py
+uv run ruff check tests/test_phase48_propagated_field_provenance_lineage_hardening.py
+uv run pyright --project pyrightconfig.tests.json
+uv run pytest tests/test_phase48_propagated_field_provenance_lineage_hardening.py
+```
+
+Do not run broad validation, `scripts/validate.py`, code generation, parser
+generation, workflows, hash-lock tests, or CI in dirty Slice 6 Gate 2.
+
 ## Stop Conditions
 
 Stop immediately if implementation would require files outside the Slice 1
@@ -720,3 +808,13 @@ diagnostic wording or ordering changes, parser/generated files, Project JSON
 v2/CLI/check changes, project IR/SQL/emit/explain, public API,
 JOIN/relationship behavior, runtime/database behavior, package version changes,
 release actions, or docs outside the allowlist.
+
+For Slice 6, stop immediately if implementation would require files outside the
+Slice 6 allowlist, any `src/**` change, `src/pietto/_project/model.py`,
+`src/pietto/_project/check.py`, `src/pietto/_project/json_v2.py`, a production
+model carrier, a private lineage scaffold, non-concrete upstream propagation,
+computed alias schema, `let` schema, aggregate/grouped schema, new diagnostics,
+diagnostic wording or ordering changes, selector syntax expansion,
+parser/generated files, Project JSON v2/CLI/check changes, project
+IR/SQL/emit/explain, public API, JOIN/relationship behavior, hash-lock churn,
+package version changes, release actions, or docs outside the allowlist.
