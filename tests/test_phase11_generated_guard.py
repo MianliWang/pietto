@@ -27,7 +27,7 @@ EXPECTED_INVENTORY = (
     "PiettoVisitor.py",
     "__init__.py",
 )
-BOUNDARY_HASH = "c2cd81fd6d1ca00fa3195f49f2fbfce2640a311e2560fb2a92d71ebe58515279"
+BOUNDARY_HASH = "08d37bf1383d20e2f7f64c973d7c68966e3419ad529301dae6a4a57af5a8e01f"
 VALIDATION_GATES = (
     ("lockfile", ("uv", "lock", "--check")),
     ("format", ("uv", "run", "ruff", "format", "--check", ".")),

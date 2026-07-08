@@ -31,6 +31,7 @@ from pietto.errors import Diagnostic, Severity, SourceLocation
 
 if TYPE_CHECKING:
     from pietto._project.let_scope_facts import ProjectRelationLetScopeFacts
+    from pietto._project.row_dependency_graph import ProjectRelationRowDependencyGraph
 
 _Key = TypeVar("_Key")
 _Value = TypeVar("_Value")
@@ -503,6 +504,9 @@ class ProjectSemanticModel:
     relation_let_scope_facts: Mapping[
         TableDef | QueryDef, ProjectRelationLetScopeFacts
     ] = field(default_factory=lambda: _readonly_mapping())
+    relation_row_dependency_graphs: Mapping[
+        TableDef | QueryDef, ProjectRelationRowDependencyGraph
+    ] = field(default_factory=lambda: _readonly_mapping())
     relation_dependency_graph: ProjectRelationDependencyGraph = field(
         default_factory=ProjectRelationDependencyGraph
     )
@@ -544,6 +548,11 @@ class ProjectSemanticModel:
             self,
             "relation_let_scope_facts",
             _readonly_mapping(self.relation_let_scope_facts),
+        )
+        object.__setattr__(
+            self,
+            "relation_row_dependency_graphs",
+            _readonly_mapping(self.relation_row_dependency_graphs),
         )
 
 
@@ -636,6 +645,16 @@ def build_empty_project_semantic_result(
         relation_row_schemas=relation_row_schema_result.relation_row_schemas,
         relation_row_schema_states=relation_row_schema_result.relation_row_schema_states,
     )
+    relation_row_dependency_graphs = _build_project_relation_row_dependency_graphs(
+        parsed_inputs=parse_result.parsed_inputs,
+        relation_resolutions=relation_resolutions,
+        source_row_schemas=source_row_schemas,
+        relation_row_schemas=relation_row_schema_result.relation_row_schemas,
+        relation_row_schema_states=(
+            relation_row_schema_result.relation_row_schema_states
+        ),
+        relation_let_scope_facts=relation_let_scope_facts,
+    )
     cycle_diagnostics = _build_project_relation_cycle_diagnostics(
         relation_dependency_graph
     )
@@ -656,6 +675,7 @@ def build_empty_project_semantic_result(
                 relation_row_schema_result.relation_row_schema_states
             ),
             relation_let_scope_facts=relation_let_scope_facts,
+            relation_row_dependency_graphs=relation_row_dependency_graphs,
             relation_dependency_graph=relation_dependency_graph,
         ),
         diagnostics=(
@@ -1136,6 +1156,35 @@ def _build_project_relation_let_scope_facts(
             )
 
     return facts
+
+
+def _build_project_relation_row_dependency_graphs(
+    *,
+    parsed_inputs: tuple[ProjectParsedInput, ...],
+    relation_resolutions: Mapping[FromClause, ProjectSymbol],
+    source_row_schemas: Mapping[SourceDef, ProjectRowSchema],
+    relation_row_schemas: Mapping[TableDef | QueryDef, ProjectRowSchema],
+    relation_row_schema_states: Mapping[
+        TableDef | QueryDef, ProjectRelationRowSchemaState
+    ],
+    relation_let_scope_facts: Mapping[
+        TableDef | QueryDef, ProjectRelationLetScopeFacts
+    ],
+) -> dict[TableDef | QueryDef, ProjectRelationRowDependencyGraph]:
+    """Build private row-level dependency graphs for project relations."""
+
+    from pietto._project.row_dependency_graph import (
+        build_project_relation_row_dependency_graphs,
+    )
+
+    return build_project_relation_row_dependency_graphs(
+        parsed_inputs=parsed_inputs,
+        relation_resolutions=relation_resolutions,
+        source_row_schemas=source_row_schemas,
+        relation_row_schemas=relation_row_schemas,
+        relation_row_schema_states=relation_row_schema_states,
+        relation_let_scope_facts=relation_let_scope_facts,
+    )
 
 
 def _record_project_relation_row_schema_result(
