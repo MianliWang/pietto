@@ -19,6 +19,20 @@ output schema, no JOIN/relationship behavior, no runtime/database execution,
 no package version change, and no tag, release, publish, upload, signing, or
 attestation.
 
+Phase 49 Slice 2 is Project row expression schema helper contract work only.
+It adds
+`docs/spec/phase49-project-row-expression-schema-helper-contract-v1.md` and
+focused static audit coverage. Slice 2 establishes a docs/spec/tests-only
+private helper contract for future project row expression schema work. It does
+not implement production helper behavior, changes no source/compiler behavior,
+and exposes no Project JSON v2 row schema, origin, provenance, dependency, or
+lineage facts. Slice 2 implements no project explain, project IR, project SQL,
+project `emit-sql`, JOIN, relationship behavior, bridge/export/RAG/Arrow,
+import/export, multi-file behavior, parser/grammar/generated change, runtime or
+database behavior, package version change, or release operation. Aggregate and
+grouped output schema remain deferred to Phase 50 or later. Row-level
+dependency cycle diagnostics remain readiness-only.
+
 Package version remains `0.1.0`.
 
 ## Trusted Baseline
@@ -172,6 +186,38 @@ Slice 13 is a compatibility/readiness slice, not a pre-planned repair. Actual
 repair commits happen only if later validation or CI requires them and the
 repair surface is separately approved.
 
+## Slice 2 Helper Contract
+
+Phase 49 Slice 2 locks the private project row expression schema helper
+contract. Future production slices should use the helper contract to map
+existing legal row-level expression semantics into private project row schema
+facts without expanding the expression language or public output surfaces.
+
+The normative Slice 2 contract is
+`docs/spec/phase49-project-row-expression-schema-helper-contract-v1.md`. It
+prefers a richer private `ProjectExpressionSchemaResult`-like result over a
+helper that returns only `ProjectRowField` or only `ValueType`. The result must
+be able to carry expression type/nullability, optional source-native
+`field_def`, private origin/provenance, dependency references, lineage
+placeholders, schema availability status/reason, and stable source references.
+
+Slice 2 keeps helper facts project-private. It adds no Project JSON v2 row
+schema output, no origin/provenance/dependency/lineage serialization, no public
+project semantic API, no project explain implementation, no project IR, no
+project SQL, no project `emit-sql`, no parser/grammar/generated change, no
+JOIN/relationship behavior, no bridge/export/RAG/Arrow behavior, no
+import/export or multi-file behavior, and no runtime/database execution.
+
+## Slice 2 Gate 2 Allowlist
+
+Phase 49 Slice 2 Gate 2 is limited to:
+
+- `docs/plan/phase-49-row-level-computed-let-schema-lineage.md`
+- `docs/spec/phase49-project-row-expression-schema-helper-contract-v1.md`
+- `tests/test_phase49_project_row_expression_schema_helper_contract.py`
+
+No other file is approved in Slice 2 Gate 2.
+
 ## Slice 1 Gate 2 Allowlist
 
 Phase 49 Slice 1 Gate 2 is limited to:
@@ -201,6 +247,18 @@ Do not run old Phase 47/48 dirty-path guard tests in dirty Gate 2. They remain
 clean-tree/CI compatibility coverage after commit. Do not run
 `scripts/validate.py` in dirty Gate 2. Full authoritative validation is natural
 CI after a later Gate 3 publish.
+
+Focused validation for Slice 2 Gate 2:
+
+```bash
+git diff --check
+git diff --no-index --check -- /dev/null docs/spec/phase49-project-row-expression-schema-helper-contract-v1.md || true
+git diff --no-index --check -- /dev/null tests/test_phase49_project_row_expression_schema_helper_contract.py || true
+uv run ruff format --check tests/test_phase49_project_row_expression_schema_helper_contract.py
+uv run ruff check tests/test_phase49_project_row_expression_schema_helper_contract.py
+uv run pyright --project pyrightconfig.tests.json
+uv run pytest tests/test_phase49_project_row_expression_schema_helper_contract.py
+```
 
 ## Stop Conditions
 
