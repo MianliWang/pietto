@@ -242,6 +242,7 @@ class ProjectRowFieldProvenanceKind(StrEnum):
 
     SOURCE_FIELD = "source_field"
     DIRECT_PROJECTION = "direct_projection"
+    DERIVED_EXPRESSION = "derived_expression"
     EXPRESSION = "expression"
     AGGREGATE = "aggregate"
     UNKNOWN = "unknown"
@@ -1211,7 +1212,7 @@ def _project_direct_relation_row_schema(
                 nullability=result.nullability,
                 field_def=None,
                 provenance=ProjectRowFieldProvenance(
-                    kind=ProjectRowFieldProvenanceKind.EXPRESSION,
+                    kind=ProjectRowFieldProvenanceKind.DERIVED_EXPRESSION,
                     symbol=source_symbol,
                     location=result.location,
                 ),

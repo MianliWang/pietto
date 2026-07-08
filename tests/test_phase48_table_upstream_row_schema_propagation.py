@@ -77,6 +77,27 @@ ALLOWED_PHASE49_SLICE4_GATE2_PATHS = {
     "tests/test_phase33_completion_audit.py",
 }
 
+ALLOWED_PHASE49_SLICE5_GATE2_PATHS = {
+    "docs/plan/phase-49-row-level-computed-let-schema-lineage.md",
+    "docs/spec/phase49-computed-alias-origin-provenance-privacy-v1.md",
+    "src/pietto/_project/model.py",
+    "tests/test_phase49_computed_alias_origin_provenance_privacy.py",
+    "tests/test_phase49_computed_alias_project_row_schema_mvp.py",
+    "tests/test_phase47_direct_bare_field_row_schema.py",
+    "tests/test_phase47_direct_field_rename_row_schema.py",
+    "tests/test_phase47_downstream_readiness_hardening.py",
+    "tests/test_phase48_table_upstream_row_schema_propagation.py",
+    "tests/test_phase11_ci_workflow.py",
+    "tests/test_phase11_completion_audit.py",
+    "tests/test_phase11_generated_guard.py",
+    "tests/test_phase11_golden_policy.py",
+    "tests/test_phase11_packaging_smoke.py",
+    "tests/test_phase11_validation_entrypoint.py",
+    "tests/test_phase12_completion_audit.py",
+    "tests/test_phase12_composition_cli_json_goldens.py",
+    "tests/test_phase33_completion_audit.py",
+}
+
 
 def test_slice4_contract_document_exists_and_locks_table_upstream_scope() -> None:
     assert PLAN_PATH.is_file()
@@ -430,7 +451,7 @@ def test_table_upstream_computed_alias_is_concrete_without_diagnostic(
     assert field.nullability is ProjectRowFieldNullability.UNKNOWN
     assert field.field_def is None
     assert field.provenance is not None
-    assert field.provenance.kind is ProjectRowFieldProvenanceKind.EXPRESSION
+    assert field.provenance.kind is ProjectRowFieldProvenanceKind.DERIVED_EXPRESSION
 
 
 def test_project_json_v2_does_not_expose_table_upstream_private_facts(
@@ -497,6 +518,7 @@ def test_phase48_slice4_package_version_and_dirty_paths_are_locked() -> None:
         set(),
         ALLOWED_SLICE4_GATE2_PATHS,
         ALLOWED_PHASE49_SLICE4_GATE2_PATHS,
+        ALLOWED_PHASE49_SLICE5_GATE2_PATHS,
     )
     assert _git_diff("src/pietto/_project/check.py") == ""
     assert _git_diff("src/pietto/_project/json_v2.py") == ""

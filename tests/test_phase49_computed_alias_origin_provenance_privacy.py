@@ -21,31 +21,6 @@ from pietto.ast_nodes import QueryDef, SourceDef, TableDef
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
-ALLOWED_SLICE4_GATE2_PATHS = {
-    "docs/plan/phase-49-row-level-computed-let-schema-lineage.md",
-    "docs/spec/phase49-computed-alias-project-row-schema-mvp-v1.md",
-    "src/pietto/_project/model.py",
-    "src/pietto/_project/row_expression_type_facts.py",
-    "tests/test_phase49_computed_alias_project_row_schema_mvp.py",
-    "tests/test_phase47_direct_bare_field_row_schema.py",
-    "tests/test_phase47_direct_field_rename_row_schema.py",
-    "tests/test_phase48_query_to_query_multi_hop_propagation.py",
-    "tests/test_phase48_upstream_non_concrete_schema_propagation.py",
-    "tests/test_phase47_downstream_readiness_hardening.py",
-    "tests/test_phase48_table_upstream_row_schema_propagation.py",
-    "tests/test_phase48_project_json_private_fact_privacy_readiness.py",
-    "tests/test_phase48_downstream_diagnostics_ordering_hardening.py",
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_generated_guard.py",
-    "tests/test_phase11_golden_policy.py",
-    "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_phase12_completion_audit.py",
-    "tests/test_phase12_composition_cli_json_goldens.py",
-    "tests/test_phase33_completion_audit.py",
-}
-
 ALLOWED_SLICE5_GATE2_PATHS = {
     "docs/plan/phase-49-row-level-computed-let-schema-lineage.md",
     "docs/spec/phase49-computed-alias-origin-provenance-privacy-v1.md",
@@ -74,16 +49,19 @@ PRIVATE_JSON_FACTS = (
     "ProjectRowSchema",
     "ProjectRowField",
     "ProjectRowFieldProvenance",
+    "ProjectRowFieldProvenanceKind",
+    "provenance",
+    "origin",
+    "DERIVED_EXPRESSION",
+    "derived_expression",
     "row_expression_schema",
     "row_expression_type_facts",
     "dependency_placeholders",
     "lineage_placeholders",
-    "derived_expression",
-    "expression_value_types",
 )
 
 
-def test_computed_alias_over_concrete_source_schema_becomes_private_row_field(
+def test_computed_alias_uses_private_derived_expression_provenance(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(
@@ -92,7 +70,6 @@ def test_computed_alias_over_concrete_source_schema_becomes_private_row_field(
             "query scored:\n"
             "    from users\n"
             "    select:\n"
-            "        id\n"
             "        total = score + bonus\n",
         )
     )
@@ -100,17 +77,9 @@ def test_computed_alias_over_concrete_source_schema_becomes_private_row_field(
     assert semantic_result.ok
     assert semantic_result.diagnostics == ()
     assert semantic_result.model is not None
-    users = _source_definition(parse_result, "users")
     scored = _derived_definition(parse_result, "scored")
-    source_schema = semantic_result.model.source_row_schemas[users]
-    row_schema = semantic_result.model.relation_row_schemas[scored]
+    total = semantic_result.model.relation_row_schemas[scored].fields["total"]
 
-    assert tuple(row_schema.fields) == ("id", "total")
-    _assert_direct_field_preserves_source_field_def(
-        relation_field=row_schema.fields["id"],
-        source_field=source_schema.fields["id"],
-    )
-    total = row_schema.fields["total"]
     assert total.name == "total"
     assert total.resolved_type.name == "Int"
     assert total.nullability is ProjectRowFieldNullability.UNKNOWN
@@ -121,6 +90,8 @@ def test_computed_alias_over_concrete_source_schema_becomes_private_row_field(
         total.provenance.symbol
         is semantic_result.model.relation_resolutions[scored.from_clause]
     )
+    assert total.provenance.location is not None
+    assert total.provenance.location.path == "models.pietto"
     _assert_state(
         semantic_result,
         scored,
@@ -129,17 +100,17 @@ def test_computed_alias_over_concrete_source_schema_becomes_private_row_field(
     )
 
 
-def test_renamed_direct_projection_still_preserves_source_native_field_def(
+def test_direct_and_renamed_projection_keep_existing_source_native_behavior(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(
         _project(
             tmp_path,
-            "query scored:\n"
+            "query renamed:\n"
             "    from users\n"
             "    select:\n"
-            "        user_id = id\n"
-            "        total = score + 1\n",
+            "        id\n"
+            "        user_id = id\n",
         )
     )
 
@@ -147,20 +118,26 @@ def test_renamed_direct_projection_still_preserves_source_native_field_def(
     assert semantic_result.diagnostics == ()
     assert semantic_result.model is not None
     users = _source_definition(parse_result, "users")
-    scored = _derived_definition(parse_result, "scored")
+    renamed = _derived_definition(parse_result, "renamed")
     source_schema = semantic_result.model.source_row_schemas[users]
-    row_schema = semantic_result.model.relation_row_schemas[scored]
+    row_schema = semantic_result.model.relation_row_schemas[renamed]
+    source_symbol = semantic_result.model.relation_resolutions[renamed.from_clause]
 
-    assert tuple(row_schema.fields) == ("user_id", "total")
-    _assert_direct_field_preserves_source_field_def(
+    _assert_direct_projection_field(
+        relation_field=row_schema.fields["id"],
+        source_field=source_schema.fields["id"],
+        source_symbol=source_symbol,
+        expected_name="id",
+    )
+    _assert_direct_projection_field(
         relation_field=row_schema.fields["user_id"],
         source_field=source_schema.fields["id"],
+        source_symbol=source_symbol,
         expected_name="user_id",
     )
-    assert row_schema.fields["total"].field_def is None
 
 
-def test_computed_alias_schema_propagates_through_query_to_query_multi_hop(
+def test_multi_hop_computed_alias_stays_derived_and_non_source_native(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(
@@ -187,43 +164,36 @@ def test_computed_alias_schema_propagates_through_query_to_query_multi_hop(
     seed = _derived_definition(parse_result, "seed")
     exported = _derived_definition(parse_result, "exported")
     final = _derived_definition(parse_result, "final")
-    seed_schema = semantic_result.model.relation_row_schemas[seed]
-    exported_schema = semantic_result.model.relation_row_schemas[exported]
-    final_schema = semantic_result.model.relation_row_schemas[final]
+    seed_total = semantic_result.model.relation_row_schemas[seed].fields["total"]
+    exported_total = semantic_result.model.relation_row_schemas[exported].fields[
+        "total"
+    ]
+    final_total = semantic_result.model.relation_row_schemas[final].fields[
+        "final_total"
+    ]
 
-    assert tuple(seed_schema.fields) == ("total",)
-    assert tuple(exported_schema.fields) == ("total",)
-    assert tuple(final_schema.fields) == ("final_total",)
-    assert seed_schema.fields["total"].field_def is None
-    assert exported_schema.fields["total"].field_def is None
-    assert final_schema.fields["final_total"].field_def is None
-    assert final_schema.fields["final_total"].resolved_type.name == "Int"
-    _assert_state(
-        semantic_result,
-        final,
-        ProjectRelationRowSchemaStatus.CONCRETE,
-        ProjectRelationRowSchemaReason.RELATION_UPSTREAM_CONCRETE,
+    assert seed_total.field_def is None
+    assert seed_total.provenance is not None
+    assert (
+        seed_total.provenance.kind is ProjectRowFieldProvenanceKind.DERIVED_EXPRESSION
     )
+    assert exported_total.field_def is None
+    assert final_total.field_def is None
+    assert final_total.resolved_type.name == "Int"
 
 
-def test_unknown_null_division_and_aggregate_surfaces_remain_non_concrete(
+def test_let_aggregate_and_grouped_outputs_remain_out_of_scope(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(
         _project(
             tmp_path,
-            "query nullish:\n"
+            "query let_output:\n"
             "    from users\n"
+            "    let:\n"
+            "        total = score + 1\n"
             "    select:\n"
-            "        nothing = null\n"
-            "query divided:\n"
-            "    from users\n"
-            "    select:\n"
-            "        ratio = score / bonus\n"
-            "query missing:\n"
-            "    from users\n"
-            "    select:\n"
-            "        total = missing + 1\n"
+            "        total\n"
             "query aggregate:\n"
             "    from users\n"
             "    select:\n"
@@ -237,10 +207,13 @@ def test_unknown_null_division_and_aggregate_surfaces_remain_non_concrete(
         )
     )
 
-    assert semantic_result.ok
-    assert semantic_result.diagnostics == ()
+    assert not semantic_result.ok
     assert semantic_result.model is not None
-    for name in ("nullish", "divided", "missing", "aggregate", "grouped"):
+    let_output = _derived_definition(parse_result, "let_output")
+    assert semantic_result.model.relation_row_schemas[let_output].is_unknown is True
+    diagnostics = [(item.code, item.message) for item in semantic_result.diagnostics]
+    assert diagnostics == [("PIE-S2102", "Unknown field: total")]
+    for name in ("aggregate", "grouped"):
         definition = _derived_definition(parse_result, name)
         assert definition not in semantic_result.model.relation_row_schemas
         _assert_state(
@@ -251,31 +224,7 @@ def test_unknown_null_division_and_aggregate_surfaces_remain_non_concrete(
         )
 
 
-def test_bare_let_selected_output_does_not_become_concrete_in_slice4(
-    tmp_path: Path,
-) -> None:
-    parse_result, semantic_result = _project_semantic_result(
-        _project(
-            tmp_path,
-            "query projected:\n"
-            "    from users\n"
-            "    let:\n"
-            "        total = score + 1\n"
-            "    select:\n"
-            "        total\n",
-        )
-    )
-
-    assert not semantic_result.ok
-    assert semantic_result.model is not None
-    projected = _derived_definition(parse_result, "projected")
-    assert semantic_result.model.relation_row_schemas[projected].is_unknown is True
-    assert [(item.code, item.message) for item in semantic_result.diagnostics] == [
-        ("PIE-S2102", "Unknown field: total")
-    ]
-
-
-def test_project_json_v2_keeps_computed_row_schema_facts_private(
+def test_project_json_v2_keeps_derived_expression_provenance_private(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(
@@ -309,48 +258,33 @@ def test_project_json_v2_keeps_computed_row_schema_facts_private(
         assert private_fact not in serialized
 
 
-def test_slice4_keeps_forbidden_project_files_untouched() -> None:
+def test_slice5_forbidden_project_files_are_untouched() -> None:
     for relative_path in (
-        "src/pietto/_project/check.py",
         "src/pietto/_project/json_v2.py",
+        "src/pietto/_project/check.py",
         "src/pietto/_project/row_expression_schema.py",
+        "src/pietto/_project/row_expression_type_facts.py",
     ):
         assert _git_diff_names(relative_path) == ()
 
 
-def test_slice4_helper_uses_narrow_private_inference_only() -> None:
-    helper = (REPO_ROOT / "src/pietto/_project/row_expression_type_facts.py").read_text(
-        encoding="utf-8"
-    )
-    model = (REPO_ROOT / "src/pietto/_project/model.py").read_text(encoding="utf-8")
-
-    assert "infer_row_expression" in helper
-    assert "semantic_api" not in helper
-    assert "semantic_api" not in model
-    assert "from pietto.semantic" not in model
-    assert "import pietto.semantic" not in model
-
-
-def test_phase49_slice4_package_version_and_dirty_paths_are_locked() -> None:
+def test_slice5_package_version_and_dirty_paths_are_locked() -> None:
     pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
     dirty_paths = _git_status_paths()
 
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
-    assert dirty_paths in (
-        set(),
-        ALLOWED_SLICE4_GATE2_PATHS,
-        ALLOWED_SLICE5_GATE2_PATHS,
-    )
+    assert dirty_paths in (set(), ALLOWED_SLICE5_GATE2_PATHS)
 
 
-def _assert_direct_field_preserves_source_field_def(
+def _assert_direct_projection_field(
     *,
     relation_field: ProjectRowField,
     source_field: ProjectRowField,
-    expected_name: str | None = None,
+    source_symbol: object,
+    expected_name: str,
 ) -> None:
-    assert relation_field.name == (expected_name or source_field.name)
+    assert relation_field.name == expected_name
     assert relation_field.resolved_type is source_field.resolved_type
     assert relation_field.nullability is source_field.nullability
     assert relation_field.field_def is source_field.field_def
@@ -359,6 +293,7 @@ def _assert_direct_field_preserves_source_field_def(
         relation_field.provenance.kind
         is ProjectRowFieldProvenanceKind.DIRECT_PROJECTION
     )
+    assert relation_field.provenance.symbol is source_symbol
 
 
 def _assert_state(
@@ -388,13 +323,30 @@ def _project(tmp_path: Path, relation_source: str) -> Path:
         "models.pietto",
         "shape User:\n"
         "    id: Int not null\n"
-        "    email: Text nullable\n"
-        "    score: Int not null\n"
-        "    bonus: Int nullable\n"
+        "    email: Text\n"
+        "    score: Int\n"
+        "    bonus: Int\n"
         'source users: User is postgres.table("users")\n'
         f"{relation_source}",
     )
     return root
+
+
+def _project_root(path: Path, *, include: tuple[str, ...]) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    include_text = ", ".join(f'"{pattern}"' for pattern in include)
+    _write(
+        path,
+        "pietto.toml",
+        f"schema_version = 1\n\n[sources]\ninclude = [{include_text}]\n",
+    )
+    return path
+
+
+def _write(root: Path, relative_path: str, text: str) -> None:
+    path = root / relative_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
 
 
 def _source_definition(
@@ -416,60 +368,29 @@ def _derived_definition(
         for definition in parsed_input.script.definitions:
             if isinstance(definition, (TableDef, QueryDef)) and definition.name == name:
                 return definition
-    raise AssertionError(f"Derived relation not found: {name}")
-
-
-def _project_root(
-    tmp_path: Path,
-    *,
-    include: tuple[str, ...],
-    exclude: tuple[str, ...] = (),
-) -> Path:
-    root = tmp_path / "project"
-    root.mkdir(parents=True)
-    config_text = (
-        "schema_version = 1\n\n"
-        "[sources]\n"
-        f"include = {_toml_array(include)}\n"
-        f"exclude = {_toml_array(exclude)}\n"
-    )
-    (root / "pietto.toml").write_text(config_text, encoding="utf-8")
-    return root
-
-
-def _toml_array(values: tuple[str, ...]) -> str:
-    return "[" + ", ".join(json.dumps(value) for value in values) + "]"
-
-
-def _write(root: Path, relative_path: str, source: str) -> Path:
-    path = root / relative_path
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(source, encoding="utf-8")
-    return path
+    raise AssertionError(f"Derived definition not found: {name}")
 
 
 def _git_status_paths() -> set[str]:
-    result = subprocess.run(
-        ["git", "status", "--short", "--untracked-files=all"],
-        cwd=REPO_ROOT,
-        check=True,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
-    assert result.stderr == ""
+    output = _git_output(["status", "--porcelain", "--untracked-files=all"])
     paths: set[str] = set()
-    for line in result.stdout.splitlines():
+    for line in output.splitlines():
+        if not line:
+            continue
         path = line[3:]
         if " -> " in path:
-            path = path.split(" -> ", 1)[1]
+            path = path.split(" -> ", maxsplit=1)[1]
         paths.add(path)
     return paths
 
 
 def _git_diff_names(relative_path: str) -> tuple[str, ...]:
+    return tuple(_git_output(["diff", "--name-only", "--", relative_path]).splitlines())
+
+
+def _git_output(args: list[str]) -> str:
     result = subprocess.run(
-        ["git", "diff", "--name-only", "--", relative_path],
+        ["git", *args],
         cwd=REPO_ROOT,
         check=True,
         text=True,
@@ -477,4 +398,4 @@ def _git_diff_names(relative_path: str) -> tuple[str, ...]:
         stderr=subprocess.PIPE,
     )
     assert result.stderr == ""
-    return tuple(result.stdout.splitlines())
+    return result.stdout

@@ -266,6 +266,36 @@ operation.
 Aggregate and grouped output schema remain deferred to Phase 50 or later.
 Row-level dependency cycle diagnostics remain readiness-only.
 
+## Slice 5 Computed Alias Origin/Provenance Privacy
+
+Phase 49 Slice 5 is Computed alias origin/provenance privacy. Slice 5 hardens
+private origin/provenance semantics for the computed alias row fields made
+concrete by Slice 4.
+
+The normative Slice 5 contract is
+`docs/spec/phase49-computed-alias-origin-provenance-privacy-v1.md`. Computed
+alias private row fields now use
+`ProjectRowFieldProvenanceKind.DERIVED_EXPRESSION` instead of the earlier,
+too-vague `EXPRESSION` category. `EXPRESSION` remains a private legacy
+vocabulary value for compatibility, but Slice 5 computed alias fields do not
+use it.
+
+Computed alias fields continue to use `field_def=None` and must not synthesize
+a derived `FieldDef`. Direct projections, renamed projections, and multi-hop
+direct projection propagation continue to preserve source-native `field_def`
+facts and the existing private direct projection provenance behavior.
+
+Project JSON v2 remains unchanged. Slice 5 serializes no private row schema,
+origin, provenance, dependency, lineage, adapter, status, or reason facts.
+
+Slice 5 does not implement project `let` facts, selected `let`-derived output
+schema, private dependency graph, lineage carriers, aggregate/grouped output
+schema, project explain, project IR, project SQL, project `emit-sql`,
+JOIN/relationship behavior, bridge/export/RAG/Arrow behavior, import/export
+behavior, multi-file behavior, runtime/database execution,
+parser/grammar/generated changes, package version change, or release
+operation.
+
 ## Slice 3 Gate 2 Allowlist
 
 Phase 49 Slice 3 Gate 2 is limited to:
