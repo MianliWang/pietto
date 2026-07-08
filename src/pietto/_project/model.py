@@ -296,6 +296,7 @@ class ProjectRelationRowSchemaReason(StrEnum):
 
     DIRECT_SOURCE_CONCRETE = "direct_source_concrete"
     TABLE_UPSTREAM_CONCRETE = "table_upstream_concrete"
+    RELATION_UPSTREAM_CONCRETE = "relation_upstream_concrete"
     UNKNOWN_SCHEMA = "unknown_schema"
     DUPLICATE_OUTPUT_NAME = "duplicate_output_name"
     DEFERRED_PHASE48_BEHAVIOR = "deferred_phase48_behavior"
@@ -603,15 +604,16 @@ def build_empty_project_semantic_result(
             catalog=catalog,
         )
     )
-    relation_row_schema_result = _build_project_relation_row_schemas(
-        parsed_inputs=parse_result.parsed_inputs,
-        relation_resolutions=relation_resolutions,
-        source_row_schemas=source_row_schemas,
-    )
     relation_dependency_graph = _build_project_relation_dependency_graph(
         parsed_inputs=parse_result.parsed_inputs,
         catalog=catalog,
         relation_resolutions=relation_resolutions,
+    )
+    relation_row_schema_result = _build_project_relation_row_schemas(
+        parsed_inputs=parse_result.parsed_inputs,
+        relation_resolutions=relation_resolutions,
+        source_row_schemas=source_row_schemas,
+        relation_dependency_graph=relation_dependency_graph,
     )
     cycle_diagnostics = _build_project_relation_cycle_diagnostics(
         relation_dependency_graph
@@ -867,6 +869,7 @@ def _build_project_relation_row_schemas(
     parsed_inputs: tuple[ProjectParsedInput, ...],
     relation_resolutions: Mapping[FromClause, ProjectSymbol],
     source_row_schemas: Mapping[SourceDef, ProjectRowSchema],
+    relation_dependency_graph: ProjectRelationDependencyGraph,
 ) -> _ProjectRelationRowSchemasResult:
     """Build private relation row schemas for approved direct projections."""
 
@@ -874,14 +877,26 @@ def _build_project_relation_row_schemas(
     relation_row_schema_states: dict[
         TableDef | QueryDef, ProjectRelationRowSchemaState
     ] = {}
-    direct_source_table_schemas: dict[TableDef, ProjectRowSchema] = {}
     diagnostics: list[Diagnostic] = []
+    cycle_relation_names = {
+        node.symbol.name
+        for cycle in relation_dependency_graph.cycles
+        for node in cycle.nodes
+    }
+    relation_definitions = tuple(
+        definition
+        for parsed_input in parsed_inputs
+        for definition in parsed_input.script.definitions
+        if isinstance(definition, (TableDef, QueryDef))
+    )
 
     for parsed_input in parsed_inputs:
         for definition in parsed_input.script.definitions:
             if not isinstance(definition, (TableDef, QueryDef)):
                 continue
             if definition.group_by_clause is not None:
+                continue
+            if definition.name in cycle_relation_names:
                 continue
 
             source_symbol = relation_resolutions.get(definition.from_clause)
@@ -911,43 +926,49 @@ def _build_project_relation_row_schemas(
                 continue
 
             relation_row_schemas[definition] = schema
-            if isinstance(definition, TableDef) and not schema.is_unknown:
-                direct_source_table_schemas[definition] = schema
+            if not schema.is_unknown:
                 relation_row_schema_states[definition] = ProjectRelationRowSchemaState(
                     status=ProjectRelationRowSchemaStatus.CONCRETE,
                     schema=schema,
                     reason=ProjectRelationRowSchemaReason.DIRECT_SOURCE_CONCRETE,
                 )
 
-    for parsed_input in parsed_inputs:
-        for definition in parsed_input.script.definitions:
-            if not isinstance(definition, (TableDef, QueryDef)):
-                continue
+    definition_paths = {
+        definition: parsed_input.path
+        for parsed_input in parsed_inputs
+        for definition in parsed_input.script.definitions
+        if isinstance(definition, (TableDef, QueryDef))
+    }
+    while True:
+        propagated = False
+        for definition in relation_definitions:
             if definition.group_by_clause is not None:
+                continue
+            if definition.name in cycle_relation_names:
                 continue
             if definition in relation_row_schemas:
                 continue
 
             upstream_symbol = relation_resolutions.get(definition.from_clause)
-            if (
-                upstream_symbol is None
-                or upstream_symbol.kind is not ProjectSymbolKind.TABLE
+            if upstream_symbol is None or upstream_symbol.kind not in (
+                ProjectSymbolKind.TABLE,
+                ProjectSymbolKind.QUERY,
             ):
                 continue
 
-            upstream_table = upstream_symbol.definition
-            if not isinstance(upstream_table, TableDef):
+            upstream_relation = upstream_symbol.definition
+            if not isinstance(upstream_relation, (TableDef, QueryDef)):
                 continue
 
-            upstream_schema = direct_source_table_schemas.get(upstream_table)
-            if upstream_schema is None:
+            upstream_schema = relation_row_schemas.get(upstream_relation)
+            if upstream_schema is None or upstream_schema.is_unknown:
                 continue
 
             relation_schema_result = _project_direct_relation_row_schema(
                 definition,
                 source_schema=upstream_schema,
                 source_symbol=upstream_symbol,
-                fallback_path=parsed_input.path,
+                fallback_path=definition_paths[definition],
             )
             diagnostics.extend(relation_schema_result.diagnostics)
             schema = relation_schema_result.schema
@@ -955,12 +976,15 @@ def _build_project_relation_row_schemas(
                 continue
 
             relation_row_schemas[definition] = schema
+            propagated = True
             if not schema.is_unknown:
                 relation_row_schema_states[definition] = ProjectRelationRowSchemaState(
                     status=ProjectRelationRowSchemaStatus.CONCRETE,
                     schema=schema,
-                    reason=ProjectRelationRowSchemaReason.TABLE_UPSTREAM_CONCRETE,
+                    reason=ProjectRelationRowSchemaReason.RELATION_UPSTREAM_CONCRETE,
                 )
+        if not propagated:
+            break
 
     return _ProjectRelationRowSchemasResult(
         relation_row_schemas=relation_row_schemas,

@@ -26,10 +26,15 @@ PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
 ALLOWED_SLICE4_GATE2_PATHS = {
     "docs/plan/phase-48-query-to-query-row-schema.md",
+    "docs/spec/phase48-query-to-query-multi-hop-propagation-v1.md",
     "docs/spec/phase48-table-to-table-table-to-query-propagation-v1.md",
     "src/pietto/_project/model.py",
+    "tests/test_phase48_query_to_query_multi_hop_propagation.py",
+    "tests/test_phase48_query_to_query_row_schema_scope_lock.py",
     "tests/test_phase48_table_upstream_row_schema_propagation.py",
     "tests/test_phase48_schema_availability_state_carrier.py",
+    "tests/test_phase47_direct_bare_field_row_schema.py",
+    "tests/test_phase47_direct_field_rename_row_schema.py",
     "tests/test_phase47_qualified_field_row_schema.py",
     "tests/test_phase47_unknown_direct_field_diagnostics.py",
     "tests/test_phase47_downstream_readiness_hardening.py",
@@ -161,7 +166,7 @@ def test_query_from_direct_source_table_propagates_renamed_fields(
     )
 
 
-def test_slice4_populates_only_concrete_table_seed_and_one_hop_states(
+def test_concrete_states_cover_direct_source_and_relation_upstream_schemas(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(
@@ -194,7 +199,16 @@ def test_slice4_populates_only_concrete_table_seed_and_one_hop_states(
         staged,
         exported,
     )
-    assert tuple(states) == (staged, exported)
+    assert tuple(states) == (source_query, staged, exported)
+    assert states[source_query].status is ProjectRelationRowSchemaStatus.CONCRETE
+    assert (
+        states[source_query].reason
+        is ProjectRelationRowSchemaReason.DIRECT_SOURCE_CONCRETE
+    )
+    assert (
+        states[source_query].schema
+        is semantic_result.model.relation_row_schemas[source_query]
+    )
     assert states[staged].status is ProjectRelationRowSchemaStatus.CONCRETE
     assert (
         states[staged].reason is ProjectRelationRowSchemaReason.DIRECT_SOURCE_CONCRETE
@@ -203,12 +217,11 @@ def test_slice4_populates_only_concrete_table_seed_and_one_hop_states(
     assert states[exported].status is ProjectRelationRowSchemaStatus.CONCRETE
     assert (
         states[exported].reason
-        is ProjectRelationRowSchemaReason.TABLE_UPSTREAM_CONCRETE
+        is ProjectRelationRowSchemaReason.RELATION_UPSTREAM_CONCRETE
     )
     assert (
         states[exported].schema is semantic_result.model.relation_row_schemas[exported]
     )
-    assert source_query not in states
 
 
 def test_wrong_original_source_qualifier_over_table_upstream_uses_pie_s2102(
@@ -269,7 +282,9 @@ def test_multi_part_lineage_selector_over_table_upstream_uses_pie_s2102(
     ] == [("PIE-S2102", "Unknown field: staged.users.id")]
 
 
-def test_query_to_query_and_table_from_query_remain_absent(tmp_path: Path) -> None:
+def test_query_to_query_and_table_from_query_propagate_concrete_schemas(
+    tmp_path: Path,
+) -> None:
     parse_result, semantic_result = _project_semantic_result(
         _project(
             tmp_path,
@@ -295,13 +310,23 @@ def test_query_to_query_and_table_from_query_remain_absent(tmp_path: Path) -> No
     exported = _derived_definition(parse_result, "exported")
     table_from_query = _derived_definition(parse_result, "table_from_query")
 
-    assert tuple(semantic_result.model.relation_row_schemas) == (query_seed,)
-    assert exported not in semantic_result.model.relation_row_schemas
-    assert table_from_query not in semantic_result.model.relation_row_schemas
-    assert semantic_result.model.relation_row_schema_states == {}
+    assert tuple(semantic_result.model.relation_row_schemas) == (
+        query_seed,
+        exported,
+        table_from_query,
+    )
+    assert tuple(semantic_result.model.relation_row_schemas[exported].fields) == ("id",)
+    assert tuple(
+        semantic_result.model.relation_row_schemas[table_from_query].fields
+    ) == ("id",)
+    assert tuple(semantic_result.model.relation_row_schema_states) == (
+        query_seed,
+        exported,
+        table_from_query,
+    )
 
 
-def test_propagated_table_schema_is_not_used_as_multi_hop_seed(
+def test_propagated_table_schema_is_used_as_multi_hop_seed(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(
@@ -329,9 +354,19 @@ def test_propagated_table_schema_is_not_used_as_multi_hop_seed(
     curated = _derived_definition(parse_result, "curated")
     published = _derived_definition(parse_result, "published")
 
-    assert tuple(semantic_result.model.relation_row_schemas) == (staged, curated)
-    assert published not in semantic_result.model.relation_row_schemas
-    assert tuple(semantic_result.model.relation_row_schema_states) == (staged, curated)
+    assert tuple(semantic_result.model.relation_row_schemas) == (
+        staged,
+        curated,
+        published,
+    )
+    assert tuple(semantic_result.model.relation_row_schemas[published].fields) == (
+        "id",
+    )
+    assert tuple(semantic_result.model.relation_row_schema_states) == (
+        staged,
+        curated,
+        published,
+    )
 
 
 def test_table_upstream_computed_alias_remains_deferred_without_diagnostic(
@@ -405,6 +440,7 @@ def test_project_json_v2_does_not_expose_table_upstream_private_facts(
         "ProjectRelationRowSchemaReason",
         "direct_source_concrete",
         "table_upstream_concrete",
+        "relation_upstream_concrete",
         "ProjectRowSchema",
         "ProjectRowField",
         "DIRECT_PROJECTION",

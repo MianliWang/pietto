@@ -24,6 +24,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
 ALLOWED_SLICE7_GATE2_PATHS = {
+    "docs/plan/phase-48-query-to-query-row-schema.md",
+    "docs/spec/phase48-query-to-query-multi-hop-propagation-v1.md",
     "src/pietto/_project/model.py",
     "tests/test_phase47_private_row_schema_scaffold.py",
     "tests/test_phase47_source_row_schema_propagation.py",
@@ -31,6 +33,11 @@ ALLOWED_SLICE7_GATE2_PATHS = {
     "tests/test_phase47_qualified_field_row_schema.py",
     "tests/test_phase47_direct_field_rename_row_schema.py",
     "tests/test_phase47_unknown_direct_field_diagnostics.py",
+    "tests/test_phase47_downstream_readiness_hardening.py",
+    "tests/test_phase48_query_to_query_multi_hop_propagation.py",
+    "tests/test_phase48_table_upstream_row_schema_propagation.py",
+    "tests/test_phase48_schema_availability_state_carrier.py",
+    "tests/test_phase48_query_to_query_row_schema_scope_lock.py",
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
     "tests/test_phase11_generated_guard.py",

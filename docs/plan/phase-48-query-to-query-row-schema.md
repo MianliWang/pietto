@@ -53,6 +53,19 @@ project semantic API, project IR/SQL/emit/explain, parser/grammar/generated
 changes, JOIN/relationship behavior, runtime/database execution, package
 version changes, or release operations.
 
+Phase 48 Slice 5 is Query-to-query and multi-hop propagation. Slice 5 expands
+the private propagation scaffold to concrete-only relation-to-relation
+propagation: a `TableDef | QueryDef` downstream may consume a concrete
+`TableDef | QueryDef` immediate upstream through supported direct field
+projection forms. This includes query-to-query, table-from-query, query from
+propagated query, table from propagated table, and mixed table/query multi-hop
+acyclic chains. Slice 5 continues to avoid broad `UNKNOWN`, `DEFERRED`, and
+`BLOCKED` state population; non-concrete upstream behavior remains Slice 7
+work. Slice 5 adds no new diagnostics, changes no Project JSON v2 shape,
+serializes no private facts, and adds no parser/grammar/generated, CLI, public
+API, project IR/SQL/emit/explain, relationship/JOIN, runtime/database,
+package-version, or release behavior.
+
 Package version remains `0.1.0`.
 
 ## Trusted Baseline
@@ -342,6 +355,57 @@ fields over a concrete upstream schema. Existing `PIE-S2301` and `PIE-S2302`
 remain authoritative for unresolved relations and relation cycles. Slice 4
 adds no new diagnostic family and changes no Project JSON v2 public shape.
 
+## Slice 5 Query-to-query And Multi-hop Propagation
+
+Slice 5 implements concrete-only relation-to-relation propagation. The
+downstream definition may be a `TableDef | QueryDef`, and the immediate
+upstream may be a `TableDef | QueryDef` whose private row schema is already
+concrete. The upstream schema may be a direct-source concrete relation schema
+or a schema propagated earlier in the same deterministic pass.
+
+Supported downstream projection forms remain the flat direct projection forms:
+
+- `id`;
+- `upstream.id`;
+- `user_id = id`;
+- `user_id = upstream.id`.
+
+Slice 5 uses dependency-first deterministic ordering over acyclic table/query
+relations, with canonical relation order from parsed project input order and
+definition order as the tie-breaker. The current private graph edge direction
+is still dependent relation -> dependency relation, so propagation must invert
+that direction or otherwise account for it explicitly before using graph facts
+as dependency-first traversal input.
+
+The Slice 5 propagation surface includes:
+
+- query-to-query propagation from a concrete query upstream;
+- table-from-query propagation from a concrete query upstream;
+- query/table propagation from concrete propagated upstream schemas;
+- multi-hop acyclic chains mixing tables and queries.
+
+Slice 5 preserves the flat relation schema model. A downstream relation sees
+only the immediate upstream output fields. Original source qualifiers and
+multi-part lineage paths remain invalid downstream field paths. For example,
+after `query seed: from users`, a downstream `from seed` relation may use
+`seed.id` or `id`, but not `users.id` or `seed.users.id`.
+
+Slice 5 narrowly populates private schema availability states for concrete
+schemas only:
+
+- direct-source concrete relation schemas use `DIRECT_SOURCE_CONCRETE`;
+- propagated concrete table/query schemas use `RELATION_UPSTREAM_CONCRETE`.
+
+No non-concrete upstream propagation until Slice 7. Slice 5 does not broadly
+populate `UNKNOWN`, `DEFERRED`, or `BLOCKED` states, does not propagate from
+unknown/deferred/blocked upstreams, and does not compute concrete schemas for
+cycle members. Existing `PIE-S2102`, `PIE-S2301`, and `PIE-S2302` remain the
+only diagnostics for missing fields, unresolved relations, and cycles.
+
+Project JSON v2 top-level shape remains unchanged. Slice 5 serializes no
+private row schema facts, schema availability states, status/reason values,
+provenance facts, relation graph facts, or cycle facts.
+
 ## Downstream Phase 51-55 Readiness
 
 Phase 48 prepares private facts for later phases without implementing those
@@ -459,6 +523,42 @@ changes expected boundary hashes:
 
 No other file is approved in Slice 4 Gate 2.
 
+## Slice 5 Gate 2 Allowlist
+
+Phase 48 Slice 5 Gate 2 is limited to:
+
+- `docs/plan/phase-48-query-to-query-row-schema.md`
+- `docs/spec/phase48-query-to-query-multi-hop-propagation-v1.md`
+- `src/pietto/_project/model.py`
+- `tests/test_phase48_query_to_query_multi_hop_propagation.py`
+- `tests/test_phase48_table_upstream_row_schema_propagation.py`
+- `tests/test_phase48_schema_availability_state_carrier.py`
+- `tests/test_phase48_query_to_query_row_schema_scope_lock.py`
+
+Prior-slice stale-lock tests are approved only if their dirty-path guards or
+historical absence expectations need Slice 5 alignment:
+
+- `tests/test_phase47_downstream_readiness_hardening.py`
+- `tests/test_phase47_qualified_field_row_schema.py`
+- `tests/test_phase47_unknown_direct_field_diagnostics.py`
+- `tests/test_phase47_direct_bare_field_row_schema.py`
+- `tests/test_phase47_direct_field_rename_row_schema.py`
+
+Hash-lock repair files are approved only if `src/pietto/_project/model.py`
+changes expected boundary hashes:
+
+- `tests/test_phase11_ci_workflow.py`
+- `tests/test_phase11_completion_audit.py`
+- `tests/test_phase11_generated_guard.py`
+- `tests/test_phase11_golden_policy.py`
+- `tests/test_phase11_packaging_smoke.py`
+- `tests/test_phase11_validation_entrypoint.py`
+- `tests/test_phase12_completion_audit.py`
+- `tests/test_phase12_composition_cli_json_goldens.py`
+- `tests/test_phase33_completion_audit.py`
+
+No other file is approved in Slice 5 Gate 2.
+
 ## Focused Validation
 
 The focused Slice 1 Gate 2 validation commands are:
@@ -546,6 +646,30 @@ hash-lock tests in the focused ruff and pytest commands. Do not run broad
 validation, `scripts/validate.py`, code generation, parser generation,
 workflows, or CI in dirty Slice 4 Gate 2.
 
+The focused Slice 5 Gate 2 validation commands are:
+
+```bash
+git diff --check
+set +e
+git diff --no-index --check -- /dev/null docs/spec/phase48-query-to-query-multi-hop-propagation-v1.md
+rc_spec=$?
+git diff --no-index --check -- /dev/null tests/test_phase48_query_to_query_multi_hop_propagation.py
+rc_test=$?
+set -e
+test "$rc_spec" -le 1
+test "$rc_test" -le 1
+uv run ruff format --check src/pietto/_project/model.py tests/test_phase48_query_to_query_multi_hop_propagation.py tests/test_phase48_table_upstream_row_schema_propagation.py tests/test_phase48_schema_availability_state_carrier.py tests/test_phase48_query_to_query_row_schema_scope_lock.py tests/test_phase47_downstream_readiness_hardening.py tests/test_phase47_qualified_field_row_schema.py tests/test_phase47_unknown_direct_field_diagnostics.py tests/test_phase47_direct_bare_field_row_schema.py tests/test_phase47_direct_field_rename_row_schema.py
+uv run ruff check src/pietto/_project/model.py tests/test_phase48_query_to_query_multi_hop_propagation.py tests/test_phase48_table_upstream_row_schema_propagation.py tests/test_phase48_schema_availability_state_carrier.py tests/test_phase48_query_to_query_row_schema_scope_lock.py tests/test_phase47_downstream_readiness_hardening.py tests/test_phase47_qualified_field_row_schema.py tests/test_phase47_unknown_direct_field_diagnostics.py tests/test_phase47_direct_bare_field_row_schema.py tests/test_phase47_direct_field_rename_row_schema.py
+uv run pyright --project pyrightconfig.json
+uv run pyright --project pyrightconfig.tests.json
+uv run pytest tests/test_phase48_query_to_query_multi_hop_propagation.py tests/test_phase48_table_upstream_row_schema_propagation.py tests/test_phase48_schema_availability_state_carrier.py tests/test_phase48_query_to_query_row_schema_scope_lock.py tests/test_phase47_downstream_readiness_hardening.py tests/test_phase47_qualified_field_row_schema.py tests/test_phase47_unknown_direct_field_diagnostics.py tests/test_phase47_direct_bare_field_row_schema.py tests/test_phase47_direct_field_rename_row_schema.py
+```
+
+If hash-lock files are updated in dirty Slice 5 Gate 2, include those changed
+hash-lock tests in the focused ruff and pytest commands. Do not run broad
+validation, `scripts/validate.py`, code generation, parser generation,
+workflows, or CI in dirty Slice 5 Gate 2.
+
 ## Stop Conditions
 
 Stop immediately if implementation would require files outside the Slice 1
@@ -586,3 +710,13 @@ diagnostics, diagnostic wording or ordering changes, computed alias schema,
 `let` schema, aggregate/grouped schema, JOIN/relationship behavior, project
 IR/SQL/emit/explain, public API, package version changes, release actions, or
 docs outside the allowlist.
+
+For Slice 5, stop immediately if implementation would require files outside the
+Slice 5 allowlist, `src/pietto/_project/check.py`,
+`src/pietto/_project/json_v2.py`, non-concrete upstream propagation, broad
+`UNKNOWN`/`DEFERRED`/`BLOCKED` state population, computed alias schema, `let`
+schema, aggregate/grouped schema, propagation through cycles, new diagnostics,
+diagnostic wording or ordering changes, parser/generated files, Project JSON
+v2/CLI/check changes, project IR/SQL/emit/explain, public API,
+JOIN/relationship behavior, runtime/database behavior, package version changes,
+release actions, or docs outside the allowlist.
