@@ -28,10 +28,12 @@ ALLOWED_SLICE4_GATE2_PATHS = {
     "docs/plan/phase-48-query-to-query-row-schema.md",
     "docs/spec/phase48-query-to-query-multi-hop-propagation-v1.md",
     "docs/spec/phase48-table-to-table-table-to-query-propagation-v1.md",
+    "docs/spec/phase48-upstream-non-concrete-schema-propagation-v1.md",
     "src/pietto/_project/model.py",
     "tests/test_phase48_query_to_query_multi_hop_propagation.py",
     "tests/test_phase48_query_to_query_row_schema_scope_lock.py",
     "tests/test_phase48_table_upstream_row_schema_propagation.py",
+    "tests/test_phase48_upstream_non_concrete_schema_propagation.py",
     "tests/test_phase48_schema_availability_state_carrier.py",
     "tests/test_phase47_direct_bare_field_row_schema.py",
     "tests/test_phase47_direct_field_rename_row_schema.py",
@@ -246,7 +248,10 @@ def test_wrong_original_source_qualifier_over_table_upstream_uses_pie_s2102(
     exported = _derived_definition(parse_result, "exported")
     exported_schema = semantic_result.model.relation_row_schemas[exported]
     assert exported_schema.is_unknown is True
-    assert exported not in semantic_result.model.relation_row_schema_states
+    state = semantic_result.model.relation_row_schema_states[exported]
+    assert state.status is ProjectRelationRowSchemaStatus.UNKNOWN
+    assert state.reason is ProjectRelationRowSchemaReason.UNKNOWN_SCHEMA
+    assert state.schema is exported_schema
     assert [
         (diagnostic.code, diagnostic.message)
         for diagnostic in semantic_result.diagnostics

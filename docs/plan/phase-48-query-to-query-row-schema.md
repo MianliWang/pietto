@@ -77,6 +77,21 @@ schema, no non-concrete upstream propagation, no project IR/SQL/emit/explain,
 no JOIN/relationship behavior, no parser/grammar/generated changes, no package
 version changes, and no release operations.
 
+Phase 48 Slice 7 is Upstream unknown / absent / deferred / blocked schema
+propagation. Slice 7 adds private schema availability state propagation for
+non-concrete upstreams only. Direct missing fields and duplicate outputs become
+private `UNKNOWN` states, upstream `UNKNOWN` produces downstream `UNKNOWN`
+without new diagnostics, deferred Phase 48 schema surfaces become private
+`DEFERRED` states, unresolved relations and cycle members become private
+`BLOCKED` states through existing `PIE-S2301` / `PIE-S2302`, and downstreams
+from `DEFERRED` or `BLOCKED` upstreams receive matching non-concrete private
+states. Slice 7 adds no new diagnostics, changes no diagnostic ordering,
+changes no Project JSON v2 shape, serializes no private facts, implements no
+computed alias schema, no `let` expression schema, no aggregate/grouped schema,
+no project IR/SQL/emit/explain, no JOIN/relationship behavior, no
+parser/grammar/generated changes, no package version changes, and no release
+operations.
+
 Package version remains `0.1.0`.
 
 ## Trusted Baseline
@@ -126,6 +141,18 @@ Package version remains `0.1.0`.
 - Baseline exact-match tag: none.
 - Natural CI: `CI` run `28915210609`, event `push`, branch `main`, headSha
   `d34c2077d9e45e47ef41215e7c5d718db86f2a2e`, completed with success.
+
+## Slice 7 Trusted Baseline
+
+- Baseline branch: `main`.
+- Baseline HEAD: `c368ce5a6b3be26e49ca5af63d065e20986cc6ba`.
+- Baseline subject: `Add Phase 48 provenance lineage hardening`.
+- Baseline package version: `0.1.0`.
+- Baseline worktree status: clean and equivalent to `## main...origin/main`.
+- Baseline HEAD tag: none.
+- Baseline exact-match tag: none.
+- Natural CI: `CI` run `28916057944`, event `push`, branch `main`, headSha
+  `c368ce5a6b3be26e49ca5af63d065e20986cc6ba`, completed with success.
 
 ## Phase Identity And Prerequisites
 
@@ -626,6 +653,33 @@ Phase 48 Slice 6 Gate 2 is limited to:
 
 No other file is approved in Slice 6 Gate 2.
 
+## Slice 7 Gate 2 Allowlist
+
+Phase 48 Slice 7 Gate 2 is limited to:
+
+- `docs/plan/phase-48-query-to-query-row-schema.md`
+- `docs/spec/phase48-upstream-non-concrete-schema-propagation-v1.md`
+- `src/pietto/_project/model.py`
+- `tests/test_phase48_upstream_non_concrete_schema_propagation.py`
+- `tests/test_phase48_query_to_query_multi_hop_propagation.py`
+- `tests/test_phase48_table_upstream_row_schema_propagation.py`
+- `tests/test_phase48_schema_availability_state_carrier.py`
+
+Hash-lock repair files are approved only if
+`src/pietto/_project/model.py` changes expected boundary hashes:
+
+- `tests/test_phase11_ci_workflow.py`
+- `tests/test_phase11_completion_audit.py`
+- `tests/test_phase11_generated_guard.py`
+- `tests/test_phase11_golden_policy.py`
+- `tests/test_phase11_packaging_smoke.py`
+- `tests/test_phase11_validation_entrypoint.py`
+- `tests/test_phase12_completion_audit.py`
+- `tests/test_phase12_composition_cli_json_goldens.py`
+- `tests/test_phase33_completion_audit.py`
+
+No other file is approved in Slice 7 Gate 2.
+
 ## Focused Validation
 
 The focused Slice 1 Gate 2 validation commands are:
@@ -758,6 +812,30 @@ uv run pytest tests/test_phase48_propagated_field_provenance_lineage_hardening.p
 Do not run broad validation, `scripts/validate.py`, code generation, parser
 generation, workflows, hash-lock tests, or CI in dirty Slice 6 Gate 2.
 
+The focused Slice 7 Gate 2 validation commands are:
+
+```bash
+git diff --check
+set +e
+git diff --no-index --check -- /dev/null docs/spec/phase48-upstream-non-concrete-schema-propagation-v1.md
+rc_spec=$?
+git diff --no-index --check -- /dev/null tests/test_phase48_upstream_non_concrete_schema_propagation.py
+rc_test=$?
+set -e
+test "$rc_spec" -le 1
+test "$rc_test" -le 1
+uv run ruff format --check src/pietto/_project/model.py tests/test_phase48_upstream_non_concrete_schema_propagation.py tests/test_phase48_query_to_query_multi_hop_propagation.py tests/test_phase48_table_upstream_row_schema_propagation.py tests/test_phase48_schema_availability_state_carrier.py tests/test_phase11_ci_workflow.py tests/test_phase11_completion_audit.py tests/test_phase11_generated_guard.py tests/test_phase11_golden_policy.py tests/test_phase11_packaging_smoke.py tests/test_phase11_validation_entrypoint.py tests/test_phase12_completion_audit.py tests/test_phase12_composition_cli_json_goldens.py tests/test_phase33_completion_audit.py
+uv run ruff check src/pietto/_project/model.py tests/test_phase48_upstream_non_concrete_schema_propagation.py tests/test_phase48_query_to_query_multi_hop_propagation.py tests/test_phase48_table_upstream_row_schema_propagation.py tests/test_phase48_schema_availability_state_carrier.py tests/test_phase11_ci_workflow.py tests/test_phase11_completion_audit.py tests/test_phase11_generated_guard.py tests/test_phase11_golden_policy.py tests/test_phase11_packaging_smoke.py tests/test_phase11_validation_entrypoint.py tests/test_phase12_completion_audit.py tests/test_phase12_composition_cli_json_goldens.py tests/test_phase33_completion_audit.py
+uv run pyright --project pyrightconfig.json
+uv run pyright --project pyrightconfig.tests.json
+uv run pytest tests/test_phase48_upstream_non_concrete_schema_propagation.py tests/test_phase48_query_to_query_multi_hop_propagation.py tests/test_phase48_table_upstream_row_schema_propagation.py tests/test_phase48_schema_availability_state_carrier.py
+uv run pytest tests/test_phase11_ci_workflow.py tests/test_phase11_completion_audit.py tests/test_phase11_generated_guard.py tests/test_phase11_golden_policy.py tests/test_phase11_packaging_smoke.py tests/test_phase11_validation_entrypoint.py tests/test_phase12_completion_audit.py tests/test_phase12_composition_cli_json_goldens.py tests/test_phase33_completion_audit.py
+```
+
+Run the hash-lock pytest command only if hash-lock constants were updated.
+Do not run broad validation, `scripts/validate.py`, code generation, parser
+generation, workflows, or CI in dirty Slice 7 Gate 2.
+
 ## Stop Conditions
 
 Stop immediately if implementation would require files outside the Slice 1
@@ -818,3 +896,16 @@ diagnostic wording or ordering changes, selector syntax expansion,
 parser/generated files, Project JSON v2/CLI/check changes, project
 IR/SQL/emit/explain, public API, JOIN/relationship behavior, hash-lock churn,
 package version changes, release actions, or docs outside the allowlist.
+
+For Slice 7, stop immediately if implementation would require files outside the
+Slice 7 allowlist, `src/pietto/_project/check.py`,
+`src/pietto/_project/json_v2.py`, any other `src/**` file, parser/generated
+files, Project JSON v2/CLI/check changes, public JSON shape changes, new
+diagnostics, diagnostic wording or ordering changes, computed alias schema,
+`let` expression schema, aggregate schema, grouped output schema, JOIN or
+relationship behavior, project IR, project SQL emit, project `emit-sql`,
+project `explain`, public project semantic API, runtime/database behavior,
+workflow changes, package metadata or lockfile changes, package version
+changes, release actions, or docs outside the allowlist. Hash-lock constants
+may be updated only in the approved nine hash-lock tests when the only failure
+is expected boundary-hash fallout from the approved `model.py` change.

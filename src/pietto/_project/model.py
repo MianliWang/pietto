@@ -366,10 +366,11 @@ class _ProjectDirectFieldProjection:
 
 @dataclass(frozen=True, slots=True)
 class _ProjectRelationRowSchemaResult:
-    """Private result for one direct-source relation row schema build."""
+    """Private result for one relation row schema build attempt."""
 
     schema: ProjectRowSchema | None
     diagnostics: tuple[Diagnostic, ...] = ()
+    state_reason: ProjectRelationRowSchemaReason | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -890,13 +891,39 @@ def _build_project_relation_row_schemas(
         if isinstance(definition, (TableDef, QueryDef))
     )
 
+    for definition in relation_definitions:
+        if definition.name in cycle_relation_names:
+            _set_project_relation_row_schema_state(
+                relation_row_schema_states,
+                definition,
+                status=ProjectRelationRowSchemaStatus.BLOCKED,
+                schema=None,
+                reason=ProjectRelationRowSchemaReason.CYCLE_BLOCKED,
+            )
+            continue
+        if definition.from_clause not in relation_resolutions:
+            _set_project_relation_row_schema_state(
+                relation_row_schema_states,
+                definition,
+                status=ProjectRelationRowSchemaStatus.BLOCKED,
+                schema=None,
+                reason=ProjectRelationRowSchemaReason.UNRESOLVED_RELATION_BLOCKED,
+            )
+            continue
+        if definition.group_by_clause is not None:
+            _set_project_relation_row_schema_state(
+                relation_row_schema_states,
+                definition,
+                status=ProjectRelationRowSchemaStatus.DEFERRED,
+                schema=None,
+                reason=ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR,
+            )
+
     for parsed_input in parsed_inputs:
         for definition in parsed_input.script.definitions:
             if not isinstance(definition, (TableDef, QueryDef)):
                 continue
-            if definition.group_by_clause is not None:
-                continue
-            if definition.name in cycle_relation_names:
+            if definition in relation_row_schema_states:
                 continue
 
             source_symbol = relation_resolutions.get(definition.from_clause)
@@ -922,16 +949,14 @@ def _build_project_relation_row_schemas(
             )
             diagnostics.extend(relation_schema_result.diagnostics)
             schema = relation_schema_result.schema
-            if schema is None:
-                continue
-
-            relation_row_schemas[definition] = schema
-            if not schema.is_unknown:
-                relation_row_schema_states[definition] = ProjectRelationRowSchemaState(
-                    status=ProjectRelationRowSchemaStatus.CONCRETE,
-                    schema=schema,
-                    reason=ProjectRelationRowSchemaReason.DIRECT_SOURCE_CONCRETE,
-                )
+            _record_project_relation_row_schema_result(
+                relation_row_schemas=relation_row_schemas,
+                relation_row_schema_states=relation_row_schema_states,
+                definition=definition,
+                schema=schema,
+                state_reason=relation_schema_result.state_reason,
+                concrete_reason=(ProjectRelationRowSchemaReason.DIRECT_SOURCE_CONCRETE),
+            )
 
     definition_paths = {
         definition: parsed_input.path
@@ -942,11 +967,7 @@ def _build_project_relation_row_schemas(
     while True:
         propagated = False
         for definition in relation_definitions:
-            if definition.group_by_clause is not None:
-                continue
-            if definition.name in cycle_relation_names:
-                continue
-            if definition in relation_row_schemas:
+            if definition in relation_row_schema_states:
                 continue
 
             upstream_symbol = relation_resolutions.get(definition.from_clause)
@@ -960,8 +981,55 @@ def _build_project_relation_row_schemas(
             if not isinstance(upstream_relation, (TableDef, QueryDef)):
                 continue
 
+            upstream_state = relation_row_schema_states.get(upstream_relation)
+            if upstream_state is not None:
+                if upstream_state.status is ProjectRelationRowSchemaStatus.UNKNOWN:
+                    schema = ProjectRowSchema(is_unknown=True)
+                    relation_row_schemas[definition] = schema
+                    _set_project_relation_row_schema_state(
+                        relation_row_schema_states,
+                        definition,
+                        status=ProjectRelationRowSchemaStatus.UNKNOWN,
+                        schema=schema,
+                        reason=ProjectRelationRowSchemaReason.UPSTREAM_UNKNOWN,
+                    )
+                    propagated = True
+                    continue
+                if upstream_state.status is ProjectRelationRowSchemaStatus.DEFERRED:
+                    _set_project_relation_row_schema_state(
+                        relation_row_schema_states,
+                        definition,
+                        status=ProjectRelationRowSchemaStatus.DEFERRED,
+                        schema=None,
+                        reason=ProjectRelationRowSchemaReason.UPSTREAM_DEFERRED,
+                    )
+                    propagated = True
+                    continue
+                if upstream_state.status is ProjectRelationRowSchemaStatus.BLOCKED:
+                    _set_project_relation_row_schema_state(
+                        relation_row_schema_states,
+                        definition,
+                        status=ProjectRelationRowSchemaStatus.BLOCKED,
+                        schema=None,
+                        reason=ProjectRelationRowSchemaReason.UPSTREAM_BLOCKED,
+                    )
+                    propagated = True
+                    continue
+
             upstream_schema = relation_row_schemas.get(upstream_relation)
-            if upstream_schema is None or upstream_schema.is_unknown:
+            if upstream_schema is None:
+                continue
+            if upstream_schema.is_unknown:
+                schema = ProjectRowSchema(is_unknown=True)
+                relation_row_schemas[definition] = schema
+                _set_project_relation_row_schema_state(
+                    relation_row_schema_states,
+                    definition,
+                    status=ProjectRelationRowSchemaStatus.UNKNOWN,
+                    schema=schema,
+                    reason=ProjectRelationRowSchemaReason.UPSTREAM_UNKNOWN,
+                )
+                propagated = True
                 continue
 
             relation_schema_result = _project_direct_relation_row_schema(
@@ -972,17 +1040,17 @@ def _build_project_relation_row_schemas(
             )
             diagnostics.extend(relation_schema_result.diagnostics)
             schema = relation_schema_result.schema
-            if schema is None:
-                continue
-
-            relation_row_schemas[definition] = schema
+            _record_project_relation_row_schema_result(
+                relation_row_schemas=relation_row_schemas,
+                relation_row_schema_states=relation_row_schema_states,
+                definition=definition,
+                schema=schema,
+                state_reason=relation_schema_result.state_reason,
+                concrete_reason=(
+                    ProjectRelationRowSchemaReason.RELATION_UPSTREAM_CONCRETE
+                ),
+            )
             propagated = True
-            if not schema.is_unknown:
-                relation_row_schema_states[definition] = ProjectRelationRowSchemaState(
-                    status=ProjectRelationRowSchemaStatus.CONCRETE,
-                    schema=schema,
-                    reason=ProjectRelationRowSchemaReason.RELATION_UPSTREAM_CONCRETE,
-                )
         if not propagated:
             break
 
@@ -990,6 +1058,70 @@ def _build_project_relation_row_schemas(
         relation_row_schemas=relation_row_schemas,
         relation_row_schema_states=relation_row_schema_states,
         diagnostics=tuple(diagnostics),
+    )
+
+
+def _record_project_relation_row_schema_result(
+    *,
+    relation_row_schemas: dict[TableDef | QueryDef, ProjectRowSchema],
+    relation_row_schema_states: dict[
+        TableDef | QueryDef, ProjectRelationRowSchemaState
+    ],
+    definition: TableDef | QueryDef,
+    schema: ProjectRowSchema | None,
+    state_reason: ProjectRelationRowSchemaReason | None,
+    concrete_reason: ProjectRelationRowSchemaReason,
+) -> None:
+    """Record one private relation row schema and availability state."""
+
+    if schema is None:
+        _set_project_relation_row_schema_state(
+            relation_row_schema_states,
+            definition,
+            status=ProjectRelationRowSchemaStatus.DEFERRED,
+            schema=None,
+            reason=(
+                state_reason or ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR
+            ),
+        )
+        return
+
+    relation_row_schemas[definition] = schema
+    if schema.is_unknown:
+        _set_project_relation_row_schema_state(
+            relation_row_schema_states,
+            definition,
+            status=ProjectRelationRowSchemaStatus.UNKNOWN,
+            schema=schema,
+            reason=state_reason or ProjectRelationRowSchemaReason.UNKNOWN_SCHEMA,
+        )
+        return
+
+    _set_project_relation_row_schema_state(
+        relation_row_schema_states,
+        definition,
+        status=ProjectRelationRowSchemaStatus.CONCRETE,
+        schema=schema,
+        reason=concrete_reason,
+    )
+
+
+def _set_project_relation_row_schema_state(
+    relation_row_schema_states: dict[
+        TableDef | QueryDef, ProjectRelationRowSchemaState
+    ],
+    definition: TableDef | QueryDef,
+    *,
+    status: ProjectRelationRowSchemaStatus,
+    schema: ProjectRowSchema | None,
+    reason: ProjectRelationRowSchemaReason,
+) -> None:
+    """Set one private relation row schema availability state."""
+
+    relation_row_schema_states[definition] = ProjectRelationRowSchemaState(
+        status=status,
+        schema=schema,
+        reason=reason,
     )
 
 
@@ -1005,8 +1137,12 @@ def _project_direct_relation_row_schema(
     fields: dict[str, ProjectRowField] = {}
     diagnostics: list[Diagnostic] = []
     is_unknown = False
+    unknown_reason: ProjectRelationRowSchemaReason | None = None
     if source_schema.is_unknown:
-        return _ProjectRelationRowSchemaResult(schema=ProjectRowSchema(is_unknown=True))
+        return _ProjectRelationRowSchemaResult(
+            schema=ProjectRowSchema(is_unknown=True),
+            state_reason=ProjectRelationRowSchemaReason.UPSTREAM_UNKNOWN,
+        )
 
     for item in definition.select_items:
         projection = _project_direct_field_projection(
@@ -1015,10 +1151,14 @@ def _project_direct_relation_row_schema(
             fallback_path=fallback_path,
         )
         if projection.status is _ProjectDirectFieldProjectionStatus.DEFERRED:
-            return _ProjectRelationRowSchemaResult(schema=None)
+            return _ProjectRelationRowSchemaResult(
+                schema=None,
+                state_reason=ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR,
+            )
         if projection.status is _ProjectDirectFieldProjectionStatus.INVALID:
             diagnostics.append(_project_unknown_direct_field_diagnostic(projection))
             is_unknown = True
+            unknown_reason = ProjectRelationRowSchemaReason.UNKNOWN_SCHEMA
             continue
 
         output_name = projection.output_name
@@ -1028,12 +1168,16 @@ def _project_direct_relation_row_schema(
 
         if output_name in fields:
             is_unknown = True
+            unknown_reason = (
+                unknown_reason or ProjectRelationRowSchemaReason.DUPLICATE_OUTPUT_NAME
+            )
             continue
 
         source_field = source_schema.fields.get(lookup_name)
         if source_field is None:
             diagnostics.append(_project_unknown_direct_field_diagnostic(projection))
             is_unknown = True
+            unknown_reason = ProjectRelationRowSchemaReason.UNKNOWN_SCHEMA
             continue
 
         fields[output_name] = ProjectRowField(
@@ -1052,6 +1196,8 @@ def _project_direct_relation_row_schema(
         return _ProjectRelationRowSchemaResult(
             schema=ProjectRowSchema(is_unknown=True),
             diagnostics=tuple(diagnostics),
+            state_reason=unknown_reason
+            or ProjectRelationRowSchemaReason.UNKNOWN_SCHEMA,
         )
 
     return _ProjectRelationRowSchemaResult(schema=ProjectRowSchema(fields=fields))

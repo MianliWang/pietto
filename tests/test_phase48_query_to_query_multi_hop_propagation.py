@@ -25,8 +25,10 @@ PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 ALLOWED_SLICE5_GATE2_PATHS = {
     "docs/plan/phase-48-query-to-query-row-schema.md",
     "docs/spec/phase48-query-to-query-multi-hop-propagation-v1.md",
+    "docs/spec/phase48-upstream-non-concrete-schema-propagation-v1.md",
     "src/pietto/_project/model.py",
     "tests/test_phase48_query_to_query_multi_hop_propagation.py",
+    "tests/test_phase48_upstream_non_concrete_schema_propagation.py",
     "tests/test_phase48_table_upstream_row_schema_propagation.py",
     "tests/test_phase48_schema_availability_state_carrier.py",
     "tests/test_phase48_query_to_query_row_schema_scope_lock.py",
@@ -394,10 +396,14 @@ def test_duplicate_output_names_through_query_upstream_remain_unknown_without_di
     assert tuple(semantic_result.model.relation_row_schemas) == (seed, exported)
     assert exported_schema.is_unknown is True
     assert exported_schema.fields == {}
-    assert tuple(semantic_result.model.relation_row_schema_states) == (seed,)
+    assert tuple(semantic_result.model.relation_row_schema_states) == (seed, exported)
+    state = semantic_result.model.relation_row_schema_states[exported]
+    assert state.status is ProjectRelationRowSchemaStatus.UNKNOWN
+    assert state.reason is ProjectRelationRowSchemaReason.DUPLICATE_OUTPUT_NAME
+    assert state.schema is exported_schema
 
 
-def test_non_concrete_upstreams_do_not_propagate_in_slice5(
+def test_non_concrete_upstreams_get_private_states_in_slice7(
     tmp_path: Path,
 ) -> None:
     unknown_root = _project(
@@ -417,7 +423,15 @@ def test_non_concrete_upstreams_do_not_propagate_in_slice5(
     assert not unknown_semantic.ok
     assert unknown_semantic.model is not None
     assert unknown_semantic.model.relation_row_schemas[unknown_seed].is_unknown is True
-    assert unknown_exported not in unknown_semantic.model.relation_row_schemas
+    assert unknown_semantic.model.relation_row_schemas[unknown_exported].is_unknown
+    assert (
+        unknown_semantic.model.relation_row_schema_states[unknown_seed].status
+        is ProjectRelationRowSchemaStatus.UNKNOWN
+    )
+    assert (
+        unknown_semantic.model.relation_row_schema_states[unknown_exported].reason
+        is ProjectRelationRowSchemaReason.UPSTREAM_UNKNOWN
+    )
     assert [(item.code, item.message) for item in unknown_semantic.diagnostics] == [
         ("PIE-S2102", "Unknown field: missing")
     ]
@@ -440,6 +454,14 @@ def test_non_concrete_upstreams_do_not_propagate_in_slice5(
     assert deferred_semantic.model is not None
     assert deferred_seed not in deferred_semantic.model.relation_row_schemas
     assert deferred_exported not in deferred_semantic.model.relation_row_schemas
+    assert (
+        deferred_semantic.model.relation_row_schema_states[deferred_seed].status
+        is ProjectRelationRowSchemaStatus.DEFERRED
+    )
+    assert (
+        deferred_semantic.model.relation_row_schema_states[deferred_exported].reason
+        is ProjectRelationRowSchemaReason.UPSTREAM_DEFERRED
+    )
 
     cycle_root = _project(
         tmp_path / "cycle",
@@ -457,6 +479,10 @@ def test_non_concrete_upstreams_do_not_propagate_in_slice5(
     assert not cycle_semantic.ok
     assert cycle_semantic.model is not None
     assert cycle_semantic.model.relation_row_schemas == {}
+    assert {
+        state.reason
+        for state in cycle_semantic.model.relation_row_schema_states.values()
+    } == {ProjectRelationRowSchemaReason.CYCLE_BLOCKED}
     assert [(item.code, item.message) for item in cycle_semantic.diagnostics] == [
         ("PIE-S2302", "Relation cycle detected: first -> second -> first")
     ]
