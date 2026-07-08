@@ -127,6 +127,19 @@ no `let` expression schema, no aggregate/grouped schema, no project
 IR/SQL/emit/explain, no bridge/export/RAG/Arrow behavior, no JOIN/relationship
 behavior, no package version, and no release operations.
 
+Phase 48 Slice 10 is Completion audit/status lock. Slice 10 is
+docs/spec/tests-only. It adds the completion audit/status lock contract and a
+focused static-audit test for the completed Phase 48 Query-to-query Row Schema
+Propagation scope. Slice 10 changes no `src/**`, no production behavior, no
+Project JSON v2 shape, no private fact serialization, no public project
+semantic API, no diagnostics, no diagnostic wording, no
+parser/grammar/generated files, no hash-lock tests, no global roadmap, no
+`docs/spec/pietto-v0.9.md`, no computed alias schema, no `let` expression
+schema, no aggregate/grouped schema, no project IR/SQL/emit/explain, no
+bridge/export/RAG/Arrow behavior, no JOIN/relationship behavior, no package
+version, and no release operations. Phase 48 is complete only after Slice 10
+Gate 3 commit, push, and natural CI success.
+
 Package version remains `0.1.0`.
 
 ## Trusted Baseline
@@ -212,6 +225,18 @@ Package version remains `0.1.0`.
 - Baseline exact-match tag: none.
 - Natural CI: `CI` run `28918581371`, event `push`, branch `main`, headSha
   `86c6eb43106994a486d900cae3a5f028b7de5b7e`, completed with success.
+
+## Slice 10 Trusted Baseline
+
+- Baseline branch: `main`.
+- Baseline HEAD: `42921f382c4f7a65eb606e8d1d5ed7542289027b`.
+- Baseline subject: `Add Phase 48 project JSON privacy readiness`.
+- Baseline package version: `0.1.0`.
+- Baseline worktree status: clean and equivalent to `## main...origin/main`.
+- Baseline HEAD tag: none.
+- Baseline exact-match tag: none.
+- Natural CI: `CI` run `28919244720`, event `push`, branch `main`, headSha
+  `42921f382c4f7a65eb606e8d1d5ed7542289027b`, completed with success.
 
 ## Phase Identity And Prerequisites
 
@@ -607,6 +632,77 @@ not be serialized. Diagnostics flow only through existing `diagnostics[]`. No
 CLI/check orchestration change is authorized unless a later slice explicitly
 approves it.
 
+## Slice 10 Completion Audit And Status Lock
+
+Slice 10 is the final completion audit/status lock for Phase 48. It documents
+and tests the completed private Query-to-query Row Schema Propagation
+foundation without changing production code.
+
+Slice 10 locks the completed slice inventory:
+
+1. Candidate/scope lock and route plan
+2. Deterministic propagation order and cycle-blocking contract
+3. Private schema availability state carrier and propagation readiness
+4. Table-to-table / table-to-query propagation
+5. Query-to-query and multi-hop propagation
+6. Propagated field provenance / lineage hardening
+7. Upstream unknown / absent / deferred / blocked schema propagation
+8. Downstream diagnostics and deterministic ordering hardening
+9. Project JSON/private-fact privacy plus future explain/bridge readiness
+10. Completion audit/status lock
+
+Phase 48 delivered these private project semantics:
+
+- private relation row schema availability carrier:
+  `ProjectRelationRowSchemaStatus`, `ProjectRelationRowSchemaReason`,
+  `ProjectRelationRowSchemaState`, and
+  `ProjectSemanticModel.relation_row_schema_states`;
+- concrete relation-to-relation row schema propagation across
+  table-to-table, table-to-query, query-to-query, table-from-query, and mixed
+  acyclic multi-hop chains;
+- direct field projection forms over immediate upstream row schemas: `id`,
+  `upstream.id`, `alias = id`, and `alias = upstream.id`;
+- a flat relation schema model where only the immediate upstream qualifier is
+  valid, while original source lineage and lineage-path selectors remain
+  invalid downstream paths;
+- non-concrete private availability propagation for `UNKNOWN`, `DEFERRED`, and
+  `BLOCKED`;
+- propagated field provenance / lineage hardening where immediate semantic
+  projection metadata is locked and full lineage chains remain future
+  explain/export work;
+- deterministic diagnostics and private fact ordering using existing
+  `PIE-S2102`, `PIE-S2301`, and `PIE-S2302` as the authoritative diagnostics;
+- Project JSON/private-fact privacy: no private schema, state, status, reason,
+  provenance, graph, cycle, or ordering facts are serialized.
+
+The following remain deferred after Phase 48:
+
+- computed alias schema;
+- `let` expression schema;
+- aggregate/grouped output schema;
+- project IR;
+- project SQL emit;
+- project `emit-sql`;
+- project `explain`;
+- public project semantic API;
+- Project JSON v2 row schema output;
+- private fact serialization;
+- parser/grammar/generated changes;
+- JOIN/relationship behavior;
+- runtime/database execution;
+- package version, tag, release, publish, upload, signing, or attestation.
+
+Phase 49 computed alias / `let` schema remains a candidate next phase. Phase 50
+aggregate/grouped output row schema remains a candidate future phase. Phase
+51-55 readiness labels remain tentative Phase 48-local planning labels unless
+separately authorized. Phase 52 remains Project Explain / Project Semantic
+Metadata Readiness and is distinct from existing single-file `pietto explain`.
+Slice 10 does not amend `docs/spec/pietto-roadmap-phase45-60-v1.md` or
+`docs/spec/pietto-v0.9.md`.
+
+Phase 48 completion must not be pre-claimed in Gate 2 docs. Phase 48 is
+complete only after Slice 10 Gate 3 commit, push, and natural CI success.
+
 ## Slice 1 Gate 2 Allowlist
 
 Phase 48 Slice 1 Gate 2 is limited to:
@@ -767,6 +863,22 @@ roadmap, public JSON/CLI behavior files, Project JSON v2 serializer files, or
 project check orchestration files are approved in Slice 9 Gate 2.
 
 No other file is approved in Slice 9 Gate 2.
+
+## Slice 10 Gate 2 Allowlist
+
+Phase 48 Slice 10 Gate 2 is docs/spec/tests-only and is limited to:
+
+- `docs/plan/phase-48-query-to-query-row-schema.md`
+- `docs/spec/phase48-completion-audit-status-lock-v1.md`
+- `tests/test_phase48_completion_audit_status_lock.py`
+
+No `src/**`, hash-lock tests, parser/grammar/generated files, fixtures,
+goldens, scripts, workflows, package metadata, lockfiles, README, AGENTS,
+global roadmap, `docs/spec/pietto-v0.9.md`, public JSON/CLI behavior files,
+Project JSON v2 serializer files, or project check orchestration files are
+approved in Slice 10 Gate 2.
+
+No other file is approved in Slice 10 Gate 2.
 
 ## Focused Validation
 
@@ -974,6 +1086,31 @@ dirty Slice 9 Gate 2. If `ruff format --check` fails only because the new Slice
 tests/test_phase48_project_json_private_fact_privacy_readiness.py` may be run
 and then the focused validation commands must be rerun.
 
+The focused Slice 10 Gate 2 validation commands are:
+
+```bash
+git diff --check
+set +e
+git diff --no-index --check -- /dev/null docs/spec/phase48-completion-audit-status-lock-v1.md
+rc_spec=$?
+git diff --no-index --check -- /dev/null tests/test_phase48_completion_audit_status_lock.py
+rc_test=$?
+set -e
+test "$rc_spec" -le 1
+test "$rc_test" -le 1
+uv run ruff format --check tests/test_phase48_completion_audit_status_lock.py
+uv run ruff check tests/test_phase48_completion_audit_status_lock.py
+uv run pyright --project pyrightconfig.tests.json
+uv run pytest tests/test_phase48_completion_audit_status_lock.py
+```
+
+Do not run broad validation, `scripts/validate.py`, code generation, parser
+generation, workflows, hash-lock tests, old dirty-path guard tests, or CI in
+dirty Slice 10 Gate 2. If `ruff format --check` fails only because the new
+Slice 10 test file needs formatting, `uv run ruff format
+tests/test_phase48_completion_audit_status_lock.py` may be run and then the
+focused validation commands must be rerun.
+
 ## Stop Conditions
 
 Stop immediately if implementation would require files outside the Slice 1
@@ -1074,3 +1211,18 @@ aggregate schema, grouped output schema, project explain, semantic metadata
 export, bridge/export/RAG/Arrow behavior, public project semantic API, JOIN or
 relationship behavior, project IR, project SQL emit, project `emit-sql`,
 hash-lock changes, package version changes, or release actions.
+
+For Slice 10, stop immediately if implementation would require files outside
+the Slice 10 allowlist, any `src/**` file, `src/pietto/_project/model.py`,
+`src/pietto/_project/check.py`, `src/pietto/_project/json_v2.py`,
+`src/pietto/cli.py`, parser or generated files, fixtures or goldens, scripts,
+workflows, package metadata, lockfiles, README, AGENTS, global roadmap
+reconciliation, `docs/spec/pietto-v0.9.md`, Project JSON v2 serializer changes,
+CLI/check orchestration changes, public JSON shape changes, private fact
+serialization, new diagnostics, diagnostic wording changes, diagnostic
+behavior changes, production behavior changes, computed alias schema, `let`
+expression schema, aggregate schema, grouped output schema, project explain,
+semantic metadata export, bridge/export/RAG/Arrow behavior, public project
+semantic API, JOIN or relationship behavior, project IR, project SQL emit,
+project `emit-sql`, hash-lock changes, package version changes, or release
+actions.
