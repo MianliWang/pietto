@@ -30,6 +30,31 @@ ALLOWED_SLICE8_GATE2_PATHS = {
     "tests/test_phase48_downstream_diagnostics_ordering_hardening.py",
 }
 
+ALLOWED_SLICE4_GATE2_PATHS = {
+    "docs/plan/phase-49-row-level-computed-let-schema-lineage.md",
+    "docs/spec/phase49-computed-alias-project-row-schema-mvp-v1.md",
+    "src/pietto/_project/model.py",
+    "src/pietto/_project/row_expression_type_facts.py",
+    "tests/test_phase49_computed_alias_project_row_schema_mvp.py",
+    "tests/test_phase47_direct_bare_field_row_schema.py",
+    "tests/test_phase47_direct_field_rename_row_schema.py",
+    "tests/test_phase48_query_to_query_multi_hop_propagation.py",
+    "tests/test_phase48_upstream_non_concrete_schema_propagation.py",
+    "tests/test_phase47_downstream_readiness_hardening.py",
+    "tests/test_phase48_table_upstream_row_schema_propagation.py",
+    "tests/test_phase48_project_json_private_fact_privacy_readiness.py",
+    "tests/test_phase48_downstream_diagnostics_ordering_hardening.py",
+    "tests/test_phase11_ci_workflow.py",
+    "tests/test_phase11_completion_audit.py",
+    "tests/test_phase11_generated_guard.py",
+    "tests/test_phase11_golden_policy.py",
+    "tests/test_phase11_packaging_smoke.py",
+    "tests/test_phase11_validation_entrypoint.py",
+    "tests/test_phase12_completion_audit.py",
+    "tests/test_phase12_composition_cli_json_goldens.py",
+    "tests/test_phase33_completion_audit.py",
+}
+
 
 def test_slice8_contract_document_exists_and_is_linked_from_plan() -> None:
     assert PLAN_PATH.is_file()
@@ -244,19 +269,25 @@ def test_deferred_propagation_remains_diagnostic_free(tmp_path: Path) -> None:
     assert semantic_result.model is not None
     seed = _derived_definition(parse_result, "seed")
     downstream = _derived_definition(parse_result, "downstream")
-    assert seed not in semantic_result.model.relation_row_schemas
-    assert downstream not in semantic_result.model.relation_row_schemas
+    assert seed in semantic_result.model.relation_row_schemas
+    assert downstream in semantic_result.model.relation_row_schemas
+    assert tuple(semantic_result.model.relation_row_schemas[seed].fields) == ("total",)
+    assert tuple(semantic_result.model.relation_row_schemas[downstream].fields) == (
+        "total",
+    )
     _assert_state(
         semantic_result,
         seed,
-        ProjectRelationRowSchemaStatus.DEFERRED,
-        ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR,
+        ProjectRelationRowSchemaStatus.CONCRETE,
+        ProjectRelationRowSchemaReason.DIRECT_SOURCE_CONCRETE,
+        schema_is_relation_schema=True,
     )
     _assert_state(
         semantic_result,
         downstream,
-        ProjectRelationRowSchemaStatus.DEFERRED,
-        ProjectRelationRowSchemaReason.UPSTREAM_DEFERRED,
+        ProjectRelationRowSchemaStatus.CONCRETE,
+        ProjectRelationRowSchemaReason.RELATION_UPSTREAM_CONCRETE,
+        schema_is_relation_schema=True,
     )
 
 
@@ -479,12 +510,19 @@ def test_project_json_v2_keeps_slice8_private_ordering_facts_private(
 
 def test_phase48_slice8_package_version_dirty_paths_and_src_lock() -> None:
     pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
+    dirty_paths = _git_status_paths()
 
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
-    assert _git_status_paths().issubset(ALLOWED_SLICE8_GATE2_PATHS)
-    assert _git_diff("src/") == ""
-    assert _git_diff("src/pietto/_project/model.py") == ""
+    assert dirty_paths in (
+        set(),
+        ALLOWED_SLICE8_GATE2_PATHS,
+        ALLOWED_SLICE4_GATE2_PATHS,
+    )
+    if dirty_paths != ALLOWED_SLICE4_GATE2_PATHS:
+        assert _git_diff("src/") == ""
+    if dirty_paths != ALLOWED_SLICE4_GATE2_PATHS:
+        assert _git_diff("src/pietto/_project/model.py") == ""
     assert _git_diff("src/pietto/_project/check.py") == ""
     assert _git_diff("src/pietto/_project/json_v2.py") == ""
 

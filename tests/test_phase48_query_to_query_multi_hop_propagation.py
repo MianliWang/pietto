@@ -11,6 +11,7 @@ from pietto._project.model import (
     ProjectRelationRowSchemaReason,
     ProjectRelationRowSchemaStatus,
     ProjectRowField,
+    ProjectRowFieldNullability,
     ProjectRowFieldProvenanceKind,
     ProjectSemanticResult,
     build_empty_project_semantic_result,
@@ -37,6 +38,31 @@ ALLOWED_SLICE5_GATE2_PATHS = {
     "tests/test_phase47_unknown_direct_field_diagnostics.py",
     "tests/test_phase47_direct_bare_field_row_schema.py",
     "tests/test_phase47_direct_field_rename_row_schema.py",
+    "tests/test_phase11_ci_workflow.py",
+    "tests/test_phase11_completion_audit.py",
+    "tests/test_phase11_generated_guard.py",
+    "tests/test_phase11_golden_policy.py",
+    "tests/test_phase11_packaging_smoke.py",
+    "tests/test_phase11_validation_entrypoint.py",
+    "tests/test_phase12_completion_audit.py",
+    "tests/test_phase12_composition_cli_json_goldens.py",
+    "tests/test_phase33_completion_audit.py",
+}
+
+ALLOWED_SLICE4_GATE2_PATHS = {
+    "docs/plan/phase-49-row-level-computed-let-schema-lineage.md",
+    "docs/spec/phase49-computed-alias-project-row-schema-mvp-v1.md",
+    "src/pietto/_project/model.py",
+    "src/pietto/_project/row_expression_type_facts.py",
+    "tests/test_phase49_computed_alias_project_row_schema_mvp.py",
+    "tests/test_phase47_direct_bare_field_row_schema.py",
+    "tests/test_phase47_direct_field_rename_row_schema.py",
+    "tests/test_phase48_query_to_query_multi_hop_propagation.py",
+    "tests/test_phase48_upstream_non_concrete_schema_propagation.py",
+    "tests/test_phase47_downstream_readiness_hardening.py",
+    "tests/test_phase48_table_upstream_row_schema_propagation.py",
+    "tests/test_phase48_project_json_private_fact_privacy_readiness.py",
+    "tests/test_phase48_downstream_diagnostics_ordering_hardening.py",
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
     "tests/test_phase11_generated_guard.py",
@@ -452,15 +478,28 @@ def test_non_concrete_upstreams_get_private_states_in_slice7(
     deferred_exported = _derived_definition(deferred_parse, "exported")
     assert deferred_semantic.ok
     assert deferred_semantic.model is not None
-    assert deferred_seed not in deferred_semantic.model.relation_row_schemas
-    assert deferred_exported not in deferred_semantic.model.relation_row_schemas
+    seed_schema = deferred_semantic.model.relation_row_schemas[deferred_seed]
+    exported_schema = deferred_semantic.model.relation_row_schemas[deferred_exported]
+    assert tuple(deferred_semantic.model.relation_row_schemas) == (
+        deferred_seed,
+        deferred_exported,
+    )
+    assert tuple(seed_schema.fields) == ("total",)
+    assert tuple(exported_schema.fields) == ("total",)
+    assert seed_schema.fields["total"].field_def is None
+    assert exported_schema.fields["total"].field_def is None
+    assert exported_schema.fields["total"].resolved_type.name == "Int"
+    assert (
+        exported_schema.fields["total"].nullability
+        is ProjectRowFieldNullability.UNKNOWN
+    )
     assert (
         deferred_semantic.model.relation_row_schema_states[deferred_seed].status
-        is ProjectRelationRowSchemaStatus.DEFERRED
+        is ProjectRelationRowSchemaStatus.CONCRETE
     )
     assert (
         deferred_semantic.model.relation_row_schema_states[deferred_exported].reason
-        is ProjectRelationRowSchemaReason.UPSTREAM_DEFERRED
+        is ProjectRelationRowSchemaReason.RELATION_UPSTREAM_CONCRETE
     )
 
     cycle_root = _project(
@@ -488,7 +527,9 @@ def test_non_concrete_upstreams_get_private_states_in_slice7(
     ]
 
 
-def test_deferred_expression_surfaces_remain_outside_slice5(tmp_path: Path) -> None:
+def test_computed_alias_concrete_but_let_aggregate_grouped_surfaces_defer(
+    tmp_path: Path,
+) -> None:
     parse_result, semantic_result = _project_semantic_result(
         _project(
             tmp_path,
@@ -528,8 +569,15 @@ def test_deferred_expression_surfaces_remain_outside_slice5(tmp_path: Path) -> N
     aggregate = _derived_definition(parse_result, "aggregate")
     grouped = _derived_definition(parse_result, "grouped")
 
-    assert tuple(semantic_result.model.relation_row_schemas) == (seed, with_let)
-    assert computed not in semantic_result.model.relation_row_schemas
+    assert tuple(semantic_result.model.relation_row_schemas) == (
+        seed,
+        computed,
+        with_let,
+    )
+    computed_schema = semantic_result.model.relation_row_schemas[computed]
+    assert tuple(computed_schema.fields) == ("total",)
+    assert computed_schema.fields["total"].field_def is None
+    assert computed_schema.fields["total"].resolved_type.name == "Int"
     assert tuple(semantic_result.model.relation_row_schemas[with_let].fields) == ("id",)
     assert aggregate not in semantic_result.model.relation_row_schemas
     assert grouped not in semantic_result.model.relation_row_schemas
@@ -590,10 +638,15 @@ def test_project_json_v2_does_not_expose_slice5_private_facts(tmp_path: Path) ->
 
 def test_phase48_slice5_package_version_and_dirty_paths_are_locked() -> None:
     pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
+    dirty_paths = _git_status_paths()
 
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
-    assert _git_status_paths().issubset(ALLOWED_SLICE5_GATE2_PATHS)
+    assert dirty_paths in (
+        set(),
+        ALLOWED_SLICE5_GATE2_PATHS,
+        ALLOWED_SLICE4_GATE2_PATHS,
+    )
     assert _git_diff("src/pietto/_project/check.py") == ""
     assert _git_diff("src/pietto/_project/json_v2.py") == ""
 

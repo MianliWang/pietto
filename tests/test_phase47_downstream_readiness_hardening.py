@@ -8,6 +8,7 @@ from pietto._project.check import check_project_parse_only
 from pietto._project.json_v2 import project_check_result_to_json_dict
 from pietto._project.model import (
     ProjectParseCheckResult,
+    ProjectRowFieldNullability,
     ProjectRowFieldProvenanceKind,
     ProjectSemanticResult,
     build_empty_project_semantic_result,
@@ -33,6 +34,31 @@ ALLOWED_SLICE9_GATE2_PATHS = {
     "tests/test_phase48_query_to_query_row_schema_scope_lock.py",
     "tests/test_phase48_schema_availability_state_carrier.py",
     "tests/test_phase48_table_upstream_row_schema_propagation.py",
+    "tests/test_phase11_ci_workflow.py",
+    "tests/test_phase11_completion_audit.py",
+    "tests/test_phase11_generated_guard.py",
+    "tests/test_phase11_golden_policy.py",
+    "tests/test_phase11_packaging_smoke.py",
+    "tests/test_phase11_validation_entrypoint.py",
+    "tests/test_phase12_completion_audit.py",
+    "tests/test_phase12_composition_cli_json_goldens.py",
+    "tests/test_phase33_completion_audit.py",
+}
+
+ALLOWED_SLICE4_GATE2_PATHS = {
+    "docs/plan/phase-49-row-level-computed-let-schema-lineage.md",
+    "docs/spec/phase49-computed-alias-project-row-schema-mvp-v1.md",
+    "src/pietto/_project/model.py",
+    "src/pietto/_project/row_expression_type_facts.py",
+    "tests/test_phase49_computed_alias_project_row_schema_mvp.py",
+    "tests/test_phase47_direct_bare_field_row_schema.py",
+    "tests/test_phase47_direct_field_rename_row_schema.py",
+    "tests/test_phase48_query_to_query_multi_hop_propagation.py",
+    "tests/test_phase48_upstream_non_concrete_schema_propagation.py",
+    "tests/test_phase47_downstream_readiness_hardening.py",
+    "tests/test_phase48_table_upstream_row_schema_propagation.py",
+    "tests/test_phase48_project_json_private_fact_privacy_readiness.py",
+    "tests/test_phase48_downstream_diagnostics_ordering_hardening.py",
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
     "tests/test_phase11_generated_guard.py",
@@ -95,7 +121,7 @@ def test_phase48_table_to_query_row_schema_propagates_from_direct_table_seed(
     assert tuple(semantic_result.model.relation_row_schemas[exported].fields) == ("id",)
 
 
-def test_phase49_computed_alias_remains_deferred_without_schema_or_diagnostics(
+def test_phase49_computed_alias_is_concrete_without_diagnostics(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(
@@ -112,7 +138,14 @@ def test_phase49_computed_alias_remains_deferred_without_schema_or_diagnostics(
     assert semantic_result.diagnostics == ()
     assert semantic_result.model is not None
     projected = _derived_definition(parse_result, "projected")
-    assert projected not in semantic_result.model.relation_row_schemas
+    relation_schema = semantic_result.model.relation_row_schemas[projected]
+    field = relation_schema.fields["total"]
+    assert tuple(relation_schema.fields) == ("total",)
+    assert field.resolved_type.name == "Int"
+    assert field.nullability is ProjectRowFieldNullability.UNKNOWN
+    assert field.field_def is None
+    assert field.provenance is not None
+    assert field.provenance.kind is ProjectRowFieldProvenanceKind.EXPRESSION
     assert "PIE-S2102" not in _diagnostic_codes(semantic_result)
 
 
@@ -246,10 +279,15 @@ def test_project_json_v2_privacy_remains_unchanged_for_private_row_schema_facts(
 
 def test_phase47_slice9_package_version_and_dirty_paths_are_locked() -> None:
     pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
+    dirty_paths = _git_status_paths()
 
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
-    assert _git_status_paths().issubset(ALLOWED_SLICE9_GATE2_PATHS)
+    assert dirty_paths in (
+        set(),
+        ALLOWED_SLICE9_GATE2_PATHS,
+        ALLOWED_SLICE4_GATE2_PATHS,
+    )
 
 
 def _project_semantic_result(

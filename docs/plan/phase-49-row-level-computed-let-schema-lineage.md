@@ -236,6 +236,36 @@ project SQL, project `emit-sql`, JOIN/relationship behavior,
 bridge/export/RAG/Arrow behavior, import/export behavior, multi-file behavior,
 runtime/database execution, package version, or release operation.
 
+## Slice 4 Computed Alias Project Row Schema MVP
+
+Phase 49 Slice 4 is Computed alias project row schema MVP. Slice 4 implements
+only private project row schema output for legal computed aliases over concrete
+upstream schemas.
+
+The normative Slice 4 contract is
+`docs/spec/phase49-computed-alias-project-row-schema-mvp-v1.md`. Slice 4
+integrates private type/nullability facts into project row schema construction
+narrowly by using a private project helper and the Slice 3 adapter. The helper
+uses existing row-level expression inference only to obtain known
+`ValueType(resolved_type, nullability)` facts from a concrete project input row
+schema; it does not call full `semantic_api.analyze`.
+
+Computed alias fields use `field_def=None` and must not synthesize a derived
+`FieldDef`. Direct projections, renamed projections, and multi-hop direct field
+propagation continue to preserve source-native `field_def` facts and Phase 48
+behavior.
+
+Slice 4 does not implement project `let` facts, selected `let`-derived output
+schema, full dependency graph, lineage carriers, aggregate/grouped output
+schema, Project JSON v2 row schema output, project explain, project IR, project
+SQL, project `emit-sql`, JOIN/relationship behavior, bridge/export/RAG/Arrow
+behavior, import/export behavior, multi-file behavior, runtime/database
+execution, parser/grammar/generated changes, package version change, or release
+operation.
+
+Aggregate and grouped output schema remain deferred to Phase 50 or later.
+Row-level dependency cycle diagnostics remain readiness-only.
+
 ## Slice 3 Gate 2 Allowlist
 
 Phase 49 Slice 3 Gate 2 is limited to:

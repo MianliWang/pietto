@@ -109,8 +109,8 @@ ROADMAP_STATUS = (
 LOCKED_PHASE33_SURFACES = {
     "project_private": (
         "src/pietto/_project",
-        8,
-        "a63e4852f15ca7e81c98cffef2a3d4012e3bc390f87c9e146e552e2c45ae091d",
+        9,
+        "03a2307740cbd264eded796e5733df2df6340215166fdc98f87cfa2fda174628",
     ),
     "cli": (
         "src/pietto/cli.py",

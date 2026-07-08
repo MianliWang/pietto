@@ -872,7 +872,7 @@ def _build_project_relation_row_schemas(
     source_row_schemas: Mapping[SourceDef, ProjectRowSchema],
     relation_dependency_graph: ProjectRelationDependencyGraph,
 ) -> _ProjectRelationRowSchemasResult:
-    """Build private relation row schemas for approved direct projections."""
+    """Build private relation row schemas for supported project projections."""
 
     relation_row_schemas: dict[TableDef | QueryDef, ProjectRowSchema] = {}
     relation_row_schema_states: dict[
@@ -1132,7 +1132,15 @@ def _project_direct_relation_row_schema(
     source_symbol: ProjectSymbol,
     fallback_path: str,
 ) -> _ProjectRelationRowSchemaResult:
-    """Project direct fields from one direct source input."""
+    """Project direct fields and supported computed aliases from one input."""
+
+    from pietto._project.row_expression_schema import (
+        ProjectExpressionSchemaStatus,
+        adapt_project_row_expression_schema,
+    )
+    from pietto._project.row_expression_type_facts import (
+        build_project_row_expression_value_types,
+    )
 
     fields: dict[str, ProjectRowField] = {}
     diagnostics: list[Diagnostic] = []
@@ -1144,6 +1152,16 @@ def _project_direct_relation_row_schema(
             state_reason=ProjectRelationRowSchemaReason.UPSTREAM_UNKNOWN,
         )
 
+    expression_value_types = build_project_row_expression_value_types(
+        expressions=(
+            item.expression
+            for item in definition.select_items
+            if item.alias is not None
+        ),
+        input_schema=source_schema,
+        relation_qualifier=definition.from_clause.source_name,
+    )
+
     for item in definition.select_items:
         projection = _project_direct_field_projection(
             item,
@@ -1151,10 +1169,55 @@ def _project_direct_relation_row_schema(
             fallback_path=fallback_path,
         )
         if projection.status is _ProjectDirectFieldProjectionStatus.DEFERRED:
-            return _ProjectRelationRowSchemaResult(
-                schema=None,
-                state_reason=ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR,
+            if item.alias is None:
+                return _ProjectRelationRowSchemaResult(
+                    schema=None,
+                    state_reason=(
+                        ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR
+                    ),
+                )
+
+            result = adapt_project_row_expression_schema(
+                expression=item.expression,
+                output_name=item.alias,
+                input_schema=source_schema,
+                upstream_state=None,
+                relation_qualifier=definition.from_clause.source_name,
+                expression_value_types=expression_value_types,
+                fallback_path=fallback_path,
             )
+            if result.status is not ProjectExpressionSchemaStatus.CONCRETE:
+                return _ProjectRelationRowSchemaResult(
+                    schema=None,
+                    state_reason=(
+                        ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR
+                    ),
+                )
+
+            if item.alias in fields:
+                is_unknown = True
+                unknown_reason = (
+                    unknown_reason
+                    or ProjectRelationRowSchemaReason.DUPLICATE_OUTPUT_NAME
+                )
+                continue
+
+            if result.resolved_type is None or result.nullability is None:
+                raise AssertionError("Concrete computed projection requires type facts")
+
+            fields[item.alias] = ProjectRowField(
+                name=item.alias,
+                resolved_type=result.resolved_type,
+                nullability=result.nullability,
+                field_def=None,
+                provenance=ProjectRowFieldProvenance(
+                    kind=ProjectRowFieldProvenanceKind.EXPRESSION,
+                    symbol=source_symbol,
+                    location=result.location,
+                ),
+            )
+            continue
+
         if projection.status is _ProjectDirectFieldProjectionStatus.INVALID:
             diagnostics.append(_project_unknown_direct_field_diagnostic(projection))
             is_unknown = True
