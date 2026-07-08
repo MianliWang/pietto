@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from types import MappingProxyType
-from typing import TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 from pietto.ast_nodes import (
     ConstraintDef,
@@ -28,6 +28,9 @@ from pietto.ast_nodes import (
     TypeExpr,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
+
+if TYPE_CHECKING:
+    from pietto._project.let_scope_facts import ProjectRelationLetScopeFacts
 
 _Key = TypeVar("_Key")
 _Value = TypeVar("_Value")
@@ -496,6 +499,9 @@ class ProjectSemanticModel:
     relation_row_schema_states: Mapping[
         TableDef | QueryDef, ProjectRelationRowSchemaState
     ] = field(default_factory=lambda: _readonly_mapping())
+    relation_let_scope_facts: Mapping[
+        TableDef | QueryDef, ProjectRelationLetScopeFacts
+    ] = field(default_factory=lambda: _readonly_mapping())
     relation_dependency_graph: ProjectRelationDependencyGraph = field(
         default_factory=ProjectRelationDependencyGraph
     )
@@ -532,6 +538,11 @@ class ProjectSemanticModel:
             self,
             "relation_row_schema_states",
             _readonly_mapping(self.relation_row_schema_states),
+        )
+        object.__setattr__(
+            self,
+            "relation_let_scope_facts",
+            _readonly_mapping(self.relation_let_scope_facts),
         )
 
 
@@ -617,6 +628,13 @@ def build_empty_project_semantic_result(
         source_row_schemas=source_row_schemas,
         relation_dependency_graph=relation_dependency_graph,
     )
+    relation_let_scope_facts = _build_project_relation_let_scope_facts(
+        parsed_inputs=parse_result.parsed_inputs,
+        relation_resolutions=relation_resolutions,
+        source_row_schemas=source_row_schemas,
+        relation_row_schemas=relation_row_schema_result.relation_row_schemas,
+        relation_row_schema_states=relation_row_schema_result.relation_row_schema_states,
+    )
     cycle_diagnostics = _build_project_relation_cycle_diagnostics(
         relation_dependency_graph
     )
@@ -636,6 +654,7 @@ def build_empty_project_semantic_result(
             relation_row_schema_states=(
                 relation_row_schema_result.relation_row_schema_states
             ),
+            relation_let_scope_facts=relation_let_scope_facts,
             relation_dependency_graph=relation_dependency_graph,
         ),
         diagnostics=(
@@ -1060,6 +1079,59 @@ def _build_project_relation_row_schemas(
         relation_row_schema_states=relation_row_schema_states,
         diagnostics=tuple(diagnostics),
     )
+
+
+def _build_project_relation_let_scope_facts(
+    *,
+    parsed_inputs: tuple[ProjectParsedInput, ...],
+    relation_resolutions: Mapping[FromClause, ProjectSymbol],
+    source_row_schemas: Mapping[SourceDef, ProjectRowSchema],
+    relation_row_schemas: Mapping[TableDef | QueryDef, ProjectRowSchema],
+    relation_row_schema_states: Mapping[
+        TableDef | QueryDef, ProjectRelationRowSchemaState
+    ],
+) -> dict[TableDef | QueryDef, ProjectRelationLetScopeFacts]:
+    """Build private relation-local let scope facts for project relations."""
+
+    from pietto._project.let_scope_facts import build_project_relation_let_scope_facts
+
+    facts: dict[TableDef | QueryDef, ProjectRelationLetScopeFacts] = {}
+    for parsed_input in parsed_inputs:
+        for definition in parsed_input.script.definitions:
+            if not isinstance(definition, (TableDef, QueryDef)):
+                continue
+
+            upstream_definition: SourceDef | TableDef | QueryDef | None = None
+            input_schema: ProjectRowSchema | None = None
+            upstream_state: ProjectRelationRowSchemaState | None = None
+            upstream_symbol = relation_resolutions.get(definition.from_clause)
+            if upstream_symbol is None:
+                upstream_state = ProjectRelationRowSchemaState(
+                    status=ProjectRelationRowSchemaStatus.BLOCKED,
+                    schema=None,
+                    reason=(ProjectRelationRowSchemaReason.UNRESOLVED_RELATION_BLOCKED),
+                )
+            elif upstream_symbol.kind is ProjectSymbolKind.SOURCE and isinstance(
+                upstream_symbol.definition, SourceDef
+            ):
+                upstream_definition = upstream_symbol.definition
+                input_schema = source_row_schemas.get(upstream_definition)
+            elif upstream_symbol.kind in (
+                ProjectSymbolKind.TABLE,
+                ProjectSymbolKind.QUERY,
+            ) and isinstance(upstream_symbol.definition, (TableDef, QueryDef)):
+                upstream_definition = upstream_symbol.definition
+                upstream_state = relation_row_schema_states.get(upstream_definition)
+                input_schema = relation_row_schemas.get(upstream_definition)
+
+            facts[definition] = build_project_relation_let_scope_facts(
+                definition=definition,
+                input_schema=input_schema,
+                upstream_definition=upstream_definition,
+                upstream_state=upstream_state,
+            )
+
+    return facts
 
 
 def _record_project_relation_row_schema_result(

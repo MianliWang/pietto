@@ -53,7 +53,7 @@ def build_project_row_expression_value_types(
     if input_schema.is_unknown:
         return MappingProxyType({})
 
-    row_schema = _semantic_row_schema(input_schema)
+    row_schema = project_row_schema_to_semantic_row_schema(input_schema)
     value_types: dict[Expression, ValueType] = {}
     for expression in tuple(expressions):
         if contains_semantic_aggregate(expression):
@@ -77,7 +77,11 @@ def build_project_row_expression_value_types(
     )
 
 
-def _semantic_row_schema(input_schema: ProjectRowSchema) -> RowSchema:
+def project_row_schema_to_semantic_row_schema(
+    input_schema: ProjectRowSchema,
+) -> RowSchema:
+    """Convert a private project row schema into semantic row-schema facts."""
+
     fields: dict[str, RowField] = {}
     for name, field in input_schema.fields.items():
         fields[name] = RowField(
