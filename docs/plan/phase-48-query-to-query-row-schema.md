@@ -92,6 +92,21 @@ no project IR/SQL/emit/explain, no JOIN/relationship behavior, no
 parser/grammar/generated changes, no package version changes, and no release
 operations.
 
+Phase 48 Slice 8 is Downstream diagnostics and deterministic ordering
+hardening. Slice 8 is docs/spec/tests-only. It locks the current downstream
+diagnostics and deterministic ordering contract for propagated row schema
+behavior without changing production code. Existing `PIE-S2102`, `PIE-S2301`,
+and `PIE-S2302` remain authoritative; `UNKNOWN`, `DEFERRED`, and `BLOCKED`
+propagation stays diagnostic-silent beyond any existing upstream diagnostic;
+duplicate output names remain diagnostic-free; and private
+`relation_row_schemas` / `relation_row_schema_states` ordering remains
+deterministic. Slice 8 changes no `src/**`, no production behavior, no
+diagnostic family, no diagnostic wording, no Project JSON v2 shape, no private
+fact serialization, no parser/grammar/generated files, no hash-lock tests, no
+computed alias schema, no `let` expression schema, no aggregate/grouped schema,
+no project IR/SQL/emit/explain, no JOIN/relationship behavior, no package
+version, and no release operations.
+
 Package version remains `0.1.0`.
 
 ## Trusted Baseline
@@ -153,6 +168,18 @@ Package version remains `0.1.0`.
 - Baseline exact-match tag: none.
 - Natural CI: `CI` run `28916057944`, event `push`, branch `main`, headSha
   `c368ce5a6b3be26e49ca5af63d065e20986cc6ba`, completed with success.
+
+## Slice 8 Trusted Baseline
+
+- Baseline branch: `main`.
+- Baseline HEAD: `c21b2f58e01fed2d2758752646545e3e0771e6b4`.
+- Baseline subject: `Add Phase 48 non-concrete schema propagation`.
+- Baseline package version: `0.1.0`.
+- Baseline worktree status: clean and equivalent to `## main...origin/main`.
+- Baseline HEAD tag: none.
+- Baseline exact-match tag: none.
+- Natural CI: `CI` run `28917550394`, event `push`, branch `main`, headSha
+  `c21b2f58e01fed2d2758752646545e3e0771e6b4`, completed with success.
 
 ## Phase Identity And Prerequisites
 
@@ -680,6 +707,20 @@ Hash-lock repair files are approved only if
 
 No other file is approved in Slice 7 Gate 2.
 
+## Slice 8 Gate 2 Allowlist
+
+Phase 48 Slice 8 Gate 2 is docs/spec/tests-only and is limited to:
+
+- `docs/plan/phase-48-query-to-query-row-schema.md`
+- `docs/spec/phase48-downstream-diagnostics-deterministic-ordering-hardening-v1.md`
+- `tests/test_phase48_downstream_diagnostics_ordering_hardening.py`
+
+No `src/**`, hash-lock tests, parser/grammar/generated files, fixtures,
+goldens, scripts, workflows, package metadata, lockfiles, README, AGENTS, global
+roadmap, or public JSON/CLI behavior files are approved in Slice 8 Gate 2.
+
+No other file is approved in Slice 8 Gate 2.
+
 ## Focused Validation
 
 The focused Slice 1 Gate 2 validation commands are:
@@ -836,6 +877,31 @@ Run the hash-lock pytest command only if hash-lock constants were updated.
 Do not run broad validation, `scripts/validate.py`, code generation, parser
 generation, workflows, or CI in dirty Slice 7 Gate 2.
 
+The focused Slice 8 Gate 2 validation commands are:
+
+```bash
+git diff --check
+set +e
+git diff --no-index --check -- /dev/null docs/spec/phase48-downstream-diagnostics-deterministic-ordering-hardening-v1.md
+rc_spec=$?
+git diff --no-index --check -- /dev/null tests/test_phase48_downstream_diagnostics_ordering_hardening.py
+rc_test=$?
+set -e
+test "$rc_spec" -le 1
+test "$rc_test" -le 1
+uv run ruff format --check tests/test_phase48_downstream_diagnostics_ordering_hardening.py
+uv run ruff check tests/test_phase48_downstream_diagnostics_ordering_hardening.py
+uv run pyright --project pyrightconfig.tests.json
+uv run pytest tests/test_phase48_downstream_diagnostics_ordering_hardening.py
+```
+
+Do not run broad validation, `scripts/validate.py`, code generation, parser
+generation, workflows, hash-lock tests, or CI in dirty Slice 8 Gate 2. If
+`ruff format --check` fails only because the new Slice 8 test file needs
+formatting, `uv run ruff format
+tests/test_phase48_downstream_diagnostics_ordering_hardening.py` may be run and
+then the focused validation commands must be rerun.
+
 ## Stop Conditions
 
 Stop immediately if implementation would require files outside the Slice 1
@@ -909,3 +975,16 @@ workflow changes, package metadata or lockfile changes, package version
 changes, release actions, or docs outside the allowlist. Hash-lock constants
 may be updated only in the approved nine hash-lock tests when the only failure
 is expected boundary-hash fallout from the approved `model.py` change.
+
+For Slice 8, stop immediately if implementation would require files outside the
+Slice 8 allowlist, any `src/**` file, `src/pietto/_project/model.py`,
+`src/pietto/_project/check.py`, `src/pietto/_project/json_v2.py`, parser or
+generated files, fixtures or goldens, scripts, workflows, package metadata,
+lockfiles, README, AGENTS, global roadmap reconciliation, Project JSON
+v2/CLI/check changes, public JSON shape changes, private fact serialization,
+new diagnostics, diagnostic wording changes, diagnostic behavior changes,
+production behavior changes, computed alias schema, `let` expression schema,
+aggregate schema, grouped output schema, JOIN or relationship behavior, project
+IR, project SQL emit, project `emit-sql`, project `explain`, public project
+semantic API, runtime/database behavior, hash-lock changes, package version
+changes, or release actions.
