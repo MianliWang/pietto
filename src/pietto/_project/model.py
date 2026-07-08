@@ -32,6 +32,7 @@ from pietto.errors import Diagnostic, Severity, SourceLocation
 if TYPE_CHECKING:
     from pietto._project.let_scope_facts import ProjectRelationLetScopeFacts
     from pietto._project.row_dependency_graph import ProjectRelationRowDependencyGraph
+    from pietto._project.row_lineage import ProjectRelationRowLineage
 
 _Key = TypeVar("_Key")
 _Value = TypeVar("_Value")
@@ -507,6 +508,9 @@ class ProjectSemanticModel:
     relation_row_dependency_graphs: Mapping[
         TableDef | QueryDef, ProjectRelationRowDependencyGraph
     ] = field(default_factory=lambda: _readonly_mapping())
+    relation_row_lineages: Mapping[TableDef | QueryDef, ProjectRelationRowLineage] = (
+        field(default_factory=lambda: _readonly_mapping())
+    )
     relation_dependency_graph: ProjectRelationDependencyGraph = field(
         default_factory=ProjectRelationDependencyGraph
     )
@@ -553,6 +557,11 @@ class ProjectSemanticModel:
             self,
             "relation_row_dependency_graphs",
             _readonly_mapping(self.relation_row_dependency_graphs),
+        )
+        object.__setattr__(
+            self,
+            "relation_row_lineages",
+            _readonly_mapping(self.relation_row_lineages),
         )
 
 
@@ -655,6 +664,15 @@ def build_empty_project_semantic_result(
         ),
         relation_let_scope_facts=relation_let_scope_facts,
     )
+    relation_row_lineages = _build_project_relation_row_lineages(
+        parsed_inputs=parse_result.parsed_inputs,
+        relation_resolutions=relation_resolutions,
+        relation_row_schemas=relation_row_schema_result.relation_row_schemas,
+        relation_row_schema_states=(
+            relation_row_schema_result.relation_row_schema_states
+        ),
+        relation_row_dependency_graphs=relation_row_dependency_graphs,
+    )
     cycle_diagnostics = _build_project_relation_cycle_diagnostics(
         relation_dependency_graph
     )
@@ -676,6 +694,7 @@ def build_empty_project_semantic_result(
             ),
             relation_let_scope_facts=relation_let_scope_facts,
             relation_row_dependency_graphs=relation_row_dependency_graphs,
+            relation_row_lineages=relation_row_lineages,
             relation_dependency_graph=relation_dependency_graph,
         ),
         diagnostics=(
@@ -1184,6 +1203,31 @@ def _build_project_relation_row_dependency_graphs(
         relation_row_schemas=relation_row_schemas,
         relation_row_schema_states=relation_row_schema_states,
         relation_let_scope_facts=relation_let_scope_facts,
+    )
+
+
+def _build_project_relation_row_lineages(
+    *,
+    parsed_inputs: tuple[ProjectParsedInput, ...],
+    relation_resolutions: Mapping[FromClause, ProjectSymbol],
+    relation_row_schemas: Mapping[TableDef | QueryDef, ProjectRowSchema],
+    relation_row_schema_states: Mapping[
+        TableDef | QueryDef, ProjectRelationRowSchemaState
+    ],
+    relation_row_dependency_graphs: Mapping[
+        TableDef | QueryDef, ProjectRelationRowDependencyGraph
+    ],
+) -> dict[TableDef | QueryDef, ProjectRelationRowLineage]:
+    """Build private minimal row lineage carriers for project relations."""
+
+    from pietto._project.row_lineage import build_project_relation_row_lineages
+
+    return build_project_relation_row_lineages(
+        parsed_inputs=parsed_inputs,
+        relation_resolutions=relation_resolutions,
+        relation_row_schemas=relation_row_schemas,
+        relation_row_schema_states=relation_row_schema_states,
+        relation_row_dependency_graphs=relation_row_dependency_graphs,
     )
 
 

@@ -440,6 +440,62 @@ project IR, project SQL, project `emit-sql`, CLI output, parser/grammar/
 generated change, JOIN/relationship behavior, aggregate/grouped schema,
 runtime/database behavior, package version change, or release operation.
 
+## Slice 10 Minimal Private Lineage Carrier For Source/Direct/Rename
+
+Phase 49 Slice 10 is Minimal private lineage carrier for source/direct/rename.
+Slice 10 Gate 2 introduces private project semantic lineage facts for
+source-backed direct projections, source-backed renamed projections, and
+relation-backed direct or renamed projections.
+
+The normative Slice 10 contract is
+`docs/spec/phase49-minimal-private-lineage-carrier-source-direct-rename-v1.md`.
+The private helper lives in `src/pietto/_project/row_lineage.py`, and
+`ProjectSemanticModel` stores private `relation_row_lineages` keyed by
+`TableDef | QueryDef`.
+
+Slice 10 records immediate lineage only. A source-backed direct or renamed
+projection records an output field segment linked to a source field segment. A
+relation-backed direct or renamed projection records an output field segment
+linked to the immediate upstream field segment. It does not expand that
+relation-backed field into a full transitive source lineage path.
+
+Computed alias lineage is not implemented in Slice 10. Selected `let`-derived
+lineage is not implemented in Slice 10. Full/transitive multi-hop lineage
+expansion remains Slice 11 or later.
+
+Project JSON v2 remains unchanged. Slice 10 serializes no lineage facts,
+segments, status/reason values, dependency graph facts, row schema facts, let
+facts, origin, or provenance facts.
+
+Slice 10 adds no public diagnostics, public semantic API, project explain,
+project IR, project SQL, project `emit-sql`, CLI output, parser/grammar/
+generated change, JOIN/relationship behavior, aggregate/grouped schema,
+runtime/database behavior, package version change, or release operation.
+
+## Slice 10 Gate 2 Allowlist
+
+Phase 49 Slice 10 Gate 2 is limited to:
+
+- `docs/plan/phase-49-row-level-computed-let-schema-lineage.md`
+- `docs/spec/phase49-minimal-private-lineage-carrier-source-direct-rename-v1.md`
+- `src/pietto/_project/model.py`
+- `src/pietto/_project/row_lineage.py`
+- `tests/test_phase49_minimal_private_lineage_carrier_source_direct_rename.py`
+- `tests/test_phase49_private_row_level_dependency_graph_scaffold.py`
+- `tests/test_phase11_ci_workflow.py`
+- `tests/test_phase11_completion_audit.py`
+- `tests/test_phase11_generated_guard.py`
+- `tests/test_phase11_golden_policy.py`
+- `tests/test_phase11_packaging_smoke.py`
+- `tests/test_phase11_validation_entrypoint.py`
+- `tests/test_phase12_completion_audit.py`
+- `tests/test_phase12_composition_cli_json_goldens.py`
+- `tests/test_phase33_completion_audit.py`
+
+No Project JSON serializer, project check orchestration, parser/grammar/
+generated file, public semantic API, IR, SQL, CLI, workflow, fixture, golden,
+package metadata, lockfile, or release surface is approved in Slice 10 Gate 2.
+
 ## Slice 9 Gate 2 Allowlist
 
 Phase 49 Slice 9 Gate 2 is limited to:
@@ -676,6 +732,26 @@ Do not run older dirty-path guard tests outside the Slice 8 allowlist in dirty
 Slice 8 Gate 2. They remain clean-tree/CI compatibility checks after a later
 Gate 3 publish. Do not run `scripts/validate.py`, generated checks, golden
 checks, package smoke, full pytest, or CI in dirty Slice 8 Gate 2 unless
+separately approved.
+
+Focused validation for Slice 10 Gate 2:
+
+```bash
+git diff --check
+git diff --no-index --check -- /dev/null docs/spec/phase49-minimal-private-lineage-carrier-source-direct-rename-v1.md || true
+git diff --no-index --check -- /dev/null src/pietto/_project/row_lineage.py || true
+git diff --no-index --check -- /dev/null tests/test_phase49_minimal_private_lineage_carrier_source_direct_rename.py || true
+uv run ruff format --check src/pietto/_project/model.py src/pietto/_project/row_lineage.py tests/test_phase49_minimal_private_lineage_carrier_source_direct_rename.py tests/test_phase49_private_row_level_dependency_graph_scaffold.py tests/test_phase11_ci_workflow.py tests/test_phase11_completion_audit.py tests/test_phase11_generated_guard.py tests/test_phase11_golden_policy.py tests/test_phase11_packaging_smoke.py tests/test_phase11_validation_entrypoint.py tests/test_phase12_completion_audit.py tests/test_phase12_composition_cli_json_goldens.py tests/test_phase33_completion_audit.py
+uv run ruff check src/pietto/_project/model.py src/pietto/_project/row_lineage.py tests/test_phase49_minimal_private_lineage_carrier_source_direct_rename.py tests/test_phase49_private_row_level_dependency_graph_scaffold.py tests/test_phase11_ci_workflow.py tests/test_phase11_completion_audit.py tests/test_phase11_generated_guard.py tests/test_phase11_golden_policy.py tests/test_phase11_packaging_smoke.py tests/test_phase11_validation_entrypoint.py tests/test_phase12_completion_audit.py tests/test_phase12_composition_cli_json_goldens.py tests/test_phase33_completion_audit.py
+uv run pyright --project pyrightconfig.json
+uv run pyright --project pyrightconfig.tests.json
+uv run pytest tests/test_phase49_minimal_private_lineage_carrier_source_direct_rename.py tests/test_phase49_private_row_level_dependency_graph_scaffold.py tests/test_phase11_ci_workflow.py tests/test_phase11_completion_audit.py tests/test_phase11_generated_guard.py tests/test_phase11_golden_policy.py tests/test_phase11_packaging_smoke.py tests/test_phase11_validation_entrypoint.py tests/test_phase12_completion_audit.py tests/test_phase12_composition_cli_json_goldens.py tests/test_phase33_completion_audit.py
+```
+
+Do not run older dirty-path guard tests outside the Slice 10 allowlist in dirty
+Slice 10 Gate 2. They remain clean-tree/CI compatibility checks after a later
+Gate 3 publish. Do not run `scripts/validate.py`, generated checks, golden
+checks, package smoke, full pytest, or CI in dirty Slice 10 Gate 2 unless
 separately approved.
 
 Focused validation for Slice 9 Gate 2:

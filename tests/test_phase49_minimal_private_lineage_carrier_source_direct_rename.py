@@ -16,36 +16,19 @@ from pietto._project.model import (
     ProjectSemanticResult,
     build_empty_project_semantic_result,
 )
-from pietto._project.row_dependency_graph import (
-    ProjectRelationRowDependencyGraph,
-    ProjectRowDependencyEdge,
-    ProjectRowDependencyEdgeKind,
-    ProjectRowDependencyGraphReason,
-    ProjectRowDependencyGraphStatus,
-    ProjectRowDependencyNode,
-    ProjectRowDependencyNodeKind,
+from pietto._project.row_lineage import (
+    ProjectRelationRowLineage,
+    ProjectRowLineageFact,
+    ProjectRowLineageFactKind,
+    ProjectRowLineageReason,
+    ProjectRowLineageSegment,
+    ProjectRowLineageSegmentKind,
+    ProjectRowLineageStatus,
 )
 from pietto.ast_nodes import QueryDef, TableDef
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-
-ALLOWED_SLICE9_GATE2_PATHS = {
-    "docs/plan/phase-49-row-level-computed-let-schema-lineage.md",
-    "docs/spec/phase49-private-row-level-dependency-graph-scaffold-v1.md",
-    "src/pietto/_project/model.py",
-    "src/pietto/_project/row_dependency_graph.py",
-    "tests/test_phase49_private_row_level_dependency_graph_scaffold.py",
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_generated_guard.py",
-    "tests/test_phase11_golden_policy.py",
-    "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_phase12_completion_audit.py",
-    "tests/test_phase12_composition_cli_json_goldens.py",
-    "tests/test_phase33_completion_audit.py",
-}
 
 ALLOWED_SLICE10_GATE2_PATHS = {
     "docs/plan/phase-49-row-level-computed-let-schema-lineage.md",
@@ -68,6 +51,7 @@ ALLOWED_SLICE10_GATE2_PATHS = {
 FORBIDDEN_FILES = (
     "src/pietto/_project/json_v2.py",
     "src/pietto/_project/check.py",
+    "src/pietto/_project/row_dependency_graph.py",
     "src/pietto/_project/let_scope_facts.py",
     "src/pietto/_project/row_expression_schema.py",
     "src/pietto/_project/row_expression_type_facts.py",
@@ -75,56 +59,69 @@ FORBIDDEN_FILES = (
 )
 
 PRIVATE_JSON_FACTS = (
-    "relation_row_dependency_graphs",
-    "ProjectRelationRowDependencyGraph",
-    "ProjectRowDependencyGraphStatus",
-    "ProjectRowDependencyGraphReason",
-    "ProjectRowDependencyNode",
-    "ProjectRowDependencyEdge",
-    "output_field",
+    "relation_row_lineages",
+    "ProjectRelationRowLineage",
+    "ProjectRowLineageSegment",
+    "ProjectRowLineageFact",
+    "ProjectRowLineageStatus",
+    "ProjectRowLineageReason",
+    "source_field",
     "upstream_field",
-    "let_binding",
-    "computed_expression",
-    "let_output",
-    "let_expression",
-    "dependency",
+    "output_field",
+    "direct_projection",
+    "renamed_projection",
     "lineage",
+    "dependency",
+    "relation_row_dependency_graphs",
     "relation_row_schemas",
     "relation_let_scope_facts",
     "ProjectRowSchema",
     "ProjectRowField",
     "provenance",
+    "direct_source_concrete",
+    "missing_dependency_graph",
 )
 
 
-def test_row_dependency_graph_carriers_are_private_frozen_dataclasses() -> None:
+def test_row_lineage_carriers_are_private_frozen_dataclasses() -> None:
     for model_type in (
-        ProjectRowDependencyNode,
-        ProjectRowDependencyEdge,
-        ProjectRelationRowDependencyGraph,
+        ProjectRowLineageSegment,
+        ProjectRowLineageFact,
+        ProjectRelationRowLineage,
     ):
         assert is_dataclass(model_type)
         assert hasattr(model_type, "__slots__")
 
-    node = ProjectRowDependencyNode(
-        kind=ProjectRowDependencyNodeKind.OUTPUT_FIELD,
+    output_segment = ProjectRowLineageSegment(
+        kind=ProjectRowLineageSegmentKind.OUTPUT_FIELD,
         name="id",
         relation_name="projected",
         output_name="id",
     )
-    graph = ProjectRelationRowDependencyGraph(
-        status=ProjectRowDependencyGraphStatus.CONCRETE,
-        reason=ProjectRowDependencyGraphReason.DIRECT_SOURCE_CONCRETE,
-        nodes=(node,),
+    source_segment = ProjectRowLineageSegment(
+        kind=ProjectRowLineageSegmentKind.SOURCE_FIELD,
+        name="users.id",
+        source_name="users",
+        field_name="id",
+    )
+    fact = ProjectRowLineageFact(
+        kind=ProjectRowLineageFactKind.DIRECT_PROJECTION,
+        output_segment=output_segment,
+        upstream_segment=source_segment,
+    )
+    lineage = ProjectRelationRowLineage(
+        status=ProjectRowLineageStatus.CONCRETE,
+        reason=ProjectRowLineageReason.DIRECT_SOURCE_CONCRETE,
+        facts=(fact,),
     )
 
-    assert graph.nodes == (node,)
-    assert not hasattr(graph, "__dict__")
+    assert lineage.facts == (fact,)
+    assert not hasattr(lineage, "__dict__")
     with pytest.raises(FrozenInstanceError):
-        setattr(graph, "nodes", ())
+        setattr(lineage, "facts", ())
 
 
-def test_direct_renamed_and_computed_output_dependencies_are_recorded(
+def test_direct_and_renamed_source_projection_lineage_is_recorded(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(
@@ -134,8 +131,78 @@ def test_direct_renamed_and_computed_output_dependencies_are_recorded(
             "    from users\n"
             "    select:\n"
             "        id\n"
-            "        user_email = email\n"
-            "        normalized = lower(status)\n"
+            "        user_email = email\n",
+        )
+    )
+
+    assert semantic_result.ok
+    assert semantic_result.model is not None
+    projected = _derived_definition(parse_result, "projected")
+    lineage = semantic_result.model.relation_row_lineages[projected]
+
+    assert lineage.status is ProjectRowLineageStatus.CONCRETE
+    assert lineage.reason is ProjectRowLineageReason.DIRECT_SOURCE_CONCRETE
+    assert _fact_values(lineage) == (
+        (
+            ProjectRowLineageFactKind.DIRECT_PROJECTION,
+            "id",
+            ProjectRowLineageSegmentKind.SOURCE_FIELD,
+            "users.id",
+        ),
+        (
+            ProjectRowLineageFactKind.RENAMED_PROJECTION,
+            "user_email",
+            ProjectRowLineageSegmentKind.SOURCE_FIELD,
+            "users.email",
+        ),
+    )
+
+
+def test_relation_backed_lineage_is_immediate_upstream_only(
+    tmp_path: Path,
+) -> None:
+    parse_result, semantic_result = _project_semantic_result(
+        _project(
+            tmp_path,
+            "query seed:\n"
+            "    from users\n"
+            "    select:\n"
+            "        id\n"
+            "query exported:\n"
+            "    from seed\n"
+            "    select:\n"
+            "        user_id = id\n",
+        )
+    )
+
+    assert semantic_result.ok
+    assert semantic_result.model is not None
+    exported = _derived_definition(parse_result, "exported")
+    lineage = semantic_result.model.relation_row_lineages[exported]
+
+    assert lineage.status is ProjectRowLineageStatus.CONCRETE
+    assert lineage.reason is ProjectRowLineageReason.RELATION_UPSTREAM_CONCRETE
+    assert _fact_values(lineage) == (
+        (
+            ProjectRowLineageFactKind.RENAMED_PROJECTION,
+            "user_id",
+            ProjectRowLineageSegmentKind.UPSTREAM_FIELD,
+            "seed.id",
+        ),
+    )
+    assert "users.id" not in {fact.upstream_segment.name for fact in lineage.facts}
+
+
+def test_computed_alias_lineage_remains_deferred_for_slice10(
+    tmp_path: Path,
+) -> None:
+    parse_result, semantic_result = _project_semantic_result(
+        _project(
+            tmp_path,
+            "query projected:\n"
+            "    from users\n"
+            "    select:\n"
+            "        id\n"
             "        total = score + bonus\n",
         )
     )
@@ -143,31 +210,24 @@ def test_direct_renamed_and_computed_output_dependencies_are_recorded(
     assert semantic_result.ok
     assert semantic_result.model is not None
     projected = _derived_definition(parse_result, "projected")
-    graph = semantic_result.model.relation_row_dependency_graphs[projected]
-    projected_schema = semantic_result.model.relation_row_schemas[projected]
+    field = semantic_result.model.relation_row_schemas[projected].fields["total"]
+    lineage = semantic_result.model.relation_row_lineages[projected]
 
-    assert graph.status is ProjectRowDependencyGraphStatus.CONCRETE
-    assert graph.reason is ProjectRowDependencyGraphReason.DIRECT_SOURCE_CONCRETE
-    assert (
-        projected_schema.fields["total"].provenance is not None
-        and projected_schema.fields["total"].provenance.kind
-        is ProjectRowFieldProvenanceKind.DERIVED_EXPRESSION
+    assert field.field_def is None
+    assert field.provenance is not None
+    assert field.provenance.kind is ProjectRowFieldProvenanceKind.DERIVED_EXPRESSION
+    assert _fact_values(lineage) == (
+        (
+            ProjectRowLineageFactKind.DIRECT_PROJECTION,
+            "id",
+            ProjectRowLineageSegmentKind.SOURCE_FIELD,
+            "users.id",
+        ),
     )
-    assert _edge_values(graph, ProjectRowDependencyEdgeKind.DIRECT_PROJECTION) == (
-        ("id", "users.id"),
-    )
-    assert _edge_values(graph, ProjectRowDependencyEdgeKind.RENAMED_PROJECTION) == (
-        ("user_email", "users.email"),
-    )
-    assert _edge_values(graph, ProjectRowDependencyEdgeKind.COMPUTED_EXPRESSION) == (
-        ("normalized", "users.status"),
-        ("total", "users.score"),
-        ("total", "users.bonus"),
-    )
-    assert "lower" not in {node.name for node in graph.nodes}
+    assert "total" not in {fact.output_segment.name for fact in lineage.facts}
 
 
-def test_selected_let_outputs_and_let_expression_dependencies_are_recorded(
+def test_selected_let_derived_lineage_remains_deferred_for_slice10(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(
@@ -177,70 +237,33 @@ def test_selected_let_outputs_and_let_expression_dependencies_are_recorded(
             "    from users\n"
             "    let:\n"
             "        total = score + bonus\n"
-            "        label = lower(status)\n"
-            "        adjusted = total + score\n"
             "    select:\n"
-            "        total\n"
-            "        exported = adjusted\n",
-        )
-    )
-
-    assert semantic_result.ok
-    assert semantic_result.model is not None
-    projected = _derived_definition(parse_result, "projected")
-    graph = semantic_result.model.relation_row_dependency_graphs[projected]
-    projected_schema = semantic_result.model.relation_row_schemas[projected]
-
-    for output_name in ("total", "exported"):
-        field = projected_schema.fields[output_name]
-        assert field.field_def is None
-        assert field.provenance is not None
-        assert field.provenance.kind is ProjectRowFieldProvenanceKind.LET_DERIVED
-
-    assert _edge_values(graph, ProjectRowDependencyEdgeKind.LET_OUTPUT) == (
-        ("total", "total"),
-        ("exported", "adjusted"),
-    )
-    assert _edge_values(graph, ProjectRowDependencyEdgeKind.LET_EXPRESSION) == (
-        ("total", "users.score"),
-        ("total", "users.bonus"),
-        ("label", "users.status"),
-        ("adjusted", "total"),
-        ("adjusted", "users.score"),
-    )
-    assert "lower" not in {node.name for node in graph.nodes}
-
-
-def test_multi_hop_dependency_remains_immediate_upstream_only(
-    tmp_path: Path,
-) -> None:
-    parse_result, semantic_result = _project_semantic_result(
-        _project(
-            tmp_path,
-            "query seed:\n"
-            "    from users\n"
-            "    select:\n"
-            "        total = score + bonus\n"
-            "query exported:\n"
-            "    from seed\n"
-            "    select:\n"
+            "        id\n"
             "        total\n",
         )
     )
 
     assert semantic_result.ok
     assert semantic_result.model is not None
-    exported = _derived_definition(parse_result, "exported")
-    graph = semantic_result.model.relation_row_dependency_graphs[exported]
+    projected = _derived_definition(parse_result, "projected")
+    field = semantic_result.model.relation_row_schemas[projected].fields["total"]
+    lineage = semantic_result.model.relation_row_lineages[projected]
 
-    assert _edge_values(graph, ProjectRowDependencyEdgeKind.DIRECT_PROJECTION) == (
-        ("total", "seed.total"),
+    assert field.field_def is None
+    assert field.provenance is not None
+    assert field.provenance.kind is ProjectRowFieldProvenanceKind.LET_DERIVED
+    assert _fact_values(lineage) == (
+        (
+            ProjectRowLineageFactKind.DIRECT_PROJECTION,
+            "id",
+            ProjectRowLineageSegmentKind.SOURCE_FIELD,
+            "users.id",
+        ),
     )
-    assert "users.score" not in {node.name for node in graph.nodes}
-    assert "users.bonus" not in {node.name for node in graph.nodes}
+    assert "total" not in {fact.output_segment.name for fact in lineage.facts}
 
 
-def test_non_concrete_row_schema_states_produce_non_concrete_graphs(
+def test_non_concrete_row_schema_states_produce_non_concrete_lineage(
     tmp_path: Path,
 ) -> None:
     unknown_parse, unknown_semantic = _project_semantic_result(
@@ -278,39 +301,35 @@ def test_non_concrete_row_schema_states_produce_non_concrete_graphs(
 
     assert unknown_semantic.model is not None
     broken = _derived_definition(unknown_parse, "broken")
-    broken_graph = unknown_semantic.model.relation_row_dependency_graphs[broken]
-    assert broken_graph.status is ProjectRowDependencyGraphStatus.UNKNOWN
-    assert broken_graph.reason is ProjectRowDependencyGraphReason.UNKNOWN_SCHEMA
-    assert broken_graph.nodes == ()
-    assert broken_graph.edges == ()
+    broken_lineage = unknown_semantic.model.relation_row_lineages[broken]
+    assert broken_lineage.status is ProjectRowLineageStatus.UNKNOWN
+    assert broken_lineage.reason is ProjectRowLineageReason.UNKNOWN_SCHEMA
+    assert broken_lineage.facts == ()
 
     assert grouped_semantic.model is not None
     grouped = _derived_definition(grouped_parse, "grouped")
-    grouped_graph = grouped_semantic.model.relation_row_dependency_graphs[grouped]
-    assert grouped_graph.status is ProjectRowDependencyGraphStatus.DEFERRED
-    assert (
-        grouped_graph.reason
-        is ProjectRowDependencyGraphReason.DEFERRED_PHASE48_BEHAVIOR
-    )
+    grouped_lineage = grouped_semantic.model.relation_row_lineages[grouped]
+    assert grouped_lineage.status is ProjectRowLineageStatus.DEFERRED
+    assert grouped_lineage.reason is ProjectRowLineageReason.DEFERRED_PHASE48_BEHAVIOR
+    assert grouped_lineage.facts == ()
 
     assert cycle_semantic.model is not None
     first = _derived_definition(cycle_parse, "first")
-    first_graph = cycle_semantic.model.relation_row_dependency_graphs[first]
-    assert first_graph.status is ProjectRowDependencyGraphStatus.BLOCKED
-    assert first_graph.reason is ProjectRowDependencyGraphReason.CYCLE_BLOCKED
+    first_lineage = cycle_semantic.model.relation_row_lineages[first]
+    assert first_lineage.status is ProjectRowLineageStatus.BLOCKED
+    assert first_lineage.reason is ProjectRowLineageReason.CYCLE_BLOCKED
+    assert first_lineage.facts == ()
 
 
-def test_project_json_v2_keeps_row_dependency_graph_private(tmp_path: Path) -> None:
+def test_project_json_v2_keeps_row_lineage_private(tmp_path: Path) -> None:
     parse_result, semantic_result = _project_semantic_result(
         _project(
             tmp_path,
             "query projected:\n"
             "    from users\n"
-            "    let:\n"
-            "        total = score + bonus\n"
             "    select:\n"
             "        id\n"
-            "        total\n",
+            "        user_email = email\n",
         )
     )
     document = project_check_result_to_json_dict(
@@ -321,7 +340,7 @@ def test_project_json_v2_keeps_row_dependency_graph_private(tmp_path: Path) -> N
 
     assert semantic_result.ok
     assert semantic_result.model is not None
-    assert semantic_result.model.relation_row_dependency_graphs
+    assert semantic_result.model.relation_row_lineages
     assert tuple(document) == (
         "schema_version",
         "command",
@@ -337,8 +356,8 @@ def test_project_json_v2_keeps_row_dependency_graph_private(tmp_path: Path) -> N
         assert private_fact not in serialized
 
 
-def test_row_dependency_graph_module_does_not_call_full_semantic_analyze() -> None:
-    module = (REPO_ROOT / "src/pietto/_project/row_dependency_graph.py").read_text(
+def test_row_lineage_module_does_not_call_full_semantic_analyze() -> None:
+    module = (REPO_ROOT / "src/pietto/_project/row_lineage.py").read_text(
         encoding="utf-8"
     )
 
@@ -347,30 +366,37 @@ def test_row_dependency_graph_module_does_not_call_full_semantic_analyze() -> No
     assert "import pietto.semantic as semantic_api" not in module
 
 
-def test_slice9_forbidden_files_have_no_diff() -> None:
+def test_slice10_forbidden_files_have_no_diff() -> None:
     for relative_path in FORBIDDEN_FILES:
         assert _git_diff(relative_path) == ""
 
 
-def test_slice9_package_version_and_dirty_paths_are_locked() -> None:
+def test_slice10_package_version_and_dirty_paths_are_locked() -> None:
     project = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))["project"]
 
     assert project["version"] == "0.1.0"
-    assert _git_status_paths() in (
-        set(),
-        ALLOWED_SLICE9_GATE2_PATHS,
-        ALLOWED_SLICE10_GATE2_PATHS,
-    )
+    assert _git_status_paths() in (set(), ALLOWED_SLICE10_GATE2_PATHS)
 
 
-def _edge_values(
-    graph: ProjectRelationRowDependencyGraph,
-    kind: ProjectRowDependencyEdgeKind,
-) -> tuple[tuple[str, str], ...]:
+def _fact_values(
+    lineage: ProjectRelationRowLineage,
+) -> tuple[
+    tuple[
+        ProjectRowLineageFactKind,
+        str,
+        ProjectRowLineageSegmentKind,
+        str,
+    ],
+    ...,
+]:
     return tuple(
-        (edge.from_node.name, edge.to_node.name)
-        for edge in graph.edges
-        if edge.kind is kind
+        (
+            fact.kind,
+            fact.output_segment.name,
+            fact.upstream_segment.kind,
+            fact.upstream_segment.name,
+        )
+        for fact in lineage.facts
     )
 
 
