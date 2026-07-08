@@ -20,8 +20,14 @@ PHASE47_PLAN_PATH = REPO_ROOT / "docs/plan/phase-47-direct-row-schema-mvp.md"
 PHASE47_SPEC_PATH = REPO_ROOT / "docs/spec/phase47-direct-row-schema-scope-lock-v1.md"
 
 ALLOWED_SLICE9_GATE2_PATHS = {
+    "docs/plan/phase-48-query-to-query-row-schema.md",
+    "docs/spec/phase48-table-to-table-table-to-query-propagation-v1.md",
     "src/pietto/_project/model.py",
+    "tests/test_phase47_qualified_field_row_schema.py",
+    "tests/test_phase47_unknown_direct_field_diagnostics.py",
     "tests/test_phase47_downstream_readiness_hardening.py",
+    "tests/test_phase48_schema_availability_state_carrier.py",
+    "tests/test_phase48_table_upstream_row_schema_propagation.py",
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
     "tests/test_phase11_generated_guard.py",
@@ -53,7 +59,7 @@ def test_slice9_route_and_phase48_50_readiness_contract_are_locked() -> None:
         assert required in docs, required
 
 
-def test_phase48_query_to_query_row_schema_remains_absent_while_direct_source_schema_is_ordered(
+def test_phase48_table_to_query_row_schema_propagates_from_direct_table_seed(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(
@@ -76,12 +82,12 @@ def test_phase48_query_to_query_row_schema_remains_absent_while_direct_source_sc
     assert semantic_result.model is not None
     staged = _derived_definition(parse_result, "staged")
     exported = _derived_definition(parse_result, "exported")
-    assert tuple(semantic_result.model.relation_row_schemas) == (staged,)
+    assert tuple(semantic_result.model.relation_row_schemas) == (staged, exported)
     assert tuple(semantic_result.model.relation_row_schemas[staged].fields) == (
         "id",
         "email",
     )
-    assert exported not in semantic_result.model.relation_row_schemas
+    assert tuple(semantic_result.model.relation_row_schemas[exported].fields) == ("id",)
 
 
 def test_phase49_computed_alias_remains_deferred_without_schema_or_diagnostics(

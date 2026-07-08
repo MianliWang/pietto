@@ -40,6 +40,19 @@ does not implement propagation, adds no diagnostics, changes no diagnostic
 ordering, changes no Project JSON v2 shape, serializes no private facts, and
 adds no public project semantic API.
 
+Phase 48 Slice 4 is Table-to-table / table-to-query propagation. Slice 4 adds
+one-hop table-upstream propagation only: a downstream table/query may consume a
+direct-source concrete upstream table seed through supported direct field
+projection forms. Slice 4 narrowly populates concrete private
+`relation_row_schema_states` for direct-source concrete table seeds and one-hop
+propagated downstream schemas. Slice 4 does not implement query-to-query,
+table-from-query, multi-hop propagation, propagation from propagated table
+schemas, computed alias schema, `let` schema, aggregate/grouped schema, new
+diagnostics, Project JSON v2 shape changes, private fact serialization, public
+project semantic API, project IR/SQL/emit/explain, parser/grammar/generated
+changes, JOIN/relationship behavior, runtime/database execution, package
+version changes, or release operations.
+
 Package version remains `0.1.0`.
 
 ## Trusted Baseline
@@ -288,6 +301,47 @@ Slice 2 keeps Project JSON v2 unchanged. It serializes no private row schema
 facts, schema availability facts, relation graph facts, or cycle facts. It adds
 no public Project JSON v2 keys and no public project semantic API.
 
+## Slice 4 Table-upstream Propagation
+
+Slice 4 implements one-hop table-upstream propagation only. The upstream
+relation must be a `TableDef` whose row schema came from a direct-source
+concrete table seed. Downstream `TableDef` and `QueryDef` definitions may
+receive private concrete row schemas from that upstream table when the
+downstream select list uses only direct field projections.
+
+Supported downstream projection forms are:
+
+- `id`;
+- `staged.id`;
+- `user_id = id`;
+- `user_id = staged.id`.
+
+Slice 4 preserves the flat relation schema model. Downstream relations consume
+only the immediate upstream table output fields. Original source names remain
+private provenance or future explain metadata; they are not downstream query
+paths. When `from staged`, `users.id` remains invalid if `users` is the
+original source behind `staged`, and `staged.users.id` remains unsupported
+lineage-path syntax.
+
+Slice 4 does not use schemas newly propagated in Slice 4 as upstream seeds.
+That would be multi-hop propagation and remains Slice 5 or later work.
+
+Slice 4 narrowly populates private schema availability states:
+
+- direct-source concrete table schemas become `CONCRETE` states with
+  `DIRECT_SOURCE_CONCRETE`;
+- one-hop propagated concrete table/query schemas become `CONCRETE` states
+  with `TABLE_UPSTREAM_CONCRETE`.
+
+Slice 4 does not broadly populate `UNKNOWN`, `DEFERRED`, or `BLOCKED` states.
+Broad upstream unknown, absent, deferred, and blocked handling remains Slice 7.
+
+Existing `PIE-S2102` remains the diagnostic for missing fields, wrong immediate
+qualifiers, original-source qualifiers, and unsupported multi-part dotted
+fields over a concrete upstream schema. Existing `PIE-S2301` and `PIE-S2302`
+remain authoritative for unresolved relations and relation cycles. Slice 4
+adds no new diagnostic family and changes no Project JSON v2 public shape.
+
 ## Downstream Phase 51-55 Readiness
 
 Phase 48 prepares private facts for later phases without implementing those
@@ -377,6 +431,34 @@ Phase 48 Slice 3 Gate 2 is limited to:
 
 No other file is approved in Slice 3 Gate 2.
 
+## Slice 4 Gate 2 Allowlist
+
+Phase 48 Slice 4 Gate 2 is limited to:
+
+- `docs/plan/phase-48-query-to-query-row-schema.md`
+- `docs/spec/phase48-table-to-table-table-to-query-propagation-v1.md`
+- `src/pietto/_project/model.py`
+- `tests/test_phase48_table_upstream_row_schema_propagation.py`
+- `tests/test_phase48_schema_availability_state_carrier.py`
+- `tests/test_phase47_qualified_field_row_schema.py`
+- `tests/test_phase47_unknown_direct_field_diagnostics.py`
+- `tests/test_phase47_downstream_readiness_hardening.py`
+
+Hash-lock repair files are approved only if `src/pietto/_project/model.py`
+changes expected boundary hashes:
+
+- `tests/test_phase11_ci_workflow.py`
+- `tests/test_phase11_completion_audit.py`
+- `tests/test_phase11_generated_guard.py`
+- `tests/test_phase11_golden_policy.py`
+- `tests/test_phase11_packaging_smoke.py`
+- `tests/test_phase11_validation_entrypoint.py`
+- `tests/test_phase12_completion_audit.py`
+- `tests/test_phase12_composition_cli_json_goldens.py`
+- `tests/test_phase33_completion_audit.py`
+
+No other file is approved in Slice 4 Gate 2.
+
 ## Focused Validation
 
 The focused Slice 1 Gate 2 validation commands are:
@@ -440,6 +522,30 @@ Gate 2 because they intentionally inspect the current dirty working tree and
 may reject newer-slice allowlists. They remain clean-tree/CI compatibility
 coverage after commit.
 
+The focused Slice 4 Gate 2 validation commands are:
+
+```bash
+git diff --check
+set +e
+git diff --no-index --check -- /dev/null docs/spec/phase48-table-to-table-table-to-query-propagation-v1.md
+rc_spec=$?
+git diff --no-index --check -- /dev/null tests/test_phase48_table_upstream_row_schema_propagation.py
+rc_test=$?
+set -e
+test "$rc_spec" -le 1
+test "$rc_test" -le 1
+uv run ruff format --check src/pietto/_project/model.py tests/test_phase48_table_upstream_row_schema_propagation.py tests/test_phase48_schema_availability_state_carrier.py tests/test_phase47_qualified_field_row_schema.py tests/test_phase47_unknown_direct_field_diagnostics.py tests/test_phase47_downstream_readiness_hardening.py
+uv run ruff check src/pietto/_project/model.py tests/test_phase48_table_upstream_row_schema_propagation.py tests/test_phase48_schema_availability_state_carrier.py tests/test_phase47_qualified_field_row_schema.py tests/test_phase47_unknown_direct_field_diagnostics.py tests/test_phase47_downstream_readiness_hardening.py
+uv run pyright --project pyrightconfig.json
+uv run pyright --project pyrightconfig.tests.json
+uv run pytest tests/test_phase48_table_upstream_row_schema_propagation.py tests/test_phase48_schema_availability_state_carrier.py tests/test_phase47_qualified_field_row_schema.py tests/test_phase47_unknown_direct_field_diagnostics.py tests/test_phase47_downstream_readiness_hardening.py
+```
+
+If hash-lock files are updated in dirty Slice 4 Gate 2, include those changed
+hash-lock tests in the focused ruff and pytest commands. Do not run broad
+validation, `scripts/validate.py`, code generation, parser generation,
+workflows, or CI in dirty Slice 4 Gate 2.
+
 ## Stop Conditions
 
 Stop immediately if implementation would require files outside the Slice 1
@@ -469,3 +575,14 @@ computed alias schema, `let` schema, aggregate/grouped schema,
 JOIN/relationship behavior, project IR/SQL/emit/explain, public API,
 downstream readiness behavior implementation, package version changes, release
 actions, docs outside the allowlist, or hash-lock churn.
+
+For Slice 4, stop immediately if implementation would require files outside the
+Slice 4 allowlist, `src/pietto/_project/check.py`,
+`src/pietto/_project/json_v2.py`, query-to-query propagation,
+table-from-query propagation, multi-hop propagation, propagation from
+propagated table schemas, broad `UNKNOWN`/`DEFERRED`/`BLOCKED` state
+population, parser/generated files, Project JSON v2/CLI/check changes, new
+diagnostics, diagnostic wording or ordering changes, computed alias schema,
+`let` schema, aggregate/grouped schema, JOIN/relationship behavior, project
+IR/SQL/emit/explain, public API, package version changes, release actions, or
+docs outside the allowlist.

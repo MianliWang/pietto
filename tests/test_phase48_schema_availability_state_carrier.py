@@ -36,11 +36,25 @@ PLAN_PATH = REPO_ROOT / "docs/plan/phase-48-query-to-query-row-schema.md"
 SPEC_PATH = REPO_ROOT / "docs/spec/phase48-schema-availability-state-carrier-v1.md"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
-ALLOWED_SLICE3_GATE2_PATHS = {
+ALLOWED_SLICE4_GATE2_PATHS = {
     "docs/plan/phase-48-query-to-query-row-schema.md",
     "docs/spec/phase48-schema-availability-state-carrier-v1.md",
+    "docs/spec/phase48-table-to-table-table-to-query-propagation-v1.md",
     "src/pietto/_project/model.py",
+    "tests/test_phase48_table_upstream_row_schema_propagation.py",
     "tests/test_phase48_schema_availability_state_carrier.py",
+    "tests/test_phase47_qualified_field_row_schema.py",
+    "tests/test_phase47_unknown_direct_field_diagnostics.py",
+    "tests/test_phase47_downstream_readiness_hardening.py",
+    "tests/test_phase11_ci_workflow.py",
+    "tests/test_phase11_completion_audit.py",
+    "tests/test_phase11_generated_guard.py",
+    "tests/test_phase11_golden_policy.py",
+    "tests/test_phase11_packaging_smoke.py",
+    "tests/test_phase11_validation_entrypoint.py",
+    "tests/test_phase12_completion_audit.py",
+    "tests/test_phase12_composition_cli_json_goldens.py",
+    "tests/test_phase33_completion_audit.py",
 }
 
 
@@ -89,6 +103,7 @@ def test_relation_row_schema_state_vocabulary_is_private_and_readiness_oriented(
     reason_names = {reason.name for reason in ProjectRelationRowSchemaReason}
     assert {
         "DIRECT_SOURCE_CONCRETE",
+        "TABLE_UPSTREAM_CONCRETE",
         "UNKNOWN_SCHEMA",
         "DUPLICATE_OUTPUT_NAME",
         "DEFERRED_PHASE48_BEHAVIOR",
@@ -224,7 +239,9 @@ def test_project_semantic_model_accepts_private_state_map_without_population(
         )[table] = state
 
 
-def test_semantic_build_keeps_relation_states_empty_in_slice3(tmp_path: Path) -> None:
+def test_semantic_build_populates_direct_source_concrete_table_state(
+    tmp_path: Path,
+) -> None:
     parse_result, semantic_result = _project_semantic_result(
         _row_schema_project(tmp_path)
     )
@@ -234,7 +251,11 @@ def test_semantic_build_keeps_relation_states_empty_in_slice3(tmp_path: Path) ->
     assert semantic_result.model is not None
     table = _derived_definition(parse_result, "projected")
     assert table in semantic_result.model.relation_row_schemas
-    assert semantic_result.model.relation_row_schema_states == {}
+    state = semantic_result.model.relation_row_schema_states[table]
+    assert tuple(semantic_result.model.relation_row_schema_states) == (table,)
+    assert state.status is ProjectRelationRowSchemaStatus.CONCRETE
+    assert state.reason is ProjectRelationRowSchemaReason.DIRECT_SOURCE_CONCRETE
+    assert state.schema is semantic_result.model.relation_row_schemas[table]
 
 
 def test_project_json_v2_does_not_expose_schema_availability_private_facts(
@@ -261,13 +282,14 @@ def test_project_json_v2_does_not_expose_schema_availability_private_facts(
         "cli_errors",
         "result",
     )
-    assert semantic_result.model.relation_row_schema_states == {}
+    assert semantic_result.model.relation_row_schema_states
     for private_fact in (
         "relation_row_schema_states",
         "ProjectRelationRowSchemaState",
         "ProjectRelationRowSchemaStatus",
         "ProjectRelationRowSchemaReason",
         "direct_source_concrete",
+        "table_upstream_concrete",
         "unknown_schema",
         "duplicate_output_name",
         "deferred_phase48_behavior",
@@ -285,7 +307,7 @@ def test_phase48_slice3_package_version_and_dirty_paths_are_locked() -> None:
 
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
-    assert _git_status_paths().issubset(ALLOWED_SLICE3_GATE2_PATHS)
+    assert _git_status_paths().issubset(ALLOWED_SLICE4_GATE2_PATHS)
     assert _git_diff("src/pietto/_project/check.py") == ""
     assert _git_diff("src/pietto/_project/json_v2.py") == ""
 

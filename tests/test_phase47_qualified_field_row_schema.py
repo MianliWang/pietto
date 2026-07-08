@@ -20,6 +20,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
 ALLOWED_SLICE6_GATE2_PATHS = {
+    "docs/plan/phase-48-query-to-query-row-schema.md",
+    "docs/spec/phase48-table-to-table-table-to-query-propagation-v1.md",
     "src/pietto/_project/model.py",
     "tests/test_phase47_private_row_schema_scaffold.py",
     "tests/test_phase47_source_row_schema_propagation.py",
@@ -27,6 +29,9 @@ ALLOWED_SLICE6_GATE2_PATHS = {
     "tests/test_phase47_qualified_field_row_schema.py",
     "tests/test_phase47_direct_field_rename_row_schema.py",
     "tests/test_phase47_unknown_direct_field_diagnostics.py",
+    "tests/test_phase47_downstream_readiness_hardening.py",
+    "tests/test_phase48_schema_availability_state_carrier.py",
+    "tests/test_phase48_table_upstream_row_schema_propagation.py",
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
     "tests/test_phase11_generated_guard.py",
@@ -269,7 +274,9 @@ def test_qualified_field_rename_is_supported_by_slice7(tmp_path: Path) -> None:
     assert "PIE-S2102" not in _diagnostic_codes(semantic_result)
 
 
-def test_query_to_query_qualified_projection_remains_absent(tmp_path: Path) -> None:
+def test_phase48_table_to_query_qualified_projection_is_propagated(
+    tmp_path: Path,
+) -> None:
     root = _project_root(tmp_path, include=("*.pietto",))
     _write(
         root,
@@ -290,12 +297,13 @@ def test_query_to_query_qualified_projection_remains_absent(tmp_path: Path) -> N
     parse_result, semantic_result = _project_semantic_result(root)
 
     assert semantic_result.ok
+    assert semantic_result.diagnostics == ()
     assert semantic_result.model is not None
     staged = _derived_definition(parse_result, "staged")
     exported = _derived_definition(parse_result, "exported")
-    assert tuple(semantic_result.model.relation_row_schemas) == (staged,)
+    assert tuple(semantic_result.model.relation_row_schemas) == (staged, exported)
     assert staged in semantic_result.model.relation_row_schemas
-    assert exported not in semantic_result.model.relation_row_schemas
+    assert tuple(semantic_result.model.relation_row_schemas[exported].fields) == ("id",)
 
 
 def test_project_json_v2_does_not_expose_qualified_relation_row_schema_private_facts(

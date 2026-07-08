@@ -22,6 +22,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
 ALLOWED_SLICE8_GATE2_PATHS = {
+    "docs/plan/phase-48-query-to-query-row-schema.md",
+    "docs/spec/phase48-table-to-table-table-to-query-propagation-v1.md",
     "src/pietto/_project/model.py",
     "tests/test_phase47_private_row_schema_scaffold.py",
     "tests/test_phase47_source_row_schema_propagation.py",
@@ -29,6 +31,9 @@ ALLOWED_SLICE8_GATE2_PATHS = {
     "tests/test_phase47_qualified_field_row_schema.py",
     "tests/test_phase47_direct_field_rename_row_schema.py",
     "tests/test_phase47_unknown_direct_field_diagnostics.py",
+    "tests/test_phase47_downstream_readiness_hardening.py",
+    "tests/test_phase48_schema_availability_state_carrier.py",
+    "tests/test_phase48_table_upstream_row_schema_propagation.py",
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
     "tests/test_phase11_generated_guard.py",
@@ -183,7 +188,7 @@ def test_computed_alias_remains_deferred_without_direct_field_diagnostics(
     assert table not in semantic_result.model.relation_row_schemas
 
 
-def test_query_to_query_projection_remains_diagnostic_free_and_absent(
+def test_phase48_table_to_query_unknown_field_emits_pie_s2102(
     tmp_path: Path,
 ) -> None:
     root = _project_root(tmp_path, include=("*.pietto",))
@@ -205,13 +210,18 @@ def test_query_to_query_projection_remains_diagnostic_free_and_absent(
 
     parse_result, semantic_result = _project_semantic_result(root)
 
-    assert semantic_result.ok
-    assert semantic_result.diagnostics == ()
+    assert not semantic_result.ok
     assert semantic_result.model is not None
     staged = _derived_definition(parse_result, "staged")
     exported = _derived_definition(parse_result, "exported")
-    assert tuple(semantic_result.model.relation_row_schemas) == (staged,)
-    assert exported not in semantic_result.model.relation_row_schemas
+    assert tuple(semantic_result.model.relation_row_schemas) == (staged, exported)
+    relation_schema = semantic_result.model.relation_row_schemas[exported]
+    assert relation_schema.is_unknown is True
+    assert relation_schema.fields == {}
+    assert [
+        (diagnostic.code, diagnostic.message)
+        for diagnostic in semantic_result.diagnostics
+    ] == [("PIE-S2102", "Unknown field: missing")]
 
 
 def test_direct_field_diagnostics_are_ordered_by_file_definition_and_select_item(
