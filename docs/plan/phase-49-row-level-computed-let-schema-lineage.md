@@ -370,6 +370,56 @@ behavior, multi-file behavior, runtime/database execution,
 parser/grammar/generated changes, package version change, or release
 operation.
 
+## Slice 8 Let Visibility/Order/Shadowing Hardening
+
+Phase 49 Slice 8 is Let visibility/order/shadowing hardening. Slice 8 is
+docs/spec/tests-only hardening after Slice 7 selected let-derived output
+schema. It locks the current project-private selected `let` visibility,
+source-order, and shadowing boundaries without changing production source.
+
+The normative Slice 8 contract is
+`docs/spec/phase49-let-visibility-order-shadowing-hardening-v1.md`. Slice 8
+does not broaden the default-off selected `let` exemption. The only
+project-private exemption remains the exact selected unaliased bare `NameExpr`
+whose output name matches a concrete relation-local `let` binding after direct
+input field lookup fails.
+
+Public single-file `let` semantics remain unchanged. Duplicate `let` names,
+input-field shadowing, source/relation-name shadowing, projection-output
+conflicts, self references, later references, aggregate-in-let, qualified
+`let` references, grouped/result-scope use, and other invalid cases continue
+to fail closed or remain non-concrete through existing rules and diagnostic
+ordering.
+
+Project row schema behavior from Slices 4 through 7 remains locked: direct
+and renamed direct projections preserve source-native `field_def`, computed
+aliases remain `DERIVED_EXPRESSION`, selected legal `let` outputs remain
+private `LET_DERIVED` with `field_def=None`, and downstream projection of
+let-derived fields preserves `field_def=None` rather than making the field
+source-native.
+
+Project JSON v2 remains unchanged. Slice 8 serializes no private row schema,
+origin, provenance, let facts, value types, dependency, lineage, status, or
+reason facts.
+
+Slice 8 does not implement private dependency graph, lineage carriers,
+aggregate/grouped output schema, project explain, project IR, project SQL,
+project `emit-sql`, JOIN/relationship behavior, bridge/export/RAG/Arrow
+behavior, import/export behavior, multi-file behavior, runtime/database
+execution, parser/grammar/generated changes, package version change, or
+release operation.
+
+## Slice 8 Gate 2 Allowlist
+
+Phase 49 Slice 8 Gate 2 is limited to:
+
+- `docs/plan/phase-49-row-level-computed-let-schema-lineage.md`
+- `docs/spec/phase49-let-visibility-order-shadowing-hardening-v1.md`
+- `tests/test_phase49_let_visibility_order_shadowing_hardening.py`
+
+No production source file is approved in Slice 8 Gate 2. No existing test file
+outside this allowlist is approved in Slice 8 Gate 2.
+
 ## Slice 7 Gate 2 Allowlist
 
 Phase 49 Slice 7 Gate 2 is limited to:
@@ -555,6 +605,24 @@ dirty set differs. Natural CI after Gate 3 runs from a clean tree.
 
 Do not run `scripts/validate.py`, generated checks, golden checks, package
 smoke, full pytest, or CI in dirty Slice 3 Gate 2 unless separately approved.
+
+Focused validation for Slice 8 Gate 2:
+
+```bash
+git diff --check
+git diff --no-index --check -- /dev/null docs/spec/phase49-let-visibility-order-shadowing-hardening-v1.md || true
+git diff --no-index --check -- /dev/null tests/test_phase49_let_visibility_order_shadowing_hardening.py || true
+uv run ruff format --check tests/test_phase49_let_visibility_order_shadowing_hardening.py
+uv run ruff check tests/test_phase49_let_visibility_order_shadowing_hardening.py
+uv run pyright --project pyrightconfig.tests.json
+uv run pytest tests/test_phase49_let_visibility_order_shadowing_hardening.py
+```
+
+Do not run older dirty-path guard tests outside the Slice 8 allowlist in dirty
+Slice 8 Gate 2. They remain clean-tree/CI compatibility checks after a later
+Gate 3 publish. Do not run `scripts/validate.py`, generated checks, golden
+checks, package smoke, full pytest, or CI in dirty Slice 8 Gate 2 unless
+separately approved.
 
 Focused validation for Slice 7 Gate 2:
 
