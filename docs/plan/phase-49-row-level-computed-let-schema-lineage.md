@@ -208,6 +208,45 @@ project SQL, no project `emit-sql`, no parser/grammar/generated change, no
 JOIN/relationship behavior, no bridge/export/RAG/Arrow behavior, no
 import/export or multi-file behavior, and no runtime/database execution.
 
+## Slice 3 Type/Nullability Adapter
+
+Phase 49 Slice 3 is Type/nullability adapter for legal row expressions.
+Slice 3 introduces only the private
+`src/pietto/_project/row_expression_schema.py` adapter and focused tests for
+mapping supplied existing row-level `ValueType(resolved_type, nullability)`
+facts into project-private row expression schema results.
+
+The normative Slice 3 contract is
+`docs/spec/phase49-project-row-expression-type-nullability-adapter-v1.md`.
+The adapter consumes supplied semantic facts and private project row schema
+facts. It does not call full `semantic_api.analyze`, and Slice 3 production
+code does not call `infer_row_expression`.
+
+Slice 3 does not integrate computed alias schema output into project row schema
+construction. Computed alias project row schema output remains Slice 4.
+Selected `let`-derived output schema remains Slice 7. Slice 3 does not
+implement full dependency graph or full lineage carriers beyond inert private
+result placeholders. Aggregate and grouped output schema remain deferred to
+Phase 50 or later. Row-level dependency cycle diagnostics remain readiness-only.
+
+Slice 3 exposes no Project JSON v2 row schema, origin, provenance, dependency,
+or lineage facts. It changes no parser, grammar, generated files, public JSON
+shape, public semantic API, CLI behavior, IR, SQL, project explain, project IR,
+project SQL, project `emit-sql`, JOIN/relationship behavior,
+bridge/export/RAG/Arrow behavior, import/export behavior, multi-file behavior,
+runtime/database execution, package version, or release operation.
+
+## Slice 3 Gate 2 Allowlist
+
+Phase 49 Slice 3 Gate 2 is limited to:
+
+- `docs/plan/phase-49-row-level-computed-let-schema-lineage.md`
+- `docs/spec/phase49-project-row-expression-type-nullability-adapter-v1.md`
+- `src/pietto/_project/row_expression_schema.py`
+- `tests/test_phase49_project_row_expression_type_nullability_adapter.py`
+
+No other file is approved in Slice 3 Gate 2.
+
 ## Slice 2 Gate 2 Allowlist
 
 Phase 49 Slice 2 Gate 2 is limited to:
@@ -259,6 +298,27 @@ uv run ruff check tests/test_phase49_project_row_expression_schema_helper_contra
 uv run pyright --project pyrightconfig.tests.json
 uv run pytest tests/test_phase49_project_row_expression_schema_helper_contract.py
 ```
+
+Focused validation for Slice 3 Gate 2:
+
+```bash
+git diff --check
+git diff --no-index --check -- /dev/null docs/spec/phase49-project-row-expression-type-nullability-adapter-v1.md || true
+git diff --no-index --check -- /dev/null src/pietto/_project/row_expression_schema.py || true
+git diff --no-index --check -- /dev/null tests/test_phase49_project_row_expression_type_nullability_adapter.py || true
+uv run ruff format --check src/pietto/_project/row_expression_schema.py tests/test_phase49_project_row_expression_type_nullability_adapter.py
+uv run ruff check src/pietto/_project/row_expression_schema.py tests/test_phase49_project_row_expression_type_nullability_adapter.py
+uv run pyright --project pyrightconfig.json
+uv run pyright --project pyrightconfig.tests.json
+uv run pytest tests/test_phase49_project_row_expression_type_nullability_adapter.py
+```
+
+Older dirty-path guard tests are clean-tree/CI compatibility checks and should
+not be included in dirty Gate 2 validation for later slices whose approved
+dirty set differs. Natural CI after Gate 3 runs from a clean tree.
+
+Do not run `scripts/validate.py`, generated checks, golden checks, package
+smoke, full pytest, or CI in dirty Slice 3 Gate 2 unless separately approved.
 
 ## Stop Conditions
 
