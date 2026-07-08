@@ -48,6 +48,24 @@ ALLOWED_SLICE10_GATE2_PATHS = {
     "tests/test_phase33_completion_audit.py",
 }
 
+ALLOWED_SLICE11_GATE2_PATHS = {
+    "docs/plan/phase-49-row-level-computed-let-schema-lineage.md",
+    "docs/spec/phase49-computed-let-multi-hop-row-lineage-v1.md",
+    "src/pietto/_project/row_lineage.py",
+    "tests/test_phase49_computed_let_multi_hop_row_lineage.py",
+    "tests/test_phase49_minimal_private_lineage_carrier_source_direct_rename.py",
+    "tests/test_phase49_private_row_level_dependency_graph_scaffold.py",
+    "tests/test_phase11_ci_workflow.py",
+    "tests/test_phase11_completion_audit.py",
+    "tests/test_phase11_generated_guard.py",
+    "tests/test_phase11_golden_policy.py",
+    "tests/test_phase11_packaging_smoke.py",
+    "tests/test_phase11_validation_entrypoint.py",
+    "tests/test_phase12_completion_audit.py",
+    "tests/test_phase12_composition_cli_json_goldens.py",
+    "tests/test_phase33_completion_audit.py",
+}
+
 FORBIDDEN_FILES = (
     "src/pietto/_project/json_v2.py",
     "src/pietto/_project/check.py",
@@ -65,11 +83,16 @@ PRIVATE_JSON_FACTS = (
     "ProjectRowLineageFact",
     "ProjectRowLineageStatus",
     "ProjectRowLineageReason",
+    "let_binding",
     "source_field",
     "upstream_field",
     "output_field",
     "direct_projection",
     "renamed_projection",
+    "computed_expression",
+    "let_output",
+    "let_expression",
+    "transitive_dependency",
     "lineage",
     "dependency",
     "relation_row_dependency_graphs",
@@ -158,7 +181,7 @@ def test_direct_and_renamed_source_projection_lineage_is_recorded(
     )
 
 
-def test_relation_backed_lineage_is_immediate_upstream_only(
+def test_relation_backed_lineage_preserves_immediate_and_adds_transitive(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(
@@ -189,11 +212,16 @@ def test_relation_backed_lineage_is_immediate_upstream_only(
             ProjectRowLineageSegmentKind.UPSTREAM_FIELD,
             "seed.id",
         ),
+        (
+            ProjectRowLineageFactKind.TRANSITIVE_DEPENDENCY,
+            "user_id",
+            ProjectRowLineageSegmentKind.SOURCE_FIELD,
+            "users.id",
+        ),
     )
-    assert "users.id" not in {fact.upstream_segment.name for fact in lineage.facts}
 
 
-def test_computed_alias_lineage_remains_deferred_for_slice10(
+def test_computed_alias_lineage_is_recorded_after_slice11(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(
@@ -223,11 +251,22 @@ def test_computed_alias_lineage_remains_deferred_for_slice10(
             ProjectRowLineageSegmentKind.SOURCE_FIELD,
             "users.id",
         ),
+        (
+            ProjectRowLineageFactKind.COMPUTED_EXPRESSION,
+            "total",
+            ProjectRowLineageSegmentKind.SOURCE_FIELD,
+            "users.score",
+        ),
+        (
+            ProjectRowLineageFactKind.COMPUTED_EXPRESSION,
+            "total",
+            ProjectRowLineageSegmentKind.SOURCE_FIELD,
+            "users.bonus",
+        ),
     )
-    assert "total" not in {fact.output_segment.name for fact in lineage.facts}
 
 
-def test_selected_let_derived_lineage_remains_deferred_for_slice10(
+def test_selected_let_derived_lineage_is_recorded_after_slice11(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(
@@ -259,8 +298,37 @@ def test_selected_let_derived_lineage_remains_deferred_for_slice10(
             ProjectRowLineageSegmentKind.SOURCE_FIELD,
             "users.id",
         ),
+        (
+            ProjectRowLineageFactKind.LET_OUTPUT,
+            "total",
+            ProjectRowLineageSegmentKind.LET_BINDING,
+            "total",
+        ),
+        (
+            ProjectRowLineageFactKind.TRANSITIVE_DEPENDENCY,
+            "total",
+            ProjectRowLineageSegmentKind.SOURCE_FIELD,
+            "users.score",
+        ),
+        (
+            ProjectRowLineageFactKind.TRANSITIVE_DEPENDENCY,
+            "total",
+            ProjectRowLineageSegmentKind.SOURCE_FIELD,
+            "users.bonus",
+        ),
+        (
+            ProjectRowLineageFactKind.LET_EXPRESSION,
+            "total",
+            ProjectRowLineageSegmentKind.SOURCE_FIELD,
+            "users.score",
+        ),
+        (
+            ProjectRowLineageFactKind.LET_EXPRESSION,
+            "total",
+            ProjectRowLineageSegmentKind.SOURCE_FIELD,
+            "users.bonus",
+        ),
     )
-    assert "total" not in {fact.output_segment.name for fact in lineage.facts}
 
 
 def test_non_concrete_row_schema_states_produce_non_concrete_lineage(
@@ -375,7 +443,11 @@ def test_slice10_package_version_and_dirty_paths_are_locked() -> None:
     project = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))["project"]
 
     assert project["version"] == "0.1.0"
-    assert _git_status_paths() in (set(), ALLOWED_SLICE10_GATE2_PATHS)
+    assert _git_status_paths() in (
+        set(),
+        ALLOWED_SLICE10_GATE2_PATHS,
+        ALLOWED_SLICE11_GATE2_PATHS,
+    )
 
 
 def _fact_values(

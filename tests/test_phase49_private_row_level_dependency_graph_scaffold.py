@@ -65,6 +65,24 @@ ALLOWED_SLICE10_GATE2_PATHS = {
     "tests/test_phase33_completion_audit.py",
 }
 
+ALLOWED_SLICE11_GATE2_PATHS = {
+    "docs/plan/phase-49-row-level-computed-let-schema-lineage.md",
+    "docs/spec/phase49-computed-let-multi-hop-row-lineage-v1.md",
+    "src/pietto/_project/row_lineage.py",
+    "tests/test_phase49_computed_let_multi_hop_row_lineage.py",
+    "tests/test_phase49_minimal_private_lineage_carrier_source_direct_rename.py",
+    "tests/test_phase49_private_row_level_dependency_graph_scaffold.py",
+    "tests/test_phase11_ci_workflow.py",
+    "tests/test_phase11_completion_audit.py",
+    "tests/test_phase11_generated_guard.py",
+    "tests/test_phase11_golden_policy.py",
+    "tests/test_phase11_packaging_smoke.py",
+    "tests/test_phase11_validation_entrypoint.py",
+    "tests/test_phase12_completion_audit.py",
+    "tests/test_phase12_composition_cli_json_goldens.py",
+    "tests/test_phase33_completion_audit.py",
+}
+
 FORBIDDEN_FILES = (
     "src/pietto/_project/json_v2.py",
     "src/pietto/_project/check.py",
@@ -360,6 +378,7 @@ def test_slice9_package_version_and_dirty_paths_are_locked() -> None:
         set(),
         ALLOWED_SLICE9_GATE2_PATHS,
         ALLOWED_SLICE10_GATE2_PATHS,
+        ALLOWED_SLICE11_GATE2_PATHS,
     )
 
 

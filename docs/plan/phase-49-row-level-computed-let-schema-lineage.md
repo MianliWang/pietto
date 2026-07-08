@@ -33,6 +33,22 @@ database behavior, package version change, or release operation. Aggregate and
 grouped output schema remain deferred to Phase 50 or later. Row-level
 dependency cycle diagnostics remain readiness-only.
 
+Phase 49 Slice 11 is Lineage for computed/let/multi-hop fields. Slice 11 Gate
+2 extends the private project row lineage carrier to computed aliases, selected
+`let`-derived outputs, relation-local `let` binding expression dependencies,
+and concrete multi-hop lineage expansion. It builds on Slice 9 private row
+dependency graph facts and Slice 10 minimal private row lineage. Slice 11
+remains private project semantic state only and exposes no lineage in Project
+JSON v2.
+
+Slice 11 does not implement project explain, public metadata output, public
+API, CLI output, IR, SQL, project `emit-sql`, parser/grammar/generated
+changes, JOIN/relationship behavior, aggregate/grouped output schema or
+lineage, runtime/database behavior, package version change, or release
+operation. It does not synthesize derived `FieldDef` values, add public
+diagnostics, expose private facts in JSON, or add expression-operation or
+literal lineage nodes.
+
 Package version remains `0.1.0`.
 
 ## Trusted Baseline
@@ -471,6 +487,63 @@ Slice 10 adds no public diagnostics, public semantic API, project explain,
 project IR, project SQL, project `emit-sql`, CLI output, parser/grammar/
 generated change, JOIN/relationship behavior, aggregate/grouped schema,
 runtime/database behavior, package version change, or release operation.
+
+## Slice 11 Lineage For Computed/Let/Multi-hop Fields
+
+Phase 49 Slice 11 is Lineage for computed/let/multi-hop fields. Slice 11 Gate
+2 extends the private project row lineage carrier so it consumes the Slice 9
+private row dependency graph facts beyond direct and renamed projection edges.
+
+The normative Slice 11 contract is
+`docs/spec/phase49-computed-let-multi-hop-row-lineage-v1.md`. Slice 11 extends
+`src/pietto/_project/row_lineage.py` with a private `LET_BINDING` lineage
+segment kind and private `COMPUTED_EXPRESSION`, `LET_OUTPUT`,
+`LET_EXPRESSION`, and `TRANSITIVE_DEPENDENCY` lineage fact kinds.
+
+Direct and renamed facts from Slice 10 remain preserved. Computed alias
+lineage records dependencies from output fields to source-backed or
+relation-backed upstream field segments. Selected `let` output lineage records
+an output-to-`LET_BINDING` fact. Concrete `let` binding expression lineage
+records `LET_BINDING` facts to source/upstream fields or earlier `LET_BINDING`
+segments. Concrete multi-hop expansion adds deterministic
+`TRANSITIVE_DEPENDENCY` facts while keeping immediate direct, renamed,
+computed, and `let` facts present.
+
+Slice 11 remains private project semantic state only. Project JSON v2 remains
+unchanged and serializes no lineage facts, segments, statuses, reasons,
+dependency graph facts, row schema facts, provenance facts, or `let` facts.
+Slice 11 does not synthesize derived `FieldDef` values.
+
+Slice 11 adds no project explain, public metadata output, public API, CLI
+output, IR, SQL, project `emit-sql`, parser/grammar/generated changes,
+JOIN/relationship behavior, aggregate/grouped output schema or lineage,
+runtime/database behavior, package version change, or release operation.
+Aggregate/grouped lineage remains out of scope.
+
+## Slice 11 Gate 2 Allowlist
+
+Phase 49 Slice 11 Gate 2 is limited to:
+
+- `docs/plan/phase-49-row-level-computed-let-schema-lineage.md`
+- `docs/spec/phase49-computed-let-multi-hop-row-lineage-v1.md`
+- `src/pietto/_project/row_lineage.py`
+- `tests/test_phase49_computed_let_multi_hop_row_lineage.py`
+- `tests/test_phase49_minimal_private_lineage_carrier_source_direct_rename.py`
+- `tests/test_phase49_private_row_level_dependency_graph_scaffold.py`
+- `tests/test_phase11_ci_workflow.py`
+- `tests/test_phase11_completion_audit.py`
+- `tests/test_phase11_generated_guard.py`
+- `tests/test_phase11_golden_policy.py`
+- `tests/test_phase11_packaging_smoke.py`
+- `tests/test_phase11_validation_entrypoint.py`
+- `tests/test_phase12_completion_audit.py`
+- `tests/test_phase12_composition_cli_json_goldens.py`
+- `tests/test_phase33_completion_audit.py`
+
+No Project JSON serializer, project check orchestration, parser/grammar/
+generated file, public semantic API, IR, SQL, CLI, workflow, fixture, golden,
+package metadata, lockfile, validation script, or release surface is approved
+in Slice 11 Gate 2.
 
 ## Slice 10 Gate 2 Allowlist
 
