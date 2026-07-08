@@ -42,6 +42,28 @@ ALLOWED_SLICE5_GATE2_PATHS = {
     "tests/test_phase33_completion_audit.py",
 }
 
+ALLOWED_SLICE7_GATE2_PATHS = {
+    "docs/plan/phase-49-row-level-computed-let-schema-lineage.md",
+    "docs/spec/phase49-selected-let-derived-output-schema-v1.md",
+    "src/pietto/_project/model.py",
+    "src/pietto/_project/let_scope_facts.py",
+    "src/pietto/semantic/let_bindings.py",
+    "tests/test_phase49_selected_let_derived_output_schema.py",
+    "tests/test_phase49_project_let_scope_value_facts.py",
+    "tests/test_phase49_computed_alias_project_row_schema_mvp.py",
+    "tests/test_phase49_computed_alias_origin_provenance_privacy.py",
+    "tests/test_phase40_let_binding_row_level_semantics.py",
+    "tests/test_phase11_ci_workflow.py",
+    "tests/test_phase11_completion_audit.py",
+    "tests/test_phase11_generated_guard.py",
+    "tests/test_phase11_golden_policy.py",
+    "tests/test_phase11_packaging_smoke.py",
+    "tests/test_phase11_validation_entrypoint.py",
+    "tests/test_phase12_completion_audit.py",
+    "tests/test_phase12_composition_cli_json_goldens.py",
+    "tests/test_phase33_completion_audit.py",
+}
+
 PRIVATE_JSON_FACTS = (
     "source_row_schemas",
     "relation_row_schemas",
@@ -207,12 +229,14 @@ def test_let_aggregate_and_grouped_outputs_remain_out_of_scope(
         )
     )
 
-    assert not semantic_result.ok
+    assert semantic_result.ok
+    assert semantic_result.diagnostics == ()
     assert semantic_result.model is not None
     let_output = _derived_definition(parse_result, "let_output")
-    assert semantic_result.model.relation_row_schemas[let_output].is_unknown is True
-    diagnostics = [(item.code, item.message) for item in semantic_result.diagnostics]
-    assert diagnostics == [("PIE-S2102", "Unknown field: total")]
+    total = semantic_result.model.relation_row_schemas[let_output].fields["total"]
+    assert total.field_def is None
+    assert total.provenance is not None
+    assert total.provenance.kind is ProjectRowFieldProvenanceKind.LET_DERIVED
     for name in ("aggregate", "grouped"):
         definition = _derived_definition(parse_result, name)
         assert definition not in semantic_result.model.relation_row_schemas
@@ -274,7 +298,11 @@ def test_slice5_package_version_and_dirty_paths_are_locked() -> None:
 
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
-    assert dirty_paths in (set(), ALLOWED_SLICE5_GATE2_PATHS)
+    assert dirty_paths in (
+        set(),
+        ALLOWED_SLICE5_GATE2_PATHS,
+        ALLOWED_SLICE7_GATE2_PATHS,
+    )
 
 
 def _assert_direct_projection_field(

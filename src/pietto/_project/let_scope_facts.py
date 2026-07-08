@@ -168,6 +168,7 @@ def build_project_relation_let_scope_facts(
         from_resolutions={definition.from_clause: upstream_definition},
         source_row_schemas=_source_row_schemas(upstream_definition, row_schema),
         relation_row_schemas=_relation_row_schemas(upstream_definition, row_schema),
+        allow_unaliased_selected_let_outputs=True,
     )
     if diagnostics:
         return ProjectRelationLetScopeFacts(

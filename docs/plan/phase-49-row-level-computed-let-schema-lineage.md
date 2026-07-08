@@ -331,6 +331,71 @@ behavior, bridge/export/RAG/Arrow behavior, import/export behavior,
 multi-file behavior, runtime/database execution, parser/grammar/generated
 changes, package version change, or release operation.
 
+## Slice 7 Selected Let-derived Output Schema
+
+Phase 49 Slice 7 is Selected let-derived output schema. Slice 7 implements
+private project row schema output fields for selected relation-local `let`
+bindings when the current relation has concrete Slice 6 private let
+scope/value facts and the selected bare expression resolves to a known let
+binding after direct input field lookup fails.
+
+The normative Slice 7 contract is
+`docs/spec/phase49-selected-let-derived-output-schema-v1.md`. Slice 7 uses
+`ProjectRelationLetScopeFacts.value_types` and the Slice 3 private
+`adapt_project_row_expression_schema(..., let_value_types=...)` path where
+appropriate. It does not call full `semantic_api.analyze`.
+
+Direct source fields keep priority and remain source-native. If a selected
+bare name resolves to an input field, project row schema construction preserves
+the source-native `field_def` and direct projection behavior. If a selected
+bare or aliased `NameExpr` is not an input field but resolves to a concrete let
+binding, the output field uses the let `ValueType` resolved type/nullability,
+`field_def=None`, and private `ProjectRowFieldProvenanceKind.LET_DERIVED`.
+Let-derived output fields must not synthesize derived `FieldDef` values.
+
+Existing invalid and non-concrete let cases remain non-concrete or
+diagnostics-preserving: duplicate let names, input-field shadowing, source-name
+shadowing, alias-output conflicts other than the exact unaliased selected-let
+case, self/later references, aggregate-in-let, qualified let references,
+grouped/result-scope uses, and missing/unknown/deferred/blocked upstreams do
+not become concrete selected let output schema behavior.
+
+Project JSON v2 remains unchanged. Slice 7 serializes no row schema,
+provenance, let facts, value types, dependency, lineage, status, or reason
+facts. Slice 7 does not implement broader let visibility/order/shadowing
+hardening, private dependency graph, lineage carriers, aggregate/grouped
+schema, project explain, project IR, project SQL, project `emit-sql`,
+JOIN/relationship behavior, bridge/export/RAG/Arrow behavior, import/export
+behavior, multi-file behavior, runtime/database execution,
+parser/grammar/generated changes, package version change, or release
+operation.
+
+## Slice 7 Gate 2 Allowlist
+
+Phase 49 Slice 7 Gate 2 is limited to:
+
+- `docs/plan/phase-49-row-level-computed-let-schema-lineage.md`
+- `docs/spec/phase49-selected-let-derived-output-schema-v1.md`
+- `src/pietto/_project/model.py`
+- `src/pietto/_project/let_scope_facts.py`
+- `src/pietto/semantic/let_bindings.py`
+- `tests/test_phase49_selected_let_derived_output_schema.py`
+- `tests/test_phase49_project_let_scope_value_facts.py`
+- `tests/test_phase49_computed_alias_project_row_schema_mvp.py`
+- `tests/test_phase49_computed_alias_origin_provenance_privacy.py`
+- `tests/test_phase40_let_binding_row_level_semantics.py`
+- `tests/test_phase11_ci_workflow.py`
+- `tests/test_phase11_completion_audit.py`
+- `tests/test_phase11_generated_guard.py`
+- `tests/test_phase11_golden_policy.py`
+- `tests/test_phase11_packaging_smoke.py`
+- `tests/test_phase11_validation_entrypoint.py`
+- `tests/test_phase12_completion_audit.py`
+- `tests/test_phase12_composition_cli_json_goldens.py`
+- `tests/test_phase33_completion_audit.py`
+
+No other file is approved in Slice 7 Gate 2.
+
 ## Slice 6 Gate 2 Allowlist
 
 Phase 49 Slice 6 Gate 2 is limited to:
@@ -490,6 +555,23 @@ dirty set differs. Natural CI after Gate 3 runs from a clean tree.
 
 Do not run `scripts/validate.py`, generated checks, golden checks, package
 smoke, full pytest, or CI in dirty Slice 3 Gate 2 unless separately approved.
+
+Focused validation for Slice 7 Gate 2:
+
+```bash
+git diff --check
+git diff --no-index --check -- /dev/null docs/spec/phase49-selected-let-derived-output-schema-v1.md || true
+git diff --no-index --check -- /dev/null tests/test_phase49_selected_let_derived_output_schema.py || true
+uv run ruff format --check src/pietto/_project/model.py src/pietto/_project/let_scope_facts.py src/pietto/semantic/let_bindings.py tests/test_phase49_selected_let_derived_output_schema.py tests/test_phase49_project_let_scope_value_facts.py tests/test_phase49_computed_alias_project_row_schema_mvp.py tests/test_phase49_computed_alias_origin_provenance_privacy.py tests/test_phase40_let_binding_row_level_semantics.py tests/test_phase11_ci_workflow.py tests/test_phase11_completion_audit.py tests/test_phase11_generated_guard.py tests/test_phase11_golden_policy.py tests/test_phase11_packaging_smoke.py tests/test_phase11_validation_entrypoint.py tests/test_phase12_completion_audit.py tests/test_phase12_composition_cli_json_goldens.py tests/test_phase33_completion_audit.py
+uv run ruff check src/pietto/_project/model.py src/pietto/_project/let_scope_facts.py src/pietto/semantic/let_bindings.py tests/test_phase49_selected_let_derived_output_schema.py tests/test_phase49_project_let_scope_value_facts.py tests/test_phase49_computed_alias_project_row_schema_mvp.py tests/test_phase49_computed_alias_origin_provenance_privacy.py tests/test_phase40_let_binding_row_level_semantics.py tests/test_phase11_ci_workflow.py tests/test_phase11_completion_audit.py tests/test_phase11_generated_guard.py tests/test_phase11_golden_policy.py tests/test_phase11_packaging_smoke.py tests/test_phase11_validation_entrypoint.py tests/test_phase12_completion_audit.py tests/test_phase12_composition_cli_json_goldens.py tests/test_phase33_completion_audit.py
+uv run pyright --project pyrightconfig.json
+uv run pyright --project pyrightconfig.tests.json
+uv run pytest tests/test_phase49_selected_let_derived_output_schema.py tests/test_phase49_project_let_scope_value_facts.py tests/test_phase49_computed_alias_project_row_schema_mvp.py tests/test_phase49_computed_alias_origin_provenance_privacy.py tests/test_phase40_let_binding_row_level_semantics.py tests/test_phase11_ci_workflow.py tests/test_phase11_completion_audit.py tests/test_phase11_generated_guard.py tests/test_phase11_golden_policy.py tests/test_phase11_packaging_smoke.py tests/test_phase11_validation_entrypoint.py tests/test_phase12_completion_audit.py tests/test_phase12_composition_cli_json_goldens.py tests/test_phase33_completion_audit.py
+```
+
+Do not run `scripts/validate.py`, generated checks, golden checks, package
+smoke, full pytest, older dirty-path guard tests outside the Slice 7 allowlist,
+or CI in dirty Slice 7 Gate 2 unless separately approved.
 
 Focused validation for Slice 6 Gate 2:
 

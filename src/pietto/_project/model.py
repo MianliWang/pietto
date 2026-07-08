@@ -246,6 +246,7 @@ class ProjectRowFieldProvenanceKind(StrEnum):
     SOURCE_FIELD = "source_field"
     DIRECT_PROJECTION = "direct_projection"
     DERIVED_EXPRESSION = "derived_expression"
+    LET_DERIVED = "let_derived"
     EXPRESSION = "expression"
     AGGREGATE = "aggregate"
     UNKNOWN = "unknown"
@@ -965,6 +966,7 @@ def _build_project_relation_row_schemas(
                 definition,
                 source_schema=source_schema,
                 source_symbol=source_symbol,
+                upstream_definition=source,
                 fallback_path=parsed_input.path,
             )
             diagnostics.extend(relation_schema_result.diagnostics)
@@ -1056,6 +1058,8 @@ def _build_project_relation_row_schemas(
                 definition,
                 source_schema=upstream_schema,
                 source_symbol=upstream_symbol,
+                upstream_definition=upstream_relation,
+                upstream_state=upstream_state,
                 fallback_path=definition_paths[definition],
             )
             diagnostics.extend(relation_schema_result.diagnostics)
@@ -1203,11 +1207,18 @@ def _project_direct_relation_row_schema(
     *,
     source_schema: ProjectRowSchema,
     source_symbol: ProjectSymbol,
+    upstream_definition: SourceDef | TableDef | QueryDef,
+    upstream_state: ProjectRelationRowSchemaState | None = None,
     fallback_path: str,
 ) -> _ProjectRelationRowSchemaResult:
     """Project direct fields and supported computed aliases from one input."""
 
+    from pietto._project.let_scope_facts import (
+        ProjectLetScopeFactsStatus,
+        build_project_relation_let_scope_facts,
+    )
     from pietto._project.row_expression_schema import (
+        ProjectExpressionSchemaOriginKind,
         ProjectExpressionSchemaStatus,
         adapt_project_row_expression_schema,
     )
@@ -1233,6 +1244,17 @@ def _project_direct_relation_row_schema(
         ),
         input_schema=source_schema,
         relation_qualifier=definition.from_clause.source_name,
+    )
+    let_scope_facts = build_project_relation_let_scope_facts(
+        definition=definition,
+        input_schema=source_schema,
+        upstream_definition=upstream_definition,
+        upstream_state=upstream_state,
+    )
+    let_value_types = (
+        let_scope_facts.value_types
+        if let_scope_facts.status is ProjectLetScopeFactsStatus.CONCRETE
+        else None
     )
 
     for item in definition.select_items:
@@ -1311,6 +1333,38 @@ def _project_direct_relation_row_schema(
 
         source_field = source_schema.fields.get(lookup_name)
         if source_field is None:
+            result = adapt_project_row_expression_schema(
+                expression=item.expression,
+                output_name=output_name,
+                input_schema=source_schema,
+                upstream_state=upstream_state,
+                relation_qualifier=definition.from_clause.source_name,
+                expression_value_types=expression_value_types,
+                let_value_types=let_value_types,
+                fallback_path=fallback_path,
+            )
+            if (
+                result.status is ProjectExpressionSchemaStatus.CONCRETE
+                and result.origin is ProjectExpressionSchemaOriginKind.LET_DERIVED
+            ):
+                if result.resolved_type is None or result.nullability is None:
+                    raise AssertionError(
+                        "Concrete let-derived projection requires type facts"
+                    )
+
+                fields[output_name] = ProjectRowField(
+                    name=output_name,
+                    resolved_type=result.resolved_type,
+                    nullability=result.nullability,
+                    field_def=None,
+                    provenance=ProjectRowFieldProvenance(
+                        kind=ProjectRowFieldProvenanceKind.LET_DERIVED,
+                        symbol=source_symbol,
+                        location=result.location,
+                    ),
+                )
+                continue
+
             diagnostics.append(_project_unknown_direct_field_diagnostic(projection))
             is_unknown = True
             unknown_reason = ProjectRelationRowSchemaReason.UNKNOWN_SCHEMA

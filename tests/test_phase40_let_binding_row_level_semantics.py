@@ -162,6 +162,14 @@ def test_unary_binary_comparison_and_is_null_value_types_are_preserved() -> None
             "    let:\n"
             "        gross = amount + tax\n"
             "    select:\n"
+            "        gross\n",
+            "PIE-S2329",
+        ),
+        (
+            "    from orders\n"
+            "    let:\n"
+            "        gross = amount + tax\n"
+            "    select:\n"
             "        gross = amount\n",
             "PIE-S2329",
         ),

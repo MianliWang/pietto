@@ -44,6 +44,7 @@ def analyze_relation_let_bindings(
     from_resolutions: Mapping[FromClause, RelationDefinition],
     source_row_schemas: Mapping[SourceDef, RowSchema],
     relation_row_schemas: Mapping[DerivedRelation, RowSchema],
+    allow_unaliased_selected_let_outputs: bool = False,
 ) -> tuple[
     dict[DerivedRelation, LetScopeSemanticInfo],
     dict[Expression, ValueType],
@@ -69,6 +70,7 @@ def analyze_relation_let_bindings(
         scope, relation_values, relation_diagnostics = _analyze_relation_let_clause(
             definition,
             input_schema,
+            allow_unaliased_selected_let_outputs=(allow_unaliased_selected_let_outputs),
         )
         scopes[definition] = scope
         value_types.update(relation_values)
@@ -121,6 +123,8 @@ def let_projection_conflict_diagnostics(
 def _analyze_relation_let_clause(
     definition: DerivedRelation,
     input_schema: RowSchema,
+    *,
+    allow_unaliased_selected_let_outputs: bool = False,
 ) -> tuple[LetScopeSemanticInfo, dict[Expression, ValueType], list[Diagnostic]]:
     assert definition.let_clause is not None
 
@@ -134,6 +138,7 @@ def _analyze_relation_let_clause(
         definition,
         input_schema,
         diagnostics,
+        allow_unaliased_selected_let_outputs=allow_unaliased_selected_let_outputs,
     )
 
     for binding in definition.let_clause.bindings:
@@ -176,16 +181,13 @@ def _invalid_binding_names(
     definition: DerivedRelation,
     input_schema: RowSchema,
     diagnostics: list[Diagnostic],
+    *,
+    allow_unaliased_selected_let_outputs: bool = False,
 ) -> set[str]:
     assert definition.let_clause is not None
 
     invalid_names: set[str] = set()
     seen_names: set[str] = set()
-    projection_outputs = {
-        output_name
-        for item in definition.select_items
-        if (output_name := _projection_output_name(item)) is not None
-    }
 
     for binding in definition.let_clause.bindings:
         if binding.name in seen_names:
@@ -220,7 +222,11 @@ def _invalid_binding_names(
             )
             invalid_names.add(binding.name)
             continue
-        if binding.name in projection_outputs:
+        if _binding_conflicts_with_projection_output(
+            definition,
+            binding.name,
+            allow_unaliased_selected_let_outputs=allow_unaliased_selected_let_outputs,
+        ):
             diagnostics.append(
                 _invalid_let_name_diagnostic(
                     binding,
@@ -231,6 +237,27 @@ def _invalid_binding_names(
             invalid_names.add(binding.name)
 
     return invalid_names
+
+
+def _binding_conflicts_with_projection_output(
+    definition: DerivedRelation,
+    binding_name: str,
+    *,
+    allow_unaliased_selected_let_outputs: bool,
+) -> bool:
+    for item in definition.select_items:
+        output_name = _projection_output_name(item)
+        if output_name != binding_name:
+            continue
+        if (
+            allow_unaliased_selected_let_outputs
+            and item.alias is None
+            and isinstance(item.expression, NameExpr)
+            and item.expression.name == binding_name
+        ):
+            continue
+        return True
+    return False
 
 
 def _dependency_diagnostics(

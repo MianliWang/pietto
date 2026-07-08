@@ -42,6 +42,28 @@ ALLOWED_SLICE6_GATE2_PATHS = {
     "tests/test_phase33_completion_audit.py",
 }
 
+ALLOWED_SLICE7_GATE2_PATHS = {
+    "docs/plan/phase-49-row-level-computed-let-schema-lineage.md",
+    "docs/spec/phase49-selected-let-derived-output-schema-v1.md",
+    "src/pietto/_project/model.py",
+    "src/pietto/_project/let_scope_facts.py",
+    "src/pietto/semantic/let_bindings.py",
+    "tests/test_phase49_selected_let_derived_output_schema.py",
+    "tests/test_phase49_project_let_scope_value_facts.py",
+    "tests/test_phase49_computed_alias_project_row_schema_mvp.py",
+    "tests/test_phase49_computed_alias_origin_provenance_privacy.py",
+    "tests/test_phase40_let_binding_row_level_semantics.py",
+    "tests/test_phase11_ci_workflow.py",
+    "tests/test_phase11_completion_audit.py",
+    "tests/test_phase11_generated_guard.py",
+    "tests/test_phase11_golden_policy.py",
+    "tests/test_phase11_packaging_smoke.py",
+    "tests/test_phase11_validation_entrypoint.py",
+    "tests/test_phase12_completion_audit.py",
+    "tests/test_phase12_composition_cli_json_goldens.py",
+    "tests/test_phase33_completion_audit.py",
+}
+
 PRIVATE_JSON_FACTS = (
     "relation_let_scope_facts",
     "ProjectRelationLetScopeFacts",
@@ -125,7 +147,7 @@ def test_absent_let_clause_has_deterministic_absent_facts(tmp_path: Path) -> Non
     assert tuple(facts.value_types) == ()
 
 
-def test_selected_let_output_remains_non_concrete_until_slice7(
+def test_selected_let_output_uses_concrete_private_let_facts(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(
@@ -140,19 +162,22 @@ def test_selected_let_output_remains_non_concrete_until_slice7(
         )
     )
 
-    assert not semantic_result.ok
+    assert semantic_result.ok
+    assert semantic_result.diagnostics == ()
     assert semantic_result.model is not None
     projected = _derived_definition(parse_result, "projected")
-    assert semantic_result.model.relation_row_schemas[projected].is_unknown is True
-    assert [(item.code, item.message) for item in semantic_result.diagnostics] == [
-        ("PIE-S2102", "Unknown field: total")
-    ]
+    field = semantic_result.model.relation_row_schemas[projected].fields["total"]
+
+    assert field.resolved_type.name == "Int"
+    assert field.field_def is None
+    assert field.provenance is not None
+    assert field.provenance.kind is ProjectRowFieldProvenanceKind.LET_DERIVED
 
     facts = semantic_result.model.relation_let_scope_facts[projected]
-    assert facts.status is ProjectLetScopeFactsStatus.UNKNOWN
-    assert facts.reason is ProjectLetScopeFactsReason.LET_DIAGNOSTICS_SUPPRESSED
+    assert facts.status is ProjectLetScopeFactsStatus.CONCRETE
+    assert facts.reason is ProjectLetScopeFactsReason.UPSTREAM_CONCRETE
     assert tuple(facts.binding_expressions) == ("total",)
-    assert tuple(facts.value_types) == ()
+    assert tuple(facts.value_types) == ("total",)
 
 
 def test_upstream_non_concrete_states_short_circuit_let_facts(
@@ -343,7 +368,11 @@ def test_phase49_slice6_package_version_and_dirty_paths_are_locked() -> None:
 
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
-    assert dirty_paths in (set(), ALLOWED_SLICE6_GATE2_PATHS)
+    assert dirty_paths in (
+        set(),
+        ALLOWED_SLICE6_GATE2_PATHS,
+        ALLOWED_SLICE7_GATE2_PATHS,
+    )
 
 
 def _assert_let_state(

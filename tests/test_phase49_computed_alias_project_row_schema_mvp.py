@@ -67,6 +67,28 @@ ALLOWED_SLICE5_GATE2_PATHS = {
     "tests/test_phase33_completion_audit.py",
 }
 
+ALLOWED_SLICE7_GATE2_PATHS = {
+    "docs/plan/phase-49-row-level-computed-let-schema-lineage.md",
+    "docs/spec/phase49-selected-let-derived-output-schema-v1.md",
+    "src/pietto/_project/model.py",
+    "src/pietto/_project/let_scope_facts.py",
+    "src/pietto/semantic/let_bindings.py",
+    "tests/test_phase49_selected_let_derived_output_schema.py",
+    "tests/test_phase49_project_let_scope_value_facts.py",
+    "tests/test_phase49_computed_alias_project_row_schema_mvp.py",
+    "tests/test_phase49_computed_alias_origin_provenance_privacy.py",
+    "tests/test_phase40_let_binding_row_level_semantics.py",
+    "tests/test_phase11_ci_workflow.py",
+    "tests/test_phase11_completion_audit.py",
+    "tests/test_phase11_generated_guard.py",
+    "tests/test_phase11_golden_policy.py",
+    "tests/test_phase11_packaging_smoke.py",
+    "tests/test_phase11_validation_entrypoint.py",
+    "tests/test_phase12_completion_audit.py",
+    "tests/test_phase12_composition_cli_json_goldens.py",
+    "tests/test_phase33_completion_audit.py",
+}
+
 PRIVATE_JSON_FACTS = (
     "source_row_schemas",
     "relation_row_schemas",
@@ -251,7 +273,7 @@ def test_unknown_null_division_and_aggregate_surfaces_remain_non_concrete(
         )
 
 
-def test_bare_let_selected_output_does_not_become_concrete_in_slice4(
+def test_bare_let_selected_output_becomes_concrete_in_slice7(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(
@@ -266,13 +288,16 @@ def test_bare_let_selected_output_does_not_become_concrete_in_slice4(
         )
     )
 
-    assert not semantic_result.ok
+    assert semantic_result.ok
+    assert semantic_result.diagnostics == ()
     assert semantic_result.model is not None
     projected = _derived_definition(parse_result, "projected")
-    assert semantic_result.model.relation_row_schemas[projected].is_unknown is True
-    assert [(item.code, item.message) for item in semantic_result.diagnostics] == [
-        ("PIE-S2102", "Unknown field: total")
-    ]
+    total = semantic_result.model.relation_row_schemas[projected].fields["total"]
+
+    assert total.resolved_type.name == "Int"
+    assert total.field_def is None
+    assert total.provenance is not None
+    assert total.provenance.kind is ProjectRowFieldProvenanceKind.LET_DERIVED
 
 
 def test_project_json_v2_keeps_computed_row_schema_facts_private(
@@ -341,6 +366,7 @@ def test_phase49_slice4_package_version_and_dirty_paths_are_locked() -> None:
         set(),
         ALLOWED_SLICE4_GATE2_PATHS,
         ALLOWED_SLICE5_GATE2_PATHS,
+        ALLOWED_SLICE7_GATE2_PATHS,
     )
 
 
