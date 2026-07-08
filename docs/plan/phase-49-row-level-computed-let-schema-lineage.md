@@ -49,6 +49,26 @@ operation. It does not synthesize derived `FieldDef` values, add public
 diagnostics, expose private facts in JSON, or add expression-operation or
 literal lineage nodes.
 
+Phase 49 Slice 12 is Unknown/deferred/diagnostic ordering hardening. Slice 12
+is docs/spec/tests-only hardening after the private row schema, let facts,
+dependency graph, and lineage carriers exist. It locks deterministic
+`UNKNOWN`, `DEFERRED`, and `BLOCKED` private state behavior and public
+diagnostic ordering across `relation_row_schema_states`,
+`relation_let_scope_facts`, `relation_row_dependency_graphs`, and
+`relation_row_lineages`.
+
+The normative Slice 12 contract is
+`docs/spec/phase49-unknown-deferred-diagnostic-ordering-hardening-v1.md`.
+Slice 12 adds no production source behavior and exposes no private row schema,
+let facts, dependency graph, lineage, status, reason, provenance, or origin
+facts in Project JSON v2.
+
+Slice 12 changes no public diagnostics, public API, parser/grammar/generated
+files, project explain, project IR, project SQL, project `emit-sql`, CLI
+behavior, JOIN/relationship behavior, aggregate/grouped schema or lineage,
+runtime/database behavior, package version, tag, release, publish, upload,
+signing, attestation, or release surface.
+
 Package version remains `0.1.0`.
 
 ## Trusted Baseline
@@ -520,6 +540,62 @@ JOIN/relationship behavior, aggregate/grouped output schema or lineage,
 runtime/database behavior, package version change, or release operation.
 Aggregate/grouped lineage remains out of scope.
 
+## Slice 12 Unknown/Deferred/Diagnostic Ordering Hardening
+
+Phase 49 Slice 12 is Unknown/deferred/diagnostic ordering hardening. Slice 12
+is docs/spec/tests-only hardening that locks non-concrete private carrier
+states and public diagnostic ordering after the Slice 11 lineage carrier.
+
+The normative Slice 12 contract is
+`docs/spec/phase49-unknown-deferred-diagnostic-ordering-hardening-v1.md`.
+Slice 12 covers the private project semantic carriers
+`relation_row_schema_states`, `relation_let_scope_facts`,
+`relation_row_dependency_graphs`, and `relation_row_lineages`.
+
+Slice 12 locks these current private-state boundaries:
+
+- missing fields produce `UNKNOWN` / `UNKNOWN_SCHEMA` row schema state and
+  matching non-concrete dependency graph and lineage facts without downstream
+  duplicate public diagnostics;
+- unresolved relations produce `BLOCKED` / `UNRESOLVED_RELATION_BLOCKED`
+  row schema, dependency graph, and lineage states, while relation-local let
+  facts with a let clause become `BLOCKED` / `UPSTREAM_BLOCKED`;
+- relation cycles produce `BLOCKED` / `CYCLE_BLOCKED` row schema, dependency
+  graph, and lineage states, while relation-local let facts with a let clause
+  become `BLOCKED` / `UPSTREAM_BLOCKED`;
+- duplicate output names stay private deterministic `UNKNOWN` /
+  `DUPLICATE_OUTPUT_NAME` row schema states and corresponding non-concrete
+  dependency graph and lineage states without new public diagnostics;
+- grouped and aggregate output schema remains `DEFERRED` /
+  `DEFERRED_PHASE48_BEHAVIOR` for row schema, dependency graph, and lineage
+  where applicable;
+- invalid selected-let helper diagnostics remain suppressed into private let
+  facts and do not reorder public row-schema diagnostics.
+
+Project JSON v2 remains unchanged. Slice 12 serializes no private row schema,
+let facts, dependency graph, lineage, status, reason, provenance, or origin
+facts.
+
+Slice 12 adds no production source behavior, public diagnostics, public API,
+parser/grammar/generated change, project explain, project IR, project SQL,
+project `emit-sql`, CLI behavior, JOIN/relationship behavior,
+aggregate/grouped schema or lineage, runtime/database behavior, package version
+change, or release operation.
+
+## Slice 12 Gate 2 Allowlist
+
+Phase 49 Slice 12 Gate 2 is limited to:
+
+- `docs/plan/phase-49-row-level-computed-let-schema-lineage.md`
+- `docs/spec/phase49-unknown-deferred-diagnostic-ordering-hardening-v1.md`
+- `tests/test_phase49_unknown_deferred_diagnostic_ordering_hardening.py`
+
+No production source file, Project JSON serializer, project check
+orchestration, parser/grammar/generated file, public semantic API, IR, SQL,
+CLI, workflow, fixture, golden, package metadata, lockfile, validation script,
+existing test outside this allowlist, or release surface is approved in Slice
+12 Gate 2.
+
 ## Slice 11 Gate 2 Allowlist
 
 Phase 49 Slice 11 Gate 2 is limited to:
@@ -737,6 +813,24 @@ Phase 49 Slice 1 Gate 2 is limited to:
 No other file is approved in Slice 1 Gate 2.
 
 ## Focused Validation
+
+Focused validation for Slice 12 Gate 2:
+
+```bash
+git diff --check
+git diff --no-index --check -- /dev/null docs/spec/phase49-unknown-deferred-diagnostic-ordering-hardening-v1.md || true
+git diff --no-index --check -- /dev/null tests/test_phase49_unknown_deferred_diagnostic_ordering_hardening.py || true
+uv run ruff format --check tests/test_phase49_unknown_deferred_diagnostic_ordering_hardening.py
+uv run ruff check tests/test_phase49_unknown_deferred_diagnostic_ordering_hardening.py
+uv run pyright --project pyrightconfig.tests.json
+uv run pytest tests/test_phase49_unknown_deferred_diagnostic_ordering_hardening.py
+```
+
+Do not run older dirty-path guard tests outside the Slice 12 allowlist in
+dirty Slice 12 Gate 2. They remain clean-tree/CI compatibility checks after a
+later Gate 3 publish. Do not run `scripts/validate.py`, generated checks,
+golden checks, package smoke, full pytest, or CI in dirty Slice 12 Gate 2
+unless separately approved.
 
 Focused validation for Slice 1 Gate 2:
 
