@@ -91,6 +91,22 @@ IR, project SQL, project `emit-sql`, CLI output, JOIN/relationship behavior,
 bridge/export/RAG/Arrow behavior, aggregate/grouped schema or lineage,
 runtime/database behavior, package version change, or release operation.
 
+Phase 49 Slice 14 is Completion audit/status lock. Slice 14 is
+docs/spec/tests-only completion audit and status-lock work. It closes the
+Phase 49 plan by locking the completed private row-level computed/let schema,
+dependency, and lineage foundation without changing production source or public
+surfaces.
+
+The normative Slice 14 contract is
+`docs/spec/phase49-completion-audit-status-lock-v1.md`. Slice 14 documents and
+tests the completed slice inventory, the private carrier inventory, the public
+surface preservation boundary, Project JSON v2 privacy, release/package
+boundaries, hash/private-surface readiness, and the deferred Phase 50+ work.
+
+Phase 49 is complete only after Slice 14 Gate 3 commit, push, and natural CI
+success. Gate 2 docs must not pre-claim the Slice 14 commit, push, or natural
+CI result.
+
 Package version remains `0.1.0`.
 
 ## Trusted Baseline
@@ -647,6 +663,79 @@ separately scoped.
 Dirty Gate 2 validation should run only the new Slice 13 test. Older dirty-path
 guards remain clean-tree/CI compatibility checks after a later Gate 3 publish.
 
+## Slice 14 Completion Audit/Status Lock
+
+Phase 49 Slice 14 is Completion audit/status lock. Slice 14 is
+docs/spec/tests-only and adds no production source behavior.
+
+The normative Slice 14 contract is
+`docs/spec/phase49-completion-audit-status-lock-v1.md`.
+
+Slice 14 locks the completed Phase 49 slice inventory:
+
+1. Candidate decision / scope lock
+2. Project row expression schema helper contract
+3. Type/nullability adapter for legal row expressions
+4. Computed alias project row schema MVP
+5. Computed alias origin/provenance privacy
+6. Project let scope/value facts
+7. Selected let-derived output schema
+8. Let visibility/order/shadowing hardening
+9. Private row-level dependency graph scaffold
+10. Minimal private lineage carrier for source/direct/rename
+11. Lineage for computed/let/multi-hop fields
+12. Unknown/deferred/diagnostic ordering hardening
+13. Compatibility/privacy/hash-lock readiness
+14. Completion audit/status lock
+
+Phase 49 delivered private project row-level computed/let schema, dependency,
+and lineage foundations. The completed private carrier inventory includes:
+
+- `relation_row_schemas`;
+- `relation_row_schema_states`;
+- `relation_let_scope_facts`;
+- `relation_row_dependency_graphs`;
+- `relation_row_lineages`.
+
+Project JSON v2 remains unchanged and serializes no private row schema, let
+fact, dependency graph, lineage, status, reason, provenance, or origin facts.
+The public semantic API, CLI/IR/SQL behavior, parser/grammar/generated files,
+public diagnostics, and package version remain unchanged. Package version
+remains `0.1.0`. Phase 49 performs no tag, release, publish, upload, signing,
+or attestation.
+
+The following remain deferred to Phase 50 or later:
+
+- aggregate/grouped output schema;
+- aggregate/grouped lineage;
+- project explain/public metadata;
+- public lineage/export;
+- project IR/SQL/emit-sql;
+- JOIN/relationship/grain/fanout;
+- bridge/export/RAG/Arrow;
+- runtime/database behavior;
+- package release/version work.
+
+Phase 49 is complete only after Slice 14 Gate 3 commit, push, and natural CI
+success. Gate 2 docs must not pre-claim the Slice 14 commit, push, or natural
+CI result.
+
+## Slice 14 Gate 2 Allowlist
+
+Phase 49 Slice 14 Gate 2 is docs/spec/tests-only and is limited to:
+
+- `docs/plan/phase-49-row-level-computed-let-schema-lineage.md`
+- `docs/spec/phase49-completion-audit-status-lock-v1.md`
+- `tests/test_phase49_completion_audit_status_lock.py`
+
+No production source file, Project JSON serializer, project check
+orchestration, parser/grammar/generated file, public semantic API, IR, SQL,
+CLI, workflow, fixture, golden, package metadata, lockfile, validation script,
+README, AGENTS, global roadmap, `docs/spec/pietto-v0.9.md`, existing
+hash-lock test, or release surface is approved in Slice 14 Gate 2.
+
+No other file is approved in Slice 14 Gate 2.
+
 ## Slice 13 Gate 2 Allowlist
 
 Phase 49 Slice 13 Gate 2 is limited to:
@@ -892,6 +981,25 @@ Phase 49 Slice 1 Gate 2 is limited to:
 No other file is approved in Slice 1 Gate 2.
 
 ## Focused Validation
+
+Focused validation for Slice 14 Gate 2:
+
+```bash
+git diff --check
+git diff --no-index --check -- /dev/null docs/spec/phase49-completion-audit-status-lock-v1.md || true
+git diff --no-index --check -- /dev/null tests/test_phase49_completion_audit_status_lock.py || true
+uv run ruff format --check tests/test_phase49_completion_audit_status_lock.py
+uv run ruff check tests/test_phase49_completion_audit_status_lock.py
+uv run pyright --project pyrightconfig.tests.json
+uv run pytest tests/test_phase49_completion_audit_status_lock.py
+```
+
+Do not run older dirty-path guard tests outside the Slice 14 allowlist in
+dirty Slice 14 Gate 2. They remain clean-tree/CI compatibility checks after a
+later Gate 3 publish. In particular, do not run the Slice 13 compatibility test
+in dirty Slice 14 Gate 2 because it has its own Slice 13 dirty-path guard. Do
+not run `scripts/validate.py`, generated checks, golden checks, package smoke,
+full pytest, or CI in dirty Slice 14 Gate 2 unless separately approved.
 
 Focused validation for Slice 13 Gate 2:
 
