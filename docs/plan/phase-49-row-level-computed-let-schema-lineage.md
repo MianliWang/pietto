@@ -69,6 +69,28 @@ behavior, JOIN/relationship behavior, aggregate/grouped schema or lineage,
 runtime/database behavior, package version, tag, release, publish, upload,
 signing, attestation, or release surface.
 
+Phase 49 Slice 13 is Compatibility/privacy/hash-lock readiness. Slice 13 is
+docs/spec/tests-only readiness after the private row schema, let facts,
+dependency graph, and lineage carriers are in place. It verifies that private
+Phase 49 carriers remain private: `relation_row_schemas`,
+`relation_row_schema_states`, `relation_let_scope_facts`,
+`relation_row_dependency_graphs`, `relation_row_lineages`, and private
+provenance/origin/status/reason facts.
+
+The normative Slice 13 contract is
+`docs/spec/phase49-compatibility-privacy-hash-lock-readiness-v1.md`. Slice 13
+locks compatibility readiness for unchanged public surfaces: Project JSON v2,
+the project parse/check public envelope, parser/grammar/generated files, public
+semantic API, CLI/IR/SQL behavior, package version, and release surface.
+
+Slice 13 does not change production source, public diagnostics, Project JSON
+v2, parser/grammar/generated files, workflows, package metadata, lockfile,
+fixtures, goldens, validation scripts, or existing Phase 11/12/33 hash-lock
+tests. It does not implement project explain, public metadata output, project
+IR, project SQL, project `emit-sql`, CLI output, JOIN/relationship behavior,
+bridge/export/RAG/Arrow behavior, aggregate/grouped schema or lineage,
+runtime/database behavior, package version change, or release operation.
+
 Package version remains `0.1.0`.
 
 ## Trusted Baseline
@@ -582,6 +604,63 @@ project `emit-sql`, CLI behavior, JOIN/relationship behavior,
 aggregate/grouped schema or lineage, runtime/database behavior, package version
 change, or release operation.
 
+## Slice 13 Compatibility/Privacy/Hash-lock Readiness
+
+Phase 49 Slice 13 is Compatibility/privacy/hash-lock readiness. Slice 13 is a
+docs/spec/tests-only readiness slice before the Phase 49 completion audit.
+
+The normative Slice 13 contract is
+`docs/spec/phase49-compatibility-privacy-hash-lock-readiness-v1.md`. Slice 13
+verifies that private Phase 49 carriers remain private:
+
+- `relation_row_schemas`;
+- `relation_row_schema_states`;
+- `relation_let_scope_facts`;
+- `relation_row_dependency_graphs`;
+- `relation_row_lineages`;
+- private provenance/origin/status/reason facts.
+
+Slice 13 verifies these public surfaces remain unchanged:
+
+- Project JSON v2 public envelope and key order;
+- project parse/check public envelope behavior;
+- parser/grammar/generated files;
+- public semantic API;
+- CLI, IR, and SQL behavior;
+- package version `0.1.0`;
+- release, tag, publish, upload, signing, and attestation surface.
+
+Slice 13 does not modify production source, public diagnostics, Project JSON v2,
+parser/grammar/generated files, workflows, package metadata, lockfile,
+fixtures, goldens, validation scripts, or existing Phase 11/12/33 hash-lock
+tests. It does not implement project explain, public metadata output, project
+IR, project SQL, project `emit-sql`, CLI output, JOIN/relationship behavior,
+bridge/export/RAG/Arrow behavior, aggregate/grouped schema or lineage,
+runtime/database behavior, package version change, or release operation.
+
+Hash/private-surface lock readiness is audit-only in Slice 13. Existing Phase
+11/12 boundary locks and the Phase 33 `project_private` lock should remain
+current in clean CI. Slice 13 does not refresh existing hash locks; if a later
+approved validation or repair gate proves a stale lock, that repair must be
+separately scoped.
+
+Dirty Gate 2 validation should run only the new Slice 13 test. Older dirty-path
+guards remain clean-tree/CI compatibility checks after a later Gate 3 publish.
+
+## Slice 13 Gate 2 Allowlist
+
+Phase 49 Slice 13 Gate 2 is limited to:
+
+- `docs/plan/phase-49-row-level-computed-let-schema-lineage.md`
+- `docs/spec/phase49-compatibility-privacy-hash-lock-readiness-v1.md`
+- `tests/test_phase49_compatibility_privacy_hash_lock_readiness.py`
+
+No production source file, Project JSON serializer, project check
+orchestration, parser/grammar/generated file, public semantic API, IR, SQL,
+CLI, workflow, fixture, golden, package metadata, lockfile, validation script,
+existing test outside this allowlist, existing hash-lock test, or release
+surface is approved in Slice 13 Gate 2.
+
 ## Slice 12 Gate 2 Allowlist
 
 Phase 49 Slice 12 Gate 2 is limited to:
@@ -813,6 +892,24 @@ Phase 49 Slice 1 Gate 2 is limited to:
 No other file is approved in Slice 1 Gate 2.
 
 ## Focused Validation
+
+Focused validation for Slice 13 Gate 2:
+
+```bash
+git diff --check
+git diff --no-index --check -- /dev/null docs/spec/phase49-compatibility-privacy-hash-lock-readiness-v1.md || true
+git diff --no-index --check -- /dev/null tests/test_phase49_compatibility_privacy_hash_lock_readiness.py || true
+uv run ruff format --check tests/test_phase49_compatibility_privacy_hash_lock_readiness.py
+uv run ruff check tests/test_phase49_compatibility_privacy_hash_lock_readiness.py
+uv run pyright --project pyrightconfig.tests.json
+uv run pytest tests/test_phase49_compatibility_privacy_hash_lock_readiness.py
+```
+
+Do not run older dirty-path guard tests outside the Slice 13 allowlist in
+dirty Slice 13 Gate 2. They remain clean-tree/CI compatibility checks after a
+later Gate 3 publish. Do not run `scripts/validate.py`, generated checks,
+golden checks, package smoke, full pytest, or CI in dirty Slice 13 Gate 2
+unless separately approved.
 
 Focused validation for Slice 12 Gate 2:
 
