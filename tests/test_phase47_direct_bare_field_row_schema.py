@@ -268,7 +268,7 @@ def test_duplicate_bare_field_marks_relation_row_schema_unknown_without_diagnost
     assert "PIE-S2305" not in _diagnostic_codes(semantic_result)
 
 
-def test_query_to_query_relation_row_schema_propagation_remains_absent(
+def test_table_to_query_relation_row_schema_propagates_bare_field(
     tmp_path: Path,
 ) -> None:
     root = _project_root(tmp_path, include=("*.pietto",))
@@ -291,12 +291,14 @@ def test_query_to_query_relation_row_schema_propagation_remains_absent(
     parse_result, semantic_result = _project_semantic_result(root)
 
     assert semantic_result.ok
+    assert semantic_result.diagnostics == ()
     assert semantic_result.model is not None
     staged = _derived_definition(parse_result, "staged")
     exported = _derived_definition(parse_result, "exported")
-    assert tuple(semantic_result.model.relation_row_schemas) == (staged,)
+    assert tuple(semantic_result.model.relation_row_schemas) == (staged, exported)
     assert staged in semantic_result.model.relation_row_schemas
-    assert exported not in semantic_result.model.relation_row_schemas
+    assert exported in semantic_result.model.relation_row_schemas
+    assert tuple(semantic_result.model.relation_row_schemas[exported].fields) == ("id",)
 
 
 def test_project_json_v2_does_not_expose_relation_row_schema_private_facts(

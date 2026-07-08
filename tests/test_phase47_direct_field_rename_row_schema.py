@@ -283,7 +283,7 @@ def test_computed_alias_remains_deferred_to_phase49(tmp_path: Path) -> None:
     assert table not in semantic_result.model.relation_row_schemas
 
 
-def test_query_to_query_rename_projection_remains_absent(tmp_path: Path) -> None:
+def test_table_to_query_rename_projection_propagates(tmp_path: Path) -> None:
     root = _project_root(tmp_path, include=("*.pietto",))
     _write(
         root,
@@ -304,12 +304,16 @@ def test_query_to_query_rename_projection_remains_absent(tmp_path: Path) -> None
     parse_result, semantic_result = _project_semantic_result(root)
 
     assert semantic_result.ok
+    assert semantic_result.diagnostics == ()
     assert semantic_result.model is not None
     staged = _derived_definition(parse_result, "staged")
     exported = _derived_definition(parse_result, "exported")
-    assert tuple(semantic_result.model.relation_row_schemas) == (staged,)
+    assert tuple(semantic_result.model.relation_row_schemas) == (staged, exported)
     assert staged in semantic_result.model.relation_row_schemas
-    assert exported not in semantic_result.model.relation_row_schemas
+    assert exported in semantic_result.model.relation_row_schemas
+    assert tuple(semantic_result.model.relation_row_schemas[exported].fields) == (
+        "user_id",
+    )
 
 
 def test_project_json_v2_does_not_expose_rename_relation_row_schema_private_facts(
