@@ -259,3 +259,99 @@ The exact Gate 2 allowlist is:
 
 No existing Maintenance Phase 3 file or other repository file is approved for
 modification in Slice 1.
+
+## Slice 3 Benchmark Evidence Decision / No-change Lock
+
+Slice 3 is **Benchmark Evidence Decision / No-change Lock**. It is a
+docs/spec/tests-only developer validation infrastructure no-change decision
+lock that records the Maintenance Phase 4 Slice 2 local safe-cohort benchmark
+evidence. Slice 3 runs no benchmark and changes no validation behavior.
+
+The reviewed Slice 2 evidence is identified by these Gate 2 output paths:
+
+- `/tmp/maintenance-phase4-slice2-local-benchmark-evidence.txt`;
+- `/tmp/maintenance-phase4-slice2-local-benchmark-results.csv`; and
+- `/tmp/maintenance-phase4-slice2-local-benchmark-results.json`.
+
+The benchmark was clean-local direct-pytest safe-cohort evidence only. It ran
+on local WSL2 with `effective_cpu=20`. It included no wrapper track, no
+`load`/`worksteal`, no full suite, and no CI experiment. The tested configs
+were:
+
+- `serial_control`;
+- `ci_auto_cap4_loadfile`;
+- `fixed4_loadfile`;
+- `cpu50_10_loadfile`;
+- `cpu75_15_loadfile`;
+- `cpu90_18_loadfile`; and
+- `cpu75_15_loadscope`.
+
+The evidence, CSV, and JSON agreed during Gate 1 review. They contain 42 rows:
+7 warmups and 35 measured samples, with 5 measured samples per config. Every
+execution completed with exit 0 and `294 passed`, `0 failed`, `0 skipped`, and
+`0 xfailed`. There was no retry, no unexplained flake or hang, no worker
+crash, and no stop condition. Slice 2 changed no repository or dependency
+surface and performed no CI action.
+
+The decision baseline was `ci_auto_cap4_loadfile`, with baseline median
+`1.714843s`. The fastest local row was `serial_control`, with serial median
+`1.568251s`. Its median improvement was `8.548%`. The protocol requires at
+least a `10%` median-improvement threshold, no more than 5% p90 regression,
+no material variance increase, and no reliability regression. No row met
+threshold, `provisional_candidate` was `none`, and there is no final CI
+winner.
+
+The committed Slice 3 decision is no change. `serial_control` was fastest only
+on this local safe cohort, and its 8.548% improvement was below the 10%
+advancement threshold. It therefore does not justify a worker, wrapper,
+script, dependency, or CI change.
+
+The 10-, 15-, and 18-worker rows were materially slower and the high-worker
+rows showed more overhead and variance. This is consistent with pytest-xdist
+startup, collection, and scheduling overhead dominating this small pure
+in-memory cohort. It is descriptive evidence, not universal xdist proof. This
+local safe-cohort evidence does not prove full-suite behavior or GitHub-hosted
+CI behavior.
+
+The current CI command remains unchanged:
+
+```bash
+uv run python scripts/validate.py --timings --pytest-workers auto --pytest-dist loadfile --pytest-maxprocesses 4
+```
+
+Current behavior remains preserved:
+
+- the local default remains serial;
+- CI remains `auto` plus `--maxprocesses 4` plus `loadfile`;
+- wrapper modes remain unchanged and `load`/`worksteal` remain unsupported by
+  the wrapper;
+- setup-uv remains `enable-cache: false`;
+- the workflow remains one validation job per Python 3.12/3.13 matrix entry;
+- Pyright and pytest remain sequential inside fail-fast
+  `scripts/validate.py`; and
+- generated, golden, and package-smoke checks remain separate serial
+  post-validate checks.
+
+The no-change boundary is explicit: no CI change, no `scripts/validate.py`
+change, no wrapper change, no worker cap/default change, no distribution mode
+change, no `load`/`worksteal` wrapper expansion, no cache policy change, no
+job-level CI split, no Pyright/pytest concurrency, no dependency change, and
+no lockfile change are authorized. `.github/workflows/ci.yml`,
+`scripts/validate.py`, `pyproject.toml`, and `uv.lock` remain unchanged. The
+package version remains `0.1.0`, pytest-xdist remains dev-only, and there are
+no global pytest addopts.
+
+Full-suite, wrapper-track, fresh-session/second-day, and hosted-CI evaluation
+remain deferred optional work requiring separate approval. Slice 3 does not
+authorize or bundle any of them and selects no final CI winner.
+
+Slice 3 adds no Pietto language, public API, CLI/JSON, SQL, compiler, runtime,
+or database feature. It adds no source/compiler/parser/grammar/generated,
+fixture/golden/package behavior, dependency, version, release, tag, publish,
+upload, signing, or attestation change.
+
+The exact Slice 3 Gate 2 allowlist is:
+
+- `docs/plan/maintenance-phase-4-worker-strategy-benchmark-ci-split-evaluation.md`;
+- `docs/spec/maintenance-phase4-benchmark-evidence-decision-v1.md`; and
+- `tests/test_maintenance_phase4_benchmark_evidence_decision.py`.
