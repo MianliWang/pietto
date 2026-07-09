@@ -371,3 +371,77 @@ Slice 6 does not change `scripts/validate.py`, `pyproject.toml`, `uv.lock`,
 source/compiler behavior, parser, grammar, generated files, fixtures, goldens,
 generated checks, golden checks, package smoke, package metadata, package
 version, release, tag, publish, upload, signing, or attestation behavior.
+
+## Slice 7 Scope
+
+Slice 7 is Ruff / Pyright / Generated / Golden / Package Smoke Optimization.
+Slice 7 is a docs/spec/tests-only non-pytest validation optimization lock.
+
+Slice 7 uses timing evidence from natural CI run `29009063082`, for commit
+`41a3ec38ddc30fbdcb3348253c976e36dc7be7b9`. That run completed successfully,
+and the run `headSha` matched the commit.
+
+The current CI authoritative validation command remains:
+
+```bash
+uv run python scripts/validate.py --timings --pytest-workers auto --pytest-dist loadfile --pytest-maxprocesses 4
+```
+
+The Slice 7 timing evidence from run `29009063082` is:
+
+- Python 3.12 job duration: about `116s`;
+- Python 3.13 job duration: about `97s`;
+- Python 3.12 authoritative validation step duration: about `92s`;
+- Python 3.13 authoritative validation step duration: about `75s`;
+- Python 3.12 lockfile: `0.011s`;
+- Python 3.12 format: `0.192s`;
+- Python 3.12 lint: `0.147s`;
+- Python 3.12 production typing: `10.826s`;
+- Python 3.12 test typing: `15.380s`;
+- Python 3.12 tests: `65.534s`;
+- Python 3.12 total: `92.091s`;
+- Python 3.13 lockfile: `0.015s`;
+- Python 3.13 format: `0.220s`;
+- Python 3.13 lint: `0.128s`;
+- Python 3.13 production typing: `9.116s`;
+- Python 3.13 test typing: `15.136s`;
+- Python 3.13 tests: `50.362s`;
+- Python 3.13 total: `74.977s`;
+- generated check: around `1s` per matrix job;
+- golden check: sub-second to about `1s` per matrix job;
+- package smoke: about `8s` on Python 3.12 and about `6s` on Python 3.13.
+
+Slice 7 locks these decisions:
+
+- ruff remains unchanged because format and lint are already negligible;
+- pyright remains unchanged for now; any pyright split or job-level split is
+  deferred;
+- generated/golden remain serial and unchanged because those checks are cheap
+  and deterministic;
+- package smoke remains serial and unchanged because it is
+  package/network/build-sensitive;
+- setup-uv cache policy remains unchanged;
+- job-level CI split remains deferred;
+- more aggressive pytest worker tuning remains deferred;
+- Pyright/pytest concurrent execution remains deferred;
+- hidden concurrency inside scripts/validate.py is rejected for now;
+- no behavior/workflow/script/dependency change in Slice 7.
+
+Generated, golden, and package smoke remain separate serial post-validate CI
+steps:
+
+- `uv run python scripts/check_generated.py`;
+- `uv run python scripts/check_goldens.py`;
+- `uv run python scripts/package_smoke.py`.
+
+Slice 7 does not change `.github/workflows/ci.yml`, `scripts/validate.py`,
+`scripts/check_generated.py`, `scripts/check_goldens.py`,
+`scripts/package_smoke.py`, `pyproject.toml`, `uv.lock`, source/compiler
+behavior, parser, grammar, generated artifacts, fixtures, goldens, package
+smoke, package metadata, package version, release, tag, publish, upload,
+signing, or attestation behavior.
+
+Slice 7 does not run timing benchmark commands, full `scripts/validate.py`, or
+full pytest in Gate 2. Slice 7 does not increase `--pytest-maxprocesses` above
+4, does not change `--pytest-dist loadfile`, and does not switch to a more
+aggressive pytest distribution strategy.
