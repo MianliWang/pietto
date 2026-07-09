@@ -340,7 +340,7 @@ def test_phase8_dependencies_lock_grammar_and_generated_files_match_baseline() -
     assert [
         dependency.split(">", 1)[0].split("=", 1)[0].split("<", 1)[0]
         for dependency in project["dependency-groups"]["dev"]
-    ] == ["mypy", "pyright", "pytest", "pytest-cov", "ruff"]
+    ] == ["mypy", "pyright", "pytest", "pytest-cov", "pytest-xdist", "ruff"]
 
     for path, expected_hash in BASELINE_HASHES.items():
         assert _sha256(REPO_ROOT / path) == expected_hash

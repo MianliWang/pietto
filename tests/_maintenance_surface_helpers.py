@@ -6,7 +6,14 @@ from pathlib import Path
 from typing import cast
 
 EXPECTED_RUNTIME_DEPENDENCY_NAMES = ("antlr4-python3-runtime",)
-EXPECTED_DEV_DEPENDENCY_NAMES = ("mypy", "pyright", "pytest", "pytest-cov", "ruff")
+EXPECTED_DEV_DEPENDENCY_NAMES = (
+    "mypy",
+    "pyright",
+    "pytest",
+    "pytest-cov",
+    "pytest-xdist",
+    "ruff",
+)
 EXPECTED_BUILD_REQUIREMENT_NAMES = ("uv_build",)
 EXPECTED_WORKFLOW_ACTIONS = (
     "actions/checkout",
