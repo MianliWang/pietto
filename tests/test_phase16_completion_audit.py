@@ -36,7 +36,7 @@ PHASE16_ARTIFACT_HASHES = {
         "580ebcfcc78102d902110d864eb80c7f1a57ffcb6b4b33e1160c9abd17ba07a6"
     ),
     SLICE1_AUDIT_PATH: (
-        "47e60234c5800fa1f03bbc3d54c0986ecfc732a4f1f3b76d6675fcb35fb17740"
+        "66e2a778ead3582c6ce51e60656f50c704bf51d74522d0f204ee50d8eddd0c0c"
     ),
     SLICE2_AUDIT_PATH: (
         "e2148d9a87bdbbc3ab970bc52f5c1b0f9ab9683b6765ab8e78da09c13c628a30"
@@ -80,7 +80,7 @@ LOCKED_FILE_HASHES = {
     ),
     "Makefile": "dbd38c41e2af5275c379de0b88c92f3861efb90724c7de1a291e0aa007ce2db7",
     "scripts/validate.py": (
-        "e1d58af9843ffc9255345f90739ec044a8d8ce9a001158d2f4c05409a11ec57c"
+        "567c9ea1836c39d4e2037012e2b6e7795ceb3a9f54e9e3f7d951ae39155a5987"
     ),
     "scripts/check_generated.py": (
         "b126059cd0aebe9535fceb9b0a1b1c09ee1ba22af13f70d276d7e013c49c60e7"

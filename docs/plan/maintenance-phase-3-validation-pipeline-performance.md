@@ -25,6 +25,11 @@ and total elapsed timing output to `scripts/validate.py` while preserving the
 default `scripts/validate.py` behavior and validation semantics when
 `--timings` is not passed.
 
+Slice 4 is Adaptive Pytest Multiprocessing. Slice 4 adds opt-in pytest worker
+flags to `scripts/validate.py`, adds `pytest-xdist` as a dev dependency only,
+and preserves serial validation as the default and explicit fallback. It does
+not change CI workflow behavior.
+
 Ordering contract: add `--timings` before pytest worker flags.
 
 ## Slice 1 Runtime Audit Summary
@@ -45,10 +50,10 @@ The Slice 1 audit established this baseline:
 - CI wall time: about `88s CI wall time`;
 - CI authoritative validation: about `65-70s CI authoritative validation`.
 
-`pytest-xdist` is absent. Before Slice 3, `scripts/validate.py` had no native
-per-step timings, no pytest worker flags, and no xdist distribution option.
-Slice 3 adds optional `--timings` observability only; it still adds no pytest
-worker flags and no xdist distribution option.
+Before Slice 4, `pytest-xdist` was absent. Before Slice 3, `scripts/validate.py`
+had no native per-step timings, no pytest worker flags, and no xdist
+distribution option. Slice 3 adds optional `--timings` observability only; it
+still adds no pytest worker flags and no xdist distribution option.
 
 ## Preferred Route
 
@@ -92,6 +97,11 @@ such as `--pytest-workers`, `--pytest-dist`, or `--pytest-maxprocesses`.
 Pytest multiprocessing must be opt-in through `scripts/validate.py`, not
 through global pytest addopts. Do not set global pytest addopts for `-n auto`.
 The first xdist strategy should prefer `--dist=loadfile`.
+
+Slice 4 makes this local-fast worker path available through
+`--pytest-workers`, `--pytest-dist`, and `--pytest-maxprocesses`. The default
+with no worker flag remains serial and command-equivalent to `uv run pytest`.
+`--pytest-workers off` is an explicit serial fallback.
 
 ### full-release
 
@@ -213,3 +223,43 @@ Slice 3 Gate 2 may edit only:
 Slice 3 Gate 2 intentionally does not use the optional dedicated timing test
 file because the existing validation-entrypoint test can cover default,
 success, failure, fail-fast, explicit argv, and argparse-error behavior clearly.
+
+## Slice 4 Scope
+
+Slice 4 adds opt-in pytest multiprocessing to `scripts/validate.py` as
+developer workflow tooling only. It adds:
+
+- `--pytest-workers off`;
+- `--pytest-workers auto`;
+- `--pytest-workers logical`;
+- `--pytest-workers <positive integer>`;
+- `--pytest-dist loadfile`;
+- `--pytest-dist loadscope`;
+- `--pytest-maxprocesses <positive integer>`.
+
+Default validation remains serial and command-equivalent to Slice 3:
+`uv run pytest`. `--pytest-workers off` also remains serial and emits no
+`-n`, no `--dist`, and no `--maxprocesses`.
+
+When workers are enabled, `--pytest-dist` defaults to `loadfile`.
+`loadscope` is available as an explicit opt-in distribution mode. Integer
+worker mode emits `-n <N>` and is capped by `--pytest-maxprocesses` when the
+cap is provided. `auto` emits `-n auto` and passes `--maxprocesses <N>` when a
+cap is provided. `logical` computes `max(os.cpu_count() or 1, 1)`, applies the
+optional cap, and emits the resulting integer worker count.
+
+Explicit xdist-only options with default serial mode or `--pytest-workers off`
+are rejected before validation gates run. Invalid worker values and invalid
+maxprocesses values are also rejected before any subprocess is invoked.
+
+`--timings` remains independent and composable with worker modes.
+
+Slice 4 adds `pytest-xdist` only to the dev dependency group and updates
+`uv.lock`. It does not add runtime dependencies, global pytest addopts, package
+version changes, CI workflow changes, source/compiler behavior changes,
+parser/grammar/generated changes, fixture/golden changes, package smoke
+changes, package publication, upload, signing, or attestation.
+
+Generated checks, golden checks, hash/private-surface tests, dirty-path
+guards, and package smoke remain serial initially. CI opt-in pytest
+parallelization remains deferred to Slice 6.

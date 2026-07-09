@@ -40,7 +40,7 @@ PHASE13_HASHES = {
         "2383731c2b9d78f8cf73da8e9d47f973b6eef93eb20e0f03d8f045307b788534"
     ),
     "tests/test_phase13_completion_audit.py": (
-        "54840eda9695c1458f834f3177702f6517beab62c4c6147e66b1c09b5889c73e"
+        "82587eb53ea2c48e07d808d8dfa0ab71045e3c4a82df6664f11179646a112944"
     ),
 }
 
@@ -50,7 +50,7 @@ FILE_HASHES = {
         "54484b73f76ae051e0e4f27cc47bc99a0687da7c0e4f40ab4da06a640a54369a"
     ),
     "scripts/validate.py": (
-        "e1d58af9843ffc9255345f90739ec044a8d8ce9a001158d2f4c05409a11ec57c"
+        "567c9ea1836c39d4e2037012e2b6e7795ceb3a9f54e9e3f7d951ae39155a5987"
     ),
     "scripts/check_generated.py": (
         "b126059cd0aebe9535fceb9b0a1b1c09ee1ba22af13f70d276d7e013c49c60e7"

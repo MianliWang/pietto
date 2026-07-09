@@ -46,7 +46,7 @@ EXPECTED_ACTIONS = (
     "astral-sh/setup-uv",
 )
 EXPECTED_BLOBS = {
-    "scripts/validate.py": "85d1659dce28f36e237e8f6ccc9cc2ae1b998db5",
+    "scripts/validate.py": "e1607a47da34ff868ca09a128c8897a6a0dbad21",
     "scripts/check_generated.py": "51081d5337e0659e73f8666ba639c0d4c3fe3a4b",
     "scripts/check_goldens.py": "4f49ddc0a8a6836b68a83a98cc9c05389d4519a3",
     "scripts/package_smoke.py": "f490e50aacd07132948fe2fd826eb5053b5e1c59",
