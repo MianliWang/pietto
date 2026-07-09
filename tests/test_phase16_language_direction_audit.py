@@ -54,7 +54,7 @@ LOCKED_FILE_HASHES = {
     ),
     "Makefile": "dbd38c41e2af5275c379de0b88c92f3861efb90724c7de1a291e0aa007ce2db7",
     "scripts/validate.py": (
-        "6a52494385d5c010101e2304b554ff76afcd9bb44d101783c43b205af688e6a4"
+        "e1d58af9843ffc9255345f90739ec044a8d8ce9a001158d2f4c05409a11ec57c"
     ),
     "scripts/check_generated.py": (
         "b126059cd0aebe9535fceb9b0a1b1c09ee1ba22af13f70d276d7e013c49c60e7"

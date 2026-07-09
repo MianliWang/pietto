@@ -117,7 +117,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "scripts": (
         "scripts",
         4,
-        "8fd4a0d3e26330f426c88720304412ad6d853efd3a6ecb3f54129d495c3f71d0",
+        "8141d7bc90e85ea58faebc0b1eca6b900291edbb6e583a24df3f8e0d1ce98007",
     ),
     "makefile": (
         "Makefile",

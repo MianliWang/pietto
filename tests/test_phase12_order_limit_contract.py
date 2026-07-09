@@ -21,7 +21,7 @@ FILE_HASHES = {
         "54484b73f76ae051e0e4f27cc47bc99a0687da7c0e4f40ab4da06a640a54369a"
     ),
     "scripts/validate.py": (
-        "6a52494385d5c010101e2304b554ff76afcd9bb44d101783c43b205af688e6a4"
+        "e1d58af9843ffc9255345f90739ec044a8d8ce9a001158d2f4c05409a11ec57c"
     ),
     "scripts/check_generated.py": (
         "b126059cd0aebe9535fceb9b0a1b1c09ee1ba22af13f70d276d7e013c49c60e7"
