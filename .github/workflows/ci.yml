@@ -52,7 +52,7 @@ jobs:
         run: uv sync --locked
 
       - name: Run authoritative validation
-        run: uv run python scripts/validate.py
+        run: uv run python scripts/validate.py --timings --pytest-workers auto --pytest-dist loadfile --pytest-maxprocesses 4
 
       - name: Verify generated files
         run: uv run python scripts/check_generated.py

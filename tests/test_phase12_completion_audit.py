@@ -421,10 +421,10 @@ def test_phase11_authoritative_gates_and_ci_are_unchanged() -> None:
 
     workflow = _read(".github/workflows/ci.yml")
     commands = tuple(
-        re.findall(r"(?m)^        run: (uv run python scripts/\S+)$", workflow)
+        re.findall(r"(?m)^        run: (uv run python scripts/.+)$", workflow)
     )
     assert commands == (
-        "uv run python scripts/validate.py",
+        "uv run python scripts/validate.py --timings --pytest-workers auto --pytest-dist loadfile --pytest-maxprocesses 4",
         "uv run python scripts/check_generated.py",
         "uv run python scripts/check_goldens.py",
         "uv run python scripts/package_smoke.py",

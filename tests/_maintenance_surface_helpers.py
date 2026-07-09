@@ -24,7 +24,7 @@ EXPECTED_WORKFLOW_ACTIONS = (
 EXPECTED_PYTHON_MATRIX = ("3.12", "3.13")
 EXPECTED_DIRECT_CI_COMMANDS = (
     "uv sync --locked",
-    "uv run python scripts/validate.py",
+    "uv run python scripts/validate.py --timings --pytest-workers auto --pytest-dist loadfile --pytest-maxprocesses 4",
     "uv run python scripts/check_generated.py",
     "uv run python scripts/check_goldens.py",
     "uv run python scripts/package_smoke.py",

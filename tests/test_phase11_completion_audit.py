@@ -23,7 +23,7 @@ PLAN_PATH = (
 WORKFLOW_PATH = REPO_ROOT / ".github/workflows/ci.yml"
 
 EXPECTED_COMMANDS = (
-    "uv run python scripts/validate.py",
+    "uv run python scripts/validate.py --timings --pytest-workers auto --pytest-dist loadfile --pytest-maxprocesses 4",
     "uv run python scripts/check_generated.py",
     "uv run python scripts/check_goldens.py",
     "uv run python scripts/package_smoke.py",
@@ -271,7 +271,7 @@ def test_package_smoke_remains_temp_clean_install_and_external_cli_only() -> Non
 def test_ci_is_unchanged_minimal_permission_orchestration() -> None:
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
     run_commands = tuple(
-        re.findall(r"(?m)^        run: (uv run python scripts/\S+)$", workflow)
+        re.findall(r"(?m)^        run: (uv run python scripts/.+)$", workflow)
     )
     actions = tuple(
         repository

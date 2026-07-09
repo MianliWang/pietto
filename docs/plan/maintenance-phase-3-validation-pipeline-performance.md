@@ -327,3 +327,47 @@ Slice 5 must not add dependency changes, lockfile changes, workflow changes,
 source/compiler changes, parser changes, generated changes, golden changes,
 package version changes, release changes, tag changes, publish changes, upload
 changes, signing changes, or attestation changes.
+
+## Slice 6 Scope
+
+Slice 6 is CI Opt-in Pytest Parallelization. Slice 6 is a conservative CI
+workflow/docs/spec/static-audit update.
+
+The CI authoritative validation step now uses:
+
+```bash
+uv run python scripts/validate.py --timings --pytest-workers auto --pytest-dist loadfile --pytest-maxprocesses 4
+```
+
+This uses the existing Slice 3 timing flag and Slice 4 pytest worker flags
+through `scripts/validate.py`. Local default `scripts/validate.py` behavior
+remains serial because `uv run python scripts/validate.py` still resolves the
+tests gate to `uv run pytest`. Serial fallback remains available through:
+
+```bash
+uv run python scripts/validate.py --pytest-workers off
+```
+
+Generated, golden, and package smoke remain separate serial post-validate CI
+steps:
+
+- `uv run python scripts/check_generated.py`;
+- `uv run python scripts/check_goldens.py`;
+- `uv run python scripts/package_smoke.py`.
+
+Slice 6 does not introduce a job-level CI split. The existing Python 3.12 /
+3.13 matrix and single validation job shape remain unchanged. Job-level CI split
+remains deferred.
+
+Slice 6 does not change setup-uv cache policy. `enable-cache: false` remains in
+place, and CI continues to use runner-temp `UV_PROJECT_ENVIRONMENT` and
+`UV_CACHE_DIR` paths.
+
+CI timing output is developer validation evidence only. It is not a Pietto
+language feature, public API, JSON surface, SQL surface, compiler feature,
+runtime behavior, database behavior, or package release surface.
+
+Slice 6 does not change `scripts/validate.py`, `pyproject.toml`, `uv.lock`,
+source/compiler behavior, parser, grammar, generated files, fixtures, goldens,
+generated checks, golden checks, package smoke, package metadata, package
+version, release, tag, publish, upload, signing, or attestation behavior.
