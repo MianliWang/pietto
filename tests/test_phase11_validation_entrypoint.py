@@ -56,10 +56,13 @@ def test_validation_script_exists_and_uses_only_standard_library_imports() -> No
 
     assert imported_modules == {
         "__future__",
+        "argparse",
+        "collections.abc",
         "pathlib",
         "shlex",
         "subprocess",
         "sys",
+        "time",
     }
 
 
@@ -105,12 +108,15 @@ def test_validation_runs_from_repo_root_and_keeps_child_output_attached(
 
     monkeypatch.setattr(validate.subprocess, "run", fake_run)
 
-    assert validate.main() == 0
+    assert validate.main(()) == 0
     assert calls == [(command, REPO_ROOT, False) for _, command in EXPECTED_GATES]
 
     output = capsys.readouterr().out
-    for name, command in EXPECTED_GATES:
-        assert f"[validate] {name}: {' '.join(command)}" in output
+    assert output.splitlines() == [
+        f"[validate] {name}: {' '.join(command)}" for name, command in EXPECTED_GATES
+    ]
+    assert " completed in " not in output
+    assert "[validate] total completed in " not in output
 
 
 def test_validation_fails_fast_and_returns_the_failing_exit_code(
@@ -135,8 +141,126 @@ def test_validation_fails_fast_and_returns_the_failing_exit_code(
 
     monkeypatch.setattr(validate.subprocess, "run", fake_run)
 
-    assert validate.main() == 23
+    assert validate.main(()) == 23
     assert calls == [command for _, command in EXPECTED_GATES[:3]]
+
+
+def test_validation_timings_success_path_reports_each_gate_and_total(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    calls: list[tuple[tuple[str, ...], Path, bool]] = []
+    timer_values = iter(
+        (
+            1.0,
+            2.0,
+            2.125,
+            3.0,
+            3.250,
+            4.0,
+            4.375,
+            5.0,
+            5.500,
+            6.0,
+            6.625,
+            7.0,
+            7.750,
+            8.0,
+        )
+    )
+
+    def fake_run(
+        command: tuple[str, ...],
+        *,
+        cwd: Path,
+        check: bool,
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append((command, cwd, check))
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(validate.subprocess, "run", fake_run)
+    monkeypatch.setattr(validate.time, "perf_counter", lambda: next(timer_values))
+
+    assert validate.main(("--timings",)) == 0
+    assert calls == [(command, REPO_ROOT, False) for _, command in EXPECTED_GATES]
+
+    expected_lines: list[str] = []
+    for (name, command), elapsed in zip(
+        EXPECTED_GATES,
+        ("0.125", "0.250", "0.375", "0.500", "0.625", "0.750"),
+        strict=True,
+    ):
+        expected_lines.append(f"[validate] {name}: {' '.join(command)}")
+        expected_lines.append(f"[validate] {name} completed in {elapsed}s")
+    expected_lines.append("[validate] total completed in 7.000s")
+
+    assert capsys.readouterr().out.splitlines() == expected_lines
+
+
+def test_validation_timings_failure_path_reports_failed_gate_and_total(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    calls: list[tuple[str, ...]] = []
+    failing_command = EXPECTED_GATES[2][1]
+    timer_values = iter((1.0, 2.0, 2.500, 3.0, 3.250, 4.0, 4.750, 5.0))
+
+    def fake_run(
+        command: tuple[str, ...],
+        *,
+        cwd: Path,
+        check: bool,
+    ) -> subprocess.CompletedProcess[str]:
+        assert cwd == REPO_ROOT
+        assert check is False
+        calls.append(command)
+        return subprocess.CompletedProcess(
+            command,
+            23 if command == failing_command else 0,
+        )
+
+    monkeypatch.setattr(validate.subprocess, "run", fake_run)
+    monkeypatch.setattr(validate.time, "perf_counter", lambda: next(timer_values))
+
+    assert validate.main(("--timings",)) == 23
+    assert calls == [command for _, command in EXPECTED_GATES[:3]]
+
+    expected_lines: list[str] = []
+    for (name, command), elapsed in zip(
+        EXPECTED_GATES[:3],
+        ("0.500", "0.250", "0.750"),
+        strict=True,
+    ):
+        expected_lines.append(f"[validate] {name}: {' '.join(command)}")
+        expected_lines.append(f"[validate] {name} completed in {elapsed}s")
+    expected_lines.append("[validate] total completed in 4.000s")
+
+    output_lines = capsys.readouterr().out.splitlines()
+    assert output_lines == expected_lines
+    assert not any("production typing" in line for line in output_lines)
+
+
+def test_validation_argparse_errors_do_not_invoke_gates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, ...]] = []
+
+    def fake_run(
+        command: tuple[str, ...],
+        *,
+        cwd: Path,
+        check: bool,
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(validate.subprocess, "run", fake_run)
+
+    with pytest.raises(SystemExit) as raised:
+        validate.main(("--unknown-option",))
+
+    assert raised.value.code == 2
+    assert calls == []
 
 
 def test_slice2_validation_stays_separate_from_later_workflows() -> None:

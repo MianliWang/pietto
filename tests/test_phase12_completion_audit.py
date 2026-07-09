@@ -39,7 +39,7 @@ HISTORICAL_GOLDENS_HASH = (
 BOUNDARY_HASH = "5cbb59281e40d8327bf41c3c6b4bd59718f5c6b3f67103a2bf3dcf6ff8ac578a"
 GENERATED_HASH = "7ac3aea913b1453a972456be0171a2c292991e71bde3e94a4056b4bf537b5c4e"
 EXPECTED_BLOBS = {
-    "scripts/validate.py": "4387101bc68e13539c74c45b595ba742ca17c9c0",
+    "scripts/validate.py": "85d1659dce28f36e237e8f6ccc9cc2ae1b998db5",
     "scripts/check_generated.py": "51081d5337e0659e73f8666ba639c0d4c3fe3a4b",
     "scripts/check_goldens.py": "4f49ddc0a8a6836b68a83a98cc9c05389d4519a3",
     "scripts/package_smoke.py": "f490e50aacd07132948fe2fd826eb5053b5e1c59",

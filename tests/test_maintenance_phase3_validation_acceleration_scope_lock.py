@@ -12,13 +12,20 @@ PLAN_PATH = (
 SPEC_PATH = (
     REPO_ROOT / "docs/spec/maintenance-phase3-validation-acceleration-scope-lock-v1.md"
 )
+TIMING_SPEC_PATH = REPO_ROOT / "docs/spec/maintenance-phase3-validation-timings-v1.md"
 VALIDATE_PATH = REPO_ROOT / "scripts/validate.py"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 WORKFLOW_PATH = REPO_ROOT / ".github/workflows/ci.yml"
 
-ALLOWED_SLICE2_GATE2_PATHS = {
+ALLOWED_SLICE3_GATE2_PATHS = {
     "docs/plan/maintenance-phase-3-validation-pipeline-performance.md",
-    "docs/spec/maintenance-phase3-validation-acceleration-scope-lock-v1.md",
+    "docs/spec/maintenance-phase3-validation-timings-v1.md",
+    "scripts/validate.py",
+    "tests/test_phase11_validation_entrypoint.py",
+    "tests/test_phase11_ci_workflow.py",
+    "tests/test_phase11_completion_audit.py",
+    "tests/test_phase11_packaging_smoke.py",
+    "tests/test_phase12_completion_audit.py",
     "tests/test_maintenance_phase3_validation_acceleration_scope_lock.py",
 }
 
@@ -28,7 +35,6 @@ FORBIDDEN_DIFF_PATHS = (
     ".github/workflows",
     "pyproject.toml",
     "uv.lock",
-    "scripts/validate.py",
     "scripts/check_generated.py",
     "scripts/check_goldens.py",
     "scripts/package_smoke.py",
@@ -46,7 +52,9 @@ def _normalized(path: Path) -> str:
 
 
 def _docs() -> str:
-    return " ".join(_normalized(path) for path in (PLAN_PATH, SPEC_PATH))
+    return " ".join(
+        _normalized(path) for path in (PLAN_PATH, SPEC_PATH, TIMING_SPEC_PATH)
+    )
 
 
 def _git_output(args: list[str]) -> str:
@@ -59,7 +67,7 @@ def _git_output(args: list[str]) -> str:
         stderr=subprocess.PIPE,
     )
     assert result.stderr == ""
-    return result.stdout.strip()
+    return result.stdout.rstrip()
 
 
 def _dirty_paths() -> set[str]:
@@ -78,12 +86,14 @@ def _dirty_paths() -> set[str]:
 def test_plan_and_spec_exist_and_name_the_slice() -> None:
     assert PLAN_PATH.is_file()
     assert SPEC_PATH.is_file()
+    assert TIMING_SPEC_PATH.is_file()
 
     docs = _docs()
     for required in (
         "Maintenance Phase 3",
         "Validation Pipeline Performance & Workflow Acceleration",
         "Acceleration Scope Lock & Validation Profile Contract",
+        "Validation Timings Contract",
         "docs/spec/tests-only",
         "reduce local and CI validation wall-clock time",
         "serial debug fallback",
@@ -173,12 +183,17 @@ def test_serial_initial_checks_and_non_goals_are_locked() -> None:
         assert required in docs, required
 
 
-def test_validate_py_has_no_diff_and_no_new_acceleration_flags() -> None:
-    assert _git_output(["diff", "--", "scripts/validate.py"]) == ""
-
+def test_validate_py_has_timings_but_no_worker_flags() -> None:
     validate_py = _read(VALIDATE_PATH)
-    for forbidden in (
+    for required in (
         "--timings",
+        "time.perf_counter",
+        "[validate] total completed in",
+        "[validate] {name} completed in",
+    ):
+        assert required in validate_py, required
+
+    for forbidden in (
         "--pytest-workers",
         "--pytest-dist",
         "--pytest-maxprocesses",
@@ -204,5 +219,5 @@ def test_ci_workflow_and_forbidden_public_surfaces_have_no_diff() -> None:
         assert _git_output(["diff", "--", relative_path]) == "", relative_path
 
 
-def test_dirty_paths_are_clean_or_exact_slice2_allowlist() -> None:
-    assert _dirty_paths() in (set(), ALLOWED_SLICE2_GATE2_PATHS)
+def test_dirty_paths_are_clean_or_exact_slice3_allowlist() -> None:
+    assert _dirty_paths() in (set(), ALLOWED_SLICE3_GATE2_PATHS)

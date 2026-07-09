@@ -20,6 +20,11 @@ Slice 2 is Acceleration Scope Lock & Validation Profile Contract. Slice 2 is
 docs/spec/tests-only scope lock work. It defines acceleration profiles and
 ordering before any code, dependency, workflow, or package changes.
 
+Slice 3 is Add `scripts/validate.py --timings`. Slice 3 adds optional per-step
+and total elapsed timing output to `scripts/validate.py` while preserving the
+default `scripts/validate.py` behavior and validation semantics when
+`--timings` is not passed.
+
 Ordering contract: add `--timings` before pytest worker flags.
 
 ## Slice 1 Runtime Audit Summary
@@ -40,8 +45,10 @@ The Slice 1 audit established this baseline:
 - CI wall time: about `88s CI wall time`;
 - CI authoritative validation: about `65-70s CI authoritative validation`.
 
-`pytest-xdist` is absent. `scripts/validate.py` currently has no native
+`pytest-xdist` is absent. Before Slice 3, `scripts/validate.py` had no native
 per-step timings, no pytest worker flags, and no xdist distribution option.
+Slice 3 adds optional `--timings` observability only; it still adds no pytest
+worker flags and no xdist distribution option.
 
 ## Preferred Route
 
@@ -171,3 +178,38 @@ uv run pytest tests/test_maintenance_phase3_validation_acceleration_scope_lock.p
 
 Slice 2 Gate 2 must not run full `scripts/validate.py`, full pytest,
 generated checks, golden checks, package smoke, or CI.
+
+## Slice 3 Scope
+
+Slice 3 adds `scripts/validate.py --timings` as standard-library developer
+workflow observability only. Default validate behavior remains unchanged without
+`--timings`: the same `GATES` order, the same pre-gate status lines, the same
+serial execution, the same child output attachment, the same fail-fast behavior,
+and the same return codes.
+
+With `--timings`, each completed gate emits an elapsed timing line and the run
+emits a total elapsed timing line. On failure, the failed gate timing and total
+timing are emitted before returning the failing command's exit code.
+
+Slice 3 keeps worker flags, `pytest-xdist`, CI acceleration, dependency
+changes, package metadata changes, workflow changes, and release operations
+deferred. Serial fallback remains available, and this slice does not change
+source/compiler/public behavior, parser/grammar/generated files, JSON/API
+surfaces, IR, SQL, fixtures, goldens, package smoke, lockfiles, README.md,
+AGENTS.md, or global roadmap files.
+
+Slice 3 Gate 2 may edit only:
+
+- `scripts/validate.py`;
+- `tests/test_phase11_validation_entrypoint.py`;
+- `tests/test_phase11_ci_workflow.py`;
+- `tests/test_phase11_completion_audit.py`;
+- `tests/test_phase11_packaging_smoke.py`;
+- `tests/test_phase12_completion_audit.py`;
+- `tests/test_maintenance_phase3_validation_acceleration_scope_lock.py`;
+- `docs/plan/maintenance-phase-3-validation-pipeline-performance.md`;
+- `docs/spec/maintenance-phase3-validation-timings-v1.md`.
+
+Slice 3 Gate 2 intentionally does not use the optional dedicated timing test
+file because the existing validation-entrypoint test can cover default,
+success, failure, fail-fast, explicit argv, and argparse-error behavior clearly.
