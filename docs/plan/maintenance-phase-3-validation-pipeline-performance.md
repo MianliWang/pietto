@@ -263,3 +263,67 @@ changes, package publication, upload, signing, or attestation.
 Generated checks, golden checks, hash/private-surface tests, dirty-path
 guards, and package smoke remain serial initially. CI opt-in pytest
 parallelization remains deferred to Slice 6.
+
+## Slice 5 Scope
+
+Slice 5 is Parallel Safety Audit & Repairs. Slice 5 is a
+docs/spec/tests-only parallel safety lock with focused static audit coverage.
+
+Slice 5 does not change validation behavior, dependencies, CI, scripts,
+source, generated artifacts, goldens, package smoke, package version, release,
+publish, upload, signing, or attestation behavior.
+
+Slice 5 documents and locks the parallel safety boundary before broader
+pytest-xdist use. It records:
+
+- likely xdist-safe candidate categories;
+- needs-review categories;
+- serial-only initial surfaces;
+- package/network/build-sensitive surfaces;
+- dirty-tree-sensitive surfaces;
+- future xdist admission criteria.
+
+Likely xdist-safe candidate categories include pure parser tests that use
+in-memory source strings, pure semantic/IR/SQL renderer tests that compare
+in-memory diagnostics/facts/IR/SQL strings, unit tests that monkeypatch
+subprocess calls without running real validation commands, and static audit
+tests that only read repository files and allow the current exact dirty
+allowlist. Isolated `tmp_path` tests may be candidates only after file-by-file
+review.
+
+Needs-review categories include `tmp_path` or tempdir tests that write output
+files, tests using `subprocess.run`, `cwd=`, `monkeypatch.chdir`,
+`setenv`/`delenv`, `os.environ`, global caches, `random`, `time.sleep`, shared
+output paths, package/build temp directories, CLI subprocess tests, and broad
+repository scans.
+
+Serial-only initial surfaces include:
+
+- `scripts/check_generated.py`;
+- `scripts/check_goldens.py`;
+- `scripts/package_smoke.py`;
+- the full `scripts/validate.py` release path unless explicit worker flags are
+  passed;
+- dirty-path guards;
+- git status/diff tests;
+- hash/private-surface lock tests;
+- generated/golden/package-smoke audit tests;
+- dependency/workflow/release boundary tests;
+- package build, temporary venv, and installed CLI smoke tests.
+
+Generated checks, golden checks, package smoke, hash/private-surface tests,
+dirty-path guards, and broad release validation remain serial initially.
+Package smoke is package/network/build-sensitive and serial. CI opt-in remains
+deferred to Slice 6. Job-level CI split remains deferred.
+
+Full pytest and full `scripts/validate.py` are not part of Slice 5 Gate 2.
+Focused xdist smoke may be used only on reviewed safe targets:
+
+```bash
+uv run pytest -n 2 --dist=loadfile tests/test_phase11_validation_entrypoint.py tests/test_maintenance_phase3_parallel_safety.py
+```
+
+Slice 5 must not add dependency changes, lockfile changes, workflow changes,
+source/compiler changes, parser changes, generated changes, golden changes,
+package version changes, release changes, tag changes, publish changes, upload
+changes, signing changes, or attestation changes.
