@@ -445,3 +445,117 @@ Slice 7 does not run timing benchmark commands, full `scripts/validate.py`, or
 full pytest in Gate 2. Slice 7 does not increase `--pytest-maxprocesses` above
 4, does not change `--pytest-dist loadfile`, and does not switch to a more
 aggressive pytest distribution strategy.
+
+## Slice 8 Scope
+
+Slice 8 is Developer Workflow Docs. Slice 8 is a docs/spec/tests-only
+developer workflow documentation lock.
+
+Slice 8 consolidates how developers should use completed Maintenance Phase 3
+validation features for daily focused work, local serial fallback,
+local-fast/parallel validation, full-release validation, CI behavior, package
+smoke caveats, debug fallback, and when not to use parallel mode.
+
+Slice 8 does not change workflow, scripts, dependencies, lockfile, source,
+generated artifacts, goldens, package smoke, package version, release, publish,
+upload, signing, or attestation behavior. README.md and AGENTS.md remain
+unchanged in Slice 8. `docs/guide` is not introduced in Slice 8.
+
+Developer workflow guidance is phase-local in this Maintenance Phase 3 plan and
+the dedicated spec
+`docs/spec/maintenance-phase3-developer-workflow-v1.md`.
+
+### Slice 8 Validation Profiles
+
+`focused-dirty` is the daily Gate 2 profile for a dirty tree with an exact
+approved allowlist. Use the exact approved Gate 2 allowlist, run focused
+tests/static audits for the current slice, run `git diff --check`, use
+new-file whitespace checks when adding files, use Ruff format/check on touched
+tests when applicable, and use test Pyright when tests change. Avoid unrelated
+dirty-path guard suites. Avoid full `scripts/validate.py` and full pytest in
+dirty Gate 2 unless explicitly approved.
+
+```bash
+uv run pytest tests/test_current_slice.py
+```
+
+`local-fast` is the opt-in local parallel validation profile. Use `--timings`
+for observability, prefer `loadfile`, use a maxprocess cap when needed, and
+keep serial fallback available.
+
+```bash
+uv run pytest -n auto --dist=loadfile
+uv run python scripts/validate.py --timings --pytest-workers auto --pytest-dist loadfile --pytest-maxprocesses 4
+```
+
+`full-release` is the final confidence profile. It includes `validate.py` plus
+generated/golden/package-smoke checks and natural CI. Generated, golden, and
+package smoke remain serial. Package smoke is not routine dirty Gate 2
+validation unless explicitly approved.
+
+```bash
+uv run python scripts/validate.py --timings
+uv run python scripts/check_generated.py
+uv run python scripts/check_goldens.py
+uv run python scripts/package_smoke.py
+```
+
+### Slice 8 Serial Fallback And Debug Workflow
+
+Prefer focused serial pytest for initial diagnosis of failures/flakes. Use
+serial fallback when debugging. Do not diagnose flakes first through broad
+xdist. Use `--pytest-workers off` for explicit serial fallback.
+
+```bash
+uv run pytest tests/test_current_slice.py
+uv run python scripts/validate.py --pytest-workers off --timings
+uv run python scripts/validate.py --timings
+```
+
+### Slice 8 CI Behavior
+
+Current CI uses pytest worker flags only through `scripts/validate.py`:
+
+```bash
+uv run python scripts/validate.py --timings --pytest-workers auto --pytest-dist loadfile --pytest-maxprocesses 4
+uv run python scripts/check_generated.py
+uv run python scripts/check_goldens.py
+uv run python scripts/package_smoke.py
+```
+
+CI keeps generated/golden/package-smoke as separate serial post-validate
+checks. There is no job-level CI split yet. setup-uv cache policy remains
+unchanged. Local default remains serial.
+
+### Slice 8 Package Smoke Caveats
+
+Package smoke is package/network/build-sensitive. It builds/installs in
+temporary directories and validates installed CLI behavior. It remains serial.
+It is not a release, publish, upload, signing, or attestation operation. Do not
+use package smoke as routine dirty Gate 2 validation unless explicitly
+approved.
+
+### Slice 8 When Not To Use Parallel Mode
+
+Do not use parallel mode for dirty-path guard suites outside the current
+allowlist; hash/private-surface locks unless reviewed for the dirty tree;
+generated/golden/package-smoke audit tests; package build, temporary venv, and
+installed CLI smoke tests; tests using fixed output paths, cwd/env mutation,
+subprocesses, shared caches, random, time.sleep, or broad repository scans
+unless reviewed; or initial diagnosis of flakes/failures.
+
+### Slice 8 Deferred Tuning
+
+Worker cap above 4 remains deferred. Distribution mode change away from
+loadfile remains deferred. Pyright/pytest concurrent execution remains
+deferred. Hidden concurrency inside `scripts/validate.py` remains deferred.
+Job-level CI split remains deferred. Generated/golden/package-smoke
+parallelization remains deferred.
+
+### Slice 8 Non-goals
+
+Slice 8 makes no `scripts/validate.py` change, no `.github/workflows/ci.yml`
+change, no `pyproject.toml` or `uv.lock` change, no dependency change, no
+global pytest addopts, no source/compiler/parser/grammar/generated/fixture/
+golden/package metadata change, and no package version/release/tag/publish/
+upload/signing/attestation behavior change.
