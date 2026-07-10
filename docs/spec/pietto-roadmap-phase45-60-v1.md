@@ -140,3 +140,111 @@ unsupported behavior.
 This roadmap document performs no release operation. Maintenance Phase 2 Slice
 2 authorizes no package version change, tag, release, publish, upload, signing,
 or attestation.
+
+## Post-maintenance Phase 50 Reconciliation
+
+### Historical Maintenance Phase 2 Snapshot
+
+The Roadmap Tree above remains a historical Maintenance Phase 2 roadmap
+snapshot. Its historical Phase 50 row,
+`Import / Module / Export Readiness`, is preserved as planning history.
+That label remains historical, superseded for active sequencing, and deferred.
+It is not behavior authorization. The historical table, including its exact
+Phase 50 and Phase 60 rows, is retained as evidence and is not deleted,
+retroactively rewritten, or reassigned.
+
+Phase 47 through Phase 49 later phase-specific planning treated the old
+roadmap table as historical/superseded for active sequencing.
+
+### Current Phase 50 Readiness-Consolidation Route
+
+Phase 50 now reconciles the roadmap after completed Phase 49 and completed
+Maintenance Phases 3-4. The authoritative current Phase 50 route is:
+
+`Phase 50 - Post-v0.2 Semantic Readiness Consolidation`
+
+Phase 50 is an eleven-slice docs/spec/static-audit-only readiness consolidation
+phase. It defines plans, contracts, matrices, vocabulary, ordering, safety
+boundaries, and explicit non-goals only. Phase 50 implements no compiler or
+runtime behavior. Every slice requires separate authorization and no slice
+automatically authorizes later implementation.
+
+Pietto remains a typed SQL authoring DSL and semantic compiler.
+
+### Current Slice 1 Purpose
+
+Phase 50 Slice 1 is `Roadmap Reconciliation And Strategic Scope Lock`. It is
+only the entry documentation slice for the wider Phase 50 route. Slice 1 locks
+the roadmap relationship, semantic package and capability vocabulary, safety
+boundaries, and later slice ownership. Slices 2 through 11 remain pending and
+separately authorized.
+
+The earlier aggregate/grouped project output-schema candidate remains deferred
+to Slice 3 readiness and tentative Phase 51 foundation work.
+Import/module/export behavior remains deferred to Slice 6 readiness and
+tentative Phase 54 planning. project explain/public metadata remains deferred
+to Slice 10 boundary work and tentative Phase 58 readiness. Public
+lineage/export, project IR/SQL, JOIN/relationship/grain/fanout, and
+runtime/database work remain deferred. None of these planning assignments
+implements behavior in Slice 1.
+
+### Eleven-slice Phase 50 Plan
+
+The dedicated plan is
+`docs/plan/phase-50-semantic-readiness-consolidation.md`. It locks exactly:
+
+1. Roadmap Reconciliation And Strategic Scope Lock
+2. Post-v0.2 Deferred Inventory And Phase 50-60 Replan
+3. Aggregate / Grouped Project Output-Schema Readiness
+4. Type-System Gap And Capability Readiness
+5. Window-Function Readiness
+6. Import / Module / Export Readiness
+7. Semantic Package Model Readiness
+8. PostgreSQL Extension Capability Readiness
+9. Multi-dialect Capability Ecosystem Readiness
+10. Explain / Public Metadata / Package Integration Boundary
+11. Completion Audit And Status Lock
+
+Only Slice 1 is the current documentation slice. Listing Slices 2 through 11
+does not start or complete them.
+
+### Tentative Phase 51-60 Active Planning Route
+
+The current planning-only sequence is:
+
+- Phase 51: Aggregate / Grouped Project Output-Schema Foundation
+- Phase 52: Core Type-System Capability Foundation
+- Phase 53: Window Function Syntax And Capability Contract
+- Phase 54: Import / Module / Export Readiness
+- Phase 55: Semantic Package Asset Schema
+- Phase 56: Capability Profile Static Schema And Declared Checking
+- Phase 57: PostgreSQL Extension Signature-Catalog Readiness
+- Phase 58: Project Explain / Portability / Public Metadata Readiness
+- Phase 59: Package Graph And Lineage / Provenance Integration
+- Phase 60: Multi-dialect Capability Ecosystem Completion Checkpoint
+
+This route remains tentative until Slice 2 reconciles the post-v0.2 deferred
+inventory and finalizes active ordering. It is not automatic behavior
+authorization, and every later phase requires separate approval.
+
+### Strategic Vocabulary And Safety Boundary
+
+The current strategic vocabulary is:
+
+- A semantic package is a static, declarative, reviewable bundle of semantic
+  assets. It is not an executable package or runtime service.
+- A dialect is a SQL syntax/lowering family.
+- A capability profile declares the semantic abilities of a compilation
+  target.
+- A PostgreSQL extension capability profile is a static declared overlay on a
+  PostgreSQL base capability profile.
+- A missing or undeclared capability must fail closed. There is no
+  best-effort lowering or implicit fallback.
+
+Slice 1 authorizes no package manifest, resolver, dependency solver, package
+graph, catalog, signature schema, lowering, diagnostic, public schema, CLI or
+JSON surface, auto-install, `CREATE EXTENSION`, database or schema
+introspection, arbitrary package code execution, plugin, hook, network, or
+registry behavior. Phase 49 private carriers remain private and are not
+consumed or exposed. Concrete extension signatures and lowering remain later,
+separately approved work.
