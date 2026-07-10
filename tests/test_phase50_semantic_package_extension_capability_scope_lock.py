@@ -57,6 +57,11 @@ ALLOWED_PHASE50_SLICE1_GATE2_PATHS = {
     "tests/test_phase50_semantic_package_extension_capability_scope_lock.py",
 }
 
+ALLOWED_PHASE50_SLICE2_REPAIR_GATE2_PATHS = {
+    "tests/test_phase50_semantic_package_extension_capability_scope_lock.py",
+    "tests/test_phase50_post_v02_deferred_readiness_inventory.py",
+}
+
 PROTECTED_PATHS = (
     "README.md",
     "AGENTS.md",
@@ -181,18 +186,33 @@ def test_exact_eleven_slice_route_is_present_once_and_in_order() -> None:
     assert offsets == sorted(offsets)
 
 
-def test_slice1_is_current_and_later_slices_remain_pending() -> None:
-    docs = " ".join(_documents())
+def test_slice1_historical_scope_and_later_authorization_are_locked() -> None:
+    plan, roadmap, spec = _documents()
+    historical_roadmap = roadmap.split(
+        "Slice 2 Finalized Phase 51-60 Active Planning Route", maxsplit=1
+    )[0]
+    historical_slice1_docs = f"{historical_roadmap} {spec}"
 
     for required in (
+        "only the entry documentation slice",
         "Slice 1 is the only current documentation slice",
         "Slices 2 through 11 remain pending",
         "separately authorized",
         "No listed slice automatically authorizes later implementation",
         "Listing Slices 2 through 11 does not start or complete them",
-        "Phase 50 is not complete",
     ):
-        assert required in docs, required
+        assert required in historical_slice1_docs, required
+
+    for current_status in (
+        f"Phase 50 Slice 1 **{SLICE1_TITLE}** completed",
+        "Phase 50 Slice 2 **Post-v0.2 Deferred Inventory And Phase 50-60 Replan** "
+        "is the current docs/spec/static-audit-only documentation slice",
+        "Slices 3 through 11 remain pending",
+        "Phase 50 remains in progress",
+    ):
+        assert current_status in plan, current_status
+
+    docs = " ".join((plan, roadmap, spec))
 
     for forbidden_completion_claim in (
         "Phase 50 is complete",
@@ -316,4 +336,8 @@ def test_package_version_tag_and_dirty_paths_are_locked() -> None:
 
     assert project["version"] == "0.1.0"
     assert _git_output(["tag", "--points-at", "HEAD"]) == ""
-    assert _dirty_paths() in (set(), ALLOWED_PHASE50_SLICE1_GATE2_PATHS)
+    assert _dirty_paths() in (
+        set(),
+        ALLOWED_PHASE50_SLICE1_GATE2_PATHS,
+        ALLOWED_PHASE50_SLICE2_REPAIR_GATE2_PATHS,
+    )

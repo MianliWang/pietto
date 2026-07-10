@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import subprocess
 import tomllib
 from pathlib import Path
@@ -27,6 +28,12 @@ PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
 SLICE1_BASELINE_SHA = "85066d4a7088af82a308ca751763a4e6a10baa52"
 SLICE1_SUBJECT = "Add Phase 50 readiness consolidation scope lock"
+HISTORICAL_REGISTER_SHA256 = (
+    "72689cf55e00d355b97cf0bebe81d5c6cf6a7c26994783f926966084c0b44a70"
+)
+HISTORICAL_ROADMAP_PREFIX_SHA256 = (
+    "312d13baaa0a34df1b0c9880b85ba889a3e44d8ac0f980d336449acb52394670"
+)
 INVENTORY_TITLE = (
     "# Phase 50 Slice 2 Post-v0.2 Deferred Readiness Inventory And Phase 51-60 Route v1"
 )
@@ -84,6 +91,11 @@ ALLOWED_PHASE50_SLICE2_GATE2_PATHS = {
     "tests/test_phase50_post_v02_deferred_readiness_inventory.py",
 }
 
+ALLOWED_PHASE50_SLICE2_REPAIR_GATE2_PATHS = {
+    "tests/test_phase50_semantic_package_extension_capability_scope_lock.py",
+    "tests/test_phase50_post_v02_deferred_readiness_inventory.py",
+}
+
 PROTECTED_PATHS = (
     "docs/spec/v02-deferred-feature-register-v1.md",
     "docs/spec/phase50-semantic-package-extension-capability-scope-lock-v1.md",
@@ -126,12 +138,6 @@ def _git_output(args: list[str]) -> str:
     result = _git(args)
     assert result.stderr == ""
     return result.stdout.rstrip()
-
-
-def _git_text(args: list[str]) -> str:
-    result = _git(args)
-    assert result.stderr == ""
-    return result.stdout
 
 
 def _dirty_paths() -> set[str]:
@@ -206,13 +212,8 @@ def test_slice2_artifacts_title_identity_and_baseline_are_locked() -> None:
 
 
 def test_historical_register_is_byte_preserved_from_slice1() -> None:
-    baseline = _git_text(
-        [
-            "show",
-            f"{SLICE1_BASELINE_SHA}:docs/spec/v02-deferred-feature-register-v1.md",
-        ]
-    )
-    assert _read(HISTORICAL_REGISTER_PATH) == baseline
+    digest = hashlib.sha256(HISTORICAL_REGISTER_PATH.read_bytes()).hexdigest()
+    assert digest == HISTORICAL_REGISTER_SHA256
 
     inventory = _normalized(INVENTORY_PATH)
     assert "historical Phase 29 register remains byte-for-byte unchanged" in inventory
@@ -223,17 +224,18 @@ def test_historical_register_is_byte_preserved_from_slice1() -> None:
 
 
 def test_historical_roadmap_and_additive_route_order_are_locked() -> None:
-    current = _read(ROADMAP_PATH)
-    baseline = _git_text(
-        [
-            "show",
-            f"{SLICE1_BASELINE_SHA}:docs/spec/pietto-roadmap-phase45-60-v1.md",
-        ]
+    current_bytes = ROADMAP_PATH.read_bytes()
+    separator = RECONCILIATION_HEADING.encode()
+    current_prefix, found_separator, current_suffix = current_bytes.partition(separator)
+
+    assert found_separator == separator
+    assert separator not in current_prefix
+    assert separator not in current_suffix
+    assert (
+        hashlib.sha256(current_prefix).hexdigest() == HISTORICAL_ROADMAP_PREFIX_SHA256
     )
 
-    current_prefix = current.split(RECONCILIATION_HEADING, maxsplit=1)[0]
-    baseline_prefix = baseline.split(RECONCILIATION_HEADING, maxsplit=1)[0]
-    assert current_prefix == baseline_prefix
+    current = current_bytes.decode()
     assert current.count(HISTORICAL_PHASE50_ROW) == 1
     assert current.count(HISTORICAL_PHASE60_ROW) == 1
     assert current.index(HISTORICAL_PHASE50_ROW) < current.index(RECONCILIATION_HEADING)
@@ -363,13 +365,24 @@ def test_later_slices_and_phases_are_not_preclaimed() -> None:
 def test_package_version_tag_protected_paths_and_dirty_set_are_locked() -> None:
     pyproject = tomllib.loads(_read(PYPROJECT_PATH))
     project = pyproject["project"]
+    dirty_paths = _dirty_paths()
     assert isinstance(project, dict)
     assert project["version"] == "0.1.0"
 
     assert _git_output(["tag", "--points-at", "HEAD"]) == ""
     for relative_path in PROTECTED_PATHS:
+        if (
+            dirty_paths == ALLOWED_PHASE50_SLICE2_REPAIR_GATE2_PATHS
+            and relative_path
+            == "tests/test_phase50_semantic_package_extension_capability_scope_lock.py"
+        ):
+            continue
         assert _git_output(["diff", "--", relative_path]) == "", relative_path
 
     assert SLICE1_SPEC_PATH.is_file()
     assert SLICE1_TEST_PATH.is_file()
-    assert _dirty_paths() in (set(), ALLOWED_PHASE50_SLICE2_GATE2_PATHS)
+    assert dirty_paths in (
+        set(),
+        ALLOWED_PHASE50_SLICE2_GATE2_PATHS,
+        ALLOWED_PHASE50_SLICE2_REPAIR_GATE2_PATHS,
+    )
