@@ -9,12 +9,18 @@ Phase 50 Slice 1 **Roadmap Reconciliation And Strategic Scope Lock** completed
 at `85066d4a7088af82a308ca751763a4e6a10baa52`, with documented natural CI run
 `29068556545` completing successfully for the exact commit.
 
-Phase 50 Slice 2 **Post-v0.2 Deferred Inventory And Phase 50-60 Replan** is the
-current docs/spec/static-audit-only documentation slice. Slice 2 is not
-complete in Gate 2. Its completion and the effectiveness of its finalized
-active planning route require a separately authorized Gate 3 commit, push, and
-exact natural CI success. Slices 3 through 11 remain pending and separately
-authorized. Phase 50 remains in progress.
+Phase 50 Slice 2 **Post-v0.2 Deferred Inventory And Phase 50-60 Replan**
+completed through original inventory commit
+`d35ed9a58d3fc4b81febbea8fa3540707cbcfde0`, additive repair commit
+`5c66b00d20200d943f0b6e1d0c02813fba18904b`, and documented natural recovery
+CI run `29072890119` completing successfully for the exact repair commit. Its
+finalized Phase 51-60 route is now effective as active planning only.
+
+Phase 50 Slice 3 **Aggregate / Grouped Project Output-Schema Readiness** is the
+current docs/spec/static-audit-only readiness slice. Slice 3 is not complete in
+Gate 2. Its completion requires a separately authorized Gate 3 commit, push,
+and exact natural CI success. Slices 4 through 11 remain pending and separately
+authorized. Phase 50 remains in progress, and Phase 51 remains unstarted.
 
 Every Phase 50 slice is readiness-only. No slice automatically authorizes later
 behavior or a later phase.
@@ -22,16 +28,18 @@ behavior or a later phase.
 ## Trusted Baseline
 
 - Baseline branch: `main`.
-- Baseline HEAD: `85066d4a7088af82a308ca751763a4e6a10baa52`.
+- Baseline HEAD: `5c66b00d20200d943f0b6e1d0c02813fba18904b`.
 - Baseline local `origin/main`:
-  `85066d4a7088af82a308ca751763a4e6a10baa52`.
-- Baseline subject: `Add Phase 50 readiness consolidation scope lock`.
-- Documented natural CI run: `29068556545`, workflow/event `CI / push`,
+  `5c66b00d20200d943f0b6e1d0c02813fba18904b`.
+- Baseline subject: `Repair Phase 50 Slice 2 CI compatibility locks`.
+- Baseline parent/original Slice 2 inventory commit:
+  `d35ed9a58d3fc4b81febbea8fa3540707cbcfde0`.
+- Documented natural recovery CI run: `29072890119`, workflow/event `CI / push`,
   status/conclusion `completed / success`, with an exact `headSha` match.
 - Package version remains `0.1.0`.
 - No tag points at HEAD and there is no exact-match tag.
 
-The CI facts above are repository-local documented evidence. Slice 2 Gate 2
+The CI facts above are repository-local documented evidence. Slice 3 Gate 2
 does not perform network access or independently query GitHub.
 
 ## Phase Identity And Approved Direction
@@ -76,8 +84,8 @@ reconciled append-only below that snapshot; historical rows are not rewritten,
 deleted, or retroactively reassigned.
 
 `docs/spec/v02-deferred-feature-register-v1.md` remains an unchanged historical
-v0.2 register in Slice 1. Slice 2 may add a separate post-v0.2 readiness
-inventory, but it does not gain authority from Slice 1 automatically.
+v0.2 register. Slice 2 added a separate post-v0.2 readiness inventory after its
+own authorization; that inventory does not rewrite historical Phase 29 meaning.
 
 ## Eleven-slice Route
 
@@ -95,8 +103,9 @@ Phase 50 uses exactly this eleven-slice route:
 10. Explain / Public Metadata / Package Integration Boundary
 11. Completion Audit And Status Lock
 
-Slices 2 through 11 remain pending and separately authorized. Listing them is a
-route lock, not implementation or completion.
+Slices 1 and 2 are complete. Slice 3 is current but incomplete. Slices 4
+through 11 remain pending and separately authorized. Listing them is a route
+lock, not implementation or completion.
 
 ## Cross-slice Gate Discipline
 
@@ -153,7 +162,8 @@ network behavior.
 - **Completed-phase relationship:** reconciles Phase 29 through Phase 49 facts
   without rewriting their completion records.
 - **Later handoff:** documents the finalized Phase 51-60 active planning
-  sequence, which becomes effective only after Slice 2 Gate 3 succeeds.
+  sequence, which became effective as planning-only direction after the
+  successful Slice 2 repair Gate 3 and exact natural CI result.
 - **Status vocabulary:** `IMPLEMENTED_STABLE`, `IMPLEMENTED_LIMITED`,
   `PRIVATE_FOUNDATION`, `READINESS_CONTRACT_ONLY`, `EXPLICITLY_DEFERRED`,
   `OUT_OF_SCOPE`, and `NOT_EVIDENCED`. These tokens are inventory-local and do
@@ -166,26 +176,50 @@ network behavior.
   implementation and no compiler, parser, AST, semantic, IR, SQL, CLI, JSON,
   diagnostic, backend, package-resolution, extension, runtime, database, or
   public-surface behavior.
-- **Gate discipline:** Slice 2 is not complete in Gate 2. Its exact four-file
-  allowlist, focused validation, and stop conditions are recorded below. A
-  separate Gate 3 is required before completion or route effectiveness.
+- **Gate discipline:** the historical Slice 2 Gate 2 used the exact four-file
+  allowlist, focused validation, and stop conditions recorded below. Slice 2
+  later completed only through its separately authorized original Gate 3 and
+  additive repair gates.
 
 ## Slice 3 Aggregate / Grouped Project Output-Schema Readiness
 
 - **Objective:** contract future project-private aggregate output fields,
   group-key result fields, aliases, duplicate handling, schema availability,
   origin, dependencies, and lineage.
-- **Artifact type:** readiness contract, matrix, and static-audit test.
+- **Artifact type:** the readiness contract at
+  `docs/spec/phase50-aggregate-grouped-project-output-schema-readiness-v1.md`,
+  decision matrices, and one focused static-audit test.
 - **Prerequisites:** Phase 47 direct row schema, Phase 48 propagation states,
   Phase 49 row-expression/origin/dependency/lineage carriers, and Slice 2.
 - **Completed-phase relationship:** reuses the completed private carrier
   vocabulary without changing existing single-file aggregate behavior.
 - **Later handoff:** prepares Phase 51 Aggregate / Grouped Project Output-Schema
-  Foundation.
+  Foundation as a future separately authorized private implementation phase.
+- **Result-domain decision:** future source-ordered selected outputs keep their
+  selected identity, current canonical type/nullability, immediate private
+  provenance, and an orthogonal private `GROUP_KEY` or `AGGREGATE_RESULT`
+  result role. No public schema or production class name is designed here.
+- **Origin/provenance decision:** selected group keys preserve current direct
+  projection provenance; aggregate results use the existing private
+  `AGGREGATE` origin vocabulary. Let/expression structure belongs to future
+  dependency/lineage facts rather than new provenance subtypes.
+- **Availability decision:** future work reuses exactly `CONCRETE`, `UNKNOWN`,
+  `DEFERRED`, and `BLOCKED`. Duplicate selected output names remain private
+  `UNKNOWN / DUPLICATE_OUTPUT_NAME`; Slice 3 adds no diagnostic.
+- **Clause and qualification decision:** `satisfying:` and grouped `order by:`
+  consume result-domain facts without changing output schema; static `limit`
+  has no field dependency. Downstream resolution remains flat: bare selected
+  output or the immediate upstream relation qualifier only.
+- **Bounded Phase 51 handoff:** current accepted aggregate/grouped forms and
+  current canonical expression types only; bounded private result role,
+  provenance, aggregate-argument dependency/lineage, and concrete downstream
+  propagation only. Phase 51 remains unstarted.
 - **Explicit non-goals and no-behavior boundary:** no aggregate widening,
   project row-schema implementation, public JSON, IR, SQL, CLI, or diagnostics.
-- **Gate discipline:** separate Gate 1/Gate 2; no private carrier is consumed or
-  widened merely because this readiness slice exists.
+- **Gate discipline:** Slice 3 is not complete in Gate 2. It uses the exact
+  five-file allowlist and focused validation below. No private carrier is
+  consumed or widened merely because this readiness slice exists; a separate
+  Gate 3 and exact natural CI success are required for completion.
 
 ## Slice 4 Type-System Gap And Capability Readiness
 
@@ -320,7 +354,7 @@ network behavior.
 
 ## Tentative Phase 51-60 Active Planning Route
 
-The current planning-only sequence is:
+The Slice 1 tentative planning-only sequence was:
 
 - Phase 51: Aggregate / Grouped Project Output-Schema Foundation
 - Phase 52: Core Type-System Capability Foundation
@@ -333,9 +367,10 @@ The current planning-only sequence is:
 - Phase 59: Package Graph And Lineage / Provenance Integration
 - Phase 60: Multi-dialect Capability Ecosystem Completion Checkpoint
 
-This sequence remains tentative until Slice 2 reconciles the post-v0.2 deferred
-inventory and finalizes active ordering. It is not automatic
-behavior authorization, and every later phase requires separate approval.
+This sequence remained tentative until Slice 2 reconciled the post-v0.2
+deferred inventory and finalized active ordering. This section is preserved as
+historical Slice 1 planning evidence. It is not automatic behavior authorization,
+and every later phase still requires separate approval.
 
 ## Slice 2 Finalized Phase 51-60 Active Planning Route
 
@@ -354,9 +389,9 @@ evidence and finalizes the same order for current planning:
 - Phase 60: Multi-dialect Capability Ecosystem Completion Checkpoint
 
 This is the finalized active planning route: the current authoritative sequence
-used to begin future read-only Gate 1 work only. It is active planning only and
-becomes effective only after Slice 2 Gate 3 succeeds with the exact commit,
-push, and natural CI result. It causes no automatic phase start or completion,
+used to begin future read-only Gate 1 work only. It became effective as active
+planning after Slice 2's original commit, additive repair commit, and exact
+natural recovery CI success. It causes no automatic phase start or completion,
 and it provides no implementation authorization, public API or release promise,
 or runtime/database authorization. Every later phase requires separate
 authorization. Stronger future evidence may supersede this sequence only
@@ -393,13 +428,18 @@ Slice 1 scope spec/test and every completed Phase 30-49 artifact unchanged.
 No `src/**`, grammar/generated, script, workflow, dependency, package metadata,
 fixture, golden, example, public schema, or release surface is approved.
 
+Slice 3 preserves every production, public, historical, and release surface
+above. Its only existing-file compatibility changes are the Phase 50 Slice 1
+and Slice 2 static tests named in the exact Slice 3 allowlist. Their historical
+locks remain intact.
+
 ## Package, Version, And Release Boundary
 
-Package version remains `0.1.0`. Slice 1 performed no package version change,
-tag, release, publish, upload, signing, or attestation. Slice 2 Gate 2 performs
-no package version change, tag, release, publish, upload, signing, attestation,
-CI trigger, CI rerun, CI watch, or CI cancellation. Gate 2 must not prepare
-Gate 3.
+Package version remains `0.1.0`. Slices 1 and 2 performed no package version
+change, tag, release, publish, upload, signing, or attestation. Slice 3 Gate 2
+performs no package version change, tag, release, publish, upload, signing,
+attestation, CI trigger, CI rerun, CI watch, or CI cancellation. Gate 2 does
+not stage, commit, push, or prepare Gate 3.
 
 ## Slice 1 Gate 2 Allowlist
 
@@ -479,14 +519,66 @@ Stop without repair or scope expansion if:
 - Ruff, Pyright, focused pytest, compatibility pytest, or an evidence node
   fails.
 
+## Slice 3 Gate 2 Allowlist
+
+Phase 50 Slice 3 Gate 2 is limited to exactly:
+
+- `docs/plan/phase-50-semantic-readiness-consolidation.md`;
+- `docs/spec/phase50-aggregate-grouped-project-output-schema-readiness-v1.md`;
+- `tests/test_phase50_aggregate_grouped_project_output_schema_readiness.py`;
+- `tests/test_phase50_semantic_package_extension_capability_scope_lock.py`;
+- `tests/test_phase50_post_v02_deferred_readiness_inventory.py`.
+
+The final two paths are approved only for narrow mutable-current status and
+exact dirty-set compatibility. No sixth repository path is approved. Nothing
+may be staged, committed, pushed, or operated through CI in Gate 2.
+
+## Slice 3 Focused Validation
+
+Slice 3 Gate 2 validation is limited to:
+
+- exact baseline, five-file dirty-set, cached-diff, and whitespace checks;
+- no-index whitespace checks for the two new files;
+- Ruff format/check and lint for all three changed Python tests;
+- test-project Pyright;
+- complete execution of the Slice 1, Slice 2, and Slice 3 Phase 50 tests;
+- the historical Phase 29 register test;
+- the exact selected Phase 21, 27, 37, 39, 42, and 43 aggregate/grouped nodes;
+- the exact selected Phase 47-49 schema/state/provenance/dependency/lineage
+  nodes;
+- protected-surface, version, and tag checks; and
+- `/tmp/phase50-slice3-gate2-evidence-and-diff.txt` with complete tracked and
+  no-index diffs and full changed Python test contents.
+
+Do not run full pytest, `scripts/validate.py`, generated checks, golden checks,
+package smoke, builds, benchmarks, dependency operations, network commands,
+GitHub CLI, or CI. Once the first Ruff formatting command begins, a failure is
+a stop condition and does not authorize repair.
+
+## Slice 3 Stop Conditions
+
+Stop without repair or scope expansion if:
+
+- the repair baseline or exact five-file dirty set differs;
+- any sixth repository path changes;
+- the roadmap, historical Phase 29 register, Slice 1 scope spec, Slice 2
+  inventory spec, production/public surface, or release surface changes;
+- the four-state matrix proves insufficient;
+- current implemented aggregate behavior is described as absent or widened;
+- private readiness wording implies public behavior or Phase 51 implementation;
+- a compatibility edit weakens a meaningful historical lock or requires
+  non-shallow Git history;
+- a no-index check emits a whitespace diagnostic; or
+- Ruff, Pyright, complete Phase 50 pytest, or an exact evidence node fails.
+
 ## Stop Conditions
 
 Stop without repair or scope expansion if:
 
-- the baseline or exact four-file dirty set differs;
-- any fifth repository path changes;
+- the current Slice 3 baseline or exact five-file dirty set differs;
+- any sixth repository path changes;
 - the historical roadmap table or v0.2 register requires modification;
 - any production/public/release surface appears necessary;
 - a no-index check emits a whitespace diagnostic;
 - Ruff, Pyright, focused pytest, or compatibility pytest fails; or
-- the final diff cannot prove the Slice 1 no-behavior boundary.
+- the final diff cannot prove the Slice 3 no-behavior boundary.

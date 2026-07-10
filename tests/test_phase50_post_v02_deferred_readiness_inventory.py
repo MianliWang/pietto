@@ -96,6 +96,14 @@ ALLOWED_PHASE50_SLICE2_REPAIR_GATE2_PATHS = {
     "tests/test_phase50_post_v02_deferred_readiness_inventory.py",
 }
 
+ALLOWED_PHASE50_SLICE3_GATE2_PATHS = {
+    "docs/plan/phase-50-semantic-readiness-consolidation.md",
+    "docs/spec/phase50-aggregate-grouped-project-output-schema-readiness-v1.md",
+    "tests/test_phase50_aggregate_grouped_project_output_schema_readiness.py",
+    "tests/test_phase50_semantic_package_extension_capability_scope_lock.py",
+    "tests/test_phase50_post_v02_deferred_readiness_inventory.py",
+}
+
 PROTECTED_PATHS = (
     "docs/spec/v02-deferred-feature-register-v1.md",
     "docs/spec/phase50-semantic-package-extension-capability-scope-lock-v1.md",
@@ -195,7 +203,8 @@ def test_slice2_artifacts_title_identity_and_baseline_are_locked() -> None:
 
     inventory = _read(INVENTORY_PATH)
     plan = _normalized(PLAN_PATH)
-    combined = f"{plan} {_normalized(INVENTORY_PATH)}"
+    normalized_inventory = _normalized(INVENTORY_PATH)
+    combined = f"{plan} {normalized_inventory}"
 
     assert INVENTORY_TITLE in inventory
     assert "Post-v0.2 Deferred Inventory And Phase 50-60 Replan" in combined
@@ -205,10 +214,17 @@ def test_slice2_artifacts_title_identity_and_baseline_are_locked() -> None:
     assert SLICE1_SUBJECT in combined
     assert "29068556545" in combined
     assert "Slice 1" in plan and "completed" in plan
-    assert "Slice 2" in plan and "current" in plan
-    assert "Slice 2 is not complete" in combined
-    assert "Slice 2 is complete" not in combined
-    assert "effective only after Slice 2 Gate 3" in combined
+    assert "Slice 2" in plan and "completed" in plan
+    assert "Slice 3" in plan and "current" in plan
+    assert "Slice 2 is not complete" in normalized_inventory
+    assert "effective only after Slice 2 Gate 3" in normalized_inventory
+    for required in (
+        "5c66b00d20200d943f0b6e1d0c02813fba18904b",
+        "29072890119",
+        "Slices 4 through 11 remain pending",
+        "Phase 51 remains unstarted",
+    ):
+        assert required in plan, required
 
 
 def test_historical_register_is_byte_preserved_from_slice1() -> None:
@@ -317,11 +333,10 @@ def test_private_readiness_and_bounded_implementation_boundaries_are_explicit() 
 
 
 def test_finalized_phase51_60_route_is_exact_in_all_three_documents() -> None:
-    documents = (
-        _section(_read(INVENTORY_PATH), INVENTORY_FINAL_HEADING, "##"),
-        _section(_read(PLAN_PATH), PLAN_FINAL_HEADING, "##"),
-        _section(_read(ROADMAP_PATH), ROADMAP_FINAL_HEADING, "###"),
-    )
+    inventory_route = _section(_read(INVENTORY_PATH), INVENTORY_FINAL_HEADING, "##")
+    plan_route = _section(_read(PLAN_PATH), PLAN_FINAL_HEADING, "##")
+    roadmap_route = _section(_read(ROADMAP_PATH), ROADMAP_FINAL_HEADING, "###")
+    documents = (inventory_route, plan_route, roadmap_route)
 
     for section in documents:
         offsets: list[int] = []
@@ -333,7 +348,6 @@ def test_finalized_phase51_60_route_is_exact_in_all_three_documents() -> None:
         normalized = " ".join(section.split()).lower()
         for required in (
             "finalized active planning route",
-            "effective only after slice 2 gate 3",
             "every later phase requires separate authorization",
             "no automatic phase start",
             "no implementation authorization",
@@ -341,18 +355,27 @@ def test_finalized_phase51_60_route_is_exact_in_all_three_documents() -> None:
         ):
             assert required in normalized, required
 
+    for historical_route in (inventory_route, roadmap_route):
+        assert (
+            "effective only after slice 2 gate 3"
+            in " ".join(historical_route.split()).lower()
+        )
+    normalized_plan_route = " ".join(plan_route.split()).lower()
+    assert "became effective as active planning" in normalized_plan_route
+    assert "additive repair commit" in normalized_plan_route
+    assert "exact natural recovery ci success" in normalized_plan_route
+
 
 def test_later_slices_and_phases_are_not_preclaimed() -> None:
-    docs = " ".join(
-        (
-            _normalized(PLAN_PATH),
-            _normalized(ROADMAP_PATH),
-            _normalized(INVENTORY_PATH),
-        )
-    )
+    plan = _normalized(PLAN_PATH)
+    docs = " ".join((plan, _normalized(ROADMAP_PATH), _normalized(INVENTORY_PATH)))
 
-    assert "Slices 3 through 11 remain pending" in docs
-    assert "Slice 2 is complete" not in docs
+    assert "Slices 4 through 11 remain pending" in plan
+    assert (
+        "Phase 50 Slice 3 **Aggregate / Grouped Project Output-Schema Readiness** "
+        "is the current"
+    ) in plan
+    assert "Phase 50 remains in progress" in plan
     for phase in range(51, 61):
         for forbidden in (
             f"Phase {phase} is complete",
@@ -372,7 +395,11 @@ def test_package_version_tag_protected_paths_and_dirty_set_are_locked() -> None:
     assert _git_output(["tag", "--points-at", "HEAD"]) == ""
     for relative_path in PROTECTED_PATHS:
         if (
-            dirty_paths == ALLOWED_PHASE50_SLICE2_REPAIR_GATE2_PATHS
+            dirty_paths
+            in (
+                ALLOWED_PHASE50_SLICE2_REPAIR_GATE2_PATHS,
+                ALLOWED_PHASE50_SLICE3_GATE2_PATHS,
+            )
             and relative_path
             == "tests/test_phase50_semantic_package_extension_capability_scope_lock.py"
         ):
@@ -385,4 +412,5 @@ def test_package_version_tag_protected_paths_and_dirty_set_are_locked() -> None:
         set(),
         ALLOWED_PHASE50_SLICE2_GATE2_PATHS,
         ALLOWED_PHASE50_SLICE2_REPAIR_GATE2_PATHS,
+        ALLOWED_PHASE50_SLICE3_GATE2_PATHS,
     )
