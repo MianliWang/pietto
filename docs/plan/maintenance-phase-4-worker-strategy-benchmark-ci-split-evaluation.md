@@ -355,3 +355,133 @@ The exact Slice 3 Gate 2 allowlist is:
 - `docs/plan/maintenance-phase-4-worker-strategy-benchmark-ci-split-evaluation.md`;
 - `docs/spec/maintenance-phase4-benchmark-evidence-decision-v1.md`; and
 - `tests/test_maintenance_phase4_benchmark_evidence_decision.py`.
+
+## Slice 4 Completion Audit / Status Lock
+
+### Slice 4 Purpose And Gate Status
+
+Slice 4 is **Completion Audit / Status Lock**. It is a docs/spec/tests-only
+completion audit/status lock that inventories and audits completed Slices 1
+through 3. Slice 4 changes no validation behavior and runs no benchmark.
+
+Maintenance Phase 4 is not complete during Gate 2, and Slice 4 is not complete
+during Gate 2. Gate 2 records only a conditional completion lock and does not
+claim Gate 3 has already succeeded.
+
+Maintenance Phase 4 can be marked complete only after Slice 4 Gate 3 records
+all of the following:
+
+- the final commit containing the exact Slice 4 allowlist;
+- a normal push of that commit;
+- the natural CI run finishing `completed / success`; and
+- an exact headSha match between that natural CI run and the final commit.
+
+If Gate 3 push or natural CI does not succeed, Phase 4 remains incomplete.
+After successful Gate 3, Phase 4 is complete as a benchmark protocol,
+controlled local evidence, and no-change decision phase only.
+
+### Completed Slice Inventory
+
+Slices 1 through 3 are complete and are recorded as follows.
+
+#### Slice 1 Worker Strategy Benchmark Protocol
+
+- Commit: `9bdf1aebce0dc5f7985c95f36bb0d20b0a996fb3`.
+- Subject: `Add Maintenance Phase 4 worker benchmark protocol`.
+- Natural CI run: `29054341393`.
+- Workflow/event: `CI / push`.
+- Status/conclusion: `completed / success`.
+- The CI `headSha` was an exact headSha match with the commit.
+- Delivery was docs/spec/static-audit benchmark protocol only.
+
+#### Slice 2 Controlled Clean-local Benchmark Execution
+
+- The slice was evidence-only `/tmp` work and created no repository commit.
+- `effective_cpu=20`.
+- The run covered 7 configs, 7 warmups, 35 measured samples, and 42 total
+  runs.
+- Every config had one warmup and five measured samples.
+- All direct-pytest safe-cohort rows exited 0 with `294 passed`.
+- There were no failures, retries, hangs, worker crashes, or stop condition.
+- Fastest median: `serial_control` at `1.568251s`.
+- Decision baseline: `ci_auto_cap4_loadfile` at `1.714843s`.
+- The improvement was `8.548%`, below the required `10%` median
+  threshold.
+- no row met threshold.
+- The provisional candidate was none.
+
+#### Slice 3 Benchmark Evidence Decision / No-change Lock
+
+- Commit: `024b23a5a000cbedf0415880bf365173ad250db4`.
+- Subject: `Add Phase 4 benchmark no-change decision`.
+- Natural CI run: `29057920189`.
+- Workflow/event: `CI / push`.
+- Status/conclusion: `completed / success`.
+- The CI `headSha` was an exact headSha match with the commit.
+- Delivery was a docs/spec/tests-only no-change decision lock.
+- No final CI winner was selected.
+
+### Final No-change Decision
+
+The completed evidence preserves a no-change decision:
+
+- no CI change is authorized;
+- no scripts/validate.py change is authorized;
+- no wrapper change is authorized;
+- no worker cap/default change is authorized;
+- no distribution mode change is authorized;
+- no cache policy change is authorized;
+- no job-level CI split is authorized;
+- no Pyright/pytest concurrency is authorized;
+- no load/worksteal wrapper support is authorized;
+- no dependency or lockfile change is authorized; and
+- no final CI winner is selected.
+
+### Preserved Current Behavior
+
+The current CI command remains exactly:
+
+```bash
+uv run python scripts/validate.py --timings --pytest-workers auto --pytest-dist loadfile --pytest-maxprocesses 4
+```
+
+The local default remains serial. CI remains
+`auto/maxprocesses-4/loadfile`. `scripts/validate.py` and
+`.github/workflows/ci.yml` remain unchanged. `pyproject.toml` and
+`uv.lock` remain unchanged. pytest-xdist remains dev-only, and there are
+no global pytest addopts.
+
+The workflow remains one validation job per Python 3.12/3.13 matrix entry.
+Generated, golden, and package-smoke checks remain separate serial
+post-validate checks. setup-uv remains `enable-cache: false`. Pyright and
+pytest remain sequential inside fail-fast `scripts/validate.py`.
+
+There is no worker cap/default/distribution change, no dependency/package/
+release behavior change, and no wrapper expansion. The package version remains
+`0.1.0`.
+
+### Deferred Future Work
+
+Completion does not authorize later full-suite evaluation, wrapper-track
+evaluation, fresh-session/second-day repeat, hosted-CI evaluation, job-level
+CI split, or Pyright/pytest concurrency. load/worksteal wrapper support also
+remains unauthorized.
+
+All such work remains optional, deferred, and separately approved. Phase 4
+completion does not authorize any of it.
+
+### Package And Release Boundary
+
+No package release or package version bump is part of Phase 4 completion.
+There is no tag, no release, no publish, no upload, no signing, and no
+attestation in Slice 4.
+
+Slice 4 adds no Pietto language, API, JSON, SQL, compiler, runtime, database,
+source, parser, grammar, generated, fixture, golden, package, or public
+behavior change. It changes neither `README.md` nor `AGENTS.md`.
+
+The exact Slice 4 Gate 2 allowlist is:
+
+- `docs/plan/maintenance-phase-4-worker-strategy-benchmark-ci-split-evaluation.md`;
+- `docs/spec/maintenance-phase4-completion-audit-v1.md`; and
+- `tests/test_maintenance_phase4_completion_audit.py`.
