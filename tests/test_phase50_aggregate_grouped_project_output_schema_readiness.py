@@ -57,6 +57,15 @@ ALLOWED_PHASE50_SLICE3_GATE2_PATHS = {
     "tests/test_phase50_post_v02_deferred_readiness_inventory.py",
 }
 
+ALLOWED_PHASE50_SLICE4_GATE2_PATHS = {
+    "docs/plan/phase-50-semantic-readiness-consolidation.md",
+    "docs/spec/phase50-type-system-gap-capability-readiness-v1.md",
+    "tests/test_phase50_type_system_gap_capability_readiness.py",
+    "tests/test_phase50_semantic_package_extension_capability_scope_lock.py",
+    "tests/test_phase50_post_v02_deferred_readiness_inventory.py",
+    "tests/test_phase50_aggregate_grouped_project_output_schema_readiness.py",
+}
+
 PROTECTED_PATHS = (
     "README.md",
     "AGENTS.md",
@@ -133,11 +142,15 @@ def test_slice3_artifacts_identity_baseline_and_current_status_are_locked() -> N
     for required in (
         "Phase 50 Slice 1 **Roadmap Reconciliation And Strategic Scope Lock** completed",
         "Phase 50 Slice 2 **Post-v0.2 Deferred Inventory And Phase 50-60 Replan** completed",
-        "Phase 50 Slice 3 **Aggregate / Grouped Project Output-Schema Readiness** is the current",
-        "Slice 3 is not complete in Gate 2",
-        "Slices 4 through 11 remain pending",
+        "Phase 50 Slice 3 **Aggregate / Grouped Project Output-Schema Readiness** completed",
+        "7bd50022859a5e3d202c26d67bed1a723388048a",
+        "29082580976",
+        "Phase 50 Slice 4 **Type-System Gap And Capability Readiness** is the current",
+        "Slice 4 is not complete in Gate 2",
+        "Slices 5 through 11 remain pending",
         "Phase 50 remains in progress",
         "Phase 51 remains unstarted",
+        "Phase 52 remain unstarted",
     ):
         assert required in plan, required
 
@@ -323,4 +336,8 @@ def test_package_version_tag_protected_paths_and_dirty_set_are_locked() -> None:
     for relative_path in PROTECTED_PATHS:
         assert _git_output(["diff", "--", relative_path]) == "", relative_path
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
-    assert _dirty_paths() in (set(), ALLOWED_PHASE50_SLICE3_GATE2_PATHS)
+    assert _dirty_paths() in (
+        set(),
+        ALLOWED_PHASE50_SLICE3_GATE2_PATHS,
+        ALLOWED_PHASE50_SLICE4_GATE2_PATHS,
+    )

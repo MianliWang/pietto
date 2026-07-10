@@ -70,6 +70,15 @@ ALLOWED_PHASE50_SLICE3_GATE2_PATHS = {
     "tests/test_phase50_post_v02_deferred_readiness_inventory.py",
 }
 
+ALLOWED_PHASE50_SLICE4_GATE2_PATHS = {
+    "docs/plan/phase-50-semantic-readiness-consolidation.md",
+    "docs/spec/phase50-type-system-gap-capability-readiness-v1.md",
+    "tests/test_phase50_type_system_gap_capability_readiness.py",
+    "tests/test_phase50_semantic_package_extension_capability_scope_lock.py",
+    "tests/test_phase50_post_v02_deferred_readiness_inventory.py",
+    "tests/test_phase50_aggregate_grouped_project_output_schema_readiness.py",
+}
+
 PROTECTED_PATHS = (
     "README.md",
     "AGENTS.md",
@@ -216,9 +225,13 @@ def test_slice1_historical_scope_and_later_authorization_are_locked() -> None:
         "Phase 50 Slice 2 **Post-v0.2 Deferred Inventory And Phase 50-60 Replan** "
         "completed",
         "Phase 50 Slice 3 **Aggregate / Grouped Project Output-Schema Readiness** "
-        "is the current docs/spec/static-audit-only readiness slice",
-        "Slices 4 through 11 remain pending",
+        "completed",
+        "Phase 50 Slice 4 **Type-System Gap And Capability Readiness** is the "
+        "current docs/spec/static-audit-only readiness slice",
+        "Slice 4 is not complete in Gate 2",
+        "Slices 5 through 11 remain pending",
         "Phase 50 remains in progress",
+        "Phase 52 remain unstarted",
     ):
         assert current_status in plan, current_status
 
@@ -354,4 +367,5 @@ def test_package_version_tag_and_dirty_paths_are_locked() -> None:
         ALLOWED_PHASE50_SLICE1_GATE2_PATHS,
         ALLOWED_PHASE50_SLICE2_REPAIR_GATE2_PATHS,
         ALLOWED_PHASE50_SLICE3_GATE2_PATHS,
+        ALLOWED_PHASE50_SLICE4_GATE2_PATHS,
     )

@@ -16,11 +16,16 @@ completed through original inventory commit
 CI run `29072890119` completing successfully for the exact repair commit. Its
 finalized Phase 51-60 route is now effective as active planning only.
 
-Phase 50 Slice 3 **Aggregate / Grouped Project Output-Schema Readiness** is the
-current docs/spec/static-audit-only readiness slice. Slice 3 is not complete in
-Gate 2. Its completion requires a separately authorized Gate 3 commit, push,
-and exact natural CI success. Slices 4 through 11 remain pending and separately
-authorized. Phase 50 remains in progress, and Phase 51 remains unstarted.
+Phase 50 Slice 3 **Aggregate / Grouped Project Output-Schema Readiness**
+completed at `7bd50022859a5e3d202c26d67bed1a723388048a`, with documented
+natural CI run `29082580976` completing successfully for the exact commit.
+
+Phase 50 Slice 4 **Type-System Gap And Capability Readiness** is the current
+docs/spec/static-audit-only readiness slice. Slice 4 is not complete in Gate 2.
+Its completion requires a separately authorized Gate 3 commit, push, and exact
+natural CI success. Slices 5 through 11 remain pending and separately
+authorized. Phase 50 remains in progress. Phase 51 and Phase 52 remain
+unstarted.
 
 Every Phase 50 slice is readiness-only. No slice automatically authorizes later
 behavior or a later phase.
@@ -28,18 +33,18 @@ behavior or a later phase.
 ## Trusted Baseline
 
 - Baseline branch: `main`.
-- Baseline HEAD: `5c66b00d20200d943f0b6e1d0c02813fba18904b`.
+- Baseline HEAD: `7bd50022859a5e3d202c26d67bed1a723388048a`.
 - Baseline local `origin/main`:
+  `7bd50022859a5e3d202c26d67bed1a723388048a`.
+- Baseline subject: `Add Phase 50 aggregate grouped schema readiness`.
+- Baseline parent/Slice 2 repair commit:
   `5c66b00d20200d943f0b6e1d0c02813fba18904b`.
-- Baseline subject: `Repair Phase 50 Slice 2 CI compatibility locks`.
-- Baseline parent/original Slice 2 inventory commit:
-  `d35ed9a58d3fc4b81febbea8fa3540707cbcfde0`.
-- Documented natural recovery CI run: `29072890119`, workflow/event `CI / push`,
+- Documented natural Slice 3 CI run: `29082580976`, workflow/event `CI / push`,
   status/conclusion `completed / success`, with an exact `headSha` match.
 - Package version remains `0.1.0`.
 - No tag points at HEAD and there is no exact-match tag.
 
-The CI facts above are repository-local documented evidence. Slice 3 Gate 2
+The CI facts above are repository-local documented evidence. Slice 4 Gate 2
 does not perform network access or independently query GitHub.
 
 ## Phase Identity And Approved Direction
@@ -103,7 +108,7 @@ Phase 50 uses exactly this eleven-slice route:
 10. Explain / Public Metadata / Package Integration Boundary
 11. Completion Audit And Status Lock
 
-Slices 1 and 2 are complete. Slice 3 is current but incomplete. Slices 4
+Slices 1 through 3 are complete. Slice 4 is current but incomplete. Slices 5
 through 11 remain pending and separately authorized. Listing them is a route
 lock, not implementation or completion.
 
@@ -216,27 +221,78 @@ network behavior.
   propagation only. Phase 51 remains unstarted.
 - **Explicit non-goals and no-behavior boundary:** no aggregate widening,
   project row-schema implementation, public JSON, IR, SQL, CLI, or diagnostics.
-- **Gate discipline:** Slice 3 is not complete in Gate 2. It uses the exact
-  five-file allowlist and focused validation below. No private carrier is
-  consumed or widened merely because this readiness slice exists; a separate
-  Gate 3 and exact natural CI success are required for completion.
+- **Gate discipline:** Slice 3 completed only after its separately authorized
+  Gate 3 commit, push, and exact natural CI success. No private carrier was
+  consumed or widened merely because this readiness slice completed.
 
 ## Slice 4 Type-System Gap And Capability Readiness
 
 - **Objective:** reconcile temporal, UUID, Enum, Decimal precision/scale,
-  Any/Bytes/Json, domain/refinement, operator, nullability, and native database
-  type gaps into capability prerequisites.
-- **Artifact type:** type/capability readiness matrix and static-audit test.
-- **Prerequisites:** Phase 30, Phase 36, Phase 41, Phase 42, and Slice 2
-  contracts.
-- **Completed-phase relationship:** preserves current supported, limited,
-  metadata-only, private, and fail-closed type postures.
-- **Later handoff:** prepares Phase 52 Core Type-System Capability Foundation
-  and later capability profile work.
-- **Explicit non-goals and no-behavior boundary:** no new type, literal, cast,
-  operator, promotion, native metadata, SQL, or public schema behavior.
-- **Gate discipline:** separate Gate 1/Gate 2 with no type-system implementation
-  file implied by the matrix.
+  Any/Bytes/Json, alias/domain/refinement, operator/type-pair, aggregate,
+  nullability, IR/backend, and native database type gaps into exact capability
+  prerequisites.
+- **Artifact type:** this plan update, the readiness contract at
+  `docs/spec/phase50-type-system-gap-capability-readiness-v1.md`, layered
+  decision matrices, one focused static-audit test, and three narrow Phase 50
+  compatibility updates.
+- **Prerequisites:** completed Phase 30, Phase 36, Phase 41, Phase 42, Phase
+  47-49 private row facts, Slice 2 inventory, and completed Slice 3.
+- **Completed-phase relationship:** preserves the exact 11-name builtin
+  registry (`Any`, `Bool`, `Bytes`, `Date`, `Decimal`, `Float`, `Int`, `Json`,
+  `Text`, `Timestamp`, `UUID`), declaration-backed non-builtin Enum, declared
+  and canonical alias identity, shape definitions, unknown sentinels, current
+  operation/aggregate behavior, and private project/type facts.
+- **Layered-support decision:** identity/resolution, declaration, literal,
+  projection/reference, operator/scalar-function, aggregate, semantic/IR,
+  private project, public metadata, backend expression lowering, and native
+  mapping are independent. A resolving type is not globally implemented.
+- **Capability-dimension decision:** readiness uses exactly 19 orthogonal
+  dimensions: identity/classification; declaration/resolution; literal
+  construction; cast/coercion; projection/reference; null-check behavior;
+  equality/comparison; ordering/grouping; arithmetic; scalar function;
+  aggregate argument; aggregate result; general nullability propagation;
+  window readiness; private project representation; IR representability;
+  backend expression lowering; public metadata posture; and native database
+  mapping.
+- **Fail-closed decision:** missing or conflicting capability evidence fails
+  closed. Type identity does not imply operation support, backend expression
+  success does not imply native storage support, and no universal
+  `supports_type` boolean is designed.
+- **Decimal decision:** logical Decimal behavior, private validated
+  `Decimal(p,s)`/direct-field facts, and absent computed/aggregate/public/IR/SQL
+  precision guarantees remain distinct. No fusion, overflow, rounding, or
+  backend-native formula is promised.
+- **Temporal decision:** Date and Timestamp keep current bounded projection,
+  generic comparison, count/count_distinct, and min/max surfaces. DateTime,
+  Time, Interval, typed temporal literals, arithmetic, timezone, precision,
+  interval algebra, and native mapping remain unsupported or deferred.
+- **Boundary-type decision:** UUID remains `limited_frozen`; Enum remains
+  declaration-backed `metadata_only` and non-builtin; Bytes and Json remain
+  `deferred_builtin` with bounded direct-count behavior; Any is not runtime
+  dynamic typing. Existing public `support_posture` vocabulary is unchanged.
+- **Alias/domain decision:** aliases preserve declared and canonical identity;
+  canonical expansion does not grant every operation. Parsed `ensure` is not a
+  domain system. Domains, refinements, Money/Currency/units, native domains,
+  validation execution, and coercion behavior remain outside the active route
+  absent replan.
+- **Native-mapping decision:** semantic identity, IR representability, backend
+  expression lowering, and native physical mapping are separate. No DDL/type
+  catalog, introspection, db pull, driver conversion, storage precision,
+  collation, timezone, extension discovery, or runtime conversion is added.
+- **Bounded Phase 52 handoff:** a later separately authorized Phase 52 may start
+  with private immutable deterministic current-behavior-only capability facts
+  and fail-closed lookup. It may not add a builtin, syntax, literal, cast,
+  operator, Decimal fusion, UUID/Enum widening, native mapping, public metadata,
+  CLI/JSON, package/extension schema, backend, runtime, database, or release
+  behavior. Phase 52 remains unstarted and its slices are not finalized here.
+- **Explicit non-goals and no-behavior boundary:** Slice 4 implements no
+  compiler or runtime behavior. It adds no type, literal, cast, operator,
+  promotion, aggregate behavior, nullability behavior, production capability
+  carrier/API, native metadata, SQL, public schema, package version, or release
+  behavior.
+- **Gate discipline:** Slice 4 is not complete in Gate 2. It uses the exact
+  six-file allowlist and focused validation below. Completion requires a
+  separately authorized Gate 3 commit, push, and exact natural CI success.
 
 ## Slice 5 Window-Function Readiness
 
@@ -433,13 +489,19 @@ above. Its only existing-file compatibility changes are the Phase 50 Slice 1
 and Slice 2 static tests named in the exact Slice 3 allowlist. Their historical
 locks remain intact.
 
+Slice 4 preserves every surface above, the roadmap, all completed Slice 1-3
+specs, the historical Phase 29 register, and every production/public/release
+surface. Its only existing-file compatibility changes are the three Phase 50
+tests named in the exact Slice 4 allowlist, limited to current status and exact
+dirty-set compatibility while preserving their historical locks.
+
 ## Package, Version, And Release Boundary
 
-Package version remains `0.1.0`. Slices 1 and 2 performed no package version
-change, tag, release, publish, upload, signing, or attestation. Slice 3 Gate 2
-performs no package version change, tag, release, publish, upload, signing,
-attestation, CI trigger, CI rerun, CI watch, or CI cancellation. Gate 2 does
-not stage, commit, push, or prepare Gate 3.
+Package version remains `0.1.0`. Slices 1 through 3 performed no package
+version change, tag, release, publish, upload, signing, or attestation. Slice 4
+Gate 2 performs no package version change, tag, release, publish, upload,
+signing, attestation, CI trigger, CI rerun, CI watch, or CI cancellation. Gate
+2 does not stage, commit, push, or prepare Gate 3.
 
 ## Slice 1 Gate 2 Allowlist
 
@@ -571,14 +633,73 @@ Stop without repair or scope expansion if:
 - a no-index check emits a whitespace diagnostic; or
 - Ruff, Pyright, complete Phase 50 pytest, or an exact evidence node fails.
 
+## Slice 4 Gate 2 Allowlist
+
+Phase 50 Slice 4 Gate 2 is limited to exactly:
+
+- `docs/plan/phase-50-semantic-readiness-consolidation.md`;
+- `docs/spec/phase50-type-system-gap-capability-readiness-v1.md`;
+- `tests/test_phase50_type_system_gap_capability_readiness.py`;
+- `tests/test_phase50_semantic_package_extension_capability_scope_lock.py`;
+- `tests/test_phase50_post_v02_deferred_readiness_inventory.py`;
+- `tests/test_phase50_aggregate_grouped_project_output_schema_readiness.py`.
+
+The final three paths are approved only for narrow current-status,
+historical/current scope separation, exact dirty-set compatibility, and the
+protected-path exception required by this exact Slice 4 dirty set. No seventh
+repository path is approved. Nothing may be staged, committed, pushed, or
+operated through CI in Gate 2.
+
+## Slice 4 Focused Validation
+
+Slice 4 Gate 2 validation is limited to:
+
+- exact baseline, six-file dirty-set, staged-set, and whitespace checks;
+- no-index whitespace checks for the two new files;
+- Ruff format/check and lint for all four changed Python tests;
+- test-project Pyright;
+- the focused Slice 4 static test;
+- complete execution of the Slice 1, Slice 2, Slice 3, and Slice 4 Phase 50
+  test files;
+- the historical Phase 29 register test and exact selected Phase 30, 36, 38,
+  41, 42, 43, 47, and 49 type/nullability/privacy evidence nodes;
+- history-independence, protected-surface, version, tag, and staged-set checks;
+  and
+- `/tmp/phase50-slice4-gate2-evidence-and-diff.txt` with complete tracked and
+  no-index diffs and full changed Python test contents.
+
+Do not run full pytest, `scripts/validate.py`, generated checks, golden checks,
+package smoke, builds, benchmarks, dependency operations, network commands,
+GitHub CLI, or CI. Once the first Ruff formatting command begins, a failure is
+a stop condition and does not authorize repair.
+
+## Slice 4 Stop Conditions
+
+Stop without repair or scope expansion if:
+
+- the completed Slice 3 baseline or exact six-file dirty set differs;
+- any seventh repository path changes;
+- the roadmap, Phase 29 register, completed Slice 1-3 specs, production/public
+  surface, or release surface changes;
+- the exact 11-name builtin inventory cannot be preserved or Enum would need
+  to become a builtin;
+- a production capability carrier, new behavior, or public schema appears
+  necessary;
+- a compatibility edit weakens a meaningful historical lock or requires
+  parent history, runtime `/tmp` evidence, or network access;
+- Slice 5 or Phase 52 work appears necessary;
+- a no-index check emits a whitespace diagnostic; or
+- Ruff, Pyright, focused Slice 4 pytest, complete Phase 50 pytest, or an exact
+  evidence node fails.
+
 ## Stop Conditions
 
 Stop without repair or scope expansion if:
 
-- the current Slice 3 baseline or exact five-file dirty set differs;
-- any sixth repository path changes;
+- the current Slice 4 baseline or exact six-file dirty set differs;
+- any seventh repository path changes;
 - the historical roadmap table or v0.2 register requires modification;
 - any production/public/release surface appears necessary;
 - a no-index check emits a whitespace diagnostic;
 - Ruff, Pyright, focused pytest, or compatibility pytest fails; or
-- the final diff cannot prove the Slice 3 no-behavior boundary.
+- the final diff cannot prove the Slice 4 no-behavior boundary.
