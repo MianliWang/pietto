@@ -248,3 +248,58 @@ introspection, arbitrary package code execution, plugin, hook, network, or
 registry behavior. Phase 49 private carriers remain private and are not
 consumed or exposed. Concrete extension signatures and lowering remain later,
 separately approved work.
+
+### Slice 2 Finalized Phase 51-60 Active Planning Route
+
+Phase 50 Slice 2 is classification and sequencing-only. Its current inventory
+is `docs/spec/phase50-post-v02-deferred-readiness-inventory-v1.md`. Slice 2
+implements no compiler or runtime behavior and is not complete before a
+separately authorized Gate 3 succeeds.
+
+The inventory uses exactly these local status tokens:
+
+- `IMPLEMENTED_STABLE`
+- `IMPLEMENTED_LIMITED`
+- `PRIVATE_FOUNDATION`
+- `READINESS_CONTRACT_ONLY`
+- `EXPLICITLY_DEFERRED`
+- `OUT_OF_SCOPE`
+- `NOT_EVIDENCED`
+
+These tokens do not replace existing Semantic Metadata Artifact
+`support_posture` values.
+
+Slice 2 finalizes this current Phase 51-60 sequence:
+
+- Phase 51: Aggregate / Grouped Project Output-Schema Foundation
+- Phase 52: Core Type-System Capability Foundation
+- Phase 53: Window Function Syntax And Capability Contract
+- Phase 54: Import / Module / Export Readiness
+- Phase 55: Semantic Package Asset Schema
+- Phase 56: Capability Profile Static Schema And Declared Checking
+- Phase 57: PostgreSQL Extension Signature-Catalog Readiness
+- Phase 58: Project Explain / Portability / Public Metadata Readiness
+- Phase 59: Package Graph And Lineage / Provenance Integration
+- Phase 60: Multi-dialect Capability Ecosystem Completion Checkpoint
+
+This is a finalized active planning route used only to begin future read-only
+Gate 1 work. It becomes effective only after Slice 2 Gate 3 succeeds. No listed
+phase starts, completes, or gains behavior authorization by appearing here;
+every later phase requires separate authorization. The route promises no
+public API, release, or runtime/database behavior. It causes no automatic phase
+start and provides no implementation authorization. Stronger future evidence
+may change it only through an evidence-backed append-only replan that preserves
+this history.
+
+Phase 51 uses current canonical expression types and private Phase 47-49
+carriers only; it adds no scalar type or type semantics. Relationship/JOIN,
+grain/fanout, nested query/derived table/CTE lowering, project IR/SQL/emit-sql,
+concrete new backends, runtime/database work, external integrations, and release
+work remain outside the Phase 51-60 route unless a later evidence-backed
+append-only replan explicitly assigns them.
+
+The historical Phase 29 register remains byte-for-byte unchanged. The
+historical Roadmap Tree and the completed Slice 1 tentative route above also
+remain unchanged; this subsection supersedes them only for current active
+planning after Slice 2 Gate 3. It does not pre-claim a Slice 2 commit, push, CI
+result, or completion.

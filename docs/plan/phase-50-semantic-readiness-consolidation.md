@@ -5,11 +5,16 @@
 Phase 50 is an eleven-slice docs/spec/static-audit-only readiness consolidation
 phase. It is planning and contract work, not implementation.
 
-Phase 50 Slice 1 is **Roadmap Reconciliation And Strategic Scope Lock**. Slice
-1 is the current documentation slice. Slices 2 through 11 remain pending and
-require separate Gate 1 and Gate 2 authorization. Phase 50 is not complete in
-Slice 1, and this Gate 2 plan must not pre-claim a commit, push, natural CI
-result, later slice, or phase completion.
+Phase 50 Slice 1 **Roadmap Reconciliation And Strategic Scope Lock** completed
+at `85066d4a7088af82a308ca751763a4e6a10baa52`, with documented natural CI run
+`29068556545` completing successfully for the exact commit.
+
+Phase 50 Slice 2 **Post-v0.2 Deferred Inventory And Phase 50-60 Replan** is the
+current docs/spec/static-audit-only documentation slice. Slice 2 is not
+complete in Gate 2. Its completion and the effectiveness of its finalized
+active planning route require a separately authorized Gate 3 commit, push, and
+exact natural CI success. Slices 3 through 11 remain pending and separately
+authorized. Phase 50 remains in progress.
 
 Every Phase 50 slice is readiness-only. No slice automatically authorizes later
 behavior or a later phase.
@@ -17,17 +22,17 @@ behavior or a later phase.
 ## Trusted Baseline
 
 - Baseline branch: `main`.
-- Baseline HEAD: `6d898559aaa244f3e4643488c111480e6933761b`.
+- Baseline HEAD: `85066d4a7088af82a308ca751763a4e6a10baa52`.
 - Baseline local `origin/main`:
-  `6d898559aaa244f3e4643488c111480e6933761b`.
-- Baseline subject: `Complete Maintenance Phase 4 worker benchmark audit`.
-- Documented natural CI run: `29059542913`, workflow/event `CI / push`,
+  `85066d4a7088af82a308ca751763a4e6a10baa52`.
+- Baseline subject: `Add Phase 50 readiness consolidation scope lock`.
+- Documented natural CI run: `29068556545`, workflow/event `CI / push`,
   status/conclusion `completed / success`, with an exact `headSha` match.
 - Package version remains `0.1.0`.
 - No tag points at HEAD and there is no exact-match tag.
 
-The CI facts above are repository-local documented evidence. Slice 1 does not
-perform network access or independently query GitHub.
+The CI facts above are repository-local documented evidence. Slice 2 Gate 2
+does not perform network access or independently query GitHub.
 
 ## Phase Identity And Approved Direction
 
@@ -141,16 +146,29 @@ network behavior.
 - **Objective:** classify implemented, private-foundation, readiness-only,
   deferred, and not-yet-evidenced work after v0.2 and finalize Phase 51-60
   ownership.
-- **Artifact type:** a new post-v0.2 readiness inventory contract, route update,
-  and focused static-audit test.
+- **Artifact type:** the current inventory contract at
+  `docs/spec/phase50-post-v02-deferred-readiness-inventory-v1.md`, an additive
+  route update, and one focused static-audit test.
 - **Prerequisites:** Slice 1 evidence hierarchy and historical-snapshot rule.
 - **Completed-phase relationship:** reconciles Phase 29 through Phase 49 facts
   without rewriting their completion records.
-- **Later handoff:** finalizes the tentative Phase 51-60 active sequence.
-- **Explicit non-goals and no-behavior boundary:** no edit to the historical
-  v0.2 register by default and no deferred-feature implementation.
-- **Gate discipline:** Slice 2 requires a new Gate 1 and its own exact allowlist;
-  Slice 1 authorizes no Slice 2 file.
+- **Later handoff:** documents the finalized Phase 51-60 active planning
+  sequence, which becomes effective only after Slice 2 Gate 3 succeeds.
+- **Status vocabulary:** `IMPLEMENTED_STABLE`, `IMPLEMENTED_LIMITED`,
+  `PRIVATE_FOUNDATION`, `READINESS_CONTRACT_ONLY`, `EXPLICITLY_DEFERRED`,
+  `OUT_OF_SCOPE`, and `NOT_EVIDENCED`. These tokens are inventory-local and do
+  not replace existing Semantic Metadata Artifact `support_posture` values.
+- **Historical boundary:**
+  `docs/spec/v02-deferred-feature-register-v1.md` remains byte-for-byte
+  unchanged. The new inventory supersedes it only for current post-v0.2
+  classification, not for historical Phase 29 meaning.
+- **Explicit non-goals and no-behavior boundary:** no deferred-feature
+  implementation and no compiler, parser, AST, semantic, IR, SQL, CLI, JSON,
+  diagnostic, backend, package-resolution, extension, runtime, database, or
+  public-surface behavior.
+- **Gate discipline:** Slice 2 is not complete in Gate 2. Its exact four-file
+  allowlist, focused validation, and stop conditions are recorded below. A
+  separate Gate 3 is required before completion or route effectiveness.
 
 ## Slice 3 Aggregate / Grouped Project Output-Schema Readiness
 
@@ -319,6 +337,42 @@ This sequence remains tentative until Slice 2 reconciles the post-v0.2 deferred
 inventory and finalizes active ordering. It is not automatic
 behavior authorization, and every later phase requires separate approval.
 
+## Slice 2 Finalized Phase 51-60 Active Planning Route
+
+Slice 2 preserves the Slice 1 tentative route above as completed historical
+evidence and finalizes the same order for current planning:
+
+- Phase 51: Aggregate / Grouped Project Output-Schema Foundation
+- Phase 52: Core Type-System Capability Foundation
+- Phase 53: Window Function Syntax And Capability Contract
+- Phase 54: Import / Module / Export Readiness
+- Phase 55: Semantic Package Asset Schema
+- Phase 56: Capability Profile Static Schema And Declared Checking
+- Phase 57: PostgreSQL Extension Signature-Catalog Readiness
+- Phase 58: Project Explain / Portability / Public Metadata Readiness
+- Phase 59: Package Graph And Lineage / Provenance Integration
+- Phase 60: Multi-dialect Capability Ecosystem Completion Checkpoint
+
+This is the finalized active planning route: the current authoritative sequence
+used to begin future read-only Gate 1 work only. It is active planning only and
+becomes effective only after Slice 2 Gate 3 succeeds with the exact commit,
+push, and natural CI result. It causes no automatic phase start or completion,
+and it provides no implementation authorization, public API or release promise,
+or runtime/database authorization. Every later phase requires separate
+authorization. Stronger future evidence may supersede this sequence only
+through an evidence-backed append-only replan that preserves historical rows.
+
+Phase 51 is first because it consumes the strongest Phase 47-49 private-carrier
+handoff. It is limited to private aggregate/grouped project schema foundation
+using currently implemented canonical expression types and introduces no new
+scalar type or type semantics. Phase 52 owns later type/capability foundations.
+Phase 53 remains readiness-only. Phase 54 rehomes the historical import/module/
+export direction. Phase 55 defines static asset schema before package graph
+behavior. Phase 56 defines capability schema before extension catalogs. Phase
+57 is catalog readiness, not extension lowering. Phase 58 remains readiness and
+privacy-contract work. Phase 59 keeps integration private before public export.
+Phase 60 is a checkpoint, not a release or backend implementation phase.
+
 ## Protected And Forbidden Surfaces
 
 Slice 1 must not change:
@@ -334,11 +388,18 @@ Slice 1 must not change:
 - package version, tag, release, publish, upload, signing, or attestation
   surfaces.
 
+Slice 2 preserves every surface above and additionally keeps the completed
+Slice 1 scope spec/test and every completed Phase 30-49 artifact unchanged.
+No `src/**`, grammar/generated, script, workflow, dependency, package metadata,
+fixture, golden, example, public schema, or release surface is approved.
+
 ## Package, Version, And Release Boundary
 
-Package version remains `0.1.0`. Slice 1 performs no package version change,
-tag, release, publish, upload, signing, attestation, CI trigger, CI rerun, CI
-watch, or CI cancellation. Gate 2 must not prepare Gate 3.
+Package version remains `0.1.0`. Slice 1 performed no package version change,
+tag, release, publish, upload, signing, or attestation. Slice 2 Gate 2 performs
+no package version change, tag, release, publish, upload, signing, attestation,
+CI trigger, CI rerun, CI watch, or CI cancellation. Gate 2 must not prepare
+Gate 3.
 
 ## Slice 1 Gate 2 Allowlist
 
@@ -368,6 +429,55 @@ Slice 1 Gate 2 validation is limited to:
 Do not overwrite `/tmp/phase50-gate2-evidence-and-diff.txt`. Do not run full
 pytest, `scripts/validate.py`, generated checks, golden checks, package smoke,
 builds, benchmarks, network commands, GitHub CLI, or CI in Slice 1 Gate 2.
+
+## Slice 2 Gate 2 Allowlist
+
+Phase 50 Slice 2 Gate 2 is limited to exactly:
+
+- `docs/plan/phase-50-semantic-readiness-consolidation.md`;
+- `docs/spec/pietto-roadmap-phase45-60-v1.md`;
+- `docs/spec/phase50-post-v02-deferred-readiness-inventory-v1.md`;
+- `tests/test_phase50_post_v02_deferred_readiness_inventory.py`.
+
+No fifth repository path is approved. Nothing may be staged, committed, or
+pushed in Gate 2.
+
+## Slice 2 Focused Validation
+
+Slice 2 Gate 2 validation is limited to:
+
+- exact dirty-set and four-file diff inspection;
+- tracked and no-index whitespace checks;
+- Ruff format/check and lint for the new focused test only;
+- test-project Pyright;
+- the focused Slice 2 static test;
+- the historical Phase 29 register test and selected dirty-tree-safe Slice 1
+  compatibility nodes;
+- the explicitly approved Phase 30-49 evidence nodes;
+- historical-register byte comparison against the Slice 1 baseline;
+- protected-surface, version, and tag checks; and
+- `/tmp/phase50-slice2-gate2-evidence-and-diff.txt` with complete diffs.
+
+Do not run full pytest, `scripts/validate.py`, generated checks, golden checks,
+package smoke, builds, benchmarks, dependency operations, network commands,
+GitHub CLI, or CI. Once formatting starts, a failure is a stop condition and
+does not authorize repair.
+
+## Slice 2 Stop Conditions
+
+Stop without repair or scope expansion if:
+
+- the Slice 1 baseline or exact four-file dirty set differs;
+- any fifth repository path changes;
+- the historical Phase 29 register, completed Slice 1 scope spec/test, or any
+  protected production/public/release surface changes;
+- a table row cannot use exactly one inventory status token;
+- a private foundation is described as public behavior;
+- readiness wording implies implementation or a later phase start;
+- Slice 2 or the finalized route is called complete/effective before Gate 3;
+- a no-index check emits a whitespace diagnostic; or
+- Ruff, Pyright, focused pytest, compatibility pytest, or an evidence node
+  fails.
 
 ## Stop Conditions
 
