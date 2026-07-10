@@ -20,12 +20,17 @@ Phase 50 Slice 3 **Aggregate / Grouped Project Output-Schema Readiness**
 completed at `7bd50022859a5e3d202c26d67bed1a723388048a`, with documented
 natural CI run `29082580976` completing successfully for the exact commit.
 
-Phase 50 Slice 4 **Type-System Gap And Capability Readiness** is the current
-docs/spec/static-audit-only readiness slice. Slice 4 is not complete in Gate 2.
+Phase 50 Slice 4 **Type-System Gap And Capability Readiness** completed at
+`aaf30fcd2ec4b19f6d0c23783067c369a11cd27b`, with documented natural CI run
+`29097916311` completing successfully for the exact commit.
+
+Phase 50 Slice 5 **Window-Function Readiness** is the current
+docs/spec/static-audit-only readiness slice. Slice 5 is not complete in Gate 2.
 Its completion requires a separately authorized Gate 3 commit, push, and exact
-natural CI success. Slices 5 through 11 remain pending and separately
-authorized. Phase 50 remains in progress. Phase 51 and Phase 52 remain
-unstarted.
+natural CI success. Slices 6 through 11 remain pending and separately
+authorized. Phase 50 remains in progress. Phase 51, Phase 52, and Phase 53
+remain unstarted. Phase 53 remains `READINESS_CONTRACT_ONLY` under the current
+finalized route.
 
 Every Phase 50 slice is readiness-only. No slice automatically authorizes later
 behavior or a later phase.
@@ -33,18 +38,18 @@ behavior or a later phase.
 ## Trusted Baseline
 
 - Baseline branch: `main`.
-- Baseline HEAD: `7bd50022859a5e3d202c26d67bed1a723388048a`.
+- Baseline HEAD: `aaf30fcd2ec4b19f6d0c23783067c369a11cd27b`.
 - Baseline local `origin/main`:
+  `aaf30fcd2ec4b19f6d0c23783067c369a11cd27b`.
+- Baseline subject: `Add Phase 50 type capability readiness`.
+- Baseline parent/Slice 3 commit:
   `7bd50022859a5e3d202c26d67bed1a723388048a`.
-- Baseline subject: `Add Phase 50 aggregate grouped schema readiness`.
-- Baseline parent/Slice 2 repair commit:
-  `5c66b00d20200d943f0b6e1d0c02813fba18904b`.
-- Documented natural Slice 3 CI run: `29082580976`, workflow/event `CI / push`,
+- Documented natural Slice 4 CI run: `29097916311`, workflow/event `CI / push`,
   status/conclusion `completed / success`, with an exact `headSha` match.
 - Package version remains `0.1.0`.
 - No tag points at HEAD and there is no exact-match tag.
 
-The CI facts above are repository-local documented evidence. Slice 4 Gate 2
+The CI facts above are repository-local documented evidence. Slice 5 Gate 2
 does not perform network access or independently query GitHub.
 
 ## Phase Identity And Approved Direction
@@ -108,7 +113,7 @@ Phase 50 uses exactly this eleven-slice route:
 10. Explain / Public Metadata / Package Integration Boundary
 11. Completion Audit And Status Lock
 
-Slices 1 through 3 are complete. Slice 4 is current but incomplete. Slices 5
+Slices 1 through 4 are complete. Slice 5 is current but incomplete. Slices 6
 through 11 remain pending and separately authorized. Listing them is a route
 lock, not implementation or completion.
 
@@ -290,26 +295,92 @@ network behavior.
   promotion, aggregate behavior, nullability behavior, production capability
   carrier/API, native metadata, SQL, public schema, package version, or release
   behavior.
-- **Gate discipline:** Slice 4 is not complete in Gate 2. It uses the exact
-  six-file allowlist and focused validation below. Completion requires a
-  separately authorized Gate 3 commit, push, and exact natural CI success.
+- **Gate discipline:** Slice 4 completed only after its separately authorized
+  Gate 3 commit, push, and documented exact natural CI success at
+  `aaf30fcd2ec4b19f6d0c23783067c369a11cd27b`. Its historical Gate 2 allowlist
+  and validation record remain preserved below.
 
 ## Slice 5 Window-Function Readiness
 
-- **Objective:** define the future decision surface for `OVER`, partitioning,
-  window ordering, frames, ranking, offset/value functions, aggregate-as-window,
-  result typing/nullability, grouped interaction, and dialect portability.
-- **Artifact type:** window readiness and syntax-decision contract plus static
-  audit.
-- **Prerequisites:** Slices 3 and 4 and existing aggregate/dialect contracts.
-- **Completed-phase relationship:** preserves the existing blanket window
-  deferral and current grouped aggregate behavior.
-- **Later handoff:** prepares Phase 53 Window Function Syntax And Capability
-  Contract.
-- **Explicit non-goals and no-behavior boundary:** no grammar, parser, AST,
-  semantic, IR, SQL, function catalog, fixture, or golden change.
-- **Gate discipline:** separate Gate 1/Gate 2; no syntax spelling is reserved by
-  Slice 1.
+- **Objective:** define the future decision surface for window expressions,
+  ranking families, partitioning, window-local ordering, frames, clause
+  placement, result typing/nullability, grouped interaction, private
+  dependencies, diagnostics, dialect capability, and the bounded Phase 53
+  handoff.
+- **Artifact type:** this plan update, the readiness contract at
+  `docs/spec/phase50-window-function-readiness-v1.md`, decision matrices, one
+  focused static-audit test, and four narrow Phase 50 compatibility updates.
+- **Prerequisites:** completed Slices 3 and 4, current aggregate/group/order/let
+  evidence, Phase 47-49 private project facts, and the Slice 2 inventory.
+- **Completed-phase relationship:** preserves current generic call parsing,
+  generic unknown-function failure, ordinary aggregate behavior, final relation
+  ordering, grouped `satisfying`/HAVING behavior, and all private carriers
+  without describing any of them as window support.
+- **Current evidence:** Pietto has no window grammar or dedicated token/rule, no
+  `OVER` attachment point, partition syntax, window-local order syntax, frame
+  syntax, named-window syntax, window AST, semantic catalog, type/nullability
+  behavior, project carrier, Window IR, SQL `OVER` lowering, public metadata,
+  window-specific diagnostic, or positive fixture/golden. Generic
+  function-shaped calls may parse as ordinary calls, while SQL-like
+  `sum(amount) over (region)` is parser-rejected. Generic call syntax is not
+  window support. Ordinary aggregate support is not aggregate-as-window
+  support.
+- **Initial catalog decision:** exactly `row_number`, `rank`, and `dense_rank`
+  are readiness candidates. Each has zero arguments and candidate logical
+  `Int` / compiler `NON_NULL` result facts. They are not implemented, reserved,
+  parsed as windows, typed, lowered, or exposed by Slice 5.
+- **Deferred-family decision:** `percent_rank`, `cume_dist`, `ntile`, `lag`,
+  `lead`, `first_value`, `last_value`, `nth_value`, aggregate-as-window,
+  `count_distinct` as window, percentile/statistical functions,
+  ordered-set/hypothetical-set functions, and dialect-specific analytics remain
+  deferred.
+- **Placement decision:** the initial candidate is an inline unnamed direct
+  top-level `select` projection with an explicit alias and no default output
+  name. `let`, `where`, group keys, aggregate arguments, `satisfying`, nested
+  scalar expressions, another-window arguments, same-select alias reuse, final
+  order window expressions/aliases, and QUALIFY-like filtering remain rejected
+  or deferred as specified by the readiness contract.
+- **Partition and ordering decision:** partitioning is optional and limited to
+  one or more direct bare or current single-input-qualified fields in source
+  order. Window-local ordering is mandatory for all three initial ranking
+  candidates and is limited to those same direct-field forms with optional
+  `asc` / `desc`. Computed expressions, lets, selected aliases, aggregates,
+  windows, ordinals, null ordering, and collation controls are excluded.
+- **Frame and naming decision:** no explicit frame syntax and no backend-default
+  frame guarantee are adopted. Named windows, inheritance, frame exclusion,
+  null ordering, and QUALIFY remain deferred. Slice 5 reserves no exact source
+  spelling.
+- **Query-phase decision:** readiness models input/lets, row `where`, grouping
+  and ordinary aggregates, `satisfying`/HAVING, window calculation, final
+  relation order, then `limit`. This is a future conceptual order, not current
+  execution behavior. Initial ranking over ungrouped input is the only candidate;
+  grouped ranking, aggregate-as-window, selected alias reuse, and let-bound
+  partition/order remain deferred pending later evidence.
+- **Output/dependency decision:** explicit aliases preserve selected source
+  order and use documentation-only private `WINDOW_RESULT` vocabulary distinct
+  from `GROUP_KEY` and `AGGREGATE_RESULT`. Candidate dependency vocabulary is
+  `WINDOW_ARGUMENT`, `WINDOW_PARTITION`, `WINDOW_ORDER`, `WINDOW_FRAME`,
+  `WINDOW_DEFAULT`, plus a relation-input dependency for argument-less ranking.
+  These tokens commit to no production enum, class, field, serializer, Project
+  JSON field, explain output, public metadata, or public API.
+- **Capability and dialect decision:** Phase 52 remains unstarted and is only a
+  future private capability prerequisite. PostgreSQL and private MySQL receive
+  no current window-support claim; each exact feature requires direct evidence
+  and must fail closed independently. Slice 5 reserves no diagnostic code.
+- **Later handoff:** preserves Phase 53 **Window Function Syntax And Capability
+  Contract** as `READINESS_CONTRACT_ONLY`. It may later lock exact syntax and
+  matrices for the three candidates without production behavior. Concrete
+  window implementation remains outside Phase 51-60 until an evidence-backed
+  append-only replan separately authorizes it.
+- **Explicit non-goals and no-behavior boundary:** Slice 5 implements no
+  compiler or runtime behavior. It adds no grammar, generated parser, AST,
+  semantic catalog/analysis, type/nullability behavior, project carrier,
+  dependency/lineage carrier, IR, SQL, diagnostic, CLI, JSON, public metadata,
+  capability profile, backend, fixture, golden, runtime, database, package,
+  version, or release behavior.
+- **Gate discipline:** Slice 5 is not complete in Gate 2. It uses the exact
+  seven-file allowlist and focused validation below. Completion requires a
+  separately authorized Gate 3 commit, push, and exact natural CI success.
 
 ## Slice 6 Import / Module / Export Readiness
 
@@ -495,10 +566,18 @@ surface. Its only existing-file compatibility changes are the three Phase 50
 tests named in the exact Slice 4 allowlist, limited to current status and exact
 dirty-set compatibility while preserving their historical locks.
 
+Slice 5 preserves every surface above, the roadmap, all completed Slice 1-4
+specs, the historical Phase 29 register, every production/public/release
+surface, and the finalized Phase 51-60 route. Its only existing-file
+compatibility changes are the four Phase 50 tests named in the exact Slice 5
+allowlist, limited to current status, completed/current scope separation, exact
+dirty-set compatibility, and the protected-path exception required by that
+exact set.
+
 ## Package, Version, And Release Boundary
 
-Package version remains `0.1.0`. Slices 1 through 3 performed no package
-version change, tag, release, publish, upload, signing, or attestation. Slice 4
+Package version remains `0.1.0`. Slices 1 through 4 performed no package
+version change, tag, release, publish, upload, signing, or attestation. Slice 5
 Gate 2 performs no package version change, tag, release, publish, upload,
 signing, attestation, CI trigger, CI rerun, CI watch, or CI cancellation. Gate
 2 does not stage, commit, push, or prepare Gate 3.
@@ -692,14 +771,76 @@ Stop without repair or scope expansion if:
 - Ruff, Pyright, focused Slice 4 pytest, complete Phase 50 pytest, or an exact
   evidence node fails.
 
+## Slice 5 Gate 2 Allowlist
+
+Phase 50 Slice 5 Gate 2 is limited to exactly:
+
+- `docs/plan/phase-50-semantic-readiness-consolidation.md`;
+- `docs/spec/phase50-window-function-readiness-v1.md`;
+- `tests/test_phase50_window_function_readiness.py`;
+- `tests/test_phase50_semantic_package_extension_capability_scope_lock.py`;
+- `tests/test_phase50_post_v02_deferred_readiness_inventory.py`;
+- `tests/test_phase50_aggregate_grouped_project_output_schema_readiness.py`;
+- `tests/test_phase50_type_system_gap_capability_readiness.py`.
+
+The final four paths are approved only for narrow current-status,
+completed/current scope separation, exact dirty-set compatibility, and the
+protected-path exception required by this exact Slice 5 dirty set. No eighth
+repository path is approved. Nothing may be staged, committed, pushed, or
+operated through CI in Gate 2.
+
+## Slice 5 Focused Validation
+
+Slice 5 Gate 2 validation is limited to:
+
+- exact baseline, seven-file dirty-set, staged-set, and whitespace checks;
+- no-index whitespace checks for the two new files;
+- Ruff format/check and lint for all five changed Python tests;
+- test-project Pyright;
+- the focused Slice 5 static test;
+- complete execution of all five Phase 50 test files;
+- the exact parser/window-absence and aggregate/group/order/let evidence nodes;
+- the historical Phase 29 register and exact selected Phase 30, 36, 38, 41,
+  and 42 type/capability evidence nodes;
+- the exact selected Phase 47-49 project schema/dependency/lineage nodes;
+- history-independence, protected-surface, version, tag, and staged-set checks;
+  and
+- `/tmp/phase50-slice5-gate2-evidence-and-diff.txt` with complete tracked and
+  no-index diffs and full changed Python test contents.
+
+Do not run full pytest, `scripts/validate.py`, generated checks, golden checks,
+package smoke, builds, benchmarks, dependency operations, network commands,
+GitHub CLI, or CI. Once the first Ruff formatting command begins, a failure is
+a stop condition and does not authorize repair.
+
+## Slice 5 Stop Conditions
+
+Stop without repair or scope expansion if:
+
+- the completed Slice 4 baseline or exact seven-file dirty set differs;
+- any eighth repository path changes;
+- the roadmap, Phase 29 register, completed Slice 1-4 specs, finalized route,
+  production/public surface, or release surface changes;
+- generic call syntax would need to be described as window support;
+- ordinary aggregate behavior would need to be described as
+  aggregate-as-window support;
+- a production window carrier, new diagnostic, concrete Phase 53
+  implementation, or finalized-route change appears necessary;
+- a compatibility edit weakens a meaningful historical lock or requires parent
+  history, runtime `/tmp` evidence, network, GitHub, or executed-source access;
+- Slice 6, Phase 52, or Phase 53 work appears necessary;
+- a no-index check emits a whitespace diagnostic; or
+- Ruff, Pyright, focused Slice 5 pytest, complete Phase 50 pytest, or an exact
+  evidence node fails.
+
 ## Stop Conditions
 
 Stop without repair or scope expansion if:
 
-- the current Slice 4 baseline or exact six-file dirty set differs;
-- any seventh repository path changes;
+- the current Slice 5 baseline or exact seven-file dirty set differs;
+- any eighth repository path changes;
 - the historical roadmap table or v0.2 register requires modification;
 - any production/public/release surface appears necessary;
 - a no-index check emits a whitespace diagnostic;
 - Ruff, Pyright, focused pytest, or compatibility pytest fails; or
-- the final diff cannot prove the Slice 4 no-behavior boundary.
+- the final diff cannot prove the Slice 5 no-behavior boundary.
