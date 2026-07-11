@@ -33,6 +33,9 @@ PROJECT_JSON_PATH = REPO_ROOT / "src/pietto/_project/json_v2.py"
 SLICE7_SHA = "a5bc07855a0994343475ba546504e64b16fc7e63"
 SLICE7_SUBJECT = "Add Phase 50 semantic package model readiness"
 SLICE7_CI_RUN_ID = "29141663534"
+SLICE8_SHA = "9e2c0f0ddcc2047e35985e6b97daa8bf29979914"
+SLICE8_SUBJECT = "Add Phase 50 PostgreSQL extension capability readiness"
+SLICE8_CI_RUN_ID = "29157374991"
 SLICE8_TITLE = "# Phase 50 Slice 8 PostgreSQL Extension Capability Readiness v1"
 
 REQUIRED_SPEC_SECTIONS = (
@@ -91,6 +94,20 @@ ALLOWED_PHASE50_SLICE8_GATE2_PATHS = {
     "tests/test_phase50_semantic_package_model_readiness.py",
 }
 
+ALLOWED_PHASE50_SLICE9_GATE2_PATHS = {
+    "docs/plan/phase-50-semantic-readiness-consolidation.md",
+    "docs/spec/phase50-multi-dialect-capability-ecosystem-readiness-v1.md",
+    "tests/test_phase50_multi_dialect_capability_ecosystem_readiness.py",
+    "tests/test_phase50_semantic_package_extension_capability_scope_lock.py",
+    "tests/test_phase50_post_v02_deferred_readiness_inventory.py",
+    "tests/test_phase50_aggregate_grouped_project_output_schema_readiness.py",
+    "tests/test_phase50_type_system_gap_capability_readiness.py",
+    "tests/test_phase50_window_function_readiness.py",
+    "tests/test_phase50_import_module_export_readiness.py",
+    "tests/test_phase50_semantic_package_model_readiness.py",
+    "tests/test_phase50_postgresql_extension_capability_readiness.py",
+}
+
 PHASE50_TEST_PATHS = tuple(
     REPO_ROOT / path
     for path in sorted(
@@ -113,6 +130,7 @@ PROTECTED_PATHS = (
     "docs/spec/phase50-window-function-readiness-v1.md",
     "docs/spec/phase50-import-module-export-readiness-v1.md",
     "docs/spec/phase50-semantic-package-model-readiness-v1.md",
+    "docs/spec/phase50-postgresql-extension-capability-readiness-v1.md",
     "docs/plan/phase-4[4-9]*",
     "docs/spec/phase4[4-9]*",
     "tests/test_phase4[4-9]*.py",
@@ -202,18 +220,24 @@ def test_slice8_artifacts_baseline_and_mutable_status_are_locked() -> None:
         "Phase 50 Slice 7 **Semantic Package Model Readiness** completed",
         SLICE7_SHA,
         SLICE7_CI_RUN_ID,
-        "Phase 50 Slice 8 **PostgreSQL Extension Capability Readiness** is the current",
-        "Slice 8 is not complete in Gate 2",
-        "Slices 9 through 11 remain pending",
+        "Phase 50 Slice 8 **PostgreSQL Extension Capability Readiness** completed",
+        SLICE8_SHA,
+        SLICE8_CI_RUN_ID,
+        "Slice 8 completed",
+        "Phase 50 Slice 9 **Multi-dialect Capability Ecosystem Readiness** is the current",
+        "Slice 9 is not complete in Gate 2",
+        "Slices 10 through 11 remain pending",
         "Phase 50 remains in progress",
         "Phase 55 remains `READINESS_CONTRACT_ONLY`, readiness-only, and unstarted",
         "Phase 56 remains unstarted",
         "Phase 57 remains `READINESS_CONTRACT_ONLY`, readiness-only, and unstarted",
+        "Phase 60 remains readiness-only and unstarted",
     ):
         assert required in status, required
-    assert SLICE7_SUBJECT in _normalized_section(PLAN_PATH, "Trusted Baseline")
+    assert SLICE8_SUBJECT in _normalized_section(PLAN_PATH, "Trusted Baseline")
     assert "Phase 50 is complete" not in status
-    assert "Slice 8 completed" not in status
+    assert "Slice 8 completed" in status
+    assert "Slice 9 completed" not in status
 
 
 def test_spec_exact_sections_and_no_behavior_authority_are_locked() -> None:
@@ -590,4 +614,8 @@ def test_protected_paths_version_tag_staging_and_dirty_set_are_locked() -> None:
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
     for relative_path in PROTECTED_PATHS:
         assert _git_output(["diff", "--", relative_path]) == "", relative_path
-    assert _dirty_paths() in (set(), ALLOWED_PHASE50_SLICE8_GATE2_PATHS)
+    assert _dirty_paths() in (
+        set(),
+        ALLOWED_PHASE50_SLICE8_GATE2_PATHS,
+        ALLOWED_PHASE50_SLICE9_GATE2_PATHS,
+    )
