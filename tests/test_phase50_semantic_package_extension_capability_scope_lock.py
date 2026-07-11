@@ -89,6 +89,17 @@ ALLOWED_PHASE50_SLICE5_GATE2_PATHS = {
     "tests/test_phase50_type_system_gap_capability_readiness.py",
 }
 
+ALLOWED_PHASE50_SLICE6_GATE2_PATHS = {
+    "docs/plan/phase-50-semantic-readiness-consolidation.md",
+    "docs/spec/phase50-import-module-export-readiness-v1.md",
+    "tests/test_phase50_import_module_export_readiness.py",
+    "tests/test_phase50_semantic_package_extension_capability_scope_lock.py",
+    "tests/test_phase50_post_v02_deferred_readiness_inventory.py",
+    "tests/test_phase50_aggregate_grouped_project_output_schema_readiness.py",
+    "tests/test_phase50_type_system_gap_capability_readiness.py",
+    "tests/test_phase50_window_function_readiness.py",
+}
+
 PROTECTED_PATHS = (
     "README.md",
     "AGENTS.md",
@@ -239,13 +250,18 @@ def test_slice1_historical_scope_and_later_authorization_are_locked() -> None:
         "Phase 50 Slice 4 **Type-System Gap And Capability Readiness** completed",
         "aaf30fcd2ec4b19f6d0c23783067c369a11cd27b",
         "29097916311",
-        "Phase 50 Slice 5 **Window-Function Readiness** is the current "
+        "Phase 50 Slice 5 **Window-Function Readiness** completed",
+        "d79c5c422cb7f54ae5e5587694e49389536419cb",
+        "29115612846",
+        "Phase 50 Slice 6 **Import / Module / Export Readiness** is the current "
         "docs/spec/static-audit-only readiness slice",
-        "Slice 5 is not complete in Gate 2",
-        "Slices 6 through 11 remain pending",
+        "Slice 6 is not complete in Gate 2",
+        "Slices 7 through 11 remain pending",
         "Phase 50 remains in progress",
-        "Phase 52, and Phase 53 remain unstarted",
+        "Phases 51 through 55 remain unstarted",
         "Phase 53 remains `READINESS_CONTRACT_ONLY`",
+        "Phase 54 remains readiness-only and unstarted",
+        "Phase 55 remains unstarted",
     ):
         assert current_status in plan, current_status
 
@@ -383,4 +399,5 @@ def test_package_version_tag_and_dirty_paths_are_locked() -> None:
         ALLOWED_PHASE50_SLICE3_GATE2_PATHS,
         ALLOWED_PHASE50_SLICE4_GATE2_PATHS,
         ALLOWED_PHASE50_SLICE5_GATE2_PATHS,
+        ALLOWED_PHASE50_SLICE6_GATE2_PATHS,
     )

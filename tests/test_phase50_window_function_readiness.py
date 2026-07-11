@@ -102,6 +102,17 @@ ALLOWED_PHASE50_SLICE5_GATE2_PATHS = {
     "tests/test_phase50_type_system_gap_capability_readiness.py",
 }
 
+ALLOWED_PHASE50_SLICE6_GATE2_PATHS = {
+    "docs/plan/phase-50-semantic-readiness-consolidation.md",
+    "docs/spec/phase50-import-module-export-readiness-v1.md",
+    "tests/test_phase50_import_module_export_readiness.py",
+    "tests/test_phase50_semantic_package_extension_capability_scope_lock.py",
+    "tests/test_phase50_post_v02_deferred_readiness_inventory.py",
+    "tests/test_phase50_aggregate_grouped_project_output_schema_readiness.py",
+    "tests/test_phase50_type_system_gap_capability_readiness.py",
+    "tests/test_phase50_window_function_readiness.py",
+}
+
 COMPATIBILITY_TEST_PATHS = (
     REPO_ROOT
     / "tests/test_phase50_semantic_package_extension_capability_scope_lock.py",
@@ -181,24 +192,31 @@ def test_slice5_artifacts_baseline_and_current_status_are_locked() -> None:
         "CI / push",
         "completed / success",
         "exact `headSha` match",
-        "Phase 50 Slice 5 **Window-Function Readiness** is the current",
-        "Slice 5 is not complete in Gate 2",
-        "Slices 6 through 11 remain pending",
+        "Phase 50 Slice 5 **Window-Function Readiness** completed",
+        "d79c5c422cb7f54ae5e5587694e49389536419cb",
+        "29115612846",
+        "Phase 50 Slice 6 **Import / Module / Export Readiness** is the current",
+        "Slice 6 is not complete in Gate 2",
+        "Slices 7 through 11 remain pending",
         "Phase 50 remains in progress",
-        "Phase 51, Phase 52, and Phase 53 remain unstarted",
+        "Phases 51 through 55 remain unstarted",
         "Phase 53 remains `READINESS_CONTRACT_ONLY`",
+        "Phase 54 remains readiness-only and unstarted",
+        "Phase 55 remains unstarted",
     ):
         assert required in plan, required
 
-    combined = f"{plan} {_normalized(SPEC_PATH)}"
+    historical_spec = _normalized(SPEC_PATH)
+    combined = f"{plan} {historical_spec}"
     for forbidden in (
         "Phase 50 is complete",
-        "Slice 5 is complete",
         "Phase 52 has started",
         "Phase 53 has started",
         "Phase 53 implementation is authorized",
     ):
         assert forbidden not in combined, forbidden
+    assert "Slice 5 is current but incomplete in Gate 2." in historical_spec
+    assert "Slice 5 is complete" not in historical_spec
 
 
 def test_spec_section_order_and_no_behavior_authority_are_locked() -> None:
@@ -454,7 +472,13 @@ def test_compatibility_guards_protected_surfaces_and_dirty_set_are_locked() -> N
     for compatibility_path in COMPATIBILITY_TEST_PATHS:
         compatibility = _read(compatibility_path)
         assert "ALLOWED_PHASE50_SLICE5_GATE2_PATHS" in compatibility
+        assert "ALLOWED_PHASE50_SLICE6_GATE2_PATHS" in compatibility
         for relative_path in ALLOWED_PHASE50_SLICE5_GATE2_PATHS:
+            assert f'"{relative_path}"' in compatibility, (
+                compatibility_path,
+                relative_path,
+            )
+        for relative_path in ALLOWED_PHASE50_SLICE6_GATE2_PATHS:
             assert f'"{relative_path}"' in compatibility, (
                 compatibility_path,
                 relative_path,
@@ -465,4 +489,8 @@ def test_compatibility_guards_protected_surfaces_and_dirty_set_are_locked() -> N
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
     for relative_path in PROTECTED_PATHS:
         assert _git_output(["diff", "--", relative_path]) == "", relative_path
-    assert _dirty_paths() in (set(), ALLOWED_PHASE50_SLICE5_GATE2_PATHS)
+    assert _dirty_paths() in (
+        set(),
+        ALLOWED_PHASE50_SLICE5_GATE2_PATHS,
+        ALLOWED_PHASE50_SLICE6_GATE2_PATHS,
+    )

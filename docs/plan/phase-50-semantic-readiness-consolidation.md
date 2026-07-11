@@ -24,13 +24,18 @@ Phase 50 Slice 4 **Type-System Gap And Capability Readiness** completed at
 `aaf30fcd2ec4b19f6d0c23783067c369a11cd27b`, with documented natural CI run
 `29097916311` completing successfully for the exact commit.
 
-Phase 50 Slice 5 **Window-Function Readiness** is the current
-docs/spec/static-audit-only readiness slice. Slice 5 is not complete in Gate 2.
+Phase 50 Slice 5 **Window-Function Readiness** completed at
+`d79c5c422cb7f54ae5e5587694e49389536419cb`, with documented natural CI run
+`29115612846` completing successfully for the exact commit.
+
+Phase 50 Slice 6 **Import / Module / Export Readiness** is the current
+docs/spec/static-audit-only readiness slice. Slice 6 is not complete in Gate 2.
 Its completion requires a separately authorized Gate 3 commit, push, and exact
-natural CI success. Slices 6 through 11 remain pending and separately
-authorized. Phase 50 remains in progress. Phase 51, Phase 52, and Phase 53
-remain unstarted. Phase 53 remains `READINESS_CONTRACT_ONLY` under the current
-finalized route.
+natural CI success. Slices 7 through 11 remain pending and separately
+authorized. Phase 50 remains in progress. Phases 51 through 55 remain
+unstarted. Phase 53 remains `READINESS_CONTRACT_ONLY` under the current
+finalized route. Phase 54 remains readiness-only and unstarted. Phase 55
+remains unstarted.
 
 Every Phase 50 slice is readiness-only. No slice automatically authorizes later
 behavior or a later phase.
@@ -38,18 +43,18 @@ behavior or a later phase.
 ## Trusted Baseline
 
 - Baseline branch: `main`.
-- Baseline HEAD: `aaf30fcd2ec4b19f6d0c23783067c369a11cd27b`.
+- Baseline HEAD: `d79c5c422cb7f54ae5e5587694e49389536419cb`.
 - Baseline local `origin/main`:
+  `d79c5c422cb7f54ae5e5587694e49389536419cb`.
+- Baseline subject: `Add Phase 50 window function readiness`.
+- Baseline parent/Slice 4 commit:
   `aaf30fcd2ec4b19f6d0c23783067c369a11cd27b`.
-- Baseline subject: `Add Phase 50 type capability readiness`.
-- Baseline parent/Slice 3 commit:
-  `7bd50022859a5e3d202c26d67bed1a723388048a`.
-- Documented natural Slice 4 CI run: `29097916311`, workflow/event `CI / push`,
+- Documented natural Slice 5 CI run: `29115612846`, workflow/event `CI / push`,
   status/conclusion `completed / success`, with an exact `headSha` match.
 - Package version remains `0.1.0`.
 - No tag points at HEAD and there is no exact-match tag.
 
-The CI facts above are repository-local documented evidence. Slice 5 Gate 2
+The CI facts above are repository-local documented evidence. Slice 6 Gate 2
 does not perform network access or independently query GitHub.
 
 ## Phase Identity And Approved Direction
@@ -113,7 +118,7 @@ Phase 50 uses exactly this eleven-slice route:
 10. Explain / Public Metadata / Package Integration Boundary
 11. Completion Audit And Status Lock
 
-Slices 1 through 4 are complete. Slice 5 is current but incomplete. Slices 6
+Slices 1 through 5 are complete. Slice 6 is current but incomplete. Slices 7
 through 11 remain pending and separately authorized. Listing them is a route
 lock, not implementation or completion.
 
@@ -381,21 +386,119 @@ network behavior.
 - **Gate discipline:** Slice 5 is not complete in Gate 2. It uses the exact
   seven-file allowlist and focused validation below. Completion requires a
   separately authorized Gate 3 commit, push, and exact natural CI success.
+  Slice 5 later completed only through that separately authorized Gate 3 at
+  `d79c5c422cb7f54ae5e5587694e49389536419cb` and documented natural CI run
+  `29115612846`.
 
 ## Slice 6 Import / Module / Export Readiness
 
 - **Objective:** reconcile flat project namespaces with future module identity,
   imports, exports, visibility, qualified names, deterministic ordering, and
   cycle rules.
-- **Artifact type:** import/module/export readiness contract and static audit.
+- **Artifact type:** this plan update, the readiness contract at
+  `docs/spec/phase50-import-module-export-readiness-v1.md`, decision matrices,
+  one focused static-audit test, and five narrow Phase 50 compatibility updates.
 - **Prerequisites:** Phase 45-49 project semantic foundations and Slice 2.
 - **Completed-phase relationship:** preserves current cross-file flat namespace
   behavior and the historical Phase 50 roadmap row as planning history.
-- **Later handoff:** prepares Phase 54 Import / Module / Export Readiness.
-- **Explicit non-goals and no-behavior boundary:** no grammar, loader, resolver,
-  executable import, filesystem discovery, network, or visibility behavior.
-- **Gate discipline:** separate Gate 1/Gate 2; the historical row does not
-  authorize implementation.
+- **Current architecture:** one deterministic selected project compile unit
+  retains normalized project-relative `.pietto` inputs in path order,
+  collects supported top-level definitions before resolution, and resolves
+  currently supported cross-file references without imports. Files are
+  semantically transparent at those reference sites. File/source order controls
+  deterministic collection, duplicate ownership, and diagnostics, not
+  visibility or forward-reference acceptance.
+- **Current namespaces:** exactly three flat project-global namespaces:
+  `TYPE` owns type aliases, enums, and shapes; `RELATION` owns sources,
+  tables, and queries; `CALLABLE` owns constraints and derives. Same-name
+  declarations fail closed within one namespace, while the same spelling may
+  occur once across different namespaces.
+- **Current absence:** Pietto currently has no module identity, module
+  namespace, import binding, export surface, public/private declaration
+  visibility, re-export, module graph, or module-cycle behavior. Project-global
+  visibility is not an export, package-public, public-metadata, or runtime
+  contract. Python imports, relation `from`, source connectors, field
+  qualification, provenance, and lineage paths are not Pietto module imports.
+- **Route D decision:** preserve current flat project-global behavior unchanged.
+  A future separately activated explicit-module mode may use one selected
+  `.pietto` file as one local module and follow the file-as-module semantic
+  shape. No current file becomes a module, and no activation flag, schema
+  version, root module, migration rewrite, automatic import, directory module,
+  logical multi-file module, or manifest is selected.
+- **Identity decision:** the private documentation-only candidate is the exact
+  current normalized project-relative selected input path including the
+  `.pietto` suffix. It is not source syntax, a Project JSON module identity, a
+  semantic-package identity, or a package-qualified name. Current path,
+  containment, symlink/root-escape, and duplicate-physical-file rules remain
+  unchanged. Extension omission, logical/manifest/declaration/package identity,
+  case folding, Unicode normalization, cross-platform collision rules, and
+  extra filesystem normalization remain deferred.
+- **Import decision:** a future explicit mode starts with explicit named imports
+  and an optional local alias. One explicitly exported declaration creates one
+  unique local binding. Import order has no semantic precedence, and there is
+  no transitive visibility, implicit re-export, automatic legacy import, or
+  silent duplicate deduplication. Wildcard, namespace/module-object,
+  side-effect, type-only, relation-only, package-qualified, implicit,
+  transitive, and module-qualified forms remain rejected or deferred.
+- **Export/visibility decision:** declarations are private by default in a
+  future explicit mode and become visible only through an explicit local
+  declaration export list. Export is compiler visibility only, not Project JSON
+  serialization, semantic-package publication, or runtime access. Export-all,
+  public-by-default, wildcard, alias, re-export, imported-binding export, and
+  transitive export remain deferred or excluded.
+- **Declaration eligibility:** type aliases, enums, shapes, sources, tables, and
+  queries are initial import/export candidates. Constraints and derives are
+  deferred. Relationship metadata is excluded. Fields, clauses, lets, select
+  items, expressions, and headers are not top-level declaration candidates.
+- **Reference decision:** local declarations and imported bindings are future
+  distinct lookup sources, with collision validation before lookup and no
+  shadow winner. Declaration/module, relation, field, immediate-upstream,
+  package, provenance, and lineage qualification remain separate. Module-,
+  file-path-, and package-qualified references remain deferred.
+- **Graph/order decision:** the future documentation-only local module graph has
+  canonical local module nodes and explicit named-import edges. It remains
+  separate from relation, row, lineage, type-alias, package, and backend graphs.
+  Readiness ordering is canonical project input, declaration source order,
+  import source order, canonical module traversal, deterministic equal-origin
+  targets, then deterministic diagnostics.
+- **Fail-closed decision:** module and later re-export cycles, duplicate module
+  identity, duplicate local/export/import binding, local/import or alias
+  collision, ambiguous reference, private-symbol access, missing export, and
+  unresolved module all fail closed. No collision receives a semantic winner.
+  There is no initial type-only cycle exception. Existing `PIE-S2302` is not
+  reused and Slice 6 adds or reserves no diagnostic code.
+- **Compatibility decision:** existing flat projects continue unchanged.
+  Explicit-module behavior must be additive and separately activated. Slice 6
+  selects no compatibility flag, project schema change, implicit root module,
+  automated migration, compatibility bridge, or source rewrite.
+- **Local-module/package boundary:** Slice 6 and Phase 54 own only project-local
+  identity, bindings, visibility, graph, ordering, collision, cycle, and
+  compatibility readiness. Slice 7 and Phase 55 own semantic package identity,
+  version, assets, dependencies, capability/dialect attribution, provenance,
+  and distribution boundaries. Registry, fetch, install, cache, solver,
+  lockfile, executable code, plugins, hooks, lifecycle actions, and network
+  behavior remain excluded.
+- **Public/private boundary:** future module identities, bindings, export
+  surfaces, visibility decisions, graph/cycle facts, and package attribution
+  remain private initially. Slice 6 changes neither Project JSON v2 nor
+  Semantic Metadata Artifact v1.
+- **Later handoff:** prepares Phase 54 Import / Module / Export Readiness as an
+  unstarted, separately authorized, readiness-only phase. The bounded handoff
+  is vocabulary, Route D, private file-as-module identity, named imports,
+  private-by-default explicit exports, declaration eligibility, deterministic
+  graph/order and fail-closed matrices, current-flat compatibility,
+  private-first metadata, and local-module/package separation only.
+- **Explicit non-goals and no-behavior boundary:** Slice 6 implements no
+  compiler or runtime behavior. It adds no grammar, exact source syntax,
+  generated parser, AST, loader, resolver, filesystem discovery/loading,
+  ProjectSemanticModel behavior/carrier, visibility enforcement, diagnostic,
+  CLI, JSON, public metadata, manifest, package resolution, registry,
+  installation, IR, SQL, runtime, database, dependency, workflow, fixture,
+  golden, package version, or release behavior.
+- **Gate discipline:** Slice 6 is not complete in Gate 2. It uses the exact
+  eight-file allowlist and focused validation below. Completion requires a
+  separately authorized Gate 3 commit, push, and exact natural CI success. The
+  historical roadmap row does not authorize implementation.
 
 ## Slice 7 Semantic Package Model Readiness
 
@@ -574,10 +677,17 @@ allowlist, limited to current status, completed/current scope separation, exact
 dirty-set compatibility, and the protected-path exception required by that
 exact set.
 
+Slice 6 preserves every surface above, the roadmap, all completed Slice 1-5
+specs, the historical Phase 29 register, all Phase 44-49 artifacts, every
+production/public/release surface, and the finalized Phase 51-60 route. Its
+only existing-file compatibility changes are the five Phase 50 tests named in
+the exact Slice 6 allowlist, limited to current status, completed/current scope
+separation, exact dirty-set compatibility, and exact protected-path exceptions.
+
 ## Package, Version, And Release Boundary
 
-Package version remains `0.1.0`. Slices 1 through 4 performed no package
-version change, tag, release, publish, upload, signing, or attestation. Slice 5
+Package version remains `0.1.0`. Slices 1 through 5 performed no package
+version change, tag, release, publish, upload, signing, or attestation. Slice 6
 Gate 2 performs no package version change, tag, release, publish, upload,
 signing, attestation, CI trigger, CI rerun, CI watch, or CI cancellation. Gate
 2 does not stage, commit, push, or prepare Gate 3.
@@ -833,14 +943,80 @@ Stop without repair or scope expansion if:
 - Ruff, Pyright, focused Slice 5 pytest, complete Phase 50 pytest, or an exact
   evidence node fails.
 
+## Slice 6 Gate 2 Allowlist
+
+Phase 50 Slice 6 Gate 2 is limited to exactly:
+
+- `docs/plan/phase-50-semantic-readiness-consolidation.md`;
+- `docs/spec/phase50-import-module-export-readiness-v1.md`;
+- `tests/test_phase50_import_module_export_readiness.py`;
+- `tests/test_phase50_semantic_package_extension_capability_scope_lock.py`;
+- `tests/test_phase50_post_v02_deferred_readiness_inventory.py`;
+- `tests/test_phase50_aggregate_grouped_project_output_schema_readiness.py`;
+- `tests/test_phase50_type_system_gap_capability_readiness.py`;
+- `tests/test_phase50_window_function_readiness.py`.
+
+The final five paths are approved only for narrow current-status,
+completed/current scope separation, exact dirty-set compatibility, and exact
+protected-path exceptions required by this eight-file dirty set. No ninth
+repository path is approved. Nothing may be staged, committed, pushed, or
+operated through CI in Gate 2.
+
+## Slice 6 Focused Validation
+
+Slice 6 Gate 2 validation is limited to:
+
+- exact baseline, eight-file dirty-set, staged-set, and whitespace checks;
+- no-index whitespace checks for the two new files;
+- Ruff format/check and lint for all six changed Python tests;
+- test-project Pyright;
+- the focused Slice 6 static test;
+- complete execution of all six Phase 50 test files;
+- the exact Phase 44 project input/path evidence nodes;
+- the exact Phase 45 namespace/resolution/diagnostic evidence nodes;
+- the exact Phase 46 graph/cycle evidence nodes;
+- the exact Phase 47-49 privacy and historical-deferral evidence nodes;
+- history/network/import-execution, protected-surface, Phase 44-49, version,
+  tag, and staged-set checks; and
+- `/tmp/phase50-slice6-gate2-evidence-and-diff.txt` with complete tracked and
+  no-index diffs and full changed Python test contents.
+
+Do not run full pytest, `scripts/validate.py`, generated checks, golden checks,
+package smoke, builds, benchmarks, dependency operations, network commands,
+GitHub CLI, or CI. Once the first Ruff formatting command begins, a failure is
+a stop condition and does not authorize repair.
+
+## Slice 6 Stop Conditions
+
+Stop without repair or scope expansion if:
+
+- the completed Slice 5 baseline or exact eight-file dirty set differs;
+- any ninth repository path changes;
+- the roadmap, Phase 29 register, completed Slice 1-5 specs, Phase 44-49
+  artifacts, finalized route, production/public surface, or release surface
+  changes;
+- current flat/global behavior would need to change or a current file would
+  need to become a module;
+- Route D cannot remain readiness-only and additive;
+- a grammar, AST, resolver, carrier, filesystem change, visibility behavior,
+  diagnostic, public metadata field, package identity/resolution, or Phase 54
+  implementation appears necessary;
+- a compatibility edit weakens a meaningful historical lock or requires parent
+  history, runtime `/tmp` evidence, network, GitHub, import execution,
+  `exec`, or `eval`;
+- Slice 7 or Phase 52-55 work appears necessary;
+- a no-index check emits a whitespace diagnostic; or
+- Ruff, Pyright, focused Slice 6 pytest, complete Phase 50 pytest, or an exact
+  evidence node fails.
+
 ## Stop Conditions
 
 Stop without repair or scope expansion if:
 
-- the current Slice 5 baseline or exact seven-file dirty set differs;
-- any eighth repository path changes;
+- the current Slice 6 baseline or exact eight-file dirty set differs;
+- any ninth repository path changes;
 - the historical roadmap table or v0.2 register requires modification;
 - any production/public/release surface appears necessary;
 - a no-index check emits a whitespace diagnostic;
 - Ruff, Pyright, focused pytest, or compatibility pytest fails; or
-- the final diff cannot prove the Slice 5 no-behavior boundary.
+- the final diff cannot prove the Slice 6 no-behavior boundary.
