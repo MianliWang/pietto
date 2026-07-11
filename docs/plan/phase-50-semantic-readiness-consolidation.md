@@ -28,14 +28,18 @@ Phase 50 Slice 5 **Window-Function Readiness** completed at
 `d79c5c422cb7f54ae5e5587694e49389536419cb`, with documented natural CI run
 `29115612846` completing successfully for the exact commit.
 
-Phase 50 Slice 6 **Import / Module / Export Readiness** is the current
-docs/spec/static-audit-only readiness slice. Slice 6 is not complete in Gate 2.
+Phase 50 Slice 6 **Import / Module / Export Readiness** completed at
+`7c7f6976dd67ccc4628757f2d857b593f71f5e0f`, with documented natural CI run
+`29139545163` completing successfully for the exact commit.
+
+Phase 50 Slice 7 **Semantic Package Model Readiness** is the current
+docs/spec/static-audit-only readiness slice. Slice 7 is not complete in Gate 2.
 Its completion requires a separately authorized Gate 3 commit, push, and exact
-natural CI success. Slices 7 through 11 remain pending and separately
+natural CI success. Slices 8 through 11 remain pending and separately
 authorized. Phase 50 remains in progress. Phases 51 through 55 remain
 unstarted. Phase 53 remains `READINESS_CONTRACT_ONLY` under the current
 finalized route. Phase 54 remains readiness-only and unstarted. Phase 55
-remains unstarted.
+remains `READINESS_CONTRACT_ONLY`, readiness-only, and unstarted.
 
 Every Phase 50 slice is readiness-only. No slice automatically authorizes later
 behavior or a later phase.
@@ -43,18 +47,18 @@ behavior or a later phase.
 ## Trusted Baseline
 
 - Baseline branch: `main`.
-- Baseline HEAD: `d79c5c422cb7f54ae5e5587694e49389536419cb`.
+- Baseline HEAD: `7c7f6976dd67ccc4628757f2d857b593f71f5e0f`.
 - Baseline local `origin/main`:
+  `7c7f6976dd67ccc4628757f2d857b593f71f5e0f`.
+- Baseline subject: `Add Phase 50 import module export readiness`.
+- Baseline parent/Slice 5 commit:
   `d79c5c422cb7f54ae5e5587694e49389536419cb`.
-- Baseline subject: `Add Phase 50 window function readiness`.
-- Baseline parent/Slice 4 commit:
-  `aaf30fcd2ec4b19f6d0c23783067c369a11cd27b`.
-- Documented natural Slice 5 CI run: `29115612846`, workflow/event `CI / push`,
+- Documented natural Slice 6 CI run: `29139545163`, workflow/event `CI / push`,
   status/conclusion `completed / success`, with an exact `headSha` match.
 - Package version remains `0.1.0`.
 - No tag points at HEAD and there is no exact-match tag.
 
-The CI facts above are repository-local documented evidence. Slice 6 Gate 2
+The CI facts above are repository-local documented evidence. Slice 7 Gate 2
 does not perform network access or independently query GitHub.
 
 ## Phase Identity And Approved Direction
@@ -118,7 +122,7 @@ Phase 50 uses exactly this eleven-slice route:
 10. Explain / Public Metadata / Package Integration Boundary
 11. Completion Audit And Status Lock
 
-Slices 1 through 5 are complete. Slice 6 is current but incomplete. Slices 7
+Slices 1 through 6 are complete. Slice 7 is current but incomplete. Slices 8
 through 11 remain pending and separately authorized. Listing them is a route
 lock, not implementation or completion.
 
@@ -495,27 +499,157 @@ network behavior.
   CLI, JSON, public metadata, manifest, package resolution, registry,
   installation, IR, SQL, runtime, database, dependency, workflow, fixture,
   golden, package version, or release behavior.
-- **Gate discipline:** Slice 6 is not complete in Gate 2. It uses the exact
-  eight-file allowlist and focused validation below. Completion requires a
-  separately authorized Gate 3 commit, push, and exact natural CI success. The
-  historical roadmap row does not authorize implementation.
+- **Gate discipline:** Slice 6 completed at
+  `7c7f6976dd67ccc4628757f2d857b593f71f5e0f` only after its separately
+  authorized Gate 3 commit, push, and exact natural CI success in run
+  `29139545163`. Its historical Gate 2 allowlist and focused validation remain
+  preserved below. The historical roadmap row does not authorize
+  implementation.
 
 ## Slice 7 Semantic Package Model Readiness
 
 - **Objective:** define static semantic asset identity, attribution,
   dependency, ordering, versioning questions, and the non-executable safety
   model.
-- **Artifact type:** semantic package model readiness contract and static audit.
+- **Artifact type:** this plan update, the readiness contract at
+  `docs/spec/phase50-semantic-package-model-readiness-v1.md`, decision
+  matrices, one focused static-audit test, and six narrow Phase 50
+  compatibility updates.
 - **Prerequisites:** Slices 4 and 6 and Phase 49 private lineage foundations.
 - **Completed-phase relationship:** treats current project/source facts and
   private lineage as possible prerequisites, not package objects or public
   output.
-- **Later handoff:** prepares Phase 55 Semantic Package Asset Schema.
-- **Explicit non-goals and no-behavior boundary:** no manifest syntax, resolver,
-  package graph implementation, dependency resolution, registry, lockfile,
-  install, cache, publish, plugin, hook, or arbitrary code execution.
-- **Gate discipline:** separate Gate 1/Gate 2; candidate asset categories do not
-  become schemas automatically.
+- **Current posture:** Pietto currently has no semantic-package behavior. It
+  has readiness vocabulary only, separate from Python distribution packaging,
+  project-local modules, connector declarations, database extensions, and
+  runtime package management. There is no semantic-package grammar, parser,
+  AST, project or semantic carrier, asset inventory, export surface,
+  dependency declaration, graph, requirement, provenance/digest field, IR,
+  SQL, CLI, JSON, loader, resolver, registry, fetch/install/cache behavior, or
+  runtime execution.
+- **Python distribution boundary:** the installable Python distribution
+  `pietto` at version `0.1.0`, its wheel/sdist metadata, Python dependencies,
+  console entry point, `importlib.metadata` lookup, installation, and package
+  smoke are not Pietto semantic-package support.
+- **Project-local module boundary:** current flat project namespaces and the
+  future Route D local file-as-module direction remain distinct from semantic
+  packages. A project path, module path, repository URL, connector name, or
+  Python distribution name cannot supply semantic-package identity.
+- **Route B decision:** select a static semantic asset bundle that is
+  declarative, reviewable, deterministic, non-executable, and composed of typed
+  semantic assets and typed support assets. Route A documentation-only bundles
+  are insufficiently typed; Route C source packages and Route D hybrid
+  source/catalog packages remain deferred; Route E executable plugins are
+  rejected. Slice 7 and Phase 55 readiness do not make a package loadable.
+- **Identity decision:** conceptual package identity is a logical
+  `(namespace, name)` tuple displayed as `namespace/name`. Both components are
+  canonical lowercase ASCII slugs, logically case-sensitive after canonical
+  validation, with no alternate case-folded equivalence. This does not prove
+  global registry uniqueness or organization ownership and is not a URL,
+  project/module path, connector name, source syntax, Python distribution
+  name, or public API. Exact manifest keys and validation remain future Phase
+  55 work.
+- **Version decision:** package schema version is a required exact integer with
+  initial readiness candidate `1`; package release version is a required exact
+  SemVer string whose prerelease/build metadata remains part of exact equality.
+  They remain distinct from Python distribution version `0.1.0`, current
+  project schema version, and later capability/extension catalog versions. No
+  SemVer parser, precedence selection, range, solver, update, or lockfile
+  behavior is added.
+- **Asset taxonomy decision:** conceptual initial semantic asset kinds are
+  `TYPE_ALIAS`, `ENUM`, and `SHAPE`. Conceptual non-executable support kinds are
+  `DOCUMENTATION`, `EXAMPLE`, and `STATIC_TEST_VECTOR`. Support assets are not
+  compiler bindings; static test vectors contain declared input and expected
+  data only, never runners, hooks, commands, environment/network access,
+  database execution, or dynamic code. These labels are readiness vocabulary,
+  not production enums or schema discriminators.
+- **Deferred asset decision:** source files, local modules, module export
+  surfaces, connectors, tables, queries, constraints, derives, relationship
+  metadata, function/aggregate signatures, capability/dialect/extension
+  profiles, extension signature catalogs, public semantic metadata, arbitrary
+  fixtures/goldens/binaries, and migrations are not initial assets. No asset is
+  currently loadable.
+- **Public-surface decision:** semantic assets are private by default. The
+  conceptual public surface is an explicit ordered list of locally owned
+  semantic asset identities; only `TYPE_ALIAS`, `ENUM`, and `SHAPE` are
+  initially export-eligible. Support assets are not semantic exports, and
+  imported/dependency-owned assets cannot be exported. Wildcard/export-all,
+  public-by-default, aliases, re-export, dependency export, and transitive or
+  registry-derived visibility are excluded.
+- **Dependency decision:** initial dependency facts are exact target
+  `namespace/name`, exact release version, and optional expected digest only.
+  A future already-materialized package set must contain the exact release or
+  validation fails closed. There are no ranges, aliases, asset selectors,
+  optional/development/peer dependencies, features, activation expressions,
+  solving, fetching, downloading, installation, caching, updating, registry
+  lookup, lockfile generation, or lockfile consumption.
+- **Graph/cycle decision:** future private package nodes are exact package
+  releases with exact dependency edges; future asset nodes and references form
+  a separate graph. Both remain separate from module, relation, row,
+  type-alias, capability, extension, and provenance graphs. Duplicate package
+  release/dependency/asset identity, unknown asset kinds, invalid exports,
+  private access, missing/ambiguous references, package dependency cycles, and
+  cross-asset cycles fail closed without a semantic winner. Slice 7 implements
+  no graph and adds or reserves no diagnostic code.
+- **Requirement decision:** a future package may declaratively name exact
+  language/compiler, scalar/operator, aggregate, future window, dialect, and
+  extension profile requirement identities. Requiring, providing, containing,
+  and project availability remain separate facts. Initial packages neither
+  provide nor embed profiles or extension signature catalogs, and Slice 7 or
+  Phase 55 readiness validates none. Phases 56-57 own profile/catalog checking;
+  Phase 58 owns public reporting.
+- **Provenance/digest/trust decision:** required facts are package identity,
+  release version, and schema version. Optional private descriptive facts may
+  include a source repository locator, source revision, and externally supplied
+  digest algorithm/value. They authorize no fetch, VCS verification,
+  publisher authority, digest computation/verification, canonical-byte claim,
+  signature, attestation, or trust policy. Public provenance remains deferred.
+- **Deterministic ordering:** package releases order by `namespace/name` then
+  exact version; dependency diagnostics preserve declaration order while graph
+  traversal uses canonical target identity/version; assets preserve source
+  order for diagnostics/display and use canonical kind then local name for
+  equality/traversal; requirements use canonical identity. Duplicate facts
+  fail before canonicalization can silently deduplicate them.
+- **Manifest direction:** future authoring uses a package-specific strict TOML
+  manifest, separate from current `pietto.toml`, with strict schema version,
+  typed keys, unknown-key rejection, no interpolation, no remote include, and
+  no code hook. Exact filename, keys, layout, parser, serializer, canonical
+  bytes, digest algorithm, and project integration remain Phase 55 decisions.
+- **Project/package integration:** a later project may be supplied an already
+  materialized exact package set, but package assets do not become project
+  bindings without a separately authorized integration contract.
+  Package-qualified import syntax is not selected.
+- **Public/private metadata boundary:** initial package facts remain private.
+  Slice 7 adds no Project JSON v2, Semantic Metadata Artifact v1, explain,
+  public metadata, registry display, portability, provenance, or lineage field.
+- **Diagnostic boundary:** future invalid, duplicate, missing, ambiguous,
+  private, cyclic, unsupported, or executable package facts fail closed, but
+  Slice 7 selects no code, wording, severity, order, JSON shape, or public
+  diagnostic category.
+- **Package-manager boundary:** registry search, remote fetch, download, cache,
+  installation, updates, version solving, range resolution, lockfiles,
+  publishing, signing, verification, attestation, and trust policy remain
+  `OUTSIDE_51_60`. Python/native plugins, entry points, hooks, lifecycle
+  actions, scripts, arbitrary code, and database extension installation remain
+  prohibited.
+- **Later handoff:** prepares Phase 55 Semantic Package Asset Schema as
+  `READINESS_CONTRACT_ONLY`, readiness-only, unstarted, and separately
+  authorized. The bounded handoff is vocabulary, Route B, conceptual identity,
+  orthogonal versions, the exact six initial asset kinds, private explicit
+  exports, exact dependency facts, requirement identities, private provenance,
+  deterministic fail-closed matrices, strict package-TOML direction, and the
+  no-executable/no-package-manager boundary only.
+- **Explicit non-goals and no-behavior boundary:** Slice 7 implements no
+  compiler or runtime behavior. It adds no grammar, source package import,
+  manifest parser, current `pietto.toml` change, production package model,
+  loader, resolver, graph, solver, registry, network, installation, cache,
+  lockfile, publisher, signature/trust behavior, arbitrary code, profile or
+  catalog schema, diagnostic, IR, SQL, CLI, JSON, public metadata,
+  runtime/database behavior, or Phase 56-59 implementation.
+- **Gate discipline:** Slice 7 is not complete in Gate 2. It uses the exact
+  nine-file allowlist and focused validation below. Completion requires a
+  separately authorized Gate 3 commit, push, and exact natural CI success.
+  Slices 8-11 and Phases 52-55 remain unstarted.
 
 ## Slice 8 PostgreSQL Extension Capability Readiness
 
@@ -684,13 +818,24 @@ only existing-file compatibility changes are the five Phase 50 tests named in
 the exact Slice 6 allowlist, limited to current status, completed/current scope
 separation, exact dirty-set compatibility, and exact protected-path exceptions.
 
+Slice 7 preserves every surface above, the roadmap, all completed Slice 1-6
+specs, the historical Phase 29 register, all Phase 44-49 artifacts, every
+production/public/release surface, and the finalized Phase 51-60 route. Its
+only existing-file compatibility changes are the six Phase 50 tests named in
+the exact Slice 7 allowlist, limited to current status, completed/current scope
+separation, exact dirty-set compatibility, and exact protected-path exceptions.
+No production package, module, profile, catalog, manager, public metadata, or
+runtime surface is approved.
+
 ## Package, Version, And Release Boundary
 
-Package version remains `0.1.0`. Slices 1 through 5 performed no package
-version change, tag, release, publish, upload, signing, or attestation. Slice 6
+Package version remains `0.1.0`. Slices 1 through 6 performed no package
+version change, tag, release, publish, upload, signing, or attestation. Slice 7
 Gate 2 performs no package version change, tag, release, publish, upload,
 signing, attestation, CI trigger, CI rerun, CI watch, or CI cancellation. Gate
-2 does not stage, commit, push, or prepare Gate 3.
+2 does not stage, commit, push, or prepare Gate 3. Semantic-package schema and
+release versions are future package facts and do not change the Python
+distribution version.
 
 ## Slice 1 Gate 2 Allowlist
 
@@ -1009,14 +1154,81 @@ Stop without repair or scope expansion if:
 - Ruff, Pyright, focused Slice 6 pytest, complete Phase 50 pytest, or an exact
   evidence node fails.
 
+## Slice 7 Gate 2 Allowlist
+
+Phase 50 Slice 7 Gate 2 is limited to exactly:
+
+- `docs/plan/phase-50-semantic-readiness-consolidation.md`;
+- `docs/spec/phase50-semantic-package-model-readiness-v1.md`;
+- `tests/test_phase50_semantic_package_model_readiness.py`;
+- `tests/test_phase50_semantic_package_extension_capability_scope_lock.py`;
+- `tests/test_phase50_post_v02_deferred_readiness_inventory.py`;
+- `tests/test_phase50_aggregate_grouped_project_output_schema_readiness.py`;
+- `tests/test_phase50_type_system_gap_capability_readiness.py`;
+- `tests/test_phase50_window_function_readiness.py`;
+- `tests/test_phase50_import_module_export_readiness.py`.
+
+The six completed Phase 50 tests are approved only for narrow current-status,
+completed/current scope separation, exact dirty-set compatibility, and exact
+protected-path exceptions required by this nine-file dirty set. No tenth
+repository path is approved. Nothing may be staged, committed, pushed, or
+operated through CI in Gate 2.
+
+## Slice 7 Focused Validation
+
+Slice 7 Gate 2 validation is limited to:
+
+- exact baseline, nine-file dirty-set, staged-set, and whitespace checks;
+- no-index whitespace checks for the two new files;
+- Ruff format/check and lint for all seven changed Python tests;
+- test-project Pyright;
+- the focused Slice 7 static test;
+- complete execution of all seven Phase 50 test files;
+- the exact package/module/capability evidence nodes;
+- the exact dependency/provenance/lineage/privacy and historical-deferral
+  evidence nodes;
+- history/network/import-execution, protected-surface, Phase 44-49, version,
+  tag, and staged-set checks; and
+- `/tmp/phase50-slice7-gate2-evidence-and-diff.txt` with complete tracked and
+  no-index diffs and full changed Python test contents.
+
+Do not run full pytest, `scripts/validate.py`, generated checks, golden checks,
+package smoke, builds, benchmarks, dependency operations, network commands,
+GitHub CLI, or CI. Once the first Ruff formatting command begins, a failure is
+a stop condition and does not authorize repair.
+
+## Slice 7 Stop Conditions
+
+Stop without repair or scope expansion if:
+
+- the completed Slice 6 baseline or exact nine-file dirty set differs;
+- any tenth repository path changes;
+- the roadmap, Phase 29 register, completed Slice 1-6 specs, Phase 44-49
+  artifacts, finalized route, production/public surface, or release surface
+  changes;
+- current semantic-package absence, Python distribution separation, or
+  project-local module separation cannot remain accurate;
+- Route B cannot remain readiness-only, static, deterministic, declarative,
+  and non-executable;
+- a grammar, AST, parser, loader, resolver, carrier, graph, diagnostic, public
+  field, project/module behavior change, profile/catalog schema, package
+  manager, or Phase 55 implementation appears necessary;
+- a compatibility edit weakens a meaningful historical lock or requires parent
+  history, runtime `/tmp` evidence, network, GitHub, import execution, `exec`,
+  or `eval`;
+- Slice 8 or Phase 52-55 implementation appears necessary;
+- a no-index check emits a whitespace diagnostic; or
+- Ruff, Pyright, focused Slice 7 pytest, complete Phase 50 pytest, or an exact
+  evidence node fails.
+
 ## Stop Conditions
 
 Stop without repair or scope expansion if:
 
-- the current Slice 6 baseline or exact eight-file dirty set differs;
-- any ninth repository path changes;
+- the current Slice 7 baseline or exact nine-file dirty set differs;
+- any tenth repository path changes;
 - the historical roadmap table or v0.2 register requires modification;
 - any production/public/release surface appears necessary;
 - a no-index check emits a whitespace diagnostic;
 - Ruff, Pyright, focused pytest, or compatibility pytest fails; or
-- the final diff cannot prove the Slice 6 no-behavior boundary.
+- the final diff cannot prove the Slice 7 no-behavior boundary.
