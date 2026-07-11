@@ -78,6 +78,19 @@ ALLOWED_PHASE50_SLICE7_GATE2_PATHS = {
     "tests/test_phase50_import_module_export_readiness.py",
 }
 
+ALLOWED_PHASE50_SLICE8_GATE2_PATHS = {
+    "docs/plan/phase-50-semantic-readiness-consolidation.md",
+    "docs/spec/phase50-postgresql-extension-capability-readiness-v1.md",
+    "tests/test_phase50_postgresql_extension_capability_readiness.py",
+    "tests/test_phase50_semantic_package_extension_capability_scope_lock.py",
+    "tests/test_phase50_post_v02_deferred_readiness_inventory.py",
+    "tests/test_phase50_aggregate_grouped_project_output_schema_readiness.py",
+    "tests/test_phase50_type_system_gap_capability_readiness.py",
+    "tests/test_phase50_window_function_readiness.py",
+    "tests/test_phase50_import_module_export_readiness.py",
+    "tests/test_phase50_semantic_package_model_readiness.py",
+}
+
 COMPATIBILITY_TEST_PATHS = (
     REPO_ROOT
     / "tests/test_phase50_semantic_package_extension_capability_scope_lock.py",
@@ -192,17 +205,22 @@ def test_slice7_artifacts_baseline_and_mutable_status_are_locked() -> None:
         "CI / push",
         "completed / success",
         "exact `headSha` match",
-        "Phase 50 Slice 7 **Semantic Package Model Readiness** is the current",
-        "Slice 7 is not complete in Gate 2",
-        "Slices 8 through 11 remain pending",
+        "Phase 50 Slice 7 **Semantic Package Model Readiness** completed",
+        "a5bc07855a0994343475ba546504e64b16fc7e63",
+        "29141663534",
+        "Phase 50 Slice 8 **PostgreSQL Extension Capability Readiness** is the current",
+        "Slice 8 is not complete in Gate 2",
+        "Slices 9 through 11 remain pending",
         "Phase 50 remains in progress",
         "Phase 54 remains readiness-only and unstarted",
         "Phase 55 remains `READINESS_CONTRACT_ONLY`, readiness-only, and unstarted",
+        "Phase 56 remains unstarted",
+        "Phase 57 remains `READINESS_CONTRACT_ONLY`, readiness-only, and unstarted",
     ):
         assert required in f"{plan_status} {normalized_spec}", required
     assert SLICE6_SUBJECT in spec
     assert "Phase 50 is complete" not in plan_status
-    assert "Slice 7 completed" not in plan_status
+    assert "Slice 8 completed" not in plan_status
 
 
 def test_spec_exact_sections_and_no_behavior_authority_are_locked() -> None:
@@ -535,6 +553,14 @@ def test_all_phase50_slice7_allowlists_and_plan_scope_are_exact() -> None:
     for relative_path in ALLOWED_PHASE50_SLICE7_GATE2_PATHS:
         assert relative_path in allowlist, relative_path
 
+    for test_path in (*COMPATIBILITY_TEST_PATHS, TEST_PATH):
+        assert (
+            _string_set_assignment(
+                _read(test_path), "ALLOWED_PHASE50_SLICE8_GATE2_PATHS"
+            )
+            == ALLOWED_PHASE50_SLICE8_GATE2_PATHS
+        ), test_path
+
 
 def test_protected_paths_version_tag_staging_and_dirty_set_are_locked() -> None:
     pyproject = tomllib.loads(_read(PYPROJECT_PATH))
@@ -545,4 +571,8 @@ def test_protected_paths_version_tag_staging_and_dirty_set_are_locked() -> None:
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
     for relative_path in PROTECTED_PATHS:
         assert _git_output(["diff", "--", relative_path]) == "", relative_path
-    assert _dirty_paths() in (set(), ALLOWED_PHASE50_SLICE7_GATE2_PATHS)
+    assert _dirty_paths() in (
+        set(),
+        ALLOWED_PHASE50_SLICE7_GATE2_PATHS,
+        ALLOWED_PHASE50_SLICE8_GATE2_PATHS,
+    )

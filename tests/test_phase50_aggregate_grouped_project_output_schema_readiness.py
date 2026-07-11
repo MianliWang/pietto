@@ -99,6 +99,19 @@ ALLOWED_PHASE50_SLICE7_GATE2_PATHS = {
     "tests/test_phase50_import_module_export_readiness.py",
 }
 
+ALLOWED_PHASE50_SLICE8_GATE2_PATHS = {
+    "docs/plan/phase-50-semantic-readiness-consolidation.md",
+    "docs/spec/phase50-postgresql-extension-capability-readiness-v1.md",
+    "tests/test_phase50_postgresql_extension_capability_readiness.py",
+    "tests/test_phase50_semantic_package_extension_capability_scope_lock.py",
+    "tests/test_phase50_post_v02_deferred_readiness_inventory.py",
+    "tests/test_phase50_aggregate_grouped_project_output_schema_readiness.py",
+    "tests/test_phase50_type_system_gap_capability_readiness.py",
+    "tests/test_phase50_window_function_readiness.py",
+    "tests/test_phase50_import_module_export_readiness.py",
+    "tests/test_phase50_semantic_package_model_readiness.py",
+}
+
 PROTECTED_PATHS = (
     "README.md",
     "AGENTS.md",
@@ -187,14 +200,19 @@ def test_slice3_artifacts_identity_baseline_and_current_status_are_locked() -> N
         "Phase 50 Slice 6 **Import / Module / Export Readiness** completed",
         "7c7f6976dd67ccc4628757f2d857b593f71f5e0f",
         "29139545163",
-        "Phase 50 Slice 7 **Semantic Package Model Readiness** is the current",
-        "Slice 7 is not complete in Gate 2",
-        "Slices 8 through 11 remain pending",
+        "Phase 50 Slice 7 **Semantic Package Model Readiness** completed",
+        "a5bc07855a0994343475ba546504e64b16fc7e63",
+        "29141663534",
+        "Phase 50 Slice 8 **PostgreSQL Extension Capability Readiness** is the current",
+        "Slice 8 is not complete in Gate 2",
+        "Slices 9 through 11 remain pending",
         "Phase 50 remains in progress",
-        "Phases 51 through 55 remain unstarted",
+        "Phases 52 through 57 remain unstarted",
         "Phase 53 remains `READINESS_CONTRACT_ONLY`",
         "Phase 54 remains readiness-only and unstarted",
         "Phase 55 remains `READINESS_CONTRACT_ONLY`, readiness-only, and unstarted",
+        "Phase 56 remains unstarted",
+        "Phase 57 remains `READINESS_CONTRACT_ONLY`, readiness-only, and unstarted",
     ):
         assert required in plan, required
 
@@ -387,4 +405,5 @@ def test_package_version_tag_protected_paths_and_dirty_set_are_locked() -> None:
         ALLOWED_PHASE50_SLICE5_GATE2_PATHS,
         ALLOWED_PHASE50_SLICE6_GATE2_PATHS,
         ALLOWED_PHASE50_SLICE7_GATE2_PATHS,
+        ALLOWED_PHASE50_SLICE8_GATE2_PATHS,
     )

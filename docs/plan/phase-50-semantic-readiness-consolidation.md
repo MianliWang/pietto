@@ -32,14 +32,20 @@ Phase 50 Slice 6 **Import / Module / Export Readiness** completed at
 `7c7f6976dd67ccc4628757f2d857b593f71f5e0f`, with documented natural CI run
 `29139545163` completing successfully for the exact commit.
 
-Phase 50 Slice 7 **Semantic Package Model Readiness** is the current
-docs/spec/static-audit-only readiness slice. Slice 7 is not complete in Gate 2.
+Phase 50 Slice 7 **Semantic Package Model Readiness** completed at
+`a5bc07855a0994343475ba546504e64b16fc7e63`, with documented natural CI run
+`29141663534` completing successfully for the exact commit.
+
+Phase 50 Slice 8 **PostgreSQL Extension Capability Readiness** is the current
+docs/spec/static-audit-only readiness slice. Slice 8 is not complete in Gate 2.
 Its completion requires a separately authorized Gate 3 commit, push, and exact
-natural CI success. Slices 8 through 11 remain pending and separately
-authorized. Phase 50 remains in progress. Phases 51 through 55 remain
+natural CI success. Slices 9 through 11 remain pending and separately
+authorized. Phase 50 remains in progress. Phases 52 through 57 remain
 unstarted. Phase 53 remains `READINESS_CONTRACT_ONLY` under the current
 finalized route. Phase 54 remains readiness-only and unstarted. Phase 55
-remains `READINESS_CONTRACT_ONLY`, readiness-only, and unstarted.
+remains `READINESS_CONTRACT_ONLY`, readiness-only, and unstarted. Phase 56
+remains unstarted. Phase 57 remains `READINESS_CONTRACT_ONLY`, readiness-only,
+and unstarted.
 
 Every Phase 50 slice is readiness-only. No slice automatically authorizes later
 behavior or a later phase.
@@ -47,18 +53,18 @@ behavior or a later phase.
 ## Trusted Baseline
 
 - Baseline branch: `main`.
-- Baseline HEAD: `7c7f6976dd67ccc4628757f2d857b593f71f5e0f`.
+- Baseline HEAD: `a5bc07855a0994343475ba546504e64b16fc7e63`.
 - Baseline local `origin/main`:
+  `a5bc07855a0994343475ba546504e64b16fc7e63`.
+- Baseline subject: `Add Phase 50 semantic package model readiness`.
+- Baseline parent/Slice 6 commit:
   `7c7f6976dd67ccc4628757f2d857b593f71f5e0f`.
-- Baseline subject: `Add Phase 50 import module export readiness`.
-- Baseline parent/Slice 5 commit:
-  `d79c5c422cb7f54ae5e5587694e49389536419cb`.
-- Documented natural Slice 6 CI run: `29139545163`, workflow/event `CI / push`,
+- Documented natural Slice 7 CI run: `29141663534`, workflow/event `CI / push`,
   status/conclusion `completed / success`, with an exact `headSha` match.
 - Package version remains `0.1.0`.
 - No tag points at HEAD and there is no exact-match tag.
 
-The CI facts above are repository-local documented evidence. Slice 7 Gate 2
+The CI facts above are repository-local documented evidence. Slice 8 Gate 2
 does not perform network access or independently query GitHub.
 
 ## Phase Identity And Approved Direction
@@ -122,7 +128,7 @@ Phase 50 uses exactly this eleven-slice route:
 10. Explain / Public Metadata / Package Integration Boundary
 11. Completion Audit And Status Lock
 
-Slices 1 through 6 are complete. Slice 7 is current but incomplete. Slices 8
+Slices 1 through 7 are complete. Slice 8 is current but incomplete. Slices 9
 through 11 remain pending and separately authorized. Listing them is a route
 lock, not implementation or completion.
 
@@ -646,27 +652,102 @@ network behavior.
   lockfile, publisher, signature/trust behavior, arbitrary code, profile or
   catalog schema, diagnostic, IR, SQL, CLI, JSON, public metadata,
   runtime/database behavior, or Phase 56-59 implementation.
-- **Gate discipline:** Slice 7 is not complete in Gate 2. It uses the exact
-  nine-file allowlist and focused validation below. Completion requires a
-  separately authorized Gate 3 commit, push, and exact natural CI success.
-  Slices 8-11 and Phases 52-55 remain unstarted.
+- **Gate discipline:** Slice 7 completed only after its exact nine-file Gate 2,
+  separately authorized Gate 3 commit and push, and documented exact natural
+  CI success at `a5bc07855a0994343475ba546504e64b16fc7e63` in run
+  `29141663534`. Its historical Gate 2 allowlist and focused validation remain
+  preserved below.
 
 ## Slice 8 PostgreSQL Extension Capability Readiness
 
 - **Objective:** distinguish base PostgreSQL backend capability from static
   declared extension overlays and missing-capability failure.
-- **Artifact type:** extension capability readiness contract and static audit.
+- **Artifact type:** this plan update, the readiness contract at
+  `docs/spec/phase50-postgresql-extension-capability-readiness-v1.md`, decision
+  matrices, one focused static-audit test, and seven narrow Phase 50
+  compatibility updates.
 - **Prerequisites:** Slices 4 and 7 and the Phase 9 closed backend capability
   precedent.
 - **Completed-phase relationship:** preserves current PostgreSQL and private
   MySQL dispatch/lowering behavior unchanged.
+- **Current PostgreSQL posture:** Pietto has bounded PostgreSQL compilation and
+  a static `postgres.table` connector contract. Current public PostgreSQL API,
+  closed PostgreSQL/private MySQL CLI dispatch, exact connector validation,
+  closed scalar/aggregate/operator/type catalogs, and reviewed PostgreSQL
+  lowering remain unchanged.
+- **Current extension posture:** extension-profile vocabulary is readiness-only;
+  concrete support is explicitly deferred; a custom signature-catalog schema
+  is not evidenced. There is no extension grammar, AST, semantic/project/
+  requirement/availability/profile/catalog carrier, extension type/function/
+  aggregate/operator/cast/table-function support, extension-aware lowering,
+  installed-state detection, introspection, installation, or public field.
+- **False-positive boundary:** `postgres.table` is connector identity, not
+  extension availability; `--dialect postgres` is backend selection, not a
+  server instance; PostgreSQL lowering or similar SQL spelling is not extension
+  support; logical/native type, package requirement/installation, declared
+  profile/server state, and catalog entry/database object remain distinct.
+- **Route decision:** select Route B, a static, declarative, strongly typed,
+  deterministic, reviewable, non-executable extension profile with typed
+  signature catalog layered over an immutable PostgreSQL base profile. Reject
+  coarse Route A, SQL-template Route C, introspected Route D, and executable
+  plugin Route E.
+- **Identity/version decision:** conceptual extension identity is
+  `(postgresql_base_profile_identity, canonical_extension_name)` with a
+  lowercase ASCII exact name. Extension release is an exact opaque string;
+  profile/catalog schema versions are exact integers; profile/catalog releases
+  are separate exact strings; optional server compatibility is declared only;
+  optional supplied digest is neither identity nor verified.
+- **Composition decision:** the base profile is immutable and overlays are
+  additive-only. Equivalent duplicates, replacements, conflicting signatures,
+  type identities, native mappings, emitted spellings, or lowering ownership
+  fail closed. Textual or dependency order gives no semantic precedence.
+- **Catalog taxonomy decision:** readiness includes extension-scoped logical/
+  native type pairs, fixed typed scalar signatures, fixed typed aggregate
+  signatures, existing-token unary/binary operator signatures, and explicit
+  cast signatures. Window/table/relation/set-returning functions, special/new
+  syntax, DDL, indexes/operator classes, planner/configuration/runtime actions,
+  SQL templates/macros, and executable hooks are deferred, excluded, or
+  rejected.
+- **Type decision:** extension types are scoped opaque logical identities with
+  explicit native spelling and no automatic comparison, ordering, grouping,
+  arithmetic, aggregate, cast, IR, lowering, or public-metadata capability.
+- **Signature decision:** scalar/aggregate/operator/cast facts use exact owner,
+  fixed role/arity/ordered logical types, result/nullability, context,
+  PostgreSQL emitted identity, and exact prerequisites. Matching is exact only;
+  no aliases, variadics, defaults, polymorphism, generics, implicit coercion,
+  ranking, best match, or ambiguity winner.
+- **Requirement/dependency decision:** semantic-package requirement, explicit
+  project availability, catalog description, approved backend lowering, and
+  unknown actual server state are independent. Direct exact extension
+  identity/version requirements validate an already-materialized declared set;
+  no ranges/solver/install; missing facts and cycles fail closed.
+- **Examples/ordering decision:** PostGIS, pgvector, pg_trgm, and TimescaleDB
+  remain `NOT_EVIDENCED` matrix examples only. Source order is diagnostic/
+  display order; canonical identity/signature order governs equality/traversal;
+  no textual precedence exists.
+- **Ownership/privacy decision:** Slice 8 owns only this contract; Phase 55
+  retains its exact six initial assets; Phase 56 owns profile schemas/checking;
+  Phase 57 owns catalog readiness; Phase 58 owns public reporting; Phase 59
+  owns graph/provenance integration. All future extension facts remain private.
+- **Provenance/trust decision:** optional private locator/revision, curator/
+  generation description, and supplied digest facts imply no fetch,
+  introspection, generation, computation, verification, publisher authority,
+  signing, attestation, registry trust, or trust policy.
 - **Later handoff:** prepares Phase 57 PostgreSQL Extension Signature-Catalog
-  Readiness.
-- **Explicit non-goals and no-behavior boundary:** no PostGIS, pgvector,
-  pg_trgm, or TimescaleDB signatures, types, operators, lowering, diagnostics,
-  discovery, connection, installation, or `CREATE EXTENSION`.
-- **Gate discipline:** separate Gate 1/Gate 2; named extensions remain examples
-  until explicitly approved.
+  Readiness as `READINESS_CONTRACT_ONLY`, readiness-only, unstarted, and
+  separately authorized. The handoff is vocabulary and matrices only, not a
+  production carrier, concrete signature, behavior, or implementation-slice
+  plan.
+- **Explicit non-goals and no-behavior boundary:** Slice 8 implements no
+  compiler or runtime behavior. It adds no grammar, parser, AST, production
+  profile/catalog/package/capability carrier, semantic/type/operator/aggregate
+  acceptance, IR, SQL, CLI, JSON, public metadata, diagnostic, connection,
+  introspection, discovery, `CREATE EXTENSION`, installation, registry,
+  network, runtime/database behavior, or Phase 56-59 implementation.
+- **Gate discipline:** Slice 8 is current but incomplete in Gate 2. It uses the
+  exact ten-file allowlist and focused validation below. Completion requires a
+  separately authorized Gate 3 commit, push, and exact natural CI success.
+  Slices 9-11 and Phases 52-57 remain unstarted.
 
 ## Slice 9 Multi-dialect Capability Ecosystem Readiness
 
@@ -827,15 +908,25 @@ separation, exact dirty-set compatibility, and exact protected-path exceptions.
 No production package, module, profile, catalog, manager, public metadata, or
 runtime surface is approved.
 
+Slice 8 preserves every surface above, the roadmap, all completed Slice 1-7
+specs, the historical Phase 29 register, all Phase 44-49 artifacts, every
+production/public/release surface, and the finalized Phase 51-60 route. Its
+only existing-file compatibility changes are the seven Phase 50 tests named in
+the exact Slice 8 allowlist, limited to mutable current status, completed/
+current scope separation, exact dirty-set compatibility, exact protected-path
+exceptions, and exact shared allowlist confirmation. No production extension,
+profile, catalog, capability, package, public metadata, database, or runtime
+surface is approved.
+
 ## Package, Version, And Release Boundary
 
-Package version remains `0.1.0`. Slices 1 through 6 performed no package
-version change, tag, release, publish, upload, signing, or attestation. Slice 7
+Package version remains `0.1.0`. Slices 1 through 7 performed no package
+version change, tag, release, publish, upload, signing, or attestation. Slice 8
 Gate 2 performs no package version change, tag, release, publish, upload,
 signing, attestation, CI trigger, CI rerun, CI watch, or CI cancellation. Gate
-2 does not stage, commit, push, or prepare Gate 3. Semantic-package schema and
-release versions are future package facts and do not change the Python
-distribution version.
+2 does not stage, commit, push, or prepare Gate 3. Extension, profile, catalog,
+semantic-package, server, and schema versions are future distinct facts and do
+not change the Python distribution version.
 
 ## Slice 1 Gate 2 Allowlist
 
@@ -1221,14 +1312,85 @@ Stop without repair or scope expansion if:
 - Ruff, Pyright, focused Slice 7 pytest, complete Phase 50 pytest, or an exact
   evidence node fails.
 
+## Slice 8 Gate 2 Allowlist
+
+Phase 50 Slice 8 Gate 2 is limited to exactly:
+
+- `docs/plan/phase-50-semantic-readiness-consolidation.md`;
+- `docs/spec/phase50-postgresql-extension-capability-readiness-v1.md`;
+- `tests/test_phase50_postgresql_extension_capability_readiness.py`;
+- `tests/test_phase50_semantic_package_extension_capability_scope_lock.py`;
+- `tests/test_phase50_post_v02_deferred_readiness_inventory.py`;
+- `tests/test_phase50_aggregate_grouped_project_output_schema_readiness.py`;
+- `tests/test_phase50_type_system_gap_capability_readiness.py`;
+- `tests/test_phase50_window_function_readiness.py`;
+- `tests/test_phase50_import_module_export_readiness.py`;
+- `tests/test_phase50_semantic_package_model_readiness.py`.
+
+The seven completed Phase 50 tests are approved only for narrow mutable
+current-status, completed/current scope separation, exact dirty-set
+compatibility, exact protected-path exceptions, and exact Slice 8 allowlist
+confirmation. No eleventh repository path is approved. Nothing may be staged,
+committed, pushed, or operated through CI in Gate 2.
+
+## Slice 8 Focused Validation
+
+Slice 8 Gate 2 validation is limited to:
+
+- exact baseline, ten-file dirty-set, staged-set, and whitespace checks;
+- no-index whitespace checks for the two new files;
+- Ruff format/check and lint for all eight changed Python tests;
+- test-project Pyright;
+- the focused Slice 8 static test;
+- complete execution of all eight Phase 50 test files;
+- the exact approved Phase 9 PostgreSQL connector/backend contract nodes;
+- the exact approved Phase 30/42 type/operator/aggregate nodes;
+- the exact approved Phase 36/47/49 public-schema/privacy nodes;
+- history/network/database/import-execution zero-match scans;
+- protected-surface, Phase 44-49, version, tag, and staged-set checks; and
+- `/tmp/phase50-slice8-gate2-evidence-and-diff.txt` with complete tracked and
+  no-index diffs and full contents of all eight changed Python tests.
+
+Do not run full pytest, `scripts/validate.py`, generated checks, golden checks,
+package smoke, builds, benchmarks, dependency operations, network commands,
+GitHub CLI, PostgreSQL, database commands, or CI. Once the first Ruff
+formatting command begins, a failure is a stop condition and does not authorize
+repair.
+
+## Slice 8 Stop Conditions
+
+Stop without repair or scope expansion if:
+
+- the completed Slice 7 baseline or exact ten-file dirty set differs;
+- any eleventh repository path changes;
+- the roadmap, Phase 29 register, completed Slice 1-7 specs, Phase 44-49
+  artifacts, finalized route, production/public surface, or release surface
+  changes;
+- current bounded PostgreSQL behavior or extension absence cannot remain
+  accurate;
+- Route B cannot remain static, strongly typed, deterministic, reviewable, and
+  non-executable;
+- the base profile cannot remain immutable or an overlay must replace another
+  capability;
+- a concrete signature, production profile/catalog/capability carrier,
+  diagnostic, public field, connection, introspection, discovery, installation,
+  runtime/database behavior, or Phase 57 implementation appears necessary;
+- a compatibility edit weakens a meaningful historical lock or requires parent
+  history, runtime `/tmp` evidence, network, GitHub, PostgreSQL, database,
+  import execution, `exec`, or `eval`;
+- Slice 9 or Phase 52-57 implementation appears necessary;
+- a no-index check emits a whitespace diagnostic; or
+- Ruff, Pyright, focused Slice 8 pytest, complete Phase 50 pytest, or an exact
+  evidence node fails.
+
 ## Stop Conditions
 
 Stop without repair or scope expansion if:
 
-- the current Slice 7 baseline or exact nine-file dirty set differs;
-- any tenth repository path changes;
+- the current Slice 8 baseline or exact ten-file dirty set differs;
+- any eleventh repository path changes;
 - the historical roadmap table or v0.2 register requires modification;
 - any production/public/release surface appears necessary;
 - a no-index check emits a whitespace diagnostic;
 - Ruff, Pyright, focused pytest, or compatibility pytest fails; or
-- the final diff cannot prove the Slice 7 no-behavior boundary.
+- the final diff cannot prove the Slice 8 no-behavior boundary.
