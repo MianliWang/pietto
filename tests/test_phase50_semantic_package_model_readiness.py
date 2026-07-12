@@ -105,6 +105,21 @@ ALLOWED_PHASE50_SLICE9_GATE2_PATHS = {
     "tests/test_phase50_postgresql_extension_capability_readiness.py",
 }
 
+ALLOWED_PHASE50_SLICE10_GATE2_PATHS = {
+    "docs/plan/phase-50-semantic-readiness-consolidation.md",
+    "docs/spec/phase50-explain-public-metadata-package-integration-boundary-v1.md",
+    "tests/test_phase50_explain_public_metadata_package_integration_boundary.py",
+    "tests/test_phase50_semantic_package_extension_capability_scope_lock.py",
+    "tests/test_phase50_post_v02_deferred_readiness_inventory.py",
+    "tests/test_phase50_aggregate_grouped_project_output_schema_readiness.py",
+    "tests/test_phase50_type_system_gap_capability_readiness.py",
+    "tests/test_phase50_window_function_readiness.py",
+    "tests/test_phase50_import_module_export_readiness.py",
+    "tests/test_phase50_semantic_package_model_readiness.py",
+    "tests/test_phase50_postgresql_extension_capability_readiness.py",
+    "tests/test_phase50_multi_dialect_capability_ecosystem_readiness.py",
+}
+
 COMPATIBILITY_TEST_PATHS = (
     REPO_ROOT
     / "tests/test_phase50_semantic_package_extension_capability_scope_lock.py",
@@ -226,21 +241,28 @@ def test_slice7_artifacts_baseline_and_mutable_status_are_locked() -> None:
         "9e2c0f0ddcc2047e35985e6b97daa8bf29979914",
         "29157374991",
         "Slice 8 completed",
-        "Phase 50 Slice 9 **Multi-dialect Capability Ecosystem Readiness** is the current",
-        "Slice 9 is not complete in Gate 2",
-        "Slices 10 through 11 remain pending",
+        "Phase 50 Slice 9 **Multi-dialect Capability Ecosystem Readiness** completed",
+        "f886589ac2f64eeb3770c914e7c049e2da105daa",
+        "29170827348",
+        "Slice 9 completed",
+        "Phase 50 Slice 10 **Explain / Public Metadata / Package Integration Boundary** is the current",
+        "Slice 10 is not complete in Gate 2",
+        "Slice 11 remains pending and separately authorized",
         "Phase 50 remains in progress",
+        "Phases 52 through 60 remain unstarted",
         "Phase 54 remains readiness-only and unstarted",
         "Phase 55 remains `READINESS_CONTRACT_ONLY`, readiness-only, and unstarted",
         "Phase 56 remains unstarted",
         "Phase 57 remains `READINESS_CONTRACT_ONLY`, readiness-only, and unstarted",
+        "Phase 58 remains readiness-only and unstarted",
         "Phase 60 remains readiness-only and unstarted",
     ):
         assert required in f"{plan_status} {normalized_spec}", required
     assert SLICE6_SUBJECT in spec
     assert "Phase 50 is complete" not in plan_status
     assert "Slice 8 completed" in plan_status
-    assert "Slice 9 completed" not in plan_status
+    assert "Slice 9 completed" in plan_status
+    assert "Slice 10 completed" not in plan_status
 
 
 def test_spec_exact_sections_and_no_behavior_authority_are_locked() -> None:
@@ -596,4 +618,5 @@ def test_protected_paths_version_tag_staging_and_dirty_set_are_locked() -> None:
         ALLOWED_PHASE50_SLICE7_GATE2_PATHS,
         ALLOWED_PHASE50_SLICE8_GATE2_PATHS,
         ALLOWED_PHASE50_SLICE9_GATE2_PATHS,
+        ALLOWED_PHASE50_SLICE10_GATE2_PATHS,
     )
