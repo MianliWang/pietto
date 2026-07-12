@@ -836,6 +836,50 @@ route is planning only and preauthorizes no slice.
 | 11 | Cross-phase Readiness Privacy And Compatibility Closure; hardening/docs/static | lock Phase 52/53/JOIN/58/59/package/dialect/graph separation and public byte/key stability | Slice 10 | normally none; production only if its Gate 1 proves a missing private invariant | plan/spec updates; likely `tests/test_phase51_readiness_privacy_compatibility.py` | no public field, window, JOIN, package, or profile behavior | protected/public compatibility matrix, separately authorized Gate 3 and exact natural CI |
 | 12 | Completion Audit And Status Lock; completion docs/static | audit all slices, owners, no widening, version/release boundary, conditional completion | Slices 1–11 published and green | none expected | plan status; new completion spec/test; narrowly proven compatibility updates only | no behavior, public change, release, or later-phase start | exact completion commit, one normal push, natural CI exact `headSha`; Phase 51 complete only then |
 
+## Slice 2 Gate 2 Bounded Implementation Status
+
+Slice 2 is the Private Result-role And Output-identity Foundation. Its
+authorized production ownership is exactly
+`src/pietto/_project/model.py`. It adds only:
+
+- private three-member `ProjectRowResultRole` with `ORDINARY_ROW_VALUE`,
+  `GROUP_KEY`, and `AGGREGATE_RESULT`;
+- an appended defaulted `ProjectRowField.result_role` whose ordinary default
+  preserves every existing construction path;
+- private frozen/slots `ProjectAggregateResultFact` with exactly `function`,
+  `output_name`, `grouped`, `argument_count`, and `location`;
+- an empty-by-default, deeply readonly relation/output aggregate-result map on
+  `ProjectSemanticModel`;
+- structural fact validation and relation/schema/role/fact consistency checks.
+
+The approved function decision is structural-only in Slice 2. `model.py` does
+not normalize functions, duplicate a canonical aggregate-name/arity catalog,
+or import `pietto.semantic`. Canonical function, arity, argument-shape, type,
+and nullability validation remains assigned to Slices 4–6 using the existing
+semantic authority before any fact is populated.
+
+Both current production `ProjectSemanticModel` construction paths rely on the
+new empty default. Slice 2 does not populate facts, derive group-key or
+aggregate roles, construct aggregate/grouped schemas, require schema-state
+entries, choose duplicate winners, build dependency/lineage, or change current
+`DEFERRED` decisions.
+
+The bounded contract is
+`docs/spec/phase51-private-result-role-output-identity-v1.md`. The exact Gate 2
+allowlist is the contract's thirteen paths: `model.py`, one focused Slice 2
+test, this plan, the new contract, eight mechanical Phase 11/12 compiler-hash
+refreshes, and one mechanical Phase 33 `_project` digest refresh. The active
+and historical roadmaps, Slice 1 scope lock/test, private package exports,
+serializers, compiler layers, dependency/lineage helpers, workflows,
+dependencies, version, release, runtime, and database surfaces remain
+forbidden.
+
+This status entry does not preclaim Gate 2 validation success or Slice 2
+completion. Gate 2 success requires the exact focused matrix and complete
+`/tmp/pietto-phase51-slice2-gate2-evidence-and-diff.txt`. Slice 2 completion
+still requires a separately authorized Gate 3 commit, normal push, and natural
+CI completed/success with exact `headSha` match.
+
 Every likely path is planning, not an allowlist. If a future slice needs a
 grammar, single-file semantic/IR/SQL, public artifact, dependency, workflow,
 release, or otherwise unapproved surface, it stops and returns to a new

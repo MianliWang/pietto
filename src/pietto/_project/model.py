@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from pietto._project.row_lineage import ProjectRelationRowLineage
 
 _Key = TypeVar("_Key")
+_InnerKey = TypeVar("_InnerKey")
 _Value = TypeVar("_Value")
 
 _PROJECT_BUILTIN_TYPE_NAMES = frozenset(
@@ -60,6 +61,18 @@ def _readonly_mapping(
     """Copy values into an immutable private mapping."""
 
     return MappingProxyType(dict(values or {}))
+
+
+def _readonly_nested_mapping(
+    values: Mapping[_Key, Mapping[_InnerKey, _Value]] | None = None,
+) -> Mapping[_Key, Mapping[_InnerKey, _Value]]:
+    """Copy both levels of one nested mapping into immutable mappings."""
+
+    if values is None:
+        return MappingProxyType({})
+    return MappingProxyType(
+        {key: _readonly_mapping(inner_values) for key, inner_values in values.items()}
+    )
 
 
 class ProjectDiscoveryErrorKind(StrEnum):
@@ -242,6 +255,14 @@ class ProjectRowFieldNullability(StrEnum):
     UNKNOWN = "unknown"
 
 
+class ProjectRowResultRole(StrEnum):
+    """Project-private calculation-site role for one row field."""
+
+    ORDINARY_ROW_VALUE = "ordinary_row_value"
+    GROUP_KEY = "group_key"
+    AGGREGATE_RESULT = "aggregate_result"
+
+
 class ProjectRowFieldProvenanceKind(StrEnum):
     """Project-private row field provenance categories for future slices."""
 
@@ -272,6 +293,34 @@ class ProjectRowField:
     nullability: ProjectRowFieldNullability
     field_def: FieldDef | None = None
     provenance: ProjectRowFieldProvenance | None = None
+    result_role: ProjectRowResultRole = ProjectRowResultRole.ORDINARY_ROW_VALUE
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectAggregateResultFact:
+    """One inert private aggregate selected-output identity fact."""
+
+    function: str
+    output_name: str
+    grouped: bool
+    argument_count: int
+    location: SourceLocation
+
+    def __post_init__(self) -> None:
+        """Validate only the structural shape of one aggregate result fact."""
+
+        if type(self.function) is not str or not self.function:
+            raise ValueError("Project aggregate result fact requires function")
+        if type(self.output_name) is not str or not self.output_name:
+            raise ValueError("Project aggregate result fact requires output name")
+        if type(self.grouped) is not bool:
+            raise ValueError("Project aggregate result fact requires grouped bool")
+        if type(self.argument_count) is not int or self.argument_count < 0:
+            raise ValueError(
+                "Project aggregate result fact requires non-negative argument count"
+            )
+        if not isinstance(self.location, SourceLocation):
+            raise ValueError("Project aggregate result fact requires source location")
 
 
 @dataclass(frozen=True, slots=True)
@@ -514,6 +563,10 @@ class ProjectSemanticModel:
     relation_dependency_graph: ProjectRelationDependencyGraph = field(
         default_factory=ProjectRelationDependencyGraph
     )
+    relation_aggregate_result_facts: Mapping[
+        TableDef | QueryDef,
+        Mapping[str, ProjectAggregateResultFact],
+    ] = field(default_factory=lambda: _readonly_mapping())
 
     def __post_init__(self) -> None:
         """Copy private project semantic maps into immutable mappings."""
@@ -563,6 +616,61 @@ class ProjectSemanticModel:
             "relation_row_lineages",
             _readonly_mapping(self.relation_row_lineages),
         )
+        object.__setattr__(
+            self,
+            "relation_aggregate_result_facts",
+            _readonly_nested_mapping(self.relation_aggregate_result_facts),
+        )
+        _validate_project_aggregate_result_facts(
+            relation_row_schemas=self.relation_row_schemas,
+            relation_aggregate_result_facts=self.relation_aggregate_result_facts,
+        )
+
+
+def _validate_project_aggregate_result_facts(
+    *,
+    relation_row_schemas: Mapping[TableDef | QueryDef, ProjectRowSchema],
+    relation_aggregate_result_facts: Mapping[
+        TableDef | QueryDef,
+        Mapping[str, ProjectAggregateResultFact],
+    ],
+) -> None:
+    """Validate inert aggregate-result facts against supplied private schemas."""
+
+    for definition, facts in relation_aggregate_result_facts.items():
+        if not isinstance(definition, (TableDef, QueryDef)):
+            raise ValueError("Project aggregate result facts require relation keys")
+        schema = relation_row_schemas.get(definition)
+        if schema is None:
+            raise ValueError("Project aggregate result facts require relation schema")
+        for output_name, fact in facts.items():
+            if not isinstance(fact, ProjectAggregateResultFact):
+                raise ValueError("Project aggregate result facts require fact values")
+            if output_name != fact.output_name:
+                raise ValueError("Project aggregate result fact output key mismatch")
+            row_field = schema.fields.get(output_name)
+            if row_field is None:
+                raise ValueError("Project aggregate result fact requires schema field")
+            if row_field.result_role is not ProjectRowResultRole.AGGREGATE_RESULT:
+                raise ValueError(
+                    "Project aggregate result fact requires aggregate result role"
+                )
+            if fact.grouped is not (definition.group_by_clause is not None):
+                raise ValueError("Project aggregate result fact grouped mismatch")
+
+    for definition, schema in relation_row_schemas.items():
+        facts = relation_aggregate_result_facts.get(definition)
+        for output_name, row_field in schema.fields.items():
+            has_fact = facts is not None and output_name in facts
+            if row_field.result_role is ProjectRowResultRole.AGGREGATE_RESULT:
+                if not has_fact:
+                    raise ValueError(
+                        "Project aggregate result role requires matching fact"
+                    )
+            elif has_fact:
+                raise ValueError(
+                    "Ordinary and group-key project row fields forbid aggregate facts"
+                )
 
 
 @dataclass(frozen=True, slots=True)
