@@ -49,16 +49,24 @@ only after its separately authorized Gate 3 commit, push, and exact natural CI
 success.
 
 Phase 50 Slice 10 **Explain / Public Metadata / Package Integration Boundary**
-is the current docs/spec/static-audit-only readiness slice. Slice 10 is not
-complete in Gate 2. Its completion requires a separately authorized Gate 3
-commit, push, and exact natural CI success. Slice 11 remains pending and
-separately authorized. Phase 50 remains in progress. Phases 52 through 60
-remain unstarted. Phase 53 remains `READINESS_CONTRACT_ONLY` under the current
-finalized route. Phase 54 remains readiness-only and unstarted. Phase 55
-remains `READINESS_CONTRACT_ONLY`, readiness-only, and unstarted. Phase 56
-remains unstarted. Phase 57 remains `READINESS_CONTRACT_ONLY`, readiness-only,
-and unstarted. Phase 58 remains readiness-only and unstarted. Phase 60 remains
-readiness-only and unstarted.
+completed at `9bc6ed82f3741e3c242981bb88edfb50c73fc586`, with documented
+natural CI run `29179160024` completing successfully for the exact commit.
+Slice 10 completed only after its separately authorized Gate 3 commit, push,
+and exact natural CI success.
+
+Phase 50 Slice 11 **Completion Audit And Status Lock** is the current
+docs/spec/static-audit-only completion slice. Slice 11 is not complete in Gate
+2. Phase 50 remains in progress through Gate 2. Phases 51 through 60 remain
+unstarted and separately authorized. Phase 53 remains
+`READINESS_CONTRACT_ONLY` under the current finalized route. Phase 54 remains
+readiness-only and unstarted. Phase 55 remains `READINESS_CONTRACT_ONLY`,
+readiness-only, and unstarted. Phase 56 remains unstarted. Phase 57 remains
+`READINESS_CONTRACT_ONLY`, readiness-only, and unstarted. Phase 58 remains
+readiness-only and unstarted. Phase 60 remains readiness-only and unstarted.
+
+Phase 50 is complete only after Slice 11 Gate 3 commit, one normal push to
+main, and exact natural CI success for the push run whose headSha exactly
+matches the Slice 11 commit.
 
 Every Phase 50 slice is readiness-only. No slice automatically authorizes later
 behavior or a later phase.
@@ -66,18 +74,19 @@ behavior or a later phase.
 ## Trusted Baseline
 
 - Baseline branch: `main`.
-- Baseline HEAD: `f886589ac2f64eeb3770c914e7c049e2da105daa`.
+- Baseline HEAD: `9bc6ed82f3741e3c242981bb88edfb50c73fc586`.
 - Baseline local `origin/main`:
+  `9bc6ed82f3741e3c242981bb88edfb50c73fc586`.
+- Baseline subject: `Add Phase 50 explain public metadata boundary`.
+- Baseline parent/Slice 9 commit:
   `f886589ac2f64eeb3770c914e7c049e2da105daa`.
-- Baseline subject: `Add Phase 50 multi-dialect capability readiness`.
-- Baseline parent/Slice 8 commit:
-  `9e2c0f0ddcc2047e35985e6b97daa8bf29979914`.
-- Documented natural Slice 9 CI run: `29170827348`, workflow/event `CI / push`,
+- Documented natural Slice 10 CI run: `29179160024`, workflow/event
+  `CI / push`,
   status/conclusion `completed / success`, with an exact `headSha` match.
 - Package version remains `0.1.0`.
 - No tag points at HEAD and there is no exact-match tag.
 
-The CI facts above are repository-local documented evidence. Slice 10 Gate 2
+The CI facts above are repository-local documented evidence. Slice 11 Gate 2
 does not perform network access or independently query GitHub.
 
 ## Phase Identity And Approved Direction
@@ -141,9 +150,9 @@ Phase 50 uses exactly this eleven-slice route:
 10. Explain / Public Metadata / Package Integration Boundary
 11. Completion Audit And Status Lock
 
-Slices 1 through 9 are complete. Slice 10 is current but incomplete. Slice 11
-remains pending and separately authorized. Listing them is a route lock, not
-implementation or completion.
+Slices 1 through 10 are complete. Slice 11 is current but incomplete in Gate
+2. Phase 50 remains in progress through Gate 2. Listing the route does not
+start Phase 51 or any later phase.
 
 ## Cross-slice Gate Discipline
 
@@ -826,8 +835,9 @@ network behavior.
   2 scope, separately authorized Gate 3 commit/push, and documented exact
   natural CI success at `f886589ac2f64eeb3770c914e7c049e2da105daa` in run
   `29170827348`. Its historical allowlist and focused validation record remain
-  preserved below. Slice 10 is current; Slice 11 and Phases 52-60 remain
-  unstarted.
+  preserved below. Slice 10 later completed at
+  `9bc6ed82f3741e3c242981bb88edfb50c73fc586`; Slice 11 is current but
+  incomplete, and Phases 51-60 remain unstarted.
 
 ## Slice 10 Explain / Public Metadata / Package Integration Boundary
 
@@ -893,26 +903,45 @@ network behavior.
   public lineage/provenance, package/profile/catalog loader, capability
   checker, package graph, diagnostic, IR, SQL, runtime/database, network,
   registry, installation, introspection, plugin, or server behavior.
-- **Gate discipline:** Slice 10 is current but incomplete in Gate 2. It uses
-  the exact twelve-file allowlist and focused validation below. Completion
-  requires a separately authorized Gate 3 commit, push, and exact natural CI
-  success. No private fact becomes public by being named as a future input.
+- **Gate discipline:** Slice 10 completed at
+  `9bc6ed82f3741e3c242981bb88edfb50c73fc586` only after its exact
+  twelve-file Gate 2 scope, separately authorized Gate 3 commit and normal
+  push, and documented exact natural CI success in run `29179160024`. Its
+  historical allowlist and validation record remain preserved below. No
+  private fact becomes public by being named as a future input.
 
 ## Slice 11 Completion Audit And Status Lock
 
 - **Objective:** audit the completed Phase 50 readiness contracts for internal
   consistency and prove that no behavior was implemented.
-- **Artifact type:** completion contract, plan status update, and static-audit
-  test.
+- **Artifact type:** this plan status update, the completion contract at
+  `docs/spec/phase50-completion-audit-and-status-lock-v1.md`, one focused
+  static-audit test, and ten narrow completed-Phase-50 compatibility updates.
 - **Prerequisites:** separately completed and published Slices 1 through 10.
 - **Completed-phase relationship:** records readiness decisions without
-  rewriting earlier phase history.
+  rewriting earlier phase history, changing any historical allowlist, or
+  promoting readiness vocabulary to implementation.
 - **Later handoff:** freezes the finalized Phase 51-60 planning handoff for
-  separate authorization.
-- **Explicit non-goals and no-behavior boundary:** no implementation, public
-  surface, package version, workflow, dependency, release, or runtime change.
-- **Gate discipline:** separate Gate 1/Gate 2 and later Gate 3; Slice 11 cannot
-  pre-claim its commit, push, CI, or Phase 50 completion.
+  separate authorization. Phases 51-60 remain unstarted, and Phase 51 does not
+  start merely because Phase 50 later completes.
+- **Completion encoding:** conditional single-commit completion plus exact Gate
+  3 natural-CI evidence. Phase 50 is complete only after Slice 11 Gate 3
+  commit, one normal push to main, and exact natural CI success for the push
+  run whose headSha exactly matches the Slice 11 commit. No post-CI repository
+  status-flip commit is planned or required.
+- **Gate 2 state:** Slices 1-10 are complete. Slice 11 is current but
+  incomplete in Gate 2. Phase 50 remains in progress through Gate 2. Gate 2
+  docs and tests must not pre-claim the Slice 11 commit, push, natural CI
+  result, or Phase 50 completion.
+- **Post-condition meaning:** Phase 50 is complete as an eleven-slice
+  docs/spec/static-audit-only readiness consolidation phase. This completion
+  authorizes no Phase 51-60 implementation.
+- **Explicit non-goals and no-behavior boundary:** Slice 11 implements no
+  compiler or runtime behavior. It adds no implementation, public surface,
+  package version, workflow, dependency, release, or runtime change.
+- **Gate discipline:** Slice 11 uses the exact thirteen-file allowlist and
+  focused validation below. Gate 2 does not stage, commit, push, access CI, or
+  prepare Gate 3. A later Gate 3 requires separate explicit authorization.
 
 ## Tentative Phase 51-60 Active Planning Route
 
@@ -1055,11 +1084,21 @@ spec/test define no public surface and do not alter an existing public artifact.
 No profile, catalog, package loader, checker, graph, public report, database,
 or runtime surface is approved.
 
+Slice 11 preserves every surface above, the roadmap, historical Phase 29
+register, every completed Slice 1-10 specification, all Phase 44-49 artifacts,
+every production/public/release surface, and the finalized Phase 51-60 route.
+Its only existing-file compatibility changes are the ten completed Phase 50
+tests named in the exact Slice 11 allowlist. They are limited to current
+status, exact thirteen-file dirty-set compatibility, exact protected-path
+exceptions, and shared allowlist confirmation while preserving every
+historical Slice 1-10 allowlist. The new Slice 11 spec/test add no compiler,
+runtime, public artifact, package, release, or later-phase behavior.
+
 ## Package, Version, And Release Boundary
 
-Package version remains `0.1.0`. Slices 1 through 9 performed no package
+Package version remains `0.1.0`. Slices 1 through 10 performed no package
 version change, tag, release, publish, upload, signing, or attestation. Slice
-10 Gate 2 performs no package version change, tag, release, publish, upload,
+11 Gate 2 performs no package version change, tag, release, publish, upload,
 signing, attestation, CI trigger, CI rerun, CI watch, or CI cancellation. Gate
 2 does not stage, commit, push, or prepare Gate 3. CLI JSON, Artifact, Project
 JSON, future project-explain, portability-report, package-inspection, dialect,
@@ -1675,14 +1714,105 @@ Stop without repair or scope expansion if:
 - Ruff, Pyright, focused Slice 10 pytest, complete Phase 50 pytest, or an
   exact evidence node fails.
 
+## Slice 11 Gate 2 Allowlist
+
+Phase 50 Slice 11 Gate 2 is limited to exactly:
+
+- `docs/plan/phase-50-semantic-readiness-consolidation.md`;
+- `docs/spec/phase50-completion-audit-and-status-lock-v1.md`;
+- `tests/test_phase50_completion_audit_and_status_lock.py`;
+- `tests/test_phase50_semantic_package_extension_capability_scope_lock.py`;
+- `tests/test_phase50_post_v02_deferred_readiness_inventory.py`;
+- `tests/test_phase50_aggregate_grouped_project_output_schema_readiness.py`;
+- `tests/test_phase50_type_system_gap_capability_readiness.py`;
+- `tests/test_phase50_window_function_readiness.py`;
+- `tests/test_phase50_import_module_export_readiness.py`;
+- `tests/test_phase50_semantic_package_model_readiness.py`;
+- `tests/test_phase50_postgresql_extension_capability_readiness.py`;
+- `tests/test_phase50_multi_dialect_capability_ecosystem_readiness.py`; and
+- `tests/test_phase50_explain_public_metadata_package_integration_boundary.py`.
+
+The ten completed Phase 50 tests are approved only for narrow current-status,
+exact thirteen-file dirty-set compatibility, exact protected-path exceptions,
+and shared Slice 11 allowlist confirmation. Every historical Slice 1-10
+allowlist remains exact. No fourteenth repository path is approved. Nothing
+may be staged, committed, pushed, or operated through CI in Gate 2.
+
+## Slice 11 Focused Validation
+
+Slice 11 Gate 2 validation is limited to:
+
+- exact Slice 10 baseline, thirteen-file dirty set, empty staged set, diff,
+  stat, numstat, and whitespace checks;
+- no-index whitespace checks for the two new files;
+- Ruff format/check and lint for all eleven changed Python tests;
+- test-project Pyright;
+- the focused Slice 11 static test and complete eleven-file Phase 50
+  static-audit bundle;
+- exact Slice 1-10 ledger, route, historical-allowlist, aggregate, type,
+  window, module, package, profile, extension, dialect, public-artifact,
+  Phase 45-49 privacy/lineage, completion-encoding, future-phase, package,
+  release, and CI-policy nodes recorded in the Slice 11 Gate 1 plan;
+- the prohibited history/network/database/import-execution scan and both
+  Git-mutation zero-match scans;
+- protected production/public/release, Phase 44-49, completed Slice 1-10
+  specification, public-artifact, version, tag, tests/goldens, and staged-set
+  checks; and
+- `/tmp/phase50-slice11-gate2-evidence-and-diff.txt` with raw outputs,
+  complete tracked and no-index diffs, and full contents of all eleven changed
+  Python tests.
+
+The focused static test may use `subprocess.run(["git", *args], ...)` only
+for local read-only `status --porcelain --untracked-files=all`, protected-path
+`diff`, cached-diff, and `tag --points-at HEAD` operations. It must not use
+parent/history-dependent Git, shell execution, mutation, network/GitHub, CI,
+database, `/tmp` evidence, or production-module execution.
+
+Do not run full pytest, `scripts/validate.py`, generated checks, golden
+checks, package smoke, builds, benchmarks, dependency operations, network
+commands, GitHub CLI, database commands, or CI. Once the first Ruff formatting
+command begins, a failure is a stop condition and does not authorize repair.
+
+## Slice 11 Stop Conditions
+
+Stop without repair or scope expansion if:
+
+- the completed Slice 10 baseline or exact thirteen-file dirty set differs;
+- any fourteenth repository path changes;
+- a historical Slice 1-10 allowlist changes;
+- the roadmap, Phase 29 register, completed Slice 1-10 specifications, Phase
+  44-49 artifacts, finalized route, production/public surface, or release
+  surface changes;
+- the conditional single-commit completion model cannot remain exact;
+- Gate 2 text pre-claims a Slice 11 SHA, push, natural CI run/result, or Phase
+  50 completion;
+- CLI JSON v1, Semantic Metadata Artifact v1, Project JSON v2, current
+  single-file explain, PostgreSQL public/MySQL private posture, or private
+  carrier privacy cannot remain unchanged;
+- a compiler/runtime behavior, public field, package/profile/catalog loader,
+  checker, graph, diagnostic, backend, connection, introspection, plugin,
+  runtime/database behavior, release action, or Phase 51-60 implementation
+  appears necessary;
+- a compatibility edit weakens a historical lock or requires parent history,
+  runtime evidence, network, GitHub, database, import execution, `exec`, or
+  `eval`;
+- a no-index check emits a whitespace diagnostic;
+- Ruff, Pyright, focused Slice 11 pytest, complete Phase 50 pytest, named
+  compatibility pytest, or a zero-match scan fails;
+- the cached diff becomes non-empty, package version differs from `0.1.0`, a
+  tag appears, or `tests/goldens` appears; or
+- complete evidence cannot be captured without widening scope.
+
 ## Stop Conditions
 
 Stop without repair or scope expansion if:
 
-- the current Slice 10 baseline or exact twelve-file dirty set differs;
-- any thirteenth repository path changes;
+- the completed Slice 10 baseline or exact thirteen-file Slice 11 dirty set
+  differs;
+- any fourteenth repository path changes;
 - the historical roadmap table or v0.2 register requires modification;
 - any production/public/release surface appears necessary;
 - a no-index check emits a whitespace diagnostic;
 - Ruff, Pyright, focused pytest, or compatibility pytest fails; or
-- the final diff cannot prove the Slice 10 no-behavior boundary.
+- the final diff cannot prove the Slice 11 no-behavior and conditional
+  completion boundaries.

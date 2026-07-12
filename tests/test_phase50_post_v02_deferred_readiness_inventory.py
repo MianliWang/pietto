@@ -188,6 +188,22 @@ ALLOWED_PHASE50_SLICE10_GATE2_PATHS = {
     "tests/test_phase50_multi_dialect_capability_ecosystem_readiness.py",
 }
 
+ALLOWED_PHASE50_SLICE11_GATE2_PATHS = {
+    "docs/plan/phase-50-semantic-readiness-consolidation.md",
+    "docs/spec/phase50-completion-audit-and-status-lock-v1.md",
+    "tests/test_phase50_completion_audit_and_status_lock.py",
+    "tests/test_phase50_semantic_package_extension_capability_scope_lock.py",
+    "tests/test_phase50_post_v02_deferred_readiness_inventory.py",
+    "tests/test_phase50_aggregate_grouped_project_output_schema_readiness.py",
+    "tests/test_phase50_type_system_gap_capability_readiness.py",
+    "tests/test_phase50_window_function_readiness.py",
+    "tests/test_phase50_import_module_export_readiness.py",
+    "tests/test_phase50_semantic_package_model_readiness.py",
+    "tests/test_phase50_postgresql_extension_capability_readiness.py",
+    "tests/test_phase50_multi_dialect_capability_ecosystem_readiness.py",
+    "tests/test_phase50_explain_public_metadata_package_integration_boundary.py",
+}
+
 PROTECTED_PATHS = (
     "docs/spec/v02-deferred-feature-register-v1.md",
     "docs/spec/phase50-semantic-package-extension-capability-scope-lock-v1.md",
@@ -327,11 +343,13 @@ def test_slice2_artifacts_title_identity_and_baseline_are_locked() -> None:
         "f886589ac2f64eeb3770c914e7c049e2da105daa",
         "29170827348",
         "Slice 9 completed",
-        "Phase 50 Slice 10 **Explain / Public Metadata / Package Integration Boundary** is the current",
-        "Slice 10 is not complete in Gate 2",
-        "Slice 11 remains pending and separately authorized",
-        "Phase 50 remains in progress",
-        "Phases 52 through 60 remain unstarted",
+        "Phase 50 Slice 10 **Explain / Public Metadata / Package Integration Boundary** completed",
+        "9bc6ed82f3741e3c242981bb88edfb50c73fc586",
+        "29179160024",
+        "Phase 50 Slice 11 **Completion Audit And Status Lock** is the current",
+        "Slice 11 is not complete in Gate 2",
+        "Phase 50 remains in progress through Gate 2",
+        "Phases 51 through 60 remain unstarted and separately authorized",
         "Phase 53 remains `READINESS_CONTRACT_ONLY`",
         "Phase 54 remains readiness-only and unstarted",
         "Phase 55 remains `READINESS_CONTRACT_ONLY`, readiness-only, and unstarted",
@@ -486,8 +504,8 @@ def test_later_slices_and_phases_are_not_preclaimed() -> None:
     plan = _normalized(PLAN_PATH)
     docs = " ".join((plan, _normalized(ROADMAP_PATH), _normalized(INVENTORY_PATH)))
 
-    assert "Slice 10 is not complete in Gate 2" in plan
-    assert "Slice 11 remains pending and separately authorized" in plan
+    assert "Slice 11 is not complete in Gate 2" in plan
+    assert "Phase 50 remains in progress through Gate 2" in plan
     assert (
         "Phase 50 Slice 3 **Aggregate / Grouped Project Output-Schema Readiness** "
         "completed"
@@ -519,13 +537,17 @@ def test_later_slices_and_phases_are_not_preclaimed() -> None:
     assert "29170827348" in plan
     assert "Slice 9 completed" in plan
     assert (
-        "Phase 50 Slice 10 **Explain / Public Metadata / Package Integration Boundary** is the current"
+        "Phase 50 Slice 10 **Explain / Public Metadata / Package Integration Boundary** completed"
         in plan
     )
-    assert "Slice 10 is not complete in Gate 2" in plan
-    assert "Slice 11 remains pending and separately authorized" in plan
-    assert "Phase 50 remains in progress" in plan
-    assert "Phases 52 through 60 remain unstarted" in plan
+    assert "9bc6ed82f3741e3c242981bb88edfb50c73fc586" in plan
+    assert "29179160024" in plan
+    assert (
+        "Phase 50 Slice 11 **Completion Audit And Status Lock** is the current" in plan
+    )
+    assert "Slice 11 is not complete in Gate 2" in plan
+    assert "Phase 50 remains in progress through Gate 2" in plan
+    assert "Phases 51 through 60 remain unstarted and separately authorized" in plan
     assert "Phase 54 remains readiness-only and unstarted" in plan
     assert (
         "Phase 55 remains `READINESS_CONTRACT_ONLY`, readiness-only, and unstarted"
@@ -568,6 +590,7 @@ def test_package_version_tag_protected_paths_and_dirty_set_are_locked() -> None:
                 ALLOWED_PHASE50_SLICE8_GATE2_PATHS,
                 ALLOWED_PHASE50_SLICE9_GATE2_PATHS,
                 ALLOWED_PHASE50_SLICE10_GATE2_PATHS,
+                ALLOWED_PHASE50_SLICE11_GATE2_PATHS,
             )
             and relative_path
             == "tests/test_phase50_semantic_package_extension_capability_scope_lock.py"
@@ -589,4 +612,5 @@ def test_package_version_tag_protected_paths_and_dirty_set_are_locked() -> None:
         ALLOWED_PHASE50_SLICE8_GATE2_PATHS,
         ALLOWED_PHASE50_SLICE9_GATE2_PATHS,
         ALLOWED_PHASE50_SLICE10_GATE2_PATHS,
+        ALLOWED_PHASE50_SLICE11_GATE2_PATHS,
     )
