@@ -585,58 +585,17 @@ def test_unknown_missing_and_empty_inputs_have_no_partial_candidate(
     )
 
 
-@pytest.mark.parametrize(
-    "relation_body",
-    (
-        "query aggregate:\n"
-        "    from users\n"
-        "    select:\n"
-        "        result = count(amount + tax)\n",
-        "query aggregate:\n"
-        "    from users\n"
-        "    select:\n"
-        "        result = count_distinct(lower(trim(status)))\n",
-        "query aggregate:\n"
-        "    from users\n"
-        "    select:\n"
-        "        result = sum(amount + tax)\n",
-        "query aggregate:\n"
-        "    from users\n"
-        "    select:\n"
-        "        result = avg(score * weight)\n",
-        "query aggregate:\n"
-        "    from users\n"
-        "    let:\n"
-        "        amount_value = amount\n"
-        "    select:\n"
-        "        result = count(amount_value)\n",
-        "query aggregate:\n"
-        "    from users\n"
-        "    let:\n"
-        "        gross = amount + tax\n"
-        "    select:\n"
-        "        result = sum(gross)\n",
-        "query aggregate:\n"
-        "    from users\n"
-        "    let:\n"
-        "        normalized = lower(trim(status))\n"
-        "    select:\n"
-        "        result = count_distinct(normalized)\n",
+def test_grouped_definition_remains_outside_no_group_wrapper(
+    tmp_path: Path,
+) -> None:
+    _, _, definition, input_schema, upstream_symbol = _aggregate_inputs(
+        tmp_path,
         "query aggregate:\n"
         "    from users\n"
         "    group by:\n"
         "        status\n"
         "    select:\n"
         "        result = count()\n",
-    ),
-)
-def test_expression_row_let_and_grouped_families_remain_deferred(
-    tmp_path: Path,
-    relation_body: str,
-) -> None:
-    _, _, definition, input_schema, upstream_symbol = _aggregate_inputs(
-        tmp_path,
-        relation_body,
     )
 
     assert (

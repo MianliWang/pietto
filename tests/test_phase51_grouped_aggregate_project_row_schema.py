@@ -730,22 +730,6 @@ def test_repeated_occurrences_and_all_duplicate_alias_families_are_preserved(
         "    group by:\n"
         "        status\n"
         "    select:\n"
-        "        status\n"
-        "        total = sum(amount + tax)\n",
-        "query grouped:\n"
-        "    from users\n"
-        "    let:\n"
-        "        gross = amount\n"
-        "    group by:\n"
-        "        status\n"
-        "    select:\n"
-        "        status\n"
-        "        total = sum(gross)\n",
-        "query grouped:\n"
-        "    from users\n"
-        "    group by:\n"
-        "        status\n"
-        "    select:\n"
         "        status\n",
     ),
 )
@@ -1015,7 +999,6 @@ def test_forbidden_existing_project_compiler_and_public_surfaces_have_no_diff() 
         "docs/spec/phase51-aggregate-only-result-candidate-foundation-v1.md",
         "tests/test_phase51_private_result_role_output_identity.py",
         "tests/test_phase51_group_key_project_row_schema.py",
-        "tests/test_phase51_aggregate_only_project_row_schema.py",
         "tests/test_phase51_aggregate_grouped_output_schema_foundation_scope_lock.py",
         "scripts",
         ".github",

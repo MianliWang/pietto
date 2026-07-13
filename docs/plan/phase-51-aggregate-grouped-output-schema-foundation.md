@@ -1056,6 +1056,90 @@ and natural CI `completed / success` with exact `headSha`. Package version
 remains `0.1.0`; no tag, release, publish, upload, signing, or attestation is
 authorized.
 
+### Slice 6 Gate 2 Bounded Implementation Status
+
+Slices 1 through 5 are complete through their separately authorized publish
+gates. Slice 5 is complete at `300651b2944ca45e31744bfcd269a3b575d0b090`;
+natural CI run `29236828662` completed successfully with exact `headSha` match.
+The synchronized current HEAD `c15118ab40047d4f53f1a44311501adbac2d060c` is
+the dependency-only Ruff 0.15.21 maintenance commit; natural CI run
+`29237395464` completed successfully with exact `headSha` match. Earlier Slice
+1 through 5 Gate 2 status text remains per-gate historical evidence and is
+superseded for current lifecycle reporting by this additive Slice 6 status.
+
+Phase 51 remains ACTIVE and incomplete. Phase 52–60 remain UNSTARTED. Slice 6
+is the current `Selected-let And Accepted-expression Aggregate Integration`
+Gate 2. This status does not preclaim Gate 2 validation success or Slice 6
+completion.
+
+The exact production owner remains the private
+`src/pietto/_project/aggregate_grouped_schema.py` helper module. “Selected-let”
+means only a direct, explicitly aliased selected aggregate `CallExpr` whose
+single source argument is a bare `NameExpr` resolved through concrete,
+source-order-visible, semantically admitted row-level let-scope facts. It does
+not mean an ordinary selected let output, an aggregate hidden in a let body and
+later selected by name, a qualified let reference, or a projection alias.
+
+Each no-GROUP or grouped wrapper builds one relation-level let-scope result
+through `build_project_relation_let_scope_facts` using the real definition,
+concrete input schema, and actual upstream symbol definition. `ABSENT`
+preserves direct/inline behavior; `CONCRETE` supplies exact binding-expression
+and value-type facts; every other status returns no complete candidate. Slice
+6 does not use a raw admitted-let map, copy visibility/shadowing/chaining/cycle
+rules, invoke the complete semantic analyzer, or synthesize replacement AST
+nodes.
+
+The internal per-selected aggregate builder retains the original direct
+aggregate call and reuses canonical aggregate-name, arity, nested-aggregate,
+let-expansion, argument-typeclass, expression-shape, result-type, nullability,
+and project row-expression typing helpers. It admits only exact-current
+count/count-distinct/sum/avg inline-expression families and exact-current
+direct row-let families. `min`/`max` remain direct-field only; literal-only,
+division, comparisons, arbitrary calls, nested/composed aggregates, projection
+aliases, qualified lets, invalid/invisible lets, and aggregate-in-let selected
+outputs remain unsupported.
+
+The unchanged Slice 4 no-GROUP wrapper and Slice 5 grouped wrapper gain
+identical exact-current aggregate eligibility while preserving their
+signatures, carrier field order and invariants, source-order `SelectItem`
+identity, duplicate occurrence preservation, group-key/aggregate XOR,
+at-least-one-aggregate requirement, grouped flag, source-call
+function/argument-count/location, and all-or-none behavior. Slice 3 group-key
+behavior remains unchanged.
+
+The candidates remain helper-only, private, and unpersisted. `model.py` remains
+unchanged and does not import the helper. No final `ProjectRowSchema` is
+constructed. No-GROUP aggregate-only and grouped production relations remain
+`DEFERRED / DEFERRED_PHASE48_BEHAVIOR / schema=None`; persisted aggregate facts
+remain empty and downstream propagation remains inactive.
+
+The bounded contract is
+`docs/spec/phase51-aggregate-expression-row-let-candidate-integration-v1.md`.
+The exact Gate 2 allowlist is fifteen paths: the existing private helper; one
+new Slice 6 focused test; the Slice 4 and Slice 5 compatibility tests; this
+plan; the new contract; eight mechanical Phase 11/12 compiler-boundary hash
+refreshes; and one mechanical Phase 33 `_project` digest refresh. Existing
+Slice 1–5 contracts, model/orchestration/adapters, active and historical
+roadmaps, public surfaces, and every other path remain unchanged. Ruff remains
+locked at `0.15.21`; `pyproject.toml` and `uv.lock` are protected.
+
+Gate 2 uses bounded offline Ruff 0.15.21 formatting, refreshes only the eight
+compiler `BOUNDARY_HASH` constants and the Phase 33 `project_private` digest
+while retaining `_project` count 13, executes the exact first-failure
+validation matrix, and records complete evidence at
+`/tmp/pietto-phase51-slice6-gate2-evidence-and-diff.txt`. It performs no
+staging, commit, push, fetch, GitHub, CI, tag, version, package, or release
+action.
+
+Slice 7 retains type/nullability availability state, final duplicate/no-winner
+policy, and any first production persistence gate; Slice 8 retains clause
+dependencies; Slice 9 retains origin, dependency, lineage, and let ancestry;
+Slice 10 retains concrete-only downstream activation. Slice 6 completion still
+requires a separately authorized Gate 3 exact commit, one normal push, and
+natural CI `completed / success` with exact `headSha`. Package version remains
+`0.1.0`; no tag, release, publish, upload, signing, or attestation is
+authorized.
+
 ## Cross-slice Gate Discipline
 
 Each slice follows the same independent discipline:

@@ -6,6 +6,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
+from pietto._project.let_scope_facts import (
+    ProjectLetScopeFactsStatus,
+    ProjectRelationLetScopeFacts,
+    build_project_relation_let_scope_facts,
+)
 from pietto._project.model import (
     ProjectAggregateResultFact,
     ProjectResolvedType,
@@ -30,12 +35,15 @@ from pietto.ast_nodes import (
     NameExpr,
     QueryDef,
     SelectItem,
+    SourceDef,
     TableDef,
 )
 from pietto.errors import SourceLocation
 from pietto.semantic.aggregates import (
+    aggregate_argument_can_use_let_scope,
     contains_semantic_aggregate,
-    is_direct_field_argument,
+    effective_semantic_aggregate_argument_expression,
+    is_supported_semantic_aggregate_argument,
     is_supported_semantic_aggregate_argument_expression,
     is_supported_semantic_aggregate_arity,
     nested_semantic_aggregate,
@@ -43,7 +51,12 @@ from pietto.semantic.aggregates import (
     semantic_projection_aggregate_result_value_type,
 )
 from pietto.semantic.let_bindings import admitted_relation_let_expressions
-from pietto.semantic.model import EffectiveNullability, TypeKind, ValueTypeKind
+from pietto.semantic.model import (
+    EffectiveNullability,
+    TypeKind,
+    ValueType,
+    ValueTypeKind,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -465,6 +478,14 @@ def build_project_aggregate_schema_facts(
     ):
         return None
 
+    let_scope_facts = _build_project_aggregate_let_scope_facts(
+        definition=definition,
+        input_schema=input_schema,
+        upstream_symbol=upstream_symbol,
+    )
+    if let_scope_facts is None:
+        return None
+
     selected_results: dict[SelectItem, ProjectAggregateSelectedResult] = {}
     for item in definition.select_items:
         selected_result = _build_project_aggregate_selected_result(
@@ -472,6 +493,7 @@ def build_project_aggregate_schema_facts(
             item=item,
             input_schema=input_schema,
             upstream_symbol=upstream_symbol,
+            let_scope_facts=let_scope_facts,
             fallback_path=fallback_path,
         )
         if selected_result is None:
@@ -495,6 +517,14 @@ def build_project_grouped_schema_facts(
     if input_schema.is_unknown or not definition.select_items:
         return None
 
+    let_scope_facts = _build_project_aggregate_let_scope_facts(
+        definition=definition,
+        input_schema=input_schema,
+        upstream_symbol=upstream_symbol,
+    )
+    if let_scope_facts is None:
+        return None
+
     group_key_facts = build_project_group_key_schema_facts(
         definition=definition,
         input_schema=input_schema,
@@ -515,6 +545,7 @@ def build_project_grouped_schema_facts(
             item=item,
             input_schema=input_schema,
             upstream_symbol=upstream_symbol,
+            let_scope_facts=let_scope_facts,
             fallback_path=fallback_path,
         )
         if (group_key_field is None) == (aggregate_result is None):
@@ -548,9 +579,10 @@ def _build_project_aggregate_selected_result(
     item: SelectItem,
     input_schema: ProjectRowSchema,
     upstream_symbol: ProjectSymbol,
+    let_scope_facts: ProjectRelationLetScopeFacts,
     fallback_path: str,
 ) -> ProjectAggregateSelectedResult | None:
-    """Build one current direct aggregate selected-result candidate."""
+    """Build one current accepted aggregate selected-result candidate."""
 
     call = item.expression
     if not isinstance(call, CallExpr):
@@ -572,28 +604,19 @@ def _build_project_aggregate_selected_result(
     ):
         return None
 
-    argument_type = None
+    argument_type: ValueType | None = None
     if arguments:
         if len(arguments) != 1:
             return None
         argument = arguments[0]
-        if not is_direct_field_argument(argument):
-            return None
-        argument_value_types = build_project_row_expression_value_types(
-            expressions=(argument,),
+        argument_type = _project_aggregate_argument_type(
+            definition=definition,
+            function_name=function_name,
+            argument=argument,
             input_schema=input_schema,
-            relation_qualifier=definition.from_clause.source_name,
+            let_scope_facts=let_scope_facts,
         )
-        if len(argument_value_types) != 1:
-            return None
-        argument_type = argument_value_types.get(argument)
-        if argument_type is None or argument_type.kind is not ValueTypeKind.KNOWN:
-            return None
-        if not is_supported_semantic_aggregate_argument_expression(
-            function_name,
-            argument,
-            argument_type,
-        ):
+        if argument_type is None:
             return None
 
     result_type = semantic_projection_aggregate_result_value_type(
@@ -640,6 +663,84 @@ def _build_project_aggregate_selected_result(
         field=field,
         fact=fact,
     )
+
+
+def _build_project_aggregate_let_scope_facts(
+    *,
+    definition: TableDef | QueryDef,
+    input_schema: ProjectRowSchema,
+    upstream_symbol: ProjectSymbol,
+) -> ProjectRelationLetScopeFacts | None:
+    upstream_definition = upstream_symbol.definition
+    if not isinstance(upstream_definition, (SourceDef, TableDef, QueryDef)):
+        return None
+
+    facts = build_project_relation_let_scope_facts(
+        definition=definition,
+        input_schema=input_schema,
+        upstream_definition=upstream_definition,
+    )
+    if facts.status not in (
+        ProjectLetScopeFactsStatus.ABSENT,
+        ProjectLetScopeFactsStatus.CONCRETE,
+    ):
+        return None
+    return facts
+
+
+def _project_aggregate_argument_type(
+    *,
+    definition: TableDef | QueryDef,
+    function_name: str,
+    argument: Expression,
+    input_schema: ProjectRowSchema,
+    let_scope_facts: ProjectRelationLetScopeFacts,
+) -> ValueType | None:
+    let_expansions = (
+        let_scope_facts.binding_expressions
+        if let_scope_facts.status is ProjectLetScopeFactsStatus.CONCRETE
+        else None
+    )
+    effective_argument = effective_semantic_aggregate_argument_expression(
+        function_name,
+        argument,
+        let_expansions=let_expansions,
+    )
+    is_direct_row_let = aggregate_argument_can_use_let_scope(
+        function_name,
+        argument,
+        let_expansions,
+    )
+    if is_direct_row_let:
+        if (
+            not isinstance(argument, NameExpr)
+            or let_scope_facts.status is not ProjectLetScopeFactsStatus.CONCRETE
+        ):
+            return None
+        argument_type = let_scope_facts.value_types.get(argument.name)
+    else:
+        effective_value_types = build_project_row_expression_value_types(
+            expressions=(effective_argument,),
+            input_schema=input_schema,
+            relation_qualifier=definition.from_clause.source_name,
+        )
+        argument_type = effective_value_types.get(effective_argument)
+
+    if argument_type is None or argument_type.kind is not ValueTypeKind.KNOWN:
+        return None
+    if not is_supported_semantic_aggregate_argument(
+        function_name,
+        argument_type,
+    ):
+        return None
+    if not is_supported_semantic_aggregate_argument_expression(
+        function_name,
+        argument,
+        argument_type,
+        let_expansions=let_expansions,
+    ):
+        return None
+    return argument_type
 
 
 def _effective_group_key_expression(
