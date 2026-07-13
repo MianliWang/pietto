@@ -836,7 +836,7 @@ route is planning only and preauthorizes no slice.
 | 11 | Cross-phase Readiness Privacy And Compatibility Closure; hardening/docs/static | lock Phase 52/53/JOIN/58/59/package/dialect/graph separation and public byte/key stability | Slice 10 | normally none; production only if its Gate 1 proves a missing private invariant | plan/spec updates; likely `tests/test_phase51_readiness_privacy_compatibility.py` | no public field, window, JOIN, package, or profile behavior | protected/public compatibility matrix, separately authorized Gate 3 and exact natural CI |
 | 12 | Completion Audit And Status Lock; completion docs/static | audit all slices, owners, no widening, version/release boundary, conditional completion | Slices 1–11 published and green | none expected | plan status; new completion spec/test; narrowly proven compatibility updates only | no behavior, public change, release, or later-phase start | exact completion commit, one normal push, natural CI exact `headSha`; Phase 51 complete only then |
 
-## Slice 2 Gate 2 Bounded Implementation Status
+### Slice 2 Gate 2 Bounded Implementation Status
 
 Slice 2 is the Private Result-role And Output-identity Foundation. Its
 authorized production ownership is exactly
