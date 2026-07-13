@@ -880,6 +880,57 @@ completion. Gate 2 success requires the exact focused matrix and complete
 still requires a separately authorized Gate 3 commit, normal push, and natural
 CI completed/success with exact `headSha` match.
 
+### Slice 3 Gate 2 Bounded Implementation Status
+
+Slice 1 and Slice 2 are complete through their separately authorized publish
+gates. Slice 2's final repair commit is
+`e81fde473d4c4d2c1eee9db032daa0b50be60e82`; natural CI run `29215802595`
+completed successfully with exact `headSha` match. Earlier Slice 1 and Slice 2
+Gate 2 status text is retained as per-gate historical evidence and is
+superseded for current lifecycle reporting by this additive Slice 3 status.
+
+Phase 51 remains ACTIVE and incomplete. Phase 52–60 remain UNSTARTED. Slice 3
+is the current helper-only Group-key Project Row-schema Foundation Gate 2 and
+does not preclaim Gate 2 validation success or Slice 3 completion.
+
+The exact production owner is the new private, unpersisted
+`src/pietto/_project/aggregate_grouped_schema.py` helper. It decodes current
+legal bare, immediate-qualified, and admitted direct/chained-let group keys;
+retains their resolved immediate-input identities; and constructs selected
+direct/qualified/renamed key candidates with
+`ProjectRowResultRole.GROUP_KEY`. Here context means internal resolution
+context only, not a Slice 8 clause-dependency fact or a Slice 7 schema-state
+decision.
+
+The helper is not imported by `model.py` and does not persist candidates on
+`ProjectSemanticModel`. Unselected keys are not outputs. Aggregate-bearing
+select items are ignored and produce no field or fact. Pure group-key and mixed
+grouped/aggregate production relations remain
+`DEFERRED / DEFERRED_PHASE48_BEHAVIOR / schema=None`; aggregate facts remain
+empty and downstream propagation remains inactive.
+
+The bounded contract is
+`docs/spec/phase51-group-key-project-row-schema-foundation-v1.md`. The exact
+Gate 2 allowlist is thirteen paths: the new helper, one focused Slice 3 test,
+this plan, the new contract, eight mechanical Phase 11/12 compiler-boundary
+hash refreshes, and one mechanical Phase 33 `_project` count/digest refresh.
+The plan matrix's likely paths are not authorization.
+
+Final combined grouped schema construction and select-order duplicate handling
+remain Slice 5; state/reason and duplicate policy remain Slice 7; clause
+dependencies remain Slice 8; dependency/lineage remain Slice 9; and downstream
+activation remains Slice 10. Slice 3 changes no grammar/parser/AST, semantic
+acceptance, diagnostic, IR/SQL, CLI/API/JSON/artifact, existing project helper,
+workflow/dependency, runtime/database, roadmap, version, or release behavior.
+
+Gate 2 performs no staging, commit, push, GitHub, or CI operation. Its exact
+evidence path is
+`/tmp/pietto-phase51-slice3-gate2-evidence-and-diff.txt`. Slice 3 completion
+still requires a separately authorized Gate 3 exact commit, one normal push,
+and natural CI `completed / success` with exact `headSha`. Package version
+remains `0.1.0`; no tag, release, publish, upload, signing, or attestation is
+authorized.
+
 Every likely path is planning, not an allowlist. If a future slice needs a
 grammar, single-file semantic/IR/SQL, public artifact, dependency, workflow,
 release, or otherwise unapproved surface, it stops and returns to a new
