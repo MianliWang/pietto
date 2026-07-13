@@ -936,6 +936,66 @@ grammar, single-file semantic/IR/SQL, public artifact, dependency, workflow,
 release, or otherwise unapproved surface, it stops and returns to a new
 read-only Gate 1.
 
+### Slice 4 Gate 2 Bounded Implementation Status
+
+Slices 1 through 3 are complete through their separately authorized publish
+gates. Slice 3 is complete at
+`882600c797fb885edbfd27ba37d47607c4a5a0db`; natural CI run `29224454642`
+completed successfully with exact `headSha` match. Earlier Slice 1 through 3
+Gate 2 status text remains per-gate historical evidence and is superseded for
+current lifecycle reporting by this additive Slice 4 status.
+
+Phase 51 remains ACTIVE and incomplete. Phase 52–60 remain UNSTARTED. Slice 4
+is the current Aggregate-only Result Candidate Foundation Gate 2. This status
+does not preclaim Gate 2 validation success or Slice 4 completion.
+
+The exact production owner remains the private
+`src/pietto/_project/aggregate_grouped_schema.py` helper module. Slice 4 adds
+only frozen/slots `ProjectAggregateSelectedResult` and
+`ProjectAggregateSchemaFacts` carriers plus
+`build_project_aggregate_schema_facts`. The helper builds a source-ordered,
+`SelectItem`-keyed, defensive-readonly candidate set for current no-GROUP,
+direct, explicitly aliased aggregate selections. It preserves repeated calls
+and duplicate aliases by occurrence and returns no partial candidate.
+
+Function recognition, arity, direct-argument admission, logical result type,
+and nullability reuse the existing canonical semantic aggregate helpers.
+Slice 4 does not copy an aggregate catalog, run the complete semantic analyzer,
+emit a diagnostic, or widen accepted Pietto behavior. Current accepted
+aggregate-expression and row-let argument forms remain Slice 6 work; grouped
+key-plus-aggregate combination remains Slice 5 work.
+
+The candidates are helper-only and unpersisted. `model.py` remains unchanged
+and does not import the helper. No final `ProjectRowSchema` is constructed, no
+`ProjectSemanticModel` constructor or field changes, and no candidate or fact
+is populated in production. Both no-GROUP aggregate-only and grouped
+`TableDef` / `QueryDef` relations remain
+`DEFERRED / DEFERRED_PHASE48_BEHAVIOR / schema=None`, persisted aggregate facts
+remain empty, and downstream propagation remains inactive.
+
+The bounded contract is
+`docs/spec/phase51-aggregate-only-result-candidate-foundation-v1.md`. The exact
+Gate 2 allowlist is fourteen paths: the existing private helper, the new Slice
+4 focused test, the narrowly compatible Slice 3 test, this plan, the new
+contract, eight mechanical Phase 11/12 compiler-boundary hash refreshes, and
+one mechanical Phase 33 `_project` digest refresh. The plan matrix's likely
+paths are not authorization. Active and historical roadmaps and the existing
+Slice 1–3 contracts remain unchanged.
+
+Gate 2 performs no staging, commit, push, fetch, GitHub, or CI operation. Its
+exact evidence path is
+`/tmp/pietto-phase51-slice4-gate2-evidence-and-diff.txt`. Slice 4 completion
+still requires a separately authorized Gate 3 exact commit, one normal push,
+and natural CI `completed / success` with exact `headSha`. Package version
+remains `0.1.0`; no tag, release, publish, upload, signing, or attestation is
+authorized.
+
+Slice 7 retains final duplicate/no-winner policy and any first production
+schema/fact persistence gate; Slice 8 retains clause dependencies; Slice 9
+retains dependency/lineage; and Slice 10 retains concrete-only downstream
+activation. Any need to pull those owners forward or touch another surface
+stops this Gate 2 and returns to a separate read-only Gate 1.
+
 ## Cross-slice Gate Discipline
 
 Each slice follows the same independent discipline:

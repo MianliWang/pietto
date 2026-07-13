@@ -7,8 +7,11 @@ from dataclasses import dataclass
 from types import MappingProxyType
 
 from pietto._project.model import (
+    ProjectAggregateResultFact,
+    ProjectResolvedType,
     ProjectResolvedTypeKind,
     ProjectRowField,
+    ProjectRowFieldNullability,
     ProjectRowFieldProvenance,
     ProjectRowFieldProvenanceKind,
     ProjectRowResultRole,
@@ -16,9 +19,11 @@ from pietto._project.model import (
     ProjectSymbol,
 )
 from pietto._project.row_expression_type_facts import (
+    build_project_row_expression_value_types,
     project_row_schema_to_semantic_row_schema,
 )
 from pietto.ast_nodes import (
+    CallExpr,
     DottedNameExpr,
     Expression,
     GroupByItem,
@@ -28,8 +33,17 @@ from pietto.ast_nodes import (
     TableDef,
 )
 from pietto.errors import SourceLocation
-from pietto.semantic.aggregates import contains_semantic_aggregate
+from pietto.semantic.aggregates import (
+    contains_semantic_aggregate,
+    is_direct_field_argument,
+    is_supported_semantic_aggregate_argument_expression,
+    is_supported_semantic_aggregate_arity,
+    nested_semantic_aggregate,
+    semantic_aggregate_call_name,
+    semantic_projection_aggregate_result_value_type,
+)
 from pietto.semantic.let_bindings import admitted_relation_let_expressions
+from pietto.semantic.model import EffectiveNullability, TypeKind, ValueTypeKind
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +105,103 @@ class ProjectGroupKeySchemaFacts:
                 )
 
         object.__setattr__(self, "selected_fields", selected_fields)
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectAggregateSelectedResult:
+    """One project-private aggregate selected-result candidate."""
+
+    field: ProjectRowField
+    fact: ProjectAggregateResultFact
+
+    def __post_init__(self) -> None:
+        """Reject malformed private aggregate selected-result candidates."""
+
+        if not isinstance(self.field, ProjectRowField):
+            raise ValueError("Aggregate selected result requires a row field")
+        if not isinstance(self.fact, ProjectAggregateResultFact):
+            raise ValueError("Aggregate selected result requires an aggregate fact")
+        if self.field.result_role is not ProjectRowResultRole.AGGREGATE_RESULT:
+            raise ValueError("Aggregate selected result requires AGGREGATE_RESULT role")
+        if self.field.field_def is not None:
+            raise ValueError(
+                "Aggregate selected result cannot carry a field definition"
+            )
+        provenance = self.field.provenance
+        if (
+            not isinstance(provenance, ProjectRowFieldProvenance)
+            or provenance.kind is not ProjectRowFieldProvenanceKind.AGGREGATE
+        ):
+            raise ValueError("Aggregate selected result requires AGGREGATE provenance")
+        if self.field.name != self.fact.output_name:
+            raise ValueError("Aggregate selected result output name mismatch")
+        if (
+            not isinstance(self.field.resolved_type, ProjectResolvedType)
+            or not isinstance(
+                self.field.resolved_type.kind,
+                ProjectResolvedTypeKind,
+            )
+            or self.field.resolved_type.kind is ProjectResolvedTypeKind.UNKNOWN
+        ):
+            raise ValueError("Aggregate selected result requires a concrete type")
+        if (
+            not isinstance(
+                self.field.nullability,
+                ProjectRowFieldNullability,
+            )
+            or self.field.nullability is ProjectRowFieldNullability.UNKNOWN
+        ):
+            raise ValueError("Aggregate selected result requires concrete nullability")
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectAggregateSchemaFacts:
+    """Complete unpersisted aggregate-only selected-result candidates."""
+
+    selected_results: Mapping[SelectItem, ProjectAggregateSelectedResult]
+
+    def __post_init__(self) -> None:
+        """Freeze mappings and reject malformed aggregate candidate facts."""
+
+        if not isinstance(self.selected_results, Mapping):
+            raise ValueError("Aggregate schema facts require a selected-result mapping")
+        selected_results = MappingProxyType(dict(self.selected_results))
+        if not selected_results:
+            raise ValueError(
+                "Aggregate schema facts require non-empty selected results"
+            )
+
+        for item, selected_result in selected_results.items():
+            if not isinstance(item, SelectItem):
+                raise ValueError("Aggregate schema facts require select-item keys")
+            if not isinstance(selected_result, ProjectAggregateSelectedResult):
+                raise ValueError(
+                    "Aggregate schema facts require selected-result values"
+                )
+            call = item.expression
+            if not isinstance(call, CallExpr):
+                raise ValueError(
+                    "Aggregate schema facts require direct aggregate calls"
+                )
+            if (
+                item.alias != selected_result.field.name
+                or item.alias != selected_result.fact.output_name
+            ):
+                raise ValueError("Aggregate schema facts output identity mismatch")
+            if semantic_aggregate_call_name(call) != selected_result.fact.function:
+                raise ValueError("Aggregate schema facts canonical function mismatch")
+            if selected_result.fact.grouped is not False:
+                raise ValueError("Aggregate schema facts require ungrouped facts")
+            if selected_result.fact.argument_count != len(call.arguments):
+                raise ValueError("Aggregate schema facts argument count mismatch")
+            provenance = selected_result.field.provenance
+            if (
+                provenance is None
+                or selected_result.fact.location != provenance.location
+            ):
+                raise ValueError("Aggregate schema facts location mismatch")
+
+        object.__setattr__(self, "selected_results", selected_results)
 
 
 def build_project_group_key_schema_facts(
@@ -189,6 +300,116 @@ def build_project_group_key_schema_facts(
     )
 
 
+def build_project_aggregate_schema_facts(
+    *,
+    definition: TableDef | QueryDef,
+    input_schema: ProjectRowSchema,
+    upstream_symbol: ProjectSymbol,
+    fallback_path: str,
+) -> ProjectAggregateSchemaFacts | None:
+    """Build complete aggregate-only candidates without publishing a schema."""
+
+    if (
+        definition.group_by_clause is not None
+        or input_schema.is_unknown
+        or not definition.select_items
+    ):
+        return None
+
+    selected_results: dict[SelectItem, ProjectAggregateSelectedResult] = {}
+    for item in definition.select_items:
+        call = item.expression
+        if not isinstance(call, CallExpr):
+            return None
+
+        function_name = semantic_aggregate_call_name(call)
+        if function_name is None:
+            return None
+        output_name = item.alias
+        if not output_name:
+            return None
+        if nested_semantic_aggregate(call) is not None:
+            return None
+
+        arguments = call.arguments
+        if not is_supported_semantic_aggregate_arity(
+            function_name,
+            len(arguments),
+        ):
+            return None
+
+        argument_type = None
+        if arguments:
+            if len(arguments) != 1:
+                return None
+            argument = arguments[0]
+            if not is_direct_field_argument(argument):
+                return None
+            argument_value_types = build_project_row_expression_value_types(
+                expressions=(argument,),
+                input_schema=input_schema,
+                relation_qualifier=definition.from_clause.source_name,
+            )
+            if len(argument_value_types) != 1:
+                return None
+            argument_type = argument_value_types.get(argument)
+            if argument_type is None or argument_type.kind is not ValueTypeKind.KNOWN:
+                return None
+            if not is_supported_semantic_aggregate_argument_expression(
+                function_name,
+                argument,
+                argument_type,
+            ):
+                return None
+
+        result_type = semantic_projection_aggregate_result_value_type(
+            function_name,
+            argument_type,
+        )
+        if (
+            result_type is None
+            or result_type.kind is not ValueTypeKind.KNOWN
+            or result_type.resolved_type.kind is not TypeKind.BUILTIN
+        ):
+            return None
+        if result_type.nullability is EffectiveNullability.NON_NULL:
+            project_nullability = ProjectRowFieldNullability.NON_NULL
+        elif result_type.nullability is EffectiveNullability.NULLABLE:
+            project_nullability = ProjectRowFieldNullability.NULLABLE
+        else:
+            return None
+
+        location = _expression_location(call, fallback_path=fallback_path)
+        field = ProjectRowField(
+            name=output_name,
+            resolved_type=ProjectResolvedType(
+                name=result_type.resolved_type.name,
+                kind=ProjectResolvedTypeKind.BUILTIN,
+            ),
+            nullability=project_nullability,
+            field_def=None,
+            provenance=ProjectRowFieldProvenance(
+                kind=ProjectRowFieldProvenanceKind.AGGREGATE,
+                symbol=upstream_symbol,
+                location=location,
+            ),
+            result_role=ProjectRowResultRole.AGGREGATE_RESULT,
+        )
+        fact = ProjectAggregateResultFact(
+            function=function_name,
+            output_name=output_name,
+            grouped=False,
+            argument_count=len(arguments),
+            location=location,
+        )
+        selected_results[item] = ProjectAggregateSelectedResult(
+            field=field,
+            fact=fact,
+        )
+
+    return ProjectAggregateSchemaFacts(selected_results=selected_results)
+
+
 def _effective_group_key_expression(
     expression: NameExpr | DottedNameExpr,
     *,
@@ -246,7 +467,7 @@ def _direct_expression_identity(
 
 
 def _expression_location(
-    expression: NameExpr | DottedNameExpr,
+    expression: Expression,
     *,
     fallback_path: str,
 ) -> SourceLocation:

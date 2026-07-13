@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import MutableMapping
 from dataclasses import FrozenInstanceError, fields, is_dataclass
+import inspect
 import json
 from pathlib import Path
 import subprocess
@@ -228,7 +229,9 @@ def test_unselected_keys_and_aggregate_only_select_have_no_selected_fields(
         "region",
     )
     assert facts.selected_fields == {}
-    assert "ProjectAggregateResultFact" not in HELPER_PATH.read_text(encoding="utf-8")
+    group_key_builder_source = inspect.getsource(build_project_group_key_schema_facts)
+    assert "ProjectAggregateResultFact" not in group_key_builder_source
+    assert "build_project_aggregate_schema_facts" not in group_key_builder_source
 
 
 def test_direct_and_chained_let_keys_preserve_clause_and_selected_identity(
@@ -580,6 +583,7 @@ def test_contract_plan_and_helper_only_boundaries_are_locked() -> None:
     plan = PLAN_PATH.read_text(encoding="utf-8")
     spec = SPEC_PATH.read_text(encoding="utf-8")
     helper = HELPER_PATH.read_text(encoding="utf-8")
+    group_key_builder_source = inspect.getsource(build_project_group_key_schema_facts)
 
     plan_lines = plan.splitlines()
     assert "### Slice 3 Gate 2 Bounded Implementation Status" in plan_lines
@@ -597,7 +601,8 @@ def test_contract_plan_and_helper_only_boundaries_are_locked() -> None:
         "/tmp/pietto-phase51-slice3-gate2-evidence-and-diff.txt",
     ):
         assert required in f"{plan}\n{spec}", required
-    assert "ProjectAggregateResultFact(" not in helper
+    assert "ProjectAggregateResultFact(" not in group_key_builder_source
+    assert "build_project_aggregate_schema_facts" not in group_key_builder_source
     assert "ProjectSemanticModel" not in helper
 
 
