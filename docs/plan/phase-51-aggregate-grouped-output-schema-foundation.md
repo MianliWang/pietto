@@ -1140,6 +1140,100 @@ natural CI `completed / success` with exact `headSha`. Package version remains
 `0.1.0`; no tag, release, publish, upload, signing, or attestation is
 authorized.
 
+### Slice 7 Gate 2 Bounded Implementation Status
+
+Slices 1 through 6 are complete through their separately authorized publish
+gates. Slice 6 is complete at
+`98f96d32cc4af67bb8703398f2116a4e55b56460`; natural CI run `29280446165`
+completed successfully with exact `headSha` match. Earlier Slice 1 through 6
+Gate 2 status text remains per-gate historical evidence and is superseded for
+current lifecycle reporting by this additive Slice 7 status.
+
+Phase 51 remains ACTIVE and incomplete. Phase 52–60 remain UNSTARTED. Slice 7
+is the current `Type Nullability Availability-state And Duplicate Handling`
+Gate 2. This status does not preclaim Gate 2 validation success or Slice 7
+completion.
+
+The controlling persistence decision is
+`Strategy D — helper-level finalization only`. The behavioral owner remains
+the private `src/pietto/_project/aggregate_grouped_schema.py` helper. Slice 7
+adds frozen/slots `ProjectAggregateGroupedCandidateAttempt` structured
+attempts at the existing candidate failure sites and frozen/slots
+`ProjectAggregateGroupedSchemaFinalization` results through
+`build_project_aggregate_grouped_schema_finalization`. The three existing
+`facts | None` wrapper signatures remain compatible and expose only the
+structured attempt's facts.
+
+The structured attempt retains exact failure causes before a generic `None`
+can erase them. It does not classify `None` after the fact, copy semantic or
+let rules, swallow arbitrary `ValueError`, downgrade an existing blocked
+condition, or treat a generic unsupported form as deferred. Complete
+candidates retain source-ordered `SelectItem` occurrence identity until type,
+nullability, role, provenance, fact coherence, and exact-string duplicate
+checks finish.
+
+Slice 7 adds the exact value-identical reasons `DUPLICATE_GROUP_KEY`,
+`UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT`,
+`INVALID_AGGREGATE_OR_GROUPED_OUTPUT`, `AGGREGATE_OR_GROUPED_DEFERRED`, and
+`CONFLICTING_AGGREGATE_OR_GROUPED_FACTS` to the schema, row-dependency, and
+row-lineage reason enums. This is vocabulary and total value-conversion work
+only. There is no fifth state, global status/reason tightening, dependency or
+lineage producer, new model field, or new `_project` module.
+
+A complete unique no-GROUP aggregate-only or grouped key-plus-aggregate
+candidate may become helper-level `CONCRETE` with a complete final
+`ProjectRowSchema` and complete output-name-keyed aggregate facts. That
+state/schema/fact decision is atomic and unpersisted. Group-key `UNKNOWN`
+nullability remains eligible and is preserved exactly; aggregate `UNKNOWN`
+nullability or unavailable type/fact evidence yields an empty unknown schema
+and no facts. Logical `Decimal` remains logical-only with no precision/scale
+fusion.
+
+Duplicate selected output has no first, last, or partial winner and yields
+`UNKNOWN / DUPLICATE_OUTPUT_NAME /` an empty unknown schema with no facts.
+Duplicate group-key identity yields `UNKNOWN / DUPLICATE_GROUP_KEY /` an empty
+unknown schema with no facts. Occurrences are scanned before output-name map
+construction; key/key, aggregate/aggregate, key/aggregate, identical or
+different expressions, and aliased/unaliased collisions use exact
+case-sensitive names and emit no new diagnostic.
+
+Pure grouping remains
+`DEFERRED / AGGREGATE_OR_GROUPED_DEFERRED / schema=None / no facts` at the
+helper decision and remains owned by
+`POST60_ADVANCED_AGGREGATION_GROUPING`. Current pure-grouping production
+behavior remains unchanged.
+
+All Slice 7 finalization is private and unpersisted. `model.py` does not import
+or call the helper. No-GROUP aggregate-only and grouped production relations
+remain `DEFERRED / DEFERRED_PHASE48_BEHAVIOR / schema=None`, production
+aggregate facts remain empty, dependency and lineage maps remain inactive,
+and downstream relations remain non-concrete. Slice 8 retains clause
+dependencies and fail-closed clause behavior; Slice 9 retains origin,
+dependency, lineage, and let ancestry; Slice 10 retains production persistence
+and downstream activation.
+
+The bounded contract is
+`docs/spec/phase51-type-nullability-availability-state-duplicate-handling-v1.md`.
+The exact Gate 2 allowlist is 16 paths: four existing private source files; one
+new focused Slice 7 test; this plan; the new contract; eight mechanical Phase
+11/12 compiler-boundary hash refreshes; and one mechanical Phase 33
+`project_private` digest refresh. Existing Slice 2–6 tests/contracts, active
+and historical roadmaps, protected adapters and serializers, compiler/public
+surfaces, workflows, dependencies, version, and release surfaces remain
+unchanged. `_project` count remains 13 and Ruff remains `0.15.21`.
+
+Gate 2 uses bounded offline Ruff formatting, refreshes only the eight compiler
+`BOUNDARY_HASH` constants and the Phase 33 `project_private` digest, runs the
+exact first-failure validation matrix, and records complete evidence at
+`/tmp/pietto-phase51-slice7-gate2-evidence-and-diff.txt`. It performs no
+staging, commit, push, fetch, GitHub, CI, build, package, tag, version, or
+release action.
+
+Slice 7 completion still requires a separately authorized Gate 3 exact commit,
+one normal push, and natural CI `completed / success` with exact `headSha`.
+Package version remains `0.1.0`; no tag, release, publish, upload, signing, or
+attestation is authorized.
+
 ## Cross-slice Gate Discipline
 
 Each slice follows the same independent discipline:

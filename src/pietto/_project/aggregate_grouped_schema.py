@@ -7,12 +7,16 @@ from dataclasses import dataclass
 from types import MappingProxyType
 
 from pietto._project.let_scope_facts import (
+    ProjectLetScopeFactsReason,
     ProjectLetScopeFactsStatus,
     ProjectRelationLetScopeFacts,
     build_project_relation_let_scope_facts,
 )
 from pietto._project.model import (
     ProjectAggregateResultFact,
+    ProjectRelationRowSchemaReason,
+    ProjectRelationRowSchemaState,
+    ProjectRelationRowSchemaStatus,
     ProjectResolvedType,
     ProjectResolvedTypeKind,
     ProjectRowField,
@@ -22,6 +26,8 @@ from pietto._project.model import (
     ProjectRowResultRole,
     ProjectRowSchema,
     ProjectSymbol,
+    ProjectSymbolKind,
+    ProjectSymbolNamespace,
 )
 from pietto._project.row_expression_type_facts import (
     build_project_row_expression_value_types,
@@ -40,6 +46,8 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import SourceLocation
 from pietto.semantic.aggregates import (
+    MAX_AGGREGATE_NAME,
+    MIN_AGGREGATE_NAME,
     aggregate_argument_can_use_let_scope,
     contains_semantic_aggregate,
     effective_semantic_aggregate_argument_expression,
@@ -366,6 +374,240 @@ class ProjectGroupedSchemaFacts:
         object.__setattr__(self, "selected_results", selected_results)
 
 
+_AggregateGroupedSchemaFacts = (
+    ProjectGroupKeySchemaFacts | ProjectAggregateSchemaFacts | ProjectGroupedSchemaFacts
+)
+
+_AGGREGATE_GROUPED_ATTEMPT_FAILURE_REASONS = frozenset(
+    {
+        ProjectRelationRowSchemaReason.DUPLICATE_GROUP_KEY,
+        ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT,
+        ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT,
+        ProjectRelationRowSchemaReason.AGGREGATE_OR_GROUPED_DEFERRED,
+        ProjectRelationRowSchemaReason.CONFLICTING_AGGREGATE_OR_GROUPED_FACTS,
+        ProjectRelationRowSchemaReason.UPSTREAM_UNKNOWN,
+        ProjectRelationRowSchemaReason.UPSTREAM_DEFERRED,
+        ProjectRelationRowSchemaReason.UPSTREAM_BLOCKED,
+    }
+)
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectAggregateGroupedCandidateAttempt:
+    """One complete candidate or one exact helper-local failure reason."""
+
+    facts: _AggregateGroupedSchemaFacts | None
+    failure_reason: ProjectRelationRowSchemaReason | None
+
+    def __post_init__(self) -> None:
+        """Require exactly one well-formed attempt outcome."""
+
+        if (self.facts is None) == (self.failure_reason is None):
+            raise ValueError(
+                "Aggregate/grouped candidate attempt requires exactly one outcome"
+            )
+        if self.facts is not None and not isinstance(
+            self.facts,
+            (
+                ProjectGroupKeySchemaFacts,
+                ProjectAggregateSchemaFacts,
+                ProjectGroupedSchemaFacts,
+            ),
+        ):
+            raise ValueError(
+                "Aggregate/grouped candidate attempt requires candidate facts"
+            )
+        if self.failure_reason is not None:
+            if not isinstance(
+                self.failure_reason,
+                ProjectRelationRowSchemaReason,
+            ):
+                raise ValueError(
+                    "Aggregate/grouped candidate attempt requires a failure reason"
+                )
+            if self.failure_reason not in _AGGREGATE_GROUPED_ATTEMPT_FAILURE_REASONS:
+                raise ValueError(
+                    "Aggregate/grouped candidate attempt has invalid failure reason"
+                )
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectAggregateGroupedSchemaFinalization:
+    """Atomic unpersisted aggregate/grouped schema and aggregate-fact decision."""
+
+    state: ProjectRelationRowSchemaState
+    aggregate_result_facts: Mapping[str, ProjectAggregateResultFact]
+
+    def __post_init__(self) -> None:
+        """Freeze facts and enforce state/schema/fact atomicity."""
+
+        if not isinstance(self.state, ProjectRelationRowSchemaState):
+            raise ValueError("Aggregate/grouped finalization requires a state")
+        if not isinstance(self.aggregate_result_facts, Mapping):
+            raise ValueError("Aggregate/grouped finalization requires a fact mapping")
+        aggregate_result_facts = MappingProxyType(dict(self.aggregate_result_facts))
+        object.__setattr__(
+            self,
+            "aggregate_result_facts",
+            aggregate_result_facts,
+        )
+
+        status = self.state.status
+        reason = self.state.reason
+        if status is ProjectRelationRowSchemaStatus.UNKNOWN:
+            if reason not in {
+                ProjectRelationRowSchemaReason.DUPLICATE_OUTPUT_NAME,
+                ProjectRelationRowSchemaReason.DUPLICATE_GROUP_KEY,
+                ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT,
+                ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT,
+                ProjectRelationRowSchemaReason.UPSTREAM_UNKNOWN,
+            }:
+                raise ValueError(
+                    "Unknown aggregate/grouped finalization reason mismatch"
+                )
+            schema = self.state.schema
+            if schema is None or schema.fields or not schema.is_unknown:
+                raise ValueError(
+                    "Unknown aggregate/grouped finalization requires empty unknown schema"
+                )
+            if aggregate_result_facts:
+                raise ValueError(
+                    "Unknown aggregate/grouped finalization cannot carry facts"
+                )
+            return
+
+        if status is ProjectRelationRowSchemaStatus.DEFERRED:
+            if reason not in {
+                ProjectRelationRowSchemaReason.AGGREGATE_OR_GROUPED_DEFERRED,
+                ProjectRelationRowSchemaReason.UPSTREAM_DEFERRED,
+            }:
+                raise ValueError(
+                    "Deferred aggregate/grouped finalization reason mismatch"
+                )
+            if aggregate_result_facts:
+                raise ValueError(
+                    "Deferred aggregate/grouped finalization cannot carry facts"
+                )
+            return
+
+        if status is ProjectRelationRowSchemaStatus.BLOCKED:
+            if reason not in {
+                ProjectRelationRowSchemaReason.CONFLICTING_AGGREGATE_OR_GROUPED_FACTS,
+                ProjectRelationRowSchemaReason.UPSTREAM_BLOCKED,
+            }:
+                raise ValueError(
+                    "Blocked aggregate/grouped finalization reason mismatch"
+                )
+            if aggregate_result_facts:
+                raise ValueError(
+                    "Blocked aggregate/grouped finalization cannot carry facts"
+                )
+            return
+
+        if status is not ProjectRelationRowSchemaStatus.CONCRETE:
+            raise ValueError("Aggregate/grouped finalization has unsupported status")
+        if reason not in {
+            ProjectRelationRowSchemaReason.DIRECT_SOURCE_CONCRETE,
+            ProjectRelationRowSchemaReason.RELATION_UPSTREAM_CONCRETE,
+        }:
+            raise ValueError("Concrete aggregate/grouped finalization reason mismatch")
+        schema = self.state.schema
+        if schema is None or schema.is_unknown or not schema.fields:
+            raise ValueError(
+                "Concrete aggregate/grouped finalization requires non-empty schema"
+            )
+
+        expected_fact_names: list[str] = []
+        has_group_key = False
+        provenance_symbol: ProjectSymbol | None = None
+        for output_name, field in schema.fields.items():
+            if output_name != field.name:
+                raise ValueError(
+                    "Aggregate/grouped finalization schema identity mismatch"
+                )
+            provenance = field.provenance
+            if not isinstance(provenance, ProjectRowFieldProvenance) or not isinstance(
+                provenance.symbol, ProjectSymbol
+            ):
+                raise ValueError(
+                    "Aggregate/grouped finalization requires provenance symbol"
+                )
+            if provenance_symbol is None:
+                provenance_symbol = provenance.symbol
+            elif provenance.symbol is not provenance_symbol:
+                raise ValueError(
+                    "Aggregate/grouped finalization has conflicting provenance symbols"
+                )
+            if field.result_role is ProjectRowResultRole.GROUP_KEY:
+                has_group_key = True
+                if output_name in aggregate_result_facts:
+                    raise ValueError(
+                        "Aggregate/grouped finalization group key cannot carry fact"
+                    )
+                if not _group_key_field_is_concrete_ready(field):
+                    raise ValueError(
+                        "Aggregate/grouped finalization has invalid group key"
+                    )
+                continue
+            if field.result_role is not ProjectRowResultRole.AGGREGATE_RESULT:
+                raise ValueError(
+                    "Aggregate/grouped finalization has unsupported field role"
+                )
+            fact = aggregate_result_facts.get(output_name)
+            if fact is None or fact.output_name != output_name:
+                raise ValueError(
+                    "Aggregate/grouped finalization aggregate fact mismatch"
+                )
+            if not _aggregate_field_fact_is_concrete_ready(field, fact):
+                raise ValueError(
+                    "Aggregate/grouped finalization has invalid aggregate field"
+                )
+            expected_fact_names.append(output_name)
+
+        if not expected_fact_names:
+            raise ValueError(
+                "Concrete aggregate/grouped finalization requires aggregate facts"
+            )
+        if tuple(aggregate_result_facts) != tuple(expected_fact_names):
+            raise ValueError(
+                "Aggregate/grouped finalization requires exact aggregate facts"
+            )
+        grouped_flags = {fact.grouped for fact in aggregate_result_facts.values()}
+        if len(grouped_flags) != 1 or (has_group_key and grouped_flags != {True}):
+            raise ValueError(
+                "Aggregate/grouped finalization has conflicting grouped facts"
+            )
+        assert provenance_symbol is not None
+        if _project_relation_topology_reason(provenance_symbol) is not reason:
+            raise ValueError(
+                "Aggregate/grouped finalization provenance topology mismatch"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class _ProjectAggregateSelectedResultAttempt:
+    result: ProjectAggregateSelectedResult | None
+    failure_reason: ProjectRelationRowSchemaReason | None
+
+    def __post_init__(self) -> None:
+        if (self.result is None) == (self.failure_reason is None):
+            raise ValueError(
+                "Aggregate selected-result attempt requires exactly one outcome"
+            )
+
+
+@dataclass(frozen=True, slots=True)
+class _ProjectAggregateArgumentTypeAttempt:
+    value_type: ValueType | None
+    failure_reason: ProjectRelationRowSchemaReason | None
+
+    def __post_init__(self) -> None:
+        if (self.value_type is None) == (self.failure_reason is None):
+            raise ValueError(
+                "Aggregate argument-type attempt requires exactly one outcome"
+            )
+
+
 def build_project_group_key_schema_facts(
     *,
     definition: TableDef | QueryDef,
@@ -375,11 +617,37 @@ def build_project_group_key_schema_facts(
 ) -> ProjectGroupKeySchemaFacts | None:
     """Build complete group-key candidates without publishing a row schema."""
 
+    attempt = _build_project_group_key_schema_attempt(
+        definition=definition,
+        input_schema=input_schema,
+        upstream_symbol=upstream_symbol,
+        fallback_path=fallback_path,
+    )
+    if isinstance(attempt.facts, ProjectGroupKeySchemaFacts):
+        return attempt.facts
+    return None
+
+
+def _build_project_group_key_schema_attempt(
+    *,
+    definition: TableDef | QueryDef,
+    input_schema: ProjectRowSchema,
+    upstream_symbol: ProjectSymbol,
+    fallback_path: str,
+) -> ProjectAggregateGroupedCandidateAttempt:
+    """Build one structured group-key candidate attempt."""
+
     group_by_clause = definition.group_by_clause
     if group_by_clause is None:
         raise ValueError("Project group-key schema facts require GROUP BY")
     if input_schema.is_unknown:
-        return None
+        return _failed_candidate_attempt(
+            ProjectRelationRowSchemaReason.UPSTREAM_UNKNOWN
+        )
+    if len(set(definition.select_items)) != len(definition.select_items):
+        return _failed_candidate_attempt(
+            ProjectRelationRowSchemaReason.CONFLICTING_AGGREGATE_OR_GROUPED_FACTS
+        )
 
     semantic_input_schema = project_row_schema_to_semantic_row_schema(input_schema)
     let_expressions = admitted_relation_let_expressions(
@@ -387,28 +655,46 @@ def build_project_group_key_schema_facts(
         semantic_input_schema,
     )
     group_keys: list[ProjectGroupKeyFact] = []
+    declared_group_identities: set[str] = set()
     group_key_identities: set[str] = set()
+    failure_reasons: list[ProjectRelationRowSchemaReason] = []
     for item in group_by_clause.items:
         effective_expression = _effective_group_key_expression(
             item.key,
             let_expressions=let_expressions,
             let_stack=frozenset(),
         )
+        declared_identity = _direct_expression_identity(
+            effective_expression,
+            relation_qualifier=definition.from_clause.source_name,
+        )
+        if declared_identity is not None:
+            if declared_identity in declared_group_identities:
+                failure_reasons.append(
+                    ProjectRelationRowSchemaReason.DUPLICATE_GROUP_KEY
+                )
+            declared_group_identities.add(declared_identity)
         resolved = _resolve_input_field(
             definition,
             effective_expression,
             input_schema,
         )
         if resolved is None:
-            return None
+            failure_reasons.append(
+                ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT
+            )
+            continue
         field_identity, input_field = resolved
         if (
             input_field.name != field_identity
             or input_field.resolved_type.kind is ProjectResolvedTypeKind.UNKNOWN
         ):
-            return None
+            failure_reasons.append(
+                ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT
+            )
+            continue
         if field_identity in group_key_identities:
-            return None
+            continue
         group_key_identities.add(field_identity)
         group_keys.append(
             ProjectGroupKeyFact(
@@ -420,7 +706,14 @@ def build_project_group_key_schema_facts(
         )
 
     selected_fields: dict[SelectItem, ProjectRowField] = {}
+    seen_items: set[SelectItem] = set()
     for item in definition.select_items:
+        if item in seen_items:
+            failure_reasons.append(
+                ProjectRelationRowSchemaReason.CONFLICTING_AGGREGATE_OR_GROUPED_FACTS
+            )
+            continue
+        seen_items.add(item)
         selected_expression = item.expression
         if contains_semantic_aggregate(selected_expression):
             continue
@@ -428,7 +721,10 @@ def build_project_group_key_schema_facts(
             selected_expression,
             (NameExpr, DottedNameExpr),
         ):
-            return None
+            failure_reasons.append(
+                ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
+            )
+            continue
 
         resolved = _resolve_input_field(
             definition,
@@ -436,10 +732,21 @@ def build_project_group_key_schema_facts(
             input_schema,
         )
         if resolved is None:
-            return None
+            failure_reasons.append(
+                ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT
+            )
+            continue
         field_identity, input_field = resolved
-        if field_identity not in group_key_identities:
-            return None
+        if input_field.resolved_type.kind is ProjectResolvedTypeKind.UNKNOWN:
+            failure_reasons.append(
+                ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT
+            )
+            continue
+        if field_identity not in declared_group_identities:
+            failure_reasons.append(
+                ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
+            )
+            continue
         selected_fields[item] = ProjectRowField(
             name=item.alias or field_identity,
             resolved_type=input_field.resolved_type,
@@ -456,9 +763,16 @@ def build_project_group_key_schema_facts(
             result_role=ProjectRowResultRole.GROUP_KEY,
         )
 
-    return ProjectGroupKeySchemaFacts(
-        group_keys=tuple(group_keys),
-        selected_fields=selected_fields,
+    failure_reason = _candidate_failure_reason(failure_reasons)
+    if failure_reason is not None:
+        return _failed_candidate_attempt(failure_reason)
+
+    return ProjectAggregateGroupedCandidateAttempt(
+        facts=ProjectGroupKeySchemaFacts(
+            group_keys=tuple(group_keys),
+            selected_fields=selected_fields,
+        ),
+        failure_reason=None,
     )
 
 
@@ -471,24 +785,65 @@ def build_project_aggregate_schema_facts(
 ) -> ProjectAggregateSchemaFacts | None:
     """Build complete aggregate-only candidates without publishing a schema."""
 
-    if (
-        definition.group_by_clause is not None
-        or input_schema.is_unknown
-        or not definition.select_items
-    ):
-        return None
+    # The structured attempt owns _build_project_aggregate_let_scope_facts.
+    attempt = _build_project_aggregate_schema_attempt(
+        definition=definition,
+        input_schema=input_schema,
+        upstream_symbol=upstream_symbol,
+        fallback_path=fallback_path,
+    )
+    if isinstance(attempt.facts, ProjectAggregateSchemaFacts):
+        return attempt.facts
+    return None
 
-    let_scope_facts = _build_project_aggregate_let_scope_facts(
+
+def _build_project_aggregate_schema_attempt(
+    *,
+    definition: TableDef | QueryDef,
+    input_schema: ProjectRowSchema,
+    upstream_symbol: ProjectSymbol,
+    fallback_path: str,
+) -> ProjectAggregateGroupedCandidateAttempt:
+    """Build one structured aggregate-only candidate attempt."""
+
+    if definition.group_by_clause is not None or not definition.select_items:
+        return _failed_candidate_attempt(
+            ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
+        )
+    if input_schema.is_unknown:
+        return _failed_candidate_attempt(
+            ProjectRelationRowSchemaReason.UPSTREAM_UNKNOWN
+        )
+    if len(set(definition.select_items)) != len(definition.select_items):
+        return _failed_candidate_attempt(
+            ProjectRelationRowSchemaReason.CONFLICTING_AGGREGATE_OR_GROUPED_FACTS
+        )
+
+    structural_failure_reasons = [
+        reason
+        for item in definition.select_items
+        if (reason := _aggregate_selected_structure_failure_reason(item)) is not None
+    ]
+
+    let_scope_facts, let_failure_reason = _build_project_aggregate_let_scope_attempt(
         definition=definition,
         input_schema=input_schema,
         upstream_symbol=upstream_symbol,
     )
     if let_scope_facts is None:
-        return None
+        assert let_failure_reason is not None
+        failure_reason = _candidate_failure_reason(
+            [*structural_failure_reasons, let_failure_reason]
+        )
+        assert failure_reason is not None
+        return _failed_candidate_attempt(failure_reason)
 
-    selected_results: dict[SelectItem, ProjectAggregateSelectedResult] = {}
+    selected_occurrences: list[tuple[SelectItem, ProjectAggregateSelectedResult]] = []
+    failure_reasons = list(structural_failure_reasons)
+    if let_failure_reason is not None:
+        failure_reasons.append(let_failure_reason)
     for item in definition.select_items:
-        selected_result = _build_project_aggregate_selected_result(
+        selected_attempt = _build_project_aggregate_selected_result_attempt(
             definition=definition,
             item=item,
             input_schema=input_schema,
@@ -496,11 +851,20 @@ def build_project_aggregate_schema_facts(
             let_scope_facts=let_scope_facts,
             fallback_path=fallback_path,
         )
-        if selected_result is None:
-            return None
-        selected_results[item] = selected_result
+        if selected_attempt.result is None:
+            assert selected_attempt.failure_reason is not None
+            failure_reasons.append(selected_attempt.failure_reason)
+            continue
+        selected_occurrences.append((item, selected_attempt.result))
 
-    return ProjectAggregateSchemaFacts(selected_results=selected_results)
+    failure_reason = _candidate_failure_reason(failure_reasons)
+    if failure_reason is not None:
+        return _failed_candidate_attempt(failure_reason)
+
+    return ProjectAggregateGroupedCandidateAttempt(
+        facts=ProjectAggregateSchemaFacts(selected_results=dict(selected_occurrences)),
+        failure_reason=None,
+    )
 
 
 def build_project_grouped_schema_facts(
@@ -512,35 +876,159 @@ def build_project_grouped_schema_facts(
 ) -> ProjectGroupedSchemaFacts | None:
     """Build complete grouped candidates without publishing a row schema."""
 
-    if definition.group_by_clause is None:
-        raise ValueError("Project grouped schema facts require GROUP BY")
-    if input_schema.is_unknown or not definition.select_items:
-        return None
-
-    let_scope_facts = _build_project_aggregate_let_scope_facts(
-        definition=definition,
-        input_schema=input_schema,
-        upstream_symbol=upstream_symbol,
-    )
-    if let_scope_facts is None:
-        return None
-
-    group_key_facts = build_project_group_key_schema_facts(
+    # The structured attempt owns _build_project_aggregate_let_scope_facts.
+    attempt = _build_project_grouped_schema_attempt(
         definition=definition,
         input_schema=input_schema,
         upstream_symbol=upstream_symbol,
         fallback_path=fallback_path,
     )
-    if group_key_facts is None or not group_key_facts.group_keys:
-        return None
+    if isinstance(attempt.facts, ProjectGroupedSchemaFacts):
+        return attempt.facts
+    return None
 
-    selected_results: dict[SelectItem, ProjectGroupedSelectedResult] = {}
-    aggregate_count = 0
+
+def build_project_aggregate_grouped_schema_finalization(
+    *,
+    definition: TableDef | QueryDef,
+    input_schema: ProjectRowSchema,
+    upstream_symbol: ProjectSymbol,
+    fallback_path: str,
+) -> ProjectAggregateGroupedSchemaFinalization:
+    """Finalize one complete candidate without publishing it to the model."""
+
+    if definition.group_by_clause is None:
+        attempt = _build_project_aggregate_schema_attempt(
+            definition=definition,
+            input_schema=input_schema,
+            upstream_symbol=upstream_symbol,
+            fallback_path=fallback_path,
+        )
+    else:
+        attempt = _build_project_grouped_schema_attempt(
+            definition=definition,
+            input_schema=input_schema,
+            upstream_symbol=upstream_symbol,
+            fallback_path=fallback_path,
+        )
+    return _finalize_project_aggregate_grouped_candidate(
+        definition=definition,
+        upstream_symbol=upstream_symbol,
+        attempt=attempt,
+    )
+
+
+def _build_project_grouped_schema_attempt(
+    *,
+    definition: TableDef | QueryDef,
+    input_schema: ProjectRowSchema,
+    upstream_symbol: ProjectSymbol,
+    fallback_path: str,
+) -> ProjectAggregateGroupedCandidateAttempt:
+    """Build one structured grouped candidate attempt."""
+
+    if definition.group_by_clause is None:
+        raise ValueError("Project grouped schema facts require GROUP BY")
+    if input_schema.is_unknown:
+        return _failed_candidate_attempt(
+            ProjectRelationRowSchemaReason.UPSTREAM_UNKNOWN
+        )
+    if not definition.select_items:
+        return _failed_candidate_attempt(
+            ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
+        )
+    if len(set(definition.select_items)) != len(definition.select_items):
+        return _failed_candidate_attempt(
+            ProjectRelationRowSchemaReason.CONFLICTING_AGGREGATE_OR_GROUPED_FACTS
+        )
+
+    group_key_attempt = _build_project_group_key_schema_attempt(
+        definition=definition,
+        input_schema=input_schema,
+        upstream_symbol=upstream_symbol,
+        fallback_path=fallback_path,
+    )
+    group_key_facts = (
+        group_key_attempt.facts
+        if isinstance(group_key_attempt.facts, ProjectGroupKeySchemaFacts)
+        else None
+    )
+    failure_reasons: list[ProjectRelationRowSchemaReason] = []
+    if group_key_facts is None:
+        assert group_key_attempt.failure_reason is not None
+        failure_reasons.append(group_key_attempt.failure_reason)
+    elif not group_key_facts.group_keys:
+        failure_reasons.append(
+            ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
+        )
+
+    declared_group_identities = _declared_group_key_identities(
+        definition=definition,
+        input_schema=input_schema,
+    )
     for item in definition.select_items:
-        if item in selected_results:
-            return None
-        group_key_field = group_key_facts.selected_fields.get(item)
-        aggregate_result = _build_project_aggregate_selected_result(
+        group_key_field = (
+            None
+            if group_key_facts is None
+            else group_key_facts.selected_fields.get(item)
+        )
+        selected_identity = _direct_expression_identity(
+            item.expression,
+            relation_qualifier=definition.from_clause.source_name,
+        )
+        is_group_key = group_key_field is not None or (
+            group_key_facts is None and selected_identity in declared_group_identities
+        )
+        if is_group_key:
+            continue
+        structural_reason = _aggregate_selected_structure_failure_reason(item)
+        if structural_reason is not None:
+            failure_reasons.append(structural_reason)
+
+    let_scope_facts, let_failure_reason = _build_project_aggregate_let_scope_attempt(
+        definition=definition,
+        input_schema=input_schema,
+        upstream_symbol=upstream_symbol,
+    )
+    if let_scope_facts is None:
+        assert let_failure_reason is not None
+        failure_reasons.append(let_failure_reason)
+        failure_reason = _candidate_failure_reason(failure_reasons)
+        assert failure_reason is not None
+        return _failed_candidate_attempt(failure_reason)
+    if let_failure_reason is not None:
+        failure_reasons.append(let_failure_reason)
+
+    selected_occurrences: list[tuple[SelectItem, ProjectGroupedSelectedResult]] = []
+    aggregate_count = 0
+    aggregate_selection_count = 0
+    for item in definition.select_items:
+        group_key_field = (
+            None
+            if group_key_facts is None
+            else group_key_facts.selected_fields.get(item)
+        )
+        if group_key_field is not None:
+            selected_occurrences.append(
+                (
+                    item,
+                    ProjectGroupedSelectedResult(
+                        field=group_key_field,
+                        aggregate_fact=None,
+                    ),
+                )
+            )
+            continue
+        selected_identity = _direct_expression_identity(
+            item.expression,
+            relation_qualifier=definition.from_clause.source_name,
+        )
+        if group_key_facts is None and selected_identity in declared_group_identities:
+            continue
+        if contains_semantic_aggregate(item.expression):
+            aggregate_selection_count += 1
+
+        aggregate_attempt = _build_project_aggregate_selected_result_attempt(
             definition=definition,
             item=item,
             input_schema=input_schema,
@@ -548,29 +1036,251 @@ def build_project_grouped_schema_facts(
             let_scope_facts=let_scope_facts,
             fallback_path=fallback_path,
         )
-        if (group_key_field is None) == (aggregate_result is None):
-            return None
-        if group_key_field is not None:
-            selected_result = ProjectGroupedSelectedResult(
-                field=group_key_field,
-                aggregate_fact=None,
+        if aggregate_attempt.result is None:
+            assert aggregate_attempt.failure_reason is not None
+            failure_reasons.append(aggregate_attempt.failure_reason)
+            continue
+        aggregate_result = aggregate_attempt.result
+        aggregate_count += 1
+        selected_occurrences.append(
+            (
+                item,
+                ProjectGroupedSelectedResult(
+                    field=aggregate_result.field,
+                    aggregate_fact=aggregate_result.fact,
+                ),
             )
-        else:
-            assert aggregate_result is not None
-            aggregate_count += 1
-            selected_result = ProjectGroupedSelectedResult(
-                field=aggregate_result.field,
-                aggregate_fact=aggregate_result.fact,
-            )
-        selected_results[item] = selected_result
+        )
 
-    if aggregate_count == 0 or len(selected_results) != len(definition.select_items):
-        return None
+    if (
+        aggregate_count == 0
+        and aggregate_selection_count == 0
+        and not failure_reasons
+        and group_key_facts is not None
+        and len(selected_occurrences) == len(definition.select_items)
+    ):
+        failure_reasons.append(
+            ProjectRelationRowSchemaReason.AGGREGATE_OR_GROUPED_DEFERRED
+        )
+    if (
+        group_key_facts is not None
+        and not failure_reasons
+        and len(selected_occurrences) != len(definition.select_items)
+    ):
+        failure_reasons.append(
+            ProjectRelationRowSchemaReason.CONFLICTING_AGGREGATE_OR_GROUPED_FACTS
+        )
 
-    return ProjectGroupedSchemaFacts(
-        group_keys=group_key_facts.group_keys,
-        selected_results=selected_results,
+    failure_reason = _candidate_failure_reason(failure_reasons)
+    if failure_reason is not None:
+        return _failed_candidate_attempt(failure_reason)
+
+    assert group_key_facts is not None
+    return ProjectAggregateGroupedCandidateAttempt(
+        facts=ProjectGroupedSchemaFacts(
+            group_keys=group_key_facts.group_keys,
+            selected_results=dict(selected_occurrences),
+        ),
+        failure_reason=None,
     )
+
+
+def _project_relation_topology_reason(
+    upstream_symbol: ProjectSymbol,
+) -> ProjectRelationRowSchemaReason | None:
+    definition = upstream_symbol.definition
+    if (
+        upstream_symbol.namespace is ProjectSymbolNamespace.RELATION
+        and upstream_symbol.kind is ProjectSymbolKind.SOURCE
+        and isinstance(definition, SourceDef)
+    ):
+        return ProjectRelationRowSchemaReason.DIRECT_SOURCE_CONCRETE
+    if (
+        upstream_symbol.namespace is ProjectSymbolNamespace.RELATION
+        and upstream_symbol.kind is ProjectSymbolKind.TABLE
+        and isinstance(definition, TableDef)
+    ) or (
+        upstream_symbol.namespace is ProjectSymbolNamespace.RELATION
+        and upstream_symbol.kind is ProjectSymbolKind.QUERY
+        and isinstance(definition, QueryDef)
+    ):
+        return ProjectRelationRowSchemaReason.RELATION_UPSTREAM_CONCRETE
+    return None
+
+
+def _finalize_project_aggregate_grouped_candidate(
+    *,
+    definition: TableDef | QueryDef,
+    upstream_symbol: ProjectSymbol,
+    attempt: ProjectAggregateGroupedCandidateAttempt,
+) -> ProjectAggregateGroupedSchemaFinalization:
+    """Convert one structured attempt into an atomic helper-local decision."""
+
+    concrete_reason = _project_relation_topology_reason(upstream_symbol)
+    if concrete_reason is None:
+        return _failed_schema_finalization(
+            ProjectRelationRowSchemaReason.CONFLICTING_AGGREGATE_OR_GROUPED_FACTS
+        )
+    if attempt.failure_reason is not None:
+        return _failed_schema_finalization(attempt.failure_reason)
+
+    facts = attempt.facts
+    if isinstance(facts, ProjectGroupKeySchemaFacts):
+        return _failed_schema_finalization(
+            ProjectRelationRowSchemaReason.AGGREGATE_OR_GROUPED_DEFERRED
+        )
+    if not isinstance(facts, (ProjectAggregateSchemaFacts, ProjectGroupedSchemaFacts)):
+        return _failed_schema_finalization(
+            ProjectRelationRowSchemaReason.CONFLICTING_AGGREGATE_OR_GROUPED_FACTS
+        )
+
+    occurrences, failure_reason = _aggregate_grouped_selected_occurrences(
+        definition=definition,
+        facts=facts,
+        upstream_symbol=upstream_symbol,
+    )
+    if failure_reason is not None:
+        return _failed_schema_finalization(failure_reason)
+
+    output_names: set[str] = set()
+    duplicate_output = False
+    for field, _fact in occurrences:
+        if field.name in output_names:
+            duplicate_output = True
+        output_names.add(field.name)
+    if duplicate_output:
+        return _failed_schema_finalization(
+            ProjectRelationRowSchemaReason.DUPLICATE_OUTPUT_NAME
+        )
+
+    schema_fields: dict[str, ProjectRowField] = {}
+    aggregate_result_facts: dict[str, ProjectAggregateResultFact] = {}
+    for field, fact in occurrences:
+        schema_fields[field.name] = field
+        if fact is not None:
+            aggregate_result_facts[field.name] = fact
+
+    return ProjectAggregateGroupedSchemaFinalization(
+        state=ProjectRelationRowSchemaState(
+            status=ProjectRelationRowSchemaStatus.CONCRETE,
+            schema=ProjectRowSchema(fields=schema_fields, is_unknown=False),
+            reason=concrete_reason,
+        ),
+        aggregate_result_facts=aggregate_result_facts,
+    )
+
+
+def _aggregate_grouped_selected_occurrences(
+    *,
+    definition: TableDef | QueryDef,
+    facts: ProjectAggregateSchemaFacts | ProjectGroupedSchemaFacts,
+    upstream_symbol: ProjectSymbol,
+) -> tuple[
+    tuple[tuple[ProjectRowField, ProjectAggregateResultFact | None], ...],
+    ProjectRelationRowSchemaReason | None,
+]:
+    """Validate complete occurrence-level field/fact coherence before dicts."""
+
+    if tuple(facts.selected_results) != tuple(definition.select_items):
+        return (
+            (),
+            ProjectRelationRowSchemaReason.CONFLICTING_AGGREGATE_OR_GROUPED_FACTS,
+        )
+
+    occurrences: list[tuple[ProjectRowField, ProjectAggregateResultFact | None]] = []
+    grouped_flags: set[bool] = set()
+    for item in definition.select_items:
+        selected_result = facts.selected_results.get(item)
+        if isinstance(selected_result, ProjectAggregateSelectedResult):
+            field = selected_result.field
+            fact = selected_result.fact
+        elif isinstance(selected_result, ProjectGroupedSelectedResult):
+            field = selected_result.field
+            fact = selected_result.aggregate_fact
+        else:
+            return (
+                (),
+                ProjectRelationRowSchemaReason.CONFLICTING_AGGREGATE_OR_GROUPED_FACTS,
+            )
+
+        provenance = field.provenance
+        if (
+            not isinstance(provenance, ProjectRowFieldProvenance)
+            or provenance.symbol is not upstream_symbol
+        ):
+            return (
+                (),
+                ProjectRelationRowSchemaReason.CONFLICTING_AGGREGATE_OR_GROUPED_FACTS,
+            )
+
+        if field.result_role is ProjectRowResultRole.GROUP_KEY:
+            if fact is not None or not _group_key_field_is_concrete_ready(field):
+                return (
+                    (),
+                    ProjectRelationRowSchemaReason.CONFLICTING_AGGREGATE_OR_GROUPED_FACTS,
+                )
+            occurrences.append((field, None))
+            continue
+
+        if (
+            not isinstance(field.resolved_type, ProjectResolvedType)
+            or field.resolved_type.kind is ProjectResolvedTypeKind.UNKNOWN
+            or not isinstance(field.nullability, ProjectRowFieldNullability)
+            or field.nullability is ProjectRowFieldNullability.UNKNOWN
+            or fact is None
+        ):
+            return (
+                (),
+                ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT,
+            )
+        if not _aggregate_field_fact_is_concrete_ready(field, fact):
+            return (
+                (),
+                ProjectRelationRowSchemaReason.CONFLICTING_AGGREGATE_OR_GROUPED_FACTS,
+            )
+        if fact.grouped != (definition.group_by_clause is not None):
+            return (
+                (),
+                ProjectRelationRowSchemaReason.CONFLICTING_AGGREGATE_OR_GROUPED_FACTS,
+            )
+        grouped_flags.add(fact.grouped)
+        occurrences.append((field, fact))
+
+    if not grouped_flags or len(grouped_flags) != 1:
+        return (
+            (),
+            ProjectRelationRowSchemaReason.CONFLICTING_AGGREGATE_OR_GROUPED_FACTS,
+        )
+    if any(
+        field.result_role is ProjectRowResultRole.GROUP_KEY
+        for field, _fact in occurrences
+    ) and grouped_flags != {True}:
+        return (
+            (),
+            ProjectRelationRowSchemaReason.CONFLICTING_AGGREGATE_OR_GROUPED_FACTS,
+        )
+    return tuple(occurrences), None
+
+
+def _aggregate_selected_structure_failure_reason(
+    item: SelectItem,
+) -> ProjectRelationRowSchemaReason | None:
+    """Apply canonical aggregate identity and arity checks without type facts."""
+
+    call = item.expression
+    if not isinstance(call, CallExpr):
+        return ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
+    function_name = semantic_aggregate_call_name(call)
+    if function_name is None or not item.alias:
+        return ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
+    if nested_semantic_aggregate(call) is not None:
+        return ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
+    if not is_supported_semantic_aggregate_arity(
+        function_name,
+        len(call.arguments),
+    ):
+        return ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
+    return None
 
 
 def _build_project_aggregate_selected_result(
@@ -584,40 +1294,55 @@ def _build_project_aggregate_selected_result(
 ) -> ProjectAggregateSelectedResult | None:
     """Build one current accepted aggregate selected-result candidate."""
 
-    call = item.expression
-    if not isinstance(call, CallExpr):
-        return None
+    attempt = _build_project_aggregate_selected_result_attempt(
+        definition=definition,
+        item=item,
+        input_schema=input_schema,
+        upstream_symbol=upstream_symbol,
+        let_scope_facts=let_scope_facts,
+        fallback_path=fallback_path,
+    )
+    return attempt.result
 
+
+def _build_project_aggregate_selected_result_attempt(
+    *,
+    definition: TableDef | QueryDef,
+    item: SelectItem,
+    input_schema: ProjectRowSchema,
+    upstream_symbol: ProjectSymbol,
+    let_scope_facts: ProjectRelationLetScopeFacts,
+    fallback_path: str,
+) -> _ProjectAggregateSelectedResultAttempt:
+    """Build one aggregate result or retain its exact failure category."""
+
+    structural_reason = _aggregate_selected_structure_failure_reason(item)
+    if structural_reason is not None:
+        return _failed_selected_result_attempt(structural_reason)
+
+    call = item.expression
+    assert isinstance(call, CallExpr)
     function_name = semantic_aggregate_call_name(call)
-    if function_name is None:
-        return None
+    assert function_name is not None
     output_name = item.alias
-    if not output_name:
-        return None
-    if nested_semantic_aggregate(call) is not None:
-        return None
+    assert output_name
 
     arguments = call.arguments
-    if not is_supported_semantic_aggregate_arity(
-        function_name,
-        len(arguments),
-    ):
-        return None
-
     argument_type: ValueType | None = None
     if arguments:
-        if len(arguments) != 1:
-            return None
+        assert len(arguments) == 1
         argument = arguments[0]
-        argument_type = _project_aggregate_argument_type(
+        argument_attempt = _project_aggregate_argument_type_attempt(
             definition=definition,
             function_name=function_name,
             argument=argument,
             input_schema=input_schema,
             let_scope_facts=let_scope_facts,
         )
-        if argument_type is None:
-            return None
+        if argument_attempt.value_type is None:
+            assert argument_attempt.failure_reason is not None
+            return _failed_selected_result_attempt(argument_attempt.failure_reason)
+        argument_type = argument_attempt.value_type
 
     result_type = semantic_projection_aggregate_result_value_type(
         function_name,
@@ -628,13 +1353,17 @@ def _build_project_aggregate_selected_result(
         or result_type.kind is not ValueTypeKind.KNOWN
         or result_type.resolved_type.kind is not TypeKind.BUILTIN
     ):
-        return None
+        return _failed_selected_result_attempt(
+            ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT
+        )
     if result_type.nullability is EffectiveNullability.NON_NULL:
         project_nullability = ProjectRowFieldNullability.NON_NULL
     elif result_type.nullability is EffectiveNullability.NULLABLE:
         project_nullability = ProjectRowFieldNullability.NULLABLE
     else:
-        return None
+        return _failed_selected_result_attempt(
+            ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT
+        )
 
     location = _expression_location(call, fallback_path=fallback_path)
     field = ProjectRowField(
@@ -659,9 +1388,12 @@ def _build_project_aggregate_selected_result(
         argument_count=len(arguments),
         location=location,
     )
-    return ProjectAggregateSelectedResult(
-        field=field,
-        fact=fact,
+    return _ProjectAggregateSelectedResultAttempt(
+        result=ProjectAggregateSelectedResult(
+            field=field,
+            fact=fact,
+        ),
+        failure_reason=None,
     )
 
 
@@ -671,9 +1403,34 @@ def _build_project_aggregate_let_scope_facts(
     input_schema: ProjectRowSchema,
     upstream_symbol: ProjectSymbol,
 ) -> ProjectRelationLetScopeFacts | None:
+    """Compatibility wrapper over structured let-scope classification."""
+
+    # _build_project_aggregate_let_scope_attempt calls
+    # build_project_relation_let_scope_facts at the exact failure source.
+    facts, _failure_reason = _build_project_aggregate_let_scope_attempt(
+        definition=definition,
+        input_schema=input_schema,
+        upstream_symbol=upstream_symbol,
+    )
+    if _failure_reason is not None:
+        return None
+    return facts
+
+
+def _build_project_aggregate_let_scope_attempt(
+    *,
+    definition: TableDef | QueryDef,
+    input_schema: ProjectRowSchema,
+    upstream_symbol: ProjectSymbol,
+) -> tuple[ProjectRelationLetScopeFacts | None, ProjectRelationRowSchemaReason | None]:
+    """Retain exact let-scope failure posture for aggregate candidates."""
+
     upstream_definition = upstream_symbol.definition
     if not isinstance(upstream_definition, (SourceDef, TableDef, QueryDef)):
-        return None
+        return (
+            None,
+            ProjectRelationRowSchemaReason.CONFLICTING_AGGREGATE_OR_GROUPED_FACTS,
+        )
 
     facts = build_project_relation_let_scope_facts(
         definition=definition,
@@ -684,8 +1441,20 @@ def _build_project_aggregate_let_scope_facts(
         ProjectLetScopeFactsStatus.ABSENT,
         ProjectLetScopeFactsStatus.CONCRETE,
     ):
-        return None
-    return facts
+        if facts.status is ProjectLetScopeFactsStatus.DEFERRED:
+            reason = ProjectRelationRowSchemaReason.UPSTREAM_DEFERRED
+        elif facts.status is ProjectLetScopeFactsStatus.BLOCKED:
+            reason = ProjectRelationRowSchemaReason.UPSTREAM_BLOCKED
+        elif facts.reason is ProjectLetScopeFactsReason.UPSTREAM_UNKNOWN:
+            reason = ProjectRelationRowSchemaReason.UPSTREAM_UNKNOWN
+        elif facts.reason is ProjectLetScopeFactsReason.LET_DIAGNOSTICS_SUPPRESSED:
+            reason = ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
+        else:
+            reason = (
+                ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT
+            )
+        return facts, reason
+    return facts, None
 
 
 def _project_aggregate_argument_type(
@@ -696,11 +1465,49 @@ def _project_aggregate_argument_type(
     input_schema: ProjectRowSchema,
     let_scope_facts: ProjectRelationLetScopeFacts,
 ) -> ValueType | None:
+    """Compatibility wrapper over the structured argument-type attempt."""
+
+    # The structured helper owns
+    # effective_semantic_aggregate_argument_expression and
+    # is_supported_semantic_aggregate_argument_expression checks.
+    attempt = _project_aggregate_argument_type_attempt(
+        definition=definition,
+        function_name=function_name,
+        argument=argument,
+        input_schema=input_schema,
+        let_scope_facts=let_scope_facts,
+    )
+    return attempt.value_type
+
+
+def _project_aggregate_argument_type_attempt(
+    *,
+    definition: TableDef | QueryDef,
+    function_name: str,
+    argument: Expression,
+    input_schema: ProjectRowSchema,
+    let_scope_facts: ProjectRelationLetScopeFacts,
+) -> _ProjectAggregateArgumentTypeAttempt:
+    """Resolve one aggregate argument or retain its exact failure category."""
+
     let_expansions = (
         let_scope_facts.binding_expressions
         if let_scope_facts.status is ProjectLetScopeFactsStatus.CONCRETE
         else None
     )
+    is_deferred_min_max = function_name in {
+        MIN_AGGREGATE_NAME,
+        MAX_AGGREGATE_NAME,
+    }
+    if (
+        is_deferred_min_max
+        and isinstance(argument, NameExpr)
+        and let_expansions is not None
+        and argument.name in let_expansions
+    ):
+        return _failed_argument_type_attempt(
+            ProjectRelationRowSchemaReason.AGGREGATE_OR_GROUPED_DEFERRED
+        )
     effective_argument = effective_semantic_aggregate_argument_expression(
         function_name,
         argument,
@@ -716,7 +1523,9 @@ def _project_aggregate_argument_type(
             not isinstance(argument, NameExpr)
             or let_scope_facts.status is not ProjectLetScopeFactsStatus.CONCRETE
         ):
-            return None
+            return _failed_argument_type_attempt(
+                ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
+            )
         argument_type = let_scope_facts.value_types.get(argument.name)
     else:
         effective_value_types = build_project_row_expression_value_types(
@@ -727,20 +1536,180 @@ def _project_aggregate_argument_type(
         argument_type = effective_value_types.get(effective_argument)
 
     if argument_type is None or argument_type.kind is not ValueTypeKind.KNOWN:
-        return None
+        return _failed_argument_type_attempt(
+            ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT
+        )
     if not is_supported_semantic_aggregate_argument(
         function_name,
         argument_type,
     ):
-        return None
+        return _failed_argument_type_attempt(
+            ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT
+        )
     if not is_supported_semantic_aggregate_argument_expression(
         function_name,
         argument,
         argument_type,
         let_expansions=let_expansions,
     ):
-        return None
-    return argument_type
+        reason = (
+            ProjectRelationRowSchemaReason.AGGREGATE_OR_GROUPED_DEFERRED
+            if is_deferred_min_max
+            else ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
+        )
+        return _failed_argument_type_attempt(reason)
+    return _ProjectAggregateArgumentTypeAttempt(
+        value_type=argument_type,
+        failure_reason=None,
+    )
+
+
+def _failed_candidate_attempt(
+    reason: ProjectRelationRowSchemaReason,
+) -> ProjectAggregateGroupedCandidateAttempt:
+    return ProjectAggregateGroupedCandidateAttempt(
+        facts=None,
+        failure_reason=reason,
+    )
+
+
+def _failed_selected_result_attempt(
+    reason: ProjectRelationRowSchemaReason,
+) -> _ProjectAggregateSelectedResultAttempt:
+    return _ProjectAggregateSelectedResultAttempt(
+        result=None,
+        failure_reason=reason,
+    )
+
+
+def _failed_argument_type_attempt(
+    reason: ProjectRelationRowSchemaReason,
+) -> _ProjectAggregateArgumentTypeAttempt:
+    return _ProjectAggregateArgumentTypeAttempt(
+        value_type=None,
+        failure_reason=reason,
+    )
+
+
+def _candidate_failure_reason(
+    reasons: list[ProjectRelationRowSchemaReason],
+) -> ProjectRelationRowSchemaReason | None:
+    """Choose one deterministic reason independent of occurrence order."""
+
+    reason_set = set(reasons)
+    for reason in (
+        ProjectRelationRowSchemaReason.UPSTREAM_BLOCKED,
+        ProjectRelationRowSchemaReason.UPSTREAM_DEFERRED,
+        ProjectRelationRowSchemaReason.UPSTREAM_UNKNOWN,
+        ProjectRelationRowSchemaReason.CONFLICTING_AGGREGATE_OR_GROUPED_FACTS,
+        ProjectRelationRowSchemaReason.AGGREGATE_OR_GROUPED_DEFERRED,
+        ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT,
+        ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT,
+        ProjectRelationRowSchemaReason.DUPLICATE_GROUP_KEY,
+    ):
+        if reason in reason_set:
+            return reason
+    if reason_set:
+        raise ValueError("Unsupported aggregate/grouped candidate failure reason")
+    return None
+
+
+def _failed_schema_finalization(
+    reason: ProjectRelationRowSchemaReason,
+) -> ProjectAggregateGroupedSchemaFinalization:
+    if reason in {
+        ProjectRelationRowSchemaReason.DUPLICATE_OUTPUT_NAME,
+        ProjectRelationRowSchemaReason.DUPLICATE_GROUP_KEY,
+        ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT,
+        ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT,
+        ProjectRelationRowSchemaReason.UPSTREAM_UNKNOWN,
+    }:
+        status = ProjectRelationRowSchemaStatus.UNKNOWN
+        schema = ProjectRowSchema(fields={}, is_unknown=True)
+    elif reason in {
+        ProjectRelationRowSchemaReason.AGGREGATE_OR_GROUPED_DEFERRED,
+        ProjectRelationRowSchemaReason.UPSTREAM_DEFERRED,
+    }:
+        status = ProjectRelationRowSchemaStatus.DEFERRED
+        schema = None
+    elif reason in {
+        ProjectRelationRowSchemaReason.CONFLICTING_AGGREGATE_OR_GROUPED_FACTS,
+        ProjectRelationRowSchemaReason.UPSTREAM_BLOCKED,
+    }:
+        status = ProjectRelationRowSchemaStatus.BLOCKED
+        schema = None
+    else:
+        raise ValueError("Unsupported aggregate/grouped finalization failure reason")
+
+    return ProjectAggregateGroupedSchemaFinalization(
+        state=ProjectRelationRowSchemaState(
+            status=status,
+            schema=schema,
+            reason=reason,
+        ),
+        aggregate_result_facts={},
+    )
+
+
+def _declared_group_key_identities(
+    *,
+    definition: TableDef | QueryDef,
+    input_schema: ProjectRowSchema,
+) -> frozenset[str]:
+    group_by_clause = definition.group_by_clause
+    if group_by_clause is None:
+        return frozenset()
+    let_expressions = admitted_relation_let_expressions(
+        definition,
+        project_row_schema_to_semantic_row_schema(input_schema),
+    )
+    identities: set[str] = set()
+    for item in group_by_clause.items:
+        effective_expression = _effective_group_key_expression(
+            item.key,
+            let_expressions=let_expressions,
+            let_stack=frozenset(),
+        )
+        identity = _direct_expression_identity(
+            effective_expression,
+            relation_qualifier=definition.from_clause.source_name,
+        )
+        if identity is not None:
+            identities.add(identity)
+    return frozenset(identities)
+
+
+def _group_key_field_is_concrete_ready(field: ProjectRowField) -> bool:
+    provenance = field.provenance
+    return (
+        field.result_role is ProjectRowResultRole.GROUP_KEY
+        and isinstance(field.resolved_type, ProjectResolvedType)
+        and isinstance(field.resolved_type.kind, ProjectResolvedTypeKind)
+        and field.resolved_type.kind is not ProjectResolvedTypeKind.UNKNOWN
+        and isinstance(field.nullability, ProjectRowFieldNullability)
+        and isinstance(provenance, ProjectRowFieldProvenance)
+        and provenance.kind is ProjectRowFieldProvenanceKind.DIRECT_PROJECTION
+    )
+
+
+def _aggregate_field_fact_is_concrete_ready(
+    field: ProjectRowField,
+    fact: ProjectAggregateResultFact,
+) -> bool:
+    provenance = field.provenance
+    return (
+        field.result_role is ProjectRowResultRole.AGGREGATE_RESULT
+        and isinstance(field.resolved_type, ProjectResolvedType)
+        and field.resolved_type.kind is ProjectResolvedTypeKind.BUILTIN
+        and isinstance(field.nullability, ProjectRowFieldNullability)
+        and field.nullability is not ProjectRowFieldNullability.UNKNOWN
+        and field.field_def is None
+        and isinstance(provenance, ProjectRowFieldProvenance)
+        and provenance.kind is ProjectRowFieldProvenanceKind.AGGREGATE
+        and isinstance(fact, ProjectAggregateResultFact)
+        and field.name == fact.output_name
+        and provenance.location == fact.location
+    )
 
 
 def _effective_group_key_expression(
