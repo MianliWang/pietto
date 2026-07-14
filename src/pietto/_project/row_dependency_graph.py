@@ -85,6 +85,7 @@ class ProjectRowDependencyNodeKind(StrEnum):
     OUTPUT_FIELD = "output_field"
     UPSTREAM_FIELD = "upstream_field"
     LET_BINDING = "let_binding"
+    RELATION_INPUT = "relation_input"
 
 
 class ProjectRowDependencyEdgeKind(StrEnum):
@@ -95,6 +96,8 @@ class ProjectRowDependencyEdgeKind(StrEnum):
     COMPUTED_EXPRESSION = "computed_expression"
     LET_OUTPUT = "let_output"
     LET_EXPRESSION = "let_expression"
+    AGGREGATE_ARGUMENT = "aggregate_argument"
+    AGGREGATE_RELATION_INPUT = "aggregate_relation_input"
 
 
 @dataclass(frozen=True, slots=True)

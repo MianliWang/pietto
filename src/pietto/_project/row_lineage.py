@@ -69,6 +69,7 @@ class ProjectRowLineageSegmentKind(StrEnum):
     UPSTREAM_FIELD = "upstream_field"
     OUTPUT_FIELD = "output_field"
     LET_BINDING = "let_binding"
+    RELATION_INPUT = "relation_input"
 
 
 class ProjectRowLineageFactKind(StrEnum):
@@ -80,6 +81,8 @@ class ProjectRowLineageFactKind(StrEnum):
     LET_OUTPUT = "let_output"
     LET_EXPRESSION = "let_expression"
     TRANSITIVE_DEPENDENCY = "transitive_dependency"
+    AGGREGATE_ARGUMENT = "aggregate_argument"
+    AGGREGATE_RELATION_INPUT = "aggregate_relation_input"
 
 
 @dataclass(frozen=True, slots=True)
@@ -286,6 +289,13 @@ def _lineage_segment_from_node(
             name=binding_name,
             relation_name=node.relation_name or definition.name,
             binding_name=binding_name,
+        )
+    if node.kind is ProjectRowDependencyNodeKind.RELATION_INPUT:
+        return ProjectRowLineageSegment(
+            kind=ProjectRowLineageSegmentKind.RELATION_INPUT,
+            name=node.name,
+            relation_name=node.relation_name or upstream_symbol.name,
+            source_name=node.source_name or upstream_symbol.name,
         )
     return _upstream_segment_from_node(node, upstream_symbol=upstream_symbol)
 
@@ -538,6 +548,8 @@ def _is_lineage_edge_kind(kind: ProjectRowDependencyEdgeKind) -> bool:
         ProjectRowDependencyEdgeKind.COMPUTED_EXPRESSION,
         ProjectRowDependencyEdgeKind.LET_OUTPUT,
         ProjectRowDependencyEdgeKind.LET_EXPRESSION,
+        ProjectRowDependencyEdgeKind.AGGREGATE_ARGUMENT,
+        ProjectRowDependencyEdgeKind.AGGREGATE_RELATION_INPUT,
     }
 
 

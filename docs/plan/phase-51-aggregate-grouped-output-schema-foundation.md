@@ -1328,6 +1328,81 @@ action. Slice 8 completion still requires a separately authorized Gate 3
 exact commit, one normal push, and natural CI `completed / success` with exact
 `headSha` match.
 
+### Slice 9 Gate 2 Bounded Implementation Status
+
+Slices 1 through 8 are complete through their separately authorized publish
+gates. Slice 8 is complete at
+`fa0622331dfe3e11fe6b762c7e0a215794ca3f6c`; natural CI run `29301595259`
+completed successfully with exact `headSha` match. Earlier Slice 1 through 8
+Gate 2 status text remains per-gate historical evidence and is superseded for
+current lifecycle reporting by this additive Slice 9 status.
+
+Phase 51 remains ACTIVE and incomplete. Phase 52–60 remain UNSTARTED. Slice 9
+is the current `Origin Provenance Dependency And Lineage Integration` Gate 2.
+This status does not preclaim Gate 2 validation success or Slice 9 completion.
+
+The controlling architecture is Option A: one new private helper-only
+composition module at
+`src/pietto/_project/aggregate_grouped_dependency_lineage.py`. Its frozen/slots
+`ProjectAggregateGroupedDependencyLineageReadiness` carrier retains exactly,
+in order, the definition, exact Slice 8 clause readiness, dependency graph, and
+lineage. The exact
+`build_project_aggregate_grouped_dependency_lineage_readiness` builder takes a
+required keyword-only `upstream_lineage`, calls the Slice 8 builder exactly
+once, retains that object by identity, and neither rebuilds Slice 7/8 facts nor
+mutates production model state.
+
+The only graph vocabulary additions are `RELATION_INPUT`,
+`AGGREGATE_ARGUMENT`, and `AGGREGATE_RELATION_INPUT`; the lineage layer receives
+the same value-identical segment/fact additions. No status, reason, carrier
+field, public export, serializer, diagnostic, or production map is added.
+Existing graph/lineage status and reason values map Slice 7/8 non-concrete
+outcomes atomically, with zero partial nodes, edges, or facts.
+
+Selected bare/immediate-qualified group-key outputs reuse direct projection
+dependency and lineage; renamed selected keys reuse renamed projection.
+Unselected group keys remain only separate Slice 8 `GROUP_KEY_INPUT` clause
+facts. Accepted one-argument aggregates emit semantic field or exact selected-
+let targets in AST left-to-right order with first-target dedupe. Literals,
+operators, and transforms are traversal-only. Every `count()` emits one exact
+relation-input dependency and zero field leaves. Existing let-expression and
+supplied upstream lineage facts provide direct, chained, computed, one-hop,
+and multi-hop ancestry without reclassifying relation outputs as source fields.
+
+Slice 8 `GROUP_KEY_INPUT`, `SATISFYING_OUTPUT`, `GROUPED_ORDER_OUTPUT`, and
+static-limit facts stay in the retained clause carrier and never become row
+dependency or lineage facts. Pure grouping remains
+`DEFERRED / AGGREGATE_OR_GROUPED_DEFERRED`. TableDef/QueryDef and
+SourceDef/relation-upstream paths remain parity-locked, deterministic, and
+fail closed.
+
+Slice 9 is helper-only. `ProjectSemanticModel` state/schema/aggregate-fact,
+row-dependency, row-lineage, fixpoint, and downstream propagation remain
+unchanged and inactive for aggregate/grouped relations. Slice 10 continues to
+own persistence and downstream activation. Grammar, generated ANTLR, AST,
+single-file semantic/IR/SQL, CLI/public JSON, runtime/database, dependency,
+workflow, package, version, and release behavior remain unchanged.
+
+The bounded contract is
+`docs/spec/phase51-origin-provenance-dependency-lineage-integration-v1.md`.
+The exact Gate 2 allowlist is fifteen paths: the new helper; two additive
+graph/lineage enum-conversion files; the exact focused test
+`tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py`; this plan;
+the new contract; eight mechanical Phase 11/12 compiler-boundary hash
+refreshes; and one mechanical Phase 33 `project_private` count/digest refresh.
+The exact final untracked set is the new helper, focused test, and contract.
+`_project` count becomes exactly 15; Ruff remains `0.15.21`; package version
+remains `0.1.0`; `pyproject.toml` and `uv.lock` remain protected.
+
+Gate 2 uses only the fresh Slice 9 temporary environment and caches, bounded
+offline formatting, the exact repaired compatibility selector/deselection
+ledger, and first-failure validation. Complete evidence is recorded at
+`/tmp/pietto-phase51-slice9-gate2-evidence-and-diff.txt`. Gate 2 performs no
+staging, commit, push, fetch, GitHub, CI, build, package, tag, version, or
+release action. Slice 9 completion still requires a separately authorized
+Gate 3 exact commit, one normal push, and natural CI `completed / success` with
+exact `headSha` match.
+
 ## Cross-slice Gate Discipline
 
 Each slice follows the same independent discipline:
