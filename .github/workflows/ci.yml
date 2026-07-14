@@ -47,9 +47,50 @@ jobs:
         run: |
           echo "UV_PROJECT_ENVIRONMENT=$RUNNER_TEMP/pietto-venv" >> "$GITHUB_ENV"
           echo "UV_CACHE_DIR=$RUNNER_TEMP/uv-cache" >> "$GITHUB_ENV"
+          echo "UV_PYTHON=$pythonLocation/bin/python" >> "$GITHUB_ENV"
 
       - name: Install locked environment
         run: uv sync --locked
+
+      - name: Verify matrix interpreter
+        env:
+          EXPECTED_PYTHON: ${{ matrix.python-version }}
+        run: |
+          "$pythonLocation/bin/python" - <<'PY'
+          import platform
+          import sys
+
+          print(f"setup-python interpreter: {sys.executable}")
+          print(
+              "setup-python version: "
+              f"{platform.python_implementation()} {platform.python_version()}"
+          )
+          PY
+
+          uv run python - <<'PY'
+          import os
+          import platform
+          import sys
+
+          expected = tuple(map(int, os.environ["EXPECTED_PYTHON"].split(".")))
+          actual = sys.version_info[:2]
+
+          print(f"uv interpreter: {sys.executable}")
+          print(
+              "uv Python: "
+              f"{platform.python_implementation()} {platform.python_version()}"
+          )
+          print(
+              "uv/package-smoke interpreter: "
+              f"{sys.executable} Python {platform.python_version()}"
+          )
+
+          if actual != expected:
+              raise SystemExit(
+                  f"expected Python {expected[0]}.{expected[1]}, "
+                  f"got {actual[0]}.{actual[1]}"
+              )
+          PY
 
       - name: Run authoritative validation
         run: uv run python scripts/validate.py --timings --pytest-workers auto --pytest-dist loadfile --pytest-maxprocesses 4

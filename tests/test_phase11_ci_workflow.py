@@ -7,6 +7,9 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+PYTHON_VERSION_PATH = REPO_ROOT / ".python-version"
+PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
+UV_LOCK_PATH = REPO_ROOT / "uv.lock"
 EXPECTED_ACTIONS = (
     "actions/checkout",
     "actions/setup-python",
@@ -40,6 +43,21 @@ def test_ci_triggers_permissions_runner_and_matrix_are_exact() -> None:
         "3.12",
         "3.13",
     ]
+    assert (
+        "      matrix:\n"
+        "        python-version:\n"
+        '          - "3.12"\n'
+        '          - "3.13"\n'
+        "    steps:\n"
+    ) in workflow
+    assert re.search(
+        r"(?m)^      - name: Set up Python\n"
+        r"        uses: actions/setup-python@[0-9a-f]{40} # v[0-9.]+\n"
+        r"        with:\n"
+        r"          python-version: \$\{\{ matrix\.python-version \}\}$",
+        workflow,
+    )
+    assert PYTHON_VERSION_PATH.read_text(encoding="utf-8") == "3.12\n"
     assert "fail-fast: false" in workflow
 
 
@@ -57,8 +75,52 @@ def test_ci_sets_java_21_and_pins_the_local_uv_version() -> None:
         in workflow
     )
     assert 'echo "UV_CACHE_DIR=$RUNNER_TEMP/uv-cache" >> "$GITHUB_ENV"' in workflow
-    assert workflow.count('>> "$GITHUB_ENV"') == 2
-    assert "run: uv sync --locked" in workflow
+    assert 'echo "UV_PYTHON=$pythonLocation/bin/python" >> "$GITHUB_ENV"' in workflow
+    assert workflow.count("UV_PYTHON") == 1
+    assert workflow.count('>> "$GITHUB_ENV"') == 3
+    assert workflow.count("run: uv sync --locked") == 1
+    assert workflow.count("uv sync --locked") == 1
+    assert "uv sync --python" not in workflow
+    assert "--upgrade" not in workflow
+    assert "--refresh" not in workflow
+
+    proof_marker = "      - name: Verify matrix interpreter\n"
+    assert workflow.count(proof_marker) == 1
+    proof_start = workflow.index(proof_marker)
+    proof_end = workflow.find("\n      - name:", proof_start + len(proof_marker))
+    assert proof_end != -1
+    proof_step = workflow[proof_start:proof_end]
+
+    assert workflow.index("        run: uv sync --locked") < proof_start
+    assert proof_end < workflow.index("      - name: Smoke test installed package\n")
+    assert proof_step.startswith(
+        "      - name: Verify matrix interpreter\n"
+        "        env:\n"
+        "          EXPECTED_PYTHON: ${{ matrix.python-version }}\n"
+        "        run: |\n"
+    )
+    for fragment in (
+        "\"$pythonLocation/bin/python\" - <<'PY'",
+        'print(f"setup-python interpreter: {sys.executable}")',
+        "setup-python version: ",
+        "platform.python_implementation()",
+        "platform.python_version()",
+        "uv run python - <<'PY'",
+        'print(f"uv interpreter: {sys.executable}")',
+        "uv Python: ",
+        'expected = tuple(map(int, os.environ["EXPECTED_PYTHON"].split(".")))',
+        "actual = sys.version_info[:2]",
+        "uv/package-smoke interpreter: ",
+    ):
+        assert fragment in proof_step
+    assert re.search(
+        r"(?m)^          if actual != expected:\n"
+        r"              raise SystemExit\(",
+        proof_step,
+    )
+    assert "continue-on-error" not in workflow
+    assert "|| true" not in proof_step
+    assert "set +e" not in proof_step
 
 
 def test_ci_invokes_only_the_accepted_release_readiness_commands() -> None:
@@ -154,6 +216,15 @@ def test_existing_release_readiness_scripts_remain_independent() -> None:
 
 
 def test_ci_and_package_smoke_preserve_metadata_and_compiler_boundaries() -> None:
+    assert _sha256(PYTHON_VERSION_PATH) == (
+        "7b55f8e67b5623c4bef3fa691288da9437d79d3aba156de48d481db32ac7d16d"
+    )
+    assert _sha256(PYPROJECT_PATH) == (
+        "b051191df2210a907cafbfb753df0368ba0b91a8043727da5f9668965e121edf"
+    )
+    assert _sha256(UV_LOCK_PATH) == (
+        "97b9bebd286bc45c168551a81eeb6df852331622507ea998b1fcb1acc19217b5"
+    )
     assert _sha256(REPO_ROOT / "Makefile") == (
         "dbd38c41e2af5275c379de0b88c92f3861efb90724c7de1a291e0aa007ce2db7"
     )
