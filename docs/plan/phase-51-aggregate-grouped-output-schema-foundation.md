@@ -1234,6 +1234,100 @@ one normal push, and natural CI `completed / success` with exact `headSha`.
 Package version remains `0.1.0`; no tag, release, publish, upload, signing, or
 attestation is authorized.
 
+### Slice 8 Gate 2 Bounded Implementation Status
+
+Slices 1 through 7 are complete through their separately authorized publish
+gates. Slice 7 is complete at
+`122b7efa50f2383badf328803b82ef5ba7fb96f4`; natural CI run `29288413076`
+completed successfully with exact `headSha` match. Earlier Slice 1 through 7
+Gate 2 status text remains per-gate historical evidence and is superseded for
+current lifecycle reporting by this additive Slice 8 status.
+
+Phase 51 remains ACTIVE and incomplete. Phase 52–60 remain UNSTARTED. Slice 8
+is the current `Clause-dependency And Fail-closed Hardening` Gate 2. This
+status does not preclaim Gate 2 validation success or Slice 8 completion.
+
+The controlling architecture is Strategy B: a separate private frozen/slots
+clause-readiness carrier composed with the unchanged Slice 7 finalization. The
+exact owner is the new helper-only, unpersisted
+`src/pietto/_project/aggregate_grouped_clause_facts.py` module. `model.py` does
+not import the module; no Slice 3–7 carrier field order or existing source
+helper changes; and no `ProjectSemanticModel` field, production map, public
+export, serializer, or diagnostic is added.
+
+The new private vocabulary is limited to `GROUP_KEY_INPUT`,
+`SATISFYING_OUTPUT`, and `GROUPED_ORDER_OUTPUT`; the four readiness statuses
+`CONCRETE`, `UNKNOWN`, `DEFERRED`, and `BLOCKED`; and the exact reasons
+`CLAUSES_READY`, `SCHEMA_FINALIZATION_NON_CONCRETE`,
+`UNAVAILABLE_CLAUSE_DEPENDENCY`, `INVALID_CLAUSE_OUTPUT_REFERENCE`,
+`INVALID_CLAUSE_EXPRESSION`, `UNSUPPORTED_CLAUSE_FAMILY`,
+`MISSING_REQUIRED_CLAUSE_FACT`, and `CONFLICTING_CLAUSE_FACTS`.
+
+`ProjectRelationClauseDependencyFact` retains exact clause source occurrence,
+exact retained group-key fact/input field or exact selected output
+occurrence/finalized field, and an exact aggregate-result fact only for an
+aggregate output. `ProjectAggregateGroupedClauseReadiness` composes the exact
+Slice 7 finalization with one all-or-none dependency tuple and static-limit
+presence. The single
+`build_project_aggregate_grouped_clause_readiness` entry point invokes exactly
+one existing Slice 7 finalizer and stops before all alias/clause inspection for
+every non-concrete nested result.
+
+For a concrete finalization, every valid group key produces an identity-
+preserving `GROUP_KEY_INPUT` fact in source order, including selected and
+unselected keys, while let ancestry remains absent. A case-sensitive output
+lookup is built only after Slice 7 proves uniqueness. Grouped `satisfying`
+dependencies traverse supported output references left-to-right and grouped
+`order by` dependencies traverse exact `OrderItem` occurrences in source
+order. Dependency facts are first-occurrence deduped only by dependency kind
+plus exact target occurrence; every source clause occurrence remains
+validated, and any failure atomically removes all earlier facts.
+
+No-GROUP input-scope order remains outside the three Slice 8 dependency kinds:
+absence does not block readiness, valid presence yields
+`DEFERRED / UNSUPPORTED_CLAUSE_FAMILY`, and invalid presence yields `UNKNOWN`,
+always with zero facts. Static limit follows Policy C: no limit records
+`limit_present=False`; a valid exact Python integer from 0 through
+9223372036854775807 records `limit_present=True`; neither emits a fact or
+changes readiness. An invalid limit yields
+`UNKNOWN / INVALID_CLAUSE_EXPRESSION`, with existing `PIE-S2307` remaining the
+sole diagnostic authority.
+
+Nested Slice 7 `BLOCKED`, `DEFERRED`, or `UNKNOWN` finalizations retain their
+exact nested state/reason, mirror status under
+`SCHEMA_FINALIZATION_NON_CONCRETE`, and emit no facts. Missing retained
+evidence and malformed/conflicting facts are fail-closed `BLOCKED` outcomes;
+unavailable, forbidden-output, and invalid-expression clause failures are
+all-or-none `UNKNOWN` outcomes. Pure grouping remains mirrored
+`DEFERRED / AGGREGATE_OR_GROUPED_DEFERRED`, with no clause analysis or facts,
+and remains owned by `POST60_ADVANCED_AGGREGATION_GROUPING`.
+
+Slice 9 continues to own aggregate-argument and relation-input dependencies,
+let ancestry, provenance, row dependency, and lineage. Slice 10 continues to
+own production persistence and downstream activation. No-GROUP
+aggregate-only, grouped key-plus-aggregate, and pure-grouping production
+states therefore remain unchanged; schemas/facts remain unpersisted,
+dependency/lineage maps remain inactive, and downstream relations remain
+non-concrete.
+
+The bounded contract is
+`docs/spec/phase51-aggregate-grouped-clause-dependency-readiness-v1.md`. The
+exact Gate 2 allowlist is thirteen paths: the new private helper; one new
+focused Slice 8 test; this plan; the new contract; eight mechanical Phase
+11/12 compiler-boundary hash refreshes; and one mechanical Phase 33
+`project_private` count/digest refresh. The exact final untracked set is the
+new helper, focused test, and contract. `_project` count becomes exactly 14;
+Ruff remains `0.15.21`; `pyproject.toml` and `uv.lock` remain protected.
+
+Gate 2 uses bounded offline formatting, refreshes only the eight exact
+`BOUNDARY_HASH` constants and the Phase 33 `project_private` count/digest,
+runs the exact first-failure validation matrix, and records complete evidence
+at `/tmp/pietto-phase51-slice8-gate2-evidence-and-diff.txt`. It performs no
+staging, commit, push, fetch, GitHub, CI, package, tag, version, or release
+action. Slice 8 completion still requires a separately authorized Gate 3
+exact commit, one normal push, and natural CI `completed / success` with exact
+`headSha` match.
+
 ## Cross-slice Gate Discipline
 
 Each slice follows the same independent discipline:
