@@ -279,7 +279,7 @@ def test_duplicate_output_names_stay_private_unknown_and_diagnostic_free(
     )
 
 
-def test_grouped_aggregate_schema_remains_deferred_without_public_diagnostics(
+def test_grouped_aggregate_schema_graph_and_lineage_are_concrete_without_public_diagnostics(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(

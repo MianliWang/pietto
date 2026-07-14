@@ -527,7 +527,7 @@ def test_non_concrete_upstreams_get_private_states_in_slice7(
     ]
 
 
-def test_computed_alias_concrete_but_let_aggregate_grouped_surfaces_defer(
+def test_computed_alias_let_and_aggregate_are_concrete_while_pure_grouping_stays_deferred(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(

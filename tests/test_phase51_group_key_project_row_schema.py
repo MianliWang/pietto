@@ -513,7 +513,7 @@ def test_unknown_incomplete_and_no_group_inputs_fail_closed(tmp_path: Path) -> N
         )
 
 
-def test_pure_and_mixed_grouped_production_states_remain_deferred(
+def test_pure_grouping_stays_deferred_while_grouped_aggregate_is_concrete(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(

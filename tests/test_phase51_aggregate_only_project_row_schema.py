@@ -609,7 +609,7 @@ def test_grouped_definition_remains_outside_no_group_wrapper(
     )
 
 
-def test_production_remains_deferred_unpersisted_private_and_unserialized(
+def test_aggregate_and_grouped_outputs_are_persisted_private_and_unserialized(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(

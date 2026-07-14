@@ -1052,7 +1052,7 @@ def test_pure_grouping_is_explicitly_deferred_without_schema_or_facts(
     )
 
 
-def test_production_remains_deferred_unpersisted_private_and_downstream_inactive(
+def test_aggregate_grouped_production_is_persisted_private_and_downstream_active(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(

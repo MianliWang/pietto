@@ -228,7 +228,7 @@ def test_computed_alias_schema_propagates_through_query_to_query_multi_hop(
     )
 
 
-def test_unknown_null_division_and_aggregate_surfaces_remain_non_concrete(
+def test_unknown_null_division_stay_non_concrete_while_aggregate_is_concrete(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(

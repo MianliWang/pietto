@@ -515,7 +515,7 @@ def test_let_expression_over_relation_backed_field_expands_to_source_lineage(
     )
 
 
-def test_non_concrete_and_aggregate_grouped_lineage_remains_empty(
+def test_non_concrete_lineage_is_empty_while_grouped_aggregate_lineage_is_concrete(
     tmp_path: Path,
 ) -> None:
     unknown_parse, unknown_semantic = _project_semantic_result(

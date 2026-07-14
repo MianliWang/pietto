@@ -213,7 +213,9 @@ def test_phase49_private_provenance_vocabulary_keeps_expression_readiness_privat
     )
 
 
-def test_phase50_aggregate_projection_schema_remains_absent(tmp_path: Path) -> None:
+def test_aggregate_projection_schema_is_concrete_with_persisted_fact(
+    tmp_path: Path,
+) -> None:
     parse_result, semantic_result = _project_semantic_result(
         _project(
             tmp_path,

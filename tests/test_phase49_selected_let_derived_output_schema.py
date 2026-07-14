@@ -283,7 +283,7 @@ def test_qualified_let_reference_does_not_become_concrete(tmp_path: Path) -> Non
     ]
 
 
-def test_upstream_non_concrete_and_grouped_outputs_remain_non_concrete(
+def test_unresolved_upstream_is_blocked_and_invalid_grouped_let_output_is_unknown(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(

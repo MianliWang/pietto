@@ -671,7 +671,7 @@ def test_duplicate_invalid_clause_and_pure_grouping_outcomes_are_atomic(
     )
 
 
-def test_production_state_dependency_lineage_and_downstream_remain_inactive(
+def test_origin_dependency_lineage_production_is_persisted_and_downstream_active(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(

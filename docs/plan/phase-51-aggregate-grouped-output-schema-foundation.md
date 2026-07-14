@@ -1527,6 +1527,89 @@ complete. Slice 11 retains cross-phase readiness, privacy, diagnostic-
 transition, and compatibility closure; Slice 12 remains completion audit and
 status lock only.
 
+### Slice 11 Gate 2 Bounded Implementation Status
+
+Slices 1 through 10 are complete through their separately authorized publish
+gates. The Slice 10 implementation commit is
+`39a58d50b8e5ef420cb637c42124422c1d82911d`. The exact Slice 10 CI-repair
+commit is `ed3e79137722443677fc39b1bfe83e209bcb9868`; natural CI run
+`29326813216` completed successfully with exact `headSha` match on that repair
+commit, including 5732 passed under both real CPython 3.12.13 and CPython
+3.13.14 jobs. Earlier Slice 1 through Slice 10 Gate 2 status text remains
+per-gate historical evidence and is superseded for current lifecycle
+reporting by this additive Slice 11 status.
+
+Phase 51 remains ACTIVE and incomplete. Phase 52–60 remain UNSTARTED. Slice 11
+is the current `Cross-phase Readiness Privacy And Compatibility Closure`
+consolidated Gate 2, and Gate 2 is not yet complete.
+Slice 12 remains unstarted and separately gated.
+This status does not preclaim Gate 2 validation success, Gate 3 success,
+Slice 11 completion, Slice 12 start, or Phase 51 completion.
+
+The exact route is tests/docs-only. Slice 11 creates the normative contract at
+`docs/spec/phase51-cross-phase-readiness-privacy-compatibility-closure-v1.md`
+and the focused test at
+`tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py`.
+The focused file contains ten helpers and seven new pytest items with no
+parametrization. Seventeen identifier-only migrations update only top-level
+test names whose existing bodies already lock the current Slice 10
+concrete/persisted behavior. Their bodies, decorators, parametrization,
+imports, assertions, fixtures, helpers, and semantics remain unchanged.
+
+The exact Gate 2 allowlist is twenty unstaged paths:
+
+1. `docs/plan/phase-51-aggregate-grouped-output-schema-foundation.md`
+2. `docs/spec/phase51-cross-phase-readiness-privacy-compatibility-closure-v1.md`
+3. `tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py`
+4. `tests/test_phase47_downstream_readiness_hardening.py`
+5. `tests/test_phase48_upstream_non_concrete_schema_propagation.py`
+6. `tests/test_phase48_query_to_query_multi_hop_propagation.py`
+7. `tests/test_phase49_computed_alias_project_row_schema_mvp.py`
+8. `tests/test_phase49_computed_alias_origin_provenance_privacy.py`
+9. `tests/test_phase49_computed_let_multi_hop_row_lineage.py`
+10. `tests/test_phase49_let_visibility_order_shadowing_hardening.py`
+11. `tests/test_phase49_selected_let_derived_output_schema.py`
+12. `tests/test_phase49_unknown_deferred_diagnostic_ordering_hardening.py`
+13. `tests/test_phase51_private_result_role_output_identity.py`
+14. `tests/test_phase51_group_key_project_row_schema.py`
+15. `tests/test_phase51_aggregate_only_project_row_schema.py`
+16. `tests/test_phase51_grouped_aggregate_project_row_schema.py`
+17. `tests/test_phase51_selected_let_accepted_expression_aggregate.py`
+18. `tests/test_phase51_aggregate_grouped_state_duplicate_hardening.py`
+19. `tests/test_phase51_clause_dependency_fail_closed.py`
+20. `tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py`
+
+The expected final Gate 2 state is eighteen modified tracked paths, exactly
+the new contract and focused test as untracked paths, twenty dirty paths in
+total, and an empty index. Every other path remains forbidden. In particular,
+no production source, compiler source, grammar, generated artifact, parser,
+semantic implementation, IR, SQL, CLI, JSON serializer, workflow, script,
+dependency, lockfile, package metadata, fixture, golden, example, active or
+historical roadmap, public API, diagnostic, runtime, database, version, tag,
+or release surface changes.
+
+The compiler digest remains
+`2ed54ba89c64c89d9d9bfc26f83041faf0addb335f086bd2e75dc2a567be775c`;
+all eight `BOUNDARY_HASH` values remain equal to it. The `_project` source
+count remains 16 with digest
+`c032a23c7f0477df58cacc9374e2882bebad346bec9a539899878da062248013`,
+and the Phase 33 `project_private` lock remains identical. Slice 11 authorizes
+no compiler, `BOUNDARY_HASH`, `_project`, or Phase 33 refresh. Package version
+remains `0.1.0`, with no tag or release operation.
+
+The bounded Gate 2 matrix is expected to produce
+`489 passed, 28 deselected`. The expected future clean full-suite total is
+`5739 passed`, derived from the current Slice 10 authority of 5732 plus the
+seven new pytest items. These are expected validation conditions, not claims
+that Gate 2 or future natural CI has passed.
+
+Gate 2 performs no staging, commit, push, fetch, GitHub, CI, package, tag,
+version, or release action. A Gate 2 PASS still requires a separately
+authorized Gate 3 exact twenty-path commit, one normal push, and natural CI
+`completed / success` with exact `headSha` before Slice 11 can be called
+complete. Slice 12 remains separately gated completion-audit and status-lock
+work. Phase 51 remains ACTIVE and incomplete.
+
 ## Cross-slice Gate Discipline
 
 Each slice follows the same independent discipline:

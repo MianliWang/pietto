@@ -195,7 +195,7 @@ def test_downstream_from_unknown_gets_unknown_state_without_extra_diagnostics(
     ]
 
 
-def test_computed_alias_concrete_while_aggregate_grouped_stay_deferred(
+def test_computed_alias_and_aggregate_are_concrete_while_pure_grouping_stays_deferred(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(

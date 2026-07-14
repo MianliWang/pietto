@@ -869,7 +869,7 @@ def test_slice4_wrapper_and_grouped_api_misuse_boundary(tmp_path: Path) -> None:
         )
 
 
-def test_production_remains_deferred_private_unpersisted_and_unserialized(
+def test_aggregate_grouped_outputs_are_concrete_private_persisted_and_unserialized(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(

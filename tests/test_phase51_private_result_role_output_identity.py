@@ -348,7 +348,7 @@ def test_both_production_model_paths_keep_empty_facts_default(tmp_path: Path) ->
     assert duplicate_result.model.relation_aggregate_result_facts == {}
 
 
-def test_aggregate_and_grouped_relations_remain_deferred_without_facts(
+def test_aggregate_and_grouped_relations_are_concrete_with_persisted_facts(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(

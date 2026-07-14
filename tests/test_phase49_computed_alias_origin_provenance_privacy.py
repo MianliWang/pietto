@@ -204,7 +204,7 @@ def test_multi_hop_computed_alias_stays_derived_and_non_source_native(
     assert final_total.resolved_type.name == "Int"
 
 
-def test_let_aggregate_and_grouped_outputs_remain_out_of_scope(
+def test_let_and_aggregate_outputs_are_concrete_while_pure_grouping_stays_deferred(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(

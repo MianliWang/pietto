@@ -634,7 +634,7 @@ def test_valid_member_plus_invalid_expression_returns_no_partial_candidate(
     )
 
 
-def test_expression_and_row_let_relations_remain_production_deferred_private_and_unpersisted(
+def test_expression_and_row_let_aggregate_relations_are_concrete_private_and_persisted(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(

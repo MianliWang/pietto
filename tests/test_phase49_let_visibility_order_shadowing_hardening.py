@@ -394,7 +394,7 @@ def test_project_qualified_let_reference_stays_unknown(tmp_path: Path) -> None:
     ]
 
 
-def test_project_grouped_selected_let_output_schema_remains_deferred(
+def test_invalid_grouped_selected_let_output_schema_is_unknown(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(

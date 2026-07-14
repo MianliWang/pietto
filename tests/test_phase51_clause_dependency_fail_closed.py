@@ -1311,7 +1311,7 @@ def test_table_query_source_and_relation_upstream_parity(
         )
 
 
-def test_production_state_dependency_lineage_and_downstream_remain_inactive(
+def test_aggregate_grouped_production_persists_graph_lineage_and_activates_downstream(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic_result = _project_semantic_result(
