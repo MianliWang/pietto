@@ -440,6 +440,15 @@ class _ProjectRelationRowSchemasResult:
 
     relation_row_schemas: dict[TableDef | QueryDef, ProjectRowSchema]
     relation_row_schema_states: dict[TableDef | QueryDef, ProjectRelationRowSchemaState]
+    relation_let_scope_facts: dict[TableDef | QueryDef, ProjectRelationLetScopeFacts]
+    relation_aggregate_result_facts: dict[
+        TableDef | QueryDef,
+        Mapping[str, ProjectAggregateResultFact],
+    ]
+    relation_row_dependency_graphs: dict[
+        TableDef | QueryDef, ProjectRelationRowDependencyGraph
+    ]
+    relation_row_lineages: dict[TableDef | QueryDef, ProjectRelationRowLineage]
     diagnostics: tuple[Diagnostic, ...] = ()
 
 
@@ -760,32 +769,6 @@ def build_empty_project_semantic_result(
         source_row_schemas=source_row_schemas,
         relation_dependency_graph=relation_dependency_graph,
     )
-    relation_let_scope_facts = _build_project_relation_let_scope_facts(
-        parsed_inputs=parse_result.parsed_inputs,
-        relation_resolutions=relation_resolutions,
-        source_row_schemas=source_row_schemas,
-        relation_row_schemas=relation_row_schema_result.relation_row_schemas,
-        relation_row_schema_states=relation_row_schema_result.relation_row_schema_states,
-    )
-    relation_row_dependency_graphs = _build_project_relation_row_dependency_graphs(
-        parsed_inputs=parse_result.parsed_inputs,
-        relation_resolutions=relation_resolutions,
-        source_row_schemas=source_row_schemas,
-        relation_row_schemas=relation_row_schema_result.relation_row_schemas,
-        relation_row_schema_states=(
-            relation_row_schema_result.relation_row_schema_states
-        ),
-        relation_let_scope_facts=relation_let_scope_facts,
-    )
-    relation_row_lineages = _build_project_relation_row_lineages(
-        parsed_inputs=parse_result.parsed_inputs,
-        relation_resolutions=relation_resolutions,
-        relation_row_schemas=relation_row_schema_result.relation_row_schemas,
-        relation_row_schema_states=(
-            relation_row_schema_result.relation_row_schema_states
-        ),
-        relation_row_dependency_graphs=relation_row_dependency_graphs,
-    )
     cycle_diagnostics = _build_project_relation_cycle_diagnostics(
         relation_dependency_graph
     )
@@ -805,10 +788,17 @@ def build_empty_project_semantic_result(
             relation_row_schema_states=(
                 relation_row_schema_result.relation_row_schema_states
             ),
-            relation_let_scope_facts=relation_let_scope_facts,
-            relation_row_dependency_graphs=relation_row_dependency_graphs,
-            relation_row_lineages=relation_row_lineages,
+            relation_let_scope_facts=(
+                relation_row_schema_result.relation_let_scope_facts
+            ),
+            relation_row_dependency_graphs=(
+                relation_row_schema_result.relation_row_dependency_graphs
+            ),
+            relation_row_lineages=relation_row_schema_result.relation_row_lineages,
             relation_dependency_graph=relation_dependency_graph,
+            relation_aggregate_result_facts=(
+                relation_row_schema_result.relation_aggregate_result_facts
+            ),
         ),
         diagnostics=(
             *type_diagnostics,
@@ -1045,196 +1035,500 @@ def _build_project_relation_row_schemas(
     source_row_schemas: Mapping[SourceDef, ProjectRowSchema],
     relation_dependency_graph: ProjectRelationDependencyGraph,
 ) -> _ProjectRelationRowSchemasResult:
-    """Build private relation row schemas for supported project projections."""
+    """Build complete private row bundles in one dependency-first fixpoint."""
+
+    from pietto._project.aggregate_grouped_persistence import (
+        _is_project_aggregate_grouped_definition,
+        build_project_aggregate_grouped_persistence,
+    )
+    from pietto._project.let_scope_facts import (
+        build_project_relation_let_scope_facts,
+    )
+    from pietto._project.row_dependency_graph import (
+        build_project_relation_row_dependency_graph,
+    )
+    from pietto._project.row_lineage import build_project_relation_row_lineage
 
     relation_row_schemas: dict[TableDef | QueryDef, ProjectRowSchema] = {}
     relation_row_schema_states: dict[
         TableDef | QueryDef, ProjectRelationRowSchemaState
     ] = {}
+    relation_let_scope_facts: dict[
+        TableDef | QueryDef, ProjectRelationLetScopeFacts
+    ] = {}
+    relation_aggregate_result_facts: dict[
+        TableDef | QueryDef,
+        Mapping[str, ProjectAggregateResultFact],
+    ] = {}
+    relation_row_dependency_graphs: dict[
+        TableDef | QueryDef, ProjectRelationRowDependencyGraph
+    ] = {}
+    relation_row_lineages: dict[TableDef | QueryDef, ProjectRelationRowLineage] = {}
     diagnostics: list[Diagnostic] = []
-    cycle_relation_names = {
-        node.symbol.name
-        for cycle in relation_dependency_graph.cycles
-        for node in cycle.nodes
-    }
+    completed: set[TableDef | QueryDef] = set()
+
     relation_definitions = tuple(
         definition
         for parsed_input in parsed_inputs
         for definition in parsed_input.script.definitions
         if isinstance(definition, (TableDef, QueryDef))
     )
-
-    for definition in relation_definitions:
-        if definition.name in cycle_relation_names:
-            _set_project_relation_row_schema_state(
-                relation_row_schema_states,
-                definition,
-                status=ProjectRelationRowSchemaStatus.BLOCKED,
-                schema=None,
-                reason=ProjectRelationRowSchemaReason.CYCLE_BLOCKED,
-            )
-            continue
-        if definition.from_clause not in relation_resolutions:
-            _set_project_relation_row_schema_state(
-                relation_row_schema_states,
-                definition,
-                status=ProjectRelationRowSchemaStatus.BLOCKED,
-                schema=None,
-                reason=ProjectRelationRowSchemaReason.UNRESOLVED_RELATION_BLOCKED,
-            )
-            continue
-        if definition.group_by_clause is not None:
-            _set_project_relation_row_schema_state(
-                relation_row_schema_states,
-                definition,
-                status=ProjectRelationRowSchemaStatus.DEFERRED,
-                schema=None,
-                reason=ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR,
-            )
-
-    for parsed_input in parsed_inputs:
-        for definition in parsed_input.script.definitions:
-            if not isinstance(definition, (TableDef, QueryDef)):
-                continue
-            if definition in relation_row_schema_states:
-                continue
-
-            source_symbol = relation_resolutions.get(definition.from_clause)
-            if (
-                source_symbol is None
-                or source_symbol.kind is not ProjectSymbolKind.SOURCE
-            ):
-                continue
-
-            source = source_symbol.definition
-            if not isinstance(source, SourceDef):
-                continue
-
-            source_schema = source_row_schemas.get(source)
-            if source_schema is None:
-                continue
-
-            relation_schema_result = _project_direct_relation_row_schema(
-                definition,
-                source_schema=source_schema,
-                source_symbol=source_symbol,
-                upstream_definition=source,
-                fallback_path=parsed_input.path,
-            )
-            diagnostics.extend(relation_schema_result.diagnostics)
-            schema = relation_schema_result.schema
-            _record_project_relation_row_schema_result(
-                relation_row_schemas=relation_row_schemas,
-                relation_row_schema_states=relation_row_schema_states,
-                definition=definition,
-                schema=schema,
-                state_reason=relation_schema_result.state_reason,
-                concrete_reason=(ProjectRelationRowSchemaReason.DIRECT_SOURCE_CONCRETE),
-            )
-
     definition_paths = {
         definition: parsed_input.path
         for parsed_input in parsed_inputs
         for definition in parsed_input.script.definitions
         if isinstance(definition, (TableDef, QueryDef))
     }
+    cycle_relation_names = {
+        node.symbol.name
+        for cycle in relation_dependency_graph.cycles
+        for node in cycle.nodes
+    }
+
+    for definition in relation_definitions:
+        if definition.name in cycle_relation_names:
+            reason = ProjectRelationRowSchemaReason.CYCLE_BLOCKED
+        elif definition.from_clause not in relation_resolutions:
+            reason = ProjectRelationRowSchemaReason.UNRESOLVED_RELATION_BLOCKED
+        else:
+            continue
+
+        state = ProjectRelationRowSchemaState(
+            status=ProjectRelationRowSchemaStatus.BLOCKED,
+            schema=None,
+            reason=reason,
+        )
+        upstream_symbol = relation_resolutions.get(definition.from_clause)
+        upstream_definition = (
+            upstream_symbol.definition if upstream_symbol is not None else None
+        )
+        if not isinstance(upstream_definition, (SourceDef, TableDef, QueryDef)):
+            upstream_definition = None
+        let_scope_facts = build_project_relation_let_scope_facts(
+            definition=definition,
+            input_schema=None,
+            upstream_definition=upstream_definition,
+            upstream_state=state,
+        )
+        dependency_graph = build_project_relation_row_dependency_graph(
+            definition=definition,
+            fallback_path=definition_paths[definition],
+            upstream_symbol=upstream_symbol,
+            input_schema=None,
+            output_schema=None,
+            state=state,
+            let_scope_facts=let_scope_facts,
+        )
+        lineage = build_project_relation_row_lineage(
+            definition=definition,
+            upstream_symbol=upstream_symbol,
+            row_schema=None,
+            state=state,
+            dependency_graph=dependency_graph,
+            upstream_lineage=None,
+        )
+        _record_project_relation_terminal_bundle(
+            relation_row_schemas=relation_row_schemas,
+            relation_row_schema_states=relation_row_schema_states,
+            relation_let_scope_facts=relation_let_scope_facts,
+            relation_aggregate_result_facts=relation_aggregate_result_facts,
+            relation_row_dependency_graphs=relation_row_dependency_graphs,
+            relation_row_lineages=relation_row_lineages,
+            definition=definition,
+            state=state,
+            let_scope_facts=let_scope_facts,
+            aggregate_result_facts={},
+            dependency_graph=dependency_graph,
+            lineage=lineage,
+        )
+        completed.add(definition)
+
+    source_round = True
     while True:
         propagated = False
         for definition in relation_definitions:
-            if definition in relation_row_schema_states:
+            if definition in completed:
                 continue
 
             upstream_symbol = relation_resolutions.get(definition.from_clause)
-            if upstream_symbol is None or upstream_symbol.kind not in (
-                ProjectSymbolKind.TABLE,
-                ProjectSymbolKind.QUERY,
+            if upstream_symbol is None:
+                continue
+            upstream_definition = upstream_symbol.definition
+            input_schema: ProjectRowSchema | None
+            upstream_state: ProjectRelationRowSchemaState | None = None
+            upstream_lineage: ProjectRelationRowLineage | None = None
+            if upstream_symbol.kind is ProjectSymbolKind.SOURCE and isinstance(
+                upstream_definition,
+                SourceDef,
             ):
-                continue
-
-            upstream_relation = upstream_symbol.definition
-            if not isinstance(upstream_relation, (TableDef, QueryDef)):
-                continue
-
-            upstream_state = relation_row_schema_states.get(upstream_relation)
-            if upstream_state is not None:
-                if upstream_state.status is ProjectRelationRowSchemaStatus.UNKNOWN:
-                    schema = ProjectRowSchema(is_unknown=True)
-                    relation_row_schemas[definition] = schema
-                    _set_project_relation_row_schema_state(
-                        relation_row_schema_states,
-                        definition,
+                if not source_round:
+                    continue
+                input_schema = source_row_schemas.get(upstream_definition)
+                if input_schema is None:
+                    state = ProjectRelationRowSchemaState(
                         status=ProjectRelationRowSchemaStatus.UNKNOWN,
-                        schema=schema,
+                        schema=ProjectRowSchema(is_unknown=True),
                         reason=ProjectRelationRowSchemaReason.UPSTREAM_UNKNOWN,
                     )
+                    let_scope_facts = build_project_relation_let_scope_facts(
+                        definition=definition,
+                        input_schema=None,
+                        upstream_definition=upstream_definition,
+                        upstream_state=state,
+                    )
+                    dependency_graph = build_project_relation_row_dependency_graph(
+                        definition=definition,
+                        fallback_path=definition_paths[definition],
+                        upstream_symbol=upstream_symbol,
+                        input_schema=None,
+                        output_schema=state.schema,
+                        state=state,
+                        let_scope_facts=let_scope_facts,
+                    )
+                    lineage = build_project_relation_row_lineage(
+                        definition=definition,
+                        upstream_symbol=upstream_symbol,
+                        row_schema=state.schema,
+                        state=state,
+                        dependency_graph=dependency_graph,
+                        upstream_lineage=None,
+                    )
+                    _record_project_relation_terminal_bundle(
+                        relation_row_schemas=relation_row_schemas,
+                        relation_row_schema_states=relation_row_schema_states,
+                        relation_let_scope_facts=relation_let_scope_facts,
+                        relation_aggregate_result_facts=(
+                            relation_aggregate_result_facts
+                        ),
+                        relation_row_dependency_graphs=(relation_row_dependency_graphs),
+                        relation_row_lineages=relation_row_lineages,
+                        definition=definition,
+                        state=state,
+                        let_scope_facts=let_scope_facts,
+                        aggregate_result_facts={},
+                        dependency_graph=dependency_graph,
+                        lineage=lineage,
+                    )
+                    completed.add(definition)
                     propagated = True
                     continue
-                if upstream_state.status is ProjectRelationRowSchemaStatus.DEFERRED:
-                    _set_project_relation_row_schema_state(
-                        relation_row_schema_states,
-                        definition,
-                        status=ProjectRelationRowSchemaStatus.DEFERRED,
-                        schema=None,
-                        reason=ProjectRelationRowSchemaReason.UPSTREAM_DEFERRED,
-                    )
-                    propagated = True
+            elif upstream_symbol.kind in {
+                ProjectSymbolKind.TABLE,
+                ProjectSymbolKind.QUERY,
+            } and isinstance(upstream_definition, (TableDef, QueryDef)):
+                if source_round:
                     continue
-                if upstream_state.status is ProjectRelationRowSchemaStatus.BLOCKED:
-                    _set_project_relation_row_schema_state(
-                        relation_row_schema_states,
-                        definition,
-                        status=ProjectRelationRowSchemaStatus.BLOCKED,
-                        schema=None,
-                        reason=ProjectRelationRowSchemaReason.UPSTREAM_BLOCKED,
+                if upstream_definition not in completed:
+                    continue
+                upstream_state = relation_row_schema_states.get(upstream_definition)
+                upstream_graph = relation_row_dependency_graphs.get(upstream_definition)
+                upstream_lineage = relation_row_lineages.get(upstream_definition)
+                if (
+                    upstream_state is None
+                    or upstream_graph is None
+                    or upstream_lineage is None
+                    or upstream_graph.status.value != upstream_state.status.value
+                    or upstream_graph.reason.value != upstream_state.reason.value
+                    or upstream_lineage.status.value != upstream_state.status.value
+                    or upstream_lineage.reason.value != upstream_state.reason.value
+                ):
+                    raise AssertionError(
+                        "Completed relation requires one coherent terminal bundle"
                     )
+                if upstream_state.status is not ProjectRelationRowSchemaStatus.CONCRETE:
+                    state = _project_upstream_non_concrete_state(upstream_state)
+                    let_scope_facts = build_project_relation_let_scope_facts(
+                        definition=definition,
+                        input_schema=upstream_state.schema,
+                        upstream_definition=upstream_definition,
+                        upstream_state=upstream_state,
+                    )
+                    dependency_graph = build_project_relation_row_dependency_graph(
+                        definition=definition,
+                        fallback_path=definition_paths[definition],
+                        upstream_symbol=upstream_symbol,
+                        input_schema=upstream_state.schema,
+                        output_schema=state.schema,
+                        state=state,
+                        let_scope_facts=let_scope_facts,
+                    )
+                    lineage = build_project_relation_row_lineage(
+                        definition=definition,
+                        upstream_symbol=upstream_symbol,
+                        row_schema=state.schema,
+                        state=state,
+                        dependency_graph=dependency_graph,
+                        upstream_lineage=None,
+                    )
+                    _record_project_relation_terminal_bundle(
+                        relation_row_schemas=relation_row_schemas,
+                        relation_row_schema_states=relation_row_schema_states,
+                        relation_let_scope_facts=relation_let_scope_facts,
+                        relation_aggregate_result_facts=(
+                            relation_aggregate_result_facts
+                        ),
+                        relation_row_dependency_graphs=(relation_row_dependency_graphs),
+                        relation_row_lineages=relation_row_lineages,
+                        definition=definition,
+                        state=state,
+                        let_scope_facts=let_scope_facts,
+                        aggregate_result_facts={},
+                        dependency_graph=dependency_graph,
+                        lineage=lineage,
+                    )
+                    completed.add(definition)
                     propagated = True
                     continue
 
-            upstream_schema = relation_row_schemas.get(upstream_relation)
-            if upstream_schema is None:
+                input_schema = relation_row_schemas.get(upstream_definition)
+                if (
+                    input_schema is None
+                    or input_schema.is_unknown
+                    or upstream_graph.status.value != "concrete"
+                    or upstream_lineage.status.value != "concrete"
+                ):
+                    raise AssertionError(
+                        "Concrete upstream requires schema, graph, and lineage"
+                    )
+            else:
                 continue
-            if upstream_schema.is_unknown:
-                schema = ProjectRowSchema(is_unknown=True)
-                relation_row_schemas[definition] = schema
-                _set_project_relation_row_schema_state(
-                    relation_row_schema_states,
-                    definition,
-                    status=ProjectRelationRowSchemaStatus.UNKNOWN,
-                    schema=schema,
-                    reason=ProjectRelationRowSchemaReason.UPSTREAM_UNKNOWN,
+
+            if _is_project_aggregate_grouped_definition(definition):
+                persistence = build_project_aggregate_grouped_persistence(
+                    definition=definition,
+                    input_schema=input_schema,
+                    upstream_symbol=upstream_symbol,
+                    upstream_lineage=upstream_lineage,
+                    fallback_path=definition_paths[definition],
                 )
-                propagated = True
-                continue
+                state = persistence.state
+                let_scope_facts = persistence.let_scope_facts
+                aggregate_result_facts = persistence.aggregate_result_facts
+                dependency_graph = (
+                    persistence.dependency_lineage_readiness.dependency_graph
+                )
+                lineage = persistence.dependency_lineage_readiness.lineage
+            else:
+                let_scope_facts = build_project_relation_let_scope_facts(
+                    definition=definition,
+                    input_schema=input_schema,
+                    upstream_definition=upstream_definition,
+                    upstream_state=upstream_state,
+                )
+                relation_schema_result = _project_direct_relation_row_schema(
+                    definition,
+                    source_schema=input_schema,
+                    source_symbol=upstream_symbol,
+                    upstream_definition=upstream_definition,
+                    upstream_state=upstream_state,
+                    fallback_path=definition_paths[definition],
+                    let_scope_facts=let_scope_facts,
+                )
+                diagnostics.extend(relation_schema_result.diagnostics)
+                state = _project_relation_row_schema_state_from_result(
+                    relation_schema_result,
+                    concrete_reason=(
+                        ProjectRelationRowSchemaReason.DIRECT_SOURCE_CONCRETE
+                        if isinstance(upstream_definition, SourceDef)
+                        else ProjectRelationRowSchemaReason.RELATION_UPSTREAM_CONCRETE
+                    ),
+                )
+                aggregate_result_facts = {}
+                dependency_graph = build_project_relation_row_dependency_graph(
+                    definition=definition,
+                    fallback_path=definition_paths[definition],
+                    upstream_symbol=upstream_symbol,
+                    input_schema=input_schema,
+                    output_schema=state.schema,
+                    state=state,
+                    let_scope_facts=let_scope_facts,
+                )
+                lineage = build_project_relation_row_lineage(
+                    definition=definition,
+                    upstream_symbol=upstream_symbol,
+                    row_schema=state.schema,
+                    state=state,
+                    dependency_graph=dependency_graph,
+                    upstream_lineage=upstream_lineage,
+                )
 
-            relation_schema_result = _project_direct_relation_row_schema(
-                definition,
-                source_schema=upstream_schema,
-                source_symbol=upstream_symbol,
-                upstream_definition=upstream_relation,
-                upstream_state=upstream_state,
-                fallback_path=definition_paths[definition],
-            )
-            diagnostics.extend(relation_schema_result.diagnostics)
-            schema = relation_schema_result.schema
-            _record_project_relation_row_schema_result(
+            _record_project_relation_terminal_bundle(
                 relation_row_schemas=relation_row_schemas,
                 relation_row_schema_states=relation_row_schema_states,
+                relation_let_scope_facts=relation_let_scope_facts,
+                relation_aggregate_result_facts=relation_aggregate_result_facts,
+                relation_row_dependency_graphs=relation_row_dependency_graphs,
+                relation_row_lineages=relation_row_lineages,
                 definition=definition,
-                schema=schema,
-                state_reason=relation_schema_result.state_reason,
-                concrete_reason=(
-                    ProjectRelationRowSchemaReason.RELATION_UPSTREAM_CONCRETE
-                ),
+                state=state,
+                let_scope_facts=let_scope_facts,
+                aggregate_result_facts=aggregate_result_facts,
+                dependency_graph=dependency_graph,
+                lineage=lineage,
             )
+            completed.add(definition)
             propagated = True
+        if source_round:
+            source_round = False
+            continue
         if not propagated:
             break
+
+    if len(completed) != len(relation_definitions):
+        raise AssertionError("Every project relation requires one terminal bundle")
 
     return _ProjectRelationRowSchemasResult(
         relation_row_schemas=relation_row_schemas,
         relation_row_schema_states=relation_row_schema_states,
+        relation_let_scope_facts={
+            definition: relation_let_scope_facts[definition]
+            for definition in relation_definitions
+        },
+        relation_aggregate_result_facts={
+            definition: relation_aggregate_result_facts[definition]
+            for definition in relation_definitions
+            if definition in relation_aggregate_result_facts
+        },
+        relation_row_dependency_graphs={
+            definition: relation_row_dependency_graphs[definition]
+            for definition in relation_definitions
+        },
+        relation_row_lineages={
+            definition: relation_row_lineages[definition]
+            for definition in relation_definitions
+        },
         diagnostics=tuple(diagnostics),
     )
+
+
+def _project_upstream_non_concrete_state(
+    upstream_state: ProjectRelationRowSchemaState,
+) -> ProjectRelationRowSchemaState:
+    """Map one completed non-concrete upstream to the local terminal state."""
+
+    if upstream_state.status is ProjectRelationRowSchemaStatus.UNKNOWN:
+        return ProjectRelationRowSchemaState(
+            status=ProjectRelationRowSchemaStatus.UNKNOWN,
+            schema=ProjectRowSchema(is_unknown=True),
+            reason=ProjectRelationRowSchemaReason.UPSTREAM_UNKNOWN,
+        )
+    if upstream_state.status is ProjectRelationRowSchemaStatus.DEFERRED:
+        return ProjectRelationRowSchemaState(
+            status=ProjectRelationRowSchemaStatus.DEFERRED,
+            schema=None,
+            reason=ProjectRelationRowSchemaReason.UPSTREAM_DEFERRED,
+        )
+    if upstream_state.status is ProjectRelationRowSchemaStatus.BLOCKED:
+        return ProjectRelationRowSchemaState(
+            status=ProjectRelationRowSchemaStatus.BLOCKED,
+            schema=None,
+            reason=ProjectRelationRowSchemaReason.UPSTREAM_BLOCKED,
+        )
+    raise ValueError("Concrete upstream cannot use non-concrete propagation")
+
+
+def _project_relation_row_schema_state_from_result(
+    result: _ProjectRelationRowSchemaResult,
+    *,
+    concrete_reason: ProjectRelationRowSchemaReason,
+) -> ProjectRelationRowSchemaState:
+    """Normalize one ordinary projector result without publishing it."""
+
+    schema = result.schema
+    if schema is None:
+        return ProjectRelationRowSchemaState(
+            status=ProjectRelationRowSchemaStatus.DEFERRED,
+            schema=None,
+            reason=(
+                result.state_reason
+                or ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR
+            ),
+        )
+    if schema.is_unknown:
+        return ProjectRelationRowSchemaState(
+            status=ProjectRelationRowSchemaStatus.UNKNOWN,
+            schema=schema,
+            reason=result.state_reason or ProjectRelationRowSchemaReason.UNKNOWN_SCHEMA,
+        )
+    return ProjectRelationRowSchemaState(
+        status=ProjectRelationRowSchemaStatus.CONCRETE,
+        schema=schema,
+        reason=concrete_reason,
+    )
+
+
+def _record_project_relation_terminal_bundle(
+    *,
+    relation_row_schemas: dict[TableDef | QueryDef, ProjectRowSchema],
+    relation_row_schema_states: dict[
+        TableDef | QueryDef, ProjectRelationRowSchemaState
+    ],
+    relation_let_scope_facts: dict[TableDef | QueryDef, ProjectRelationLetScopeFacts],
+    relation_aggregate_result_facts: dict[
+        TableDef | QueryDef,
+        Mapping[str, ProjectAggregateResultFact],
+    ],
+    relation_row_dependency_graphs: dict[
+        TableDef | QueryDef, ProjectRelationRowDependencyGraph
+    ],
+    relation_row_lineages: dict[TableDef | QueryDef, ProjectRelationRowLineage],
+    definition: TableDef | QueryDef,
+    state: ProjectRelationRowSchemaState,
+    let_scope_facts: ProjectRelationLetScopeFacts,
+    aggregate_result_facts: Mapping[str, ProjectAggregateResultFact],
+    dependency_graph: ProjectRelationRowDependencyGraph,
+    lineage: ProjectRelationRowLineage,
+) -> None:
+    """Validate one complete local bundle, then publish all six maps."""
+
+    from pietto._project.let_scope_facts import ProjectRelationLetScopeFacts
+    from pietto._project.row_dependency_graph import (
+        ProjectRelationRowDependencyGraph,
+    )
+    from pietto._project.row_lineage import ProjectRelationRowLineage
+
+    if not isinstance(let_scope_facts, ProjectRelationLetScopeFacts):
+        raise ValueError("Terminal bundle requires let facts")
+    if not isinstance(dependency_graph, ProjectRelationRowDependencyGraph):
+        raise ValueError("Terminal bundle requires dependency graph")
+    if not isinstance(lineage, ProjectRelationRowLineage):
+        raise ValueError("Terminal bundle requires lineage")
+    if (
+        dependency_graph.status.value != state.status.value
+        or dependency_graph.reason.value != state.reason.value
+        or lineage.status.value != state.status.value
+        or lineage.reason.value != state.reason.value
+    ):
+        raise ValueError("Terminal bundle state, graph, and lineage must agree")
+
+    if state.status is ProjectRelationRowSchemaStatus.CONCRETE:
+        schema = state.schema
+        if schema is None or schema.is_unknown:
+            raise ValueError("Concrete terminal bundle requires exact schema")
+        _validate_project_aggregate_result_facts(
+            relation_row_schemas={definition: schema},
+            relation_aggregate_result_facts=(
+                {definition: aggregate_result_facts} if aggregate_result_facts else {}
+            ),
+        )
+    else:
+        if aggregate_result_facts:
+            raise ValueError("Non-concrete terminal bundle forbids aggregate facts")
+        if dependency_graph.nodes or dependency_graph.edges or lineage.facts:
+            raise ValueError("Non-concrete terminal bundle must be empty")
+
+    relation_row_schema_states[definition] = state
+    if state.schema is None:
+        relation_row_schemas.pop(definition, None)
+    else:
+        relation_row_schemas[definition] = state.schema
+    relation_let_scope_facts[definition] = let_scope_facts
+    if aggregate_result_facts:
+        relation_aggregate_result_facts[definition] = aggregate_result_facts
+    else:
+        relation_aggregate_result_facts.pop(definition, None)
+    relation_row_dependency_graphs[definition] = dependency_graph
+    relation_row_lineages[definition] = lineage
 
 
 def _build_project_relation_let_scope_facts(
@@ -1416,6 +1710,7 @@ def _project_direct_relation_row_schema(
     upstream_definition: SourceDef | TableDef | QueryDef,
     upstream_state: ProjectRelationRowSchemaState | None = None,
     fallback_path: str,
+    let_scope_facts: ProjectRelationLetScopeFacts | None = None,
 ) -> _ProjectRelationRowSchemaResult:
     """Project direct fields and supported computed aliases from one input."""
 
@@ -1451,12 +1746,13 @@ def _project_direct_relation_row_schema(
         input_schema=source_schema,
         relation_qualifier=definition.from_clause.source_name,
     )
-    let_scope_facts = build_project_relation_let_scope_facts(
-        definition=definition,
-        input_schema=source_schema,
-        upstream_definition=upstream_definition,
-        upstream_state=upstream_state,
-    )
+    if let_scope_facts is None:
+        let_scope_facts = build_project_relation_let_scope_facts(
+            definition=definition,
+            input_schema=source_schema,
+            upstream_definition=upstream_definition,
+            upstream_state=upstream_state,
+        )
     let_value_types = (
         let_scope_facts.value_types
         if let_scope_facts.status is ProjectLetScopeFactsStatus.CONCRETE

@@ -237,15 +237,32 @@ def test_let_aggregate_and_grouped_outputs_remain_out_of_scope(
     assert total.field_def is None
     assert total.provenance is not None
     assert total.provenance.kind is ProjectRowFieldProvenanceKind.LET_DERIVED
-    for name in ("aggregate", "grouped"):
-        definition = _derived_definition(parse_result, name)
-        assert definition not in semantic_result.model.relation_row_schemas
-        _assert_state(
-            semantic_result,
-            definition,
-            ProjectRelationRowSchemaStatus.DEFERRED,
-            ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR,
-        )
+    aggregate = _derived_definition(parse_result, "aggregate")
+    aggregate_schema = semantic_result.model.relation_row_schemas[aggregate]
+    assert tuple(aggregate_schema.fields) == ("total",)
+    assert aggregate_schema.fields["total"].field_def is None
+    assert aggregate_schema.fields["total"].provenance is not None
+    assert aggregate_schema.fields["total"].provenance.kind is (
+        ProjectRowFieldProvenanceKind.AGGREGATE
+    )
+    assert tuple(semantic_result.model.relation_aggregate_result_facts[aggregate]) == (
+        "total",
+    )
+    _assert_state(
+        semantic_result,
+        aggregate,
+        ProjectRelationRowSchemaStatus.CONCRETE,
+        ProjectRelationRowSchemaReason.DIRECT_SOURCE_CONCRETE,
+    )
+
+    grouped = _derived_definition(parse_result, "grouped")
+    assert grouped not in semantic_result.model.relation_row_schemas
+    _assert_state(
+        semantic_result,
+        grouped,
+        ProjectRelationRowSchemaStatus.DEFERRED,
+        ProjectRelationRowSchemaReason.AGGREGATE_OR_GROUPED_DEFERRED,
+    )
 
 
 def test_project_json_v2_keeps_derived_expression_provenance_private(

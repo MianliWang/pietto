@@ -301,20 +301,28 @@ def test_grouped_aggregate_schema_remains_deferred_without_public_diagnostics(
     _assert_row_schema_state(
         semantic_result,
         grouped,
-        ProjectRelationRowSchemaStatus.DEFERRED,
-        ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR,
+        ProjectRelationRowSchemaStatus.CONCRETE,
+        ProjectRelationRowSchemaReason.DIRECT_SOURCE_CONCRETE,
     )
     _assert_dependency_graph_state(
         semantic_result,
         grouped,
-        ProjectRowDependencyGraphStatus.DEFERRED,
-        ProjectRowDependencyGraphReason.DEFERRED_PHASE48_BEHAVIOR,
+        ProjectRowDependencyGraphStatus.CONCRETE,
+        ProjectRowDependencyGraphReason.DIRECT_SOURCE_CONCRETE,
     )
     _assert_lineage_state(
         semantic_result,
         grouped,
-        ProjectRowLineageStatus.DEFERRED,
-        ProjectRowLineageReason.DEFERRED_PHASE48_BEHAVIOR,
+        ProjectRowLineageStatus.CONCRETE,
+        ProjectRowLineageReason.DIRECT_SOURCE_CONCRETE,
+    )
+    assert semantic_result.model is not None
+    assert tuple(semantic_result.model.relation_row_schemas[grouped].fields) == (
+        "status",
+        "total",
+    )
+    assert tuple(semantic_result.model.relation_aggregate_result_facts[grouped]) == (
+        "total",
     )
 
 

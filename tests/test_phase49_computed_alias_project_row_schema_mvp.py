@@ -262,7 +262,7 @@ def test_unknown_null_division_and_aggregate_surfaces_remain_non_concrete(
     assert semantic_result.ok
     assert semantic_result.diagnostics == ()
     assert semantic_result.model is not None
-    for name in ("nullish", "divided", "missing", "aggregate", "grouped"):
+    for name in ("nullish", "divided", "missing"):
         definition = _derived_definition(parse_result, name)
         assert definition not in semantic_result.model.relation_row_schemas
         _assert_state(
@@ -271,6 +271,28 @@ def test_unknown_null_division_and_aggregate_surfaces_remain_non_concrete(
             ProjectRelationRowSchemaStatus.DEFERRED,
             ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR,
         )
+
+    aggregate = _derived_definition(parse_result, "aggregate")
+    aggregate_schema = semantic_result.model.relation_row_schemas[aggregate]
+    assert tuple(aggregate_schema.fields) == ("total",)
+    _assert_state(
+        semantic_result,
+        aggregate,
+        ProjectRelationRowSchemaStatus.CONCRETE,
+        ProjectRelationRowSchemaReason.DIRECT_SOURCE_CONCRETE,
+    )
+    assert tuple(semantic_result.model.relation_aggregate_result_facts[aggregate]) == (
+        "total",
+    )
+
+    grouped = _derived_definition(parse_result, "grouped")
+    assert grouped not in semantic_result.model.relation_row_schemas
+    _assert_state(
+        semantic_result,
+        grouped,
+        ProjectRelationRowSchemaStatus.DEFERRED,
+        ProjectRelationRowSchemaReason.AGGREGATE_OR_GROUPED_DEFERRED,
+    )
 
 
 def test_bare_let_selected_output_becomes_concrete_in_slice7(

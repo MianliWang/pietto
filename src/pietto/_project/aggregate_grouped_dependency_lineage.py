@@ -183,6 +183,7 @@ def build_project_aggregate_grouped_dependency_lineage_readiness(
     upstream_symbol: ProjectSymbol,
     upstream_lineage: ProjectRelationRowLineage | None,
     fallback_path: str,
+    let_scope_facts: ProjectRelationLetScopeFacts | None = None,
 ) -> ProjectAggregateGroupedDependencyLineageReadiness:
     """Build one atomic helper-only dependency and lineage readiness result."""
 
@@ -191,6 +192,7 @@ def build_project_aggregate_grouped_dependency_lineage_readiness(
         input_schema=input_schema,
         upstream_symbol=upstream_symbol,
         fallback_path=fallback_path,
+        let_scope_facts=let_scope_facts,
     )
     if (
         clause_readiness.status
@@ -211,6 +213,7 @@ def build_project_aggregate_grouped_dependency_lineage_readiness(
             upstream_symbol=upstream_symbol,
             fallback_path=fallback_path,
             clause_readiness=clause_readiness,
+            let_scope_facts=let_scope_facts,
         )
         lineage = _build_lineage(
             definition=definition,
@@ -242,6 +245,7 @@ def _build_dependency_graph(
     upstream_symbol: ProjectSymbol,
     fallback_path: str,
     clause_readiness: ProjectAggregateGroupedClauseReadiness,
+    let_scope_facts: ProjectRelationLetScopeFacts | None = None,
 ) -> ProjectRelationRowDependencyGraph:
     finalization = clause_readiness.finalization
     schema = finalization.state.schema
@@ -260,6 +264,7 @@ def _build_dependency_graph(
         definition=definition,
         input_schema=input_schema,
         upstream_symbol=upstream_symbol,
+        let_scope_facts=let_scope_facts,
     )
 
     builder = _GraphBuilder()
@@ -365,15 +370,26 @@ def _let_scope_facts(
     definition: _DerivedRelation,
     input_schema: ProjectRowSchema,
     upstream_symbol: ProjectSymbol,
+    let_scope_facts: ProjectRelationLetScopeFacts | None = None,
 ) -> ProjectRelationLetScopeFacts:
     upstream_definition = upstream_symbol.definition
     if not isinstance(upstream_definition, (SourceDef, TableDef, QueryDef)):
         _conflicting_failure()
-    facts = build_project_relation_let_scope_facts(
-        definition=definition,
-        input_schema=input_schema,
-        upstream_definition=upstream_definition,
-    )
+    facts = let_scope_facts
+    if facts is None:
+        facts = build_project_relation_let_scope_facts(
+            definition=definition,
+            input_schema=input_schema,
+            upstream_definition=upstream_definition,
+        )
+    elif definition.let_clause is None:
+        if (
+            facts.status is not ProjectLetScopeFactsStatus.ABSENT
+            or facts.clause is not None
+        ):
+            _conflicting_failure()
+    elif facts.clause is not definition.let_clause:
+        _conflicting_failure()
     if facts.status in {
         ProjectLetScopeFactsStatus.ABSENT,
         ProjectLetScopeFactsStatus.CONCRETE,
@@ -604,6 +620,7 @@ def _build_lineage(
         definition: base_lineage
     }
     definitions_by_name: dict[str, _DerivedRelation] = {definition.name: definition}
+    preexpanded_lineages: dict[_DerivedRelation, ProjectRelationRowLineage] = {}
     upstream_definition = upstream_symbol.definition
     if upstream_symbol.kind is ProjectSymbolKind.SOURCE and isinstance(
         upstream_definition,
@@ -629,12 +646,14 @@ def _build_lineage(
             _conflicting_failure()
         base_lineages[upstream_definition] = upstream_lineage
         definitions_by_name[upstream_definition.name] = upstream_definition
+        preexpanded_lineages[upstream_definition] = upstream_lineage
     else:
         _conflicting_failure()
 
     expanded = _expand_relation_row_lineages(
         base_lineages,
         relation_definitions_by_name=definitions_by_name,
+        preexpanded_lineages=preexpanded_lineages,
     )
     lineage = expanded.get(definition)
     if lineage is None:
@@ -988,10 +1007,7 @@ def _validate_lineage_shape(
                 or fact.output_segment != current_immediate.output_segment
                 or fact.location != current_immediate.location
                 or fact.upstream_segment.kind
-                in {
-                    ProjectRowLineageSegmentKind.OUTPUT_FIELD,
-                    ProjectRowLineageSegmentKind.RELATION_INPUT,
-                }
+                is ProjectRowLineageSegmentKind.OUTPUT_FIELD
             ):
                 raise ValueError("Lineage transitive expansion mismatch")
             continue

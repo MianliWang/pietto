@@ -657,15 +657,36 @@ def test_expression_and_row_let_relations_remain_production_deferred_private_and
     )
     assert semantic_result.model is not None
     model = semantic_result.model
-    assert model.relation_aggregate_result_facts == {}
+    aggregate_expression = _derived_definition(parse_result, "aggregate_expression")
+    grouped_row_let = _derived_definition(parse_result, "grouped_row_let")
+    assert tuple(model.relation_aggregate_result_facts) == (
+        aggregate_expression,
+        grouped_row_let,
+    )
 
-    for name in ("aggregate_expression", "grouped_row_let"):
-        definition = _derived_definition(parse_result, name)
-        assert definition not in model.relation_row_schemas
+    for definition, expected_fields in (
+        (aggregate_expression, ("total",)),
+        (grouped_row_let, ("region", "total")),
+    ):
         state = model.relation_row_schema_states[definition]
-        assert state.status is ProjectRelationRowSchemaStatus.DEFERRED
-        assert state.reason is ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR
-        assert state.schema is None
+        assert state.status is ProjectRelationRowSchemaStatus.CONCRETE
+        assert state.reason is ProjectRelationRowSchemaReason.DIRECT_SOURCE_CONCRETE
+        schema = state.schema
+        assert schema is not None
+        assert schema is model.relation_row_schemas[definition]
+        assert tuple(schema.fields) == expected_fields
+        assert tuple(model.relation_aggregate_result_facts[definition]) == ("total",)
+        assert schema.fields["total"].result_role is (
+            ProjectRowResultRole.AGGREGATE_RESULT
+        )
+
+    assert model.relation_let_scope_facts[aggregate_expression].status is (
+        ProjectLetScopeFactsStatus.ABSENT
+    )
+    grouped_let_facts = model.relation_let_scope_facts[grouped_row_let]
+    assert grouped_let_facts.status is ProjectLetScopeFactsStatus.CONCRETE
+    assert grouped_let_facts.clause is grouped_row_let.let_clause
+    assert tuple(grouped_let_facts.binding_expressions) == ("gross",)
 
     document = project_check_result_to_json_dict(
         parse_result,
@@ -702,6 +723,17 @@ def test_expression_and_row_let_relations_remain_production_deferred_private_and
     assert "effective_semantic_aggregate_argument_expression" in argument_source
     assert "is_supported_semantic_aggregate_argument_expression" in argument_source
     assert "ProjectRowSchema(" not in selected_source
+    finalizer_signature = inspect.signature(
+        aggregate_module.build_project_aggregate_grouped_schema_finalization
+    )
+    assert tuple(finalizer_signature.parameters) == (
+        "definition",
+        "input_schema",
+        "upstream_symbol",
+        "fallback_path",
+        "let_scope_facts",
+    )
+    assert finalizer_signature.parameters["let_scope_facts"].default is None
     for name in (
         "ProjectAggregateSchemaFacts",
         "ProjectGroupedSchemaFacts",

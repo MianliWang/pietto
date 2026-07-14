@@ -634,6 +634,7 @@ def _build_project_group_key_schema_attempt(
     input_schema: ProjectRowSchema,
     upstream_symbol: ProjectSymbol,
     fallback_path: str,
+    let_scope_facts: ProjectRelationLetScopeFacts | None = None,
 ) -> ProjectAggregateGroupedCandidateAttempt:
     """Build one structured group-key candidate attempt."""
 
@@ -649,10 +650,13 @@ def _build_project_group_key_schema_attempt(
             ProjectRelationRowSchemaReason.CONFLICTING_AGGREGATE_OR_GROUPED_FACTS
         )
 
-    semantic_input_schema = project_row_schema_to_semantic_row_schema(input_schema)
-    let_expressions = admitted_relation_let_expressions(
-        definition,
-        semantic_input_schema,
+    let_expressions = (
+        let_scope_facts.binding_expressions
+        if let_scope_facts is not None
+        else admitted_relation_let_expressions(
+            definition,
+            project_row_schema_to_semantic_row_schema(input_schema),
+        )
     )
     group_keys: list[ProjectGroupKeyFact] = []
     declared_group_identities: set[str] = set()
@@ -803,6 +807,7 @@ def _build_project_aggregate_schema_attempt(
     input_schema: ProjectRowSchema,
     upstream_symbol: ProjectSymbol,
     fallback_path: str,
+    let_scope_facts: ProjectRelationLetScopeFacts | None = None,
 ) -> ProjectAggregateGroupedCandidateAttempt:
     """Build one structured aggregate-only candidate attempt."""
 
@@ -829,6 +834,7 @@ def _build_project_aggregate_schema_attempt(
         definition=definition,
         input_schema=input_schema,
         upstream_symbol=upstream_symbol,
+        let_scope_facts=let_scope_facts,
     )
     if let_scope_facts is None:
         assert let_failure_reason is not None
@@ -894,6 +900,7 @@ def build_project_aggregate_grouped_schema_finalization(
     input_schema: ProjectRowSchema,
     upstream_symbol: ProjectSymbol,
     fallback_path: str,
+    let_scope_facts: ProjectRelationLetScopeFacts | None = None,
 ) -> ProjectAggregateGroupedSchemaFinalization:
     """Finalize one complete candidate without publishing it to the model."""
 
@@ -903,6 +910,7 @@ def build_project_aggregate_grouped_schema_finalization(
             input_schema=input_schema,
             upstream_symbol=upstream_symbol,
             fallback_path=fallback_path,
+            let_scope_facts=let_scope_facts,
         )
     else:
         attempt = _build_project_grouped_schema_attempt(
@@ -910,6 +918,7 @@ def build_project_aggregate_grouped_schema_finalization(
             input_schema=input_schema,
             upstream_symbol=upstream_symbol,
             fallback_path=fallback_path,
+            let_scope_facts=let_scope_facts,
         )
     return _finalize_project_aggregate_grouped_candidate(
         definition=definition,
@@ -924,6 +933,7 @@ def _build_project_grouped_schema_attempt(
     input_schema: ProjectRowSchema,
     upstream_symbol: ProjectSymbol,
     fallback_path: str,
+    let_scope_facts: ProjectRelationLetScopeFacts | None = None,
 ) -> ProjectAggregateGroupedCandidateAttempt:
     """Build one structured grouped candidate attempt."""
 
@@ -947,6 +957,7 @@ def _build_project_grouped_schema_attempt(
         input_schema=input_schema,
         upstream_symbol=upstream_symbol,
         fallback_path=fallback_path,
+        let_scope_facts=let_scope_facts,
     )
     group_key_facts = (
         group_key_attempt.facts
@@ -965,6 +976,7 @@ def _build_project_grouped_schema_attempt(
     declared_group_identities = _declared_group_key_identities(
         definition=definition,
         input_schema=input_schema,
+        let_scope_facts=let_scope_facts,
     )
     for item in definition.select_items:
         group_key_field = (
@@ -989,6 +1001,7 @@ def _build_project_grouped_schema_attempt(
         definition=definition,
         input_schema=input_schema,
         upstream_symbol=upstream_symbol,
+        let_scope_facts=let_scope_facts,
     )
     if let_scope_facts is None:
         assert let_failure_reason is not None
@@ -1422,6 +1435,7 @@ def _build_project_aggregate_let_scope_attempt(
     definition: TableDef | QueryDef,
     input_schema: ProjectRowSchema,
     upstream_symbol: ProjectSymbol,
+    let_scope_facts: ProjectRelationLetScopeFacts | None = None,
 ) -> tuple[ProjectRelationLetScopeFacts | None, ProjectRelationRowSchemaReason | None]:
     """Retain exact let-scope failure posture for aggregate candidates."""
 
@@ -1432,11 +1446,27 @@ def _build_project_aggregate_let_scope_attempt(
             ProjectRelationRowSchemaReason.CONFLICTING_AGGREGATE_OR_GROUPED_FACTS,
         )
 
-    facts = build_project_relation_let_scope_facts(
-        definition=definition,
-        input_schema=input_schema,
-        upstream_definition=upstream_definition,
-    )
+    facts = let_scope_facts
+    if facts is None:
+        facts = build_project_relation_let_scope_facts(
+            definition=definition,
+            input_schema=input_schema,
+            upstream_definition=upstream_definition,
+        )
+    elif definition.let_clause is None:
+        if (
+            facts.status is not ProjectLetScopeFactsStatus.ABSENT
+            or facts.clause is not None
+        ):
+            return (
+                facts,
+                ProjectRelationRowSchemaReason.CONFLICTING_AGGREGATE_OR_GROUPED_FACTS,
+            )
+    elif facts.clause is not definition.let_clause:
+        return (
+            facts,
+            ProjectRelationRowSchemaReason.CONFLICTING_AGGREGATE_OR_GROUPED_FACTS,
+        )
     if facts.status not in (
         ProjectLetScopeFactsStatus.ABSENT,
         ProjectLetScopeFactsStatus.CONCRETE,
@@ -1655,13 +1685,18 @@ def _declared_group_key_identities(
     *,
     definition: TableDef | QueryDef,
     input_schema: ProjectRowSchema,
+    let_scope_facts: ProjectRelationLetScopeFacts | None = None,
 ) -> frozenset[str]:
     group_by_clause = definition.group_by_clause
     if group_by_clause is None:
         return frozenset()
-    let_expressions = admitted_relation_let_expressions(
-        definition,
-        project_row_schema_to_semantic_row_schema(input_schema),
+    let_expressions = (
+        let_scope_facts.binding_expressions
+        if let_scope_facts is not None
+        else admitted_relation_let_expressions(
+            definition,
+            project_row_schema_to_semantic_row_schema(input_schema),
+        )
     )
     identities: set[str] = set()
     for item in group_by_clause.items:

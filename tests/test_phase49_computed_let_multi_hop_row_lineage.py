@@ -560,9 +560,30 @@ def test_non_concrete_and_aggregate_grouped_lineage_remains_empty(
     assert grouped_semantic.model is not None
     grouped = _derived_definition(grouped_parse, "grouped")
     grouped_lineage = grouped_semantic.model.relation_row_lineages[grouped]
-    assert grouped_lineage.status is ProjectRowLineageStatus.DEFERRED
-    assert grouped_lineage.reason is ProjectRowLineageReason.DEFERRED_PHASE48_BEHAVIOR
-    assert grouped_lineage.facts == ()
+    assert grouped_lineage.status is ProjectRowLineageStatus.CONCRETE
+    assert grouped_lineage.reason is ProjectRowLineageReason.DIRECT_SOURCE_CONCRETE
+    assert tuple(
+        (
+            fact.kind,
+            fact.output_segment.name,
+            fact.upstream_segment.kind,
+            fact.upstream_segment.name,
+        )
+        for fact in grouped_lineage.facts
+    ) == (
+        (
+            ProjectRowLineageFactKind.DIRECT_PROJECTION,
+            "status",
+            ProjectRowLineageSegmentKind.SOURCE_FIELD,
+            "users.status",
+        ),
+        (
+            ProjectRowLineageFactKind.AGGREGATE_ARGUMENT,
+            "total",
+            ProjectRowLineageSegmentKind.SOURCE_FIELD,
+            "users.score",
+        ),
+    )
 
     assert cycle_semantic.model is not None
     first = _derived_definition(cycle_parse, "first")

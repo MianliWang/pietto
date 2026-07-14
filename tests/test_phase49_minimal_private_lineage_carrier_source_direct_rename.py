@@ -377,9 +377,22 @@ def test_non_concrete_row_schema_states_produce_non_concrete_lineage(
     assert grouped_semantic.model is not None
     grouped = _derived_definition(grouped_parse, "grouped")
     grouped_lineage = grouped_semantic.model.relation_row_lineages[grouped]
-    assert grouped_lineage.status is ProjectRowLineageStatus.DEFERRED
-    assert grouped_lineage.reason is ProjectRowLineageReason.DEFERRED_PHASE48_BEHAVIOR
-    assert grouped_lineage.facts == ()
+    assert grouped_lineage.status is ProjectRowLineageStatus.CONCRETE
+    assert grouped_lineage.reason is ProjectRowLineageReason.DIRECT_SOURCE_CONCRETE
+    assert _fact_values(grouped_lineage) == (
+        (
+            ProjectRowLineageFactKind.DIRECT_PROJECTION,
+            "status",
+            ProjectRowLineageSegmentKind.SOURCE_FIELD,
+            "users.status",
+        ),
+        (
+            ProjectRowLineageFactKind.AGGREGATE_ARGUMENT,
+            "total",
+            ProjectRowLineageSegmentKind.SOURCE_FIELD,
+            "users.score",
+        ),
+    )
 
     assert cycle_semantic.model is not None
     first = _derived_definition(cycle_parse, "first")

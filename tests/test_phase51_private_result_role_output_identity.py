@@ -37,6 +37,7 @@ from pietto.errors import SourceLocation
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MODEL_PATH = REPO_ROOT / "src/pietto/_project/model.py"
+PERSISTENCE_PATH = REPO_ROOT / "src/pietto/_project/aggregate_grouped_persistence.py"
 
 EXPECTED_PROJECT_JSON_V2_KEYS = (
     "schema_version",
@@ -139,14 +140,27 @@ def test_aggregate_result_fact_validation_is_structural_only(
 def test_function_identity_is_not_normalized_or_semantically_catalogued() -> None:
     fact = _fact(function="Future_AGG", output_name="total", argument_count=17)
     model_source = MODEL_PATH.read_text(encoding="utf-8")
+    persistence_source = PERSISTENCE_PATH.read_text(encoding="utf-8")
 
     assert fact.function == "Future_AGG"
     assert fact.argument_count == 17
     assert "count_distinct" not in model_source
     assert "SEMANTIC_AGGREGATE_NAMES" not in model_source
     assert "expected_semantic_aggregate_arity" not in model_source
+    assert "contains_semantic_aggregate" not in model_source
     assert "from pietto.semantic" not in model_source
     assert "import pietto.semantic" not in model_source
+    assert "semantic_api" not in model_source
+    assert "_is_project_aggregate_grouped_definition" in model_source
+    assert "build_project_aggregate_grouped_persistence" in model_source
+    assert (
+        "from pietto.semantic.aggregates import contains_semantic_aggregate"
+        in persistence_source
+    )
+    assert "def _is_project_aggregate_grouped_definition(" in persistence_source
+    assert "semantic_api.analyze" not in persistence_source
+    assert "from pietto.semantic import analyze" not in persistence_source
+    assert "semantic.analyze" not in model_source
 
 
 def test_nested_fact_maps_are_defensive_readonly_and_source_ordered(
@@ -344,14 +358,33 @@ def test_aggregate_and_grouped_relations_remain_deferred_without_facts(
     assert semantic_result.ok
     assert semantic_result.diagnostics == ()
     assert semantic_result.model is not None
-    assert semantic_result.model.relation_aggregate_result_facts == {}
+    model = semantic_result.model
+    aggregate = _derived_definition(parse_result, "aggregate")
+    grouped = _derived_definition(parse_result, "grouped")
+    assert tuple(model.relation_aggregate_result_facts) == (aggregate, grouped)
+    assert tuple(model.relation_aggregate_result_facts[aggregate]) == (
+        "total",
+        "maximum",
+    )
+    assert tuple(model.relation_aggregate_result_facts[grouped]) == ("total",)
+    assert tuple(model.relation_row_schemas[aggregate].fields) == (
+        "total",
+        "maximum",
+    )
+    assert tuple(model.relation_row_schemas[grouped].fields) == ("email", "total")
     for name in ("aggregate", "grouped"):
         definition = _derived_definition(parse_result, name)
-        assert definition not in semantic_result.model.relation_row_schemas
-        state = semantic_result.model.relation_row_schema_states[definition]
-        assert state.status is ProjectRelationRowSchemaStatus.DEFERRED
-        assert state.reason is ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR
-        assert state.schema is None
+        state = model.relation_row_schema_states[definition]
+        assert state.status is ProjectRelationRowSchemaStatus.CONCRETE
+        assert state.reason is ProjectRelationRowSchemaReason.DIRECT_SOURCE_CONCRETE
+        schema = state.schema
+        assert schema is not None
+        assert schema is model.relation_row_schemas[definition]
+        assert all(
+            field.result_role is ProjectRowResultRole.AGGREGATE_RESULT
+            for output_name, field in schema.fields.items()
+            if output_name in model.relation_aggregate_result_facts[definition]
+        )
 
 
 def test_new_private_facts_are_not_exported_or_serialized(tmp_path: Path) -> None:

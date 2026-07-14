@@ -537,14 +537,31 @@ def test_pure_and_mixed_grouped_production_states_remain_deferred(
 
     assert semantic_result.ok
     assert semantic_result.model is not None
-    assert semantic_result.model.relation_aggregate_result_facts == {}
-    for name in ("pure", "mixed"):
-        definition = _derived_definition(parse_result, name)
-        assert definition not in semantic_result.model.relation_row_schemas
-        state = semantic_result.model.relation_row_schema_states[definition]
-        assert state.status is ProjectRelationRowSchemaStatus.DEFERRED
-        assert state.reason is ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR
-        assert state.schema is None
+    model = semantic_result.model
+    pure = _derived_definition(parse_result, "pure")
+    mixed = _derived_definition(parse_result, "mixed")
+
+    assert pure not in model.relation_row_schemas
+    assert pure not in model.relation_aggregate_result_facts
+    pure_state = model.relation_row_schema_states[pure]
+    assert pure_state.status is ProjectRelationRowSchemaStatus.DEFERRED
+    assert pure_state.reason is (
+        ProjectRelationRowSchemaReason.AGGREGATE_OR_GROUPED_DEFERRED
+    )
+    assert pure_state.schema is None
+
+    mixed_state = model.relation_row_schema_states[mixed]
+    assert mixed_state.status is ProjectRelationRowSchemaStatus.CONCRETE
+    assert mixed_state.reason is ProjectRelationRowSchemaReason.DIRECT_SOURCE_CONCRETE
+    mixed_schema = mixed_state.schema
+    assert mixed_schema is not None
+    assert mixed_schema is model.relation_row_schemas[mixed]
+    assert tuple(mixed_schema.fields) == ("status", "total")
+    assert mixed_schema.fields["status"].result_role is (ProjectRowResultRole.GROUP_KEY)
+    assert mixed_schema.fields["total"].result_role is (
+        ProjectRowResultRole.AGGREGATE_RESULT
+    )
+    assert tuple(model.relation_aggregate_result_facts[mixed]) == ("total",)
 
 
 def test_helper_facts_are_not_persisted_exported_or_serialized(tmp_path: Path) -> None:

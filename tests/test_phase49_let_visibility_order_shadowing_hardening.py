@@ -22,6 +22,14 @@ from pietto._project.model import (
     ProjectSemanticResult,
     build_empty_project_semantic_result,
 )
+from pietto._project.row_dependency_graph import (
+    ProjectRowDependencyGraphReason,
+    ProjectRowDependencyGraphStatus,
+)
+from pietto._project.row_lineage import (
+    ProjectRowLineageReason,
+    ProjectRowLineageStatus,
+)
 from pietto.ast_nodes import QueryDef, SourceDef, TableDef
 from pietto.errors import Severity
 from pietto.parser_api import parse_source
@@ -408,9 +416,29 @@ def test_project_grouped_selected_let_output_schema_remains_deferred(
     grouped = _derived_definition(parse_result, "grouped")
     state = semantic_result.model.relation_row_schema_states[grouped]
 
-    assert state.status is ProjectRelationRowSchemaStatus.DEFERRED
-    assert state.reason is ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR
-    assert grouped not in semantic_result.model.relation_row_schemas
+    assert state.status is ProjectRelationRowSchemaStatus.UNKNOWN
+    assert state.reason is (
+        ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
+    )
+    schema = state.schema
+    assert schema is not None
+    assert schema is semantic_result.model.relation_row_schemas[grouped]
+    assert schema.is_unknown
+    assert schema.fields == {}
+    assert grouped not in semantic_result.model.relation_aggregate_result_facts
+    graph = semantic_result.model.relation_row_dependency_graphs[grouped]
+    assert graph.status is ProjectRowDependencyGraphStatus.UNKNOWN
+    assert graph.reason is (
+        ProjectRowDependencyGraphReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
+    )
+    assert graph.nodes == ()
+    assert graph.edges == ()
+    lineage = semantic_result.model.relation_row_lineages[grouped]
+    assert lineage.status is ProjectRowLineageStatus.UNKNOWN
+    assert lineage.reason is (
+        ProjectRowLineageReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
+    )
+    assert lineage.facts == ()
 
 
 def test_project_multi_hop_let_derived_field_keeps_field_def_none(

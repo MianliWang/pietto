@@ -630,15 +630,26 @@ def test_production_remains_deferred_unpersisted_private_and_unserialized(
     )
     assert semantic_result.model is not None
     model = semantic_result.model
-    assert model.relation_aggregate_result_facts == {}
+    aggregate = _derived_definition(parse_result, "aggregate")
+    grouped = _derived_definition(parse_result, "grouped")
+    assert tuple(model.relation_aggregate_result_facts) == (aggregate, grouped)
+    assert tuple(model.relation_aggregate_result_facts[aggregate]) == ("total",)
+    assert tuple(model.relation_aggregate_result_facts[grouped]) == ("total",)
 
-    for name in ("aggregate", "grouped"):
-        definition = _derived_definition(parse_result, name)
-        assert definition not in model.relation_row_schemas
+    for definition, expected_fields in (
+        (aggregate, ("total",)),
+        (grouped, ("status", "total")),
+    ):
         state = model.relation_row_schema_states[definition]
-        assert state.status is ProjectRelationRowSchemaStatus.DEFERRED
-        assert state.reason is ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR
-        assert state.schema is None
+        assert state.status is ProjectRelationRowSchemaStatus.CONCRETE
+        assert state.reason is ProjectRelationRowSchemaReason.DIRECT_SOURCE_CONCRETE
+        schema = state.schema
+        assert schema is not None
+        assert schema is model.relation_row_schemas[definition]
+        assert tuple(schema.fields) == expected_fields
+        assert schema.fields["total"].result_role is (
+            ProjectRowResultRole.AGGREGATE_RESULT
+        )
 
     document = project_check_result_to_json_dict(
         parse_result,

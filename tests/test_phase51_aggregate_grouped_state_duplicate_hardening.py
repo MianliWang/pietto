@@ -1048,7 +1048,7 @@ def test_pure_grouping_is_explicitly_deferred_without_schema_or_facts(
     assert production_state == ProjectRelationRowSchemaState(
         status=ProjectRelationRowSchemaStatus.DEFERRED,
         schema=None,
-        reason=ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR,
+        reason=ProjectRelationRowSchemaReason.AGGREGATE_OR_GROUPED_DEFERRED,
     )
 
 
@@ -1084,46 +1084,82 @@ def test_production_remains_deferred_unpersisted_private_and_downstream_inactive
     assert semantic_result.model is not None
     assert semantic_result.diagnostics == ()
     model = semantic_result.model
-    assert model.relation_aggregate_result_facts == {}
+    aggregate_only = _derived_definition(parse_result, "aggregate_only")
+    grouped = _derived_definition(parse_result, "grouped")
+    pure_grouping = _derived_definition(parse_result, "pure_grouping")
+    assert tuple(model.relation_aggregate_result_facts) == (
+        aggregate_only,
+        grouped,
+    )
 
-    for name in ("aggregate_only", "grouped", "pure_grouping"):
-        definition = _derived_definition(parse_result, name)
-        assert definition not in model.relation_row_schemas
-        assert model.relation_row_schema_states[definition] == (
-            ProjectRelationRowSchemaState(
-                status=ProjectRelationRowSchemaStatus.DEFERRED,
-                schema=None,
-                reason=ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR,
-            )
-        )
+    for definition, expected_fields in (
+        (aggregate_only, ("total",)),
+        (grouped, ("region", "total")),
+    ):
+        state = model.relation_row_schema_states[definition]
+        assert state.status is ProjectRelationRowSchemaStatus.CONCRETE
+        assert state.reason is ProjectRelationRowSchemaReason.DIRECT_SOURCE_CONCRETE
+        schema = state.schema
+        assert schema is not None
+        assert schema is model.relation_row_schemas[definition]
+        assert tuple(schema.fields) == expected_fields
+        assert tuple(model.relation_aggregate_result_facts[definition]) == ("total",)
         graph = model.relation_row_dependency_graphs[definition]
-        assert graph.status is ProjectRowDependencyGraphStatus.DEFERRED
-        assert graph.reason is ProjectRowDependencyGraphReason.DEFERRED_PHASE48_BEHAVIOR
-        assert graph.nodes == ()
-        assert graph.edges == ()
+        assert graph.status is ProjectRowDependencyGraphStatus.CONCRETE
+        assert graph.reason is ProjectRowDependencyGraphReason.DIRECT_SOURCE_CONCRETE
+        assert graph.nodes
+        assert graph.edges
         lineage = model.relation_row_lineages[definition]
-        assert lineage.status is ProjectRowLineageStatus.DEFERRED
-        assert lineage.reason is ProjectRowLineageReason.DEFERRED_PHASE48_BEHAVIOR
-        assert lineage.facts == ()
+        assert lineage.status is ProjectRowLineageStatus.CONCRETE
+        assert lineage.reason is ProjectRowLineageReason.DIRECT_SOURCE_CONCRETE
+        assert lineage.facts
+
+    assert pure_grouping not in model.relation_row_schemas
+    assert pure_grouping not in model.relation_aggregate_result_facts
+    assert model.relation_row_schema_states[pure_grouping] == (
+        ProjectRelationRowSchemaState(
+            status=ProjectRelationRowSchemaStatus.DEFERRED,
+            schema=None,
+            reason=ProjectRelationRowSchemaReason.AGGREGATE_OR_GROUPED_DEFERRED,
+        )
+    )
+    pure_graph = model.relation_row_dependency_graphs[pure_grouping]
+    assert pure_graph.status is ProjectRowDependencyGraphStatus.DEFERRED
+    assert pure_graph.reason is (
+        ProjectRowDependencyGraphReason.AGGREGATE_OR_GROUPED_DEFERRED
+    )
+    assert pure_graph.nodes == ()
+    assert pure_graph.edges == ()
+    pure_lineage = model.relation_row_lineages[pure_grouping]
+    assert pure_lineage.status is ProjectRowLineageStatus.DEFERRED
+    assert pure_lineage.reason is ProjectRowLineageReason.AGGREGATE_OR_GROUPED_DEFERRED
+    assert pure_lineage.facts == ()
 
     downstream = _derived_definition(parse_result, "downstream")
-    assert downstream not in model.relation_row_schemas
-    assert model.relation_row_schema_states[
-        downstream
-    ] == ProjectRelationRowSchemaState(
-        status=ProjectRelationRowSchemaStatus.DEFERRED,
-        schema=None,
-        reason=ProjectRelationRowSchemaReason.UPSTREAM_DEFERRED,
+    downstream_state = model.relation_row_schema_states[downstream]
+    assert downstream_state.status is ProjectRelationRowSchemaStatus.CONCRETE
+    assert downstream_state.reason is (
+        ProjectRelationRowSchemaReason.RELATION_UPSTREAM_CONCRETE
+    )
+    downstream_schema = downstream_state.schema
+    assert downstream_schema is not None
+    assert downstream_schema is model.relation_row_schemas[downstream]
+    assert tuple(downstream_schema.fields) == ("total",)
+    assert downstream_schema.fields["total"].result_role is (
+        ProjectRowResultRole.ORDINARY_ROW_VALUE
     )
     downstream_graph = model.relation_row_dependency_graphs[downstream]
-    assert downstream_graph.status is ProjectRowDependencyGraphStatus.DEFERRED
-    assert downstream_graph.reason is ProjectRowDependencyGraphReason.UPSTREAM_DEFERRED
-    assert downstream_graph.nodes == ()
-    assert downstream_graph.edges == ()
+    assert downstream_graph.status is ProjectRowDependencyGraphStatus.CONCRETE
+    assert downstream_graph.reason is (
+        ProjectRowDependencyGraphReason.RELATION_UPSTREAM_CONCRETE
+    )
+    assert downstream_graph.edges
     downstream_lineage = model.relation_row_lineages[downstream]
-    assert downstream_lineage.status is ProjectRowLineageStatus.DEFERRED
-    assert downstream_lineage.reason is ProjectRowLineageReason.UPSTREAM_DEFERRED
-    assert downstream_lineage.facts == ()
+    assert downstream_lineage.status is ProjectRowLineageStatus.CONCRETE
+    assert downstream_lineage.reason is (
+        ProjectRowLineageReason.RELATION_UPSTREAM_CONCRETE
+    )
+    assert downstream_lineage.facts
 
     document = project_check_result_to_json_dict(
         parse_result,
@@ -1132,7 +1168,8 @@ def test_production_remains_deferred_unpersisted_private_and_downstream_inactive
     serialized = json.dumps(document)
     model_source = MODEL_PATH.read_text(encoding="utf-8")
     module_source = HELPER_PATH.read_text(encoding="utf-8")
-    assert "aggregate_grouped_schema" not in model_source
+    assert "aggregate_grouped_persistence" in model_source
+    assert "build_project_aggregate_grouped_persistence(" in model_source
     assert "build_project_aggregate_grouped_schema_finalization" not in model_source
     assert "ProjectSemanticModel" not in module_source
     assert project_package.__all__ == ()

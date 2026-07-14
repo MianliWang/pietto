@@ -24,6 +24,7 @@ from pietto._project.aggregate_grouped_dependency_lineage import (
 )
 from pietto._project.check import check_project_parse_only
 from pietto._project.json_v2 import project_check_result_to_json_dict
+from pietto._project.let_scope_facts import ProjectRelationLetScopeFacts
 from pietto._project.model import (
     ProjectParseCheckResult,
     ProjectRelationRowSchemaReason,
@@ -65,6 +66,7 @@ HELPER_PATH = REPO_ROOT / "src/pietto/_project/aggregate_grouped_dependency_line
 GRAPH_PATH = REPO_ROOT / "src/pietto/_project/row_dependency_graph.py"
 LINEAGE_PATH = REPO_ROOT / "src/pietto/_project/row_lineage.py"
 MODEL_PATH = REPO_ROOT / "src/pietto/_project/model.py"
+PERSISTENCE_PATH = REPO_ROOT / "src/pietto/_project/aggregate_grouped_persistence.py"
 PLAN_PATH = (
     REPO_ROOT / "docs/plan/phase-51-aggregate-grouped-output-schema-foundation.md"
 )
@@ -187,12 +189,14 @@ def test_exact_private_enum_extensions_and_composed_carrier_shape(
         "upstream_symbol",
         "upstream_lineage",
         "fallback_path",
+        "let_scope_facts",
     )
     assert all(
         parameter.kind is inspect.Parameter.KEYWORD_ONLY
         for parameter in signature.parameters.values()
     )
     assert signature.parameters["upstream_lineage"].default is inspect.Parameter.empty
+    assert signature.parameters["let_scope_facts"].default is None
 
     _, _, definition, input_schema, symbol, upstream_lineage = _candidate_inputs(
         tmp_path,
@@ -249,12 +253,14 @@ def test_composed_builder_calls_slice8_readiness_exactly_once(
         input_schema: ProjectRowSchema,
         upstream_symbol: ProjectSymbol,
         fallback_path: str,
+        let_scope_facts: ProjectRelationLetScopeFacts | None = None,
     ) -> ProjectAggregateGroupedClauseReadiness:
         readiness = original(
             definition=definition,
             input_schema=input_schema,
             upstream_symbol=upstream_symbol,
             fallback_path=fallback_path,
+            let_scope_facts=let_scope_facts,
         )
         captured.append(readiness)
         return readiness
@@ -707,21 +713,61 @@ def test_production_state_dependency_lineage_and_downstream_remain_inactive(
             None,
         )
 
-    for name in ("aggregate_only", "grouped", "pure_grouping"):
-        definition = _derived_definition(parse_result, name)
+    aggregate_only = _derived_definition(parse_result, "aggregate_only")
+    grouped = _derived_definition(parse_result, "grouped")
+    pure_grouping = _derived_definition(parse_result, "pure_grouping")
+    assert tuple(model.relation_aggregate_result_facts) == (
+        aggregate_only,
+        grouped,
+    )
+    for definition, expected_fields in (
+        (aggregate_only, ("total",)),
+        (grouped, ("status", "total")),
+    ):
         state = model.relation_row_schema_states[definition]
-        assert state.status is ProjectRelationRowSchemaStatus.DEFERRED
-        assert state.reason is ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR
-        assert state.schema is None
-        assert model.relation_row_dependency_graphs[definition].edges == ()
-        assert model.relation_row_lineages[definition].facts == ()
-    assert model.relation_aggregate_result_facts == {}
+        assert state.status is ProjectRelationRowSchemaStatus.CONCRETE
+        assert state.reason is ProjectRelationRowSchemaReason.DIRECT_SOURCE_CONCRETE
+        schema = state.schema
+        assert schema is not None
+        assert schema is model.relation_row_schemas[definition]
+        assert tuple(schema.fields) == expected_fields
+        assert tuple(model.relation_aggregate_result_facts[definition]) == ("total",)
+        graph = model.relation_row_dependency_graphs[definition]
+        lineage = model.relation_row_lineages[definition]
+        assert graph.status is ProjectRowDependencyGraphStatus.CONCRETE
+        assert graph.reason is ProjectRowDependencyGraphReason.DIRECT_SOURCE_CONCRETE
+        assert graph.edges
+        assert lineage.status is ProjectRowLineageStatus.CONCRETE
+        assert lineage.reason is ProjectRowLineageReason.DIRECT_SOURCE_CONCRETE
+        assert lineage.facts
+
+    pure_state = model.relation_row_schema_states[pure_grouping]
+    assert pure_state.status is ProjectRelationRowSchemaStatus.DEFERRED
+    assert pure_state.reason is (
+        ProjectRelationRowSchemaReason.AGGREGATE_OR_GROUPED_DEFERRED
+    )
+    assert pure_state.schema is None
+    assert pure_grouping not in model.relation_aggregate_result_facts
+    pure_graph = model.relation_row_dependency_graphs[pure_grouping]
+    pure_lineage = model.relation_row_lineages[pure_grouping]
+    assert pure_graph.status is ProjectRowDependencyGraphStatus.DEFERRED
+    assert pure_graph.reason is (
+        ProjectRowDependencyGraphReason.AGGREGATE_OR_GROUPED_DEFERRED
+    )
+    assert pure_graph.edges == ()
+    assert pure_lineage.status is ProjectRowLineageStatus.DEFERRED
+    assert pure_lineage.reason is (
+        ProjectRowLineageReason.AGGREGATE_OR_GROUPED_DEFERRED
+    )
+    assert pure_lineage.facts == ()
+
     downstream = _derived_definition(parse_result, "downstream")
     assert model.relation_row_schema_states[downstream].status is (
-        ProjectRelationRowSchemaStatus.DEFERRED
+        ProjectRelationRowSchemaStatus.CONCRETE
     )
-    assert model.relation_row_dependency_graphs[downstream].edges == ()
-    assert model.relation_row_lineages[downstream].facts == ()
+    assert tuple(model.relation_row_schemas[downstream].fields) == ("total",)
+    assert model.relation_row_dependency_graphs[downstream].edges
+    assert model.relation_row_lineages[downstream].facts
 
 
 def test_private_helper_is_not_exported_or_serialized(tmp_path: Path) -> None:
@@ -734,7 +780,16 @@ def test_private_helper_is_not_exported_or_serialized(tmp_path: Path) -> None:
         assert not hasattr(project_package, name)
     model_source = MODEL_PATH.read_text(encoding="utf-8")
     helper_source = HELPER_PATH.read_text(encoding="utf-8")
-    assert "aggregate_grouped_dependency_lineage" not in model_source
+    persistence_source = PERSISTENCE_PATH.read_text(encoding="utf-8")
+    assert "aggregate_grouped_persistence" in model_source
+    assert "build_project_aggregate_grouped_persistence(" in model_source
+    assert "aggregate_grouped_dependency_lineage" in persistence_source
+    assert (
+        persistence_source.count(
+            "build_project_aggregate_grouped_dependency_lineage_readiness("
+        )
+        == 1
+    )
     assert "ProjectSemanticModel" not in helper_source
     assert "Diagnostic(" not in helper_source
     assert "semantic_api.analyze" not in helper_source

@@ -195,6 +195,28 @@ def _build_relation_row_lineage(
     ],
 ) -> ProjectRelationRowLineage:
     state = relation_row_schema_states.get(definition)
+    row_schema = relation_row_schemas.get(definition)
+    graph = relation_row_dependency_graphs.get(definition)
+    upstream_symbol = relation_resolutions.get(definition.from_clause)
+    return _build_relation_row_lineage_from_bundle(
+        definition=definition,
+        upstream_symbol=upstream_symbol,
+        row_schema=row_schema,
+        state=state,
+        dependency_graph=graph,
+    )
+
+
+def _build_relation_row_lineage_from_bundle(
+    *,
+    definition: _DerivedRelation,
+    upstream_symbol: ProjectSymbol | None,
+    row_schema: ProjectRowSchema | None,
+    state: ProjectRelationRowSchemaState | None,
+    dependency_graph: ProjectRelationRowDependencyGraph | None,
+) -> ProjectRelationRowLineage:
+    """Build one ordinary immediate lineage from a complete local bundle."""
+
     if state is None:
         return _non_concrete_lineage(
             status=ProjectRowLineageStatus.BLOCKED,
@@ -206,26 +228,23 @@ def _build_relation_row_lineage(
             reason=_reason_from_row_schema_reason(state.reason),
         )
 
-    row_schema = relation_row_schemas.get(definition)
     if row_schema is None or row_schema.is_unknown:
         return _non_concrete_lineage(
             status=ProjectRowLineageStatus.UNKNOWN,
             reason=ProjectRowLineageReason.MISSING_ROW_SCHEMA,
         )
 
-    graph = relation_row_dependency_graphs.get(definition)
-    if graph is None:
+    if dependency_graph is None:
         return _non_concrete_lineage(
             status=ProjectRowLineageStatus.BLOCKED,
             reason=ProjectRowLineageReason.MISSING_DEPENDENCY_GRAPH,
         )
-    if graph.status.value != ProjectRowLineageStatus.CONCRETE.value:
+    if dependency_graph.status.value != ProjectRowLineageStatus.CONCRETE.value:
         return _non_concrete_lineage(
-            status=ProjectRowLineageStatus(graph.status.value),
-            reason=ProjectRowLineageReason(graph.reason.value),
+            status=ProjectRowLineageStatus(dependency_graph.status.value),
+            reason=ProjectRowLineageReason(dependency_graph.reason.value),
         )
 
-    upstream_symbol = relation_resolutions.get(definition.from_clause)
     if upstream_symbol is None:
         return _non_concrete_lineage(
             status=ProjectRowLineageStatus.BLOCKED,
@@ -234,17 +253,77 @@ def _build_relation_row_lineage(
 
     return ProjectRelationRowLineage(
         status=ProjectRowLineageStatus.CONCRETE,
-        reason=ProjectRowLineageReason(graph.reason.value),
+        reason=ProjectRowLineageReason(dependency_graph.reason.value),
         facts=tuple(
             _lineage_fact_from_edge(
                 edge,
                 definition=definition,
                 upstream_symbol=upstream_symbol,
             )
-            for edge in graph.edges
+            for edge in dependency_graph.edges
             if _is_lineage_edge_kind(edge.kind)
         ),
     )
+
+
+def build_project_relation_row_lineage(
+    *,
+    definition: _DerivedRelation,
+    upstream_symbol: ProjectSymbol | None,
+    row_schema: ProjectRowSchema | None,
+    state: ProjectRelationRowSchemaState | None,
+    dependency_graph: ProjectRelationRowDependencyGraph | None,
+    upstream_lineage: ProjectRelationRowLineage | None,
+) -> ProjectRelationRowLineage:
+    """Build one expanded ordinary lineage from a completed upstream bundle."""
+
+    base_lineage = _build_relation_row_lineage_from_bundle(
+        definition=definition,
+        upstream_symbol=upstream_symbol,
+        row_schema=row_schema,
+        state=state,
+        dependency_graph=dependency_graph,
+    )
+    if base_lineage.status is not ProjectRowLineageStatus.CONCRETE:
+        return base_lineage
+    if upstream_symbol is None:
+        return base_lineage
+
+    upstream_definition = upstream_symbol.definition
+    if upstream_symbol.kind is ProjectSymbolKind.SOURCE and isinstance(
+        upstream_definition,
+        SourceDef,
+    ):
+        if upstream_lineage is not None:
+            raise ValueError("Source-upstream lineage must be absent")
+        return _expand_relation_row_lineages(
+            {definition: base_lineage},
+            relation_definitions_by_name={definition.name: definition},
+        )[definition]
+    if upstream_symbol.kind not in {
+        ProjectSymbolKind.TABLE,
+        ProjectSymbolKind.QUERY,
+    } or not isinstance(upstream_definition, (TableDef, QueryDef)):
+        raise ValueError("Ordinary lineage requires one immediate upstream")
+    if (
+        upstream_definition is definition
+        or upstream_lineage is None
+        or upstream_lineage.status is not ProjectRowLineageStatus.CONCRETE
+    ):
+        raise ValueError("Relation-upstream lineage must be complete")
+
+    expanded = _expand_relation_row_lineages(
+        {
+            upstream_definition: upstream_lineage,
+            definition: base_lineage,
+        },
+        relation_definitions_by_name={
+            upstream_definition.name: upstream_definition,
+            definition.name: definition,
+        },
+        preexpanded_lineages={upstream_definition: upstream_lineage},
+    )
+    return expanded[definition]
 
 
 def _lineage_fact_from_edge(
@@ -333,8 +412,12 @@ def _expand_relation_row_lineages(
     base_lineages: Mapping[_DerivedRelation, ProjectRelationRowLineage],
     *,
     relation_definitions_by_name: Mapping[str, _DerivedRelation],
+    preexpanded_lineages: Mapping[_DerivedRelation, ProjectRelationRowLineage]
+    | None = None,
 ) -> dict[_DerivedRelation, ProjectRelationRowLineage]:
-    expanded: dict[_DerivedRelation, ProjectRelationRowLineage] = {}
+    expanded: dict[_DerivedRelation, ProjectRelationRowLineage] = dict(
+        preexpanded_lineages or {}
+    )
     active: set[_DerivedRelation] = set()
 
     def expand(definition: _DerivedRelation) -> ProjectRelationRowLineage:

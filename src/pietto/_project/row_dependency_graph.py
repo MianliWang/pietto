@@ -198,6 +198,36 @@ def _build_relation_row_dependency_graph(
     relation_let_scope_facts: Mapping[_DerivedRelation, ProjectRelationLetScopeFacts],
 ) -> ProjectRelationRowDependencyGraph:
     state = relation_row_schema_states.get(definition)
+    output_schema = relation_row_schemas.get(definition)
+    upstream_symbol = relation_resolutions.get(definition.from_clause)
+    input_schema = _input_schema(
+        upstream_symbol,
+        source_row_schemas=source_row_schemas,
+        relation_row_schemas=relation_row_schemas,
+    )
+    return build_project_relation_row_dependency_graph(
+        definition=definition,
+        fallback_path=fallback_path,
+        upstream_symbol=upstream_symbol,
+        input_schema=input_schema,
+        output_schema=output_schema,
+        state=state,
+        let_scope_facts=relation_let_scope_facts.get(definition),
+    )
+
+
+def build_project_relation_row_dependency_graph(
+    *,
+    definition: _DerivedRelation,
+    fallback_path: str,
+    upstream_symbol: ProjectSymbol | None,
+    input_schema: ProjectRowSchema | None,
+    output_schema: ProjectRowSchema | None,
+    state: ProjectRelationRowSchemaState | None,
+    let_scope_facts: ProjectRelationLetScopeFacts | None,
+) -> ProjectRelationRowDependencyGraph:
+    """Build one ordinary graph from one complete local row-state bundle."""
+
     if state is None:
         return _non_concrete_graph(
             status=ProjectRowDependencyGraphStatus.BLOCKED,
@@ -209,19 +239,12 @@ def _build_relation_row_dependency_graph(
             reason=_reason_from_row_schema_reason(state.reason),
         )
 
-    output_schema = relation_row_schemas.get(definition)
     if output_schema is None or output_schema.is_unknown:
         return _non_concrete_graph(
             status=ProjectRowDependencyGraphStatus.UNKNOWN,
             reason=ProjectRowDependencyGraphReason.MISSING_ROW_SCHEMA,
         )
 
-    upstream_symbol = relation_resolutions.get(definition.from_clause)
-    input_schema = _input_schema(
-        upstream_symbol,
-        source_row_schemas=source_row_schemas,
-        relation_row_schemas=relation_row_schemas,
-    )
     if upstream_symbol is None or input_schema is None or input_schema.is_unknown:
         return _non_concrete_graph(
             status=ProjectRowDependencyGraphStatus.UNKNOWN,
@@ -229,8 +252,7 @@ def _build_relation_row_dependency_graph(
         )
 
     builder = _GraphBuilder()
-    let_facts = relation_let_scope_facts.get(definition)
-    concrete_let_names = _concrete_let_names(let_facts)
+    concrete_let_names = _concrete_let_names(let_scope_facts)
 
     _add_output_edges(
         builder,
@@ -247,7 +269,7 @@ def _build_relation_row_dependency_graph(
         fallback_path=fallback_path,
         upstream_symbol=upstream_symbol,
         input_schema=input_schema,
-        let_facts=let_facts,
+        let_facts=let_scope_facts,
     )
     return ProjectRelationRowDependencyGraph(
         status=ProjectRowDependencyGraphStatus.CONCRETE,

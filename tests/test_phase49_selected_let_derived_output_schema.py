@@ -21,6 +21,14 @@ from pietto._project.model import (
     ProjectSemanticResult,
     build_empty_project_semantic_result,
 )
+from pietto._project.row_dependency_graph import (
+    ProjectRowDependencyGraphReason,
+    ProjectRowDependencyGraphStatus,
+)
+from pietto._project.row_lineage import (
+    ProjectRowLineageReason,
+    ProjectRowLineageStatus,
+)
 from pietto.ast_nodes import QueryDef, SourceDef, TableDef
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -318,10 +326,26 @@ def test_upstream_non_concrete_and_grouped_outputs_remain_non_concrete(
     _assert_state(
         semantic_result,
         grouped,
-        ProjectRelationRowSchemaStatus.DEFERRED,
-        ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR,
+        ProjectRelationRowSchemaStatus.UNKNOWN,
+        ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT,
     )
-    assert grouped not in semantic_result.model.relation_row_schemas
+    grouped_schema = semantic_result.model.relation_row_schemas[grouped]
+    assert grouped_schema.is_unknown
+    assert grouped_schema.fields == {}
+    assert grouped not in semantic_result.model.relation_aggregate_result_facts
+    grouped_graph = semantic_result.model.relation_row_dependency_graphs[grouped]
+    assert grouped_graph.status is ProjectRowDependencyGraphStatus.UNKNOWN
+    assert grouped_graph.reason is (
+        ProjectRowDependencyGraphReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
+    )
+    assert grouped_graph.nodes == ()
+    assert grouped_graph.edges == ()
+    grouped_lineage = semantic_result.model.relation_row_lineages[grouped]
+    assert grouped_lineage.status is ProjectRowLineageStatus.UNKNOWN
+    assert grouped_lineage.reason is (
+        ProjectRowLineageReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
+    )
+    assert grouped_lineage.facts == ()
 
 
 def test_multi_hop_projection_preserves_non_source_native_field_def(

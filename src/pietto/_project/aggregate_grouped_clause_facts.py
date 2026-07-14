@@ -10,11 +10,13 @@ from pietto._project.aggregate_grouped_schema import (
     ProjectAggregateGroupedSchemaFinalization,
     ProjectGroupKeyFact,
     ProjectGroupKeySchemaFacts,
+    _build_project_group_key_schema_attempt,
     build_project_aggregate_grouped_schema_finalization,
     build_project_group_key_schema_facts,
 )
 from pietto._project.let_scope_facts import (
     ProjectLetScopeFactsStatus,
+    ProjectRelationLetScopeFacts,
     build_project_relation_let_scope_facts,
 )
 from pietto._project.model import (
@@ -283,6 +285,7 @@ def build_project_aggregate_grouped_clause_readiness(
     input_schema: ProjectRowSchema,
     upstream_symbol: ProjectSymbol,
     fallback_path: str,
+    let_scope_facts: ProjectRelationLetScopeFacts | None = None,
 ) -> ProjectAggregateGroupedClauseReadiness:
     """Build atomic private clause facts over exactly one Slice 7 finalization."""
 
@@ -291,6 +294,7 @@ def build_project_aggregate_grouped_clause_readiness(
         input_schema=input_schema,
         upstream_symbol=upstream_symbol,
         fallback_path=fallback_path,
+        let_scope_facts=let_scope_facts,
     )
     if finalization.state.status is not ProjectRelationRowSchemaStatus.CONCRETE:
         return ProjectAggregateGroupedClauseReadiness(
@@ -310,6 +314,7 @@ def build_project_aggregate_grouped_clause_readiness(
         upstream_symbol=upstream_symbol,
         fallback_path=fallback_path,
         finalization=finalization,
+        let_scope_facts=let_scope_facts,
     )
     if evidence.missing:
         return _failed_readiness(
@@ -336,6 +341,7 @@ def build_project_aggregate_grouped_clause_readiness(
             upstream_symbol=upstream_symbol,
             finalization=finalization,
             outputs=evidence.outputs,
+            let_scope_facts=let_scope_facts,
         )
 
     order_facts: tuple[ProjectRelationClauseDependencyFact, ...] = ()
@@ -347,6 +353,7 @@ def build_project_aggregate_grouped_clause_readiness(
             input_schema=input_schema,
             group_keys=evidence.group_keys,
             outputs=evidence.outputs,
+            let_scope_facts=let_scope_facts,
         )
 
     internal_reasons = (satisfying_reason, order_reason)
@@ -397,6 +404,7 @@ def build_project_aggregate_grouped_clause_readiness(
             definition=definition,
             input_schema=input_schema,
             upstream_symbol=upstream_symbol,
+            let_scope_facts=let_scope_facts,
         )
         if order_reason is not None:
             status = (
@@ -447,17 +455,32 @@ def _retained_evidence(
     upstream_symbol: ProjectSymbol,
     fallback_path: str,
     finalization: ProjectAggregateGroupedSchemaFinalization,
+    let_scope_facts: ProjectRelationLetScopeFacts | None = None,
 ) -> _Evidence:
     missing = False
     conflicting = False
     group_keys: tuple[ProjectGroupKeyFact, ...] = ()
     if definition.group_by_clause is not None:
-        group_facts = build_project_group_key_schema_facts(
-            definition=definition,
-            input_schema=input_schema,
-            upstream_symbol=upstream_symbol,
-            fallback_path=fallback_path,
-        )
+        if let_scope_facts is None:
+            group_facts = build_project_group_key_schema_facts(
+                definition=definition,
+                input_schema=input_schema,
+                upstream_symbol=upstream_symbol,
+                fallback_path=fallback_path,
+            )
+        else:
+            group_attempt = _build_project_group_key_schema_attempt(
+                definition=definition,
+                input_schema=input_schema,
+                upstream_symbol=upstream_symbol,
+                fallback_path=fallback_path,
+                let_scope_facts=let_scope_facts,
+            )
+            group_facts = (
+                group_attempt.facts
+                if isinstance(group_attempt.facts, ProjectGroupKeySchemaFacts)
+                else None
+            )
         if group_facts is None:
             missing = True
         elif not isinstance(group_facts, ProjectGroupKeySchemaFacts):
@@ -568,6 +591,7 @@ def _satisfying_facts(
     upstream_symbol: ProjectSymbol,
     finalization: ProjectAggregateGroupedSchemaFinalization,
     outputs: Mapping[str, _OutputTarget],
+    let_scope_facts: ProjectRelationLetScopeFacts | None = None,
 ) -> tuple[
     tuple[ProjectRelationClauseDependencyFact, ...],
     ProjectAggregateGroupedClauseReadinessStatus | None,
@@ -599,7 +623,11 @@ def _satisfying_facts(
     }
     if isinstance(upstream_definition, (TableDef, QueryDef)):
         relation_row_schemas[upstream_definition] = semantic_input
-    let_expressions = admitted_relation_let_expressions(definition, semantic_input)
+    let_expressions = (
+        let_scope_facts.binding_expressions
+        if let_scope_facts is not None
+        else admitted_relation_let_expressions(definition, semantic_input)
+    )
     result_predicates, diagnostics = check_satisfying_clauses(
         Script(
             span=definition.span,
@@ -742,6 +770,7 @@ def _grouped_order_facts(
     input_schema: ProjectRowSchema,
     group_keys: tuple[ProjectGroupKeyFact, ...],
     outputs: Mapping[str, _OutputTarget],
+    let_scope_facts: ProjectRelationLetScopeFacts | None = None,
 ) -> tuple[
     tuple[ProjectRelationClauseDependencyFact, ...],
     ProjectAggregateGroupedClauseReadinessStatus | None,
@@ -750,7 +779,11 @@ def _grouped_order_facts(
     if definition.order_by_clause is None:
         return (), None, None
     semantic_input = project_row_schema_to_semantic_row_schema(input_schema)
-    let_expressions = admitted_relation_let_expressions(definition, semantic_input)
+    let_expressions = (
+        let_scope_facts.binding_expressions
+        if let_scope_facts is not None
+        else admitted_relation_let_expressions(definition, semantic_input)
+    )
     group_identities = {fact.field_identity for fact in group_keys}
     selected_group_targets: dict[str, _OutputTarget] = {}
     for target in outputs.values():
@@ -833,6 +866,7 @@ def _no_group_order_reason(
     definition: _DerivedRelation,
     input_schema: ProjectRowSchema,
     upstream_symbol: ProjectSymbol,
+    let_scope_facts: ProjectRelationLetScopeFacts | None = None,
 ) -> ProjectAggregateGroupedClauseReadinessReason | None:
     if definition.order_by_clause is None:
         return None
@@ -841,11 +875,13 @@ def _no_group_order_reason(
         return (
             ProjectAggregateGroupedClauseReadinessReason.UNAVAILABLE_CLAUSE_DEPENDENCY
         )
-    let_facts = build_project_relation_let_scope_facts(
-        definition=definition,
-        input_schema=input_schema,
-        upstream_definition=upstream_definition,
-    )
+    let_facts = let_scope_facts
+    if let_facts is None:
+        let_facts = build_project_relation_let_scope_facts(
+            definition=definition,
+            input_schema=input_schema,
+            upstream_definition=upstream_definition,
+        )
     if let_facts.status not in {
         ProjectLetScopeFactsStatus.ABSENT,
         ProjectLetScopeFactsStatus.CONCRETE,

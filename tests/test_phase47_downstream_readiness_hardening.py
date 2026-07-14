@@ -10,6 +10,7 @@ from pietto._project.model import (
     ProjectParseCheckResult,
     ProjectRowFieldNullability,
     ProjectRowFieldProvenanceKind,
+    ProjectRowResultRole,
     ProjectSemanticResult,
     build_empty_project_semantic_result,
 )
@@ -224,7 +225,13 @@ def test_phase50_aggregate_projection_schema_remains_absent(tmp_path: Path) -> N
     assert semantic_result.diagnostics == ()
     assert semantic_result.model is not None
     projected = _derived_definition(parse_result, "projected")
-    assert projected not in semantic_result.model.relation_row_schemas
+    schema = semantic_result.model.relation_row_schemas[projected]
+    assert tuple(schema.fields) == ("total",)
+    assert schema.fields["total"].resolved_type.name == "Int"
+    assert schema.fields["total"].result_role is (ProjectRowResultRole.AGGREGATE_RESULT)
+    assert tuple(semantic_result.model.relation_aggregate_result_facts[projected]) == (
+        "total",
+    )
 
 
 def test_phase50_grouped_direct_field_schema_remains_absent(tmp_path: Path) -> None:

@@ -305,11 +305,18 @@ def test_non_concrete_row_schema_states_produce_non_concrete_graphs(
     assert grouped_semantic.model is not None
     grouped = _derived_definition(grouped_parse, "grouped")
     grouped_graph = grouped_semantic.model.relation_row_dependency_graphs[grouped]
-    assert grouped_graph.status is ProjectRowDependencyGraphStatus.DEFERRED
-    assert (
-        grouped_graph.reason
-        is ProjectRowDependencyGraphReason.DEFERRED_PHASE48_BEHAVIOR
+    assert grouped_graph.status is ProjectRowDependencyGraphStatus.CONCRETE
+    assert grouped_graph.reason is (
+        ProjectRowDependencyGraphReason.DIRECT_SOURCE_CONCRETE
     )
+    assert _edge_values(
+        grouped_graph,
+        ProjectRowDependencyEdgeKind.DIRECT_PROJECTION,
+    ) == (("status", "users.status"),)
+    assert _edge_values(
+        grouped_graph,
+        ProjectRowDependencyEdgeKind.AGGREGATE_ARGUMENT,
+    ) == (("total", "users.score"),)
 
     assert cycle_semantic.model is not None
     first = _derived_definition(cycle_parse, "first")

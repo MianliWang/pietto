@@ -1343,38 +1343,73 @@ def test_production_state_dependency_lineage_and_downstream_remain_inactive(
     assert semantic_result.model is not None
     assert semantic_result.diagnostics == ()
     model = semantic_result.model
-    assert model.relation_aggregate_result_facts == {}
+    aggregate_only = _derived_definition(parse_result, "aggregate_only")
+    grouped = _derived_definition(parse_result, "grouped")
+    pure_grouping = _derived_definition(parse_result, "pure_grouping")
+    assert tuple(model.relation_aggregate_result_facts) == (
+        aggregate_only,
+        grouped,
+    )
 
-    for name in ("aggregate_only", "grouped", "pure_grouping"):
-        definition = _derived_definition(parse_result, name)
-        assert definition not in model.relation_row_schemas
+    for definition, expected_fields in (
+        (aggregate_only, ("total",)),
+        (grouped, ("status", "total")),
+    ):
         state = model.relation_row_schema_states[definition]
-        assert state.status is ProjectRelationRowSchemaStatus.DEFERRED
-        assert state.reason is ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR
-        assert state.schema is None
+        assert state.status is ProjectRelationRowSchemaStatus.CONCRETE
+        assert state.reason is ProjectRelationRowSchemaReason.DIRECT_SOURCE_CONCRETE
+        schema = state.schema
+        assert schema is not None
+        assert schema is model.relation_row_schemas[definition]
+        assert tuple(schema.fields) == expected_fields
+        assert tuple(model.relation_aggregate_result_facts[definition]) == ("total",)
         graph = model.relation_row_dependency_graphs[definition]
-        assert graph.status is ProjectRowDependencyGraphStatus.DEFERRED
-        assert graph.reason is ProjectRowDependencyGraphReason.DEFERRED_PHASE48_BEHAVIOR
-        assert graph.nodes == ()
-        assert graph.edges == ()
+        assert graph.status is ProjectRowDependencyGraphStatus.CONCRETE
+        assert graph.reason is ProjectRowDependencyGraphReason.DIRECT_SOURCE_CONCRETE
+        assert graph.edges
         lineage = model.relation_row_lineages[definition]
-        assert lineage.status is ProjectRowLineageStatus.DEFERRED
-        assert lineage.reason is ProjectRowLineageReason.DEFERRED_PHASE48_BEHAVIOR
-        assert lineage.facts == ()
+        assert lineage.status is ProjectRowLineageStatus.CONCRETE
+        assert lineage.reason is ProjectRowLineageReason.DIRECT_SOURCE_CONCRETE
+        assert lineage.facts
+
+    pure_state = model.relation_row_schema_states[pure_grouping]
+    assert pure_grouping not in model.relation_row_schemas
+    assert pure_grouping not in model.relation_aggregate_result_facts
+    assert pure_state.status is ProjectRelationRowSchemaStatus.DEFERRED
+    assert pure_state.reason is (
+        ProjectRelationRowSchemaReason.AGGREGATE_OR_GROUPED_DEFERRED
+    )
+    pure_graph = model.relation_row_dependency_graphs[pure_grouping]
+    assert pure_graph.status is ProjectRowDependencyGraphStatus.DEFERRED
+    assert pure_graph.reason is (
+        ProjectRowDependencyGraphReason.AGGREGATE_OR_GROUPED_DEFERRED
+    )
+    assert pure_graph.edges == ()
+    pure_lineage = model.relation_row_lineages[pure_grouping]
+    assert pure_lineage.status is ProjectRowLineageStatus.DEFERRED
+    assert pure_lineage.reason is (
+        ProjectRowLineageReason.AGGREGATE_OR_GROUPED_DEFERRED
+    )
+    assert pure_lineage.facts == ()
 
     downstream = _derived_definition(parse_result, "downstream")
-    assert downstream not in model.relation_row_schemas
     downstream_state = model.relation_row_schema_states[downstream]
-    assert downstream_state.status is ProjectRelationRowSchemaStatus.DEFERRED
-    assert downstream_state.reason is ProjectRelationRowSchemaReason.UPSTREAM_DEFERRED
+    assert downstream_state.status is ProjectRelationRowSchemaStatus.CONCRETE
+    assert downstream_state.reason is (
+        ProjectRelationRowSchemaReason.RELATION_UPSTREAM_CONCRETE
+    )
+    downstream_schema = downstream_state.schema
+    assert downstream_schema is not None
+    assert downstream_schema is model.relation_row_schemas[downstream]
+    assert tuple(downstream_schema.fields) == ("total",)
     assert model.relation_row_dependency_graphs[downstream].reason is (
-        ProjectRowDependencyGraphReason.UPSTREAM_DEFERRED
+        ProjectRowDependencyGraphReason.RELATION_UPSTREAM_CONCRETE
     )
-    assert model.relation_row_dependency_graphs[downstream].edges == ()
+    assert model.relation_row_dependency_graphs[downstream].edges
     assert model.relation_row_lineages[downstream].reason is (
-        ProjectRowLineageReason.UPSTREAM_DEFERRED
+        ProjectRowLineageReason.RELATION_UPSTREAM_CONCRETE
     )
-    assert model.relation_row_lineages[downstream].facts == ()
+    assert model.relation_row_lineages[downstream].facts
 
     serialized = json.dumps(
         project_check_result_to_json_dict(

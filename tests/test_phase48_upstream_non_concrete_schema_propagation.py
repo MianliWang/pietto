@@ -236,7 +236,11 @@ def test_computed_alias_concrete_while_aggregate_grouped_stay_deferred(
     assert tuple(computed_schema.fields) == ("total",)
     assert computed_schema.fields["total"].resolved_type.name == "Int"
     assert computed_schema.fields["total"].field_def is None
-    assert aggregate not in semantic_result.model.relation_row_schemas
+    aggregate_schema = semantic_result.model.relation_row_schemas[aggregate]
+    assert tuple(aggregate_schema.fields) == ("total",)
+    assert tuple(semantic_result.model.relation_aggregate_result_facts[aggregate]) == (
+        "total",
+    )
     assert grouped not in semantic_result.model.relation_row_schemas
     _assert_state(
         semantic_result,
@@ -248,14 +252,15 @@ def test_computed_alias_concrete_while_aggregate_grouped_stay_deferred(
     _assert_state(
         semantic_result,
         aggregate,
-        ProjectRelationRowSchemaStatus.DEFERRED,
-        ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR,
+        ProjectRelationRowSchemaStatus.CONCRETE,
+        ProjectRelationRowSchemaReason.DIRECT_SOURCE_CONCRETE,
+        schema_is_relation_schema=True,
     )
     _assert_state(
         semantic_result,
         grouped,
         ProjectRelationRowSchemaStatus.DEFERRED,
-        ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR,
+        ProjectRelationRowSchemaReason.AGGREGATE_OR_GROUPED_DEFERRED,
     )
 
     with_let_schema = semantic_result.model.relation_row_schemas[with_let]

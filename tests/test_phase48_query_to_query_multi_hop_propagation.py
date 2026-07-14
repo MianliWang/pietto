@@ -573,14 +573,30 @@ def test_computed_alias_concrete_but_let_aggregate_grouped_surfaces_defer(
         seed,
         computed,
         with_let,
+        aggregate,
     )
     computed_schema = semantic_result.model.relation_row_schemas[computed]
     assert tuple(computed_schema.fields) == ("total",)
     assert computed_schema.fields["total"].field_def is None
     assert computed_schema.fields["total"].resolved_type.name == "Int"
     assert tuple(semantic_result.model.relation_row_schemas[with_let].fields) == ("id",)
-    assert aggregate not in semantic_result.model.relation_row_schemas
+    assert tuple(semantic_result.model.relation_row_schemas[aggregate].fields) == (
+        "total",
+    )
+    aggregate_state = semantic_result.model.relation_row_schema_states[aggregate]
+    assert aggregate_state.status is ProjectRelationRowSchemaStatus.CONCRETE
+    assert aggregate_state.reason is (
+        ProjectRelationRowSchemaReason.RELATION_UPSTREAM_CONCRETE
+    )
+    assert tuple(semantic_result.model.relation_aggregate_result_facts[aggregate]) == (
+        "total",
+    )
     assert grouped not in semantic_result.model.relation_row_schemas
+    grouped_state = semantic_result.model.relation_row_schema_states[grouped]
+    assert grouped_state.status is ProjectRelationRowSchemaStatus.DEFERRED
+    assert grouped_state.reason is (
+        ProjectRelationRowSchemaReason.AGGREGATE_OR_GROUPED_DEFERRED
+    )
 
 
 def test_project_json_v2_does_not_expose_slice5_private_facts(tmp_path: Path) -> None:

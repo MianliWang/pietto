@@ -1403,6 +1403,130 @@ release action. Slice 9 completion still requires a separately authorized
 Gate 3 exact commit, one normal push, and natural CI `completed / success` with
 exact `headSha` match.
 
+### Slice 10 Gate 2 Bounded Implementation Status
+
+Slices 1 through 9 are complete through their separately authorized publish
+gates. Slice 9 is complete at
+`8370045ba686e99273b6b0138378fd09bac0806f`; natural CI run `29310398020`
+completed successfully with exact `headSha` match. The separate CI
+interpreter-integrity repair is complete at the current trusted baseline
+`9908d7f15594cc27d45885613a4a4bf350bea32d`; natural CI run `29314629944`
+proved real Python 3.12 and 3.13 execution and completed successfully with
+exact `headSha` match. Earlier Slice 1 through 9 Gate 2 status text remains
+per-gate historical evidence and is superseded for current lifecycle reporting
+by this additive Slice 10 status.
+
+Phase 51 remains ACTIVE and incomplete. Phase 52–60 remain UNSTARTED. Slice 10
+is the current `Downstream Propagation And Qualification` consolidated Gate 2.
+This status does not preclaim Gate 2 validation success, Gate 3 success,
+Slice 10 completion, or Phase 51 completion.
+
+The controlling architecture is Gate 1 Option B: one private relation-level
+persistence adapter at
+`src/pietto/_project/aggregate_grouped_persistence.py`, while `model.py`
+retains topology, integrated fixpoint, map ownership, and completed-definition
+tracking. The adapter does not import or mutate `ProjectSemanticModel`; it
+returns one validated all-or-none bundle for atomic model-owned persistence.
+No new `ProjectSemanticModel` field and no seventh production map are added.
+
+The exact private frozen/slots carrier is
+`ProjectAggregateGroupedPersistenceBundle`, with fields in exact order:
+`definition`, `let_scope_facts`, `dependency_lineage_readiness`, `state`, and
+`aggregate_result_facts`. The exact keyword-only builder is:
+
+```python
+build_project_aggregate_grouped_persistence(
+    *,
+    definition: TableDef | QueryDef,
+    input_schema: ProjectRowSchema,
+    upstream_symbol: ProjectSymbol,
+    upstream_lineage: ProjectRelationRowLineage | None,
+    fallback_path: str,
+) -> ProjectAggregateGroupedPersistenceBundle
+```
+
+For each eligible aggregate/grouped definition in one complete project
+evaluation, the adapter builds one canonical relation let-fact object, passes
+that identical object through optional keyword-only Slice 7–9 injection seams,
+and calls Slice 9 readiness exactly once. The identical let facts are persisted
+in `relation_let_scope_facts`. Omitted injection preserves existing helper-only
+behavior. Unresolved, cyclic, upstream-unknown, upstream-deferred, or
+upstream-blocked definitions receive zero adapter and zero Slice 9 calls.
+
+Only after the immediate upstream has a complete stable terminal
+state/schema/graph/lineage bundle may the adapter run. `model.py` validates the
+complete local result, writes or clears `relation_row_schemas`,
+`relation_row_schema_states`, `relation_let_scope_facts`,
+`relation_aggregate_result_facts`, `relation_row_dependency_graphs`, and
+`relation_row_lineages` as one logical operation, and marks the definition
+completed last. Downstream consumers read only completed concrete upstream
+bundles. No schema-only provisional state, partial insertion, stale concrete
+payload, or first/last duplicate winner is permitted.
+
+A concrete aggregate/grouped result persists the exact Slice 7 schema/state,
+complete selected aggregate facts in select order, canonical let facts, and
+the exact Slice 9 graph and lineage by identity. Aggregate/grouped definitions
+skip generic graph/lineage rebuilding and build-then-overwrite. A non-concrete
+result clears schema/facts as required and stores matching empty graph/lineage
+payloads. An already non-concrete Slice 7 finalization retains its exact state;
+an outer Slice 8/9 failure over a nested concrete state uses a normalized empty
+outer state. Unknown gets an exact empty unknown schema; deferred and blocked
+get no schema; no non-concrete aggregate-fact map entry is retained.
+
+After atomic persistence and completed marking, the existing ordinary relation
+path supports table/query one-hop and multi-hop propagation, including mixed
+chains, selected aggregate aliases, selected bare or renamed group keys, and
+selected-let aggregate outputs. Downstream fields copy type and nullability,
+reset their result role to `ORDINARY_ROW_VALUE`, and preserve ancestry only
+through graph and lineage.
+
+Downstream lookup remains limited to a bare selected output or the immediate
+upstream relation qualifier plus a selected output. Original-source qualifiers
+beyond a derived relation, earlier-relation or lineage-path qualifiers,
+multi-part qualifiers, unselected group keys, hidden aggregate arguments, and
+hidden lets remain invalid. No new syntax or public lookup path is added.
+
+Slice 8 `GROUP_KEY_INPUT`, `SATISFYING_OUTPUT`, `GROUPED_ORDER_OUTPUT`, and
+limit-presence facts remain transient, unpersisted, and unserialized. The
+composed Slice 9 carrier also remains transient. Pure grouping remains
+`DEFERRED / AGGREGATE_OR_GROUPED_DEFERRED` with no schema/facts, empty deferred
+graph/lineage, and inactive downstream. Invalid selected-let grouping remains
+`UNKNOWN / INVALID_AGGREGATE_OR_GROUPED_OUTPUT` with an empty unknown schema
+and empty unknown graph/lineage.
+
+No diagnostic code or message changes. Existing `PIE-S2102` may become
+reachable only for a genuinely hidden, missing, or wrongly qualified field
+after a concrete upstream activates. `PIE-S2301`, `PIE-S2302`, their ordering,
+upstream non-concrete suppression, and diagnostic-free duplicate private
+unknown behavior remain unchanged.
+
+The bounded contract is
+`docs/spec/phase51-downstream-propagation-qualification-v1.md`. The exact Gate
+2 allowlist is 38 paths: seven private source paths, twenty behavior-test
+paths, this plan and the new contract, eight mechanical Phase 11/12 compiler
+hash locks, and one mechanical Phase 33 `project_private` lock. The exact
+untracked set is the adapter, focused Slice 10 test, and contract. `_project`
+count becomes exactly 16. Every other repository path remains forbidden.
+
+Gate 2 reuses only the prepared Slice 10 environment and caches offline,
+write-formats exactly 27 substantive Python paths before digest refresh and all
+36 Python allowlist paths afterward, refreshes only the eight identical
+compiler `BOUNDARY_HASH` values and the Phase 33 count/digest, proves the exact
+standard-library AST/static inventory of 283 selected top-level test functions,
+26 deselected top-level functions, 44 selector files, and 16 focused top-level
+functions. Pytest parametrization expands Validation E–J to 462 passed and 26
+deselected: Validation F is 278 passed, 8 deselected, and Validation G is 110
+passed, 17 deselected. Complete evidence is recorded at
+`/tmp/pietto-phase51-slice10-gate2-evidence-and-diff.txt`.
+
+Gate 2 performs no staging, commit, push, fetch, GitHub, CI, sync, install,
+package, tag, version, or release action. A Gate 2 PASS still requires a
+separately authorized Gate 3 exact commit, one normal push, and natural CI
+`completed / success` with exact `headSha` before Slice 10 can be called
+complete. Slice 11 retains cross-phase readiness, privacy, diagnostic-
+transition, and compatibility closure; Slice 12 remains completion audit and
+status lock only.
+
 ## Cross-slice Gate Discipline
 
 Each slice follows the same independent discipline:
