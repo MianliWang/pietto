@@ -1610,6 +1610,53 @@ authorized Gate 3 exact twenty-path commit, one normal push, and natural CI
 complete. Slice 12 remains separately gated completion-audit and status-lock
 work. Phase 51 remains ACTIVE and incomplete.
 
+### Slice 12 Gate 2 Bounded Implementation Status
+
+Slices 1 through 11 are complete through their separately authorized publish
+gates. Earlier Slice 1 through 11 Gate 2 status text remains per-gate
+historical evidence and is superseded only for current lifecycle reporting by
+this additive Slice 12 status.
+
+Phase 51 remains ACTIVE and incomplete through Gate 2. Phase 52–60 remain
+UNSTARTED. Slice 12 `Completion Audit And Status Lock` is current but
+incomplete. The exact route is `tests/docs/status-only`. This status does not
+preclaim Gate 2 validation success, the Slice 12 Gate 3 commit or push, natural
+CI success, Slice 12 completion, Phase 51 completion, or Phase 52 activation.
+
+Slice 12 creates the normative completion contract at
+`docs/spec/phase51-completion-audit-and-status-lock-v1.md` and the focused
+static audit at `tests/test_phase51_completion_audit_and_status_lock.py`. The
+focused file contains exactly ten top-level helpers, eleven top-level test
+functions, and eleven pytest items, with no parametrization.
+
+The exact four-path Gate 2 allowlist is:
+
+1. `docs/plan/phase-51-aggregate-grouped-output-schema-foundation.md`
+2. `docs/spec/pietto-active-roadmap-phase51-60-v1.md`
+3. `docs/spec/phase51-completion-audit-and-status-lock-v1.md`
+4. `tests/test_phase51_completion_audit_and_status_lock.py`
+
+The expected bounded validation result is `499 passed, 29 deselected`, and the
+expected future clean full-suite total is `5750 passed`. These are expected
+conditions, not claims that Gate 2 or future natural CI has passed.
+
+The compiler digest and all eight `BOUNDARY_HASH` values remain
+`2ed54ba89c64c89d9d9bfc26f83041faf0addb335f086bd2e75dc2a567be775c`.
+The `_project` source count remains 16 with digest
+`c032a23c7f0477df58cacc9374e2882bebad346bec9a539899878da062248013`,
+and the Phase 33 `project_private` count/digest lock remains unchanged. Package
+version remains `0.1.0`. Slice 12 changes no production source, compiler,
+`_project`, grammar, generated artifact, AST, semantic, IR, SQL, CLI, public
+artifact or API, diagnostic, runtime, database, dependency, workflow, package,
+lockfile, version, tag, release, publish, upload, signing, or attestation
+surface.
+
+Phase 51 is complete only after the Slice 12 Gate 3 commit, one normal push to
+`main`, and natural CI `completed / success` whose `headSha` exactly matches
+that commit. No post-CI repository status-flip commit is planned or required.
+After and only after that condition, Phase 51 is COMPLETED, Phase 52–60 remain
+UNSTARTED, and the exact next gate is Phase 52 Slice 1 Gate 0 and Gate 1.
+
 ## Cross-slice Gate Discipline
 
 Each slice follows the same independent discipline:

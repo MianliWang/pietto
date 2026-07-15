@@ -462,3 +462,31 @@ following without a separately approved gate:
 
 No reconciliation entries exist. This is the initial base route. Future valid
 entries may only be appended at EOF under the protocol above.
+
+### Reconciliation 1 — Phase 51 Conditional Completion And Phase 52 Handoff
+
+1. The previous entry is the initial base route; no reconciliation entry
+   preceded this first append-only reconciliation.
+2. Trusted repository evidence through Slice 11 is HEAD
+   `5138d28ee2d0a258076a68a6f98c74ce15a93bf8` and natural CI run
+   `29371109641`, which completed successfully for that exact `headSha`, with
+   real `CPython 3.12.13` and `CPython 3.13.14` jobs each reporting
+   `5739 passed`.
+3. The old and new Phase 51 names, routes, exact 12-slice count, owners, and
+   delivery classes are identical.
+4. Owner additions, owner removals, and owner transfers are all none.
+5. Before activation, Phase 51 remains ACTIVE and incomplete, and Phase 52–60
+   remain UNSTARTED.
+6. Activation requires the exact Slice 12 commit, one normal push to `main`,
+   and the natural CI run to be `completed / success` with `headSha` exactly
+   matching that commit.
+7. After and only after activation, Phase 51 is COMPLETED and Phase 52–60
+   remain UNSTARTED.
+8. No deferral becomes anonymous, and this reconciliation authorizes no Phase
+   52 implementation and no compiler, public, runtime, database, version, tag,
+   release, publish, upload, signing, or attestation activity.
+
+The exact future Slice 12 commit SHA and natural CI run ID belong only in Gate
+3 evidence. No post-CI repository status-flip commit is planned or required.
+Phase 52 is the next planned phase but remains UNSTARTED; its exact next gate is
+Phase 52 Slice 1 Gate 0 and Gate 1.
