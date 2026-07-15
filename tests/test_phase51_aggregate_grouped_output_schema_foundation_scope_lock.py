@@ -123,6 +123,19 @@ ALLOWED_PHASE51_SLICE1_GATE2_PATHS = {
     "tests/test_phase51_aggregate_grouped_output_schema_foundation_scope_lock.py",
 }
 
+ALLOWED_PHASE52_SLICE1_GATE2_PATHS = {
+    "docs/plan/phase-52-core-type-system-capability-foundation.md",
+    "docs/spec/phase52-core-type-system-capability-foundation-scope-lock-v1.md",
+    "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
+    "docs/spec/pietto-active-roadmap-phase51-60-v1.md",
+    "tests/test_phase51_aggregate_grouped_output_schema_foundation_scope_lock.py",
+    "tests/test_phase51_aggregate_only_project_row_schema.py",
+    "tests/test_phase51_grouped_aggregate_project_row_schema.py",
+    "tests/test_phase51_selected_let_accepted_expression_aggregate.py",
+    "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
+    "tests/test_phase51_completion_audit_and_status_lock.py",
+}
+
 PROTECTED_PATHS = (
     "README.md",
     "AGENTS.md",
@@ -642,7 +655,11 @@ def test_historical_roadmap_package_tag_goldens_protected_diffs_and_dirty_set() 
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
     for relative_path in PROTECTED_PATHS:
         assert _git_output(["diff", "--", relative_path]) == "", relative_path
-    assert _dirty_paths() in (set(), ALLOWED_PHASE51_SLICE1_GATE2_PATHS)
+    assert _dirty_paths() in (
+        set(),
+        ALLOWED_PHASE51_SLICE1_GATE2_PATHS,
+        ALLOWED_PHASE52_SLICE1_GATE2_PATHS,
+    )
 
 
 def test_static_test_imports_and_git_helper_are_literal_and_read_only() -> None:

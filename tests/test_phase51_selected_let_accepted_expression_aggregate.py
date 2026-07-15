@@ -81,6 +81,19 @@ EXPECTED_GATE2_PATHS = {
     "tests/test_phase51_selected_let_accepted_expression_aggregate.py",
 }
 
+PHASE52_SLICE1_GATE2_PATHS = {
+    "docs/plan/phase-52-core-type-system-capability-foundation.md",
+    "docs/spec/phase52-core-type-system-capability-foundation-scope-lock-v1.md",
+    "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
+    "docs/spec/pietto-active-roadmap-phase51-60-v1.md",
+    "tests/test_phase51_aggregate_grouped_output_schema_foundation_scope_lock.py",
+    "tests/test_phase51_aggregate_only_project_row_schema.py",
+    "tests/test_phase51_grouped_aggregate_project_row_schema.py",
+    "tests/test_phase51_selected_let_accepted_expression_aggregate.py",
+    "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
+    "tests/test_phase51_completion_audit_and_status_lock.py",
+}
+
 AggregateRow = tuple[SelectItem, ProjectRowField, ProjectAggregateResultFact]
 
 
@@ -781,7 +794,6 @@ def test_plan_contract_versions_protected_boundaries_and_exact_dirty_set() -> No
     assert 'name = "ruff"\nversion = "0.15.21"' in lock
 
     protected_paths = (
-        "docs/spec/pietto-active-roadmap-phase51-60-v1.md",
         "docs/spec/pietto-roadmap-phase45-60-v1.md",
         "docs/spec/phase51-aggregate-grouped-output-schema-foundation-scope-lock-v1.md",
         "docs/spec/phase51-private-result-role-output-identity-v1.md",
@@ -826,7 +838,7 @@ def test_plan_contract_versions_protected_boundaries_and_exact_dirty_set() -> No
         text=True,
     )
     dirty_paths = {line[3:] for line in status.stdout.splitlines()}
-    assert dirty_paths in (set(), EXPECTED_GATE2_PATHS)
+    assert dirty_paths in (set(), EXPECTED_GATE2_PATHS, PHASE52_SLICE1_GATE2_PATHS)
 
 
 def _aggregate_rows(

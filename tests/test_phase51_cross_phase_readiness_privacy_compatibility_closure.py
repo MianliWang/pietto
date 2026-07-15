@@ -77,6 +77,23 @@ EXPECTED_UNTRACKED_PATHS = {
     "docs/spec/phase51-cross-phase-readiness-privacy-compatibility-closure-v1.md",
     "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
 }
+PHASE52_GATE2_PATHS = {
+    "docs/plan/phase-52-core-type-system-capability-foundation.md",
+    "docs/spec/phase52-core-type-system-capability-foundation-scope-lock-v1.md",
+    "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
+    "docs/spec/pietto-active-roadmap-phase51-60-v1.md",
+    "tests/test_phase51_aggregate_grouped_output_schema_foundation_scope_lock.py",
+    "tests/test_phase51_aggregate_only_project_row_schema.py",
+    "tests/test_phase51_grouped_aggregate_project_row_schema.py",
+    "tests/test_phase51_selected_let_accepted_expression_aggregate.py",
+    "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
+    "tests/test_phase51_completion_audit_and_status_lock.py",
+}
+PHASE52_UNTRACKED_PATHS = {
+    "docs/plan/phase-52-core-type-system-capability-foundation.md",
+    "docs/spec/phase52-core-type-system-capability-foundation-scope-lock-v1.md",
+    "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
+}
 BOUNDARY_PATHS = (
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
@@ -1046,11 +1063,15 @@ def test_slice11_contract_plan_allowlist_and_protected_boundaries_are_locked() -
         "docs/spec/pietto-active-roadmap-phase51-60-v1.md" not in EXPECTED_GATE2_PATHS
     )
     dirty_paths = _dirty_paths()
-    assert dirty_paths in (set(), EXPECTED_GATE2_PATHS)
+    assert dirty_paths in (set(), EXPECTED_GATE2_PATHS, PHASE52_GATE2_PATHS)
     untracked_paths = set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
-    assert untracked_paths in (set(), EXPECTED_UNTRACKED_PATHS)
+    assert untracked_paths in (
+        set(),
+        EXPECTED_UNTRACKED_PATHS,
+        PHASE52_UNTRACKED_PATHS,
+    )
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
 
     for relative_path, expected_hash in PROTECTED_HASHES.items():

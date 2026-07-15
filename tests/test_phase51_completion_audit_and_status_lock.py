@@ -101,6 +101,24 @@ SLICE12_UNTRACKED_PATHS = {
     "tests/test_phase51_completion_audit_and_status_lock.py",
 }
 
+PHASE52_GATE2_PATHS = {
+    "docs/plan/phase-52-core-type-system-capability-foundation.md",
+    "docs/spec/phase52-core-type-system-capability-foundation-scope-lock-v1.md",
+    "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
+    "docs/spec/pietto-active-roadmap-phase51-60-v1.md",
+    "tests/test_phase51_aggregate_grouped_output_schema_foundation_scope_lock.py",
+    "tests/test_phase51_aggregate_only_project_row_schema.py",
+    "tests/test_phase51_grouped_aggregate_project_row_schema.py",
+    "tests/test_phase51_selected_let_accepted_expression_aggregate.py",
+    "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
+    "tests/test_phase51_completion_audit_and_status_lock.py",
+}
+PHASE52_UNTRACKED_PATHS = {
+    "docs/plan/phase-52-core-type-system-capability-foundation.md",
+    "docs/spec/phase52-core-type-system-capability-foundation-scope-lock-v1.md",
+    "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
+}
+
 PHASE51_SLICE_ARTIFACTS = (
     (
         "Scope Architecture And Active-roadmap Lock",
@@ -1300,10 +1318,14 @@ def test_static_git_helper_and_exact_slice12_dirty_set_are_locked() -> None:
             values.append(element.value)
         assert tuple(values) in approved_git_calls
 
-    assert _dirty_paths() in (set(), SLICE12_GATE2_PATHS)
+    assert _dirty_paths() in (set(), SLICE12_GATE2_PATHS, PHASE52_GATE2_PATHS)
     untracked_paths = set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
-    assert untracked_paths in (set(), SLICE12_UNTRACKED_PATHS)
+    assert untracked_paths in (
+        set(),
+        SLICE12_UNTRACKED_PATHS,
+        PHASE52_UNTRACKED_PATHS,
+    )
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
     assert _git_output(["diff", "--check"]) == ""

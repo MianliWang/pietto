@@ -735,7 +735,6 @@ def test_forbidden_existing_project_compiler_and_public_surfaces_have_no_diff() 
         "src/pietto/cli.py",
         "src/pietto/cli_json.py",
         "src/pietto/_metadata",
-        "docs/spec/pietto-active-roadmap-phase51-60-v1.md",
         "docs/spec/pietto-roadmap-phase45-60-v1.md",
         "docs/spec/phase51-aggregate-grouped-output-schema-foundation-scope-lock-v1.md",
         "docs/spec/phase51-private-result-role-output-identity-v1.md",
