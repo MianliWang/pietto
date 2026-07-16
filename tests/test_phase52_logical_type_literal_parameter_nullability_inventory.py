@@ -1,0 +1,923 @@
+from __future__ import annotations
+
+import ast
+import hashlib
+import re
+import subprocess
+import tomllib
+from dataclasses import replace
+from pathlib import Path
+from typing import Any, cast
+
+import pytest
+
+import pietto.semantic.capability_inventory as capability_inventory
+from pietto.semantic.capability_facts import (
+    CapabilityDisposition,
+    CapabilityDispositionKind,
+    CapabilityDomain,
+    CapabilityEvidence,
+    CapabilityEvidenceSource,
+    CapabilityFact,
+    CapabilityKey,
+    CapabilityReasonCode,
+    CapabilitySupport,
+)
+from pietto.semantic.capability_lookup import (
+    Absent,
+    Conflict,
+    Found,
+    Unknown,
+    lookup_capability,
+)
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SOURCE_REL = "src/pietto/semantic/capability_inventory.py"
+FACTS_REL = "src/pietto/semantic/capability_facts.py"
+LOOKUP_REL = "src/pietto/semantic/capability_lookup.py"
+SPEC_REL = (
+    "docs/spec/phase52-logical-type-literal-parameter-nullability-inventory-v1.md"
+)
+SELF_REL = "tests/test_phase52_logical_type_literal_parameter_nullability_inventory.py"
+SLICE2_TEST_REL = "tests/test_phase52_private_capability_fact_foundation.py"
+SLICE3_TEST_REL = "tests/test_phase52_fail_closed_capability_lookup.py"
+SOURCE_PATH = REPO_ROOT / SOURCE_REL
+SPEC_PATH = REPO_ROOT / SPEC_REL
+SELF_PATH = REPO_ROOT / SELF_REL
+PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
+
+FACTS_SHA256 = "8a7e7ba8374c59316051f582aecc0c0e797d270fac2ce89a91a55befca562fa9"
+LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26"
+COMPILER_DIGEST = "d68aceaff3bb5391f552a5e68337a56618360059fed53c7ab2c40d050356cdd5"
+SEMANTIC_DIGEST = "30144bbd90085ecc82d8dfcdab2556e7396030eb80057d2fafd343e661b1ffc8"
+PHASE15_SUBSET_DIGEST = (
+    "7407149b4b6a6bf8c4db0a7bd1f48348bd5cee0c544ac48d29a2cfc189fa9ad7"
+)
+PROJECT_PRIVATE_DIGEST = (
+    "c032a23c7f0477df58cacc9374e2882bebad346bec9a539899878da062248013"
+)
+TIER2_MANIFEST_BYTES = 18035
+TIER2_MANIFEST_SHA256 = (
+    "a74e473501185eb2c1912018091d12711fdab8cc80c6a2a2849ceb63e09c5e1f"
+)
+
+SPEC_H2 = (
+    "Status And Authority",
+    "Private Inventory Module And Ordering",
+    "Completeness And Lookup-input Contract",
+    "Logical-type Inventory",
+    "Literal Inventory",
+    "Parameter Inventory",
+    "Nullability Inventory",
+    "Evidence Scope Disposition And Conflict Policy",
+    "Privacy And No-behavior Boundary",
+    "Static Compatibility And Validation Locks",
+    "Slice Ownership And Lifecycle",
+    "Package Release And Future-work Boundary",
+)
+COMPILER_READERS = (
+    "tests/test_phase11_ci_workflow.py",
+    "tests/test_phase11_completion_audit.py",
+    "tests/test_phase11_generated_guard.py",
+    "tests/test_phase11_golden_policy.py",
+    "tests/test_phase11_packaging_smoke.py",
+    "tests/test_phase11_validation_entrypoint.py",
+    "tests/test_phase12_completion_audit.py",
+    "tests/test_phase12_composition_cli_json_goldens.py",
+    "tests/test_phase51_completion_audit_and_status_lock.py",
+    "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
+    "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
+)
+SEMANTIC_READERS = (
+    "tests/test_phase11_completion_audit.py",
+    "tests/test_phase11_planning_audit.py",
+    "tests/test_phase12_order_limit_contract.py",
+    "tests/test_phase12_planning_audit.py",
+    "tests/test_phase13_completion_audit.py",
+    "tests/test_phase13_planning_audit.py",
+    "tests/test_phase14_candidate_decision_audit.py",
+    "tests/test_phase14_completion_audit.py",
+    "tests/test_phase14_planning_audit.py",
+    "tests/test_phase14_relationship_metadata_completion_audit.py",
+    "tests/test_phase15_completion_audit.py",
+    "tests/test_phase16_completion_audit.py",
+    "tests/test_phase16_current_syntax_surface_audit.py",
+    "tests/test_phase16_language_direction_audit.py",
+    "tests/test_phase16_safety_deferral_sql_portability.py",
+    "tests/test_phase21_group_by_hardening_audit.py",
+    "tests/test_phase24_aggregate_expression_arguments_readiness.py",
+    "tests/test_phase24_cli_json_output_hardening.py",
+    "tests/test_phase24_completion_audit.py",
+    "tests/test_phase25_completion_audit.py",
+    "tests/test_phase26_completion_audit.py",
+    "tests/test_phase27_completion_audit.py",
+    "tests/test_phase28_completion_audit.py",
+    "tests/test_phase29_completion_audit.py",
+    "tests/test_phase30_completion_audit.py",
+)
+PHASE15_READER = "tests/test_phase15_semantic_completion_audit.py"
+MODIFIED_READER_PATHS = (
+    "tests/test_phase11_ci_workflow.py",
+    "tests/test_phase11_completion_audit.py",
+    "tests/test_phase11_generated_guard.py",
+    "tests/test_phase11_golden_policy.py",
+    "tests/test_phase11_packaging_smoke.py",
+    "tests/test_phase11_planning_audit.py",
+    "tests/test_phase11_validation_entrypoint.py",
+    "tests/test_phase12_completion_audit.py",
+    "tests/test_phase12_composition_cli_json_goldens.py",
+    "tests/test_phase12_order_limit_contract.py",
+    "tests/test_phase12_planning_audit.py",
+    "tests/test_phase13_completion_audit.py",
+    "tests/test_phase13_planning_audit.py",
+    "tests/test_phase14_candidate_decision_audit.py",
+    "tests/test_phase14_completion_audit.py",
+    "tests/test_phase14_planning_audit.py",
+    "tests/test_phase14_relationship_metadata_completion_audit.py",
+    "tests/test_phase15_completion_audit.py",
+    "tests/test_phase15_semantic_completion_audit.py",
+    "tests/test_phase16_completion_audit.py",
+    "tests/test_phase16_current_syntax_surface_audit.py",
+    "tests/test_phase16_language_direction_audit.py",
+    "tests/test_phase16_safety_deferral_sql_portability.py",
+    "tests/test_phase21_group_by_hardening_audit.py",
+    "tests/test_phase24_aggregate_expression_arguments_readiness.py",
+    "tests/test_phase24_cli_json_output_hardening.py",
+    "tests/test_phase24_completion_audit.py",
+    "tests/test_phase25_completion_audit.py",
+    "tests/test_phase26_completion_audit.py",
+    "tests/test_phase27_completion_audit.py",
+    "tests/test_phase28_completion_audit.py",
+    "tests/test_phase29_completion_audit.py",
+    "tests/test_phase30_completion_audit.py",
+    "tests/test_phase51_completion_audit_and_status_lock.py",
+    "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
+    "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
+    SLICE2_TEST_REL,
+    SLICE3_TEST_REL,
+)
+ADDED_PATHS = {SOURCE_REL, SPEC_REL, SELF_REL}
+ALLOWLIST_PATHS = {*ADDED_PATHS, *MODIFIED_READER_PATHS}
+
+
+def _read(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+
+
+def _git_output(args: list[str]) -> str:
+    result = subprocess.run(
+        ["git", *args],
+        cwd=REPO_ROOT,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return result.stdout.rstrip()
+
+
+def _dirty_paths() -> set[str]:
+    return {
+        line[3:]
+        for line in _git_output(
+            ["status", "--porcelain=v1", "--untracked-files=all"]
+        ).splitlines()
+    }
+
+
+def _digest(paths: tuple[Path, ...]) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(paths, key=lambda item: item.relative_to(REPO_ROOT).as_posix()):
+        relative = path.relative_to(REPO_ROOT).as_posix()
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _compiler_paths() -> tuple[Path, ...]:
+    paths = [REPO_ROOT / "Makefile", REPO_ROOT / "grammar/Pietto.g4"]
+    paths.extend(
+        path
+        for path in (REPO_ROOT / "src/pietto").rglob("*")
+        if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc"
+    )
+    return tuple(paths)
+
+
+def _project_private_paths() -> tuple[Path, ...]:
+    return tuple(
+        path
+        for path in (REPO_ROOT / "src/pietto/_project").rglob("*.py")
+        if "__pycache__" not in path.parts
+    )
+
+
+def _facts(name: str) -> tuple[CapabilityFact, ...]:
+    return cast(tuple[CapabilityFact, ...], getattr(capability_inventory, name))
+
+
+def _all_facts() -> tuple[CapabilityFact, ...]:
+    return _facts("_CAPABILITY_FACTS")
+
+
+def _inputs(key: CapabilityKey) -> tuple[tuple[CapabilityFact, ...], bool]:
+    function = cast(
+        Any,
+        getattr(capability_inventory, "inventory_lookup_inputs"),
+    )
+    return cast(tuple[tuple[CapabilityFact, ...], bool], function(key))
+
+
+def _lookup(key: CapabilityKey) -> Found | Absent | Unknown | Conflict:
+    facts, complete = _inputs(key)
+    return lookup_capability(key, facts, domain_complete=complete)
+
+
+def _pytest_shape() -> tuple[int, int, list[str]]:
+    tree = ast.parse(_read(SELF_PATH), filename=SELF_REL)
+    tests = [
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name.startswith("test_")
+    ]
+    item_count = len(tests)
+    parametrized: list[str] = []
+    for test in tests:
+        for decorator in test.decorator_list:
+            if (
+                isinstance(decorator, ast.Call)
+                and isinstance(decorator.func, ast.Attribute)
+                and decorator.func.attr == "parametrize"
+            ):
+                ids = next(
+                    keyword.value
+                    for keyword in decorator.keywords
+                    if keyword.arg == "ids"
+                )
+                assert isinstance(ids, (ast.Tuple, ast.List))
+                item_count += len(ids.elts) - 1
+                parametrized.append(test.name)
+    return len(tests), item_count, parametrized
+
+
+def test_private_module_api_and_privacy_shape_are_exact() -> None:
+    source = _read(SOURCE_PATH)
+    tree = ast.parse(source, filename=SOURCE_REL)
+    assert capability_inventory.__all__ == ()
+    assert "capability_lookup" not in source
+    assert "lookup_capability" not in source
+    assert not any(isinstance(node, ast.ClassDef) for node in tree.body)
+    assert "CapabilityDomain.NULLABILITY" not in source
+    with pytest.raises(ValueError):
+        cast(Any, capability_inventory.inventory_lookup_inputs)("logical_type")
+
+
+def test_four_fact_tuples_counts_order_and_combined_identity_are_exact() -> None:
+    logical = _facts("_LOGICAL_TYPE_FACTS")
+    literals = _facts("_LITERAL_FACTS")
+    parameters = _facts("_PARAMETER_FACTS")
+    nullability = _facts("_NULLABILITY_FACTS")
+    combined = _all_facts()
+    assert tuple(map(len, (logical, literals, parameters, nullability))) == (
+        22,
+        13,
+        3,
+        3,
+    )
+    assert combined == (*logical, *literals, *parameters, *nullability)
+    assert len(combined) == len(set(combined)) == 41
+    assert tuple(fact.key.subject for fact in combined[:11]) == (
+        "Any",
+        "Bool",
+        "Bytes",
+        "Date",
+        "Decimal",
+        "Float",
+        "Int",
+        "Json",
+        "Text",
+        "Timestamp",
+        "UUID",
+    )
+
+
+def test_inventory_construction_rejects_exact_duplicates_but_preserves_conflicts() -> (
+    None
+):
+    freeze = cast(Any, getattr(capability_inventory, "_freeze_inventory"))
+    fact = _all_facts()[0]
+    with pytest.raises(ValueError, match="duplicate"):
+        freeze((fact, fact))
+    conflicting = replace(fact, support=CapabilitySupport.EXPLICITLY_UNSUPPORTED)
+    assert freeze((fact, conflicting)) == (fact, conflicting)
+
+
+@pytest.mark.parametrize(
+    "subject",
+    (
+        "Any",
+        "Bool",
+        "Bytes",
+        "Date",
+        "Decimal",
+        "Float",
+        "Int",
+        "Json",
+        "Text",
+        "Timestamp",
+        "UUID",
+    ),
+    ids=(
+        "any",
+        "bool",
+        "bytes",
+        "date",
+        "decimal",
+        "float",
+        "int",
+        "json",
+        "text",
+        "timestamp",
+        "uuid",
+    ),
+)
+def test_builtin_catalog_membership_facts_are_supported(subject: str) -> None:
+    key = CapabilityKey(
+        CapabilityDomain.LOGICAL_TYPE,
+        subject=subject,
+        operation="catalog_membership",
+        context="builtin_registry",
+    )
+    result = _lookup(key)
+    assert isinstance(result, Found)
+    assert result.fact.support is CapabilitySupport.SUPPORTED
+    assert result.fact.disposition.kind is CapabilityDispositionKind.NONE
+
+
+@pytest.mark.parametrize(
+    "subject",
+    ("type_alias", "enum", "shape"),
+    ids=("type-alias", "enum", "shape"),
+)
+def test_declaration_kind_facts_are_supported(subject: str) -> None:
+    key = CapabilityKey(
+        CapabilityDomain.LOGICAL_TYPE,
+        subject=subject,
+        operation="declaration_kind",
+        context="semantic_model",
+    )
+    result = _lookup(key)
+    assert isinstance(result, Found)
+    assert result.fact.support is CapabilitySupport.SUPPORTED
+
+
+@pytest.mark.parametrize(
+    ("subject", "reason", "disposition"),
+    (
+        (
+            "<unknown>",
+            CapabilityReasonCode.UNRESOLVED_EXPRESSION,
+            CapabilityDispositionKind.NONE,
+        ),
+        (
+            "Null",
+            CapabilityReasonCode.NULL_LITERAL_NO_CONCRETE_TYPE,
+            CapabilityDispositionKind.NONE,
+        ),
+        (
+            "DateTime",
+            CapabilityReasonCode.NO_CATALOG_ENTRY,
+            CapabilityDispositionKind.DEFERRED,
+        ),
+        (
+            "Time",
+            CapabilityReasonCode.NO_CATALOG_ENTRY,
+            CapabilityDispositionKind.DEFERRED,
+        ),
+        (
+            "Interval",
+            CapabilityReasonCode.NO_CATALOG_ENTRY,
+            CapabilityDispositionKind.DEFERRED,
+        ),
+        (
+            "Money",
+            CapabilityReasonCode.NO_CATALOG_ENTRY,
+            CapabilityDispositionKind.DEFERRED,
+        ),
+        (
+            "Currency",
+            CapabilityReasonCode.NO_CATALOG_ENTRY,
+            CapabilityDispositionKind.DEFERRED,
+        ),
+    ),
+    ids=("unknown", "null", "datetime", "time", "interval", "money", "currency"),
+)
+def test_internal_and_deferred_logical_type_facts_fail_closed(
+    subject: str,
+    reason: CapabilityReasonCode,
+    disposition: CapabilityDispositionKind,
+) -> None:
+    key = CapabilityKey(
+        CapabilityDomain.LOGICAL_TYPE,
+        subject=subject,
+        operation="catalog_membership",
+        context="builtin_registry",
+    )
+    result = _lookup(key)
+    assert isinstance(result, Found)
+    assert result.fact.support is CapabilitySupport.EXPLICITLY_UNSUPPORTED
+    assert result.fact.disposition.kind is disposition
+    assert reason in {entry.reason for entry in result.fact.evidence}
+
+
+def test_decimal_precision_scale_is_one_bounded_supported_side_fact() -> None:
+    key = CapabilityKey(
+        CapabilityDomain.LOGICAL_TYPE,
+        subject="Decimal",
+        operation="precision_scale",
+        operands=("Int", "Int"),
+        context="type_expression",
+    )
+    result = _lookup(key)
+    assert isinstance(result, Found)
+    assert result.fact.support is CapabilitySupport.SUPPORTED
+    non_decimal = replace(key, subject="Text")
+    facts, complete = _inputs(non_decimal)
+    assert facts
+    assert complete is False
+    assert lookup_capability(non_decimal, facts, domain_complete=complete) == Unknown(
+        CapabilityReasonCode.NOT_EVIDENCED
+    )
+
+
+@pytest.mark.parametrize(
+    ("subject", "operands"),
+    (
+        ("integer", ("Int", "non_null")),
+        ("float", ("Float", "non_null")),
+        ("text", ("Text", "non_null")),
+        ("boolean", ("Bool", "non_null")),
+        ("null", ("no_concrete_type", "unknown")),
+    ),
+    ids=("integer", "float", "text", "boolean", "null"),
+)
+def test_supported_literal_results_are_exact(
+    subject: str,
+    operands: tuple[str, ...],
+) -> None:
+    key = CapabilityKey(
+        CapabilityDomain.LITERAL,
+        subject=subject,
+        operation="result",
+        operands=operands,
+        context="expression",
+    )
+    result = _lookup(key)
+    assert isinstance(result, Found)
+    assert result.fact.support is CapabilitySupport.SUPPORTED
+
+
+@pytest.mark.parametrize(
+    ("subject", "disposition"),
+    (
+        ("Any", CapabilityDispositionKind.NONE),
+        ("Bytes", CapabilityDispositionKind.NONE),
+        ("Date", CapabilityDispositionKind.DEFERRED),
+        ("Decimal", CapabilityDispositionKind.NONE),
+        ("Json", CapabilityDispositionKind.NONE),
+        ("Timestamp", CapabilityDispositionKind.DEFERRED),
+        ("UUID", CapabilityDispositionKind.NONE),
+        ("Enum", CapabilityDispositionKind.NONE),
+    ),
+    ids=("any", "bytes", "date", "decimal", "json", "timestamp", "uuid", "enum"),
+)
+def test_unsupported_literal_categories_are_explicit(
+    subject: str,
+    disposition: CapabilityDispositionKind,
+) -> None:
+    key = CapabilityKey(
+        CapabilityDomain.LITERAL,
+        subject=subject,
+        operation="result",
+        context="expression",
+    )
+    result = _lookup(key)
+    assert isinstance(result, Found)
+    assert result.fact.support is CapabilitySupport.EXPLICITLY_UNSUPPORTED
+    assert result.fact.disposition.kind is disposition
+    assert CapabilityReasonCode.NOT_EVIDENCED in {
+        entry.reason for entry in result.fact.evidence
+    }
+
+
+@pytest.mark.parametrize(
+    "subject",
+    ("constraint", "derive"),
+    ids=("constraint", "derive"),
+)
+def test_callable_declaration_parameter_facts_are_supported(subject: str) -> None:
+    key = CapabilityKey(
+        CapabilityDomain.PARAMETER,
+        subject=subject,
+        operation="declare",
+        operands=("name", "TypeExpr"),
+        context="callable_declaration",
+    )
+    result = _lookup(key)
+    assert isinstance(result, Found)
+    assert result.fact.support is CapabilitySupport.SUPPORTED
+
+
+def test_runtime_sql_parameter_substitution_is_explicitly_out_of_scope() -> None:
+    key = CapabilityKey(
+        CapabilityDomain.PARAMETER,
+        subject="runtime_sql_parameter",
+        operation="substitute",
+        context="runtime_execution",
+    )
+    result = _lookup(key)
+    assert isinstance(result, Found)
+    assert result.fact.support is CapabilitySupport.EXPLICITLY_UNSUPPORTED
+    assert result.fact.disposition == CapabilityDisposition(
+        CapabilityDispositionKind.OUT_OF_SCOPE,
+        "Pietto charter",
+        "runtime substitution and prepared-statement execution are host/database responsibilities",
+    )
+
+
+@pytest.mark.parametrize(
+    ("subject", "result_name", "reason"),
+    (
+        ("implicit", "unknown", CapabilityReasonCode.UNKNOWN_NULLABILITY),
+        ("nullable", "nullable", None),
+        ("not_null", "non_null", None),
+    ),
+    ids=("implicit", "nullable", "not-null"),
+)
+def test_declared_nullability_mappings_are_exact(
+    subject: str,
+    result_name: str,
+    reason: CapabilityReasonCode | None,
+) -> None:
+    key = CapabilityKey(
+        CapabilityDomain.LOGICAL_TYPE,
+        subject=subject,
+        operation="effective_nullability",
+        operands=(result_name,),
+        context="type_expression",
+    )
+    result = _lookup(key)
+    assert isinstance(result, Found)
+    assert result.fact.support is CapabilitySupport.SUPPORTED
+    assert reason in {entry.reason for entry in result.fact.evidence}
+
+
+def test_null_literal_is_distinct_from_null_and_unknown_logical_spellings() -> None:
+    null_literal = next(
+        fact for fact in _facts("_LITERAL_FACTS") if fact.key.subject == "null"
+    )
+    assert null_literal.key.operands == ("no_concrete_type", "unknown")
+    assert null_literal.support is CapabilitySupport.SUPPORTED
+    logical_subjects = {
+        fact.key.subject
+        for fact in _facts("_LOGICAL_TYPE_FACTS")
+        if fact.key.operation == "catalog_membership"
+    }
+    assert {"Null", "<unknown>"} <= logical_subjects
+    assert "null" not in logical_subjects
+
+
+def test_each_fact_has_unique_evidence_in_locked_layer_order() -> None:
+    rank = {
+        source: index
+        for index, source in enumerate(
+            (
+                CapabilityEvidenceSource.GRAMMAR_AST,
+                CapabilityEvidenceSource.SEMANTIC_CATALOG,
+                CapabilityEvidenceSource.SEMANTIC_PROCEDURE,
+                CapabilityEvidenceSource.SEMANTIC_MODEL,
+                CapabilityEvidenceSource.IR,
+                CapabilityEvidenceSource.BACKEND,
+                CapabilityEvidenceSource.PROJECT,
+                CapabilityEvidenceSource.PUBLIC,
+                CapabilityEvidenceSource.ROADMAP,
+                CapabilityEvidenceSource.TEST,
+                CapabilityEvidenceSource.SPEC,
+            )
+        )
+    }
+    for fact in _all_facts():
+        assert fact.evidence
+        assert len(fact.evidence) == len(set(fact.evidence))
+        assert all((REPO_ROOT / entry.source_path).is_file() for entry in fact.evidence)
+        evidence_rank = [rank[entry.source] for entry in fact.evidence]
+        assert evidence_rank == sorted(evidence_rank)
+
+
+@pytest.mark.parametrize(
+    "subject",
+    ("integer", "float", "text", "boolean", "null"),
+    ids=("integer", "float", "text", "boolean", "null"),
+)
+def test_supported_literals_have_ordered_postgresql_and_private_mysql_scope(
+    subject: str,
+) -> None:
+    fact = next(
+        fact for fact in _facts("_LITERAL_FACTS") if fact.key.subject == subject
+    )
+    backend = tuple(
+        (entry.dialect, entry.backend)
+        for entry in fact.evidence
+        if entry.source is CapabilityEvidenceSource.BACKEND
+    )
+    assert backend == (("postgresql", "postgresql"), ("mysql", "private-mysql"))
+
+
+def test_seven_exact_completeness_schemas_and_unowned_domains_are_locked() -> None:
+    complete = (
+        CapabilityKey(
+            CapabilityDomain.LOGICAL_TYPE,
+            "Future",
+            "catalog_membership",
+            context="builtin_registry",
+        ),
+        CapabilityKey(
+            CapabilityDomain.LOGICAL_TYPE,
+            "future_kind",
+            "declaration_kind",
+            context="semantic_model",
+        ),
+        CapabilityKey(
+            CapabilityDomain.LOGICAL_TYPE,
+            "Decimal",
+            "precision_scale",
+            ("Int", "Int"),
+            "type_expression",
+        ),
+        CapabilityKey(
+            CapabilityDomain.LITERAL, "future", "result", ("Future",), "expression"
+        ),
+        CapabilityKey(
+            CapabilityDomain.PARAMETER,
+            "future_callable",
+            "declare",
+            context="callable_declaration",
+        ),
+        CapabilityKey(
+            CapabilityDomain.PARAMETER,
+            "runtime_sql_parameter",
+            "substitute",
+            context="runtime_execution",
+        ),
+        CapabilityKey(
+            CapabilityDomain.LOGICAL_TYPE,
+            "future",
+            "effective_nullability",
+            context="type_expression",
+        ),
+    )
+    assert all(_inputs(key)[1] for key in complete)
+    nonempty_declaration_operands = CapabilityKey(
+        CapabilityDomain.LOGICAL_TYPE,
+        "future_kind",
+        "declaration_kind",
+        ("unexpected",),
+        "semantic_model",
+    )
+    assert _inputs(nonempty_declaration_operands)[1] is False
+    unowned = CapabilityKey(
+        CapabilityDomain.AGGREGATE,
+        subject="sum",
+        operation="result",
+    )
+    assert _inputs(unowned) == ((), False)
+
+
+def test_every_inventory_fact_resolves_to_found_with_exact_identity() -> None:
+    for fact in _all_facts():
+        result = _lookup(fact.key)
+        assert isinstance(result, Found)
+        assert result.fact is fact
+
+
+def test_unlisted_complete_builtin_catalog_spelling_resolves_absent() -> None:
+    key = CapabilityKey(
+        CapabilityDomain.LOGICAL_TYPE,
+        subject="FutureScalar",
+        operation="catalog_membership",
+        context="builtin_registry",
+    )
+    assert _lookup(key) == Absent(key)
+
+
+def test_incomplete_query_parameter_binding_resolves_unknown() -> None:
+    key = CapabilityKey(
+        CapabilityDomain.PARAMETER,
+        subject="query_placeholder",
+        operation="bind",
+        context="query_expression",
+    )
+    facts, complete = _inputs(key)
+    assert facts == _facts("_PARAMETER_FACTS")
+    assert complete is False
+    assert lookup_capability(key, facts, domain_complete=complete) == Unknown(
+        CapabilityReasonCode.NOT_EVIDENCED
+    )
+
+
+def test_dialect_and_extension_keyed_zero_matches_resolve_unknown() -> None:
+    keys = (
+        CapabilityKey(
+            CapabilityDomain.LITERAL,
+            subject="integer",
+            operation="result",
+            operands=("Int", "non_null"),
+            context="expression",
+            dialect="postgresql",
+        ),
+        CapabilityKey(
+            CapabilityDomain.LOGICAL_TYPE,
+            subject="Int",
+            operation="catalog_membership",
+            context="builtin_registry",
+            dialect="postgresql",
+            extension="future",
+        ),
+    )
+    for key in keys:
+        facts, complete = _inputs(key)
+        assert facts
+        assert complete is False
+        assert lookup_capability(key, facts, domain_complete=complete) == Unknown(
+            CapabilityReasonCode.NOT_EVIDENCED
+        )
+
+
+def test_lookup_folds_duplicates_and_preserves_distinct_same_key_conflicts() -> None:
+    fact = _all_facts()[0]
+    assert lookup_capability(
+        fact.key,
+        (fact, fact),
+        domain_complete=True,
+    ) == Found(fact)
+    conflict = CapabilityFact(
+        fact.key,
+        CapabilitySupport.EXPLICITLY_UNSUPPORTED,
+        fact.disposition,
+        (
+            CapabilityEvidence(
+                CapabilityEvidenceSource.TEST,
+                SELF_REL,
+                "injected distinct same-key conflict",
+                CapabilityReasonCode.CONFLICTING_EVIDENCE,
+            ),
+        ),
+    )
+    assert lookup_capability(
+        fact.key,
+        (fact, conflict),
+        domain_complete=True,
+    ) == Conflict(CapabilityReasonCode.CONFLICTING_EVIDENCE, (fact, conflict))
+
+
+def test_private_inventory_has_no_compiler_public_or_serializer_consumer() -> None:
+    for path in (REPO_ROOT / "src/pietto").rglob("*.py"):
+        if path == SOURCE_PATH or "generated" in path.parts:
+            continue
+        source = _read(path)
+        assert "semantic.capability_inventory" not in source
+        assert "inventory_lookup_inputs" not in source
+    assert "capability_inventory" not in _read(
+        REPO_ROOT / "src/pietto/semantic/__init__.py"
+    )
+    assert "capability_inventory" not in _read(REPO_ROOT / "src/pietto/__init__.py")
+
+
+def test_slice2_and_slice3_private_sources_remain_byte_identical() -> None:
+    assert hashlib.sha256((REPO_ROOT / FACTS_REL).read_bytes()).hexdigest() == (
+        FACTS_SHA256
+    )
+    assert hashlib.sha256((REPO_ROOT / LOOKUP_REL).read_bytes()).hexdigest() == (
+        LOOKUP_SHA256
+    )
+
+
+def test_spec_exact_headings_and_inventory_boundary_phrases_are_locked() -> None:
+    spec = _read(SPEC_PATH)
+    headings = tuple(
+        match.group(1).strip()
+        for match in re.finditer(r"^## (?!#)(.+?)\s*$", spec, re.MULTILINE)
+    )
+    assert headings == SPEC_H2
+    for required in (
+        "exactly 41 `CapabilityFact` values",
+        "A zero match there is `Unknown`, not `Absent`.",
+        "No `CapabilityDomain.NULLABILITY` is introduced.",
+        "PostgreSQL precedes private MySQL",
+        "Package version remains `0.1.0`.",
+        "Phase 52 remains active and incomplete",
+    ):
+        assert required in spec
+
+
+def test_digest_and_nested_raw_sha_reader_closure_is_exact() -> None:
+    compiler_paths = _compiler_paths()
+    semantic_paths = tuple((REPO_ROOT / "src/pietto/semantic").glob("*.py"))
+    phase15_paths = tuple(
+        path
+        for path in semantic_paths
+        if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
+    )
+    assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
+        78,
+        24,
+        21,
+    )
+    assert _digest(compiler_paths) == COMPILER_DIGEST
+    assert _digest(semantic_paths) == SEMANTIC_DIGEST
+    assert _digest(phase15_paths) == PHASE15_SUBSET_DIGEST
+    for path in COMPILER_READERS:
+        assert COMPILER_DIGEST in _read(REPO_ROOT / path)
+    for path in SEMANTIC_READERS:
+        assert SEMANTIC_DIGEST in _read(REPO_ROOT / path)
+    assert PHASE15_SUBSET_DIGEST in _read(REPO_ROOT / PHASE15_READER)
+
+    topology = (
+        (
+            "tests/test_phase13_completion_audit.py",
+            (
+                "tests/test_phase14_candidate_decision_audit.py",
+                "tests/test_phase14_planning_audit.py",
+            ),
+        ),
+        (
+            "tests/test_phase15_semantic_completion_audit.py",
+            ("tests/test_phase15_completion_audit.py",),
+        ),
+        (
+            "tests/test_phase16_current_syntax_surface_audit.py",
+            ("tests/test_phase16_completion_audit.py",),
+        ),
+        (
+            "tests/test_phase16_language_direction_audit.py",
+            ("tests/test_phase16_completion_audit.py",),
+        ),
+        (
+            "tests/test_phase16_safety_deferral_sql_portability.py",
+            ("tests/test_phase16_completion_audit.py",),
+        ),
+    )
+    for inner, outers in topology:
+        inner_sha = hashlib.sha256((REPO_ROOT / inner).read_bytes()).hexdigest()
+        for outer in outers:
+            assert _read(REPO_ROOT / outer).count(inner_sha) == 1
+
+
+def test_project_package_version_and_tag_boundaries_are_unchanged() -> None:
+    project_paths = _project_private_paths()
+    assert len(project_paths) == 16
+    assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
+    with PYPROJECT_PATH.open("rb") as stream:
+        project = tomllib.load(stream)
+    assert project["project"]["version"] == "0.1.0"
+    assert _git_output(["tag", "--list"]) == ""
+
+
+def test_gate2_dirty_untracked_and_index_states_are_exact() -> None:
+    assert _dirty_paths() in (set(), ALLOWLIST_PATHS)
+    tracked = set(_git_output(["diff", "--name-only"]).splitlines())
+    assert tracked in (set(), set(MODIFIED_READER_PATHS))
+    untracked = set(
+        _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
+    )
+    assert untracked in (set(), ADDED_PATHS)
+    assert _git_output(["diff", "--cached", "--name-status"]) == ""
+
+
+def test_static_item_allowlist_reader_and_manifest_inventory_is_exact() -> None:
+    function_count, item_count, parametrized = _pytest_shape()
+    assert (function_count, item_count) == (28, 64)
+    assert parametrized == [
+        "test_builtin_catalog_membership_facts_are_supported",
+        "test_declaration_kind_facts_are_supported",
+        "test_internal_and_deferred_logical_type_facts_fail_closed",
+        "test_supported_literal_results_are_exact",
+        "test_unsupported_literal_categories_are_explicit",
+        "test_callable_declaration_parameter_facts_are_supported",
+        "test_declared_nullability_mappings_are_exact",
+        "test_supported_literals_have_ordered_postgresql_and_private_mysql_scope",
+    ]
+    assert len(MODIFIED_READER_PATHS) == len(set(MODIFIED_READER_PATHS)) == 38
+    assert len(ALLOWLIST_PATHS) == 41
+    assert sum(path.endswith(".py") for path in ALLOWLIST_PATHS) == 40
+    assert sum(path.endswith(".md") for path in ALLOWLIST_PATHS) == 1
+    assert (len(COMPILER_READERS), len(SEMANTIC_READERS)) == (11, 25)
+    assert len(_all_facts()) == 41
+    assert 5885 - 140 == 5745
+    assert TIER2_MANIFEST_BYTES == 18035
+    assert TIER2_MANIFEST_SHA256 == (
+        "a74e473501185eb2c1912018091d12711fdab8cc80c6a2a2849ceb63e09c5e1f"
+    )

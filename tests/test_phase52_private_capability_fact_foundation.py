@@ -28,6 +28,14 @@ from pietto.semantic.capability_facts import (
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_REL = "src/pietto/semantic/capability_facts.py"
 LOOKUP_REL = "src/pietto/semantic/capability_lookup.py"
+INVENTORY_REL = "src/pietto/semantic/capability_inventory.py"
+INVENTORY_SPEC_REL = (
+    "docs/spec/phase52-logical-type-literal-parameter-nullability-inventory-v1.md"
+)
+INVENTORY_TEST_REL = (
+    "tests/test_phase52_logical_type_literal_parameter_nullability_inventory.py"
+)
+SLICE3_TEST_REL = "tests/test_phase52_fail_closed_capability_lookup.py"
 SPEC_REL = (
     "docs/spec/"
     "phase52-private-capability-key-disposition-evidence-fact-foundation-v1.md"
@@ -35,6 +43,7 @@ SPEC_REL = (
 SELF_REL = "tests/test_phase52_private_capability_fact_foundation.py"
 SOURCE_PATH = REPO_ROOT / SOURCE_REL
 LOOKUP_PATH = REPO_ROOT / LOOKUP_REL
+INVENTORY_PATH = REPO_ROOT / INVENTORY_REL
 SPEC_PATH = REPO_ROOT / SPEC_REL
 SELF_PATH = REPO_ROOT / SELF_REL
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
@@ -132,8 +141,10 @@ MODIFIED_READER_PATHS = (
     "tests/test_phase51_completion_audit_and_status_lock.py",
     "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
     "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
+    SELF_REL,
+    SLICE3_TEST_REL,
 )
-ADDED_PATHS = {SOURCE_REL, SPEC_REL, SELF_REL}
+ADDED_PATHS = {INVENTORY_REL, INVENTORY_SPEC_REL, INVENTORY_TEST_REL}
 ALLOWLIST_PATHS = {*ADDED_PATHS, *MODIFIED_READER_PATHS}
 DIRECT_TIER1_NODES = (
     "tests/test_phase11_completion_audit.py::test_package_configuration_lockfile_makefile_and_compiler_are_unchanged",
@@ -669,7 +680,10 @@ def test_private_module_has_no_public_compiler_project_or_serializer_consumers()
     None
 ):
     for path in (REPO_ROOT / "src/pietto").rglob("*.py"):
-        if path in {SOURCE_PATH, LOOKUP_PATH} or "generated" in path.parts:
+        if (
+            path in {SOURCE_PATH, LOOKUP_PATH, INVENTORY_PATH}
+            or "generated" in path.parts
+        ):
             continue
         source = _read(path)
         assert "semantic.capability_facts" not in source
@@ -683,6 +697,10 @@ def test_private_module_has_no_public_compiler_project_or_serializer_consumers()
     assert "semantic.capability_facts" in lookup_source
     assert "CapabilityFact" in lookup_source
     assert "CapabilityKey" in lookup_source
+    inventory_source = _read(INVENTORY_PATH)
+    assert "semantic.capability_facts" in inventory_source
+    assert "CapabilityFact" in inventory_source
+    assert "CapabilityKey" in inventory_source
 
 
 def test_slice2_spec_locks_read_model_non_authority_and_conflict_preservation() -> None:
@@ -722,7 +740,7 @@ def test_slice2_spec_locks_read_model_non_authority_and_conflict_preservation() 
 
 def test_compiler_boundary_and_all_compatibility_hash_locks_are_consistent() -> None:
     compiler_paths = _compiler_paths()
-    assert len(compiler_paths) == 77
+    assert len(compiler_paths) == 78
     compiler_digest = _digest(compiler_paths)
     for path in BOUNDARY_PATHS:
         assert f'BOUNDARY_HASH = "{compiler_digest}"' in _read(REPO_ROOT / path)
@@ -735,7 +753,7 @@ def test_compiler_boundary_and_all_compatibility_hash_locks_are_consistent() -> 
         )
 
     semantic_paths = tuple((REPO_ROOT / "src/pietto/semantic").glob("*.py"))
-    assert len(semantic_paths) == 23
+    assert len(semantic_paths) == 24
     semantic_digest = _digest(semantic_paths)
     for path in SEMANTIC_LOCK_PATHS:
         text = _read(REPO_ROOT / path)
@@ -750,7 +768,7 @@ def test_compiler_boundary_and_all_compatibility_hash_locks_are_consistent() -> 
         for path in semantic_paths
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
-    assert len(phase15_paths) == 20
+    assert len(phase15_paths) == 21
     phase15_digest = _digest(phase15_paths)
     phase15_reader = _read(REPO_ROOT / PHASE15_SUBSET_PATH)
     assert phase15_digest in phase15_reader
@@ -895,10 +913,10 @@ def test_static_test_shape_parametrization_and_direct_reader_inventory_is_exact(
         "explicitly-unsupported-out-of-scope",
     )
 
-    assert len(ALLOWLIST_PATHS) == 39
+    assert len(ALLOWLIST_PATHS) == 41
     assert len(ADDED_PATHS) == 3
-    assert len(MODIFIED_READER_PATHS) == 36
-    assert sum(path.endswith(".py") for path in ALLOWLIST_PATHS) == 38
+    assert len(MODIFIED_READER_PATHS) == 38
+    assert sum(path.endswith(".py") for path in ALLOWLIST_PATHS) == 40
     assert sum(path.endswith(".md") for path in ALLOWLIST_PATHS) == 1
     assert len(DIRECT_TIER1_NODES) == len(set(DIRECT_TIER1_NODES)) == 44
     for node_id in DIRECT_TIER1_NODES:

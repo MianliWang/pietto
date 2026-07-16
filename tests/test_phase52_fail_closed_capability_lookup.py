@@ -35,6 +35,13 @@ from pietto.semantic.capability_lookup import (
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_REL = "src/pietto/semantic/capability_lookup.py"
 FACTS_REL = "src/pietto/semantic/capability_facts.py"
+INVENTORY_REL = "src/pietto/semantic/capability_inventory.py"
+INVENTORY_SPEC_REL = (
+    "docs/spec/phase52-logical-type-literal-parameter-nullability-inventory-v1.md"
+)
+INVENTORY_TEST_REL = (
+    "tests/test_phase52_logical_type_literal_parameter_nullability_inventory.py"
+)
 SPEC_REL = "docs/spec/phase52-fail-closed-capability-lookup-v1.md"
 SELF_REL = "tests/test_phase52_fail_closed_capability_lookup.py"
 SLICE2_TEST_REL = "tests/test_phase52_private_capability_fact_foundation.py"
@@ -95,13 +102,14 @@ MODIFIED_READER_PATHS = (
     "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
     "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
     SLICE2_TEST_REL,
+    SELF_REL,
 )
-ADDED_PATHS = {SOURCE_REL, SPEC_REL, SELF_REL}
+ADDED_PATHS = {INVENTORY_REL, INVENTORY_SPEC_REL, INVENTORY_TEST_REL}
 ALLOWLIST_PATHS = {*MODIFIED_READER_PATHS, *ADDED_PATHS}
-COMPILER_DIGEST = "ffd913a79edfa10755137daf8f3add744f9e33cbc323a88723d52971500dce6f"
-SEMANTIC_DIGEST = "e84853467f53afeb97c3bcab68101066648c2283d3acb0238f41b6f79af2707e"
+COMPILER_DIGEST = "d68aceaff3bb5391f552a5e68337a56618360059fed53c7ab2c40d050356cdd5"
+SEMANTIC_DIGEST = "30144bbd90085ecc82d8dfcdab2556e7396030eb80057d2fafd343e661b1ffc8"
 PHASE15_SUBSET_DIGEST = (
-    "58a68af8c7974ad23f5f45eadf52590e555260ff385806d73bed555feef92f59"
+    "7407149b4b6a6bf8c4db0a7bd1f48348bd5cee0c544ac48d29a2cfc189fa9ad7"
 )
 PROJECT_PRIVATE_DIGEST = (
     "c032a23c7f0477df58cacc9374e2882bebad346bec9a539899878da062248013"
@@ -442,7 +450,9 @@ def test_lookup_is_pure_deterministic_and_does_not_mutate_input() -> None:
     assert facts == before
 
 
-def test_lookup_module_is_the_only_private_fact_consumer_and_has_no_registry() -> None:
+def test_lookup_and_inventory_are_only_private_fact_consumers_without_registry() -> (
+    None
+):
     tree = ast.parse(_read(SOURCE_PATH), filename=SOURCE_REL)
     classes = {node.name for node in tree.body if isinstance(node, ast.ClassDef)}
     functions = {node.name for node in tree.body if isinstance(node, ast.FunctionDef)}
@@ -456,7 +466,15 @@ def test_lookup_module_is_the_only_private_fact_consumer_and_has_no_registry() -
         for node in tree.body
     )
     for path in (REPO_ROOT / "src/pietto").rglob("*.py"):
-        if path in {SOURCE_PATH, REPO_ROOT / FACTS_REL} or "generated" in path.parts:
+        if (
+            path
+            in {
+                SOURCE_PATH,
+                REPO_ROOT / FACTS_REL,
+                REPO_ROOT / INVENTORY_REL,
+            }
+            or "generated" in path.parts
+        ):
             continue
         source = _read(path)
         assert "semantic.capability_facts" not in source
@@ -492,9 +510,9 @@ def test_compiler_semantic_and_phase15_boundary_digests_are_refreshed() -> None:
         for path in semantic_paths
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
-    assert len(compiler_paths) == 77
-    assert len(semantic_paths) == 23
-    assert len(phase15_paths) == 20
+    assert len(compiler_paths) == 78
+    assert len(semantic_paths) == 24
+    assert len(phase15_paths) == 21
     assert _digest(compiler_paths) == COMPILER_DIGEST
     assert _digest(semantic_paths) == SEMANTIC_DIGEST
     assert _digest(phase15_paths) == PHASE15_SUBSET_DIGEST
@@ -582,9 +600,9 @@ def test_static_inventory_and_exact_focused_test_shape_are_locked() -> None:
         "test_support_or_disposition_differences_are_conflicts",
         "test_dialect_backend_or_extension_scope_differences_are_conflicts",
     ]
-    assert len(MODIFIED_READER_PATHS) == len(set(MODIFIED_READER_PATHS)) == 37
-    assert len(ALLOWLIST_PATHS) == 40
-    assert sum(path.endswith(".py") for path in ALLOWLIST_PATHS) == 39
+    assert len(MODIFIED_READER_PATHS) == len(set(MODIFIED_READER_PATHS)) == 38
+    assert len(ALLOWLIST_PATHS) == 41
+    assert sum(path.endswith(".py") for path in ALLOWLIST_PATHS) == 40
     assert sum(path.endswith(".md") for path in ALLOWLIST_PATHS) == 1
     old_tree = ast.parse(_read(REPO_ROOT / SLICE2_TEST_REL), filename=SLICE2_TEST_REL)
     direct_tier1 = next(
