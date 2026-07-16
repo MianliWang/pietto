@@ -27,12 +27,14 @@ from pietto.semantic.capability_facts import (
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_REL = "src/pietto/semantic/capability_facts.py"
+LOOKUP_REL = "src/pietto/semantic/capability_lookup.py"
 SPEC_REL = (
     "docs/spec/"
     "phase52-private-capability-key-disposition-evidence-fact-foundation-v1.md"
 )
 SELF_REL = "tests/test_phase52_private_capability_fact_foundation.py"
 SOURCE_PATH = REPO_ROOT / SOURCE_REL
+LOOKUP_PATH = REPO_ROOT / LOOKUP_REL
 SPEC_PATH = REPO_ROOT / SPEC_REL
 SELF_PATH = REPO_ROOT / SELF_REL
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
@@ -667,7 +669,7 @@ def test_private_module_has_no_public_compiler_project_or_serializer_consumers()
     None
 ):
     for path in (REPO_ROOT / "src/pietto").rglob("*.py"):
-        if path == SOURCE_PATH or "generated" in path.parts:
+        if path in {SOURCE_PATH, LOOKUP_PATH} or "generated" in path.parts:
             continue
         source = _read(path)
         assert "semantic.capability_facts" not in source
@@ -677,6 +679,10 @@ def test_private_module_has_no_public_compiler_project_or_serializer_consumers()
         REPO_ROOT / "src/pietto/semantic/__init__.py"
     )
     assert "capability_facts" not in _read(REPO_ROOT / "src/pietto/__init__.py")
+    lookup_source = _read(LOOKUP_PATH)
+    assert "semantic.capability_facts" in lookup_source
+    assert "CapabilityFact" in lookup_source
+    assert "CapabilityKey" in lookup_source
 
 
 def test_slice2_spec_locks_read_model_non_authority_and_conflict_preservation() -> None:
@@ -716,7 +722,7 @@ def test_slice2_spec_locks_read_model_non_authority_and_conflict_preservation() 
 
 def test_compiler_boundary_and_all_compatibility_hash_locks_are_consistent() -> None:
     compiler_paths = _compiler_paths()
-    assert len(compiler_paths) == 76
+    assert len(compiler_paths) == 77
     compiler_digest = _digest(compiler_paths)
     for path in BOUNDARY_PATHS:
         assert f'BOUNDARY_HASH = "{compiler_digest}"' in _read(REPO_ROOT / path)
@@ -729,7 +735,7 @@ def test_compiler_boundary_and_all_compatibility_hash_locks_are_consistent() -> 
         )
 
     semantic_paths = tuple((REPO_ROOT / "src/pietto/semantic").glob("*.py"))
-    assert len(semantic_paths) == 22
+    assert len(semantic_paths) == 23
     semantic_digest = _digest(semantic_paths)
     for path in SEMANTIC_LOCK_PATHS:
         text = _read(REPO_ROOT / path)
@@ -744,7 +750,7 @@ def test_compiler_boundary_and_all_compatibility_hash_locks_are_consistent() -> 
         for path in semantic_paths
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
-    assert len(phase15_paths) == 19
+    assert len(phase15_paths) == 20
     phase15_digest = _digest(phase15_paths)
     phase15_reader = _read(REPO_ROOT / PHASE15_SUBSET_PATH)
     assert phase15_digest in phase15_reader

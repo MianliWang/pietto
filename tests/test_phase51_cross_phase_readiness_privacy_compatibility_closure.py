@@ -889,7 +889,7 @@ def test_cross_phase_transition_and_live_identifier_inventory_is_exact() -> None
 def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> None:
     compiler_digest = _compiler_digest()
     assert compiler_digest == (
-        "aea04f8bb91a6950f17ccc84524a139178c873776a5e8678fb2bd401ef87a464"
+        "ffd913a79edfa10755137daf8f3add744f9e33cbc323a88723d52971500dce6f"
     )
     for relative_path in BOUNDARY_PATHS:
         boundary_values = re.findall(
