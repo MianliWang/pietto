@@ -132,7 +132,7 @@ RECONCILIATION_2_H3 = (
 PRE_RECONCILIATION_2_SHA256 = (
     "b05e57e27afb232b897e7bcec911d8f756beed204a1d0798380b7a510b9a4f80"
 )
-COMPILER_DIGEST = "2ed54ba89c64c89d9d9bfc26f83041faf0addb335f086bd2e75dc2a567be775c"
+COMPILER_DIGEST = "aea04f8bb91a6950f17ccc84524a139178c873776a5e8678fb2bd401ef87a464"
 PROJECT_PRIVATE_DIGEST = (
     "c032a23c7f0477df58cacc9374e2882bebad346bec9a539899878da062248013"
 )
@@ -445,7 +445,7 @@ def test_slice1_no_behavior_public_privacy_and_release_boundaries_are_locked() -
         compiler_digest.update(b"\0")
         compiler_digest.update(path.read_bytes())
         compiler_digest.update(b"\0")
-    assert (len(compiler_paths), compiler_digest.hexdigest()) == (75, COMPILER_DIGEST)
+    assert (len(compiler_paths), compiler_digest.hexdigest()) == (76, COMPILER_DIGEST)
     for relative_path in BOUNDARY_PATHS:
         assert re.findall(
             r'^BOUNDARY_HASH = "([0-9a-f]{64})"$',
