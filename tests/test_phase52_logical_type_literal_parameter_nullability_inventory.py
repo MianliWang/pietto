@@ -45,6 +45,9 @@ SLICE3_TEST_REL = "tests/test_phase52_fail_closed_capability_lookup.py"
 SIGNATURE_REL = "src/pietto/semantic/capability_signatures.py"
 SIGNATURE_SPEC_REL = "docs/spec/phase52-scalar-function-operator-signature-facts-v1.md"
 SIGNATURE_TEST_REL = "tests/test_phase52_scalar_function_operator_signature_facts.py"
+CONTEXT_REL = "src/pietto/semantic/capability_contexts.py"
+CONTEXT_SPEC_REL = "docs/spec/phase52-expression-stage-clause-capability-facts-v1.md"
+CONTEXT_TEST_REL = "tests/test_phase52_expression_stage_clause_capability_facts.py"
 SOURCE_PATH = REPO_ROOT / SOURCE_REL
 SPEC_PATH = REPO_ROOT / SPEC_REL
 SELF_PATH = REPO_ROOT / SELF_REL
@@ -52,17 +55,17 @@ PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
 FACTS_SHA256 = "8a7e7ba8374c59316051f582aecc0c0e797d270fac2ce89a91a55befca562fa9"
 LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26"
-COMPILER_DIGEST = "52c58862220691e7fa7994698211b0c1721de0af29e101a6d294372d67cf59d1"
-SEMANTIC_DIGEST = "88e625ce882c5b84a566ae1a9b64048946986ca2ba6b2de02ec21c45a6f63877"
+COMPILER_DIGEST = "e375c2fc27a1b72e22109766cdbdaecfa11bd6f1626867f6dec0584d16ad8ea9"
+SEMANTIC_DIGEST = "b66c687f3049572000fb2d1c65a4b12bae967348afbe2f8c2923b375ec82072c"
 PHASE15_SUBSET_DIGEST = (
-    "50209da2992f46e4a346655a3f4139799a104b881b262888fae04c25ea576558"
+    "5b44dd3aeba62a494502851e20ca67c2854132b4553f2c92dd04baf3dde3ff1d"
 )
 PROJECT_PRIVATE_DIGEST = (
     "c032a23c7f0477df58cacc9374e2882bebad346bec9a539899878da062248013"
 )
-TIER2_MANIFEST_BYTES = 18176
+TIER2_MANIFEST_BYTES = 18319
 TIER2_MANIFEST_SHA256 = (
-    "5366a8d2de6c5b8b869aae018757696337502445c6d4fb68a395f7a30f701319"
+    "aea0deb90e0870740b40614fc911ad9483cb3851842aa9a4a9ccecc63baf6f79"
 )
 
 SPEC_H2 = (
@@ -160,8 +163,9 @@ MODIFIED_READER_PATHS = (
     SLICE2_TEST_REL,
     SLICE3_TEST_REL,
     SELF_REL,
+    SIGNATURE_TEST_REL,
 )
-ADDED_PATHS = {SIGNATURE_REL, SIGNATURE_SPEC_REL, SIGNATURE_TEST_REL}
+ADDED_PATHS = {CONTEXT_REL, CONTEXT_SPEC_REL, CONTEXT_TEST_REL}
 ALLOWLIST_PATHS = {*ADDED_PATHS, *MODIFIED_READER_PATHS}
 
 
@@ -836,9 +840,9 @@ def test_digest_and_nested_raw_sha_reader_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        79,
-        25,
-        22,
+        80,
+        26,
+        23,
     )
     assert _digest(compiler_paths) == COMPILER_DIGEST
     assert _digest(semantic_paths) == SEMANTIC_DIGEST
@@ -914,14 +918,14 @@ def test_static_item_allowlist_reader_and_manifest_inventory_is_exact() -> None:
         "test_declared_nullability_mappings_are_exact",
         "test_supported_literals_have_ordered_postgresql_and_private_mysql_scope",
     ]
-    assert len(MODIFIED_READER_PATHS) == len(set(MODIFIED_READER_PATHS)) == 39
-    assert len(ALLOWLIST_PATHS) == 42
-    assert sum(path.endswith(".py") for path in ALLOWLIST_PATHS) == 41
+    assert len(MODIFIED_READER_PATHS) == len(set(MODIFIED_READER_PATHS)) == 40
+    assert len(ALLOWLIST_PATHS) == 43
+    assert sum(path.endswith(".py") for path in ALLOWLIST_PATHS) == 42
     assert sum(path.endswith(".md") for path in ALLOWLIST_PATHS) == 1
     assert (len(COMPILER_READERS), len(SEMANTIC_READERS)) == (11, 25)
     assert len(_all_facts()) == 41
-    assert 5949 - 141 == 5808
-    assert TIER2_MANIFEST_BYTES == 18176
+    assert 6018 - 142 == 5876
+    assert TIER2_MANIFEST_BYTES == 18319
     assert TIER2_MANIFEST_SHA256 == (
-        "5366a8d2de6c5b8b869aae018757696337502445c6d4fb68a395f7a30f701319"
+        "aea0deb90e0870740b40614fc911ad9483cb3851842aa9a4a9ccecc63baf6f79"
     )

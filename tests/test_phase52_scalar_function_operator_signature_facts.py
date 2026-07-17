@@ -36,6 +36,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_REL = "src/pietto/semantic/capability_signatures.py"
 SPEC_REL = "docs/spec/phase52-scalar-function-operator-signature-facts-v1.md"
 SELF_REL = "tests/test_phase52_scalar_function_operator_signature_facts.py"
+CONTEXT_REL = "src/pietto/semantic/capability_contexts.py"
+CONTEXT_SPEC_REL = "docs/spec/phase52-expression-stage-clause-capability-facts-v1.md"
+CONTEXT_TEST_REL = "tests/test_phase52_expression_stage_clause_capability_facts.py"
 FACTS_REL = "src/pietto/semantic/capability_facts.py"
 LOOKUP_REL = "src/pietto/semantic/capability_lookup.py"
 INVENTORY_REL = "src/pietto/semantic/capability_inventory.py"
@@ -55,10 +58,10 @@ INVENTORY_SHA256 = "8115c2510289711a1a7d1fb6db14057e61027025c5a781f869822dad4d4c
 PROJECT_PRIVATE_DIGEST = (
     "c032a23c7f0477df58cacc9374e2882bebad346bec9a539899878da062248013"
 )
-TIER2_MANIFEST_BYTES = 18176
-TIER2_MANIFEST_FILES = 107
+TIER2_MANIFEST_BYTES = 18319
+TIER2_MANIFEST_FILES = 108
 TIER2_MANIFEST_SHA256 = (
-    "5366a8d2de6c5b8b869aae018757696337502445c6d4fb68a395f7a30f701319"
+    "aea0deb90e0870740b40614fc911ad9483cb3851842aa9a4a9ccecc63baf6f79"
 )
 
 SPEC_H2 = (
@@ -165,8 +168,9 @@ MODIFIED_READER_PATHS = (
     SLICE2_TEST_REL,
     SLICE3_TEST_REL,
     SLICE4_TEST_REL,
+    SELF_REL,
 )
-ADDED_PATHS = {SOURCE_REL, SPEC_REL, SELF_REL}
+ADDED_PATHS = {CONTEXT_REL, CONTEXT_SPEC_REL, CONTEXT_TEST_REL}
 ALLOWLIST_PATHS = {*ADDED_PATHS, *MODIFIED_READER_PATHS}
 
 DIRECT_TIER1_NODES = (
@@ -1015,9 +1019,9 @@ def test_compiler_semantic_subset_project_and_raw_hash_readers_are_exact() -> No
     )
     project_paths = _project_private_paths()
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        79,
-        25,
-        22,
+        80,
+        26,
+        23,
     )
     assert len(project_paths) == 16
     assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
@@ -1106,9 +1110,9 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     )
     assert untracked in (set(), ADDED_PATHS)
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
-    assert len(MODIFIED_READER_PATHS) == len(set(MODIFIED_READER_PATHS)) == 39
-    assert len(ALLOWLIST_PATHS) == 42
-    assert sum(path.endswith(".py") for path in ALLOWLIST_PATHS) == 41
+    assert len(MODIFIED_READER_PATHS) == len(set(MODIFIED_READER_PATHS)) == 40
+    assert len(ALLOWLIST_PATHS) == 43
+    assert sum(path.endswith(".py") for path in ALLOWLIST_PATHS) == 42
     assert sum(path.endswith(".md") for path in ALLOWLIST_PATHS) == 1
 
 
@@ -1135,7 +1139,7 @@ def test_static_test_inventory_tier1_and_tier2_manifest_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (429, 4069)
+    assert (len(test_files), top_level_functions) == (430, 4097)
     assert len(DIRECT_TIER1_NODES) == len(set(DIRECT_TIER1_NODES)) == 44
     for node_id in DIRECT_TIER1_NODES:
         path, function = node_id.split("::", maxsplit=1)
@@ -1154,13 +1158,13 @@ def test_static_test_inventory_tier1_and_tier2_manifest_are_exact() -> None:
         "tests/test_phase51_grouped_aggregate_project_row_schema.py::test_forbidden_existing_project_compiler_and_public_surfaces_have_no_diff",
         "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py::test_phase51_compatibility_migrations_preserve_historical_locks",
     )
-    assert 64 + 24 + 33 + 63 + 44 == 228
-    assert 5885 + 64 == 5949
-    assert 5949 - 141 == 5808
-    assert TIER2_MANIFEST_FILES == 107
-    assert TIER2_MANIFEST_BYTES == 18176
+    assert 69 + 24 + 33 + 63 + 63 + 44 == 296
+    assert 5949 + 69 == 6018
+    assert 6018 - 142 == 5876
+    assert TIER2_MANIFEST_FILES == 108
+    assert TIER2_MANIFEST_BYTES == 18319
     assert TIER2_MANIFEST_SHA256 == (
-        "5366a8d2de6c5b8b869aae018757696337502445c6d4fb68a395f7a30f701319"
+        "aea0deb90e0870740b40614fc911ad9483cb3851842aa9a4a9ccecc63baf6f79"
     )
     dirty_node = (
         REPO_ROOT / SLICE4_TEST_REL,
