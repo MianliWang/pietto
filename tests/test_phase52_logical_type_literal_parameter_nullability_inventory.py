@@ -55,10 +55,10 @@ PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
 FACTS_SHA256 = "8a7e7ba8374c59316051f582aecc0c0e797d270fac2ce89a91a55befca562fa9"
 LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26"
-COMPILER_DIGEST = "e375c2fc27a1b72e22109766cdbdaecfa11bd6f1626867f6dec0584d16ad8ea9"
-SEMANTIC_DIGEST = "b66c687f3049572000fb2d1c65a4b12bae967348afbe2f8c2923b375ec82072c"
+COMPILER_DIGEST = "05df77667915bd5d34180b3fa758787bad1ca9996a33c2d793e3de68c1444df4"
+SEMANTIC_DIGEST = "3c6d12576f659615b3a360a3e9a3efa92c6d08740cfb2dd30be29223f6fbcd43"
 PHASE15_SUBSET_DIGEST = (
-    "5b44dd3aeba62a494502851e20ca67c2854132b4553f2c92dd04baf3dde3ff1d"
+    "c92126c03047bbf526c9fddae45fdfe772b637331edbbc2fa752becb420cffc9"
 )
 PROJECT_PRIVATE_DIGEST = (
     "c032a23c7f0477df58cacc9374e2882bebad346bec9a539899878da062248013"
@@ -840,9 +840,9 @@ def test_digest_and_nested_raw_sha_reader_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        80,
-        26,
-        23,
+        81,
+        27,
+        24,
     )
     assert _digest(compiler_paths) == COMPILER_DIGEST
     assert _digest(semantic_paths) == SEMANTIC_DIGEST

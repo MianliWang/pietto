@@ -40,6 +40,7 @@ SIGNATURE_REL = "src/pietto/semantic/capability_signatures.py"
 SIGNATURE_SPEC_REL = "docs/spec/phase52-scalar-function-operator-signature-facts-v1.md"
 SIGNATURE_TEST_REL = "tests/test_phase52_scalar_function_operator_signature_facts.py"
 CONTEXT_REL = "src/pietto/semantic/capability_contexts.py"
+AGGREGATE_REL = "src/pietto/semantic/capability_aggregates.py"
 CONTEXT_SPEC_REL = "docs/spec/phase52-expression-stage-clause-capability-facts-v1.md"
 CONTEXT_TEST_REL = "tests/test_phase52_expression_stage_clause_capability_facts.py"
 SPEC_REL = (
@@ -697,6 +698,7 @@ def test_private_module_has_no_public_compiler_project_or_serializer_consumers()
                 INVENTORY_PATH,
                 SIGNATURE_PATH,
                 REPO_ROOT / CONTEXT_REL,
+                REPO_ROOT / AGGREGATE_REL,
             }
             or "generated" in path.parts
         ):
@@ -760,7 +762,7 @@ def test_slice2_spec_locks_read_model_non_authority_and_conflict_preservation() 
 
 def test_compiler_boundary_and_all_compatibility_hash_locks_are_consistent() -> None:
     compiler_paths = _compiler_paths()
-    assert len(compiler_paths) == 80
+    assert len(compiler_paths) == 81
     compiler_digest = _digest(compiler_paths)
     for path in BOUNDARY_PATHS:
         assert f'BOUNDARY_HASH = "{compiler_digest}"' in _read(REPO_ROOT / path)
@@ -773,7 +775,7 @@ def test_compiler_boundary_and_all_compatibility_hash_locks_are_consistent() -> 
         )
 
     semantic_paths = tuple((REPO_ROOT / "src/pietto/semantic").glob("*.py"))
-    assert len(semantic_paths) == 26
+    assert len(semantic_paths) == 27
     semantic_digest = _digest(semantic_paths)
     for path in SEMANTIC_LOCK_PATHS:
         text = _read(REPO_ROOT / path)
@@ -788,7 +790,7 @@ def test_compiler_boundary_and_all_compatibility_hash_locks_are_consistent() -> 
         for path in semantic_paths
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
-    assert len(phase15_paths) == 23
+    assert len(phase15_paths) == 24
     phase15_digest = _digest(phase15_paths)
     phase15_reader = _read(REPO_ROOT / PHASE15_SUBSET_PATH)
     assert phase15_digest in phase15_reader

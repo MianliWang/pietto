@@ -46,6 +46,7 @@ SIGNATURE_REL = "src/pietto/semantic/capability_signatures.py"
 SIGNATURE_SPEC_REL = "docs/spec/phase52-scalar-function-operator-signature-facts-v1.md"
 SIGNATURE_TEST_REL = "tests/test_phase52_scalar_function_operator_signature_facts.py"
 CONTEXT_REL = "src/pietto/semantic/capability_contexts.py"
+AGGREGATE_REL = "src/pietto/semantic/capability_aggregates.py"
 CONTEXT_SPEC_REL = "docs/spec/phase52-expression-stage-clause-capability-facts-v1.md"
 CONTEXT_TEST_REL = "tests/test_phase52_expression_stage_clause_capability_facts.py"
 SPEC_REL = "docs/spec/phase52-fail-closed-capability-lookup-v1.md"
@@ -114,10 +115,10 @@ MODIFIED_READER_PATHS = (
 )
 ADDED_PATHS = {CONTEXT_REL, CONTEXT_SPEC_REL, CONTEXT_TEST_REL}
 ALLOWLIST_PATHS = {*MODIFIED_READER_PATHS, *ADDED_PATHS}
-COMPILER_DIGEST = "e375c2fc27a1b72e22109766cdbdaecfa11bd6f1626867f6dec0584d16ad8ea9"
-SEMANTIC_DIGEST = "b66c687f3049572000fb2d1c65a4b12bae967348afbe2f8c2923b375ec82072c"
+COMPILER_DIGEST = "05df77667915bd5d34180b3fa758787bad1ca9996a33c2d793e3de68c1444df4"
+SEMANTIC_DIGEST = "3c6d12576f659615b3a360a3e9a3efa92c6d08740cfb2dd30be29223f6fbcd43"
 PHASE15_SUBSET_DIGEST = (
-    "5b44dd3aeba62a494502851e20ca67c2854132b4553f2c92dd04baf3dde3ff1d"
+    "c92126c03047bbf526c9fddae45fdfe772b637331edbbc2fa752becb420cffc9"
 )
 PROJECT_PRIVATE_DIGEST = (
     "c032a23c7f0477df58cacc9374e2882bebad346bec9a539899878da062248013"
@@ -482,6 +483,7 @@ def test_lookup_and_inventory_are_only_private_fact_consumers_without_registry()
                 REPO_ROOT / INVENTORY_REL,
                 REPO_ROOT / SIGNATURE_REL,
                 REPO_ROOT / CONTEXT_REL,
+                REPO_ROOT / AGGREGATE_REL,
             }
             or "generated" in path.parts
         ):
@@ -524,9 +526,9 @@ def test_compiler_semantic_and_phase15_boundary_digests_are_refreshed() -> None:
         for path in semantic_paths
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
-    assert len(compiler_paths) == 80
-    assert len(semantic_paths) == 26
-    assert len(phase15_paths) == 23
+    assert len(compiler_paths) == 81
+    assert len(semantic_paths) == 27
+    assert len(phase15_paths) == 24
     assert _digest(compiler_paths) == COMPILER_DIGEST
     assert _digest(semantic_paths) == SEMANTIC_DIGEST
     assert _digest(phase15_paths) == PHASE15_SUBSET_DIGEST

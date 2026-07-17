@@ -322,7 +322,7 @@ PROTECTED_HASHES = {
         "26cc0ae4a68518223d6bf600ad3c4b0b226618aa7ef31b2ae1c25924d2655169"
     ),
 }
-COMPILER_DIGEST = "e375c2fc27a1b72e22109766cdbdaecfa11bd6f1626867f6dec0584d16ad8ea9"
+COMPILER_DIGEST = "05df77667915bd5d34180b3fa758787bad1ca9996a33c2d793e3de68c1444df4"
 PROJECT_PRIVATE_DIGEST = (
     "c032a23c7f0477df58cacc9374e2882bebad346bec9a539899878da062248013"
 )
@@ -1002,7 +1002,7 @@ def test_live_compiler_project_private_protected_version_and_tag_locks_are_dirty
     None
 ):
     compiler_count, compiler_digest = _compiler_digest()
-    assert (compiler_count, compiler_digest) == (80, COMPILER_DIGEST)
+    assert (compiler_count, compiler_digest) == (81, COMPILER_DIGEST)
     for relative_path in BOUNDARY_PATHS:
         boundary_values = re.findall(
             r'^BOUNDARY_HASH = "([0-9a-f]{64})"$',

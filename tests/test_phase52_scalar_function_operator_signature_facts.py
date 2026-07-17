@@ -47,6 +47,7 @@ SLICE3_TEST_REL = "tests/test_phase52_fail_closed_capability_lookup.py"
 SLICE4_TEST_REL = (
     "tests/test_phase52_logical_type_literal_parameter_nullability_inventory.py"
 )
+SLICE7_TEST_REL = "tests/test_phase52_aggregate_signature_algebra_facts.py"
 SOURCE_PATH = REPO_ROOT / SOURCE_REL
 SPEC_PATH = REPO_ROOT / SPEC_REL
 SELF_PATH = REPO_ROOT / SELF_REL
@@ -93,6 +94,7 @@ COMPILER_READERS = (
     "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
     SLICE3_TEST_REL,
     SLICE4_TEST_REL,
+    SLICE7_TEST_REL,
 )
 SEMANTIC_READERS = (
     "tests/test_phase11_completion_audit.py",
@@ -122,11 +124,13 @@ SEMANTIC_READERS = (
     "tests/test_phase30_completion_audit.py",
     SLICE3_TEST_REL,
     SLICE4_TEST_REL,
+    SLICE7_TEST_REL,
 )
 PHASE15_READERS = (
     "tests/test_phase15_semantic_completion_audit.py",
     SLICE3_TEST_REL,
     SLICE4_TEST_REL,
+    SLICE7_TEST_REL,
 )
 MODIFIED_READER_PATHS = (
     "tests/test_phase11_ci_workflow.py",
@@ -1019,9 +1023,9 @@ def test_compiler_semantic_subset_project_and_raw_hash_readers_are_exact() -> No
     )
     project_paths = _project_private_paths()
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        80,
-        26,
-        23,
+        81,
+        27,
+        24,
     )
     assert len(project_paths) == 16
     assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
@@ -1139,7 +1143,7 @@ def test_static_test_inventory_tier1_and_tier2_manifest_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (430, 4097)
+    assert (len(test_files), top_level_functions) == (431, 4125)
     assert len(DIRECT_TIER1_NODES) == len(set(DIRECT_TIER1_NODES)) == 44
     for node_id in DIRECT_TIER1_NODES:
         path, function = node_id.split("::", maxsplit=1)
