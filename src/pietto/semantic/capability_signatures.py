@@ -741,6 +741,7 @@ _BINARY_IDENTITIES = frozenset(
     for subject, operation, right, _, _ in _BINARY_SIGNATURES
 )
 _COMPARISON_OPERATIONS = frozenset(("==", "!=", "<", "<=", ">", ">=", "like"))
+_LOGICAL_TYPE_ATOMS = frozenset(("Int", "Float", "Decimal", "Text", "Bool"))
 _RESULT_NULLABILITY_POSTURES = frozenset(("unknown", "non_null", "preserve_operand"))
 
 
@@ -753,21 +754,24 @@ def _schema_is_complete(key: CapabilityKey) -> bool:
         return False
     if key.domain is CapabilityDomain.SCALAR_FUNCTION:
         return (
-            key.subject is not None
+            key.subject in _LOGICAL_TYPE_ATOMS
             and key.operation is not None
             and len(key.operands) >= 2
+            and all(operand in _LOGICAL_TYPE_ATOMS for operand in key.operands[:-1])
             and key.operands[-1] in _RESULT_NULLABILITY_POSTURES
         )
     if key.domain is CapabilityDomain.UNARY_OPERATOR:
         return (
             (key.subject, key.operation) in _UNARY_IDENTITIES
             and len(key.operands) == 2
+            and key.operands[0] in _LOGICAL_TYPE_ATOMS
             and key.operands[-1] == "preserve_operand"
         )
     if key.domain is CapabilityDomain.BINARY_OPERATOR:
         return (
             len(key.operands) == 3
             and (key.subject, key.operation, key.operands[0]) in _BINARY_IDENTITIES
+            and key.operands[1] in _LOGICAL_TYPE_ATOMS
             and key.operands[-1] == "unknown"
         )
     if key.domain is CapabilityDomain.COMPARISON:
@@ -775,6 +779,7 @@ def _schema_is_complete(key: CapabilityKey) -> bool:
             return (
                 len(key.operands) == 3
                 and key.operands[0] == "Expression"
+                and key.operands[1] in _LOGICAL_TYPE_ATOMS
                 and key.operands[-1] == "unknown"
             )
         return (
@@ -782,6 +787,7 @@ def _schema_is_complete(key: CapabilityKey) -> bool:
             and key.operation == "between"
             and len(key.operands) == 4
             and key.operands[:2] == ("ValueTypeKind.KNOWN", "ValueTypeKind.KNOWN")
+            and key.operands[2] in _LOGICAL_TYPE_ATOMS
             and key.operands[-1] == "unknown"
         )
     if key.domain is CapabilityDomain.NULL_TEST:
@@ -789,6 +795,7 @@ def _schema_is_complete(key: CapabilityKey) -> bool:
             key.subject == "Expression"
             and key.operation in {"is null", "is not null"}
             and len(key.operands) == 2
+            and key.operands[0] in _LOGICAL_TYPE_ATOMS
             and key.operands[-1] == "non_null"
         )
     return False
@@ -801,8 +808,10 @@ def _unknown_reason(key: CapabilityKey) -> CapabilityReasonCode | None:
         and key.context == "expression"
         and key.dialect is None
         and key.extension is None
-        and key.subject is not None
+        and key.subject in _LOGICAL_TYPE_ATOMS
         and len(key.operands) == 3
+        and key.operands[0] in _LOGICAL_TYPE_ATOMS
+        and key.operands[1] in _LOGICAL_TYPE_ATOMS
         and key.operands[-1] == "unknown"
     ):
         return CapabilityReasonCode.NO_CURRENT_RESULT_RULE

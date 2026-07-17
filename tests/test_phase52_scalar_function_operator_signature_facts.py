@@ -48,14 +48,16 @@ SLICE4_TEST_REL = (
     "tests/test_phase52_logical_type_literal_parameter_nullability_inventory.py"
 )
 SLICE7_TEST_REL = "tests/test_phase52_aggregate_signature_algebra_facts.py"
+AGGREGATE_REL = "src/pietto/semantic/capability_aggregates.py"
 SOURCE_PATH = REPO_ROOT / SOURCE_REL
 SPEC_PATH = REPO_ROOT / SPEC_REL
 SELF_PATH = REPO_ROOT / SELF_REL
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
+REPAIR_BASE_HEAD_SHA = "b1d5002fb48dbbb06cc93de2261e2237655e0eab"
 
 FACTS_SHA256 = "8a7e7ba8374c59316051f582aecc0c0e797d270fac2ce89a91a55befca562fa9"
 LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26"
-INVENTORY_SHA256 = "8115c2510289711a1a7d1fb6db14057e61027025c5a781f869822dad4d4cdd03"
+INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 PROJECT_PRIVATE_DIGEST = (
     "c032a23c7f0477df58cacc9374e2882bebad346bec9a539899878da062248013"
 )
@@ -176,6 +178,13 @@ MODIFIED_READER_PATHS = (
 )
 ADDED_PATHS = {CONTEXT_REL, CONTEXT_SPEC_REL, CONTEXT_TEST_REL}
 ALLOWLIST_PATHS = {*ADDED_PATHS, *MODIFIED_READER_PATHS}
+REPAIR_ALLOWLIST_PATHS = set(MODIFIED_READER_PATHS) - {SLICE2_TEST_REL} | {
+    SOURCE_REL,
+    INVENTORY_REL,
+    AGGREGATE_REL,
+    CONTEXT_TEST_REL,
+    SLICE7_TEST_REL,
+}
 
 DIRECT_TIER1_NODES = (
     "tests/test_phase11_completion_audit.py::test_package_configuration_lockfile_makefile_and_compiler_are_unchanged",
@@ -828,8 +837,45 @@ def test_signature_completeness_schemas_are_exact() -> None:
     assert all(_inputs(key)[1:] == (True, None) for key in complete_absences)
     incomplete = (
         replace(complete_absences[0], dialect="postgresql"),
+        replace(
+            complete_absences[0],
+            dialect="postgresql",
+            extension="future",
+        ),
+        replace(complete_absences[0], subject="text"),
+        replace(complete_absences[0], operands=("Bogus", "unknown")),
+        replace(
+            complete_absences[0],
+            operands=("Text", "Bogus", "unknown"),
+        ),
+        replace(complete_absences[0], operands=("Text",)),
+        replace(
+            complete_absences[0],
+            operands=("Text", "unknown", "Bogus"),
+        ),
         replace(complete_absences[1], operands=("Int", "unknown")),
+        replace(complete_absences[1], operands=("Bogus", "preserve_operand")),
+        replace(complete_absences[1], operands=("int", "preserve_operand")),
+        replace(
+            complete_absences[1],
+            operands=("Int", "preserve_operand", "extra"),
+        ),
         replace(complete_absences[2], context="where"),
+        replace(complete_absences[2], operands=("Int", "Bogus", "unknown")),
+        replace(
+            complete_absences[3],
+            operands=("Expression", "Bogus", "unknown"),
+        ),
+        replace(
+            complete_absences[4],
+            operands=(
+                "ValueTypeKind.KNOWN",
+                "ValueTypeKind.KNOWN",
+                "Bogus",
+                "unknown",
+            ),
+        ),
+        replace(complete_absences[5], operands=("Bogus", "non_null")),
         CapabilityKey(
             CapabilityDomain.AGGREGATE,
             subject="Int",
@@ -838,7 +884,7 @@ def test_signature_completeness_schemas_are_exact() -> None:
             context="expression",
         ),
     )
-    assert all(_inputs(key)[1] is False for key in incomplete)
+    assert all(_inputs(key)[1:] == (False, None) for key in incomplete)
 
 
 def test_all_inventory_keys_lookup_as_found() -> None:
@@ -856,6 +902,13 @@ def test_complete_schema_zero_match_lookup_is_absent() -> None:
             subject="Text",
             operation="upper",
             operands=("Text", "unknown"),
+            context="expression",
+        ),
+        CapabilityKey(
+            CapabilityDomain.SCALAR_FUNCTION,
+            subject="Text",
+            operation="lower",
+            operands=("Text", "Text", "unknown"),
             context="expression",
         ),
         replace(
@@ -909,6 +962,24 @@ def test_incomplete_and_division_lookups_are_unknown_with_exact_reasons() -> Non
         assert complete is False
         assert actual_reason is reason
         assert _lookup(key) == Unknown(reason)
+    malformed = (
+        replace(division, subject="Bogus"),
+        replace(division, operands=("Bogus", "Int", "unknown")),
+        replace(division, operands=("Int", "Bogus", "unknown")),
+        replace(division, operands=("Int", "int", "unknown")),
+        replace(division, operands=("Int", "Int")),
+        replace(division, operands=("Int", "Int", "unknown", "extra")),
+        replace(division, context="where"),
+        replace(division, dialect="postgresql"),
+        replace(division, dialect="postgresql", extension="future"),
+        replace(matches_mysql, extension="future"),
+        replace(like_postgres, extension="future"),
+    )
+    for key in malformed:
+        _, complete, reason = _inputs(key)
+        assert complete is False
+        assert reason is None
+        assert _lookup(key) == Unknown(CapabilityReasonCode.NOT_EVIDENCED)
     concrete = CapabilityKey(
         CapabilityDomain.COMPARISON,
         subject="Date",
@@ -1106,18 +1177,32 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
         project = tomllib.load(stream)
     assert project["project"]["version"] == "0.1.0"
     assert _git_output(["tag", "--points-at", "HEAD"]) == ""
-    assert _dirty_paths() in (set(), ALLOWLIST_PATHS)
+    dirty = _dirty_paths()
+    assert dirty in (set(), ALLOWLIST_PATHS, REPAIR_ALLOWLIST_PATHS)
     tracked = set(_git_output(["diff", "--name-only"]).splitlines())
-    assert tracked in (set(), set(MODIFIED_READER_PATHS))
     untracked = set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
-    assert untracked in (set(), ADDED_PATHS)
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
+    if dirty == REPAIR_ALLOWLIST_PATHS:
+        status = tuple(_git_output(["diff", "--name-status"]).splitlines())
+        assert tracked == REPAIR_ALLOWLIST_PATHS
+        assert len(status) == 44
+        assert all(entry.startswith("M\t") for entry in status)
+        assert untracked == set()
+        assert _git_output(["branch", "--show-current"]) == "main"
+        assert _git_output(["rev-parse", "HEAD"]) == REPAIR_BASE_HEAD_SHA
+        assert _git_output(["rev-parse", "main"]) == REPAIR_BASE_HEAD_SHA
+        assert _git_output(["rev-parse", "origin/main"]) == REPAIR_BASE_HEAD_SHA
+    else:
+        assert tracked in (set(), set(MODIFIED_READER_PATHS))
+        assert untracked in (set(), ADDED_PATHS)
     assert len(MODIFIED_READER_PATHS) == len(set(MODIFIED_READER_PATHS)) == 40
     assert len(ALLOWLIST_PATHS) == 43
     assert sum(path.endswith(".py") for path in ALLOWLIST_PATHS) == 42
     assert sum(path.endswith(".md") for path in ALLOWLIST_PATHS) == 1
+    assert len(REPAIR_ALLOWLIST_PATHS) == 44
+    assert all(path.endswith(".py") for path in REPAIR_ALLOWLIST_PATHS)
 
 
 def test_static_test_inventory_tier1_and_tier2_manifest_are_exact() -> None:

@@ -32,6 +32,8 @@ from pietto.semantic.capability_lookup import (
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_REL = "src/pietto/semantic/capability_aggregates.py"
+INVENTORY_REL = "src/pietto/semantic/capability_inventory.py"
+SIGNATURE_REL = "src/pietto/semantic/capability_signatures.py"
 SPEC_REL = "docs/spec/phase52-aggregate-signature-algebra-facts-v1.md"
 SELF_REL = "tests/test_phase52_aggregate_signature_algebra_facts.py"
 SOURCE_PATH = REPO_ROOT / SOURCE_REL
@@ -44,15 +46,16 @@ PR_REPAIR_GATE2_BRANCH = "dependabot/uv/uv-build-gte-0.11.29-and-lt-0.12.0"
 PR_REPAIR_GATE2_HEAD_SHA = "8538e9e612c4a39b93a43f85532bfcb75853f9c1"
 PR_REPAIR_GATE2_MAIN_SHA = "522ce4ea193c3b2bbbe88644d77a2410230f42ad"
 PR_REPAIR_GATE2_ORIGIN_REF = f"refs/remotes/origin/{PR_REPAIR_GATE2_BRANCH}"
+COMPLETENESS_REPAIR_GATE2_BASE_HEAD_SHA = "b1d5002fb48dbbb06cc93de2261e2237655e0eab"
 FACTS_SHA256 = "8a7e7ba8374c59316051f582aecc0c0e797d270fac2ce89a91a55befca562fa9"
 LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26"
-INVENTORY_SHA256 = "8115c2510289711a1a7d1fb6db14057e61027025c5a781f869822dad4d4cdd03"
-SIGNATURE_SHA256 = "139e2778ae4f6f4d3e11f23ac74d53bb5ee7e981c9a596cbf6711b28b1428085"
+INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
+SIGNATURE_SHA256 = "810f347080e0bb7dc674821aa6387c5f7618ac216832194ef19820326eef71d2"
 CONTEXT_SHA256 = "132371eccca00ca9f8722a34f1ea0f540933515e560639ee12e53aee6594c60c"
-COMPILER_DIGEST = "05df77667915bd5d34180b3fa758787bad1ca9996a33c2d793e3de68c1444df4"
-SEMANTIC_DIGEST = "3c6d12576f659615b3a360a3e9a3efa92c6d08740cfb2dd30be29223f6fbcd43"
+COMPILER_DIGEST = "15bdd8566474a9f119e3a1d8c991cfca972ac114f7d52edb7d6e57f6c779c923"
+SEMANTIC_DIGEST = "ef4304a56f4d352b5882ce21ef4a490f77a3107b3d827d4e73ad39ad3a688e0d"
 PHASE15_SUBSET_DIGEST = (
-    "c92126c03047bbf526c9fddae45fdfe772b637331edbbc2fa752becb420cffc9"
+    "e0f2909026328a5fc74cb432551e7665be33702af626bbac363e52a2febcc450"
 )
 PROJECT_PRIVATE_DIGEST = (
     "c032a23c7f0477df58cacc9374e2882bebad346bec9a539899878da062248013"
@@ -189,6 +192,12 @@ PR_REPAIR_ALLOWLIST_PATHS = {
     "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
     "tests/test_phase52_expression_stage_clause_capability_facts.py",
     SELF_REL,
+}
+COMPLETENESS_REPAIR_ALLOWLIST_PATHS = set(MODIFIED_READER_PATHS) - {SLICE2_TEST_REL} | {
+    SELF_REL,
+    SOURCE_REL,
+    INVENTORY_REL,
+    SIGNATURE_REL,
 }
 
 BOUNDARY_HASH_OWNERS = (
@@ -811,16 +820,11 @@ def _prior_compatible_nodes() -> tuple[tuple[str, ...], tuple[int, ...]]:
     files = (
         SLICE2_TEST_REL,
         SLICE3_TEST_REL,
-        SLICE4_TEST_REL,
-        SLICE5_TEST_REL,
         SLICE6_TEST_REL,
     )
     excluded = {
         SLICE2_TEST_REL + "::test_gate2_dirty_untracked_and_index_states_are_exact",
         SLICE3_TEST_REL + "::test_gate2_dirty_untracked_and_index_states_are_exact",
-        SLICE4_TEST_REL + "::test_gate2_dirty_untracked_and_index_states_are_exact",
-        SLICE5_TEST_REL
-        + "::test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact",
         SLICE6_TEST_REL
         + "::test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact",
     }
@@ -1250,6 +1254,23 @@ def test_signature_incomplete_questions_are_unknown() -> None:
             CapabilityDomain.AGGREGATE,
             subject="count",
             operation="signature",
+            operands=(
+                "1",
+                "direct_field",
+                "Int",
+                "Int",
+                "non_null",
+                "GROUP",
+                "aggregate_result",
+            ),
+            context="aggregate_signature",
+            dialect="postgresql",
+            extension="future",
+        ),
+        CapabilityKey(
+            CapabilityDomain.AGGREGATE,
+            subject="count",
+            operation="signature",
             operands=("1", "direct_field", "Int", "Int", "non_null", "GROUP"),
             context="aggregate_signature",
         ),
@@ -1347,7 +1368,25 @@ def test_injected_conflict_and_duplicate_freeze_preserve_lookup_contract() -> No
 def test_algebra_inventory_order_keys_support_and_disposition_are_exact() -> None:
     facts = _facts("_AGGREGATE_ALGEBRA_FACTS")
     expected = _expected_algebra_rows()
+    property_values = frozenset(
+        (
+            "zero",
+            "sql_null",
+            "nullable_on_empty_input",
+            "does_not_inspect_values",
+            "eliminates_sql_null_results",
+            "eliminates_duplicates",
+            "not_supported",
+        )
+    )
     assert len(facts) == len({fact.key for fact in facts}) == len(expected) == 16
+    assert (
+        cast(
+            frozenset[str],
+            getattr(capability_aggregates, "_ALGEBRA_PROPERTY_VALUES"),
+        )
+        == property_values
+    )
     assert (
         tuple(
             (
@@ -1361,7 +1400,22 @@ def test_algebra_inventory_order_keys_support_and_disposition_are_exact() -> Non
         )
         == expected
     )
+    assert tuple(dict.fromkeys(fact.key.operands[1] for fact in facts)) == (
+        "zero",
+        "sql_null",
+        "nullable_on_empty_input",
+        "does_not_inspect_values",
+        "eliminates_sql_null_results",
+        "eliminates_duplicates",
+        "not_supported",
+    )
     for index, fact in enumerate(facts):
+        _, complete, reason = cast(
+            Any,
+            capability_aggregates.aggregate_lookup_inputs,
+        )(fact.key)
+        assert complete is True
+        assert reason is None
         assert fact.key.domain is CapabilityDomain.AGGREGATE
         assert fact.key.context == "aggregate_algebra"
         assert fact.key.dialect is None
@@ -1407,11 +1461,48 @@ def test_rejected_algebra_fact_group_is_exact(indexes: tuple[int, ...]) -> None:
 
 
 def test_algebra_completeness_absence_and_omission_are_exact() -> None:
-    wrong = _algebra_key("count", "argument_inspection", "arity_0", "inspects_values")
-    result = _lookup(wrong)
-    assert isinstance(result, Absent)
-    assert result.reason is CapabilityReasonCode.NO_CATALOG_ENTRY
-    for key in (
+    complete_absences = (
+        _algebra_key(
+            "count",
+            "argument_inspection",
+            "arity_0",
+            "eliminates_duplicates",
+        ),
+        _algebra_key(
+            "SEMANTIC_AGGREGATE_NAMES",
+            "aggregate_filter",
+            "all_current_aggregates",
+            "zero",
+        ),
+        _algebra_key(
+            "SEMANTIC_AGGREGATE_NAMES",
+            "nested_aggregate",
+            "aggregate_argument",
+            "sql_null",
+        ),
+    )
+    for key in complete_absences:
+        result = _lookup(key)
+        assert isinstance(result, Absent)
+        assert result.reason is CapabilityReasonCode.NO_CATALOG_ENTRY
+
+    canonical = _algebra_key(
+        "count", "argument_inspection", "arity_0", "does_not_inspect_values"
+    )
+    malformed = (
+        replace(canonical, operands=("arity_0",)),
+        replace(
+            canonical,
+            operands=("arity_0", "does_not_inspect_values", "extra"),
+        ),
+        replace(canonical, operands=("arity_0", "Bogus")),
+        replace(canonical, operands=("arity_0", "Zero")),
+        replace(canonical, operands=("Bogus", "zero")),
+        replace(canonical, subject="future_aggregate"),
+        replace(canonical, operation="future_property"),
+        replace(canonical, context="expression"),
+        replace(canonical, dialect="postgresql"),
+        replace(canonical, dialect="postgresql", extension="future"),
         _algebra_key("avg", "empty_input_result", "arity_1", "sql_null"),
         _algebra_key("sum", "associativity", "all_supported_signatures", "true"),
         _algebra_key(
@@ -1420,7 +1511,8 @@ def test_algebra_completeness_absence_and_omission_are_exact() -> None:
             "all_current_aggregates",
             "supported",
         ),
-    ):
+    )
+    for key in malformed:
         unknown = _lookup(key)
         assert isinstance(unknown, Unknown)
         assert unknown.reason is CapabilityReasonCode.NOT_EVIDENCED
@@ -1683,7 +1775,12 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     assert _git_output(["tag", "--list"]) == ""
     assert _git_output(["tag", "--points-at", "HEAD"]) == ""
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
-    assert dirty_paths in (set(), ALLOWLIST_PATHS, PR_REPAIR_ALLOWLIST_PATHS)
+    assert dirty_paths in (
+        set(),
+        ALLOWLIST_PATHS,
+        PR_REPAIR_ALLOWLIST_PATHS,
+        COMPLETENESS_REPAIR_ALLOWLIST_PATHS,
+    )
 
     if not dirty_paths:
         assert tracked_paths == set()
@@ -1707,6 +1804,16 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
         assert untracked_paths == ADDED_PATHS
         assert origin_main is not None
         assert head == main == origin_main == GATE2_BASE_HEAD_SHA
+    elif dirty_paths == COMPLETENESS_REPAIR_ALLOWLIST_PATHS:
+        assert branch == "main"
+        assert tracked_paths == COMPLETENESS_REPAIR_ALLOWLIST_PATHS
+        assert len(tracked_status) == 44
+        assert all(entry.startswith("M\t") for entry in tracked_status)
+        assert {entry.removeprefix("M\t") for entry in tracked_status} == (
+            COMPLETENESS_REPAIR_ALLOWLIST_PATHS
+        )
+        assert untracked_paths == set()
+        assert head == main == origin_main == COMPLETENESS_REPAIR_GATE2_BASE_HEAD_SHA
     else:
         assert dirty_paths == PR_REPAIR_ALLOWLIST_PATHS
         assert branch == PR_REPAIR_GATE2_BRANCH
@@ -1725,6 +1832,8 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     assert sum(path.endswith(".py") for path in ALLOWLIST_PATHS) == 43
     assert sum(path.endswith(".md") for path in ALLOWLIST_PATHS) == 1
     assert len(PR_REPAIR_ALLOWLIST_PATHS) == 6
+    assert len(COMPLETENESS_REPAIR_ALLOWLIST_PATHS) == 44
+    assert all(path.endswith(".py") for path in COMPLETENESS_REPAIR_ALLOWLIST_PATHS)
 
 
 def test_static_test_inventory_and_tier1_selection_are_exact() -> None:
@@ -1764,17 +1873,23 @@ def test_static_test_inventory_and_tier1_selection_are_exact() -> None:
     assert (len(test_files), top_level_functions) == (431, 4125)
 
     compatible, per_file_items = _prior_compatible_nodes()
-    assert (len(compatible), per_file_items) == (123, (24, 33, 63, 63, 68))
+    assert (len(compatible), per_file_items) == (69, (24, 33, 68))
     compatible_payload = "".join(node + "\n" for node in compatible).encode("utf-8")
     direct_payload = "".join(node + "\n" for node in DIRECT_TIER1_NODES).encode("utf-8")
-    operands = (SELF_REL, *compatible, *DIRECT_TIER1_NODES)
+    operands = (
+        SLICE4_TEST_REL,
+        SLICE5_TEST_REL,
+        SELF_REL,
+        *compatible,
+        *DIRECT_TIER1_NODES,
+    )
     operand_payload = "".join(node + "\n" for node in operands).encode("utf-8")
     assert (
         len(compatible_payload),
         hashlib.sha256(compatible_payload).hexdigest(),
     ) == (
-        15121,
-        "30dc3f33bf604de7e482e71e5f1863da1314b7c201fc5a8b56f42fdbf21f9584",
+        8199,
+        "de5f51c210735c581a07149cc93d0fcbedde7484048b970fd9d384dcd5dba351",
     )
     assert len(DIRECT_TIER1_NODES) == len(set(DIRECT_TIER1_NODES)) == 44
     assert (len(direct_payload), hashlib.sha256(direct_payload).hexdigest()) == (
@@ -1786,11 +1901,11 @@ def test_static_test_inventory_and_tier1_selection_are_exact() -> None:
         len(operand_payload),
         hashlib.sha256(operand_payload).hexdigest(),
     ) == (
-        168,
-        20037,
-        "60dd46e3778f7c1f212f02b91cefedd0e6fd921e11718d6b903741efe14a70e4",
+        116,
+        13253,
+        "7d1817fcea9f5775bde61dc9363a8a79708cd00fb34f02c6474e012e96056e4d",
     )
-    assert 69 + sum(per_file_items) + 44 == 364
+    assert 64 + 64 + 69 + sum(per_file_items) + 44 == 366
     assert 6018 + 69 == 6087
 
 
@@ -1801,16 +1916,25 @@ def test_tier2_manifest_identity_and_classification_are_exact() -> None:
         + SLICE6_TEST_REL
         + "::test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact"
     )
-    manifest = tuple(sorted((*prior, added)))
-    assert len(manifest) == len(set(manifest)) == 143
+    removed = {
+        "--deselect="
+        + SLICE4_TEST_REL
+        + "::test_gate2_dirty_untracked_and_index_states_are_exact",
+        "--deselect="
+        + SLICE5_TEST_REL
+        + "::test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact",
+    }
+    manifest = tuple(sorted((set(prior) - removed) | {added}))
+    assert removed <= set(prior)
+    assert len(manifest) == len(set(manifest)) == 141
     payload = "".join(line + "\n" for line in manifest).encode("utf-8")
     files = {
         line.removeprefix("--deselect=").split("::", maxsplit=1)[0] for line in manifest
     }
     assert (len(files), len(payload), hashlib.sha256(payload).hexdigest()) == (
-        109,
-        18462,
-        "934175b3d4dee45912a4d4d9950d70491c00061a67058bdfa0b3c2c32ca1aa1d",
+        107,
+        18178,
+        "2aafd6f8e932f05313e925a2bcc236792ac30fe923e8aec7c342a2e3312c493e",
     )
     classification = {line: "CLEAN_ONLY_DESELECT" for line in manifest}
     assert set(classification.values()) == {"CLEAN_ONLY_DESELECT"}
@@ -1827,7 +1951,7 @@ def test_tier2_manifest_identity_and_classification_are_exact() -> None:
         ]
         assert len(matches) == 1
         assert _parametrize_values(matches[0]) == 1
-    assert 6087 - len(manifest) == 5944
+    assert 6087 - len(manifest) == 5946
 
 
 def test_slice7_lifecycle_validation_gate3_and_release_boundaries_are_exact() -> None:

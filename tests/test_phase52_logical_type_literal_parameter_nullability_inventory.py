@@ -48,17 +48,20 @@ SIGNATURE_TEST_REL = "tests/test_phase52_scalar_function_operator_signature_fact
 CONTEXT_REL = "src/pietto/semantic/capability_contexts.py"
 CONTEXT_SPEC_REL = "docs/spec/phase52-expression-stage-clause-capability-facts-v1.md"
 CONTEXT_TEST_REL = "tests/test_phase52_expression_stage_clause_capability_facts.py"
+AGGREGATE_REL = "src/pietto/semantic/capability_aggregates.py"
+AGGREGATE_TEST_REL = "tests/test_phase52_aggregate_signature_algebra_facts.py"
 SOURCE_PATH = REPO_ROOT / SOURCE_REL
 SPEC_PATH = REPO_ROOT / SPEC_REL
 SELF_PATH = REPO_ROOT / SELF_REL
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
+REPAIR_BASE_HEAD_SHA = "b1d5002fb48dbbb06cc93de2261e2237655e0eab"
 
 FACTS_SHA256 = "8a7e7ba8374c59316051f582aecc0c0e797d270fac2ce89a91a55befca562fa9"
 LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26"
-COMPILER_DIGEST = "05df77667915bd5d34180b3fa758787bad1ca9996a33c2d793e3de68c1444df4"
-SEMANTIC_DIGEST = "3c6d12576f659615b3a360a3e9a3efa92c6d08740cfb2dd30be29223f6fbcd43"
+COMPILER_DIGEST = "15bdd8566474a9f119e3a1d8c991cfca972ac114f7d52edb7d6e57f6c779c923"
+SEMANTIC_DIGEST = "ef4304a56f4d352b5882ce21ef4a490f77a3107b3d827d4e73ad39ad3a688e0d"
 PHASE15_SUBSET_DIGEST = (
-    "c92126c03047bbf526c9fddae45fdfe772b637331edbbc2fa752becb420cffc9"
+    "e0f2909026328a5fc74cb432551e7665be33702af626bbac363e52a2febcc450"
 )
 PROJECT_PRIVATE_DIGEST = (
     "c032a23c7f0477df58cacc9374e2882bebad346bec9a539899878da062248013"
@@ -167,6 +170,13 @@ MODIFIED_READER_PATHS = (
 )
 ADDED_PATHS = {CONTEXT_REL, CONTEXT_SPEC_REL, CONTEXT_TEST_REL}
 ALLOWLIST_PATHS = {*ADDED_PATHS, *MODIFIED_READER_PATHS}
+REPAIR_ALLOWLIST_PATHS = set(MODIFIED_READER_PATHS) - {SLICE2_TEST_REL} | {
+    SOURCE_REL,
+    SIGNATURE_REL,
+    AGGREGATE_REL,
+    CONTEXT_TEST_REL,
+    AGGREGATE_TEST_REL,
+}
 
 
 def _read(path: Path) -> str:
@@ -666,12 +676,23 @@ def test_seven_exact_completeness_schemas_and_unowned_domains_are_locked() -> No
             "type_expression",
         ),
         CapabilityKey(
-            CapabilityDomain.LITERAL, "future", "result", ("Future",), "expression"
+            CapabilityDomain.LITERAL,
+            "integer",
+            "result",
+            ("Int", "non_null"),
+            "expression",
+        ),
+        CapabilityKey(
+            CapabilityDomain.LITERAL,
+            "Any",
+            "result",
+            context="expression",
         ),
         CapabilityKey(
             CapabilityDomain.PARAMETER,
-            "future_callable",
+            "constraint",
             "declare",
+            ("name", "TypeExpr"),
             context="callable_declaration",
         ),
         CapabilityKey(
@@ -682,20 +703,55 @@ def test_seven_exact_completeness_schemas_and_unowned_domains_are_locked() -> No
         ),
         CapabilityKey(
             CapabilityDomain.LOGICAL_TYPE,
-            "future",
+            "implicit",
             "effective_nullability",
+            ("unknown",),
             context="type_expression",
         ),
     )
     assert all(_inputs(key)[1] for key in complete)
-    nonempty_declaration_operands = CapabilityKey(
-        CapabilityDomain.LOGICAL_TYPE,
-        "future_kind",
-        "declaration_kind",
-        ("unexpected",),
-        "semantic_model",
+    incomplete = (
+        CapabilityKey(
+            CapabilityDomain.LOGICAL_TYPE,
+            operation="catalog_membership",
+            context="builtin_registry",
+        ),
+        CapabilityKey(
+            CapabilityDomain.LOGICAL_TYPE,
+            operation="declaration_kind",
+            context="semantic_model",
+        ),
+        replace(complete[2], operands=("Int",)),
+        replace(complete[2], operands=("Int", "Int", "Int")),
+        replace(complete[3], operands=()),
+        replace(complete[3], operands=("Int", "non_null", "extra")),
+        replace(complete[3], operands=("Bogus", "non_null")),
+        replace(complete[3], operands=("Int", "Bogus")),
+        replace(complete[3], subject="Integer"),
+        CapabilityKey(
+            CapabilityDomain.LITERAL,
+            "future",
+            "result",
+            ("Future",),
+            "expression",
+        ),
+        replace(complete[4], operands=("unexpected",)),
+        replace(complete[5], operands=()),
+        replace(complete[5], operands=("name", "TypeExpr", "extra")),
+        replace(complete[5], operands=("name", "Bogus")),
+        replace(complete[5], subject="Constraint"),
+        replace(complete[6], operands=("unexpected",)),
+        replace(complete[7], operands=()),
+        replace(complete[7], operands=("unknown", "extra")),
+        replace(complete[7], operands=("Bogus",)),
+        replace(complete[7], subject="Implicit"),
+        replace(complete[7], context="expression"),
     )
-    assert _inputs(nonempty_declaration_operands)[1] is False
+    for key in incomplete:
+        facts, schema_complete = _inputs(key)
+        assert facts
+        assert schema_complete is False
+        assert _lookup(key) == Unknown(CapabilityReasonCode.NOT_EVIDENCED)
     unowned = CapabilityKey(
         CapabilityDomain.AGGREGATE,
         subject="sum",
@@ -712,13 +768,35 @@ def test_every_inventory_fact_resolves_to_found_with_exact_identity() -> None:
 
 
 def test_unlisted_complete_builtin_catalog_spelling_resolves_absent() -> None:
-    key = CapabilityKey(
-        CapabilityDomain.LOGICAL_TYPE,
-        subject="FutureScalar",
-        operation="catalog_membership",
-        context="builtin_registry",
+    keys = (
+        CapabilityKey(
+            CapabilityDomain.LOGICAL_TYPE,
+            subject="FutureScalar",
+            operation="catalog_membership",
+            context="builtin_registry",
+        ),
+        CapabilityKey(
+            CapabilityDomain.LOGICAL_TYPE,
+            subject="future_kind",
+            operation="declaration_kind",
+            context="semantic_model",
+        ),
+        CapabilityKey(
+            CapabilityDomain.LITERAL,
+            subject="integer",
+            operation="result",
+            operands=("Float", "non_null"),
+            context="expression",
+        ),
+        CapabilityKey(
+            CapabilityDomain.LOGICAL_TYPE,
+            subject="implicit",
+            operation="effective_nullability",
+            operands=("nullable",),
+            context="type_expression",
+        ),
     )
-    assert _lookup(key) == Absent(key)
+    assert all(_lookup(key) == Absent(key) for key in keys)
 
 
 def test_incomplete_query_parameter_binding_resolves_unknown() -> None:
@@ -751,6 +829,23 @@ def test_dialect_and_extension_keyed_zero_matches_resolve_unknown() -> None:
             subject="Int",
             operation="catalog_membership",
             context="builtin_registry",
+            dialect="postgresql",
+            extension="future",
+        ),
+        CapabilityKey(
+            CapabilityDomain.PARAMETER,
+            subject="constraint",
+            operation="declare",
+            operands=("name", "TypeExpr"),
+            context="callable_declaration",
+            dialect="postgresql",
+        ),
+        CapabilityKey(
+            CapabilityDomain.LOGICAL_TYPE,
+            subject="implicit",
+            operation="effective_nullability",
+            operands=("unknown",),
+            context="type_expression",
             dialect="postgresql",
             extension="future",
         ),
@@ -895,14 +990,26 @@ def test_project_package_version_and_tag_boundaries_are_unchanged() -> None:
 
 
 def test_gate2_dirty_untracked_and_index_states_are_exact() -> None:
-    assert _dirty_paths() in (set(), ALLOWLIST_PATHS)
+    dirty = _dirty_paths()
+    assert dirty in (set(), ALLOWLIST_PATHS, REPAIR_ALLOWLIST_PATHS)
     tracked = set(_git_output(["diff", "--name-only"]).splitlines())
-    assert tracked in (set(), set(MODIFIED_READER_PATHS))
     untracked = set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
-    assert untracked in (set(), ADDED_PATHS)
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
+    if dirty == REPAIR_ALLOWLIST_PATHS:
+        status = tuple(_git_output(["diff", "--name-status"]).splitlines())
+        assert tracked == REPAIR_ALLOWLIST_PATHS
+        assert len(status) == 44
+        assert all(entry.startswith("M\t") for entry in status)
+        assert untracked == set()
+        assert _git_output(["branch", "--show-current"]) == "main"
+        assert _git_output(["rev-parse", "HEAD"]) == REPAIR_BASE_HEAD_SHA
+        assert _git_output(["rev-parse", "main"]) == REPAIR_BASE_HEAD_SHA
+        assert _git_output(["rev-parse", "origin/main"]) == REPAIR_BASE_HEAD_SHA
+    else:
+        assert tracked in (set(), set(MODIFIED_READER_PATHS))
+        assert untracked in (set(), ADDED_PATHS)
 
 
 def test_static_item_allowlist_reader_and_manifest_inventory_is_exact() -> None:
@@ -922,6 +1029,8 @@ def test_static_item_allowlist_reader_and_manifest_inventory_is_exact() -> None:
     assert len(ALLOWLIST_PATHS) == 43
     assert sum(path.endswith(".py") for path in ALLOWLIST_PATHS) == 42
     assert sum(path.endswith(".md") for path in ALLOWLIST_PATHS) == 1
+    assert len(REPAIR_ALLOWLIST_PATHS) == 44
+    assert all(path.endswith(".py") for path in REPAIR_ALLOWLIST_PATHS)
     assert (len(COMPILER_READERS), len(SEMANTIC_READERS)) == (11, 25)
     assert len(_all_facts()) == 41
     assert 6018 - 142 == 5876

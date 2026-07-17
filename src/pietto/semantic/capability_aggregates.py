@@ -1151,6 +1151,18 @@ _AGGREGATE_CAPABILITY_FACTS: tuple[CapabilityFact, ...] = (
     _AGGREGATE_SIGNATURE_FACTS + _AGGREGATE_ALGEBRA_FACTS
 )
 
+_ALGEBRA_PROPERTY_VALUES = frozenset(
+    (
+        "zero",
+        "sql_null",
+        "nullable_on_empty_input",
+        "does_not_inspect_values",
+        "eliminates_sql_null_results",
+        "eliminates_duplicates",
+        "not_supported",
+    )
+)
+
 
 def _signature_schema_is_complete(key: CapabilityKey) -> bool:
     if (
@@ -1184,6 +1196,7 @@ def _algebra_schema_is_complete(key: CapabilityKey) -> bool:
         and key.dialect is None
         and key.extension is None
         and len(key.operands) == 2
+        and key.operands[1] in _ALGEBRA_PROPERTY_VALUES
         and any(
             fact.key.subject == key.subject
             and fact.key.operation == key.operation

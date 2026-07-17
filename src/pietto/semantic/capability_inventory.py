@@ -592,6 +592,16 @@ _UNSUPPORTED_LITERALS = (
     "Enum",
 )
 
+_SUPPORTED_LITERAL_SUBJECTS = frozenset(subject for subject, _ in _SUPPORTED_LITERALS)
+_SUPPORTED_LITERAL_RESULTS = frozenset(
+    ("Int", "Float", "Text", "Bool", "no_concrete_type")
+)
+_LITERAL_NULLABILITY_POSTURES = frozenset(("non_null", "unknown"))
+_UNSUPPORTED_LITERAL_SUBJECTS = frozenset(_UNSUPPORTED_LITERALS)
+_CALLABLE_PARAMETER_SUBJECTS = frozenset(("constraint", "derive"))
+_NULLABILITY_SUBJECTS = frozenset(("implicit", "nullable", "not_null"))
+_NULLABILITY_RESULTS = frozenset(("unknown", "nullable", "non_null"))
+
 _LITERAL_FACTS: tuple[CapabilityFact, ...] = _freeze_inventory(
     (
         *(
@@ -851,13 +861,15 @@ def _schema_is_complete(key: CapabilityKey) -> bool:
         return False
     if key.domain is CapabilityDomain.LOGICAL_TYPE:
         if (
-            key.operation == "catalog_membership"
+            key.subject is not None
+            and key.operation == "catalog_membership"
             and key.context == "builtin_registry"
             and key.operands == ()
         ):
             return True
         if (
-            key.operation == "declaration_kind"
+            key.subject is not None
+            and key.operation == "declaration_kind"
             and key.context == "semantic_model"
             and key.operands == ()
         ):
@@ -873,11 +885,27 @@ def _schema_is_complete(key: CapabilityKey) -> bool:
         return (
             key.operation == "effective_nullability"
             and key.context == "type_expression"
+            and key.subject in _NULLABILITY_SUBJECTS
+            and len(key.operands) == 1
+            and key.operands[0] in _NULLABILITY_RESULTS
         )
     if key.domain is CapabilityDomain.LITERAL:
-        return key.operation == "result" and key.context == "expression"
+        if key.operation != "result" or key.context != "expression":
+            return False
+        if key.subject in _SUPPORTED_LITERAL_SUBJECTS:
+            return (
+                len(key.operands) == 2
+                and key.operands[0] in _SUPPORTED_LITERAL_RESULTS
+                and key.operands[1] in _LITERAL_NULLABILITY_POSTURES
+            )
+        return key.subject in _UNSUPPORTED_LITERAL_SUBJECTS and key.operands == ()
     if key.domain is CapabilityDomain.PARAMETER:
-        if key.operation == "declare" and key.context == "callable_declaration":
+        if (
+            key.subject in _CALLABLE_PARAMETER_SUBJECTS
+            and key.operation == "declare"
+            and key.operands == ("name", "TypeExpr")
+            and key.context == "callable_declaration"
+        ):
             return True
         return key == CapabilityKey(
             CapabilityDomain.PARAMETER,
