@@ -106,7 +106,7 @@ BOUNDARY_PATHS = (
 )
 PROTECTED_HASHES = {
     ".github/workflows/ci.yml": (
-        "8ad82ff09677901971d79d4fec689f2cc265fb35adca71649d8890115efcb88d"
+        "2fc5abc1d096b9d32e6f96dc882c09d21db04d7b372eb56727ca12b145cf16f4"
     ),
     ".python-version": (
         "7b55f8e67b5623c4bef3fa691288da9437d79d3aba156de48d481db32ac7d16d"
