@@ -51,7 +51,8 @@ SPEC_PATH = REPO_ROOT / SPEC_REL
 SELF_PATH = REPO_ROOT / SELF_REL
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
-HEAD_SHA = "21bb988a8b28e9d13e7e2c8fdf78ea3a7054b5b0"
+SLICE6_GATE2_HEAD_SHA = "21bb988a8b28e9d13e7e2c8fdf78ea3a7054b5b0"
+CI_REPAIR_BASE_HEAD_SHA = "7d9916fe8fbfd6c8d642a8f62f18eb87981d68bc"
 FACTS_SHA256 = "8a7e7ba8374c59316051f582aecc0c0e797d270fac2ce89a91a55befca562fa9"
 LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26"
 INVENTORY_SHA256 = "8115c2510289711a1a7d1fb6db14057e61027025c5a781f869822dad4d4cdd03"
@@ -183,6 +184,7 @@ MODIFIED_READER_PATHS = (
 )
 ADDED_PATHS = {SOURCE_REL, SPEC_REL, SELF_REL}
 ALLOWLIST_PATHS = {*MODIFIED_READER_PATHS, *ADDED_PATHS}
+REPAIR_ALLOWLIST_PATHS = {SELF_REL}
 
 DIRECT_TIER1_NODES = (
     "tests/test_phase11_completion_audit.py::test_package_configuration_lockfile_makefile_and_compiler_are_unchanged",
@@ -623,6 +625,25 @@ def _git_output(args: list[str]) -> str:
     return result.stdout.strip()
 
 
+def _git_optional_ref(ref: str) -> str | None:
+    result = subprocess.run(
+        ["git", "rev-parse", "--verify", "--quiet", ref],
+        cwd=REPO_ROOT,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert result.returncode in (0, 1)
+    assert result.stderr == ""
+    output = result.stdout.strip()
+    if result.returncode == 1:
+        assert output == ""
+        return None
+    assert output
+    return output
+
+
 def _dirty_paths() -> set[str]:
     return {
         *_git_output(["diff", "--name-only"]).splitlines(),
@@ -984,24 +1005,53 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     with PYPROJECT_PATH.open("rb") as stream:
         project = tomllib.load(stream)
     assert project["project"]["version"] == "0.1.0"
-    assert _git_output(["branch", "--show-current"]) == "main"
-    assert _git_output(["rev-parse", "HEAD"]) == HEAD_SHA
-    assert _git_output(["rev-parse", "main"]) == HEAD_SHA
-    assert _git_output(["rev-parse", "origin/main"]) == HEAD_SHA
-    assert _git_output(["tag", "--list"]) == ""
-    assert _dirty_paths() in (set(), ALLOWLIST_PATHS)
-    assert set(_git_output(["diff", "--name-only"]).splitlines()) in (
-        set(),
-        set(MODIFIED_READER_PATHS),
-    )
-    assert set(
+    branch = _git_output(["branch", "--show-current"])
+    head = _git_output(["rev-parse", "HEAD"])
+    main = _git_output(["rev-parse", "main"])
+    origin_main = _git_optional_ref("refs/remotes/origin/main")
+    tracked_paths = set(_git_output(["diff", "--name-only"]).splitlines()) - {""}
+    tracked_name_status = tuple(_git_output(["diff", "--name-status"]).splitlines())
+    untracked_paths = set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
-    ) in (set(), ADDED_PATHS)
+    ) - {""}
+    dirty_paths = _dirty_paths()
+
+    assert branch == "main"
+    assert _git_output(["tag", "--list"]) == ""
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
+    assert dirty_paths == tracked_paths | untracked_paths
+    assert dirty_paths in (set(), ALLOWLIST_PATHS, REPAIR_ALLOWLIST_PATHS)
+
+    if not dirty_paths:
+        assert tracked_paths == set()
+        assert tracked_name_status == ()
+        assert untracked_paths == set()
+        assert head == main
+        if origin_main is not None:
+            assert origin_main == head
+    elif dirty_paths == ALLOWLIST_PATHS:
+        assert tracked_paths == set(MODIFIED_READER_PATHS)
+        assert len(tracked_name_status) == len(MODIFIED_READER_PATHS)
+        assert all(entry.startswith("M\t") for entry in tracked_name_status)
+        assert {entry.removeprefix("M\t") for entry in tracked_name_status} == set(
+            MODIFIED_READER_PATHS
+        )
+        assert untracked_paths == ADDED_PATHS
+        assert origin_main is not None
+        assert head == main == origin_main == SLICE6_GATE2_HEAD_SHA
+    else:
+        assert dirty_paths == REPAIR_ALLOWLIST_PATHS
+        assert tracked_paths == {SELF_REL}
+        assert tracked_name_status == (f"M\t{SELF_REL}",)
+        assert untracked_paths == set()
+        assert origin_main is not None
+        assert head == main == origin_main == CI_REPAIR_BASE_HEAD_SHA
+
     assert len(MODIFIED_READER_PATHS) == len(set(MODIFIED_READER_PATHS)) == 40
     assert len(ALLOWLIST_PATHS) == 43
     assert sum(path.endswith(".py") for path in ALLOWLIST_PATHS) == 42
     assert sum(path.endswith(".md") for path in ALLOWLIST_PATHS) == 1
+    assert REPAIR_ALLOWLIST_PATHS == {SELF_REL}
 
 
 def test_static_test_inventory_and_tier1_selection_are_exact() -> None:
