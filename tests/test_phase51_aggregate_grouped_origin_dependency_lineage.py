@@ -903,7 +903,7 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
     assert _git_output(["diff", "--", *protected]) == ""
     pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert 'version = "0.1.0"' in pyproject
-    assert '"ruff>=0.15.21"' in pyproject
+    assert '"ruff>=0.15.22"' in pyproject
     assert '"mypy>=2.3.0"' in pyproject
 
 
