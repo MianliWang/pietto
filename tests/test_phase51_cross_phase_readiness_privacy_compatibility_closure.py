@@ -112,7 +112,7 @@ PROTECTED_HASHES = {
         "7b55f8e67b5623c4bef3fa691288da9437d79d3aba156de48d481db32ac7d16d"
     ),
     "pyproject.toml": (
-        "b051191df2210a907cafbfb753df0368ba0b91a8043727da5f9668965e121edf"
+        "7cac73246812445eeaa6a6478a1d8fd82c3166084d674cd82c4ffa16f28d616e"
     ),
     "uv.lock": "97b9bebd286bc45c168551a81eeb6df852331622507ea998b1fcb1acc19217b5",
     "docs/spec/pietto-roadmap-phase45-60-v1.md": (
