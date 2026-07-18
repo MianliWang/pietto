@@ -86,6 +86,13 @@ SLICE4_TEST_REL = (
 )
 SLICE5_TEST_REL = "tests/test_phase52_scalar_function_operator_signature_facts.py"
 SLICE6_TEST_REL = "tests/test_phase52_expression_stage_clause_capability_facts.py"
+SLICE8_SPEC_REL = (
+    "docs/spec/phase52-parity-privacy-cross-phase-readiness-drift-closure-v1.md"
+)
+SLICE8_TEST_REL = (
+    "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py"
+)
+SLICE8_GATE2_BASE_HEAD_SHA = "11a0c48941c3c1c650be8d0ec8ddf5201f9525f2"
 
 COMPILER_READERS = (
     "tests/test_phase11_ci_workflow.py",
@@ -102,6 +109,7 @@ COMPILER_READERS = (
     SLICE3_TEST_REL,
     SLICE4_TEST_REL,
     SELF_REL,
+    SLICE8_TEST_REL,
 )
 SEMANTIC_READERS = (
     "tests/test_phase11_completion_audit.py",
@@ -132,12 +140,14 @@ SEMANTIC_READERS = (
     SLICE3_TEST_REL,
     SLICE4_TEST_REL,
     SELF_REL,
+    SLICE8_TEST_REL,
 )
 PHASE15_READERS = (
     "tests/test_phase15_semantic_completion_audit.py",
     SLICE3_TEST_REL,
     SLICE4_TEST_REL,
     SELF_REL,
+    SLICE8_TEST_REL,
 )
 
 MODIFIED_READER_PATHS = (
@@ -199,6 +209,14 @@ COMPLETENESS_REPAIR_ALLOWLIST_PATHS = set(MODIFIED_READER_PATHS) - {SLICE2_TEST_
     INVENTORY_REL,
     SIGNATURE_REL,
 }
+SLICE8_MODIFIED_PATHS = {
+    SLICE4_TEST_REL,
+    SLICE5_TEST_REL,
+    SLICE6_TEST_REL,
+    SELF_REL,
+}
+SLICE8_ADDED_PATHS = {SLICE8_SPEC_REL, SLICE8_TEST_REL}
+SLICE8_ALLOWLIST_PATHS = SLICE8_MODIFIED_PATHS | SLICE8_ADDED_PATHS
 
 BOUNDARY_HASH_OWNERS = (
     "tests/test_phase11_ci_workflow.py",
@@ -820,13 +838,12 @@ def _prior_compatible_nodes() -> tuple[tuple[str, ...], tuple[int, ...]]:
     files = (
         SLICE2_TEST_REL,
         SLICE3_TEST_REL,
-        SLICE6_TEST_REL,
+        SLICE4_TEST_REL,
     )
     excluded = {
         SLICE2_TEST_REL + "::test_gate2_dirty_untracked_and_index_states_are_exact",
         SLICE3_TEST_REL + "::test_gate2_dirty_untracked_and_index_states_are_exact",
-        SLICE6_TEST_REL
-        + "::test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact",
+        SLICE4_TEST_REL + "::test_gate2_dirty_untracked_and_index_states_are_exact",
     }
     nodes: list[str] = []
     per_file_items: list[int] = []
@@ -1780,6 +1797,7 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
         ALLOWLIST_PATHS,
         PR_REPAIR_ALLOWLIST_PATHS,
         COMPLETENESS_REPAIR_ALLOWLIST_PATHS,
+        SLICE8_ALLOWLIST_PATHS,
     )
 
     if not dirty_paths:
@@ -1792,6 +1810,14 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
             main=main,
             origin_main=origin_main,
         )
+    elif dirty_paths == SLICE8_ALLOWLIST_PATHS:
+        assert branch == "main"
+        assert tracked_paths == SLICE8_MODIFIED_PATHS
+        assert tracked_status == tuple(
+            f"M\t{path}" for path in sorted(SLICE8_MODIFIED_PATHS)
+        )
+        assert untracked_paths == SLICE8_ADDED_PATHS
+        assert head == main == origin_main == SLICE8_GATE2_BASE_HEAD_SHA
     elif dirty_paths == ALLOWLIST_PATHS:
         assert branch == "main"
         assert dirty_paths == ALLOWLIST_PATHS
@@ -1834,6 +1860,9 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     assert len(PR_REPAIR_ALLOWLIST_PATHS) == 6
     assert len(COMPLETENESS_REPAIR_ALLOWLIST_PATHS) == 44
     assert all(path.endswith(".py") for path in COMPLETENESS_REPAIR_ALLOWLIST_PATHS)
+    assert len(SLICE8_ALLOWLIST_PATHS) == 6
+    assert sum(path.endswith(".py") for path in SLICE8_ALLOWLIST_PATHS) == 5
+    assert sum(path.endswith(".md") for path in SLICE8_ALLOWLIST_PATHS) == 1
 
 
 def test_static_test_inventory_and_tier1_selection_are_exact() -> None:
@@ -1870,16 +1899,17 @@ def test_static_test_inventory_and_tier1_selection_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (431, 4125)
+    assert (len(test_files), top_level_functions) == (432, 4153)
 
     compatible, per_file_items = _prior_compatible_nodes()
-    assert (len(compatible), per_file_items) == (69, (24, 33, 68))
+    assert (len(compatible), per_file_items) == (69, (24, 33, 63))
     compatible_payload = "".join(node + "\n" for node in compatible).encode("utf-8")
     direct_payload = "".join(node + "\n" for node in DIRECT_TIER1_NODES).encode("utf-8")
     operands = (
-        SLICE4_TEST_REL,
         SLICE5_TEST_REL,
+        SLICE6_TEST_REL,
         SELF_REL,
+        SLICE8_TEST_REL,
         *compatible,
         *DIRECT_TIER1_NODES,
     )
@@ -1888,8 +1918,8 @@ def test_static_test_inventory_and_tier1_selection_are_exact() -> None:
         len(compatible_payload),
         hashlib.sha256(compatible_payload).hexdigest(),
     ) == (
-        8199,
-        "de5f51c210735c581a07149cc93d0fcbedde7484048b970fd9d384dcd5dba351",
+        8708,
+        "ad36af418104abe3afb21e94e1f64e87762ec2006047151c20ddb7047b25392a",
     )
     assert len(DIRECT_TIER1_NODES) == len(set(DIRECT_TIER1_NODES)) == 44
     assert (len(direct_payload), hashlib.sha256(direct_payload).hexdigest()) == (
@@ -1901,21 +1931,16 @@ def test_static_test_inventory_and_tier1_selection_are_exact() -> None:
         len(operand_payload),
         hashlib.sha256(operand_payload).hexdigest(),
     ) == (
-        116,
-        13253,
-        "7d1817fcea9f5775bde61dc9363a8a79708cd00fb34f02c6474e012e96056e4d",
+        117,
+        13823,
+        "9d77e53a1d9d439d570cac70e1facfbfaaae5645958604de98924390cb6b3212",
     )
-    assert 64 + 64 + 69 + sum(per_file_items) + 44 == 366
-    assert 6018 + 69 == 6087
+    assert 64 + 69 + 69 + 69 + sum(per_file_items) + 44 == 435
+    assert 6087 + 69 == 6156
 
 
 def test_tier2_manifest_identity_and_classification_are_exact() -> None:
     prior = _literal_tuple(REPO_ROOT / SLICE6_TEST_REL, "TIER2_MANIFEST")
-    added = (
-        "--deselect="
-        + SLICE6_TEST_REL
-        + "::test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact"
-    )
     removed = {
         "--deselect="
         + SLICE4_TEST_REL
@@ -1924,17 +1949,17 @@ def test_tier2_manifest_identity_and_classification_are_exact() -> None:
         + SLICE5_TEST_REL
         + "::test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact",
     }
-    manifest = tuple(sorted((set(prior) - removed) | {added}))
+    manifest = tuple(sorted(set(prior) - removed))
     assert removed <= set(prior)
-    assert len(manifest) == len(set(manifest)) == 141
+    assert len(manifest) == len(set(manifest)) == 140
     payload = "".join(line + "\n" for line in manifest).encode("utf-8")
     files = {
         line.removeprefix("--deselect=").split("::", maxsplit=1)[0] for line in manifest
     }
     assert (len(files), len(payload), hashlib.sha256(payload).hexdigest()) == (
-        107,
-        18178,
-        "2aafd6f8e932f05313e925a2bcc236792ac30fe923e8aec7c342a2e3312c493e",
+        106,
+        18035,
+        "a74e473501185eb2c1912018091d12711fdab8cc80c6a2a2849ceb63e09c5e1f",
     )
     classification = {line: "CLEAN_ONLY_DESELECT" for line in manifest}
     assert set(classification.values()) == {"CLEAN_ONLY_DESELECT"}
@@ -1951,7 +1976,12 @@ def test_tier2_manifest_identity_and_classification_are_exact() -> None:
         ]
         assert len(matches) == 1
         assert _parametrize_values(matches[0]) == 1
-    assert 6087 - len(manifest) == 5946
+    assert not any(
+        path in line
+        for path in (SLICE6_TEST_REL, SELF_REL, SLICE8_TEST_REL)
+        for line in manifest
+    )
+    assert 6156 - len(manifest) == 6016
 
 
 def test_slice7_lifecycle_validation_gate3_and_release_boundaries_are_exact() -> None:

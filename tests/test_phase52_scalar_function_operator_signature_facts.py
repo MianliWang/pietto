@@ -48,12 +48,23 @@ SLICE4_TEST_REL = (
     "tests/test_phase52_logical_type_literal_parameter_nullability_inventory.py"
 )
 SLICE7_TEST_REL = "tests/test_phase52_aggregate_signature_algebra_facts.py"
+SLICE8_SPEC_REL = (
+    "docs/spec/phase52-parity-privacy-cross-phase-readiness-drift-closure-v1.md"
+)
+SLICE8_TEST_REL = (
+    "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py"
+)
+SLICE8_GATE2_BASE_HEAD_SHA = "11a0c48941c3c1c650be8d0ec8ddf5201f9525f2"
 AGGREGATE_REL = "src/pietto/semantic/capability_aggregates.py"
 SOURCE_PATH = REPO_ROOT / SOURCE_REL
 SPEC_PATH = REPO_ROOT / SPEC_REL
 SELF_PATH = REPO_ROOT / SELF_REL
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 REPAIR_BASE_HEAD_SHA = "b1d5002fb48dbbb06cc93de2261e2237655e0eab"
+PR_REPAIR_GATE2_BRANCH = "dependabot/uv/uv-build-gte-0.11.29-and-lt-0.12.0"
+PR_REPAIR_GATE2_HEAD_SHA = "8538e9e612c4a39b93a43f85532bfcb75853f9c1"
+PR_REPAIR_GATE2_MAIN_SHA = "522ce4ea193c3b2bbbe88644d77a2410230f42ad"
+PR_REPAIR_GATE2_ORIGIN_REF = f"refs/remotes/origin/{PR_REPAIR_GATE2_BRANCH}"
 
 FACTS_SHA256 = "8a7e7ba8374c59316051f582aecc0c0e797d270fac2ce89a91a55befca562fa9"
 LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26"
@@ -97,6 +108,7 @@ COMPILER_READERS = (
     SLICE3_TEST_REL,
     SLICE4_TEST_REL,
     SLICE7_TEST_REL,
+    SLICE8_TEST_REL,
 )
 SEMANTIC_READERS = (
     "tests/test_phase11_completion_audit.py",
@@ -127,12 +139,14 @@ SEMANTIC_READERS = (
     SLICE3_TEST_REL,
     SLICE4_TEST_REL,
     SLICE7_TEST_REL,
+    SLICE8_TEST_REL,
 )
 PHASE15_READERS = (
     "tests/test_phase15_semantic_completion_audit.py",
     SLICE3_TEST_REL,
     SLICE4_TEST_REL,
     SLICE7_TEST_REL,
+    SLICE8_TEST_REL,
 )
 MODIFIED_READER_PATHS = (
     "tests/test_phase11_ci_workflow.py",
@@ -185,6 +199,22 @@ REPAIR_ALLOWLIST_PATHS = set(MODIFIED_READER_PATHS) - {SLICE2_TEST_REL} | {
     CONTEXT_TEST_REL,
     SLICE7_TEST_REL,
 }
+PR_REPAIR_ALLOWLIST_PATHS = {
+    "tests/test_phase11_ci_workflow.py",
+    "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
+    "tests/test_phase51_completion_audit_and_status_lock.py",
+    "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
+    CONTEXT_TEST_REL,
+    SLICE7_TEST_REL,
+}
+SLICE8_MODIFIED_PATHS = {
+    SLICE4_TEST_REL,
+    SELF_REL,
+    CONTEXT_TEST_REL,
+    SLICE7_TEST_REL,
+}
+SLICE8_ADDED_PATHS = {SLICE8_SPEC_REL, SLICE8_TEST_REL}
+SLICE8_ALLOWLIST_PATHS = SLICE8_MODIFIED_PATHS | SLICE8_ADDED_PATHS
 
 DIRECT_TIER1_NODES = (
     "tests/test_phase11_completion_audit.py::test_package_configuration_lockfile_makefile_and_compiler_are_unchanged",
@@ -257,6 +287,95 @@ def _dirty_paths() -> set[str]:
             ["status", "--porcelain=v1", "--untracked-files=all"]
         ).splitlines()
     }
+
+
+def _git_optional_ref(ref: str) -> str | None:
+    result = subprocess.run(
+        ["git", "rev-parse", "--verify", "--quiet", ref],
+        cwd=REPO_ROOT,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert result.returncode in (0, 1)
+    assert result.stderr == ""
+    output = result.stdout.strip()
+    if result.returncode == 1:
+        assert output == ""
+        return None
+    assert output
+    return output
+
+
+def _git_refs() -> tuple[tuple[str, str], ...]:
+    output = _git_output(["for-each-ref", "--format=%(refname)%09%(objectname)"])
+    if not output:
+        return ()
+    refs = []
+    for line in output.splitlines():
+        ref, object_name = line.split("\t", maxsplit=1)
+        assert ref and re.fullmatch(r"[0-9a-f]{40}", object_name)
+        refs.append((ref, object_name))
+    return tuple(refs)
+
+
+def _git_commit_object_exists(commit: str) -> bool:
+    result = subprocess.run(
+        ["git", "cat-file", "-e", f"{commit}^{{commit}}"],
+        cwd=REPO_ROOT,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert result.returncode in (0, 128)
+    return result.returncode == 0
+
+
+def _assert_clean_checkout_refs(
+    *,
+    branch: str,
+    head: str,
+    main: str | None,
+    origin_main: str | None,
+) -> None:
+    if branch == "main":
+        assert main == head
+        if origin_main is not None:
+            assert origin_main == head
+        return
+
+    assert branch == ""
+    refs = _git_refs()
+    assert len(refs) == 1
+    merge_ref, merge_head = refs[0]
+    assert re.fullmatch(r"refs/remotes/pull/[1-9][0-9]*/merge", merge_ref)
+    assert merge_head == head
+    assert main is None
+    assert origin_main is None
+
+    raw_commit = _git_output(["cat-file", "-p", head])
+    header, separator, message = raw_commit.partition("\n\n")
+    assert separator == "\n\n"
+    parents = tuple(
+        line.removeprefix("parent ")
+        for line in header.splitlines()
+        if line.startswith("parent ")
+    )
+    assert len(parents) == 2
+    assert parents[0] != parents[1]
+    assert all(re.fullmatch(r"[0-9a-f]{40}", parent) for parent in parents)
+    assert message == f"Merge {parents[1]} into {parents[0]}"
+
+    parent_objects_exist = tuple(
+        _git_commit_object_exists(parent) for parent in parents
+    )
+    assert len(set(parent_objects_exist)) == 1
+    if all(parent_objects_exist):
+        assert _git_output(["merge-base", *parents]) == parents[0]
+        assert _git_output(["rev-parse", f"{parents[1]}^{{tree}}"]) == _git_output(
+            ["rev-parse", f"{head}^{{tree}}"]
+        )
 
 
 def _digest(paths: tuple[Path, ...]) -> str:
@@ -1177,24 +1296,60 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
         project = tomllib.load(stream)
     assert project["project"]["version"] == "0.1.0"
     assert _git_output(["tag", "--points-at", "HEAD"]) == ""
+    assert _git_output(["tag", "--list"]) == ""
     dirty = _dirty_paths()
-    assert dirty in (set(), ALLOWLIST_PATHS, REPAIR_ALLOWLIST_PATHS)
+    assert dirty in (
+        set(),
+        ALLOWLIST_PATHS,
+        REPAIR_ALLOWLIST_PATHS,
+        PR_REPAIR_ALLOWLIST_PATHS,
+        SLICE8_ALLOWLIST_PATHS,
+    )
     tracked = set(_git_output(["diff", "--name-only"]).splitlines())
     untracked = set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
-    if dirty == REPAIR_ALLOWLIST_PATHS:
+    branch = _git_output(["branch", "--show-current"])
+    head = _git_output(["rev-parse", "HEAD"])
+    main = _git_optional_ref("refs/heads/main")
+    origin_main = _git_optional_ref("refs/remotes/origin/main")
+    origin_pr_head = _git_optional_ref(PR_REPAIR_GATE2_ORIGIN_REF)
+    if not dirty:
+        assert tracked == set()
+        assert untracked == set()
+        _assert_clean_checkout_refs(
+            branch=branch,
+            head=head,
+            main=main,
+            origin_main=origin_main,
+        )
+    elif dirty == SLICE8_ALLOWLIST_PATHS:
+        status = tuple(_git_output(["diff", "--name-status"]).splitlines())
+        assert tracked == SLICE8_MODIFIED_PATHS
+        assert status == tuple(f"M\t{path}" for path in sorted(SLICE8_MODIFIED_PATHS))
+        assert untracked == SLICE8_ADDED_PATHS
+        assert branch == "main"
+        assert head == main == origin_main == SLICE8_GATE2_BASE_HEAD_SHA
+    elif dirty == REPAIR_ALLOWLIST_PATHS:
         status = tuple(_git_output(["diff", "--name-status"]).splitlines())
         assert tracked == REPAIR_ALLOWLIST_PATHS
         assert len(status) == 44
         assert all(entry.startswith("M\t") for entry in status)
         assert untracked == set()
-        assert _git_output(["branch", "--show-current"]) == "main"
-        assert _git_output(["rev-parse", "HEAD"]) == REPAIR_BASE_HEAD_SHA
-        assert _git_output(["rev-parse", "main"]) == REPAIR_BASE_HEAD_SHA
-        assert _git_output(["rev-parse", "origin/main"]) == REPAIR_BASE_HEAD_SHA
+        assert branch == "main"
+        assert head == main == origin_main == REPAIR_BASE_HEAD_SHA
+    elif dirty == PR_REPAIR_ALLOWLIST_PATHS:
+        status = tuple(_git_output(["diff", "--name-status"]).splitlines())
+        assert tracked == PR_REPAIR_ALLOWLIST_PATHS
+        assert len(status) == len(PR_REPAIR_ALLOWLIST_PATHS)
+        assert all(entry.startswith("M\t") for entry in status)
+        assert untracked == set()
+        assert branch == PR_REPAIR_GATE2_BRANCH
+        assert origin_main == main == PR_REPAIR_GATE2_MAIN_SHA
+        assert origin_pr_head == head == PR_REPAIR_GATE2_HEAD_SHA
     else:
+        assert dirty == ALLOWLIST_PATHS
         assert tracked in (set(), set(MODIFIED_READER_PATHS))
         assert untracked in (set(), ADDED_PATHS)
     assert len(MODIFIED_READER_PATHS) == len(set(MODIFIED_READER_PATHS)) == 40
@@ -1203,6 +1358,10 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     assert sum(path.endswith(".md") for path in ALLOWLIST_PATHS) == 1
     assert len(REPAIR_ALLOWLIST_PATHS) == 44
     assert all(path.endswith(".py") for path in REPAIR_ALLOWLIST_PATHS)
+    assert len(PR_REPAIR_ALLOWLIST_PATHS) == 6
+    assert len(SLICE8_ALLOWLIST_PATHS) == 6
+    assert sum(path.endswith(".py") for path in SLICE8_ALLOWLIST_PATHS) == 5
+    assert sum(path.endswith(".md") for path in SLICE8_ALLOWLIST_PATHS) == 1
 
 
 def test_static_test_inventory_tier1_and_tier2_manifest_are_exact() -> None:
@@ -1228,7 +1387,7 @@ def test_static_test_inventory_tier1_and_tier2_manifest_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (431, 4125)
+    assert (len(test_files), top_level_functions) == (432, 4153)
     assert len(DIRECT_TIER1_NODES) == len(set(DIRECT_TIER1_NODES)) == 44
     for node_id in DIRECT_TIER1_NODES:
         path, function = node_id.split("::", maxsplit=1)
