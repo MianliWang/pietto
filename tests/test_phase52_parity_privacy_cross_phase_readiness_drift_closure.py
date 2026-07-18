@@ -39,6 +39,9 @@ from pietto.semantic.capability_lookup import (
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SELF_REL = "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py"
 SPEC_REL = "docs/spec/phase52-parity-privacy-cross-phase-readiness-drift-closure-v1.md"
+SLICE1_TEST_REL = (
+    "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py"
+)
 SLICE2_TEST_REL = "tests/test_phase52_private_capability_fact_foundation.py"
 SLICE3_TEST_REL = "tests/test_phase52_fail_closed_capability_lookup.py"
 SLICE4_TEST_REL = (
@@ -47,6 +50,8 @@ SLICE4_TEST_REL = (
 SLICE5_TEST_REL = "tests/test_phase52_scalar_function_operator_signature_facts.py"
 SLICE6_TEST_REL = "tests/test_phase52_expression_stage_clause_capability_facts.py"
 SLICE7_TEST_REL = "tests/test_phase52_aggregate_signature_algebra_facts.py"
+SLICE9_SPEC_REL = "docs/spec/phase52-completion-audit-and-status-lock-v1.md"
+SLICE9_TEST_REL = "tests/test_phase52_completion_audit_and_status_lock.py"
 
 FACTS_REL = "src/pietto/semantic/capability_facts.py"
 LOOKUP_REL = "src/pietto/semantic/capability_lookup.py"
@@ -75,6 +80,7 @@ GATE2_BASE_HEAD_SHA = "11a0c48941c3c1c650be8d0ec8ddf5201f9525f2"
 GATE2_BASE_PARENT_SHA = "7bea69da0465f57580961e4ca4a2c18a84dfb68c"
 GATE2_BASE_TREE_SHA = "2953c238f27239d796c9af05543b48c1add2a69d"
 CI_REPAIR_BASE_HEAD_SHA = "7a221ffdca91335a526ed12a1059340bda642fdb"
+SLICE9_BASE_HEAD_SHA = "36e466535d923f708a0201ae15a5708f06f2b1f8"
 MODULE_SHA256 = {
     FACTS_REL: "8a7e7ba8374c59316051f582aecc0c0e797d270fac2ce89a91a55befca562fa9",
     LOOKUP_REL: "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26",
@@ -86,9 +92,9 @@ MODULE_SHA256 = {
 SPEC_SHA256 = "7010cd8a39ed389de588d8cd734b136cc87456c3ef5eb324638467d1188fc935"
 MODIFIED_TEST_SHA256 = {
     SLICE4_TEST_REL: "e7f6d9cb074f08270fc2edd34295491f0505064d355187b163f2e74ddbf8bd0d",
-    SLICE5_TEST_REL: "79df339f9a33d363496cf95c065baa7c203956940424361d6851cad055b98484",
-    SLICE6_TEST_REL: "41d03e290e4314e01f5ee254e73f14558ed0430cd6974f77e09e375366f55a84",
-    SLICE7_TEST_REL: "4687969b827d76b084a34f8617089a3c0701ebeef06843f2f8d8c01eab127c91",
+    SLICE5_TEST_REL: "cd156a4daf79a4725daf102389348e040bb29ce6c6d00613dfcbbeda452c132e",
+    SLICE6_TEST_REL: "843c1691092db83b42d92defe81c4e4feb6d5644b6ae8ffc4d34b4bc05f9721c",
+    SLICE7_TEST_REL: "0eb975c682115f8200124ab3224532975c034e0ce7f49f1f4427ba8cd8d2fc66",
 }
 WORKFLOW_SHA256 = "2fc5abc1d096b9d32e6f96dc882c09d21db04d7b372eb56727ca12b145cf16f4"
 PYPROJECT_SHA256 = "1ce5a2ea57a7edc030d74e7babb10751861bac6c04baf4d667f87d50ca105f4e"
@@ -159,6 +165,17 @@ SLICE8_MODIFIED_PATHS = {
 SLICE8_ADDED_PATHS = {SPEC_REL, SELF_REL}
 SLICE8_ALLOWLIST_PATHS = SLICE8_MODIFIED_PATHS | SLICE8_ADDED_PATHS
 CI_REPAIR_MODIFIED_PATHS = {SELF_REL}
+SLICE9_MODIFIED_PATHS = {
+    "docs/plan/phase-52-core-type-system-capability-foundation.md",
+    "docs/spec/pietto-active-roadmap-phase51-60-v1.md",
+    SLICE1_TEST_REL,
+    SLICE5_TEST_REL,
+    SLICE6_TEST_REL,
+    SLICE7_TEST_REL,
+    SELF_REL,
+}
+SLICE9_ADDED_PATHS = {SLICE9_SPEC_REL, SLICE9_TEST_REL}
+SLICE9_ALLOWLIST_PATHS = SLICE9_MODIFIED_PATHS | SLICE9_ADDED_PATHS
 
 DIRECT_TIER1_BYTES = 4860
 DIRECT_TIER1_SHA256 = "417a72e2091fdd85e8b1d5f76bc4a21a64e55dbdb1eb87de4318a1b344a67faf"
@@ -166,13 +183,13 @@ COMPATIBLE_TIER1_BYTES = 8708
 COMPATIBLE_TIER1_SHA256 = (
     "ad36af418104abe3afb21e94e1f64e87762ec2006047151c20ddb7047b25392a"
 )
-TIER1_OPERAND_BYTES = 13823
+TIER1_OPERAND_BYTES = 5525
 TIER1_OPERAND_SHA256 = (
-    "9d77e53a1d9d439d570cac70e1facfbfaaae5645958604de98924390cb6b3212"
+    "2097b7aace8604cb54af6392a9e400543fa7eefac4423f810d8a37451c05d48b"
 )
-TIER2_MANIFEST_BYTES = 18035
+TIER2_MANIFEST_BYTES = 18026
 TIER2_MANIFEST_SHA256 = (
-    "a74e473501185eb2c1912018091d12711fdab8cc80c6a2a2849ceb63e09c5e1f"
+    "6ab2027b7c8cb7858fbea2d3902130a4a860e462102ac4e582990f4bcfa501bf"
 )
 
 EVIDENCE_SOURCE_COUNTS = {
@@ -404,11 +421,22 @@ def _assert_allowed_dirty_state(
     origin_main: str | None,
 ) -> None:
     dirty = tracked | untracked
-    assert dirty in (set(), SLICE8_ALLOWLIST_PATHS, CI_REPAIR_MODIFIED_PATHS)
+    assert dirty in (
+        set(),
+        SLICE8_ALLOWLIST_PATHS,
+        CI_REPAIR_MODIFIED_PATHS,
+        SLICE9_ALLOWLIST_PATHS,
+    )
     if not dirty:
         return
 
     assert branch == "main"
+    if dirty == SLICE9_ALLOWLIST_PATHS:
+        assert tracked == SLICE9_MODIFIED_PATHS
+        assert untracked == SLICE9_ADDED_PATHS
+        assert head == main == origin_main == SLICE9_BASE_HEAD_SHA
+        return
+
     if dirty == SLICE8_ALLOWLIST_PATHS:
         assert tracked == SLICE8_MODIFIED_PATHS
         assert untracked == SLICE8_ADDED_PATHS
@@ -1558,16 +1586,18 @@ def test_clean_main_synthetic_merge_dirty_and_historical_repository_states_are_e
             origin_main=origin_main,
         )
     for relative in (
-        SLICE4_TEST_REL,
+        SLICE1_TEST_REL,
         SLICE5_TEST_REL,
         SLICE6_TEST_REL,
         SLICE7_TEST_REL,
+        SELF_REL,
     ):
         source = _read(REPO_ROOT / relative)
-        assert "_assert_clean_checkout_refs" in source
-        assert "REPAIR_ALLOWLIST_PATHS" in source
-        assert "SLICE8_ALLOWLIST_PATHS" in source
-        if relative != SLICE4_TEST_REL:
+        assert "SLICE9_ALLOWLIST_PATHS" in source
+        if relative != SLICE1_TEST_REL:
+            assert "_assert_clean_checkout_refs" in source
+        if relative not in {SLICE1_TEST_REL, SELF_REL}:
+            assert "REPAIR_ALLOWLIST_PATHS" in source
             assert "PR_REPAIR_ALLOWLIST_PATHS" in source
 
     sample_head = "a" * 40
@@ -1658,6 +1688,15 @@ def test_clean_main_synthetic_merge_dirty_and_historical_repository_states_are_e
         )
     with pytest.raises(AssertionError):
         _assert_allowed_dirty_state(
+            tracked=SLICE9_MODIFIED_PATHS,
+            untracked={"unexpected.txt"},
+            branch="main",
+            head=SLICE9_BASE_HEAD_SHA,
+            main=SLICE9_BASE_HEAD_SHA,
+            origin_main=SLICE9_BASE_HEAD_SHA,
+        )
+    with pytest.raises(AssertionError):
+        _assert_allowed_dirty_state(
             tracked=CI_REPAIR_MODIFIED_PATHS,
             untracked={"unexpected.txt"},
             branch="main",
@@ -1724,7 +1763,7 @@ def test_static_reader_counts_boundary_hash_and_nested_sha_topology_are_exact() 
     assert (
         sum(path.endswith(".py") for path in readable),
         sum(path.endswith(".md") for path in readable),
-    ) == (513, 224)
+    ) == (514, 225)
     compiler_paths = _compiler_paths()
     semantic_paths = tuple((REPO_ROOT / "src/pietto/semantic").glob("*.py"))
     phase15_paths = tuple(
@@ -1745,10 +1784,10 @@ def test_static_reader_counts_boundary_hash_and_nested_sha_topology_are_exact() 
     assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
 
     for digest, expected_count in (
-        (COMPILER_DIGEST, 15),
-        (SEMANTIC_DIGEST, 29),
-        (PHASE15_SUBSET_DIGEST, 5),
-        (PROJECT_PRIVATE_DIGEST, 15),
+        (COMPILER_DIGEST, 16),
+        (SEMANTIC_DIGEST, 30),
+        (PHASE15_SUBSET_DIGEST, 6),
+        (PROJECT_PRIVATE_DIGEST, 16),
     ):
         readers = tuple(
             path
@@ -1759,12 +1798,12 @@ def test_static_reader_counts_boundary_hash_and_nested_sha_topology_are_exact() 
         assert SELF_REL in readers
 
     module_reader_counts = {
-        FACTS_REL: 5,
-        LOOKUP_REL: 5,
-        INVENTORY_REL: 4,
-        SIGNATURE_REL: 3,
-        CONTEXT_REL: 2,
-        AGGREGATE_REL: 1,
+        FACTS_REL: 6,
+        LOOKUP_REL: 6,
+        INVENTORY_REL: 5,
+        SIGNATURE_REL: 4,
+        CONTEXT_REL: 3,
+        AGGREGATE_REL: 2,
     }
     for relative, expected_count in module_reader_counts.items():
         readers = tuple(
@@ -1777,9 +1816,9 @@ def test_static_reader_counts_boundary_hash_and_nested_sha_topology_are_exact() 
         assert SELF_REL in readers
 
     for digest, expected_count in (
-        (WORKFLOW_SHA256, 4),
-        (PYPROJECT_SHA256, 5),
-        (LOCK_SHA256, 5),
+        (WORKFLOW_SHA256, 5),
+        (PYPROJECT_SHA256, 6),
+        (LOCK_SHA256, 6),
     ):
         readers = tuple(
             path
@@ -1892,42 +1931,50 @@ def test_test_inventory_tier1_selectors_and_compatibility_counts_are_exact() -> 
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (432, 4153)
+    assert (len(test_files), top_level_functions) == (433, 4164)
     assert tuple(
         _pytest_shape(REPO_ROOT / path)[1]
         for path in (
+            SLICE1_TEST_REL,
+            SLICE2_TEST_REL,
+            SLICE3_TEST_REL,
             SLICE4_TEST_REL,
             SLICE5_TEST_REL,
             SLICE6_TEST_REL,
             SLICE7_TEST_REL,
             SELF_REL,
+            SLICE9_TEST_REL,
         )
-    ) == (64, 64, 69, 69, 69)
+    ) == (12, 25, 34, 64, 64, 69, 69, 69, 11)
 
-    compatible, per_file_items = _compatible_nodes()
-    assert (len(compatible), per_file_items) == (69, (24, 33, 63))
-    compatible_payload = "".join(node + "\n" for node in compatible).encode("utf-8")
-    assert (
-        len(compatible_payload),
-        hashlib.sha256(compatible_payload).hexdigest(),
-    ) == (
-        COMPATIBLE_TIER1_BYTES,
-        COMPATIBLE_TIER1_SHA256,
-    )
     direct = _literal_tuple(REPO_ROOT / SLICE7_TEST_REL, "DIRECT_TIER1_NODES")
-    direct_payload = "".join(node + "\n" for node in direct).encode("utf-8")
-    assert len(direct) == len(set(direct)) == 44
-    assert (len(direct_payload), hashlib.sha256(direct_payload).hexdigest()) == (
-        DIRECT_TIER1_BYTES,
-        DIRECT_TIER1_SHA256,
+    filtered_direct = tuple(
+        node for node in direct if not node.startswith(SLICE1_TEST_REL)
     )
+    tier1_deselections = (
+        "--deselect="
+        + SLICE2_TEST_REL
+        + "::test_gate2_dirty_untracked_and_index_states_are_exact",
+        "--deselect="
+        + SLICE3_TEST_REL
+        + "::test_gate2_dirty_untracked_and_index_states_are_exact",
+        "--deselect="
+        + SLICE4_TEST_REL
+        + "::test_gate2_dirty_untracked_and_index_states_are_exact",
+    )
+    assert len(direct) == len(set(direct)) == 44
     operands = (
+        SLICE1_TEST_REL,
+        SLICE2_TEST_REL,
+        SLICE3_TEST_REL,
+        SLICE4_TEST_REL,
         SLICE5_TEST_REL,
         SLICE6_TEST_REL,
         SLICE7_TEST_REL,
         SELF_REL,
-        *compatible,
-        *direct,
+        SLICE9_TEST_REL,
+        *tier1_deselections,
+        *filtered_direct,
     )
     operand_payload = "".join(node + "\n" for node in operands).encode("utf-8")
     assert (
@@ -1935,12 +1982,13 @@ def test_test_inventory_tier1_selectors_and_compatibility_counts_are_exact() -> 
         len(operand_payload),
         hashlib.sha256(operand_payload).hexdigest(),
     ) == (
-        117,
+        54,
         TIER1_OPERAND_BYTES,
         TIER1_OPERAND_SHA256,
     )
-    assert 64 + 69 + 69 + 69 + sum(per_file_items) + 44 == 435
-    assert 6087 + 69 == 6156
+    assert sum((12, 25, 34, 64, 64, 69, 69, 69, 11)) + len(filtered_direct) == 459
+    assert 459 - len(tier1_deselections) == 456
+    assert 6156 + 11 == 6167
 
 
 def test_tier2_manifest_identity_presence_uniqueness_and_clean_only_classification_are_exact() -> (
@@ -1949,8 +1997,8 @@ def test_tier2_manifest_identity_presence_uniqueness_and_clean_only_classificati
     prior = _literal_tuple(REPO_ROOT / SLICE6_TEST_REL, "TIER2_MANIFEST")
     removed = {
         "--deselect="
-        + SLICE4_TEST_REL
-        + "::test_gate2_dirty_untracked_and_index_states_are_exact",
+        + SLICE1_TEST_REL
+        + "::test_static_audit_shape_allowlist_and_heading_matching_are_locked",
         "--deselect="
         + SLICE5_TEST_REL
         + "::test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact",
@@ -1967,11 +2015,13 @@ def test_tier2_manifest_identity_presence_uniqueness_and_clean_only_classificati
         TIER2_MANIFEST_BYTES,
         TIER2_MANIFEST_SHA256,
     )
-    assert files.isdisjoint(SLICE8_MODIFIED_PATHS)
-    assert not any(
-        relative in line
-        for relative in (SLICE6_TEST_REL, SLICE7_TEST_REL, SELF_REL)
-        for line in manifest
+    retained_phase52 = tuple(
+        line for line in manifest if line.startswith("--deselect=tests/test_phase52_")
+    )
+    assert retained_phase52 == (
+        "--deselect=tests/test_phase52_fail_closed_capability_lookup.py::test_gate2_dirty_untracked_and_index_states_are_exact",
+        "--deselect=tests/test_phase52_logical_type_literal_parameter_nullability_inventory.py::test_gate2_dirty_untracked_and_index_states_are_exact",
+        "--deselect=tests/test_phase52_private_capability_fact_foundation.py::test_gate2_dirty_untracked_and_index_states_are_exact",
     )
     classification = {line: "CLEAN_ONLY_DESELECT" for line in manifest}
     assert set(classification.values()) == {"CLEAN_ONLY_DESELECT"}
@@ -1987,7 +2037,7 @@ def test_tier2_manifest_identity_presence_uniqueness_and_clean_only_classificati
         ]
         assert len(matches) == 1
         assert _parametrize_values(matches[0]) == 1
-    assert 6156 - len(manifest) == 6016
+    assert 6167 - len(manifest) == 6027
 
 
 def test_slice8_gate2_gate3_lifecycle_release_and_next_gate_are_exact() -> None:

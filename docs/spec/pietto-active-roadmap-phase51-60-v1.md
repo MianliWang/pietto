@@ -521,3 +521,16 @@ These rows are unchanged; there are no owner additions, removals, transfers, or 
 Before the Slice 1 Gate 3 condition, Phase 52 remains UNSTARTED. After and only after the exact Slice 1 completion commit receives one normal push to main and its natural CI / push run is completed / success with headSha exactly equal to that commit, Phase 52 becomes ACTIVE and remains incomplete; Slice 1 is complete; Slices 2–9 and Phases 53–60 remain UNSTARTED. No post-CI repository status-flip commit is planned or required. The next separately authorized gate is Phase 52 Slice 2 Gate 0 and Gate 1.
 
 This reconciliation creates no production carrier and changes no compiler behavior, diagnostic, IR, SQL, CLI or JSON, public API, runtime/database behavior, or package version. It authorizes no tag, release, publish, upload, signing, attestation, manual CI operation, or Slice 2 implementation.
+
+### Reconciliation 3 — Phase 52 Conditional Completion And Phase 53 Handoff
+
+1. Reconciliation 2 is unchanged and is the direct predecessor. The complete pre-Reconciliation-3 bytes, including the final newline, remain an exact prefix with SHA-256 `cb2c51246f1e312858641750d1a416125f99058fb0182949e9afe35ae49e97cf`.
+2. The trusted Slice 8 repair baseline is commit `36e466535d923f708a0201ae15a5708f06f2b1f8`, parent `7a221ffdca91335a526ed12a1059340bda642fdb`, subject `Fix Phase 52 shallow checkout history guard`. Natural `CI / push / main` run `29639745050`, attempt 1, was `completed / success` with `headSha` exactly `36e466535d923f708a0201ae15a5708f06f2b1f8`.
+3. Phase 52 retains the title `Core Type-System Capability Foundation`, its exact nine-slice route, delivery class, prerequisites, and `PHASE_52` owner. Phases 53–60 retain their exact titles, routes, delivery classes, prerequisites, and owner assignments.
+4. Owner additions, owner removals, owner renames, owner transfers, and conflict-winner selections are all none. Existing Phase 53–60, post-60, and permanently out-of-scope owners remain controlling.
+5. Before activation, Slices 1–8 are complete, Slice 9 is current and incomplete, Phase 52 remains ACTIVE and incomplete, and Phases 53–60 are UNSTARTED.
+6. Activation requires the exact single Slice 9 completion commit with subject `Complete Phase 52 core type system capability foundation`, one normal push to `main`, and the unique natural `CI / push / main`, attempt 1, to be `completed / success` with `headSha` exactly matching that commit.
+7. After and only after activation, Slice 9 and Phase 52 are `COMPLETED`; no Phase 52 slice remains active; Phases 53–60 remain `UNSTARTED`; and Phase 53 is the next planned phase but does not automatically become ACTIVE.
+8. No deferral becomes anonymous. This reconciliation authorizes no Phase 53 implementation, compiler or public behavior, package-version change, tag, release, publish, upload, signing, attestation, manual CI operation, rerun, cancellation, or post-CI status-flip commit.
+
+The exact future Slice 9 commit SHA and natural CI run ID belong only in Gate 3 evidence. Package and CLI version remain `0.1.0`, and no tag or release exists. The repository-standard next handoff after the completion condition is `Phase 53 Slice 1 Gate 0 and Gate 1`.

@@ -152,6 +152,12 @@ The first three are new; the remaining seven are bounded status or direct compat
 
 Gate 1 is read-only planning. Gate 2 is bounded implementation and evidence, with no stage, commit, push, or CI operation. Gate 3, if separately authorized, is the sole publish and natural-CI observation gate. Slice 1 completes only after its exact completion commit is normally pushed to `main` and its natural CI / push run is completed / success with matching `headSha`. No post-CI status flip commit is planned or required.
 
+### Slice 9 Gate 2 Bounded Implementation Status
+
+Slices 1–8 are complete and natural-CI proven. Slice 9 is the current, incomplete completion-audit slice; Phase 52 remains ACTIVE and incomplete, and Phases 53–60 remain UNSTARTED. Gate 2 is the exact static-only `A2/M7/D0` implementation defined by `docs/spec/phase52-completion-audit-and-status-lock-v1.md`. It changes no production source, capability fact, vocabulary, compiler consumer, public API, runtime behavior, or Phase 53 implementation.
+
+Slice 9 and Phase 52 complete only after the exact single Slice 9 completion commit is normally pushed to `main` and its unique natural `CI / push / main`, attempt 1, is `completed / success` with an exactly matching `headSha`. After and only after that condition, Phase 52 is `COMPLETED`; Phases 53–60 remain `UNSTARTED`; Phase 53 is the next planned phase but is not automatically ACTIVE. No post-CI repository status-flip commit is planned or required. The repository-standard next handoff is `Phase 53 Slice 1 Gate 0 and Gate 1`.
+
 ## Validation And Evidence Workflow
 
 Gate 2 uses one bounded write-mode Ruff format pass on the seven allowlisted Python paths, then `uv lock --check`, repository Ruff format/lint checks, production and test Pyright, Tier 1 focused pytest, and the controlling exact 114-node deselected dirty-worktree broad matrix. Tier 1 expects 18 passed / 0 deselected; Tier 2 expects 5648 passed / 114 deselected. It records raw output in `/tmp/pietto-phase52-slice1-gate2-evidence-and-diff.txt`. A clean unfiltered suite, `scripts/validate.py`, generated checks, golden checks, and package smoke remain reserved for natural Gate 3 CI.

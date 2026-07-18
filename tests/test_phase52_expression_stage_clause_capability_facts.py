@@ -54,6 +54,9 @@ SLICE8_TEST_REL = (
     "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py"
 )
 SLICE8_GATE2_BASE_HEAD_SHA = "11a0c48941c3c1c650be8d0ec8ddf5201f9525f2"
+SLICE9_SPEC_REL = "docs/spec/phase52-completion-audit-and-status-lock-v1.md"
+SLICE9_TEST_REL = "tests/test_phase52_completion_audit_and_status_lock.py"
+SLICE9_BASE_HEAD_SHA = "36e466535d923f708a0201ae15a5708f06f2b1f8"
 SOURCE_PATH = REPO_ROOT / SOURCE_REL
 SPEC_PATH = REPO_ROOT / SPEC_REL
 SELF_PATH = REPO_ROOT / SELF_REL
@@ -119,6 +122,7 @@ COMPILER_READERS = (
     SLICE4_TEST_REL,
     SLICE7_TEST_REL,
     SLICE8_TEST_REL,
+    SLICE9_TEST_REL,
 )
 SEMANTIC_READERS = (
     "tests/test_phase11_completion_audit.py",
@@ -150,6 +154,7 @@ SEMANTIC_READERS = (
     SLICE4_TEST_REL,
     SLICE7_TEST_REL,
     SLICE8_TEST_REL,
+    SLICE9_TEST_REL,
 )
 PHASE15_READERS = (
     "tests/test_phase15_semantic_completion_audit.py",
@@ -157,6 +162,7 @@ PHASE15_READERS = (
     SLICE4_TEST_REL,
     SLICE7_TEST_REL,
     SLICE8_TEST_REL,
+    SLICE9_TEST_REL,
 )
 MODIFIED_READER_PATHS = (
     "tests/test_phase11_ci_workflow.py",
@@ -219,6 +225,17 @@ SLICE8_MODIFIED_PATHS = {
 }
 SLICE8_ADDED_PATHS = {SLICE8_SPEC_REL, SLICE8_TEST_REL}
 SLICE8_ALLOWLIST_PATHS = SLICE8_MODIFIED_PATHS | SLICE8_ADDED_PATHS
+SLICE9_MODIFIED_PATHS = {
+    "docs/plan/phase-52-core-type-system-capability-foundation.md",
+    "docs/spec/pietto-active-roadmap-phase51-60-v1.md",
+    "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
+    SLICE5_TEST_REL,
+    SELF_REL,
+    SLICE7_TEST_REL,
+    SLICE8_TEST_REL,
+}
+SLICE9_ADDED_PATHS = {SLICE9_SPEC_REL, SLICE9_TEST_REL}
+SLICE9_ALLOWLIST_PATHS = SLICE9_MODIFIED_PATHS | SLICE9_ADDED_PATHS
 
 DIRECT_TIER1_NODES = (
     "tests/test_phase11_completion_audit.py::test_package_configuration_lockfile_makefile_and_compiler_are_unchanged",
@@ -1130,6 +1147,7 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
         REPAIR_ALLOWLIST_PATHS,
         PR_REPAIR_ALLOWLIST_PATHS,
         SLICE8_ALLOWLIST_PATHS,
+        SLICE9_ALLOWLIST_PATHS,
     )
 
     if not dirty_paths:
@@ -1142,6 +1160,14 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
             main=main,
             origin_main=origin_main,
         )
+    elif dirty_paths == SLICE9_ALLOWLIST_PATHS:
+        assert branch == "main"
+        assert tracked_paths == SLICE9_MODIFIED_PATHS
+        assert tracked_name_status == tuple(
+            f"M\t{path}" for path in sorted(SLICE9_MODIFIED_PATHS)
+        )
+        assert untracked_paths == SLICE9_ADDED_PATHS
+        assert head == main == origin_main == SLICE9_BASE_HEAD_SHA
     elif dirty_paths == SLICE8_ALLOWLIST_PATHS:
         assert branch == "main"
         assert tracked_paths == SLICE8_MODIFIED_PATHS
@@ -1191,6 +1217,9 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     assert len(SLICE8_ALLOWLIST_PATHS) == 6
     assert sum(path.endswith(".py") for path in SLICE8_ALLOWLIST_PATHS) == 5
     assert sum(path.endswith(".md") for path in SLICE8_ALLOWLIST_PATHS) == 1
+    assert len(SLICE9_ALLOWLIST_PATHS) == 9
+    assert len(SLICE9_MODIFIED_PATHS) == 7
+    assert len(SLICE9_ADDED_PATHS) == 2
 
 
 def test_static_test_inventory_and_tier1_selection_are_exact() -> None:
@@ -1226,7 +1255,7 @@ def test_static_test_inventory_and_tier1_selection_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (432, 4153)
+    assert (len(test_files), top_level_functions) == (433, 4164)
 
     compatible, per_file_items = _prior_compatible_nodes()
     assert (len(compatible), per_file_items) == (96, (24, 33, 63, 63))

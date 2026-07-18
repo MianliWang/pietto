@@ -126,11 +126,32 @@ PHASE52_UNTRACKED_PATHS = {
 PHASE52_SLICE1_CI_REPAIR_PATHS = {
     "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
 }
+SLICE9_SPEC_REL = "docs/spec/phase52-completion-audit-and-status-lock-v1.md"
+SLICE9_TEST_REL = "tests/test_phase52_completion_audit_and_status_lock.py"
+SLICE9_BASE_HEAD_SHA = "36e466535d923f708a0201ae15a5708f06f2b1f8"
+SLICE9_MODIFIED_PATHS = {
+    "docs/plan/phase-52-core-type-system-capability-foundation.md",
+    "docs/spec/pietto-active-roadmap-phase51-60-v1.md",
+    "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
+    "tests/test_phase52_scalar_function_operator_signature_facts.py",
+    "tests/test_phase52_expression_stage_clause_capability_facts.py",
+    "tests/test_phase52_aggregate_signature_algebra_facts.py",
+    "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
+}
+SLICE9_ADDED_PATHS = {SLICE9_SPEC_REL, SLICE9_TEST_REL}
+SLICE9_ALLOWLIST_PATHS = SLICE9_MODIFIED_PATHS | SLICE9_ADDED_PATHS
+SLICE9_STATUS_H3 = "Slice 9 Gate 2 Bounded Implementation Status"
 RECONCILIATION_2_H3 = (
     "### Reconciliation 2 — Phase 52 Activation And Exact-current Capability Route Lock"
 )
+RECONCILIATION_3_H3 = (
+    "### Reconciliation 3 — Phase 52 Conditional Completion And Phase 53 Handoff"
+)
 PRE_RECONCILIATION_2_SHA256 = (
     "b05e57e27afb232b897e7bcec911d8f756beed204a1d0798380b7a510b9a4f80"
+)
+PRE_RECONCILIATION_3_SHA256 = (
+    "cb2c51246f1e312858641750d1a416125f99058fb0182949e9afe35ae49e97cf"
 )
 COMPILER_DIGEST = "15bdd8566474a9f119e3a1d8c991cfca972ac114f7d52edb7d6e57f6c779c923"
 PROJECT_PRIVATE_DIGEST = (
@@ -197,6 +218,13 @@ def _pre_reconciliation_2_prefix() -> str:
     return prefix
 
 
+def _pre_reconciliation_3_prefix() -> str:
+    marker = f"\n{RECONCILIATION_3_H3}\n"
+    prefix, separator, _ = _read(ROADMAP_PATH).partition(marker)
+    assert separator == marker
+    return prefix
+
+
 def test_artifact_paths_titles_and_exact_h2_heading_orders_are_locked() -> None:
     assert PLAN_PATH.is_file()
     assert SCOPE_PATH.is_file()
@@ -204,7 +232,7 @@ def test_artifact_paths_titles_and_exact_h2_heading_orders_are_locked() -> None:
     assert _headings_at_level(SCOPE_PATH, 1) == (SCOPE_TITLE,)
     assert _headings_at_level(PLAN_PATH, 2) == PLAN_H2
     assert _headings_at_level(SCOPE_PATH, 2) == SCOPE_H2
-    assert _headings_at_level(PLAN_PATH, 3) == ()
+    assert _headings_at_level(PLAN_PATH, 3) == (SLICE9_STATUS_H3,)
     assert _headings_at_level(SCOPE_PATH, 3) == ()
 
 
@@ -497,15 +525,21 @@ def test_roadmap_reconciliation2_preserves_exact_prefix_and_eof_shape() -> None:
         == 1
     )
     assert roadmap.count(RECONCILIATION_2_H3) == 1
-    start = roadmap.index(RECONCILIATION_2_H3)
-    assert "\n### " not in roadmap[start + len(RECONCILIATION_2_H3) :]
+    assert (
+        hashlib.sha256(_pre_reconciliation_3_prefix().encode()).hexdigest()
+        == PRE_RECONCILIATION_3_SHA256
+    )
+    assert roadmap.count(RECONCILIATION_3_H3) == 1
+    start = roadmap.index(RECONCILIATION_3_H3)
+    assert "\n### " not in roadmap[start + len(RECONCILIATION_3_H3) :]
     assert roadmap.endswith("\n")
-    assert roadmap.rstrip().endswith("or Slice 2 implementation.")
+    assert roadmap.rstrip().endswith("Phase 53 Slice 1 Gate 0 and Gate 1`.")
 
 
 def test_reconciliation2_conditional_lifecycle_and_next_gate_are_locked() -> None:
-    reconciliation = _read(ROADMAP_PATH)[
-        _read(ROADMAP_PATH).index(RECONCILIATION_2_H3) :
+    roadmap = _read(ROADMAP_PATH)
+    reconciliation = roadmap[
+        roadmap.index(RECONCILIATION_2_H3) : roadmap.index(RECONCILIATION_3_H3)
     ]
     lifecycle = (
         "Before the Slice 1 Gate 3 condition, Phase 52 remains UNSTARTED. After and "
@@ -524,6 +558,11 @@ def test_reconciliation2_conditional_lifecycle_and_next_gate_are_locked() -> Non
         in reconciliation
     )
     assert "Phase 52 Slice 2 Gate 0 and Gate 1" in reconciliation
+    reconciliation3 = roadmap[roadmap.index(RECONCILIATION_3_H3) :]
+    assert "Phase 52 remains ACTIVE and incomplete" in reconciliation3
+    assert "Phase 52 are `COMPLETED`" in reconciliation3
+    assert "Phases 53–60 remain `UNSTARTED`" in reconciliation3
+    assert "Phase 53 Slice 1 Gate 0 and Gate 1" in reconciliation3
 
 
 def test_phase51_compatibility_migrations_preserve_historical_locks() -> None:
@@ -657,6 +696,7 @@ def test_static_audit_shape_allowlist_and_heading_matching_are_locked() -> None:
         "_top_level_test_names",
         "_pytest_item_count",
         "_pre_reconciliation_2_prefix",
+        "_pre_reconciliation_3_prefix",
         "test_artifact_paths_titles_and_exact_h2_heading_orders_are_locked",
         "test_exact_nine_slice_route_and_slice_classifications_are_locked",
         "test_read_model_first_authority_dimensions_and_non_authority_are_locked",
@@ -674,7 +714,7 @@ def test_static_audit_shape_allowlist_and_heading_matching_are_locked() -> None:
         tuple(node.name for node in tree.body if isinstance(node, ast.FunctionDef))
         == expected_functions
     )
-    assert _top_level_test_names(SELF_PATH) == expected_functions[8:]
+    assert _top_level_test_names(SELF_PATH) == expected_functions[9:]
     assert _pytest_item_count(SELF_PATH) == 12
     assert all(
         not node.decorator_list
@@ -722,6 +762,7 @@ def test_static_audit_shape_allowlist_and_heading_matching_are_locked() -> None:
         set(),
         PHASE52_GATE2_PATHS,
         PHASE52_SLICE1_CI_REPAIR_PATHS,
+        SLICE9_ALLOWLIST_PATHS,
     )
     untracked_paths = set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
@@ -729,6 +770,16 @@ def test_static_audit_shape_allowlist_and_heading_matching_are_locked() -> None:
     assert untracked_paths in (
         set(),
         PHASE52_UNTRACKED_PATHS,
+        SLICE9_ADDED_PATHS,
     )
+    if _dirty_paths() == SLICE9_ALLOWLIST_PATHS:
+        assert set(_git_output(["diff", "--name-only"]).splitlines()) == (
+            SLICE9_MODIFIED_PATHS
+        )
+        assert untracked_paths == SLICE9_ADDED_PATHS
+        assert _git_output(["branch", "--show-current"]) == "main"
+        assert _git_output(["rev-parse", "HEAD"]) == SLICE9_BASE_HEAD_SHA
+        assert _git_output(["rev-parse", "main"]) == SLICE9_BASE_HEAD_SHA
+        assert _git_output(["rev-parse", "origin/main"]) == SLICE9_BASE_HEAD_SHA
     assert _headings_at_level(PLAN_PATH, 2) == PLAN_H2
     assert _headings_at_level(SCOPE_PATH, 2) == SCOPE_H2
