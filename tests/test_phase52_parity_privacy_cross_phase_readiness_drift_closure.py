@@ -74,6 +74,7 @@ MODULE_OBJECTS = (
 GATE2_BASE_HEAD_SHA = "11a0c48941c3c1c650be8d0ec8ddf5201f9525f2"
 GATE2_BASE_PARENT_SHA = "7bea69da0465f57580961e4ca4a2c18a84dfb68c"
 GATE2_BASE_TREE_SHA = "2953c238f27239d796c9af05543b48c1add2a69d"
+CI_REPAIR_BASE_HEAD_SHA = "7a221ffdca91335a526ed12a1059340bda642fdb"
 MODULE_SHA256 = {
     FACTS_REL: "8a7e7ba8374c59316051f582aecc0c0e797d270fac2ce89a91a55befca562fa9",
     LOOKUP_REL: "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26",
@@ -157,6 +158,7 @@ SLICE8_MODIFIED_PATHS = {
 }
 SLICE8_ADDED_PATHS = {SPEC_REL, SELF_REL}
 SLICE8_ALLOWLIST_PATHS = SLICE8_MODIFIED_PATHS | SLICE8_ADDED_PATHS
+CI_REPAIR_MODIFIED_PATHS = {SELF_REL}
 
 DIRECT_TIER1_BYTES = 4860
 DIRECT_TIER1_SHA256 = "417a72e2091fdd85e8b1d5f76bc4a21a64e55dbdb1eb87de4318a1b344a67faf"
@@ -240,41 +242,71 @@ def _git_refs() -> tuple[tuple[str, str], ...]:
     return tuple(refs)
 
 
+def _commit_available_from_batch_output(commit: str, output: str) -> bool:
+    assert re.fullmatch(r"[0-9a-f]{40}", commit)
+    if output == f"{commit} commit\n":
+        return True
+    if output == f"{commit} missing\n":
+        return False
+    raise AssertionError(f"unexpected git object result: {output!r}")
+
+
 def _git_commit_exists(commit: str) -> bool:
+    assert re.fullmatch(r"[0-9a-f]{40}", commit)
     result = subprocess.run(
-        ["git", "cat-file", "-e", f"{commit}^{{commit}}"],
+        ["git", "cat-file", "--batch-check=%(objectname) %(objecttype)"],
         cwd=REPO_ROOT,
-        check=False,
+        check=True,
+        input=f"{commit}\n",
+        text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     )
-    assert result.returncode in (0, 128)
-    return result.returncode == 0
+    assert result.stderr == ""
+    return _commit_available_from_batch_output(commit, result.stdout)
 
 
-def _assert_clean_checkout_refs(
+def _historical_objects_available(
+    *,
+    head_available: bool,
+    parent_available: bool,
+) -> bool:
+    assert head_available == parent_available
+    return head_available
+
+
+def _assert_checkout_ref_shape(
     *,
     branch: str,
     head: str,
     main: str | None,
     origin_main: str | None,
-) -> None:
+    refs: tuple[tuple[str, str], ...],
+    exact_main_refs: bool,
+) -> bool:
     if branch == "main":
         assert main == head
         if origin_main is not None:
             assert origin_main == head
-        return
+        if exact_main_refs:
+            assert origin_main == head
+            assert refs == (
+                ("refs/heads/main", head),
+                ("refs/remotes/origin/main", head),
+            )
+        return False
 
     assert branch == ""
-    refs = _git_refs()
     assert len(refs) == 1
     merge_ref, merge_head = refs[0]
     assert re.fullmatch(r"refs/remotes/pull/[1-9][0-9]*/merge", merge_ref)
     assert merge_head == head
     assert main is None
     assert origin_main is None
+    return True
 
-    raw_commit = _git_output(["cat-file", "-p", head])
+
+def _synthetic_merge_parents(raw_commit: str) -> tuple[str, str]:
     header, separator, message = raw_commit.partition("\n\n")
     assert separator == "\n\n"
     parents = tuple(
@@ -286,14 +318,106 @@ def _assert_clean_checkout_refs(
     assert parents[0] != parents[1]
     assert all(re.fullmatch(r"[0-9a-f]{40}", parent) for parent in parents)
     assert message == f"Merge {parents[1]} into {parents[0]}"
+    return cast(tuple[str, str], parents)
+
+
+def _assert_materialized_synthetic_merge(
+    *,
+    parents: tuple[str, str],
+    merge_base: str,
+    second_parent_tree: str,
+    merge_tree: str,
+) -> None:
+    assert merge_base == parents[0]
+    assert second_parent_tree == merge_tree
+
+
+def _assert_clean_checkout_refs(
+    *,
+    branch: str,
+    head: str,
+    main: str | None,
+    origin_main: str | None,
+    exact_main_refs: bool = False,
+) -> None:
+    refs = _git_refs()
+    synthetic = _assert_checkout_ref_shape(
+        branch=branch,
+        head=head,
+        main=main,
+        origin_main=origin_main,
+        refs=refs,
+        exact_main_refs=exact_main_refs,
+    )
+    if not synthetic:
+        return
+
+    raw_commit = _git_output(["cat-file", "-p", head])
+    parents = _synthetic_merge_parents(raw_commit)
 
     parent_objects_exist = tuple(_git_commit_exists(parent) for parent in parents)
     assert len(set(parent_objects_exist)) == 1
     if all(parent_objects_exist):
-        assert _git_output(["merge-base", *parents]) == parents[0]
-        assert _git_output(["rev-parse", f"{parents[1]}^{{tree}}"]) == _git_output(
-            ["rev-parse", f"{head}^{{tree}}"]
+        _assert_materialized_synthetic_merge(
+            parents=parents,
+            merge_base=_git_output(["merge-base", *parents]),
+            second_parent_tree=_git_output(["rev-parse", f"{parents[1]}^{{tree}}"]),
+            merge_tree=_git_output(["rev-parse", f"{head}^{{tree}}"]),
         )
+
+
+def _assert_clean_shallow_state(
+    *,
+    shallow: str,
+    status: str,
+    staged: str,
+) -> None:
+    assert shallow == "true"
+    assert status == ""
+    assert staged == ""
+
+
+def _assert_clean_shallow_checkout() -> None:
+    _assert_clean_shallow_state(
+        shallow=_git_output(["rev-parse", "--is-shallow-repository"]),
+        status=_git_output(["status", "--porcelain=v1", "--untracked-files=all"]),
+        staged=_git_output(["diff", "--cached", "--name-only"]),
+    )
+    branch = _git_output(["branch", "--show-current"])
+    head = _git_output(["rev-parse", "HEAD"])
+    _assert_clean_checkout_refs(
+        branch=branch,
+        head=head,
+        main=_git_optional_ref("refs/heads/main"),
+        origin_main=_git_optional_ref("refs/remotes/origin/main"),
+        exact_main_refs=True,
+    )
+
+
+def _assert_allowed_dirty_state(
+    *,
+    tracked: set[str],
+    untracked: set[str],
+    branch: str,
+    head: str,
+    main: str | None,
+    origin_main: str | None,
+) -> None:
+    dirty = tracked | untracked
+    assert dirty in (set(), SLICE8_ALLOWLIST_PATHS, CI_REPAIR_MODIFIED_PATHS)
+    if not dirty:
+        return
+
+    assert branch == "main"
+    if dirty == SLICE8_ALLOWLIST_PATHS:
+        assert tracked == SLICE8_MODIFIED_PATHS
+        assert untracked == SLICE8_ADDED_PATHS
+        assert head == main == origin_main == GATE2_BASE_HEAD_SHA
+        return
+
+    assert tracked == CI_REPAIR_MODIFIED_PATHS
+    assert untracked == set()
+    assert head == main == origin_main == CI_REPAIR_BASE_HEAD_SHA
 
 
 def _readable_paths() -> tuple[str, ...]:
@@ -1274,11 +1398,16 @@ def test_no_authority_behavior_and_repository_sentinels_are_exact() -> None:
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     ) - {""}
     dirty = tracked | untracked
-    assert dirty in (set(), SLICE8_ALLOWLIST_PATHS)
-    if dirty:
-        assert tracked == SLICE8_MODIFIED_PATHS
-        assert untracked == SLICE8_ADDED_PATHS
+    _assert_allowed_dirty_state(
+        tracked=tracked,
+        untracked=untracked,
+        branch=_git_output(["branch", "--show-current"]),
+        head=_git_output(["rev-parse", "HEAD"]),
+        main=_git_optional_ref("refs/heads/main"),
+        origin_main=_git_optional_ref("refs/remotes/origin/main"),
+    )
     assert len(SLICE8_ALLOWLIST_PATHS) == 6
+    assert CI_REPAIR_MODIFIED_PATHS == {SELF_REL}
     assert sum(path.endswith(".py") for path in SLICE8_ALLOWLIST_PATHS) == 5
     assert sum(path.endswith(".md") for path in SLICE8_ALLOWLIST_PATHS) == 1
     assert set(MODULE_RELS).isdisjoint(dirty)
@@ -1402,31 +1531,32 @@ def test_phase53_window_handoff_remains_unpopulated_and_unknown() -> None:
     assert all(name in spec for name in ("row_number", "rank", "dense_rank"))
 
 
-def test_clean_main_synthetic_merge_dirty_and_historical_repository_states_are_exact() -> (
-    None
-):
+def test_clean_main_synthetic_merge_dirty_and_historical_repository_states_are_exact(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     tracked = set(_git_output(["diff", "--name-only"]).splitlines()) - {""}
     untracked = set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     ) - {""}
-    dirty = tracked | untracked
-    assert dirty in (set(), SLICE8_ALLOWLIST_PATHS)
     branch = _git_output(["branch", "--show-current"])
     head = _git_output(["rev-parse", "HEAD"])
     main = _git_optional_ref("refs/heads/main")
     origin_main = _git_optional_ref("refs/remotes/origin/main")
-    if not dirty:
+    _assert_allowed_dirty_state(
+        tracked=tracked,
+        untracked=untracked,
+        branch=branch,
+        head=head,
+        main=main,
+        origin_main=origin_main,
+    )
+    if not (tracked | untracked):
         _assert_clean_checkout_refs(
             branch=branch,
             head=head,
             main=main,
             origin_main=origin_main,
         )
-    else:
-        assert branch == "main"
-        assert tracked == SLICE8_MODIFIED_PATHS
-        assert untracked == SLICE8_ADDED_PATHS
-        assert head == main == origin_main == GATE2_BASE_HEAD_SHA
     for relative in (
         SLICE4_TEST_REL,
         SLICE5_TEST_REL,
@@ -1440,23 +1570,144 @@ def test_clean_main_synthetic_merge_dirty_and_historical_repository_states_are_e
         if relative != SLICE4_TEST_REL:
             assert "PR_REPAIR_ALLOWLIST_PATHS" in source
 
+    sample_head = "a" * 40
+    other_head = "b" * 40
+    with pytest.raises(AssertionError):
+        _assert_clean_shallow_state(shallow="false", status="", staged="")
+    with pytest.raises(AssertionError):
+        _assert_clean_shallow_state(
+            shallow="true",
+            status=" M unexpected.py",
+            staged="",
+        )
+    with pytest.raises(AssertionError):
+        _assert_clean_shallow_state(
+            shallow="true",
+            status="",
+            staged="M\tunexpected.py",
+        )
+    with pytest.raises(AssertionError):
+        _assert_checkout_ref_shape(
+            branch="",
+            head=sample_head,
+            main=None,
+            origin_main=None,
+            refs=(),
+            exact_main_refs=True,
+        )
+    with pytest.raises(AssertionError):
+        _assert_checkout_ref_shape(
+            branch="main",
+            head=sample_head,
+            main=sample_head,
+            origin_main=sample_head,
+            refs=(
+                ("refs/heads/main", sample_head),
+                ("refs/heads/unexpected", sample_head),
+                ("refs/remotes/origin/main", sample_head),
+            ),
+            exact_main_refs=True,
+        )
+    with pytest.raises(AssertionError):
+        _assert_checkout_ref_shape(
+            branch="",
+            head=sample_head,
+            main=None,
+            origin_main=None,
+            refs=(("refs/remotes/pull/0/merge", sample_head),),
+            exact_main_refs=True,
+        )
+    with pytest.raises(AssertionError):
+        _synthetic_merge_parents(
+            f"tree {sample_head}\nparent {sample_head}\n\nMerge malformed"
+        )
+    with pytest.raises(AssertionError):
+        _synthetic_merge_parents(
+            f"tree {sample_head}\nparent {sample_head}\nparent {other_head}"
+            f"\n\nMerge {sample_head} into {other_head}"
+        )
+    with pytest.raises(AssertionError):
+        _assert_materialized_synthetic_merge(
+            parents=(sample_head, other_head),
+            merge_base=other_head,
+            second_parent_tree=sample_head,
+            merge_tree=sample_head,
+        )
+    with pytest.raises(AssertionError):
+        _assert_materialized_synthetic_merge(
+            parents=(sample_head, other_head),
+            merge_base=sample_head,
+            second_parent_tree=sample_head,
+            merge_tree=other_head,
+        )
+    with pytest.raises(AssertionError):
+        _historical_objects_available(
+            head_available=True,
+            parent_available=False,
+        )
+    with pytest.raises(AssertionError):
+        _commit_available_from_batch_output(sample_head, f"{sample_head} blob\n")
+    with pytest.raises(AssertionError):
+        _assert_allowed_dirty_state(
+            tracked={SLICE4_TEST_REL},
+            untracked=set(),
+            branch="main",
+            head=CI_REPAIR_BASE_HEAD_SHA,
+            main=CI_REPAIR_BASE_HEAD_SHA,
+            origin_main=CI_REPAIR_BASE_HEAD_SHA,
+        )
+    with pytest.raises(AssertionError):
+        _assert_allowed_dirty_state(
+            tracked=CI_REPAIR_MODIFIED_PATHS,
+            untracked={"unexpected.txt"},
+            branch="main",
+            head=CI_REPAIR_BASE_HEAD_SHA,
+            main=CI_REPAIR_BASE_HEAD_SHA,
+            origin_main=CI_REPAIR_BASE_HEAD_SHA,
+        )
+
+    def fail_git_command(*args: Any, **kwargs: Any) -> Any:
+        raise subprocess.CalledProcessError(128, args[0])
+
+    with monkeypatch.context() as scoped:
+        scoped.setattr(subprocess, "run", fail_git_command)
+        with pytest.raises(subprocess.CalledProcessError):
+            _git_commit_exists(GATE2_BASE_HEAD_SHA)
+
 
 def test_pr19_pr20_workflow_dependency_package_tag_and_ref_locks_are_exact() -> None:
-    assert _git_output(["cat-file", "-t", GATE2_BASE_HEAD_SHA]) == "commit"
-    assert _git_output(["rev-parse", f"{GATE2_BASE_HEAD_SHA}^"]) == (
-        GATE2_BASE_PARENT_SHA
+    historical_objects_available = _historical_objects_available(
+        head_available=_git_commit_exists(GATE2_BASE_HEAD_SHA),
+        parent_available=_git_commit_exists(GATE2_BASE_PARENT_SHA),
     )
-    assert _git_output(["rev-parse", f"{GATE2_BASE_HEAD_SHA}^{{tree}}"]) == (
-        GATE2_BASE_TREE_SHA
-    )
-    assert _git_output(["show", "-s", "--format=%s", GATE2_BASE_HEAD_SHA]) == (
-        "Bump actions/setup-java from 5.5.0 to 5.6.0"
-    )
-    assert _git_output(["show", "-s", "--format=%s", GATE2_BASE_PARENT_SHA]) == (
-        "Bump ruff from 0.15.21 to 0.15.22"
-    )
-    assert _git_output(["merge-base", "main", GATE2_BASE_HEAD_SHA]) == (
-        GATE2_BASE_HEAD_SHA
+    if historical_objects_available:
+        assert _git_output(["rev-parse", f"{GATE2_BASE_HEAD_SHA}^"]) == (
+            GATE2_BASE_PARENT_SHA
+        )
+        assert _git_output(["rev-parse", f"{GATE2_BASE_HEAD_SHA}^{{tree}}"]) == (
+            GATE2_BASE_TREE_SHA
+        )
+        assert _git_output(["show", "-s", "--format=%s", GATE2_BASE_HEAD_SHA]) == (
+            "Bump actions/setup-java from 5.5.0 to 5.6.0"
+        )
+        assert (
+            _git_output(["show", "-s", "--format=%s", GATE2_BASE_PARENT_SHA])
+            == "Bump ruff from 0.15.21 to 0.15.22"
+        )
+        if _git_optional_ref("refs/heads/main") is not None:
+            assert _git_output(["merge-base", "main", GATE2_BASE_HEAD_SHA]) == (
+                GATE2_BASE_HEAD_SHA
+            )
+    else:
+        _assert_clean_shallow_checkout()
+
+    assert _sha256(REPO_ROOT / ".github/workflows/ci.yml") == WORKFLOW_SHA256
+    assert _sha256(REPO_ROOT / "pyproject.toml") == PYPROJECT_SHA256
+    assert _sha256(REPO_ROOT / "uv.lock") == LOCK_SHA256
+    workflow = _read(REPO_ROOT / ".github/workflows/ci.yml")
+    assert (
+        "actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0"
+        in workflow
     )
     assert _git_output(["tag", "--list"]) == ""
     assert _git_output(["tag", "--points-at", "HEAD"]) == ""
@@ -1464,6 +1715,8 @@ def test_pr19_pr20_workflow_dependency_package_tag_and_ref_locks_are_exact() -> 
         project = tomllib.load(stream)
     assert project["project"]["version"] == "0.1.0"
     assert project["build-system"]["requires"] == ["uv_build>=0.11.29,<0.12.0"]
+    assert "ruff>=0.15.22" in _read(REPO_ROOT / "pyproject.toml")
+    assert 'name = "ruff"\nversion = "0.15.22"' in _read(REPO_ROOT / "uv.lock")
 
 
 def test_static_reader_counts_boundary_hash_and_nested_sha_topology_are_exact() -> None:
@@ -1752,9 +2005,16 @@ def test_slice8_gate2_gate3_lifecycle_release_and_next_gate_are_exact() -> None:
     ):
         assert required in spec
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
-    dirty = set(_git_output(["diff", "--name-only"]).splitlines()) | set(
+    tracked = set(_git_output(["diff", "--name-only"]).splitlines()) - {""}
+    untracked = set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
+    ) - {""}
+    _assert_allowed_dirty_state(
+        tracked=tracked,
+        untracked=untracked,
+        branch=_git_output(["branch", "--show-current"]),
+        head=_git_output(["rev-parse", "HEAD"]),
+        main=_git_optional_ref("refs/heads/main"),
+        origin_main=_git_optional_ref("refs/remotes/origin/main"),
     )
-    dirty.discard("")
-    assert dirty in (set(), SLICE8_ALLOWLIST_PATHS)
     assert "No pull request, tag, release, publication, signing, or attestation" in spec
