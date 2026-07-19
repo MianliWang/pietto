@@ -94,7 +94,7 @@ PHASE52_UNTRACKED_PATHS = {
     "docs/spec/phase52-core-type-system-capability-foundation-scope-lock-v1.md",
     "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
 }
-SLICE2_BASE_HEAD_SHA = "d52a4a80aee1a1708d8fd480f63aa450a1c25eff"
+SLICE2_BASE_HEAD_SHA = "86b08e27bbe97589b143dc1043fb0ad743dbf88a"
 SLICE2_STATE_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
 BOUNDARY_PATHS = (
     "tests/test_phase11_ci_workflow.py",
@@ -891,7 +891,7 @@ def test_cross_phase_transition_and_live_identifier_inventory_is_exact() -> None
 def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> None:
     compiler_digest = _compiler_digest()
     assert compiler_digest == (
-        "07b7d658ea02b7588700a3ff46da8927686418e2fa1e15c98f7d8a0d5e0d785c"
+        "b1605a853ff1be314308c5fc0214dc18e91f064f45be0a86dacaf0d305a1e0a8"
     )
     for relative_path in BOUNDARY_PATHS:
         boundary_values = re.findall(

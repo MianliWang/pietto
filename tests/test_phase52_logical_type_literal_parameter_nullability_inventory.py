@@ -66,10 +66,10 @@ SLICE8_GATE2_BASE_HEAD_SHA = "11a0c48941c3c1c650be8d0ec8ddf5201f9525f2"
 
 FACTS_SHA256 = "8a7e7ba8374c59316051f582aecc0c0e797d270fac2ce89a91a55befca562fa9"
 LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26"
-COMPILER_DIGEST = "07b7d658ea02b7588700a3ff46da8927686418e2fa1e15c98f7d8a0d5e0d785c"
-SEMANTIC_DIGEST = "ef4304a56f4d352b5882ce21ef4a490f77a3107b3d827d4e73ad39ad3a688e0d"
+COMPILER_DIGEST = "b1605a853ff1be314308c5fc0214dc18e91f064f45be0a86dacaf0d305a1e0a8"
+SEMANTIC_DIGEST = "a98a3cb1728810c07ca2c6215d1229645747fa6eb0072a2313d227f59d5df414"
 PHASE15_SUBSET_DIGEST = (
-    "e0f2909026328a5fc74cb432551e7665be33702af626bbac363e52a2febcc450"
+    "4ba0752d6f5c1cce74923243b163a48b7a7ba3cb10c58557a4c15d00ccb5bb15"
 )
 PROJECT_PRIVATE_DIGEST = (
     "c032a23c7f0477df58cacc9374e2882bebad346bec9a539899878da062248013"
@@ -1040,7 +1040,7 @@ def test_digest_and_nested_raw_sha_reader_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        81,
+        82,
         27,
         24,
     )

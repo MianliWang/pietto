@@ -113,6 +113,7 @@ COMPILER_READERS = (
     SLICE7_TEST_REL,
     SLICE8_TEST_REL,
     SLICE9_TEST_REL,
+    "tests/test_phase53_window_spec_function_identity_ast_contract.py",
 )
 SEMANTIC_READERS = (
     "tests/test_phase11_completion_audit.py",
@@ -145,6 +146,7 @@ SEMANTIC_READERS = (
     SLICE7_TEST_REL,
     SLICE8_TEST_REL,
     SLICE9_TEST_REL,
+    "tests/test_phase53_window_spec_function_identity_ast_contract.py",
 )
 PHASE15_READERS = (
     "tests/test_phase15_semantic_completion_audit.py",
@@ -153,6 +155,7 @@ PHASE15_READERS = (
     SLICE7_TEST_REL,
     SLICE8_TEST_REL,
     SLICE9_TEST_REL,
+    "tests/test_phase53_window_spec_function_identity_ast_contract.py",
 )
 MODIFIED_READER_PATHS = (
     "tests/test_phase11_ci_workflow.py",
@@ -1230,7 +1233,7 @@ def test_compiler_semantic_subset_project_and_raw_hash_readers_are_exact() -> No
     )
     project_paths = _project_private_paths()
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        81,
+        82,
         27,
         24,
     )
@@ -1415,7 +1418,7 @@ def test_static_test_inventory_tier1_and_tier2_manifest_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (435, 4194)
+    assert (len(test_files), top_level_functions) == (436, 4219)
     assert len(DIRECT_TIER1_NODES) == len(set(DIRECT_TIER1_NODES)) == 44
     for node_id in DIRECT_TIER1_NODES:
         path, function = node_id.split("::", maxsplit=1)

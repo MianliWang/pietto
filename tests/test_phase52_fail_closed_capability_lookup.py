@@ -115,10 +115,10 @@ MODIFIED_READER_PATHS = (
 )
 ADDED_PATHS = {CONTEXT_REL, CONTEXT_SPEC_REL, CONTEXT_TEST_REL}
 ALLOWLIST_PATHS = {*MODIFIED_READER_PATHS, *ADDED_PATHS}
-COMPILER_DIGEST = "07b7d658ea02b7588700a3ff46da8927686418e2fa1e15c98f7d8a0d5e0d785c"
-SEMANTIC_DIGEST = "ef4304a56f4d352b5882ce21ef4a490f77a3107b3d827d4e73ad39ad3a688e0d"
+COMPILER_DIGEST = "b1605a853ff1be314308c5fc0214dc18e91f064f45be0a86dacaf0d305a1e0a8"
+SEMANTIC_DIGEST = "a98a3cb1728810c07ca2c6215d1229645747fa6eb0072a2313d227f59d5df414"
 PHASE15_SUBSET_DIGEST = (
-    "e0f2909026328a5fc74cb432551e7665be33702af626bbac363e52a2febcc450"
+    "4ba0752d6f5c1cce74923243b163a48b7a7ba3cb10c58557a4c15d00ccb5bb15"
 )
 PROJECT_PRIVATE_DIGEST = (
     "c032a23c7f0477df58cacc9374e2882bebad346bec9a539899878da062248013"
@@ -526,7 +526,7 @@ def test_compiler_semantic_and_phase15_boundary_digests_are_refreshed() -> None:
         for path in semantic_paths
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
-    assert len(compiler_paths) == 81
+    assert len(compiler_paths) == 82
     assert len(semantic_paths) == 27
     assert len(phase15_paths) == 24
     assert _digest(compiler_paths) == COMPILER_DIGEST

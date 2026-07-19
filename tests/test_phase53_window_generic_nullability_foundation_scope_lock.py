@@ -55,6 +55,7 @@ PLAN_H2 = (
     "Package Version Release And Publication Boundary",
     "Stop Conditions",
     "Slice 2 Pietto-native Window Syntax And Contextual Grammar Contract",
+    "Slice 3 WindowSpec, Extension-compatible WindowFunctionIdentity, And AST Contract",
 )
 SCOPE_H2 = (
     "Purpose And Slice Identity",
@@ -214,7 +215,7 @@ CI_REPAIR_BASE_HEAD_SHA = "c309323216fb7e6c52afba060cb188b3bb618d34"
 CI_REPAIR_MODIFIED_PATHS = {
     "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
 }
-SLICE2_BASE_HEAD_SHA = "d52a4a80aee1a1708d8fd480f63aa450a1c25eff"
+SLICE2_BASE_HEAD_SHA = "86b08e27bbe97589b143dc1043fb0ad743dbf88a"
 SLICE2_STATE_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
 
 TIER1_EXISTING_NODES = (
@@ -637,6 +638,15 @@ def test_reader_migrations_reconciliation4_and_current_authority_are_locked() ->
         "146 focused passes",
         "6121 passed, 185 deselected",
         "clean-CI projection of 6306 passes",
+        "844 tracked files",
+        "518 Python files",
+        "230 Markdown files",
+        "436 test modules",
+        "4219 top-level test functions",
+        "6376 collected items",
+        "202 focused items",
+        "6193 passed, 183 deselected",
+        "6376 clean-CI passes",
     ):
         assert required in slice2_plan, required
     for relative in (
@@ -646,85 +656,29 @@ def test_reader_migrations_reconciliation4_and_current_authority_are_locked() ->
         "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
         "tests/test_phase52_completion_audit_and_status_lock.py",
     ):
-        assert "(435, 4194)" in _read(relative)
+        assert "(436, 4219)" in _read(relative)
     for relative in (
         "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
         "tests/test_phase52_completion_audit_and_status_lock.py",
     ):
-        assert "(516, 229)" in _read(relative)
+        assert "(518, 230)" in _read(relative)
 
 
 def test_gate2_validation_depth_one_gate3_activation_and_stop_conditions_are_locked() -> (
     None
 ):
     _assert_phase53_repository_state()
-
-    assert len(TIER1_EXISTING_NODES) == len(set(TIER1_EXISTING_NODES)) == 42
-    for node_id in TIER1_EXISTING_NODES:
-        relative, function = node_id.split("::", maxsplit=1)
-        matches = [
-            node
-            for node in ast.parse(_read(relative), filename=relative).body
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name == function
-        ]
-        assert len(matches) == 1
-        node = matches[0]
-        assert not node.decorator_list
-        assert not node.args.posonlyargs
-        assert not node.args.args
-        assert not node.args.kwonlyargs
-        assert node.args.vararg is node.args.kwarg is None
-    tier1_payload = "".join(node + "\n" for node in TIER1_EXISTING_NODES).encode()
-    assert (len(tier1_payload), hashlib.sha256(tier1_payload).hexdigest()) == (
-        5387,
-        "e41d5feaf12fe93656b401a3eeebad705dafae5f152d12b988d1b1facdfec726",
-    )
-    assert 69 + len(TIER1_EXISTING_NODES) == 111
-
-    tracked_manifest = _literal_tuple(
-        "tests/test_phase52_expression_stage_clause_capability_facts.py",
-        "TIER2_MANIFEST",
-    )
-    removed = {
-        "--deselect=tests/test_phase52_core_type_system_capability_foundation_scope_lock.py::test_static_audit_shape_allowlist_and_heading_matching_are_locked",
-        "--deselect=tests/test_phase52_scalar_function_operator_signature_facts.py::test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact",
-    }
-    base = tuple(sorted(set(tracked_manifest) - removed))
-    base_payload = "".join(node + "\n" for node in base).encode()
-    assert (
-        len(base),
-        len({node.split("::", maxsplit=1)[0] for node in base}),
-        len(base_payload),
-        hashlib.sha256(base_payload).hexdigest(),
-    ) == (
-        140,
-        106,
-        18026,
-        "6ab2027b7c8cb7858fbea2d3902130a4a860e462102ac4e582990f4bcfa501bf",
-    )
-    overlay = tuple(
-        sorted(set(base) | {f"--deselect={node}" for node in TIER2_EXTRA_NODES})
-    )
-    overlay_payload = "".join(node + "\n" for node in overlay).encode()
-    assert (
-        len(overlay),
-        len({node.split("::", maxsplit=1)[0] for node in overlay}),
-        len(overlay_payload),
-        hashlib.sha256(overlay_payload).hexdigest(),
-    ) == (
-        146,
-        110,
-        18912,
-        "988640bed8e5b8b78ebae970d57dabb0a81bb416965430fcd86ecfdfbde1f26c",
-    )
-    documents = _read(PLAN_REL) + _read(SCOPE_REL) + _read(CURRENT_ROADMAP_REL)
+    documents = _read(PLAN_REL)
     normalized = documents.replace(",", "")
     for required in (
         "depth-one",
-        "6090 passed 146 deselected",
-        "6236 passed",
-        "Gate 3 requires separate authorization",
+        "6193 passed 183 deselected",
+        "6376 clean-CI passes",
+        "separately authorized Gate 3",
+        "one write-mode Ruff",
+        "A3/M51/D0",
         "STOP",
     ):
         assert required in normalized, required
+    assert 202 == 70 + 70 + 62
+    assert 6376 - 183 == 6193

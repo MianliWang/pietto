@@ -36,12 +36,12 @@ LOCKED_FORBIDDEN_SURFACES = {
             "src/pietto/parser_api.py",
         ),
         3,
-        "e2835f4b6d1a590daa4f8268613e003fc05bea32f478a3f1d39191818f6a259b",
+        "767c170e4820cdb7449fffd40f16e7f88dfac0aea92bee07ac2d59ccbf4dd11b",
     ),
     "semantic": (
         "src/pietto/semantic",
         27,
-        "ef4304a56f4d352b5882ce21ef4a490f77a3107b3d827d4e73ad39ad3a688e0d",
+        "a98a3cb1728810c07ca2c6215d1229645747fa6eb0072a2313d227f59d5df414",
     ),
     "ir": (
         "src/pietto/ir",

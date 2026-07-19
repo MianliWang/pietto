@@ -91,18 +91,18 @@ MODULE_SHA256 = {
 }
 SPEC_SHA256 = "7010cd8a39ed389de588d8cd734b136cc87456c3ef5eb324638467d1188fc935"
 MODIFIED_TEST_SHA256 = {
-    SLICE4_TEST_REL: "8931738545501869b2c36416cd6b6995368cebb6f3ca6d7db1d7b21b238afc99",
-    SLICE5_TEST_REL: "4b86942c3de4b31816cde00dc7b970a7fecf1416f647557dd0e2a419afe3c545",
-    SLICE6_TEST_REL: "4c0fb57499aa1b01dfb315bbde4400d187e7615c235682b68bde00362bc25fc3",
-    SLICE7_TEST_REL: "dda88e4d9aa60f95e1d0d4a39591d3603d32c28c099577268d4a9f186f132ebd",
+    SLICE4_TEST_REL: "f2190b7e77508cfee94415fa547a05f6074e64624b664568a70ea2974ef88a6d",
+    SLICE5_TEST_REL: "69aecf4b32fe9de218ecebcc7e9250d5b2933e0ae9a2f302c27ed1960bb48481",
+    SLICE6_TEST_REL: "9cb432d58874230027f20ce9aa24137b8163321497ea8b95552b7aa700193afc",
+    SLICE7_TEST_REL: "55381b6aa2b5393b2d1a00691931d99532e32f1cebbc25c26a2bb8eedd2af858",
 }
 WORKFLOW_SHA256 = "2fc5abc1d096b9d32e6f96dc882c09d21db04d7b372eb56727ca12b145cf16f4"
 PYPROJECT_SHA256 = "1ce5a2ea57a7edc030d74e7babb10751861bac6c04baf4d667f87d50ca105f4e"
 LOCK_SHA256 = "0c06f18b2a8919c18573c18685a9fb202a74d98ab7c8fa1a5e61c02b8e5aeea9"
-COMPILER_DIGEST = "07b7d658ea02b7588700a3ff46da8927686418e2fa1e15c98f7d8a0d5e0d785c"
-SEMANTIC_DIGEST = "ef4304a56f4d352b5882ce21ef4a490f77a3107b3d827d4e73ad39ad3a688e0d"
+COMPILER_DIGEST = "b1605a853ff1be314308c5fc0214dc18e91f064f45be0a86dacaf0d305a1e0a8"
+SEMANTIC_DIGEST = "a98a3cb1728810c07ca2c6215d1229645747fa6eb0072a2313d227f59d5df414"
 PHASE15_SUBSET_DIGEST = (
-    "e0f2909026328a5fc74cb432551e7665be33702af626bbac363e52a2febcc450"
+    "4ba0752d6f5c1cce74923243b163a48b7a7ba3cb10c58557a4c15d00ccb5bb15"
 )
 PROJECT_PRIVATE_DIGEST = (
     "c032a23c7f0477df58cacc9374e2882bebad346bec9a539899878da062248013"
@@ -1763,7 +1763,7 @@ def test_static_reader_counts_boundary_hash_and_nested_sha_topology_are_exact() 
     assert (
         sum(path.endswith(".py") for path in readable),
         sum(path.endswith(".md") for path in readable),
-    ) == (516, 229)
+    ) == (518, 230)
     compiler_paths = _compiler_paths()
     semantic_paths = tuple((REPO_ROOT / "src/pietto/semantic").glob("*.py"))
     phase15_paths = tuple(
@@ -1773,7 +1773,7 @@ def test_static_reader_counts_boundary_hash_and_nested_sha_topology_are_exact() 
     )
     project_paths = _project_private_paths()
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        81,
+        82,
         27,
         24,
     )
@@ -1784,9 +1784,9 @@ def test_static_reader_counts_boundary_hash_and_nested_sha_topology_are_exact() 
     assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
 
     for digest, expected_count in (
-        (COMPILER_DIGEST, 16),
-        (SEMANTIC_DIGEST, 30),
-        (PHASE15_SUBSET_DIGEST, 6),
+        (COMPILER_DIGEST, 17),
+        (SEMANTIC_DIGEST, 31),
+        (PHASE15_SUBSET_DIGEST, 7),
         (PROJECT_PRIVATE_DIGEST, 16),
     ):
         readers = tuple(
@@ -1931,7 +1931,7 @@ def test_test_inventory_tier1_selectors_and_compatibility_counts_are_exact() -> 
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (435, 4194)
+    assert (len(test_files), top_level_functions) == (436, 4219)
     assert tuple(
         _pytest_shape(REPO_ROOT / path)[1]
         for path in (

@@ -10,6 +10,7 @@ from antlr4 import ParserRuleContext
 from antlr4.Token import Token
 from antlr4.tree.Tree import TerminalNode
 
+from pietto import _window_identity
 from pietto.ast_nodes import (
     Annotation,
     BetweenExpr,
@@ -56,6 +57,8 @@ from pietto.ast_nodes import (
     UnaryExpr,
     UniqueDef,
     WhereClause,
+    WindowExpr,
+    WindowSpec,
 )
 from pietto.errors import AstBuildError, source_path
 from pietto.generated.PiettoParser import PiettoParser
@@ -468,20 +471,61 @@ class AstBuilder(PiettoVisitor):
     def visitSelectItem(self, ctx: _AntlrContext) -> SelectItem:
         """Build one projection; assignment syntax is confined to this rule."""
 
-        if ctx.windowExpression() is not None:
-            window_token = ctx.windowExpression().windowSpec().WINDOW().getSymbol()
-            raise AstBuildError(
-                "Window syntax is recognized, but WindowSpec AST preservation "
-                "starts in Phase 53 Slice 3.",
-                line=window_token.line,
-                column=window_token.column + 1,
-            )
-
         return SelectItem(
             span=self._span(ctx),
             alias=ctx.identifier().getText() if ctx.ASSIGN() is not None else None,
-            expression=self.visit(ctx.expression()),
+            expression=self.visit(
+                ctx.windowExpression()
+                if ctx.windowExpression() is not None
+                else ctx.expression()
+            ),
         )
+
+    def visitWindowExpression(self, ctx: _AntlrContext) -> WindowExpr:
+        """Preserve one direct call and its inline window specification."""
+
+        call = self._call_expr(ctx.dottedName(), ctx.callSuffix())
+        callee = call.callee
+        parts = (callee.name,) if isinstance(callee, NameExpr) else callee.parts
+        return WindowExpr(
+            span=self._span(ctx),
+            call=call,
+            spec=self.visit(ctx.windowSpec()),
+            identity=_window_identity.WindowFunctionIdentity(
+                namespace=parts[:-1],
+                name=parts[-1],
+                role=_window_identity.WindowFunctionRole.WINDOW_FUNCTION,
+            ),
+        )
+
+    def visitWindowSpec(self, ctx: _AntlrContext) -> WindowSpec:
+        """Build a non-empty inline window specification in source order."""
+
+        body = ctx.windowSpecBody()
+        partition_clause = body.partitionByClause()
+        order_clause = body.orderByClause()
+        partition_by: tuple[Expression, ...] = ()
+        if partition_clause is not None:
+            partition_by = tuple(
+                self.visit(item)
+                for item in partition_clause.windowPartitionBody().windowPartitionItem()
+            )
+        order_by: tuple[OrderItem, ...] = ()
+        if order_clause is not None:
+            order_by = tuple(
+                self._order_item(item, reject_ordinal=False)
+                for item in order_clause.orderByBody().orderItem()
+            )
+        return WindowSpec(
+            span=self._span(ctx),
+            partition_by=partition_by,
+            order_by=order_by,
+        )
+
+    def visitWindowPartitionItem(self, ctx: _AntlrContext) -> Expression:
+        """Preserve one window partition expression without a wrapper node."""
+
+        return self.visit(ctx.expression())
 
     def visitSatisfyingClause(self, ctx: _AntlrContext) -> SatisfyingClause:
         """Build a parse-only result predicate without semantic validation."""
@@ -502,8 +546,22 @@ class AstBuilder(PiettoVisitor):
     def visitOrderItem(self, ctx: _AntlrContext) -> OrderItem:
         """Build one sorting item while keeping omitted direction explicit."""
 
+        return self._order_item(ctx, reject_ordinal=True)
+
+    def _order_item(
+        self,
+        ctx: _AntlrContext,
+        *,
+        reject_ordinal: bool,
+    ) -> OrderItem:
+        """Build an order item under its owning clause's ordinal policy."""
+
         expression = cast(Expression, self.visit(ctx.expression()))
-        if isinstance(expression, LiteralExpr) and type(expression.value) is int:
+        if (
+            reject_ordinal
+            and isinstance(expression, LiteralExpr)
+            and type(expression.value) is int
+        ):
             span = expression.span
             raise AstBuildError(
                 "Ordinal ORDER BY expressions are not supported.",
@@ -635,11 +693,20 @@ class AstBuilder(PiettoVisitor):
         callee = self._dotted_name_expr(ctx.dottedName())
         if ctx.callSuffix() is None:
             return callee
+        return self._call_expr(ctx.dottedName(), ctx.callSuffix())
+
+    def _call_expr(
+        self,
+        dotted_name_ctx: _AntlrContext,
+        call_suffix_ctx: _AntlrContext,
+    ) -> CallExpr:
+        """Build a call whose span ends at its call suffix, not a later suffix."""
+
         return CallExpr(
-            span=self._span(ctx),
-            callee=callee,
+            span=self._span_between(dotted_name_ctx, call_suffix_ctx),
+            callee=self._dotted_name_expr(dotted_name_ctx),
             arguments=tuple(
-                self.visit(argument) for argument in ctx.callSuffix().expression()
+                self.visit(argument) for argument in call_suffix_ctx.expression()
             ),
         )
 
@@ -735,6 +802,26 @@ class AstBuilder(PiettoVisitor):
             end_column = start.column + 1
         else:
             end_line, end_column = self._end_position(stop)
+        return Span(
+            path=self.path,
+            line=start.line,
+            column=start.column + 1,
+            end_line=end_line,
+            end_column=end_column,
+        )
+
+    def _span_between(
+        self,
+        start_ctx: ParserRuleContext,
+        end_ctx: ParserRuleContext,
+    ) -> Span:
+        """Build a logical span from one context through another context."""
+
+        start = start_ctx.start
+        assert start is not None
+        stop = self._last_significant_token(end_ctx)
+        assert stop is not None
+        end_line, end_column = self._end_position(stop)
         return Span(
             path=self.path,
             line=start.line,

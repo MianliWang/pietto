@@ -1,0 +1,1030 @@
+from __future__ import annotations
+
+import ast
+import dataclasses
+import hashlib
+import re
+import subprocess
+import textwrap
+from pathlib import Path
+from typing import Any, cast
+
+import pytest
+
+import pietto
+import pietto.ast_nodes as ast_nodes
+from pietto import _window_identity
+from pietto._project.model import ProjectRowResultRole, ProjectRowSchema
+from pietto._project.row_expression_schema import (
+    ProjectExpressionSchemaOriginKind,
+    ProjectExpressionSchemaReason,
+    ProjectExpressionSchemaStatus,
+    adapt_project_row_expression_schema,
+)
+from pietto.ast_nodes import (
+    DottedNameExpr,
+    Expression,
+    LiteralExpr,
+    NameExpr,
+    OrderItem,
+    QueryDef,
+    Span,
+    WindowExpr,
+    WindowSpec,
+)
+from pietto.errors import Severity
+from pietto.ir.lowering import lower_expr
+from pietto.parser_api import parse_source
+from pietto.semantic import analyze
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+PLAN_REL = (
+    "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md"
+)
+SPEC_REL = "docs/spec/phase53-window-spec-function-identity-ast-contract-v1.md"
+IDENTITY_REL = "src/pietto/_window_identity.py"
+SELF_REL = "tests/test_phase53_window_spec_function_identity_ast_contract.py"
+SLICE2_TEST_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
+BASE_HEAD_SHA = "86b08e27bbe97589b143dc1043fb0ad743dbf88a"
+TEMPORARY_BRIDGE_MESSAGE = (
+    "Window syntax is recognized, but WindowSpec AST preservation starts in "
+    "Phase 53 Slice 3."
+)
+
+SPEC_TITLE = (
+    "Phase 53 Slice 3 WindowSpec, Extension-compatible "
+    "WindowFunctionIdentity, And AST Contract v1"
+)
+SLICE3_PLAN_H2 = (
+    "Slice 3 WindowSpec, Extension-compatible WindowFunctionIdentity, And AST Contract"
+)
+SPEC_H2 = (
+    "Status And Slice Identity",
+    "Slice 2 Syntax And Lifecycle Authority",
+    "Selected WindowExpr Architecture",
+    "Exact WindowSpec Shape And Invariants",
+    "Window-order Item Reuse And Ordinal Boundary",
+    "Private WindowFunctionIdentity Shape",
+    "Namespace Name Role And Case Semantics",
+    "CST-to-AST Construction",
+    "Source-span And Location Preservation",
+    "Parser Success And Compatibility",
+    "Semantic Fail-closed Boundary",
+    "Project Parse-only Deferred Boundary",
+    "IR SQL And Public Serialization Boundary",
+    "Expression Walker And Exhaustiveness Closure",
+    "Positive AST Matrix",
+    "Negative And No-behavior Matrix",
+    "Grammar Generated And Parser API Immutability",
+    "Reader Hash Inventory And Repository-state Closure",
+    "Validation Depth-one CI And Gate 3 Publication",
+    "Deferred Ownership And Stop Conditions",
+)
+WINDOW_FUNCTION_NAMES = (
+    "row_number",
+    "rank",
+    "dense_rank",
+    "percent_rank",
+    "cume_dist",
+    "ntile",
+    "lag",
+    "lead",
+)
+
+ADDED_PATHS = {
+    SPEC_REL,
+    IDENTITY_REL,
+    SELF_REL,
+}
+MODIFIED_PATHS = {
+    PLAN_REL,
+    "src/pietto/ast_builder.py",
+    "src/pietto/ast_nodes.py",
+    "src/pietto/semantic/expressions.py",
+    "tests/test_phase11_ci_workflow.py",
+    "tests/test_phase11_completion_audit.py",
+    "tests/test_phase11_generated_guard.py",
+    "tests/test_phase11_golden_policy.py",
+    "tests/test_phase11_packaging_smoke.py",
+    "tests/test_phase11_planning_audit.py",
+    "tests/test_phase11_validation_entrypoint.py",
+    "tests/test_phase12_completion_audit.py",
+    "tests/test_phase12_composition_cli_json_goldens.py",
+    "tests/test_phase12_order_limit_contract.py",
+    "tests/test_phase12_planning_audit.py",
+    "tests/test_phase13_completion_audit.py",
+    "tests/test_phase13_planning_audit.py",
+    "tests/test_phase14_candidate_decision_audit.py",
+    "tests/test_phase14_completion_audit.py",
+    "tests/test_phase14_planning_audit.py",
+    "tests/test_phase14_relationship_metadata_completion_audit.py",
+    "tests/test_phase15_completion_audit.py",
+    "tests/test_phase15_semantic_completion_audit.py",
+    "tests/test_phase16_completion_audit.py",
+    "tests/test_phase16_current_syntax_surface_audit.py",
+    "tests/test_phase16_language_direction_audit.py",
+    "tests/test_phase16_safety_deferral_sql_portability.py",
+    "tests/test_phase21_group_by_hardening_audit.py",
+    "tests/test_phase24_aggregate_expression_arguments_readiness.py",
+    "tests/test_phase24_cli_json_output_hardening.py",
+    "tests/test_phase24_completion_audit.py",
+    "tests/test_phase25_completion_audit.py",
+    "tests/test_phase26_completion_audit.py",
+    "tests/test_phase27_completion_audit.py",
+    "tests/test_phase28_completion_audit.py",
+    "tests/test_phase29_completion_audit.py",
+    "tests/test_phase30_completion_audit.py",
+    "tests/test_phase50_window_function_readiness.py",
+    "tests/test_phase51_completion_audit_and_status_lock.py",
+    "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
+    "tests/test_phase52_aggregate_signature_algebra_facts.py",
+    "tests/test_phase52_completion_audit_and_status_lock.py",
+    "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
+    "tests/test_phase52_expression_stage_clause_capability_facts.py",
+    "tests/test_phase52_fail_closed_capability_lookup.py",
+    "tests/test_phase52_logical_type_literal_parameter_nullability_inventory.py",
+    "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
+    "tests/test_phase52_private_capability_fact_foundation.py",
+    "tests/test_phase52_scalar_function_operator_signature_facts.py",
+    "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
+    SLICE2_TEST_REL,
+}
+ALLOWLIST_PATHS = MODIFIED_PATHS | ADDED_PATHS
+
+EXPECTED_TEST_FUNCTIONS = (
+    "test_slice3_artifact_paths_heading_contract_and_lifecycle_are_exact",
+    "test_window_identity_role_shape_validation_and_privacy_are_exact",
+    "test_window_identity_namespace_name_case_and_hash_are_preserved",
+    "test_window_spec_constructor_invariants_and_hash_are_exact",
+    "test_parser_preserves_canonical_window_shapes",
+    "test_parser_preserves_call_arguments_and_trailing_comma",
+    "test_parser_preserves_function_candidate_identity",
+    "test_parser_preserves_qualified_identity_namespace_and_case",
+    "test_multiple_window_and_ordinary_select_items_preserve_order_aliases_and_independence",
+    "test_window_ast_spans_are_exact",
+    "test_window_order_direction_and_spans_are_exact",
+    "test_window_order_integer_literal_bypasses_final_order_ordinal_rejection",
+    "test_slice2_malformed_and_deferred_window_syntax_remains_rejected",
+    "test_valid_window_parse_retires_temporary_slice2_bridge",
+    "test_semantic_check_fails_closed_with_existing_unknown_function_diagnostic",
+    "test_window_expression_publishes_no_semantic_value_type_fact",
+    "test_ir_lowering_fails_closed_on_missing_window_expression_fact",
+    "test_project_parse_only_path_remains_deferred_without_window_result_dependency_or_lineage",
+    "test_no_window_ir_sql_catalog_capability_project_role_or_public_serialization_surface_is_added",
+    "test_grammar_generated_parser_api_and_public_exports_are_byte_locked",
+    "test_expression_walkers_and_exhaustive_dispatch_are_classified",
+    "test_reader_hash_inventory_and_nested_hash_closure_is_exact",
+    "test_slice3_dirty_clean_and_depth_one_repository_states_are_locked",
+    "test_test_inventory_focused_selector_and_dirty_overlay_are_exact",
+    "test_validation_gate3_and_no_behavior_boundaries_are_locked",
+)
+
+IDENTITY_CASES = (
+    ("rank", (), "rank"),
+    ("analytics.rank", ("analytics",), "rank"),
+    ("Org.Analytics.Rank", ("Org", "Analytics"), "Rank"),
+    ("Window", (), "Window"),
+    ("WINDOW", (), "WINDOW"),
+    ("vendor.Unrelated", ("vendor",), "Unrelated"),
+)
+CANONICAL_CASES = (
+    ("order_only", "order by:\n    observed_at", 0, (None,)),
+    ("partition_only", "partition by:\n    account_id", 1, ()),
+    (
+        "combined",
+        "partition by:\n    account_id\norder by:\n    observed_at desc",
+        1,
+        ("desc",),
+    ),
+    (
+        "multiple_partition",
+        "partition by:\n    account_id\n    region",
+        2,
+        (),
+    ),
+    (
+        "multiple_order",
+        "order by:\n    observed_at\n    sequence_id asc",
+        0,
+        (None, "asc"),
+    ),
+    (
+        "blank_lines",
+        "\npartition by:\n\n    account_id\n\norder by:\n\n    observed_at\n",
+        1,
+        (None,),
+    ),
+    ("ascending", "order by:\n    observed_at asc", 0, ("asc",)),
+    ("descending", "order by:\n    observed_at desc", 0, ("desc",)),
+)
+CALL_ARGUMENT_CASES = (
+    ("row_number()", ()),
+    ("lag(value, 1)", ("value", 1)),
+    ("lead(value, 2, fallback,)", ("value", 2, "fallback")),
+)
+CANDIDATE_IDENTITY_CASES = (*WINDOW_FUNCTION_NAMES, "custom", "Window", "WINDOW")
+QUALIFIED_IDENTITY_CASES = (
+    ("analytics.rank", ("analytics",), "rank"),
+    ("Org.Analytics.Rank", ("Org", "Analytics"), "Rank"),
+    ("vendor.extension.lead", ("vendor", "extension"), "lead"),
+)
+SPAN_CASES = (
+    (
+        "order_only",
+        "order by:\n    observed_at",
+        (4, 14, 6, 28),
+        (4, 14, 4, 26),
+        (4, 27, 6, 28),
+    ),
+    (
+        "partition_only",
+        "partition by:\n    region",
+        (4, 14, 6, 23),
+        (4, 14, 4, 26),
+        (4, 27, 6, 23),
+    ),
+    (
+        "combined",
+        "partition by:\n    account_id\norder by:\n    observed_at desc",
+        (4, 14, 8, 33),
+        (4, 14, 4, 26),
+        (4, 27, 8, 33),
+    ),
+)
+DIRECTION_CASES = (
+    ("observed_at", None, (6, 17, 6, 28)),
+    ("observed_at asc", "asc", (6, 17, 6, 32)),
+    ("observed_at desc", "desc", (6, 17, 6, 33)),
+)
+MALFORMED_CASES = (
+    ("missing_colon", "order by:\n    observed_at", " window:\n", " window\n"),
+    ("empty_window", "", None, None),
+    ("empty_partition", "partition by:\n", None, None),
+    ("empty_order", "order by:\n", None, None),
+    (
+        "duplicate_partition",
+        "partition by:\n    account_id\npartition by:\n    region",
+        None,
+        None,
+    ),
+    (
+        "duplicate_order",
+        "order by:\n    observed_at\norder by:\n    sequence_id",
+        None,
+        None,
+    ),
+    (
+        "reversed",
+        "order by:\n    observed_at\npartition by:\n    account_id",
+        None,
+        None,
+    ),
+    ("unknown_clause", "cluster by:\n    account_id", None, None),
+    ("frame", "order by:\n    observed_at\nrows current row", None, None),
+    ("nulls_first", "order by:\n    observed_at nulls first", None, None),
+    ("malformed_order", "order by:\n    observed_at +", None, None),
+    ("malformed_partition", "partition by:\n    account_id +", None, None),
+)
+VALID_BRIDGE_CASES = (
+    "order by:\n    observed_at",
+    "partition by:\n    account_id",
+    "partition by:\n    account_id\norder by:\n    observed_at desc",
+)
+SEMANTIC_IDENTITY_CASES = (
+    ("rank", "Unknown function: rank"),
+    ("analytics.rank", "Unknown function: analytics.rank"),
+    ("Org.Analytics.Rank", "Unknown function: Org.Analytics.Rank"),
+)
+
+COMPILER_DIGEST = "b1605a853ff1be314308c5fc0214dc18e91f064f45be0a86dacaf0d305a1e0a8"
+SEMANTIC_DIGEST = "a98a3cb1728810c07ca2c6215d1229645747fa6eb0072a2313d227f59d5df414"
+PHASE15_SUBSET_DIGEST = (
+    "4ba0752d6f5c1cce74923243b163a48b7a7ba3cb10c58557a4c15d00ccb5bb15"
+)
+AST_NODES_SHA256 = "b0c41070fca75c89534eba75cf2086f41721de740da9a3573d67411d366204f5"
+AST_BUILDER_SHA256 = "201c74d6a27e57dfc7cd0f9693b388ebe7853b783173a3c4f7191a5f8026e70b"
+SEMANTIC_EXPRESSIONS_SHA256 = (
+    "e45b63cd9472d12c5cc38207525392eb371066e7436a749349d954f6d520e686"
+)
+
+
+def _read(relative: str) -> str:
+    return (REPO_ROOT / relative).read_text(encoding="utf-8")
+
+
+def _sha256(relative: str) -> str:
+    return hashlib.sha256((REPO_ROOT / relative).read_bytes()).hexdigest()
+
+
+def _headings(relative: str, level: int) -> tuple[str, ...]:
+    return tuple(
+        match.group(1).strip()
+        for match in re.finditer(
+            rf"^{'#' * level} (?!#)(.+?)\s*$",
+            _read(relative),
+            flags=re.MULTILINE,
+        )
+    )
+
+
+def _git_output(args: list[str]) -> str:
+    return subprocess.run(
+        ["git", *args],
+        cwd=REPO_ROOT,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    ).stdout.rstrip()
+
+
+def _git_optional_ref(ref: str) -> str | None:
+    result = subprocess.run(
+        ["git", "rev-parse", "--verify", "--quiet", ref],
+        cwd=REPO_ROOT,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert result.returncode in (0, 1)
+    assert result.stderr == ""
+    return result.stdout.strip() or None
+
+
+def _digest(paths: tuple[Path, ...]) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(paths, key=lambda item: item.relative_to(REPO_ROOT).as_posix()):
+        digest.update(path.relative_to(REPO_ROOT).as_posix().encode())
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _window_query(
+    body: str,
+    *,
+    projection: str = "rn = row_number()",
+    before: tuple[str, ...] = (),
+    after: tuple[str, ...] = (),
+) -> str:
+    body_text = textwrap.dedent(body).strip("\n") + "\n"
+    return (
+        "query ranked:\n"
+        "    from rows\n"
+        "    select:\n"
+        + "".join(f"        {item}\n" for item in before)
+        + f"        {projection} window:\n"
+        + textwrap.indent(body_text, "            ")
+        + "".join(f"        {item}\n" for item in after)
+    )
+
+
+def _semantic_window_source(call: str) -> str:
+    return (
+        "shape Row:\n"
+        "    id: Int not null\n"
+        "    observed_at: Timestamp not null\n"
+        'source rows: Row is postgres.table("rows")\n'
+        + _window_query("order by:\n    observed_at", projection=f"rn = {call}")
+    )
+
+
+def _window_expression(source: str) -> WindowExpr:
+    result = parse_source(source, path="window-slice3.pietto")
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    relation = cast(QueryDef, result.ast.definitions[-1])
+    expression = relation.select_items[0].expression
+    assert isinstance(expression, WindowExpr)
+    return expression
+
+
+def _span_tuple(span: Span) -> tuple[int, int, int, int]:
+    return span.line, span.column, span.end_line, span.end_column
+
+
+def _literal_argument_value(expression: Expression) -> str | int:
+    if isinstance(expression, NameExpr):
+        return expression.name
+    assert isinstance(expression, LiteralExpr)
+    assert isinstance(expression.value, (str, int))
+    return expression.value
+
+
+def _test_function_shape() -> tuple[tuple[str, ...], tuple[int, ...]]:
+    tree = ast.parse(_read(SELF_REL), filename=SELF_REL)
+    functions = tuple(
+        node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name.startswith("test_")
+    )
+    cardinalities: list[int] = []
+    for function in functions:
+        cardinality = 1
+        for decorator in function.decorator_list:
+            if not isinstance(decorator, ast.Call):
+                continue
+            if not (
+                isinstance(decorator.func, ast.Attribute)
+                and decorator.func.attr == "parametrize"
+                and len(decorator.args) >= 2
+            ):
+                continue
+            values = decorator.args[1]
+            if isinstance(values, ast.Name):
+                cardinality *= {
+                    "IDENTITY_CASES": 6,
+                    "CANONICAL_CASES": 8,
+                    "CALL_ARGUMENT_CASES": 3,
+                    "CANDIDATE_IDENTITY_CASES": 11,
+                    "QUALIFIED_IDENTITY_CASES": 3,
+                    "SPAN_CASES": 3,
+                    "DIRECTION_CASES": 3,
+                    "MALFORMED_CASES": 12,
+                    "VALID_BRIDGE_CASES": 3,
+                    "SEMANTIC_IDENTITY_CASES": 3,
+                }[values.id]
+            else:
+                raise AssertionError("Slice 3 parameter manifests must be named")
+        cardinalities.append(cardinality)
+    return tuple(function.name for function in functions), tuple(cardinalities)
+
+
+def test_slice3_artifact_paths_heading_contract_and_lifecycle_are_exact() -> None:
+    assert all((REPO_ROOT / path).is_file() for path in ADDED_PATHS)
+    assert _headings(SPEC_REL, 1) == (SPEC_TITLE,)
+    assert _headings(SPEC_REL, 2) == SPEC_H2
+    assert _headings(SPEC_REL, 3) == ()
+    plan_h2 = _headings(PLAN_REL, 2)
+    assert plan_h2[-2:] == (
+        "Slice 2 Pietto-native Window Syntax And Contextual Grammar Contract",
+        SLICE3_PLAN_H2,
+    )
+    assert plan_h2.count(SLICE3_PLAN_H2) == 1
+    names, cardinalities = _test_function_shape()
+    assert names == EXPECTED_TEST_FUNCTIONS
+    assert cardinalities == (
+        1,
+        1,
+        6,
+        1,
+        8,
+        3,
+        11,
+        3,
+        1,
+        3,
+        3,
+        1,
+        12,
+        3,
+        3,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+    )
+    assert sum(cardinalities) == 70
+
+
+def test_window_identity_role_shape_validation_and_privacy_are_exact() -> None:
+    role = _window_identity.WindowFunctionRole.WINDOW_FUNCTION
+    identity = _window_identity.WindowFunctionIdentity((), "rank", role)
+    assert tuple(_window_identity.WindowFunctionRole) == (role,)
+    assert role.value == "window_function"
+    assert dataclasses.is_dataclass(identity)
+    assert identity.__slots__ == ("namespace", "name", "role")
+    assert _window_identity.__all__ == ()
+    assert not hasattr(pietto, "WindowFunctionIdentity")
+    assert not hasattr(ast_nodes, "WindowFunctionIdentity")
+    invalid = (
+        (([], "rank", role), TypeError, "namespace must be an exact tuple"),
+        (((1,), "rank", role), TypeError, "namespace components must be strings"),
+        ((("",), "rank", role), ValueError, "namespace components must be non-empty"),
+        (((), 1, role), TypeError, "name must be a string"),
+        (((), "", role), ValueError, "name must be non-empty"),
+        (
+            ((), "rank", "window_function"),
+            TypeError,
+            "role must be a WindowFunctionRole",
+        ),
+    )
+    for arguments, error_type, message in invalid:
+        with pytest.raises(error_type, match=re.escape(message)):
+            _window_identity.WindowFunctionIdentity(*cast(Any, arguments))
+
+
+@pytest.mark.parametrize(("call", "namespace", "name"), IDENTITY_CASES)
+def test_window_identity_namespace_name_case_and_hash_are_preserved(
+    call: str,
+    namespace: tuple[str, ...],
+    name: str,
+) -> None:
+    expression = _window_expression(
+        _window_query("order by:\n    observed_at", projection=f"rn = {call}()")
+    )
+    expected = _window_identity.WindowFunctionIdentity(
+        namespace,
+        name,
+        _window_identity.WindowFunctionRole.WINDOW_FUNCTION,
+    )
+    assert expression.identity == expected
+    assert hash(expression.identity) == hash(expected)
+    assert repr(expression.identity) == repr(expected)
+
+
+def test_window_spec_constructor_invariants_and_hash_are_exact() -> None:
+    span = Span(path="constructor.pietto", line=1, column=1, end_line=1, end_column=2)
+    expression = NameExpr(span=span, name="id")
+    item = OrderItem(span=span, expression=expression, direction=None)
+    spec = WindowSpec(span=span, partition_by=(expression,), order_by=(item,))
+    assert spec == WindowSpec(span=span, partition_by=(expression,), order_by=(item,))
+    assert hash(spec) == hash(
+        WindowSpec(span=span, partition_by=(expression,), order_by=(item,))
+    )
+    invalid = (
+        (([], (item,)), TypeError, "partition_by must be an exact tuple"),
+        (((expression,), []), TypeError, "order_by must be an exact tuple"),
+        (
+            ((object(),), (item,)),
+            TypeError,
+            "partition_by items must be Expression instances",
+        ),
+        (
+            ((expression,), (object(),)),
+            TypeError,
+            "order_by items must be OrderItem instances",
+        ),
+        (((), ()), ValueError, "window spec requires partition_by or order_by"),
+    )
+    for arguments, error_type, message in invalid:
+        with pytest.raises(error_type, match=re.escape(message)):
+            WindowSpec(
+                span=span,
+                partition_by=cast(Any, arguments[0]),
+                order_by=cast(Any, arguments[1]),
+            )
+
+
+@pytest.mark.parametrize(
+    ("name", "body", "partition_count", "directions"),
+    CANONICAL_CASES,
+    ids=[case[0] for case in CANONICAL_CASES],
+)
+def test_parser_preserves_canonical_window_shapes(
+    name: str,
+    body: str,
+    partition_count: int,
+    directions: tuple[str | None, ...],
+) -> None:
+    expression = _window_expression(_window_query(body))
+    assert len(expression.spec.partition_by) == partition_count, name
+    assert tuple(item.direction for item in expression.spec.order_by) == directions
+    assert expression.identity.name == "row_number"
+    assert expression.identity.namespace == ()
+
+
+@pytest.mark.parametrize(("call", "expected"), CALL_ARGUMENT_CASES)
+def test_parser_preserves_call_arguments_and_trailing_comma(
+    call: str,
+    expected: tuple[str | int, ...],
+) -> None:
+    expression = _window_expression(
+        _window_query("order by:\n    observed_at", projection=f"value = {call}")
+    )
+    assert tuple(
+        _literal_argument_value(item) for item in expression.call.arguments
+    ) == (expected)
+
+
+@pytest.mark.parametrize("function_name", CANDIDATE_IDENTITY_CASES)
+def test_parser_preserves_function_candidate_identity(function_name: str) -> None:
+    expression = _window_expression(
+        _window_query(
+            "order by:\n    observed_at",
+            projection=f"value = {function_name}()",
+        )
+    )
+    assert expression.identity.namespace == ()
+    assert expression.identity.name == function_name
+    assert (
+        expression.identity.role is _window_identity.WindowFunctionRole.WINDOW_FUNCTION
+    )
+
+
+@pytest.mark.parametrize(("call", "namespace", "name"), QUALIFIED_IDENTITY_CASES)
+def test_parser_preserves_qualified_identity_namespace_and_case(
+    call: str,
+    namespace: tuple[str, ...],
+    name: str,
+) -> None:
+    expression = _window_expression(
+        _window_query("partition by:\n    id", projection=f"value = {call}()")
+    )
+    assert expression.identity.namespace == namespace
+    assert expression.identity.name == name
+    assert isinstance(expression.call.callee, DottedNameExpr)
+    assert expression.call.callee.parts == (*namespace, name)
+
+
+def test_multiple_window_and_ordinary_select_items_preserve_order_aliases_and_independence() -> (
+    None
+):
+    source = (
+        "query ranked:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        "        rn = row_number() window:\n"
+        "            order by:\n"
+        "                observed_at\n"
+        "        value\n"
+        "        previous = lag(value, 1) window:\n"
+        "            partition by:\n"
+        "                account_id\n"
+    )
+    result = parse_source(source)
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    relation = cast(QueryDef, result.ast.definitions[-1])
+    assert tuple(item.alias for item in relation.select_items) == (
+        None,
+        "rn",
+        None,
+        "previous",
+    )
+    first = cast(WindowExpr, relation.select_items[1].expression)
+    second = cast(WindowExpr, relation.select_items[3].expression)
+    assert first is not second
+    assert first.spec != second.spec
+    assert first.identity.name == "row_number"
+    assert second.identity.name == "lag"
+
+
+@pytest.mark.parametrize(
+    ("name", "body", "expression_span", "call_span", "spec_span"),
+    SPAN_CASES,
+    ids=[case[0] for case in SPAN_CASES],
+)
+def test_window_ast_spans_are_exact(
+    name: str,
+    body: str,
+    expression_span: tuple[int, int, int, int],
+    call_span: tuple[int, int, int, int],
+    spec_span: tuple[int, int, int, int],
+) -> None:
+    source = _window_query(body)
+    result = parse_source(source, path=f"span-{name}.pietto")
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    relation = cast(QueryDef, result.ast.definitions[-1])
+    item = relation.select_items[0]
+    expression = cast(WindowExpr, item.expression)
+    assert _span_tuple(expression.span) == expression_span
+    assert _span_tuple(expression.call.span) == call_span
+    assert _span_tuple(expression.spec.span) == spec_span
+    assert _span_tuple(expression.call.callee.span) == (4, 14, 4, 24)
+    assert _span_tuple(item.span) == (4, 9, *expression_span[2:])
+
+
+@pytest.mark.parametrize(("item_source", "direction", "item_span"), DIRECTION_CASES)
+def test_window_order_direction_and_spans_are_exact(
+    item_source: str,
+    direction: str | None,
+    item_span: tuple[int, int, int, int],
+) -> None:
+    expression = _window_expression(_window_query(f"order by:\n    {item_source}"))
+    item = expression.spec.order_by[0]
+    assert item.direction == direction
+    assert _span_tuple(item.span) == item_span
+    assert _span_tuple(item.expression.span) == (6, 17, 6, 28)
+
+
+def test_window_order_integer_literal_bypasses_final_order_ordinal_rejection() -> None:
+    expression = _window_expression(_window_query("order by:\n    1"))
+    item = expression.spec.order_by[0]
+    assert isinstance(item.expression, LiteralExpr)
+    assert item.expression.value == 1
+    final_order = parse_source(
+        "query ranked:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        "    order by:\n"
+        "        1\n"
+    )
+    assert final_order.ast is None
+    assert len(final_order.diagnostics) == 1
+    assert final_order.diagnostics[0].message == (
+        "Ordinal ORDER BY expressions are not supported."
+    )
+
+
+@pytest.mark.parametrize(
+    ("name", "body", "old", "new"),
+    MALFORMED_CASES,
+    ids=[case[0] for case in MALFORMED_CASES],
+)
+def test_slice2_malformed_and_deferred_window_syntax_remains_rejected(
+    name: str,
+    body: str,
+    old: str | None,
+    new: str | None,
+) -> None:
+    source = _window_query(body)
+    if old is not None and new is not None:
+        source = source.replace(old, new, 1)
+    result = parse_source(source, path=f"malformed-{name}.pietto")
+    assert result.ast is None, name
+    assert result.diagnostics
+    assert all(
+        diagnostic.code in {"PIE-P1000", "PIE-P1005"}
+        and diagnostic.severity is Severity.ERROR
+        for diagnostic in result.diagnostics
+    )
+
+
+@pytest.mark.parametrize("body", VALID_BRIDGE_CASES)
+def test_valid_window_parse_retires_temporary_slice2_bridge(body: str) -> None:
+    result = parse_source(_window_query(body))
+    assert result.ast is not None
+    assert result.diagnostics == ()
+    assert TEMPORARY_BRIDGE_MESSAGE not in repr(result)
+
+
+@pytest.mark.parametrize(("call", "message"), SEMANTIC_IDENTITY_CASES)
+def test_semantic_check_fails_closed_with_existing_unknown_function_diagnostic(
+    call: str,
+    message: str,
+) -> None:
+    result = parse_source(
+        _semantic_window_source(f"{call}()"), path="semantic-window.pietto"
+    )
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    expression = cast(QueryDef, result.ast.definitions[-1]).select_items[0].expression
+    semantic = analyze(result.ast)
+    matching = tuple(item for item in semantic.diagnostics if item.code == "PIE-S2103")
+    assert len(matching) == 1
+    diagnostic = matching[0]
+    assert diagnostic.severity is Severity.ERROR
+    assert diagnostic.message == message
+    assert diagnostic.location.path == "semantic-window.pietto"
+    assert (
+        diagnostic.location.line,
+        diagnostic.location.column,
+        diagnostic.location.end_line,
+        diagnostic.location.end_column,
+    ) == _span_tuple(cast(WindowExpr, expression).call.span)
+
+
+def test_window_expression_publishes_no_semantic_value_type_fact() -> None:
+    result = parse_source(_semantic_window_source("lag(id, 1)"))
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    expression = cast(
+        WindowExpr,
+        cast(QueryDef, result.ast.definitions[-1]).select_items[0].expression,
+    )
+    semantic = analyze(result.ast)
+    assert any(item.code == "PIE-S2103" for item in semantic.diagnostics)
+    assert expression not in semantic.model.expression_value_types
+    assert expression.call not in semantic.model.expression_value_types
+    assert all(
+        argument not in semantic.model.expression_value_types
+        for argument in expression.call.arguments
+    )
+
+
+def test_ir_lowering_fails_closed_on_missing_window_expression_fact() -> None:
+    result = parse_source(_semantic_window_source("rank()"))
+    assert result.ast is not None
+    expression = cast(
+        WindowExpr,
+        cast(QueryDef, result.ast.definitions[-1]).select_items[0].expression,
+    )
+    semantic = analyze(result.ast)
+    lowered = lower_expr(expression, semantic.model)
+    assert lowered.expression is None
+    assert len(lowered.diagnostics) == 1
+    diagnostic = lowered.diagnostics[0]
+    assert diagnostic.code == "PIE-I1000"
+    assert diagnostic.message == (
+        "Missing semantic fact required for IR lowering: expression value type"
+    )
+    assert (
+        diagnostic.location.line,
+        diagnostic.location.column,
+        diagnostic.location.end_line,
+        diagnostic.location.end_column,
+    ) == _span_tuple(expression.span)
+
+
+def test_project_parse_only_path_remains_deferred_without_window_result_dependency_or_lineage() -> (
+    None
+):
+    expression = _window_expression(_window_query("order by:\n    observed_at"))
+    adapted = adapt_project_row_expression_schema(
+        expression=expression,
+        output_name="rn",
+        input_schema=ProjectRowSchema(fields={}),
+        upstream_state=None,
+        relation_qualifier=None,
+        expression_value_types={},
+    )
+    assert adapted.status is ProjectExpressionSchemaStatus.UNKNOWN
+    assert adapted.reason is ProjectExpressionSchemaReason.MISSING_VALUE_TYPE
+    assert adapted.origin is ProjectExpressionSchemaOriginKind.UNKNOWN
+    assert adapted.dependency_placeholders == ()
+    assert adapted.lineage_placeholders == ()
+    assert "WINDOW_RESULT" not in ProjectRowResultRole.__members__
+
+
+def test_no_window_ir_sql_catalog_capability_project_role_or_public_serialization_surface_is_added() -> (
+    None
+):
+    unchanged = (
+        "src/pietto/ir/model.py",
+        "src/pietto/ir/builder.py",
+        "src/pietto/ir/lowering.py",
+        "src/pietto/sql/expressions.py",
+        "src/pietto/sql/mysql_expressions.py",
+        "src/pietto/semantic/catalog.py",
+        "src/pietto/semantic/capability_inventory.py",
+        "src/pietto/_project/model.py",
+        "src/pietto/_project/json_v2.py",
+        "src/pietto/cli.py",
+        "src/pietto/cli_json.py",
+        "src/pietto/_metadata/serializer.py",
+    )
+    assert all(_git_output(["diff", "--", path]) == "" for path in unchanged)
+    assert "class WindowIR" not in _read("src/pietto/ir/model.py")
+    assert "WINDOW_RESULT" not in _read("src/pietto/_project/model.py")
+    assert "WindowFunctionIdentity" not in _read("src/pietto/semantic/catalog.py")
+
+
+def test_grammar_generated_parser_api_and_public_exports_are_byte_locked() -> None:
+    expected = {
+        "grammar/Pietto.g4": "1c394db1f72561022941e0e937899e2d340880de220ebfa85cf387b86573384e",
+        "src/pietto/parser_api.py": "aa744c3ee334c8729917ae2aed2ee906874f927d47e99542d5accb8a98aa456b",
+        "src/pietto/__init__.py": "669ac67bb23a0c8179995e0e415d76c46210c12311e29cd89d2612b45b0a194d",
+    }
+    assert {path: _sha256(path) for path in expected} == expected
+    generated = tuple(
+        path
+        for path in (REPO_ROOT / "src/pietto/generated").iterdir()
+        if path.is_file()
+    )
+    assert len(generated) == 8
+    assert _digest(generated) == (
+        "bc5be46411f947c4d591e81ce8dd8345140fd5e10276f2ff0055eccfc12babe4"
+    )
+    assert not hasattr(pietto, "WindowExpr")
+    assert not hasattr(pietto, "WindowSpec")
+
+
+def test_expression_walkers_and_exhaustive_dispatch_are_classified() -> None:
+    semantic = _read("src/pietto/semantic/expressions.py")
+    lowering = _read("src/pietto/ir/lowering.py")
+    assert "if isinstance(expression, WindowExpr):" in semantic
+    branch = semantic[semantic.index("if isinstance(expression, WindowExpr):") :]
+    assert branch.index("return _UNKNOWN_VALUE_TYPE") < branch.index(
+        "if isinstance(expression, LiteralExpr):"
+    )
+    assert "expression not in semantic_model.expression_value_types" in lowering
+    assert lowering.index("expression not in semantic_model.expression_value_types") < (
+        lowering.index("_lower_expr_node(")
+    )
+    for relative in (
+        "src/pietto/semantic/aggregates.py",
+        "src/pietto/semantic/let_bindings.py",
+        "src/pietto/semantic/satisfying.py",
+        "src/pietto/_project/row_expression_schema.py",
+        "src/pietto/_project/row_dependency_graph.py",
+    ):
+        assert _git_output(["diff", "--", relative]) == ""
+
+
+def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
+    compiler_paths = [REPO_ROOT / "Makefile", REPO_ROOT / "grammar/Pietto.g4"]
+    compiler_paths.extend(
+        path
+        for path in (REPO_ROOT / "src/pietto").rglob("*")
+        if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc"
+    )
+    semantic_paths = tuple((REPO_ROOT / "src/pietto/semantic").glob("*.py"))
+    phase15_paths = tuple(
+        path
+        for path in semantic_paths
+        if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
+    )
+    assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
+        82,
+        27,
+        24,
+    )
+    assert _digest(tuple(compiler_paths)) == COMPILER_DIGEST
+    assert _digest(semantic_paths) == SEMANTIC_DIGEST
+    assert _digest(phase15_paths) == PHASE15_SUBSET_DIGEST
+    assert _sha256("src/pietto/ast_nodes.py") == AST_NODES_SHA256
+    assert _sha256("src/pietto/ast_builder.py") == AST_BUILDER_SHA256
+    assert _sha256("src/pietto/semantic/expressions.py") == (
+        SEMANTIC_EXPRESSIONS_SHA256
+    )
+
+
+def test_slice3_dirty_clean_and_depth_one_repository_states_are_locked() -> None:
+    tracked = set(_git_output(["diff", "--name-only"]).splitlines()) - {""}
+    untracked = set(
+        _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
+    ) - {""}
+    cached = _git_output(["diff", "--cached", "--name-status"])
+    assert cached == ""
+    dirty = tracked | untracked
+    assert dirty in (set(), ALLOWLIST_PATHS)
+    head = _git_output(["rev-parse", "HEAD"])
+    branch = _git_output(["branch", "--show-current"])
+    main = _git_optional_ref("refs/heads/main")
+    origin_main = _git_optional_ref("refs/remotes/origin/main")
+    if dirty:
+        assert tracked == MODIFIED_PATHS
+        assert untracked == ADDED_PATHS
+        assert branch == "main"
+        assert head == main == origin_main == BASE_HEAD_SHA
+    else:
+        assert branch in ("", "main")
+        if main is not None:
+            assert main == head
+        if origin_main is not None:
+            assert origin_main == head
+
+
+def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
+    tracked = tuple(_git_output(["ls-files"]).splitlines())
+    untracked = tuple(
+        _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
+    )
+    readable = {path for path in (*tracked, *untracked) if (REPO_ROOT / path).is_file()}
+    assert len(readable) == 844
+    assert sum(path.endswith(".py") for path in readable) == 518
+    assert sum(path.endswith(".md") for path in readable) == 230
+    test_modules = {
+        path
+        for path in readable
+        if path.startswith("tests/test_") and path.endswith(".py")
+    }
+    assert len(test_modules) == 436
+    top_level_tests = 0
+    for relative in sorted(test_modules):
+        tree = ast.parse(_read(relative), filename=relative)
+        top_level_tests += sum(
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name.startswith("test_")
+            for node in tree.body
+        )
+    assert top_level_tests == 4219
+    assert 202 == 70 + 70 + 62
+    assert 6376 == 6306 + 70
+    assert 6376 - 183 == 6193
+    docs = _read(SPEC_REL) + _read(PLAN_REL)
+    for value in (
+        "9d7668d9edbfb111f080e0ea99438df33266736bb98a3283f6c1a01bc27f6eb0",
+        "15714b4cd20d2b0c17c9aa9a648bb1efefc311dbfb06dd33f3f1c2a1f9d11132",
+    ):
+        assert value in docs
+
+
+def test_validation_gate3_and_no_behavior_boundaries_are_locked() -> None:
+    docs = _read(SPEC_REL) + _read(PLAN_REL)
+    for required in (
+        "202 focused",
+        "6193 passed, 183 deselected",
+        "6376 clean-CI passes",
+        "A3/M51/D0",
+        "one write-mode Ruff",
+        "unstaged and uncommitted",
+        "Slice 4 retains generic compatibility ownership",
+        "Slice 5 retains nullability algebra",
+        "Slice 15 retains Window IR",
+        "0.1.0",
+    ):
+        assert required in docs, required
+    assert (
+        _git_output(
+            ["diff", "--", "pyproject.toml", "uv.lock", ".github/workflows/ci.yml"]
+        )
+        == ""
+    )
+    assert len(ALLOWLIST_PATHS) == 54
+    assert len(MODIFIED_PATHS) == 51
+    assert len(ADDED_PATHS) == 3

@@ -39,12 +39,12 @@ LOCKED_BOUNDARY_SURFACES = {
     "ast_nodes": (
         "src/pietto/ast_nodes.py",
         1,
-        "9946bd71566f8c7fd72dfa22b972722922087b7588b435cce59daa1fc25c560d",
+        "6f25584047be299eae290bc9640e903392c9882c70947a2e5f50a205b5a81368",
     ),
     "ast_builder": (
         "src/pietto/ast_builder.py",
         1,
-        "5a10b598ede208268f7dc9df37b16119c5206a7acdada6174020e879ff398f82",
+        "886150f1a6b13fdb883d8863abe63d0778dd1c6b1dd9166afd532d1f5b574502",
     ),
     "parser_api": (
         "src/pietto/parser_api.py",
@@ -54,7 +54,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "semantic": (
         "src/pietto/semantic",
         27,
-        "ef4304a56f4d352b5882ce21ef4a490f77a3107b3d827d4e73ad39ad3a688e0d",
+        "a98a3cb1728810c07ca2c6215d1229645747fa6eb0072a2313d227f59d5df414",
     ),
     "ir": (
         "src/pietto/ir",

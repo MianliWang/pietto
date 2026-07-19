@@ -52,10 +52,10 @@ LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf2
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 SIGNATURE_SHA256 = "810f347080e0bb7dc674821aa6387c5f7618ac216832194ef19820326eef71d2"
 CONTEXT_SHA256 = "132371eccca00ca9f8722a34f1ea0f540933515e560639ee12e53aee6594c60c"
-COMPILER_DIGEST = "07b7d658ea02b7588700a3ff46da8927686418e2fa1e15c98f7d8a0d5e0d785c"
-SEMANTIC_DIGEST = "ef4304a56f4d352b5882ce21ef4a490f77a3107b3d827d4e73ad39ad3a688e0d"
+COMPILER_DIGEST = "b1605a853ff1be314308c5fc0214dc18e91f064f45be0a86dacaf0d305a1e0a8"
+SEMANTIC_DIGEST = "a98a3cb1728810c07ca2c6215d1229645747fa6eb0072a2313d227f59d5df414"
 PHASE15_SUBSET_DIGEST = (
-    "e0f2909026328a5fc74cb432551e7665be33702af626bbac363e52a2febcc450"
+    "4ba0752d6f5c1cce74923243b163a48b7a7ba3cb10c58557a4c15d00ccb5bb15"
 )
 PROJECT_PRIVATE_DIGEST = (
     "c032a23c7f0477df58cacc9374e2882bebad346bec9a539899878da062248013"
@@ -114,6 +114,7 @@ COMPILER_READERS = (
     SELF_REL,
     SLICE8_TEST_REL,
     SLICE9_TEST_REL,
+    "tests/test_phase53_window_spec_function_identity_ast_contract.py",
 )
 SEMANTIC_READERS = (
     "tests/test_phase11_completion_audit.py",
@@ -146,6 +147,7 @@ SEMANTIC_READERS = (
     SELF_REL,
     SLICE8_TEST_REL,
     SLICE9_TEST_REL,
+    "tests/test_phase53_window_spec_function_identity_ast_contract.py",
 )
 PHASE15_READERS = (
     "tests/test_phase15_semantic_completion_audit.py",
@@ -154,6 +156,7 @@ PHASE15_READERS = (
     SELF_REL,
     SLICE8_TEST_REL,
     SLICE9_TEST_REL,
+    "tests/test_phase53_window_spec_function_identity_ast_contract.py",
 )
 
 MODIFIED_READER_PATHS = (
@@ -1691,7 +1694,7 @@ def test_compiler_semantic_subset_project_and_raw_hash_readers_are_exact() -> No
     )
     project_paths = _project_private_paths()
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        81,
+        82,
         27,
         24,
     )
@@ -1928,7 +1931,7 @@ def test_static_test_inventory_and_tier1_selection_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (435, 4194)
+    assert (len(test_files), top_level_functions) == (436, 4219)
 
     compatible, per_file_items = _prior_compatible_nodes()
     assert (len(compatible), per_file_items) == (69, (24, 33, 63))

@@ -58,8 +58,8 @@ EXPECTED_FILES = {
     "Makefile": "dbd38c41e2af5275c379de0b88c92f3861efb90724c7de1a291e0aa007ce2db7",
 }
 EXPECTED_GROUPS = {
-    "frontend": "589de7fbc2995bbd804bd09322abccdab8baaef6fdaffa436f596ed3ad3ac1bc",
-    "semantic": "ef4304a56f4d352b5882ce21ef4a490f77a3107b3d827d4e73ad39ad3a688e0d",
+    "frontend": "cd28ccecc82f9d3f0bfa85fe886490e81d7260e9fe61919a4913ff8d6b21c52f",
+    "semantic": "a98a3cb1728810c07ca2c6215d1229645747fa6eb0072a2313d227f59d5df414",
     "ir": "57097f43ba5e0ffa8d531b827b7029c9104b85ab3dc0657889cccd28caec5249",
     "sql": "b18229fbda079d706416119002a70d091e7f5b79e0e4818a5b1292d9b88e898b",
     "generated": "bc5be46411f947c4d591e81ce8dd8345140fd5e10276f2ff0055eccfc12babe4",
@@ -97,7 +97,7 @@ MYSQL_GOLDENS = {
     ),
 }
 ALL_GOLDENS_HASH = "0e26a0b367a2ae849e5ec1e9a239be42765bea2c352242db5da930ab56b43004"
-BOUNDARY_HASH = "07b7d658ea02b7588700a3ff46da8927686418e2fa1e15c98f7d8a0d5e0d785c"
+BOUNDARY_HASH = "b1605a853ff1be314308c5fc0214dc18e91f064f45be0a86dacaf0d305a1e0a8"
 
 
 def _load_module(name: str, path: Path) -> ModuleType:

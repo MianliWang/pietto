@@ -371,7 +371,9 @@ def test_current_source_has_generic_calls_but_no_window_model() -> None:
         assert f"{token}:" not in grammar, token
         assert f"'{token}'" not in generated_parser, token
 
-    assert "class Window" not in ast_source
+    assert "class WindowSpec(Node):" in ast_source
+    assert "class WindowExpr(Expression):" in ast_source
+    assert "WindowFunctionIdentity" in ast_source
     assert "class Window" not in ir_model
     assert "OVER" not in postgres
     assert "OVER" not in mysql
@@ -379,6 +381,11 @@ def test_current_source_has_generic_calls_but_no_window_model() -> None:
     for name in INITIAL_RANKING_CATALOG:
         assert f'"{name}"' not in catalog, name
         assert f'"{name}"' not in aggregates, name
+
+    identity = _read(REPO_ROOT / "src/pietto/_window_identity.py")
+    assert "class WindowFunctionIdentity:" in identity
+    assert 'WINDOW_FUNCTION = "window_function"' in identity
+    assert "__all__: tuple[str, ...] = ()" in identity
 
     for vocabulary in (
         "WINDOW_RESULT",

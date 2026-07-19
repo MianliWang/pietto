@@ -18,6 +18,7 @@ from pietto.generated.PiettoLexer import PiettoLexer
 from pietto.generated.PiettoParser import PiettoParser
 from pietto.indentation import find_leading_tab_diagnostics, inject_indentation
 from pietto.parser_api import parse_source
+from pietto.ast_nodes import QueryDef, WindowExpr
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -69,26 +70,18 @@ FAIL_CLOSED_MESSAGE = (
     "Window syntax is recognized, but WindowSpec AST preservation starts in "
     "Phase 53 Slice 3."
 )
-BASE_HEAD_SHA = "d52a4a80aee1a1708d8fd480f63aa450a1c25eff"
+BASE_HEAD_SHA = "86b08e27bbe97589b143dc1043fb0ad743dbf88a"
 
 ADDED_PATHS = {
-    "docs/spec/phase53-window-syntax-contextual-grammar-contract-v1.md",
-    "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
+    "docs/spec/phase53-window-spec-function-identity-ast-contract-v1.md",
+    "src/pietto/_window_identity.py",
+    "tests/test_phase53_window_spec_function_identity_ast_contract.py",
 }
 MODIFIED_PATHS = {
     "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md",
-    "grammar/Pietto.g4",
     "src/pietto/ast_builder.py",
-    "src/pietto/generated/Pietto.interp",
-    "src/pietto/generated/Pietto.tokens",
-    "src/pietto/generated/PiettoLexer.interp",
-    "src/pietto/generated/PiettoLexer.py",
-    "src/pietto/generated/PiettoLexer.tokens",
-    "src/pietto/generated/PiettoParser.py",
-    "src/pietto/generated/PiettoVisitor.py",
-    "tests/test_phase10_completion_audit.py",
-    "tests/test_phase10_dialect_dispatch_design.py",
-    "tests/test_phase10_mysql_backend_skeleton.py",
+    "src/pietto/ast_nodes.py",
+    "src/pietto/semantic/expressions.py",
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
     "tests/test_phase11_generated_guard.py",
@@ -105,26 +98,19 @@ MODIFIED_PATHS = {
     "tests/test_phase14_candidate_decision_audit.py",
     "tests/test_phase14_completion_audit.py",
     "tests/test_phase14_planning_audit.py",
+    "tests/test_phase14_relationship_metadata_completion_audit.py",
     "tests/test_phase15_completion_audit.py",
     "tests/test_phase15_semantic_completion_audit.py",
     "tests/test_phase16_completion_audit.py",
     "tests/test_phase16_current_syntax_surface_audit.py",
     "tests/test_phase16_language_direction_audit.py",
     "tests/test_phase16_safety_deferral_sql_portability.py",
-    "tests/test_phase17_computed_projection_schema_propagation.py",
-    "tests/test_phase17_core_scalar_expression_semantics.py",
-    "tests/test_phase17_relation_schema_hardening_completion_audit.py",
-    "tests/test_phase17_single_input_qualified_field_binding.py",
-    "tests/test_phase19_completion_audit.py",
-    "tests/test_phase20_completion_audit.py",
     "tests/test_phase21_group_by_hardening_audit.py",
     "tests/test_phase24_aggregate_expression_arguments_readiness.py",
     "tests/test_phase24_cli_json_output_hardening.py",
     "tests/test_phase24_completion_audit.py",
     "tests/test_phase25_completion_audit.py",
     "tests/test_phase26_completion_audit.py",
-    "tests/test_phase26_decimal_scalar_expression_semantics.py",
-    "tests/test_phase26_numeric_scalar_expression_semantics.py",
     "tests/test_phase27_completion_audit.py",
     "tests/test_phase28_completion_audit.py",
     "tests/test_phase29_completion_audit.py",
@@ -139,10 +125,10 @@ MODIFIED_PATHS = {
     "tests/test_phase52_fail_closed_capability_lookup.py",
     "tests/test_phase52_logical_type_literal_parameter_nullability_inventory.py",
     "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
+    "tests/test_phase52_private_capability_fact_foundation.py",
     "tests/test_phase52_scalar_function_operator_signature_facts.py",
     "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
-    "tests/test_phase8_completion_audit.py",
-    "tests/test_phase9_completion_audit.py",
+    "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
 }
 ALLOWLIST_PATHS = ADDED_PATHS | MODIFIED_PATHS
 
@@ -712,7 +698,11 @@ def test_slice2_artifact_paths_and_heading_contracts_are_exact() -> None:
     assert _headings(SPEC_REL, 1) == (SPEC_TITLE,)
     assert _headings(SPEC_REL, 2) == SPEC_H2
     assert _headings(SPEC_REL, 3) == ()
-    assert _headings(PLAN_REL, 2)[-1] == SLICE2_PLAN_H2
+    assert _headings(PLAN_REL, 2)[-2:] == (
+        SLICE2_PLAN_H2,
+        "Slice 3 WindowSpec, Extension-compatible WindowFunctionIdentity, And AST "
+        "Contract",
+    )
     assert _headings(PLAN_REL, 2).count(SLICE2_PLAN_H2) == 1
 
     tree = ast.parse(_read(TEST_REL), filename=TEST_REL)
@@ -893,24 +883,16 @@ def test_parse_source_fails_closed_before_slice3_ast_preservation(
     expected_column: int,
 ) -> None:
     result = parse_source(source, path="slice2-window.pietto")
-    assert result.ast is None, name
-    assert len(result.diagnostics) == 1
-    diagnostic = result.diagnostics[0]
-    assert (
-        diagnostic.code,
-        diagnostic.severity,
-        diagnostic.message,
-        diagnostic.location.path,
-        diagnostic.location.line,
-        diagnostic.location.column,
-    ) == (
-        "PIE-P1000",
-        Severity.ERROR,
-        FAIL_CLOSED_MESSAGE,
-        "slice2-window.pietto",
+    assert result.ast is not None, name
+    assert result.diagnostics == ()
+    relation = cast(QueryDef, result.ast.definitions[-1])
+    expression = relation.select_items[0].expression
+    assert isinstance(expression, WindowExpr)
+    assert (expression.spec.span.line, expression.spec.span.column) == (
         4,
         expected_column,
     )
+    assert FAIL_CLOSED_MESSAGE not in repr(result)
 
 
 def test_fail_closed_diagnostic_code_message_and_window_location_are_exact() -> None:
@@ -923,15 +905,14 @@ def test_fail_closed_diagnostic_code_message_and_window_location_are_exact() -> 
             sequence_id
     """)
     result = parse_source(source, path="slice2-window.pietto")
-    assert result.ast is None
-    assert len(result.diagnostics) == 1
-    diagnostic = result.diagnostics[0]
-    assert diagnostic.code == "PIE-P1000"
-    assert diagnostic.severity is Severity.ERROR
-    assert diagnostic.message == FAIL_CLOSED_MESSAGE
-    assert diagnostic.location.path == "slice2-window.pietto"
-    assert (diagnostic.location.line, diagnostic.location.column) == (4, 27)
-    assert diagnostic.suggestion is None
+    assert result.ast is not None
+    assert result.diagnostics == ()
+    relation = cast(QueryDef, result.ast.definitions[-1])
+    expression = relation.select_items[0].expression
+    assert isinstance(expression, WindowExpr)
+    assert expression.span.path == "slice2-window.pietto"
+    assert (expression.spec.span.line, expression.spec.span.column) == (4, 27)
+    assert FAIL_CLOSED_MESSAGE not in repr(result)
 
 
 @pytest.mark.parametrize(
@@ -1001,17 +982,22 @@ def test_no_ast_semantic_ir_sql_or_public_surface_widening_is_locked() -> None:
     assert _sha256(PARSER_API_REL) == (
         "aa744c3ee334c8729917ae2aed2ee906874f927d47e99542d5accb8a98aa456b"
     )
-    assert _sha256(AST_NODES_REL) == (
-        "0464445d598b676bfd65ebb0cc59db8cc5f51acea919704c918473bb63be7d0a"
+    assert (
+        _sha256(AST_NODES_REL)
+        == "b0c41070fca75c89534eba75cf2086f41721de740da9a3573d67411d366204f5"
     )
-    assert "class WindowSpec" not in _read(AST_NODES_REL)
+    assert "class WindowSpec" in _read(AST_NODES_REL)
+    assert "class WindowExpr" in _read(AST_NODES_REL)
     changed_source = set(
         _git_output(["diff", "--name-only", "--", "src/pietto"]).splitlines()
     ) - {""}
-    allowed_source = {AST_BUILDER_REL} | GENERATED_MUTATION_PATHS
+    allowed_source = {
+        AST_BUILDER_REL,
+        AST_NODES_REL,
+        "src/pietto/semantic/expressions.py",
+    }
     assert changed_source in (set(), allowed_source)
     for forbidden_prefix in (
-        "src/pietto/semantic/",
         "src/pietto/_project/",
         "src/pietto/ir/",
         "src/pietto/sql/",
@@ -1052,15 +1038,15 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             assert origin_main == head
 
     readable_paths = set(_git_output(["ls-files"]).splitlines()) | untracked
-    assert len(readable_paths) == 841
-    assert sum(path.endswith(".py") for path in readable_paths) == 516
-    assert sum(path.endswith(".md") for path in readable_paths) == 229
+    assert len(readable_paths) == 844
+    assert sum(path.endswith(".py") for path in readable_paths) == 518
+    assert sum(path.endswith(".md") for path in readable_paths) == 230
     test_modules = {
         path
         for path in readable_paths
         if path.startswith("tests/test_") and path.endswith(".py")
     }
-    assert len(test_modules) == 435
+    assert len(test_modules) == 436
     top_level_tests = 0
     for relative in sorted(test_modules):
         tree = ast.parse(_read(relative), filename=relative)
@@ -1069,7 +1055,7 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 4194
+    assert top_level_tests == 4219
     assert len(GENERATED_PATHS) == 8
     goldens = {
         path

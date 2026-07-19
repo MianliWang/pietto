@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
+from pietto import _window_identity
+
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Span:
@@ -357,6 +359,47 @@ class OrderItem(Node):
 
     expression: Expression
     direction: str | None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class WindowSpec(Node):
+    """A source-located inline window specification."""
+
+    partition_by: tuple[Expression, ...]
+    order_by: tuple[OrderItem, ...]
+
+    def __post_init__(self) -> None:
+        """Enforce the immutable, non-empty window-spec shape."""
+
+        if type(self.partition_by) is not tuple:
+            raise TypeError("partition_by must be an exact tuple")
+        if type(self.order_by) is not tuple:
+            raise TypeError("order_by must be an exact tuple")
+        if not all(isinstance(item, Expression) for item in self.partition_by):
+            raise TypeError("partition_by items must be Expression instances")
+        if not all(isinstance(item, OrderItem) for item in self.order_by):
+            raise TypeError("order_by items must be OrderItem instances")
+        if not self.partition_by and not self.order_by:
+            raise ValueError("window spec requires partition_by or order_by")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class WindowExpr(Expression):
+    """A direct call paired with its inline window specification."""
+
+    call: CallExpr
+    spec: WindowSpec
+    identity: _window_identity.WindowFunctionIdentity
+
+    def __post_init__(self) -> None:
+        """Enforce the indivisible parsed window-expression shape."""
+
+        if not isinstance(self.call, CallExpr):
+            raise TypeError("call must be a CallExpr")
+        if not isinstance(self.spec, WindowSpec):
+            raise TypeError("spec must be a WindowSpec")
+        if type(self.identity) is not _window_identity.WindowFunctionIdentity:
+            raise TypeError("identity must be a WindowFunctionIdentity")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

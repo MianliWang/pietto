@@ -27,6 +27,7 @@ from pietto.ast_nodes import (
     TableDef,
     TypeExpr,
     UnaryExpr,
+    WindowExpr,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
@@ -440,6 +441,15 @@ def _infer(
     existing = value_types.get(expression)
     if existing is not None:
         return existing
+
+    if isinstance(expression, WindowExpr):
+        diagnostics.append(
+            _unknown_function_diagnostic(
+                expression.call,
+                _callee_name(expression.call),
+            )
+        )
+        return _UNKNOWN_VALUE_TYPE
 
     if isinstance(expression, LiteralExpr):
         value_type = _literal_value_type(expression)

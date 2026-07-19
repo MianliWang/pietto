@@ -24,10 +24,10 @@ LOCKED_FILE_HASHES = {
         "1c394db1f72561022941e0e937899e2d340880de220ebfa85cf387b86573384e"
     ),
     "src/pietto/ast_nodes.py": (
-        "0464445d598b676bfd65ebb0cc59db8cc5f51acea919704c918473bb63be7d0a"
+        "b0c41070fca75c89534eba75cf2086f41721de740da9a3573d67411d366204f5"
     ),
     "src/pietto/ast_builder.py": (
-        "e74abde266f4da9be6b3a18e48985042678ecfdcd1d9d04906f169af994c9d6e"
+        "201c74d6a27e57dfc7cd0f9693b388ebe7853b783173a3c4f7191a5f8026e70b"
     ),
     "src/pietto/parser_api.py": (
         "aa744c3ee334c8729917ae2aed2ee906874f927d47e99542d5accb8a98aa456b"
@@ -53,7 +53,7 @@ LOCKED_GROUP_HASHES = {
     ),
     "unchanged_semantic": (
         24,
-        "e0f2909026328a5fc74cb432551e7665be33702af626bbac363e52a2febcc450",
+        "4ba0752d6f5c1cce74923243b163a48b7a7ba3cb10c58557a4c15d00ccb5bb15",
     ),
     "ir": (
         5,
