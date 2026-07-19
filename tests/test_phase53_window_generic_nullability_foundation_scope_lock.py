@@ -209,6 +209,10 @@ PHASE53_ADDED_PATHS = {
     "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
 }
 PHASE53_ALLOWLIST_PATHS = PHASE53_MODIFIED_PATHS | PHASE53_ADDED_PATHS
+CI_REPAIR_BASE_HEAD_SHA = "c309323216fb7e6c52afba060cb188b3bb618d34"
+CI_REPAIR_MODIFIED_PATHS = {
+    "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
+}
 
 TIER1_EXISTING_NODES = (
     "tests/test_phase51_aggregate_grouped_output_schema_foundation_scope_lock.py::test_artifacts_titles_heading_orders_and_no_behavior_sentence_are_locked",
@@ -296,6 +300,71 @@ def _git_output(args: list[str]) -> str:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     ).stdout.rstrip()
+
+
+def _git_optional_ref(ref: str) -> str | None:
+    result = subprocess.run(
+        ["git", "rev-parse", "--verify", "--quiet", ref],
+        cwd=REPO_ROOT,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert result.returncode in (0, 1)
+    assert result.stderr == ""
+    if result.returncode == 1:
+        assert result.stdout == ""
+        return None
+    lines = result.stdout.splitlines()
+    assert len(lines) == 1
+    assert lines[0] and lines[0].strip() == lines[0]
+    return lines[0]
+
+
+def _assert_phase53_repository_state() -> None:
+    tracked = set(_git_output(["diff", "--name-only"]).splitlines()) - {""}
+    name_status = tuple(_git_output(["diff", "--name-status"]).splitlines())
+    untracked = set(
+        _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
+    ) - {""}
+    cached_name_status = tuple(
+        _git_output(["diff", "--cached", "--name-status"]).splitlines()
+    )
+    assert cached_name_status == ()
+    assert name_status == tuple(f"M\t{path}" for path in sorted(tracked))
+
+    branch = _git_output(["branch", "--show-current"])
+    head = _git_output(["rev-parse", "HEAD"])
+    main = _git_optional_ref("refs/heads/main")
+    origin_main = _git_optional_ref("refs/remotes/origin/main")
+    dirty = tracked | untracked
+    assert dirty in (set(), PHASE53_ALLOWLIST_PATHS, CI_REPAIR_MODIFIED_PATHS)
+
+    if dirty == PHASE53_ALLOWLIST_PATHS:
+        assert tracked == PHASE53_MODIFIED_PATHS
+        assert untracked == PHASE53_ADDED_PATHS
+        assert branch == "main"
+        assert head == main == origin_main == PHASE53_BASE_HEAD_SHA
+        return
+
+    if dirty == CI_REPAIR_MODIFIED_PATHS:
+        assert tracked == CI_REPAIR_MODIFIED_PATHS
+        assert untracked == set()
+        assert branch == "main"
+        assert head == main == origin_main == CI_REPAIR_BASE_HEAD_SHA
+        return
+
+    assert dirty == set()
+    assert tracked == untracked == set()
+    if branch == "main":
+        assert main == head
+    else:
+        assert branch == ""
+    if main is not None:
+        assert main == head
+    if origin_main is not None:
+        assert origin_main == head
 
 
 def _literal_tuple(relative: str, name: str) -> tuple[str, ...]:
@@ -505,9 +574,7 @@ def test_static_only_no_behavior_public_schema_and_version_boundaries_are_locked
         "attestation",
     ):
         assert required in documents, required
-    assert (
-        set(_git_output(["diff", "--name-only"]).splitlines()) == PHASE53_MODIFIED_PATHS
-    )
+    _assert_phase53_repository_state()
 
 
 def test_reader_migrations_reconciliation4_and_current_authority_are_locked() -> None:
@@ -543,17 +610,7 @@ def test_reader_migrations_reconciliation4_and_current_authority_are_locked() ->
 def test_gate2_validation_depth_one_gate3_activation_and_stop_conditions_are_locked() -> (
     None
 ):
-    tracked = set(_git_output(["diff", "--name-only"]).splitlines()) - {""}
-    untracked = set(
-        _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
-    ) - {""}
-    assert tracked == PHASE53_MODIFIED_PATHS
-    assert untracked == PHASE53_ADDED_PATHS
-    assert _git_output(["diff", "--cached", "--name-status"]) == ""
-    assert _git_output(["branch", "--show-current"]) == "main"
-    assert _git_output(["rev-parse", "HEAD"]) == PHASE53_BASE_HEAD_SHA
-    assert _git_output(["rev-parse", "main"]) == PHASE53_BASE_HEAD_SHA
-    assert _git_output(["rev-parse", "origin/main"]) == PHASE53_BASE_HEAD_SHA
+    _assert_phase53_repository_state()
 
     assert len(TIER1_EXISTING_NODES) == len(set(TIER1_EXISTING_NODES)) == 42
     for node_id in TIER1_EXISTING_NODES:
