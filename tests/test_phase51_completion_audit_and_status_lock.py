@@ -118,6 +118,8 @@ PHASE52_UNTRACKED_PATHS = {
     "docs/spec/phase52-core-type-system-capability-foundation-scope-lock-v1.md",
     "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
 }
+SLICE2_BASE_HEAD_SHA = "d52a4a80aee1a1708d8fd480f63aa450a1c25eff"
+SLICE2_STATE_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
 
 PHASE51_SLICE_ARTIFACTS = (
     (
@@ -322,7 +324,7 @@ PROTECTED_HASHES = {
         "26cc0ae4a68518223d6bf600ad3c4b0b226618aa7ef31b2ae1c25924d2655169"
     ),
 }
-COMPILER_DIGEST = "15bdd8566474a9f119e3a1d8c991cfca972ac114f7d52edb7d6e57f6c779c923"
+COMPILER_DIGEST = "07b7d658ea02b7588700a3ff46da8927686418e2fa1e15c98f7d8a0d5e0d785c"
 PROJECT_PRIVATE_DIGEST = (
     "c032a23c7f0477df58cacc9374e2882bebad346bec9a539899878da062248013"
 )
@@ -1300,8 +1302,10 @@ def test_static_git_helper_and_exact_slice12_dirty_set_are_locked() -> None:
         ("status", "--short", "--untracked-files=all"),
         ("tag", "--points-at", "HEAD"),
         ("ls-files", "--others", "--exclude-standard"),
+        ("diff", "--name-only"),
         ("diff", "--cached", "--name-status"),
         ("diff", "--check"),
+        ("rev-parse", "HEAD"),
     }
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -1318,7 +1322,25 @@ def test_static_git_helper_and_exact_slice12_dirty_set_are_locked() -> None:
             values.append(element.value)
         assert tuple(values) in approved_git_calls
 
-    assert _dirty_paths() in (set(), SLICE12_GATE2_PATHS, PHASE52_GATE2_PATHS)
+    slice2_tree = ast.parse(_read(REPO_ROOT / SLICE2_STATE_REL))
+    slice2_sets = {
+        node.targets[0].id: set(ast.literal_eval(node.value))
+        for node in slice2_tree.body
+        if isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
+        and node.targets[0].id in {"MODIFIED_PATHS", "ADDED_PATHS"}
+    }
+    assert set(slice2_sets) == {"MODIFIED_PATHS", "ADDED_PATHS"}
+    slice2_modified = slice2_sets["MODIFIED_PATHS"]
+    slice2_added = slice2_sets["ADDED_PATHS"]
+    dirty_paths = _dirty_paths()
+    assert dirty_paths in (
+        set(),
+        SLICE12_GATE2_PATHS,
+        PHASE52_GATE2_PATHS,
+        slice2_modified | slice2_added,
+    )
     untracked_paths = set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
@@ -1326,6 +1348,13 @@ def test_static_git_helper_and_exact_slice12_dirty_set_are_locked() -> None:
         set(),
         SLICE12_UNTRACKED_PATHS,
         PHASE52_UNTRACKED_PATHS,
+        slice2_added,
     )
+    if dirty_paths == slice2_modified | slice2_added:
+        assert untracked_paths == slice2_added
+        assert set(_git_output(["diff", "--name-only"]).splitlines()) == (
+            slice2_modified
+        )
+        assert _git_output(["rev-parse", "HEAD"]) == SLICE2_BASE_HEAD_SHA
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
     assert _git_output(["diff", "--check"]) == ""

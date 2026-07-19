@@ -284,6 +284,36 @@ class PiettoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by PiettoParser#windowExpression.
+    def visitWindowExpression(self, ctx:PiettoParser.WindowExpressionContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#windowSpec.
+    def visitWindowSpec(self, ctx:PiettoParser.WindowSpecContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#windowSpecBody.
+    def visitWindowSpecBody(self, ctx:PiettoParser.WindowSpecBodyContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#partitionByClause.
+    def visitPartitionByClause(self, ctx:PiettoParser.PartitionByClauseContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#windowPartitionBody.
+    def visitWindowPartitionBody(self, ctx:PiettoParser.WindowPartitionBodyContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#windowPartitionItem.
+    def visitWindowPartitionItem(self, ctx:PiettoParser.WindowPartitionItemContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by PiettoParser#satisfyingClause.
     def visitSatisfyingClause(self, ctx:PiettoParser.SatisfyingClauseContext):
         return self.visitChildren(ctx)

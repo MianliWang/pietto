@@ -258,8 +258,34 @@ selectBody
 
 // Alias assignment is local to select items, never a general expression.
 selectItem
-    : identifier ASSIGN expression NEWLINE
+    : identifier ASSIGN windowExpression
+    | identifier ASSIGN expression NEWLINE
     | expression NEWLINE
+    ;
+
+windowExpression
+    : dottedName callSuffix windowSpec
+    ;
+
+windowSpec
+    : WINDOW COLON NEWLINE NEWLINE* INDENT windowSpecBody DEDENT
+    ;
+
+windowSpecBody
+    : NEWLINE* partitionByClause NEWLINE* orderByClause? NEWLINE*
+    | NEWLINE* orderByClause NEWLINE*
+    ;
+
+partitionByClause
+    : PARTITION BY COLON NEWLINE NEWLINE* INDENT windowPartitionBody DEDENT
+    ;
+
+windowPartitionBody
+    : NEWLINE* windowPartitionItem (windowPartitionItem | NEWLINE)*
+    ;
+
+windowPartitionItem
+    : expression NEWLINE
     ;
 
 satisfyingClause
@@ -367,6 +393,7 @@ identifier
     | BY
     | ASC
     | DESC
+    | PARTITION
     | GROUP
     | LET
     | SATISFYING
@@ -419,6 +446,8 @@ LIMIT: 'limit';
 SATISFYING: 'satisfying';
 RELATIONSHIP: 'relationship';
 ENDPOINT: 'endpoint';
+WINDOW: 'window';
+PARTITION: 'partition';
 ENSURE: 'ensure';
 NULLABLE: 'nullable';
 AND: 'and';

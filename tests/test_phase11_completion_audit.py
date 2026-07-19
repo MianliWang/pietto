@@ -53,16 +53,16 @@ EXPECTED_BLOBS = {
 }
 EXPECTED_FILES = {
     "grammar/Pietto.g4": (
-        "54484b73f76ae051e0e4f27cc47bc99a0687da7c0e4f40ab4da06a640a54369a"
+        "1c394db1f72561022941e0e937899e2d340880de220ebfa85cf387b86573384e"
     ),
     "Makefile": "dbd38c41e2af5275c379de0b88c92f3861efb90724c7de1a291e0aa007ce2db7",
 }
 EXPECTED_GROUPS = {
-    "frontend": "7ecd994ab99d95af792ea628de9de236940c1c46ced49599ea482cffab49ee4f",
+    "frontend": "589de7fbc2995bbd804bd09322abccdab8baaef6fdaffa436f596ed3ad3ac1bc",
     "semantic": "ef4304a56f4d352b5882ce21ef4a490f77a3107b3d827d4e73ad39ad3a688e0d",
     "ir": "57097f43ba5e0ffa8d531b827b7029c9104b85ab3dc0657889cccd28caec5249",
     "sql": "b18229fbda079d706416119002a70d091e7f5b79e0e4818a5b1292d9b88e898b",
-    "generated": "7ac3aea913b1453a972456be0171a2c292991e71bde3e94a4056b4bf537b5c4e",
+    "generated": "bc5be46411f947c4d591e81ce8dd8345140fd5e10276f2ff0055eccfc12babe4",
     "cli": "30e6e4cedfe91b4e52a5cad3e13b302a8617476c2a48dd92361e5fa5d6183019",
 }
 POSTGRES_GOLDENS = {
@@ -97,7 +97,7 @@ MYSQL_GOLDENS = {
     ),
 }
 ALL_GOLDENS_HASH = "0e26a0b367a2ae849e5ec1e9a239be42765bea2c352242db5da930ab56b43004"
-BOUNDARY_HASH = "15bdd8566474a9f119e3a1d8c991cfca972ac114f7d52edb7d6e57f6c779c923"
+BOUNDARY_HASH = "07b7d658ea02b7588700a3ff46da8927686418e2fa1e15c98f7d8a0d5e0d785c"
 
 
 def _load_module(name: str, path: Path) -> ModuleType:
@@ -394,9 +394,10 @@ def test_deferred_sql_runtime_project_and_web_capabilities_remain_absent() -> No
 
     assert "ORDER: 'order';" in grammar
     assert grammar.count("GROUP: 'group';") == 1
+    assert grammar.count("WINDOW: 'window';") == 1
+    assert grammar.count("PARTITION: 'partition';") == 1
     for token in (
         "JOIN:",
-        "WINDOW:",
         "WITH:",
         "INSERT:",
         "UPDATE:",

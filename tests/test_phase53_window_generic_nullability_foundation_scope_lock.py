@@ -54,6 +54,7 @@ PLAN_H2 = (
     "Validation Evidence And Depth-one CI Workflow",
     "Package Version Release And Publication Boundary",
     "Stop Conditions",
+    "Slice 2 Pietto-native Window Syntax And Contextual Grammar Contract",
 )
 SCOPE_H2 = (
     "Purpose And Slice Identity",
@@ -213,6 +214,8 @@ CI_REPAIR_BASE_HEAD_SHA = "c309323216fb7e6c52afba060cb188b3bb618d34"
 CI_REPAIR_MODIFIED_PATHS = {
     "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
 }
+SLICE2_BASE_HEAD_SHA = "d52a4a80aee1a1708d8fd480f63aa450a1c25eff"
+SLICE2_STATE_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
 
 TIER1_EXISTING_NODES = (
     "tests/test_phase51_aggregate_grouped_output_schema_foundation_scope_lock.py::test_artifacts_titles_heading_orders_and_no_behavior_sentence_are_locked",
@@ -339,7 +342,22 @@ def _assert_phase53_repository_state() -> None:
     main = _git_optional_ref("refs/heads/main")
     origin_main = _git_optional_ref("refs/remotes/origin/main")
     dirty = tracked | untracked
-    assert dirty in (set(), PHASE53_ALLOWLIST_PATHS, CI_REPAIR_MODIFIED_PATHS)
+    slice2_modified = _literal_string_set(SLICE2_STATE_REL, "MODIFIED_PATHS")
+    slice2_added = _literal_string_set(SLICE2_STATE_REL, "ADDED_PATHS")
+    slice2_allowlist = slice2_modified | slice2_added
+    assert dirty in (
+        set(),
+        PHASE53_ALLOWLIST_PATHS,
+        CI_REPAIR_MODIFIED_PATHS,
+        slice2_allowlist,
+    )
+
+    if dirty == slice2_allowlist:
+        assert tracked == slice2_modified
+        assert untracked == slice2_added
+        assert branch == "main"
+        assert head == main == origin_main == SLICE2_BASE_HEAD_SHA
+        return
 
     if dirty == PHASE53_ALLOWLIST_PATHS:
         assert tracked == PHASE53_MODIFIED_PATHS
@@ -379,6 +397,22 @@ def _literal_tuple(relative: str, name: str) -> tuple[str, ...]:
             continue
         value = ast.literal_eval(node.value)
         assert isinstance(value, tuple) and all(isinstance(item, str) for item in value)
+        return value
+    raise AssertionError(name)
+
+
+def _literal_string_set(relative: str, name: str) -> set[str]:
+    tree = ast.parse(_read(relative), filename=relative)
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(
+            isinstance(target, ast.Name) and target.id == name
+            for target in node.targets
+        ):
+            continue
+        value = ast.literal_eval(node.value)
+        assert isinstance(value, set) and all(isinstance(item, str) for item in value)
         return value
     raise AssertionError(name)
 
@@ -581,6 +615,7 @@ def test_reader_migrations_reconciliation4_and_current_authority_are_locked() ->
     predecessor = _read(PREDECESSOR_REL)
     current = _read(CURRENT_ROADMAP_REL)
     normalized = " ".join(current.split())
+    slice2_plan = " ".join(_read(PLAN_REL).split())
     assert predecessor.count(RECONCILIATION_4_H3) == 1
     assert "sole current roadmap authority" in predecessor + current
     assert "839 tracked files" in normalized
@@ -592,6 +627,18 @@ def test_reader_migrations_reconciliation4_and_current_authority_are_locked() ->
     assert "111 passed, 0 deselected" in normalized
     assert "6,090 passed, 146 deselected" in normalized
     assert "6,236 passed" in normalized
+    for required in (
+        "841 tracked files",
+        "516 Python files",
+        "229 Markdown files",
+        "435 test modules",
+        "4194 top-level test functions",
+        "6306 collected items",
+        "146 focused passes",
+        "6121 passed, 185 deselected",
+        "clean-CI projection of 6306 passes",
+    ):
+        assert required in slice2_plan, required
     for relative in (
         "tests/test_phase52_aggregate_signature_algebra_facts.py",
         "tests/test_phase52_expression_stage_clause_capability_facts.py",
@@ -599,12 +646,12 @@ def test_reader_migrations_reconciliation4_and_current_authority_are_locked() ->
         "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
         "tests/test_phase52_completion_audit_and_status_lock.py",
     ):
-        assert "(434, 4178)" in _read(relative)
+        assert "(435, 4194)" in _read(relative)
     for relative in (
         "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
         "tests/test_phase52_completion_audit_and_status_lock.py",
     ):
-        assert "(515, 228)" in _read(relative)
+        assert "(516, 229)" in _read(relative)
 
 
 def test_gate2_validation_depth_one_gate3_activation_and_stop_conditions_are_locked() -> (

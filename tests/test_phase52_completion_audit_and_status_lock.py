@@ -174,7 +174,7 @@ MODULE_SHA256 = {
     AGGREGATE_REL: "d7d69fa4b97924ef5462af9c871a910b73cad43a21431e98a72c8bdab8996c80",
 }
 PATH_DIGESTS = {
-    "compiler": "15bdd8566474a9f119e3a1d8c991cfca972ac114f7d52edb7d6e57f6c779c923",
+    "compiler": "07b7d658ea02b7588700a3ff46da8927686418e2fa1e15c98f7d8a0d5e0d785c",
     "semantic": "ef4304a56f4d352b5882ce21ef4a490f77a3107b3d827d4e73ad39ad3a688e0d",
     "phase15": "e0f2909026328a5fc74cb432551e7665be33702af626bbac363e52a2febcc450",
     "project": "c032a23c7f0477df58cacc9374e2882bebad346bec9a539899878da062248013",
@@ -232,6 +232,8 @@ PHASE53_ADDED_PATHS = {
     "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
 }
 PHASE53_ALLOWLIST_PATHS = PHASE53_MODIFIED_PATHS | PHASE53_ADDED_PATHS
+SLICE2_BASE_HEAD_SHA = "d52a4a80aee1a1708d8fd480f63aa450a1c25eff"
+SLICE2_STATE_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
 
 OWNER_HANDOFFS = (
     "PHASE_53",
@@ -411,7 +413,15 @@ def _assert_allowed_dirty_state(
     origin_main: str | None,
 ) -> None:
     dirty = tracked | untracked
-    assert dirty in (set(), SLICE9_ALLOWLIST_PATHS, PHASE53_ALLOWLIST_PATHS)
+    slice2_modified = _literal_string_set(SLICE2_STATE_REL, "MODIFIED_PATHS")
+    slice2_added = _literal_string_set(SLICE2_STATE_REL, "ADDED_PATHS")
+    slice2_allowlist = slice2_modified | slice2_added
+    assert dirty in (
+        set(),
+        SLICE9_ALLOWLIST_PATHS,
+        PHASE53_ALLOWLIST_PATHS,
+        slice2_allowlist,
+    )
     if not dirty:
         assert tracked == untracked == set()
         availability = (
@@ -453,6 +463,12 @@ def _assert_allowed_dirty_state(
                 origin_main=origin_main,
                 exact_main_refs=True,
             )
+        return
+    if dirty == slice2_allowlist:
+        assert tracked == slice2_modified
+        assert untracked == slice2_added
+        assert branch == "main"
+        assert head == main == origin_main == SLICE2_BASE_HEAD_SHA
         return
     if dirty == PHASE53_ALLOWLIST_PATHS:
         assert tracked == PHASE53_MODIFIED_PATHS
@@ -567,6 +583,23 @@ def _literal_tuple(relative: str, name: str) -> tuple[str, ...]:
             assert all(isinstance(item, str) for item in result)
             return cast(tuple[str, ...], result)
     raise AssertionError(f"missing literal tuple {name}")
+
+
+def _literal_string_set(relative: str, name: str) -> set[str]:
+    tree = ast.parse(_read(relative), filename=relative)
+    for node in tree.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(
+            isinstance(target, ast.Name) and target.id == name
+            for target in node.targets
+        ):
+            continue
+        result = ast.literal_eval(node.value)
+        assert isinstance(result, set)
+        assert all(isinstance(item, str) for item in result)
+        return cast(set[str], result)
+    raise AssertionError(f"missing literal string set {name}")
 
 
 def _families() -> tuple[tuple[CapabilityFact, ...], ...]:
@@ -1021,7 +1054,7 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
     assert (
         sum(path.endswith(".py") for path in readable),
         sum(path.endswith(".md") for path in readable),
-    ) == (515, 228)
+    ) == (516, 229)
     for digest, expected in (
         (PATH_DIGESTS["compiler"], 16),
         (PATH_DIGESTS["semantic"], 30),
@@ -1096,9 +1129,9 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
         )
         for path in test_files
     )
-    assert (len(test_files), top_functions) == (434, 4178)
-    assert 69 + 23 + 13 + 6 == 111
-    assert 6236 - 146 == 6090
+    assert (len(test_files), top_functions) == (435, 4194)
+    assert 70 + 76 == 146
+    assert 6306 - 185 == 6121
     assert sum(_pytest_shape(relative)[1] for relative in SLICE_TEST_RELS) == 417
     tier1 = _tier1_operands()
     tier1_payload = "".join(item + "\n" for item in tier1).encode()
@@ -1200,16 +1233,17 @@ def test_static_git_helper_and_exact_slice9_dirty_set_are_locked() -> None:
         origin_main=_git_optional_ref("refs/remotes/origin/main"),
     )
     if tracked or untracked:
-        expected_modified = (
-            PHASE53_MODIFIED_PATHS
-            if tracked | untracked == PHASE53_ALLOWLIST_PATHS
-            else SLICE9_MODIFIED_PATHS
-        )
-        expected_added = (
-            PHASE53_ADDED_PATHS
-            if tracked | untracked == PHASE53_ALLOWLIST_PATHS
-            else SLICE9_ADDED_PATHS
-        )
+        slice2_modified = _literal_string_set(SLICE2_STATE_REL, "MODIFIED_PATHS")
+        slice2_added = _literal_string_set(SLICE2_STATE_REL, "ADDED_PATHS")
+        if tracked | untracked == slice2_modified | slice2_added:
+            expected_modified = slice2_modified
+            expected_added = slice2_added
+        elif tracked | untracked == PHASE53_ALLOWLIST_PATHS:
+            expected_modified = PHASE53_MODIFIED_PATHS
+            expected_added = PHASE53_ADDED_PATHS
+        else:
+            expected_modified = SLICE9_MODIFIED_PATHS
+            expected_added = SLICE9_ADDED_PATHS
         assert tracked == expected_modified
         assert untracked == expected_added
         assert name_status == tuple(f"M\t{path}" for path in sorted(expected_modified))

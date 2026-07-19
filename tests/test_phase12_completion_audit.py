@@ -36,8 +36,8 @@ ALL_GOLDENS_HASH = "0e26a0b367a2ae849e5ec1e9a239be42765bea2c352242db5da930ab56b4
 HISTORICAL_GOLDENS_HASH = (
     "11d4343245dc18fd574999cbef5bff7c316d90975b3856ed729e8d2c1d579cf0"
 )
-BOUNDARY_HASH = "15bdd8566474a9f119e3a1d8c991cfca972ac114f7d52edb7d6e57f6c779c923"
-GENERATED_HASH = "7ac3aea913b1453a972456be0171a2c292991e71bde3e94a4056b4bf537b5c4e"
+BOUNDARY_HASH = "07b7d658ea02b7588700a3ff46da8927686418e2fa1e15c98f7d8a0d5e0d785c"
+GENERATED_HASH = "bc5be46411f947c4d591e81ce8dd8345140fd5e10276f2ff0055eccfc12babe4"
 EXPECTED_BLOBS = {
     "scripts/validate.py": "e1607a47da34ff868ca09a128c8897a6a0dbad21",
     "scripts/check_generated.py": "51081d5337e0659e73f8666ba639c0d4c3fe3a4b",
@@ -181,6 +181,8 @@ def test_grammar_and_parser_keep_the_exact_phase12_surface() -> None:
         "ASC: 'asc';",
         "DESC: 'desc';",
         "GROUP: 'group';",
+        "WINDOW: 'window';",
+        "PARTITION: 'partition';",
     ):
         assert grammar.count(token) == 1
     for token in (
@@ -190,7 +192,6 @@ def test_grammar_and_parser_keep_the_exact_phase12_surface() -> None:
         "COLLATE:",
         "JOIN:",
         "HAVING:",
-        "WINDOW:",
         "INSERT:",
         "UPDATE:",
         "DELETE:",

@@ -52,7 +52,7 @@ LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf2
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 SIGNATURE_SHA256 = "810f347080e0bb7dc674821aa6387c5f7618ac216832194ef19820326eef71d2"
 CONTEXT_SHA256 = "132371eccca00ca9f8722a34f1ea0f540933515e560639ee12e53aee6594c60c"
-COMPILER_DIGEST = "15bdd8566474a9f119e3a1d8c991cfca972ac114f7d52edb7d6e57f6c779c923"
+COMPILER_DIGEST = "07b7d658ea02b7588700a3ff46da8927686418e2fa1e15c98f7d8a0d5e0d785c"
 SEMANTIC_DIGEST = "ef4304a56f4d352b5882ce21ef4a490f77a3107b3d827d4e73ad39ad3a688e0d"
 PHASE15_SUBSET_DIGEST = (
     "e0f2909026328a5fc74cb432551e7665be33702af626bbac363e52a2febcc450"
@@ -1928,7 +1928,7 @@ def test_static_test_inventory_and_tier1_selection_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (434, 4178)
+    assert (len(test_files), top_level_functions) == (435, 4194)
 
     compatible, per_file_items = _prior_compatible_nodes()
     assert (len(compatible), per_file_items) == (69, (24, 33, 63))

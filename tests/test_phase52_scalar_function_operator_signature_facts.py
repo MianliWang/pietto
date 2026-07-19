@@ -1415,7 +1415,7 @@ def test_static_test_inventory_tier1_and_tier2_manifest_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (434, 4178)
+    assert (len(test_files), top_level_functions) == (435, 4194)
     assert len(DIRECT_TIER1_NODES) == len(set(DIRECT_TIER1_NODES)) == 44
     for node_id in DIRECT_TIER1_NODES:
         path, function = node_id.split("::", maxsplit=1)

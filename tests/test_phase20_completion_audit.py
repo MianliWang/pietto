@@ -45,8 +45,8 @@ MYSQL_INPUT = Path("tests/fixtures/phase20/mysql_sum_avg_aggregate.pietto")
 POSTGRES_GOLDEN = "tests/fixtures/golden/emit_sql_sum_avg_aggregate.sql"
 MYSQL_GOLDEN = "tests/fixtures/golden/emit_mysql_sum_avg_aggregate.sql"
 
-GRAMMAR_HASH = "54484b73f76ae051e0e4f27cc47bc99a0687da7c0e4f40ab4da06a640a54369a"
-GENERATED_HASH = "7ac3aea913b1453a972456be0171a2c292991e71bde3e94a4056b4bf537b5c4e"
+GRAMMAR_HASH = "1c394db1f72561022941e0e937899e2d340880de220ebfa85cf387b86573384e"
+GENERATED_HASH = "bc5be46411f947c4d591e81ce8dd8345140fd5e10276f2ff0055eccfc12babe4"
 
 SPAN = SourceSpan(
     path="phase20-completion-audit.pietto",

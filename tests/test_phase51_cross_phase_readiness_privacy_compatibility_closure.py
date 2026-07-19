@@ -94,6 +94,8 @@ PHASE52_UNTRACKED_PATHS = {
     "docs/spec/phase52-core-type-system-capability-foundation-scope-lock-v1.md",
     "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
 }
+SLICE2_BASE_HEAD_SHA = "d52a4a80aee1a1708d8fd480f63aa450a1c25eff"
+SLICE2_STATE_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
 BOUNDARY_PATHS = (
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
@@ -889,7 +891,7 @@ def test_cross_phase_transition_and_live_identifier_inventory_is_exact() -> None
 def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> None:
     compiler_digest = _compiler_digest()
     assert compiler_digest == (
-        "15bdd8566474a9f119e3a1d8c991cfca972ac114f7d52edb7d6e57f6c779c923"
+        "07b7d658ea02b7588700a3ff46da8927686418e2fa1e15c98f7d8a0d5e0d785c"
     )
     for relative_path in BOUNDARY_PATHS:
         boundary_values = re.findall(
@@ -1062,8 +1064,25 @@ def test_slice11_contract_plan_allowlist_and_protected_boundaries_are_locked() -
     assert (
         "docs/spec/pietto-active-roadmap-phase51-60-v1.md" not in EXPECTED_GATE2_PATHS
     )
+    slice2_tree = ast.parse(_read(REPO_ROOT / SLICE2_STATE_REL))
+    slice2_sets = {
+        node.targets[0].id: set(ast.literal_eval(node.value))
+        for node in slice2_tree.body
+        if isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
+        and node.targets[0].id in {"MODIFIED_PATHS", "ADDED_PATHS"}
+    }
+    assert set(slice2_sets) == {"MODIFIED_PATHS", "ADDED_PATHS"}
+    slice2_modified = slice2_sets["MODIFIED_PATHS"]
+    slice2_added = slice2_sets["ADDED_PATHS"]
     dirty_paths = _dirty_paths()
-    assert dirty_paths in (set(), EXPECTED_GATE2_PATHS, PHASE52_GATE2_PATHS)
+    assert dirty_paths in (
+        set(),
+        EXPECTED_GATE2_PATHS,
+        PHASE52_GATE2_PATHS,
+        slice2_modified | slice2_added,
+    )
     untracked_paths = set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
@@ -1071,7 +1090,14 @@ def test_slice11_contract_plan_allowlist_and_protected_boundaries_are_locked() -
         set(),
         EXPECTED_UNTRACKED_PATHS,
         PHASE52_UNTRACKED_PATHS,
+        slice2_added,
     )
+    if dirty_paths == slice2_modified | slice2_added:
+        assert untracked_paths == slice2_added
+        assert set(_git_output(["diff", "--name-only"]).splitlines()) == (
+            slice2_modified
+        )
+        assert _git_output(["rev-parse", "HEAD"]) == SLICE2_BASE_HEAD_SHA
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
 
     for relative_path, expected_hash in PROTECTED_HASHES.items():

@@ -28,13 +28,13 @@ STATUS_PATHS = (
 
 LOCKED_FILE_HASHES = {
     "grammar/Pietto.g4": (
-        "54484b73f76ae051e0e4f27cc47bc99a0687da7c0e4f40ab4da06a640a54369a"
+        "1c394db1f72561022941e0e937899e2d340880de220ebfa85cf387b86573384e"
     ),
     "src/pietto/ast_nodes.py": (
         "0464445d598b676bfd65ebb0cc59db8cc5f51acea919704c918473bb63be7d0a"
     ),
     "src/pietto/ast_builder.py": (
-        "358de38055709b343237ccdde18b3964aacba285a5f0f5d68cdc38530fb95c22"
+        "e74abde266f4da9be6b3a18e48985042678ecfdcd1d9d04906f169af994c9d6e"
     ),
     PARSER_TEST_PATH: (
         "805550f071d971fb6b37fb0f1ab8280c185d888f2f1a15eb806173022477840c"
@@ -59,7 +59,7 @@ LOCKED_FILE_HASHES = {
 LOCKED_GROUP_HASHES = {
     "generated": (
         8,
-        "7ac3aea913b1453a972456be0171a2c292991e71bde3e94a4056b4bf537b5c4e",
+        "bc5be46411f947c4d591e81ce8dd8345140fd5e10276f2ff0055eccfc12babe4",
     ),
     "semantic": (
         27,

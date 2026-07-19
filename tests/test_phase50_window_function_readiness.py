@@ -345,11 +345,22 @@ def test_current_source_has_generic_calls_but_no_window_model() -> None:
     assert "class CallExpr(Expression):" in ast_source
     assert "class CallIR(ExpressionIR):" in ir_model
     assert "class AggregateCallIR(ExpressionIR):" in ir_model
+    for grammar_rule in (
+        "windowExpression",
+        "windowSpec",
+        "partitionByClause",
+        "windowPartitionItem",
+        "WINDOW: 'window';",
+        "PARTITION: 'partition';",
+    ):
+        assert grammar_rule in grammar, grammar_rule
+    assert "WINDOW=" in generated_parser
+    assert "PARTITION=" in generated_parser
+    assert "'window'" in generated_parser
+    assert "'partition'" in generated_parser
 
     for token in (
         "OVER",
-        "WINDOW",
-        "PARTITION",
         "QUALIFY",
         "ROWS",
         "RANGE",

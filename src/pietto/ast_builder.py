@@ -468,6 +468,15 @@ class AstBuilder(PiettoVisitor):
     def visitSelectItem(self, ctx: _AntlrContext) -> SelectItem:
         """Build one projection; assignment syntax is confined to this rule."""
 
+        if ctx.windowExpression() is not None:
+            window_token = ctx.windowExpression().windowSpec().WINDOW().getSymbol()
+            raise AstBuildError(
+                "Window syntax is recognized, but WindowSpec AST preservation "
+                "starts in Phase 53 Slice 3.",
+                line=window_token.line,
+                column=window_token.column + 1,
+            )
+
         return SelectItem(
             span=self._span(ctx),
             alias=ctx.identifier().getText() if ctx.ASSIGN() is not None else None,

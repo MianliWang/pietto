@@ -237,3 +237,36 @@ Gate 3 publishes only the authorized repository commit and observes natural CI. 
 STOP if a controlling report, repository identity, protected fingerprint, Phase 52 baseline, remote ref, natural-CI identity, package version, tag/release state, historical prefix, heading manifest, phase route, owner mapping, selector identity, reader closure, inventory arithmetic, exact `A4/M7/D0` state, or validation count mismatches.
 
 STOP if any path outside the allowlist changes; the index becomes non-empty; grammar, production source, generated artifacts, public schema, workflow, package, dependency, runtime, release, or Rust implementation becomes necessary; a non-routine functional failure appears; a broad bypass, extra deselection, second formatter, destructive cleanup, staging, commit, push, or GitHub mutation would be required; or Phase 53 activation would be preclaimed. Preserve the exact uncommitted state and hand off through a separately authorized gate.
+
+## Slice 2 Pietto-native Window Syntax And Contextual Grammar Contract
+
+Phase 53 is `ACTIVE`, and Slice 1 is `COMPLETED`. Slice 2 remains `UNSTARTED` throughout Gate 2. Gate 2 owns only the bounded grammar, generated-source, raw-CST, compatibility-reader, deterministic parser-diagnostic, documentation, and minimal fail-closed `AstBuilder` work recorded here. Slice 2 becomes `COMPLETED` only after a separately authorized Gate 3 publishes the exact Gate 2 result and the unique natural `CI / push / main`, attempt 1, succeeds at the exact new `headSha`.
+
+The canonical Pietto-native source spelling is an explicitly aliased direct call followed by an inline unnamed `window:` block:
+
+```pietto
+query ranked:
+    from rows
+    select:
+        rn = row_number() window:
+            partition by:
+                account_id
+                region
+            order by:
+                observed_at desc
+                sequence_id
+```
+
+Exact lowercase `window` is globally reserved and case-sensitive. `Window` and `WINDOW` remain identifiers. `partition` is tokenized for the bounded `partition by:` subclause and is returned through the compatibility `identifier` rule. `over`, all eight approved window-function names, and future frame vocabulary remain ordinary contextual identifiers. The syntax requires one explicit output alias and binds one `window:` suffix only to a direct `dottedName callSuffix`; it does not attach to literals, parenthesized expressions, binary expressions, nested calls, or unaliased projections.
+
+The inline spec contains an optional nonempty `partition by:` block and an optional nonempty `order by:` block at grammar level, with at least one present. When both occur, partition precedes order, and each occurs at most once. Partition items are generic expressions, one per line. Window-local ordering reuses the existing generic-expression item plus optional `asc` or `desc`. Empty blocks, duplicates, reversed clause order, named windows, frames, `nulls first` / `nulls last`, multiple suffixes, and `qualify` remain rejected or unsupported. Function identity, arity, required-order policy, operand binding, result type, nullability, and stage legality remain later semantic work.
+
+Slice 2 deliberately adds no `WindowSpec` AST carrier. `AstBuilder.visitSelectItem` detects a recognized `windowExpression`, locates the exact `WINDOW` token, and raises the existing `AstBuildError` with `Window syntax is recognized, but WindowSpec AST preservation starts in Phase 53 Slice 3.` The public parser therefore returns one deterministic `PIE-P1000` error rather than silently dropping the window spec or constructing an ordinary `CallExpr`. `src/pietto/parser_api.py` and `src/pietto/ast_nodes.py` remain byte-identical.
+
+The exact Gate 2 repository scope is `A2/M67/D0`: this plan, the grammar, `AstBuilder`, seven generated ANTLR files, 57 compatibility/hash/state readers, plus the new Slice 2 specification and 16-function/70-item parser contract test. The generated inventory remains eight, and `src/pietto/generated/__init__.py` remains byte-identical. Direct and nested grammar/generated/`AstBuilder`/compiler hashes, inventory facts, and repository-state readers migrate without weakening equality or escaping that allowlist.
+
+Future committed inventory is exactly 841 tracked files, 516 Python files, 229 Markdown files, 435 test modules, 4194 top-level test functions, 6306 collected items, 8 generated files, and 37 goldens.
+
+Gate 2 validation is fixed at 146 focused passes from the exact 77-operand selector; `6121 passed, 185 deselected` from the exact dirty broad-suite overlay; generated inventory 8; and a clean-CI projection of 6306 passes per Python job. Gate 2 leaves all 69 paths unstaged and uncommitted with an empty index. It does not stage, commit, push, poll or mutate CI, tag, create a Release or PR, regenerate goldens, run package smoke, or change the package version from `0.1.0`.
+
+This slice adds no semantic catalog, generic binding, nullability formula, WINDOW-stage fact, project result role, dependency or lineage, IR, SQL lowering, public schema, CLI behavior, runtime, database, package, workflow, release, or Rust behavior. Those surfaces remain owned by their later slices and require separate authorization.
