@@ -15,6 +15,7 @@ SCOPE_PATH = (
     / "docs/spec/phase52-core-type-system-capability-foundation-scope-lock-v1.md"
 )
 ROADMAP_PATH = REPO_ROOT / "docs/spec/pietto-active-roadmap-phase51-60-v1.md"
+CURRENT_ROADMAP_PATH = REPO_ROOT / "docs/spec/pietto-active-roadmap-phase53-70-v1.md"
 SELF_PATH = (
     REPO_ROOT
     / "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py"
@@ -140,12 +141,33 @@ SLICE9_MODIFIED_PATHS = {
 }
 SLICE9_ADDED_PATHS = {SLICE9_SPEC_REL, SLICE9_TEST_REL}
 SLICE9_ALLOWLIST_PATHS = SLICE9_MODIFIED_PATHS | SLICE9_ADDED_PATHS
+PHASE53_BASE_HEAD_SHA = "b8029699ccc51bfa500856155b18e666898cb883"
+PHASE53_MODIFIED_PATHS = {
+    "docs/spec/pietto-active-roadmap-phase51-60-v1.md",
+    "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
+    "tests/test_phase52_completion_audit_and_status_lock.py",
+    "tests/test_phase52_aggregate_signature_algebra_facts.py",
+    "tests/test_phase52_expression_stage_clause_capability_facts.py",
+    "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
+    "tests/test_phase52_scalar_function_operator_signature_facts.py",
+}
+PHASE53_ADDED_PATHS = {
+    "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md",
+    "docs/spec/phase53-window-functions-generic-signature-nullability-scope-lock-v1.md",
+    "docs/spec/pietto-active-roadmap-phase53-70-v1.md",
+    "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
+}
+PHASE53_ALLOWLIST_PATHS = PHASE53_MODIFIED_PATHS | PHASE53_ADDED_PATHS
 SLICE9_STATUS_H3 = "Slice 9 Gate 2 Bounded Implementation Status"
 RECONCILIATION_2_H3 = (
     "### Reconciliation 2 — Phase 52 Activation And Exact-current Capability Route Lock"
 )
 RECONCILIATION_3_H3 = (
     "### Reconciliation 3 — Phase 52 Conditional Completion And Phase 53 Handoff"
+)
+RECONCILIATION_4_H3 = (
+    "### Reconciliation 4 — Phase 52 Completion, Phase 53–70 Current-authority "
+    "Handoff, Release, And Rust Route"
 )
 PRE_RECONCILIATION_2_SHA256 = (
     "b05e57e27afb232b897e7bcec911d8f756beed204a1d0798380b7a510b9a4f80"
@@ -530,10 +552,15 @@ def test_roadmap_reconciliation2_preserves_exact_prefix_and_eof_shape() -> None:
         == PRE_RECONCILIATION_3_SHA256
     )
     assert roadmap.count(RECONCILIATION_3_H3) == 1
-    start = roadmap.index(RECONCILIATION_3_H3)
-    assert "\n### " not in roadmap[start + len(RECONCILIATION_3_H3) :]
+    assert roadmap.count(RECONCILIATION_4_H3) == 1
+    reconciliation3 = roadmap[
+        roadmap.index(RECONCILIATION_3_H3) : roadmap.index(RECONCILIATION_4_H3)
+    ]
+    reconciliation4 = roadmap[roadmap.index(RECONCILIATION_4_H3) :]
+    assert "\n### " not in reconciliation3
+    assert "\n### " not in reconciliation4
     assert roadmap.endswith("\n")
-    assert roadmap.rstrip().endswith("Phase 53 Slice 1 Gate 0 and Gate 1`.")
+    assert CURRENT_ROADMAP_PATH.is_file()
 
 
 def test_reconciliation2_conditional_lifecycle_and_next_gate_are_locked() -> None:
@@ -558,11 +585,27 @@ def test_reconciliation2_conditional_lifecycle_and_next_gate_are_locked() -> Non
         in reconciliation
     )
     assert "Phase 52 Slice 2 Gate 0 and Gate 1" in reconciliation
-    reconciliation3 = roadmap[roadmap.index(RECONCILIATION_3_H3) :]
+    reconciliation3 = roadmap[
+        roadmap.index(RECONCILIATION_3_H3) : roadmap.index(RECONCILIATION_4_H3)
+    ]
     assert "Phase 52 remains ACTIVE and incomplete" in reconciliation3
     assert "Phase 52 are `COMPLETED`" in reconciliation3
     assert "Phases 53–60 remain `UNSTARTED`" in reconciliation3
     assert "Phase 53 Slice 1 Gate 0 and Gate 1" in reconciliation3
+    reconciliation4 = roadmap[roadmap.index(RECONCILIATION_4_H3) :]
+    normalized4 = " ".join(reconciliation4.split())
+    for required in (
+        "b8029699ccc51bfa500856155b18e666898cb883",
+        "Phase 53 remains `UNSTARTED`",
+        "pietto-active-roadmap-phase53-70-v1.md",
+        "sole current roadmap authority",
+        "Phase 53 Slice 1 Gate 3",
+        "no automatic implementation authorization",
+    ):
+        assert required in normalized4, required
+    assert _headings_at_level(CURRENT_ROADMAP_PATH, 1) == (
+        "Pietto Active Roadmap Phase 53–70 v1",
+    )
 
 
 def test_phase51_compatibility_migrations_preserve_historical_locks() -> None:
@@ -763,6 +806,7 @@ def test_static_audit_shape_allowlist_and_heading_matching_are_locked() -> None:
         PHASE52_GATE2_PATHS,
         PHASE52_SLICE1_CI_REPAIR_PATHS,
         SLICE9_ALLOWLIST_PATHS,
+        PHASE53_ALLOWLIST_PATHS,
     )
     untracked_paths = set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
@@ -771,6 +815,7 @@ def test_static_audit_shape_allowlist_and_heading_matching_are_locked() -> None:
         set(),
         PHASE52_UNTRACKED_PATHS,
         SLICE9_ADDED_PATHS,
+        PHASE53_ADDED_PATHS,
     )
     if _dirty_paths() == SLICE9_ALLOWLIST_PATHS:
         assert set(_git_output(["diff", "--name-only"]).splitlines()) == (
@@ -781,5 +826,14 @@ def test_static_audit_shape_allowlist_and_heading_matching_are_locked() -> None:
         assert _git_output(["rev-parse", "HEAD"]) == SLICE9_BASE_HEAD_SHA
         assert _git_output(["rev-parse", "main"]) == SLICE9_BASE_HEAD_SHA
         assert _git_output(["rev-parse", "origin/main"]) == SLICE9_BASE_HEAD_SHA
+    if _dirty_paths() == PHASE53_ALLOWLIST_PATHS:
+        assert set(_git_output(["diff", "--name-only"]).splitlines()) == (
+            PHASE53_MODIFIED_PATHS
+        )
+        assert untracked_paths == PHASE53_ADDED_PATHS
+        assert _git_output(["branch", "--show-current"]) == "main"
+        assert _git_output(["rev-parse", "HEAD"]) == PHASE53_BASE_HEAD_SHA
+        assert _git_output(["rev-parse", "main"]) == PHASE53_BASE_HEAD_SHA
+        assert _git_output(["rev-parse", "origin/main"]) == PHASE53_BASE_HEAD_SHA
     assert _headings_at_level(PLAN_PATH, 2) == PLAN_H2
     assert _headings_at_level(SCOPE_PATH, 2) == SCOPE_H2

@@ -534,3 +534,122 @@ This reconciliation creates no production carrier and changes no compiler behavi
 8. No deferral becomes anonymous. This reconciliation authorizes no Phase 53 implementation, compiler or public behavior, package-version change, tag, release, publish, upload, signing, attestation, manual CI operation, rerun, cancellation, or post-CI status-flip commit.
 
 The exact future Slice 9 commit SHA and natural CI run ID belong only in Gate 3 evidence. Package and CLI version remain `0.1.0`, and no tag or release exists. The repository-standard next handoff after the completion condition is `Phase 53 Slice 1 Gate 0 and Gate 1`.
+
+### Reconciliation 4 — Phase 52 Completion, Phase 53–70 Current-authority Handoff, Release, And Rust Route
+
+1. Reconciliation 3 is unchanged and is the direct predecessor. The complete
+   pre-Reconciliation-4 bytes, including the final newline, remain an exact
+   41,661-byte prefix with SHA-256
+   `cd5a297649a757e49d271b59f817b42a907a3cb28b963bca10556e4c4faca6e7`.
+   `docs/spec/pietto-roadmap-phase45-60-v1.md` remains immutable historical
+   evidence, and this Phase 51–60 roadmap becomes immutable history through
+   Reconciliation 4 after the activation condition below.
+2. The trusted Phase 52 completion baseline is commit
+   `b8029699ccc51bfa500856155b18e666898cb883`, parent
+   `36e466535d923f708a0201ae15a5708f06f2b1f8`, tree
+   `dc7686d7afcfb00cd41f72d2f7fb69f245edf3c5`, and subject
+   `Complete Phase 52 core type system capability foundation`. Natural
+   `CI / push / main` run `29642838835`, attempt 1, was
+   `completed / success` with `headSha` exactly matching that commit; its
+   Python 3.12 and Python 3.13 jobs each recorded `6167 passed`, eight
+   generated files, 37 goldens, package-smoke success, and installed CLI
+   version `0.1.0` in a depth-one checkout.
+3. Phase 52 and all nine Phase 52 slices are `COMPLETED`. During Phase 53
+   Slice 1 Gate 2, Phase 53 remains `UNSTARTED`, Phases 54–70 remain
+   `UNSTARTED`, and roadmap persistence is neither phase activation nor
+   implementation authorization. There is no automatic implementation
+   authorization.
+4. `docs/spec/pietto-active-roadmap-phase53-70-v1.md` is the successor and,
+   after the exact activation condition in item 12, the sole current roadmap
+   authority. Both predecessor roadmaps remain append-only historical
+   evidence. Current source and completed-phase evidence continue to take
+   priority over stale descriptive wording, but no predecessor byte is
+   rewritten or reinterpreted in place.
+5. The current Phase 53 title is `Window Functions, Generic Signature
+   Compatibility, And Nullability Foundation`. Its exact sixteen-slice route
+   expands the historical three-ranking-function readiness wording to the
+   approved bounded production route for `row_number`, `rank`, `dense_rank`,
+   `percent_rank`, `cume_dist`, `ntile`, `lag`, and `lead`, together with the
+   private generic-compatibility and nullability foundations. This owner
+   transfer preserves Phase 50 readiness evidence rather than modifying it.
+6. Phases 54–70 have unique current owners in the successor roadmap. Phases
+   54–59 retain local modules, deterministic semantic-package assets,
+   capability profiles, PostgreSQL extension signatures, public inspection
+   Artifact v1, and local package graph/attribution/provenance/lineage,
+   respectively. Phase 61 owns project IR; Phase 62 owns relationship/JOIN/
+   grain/fanout safety; Phase 63 owns multi-relation SQL and `QUALIFY`; Phase
+   64 owns advanced generic types and native mapping; Phase 65 owns advanced
+   aggregation; Phase 66 owns advanced module/package assets; Phase 67 owns
+   remote package management; Phase 68 owns ranges, solving, the canonical
+   lockfile, and the first Rust kernel; Phase 69 owns extension lowering and
+   additional dialect backends; and Phase 70 owns public expansion,
+   ecosystem completion, the Rust migration decision, and v0.2 release
+   readiness.
+7. The twelve stable post-60 owner slots are mapped exhaustively, with no
+   anonymous remainder:
+
+   | Stable owner slot | Current owner |
+   | --- | --- |
+   | `POST60_ADVANCED_AGGREGATION_GROUPING` | Phase 65 |
+   | `POST60_ADVANCED_TYPE_NATIVE_MAPPING` | Phase 64 |
+   | `POST60_ADVANCED_WINDOWS` | Phase 53 for bounded ranking/navigation, Phase 60 for advanced windows, and Phase 63 for `QUALIFY` |
+   | `POST60_RELATIONSHIP_JOIN_GRAIN_FANOUT` | Phase 62 |
+   | `POST60_PROJECT_IR` | Phase 61 |
+   | `POST60_MULTI_RELATION_SQL` | Phase 63 |
+   | `POST60_PUBLIC_PROJECT_SCHEMA_LINEAGE_EXPANSION` | Phase 70 |
+   | `POST60_ADVANCED_MODULE_PACKAGE_ASSETS` | Phase 66 |
+   | `POST60_REMOTE_PACKAGE_MANAGER` | Phase 67 |
+   | `POST60_DEPENDENCY_SOLVER_LOCKFILE` | Phase 68 |
+   | `POST60_ADDITIONAL_DIALECT_BACKENDS` | Phase 69 |
+   | `POST60_EXTENSION_LOWERING` | Phase 69 |
+
+   For `POST60_ADVANCED_WINDOWS`, Phase 53 absorbs `percent_rank`,
+   `cume_dist`, `ntile`, `lag`, `lead`, bounded grouped ranking, multiple
+   outputs, downstream propagation, and final-order aliases; Phase 60 owns
+   frames, named windows and inheritance, aggregate-as-window, `first_value`,
+   `last_value`, `nth_value`, and advanced window expressions; Phase 63 owns
+   portable `QUALIFY` lowering.
+8. Phase 60 changes from the predecessor's readiness-only checkpoint to
+   `Advanced Window Frames And Phase 51–60 Ecosystem / Release Readiness
+   Checkpoint`, a bounded production foundation plus checkpoint. It owns
+   `ROWS`, `RANGE`, the `GROUPS` dialect posture, frame bounds, value-window
+   functions, named windows and inheritance, aggregate-as-window, advanced
+   expressions, the Phase 51–60 coherence audit, and the release-readiness
+   audit. Phase 60 Gate 3 must not publish or tag.
+9. The release route is separate from phase publication. An optional
+   TestPyPI/private technical preview after Phase 58 and Release 0.1.0 after
+   Phase 60 each require their own authorization. Release Gate 0/1 owns
+   readiness and policy; Release Gate 2 owns exact edits, reproducible
+   artifacts, smoke validation, hashes, and any authorized preview without
+   production publication; Release Gate 3 alone may own an exact release
+   commit, tag, GitHub Release, PyPI publication, signatures, and
+   attestations. Phase 70 targets a v0.2.0 ecosystem beta, not automatic
+   v1.0 readiness.
+10. The Rust route forbids a big-bang rewrite. Phases 53–60 establish
+    immutable private carriers, stable identities and enum values,
+    deterministic serialization, explicit semantic procedures,
+    differential-testable boundaries, stable AST/IR ownership, exact
+    diagnostics, and no cross-language dependency on Python object identity.
+    Maintenance Phase 5 supplies release engineering, measured performance
+    baselines, and PyO3/maturin readiness. Phase 68 is the preferred first
+    production Rust owner; later migration remains component-by-component,
+    differential-tested, benchmarked, and explicitly fallible.
+11. This reconciliation and the successor roadmap mutate no grammar,
+    generated source, parser behavior, AST, semantic procedure, capability
+    fact, project carrier, IR, SQL, diagnostic, CLI, CLI JSON v1, Project JSON
+    v2, Semantic Metadata Artifact v1, public Python API, dependency,
+    workflow, package metadata, version, runtime, database, tag, release,
+    publication, signing, or attestation surface. Catalog existence remains
+    distinct from compiler legality, compiler legality from backend support,
+    and private lineage from public exposure.
+12. The Phase 53 Slice 1 Gate 2 result remains uncommitted and unstaged under
+    its exact `A4/M7/D0` allowlist and does not activate Phase 53. Activation
+    requires a separately authorized Phase 53 Slice 1 Gate 3 to stage exactly
+    that result,
+    create exactly one commit, perform exactly one normal push to `main`, and
+    observe the unique natural `CI / push / main`, attempt 1, reach
+    `completed / success` with `headSha` exactly equal to the new commit.
+    Only then does this successor become the sole current roadmap authority,
+    Phase 53 become `ACTIVE`, and Slice 1 become complete. No post-CI
+    status-flip commit is permitted or required, and no later Phase 53 slice
+    is automatically authorized.

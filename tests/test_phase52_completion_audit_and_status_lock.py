@@ -36,6 +36,7 @@ from pietto.semantic.capability_lookup import (
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLAN_REL = "docs/plan/phase-52-core-type-system-capability-foundation.md"
 ROADMAP_REL = "docs/spec/pietto-active-roadmap-phase51-60-v1.md"
+CURRENT_ROADMAP_REL = "docs/spec/pietto-active-roadmap-phase53-70-v1.md"
 SPEC_REL = "docs/spec/phase52-completion-audit-and-status-lock-v1.md"
 SELF_REL = "tests/test_phase52_completion_audit_and_status_lock.py"
 SLICE1_TEST_REL = (
@@ -191,6 +192,10 @@ PRE_RECONCILIATION_3_SHA256 = (
 RECONCILIATION_3_H3 = (
     "### Reconciliation 3 — Phase 52 Conditional Completion And Phase 53 Handoff"
 )
+RECONCILIATION_4_H3 = (
+    "### Reconciliation 4 — Phase 52 Completion, Phase 53–70 Current-authority "
+    "Handoff, Release, And Rust Route"
+)
 
 GATE2_BASE_HEAD_SHA = "36e466535d923f708a0201ae15a5708f06f2b1f8"
 GATE2_BASE_PARENT_SHA = "7a221ffdca91335a526ed12a1059340bda642fdb"
@@ -210,6 +215,23 @@ SLICE9_MODIFIED_PATHS = {
 }
 SLICE9_ADDED_PATHS = {SPEC_REL, SELF_REL}
 SLICE9_ALLOWLIST_PATHS = SLICE9_MODIFIED_PATHS | SLICE9_ADDED_PATHS
+PHASE53_BASE_HEAD_SHA = "b8029699ccc51bfa500856155b18e666898cb883"
+PHASE53_MODIFIED_PATHS = {
+    ROADMAP_REL,
+    SLICE1_TEST_REL,
+    SELF_REL,
+    SLICE5_TEST_REL,
+    SLICE6_TEST_REL,
+    SLICE7_TEST_REL,
+    SLICE8_TEST_REL,
+}
+PHASE53_ADDED_PATHS = {
+    "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md",
+    "docs/spec/phase53-window-functions-generic-signature-nullability-scope-lock-v1.md",
+    CURRENT_ROADMAP_REL,
+    "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
+}
+PHASE53_ALLOWLIST_PATHS = PHASE53_MODIFIED_PATHS | PHASE53_ADDED_PATHS
 
 OWNER_HANDOFFS = (
     "PHASE_53",
@@ -389,7 +411,7 @@ def _assert_allowed_dirty_state(
     origin_main: str | None,
 ) -> None:
     dirty = tracked | untracked
-    assert dirty in (set(), SLICE9_ALLOWLIST_PATHS)
+    assert dirty in (set(), SLICE9_ALLOWLIST_PATHS, PHASE53_ALLOWLIST_PATHS)
     if not dirty:
         assert tracked == untracked == set()
         availability = (
@@ -431,6 +453,12 @@ def _assert_allowed_dirty_state(
                 origin_main=origin_main,
                 exact_main_refs=True,
             )
+        return
+    if dirty == PHASE53_ALLOWLIST_PATHS:
+        assert tracked == PHASE53_MODIFIED_PATHS
+        assert untracked == PHASE53_ADDED_PATHS
+        assert branch == "main"
+        assert head == main == origin_main == PHASE53_BASE_HEAD_SHA
         return
     assert tracked == SLICE9_MODIFIED_PATHS
     assert untracked == SLICE9_ADDED_PATHS
@@ -822,11 +850,17 @@ def test_phase53_window_handoff_roadmap_reconciliation_and_next_gate_are_locked(
 ):
     roadmap = _read(ROADMAP_REL)
     marker = f"\n{RECONCILIATION_3_H3}\n"
-    prefix, separator, reconciliation = roadmap.partition(marker)
+    prefix, separator, remainder = roadmap.partition(marker)
     assert separator == marker
     assert hashlib.sha256(prefix.encode()).hexdigest() == PRE_RECONCILIATION_3_SHA256
     assert roadmap.count(RECONCILIATION_3_H3) == 1
+    reconciliation, separator, reconciliation4 = remainder.partition(
+        f"\n{RECONCILIATION_4_H3}\n"
+    )
+    assert separator == f"\n{RECONCILIATION_4_H3}\n"
+    assert roadmap.count(RECONCILIATION_4_H3) == 1
     assert "\n### " not in reconciliation
+    assert "\n### " not in reconciliation4
     assert roadmap.endswith("\n")
     for phrase in (
         "Phase 52 remains ACTIVE and incomplete",
@@ -836,6 +870,17 @@ def test_phase53_window_handoff_roadmap_reconciliation_and_next_gate_are_locked(
         "Phase 53 Slice 1 Gate 0 and Gate 1",
     ):
         assert phrase in reconciliation
+    current = _read(CURRENT_ROADMAP_REL)
+    current_handoff = " ".join((reconciliation4 + current).split())
+    for phrase in (
+        "Phase 53 remains `UNSTARTED`",
+        "sole current roadmap authority",
+        "Phase 53 Slice 1 Gate 3",
+        "Release 0.1.0",
+        "big-bang",
+        "no automatic implementation authorization",
+    ):
+        assert phrase in current_handoff, phrase
     facts = _all_facts()
     assert not any(
         fact.key.domain is CapabilityDomain.EXPRESSION_STAGE
@@ -976,7 +1021,7 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
     assert (
         sum(path.endswith(".py") for path in readable),
         sum(path.endswith(".md") for path in readable),
-    ) == (514, 225)
+    ) == (515, 228)
     for digest, expected in (
         (PATH_DIGESTS["compiler"], 16),
         (PATH_DIGESTS["semantic"], 30),
@@ -1051,7 +1096,9 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
         )
         for path in test_files
     )
-    assert (len(test_files), top_functions) == (433, 4164)
+    assert (len(test_files), top_functions) == (434, 4178)
+    assert 69 + 23 + 13 + 6 == 111
+    assert 6236 - 146 == 6090
     assert sum(_pytest_shape(relative)[1] for relative in SLICE_TEST_RELS) == 417
     tier1 = _tier1_operands()
     tier1_payload = "".join(item + "\n" for item in tier1).encode()
@@ -1104,6 +1151,7 @@ def test_completion_encoding_gate2_gate3_ci_and_no_release_boundaries_are_locked
         assert phrase in spec
     assert plan.count("### Slice 9 Gate 2 Bounded Implementation Status") == 1
     assert roadmap.count(RECONCILIATION_3_H3) == 1
+    assert roadmap.count(RECONCILIATION_4_H3) == 1
     assert (
         "Phase 53 is the next planned phase and is not automatically ACTIVE"
         in " ".join(spec.split())
@@ -1152,10 +1200,18 @@ def test_static_git_helper_and_exact_slice9_dirty_set_are_locked() -> None:
         origin_main=_git_optional_ref("refs/remotes/origin/main"),
     )
     if tracked or untracked:
-        assert tracked == SLICE9_MODIFIED_PATHS
-        assert untracked == SLICE9_ADDED_PATHS
-        assert name_status == tuple(
-            f"M\t{path}" for path in sorted(SLICE9_MODIFIED_PATHS)
+        expected_modified = (
+            PHASE53_MODIFIED_PATHS
+            if tracked | untracked == PHASE53_ALLOWLIST_PATHS
+            else SLICE9_MODIFIED_PATHS
         )
+        expected_added = (
+            PHASE53_ADDED_PATHS
+            if tracked | untracked == PHASE53_ALLOWLIST_PATHS
+            else SLICE9_ADDED_PATHS
+        )
+        assert tracked == expected_modified
+        assert untracked == expected_added
+        assert name_status == tuple(f"M\t{path}" for path in sorted(expected_modified))
     else:
         assert name_status == ()
