@@ -118,7 +118,7 @@ PHASE52_UNTRACKED_PATHS = {
     "docs/spec/phase52-core-type-system-capability-foundation-scope-lock-v1.md",
     "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
 }
-SLICE2_BASE_HEAD_SHA = "86b08e27bbe97589b143dc1043fb0ad743dbf88a"
+SLICE2_BASE_HEAD_SHA = "ee0cb021160ead5ea6c0bcc80e569f4fdfef67a3"
 SLICE2_STATE_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
 
 PHASE51_SLICE_ARTIFACTS = (
@@ -324,7 +324,7 @@ PROTECTED_HASHES = {
         "26cc0ae4a68518223d6bf600ad3c4b0b226618aa7ef31b2ae1c25924d2655169"
     ),
 }
-COMPILER_DIGEST = "b1605a853ff1be314308c5fc0214dc18e91f064f45be0a86dacaf0d305a1e0a8"
+COMPILER_DIGEST = "81bd90c78a57baddb39caec0121319e9c8f795e4f1fe10207e03647f015bca2b"
 PROJECT_PRIVATE_DIGEST = (
     "c032a23c7f0477df58cacc9374e2882bebad346bec9a539899878da062248013"
 )
@@ -1004,7 +1004,7 @@ def test_live_compiler_project_private_protected_version_and_tag_locks_are_dirty
     None
 ):
     compiler_count, compiler_digest = _compiler_digest()
-    assert (compiler_count, compiler_digest) == (82, COMPILER_DIGEST)
+    assert (compiler_count, compiler_digest) == (83, COMPILER_DIGEST)
     for relative_path in BOUNDARY_PATHS:
         boundary_values = re.findall(
             r'^BOUNDARY_HASH = "([0-9a-f]{64})"$',

@@ -70,18 +70,15 @@ FAIL_CLOSED_MESSAGE = (
     "Window syntax is recognized, but WindowSpec AST preservation starts in "
     "Phase 53 Slice 3."
 )
-BASE_HEAD_SHA = "86b08e27bbe97589b143dc1043fb0ad743dbf88a"
+BASE_HEAD_SHA = "ee0cb021160ead5ea6c0bcc80e569f4fdfef67a3"
 
 ADDED_PATHS = {
-    "docs/spec/phase53-window-spec-function-identity-ast-contract-v1.md",
-    "src/pietto/_window_identity.py",
-    "tests/test_phase53_window_spec_function_identity_ast_contract.py",
+    "docs/spec/phase53-generic-type-variable-exact-compatibility-contract-v1.md",
+    "src/pietto/semantic/generic_compatibility.py",
+    "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
 }
 MODIFIED_PATHS = {
     "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md",
-    "src/pietto/ast_builder.py",
-    "src/pietto/ast_nodes.py",
-    "src/pietto/semantic/expressions.py",
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
     "tests/test_phase11_generated_guard.py",
@@ -128,6 +125,7 @@ MODIFIED_PATHS = {
     "tests/test_phase52_private_capability_fact_foundation.py",
     "tests/test_phase52_scalar_function_operator_signature_facts.py",
     "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
+    "tests/test_phase53_window_spec_function_identity_ast_contract.py",
     "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
 }
 ALLOWLIST_PATHS = ADDED_PATHS | MODIFIED_PATHS
@@ -698,10 +696,11 @@ def test_slice2_artifact_paths_and_heading_contracts_are_exact() -> None:
     assert _headings(SPEC_REL, 1) == (SPEC_TITLE,)
     assert _headings(SPEC_REL, 2) == SPEC_H2
     assert _headings(SPEC_REL, 3) == ()
-    assert _headings(PLAN_REL, 2)[-2:] == (
+    assert _headings(PLAN_REL, 2)[-3:] == (
         SLICE2_PLAN_H2,
         "Slice 3 WindowSpec, Extension-compatible WindowFunctionIdentity, And AST "
         "Contract",
+        "Slice 4 Generic Type-variable, Constraint, And Exact Compatibility Foundation",
     )
     assert _headings(PLAN_REL, 2).count(SLICE2_PLAN_H2) == 1
 
@@ -1038,15 +1037,15 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             assert origin_main == head
 
     readable_paths = set(_git_output(["ls-files"]).splitlines()) | untracked
-    assert len(readable_paths) == 844
-    assert sum(path.endswith(".py") for path in readable_paths) == 518
-    assert sum(path.endswith(".md") for path in readable_paths) == 230
+    assert len(readable_paths) == 847
+    assert sum(path.endswith(".py") for path in readable_paths) == 520
+    assert sum(path.endswith(".md") for path in readable_paths) == 231
     test_modules = {
         path
         for path in readable_paths
         if path.startswith("tests/test_") and path.endswith(".py")
     }
-    assert len(test_modules) == 436
+    assert len(test_modules) == 437
     top_level_tests = 0
     for relative in sorted(test_modules):
         tree = ast.parse(_read(relative), filename=relative)
@@ -1055,7 +1054,7 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 4219
+    assert top_level_tests == 4250
     assert len(GENERATED_PATHS) == 8
     goldens = {
         path

@@ -29,8 +29,8 @@ SOURCE_PREFIX = (
 LOCKED_BOUNDARY_SURFACES = {
     "semantic": (
         "src/pietto/semantic",
-        27,
-        "a98a3cb1728810c07ca2c6215d1229645747fa6eb0072a2313d227f59d5df414",
+        28,
+        "61020eb78d98960ce6e5f23f8ddf7b8bb578301a8460c0fe0b8609034b17834f",
     ),
     "ir": (
         "src/pietto/ir",

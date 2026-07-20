@@ -387,6 +387,17 @@ def test_current_source_has_generic_calls_but_no_window_model() -> None:
     assert 'WINDOW_FUNCTION = "window_function"' in identity
     assert "__all__: tuple[str, ...] = ()" in identity
 
+    compatibility = _read(REPO_ROOT / "src/pietto/semantic/generic_compatibility.py")
+    for carrier in (
+        "class TypeVariable:",
+        "class GenericSignature:",
+        "class OverloadSet:",
+        "def bind_signature(",
+        "def select_overload(",
+    ):
+        assert carrier in compatibility
+    assert "__all__: tuple[str, ...] = ()" in compatibility
+
     for vocabulary in (
         "WINDOW_RESULT",
         "WINDOW_ARGUMENT",

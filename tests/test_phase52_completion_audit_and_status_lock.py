@@ -174,9 +174,9 @@ MODULE_SHA256 = {
     AGGREGATE_REL: "d7d69fa4b97924ef5462af9c871a910b73cad43a21431e98a72c8bdab8996c80",
 }
 PATH_DIGESTS = {
-    "compiler": "b1605a853ff1be314308c5fc0214dc18e91f064f45be0a86dacaf0d305a1e0a8",
-    "semantic": "a98a3cb1728810c07ca2c6215d1229645747fa6eb0072a2313d227f59d5df414",
-    "phase15": "4ba0752d6f5c1cce74923243b163a48b7a7ba3cb10c58557a4c15d00ccb5bb15",
+    "compiler": "81bd90c78a57baddb39caec0121319e9c8f795e4f1fe10207e03647f015bca2b",
+    "semantic": "61020eb78d98960ce6e5f23f8ddf7b8bb578301a8460c0fe0b8609034b17834f",
+    "phase15": "b7342db427382feff77ae560f0b7defc5c02439e726e3cd9de71d04af7e238e2",
     "project": "c032a23c7f0477df58cacc9374e2882bebad346bec9a539899878da062248013",
 }
 PROTECTED_SHA256 = {
@@ -232,7 +232,7 @@ PHASE53_ADDED_PATHS = {
     "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
 }
 PHASE53_ALLOWLIST_PATHS = PHASE53_MODIFIED_PATHS | PHASE53_ADDED_PATHS
-SLICE2_BASE_HEAD_SHA = "86b08e27bbe97589b143dc1043fb0ad743dbf88a"
+SLICE2_BASE_HEAD_SHA = "ee0cb021160ead5ea6c0bcc80e569f4fdfef67a3"
 SLICE2_STATE_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
 
 OWNER_HANDOFFS = (
@@ -946,9 +946,9 @@ def test_live_compiler_semantic_phase15_project_protected_version_and_tag_locks_
     )
     project = _project_paths()
     assert (len(compiler), len(semantic), len(phase15), len(project)) == (
-        82,
-        27,
-        24,
+        83,
+        28,
+        25,
         16,
     )
     assert {
@@ -1054,11 +1054,11 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
     assert (
         sum(path.endswith(".py") for path in readable),
         sum(path.endswith(".md") for path in readable),
-    ) == (518, 230)
+    ) == (520, 231)
     for digest, expected in (
-        (PATH_DIGESTS["compiler"], 17),
-        (PATH_DIGESTS["semantic"], 31),
-        (PATH_DIGESTS["phase15"], 7),
+        (PATH_DIGESTS["compiler"], 18),
+        (PATH_DIGESTS["semantic"], 32),
+        (PATH_DIGESTS["phase15"], 8),
         (PATH_DIGESTS["project"], 16),
     ):
         readers = tuple(
@@ -1076,9 +1076,9 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
         )
         assert len(readers) == expected and SELF_REL in readers
     for relative, expected in (
-        (".github/workflows/ci.yml", 5),
-        ("pyproject.toml", 6),
-        ("uv.lock", 6),
+        (".github/workflows/ci.yml", 6),
+        ("pyproject.toml", 7),
+        ("uv.lock", 7),
     ):
         digest = PROTECTED_SHA256[relative]
         readers = tuple(
@@ -1129,9 +1129,9 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
         )
         for path in test_files
     )
-    assert (len(test_files), top_functions) == (436, 4219)
-    assert 70 + 70 + 62 == 202
-    assert 6376 - 183 == 6193
+    assert (len(test_files), top_functions) == (437, 4250)
+    assert 190 + 70 + 70 + 97 == 427
+    assert 6566 - 183 == 6383
     assert sum(_pytest_shape(relative)[1] for relative in SLICE_TEST_RELS) == 417
     tier1 = _tier1_operands()
     tier1_payload = "".join(item + "\n" for item in tier1).encode()

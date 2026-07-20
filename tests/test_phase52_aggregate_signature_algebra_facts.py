@@ -52,10 +52,10 @@ LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf2
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 SIGNATURE_SHA256 = "810f347080e0bb7dc674821aa6387c5f7618ac216832194ef19820326eef71d2"
 CONTEXT_SHA256 = "132371eccca00ca9f8722a34f1ea0f540933515e560639ee12e53aee6594c60c"
-COMPILER_DIGEST = "b1605a853ff1be314308c5fc0214dc18e91f064f45be0a86dacaf0d305a1e0a8"
-SEMANTIC_DIGEST = "a98a3cb1728810c07ca2c6215d1229645747fa6eb0072a2313d227f59d5df414"
+COMPILER_DIGEST = "81bd90c78a57baddb39caec0121319e9c8f795e4f1fe10207e03647f015bca2b"
+SEMANTIC_DIGEST = "61020eb78d98960ce6e5f23f8ddf7b8bb578301a8460c0fe0b8609034b17834f"
 PHASE15_SUBSET_DIGEST = (
-    "4ba0752d6f5c1cce74923243b163a48b7a7ba3cb10c58557a4c15d00ccb5bb15"
+    "b7342db427382feff77ae560f0b7defc5c02439e726e3cd9de71d04af7e238e2"
 )
 PROJECT_PRIVATE_DIGEST = (
     "c032a23c7f0477df58cacc9374e2882bebad346bec9a539899878da062248013"
@@ -115,6 +115,7 @@ COMPILER_READERS = (
     SLICE8_TEST_REL,
     SLICE9_TEST_REL,
     "tests/test_phase53_window_spec_function_identity_ast_contract.py",
+    "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
 )
 SEMANTIC_READERS = (
     "tests/test_phase11_completion_audit.py",
@@ -148,6 +149,7 @@ SEMANTIC_READERS = (
     SLICE8_TEST_REL,
     SLICE9_TEST_REL,
     "tests/test_phase53_window_spec_function_identity_ast_contract.py",
+    "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
 )
 PHASE15_READERS = (
     "tests/test_phase15_semantic_completion_audit.py",
@@ -157,6 +159,7 @@ PHASE15_READERS = (
     SLICE8_TEST_REL,
     SLICE9_TEST_REL,
     "tests/test_phase53_window_spec_function_identity_ast_contract.py",
+    "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
 )
 
 MODIFIED_READER_PATHS = (
@@ -1694,9 +1697,9 @@ def test_compiler_semantic_subset_project_and_raw_hash_readers_are_exact() -> No
     )
     project_paths = _project_private_paths()
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        82,
-        27,
-        24,
+        83,
+        28,
+        25,
     )
     assert len(project_paths) == 16
     assert _digest(compiler_paths) == COMPILER_DIGEST
@@ -1931,7 +1934,7 @@ def test_static_test_inventory_and_tier1_selection_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (436, 4219)
+    assert (len(test_files), top_level_functions) == (437, 4250)
 
     compatible, per_file_items = _prior_compatible_nodes()
     assert (len(compatible), per_file_items) == (69, (24, 33, 63))
