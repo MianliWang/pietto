@@ -90,6 +90,10 @@ SLICE4_H2 = (
     "Slice 4 Generic Type-variable, Constraint, And Exact Compatibility Foundation"
 )
 SLICE5_H2 = "Slice 5 Nullability Algebra And Signature Result-formula Foundation"
+SLICE6_H2 = (
+    "Slice 6 Private Window Semantic Carrier, WINDOW Stage, Dependency, "
+    "And Result Roles"
+)
 EXPECTED_TEST_NAMES = (
     "test_slice4_artifact_paths_heading_contract_and_lifecycle_are_exact",
     "test_private_module_enum_carrier_and_privacy_shapes_are_exact",
@@ -158,6 +162,19 @@ EXPECTED_CARDINALITIES = (
 )
 FOCUSED_OPERANDS, DIRTY_OVERLAY, ADDED_PATHS, MODIFIED_PATHS = (
     (
+        "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
+        "tests/test_phase50_window_function_readiness.py::test_output_dependency_lineage_and_privacy_boundaries_are_locked",
+        "tests/test_phase51_private_result_role_output_identity.py::test_result_role_and_fact_carriers_are_exact_frozen_and_slots",
+        "tests/test_phase51_private_result_role_output_identity.py::test_new_private_facts_are_not_exported_or_serialized",
+        "tests/test_phase49_private_row_level_dependency_graph_scaffold.py::test_row_dependency_graph_carriers_are_private_frozen_dataclasses",
+        "tests/test_phase49_minimal_private_lineage_carrier_source_direct_rename.py::test_row_lineage_carriers_are_private_frozen_dataclasses",
+        "tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py::test_aggregate_argument_edges_preserve_select_ast_order_and_first_target_dedupe",
+        "tests/test_phase51_completion_audit_and_status_lock.py::test_dependency_lineage_persistence_and_downstream_completion_is_locked",
+        "tests/test_phase52_expression_stage_clause_capability_facts.py::test_expression_stage_fact_inventory_is_exact",
+        "tests/test_phase52_expression_stage_clause_capability_facts.py::test_stage_type_nullability_and_three_valued_truth_are_orthogonal",
+        "tests/test_phase52_private_capability_fact_foundation.py::test_private_module_owns_exact_frozen_slots_carrier_shapes",
+        "tests/test_phase52_private_capability_fact_foundation.py::test_exact_enum_member_inventories_are_locked",
+        "tests/test_phase33_completion_audit.py::test_phase33_locked_surfaces_are_unchanged",
         "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
         "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
         "tests/test_phase53_window_spec_function_identity_ast_contract.py",
@@ -398,11 +415,13 @@ FOCUSED_OPERANDS, DIRTY_OVERLAY, ADDED_PATHS, MODIFIED_PATHS = (
         "--deselect=tests/test_phase49_computed_alias_origin_provenance_privacy.py::test_slice5_package_version_and_dirty_paths_are_locked",
         "--deselect=tests/test_phase49_computed_alias_project_row_schema_mvp.py::test_phase49_slice4_package_version_and_dirty_paths_are_locked",
         "--deselect=tests/test_phase49_computed_let_multi_hop_row_lineage.py::test_slice11_forbidden_files_source_boundaries_version_and_dirty_paths",
+        "--deselect=tests/test_phase49_let_visibility_order_shadowing_hardening.py::test_slice8_forbidden_files_have_no_diff",
         "--deselect=tests/test_phase49_let_visibility_order_shadowing_hardening.py::test_slice8_package_version_and_dirty_paths_are_locked",
         "--deselect=tests/test_phase49_minimal_private_lineage_carrier_source_direct_rename.py::test_slice10_package_version_and_dirty_paths_are_locked",
         "--deselect=tests/test_phase49_private_row_level_dependency_graph_scaffold.py::test_slice9_package_version_and_dirty_paths_are_locked",
         "--deselect=tests/test_phase49_project_let_scope_value_facts.py::test_phase49_slice6_package_version_and_dirty_paths_are_locked",
         "--deselect=tests/test_phase49_project_row_expression_schema_helper_contract.py::test_slice2_allowlist_package_version_and_forbidden_surfaces_are_locked",
+        "--deselect=tests/test_phase49_project_row_expression_type_nullability_adapter.py::test_slice3_keeps_project_model_and_json_serializer_untouched",
         "--deselect=tests/test_phase49_project_row_expression_type_nullability_adapter.py::test_slice3_dirty_paths_are_exactly_gate2_allowlist",
         "--deselect=tests/test_phase49_row_level_computed_let_schema_scope_lock.py::test_forbidden_surfaces_have_empty_diffs",
         "--deselect=tests/test_phase49_row_level_computed_let_schema_scope_lock.py::test_hash_lock_tests_remain_unchanged",
@@ -443,9 +462,10 @@ FOCUSED_OPERANDS, DIRTY_OVERLAY, ADDED_PATHS, MODIFIED_PATHS = (
         "--deselect=tests/test_phase52_scalar_function_operator_signature_facts.py::test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact",
     ),
     (
-        "docs/spec/phase53-nullability-algebra-signature-result-formula-contract-v1.md",
-        "src/pietto/semantic/nullability_formulas.py",
-        "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
+        "docs/spec/phase53-private-window-semantic-carrier-stage-dependency-result-role-contract-v1.md",
+        "src/pietto/semantic/window_semantics.py",
+        "src/pietto/_project/window_semantics.py",
+        "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
     ),
     (
         "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md",
@@ -498,23 +518,27 @@ FOCUSED_OPERANDS, DIRTY_OVERLAY, ADDED_PATHS, MODIFIED_PATHS = (
         "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
         "tests/test_phase53_window_spec_function_identity_ast_contract.py",
         "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
+        "src/pietto/_project/model.py",
+        "tests/test_phase33_completion_audit.py",
+        "tests/test_phase51_private_result_role_output_identity.py",
+        "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
     ),
 )
 EXPECTED_DIRTY_PATHS = frozenset((*ADDED_PATHS, *MODIFIED_PATHS))
 
-BASE_HEAD = "8485715b17b2dcf3b9f99b84f7ad001bcfab42d5"
+BASE_HEAD = "ea90f3957bcac4d85bd4f8b1938ad0508638f13a"
 FINAL_COMPILER_DIGEST = (
-    "762bb5b498aa2a7c86d538e7ed91105787f72f49f9bbe6a8ff1b66ec100571a2"
+    "8a5e870f0c919b46142157dc269e8f60def9c96173bb04f7c50950d9e409604a"
 )
 FINAL_SEMANTIC_DIGEST = (
-    "b90c0b4f78f54754802c43f50ff8e04c5f84c69e1571826559cccd64e4a702a4"
+    "da5bd93b66619ff3be55a9f524ca3671f8487c0230b4890273633989f3b2dcdc"
 )
 FINAL_PHASE15_DIGEST = (
-    "3838bbb52e87c87df033ae7dfcf98cd8dcacd8966f12077a5ce37be6fa822f9b"
+    "349bdc8b2b9cd8c1f6c5bdad78ff39c72ceb2c690f39bcbc3b301b39341867f1"
 )
 FINAL_SOURCE_SHA256 = "340703267a6185f0b37401c1097a1f246d34d3d0d46c1f583b5ce5134e5090f8"
 FINAL_SPEC_SHA256 = "194ee730b88782afd6f84d90b52cb4f02a3f5efb386155fae062978f3dfe5bd9"
-FINAL_PLAN_SHA256 = "764e6694b3f8c8984eafc723aa721e392049f565de51eaf29f6c72d1ebb924e8"
+FINAL_PLAN_SHA256 = "f59b224b055aac1771f3f90a78c06a810f1f786726040d71b55d12f24311cac6"
 
 PROTECTED_SHA256 = {
     "grammar/Pietto.g4": "1c394db1f72561022941e0e937899e2d340880de220ebfa85cf387b86573384e",
@@ -692,8 +716,9 @@ def test_slice4_artifact_paths_heading_contract_and_lifecycle_are_exact() -> Non
         "And Nullability Foundation"
     )
     assert plan_h2.count(SLICE4_H2) == 1
-    assert plan_h2[-2:] == (SLICE4_H2, SLICE5_H2)
+    assert plan_h2[-3:] == (SLICE4_H2, SLICE5_H2, SLICE6_H2)
     assert plan_h2.count(SLICE5_H2) == 1
+    assert plan_h2.count(SLICE6_H2) == 1
     assert plan_h3 == ()
     plan = PLAN_PATH.read_text()
     assert "Phase 53 is `ACTIVE`" in plan
@@ -1794,9 +1819,9 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        84,
-        29,
-        26,
+        86,
+        30,
+        27,
     )
     assert _digest(tuple(compiler_paths)) == FINAL_COMPILER_DIGEST
     assert _digest(semantic_paths) == FINAL_SEMANTIC_DIGEST
@@ -1806,9 +1831,9 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
     assert _sha256(PLAN_PATH) == FINAL_PLAN_SHA256
 
     test_paths = tuple((REPO_ROOT / "tests").glob("test_*.py"))
-    assert sum(FINAL_COMPILER_DIGEST in path.read_text() for path in test_paths) == 19
-    assert sum(FINAL_SEMANTIC_DIGEST in path.read_text() for path in test_paths) == 33
-    assert sum(FINAL_PHASE15_DIGEST in path.read_text() for path in test_paths) == 9
+    assert sum(FINAL_COMPILER_DIGEST in path.read_text() for path in test_paths) == 20
+    assert sum(FINAL_SEMANTIC_DIGEST in path.read_text() for path in test_paths) == 34
+    assert sum(FINAL_PHASE15_DIGEST in path.read_text() for path in test_paths) == 10
     assert (
         sum(
             f'BOUNDARY_HASH = "{FINAL_COMPILER_DIGEST}"' in path.read_text()
@@ -1873,7 +1898,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         len(markdown_paths),
         len(test_paths),
         top_level_functions,
-    ) == (850, 522, 232, 438, 4288)
+    ) == (854, 525, 233, 439, 4324)
     self_tree = ast.parse(SELF_PATH.read_text())
     self_names = tuple(
         node.name
@@ -1894,14 +1919,14 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         len(focused_payload),
         hashlib.sha256(focused_payload).hexdigest(),
     ) == (
-        98,
-        58,
-        4,
-        94,
-        11230,
-        "41e9e39a692d07d2acb8c9e69c8284bed437b6053abfce0d4015436219fe8b2b",
+        111,
+        64,
+        5,
+        106,
+        12755,
+        "f66e1f76dbd0848738be0f6ec9a876e46fd9ca1c1b59517bbb733042c6aed606",
     )
-    assert len(set(FOCUSED_OPERANDS)) == 98
+    assert len(set(FOCUSED_OPERANDS)) == 111
 
     overlay_payload = ("\n".join(DIRTY_OVERLAY) + "\n").encode()
     assert (
@@ -1910,12 +1935,12 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         len(overlay_payload),
         hashlib.sha256(overlay_payload).hexdigest(),
     ) == (
-        183,
+        185,
         137,
-        23368,
-        "15714b4cd20d2b0c17c9aa9a648bb1efefc311dbfb06dd33f3f1c2a1f9d11132",
+        23628,
+        "197b591aec962f43b9b9393da99a76ff21c3a36189cc02c7a75dc5a7b85d6b26",
     )
-    assert len(set(DIRTY_OVERLAY)) == 183
+    assert len(set(DIRTY_OVERLAY)) == 185
 
     missing: list[str] = []
     for operand in (*FOCUSED_OPERANDS, *DIRTY_OVERLAY):

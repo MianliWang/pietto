@@ -261,6 +261,7 @@ class ProjectRowResultRole(StrEnum):
     ORDINARY_ROW_VALUE = "ordinary_row_value"
     GROUP_KEY = "group_key"
     AGGREGATE_RESULT = "aggregate_result"
+    WINDOW_RESULT = "window_result"
 
 
 class ProjectRowFieldProvenanceKind(StrEnum):

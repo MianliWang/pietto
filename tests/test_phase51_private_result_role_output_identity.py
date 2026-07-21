@@ -57,8 +57,8 @@ def test_result_role_and_fact_carriers_are_exact_frozen_and_slots() -> None:
         ("ORDINARY_ROW_VALUE", "ordinary_row_value"),
         ("GROUP_KEY", "group_key"),
         ("AGGREGATE_RESULT", "aggregate_result"),
+        ("WINDOW_RESULT", "window_result"),
     )
-    assert not hasattr(ProjectRowResultRole, "WINDOW_RESULT")
     assert tuple(field.name for field in fields(ProjectRowField)) == (
         "name",
         "resolved_type",
@@ -406,6 +406,11 @@ def test_new_private_facts_are_not_exported_or_serialized(tmp_path: Path) -> Non
         "ordinary_row_value",
         "group_key",
         "aggregate_result",
+        "WindowResultIdentity",
+        "WindowDependencyOccurrence",
+        "WindowDependencyEdge",
+        "WindowResultProjectFact",
+        "window_result",
     ):
         assert not hasattr(pietto, name)
         assert not hasattr(project_package, name)
