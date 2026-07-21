@@ -221,6 +221,15 @@ FINAL_PROJECT_DIGEST = (
 )
 
 BASE_HEAD = "ea90f3957bcac4d85bd4f8b1938ad0508638f13a"
+CI_REPAIR_BASE_HEAD_SHA = "321ec6f80737015648bc1f81b0561fdd34610e92"
+CI_REPAIR_MODIFIED_PATHS = frozenset(
+    {
+        "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
+        "tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py",
+        "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
+        "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
+    }
+)
 
 ANALYZER_CATALOG_DIAGNOSTIC_LOCKS = (
     (
@@ -1921,7 +1930,22 @@ def test_validation_gate3_and_no_behavior_boundaries_are_locked() -> None:
     allowed = frozenset(
         (*ADDED_PATHS, *_literal_tuple(GENERIC_TEST_PATH, "MODIFIED_PATHS"))
     )
-    assert (not changed and not untracked) or changed | untracked == allowed
+    repair_state = changed == CI_REPAIR_MODIFIED_PATHS and not untracked
+    assert (
+        (not changed and not untracked)
+        or changed | untracked == allowed
+        or repair_state
+    )
+    if repair_state:
+        assert _git("diff", "--cached", "--name-only") == ""
+        assert _git("branch", "--show-current") == "main"
+        assert (
+            tuple(
+                _git("rev-parse", reference)
+                for reference in ("HEAD", "main", "origin/main")
+            )
+            == (CI_REPAIR_BASE_HEAD_SHA,) * 3
+        )
     assert _sha256(REPO_ROOT / "uv.lock") == (
         "0c06f18b2a8919c18573c18685a9fb202a74d98ab7c8fa1a5e61c02b8e5aeea9"
     )

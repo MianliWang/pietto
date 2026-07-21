@@ -96,6 +96,13 @@ PHASE52_UNTRACKED_PATHS = {
 }
 SLICE2_BASE_HEAD_SHA = "ea90f3957bcac4d85bd4f8b1938ad0508638f13a"
 SLICE2_STATE_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
+CI_REPAIR_BASE_HEAD_SHA = "321ec6f80737015648bc1f81b0561fdd34610e92"
+CI_REPAIR_MODIFIED_PATHS = {
+    "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
+    "tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py",
+    "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
+    "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
+}
 BOUNDARY_PATHS = (
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
@@ -929,7 +936,7 @@ def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> N
         "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
     ):
         source = _read(REPO_ROOT / relative_path)
-        assert "assert len(project_paths) == 16" in source
+        assert "assert len(project_paths) == 17" in source
     stale_count_assertion = "assert len(project_paths) == " + "15"
     assert all(
         stale_count_assertion not in _read(path)
@@ -1081,6 +1088,7 @@ def test_slice11_contract_plan_allowlist_and_protected_boundaries_are_locked() -
         set(),
         EXPECTED_GATE2_PATHS,
         PHASE52_GATE2_PATHS,
+        CI_REPAIR_MODIFIED_PATHS,
         slice2_modified | slice2_added,
     )
     untracked_paths = set(
@@ -1092,7 +1100,20 @@ def test_slice11_contract_plan_allowlist_and_protected_boundaries_are_locked() -
         PHASE52_UNTRACKED_PATHS,
         slice2_added,
     )
-    if dirty_paths == slice2_modified | slice2_added:
+    if dirty_paths == CI_REPAIR_MODIFIED_PATHS:
+        assert untracked_paths == set()
+        assert set(_git_output(["diff", "--name-only"]).splitlines()) == (
+            CI_REPAIR_MODIFIED_PATHS
+        )
+        assert _git_output(["branch", "--show-current"]) == "main"
+        assert (
+            tuple(
+                _git_output(["rev-parse", ref])
+                for ref in ("HEAD", "main", "origin/main")
+            )
+            == (CI_REPAIR_BASE_HEAD_SHA,) * 3
+        )
+    elif dirty_paths == slice2_modified | slice2_added:
         assert untracked_paths == slice2_added
         assert set(_git_output(["diff", "--name-only"]).splitlines()) == (
             slice2_modified

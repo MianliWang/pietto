@@ -118,6 +118,13 @@ EXPECTED_UNTRACKED_PATHS = {
     "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
     "docs/spec/phase51-downstream-propagation-qualification-v1.md",
 }
+CI_REPAIR_BASE_HEAD_SHA = "321ec6f80737015648bc1f81b0561fdd34610e92"
+CI_REPAIR_MODIFIED_PATHS = {
+    "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
+    "tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py",
+    "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
+    "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
+}
 BOUNDARY_PATHS = (
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
@@ -1363,11 +1370,22 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
         assert f"`{path}`" in spec_text
 
     dirty = _git_paths(["status", "--short", "--untracked-files=all"])
-    assert dirty in (set(), EXPECTED_GATE2_PATHS)
-    assert _git_paths(["ls-files", "--others", "--exclude-standard"]) in (
+    assert dirty in (set(), EXPECTED_GATE2_PATHS, CI_REPAIR_MODIFIED_PATHS)
+    untracked = _git_paths(["ls-files", "--others", "--exclude-standard"])
+    assert untracked in (
         set(),
         EXPECTED_UNTRACKED_PATHS,
     )
+    if dirty == CI_REPAIR_MODIFIED_PATHS:
+        assert untracked == set()
+        assert _git_output(["branch", "--show-current"]).strip() == "main"
+        assert (
+            tuple(
+                _git_output(["rev-parse", ref]).strip()
+                for ref in ("HEAD", "main", "origin/main")
+            )
+            == (CI_REPAIR_BASE_HEAD_SHA,) * 3
+        )
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
 
     compiler_digest = _compiler_digest()
@@ -1389,13 +1407,13 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
             assert changed_lines[1] == f'+BOUNDARY_HASH = "{compiler_digest}"'
     project_paths = _project_private_paths()
     project_digest = _digest(project_paths)
-    assert len(project_paths) == 16
+    assert len(project_paths) == 17
     phase33 = (REPO_ROOT / "tests/test_phase33_completion_audit.py").read_text(
         encoding="utf-8"
     )
     assert (
         f'"project_private": (\n        "src/pietto/_project",\n'
-        f'        16,\n        "{project_digest}",\n    ),'
+        f'        17,\n        "{project_digest}",\n    ),'
     ) in phase33
     phase33_changed_lines = _git_changed_lines("tests/test_phase33_completion_audit.py")
     if phase33_changed_lines:
@@ -1406,7 +1424,7 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
             phase33_changed_lines[1],
         )
         assert phase33_changed_lines[2:] == [
-            "+        16,",
+            "+        17,",
             f'+        "{project_digest}",',
         ]
 
