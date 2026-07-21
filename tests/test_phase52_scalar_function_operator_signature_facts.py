@@ -115,6 +115,7 @@ COMPILER_READERS = (
     SLICE9_TEST_REL,
     "tests/test_phase53_window_spec_function_identity_ast_contract.py",
     "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
+    "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
 )
 SEMANTIC_READERS = (
     "tests/test_phase11_completion_audit.py",
@@ -149,6 +150,7 @@ SEMANTIC_READERS = (
     SLICE9_TEST_REL,
     "tests/test_phase53_window_spec_function_identity_ast_contract.py",
     "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
+    "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
 )
 PHASE15_READERS = (
     "tests/test_phase15_semantic_completion_audit.py",
@@ -159,6 +161,7 @@ PHASE15_READERS = (
     SLICE9_TEST_REL,
     "tests/test_phase53_window_spec_function_identity_ast_contract.py",
     "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
+    "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
 )
 MODIFIED_READER_PATHS = (
     "tests/test_phase11_ci_workflow.py",
@@ -1236,9 +1239,9 @@ def test_compiler_semantic_subset_project_and_raw_hash_readers_are_exact() -> No
     )
     project_paths = _project_private_paths()
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        83,
-        28,
-        25,
+        84,
+        29,
+        26,
     )
     assert len(project_paths) == 16
     assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
@@ -1421,7 +1424,7 @@ def test_static_test_inventory_tier1_and_tier2_manifest_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (437, 4250)
+    assert (len(test_files), top_level_functions) == (438, 4288)
     assert len(DIRECT_TIER1_NODES) == len(set(DIRECT_TIER1_NODES)) == 44
     for node_id in DIRECT_TIER1_NODES:
         path, function = node_id.split("::", maxsplit=1)

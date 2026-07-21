@@ -89,6 +89,7 @@ SPEC_H2 = (
 SLICE4_H2 = (
     "Slice 4 Generic Type-variable, Constraint, And Exact Compatibility Foundation"
 )
+SLICE5_H2 = "Slice 5 Nullability Algebra And Signature Result-formula Foundation"
 EXPECTED_TEST_NAMES = (
     "test_slice4_artifact_paths_heading_contract_and_lifecycle_are_exact",
     "test_private_module_enum_carrier_and_privacy_shapes_are_exact",
@@ -157,6 +158,7 @@ EXPECTED_CARDINALITIES = (
 )
 FOCUSED_OPERANDS, DIRTY_OVERLAY, ADDED_PATHS, MODIFIED_PATHS = (
     (
+        "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
         "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
         "tests/test_phase53_window_spec_function_identity_ast_contract.py",
         "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
@@ -239,6 +241,21 @@ FOCUSED_OPERANDS, DIRTY_OVERLAY, ADDED_PATHS, MODIFIED_PATHS = (
         "tests/test_phase52_scalar_function_operator_signature_facts.py::test_generic_comparison_and_between_do_not_claim_concrete_pair_compatibility",
         "tests/test_phase52_aggregate_signature_algebra_facts.py::test_signature_inventory_order_keys_support_and_disposition_are_exact",
         "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py::test_read_model_first_authority_dimensions_and_non_authority_are_locked",
+        "tests/test_phase30_nullability_propagation_contract.py::test_three_unknown_concepts_are_distinct",
+        "tests/test_phase30_nullability_propagation_contract.py::test_typeexpr_source_projection_and_unknown_nullability_rules_are_grounded",
+        "tests/test_phase30_nullability_propagation_contract.py::test_expression_nullability_rules_are_current_behavior_only",
+        "tests/test_phase30_nullability_propagation_contract.py::test_aggregate_result_nullability_matrix_is_locked",
+        "tests/test_semantic_types.py::test_explicit_nullability_has_no_p2005",
+        "tests/test_semantic_expressions.py::test_literal_expression_maps_to_builtin_type",
+        "tests/test_semantic_expressions.py::test_bare_field_uses_row_field_type_and_nullability",
+        "tests/test_semantic_expressions.py::test_is_null_expression_maps_to_non_null_bool",
+        "tests/test_semantic_functions.py::test_text_transform_function_returns_text",
+        "tests/test_phase49_project_row_expression_type_nullability_adapter.py::test_computed_expression_consumes_supplied_known_value_type",
+        "tests/test_phase49_project_row_expression_type_nullability_adapter.py::test_qualified_direct_projection_uses_immediate_upstream_qualifier",
+        "tests/test_phase52_logical_type_literal_parameter_nullability_inventory.py::test_declared_nullability_mappings_are_exact",
+        "tests/test_phase52_logical_type_literal_parameter_nullability_inventory.py::test_null_literal_is_distinct_from_null_and_unknown_logical_spellings",
+        "tests/test_phase52_scalar_function_operator_signature_facts.py::test_null_tests_preserve_non_null_bool_and_distinct_three_valued_truth",
+        "tests/test_phase52_aggregate_signature_algebra_facts.py::test_signature_result_type_nullability_stage_and_role_are_exact",
     ),
     (
         "--deselect=tests/test_maintenance_phase2_agent_workflow_and_roadmap.py::test_forbidden_surfaces_package_release_and_ci_boundaries_are_locked",
@@ -426,9 +443,9 @@ FOCUSED_OPERANDS, DIRTY_OVERLAY, ADDED_PATHS, MODIFIED_PATHS = (
         "--deselect=tests/test_phase52_scalar_function_operator_signature_facts.py::test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact",
     ),
     (
-        "docs/spec/phase53-generic-type-variable-exact-compatibility-contract-v1.md",
-        "src/pietto/semantic/generic_compatibility.py",
-        "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
+        "docs/spec/phase53-nullability-algebra-signature-result-formula-contract-v1.md",
+        "src/pietto/semantic/nullability_formulas.py",
+        "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
     ),
     (
         "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md",
@@ -477,6 +494,7 @@ FOCUSED_OPERANDS, DIRTY_OVERLAY, ADDED_PATHS, MODIFIED_PATHS = (
         "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
         "tests/test_phase52_private_capability_fact_foundation.py",
         "tests/test_phase52_scalar_function_operator_signature_facts.py",
+        "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
         "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
         "tests/test_phase53_window_spec_function_identity_ast_contract.py",
         "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
@@ -484,19 +502,19 @@ FOCUSED_OPERANDS, DIRTY_OVERLAY, ADDED_PATHS, MODIFIED_PATHS = (
 )
 EXPECTED_DIRTY_PATHS = frozenset((*ADDED_PATHS, *MODIFIED_PATHS))
 
-BASE_HEAD = "ee0cb021160ead5ea6c0bcc80e569f4fdfef67a3"
+BASE_HEAD = "8485715b17b2dcf3b9f99b84f7ad001bcfab42d5"
 FINAL_COMPILER_DIGEST = (
-    "81bd90c78a57baddb39caec0121319e9c8f795e4f1fe10207e03647f015bca2b"
+    "762bb5b498aa2a7c86d538e7ed91105787f72f49f9bbe6a8ff1b66ec100571a2"
 )
 FINAL_SEMANTIC_DIGEST = (
-    "61020eb78d98960ce6e5f23f8ddf7b8bb578301a8460c0fe0b8609034b17834f"
+    "b90c0b4f78f54754802c43f50ff8e04c5f84c69e1571826559cccd64e4a702a4"
 )
 FINAL_PHASE15_DIGEST = (
-    "b7342db427382feff77ae560f0b7defc5c02439e726e3cd9de71d04af7e238e2"
+    "3838bbb52e87c87df033ae7dfcf98cd8dcacd8966f12077a5ce37be6fa822f9b"
 )
 FINAL_SOURCE_SHA256 = "340703267a6185f0b37401c1097a1f246d34d3d0d46c1f583b5ce5134e5090f8"
 FINAL_SPEC_SHA256 = "194ee730b88782afd6f84d90b52cb4f02a3f5efb386155fae062978f3dfe5bd9"
-FINAL_PLAN_SHA256 = "506dd68b6fd2c1fb174de738ee8b643294b4fc18bc054729907af685adab5e6b"
+FINAL_PLAN_SHA256 = "764e6694b3f8c8984eafc723aa721e392049f565de51eaf29f6c72d1ebb924e8"
 
 PROTECTED_SHA256 = {
     "grammar/Pietto.g4": "1c394db1f72561022941e0e937899e2d340880de220ebfa85cf387b86573384e",
@@ -674,7 +692,8 @@ def test_slice4_artifact_paths_heading_contract_and_lifecycle_are_exact() -> Non
         "And Nullability Foundation"
     )
     assert plan_h2.count(SLICE4_H2) == 1
-    assert plan_h2[-1] == SLICE4_H2
+    assert plan_h2[-2:] == (SLICE4_H2, SLICE5_H2)
+    assert plan_h2.count(SLICE5_H2) == 1
     assert plan_h3 == ()
     plan = PLAN_PATH.read_text()
     assert "Phase 53 is `ACTIVE`" in plan
@@ -1775,9 +1794,9 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        83,
-        28,
-        25,
+        84,
+        29,
+        26,
     )
     assert _digest(tuple(compiler_paths)) == FINAL_COMPILER_DIGEST
     assert _digest(semantic_paths) == FINAL_SEMANTIC_DIGEST
@@ -1787,9 +1806,9 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
     assert _sha256(PLAN_PATH) == FINAL_PLAN_SHA256
 
     test_paths = tuple((REPO_ROOT / "tests").glob("test_*.py"))
-    assert sum(FINAL_COMPILER_DIGEST in path.read_text() for path in test_paths) == 18
-    assert sum(FINAL_SEMANTIC_DIGEST in path.read_text() for path in test_paths) == 32
-    assert sum(FINAL_PHASE15_DIGEST in path.read_text() for path in test_paths) == 8
+    assert sum(FINAL_COMPILER_DIGEST in path.read_text() for path in test_paths) == 19
+    assert sum(FINAL_SEMANTIC_DIGEST in path.read_text() for path in test_paths) == 33
+    assert sum(FINAL_PHASE15_DIGEST in path.read_text() for path in test_paths) == 9
     assert (
         sum(
             f'BOUNDARY_HASH = "{FINAL_COMPILER_DIGEST}"' in path.read_text()
@@ -1854,7 +1873,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         len(markdown_paths),
         len(test_paths),
         top_level_functions,
-    ) == (847, 520, 231, 437, 4250)
+    ) == (850, 522, 232, 438, 4288)
     self_tree = ast.parse(SELF_PATH.read_text())
     self_names = tuple(
         node.name
@@ -1875,14 +1894,14 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         len(focused_payload),
         hashlib.sha256(focused_payload).hexdigest(),
     ) == (
-        82,
-        52,
-        3,
-        79,
-        9515,
-        "789d6f6dd1a6522ff4e27ba7b00bb16afa69b902e5112d997a077484b32e079e",
+        98,
+        58,
+        4,
+        94,
+        11230,
+        "41e9e39a692d07d2acb8c9e69c8284bed437b6053abfce0d4015436219fe8b2b",
     )
-    assert len(set(FOCUSED_OPERANDS)) == 82
+    assert len(set(FOCUSED_OPERANDS)) == 98
 
     overlay_payload = ("\n".join(DIRTY_OVERLAY) + "\n").encode()
     assert (
@@ -1919,13 +1938,12 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
 def test_validation_gate3_and_no_behavior_boundaries_are_locked() -> None:
     combined = SPEC_PATH.read_text() + PLAN_PATH.read_text()
     for required in (
-        "A3/M49/D0",
-        "427 focused",
-        "6383 passed, 183 deselected",
-        "6566",
-        "exactly one write-mode Ruff invocation",
-        "Add Phase 53 exact generic compatibility foundation",
-        "Slice 4 remains `UNSTARTED` throughout Gate 2",
+        "A3/M50/D0",
+        "607 focused",
+        "6528 passed, 183 deselected",
+        "6711",
+        "one write-mode Ruff invocation",
+        "Slice 5 remains `UNSTARTED` throughout Gate 2",
         "Gate 3",
     ):
         assert required in combined

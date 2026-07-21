@@ -46,7 +46,7 @@ SPEC_REL = "docs/spec/phase53-window-spec-function-identity-ast-contract-v1.md"
 IDENTITY_REL = "src/pietto/_window_identity.py"
 SELF_REL = "tests/test_phase53_window_spec_function_identity_ast_contract.py"
 SLICE2_TEST_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
-BASE_HEAD_SHA = "ee0cb021160ead5ea6c0bcc80e569f4fdfef67a3"
+BASE_HEAD_SHA = "8485715b17b2dcf3b9f99b84f7ad001bcfab42d5"
 TEMPORARY_BRIDGE_MESSAGE = (
     "Window syntax is recognized, but WindowSpec AST preservation starts in "
     "Phase 53 Slice 3."
@@ -62,6 +62,7 @@ SLICE3_PLAN_H2 = (
 SLICE4_PLAN_H2 = (
     "Slice 4 Generic Type-variable, Constraint, And Exact Compatibility Foundation"
 )
+SLICE5_PLAN_H2 = "Slice 5 Nullability Algebra And Signature Result-formula Foundation"
 SPEC_H2 = (
     "Status And Slice Identity",
     "Slice 2 Syntax And Lifecycle Authority",
@@ -96,9 +97,9 @@ WINDOW_FUNCTION_NAMES = (
 )
 
 ADDED_PATHS = {
-    "docs/spec/phase53-generic-type-variable-exact-compatibility-contract-v1.md",
-    "src/pietto/semantic/generic_compatibility.py",
-    "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
+    "docs/spec/phase53-nullability-algebra-signature-result-formula-contract-v1.md",
+    "src/pietto/semantic/nullability_formulas.py",
+    "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
 }
 MODIFIED_PATHS = {
     "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md",
@@ -147,6 +148,7 @@ MODIFIED_PATHS = {
     "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
     "tests/test_phase52_private_capability_fact_foundation.py",
     "tests/test_phase52_scalar_function_operator_signature_facts.py",
+    "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
     "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
     "tests/test_phase53_window_spec_function_identity_ast_contract.py",
     "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
@@ -298,10 +300,10 @@ SEMANTIC_IDENTITY_CASES = (
     ("Org.Analytics.Rank", "Unknown function: Org.Analytics.Rank"),
 )
 
-COMPILER_DIGEST = "81bd90c78a57baddb39caec0121319e9c8f795e4f1fe10207e03647f015bca2b"
-SEMANTIC_DIGEST = "61020eb78d98960ce6e5f23f8ddf7b8bb578301a8460c0fe0b8609034b17834f"
+COMPILER_DIGEST = "762bb5b498aa2a7c86d538e7ed91105787f72f49f9bbe6a8ff1b66ec100571a2"
+SEMANTIC_DIGEST = "b90c0b4f78f54754802c43f50ff8e04c5f84c69e1571826559cccd64e4a702a4"
 PHASE15_SUBSET_DIGEST = (
-    "b7342db427382feff77ae560f0b7defc5c02439e726e3cd9de71d04af7e238e2"
+    "3838bbb52e87c87df033ae7dfcf98cd8dcacd8966f12077a5ce37be6fa822f9b"
 )
 AST_NODES_SHA256 = "b0c41070fca75c89534eba75cf2086f41721de740da9a3573d67411d366204f5"
 AST_BUILDER_SHA256 = "201c74d6a27e57dfc7cd0f9693b388ebe7853b783173a3c4f7191a5f8026e70b"
@@ -461,13 +463,15 @@ def test_slice3_artifact_paths_heading_contract_and_lifecycle_are_exact() -> Non
     assert _headings(SPEC_REL, 2) == SPEC_H2
     assert _headings(SPEC_REL, 3) == ()
     plan_h2 = _headings(PLAN_REL, 2)
-    assert plan_h2[-3:] == (
+    assert plan_h2[-4:] == (
         "Slice 2 Pietto-native Window Syntax And Contextual Grammar Contract",
         SLICE3_PLAN_H2,
         SLICE4_PLAN_H2,
+        SLICE5_PLAN_H2,
     )
     assert plan_h2.count(SLICE3_PLAN_H2) == 1
     assert plan_h2.count(SLICE4_PLAN_H2) == 1
+    assert plan_h2.count(SLICE5_PLAN_H2) == 1
     names, cardinalities = _test_function_shape()
     assert names == EXPECTED_TEST_FUNCTIONS
     assert cardinalities == (
@@ -932,9 +936,9 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        83,
-        28,
-        25,
+        84,
+        29,
+        26,
     )
     assert _digest(tuple(compiler_paths)) == COMPILER_DIGEST
     assert _digest(semantic_paths) == SEMANTIC_DIGEST
@@ -978,15 +982,15 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
     readable = {path for path in (*tracked, *untracked) if (REPO_ROOT / path).is_file()}
-    assert len(readable) == 847
-    assert sum(path.endswith(".py") for path in readable) == 520
-    assert sum(path.endswith(".md") for path in readable) == 231
+    assert len(readable) == 850
+    assert sum(path.endswith(".py") for path in readable) == 522
+    assert sum(path.endswith(".md") for path in readable) == 232
     test_modules = {
         path
         for path in readable
         if path.startswith("tests/test_") and path.endswith(".py")
     }
-    assert len(test_modules) == 437
+    assert len(test_modules) == 438
     top_level_tests = 0
     for relative in sorted(test_modules):
         tree = ast.parse(_read(relative), filename=relative)
@@ -995,10 +999,10 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 4250
-    assert 427 == 190 + 70 + 70 + 97
-    assert 6566 == 6376 + 190
-    assert 6566 - 183 == 6383
+    assert top_level_tests == 4288
+    assert 607 == 145 + 190 + 70 + 70 + 97 + 35
+    assert 6711 == 6566 + 145
+    assert 6711 - 183 == 6528
     docs = _read(SPEC_REL) + _read(PLAN_REL)
     for value in (
         "9d7668d9edbfb111f080e0ea99438df33266736bb98a3283f6c1a01bc27f6eb0",
@@ -1010,10 +1014,10 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
 def test_validation_gate3_and_no_behavior_boundaries_are_locked() -> None:
     docs = _read(SPEC_REL) + _read(PLAN_REL)
     for required in (
-        "427 focused",
-        "6383 passed, 183 deselected",
-        "6566 clean-CI passes",
-        "A3/M49/D0",
+        "607 focused",
+        "6528 passed, 183 deselected",
+        "6711 clean-CI passes",
+        "A3/M50/D0",
         "one write-mode Ruff invocation",
         "unstaged and uncommitted",
         "Slice 4 retains generic compatibility ownership",
@@ -1028,6 +1032,6 @@ def test_validation_gate3_and_no_behavior_boundaries_are_locked() -> None:
         )
         == ""
     )
-    assert len(ALLOWLIST_PATHS) == 52
-    assert len(MODIFIED_PATHS) == 49
+    assert len(ALLOWLIST_PATHS) == 53
+    assert len(MODIFIED_PATHS) == 50
     assert len(ADDED_PATHS) == 3

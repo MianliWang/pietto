@@ -398,6 +398,16 @@ def test_current_source_has_generic_calls_but_no_window_model() -> None:
         assert carrier in compatibility
     assert "__all__: tuple[str, ...] = ()" in compatibility
 
+    nullability = _read(REPO_ROOT / "src/pietto/semantic/nullability_formulas.py")
+    for carrier in (
+        "class NullabilityFormulaKind",
+        "class SignatureResultFormula:",
+        "class NullabilityEvaluationContext:",
+        "def evaluate_signature_result_nullability(",
+    ):
+        assert carrier in nullability
+    assert "__all__: tuple[str, ...] = ()" in nullability
+
     for vocabulary in (
         "WINDOW_RESULT",
         "WINDOW_ARGUMENT",
