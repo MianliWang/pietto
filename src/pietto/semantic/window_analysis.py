@@ -1,4 +1,4 @@
-"""Private semantic analysis for the bounded row_number window subset."""
+"""Private semantic analysis for the bounded ranking window subset."""
 
 from __future__ import annotations
 
@@ -39,6 +39,8 @@ from pietto.semantic.nullability_formulas import (
     evaluate_signature_result_nullability,
 )
 from pietto.semantic.window_semantics import (
+    RankingAdvancePolicy,
+    RankingWindowSemanticFact,
     WindowExpressionSemanticFact,
     WindowExpressionUnsupported,
     WindowOccurrenceIdentity,
@@ -48,22 +50,52 @@ from pietto.semantic.window_semantics import (
 
 __all__: tuple[str, ...] = ()
 
-_ROW_NUMBER_RESULT_IDENTITY = LogicalTypeIdentity(
+_RANKING_RESULT_IDENTITY = LogicalTypeIdentity(
     name="Int",
     kind=TypeKind.BUILTIN,
 )
-_ROW_NUMBER_SIGNATURE = GenericSignature(
+_RANKING_SIGNATURE = GenericSignature(
     type_variables=(),
     parameters=(),
-    result=ConcreteTypeExpression(logical_type=_ROW_NUMBER_RESULT_IDENTITY),
+    result=ConcreteTypeExpression(logical_type=_RANKING_RESULT_IDENTITY),
 )
-_ROW_NUMBER_RESULT_FORMULA = SignatureResultFormula(
-    signature=_ROW_NUMBER_SIGNATURE,
+_RANKING_RESULT_FORMULA = SignatureResultFormula(
+    signature=_RANKING_SIGNATURE,
     nullability=NonNullFormula(),
 )
+_ROW_NUMBER_RESULT_IDENTITY = _RANKING_RESULT_IDENTITY
+_ROW_NUMBER_SIGNATURE = _RANKING_SIGNATURE
+_ROW_NUMBER_RESULT_FORMULA = _RANKING_RESULT_FORMULA
+
+_RANKING_POLICIES = (
+    (
+        WindowFunctionIdentity(
+            namespace=(),
+            name="row_number",
+            role=WindowFunctionRole.WINDOW_FUNCTION,
+        ),
+        RankingAdvancePolicy.PER_ROW,
+    ),
+    (
+        WindowFunctionIdentity(
+            namespace=(),
+            name="rank",
+            role=WindowFunctionRole.WINDOW_FUNCTION,
+        ),
+        RankingAdvancePolicy.GAPPED_PEER_RANK,
+    ),
+    (
+        WindowFunctionIdentity(
+            namespace=(),
+            name="dense_rank",
+            role=WindowFunctionRole.WINDOW_FUNCTION,
+        ),
+        RankingAdvancePolicy.DENSE_PEER_RANK,
+    ),
+)
 
 
-def analyze_row_number_window_expression(
+def analyze_ranking_window_expression(
     *,
     definition: TableDef | QueryDef,
     item: SelectItem,
@@ -73,8 +105,8 @@ def analyze_row_number_window_expression(
     field_qualifier: str,
     value_types: dict[Expression, ValueType],
     diagnostics: list[Diagnostic],
-) -> WindowExpressionSemanticFact | WindowExpressionUnsupported:
-    """Analyze one direct selected row_number expression without publishing it."""
+) -> RankingWindowSemanticFact | WindowExpressionUnsupported:
+    """Analyze one direct selected ranking expression without publishing it."""
 
     if type(definition) not in {TableDef, QueryDef}:
         raise TypeError("definition must be an exact TableDef or QueryDef")
@@ -99,7 +131,8 @@ def analyze_row_number_window_expression(
         span=expression.span,
     )
 
-    if not _is_exact_row_number_identity(expression):
+    advance_policy = _ranking_policy(expression)
+    if advance_policy is None:
         return _unsupported(
             occurrence=occurrence,
             expression=expression,
@@ -107,15 +140,17 @@ def analyze_row_number_window_expression(
             diagnostics=diagnostics,
         )
 
+    function_name = expression.identity.name
+
     if expression.call.arguments:
         return _unsupported(
             occurrence=occurrence,
             expression=expression,
-            reason="row_number requires zero arguments",
+            reason=f"{function_name} requires zero arguments",
             diagnostics=diagnostics,
             code="PIE-S2104",
             message=(
-                "Invalid arguments for function row_number: expected 0, got "
+                f"Invalid arguments for function {function_name}: expected 0, got "
                 f"{len(expression.call.arguments)}"
             ),
         )
@@ -124,7 +159,7 @@ def analyze_row_number_window_expression(
         return _unsupported(
             occurrence=occurrence,
             expression=expression,
-            reason="row_number requires a direct selected output alias",
+            reason=f"{function_name} requires a direct selected output alias",
             diagnostics=diagnostics,
         )
 
@@ -140,7 +175,7 @@ def analyze_row_number_window_expression(
         return _unsupported(
             occurrence=occurrence,
             expression=expression,
-            reason="relation context does not admit row_number",
+            reason=f"relation context does not admit {function_name}",
             diagnostics=diagnostics,
         )
 
@@ -162,7 +197,7 @@ def analyze_row_number_window_expression(
         return _unsupported(
             occurrence=occurrence,
             expression=expression,
-            reason="row_number partitioning is deferred",
+            reason=f"{function_name} partitioning is deferred",
             diagnostics=diagnostics,
         )
 
@@ -170,7 +205,7 @@ def analyze_row_number_window_expression(
         return _unsupported(
             occurrence=occurrence,
             expression=expression,
-            reason="row_number requires exactly one window order field",
+            reason=f"{function_name} requires exactly one window order field",
             diagnostics=diagnostics,
         )
 
@@ -227,18 +262,18 @@ def analyze_row_number_window_expression(
             reason="window order field type must be concrete",
         )
 
-    signature_match = bind_signature(_ROW_NUMBER_SIGNATURE, ())
+    signature_match = bind_signature(_RANKING_SIGNATURE, ())
     if type(signature_match) is not SignatureMatch:
-        raise AssertionError("row_number signature must bind without arguments")
+        raise AssertionError("ranking signature must bind without arguments")
     nullability_match = evaluate_signature_result_nullability(
-        _ROW_NUMBER_RESULT_FORMULA,
+        _RANKING_RESULT_FORMULA,
         NullabilityEvaluationContext(
             argument_nullabilities=(),
             omitted_positions=(),
         ),
     )
     if type(nullability_match) is not NullabilityEvaluationMatch:
-        raise AssertionError("row_number nullability formula must evaluate")
+        raise AssertionError("ranking nullability formula must evaluate")
 
     result_type = ValueType(
         resolved_type=ResolvedType(
@@ -248,8 +283,8 @@ def analyze_row_number_window_expression(
         nullability=nullability_match.value,
     )
     if result_type.nullability is not EffectiveNullability.NON_NULL:
-        raise AssertionError("row_number result must be non-null")
-    return WindowExpressionSemanticFact(
+        raise AssertionError("ranking result must be non-null")
+    semantic_fact = WindowExpressionSemanticFact(
         occurrence=occurrence,
         expression=expression,
         identity=expression.identity,
@@ -258,21 +293,48 @@ def analyze_row_number_window_expression(
             value_type=result_type,
         ),
     )
-
-
-def _is_exact_row_number_identity(expression: WindowExpr) -> bool:
-    identity = expression.identity
-    callee = expression.call.callee
-    return (
-        identity
-        == WindowFunctionIdentity(
-            namespace=(),
-            name="row_number",
-            role=WindowFunctionRole.WINDOW_FUNCTION,
-        )
-        and type(callee) is NameExpr
-        and callee.name == "row_number"
+    return RankingWindowSemanticFact(
+        semantic_fact=semantic_fact,
+        advance_policy=advance_policy,
     )
+
+
+def analyze_row_number_window_expression(
+    *,
+    definition: TableDef | QueryDef,
+    item: SelectItem,
+    selected_output_ordinal: int,
+    source_id: str,
+    input_schema: RowSchema,
+    field_qualifier: str,
+    value_types: dict[Expression, ValueType],
+    diagnostics: list[Diagnostic],
+) -> WindowExpressionSemanticFact | WindowExpressionUnsupported:
+    """Retain the Slice 7 core-fact result shape through the ranking analyzer."""
+
+    result = analyze_ranking_window_expression(
+        definition=definition,
+        item=item,
+        selected_output_ordinal=selected_output_ordinal,
+        source_id=source_id,
+        input_schema=input_schema,
+        field_qualifier=field_qualifier,
+        value_types=value_types,
+        diagnostics=diagnostics,
+    )
+    if isinstance(result, WindowExpressionUnsupported):
+        return result
+    return result.semantic_fact
+
+
+def _ranking_policy(expression: WindowExpr) -> RankingAdvancePolicy | None:
+    callee = expression.call.callee
+    if type(callee) is not NameExpr:
+        return None
+    for identity, advance_policy in _RANKING_POLICIES:
+        if expression.identity == identity and callee.name == identity.name:
+            return advance_policy
+    return None
 
 
 def _unsupported(

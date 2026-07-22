@@ -52,13 +52,13 @@ LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf2
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 SIGNATURE_SHA256 = "810f347080e0bb7dc674821aa6387c5f7618ac216832194ef19820326eef71d2"
 CONTEXT_SHA256 = "132371eccca00ca9f8722a34f1ea0f540933515e560639ee12e53aee6594c60c"
-COMPILER_DIGEST = "aed75d2bbe6173e1936381b65531d1d102a65a86a1fb7358ff5557a1f8a63e60"
-SEMANTIC_DIGEST = "13f6a60c86c9bb613d1643b8de4067b12e67eece02c7446a915493c923083ab6"
+COMPILER_DIGEST = "5121a1ecaa67e77995aa5cd36dc0ce81b375cc1b5e6b723853b0c8fa65597f81"
+SEMANTIC_DIGEST = "930ebe82406b26a48e66c71c099e6ca8911c291161808272490794f3f5fd0cff"
 PHASE15_SUBSET_DIGEST = (
-    "e3a989db748a6be91413f1b07d3f7be37efd0b3c2a87955ed33c329bf492402d"
+    "9c797136f0fb8a4c4944914e60c464541e9bc2994f1a96b61c060f1620fda837"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "55de72d66b508ced31f176c04d43b37a078aaceaf3f7baf117dd93669d61fe3b"
+    "f6f9d188be4624886d4c21c37059d2508c46b3093801734fd06b5b4647d93c74"
 )
 
 SPEC_H2 = (
@@ -119,6 +119,7 @@ COMPILER_READERS = (
     "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
     "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
     "tests/test_phase53_row_number_direct_field_mvp_contract.py",
+    "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
 )
 SEMANTIC_READERS = (
     "tests/test_phase11_completion_audit.py",
@@ -156,6 +157,7 @@ SEMANTIC_READERS = (
     "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
     "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
     "tests/test_phase53_row_number_direct_field_mvp_contract.py",
+    "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
 )
 PHASE15_READERS = (
     "tests/test_phase15_semantic_completion_audit.py",
@@ -169,6 +171,7 @@ PHASE15_READERS = (
     "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
     "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
     "tests/test_phase53_row_number_direct_field_mvp_contract.py",
+    "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
 )
 
 MODIFIED_READER_PATHS = (
@@ -1943,7 +1946,7 @@ def test_static_test_inventory_and_tier1_selection_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (440, 4365)
+    assert (len(test_files), top_level_functions) == (441, 4410)
 
     compatible, per_file_items = _prior_compatible_nodes()
     assert (len(compatible), per_file_items) == (69, (24, 33, 63))

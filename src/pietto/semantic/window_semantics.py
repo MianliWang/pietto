@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from pietto._window_identity import WindowFunctionIdentity
-from pietto.ast_nodes import Span, WindowExpr
+from pietto.ast_nodes import Expression, Span, WindowExpr
 from pietto.semantic.model import (
     EffectiveNullability,
     ValueType,
@@ -150,3 +150,60 @@ class WindowExpressionUnsupported:
             raise ValueError("expression identity must equal supplied identity")
         if self.expression.span != self.occurrence.span:
             raise ValueError("expression and occurrence spans must match")
+
+
+class RankingAdvancePolicy(StrEnum):
+    """Private structural advancement policies for ranking windows."""
+
+    PER_ROW = "per_row"
+    GAPPED_PEER_RANK = "preceding_row_count_plus_one"
+    DENSE_PEER_RANK = "preceding_distinct_peer_group_count_plus_one"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class RankingWindowSemanticFact:
+    """Private sibling ranking policy for one core window semantic fact."""
+
+    semantic_fact: WindowExpressionSemanticFact
+    advance_policy: RankingAdvancePolicy
+
+    def __post_init__(self) -> None:
+        if type(self.semantic_fact) is not WindowExpressionSemanticFact:
+            raise TypeError(
+                "semantic_fact must be an exact WindowExpressionSemanticFact"
+            )
+        if type(self.advance_policy) is not RankingAdvancePolicy:
+            raise TypeError("advance_policy must be an exact RankingAdvancePolicy")
+        if self.peer_sensitive and not self.peer_key:
+            raise ValueError(
+                "peer-sensitive ranking policy requires a nonempty structural "
+                "order tuple"
+            )
+
+    @property
+    def identity(self) -> WindowFunctionIdentity:
+        """Return the exact source-preserved window identity."""
+
+        return self.semantic_fact.identity
+
+    @property
+    def peer_sensitive(self) -> bool:
+        """Whether advancement depends on equality of the local order key."""
+
+        return self.advance_policy is not RankingAdvancePolicy.PER_ROW
+
+    @property
+    def peer_key(self) -> tuple[Expression, ...]:
+        """Return the complete structural local order-expression tuple."""
+
+        if not self.peer_sensitive:
+            return ()
+        return tuple(
+            item.expression for item in self.semantic_fact.expression.spec.order_by
+        )
+
+    @property
+    def gaps_after_multirow_peer_group(self) -> bool:
+        """Whether a multirow peer group creates a subsequent rank gap."""
+
+        return self.advance_policy is RankingAdvancePolicy.GAPPED_PEER_RANK

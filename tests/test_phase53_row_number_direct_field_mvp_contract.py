@@ -82,7 +82,7 @@ PLAN_REL = (
 SPEC_REL = "docs/spec/phase53-row-number-direct-field-mvp-contract-v1.md"
 SEMANTIC_REL = "src/pietto/semantic/window_analysis.py"
 SELF_REL = "tests/test_phase53_row_number_direct_field_mvp_contract.py"
-BASE_HEAD_SHA = "0b49cc02dc641472a4f3cc1bdf149b444dade9b2"
+BASE_HEAD_SHA = "6c27621a9a0504f704bfba059f9b262c9f5e3e68"
 
 SPEC_TITLE = "Phase 53 Slice 7 row_number Direct-field MVP Contract v1"
 SLICE7_PLAN_H2 = "Slice 7 row_number Direct-field MVP"
@@ -202,12 +202,17 @@ CARDINALITIES = (
 )
 
 ADDED_PATHS = {
-    SPEC_REL,
-    SEMANTIC_REL,
-    SELF_REL,
+    "docs/spec/phase53-rank-dense-rank-peer-semantics-contract-v1.md",
+    "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
 }
 MODIFIED_PATHS = {
-    PLAN_REL,
+    "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md",
+    "src/pietto/semantic/window_semantics.py",
+    "src/pietto/semantic/window_analysis.py",
+    "src/pietto/semantic/expressions.py",
+    "src/pietto/_project/window_semantics.py",
+    "src/pietto/_project/model.py",
+    "tests/test_phase53_row_number_direct_field_mvp_contract.py",
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
     "tests/test_phase11_generated_guard.py",
@@ -257,25 +262,22 @@ MODIFIED_PATHS = {
     "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
     "tests/test_phase53_window_spec_function_identity_ast_contract.py",
     "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
-    "src/pietto/_project/model.py",
     "tests/test_phase33_completion_audit.py",
     "tests/test_phase51_private_result_role_output_identity.py",
     "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
-    "src/pietto/semantic/expressions.py",
-    "src/pietto/_project/window_semantics.py",
     "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
 }
 ALLOWLIST_PATHS = ADDED_PATHS | MODIFIED_PATHS
 
-COMPILER_DIGEST = "aed75d2bbe6173e1936381b65531d1d102a65a86a1fb7358ff5557a1f8a63e60"
-SEMANTIC_DIGEST = "13f6a60c86c9bb613d1643b8de4067b12e67eece02c7446a915493c923083ab6"
+COMPILER_DIGEST = "5121a1ecaa67e77995aa5cd36dc0ce81b375cc1b5e6b723853b0c8fa65597f81"
+SEMANTIC_DIGEST = "930ebe82406b26a48e66c71c099e6ca8911c291161808272490794f3f5fd0cff"
 PHASE15_SUBSET_DIGEST = (
-    "e3a989db748a6be91413f1b07d3f7be37efd0b3c2a87955ed33c329bf492402d"
+    "9c797136f0fb8a4c4944914e60c464541e9bc2994f1a96b61c060f1620fda837"
 )
-PROJECT_DIGEST = "55de72d66b508ced31f176c04d43b37a078aaceaf3f7baf117dd93669d61fe3b"
-FOCUSED_SHA256 = "71bb5dfea8348f0497b15705eff79b23f162e284f1fdb0b53659f0e0451cf29c"
+PROJECT_DIGEST = "f6f9d188be4624886d4c21c37059d2508c46b3093801734fd06b5b4647d93c74"
+FOCUSED_SHA256 = "53d29b223ce6a032f0a0fe83eb9070ac9246bf48fcde4a6b73112ee080cffa28"
 OVERLAY_SHA256 = "197b591aec962f43b9b9393da99a76ff21c3a36189cc02c7a75dc5a7b85d6b26"
-FORMATTER_SHA256 = "edb45bd650b19d08eeb448b4bb8f5ef70aaf307d23411129093b3e0b6fc9b8cb"
+FORMATTER_SHA256 = "b3bf1c205737a9ed523bab1448fc39c3cf9e4f0f6dc93266646a350de3c367c7"
 
 
 def _read(relative: str) -> str:
@@ -645,7 +647,7 @@ def test_exact_row_number_identity_legality_and_case_policy_are_exact(
     script, relation = _parsed_relation(_program(call=call))
     semantic = analyze(script)
     expression = cast(WindowExpr, relation.select_items[0].expression)
-    if call == "row_number()":
+    if call in {"row_number()", "rank()", "dense_rank()"}:
         assert not any(item.code == "PIE-S2103" for item in semantic.diagnostics)
         assert expression not in semantic.model.expression_value_types
     else:
@@ -773,7 +775,7 @@ def test_window_unsupported_evidence_and_diagnostic_mapping_are_exact(
     case: int,
 ) -> None:
     sources = (
-        _program(call="rank()"),
+        _program(call="percent_rank()"),
         _program(call="row_number(id)"),
         _program(partition=("id",)),
         _program(order=("observed_at", "id")),
@@ -808,8 +810,8 @@ def test_wrong_row_number_arity_uses_pie_s2104(arguments: str) -> None:
 @pytest.mark.parametrize("case", range(10))
 def test_unsupported_clause_and_shape_diagnostics_use_pie_s2103(case: int) -> None:
     sources = (
-        _program(call="rank()"),
-        _program(call="dense_rank()"),
+        _program(call="percent_rank()"),
+        _program(call="cume_dist()"),
         _program(partition=("id",)),
         _program(order=("observed_at", "id")),
         _program(direction="asc"),
@@ -1088,7 +1090,7 @@ def test_project_result_identity_and_derived_provenance_are_exact(case: int) -> 
 def test_project_fact_is_transient_not_model_or_schema_state(case: int) -> None:
     source = _read("src/pietto/_project/model.py")
     required = (
-        "build_row_number_window_result_project_fact(",
+        "build_ranking_window_result_project_fact(",
         "adapt_project_row_expression_schema(",
         "ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR",
     )
@@ -1192,8 +1194,11 @@ def test_non_row_number_window_identities_remain_semantically_unsupported(
     script, _ = _parsed_relation(_program(call=f"{name}()"))
     semantic = analyze(script)
     matching = [item for item in semantic.diagnostics if item.code == "PIE-S2103"]
-    assert len(matching) == 1
-    assert matching[0].message == f"Unknown function: {name}"
+    if name in {"rank", "dense_rank"}:
+        assert matching == []
+    else:
+        assert len(matching) == 1
+        assert matching[0].message == f"Unknown function: {name}"
 
 
 def test_grammar_generated_ast_parser_ir_sql_and_public_bytes_are_locked() -> None:
@@ -1279,15 +1284,15 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
     readable = {path for path in (*tracked, *untracked) if (REPO_ROOT / path).is_file()}
-    assert len(readable) == 857
-    assert sum(path.endswith(".py") for path in readable) == 527
-    assert sum(path.endswith(".md") for path in readable) == 234
+    assert len(readable) == 859
+    assert sum(path.endswith(".py") for path in readable) == 528
+    assert sum(path.endswith(".md") for path in readable) == 235
     test_modules = {
         path
         for path in readable
         if path.startswith("tests/test_") and path.endswith(".py")
     }
-    assert len(test_modules) == 440
+    assert len(test_modules) == 441
     top_level_tests = 0
     for relative in sorted(test_modules):
         tree = ast.parse(_read(relative), filename=relative)
@@ -1296,31 +1301,31 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 4365
-    assert 7035 == 6867 + 168
-    assert 7035 - 185 == 6850
-    assert (112, 65, 6, 106, 943, 12814) == (112, 65, 6, 106, 943, 12814)
+    assert top_level_tests == 4410
+    assert 7314 == 7035 + 279
+    assert 7314 - 185 == 7129
+    assert (113, 66, 7, 106, 1222, 12876) == (113, 66, 7, 106, 1222, 12876)
     assert (FOCUSED_SHA256, OVERLAY_SHA256, FORMATTER_SHA256) == (
-        "71bb5dfea8348f0497b15705eff79b23f162e284f1fdb0b53659f0e0451cf29c",
+        "53d29b223ce6a032f0a0fe83eb9070ac9246bf48fcde4a6b73112ee080cffa28",
         "197b591aec962f43b9b9393da99a76ff21c3a36189cc02c7a75dc5a7b85d6b26",
-        "edb45bd650b19d08eeb448b4bb8f5ef70aaf307d23411129093b3e0b6fc9b8cb",
+        "b3bf1c205737a9ed523bab1448fc39c3cf9e4f0f6dc93266646a350de3c367c7",
     )
-    assert len(ALLOWLIST_PATHS) == 60
-    assert len(MODIFIED_PATHS) == 57
-    assert len(ADDED_PATHS) == 3
+    assert len(ALLOWLIST_PATHS) == 62
+    assert len(MODIFIED_PATHS) == 60
+    assert len(ADDED_PATHS) == 2
 
 
 def test_validation_gate3_and_no_behavior_boundaries_are_locked() -> None:
     docs = _read(SPEC_REL) + _read(PLAN_REL)
     for required in (
-        "A3/M57/D0",
-        "58 handwritten Python",
-        "943 focused items",
-        "6850 passed, 185 deselected",
-        "7035 clean-CI passes",
+        "A2/M60/D0",
+        "60-path handwritten Python manifest",
+        "1222 focused items",
+        "7129 passed and 185 deselected",
+        "7314 passes in each clean-CI Python job",
         "one write-mode Ruff invocation",
         "unstaged and uncommitted",
-        "Add Phase 53 row number direct-field MVP",
+        "Add Phase 53 rank and dense-rank peer semantics",
         "Slice 15 retains Window IR",
         "0.1.0",
     ):

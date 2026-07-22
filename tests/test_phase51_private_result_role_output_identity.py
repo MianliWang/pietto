@@ -34,6 +34,10 @@ from pietto._project.model import (
 )
 from pietto.ast_nodes import QueryDef, SourceDef, TableDef
 from pietto.errors import SourceLocation
+from pietto.semantic.window_semantics import (
+    RankingAdvancePolicy,
+    RankingWindowSemanticFact,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MODEL_PATH = REPO_ROOT / "src/pietto/_project/model.py"
@@ -76,6 +80,20 @@ def test_result_role_and_fact_carriers_are_exact_frozen_and_slots() -> None:
     )
     assert is_dataclass(ProjectAggregateResultFact)
     assert hasattr(ProjectAggregateResultFact, "__slots__")
+    assert tuple((item.name, item.value) for item in RankingAdvancePolicy) == (
+        ("PER_ROW", "per_row"),
+        ("GAPPED_PEER_RANK", "preceding_row_count_plus_one"),
+        (
+            "DENSE_PEER_RANK",
+            "preceding_distinct_peer_group_count_plus_one",
+        ),
+    )
+    assert tuple(field.name for field in fields(RankingWindowSemanticFact)) == (
+        "semantic_fact",
+        "advance_policy",
+    )
+    assert is_dataclass(RankingWindowSemanticFact)
+    assert hasattr(RankingWindowSemanticFact, "__slots__")
 
     row_field = _row_field("id")
     fact = _fact(function="Future_AGG", output_name="total")
@@ -415,7 +433,11 @@ def test_new_private_facts_are_not_exported_or_serialized(tmp_path: Path) -> Non
         "WindowDependencyOccurrence",
         "WindowDependencyEdge",
         "WindowResultProjectFact",
+        "RankingAdvancePolicy",
+        "RankingWindowSemanticFact",
         "window_result",
+        "analyze_ranking_window_expression",
+        "build_ranking_window_result_project_fact",
         "build_row_number_window_result_project_fact",
     ):
         assert not hasattr(pietto, name)

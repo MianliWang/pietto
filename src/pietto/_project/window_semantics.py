@@ -273,7 +273,7 @@ class WindowResultProjectFact:
             raise ValueError("provenance location must match occurrence location")
 
 
-def build_row_number_window_result_project_fact(
+def build_ranking_window_result_project_fact(
     *,
     definition: TableDef | QueryDef,
     item: SelectItem,
@@ -282,17 +282,17 @@ def build_row_number_window_result_project_fact(
     input_schema: ProjectRowSchema,
     upstream_symbol: ProjectSymbol,
 ) -> WindowResultProjectFact | WindowExpressionUnsupported:
-    """Build one transient project fact for an exact semantic success."""
+    """Build one transient project fact for an exact ranking semantic success."""
 
     from pietto._project.row_expression_type_facts import (
         project_row_schema_to_semantic_row_schema,
     )
     from pietto.semantic.window_analysis import (
-        analyze_row_number_window_expression,
+        analyze_ranking_window_expression,
     )
 
     diagnostics: list[Diagnostic] = []
-    semantic_fact = analyze_row_number_window_expression(
+    semantic_result = analyze_ranking_window_expression(
         definition=definition,
         item=item,
         selected_output_ordinal=selected_output_ordinal,
@@ -302,10 +302,11 @@ def build_row_number_window_result_project_fact(
         value_types={},
         diagnostics=diagnostics,
     )
-    if isinstance(semantic_fact, WindowExpressionUnsupported):
-        return semantic_fact
+    if isinstance(semantic_result, WindowExpressionUnsupported):
+        return semantic_result
+    semantic_fact = semantic_result.semantic_fact
     if item.alias is None:
-        raise AssertionError("successful row_number project fact requires an alias")
+        raise AssertionError("successful ranking project fact requires an alias")
 
     expression = semantic_fact.expression
     order_expression = expression.spec.order_by[0].expression
@@ -358,6 +359,27 @@ def build_row_number_window_result_project_fact(
             symbol=upstream_symbol,
             location=_source_location(expression.span),
         ),
+    )
+
+
+def build_row_number_window_result_project_fact(
+    *,
+    definition: TableDef | QueryDef,
+    item: SelectItem,
+    selected_output_ordinal: int,
+    source_id: str,
+    input_schema: ProjectRowSchema,
+    upstream_symbol: ProjectSymbol,
+) -> WindowResultProjectFact | WindowExpressionUnsupported:
+    """Retain the Slice 7 project-fact result shape through the generic builder."""
+
+    return build_ranking_window_result_project_fact(
+        definition=definition,
+        item=item,
+        selected_output_ordinal=selected_output_ordinal,
+        source_id=source_id,
+        input_schema=input_schema,
+        upstream_symbol=upstream_symbol,
     )
 
 

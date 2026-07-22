@@ -417,6 +417,8 @@ def test_current_source_has_generic_calls_but_no_window_model() -> None:
         "class WindowResultAvailability:",
         "class WindowExpressionSemanticFact:",
         "class WindowExpressionUnsupported:",
+        "class RankingAdvancePolicy",
+        "class RankingWindowSemanticFact:",
     ):
         assert carrier in semantic_window
     for carrier in (
@@ -428,11 +430,21 @@ def test_current_source_has_generic_calls_but_no_window_model() -> None:
     ):
         assert carrier in project_window
     assert "__all__: tuple[str, ...] = ()" in semantic_window
+    assert "def analyze_ranking_window_expression(" in window_analysis
     assert "def analyze_row_number_window_expression(" in window_analysis
-    assert "_ROW_NUMBER_SIGNATURE = GenericSignature(" in window_analysis
+    assert "_RANKING_SIGNATURE = GenericSignature(" in window_analysis
     assert "nullability=NonNullFormula()" in window_analysis
+    for identity, policy in (
+        ("row_number", "RankingAdvancePolicy.PER_ROW"),
+        ("rank", "RankingAdvancePolicy.GAPPED_PEER_RANK"),
+        ("dense_rank", "RankingAdvancePolicy.DENSE_PEER_RANK"),
+    ):
+        assert f'name="{identity}"' in window_analysis
+        assert policy in window_analysis
     assert "__all__: tuple[str, ...] = ()" in project_window
+    assert "def build_ranking_window_result_project_fact(" in project_window
     assert "def build_row_number_window_result_project_fact(" in project_window
+    assert "semantic_fact = semantic_result.semantic_fact" in project_window
     assert project_model.count('WINDOW_RESULT = "window_result"') == 1
     assert "WINDOW_RESULT" not in metadata_builder
 
