@@ -124,7 +124,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "semantic": (
         "src/pietto/semantic",
         31,
-        "930ebe82406b26a48e66c71c099e6ca8911c291161808272490794f3f5fd0cff",
+        "fb593d3b8c2c0be71f84c9eaed46ee9ff5e51728a17bb790cf086b975d39bb99",
     ),
     "ir": (
         "src/pietto/ir",

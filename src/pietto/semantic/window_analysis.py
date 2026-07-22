@@ -1,4 +1,4 @@
-"""Private semantic analysis for the bounded ranking window subset."""
+"""Private semantic analysis for the bounded ranking and distribution subset."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from pietto.ast_nodes import (
     CallExpr,
     DottedNameExpr,
     Expression,
+    LiteralExpr,
     NameExpr,
     QueryDef,
     SelectItem,
@@ -20,6 +21,7 @@ from pietto.semantic.generic_compatibility import (
     ConcreteTypeExpression,
     GenericSignature,
     LogicalTypeIdentity,
+    SignatureParameter,
     SignatureMatch,
     bind_signature,
 )
@@ -39,6 +41,8 @@ from pietto.semantic.nullability_formulas import (
     evaluate_signature_result_nullability,
 )
 from pietto.semantic.window_semantics import (
+    DistributionWindowPolicy,
+    DistributionWindowSemanticFact,
     RankingAdvancePolicy,
     RankingWindowSemanticFact,
     WindowExpressionSemanticFact,
@@ -67,6 +71,52 @@ _ROW_NUMBER_RESULT_IDENTITY = _RANKING_RESULT_IDENTITY
 _ROW_NUMBER_SIGNATURE = _RANKING_SIGNATURE
 _ROW_NUMBER_RESULT_FORMULA = _RANKING_RESULT_FORMULA
 
+_DISTRIBUTION_FLOAT_RESULT_IDENTITY = LogicalTypeIdentity(
+    name="Float",
+    kind=TypeKind.BUILTIN,
+)
+_DISTRIBUTION_INT_RESULT_IDENTITY = _RANKING_RESULT_IDENTITY
+_PERCENT_RANK_SIGNATURE = GenericSignature(
+    type_variables=(),
+    parameters=(),
+    result=ConcreteTypeExpression(
+        logical_type=_DISTRIBUTION_FLOAT_RESULT_IDENTITY,
+    ),
+)
+_PERCENT_RANK_RESULT_FORMULA = SignatureResultFormula(
+    signature=_PERCENT_RANK_SIGNATURE,
+    nullability=NonNullFormula(),
+)
+_CUME_DIST_SIGNATURE = GenericSignature(
+    type_variables=(),
+    parameters=(),
+    result=ConcreteTypeExpression(
+        logical_type=_DISTRIBUTION_FLOAT_RESULT_IDENTITY,
+    ),
+)
+_CUME_DIST_RESULT_FORMULA = SignatureResultFormula(
+    signature=_CUME_DIST_SIGNATURE,
+    nullability=NonNullFormula(),
+)
+_NTILE_SIGNATURE = GenericSignature(
+    type_variables=(),
+    parameters=(
+        SignatureParameter(
+            position=0,
+            type_expression=ConcreteTypeExpression(
+                logical_type=_DISTRIBUTION_INT_RESULT_IDENTITY,
+            ),
+        ),
+    ),
+    result=ConcreteTypeExpression(
+        logical_type=_DISTRIBUTION_INT_RESULT_IDENTITY,
+    ),
+)
+_NTILE_RESULT_FORMULA = SignatureResultFormula(
+    signature=_NTILE_SIGNATURE,
+    nullability=NonNullFormula(),
+)
+
 _RANKING_POLICIES = (
     (
         WindowFunctionIdentity(
@@ -94,6 +144,98 @@ _RANKING_POLICIES = (
     ),
 )
 
+_DISTRIBUTION_FUNCTIONS = (
+    (
+        WindowFunctionIdentity(
+            namespace=(),
+            name="percent_rank",
+            role=WindowFunctionRole.WINDOW_FUNCTION,
+        ),
+        DistributionWindowPolicy.PERCENT_RANK,
+        _PERCENT_RANK_SIGNATURE,
+        _PERCENT_RANK_RESULT_FORMULA,
+    ),
+    (
+        WindowFunctionIdentity(
+            namespace=(),
+            name="cume_dist",
+            role=WindowFunctionRole.WINDOW_FUNCTION,
+        ),
+        DistributionWindowPolicy.CUMULATIVE_DISTRIBUTION,
+        _CUME_DIST_SIGNATURE,
+        _CUME_DIST_RESULT_FORMULA,
+    ),
+    (
+        WindowFunctionIdentity(
+            namespace=(),
+            name="ntile",
+            role=WindowFunctionRole.WINDOW_FUNCTION,
+        ),
+        DistributionWindowPolicy.BALANCED_BUCKETS,
+        _NTILE_SIGNATURE,
+        _NTILE_RESULT_FORMULA,
+    ),
+)
+
+
+def analyze_window_expression(
+    *,
+    definition: TableDef | QueryDef,
+    item: SelectItem,
+    selected_output_ordinal: int,
+    source_id: str,
+    input_schema: RowSchema,
+    field_qualifier: str,
+    value_types: dict[Expression, ValueType],
+    diagnostics: list[Diagnostic],
+) -> (
+    RankingWindowSemanticFact
+    | DistributionWindowSemanticFact
+    | WindowExpressionUnsupported
+):
+    """Analyze one direct selected recognized window expression transiently."""
+
+    return _analyze_recognized_window_expression(
+        definition=definition,
+        item=item,
+        selected_output_ordinal=selected_output_ordinal,
+        source_id=source_id,
+        input_schema=input_schema,
+        field_qualifier=field_qualifier,
+        value_types=value_types,
+        diagnostics=diagnostics,
+        family=None,
+    )
+
+
+def analyze_distribution_window_expression(
+    *,
+    definition: TableDef | QueryDef,
+    item: SelectItem,
+    selected_output_ordinal: int,
+    source_id: str,
+    input_schema: RowSchema,
+    field_qualifier: str,
+    value_types: dict[Expression, ValueType],
+    diagnostics: list[Diagnostic],
+) -> DistributionWindowSemanticFact | WindowExpressionUnsupported:
+    """Analyze one direct selected distribution expression transiently."""
+
+    result = _analyze_recognized_window_expression(
+        definition=definition,
+        item=item,
+        selected_output_ordinal=selected_output_ordinal,
+        source_id=source_id,
+        input_schema=input_schema,
+        field_qualifier=field_qualifier,
+        value_types=value_types,
+        diagnostics=diagnostics,
+        family="distribution",
+    )
+    if isinstance(result, RankingWindowSemanticFact):
+        raise AssertionError("distribution analyzer returned a ranking fact")
+    return result
+
 
 def analyze_ranking_window_expression(
     *,
@@ -107,6 +249,68 @@ def analyze_ranking_window_expression(
     diagnostics: list[Diagnostic],
 ) -> RankingWindowSemanticFact | WindowExpressionUnsupported:
     """Analyze one direct selected ranking expression without publishing it."""
+
+    result = _analyze_recognized_window_expression(
+        definition=definition,
+        item=item,
+        selected_output_ordinal=selected_output_ordinal,
+        source_id=source_id,
+        input_schema=input_schema,
+        field_qualifier=field_qualifier,
+        value_types=value_types,
+        diagnostics=diagnostics,
+        family="ranking",
+    )
+    if isinstance(result, DistributionWindowSemanticFact):
+        raise AssertionError("ranking analyzer returned a distribution fact")
+    return result
+
+
+def analyze_row_number_window_expression(
+    *,
+    definition: TableDef | QueryDef,
+    item: SelectItem,
+    selected_output_ordinal: int,
+    source_id: str,
+    input_schema: RowSchema,
+    field_qualifier: str,
+    value_types: dict[Expression, ValueType],
+    diagnostics: list[Diagnostic],
+) -> WindowExpressionSemanticFact | WindowExpressionUnsupported:
+    """Retain the Slice 7 core-fact result shape through the ranking analyzer."""
+
+    result = analyze_ranking_window_expression(
+        definition=definition,
+        item=item,
+        selected_output_ordinal=selected_output_ordinal,
+        source_id=source_id,
+        input_schema=input_schema,
+        field_qualifier=field_qualifier,
+        value_types=value_types,
+        diagnostics=diagnostics,
+    )
+    if isinstance(result, WindowExpressionUnsupported):
+        return result
+    return result.semantic_fact
+
+
+def _analyze_recognized_window_expression(
+    *,
+    definition: TableDef | QueryDef,
+    item: SelectItem,
+    selected_output_ordinal: int,
+    source_id: str,
+    input_schema: RowSchema,
+    field_qualifier: str,
+    value_types: dict[Expression, ValueType],
+    diagnostics: list[Diagnostic],
+    family: str | None,
+) -> (
+    RankingWindowSemanticFact
+    | DistributionWindowSemanticFact
+    | WindowExpressionUnsupported
+):
+    """Own the single common validation and construction path."""
 
     if type(definition) not in {TableDef, QueryDef}:
         raise TypeError("definition must be an exact TableDef or QueryDef")
@@ -131,8 +335,15 @@ def analyze_ranking_window_expression(
         span=expression.span,
     )
 
-    advance_policy = _ranking_policy(expression)
-    if advance_policy is None:
+    advance_policy = (
+        _ranking_policy(expression) if family in {None, "ranking"} else None
+    )
+    distribution_definition = (
+        _distribution_definition(expression)
+        if family in {None, "distribution"}
+        else None
+    )
+    if advance_policy is None and distribution_definition is None:
         return _unsupported(
             occurrence=occurrence,
             expression=expression,
@@ -141,16 +352,25 @@ def analyze_ranking_window_expression(
         )
 
     function_name = expression.identity.name
+    if advance_policy is not None:
+        signature = _RANKING_SIGNATURE
+        result_formula = _RANKING_RESULT_FORMULA
+        distribution_policy = None
+    else:
+        assert distribution_definition is not None
+        _, distribution_policy, signature, result_formula = distribution_definition
 
-    if expression.call.arguments:
+    expected_arity = len(signature.parameters)
+    if len(expression.call.arguments) != expected_arity:
         return _unsupported(
             occurrence=occurrence,
             expression=expression,
-            reason=f"{function_name} requires zero arguments",
+            reason=f"{function_name} requires {expected_arity} arguments",
             diagnostics=diagnostics,
             code="PIE-S2104",
             message=(
-                f"Invalid arguments for function {function_name}: expected 0, got "
+                f"Invalid arguments for function {function_name}: expected "
+                f"{expected_arity}, got "
                 f"{len(expression.call.arguments)}"
             ),
         )
@@ -262,18 +482,43 @@ def analyze_ranking_window_expression(
             reason="window order field type must be concrete",
         )
 
-    signature_match = bind_signature(_RANKING_SIGNATURE, ())
+    bucket_count: int | None = None
+    signature_arguments: tuple[LogicalTypeIdentity, ...] = ()
+    if distribution_policy is DistributionWindowPolicy.BALANCED_BUCKETS:
+        argument = expression.call.arguments[0]
+        if (
+            type(argument) is not LiteralExpr
+            or type(argument.value) is not int
+            or argument.value <= 0
+        ):
+            return _unsupported(
+                occurrence=occurrence,
+                expression=expression,
+                reason="ntile requires one positive integer literal",
+                diagnostics=diagnostics,
+                code="PIE-S2104",
+                message=(
+                    "Invalid arguments for function ntile: expected one positive "
+                    "integer literal"
+                ),
+            )
+        bucket_count = argument.value
+        signature_arguments = (_DISTRIBUTION_INT_RESULT_IDENTITY,)
+
+    signature_match = bind_signature(signature, signature_arguments)
     if type(signature_match) is not SignatureMatch:
-        raise AssertionError("ranking signature must bind without arguments")
+        raise AssertionError("recognized window signature must bind")
     nullability_match = evaluate_signature_result_nullability(
-        _RANKING_RESULT_FORMULA,
+        result_formula,
         NullabilityEvaluationContext(
-            argument_nullabilities=(),
+            argument_nullabilities=tuple(
+                EffectiveNullability.NON_NULL for _ in signature_arguments
+            ),
             omitted_positions=(),
         ),
     )
     if type(nullability_match) is not NullabilityEvaluationMatch:
-        raise AssertionError("ranking nullability formula must evaluate")
+        raise AssertionError("recognized window nullability formula must evaluate")
 
     result_type = ValueType(
         resolved_type=ResolvedType(
@@ -283,7 +528,7 @@ def analyze_ranking_window_expression(
         nullability=nullability_match.value,
     )
     if result_type.nullability is not EffectiveNullability.NON_NULL:
-        raise AssertionError("ranking result must be non-null")
+        raise AssertionError("recognized window result must be non-null")
     semantic_fact = WindowExpressionSemanticFact(
         occurrence=occurrence,
         expression=expression,
@@ -293,38 +538,25 @@ def analyze_ranking_window_expression(
             value_type=result_type,
         ),
     )
-    return RankingWindowSemanticFact(
+    if advance_policy is not None:
+        return RankingWindowSemanticFact(
+            semantic_fact=semantic_fact,
+            advance_policy=advance_policy,
+        )
+
+    assert distribution_policy is not None
+    ranking_fact = None
+    if distribution_policy is DistributionWindowPolicy.PERCENT_RANK:
+        ranking_fact = RankingWindowSemanticFact(
+            semantic_fact=semantic_fact,
+            advance_policy=RankingAdvancePolicy.GAPPED_PEER_RANK,
+        )
+    return DistributionWindowSemanticFact(
         semantic_fact=semantic_fact,
-        advance_policy=advance_policy,
+        distribution_policy=distribution_policy,
+        ranking_fact=ranking_fact,
+        bucket_count=bucket_count,
     )
-
-
-def analyze_row_number_window_expression(
-    *,
-    definition: TableDef | QueryDef,
-    item: SelectItem,
-    selected_output_ordinal: int,
-    source_id: str,
-    input_schema: RowSchema,
-    field_qualifier: str,
-    value_types: dict[Expression, ValueType],
-    diagnostics: list[Diagnostic],
-) -> WindowExpressionSemanticFact | WindowExpressionUnsupported:
-    """Retain the Slice 7 core-fact result shape through the ranking analyzer."""
-
-    result = analyze_ranking_window_expression(
-        definition=definition,
-        item=item,
-        selected_output_ordinal=selected_output_ordinal,
-        source_id=source_id,
-        input_schema=input_schema,
-        field_qualifier=field_qualifier,
-        value_types=value_types,
-        diagnostics=diagnostics,
-    )
-    if isinstance(result, WindowExpressionUnsupported):
-        return result
-    return result.semantic_fact
 
 
 def _ranking_policy(expression: WindowExpr) -> RankingAdvancePolicy | None:
@@ -334,6 +566,27 @@ def _ranking_policy(expression: WindowExpr) -> RankingAdvancePolicy | None:
     for identity, advance_policy in _RANKING_POLICIES:
         if expression.identity == identity and callee.name == identity.name:
             return advance_policy
+    return None
+
+
+def _distribution_definition(
+    expression: WindowExpr,
+) -> (
+    tuple[
+        WindowFunctionIdentity,
+        DistributionWindowPolicy,
+        GenericSignature,
+        SignatureResultFormula,
+    ]
+    | None
+):
+    callee = expression.call.callee
+    if type(callee) is not NameExpr:
+        return None
+    for definition in _DISTRIBUTION_FUNCTIONS:
+        identity = definition[0]
+        if expression.identity == identity and callee.name == identity.name:
+            return definition
     return None
 
 

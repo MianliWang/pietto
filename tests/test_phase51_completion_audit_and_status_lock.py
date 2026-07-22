@@ -118,7 +118,7 @@ PHASE52_UNTRACKED_PATHS = {
     "docs/spec/phase52-core-type-system-capability-foundation-scope-lock-v1.md",
     "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
 }
-SLICE2_BASE_HEAD_SHA = "6c27621a9a0504f704bfba059f9b262c9f5e3e68"
+SLICE2_BASE_HEAD_SHA = "f90bd653c3ece47a86a121095f4547783f35197f"
 SLICE2_STATE_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
 
 PHASE51_SLICE_ARTIFACTS = (
@@ -324,9 +324,9 @@ PROTECTED_HASHES = {
         "26cc0ae4a68518223d6bf600ad3c4b0b226618aa7ef31b2ae1c25924d2655169"
     ),
 }
-COMPILER_DIGEST = "5121a1ecaa67e77995aa5cd36dc0ce81b375cc1b5e6b723853b0c8fa65597f81"
+COMPILER_DIGEST = "0651eaa531c9bb3a19ffd4b5c79f1796bc0cbf683259c73226a62a0fd66f9318"
 PROJECT_PRIVATE_DIGEST = (
-    "f6f9d188be4624886d4c21c37059d2508c46b3093801734fd06b5b4647d93c74"
+    "a8349e50c3a36715de398477bb2bb595ff3e3f736bf80b92ca7766798d9f1f63"
 )
 
 PROJECT_JSON_V2_KEYS = (

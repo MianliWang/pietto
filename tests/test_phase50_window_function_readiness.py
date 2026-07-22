@@ -419,6 +419,8 @@ def test_current_source_has_generic_calls_but_no_window_model() -> None:
         "class WindowExpressionUnsupported:",
         "class RankingAdvancePolicy",
         "class RankingWindowSemanticFact:",
+        "class DistributionWindowPolicy",
+        "class DistributionWindowSemanticFact:",
     ):
         assert carrier in semantic_window
     for carrier in (
@@ -430,6 +432,8 @@ def test_current_source_has_generic_calls_but_no_window_model() -> None:
     ):
         assert carrier in project_window
     assert "__all__: tuple[str, ...] = ()" in semantic_window
+    assert "def analyze_window_expression(" in window_analysis
+    assert "def analyze_distribution_window_expression(" in window_analysis
     assert "def analyze_ranking_window_expression(" in window_analysis
     assert "def analyze_row_number_window_expression(" in window_analysis
     assert "_RANKING_SIGNATURE = GenericSignature(" in window_analysis
@@ -442,6 +446,7 @@ def test_current_source_has_generic_calls_but_no_window_model() -> None:
         assert f'name="{identity}"' in window_analysis
         assert policy in window_analysis
     assert "__all__: tuple[str, ...] = ()" in project_window
+    assert "def build_window_result_project_fact(" in project_window
     assert "def build_ranking_window_result_project_fact(" in project_window
     assert "def build_row_number_window_result_project_fact(" in project_window
     assert "semantic_fact = semantic_result.semantic_fact" in project_window

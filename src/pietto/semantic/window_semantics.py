@@ -207,3 +207,107 @@ class RankingWindowSemanticFact:
         """Whether a multirow peer group creates a subsequent rank gap."""
 
         return self.advance_policy is RankingAdvancePolicy.GAPPED_PEER_RANK
+
+
+class DistributionWindowPolicy(StrEnum):
+    """Private structural policies for distribution window functions."""
+
+    PERCENT_RANK = "percent_rank"
+    CUMULATIVE_DISTRIBUTION = "cumulative_distribution"
+    BALANCED_BUCKETS = "balanced_buckets"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DistributionWindowSemanticFact:
+    """Private sibling distribution policy for one core window semantic fact."""
+
+    semantic_fact: WindowExpressionSemanticFact
+    distribution_policy: DistributionWindowPolicy
+    ranking_fact: RankingWindowSemanticFact | None
+    bucket_count: int | None
+
+    def __post_init__(self) -> None:
+        if type(self.semantic_fact) is not WindowExpressionSemanticFact:
+            raise TypeError(
+                "semantic_fact must be an exact WindowExpressionSemanticFact"
+            )
+        if type(self.distribution_policy) is not DistributionWindowPolicy:
+            raise TypeError(
+                "distribution_policy must be an exact DistributionWindowPolicy"
+            )
+        if (
+            self.ranking_fact is not None
+            and type(self.ranking_fact) is not RankingWindowSemanticFact
+        ):
+            raise TypeError(
+                "ranking_fact must be an exact RankingWindowSemanticFact or None"
+            )
+        if self.bucket_count is not None and type(self.bucket_count) is not int:
+            raise TypeError("bucket_count must be an exact integer or None")
+        if not self.structural_order_key:
+            raise ValueError(
+                "distribution policy requires a nonempty structural order tuple"
+            )
+
+        identity_name = self.semantic_fact.identity.name
+        if self.distribution_policy is DistributionWindowPolicy.PERCENT_RANK:
+            if identity_name != "percent_rank":
+                raise ValueError("PERCENT_RANK requires percent_rank identity")
+            if self.ranking_fact is None:
+                raise ValueError("PERCENT_RANK requires a ranking_fact")
+            if self.ranking_fact.semantic_fact is not self.semantic_fact:
+                raise ValueError("PERCENT_RANK requires the same semantic core")
+            if (
+                self.ranking_fact.advance_policy
+                is not RankingAdvancePolicy.GAPPED_PEER_RANK
+            ):
+                raise ValueError("PERCENT_RANK requires GAPPED_PEER_RANK")
+            if self.bucket_count is not None:
+                raise ValueError("PERCENT_RANK forbids bucket_count")
+            return
+
+        if self.distribution_policy is (
+            DistributionWindowPolicy.CUMULATIVE_DISTRIBUTION
+        ):
+            if identity_name != "cume_dist":
+                raise ValueError("CUMULATIVE_DISTRIBUTION requires cume_dist identity")
+            if self.ranking_fact is not None:
+                raise ValueError("CUMULATIVE_DISTRIBUTION forbids ranking_fact")
+            if self.bucket_count is not None:
+                raise ValueError("CUMULATIVE_DISTRIBUTION forbids bucket_count")
+            return
+
+        if identity_name != "ntile":
+            raise ValueError("BALANCED_BUCKETS requires ntile identity")
+        if self.ranking_fact is not None:
+            raise ValueError("BALANCED_BUCKETS forbids ranking_fact")
+        if self.bucket_count is None or self.bucket_count <= 0:
+            raise ValueError("BALANCED_BUCKETS requires positive bucket_count")
+
+    @property
+    def identity(self) -> WindowFunctionIdentity:
+        """Return the exact source-preserved window identity."""
+
+        return self.semantic_fact.identity
+
+    @property
+    def structural_order_key(self) -> tuple[Expression, ...]:
+        """Return the complete structural local order-expression tuple."""
+
+        return tuple(
+            item.expression for item in self.semantic_fact.expression.spec.order_by
+        )
+
+    @property
+    def peer_sensitive(self) -> bool:
+        """Whether the distribution result depends on the complete peer key."""
+
+        return self.distribution_policy is not DistributionWindowPolicy.BALANCED_BUCKETS
+
+    @property
+    def peer_key(self) -> tuple[Expression, ...]:
+        """Return the peer key for peer-sensitive distribution functions."""
+
+        if not self.peer_sensitive:
+            return ()
+        return self.structural_order_key

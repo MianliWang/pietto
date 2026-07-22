@@ -35,6 +35,8 @@ from pietto._project.model import (
 from pietto.ast_nodes import QueryDef, SourceDef, TableDef
 from pietto.errors import SourceLocation
 from pietto.semantic.window_semantics import (
+    DistributionWindowPolicy,
+    DistributionWindowSemanticFact,
     RankingAdvancePolicy,
     RankingWindowSemanticFact,
 )
@@ -94,6 +96,19 @@ def test_result_role_and_fact_carriers_are_exact_frozen_and_slots() -> None:
     )
     assert is_dataclass(RankingWindowSemanticFact)
     assert hasattr(RankingWindowSemanticFact, "__slots__")
+    assert tuple((item.name, item.value) for item in DistributionWindowPolicy) == (
+        ("PERCENT_RANK", "percent_rank"),
+        ("CUMULATIVE_DISTRIBUTION", "cumulative_distribution"),
+        ("BALANCED_BUCKETS", "balanced_buckets"),
+    )
+    assert tuple(field.name for field in fields(DistributionWindowSemanticFact)) == (
+        "semantic_fact",
+        "distribution_policy",
+        "ranking_fact",
+        "bucket_count",
+    )
+    assert is_dataclass(DistributionWindowSemanticFact)
+    assert hasattr(DistributionWindowSemanticFact, "__slots__")
 
     row_field = _row_field("id")
     fact = _fact(function="Future_AGG", output_name="total")
@@ -435,8 +450,13 @@ def test_new_private_facts_are_not_exported_or_serialized(tmp_path: Path) -> Non
         "WindowResultProjectFact",
         "RankingAdvancePolicy",
         "RankingWindowSemanticFact",
+        "DistributionWindowPolicy",
+        "DistributionWindowSemanticFact",
         "window_result",
+        "analyze_window_expression",
+        "analyze_distribution_window_expression",
         "analyze_ranking_window_expression",
+        "build_window_result_project_fact",
         "build_ranking_window_result_project_fact",
         "build_row_number_window_result_project_fact",
     ):

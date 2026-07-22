@@ -1778,10 +1778,10 @@ def _project_direct_relation_row_schema(
 
             if type(item.expression) is WindowExpr:
                 from pietto._project.window_semantics import (
-                    build_ranking_window_result_project_fact,
+                    build_window_result_project_fact,
                 )
 
-                build_ranking_window_result_project_fact(
+                build_window_result_project_fact(
                     definition=definition,
                     item=item,
                     selected_output_ordinal=selected_output_ordinal,

@@ -26,6 +26,8 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Diagnostic, SourceLocation
 from pietto.semantic.window_semantics import (
+    DistributionWindowSemanticFact,
+    RankingWindowSemanticFact,
     WindowExpressionSemanticFact,
     WindowExpressionUnsupported,
     WindowOccurrenceIdentity,
@@ -236,14 +238,23 @@ class WindowResultProjectFact:
             for item in self.dependency_edges
             if item.role is WindowDependencyRole.RELATION_INPUT
         )
-        argument_count = len(self.semantic_fact.expression.call.arguments)
-        if argument_count == 0:
+        has_argument_or_default = any(
+            item.role
+            in {
+                WindowDependencyRole.WINDOW_ARGUMENT,
+                WindowDependencyRole.WINDOW_DEFAULT,
+            }
+            for item in self.dependency_occurrences
+        )
+        if not has_argument_or_default:
             if len(relation_occurrences) != 1 or len(relation_edges) != 1:
                 raise ValueError(
-                    "zero-argument window readiness requires one relation input"
+                    "dependency-free window readiness requires one relation input"
                 )
         elif relation_occurrences or relation_edges:
-            raise ValueError("nonzero-argument window readiness forbids relation input")
+            raise ValueError(
+                "argument-dependent window readiness forbids relation input"
+            )
 
         if type(self.provenance.kind) is not ProjectRowFieldProvenanceKind:
             raise TypeError(
@@ -271,6 +282,50 @@ class WindowResultProjectFact:
         )
         if self.provenance.location != expected_location:
             raise ValueError("provenance location must match occurrence location")
+
+
+def build_window_result_project_fact(
+    *,
+    definition: TableDef | QueryDef,
+    item: SelectItem,
+    selected_output_ordinal: int,
+    source_id: str,
+    input_schema: ProjectRowSchema,
+    upstream_symbol: ProjectSymbol,
+) -> WindowResultProjectFact | WindowExpressionUnsupported:
+    """Build one transient project fact for any recognized window success."""
+
+    from pietto._project.row_expression_type_facts import (
+        project_row_schema_to_semantic_row_schema,
+    )
+    from pietto.semantic.window_analysis import analyze_window_expression
+
+    diagnostics: list[Diagnostic] = []
+    semantic_result = analyze_window_expression(
+        definition=definition,
+        item=item,
+        selected_output_ordinal=selected_output_ordinal,
+        source_id=source_id,
+        input_schema=project_row_schema_to_semantic_row_schema(input_schema),
+        field_qualifier=definition.from_clause.source_name,
+        value_types={},
+        diagnostics=diagnostics,
+    )
+    if isinstance(semantic_result, WindowExpressionUnsupported):
+        return semantic_result
+    if isinstance(
+        semantic_result,
+        (RankingWindowSemanticFact, DistributionWindowSemanticFact),
+    ):
+        semantic_fact = semantic_result.semantic_fact
+    else:
+        raise AssertionError("recognized window analyzer returned an unknown fact")
+    return _build_window_result_project_fact(
+        semantic_fact=semantic_fact,
+        definition=definition,
+        item=item,
+        upstream_symbol=upstream_symbol,
+    )
 
 
 def build_ranking_window_result_project_fact(
@@ -304,9 +359,46 @@ def build_ranking_window_result_project_fact(
     )
     if isinstance(semantic_result, WindowExpressionUnsupported):
         return semantic_result
-    semantic_fact = semantic_result.semantic_fact
+    return _build_window_result_project_fact(
+        semantic_fact=semantic_result.semantic_fact,
+        definition=definition,
+        item=item,
+        upstream_symbol=upstream_symbol,
+    )
+
+
+def build_row_number_window_result_project_fact(
+    *,
+    definition: TableDef | QueryDef,
+    item: SelectItem,
+    selected_output_ordinal: int,
+    source_id: str,
+    input_schema: ProjectRowSchema,
+    upstream_symbol: ProjectSymbol,
+) -> WindowResultProjectFact | WindowExpressionUnsupported:
+    """Retain the Slice 7 project-fact result shape through the ranking builder."""
+
+    return build_ranking_window_result_project_fact(
+        definition=definition,
+        item=item,
+        selected_output_ordinal=selected_output_ordinal,
+        source_id=source_id,
+        input_schema=input_schema,
+        upstream_symbol=upstream_symbol,
+    )
+
+
+def _build_window_result_project_fact(
+    *,
+    semantic_fact: WindowExpressionSemanticFact,
+    definition: TableDef | QueryDef,
+    item: SelectItem,
+    upstream_symbol: ProjectSymbol,
+) -> WindowResultProjectFact:
+    """Convert one successful core semantic fact to project-local evidence."""
+
     if item.alias is None:
-        raise AssertionError("successful ranking project fact requires an alias")
+        raise AssertionError("successful window project fact requires an alias")
 
     expression = semantic_fact.expression
     order_expression = expression.spec.order_by[0].expression
@@ -359,27 +451,6 @@ def build_ranking_window_result_project_fact(
             symbol=upstream_symbol,
             location=_source_location(expression.span),
         ),
-    )
-
-
-def build_row_number_window_result_project_fact(
-    *,
-    definition: TableDef | QueryDef,
-    item: SelectItem,
-    selected_output_ordinal: int,
-    source_id: str,
-    input_schema: ProjectRowSchema,
-    upstream_symbol: ProjectSymbol,
-) -> WindowResultProjectFact | WindowExpressionUnsupported:
-    """Retain the Slice 7 project-fact result shape through the generic builder."""
-
-    return build_ranking_window_result_project_fact(
-        definition=definition,
-        item=item,
-        selected_output_ordinal=selected_output_ordinal,
-        source_id=source_id,
-        input_schema=input_schema,
-        upstream_symbol=upstream_symbol,
     )
 
 

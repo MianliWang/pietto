@@ -265,10 +265,10 @@ def type_relation_expressions(
         for selected_output_ordinal, item in enumerate(definition.select_items):
             if type(item.expression) is WindowExpr:
                 from pietto.semantic.window_analysis import (
-                    analyze_ranking_window_expression,
+                    analyze_window_expression,
                 )
 
-                analyze_ranking_window_expression(
+                analyze_window_expression(
                     definition=definition,
                     item=item,
                     selected_output_ordinal=selected_output_ordinal,

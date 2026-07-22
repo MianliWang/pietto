@@ -52,13 +52,13 @@ LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf2
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 SIGNATURE_SHA256 = "810f347080e0bb7dc674821aa6387c5f7618ac216832194ef19820326eef71d2"
 CONTEXT_SHA256 = "132371eccca00ca9f8722a34f1ea0f540933515e560639ee12e53aee6594c60c"
-COMPILER_DIGEST = "5121a1ecaa67e77995aa5cd36dc0ce81b375cc1b5e6b723853b0c8fa65597f81"
-SEMANTIC_DIGEST = "930ebe82406b26a48e66c71c099e6ca8911c291161808272490794f3f5fd0cff"
+COMPILER_DIGEST = "0651eaa531c9bb3a19ffd4b5c79f1796bc0cbf683259c73226a62a0fd66f9318"
+SEMANTIC_DIGEST = "fb593d3b8c2c0be71f84c9eaed46ee9ff5e51728a17bb790cf086b975d39bb99"
 PHASE15_SUBSET_DIGEST = (
-    "9c797136f0fb8a4c4944914e60c464541e9bc2994f1a96b61c060f1620fda837"
+    "9836b85bff8a66bbdc3ac69332e6ef07fa7a322843ad2697f2f2f853c5bbc26c"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "f6f9d188be4624886d4c21c37059d2508c46b3093801734fd06b5b4647d93c74"
+    "a8349e50c3a36715de398477bb2bb595ff3e3f736bf80b92ca7766798d9f1f63"
 )
 
 SPEC_H2 = (
@@ -119,6 +119,7 @@ COMPILER_READERS = (
     "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
     "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
     "tests/test_phase53_row_number_direct_field_mvp_contract.py",
+    "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
     "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
 )
 SEMANTIC_READERS = (
@@ -157,6 +158,7 @@ SEMANTIC_READERS = (
     "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
     "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
     "tests/test_phase53_row_number_direct_field_mvp_contract.py",
+    "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
     "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
 )
 PHASE15_READERS = (
@@ -171,6 +173,7 @@ PHASE15_READERS = (
     "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
     "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
     "tests/test_phase53_row_number_direct_field_mvp_contract.py",
+    "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
     "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
 )
 
@@ -1946,7 +1949,7 @@ def test_static_test_inventory_and_tier1_selection_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (441, 4410)
+    assert (len(test_files), top_level_functions) == (442, 4464)
 
     compatible, per_file_items = _prior_compatible_nodes()
     assert (len(compatible), per_file_items) == (69, (24, 33, 63))

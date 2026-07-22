@@ -73,7 +73,7 @@ FACTS_SHA256 = "8a7e7ba8374c59316051f582aecc0c0e797d270fac2ce89a91a55befca562fa9
 LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26"
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 PROJECT_PRIVATE_DIGEST = (
-    "f6f9d188be4624886d4c21c37059d2508c46b3093801734fd06b5b4647d93c74"
+    "a8349e50c3a36715de398477bb2bb595ff3e3f736bf80b92ca7766798d9f1f63"
 )
 TIER2_MANIFEST_BYTES = 18319
 TIER2_MANIFEST_FILES = 108
@@ -118,6 +118,7 @@ COMPILER_READERS = (
     "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
     "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
     "tests/test_phase53_row_number_direct_field_mvp_contract.py",
+    "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
     "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
 )
 SEMANTIC_READERS = (
@@ -156,6 +157,7 @@ SEMANTIC_READERS = (
     "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
     "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
     "tests/test_phase53_row_number_direct_field_mvp_contract.py",
+    "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
     "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
 )
 PHASE15_READERS = (
@@ -170,6 +172,7 @@ PHASE15_READERS = (
     "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
     "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
     "tests/test_phase53_row_number_direct_field_mvp_contract.py",
+    "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
     "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
 )
 MODIFIED_READER_PATHS = (
@@ -1433,7 +1436,7 @@ def test_static_test_inventory_tier1_and_tier2_manifest_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (441, 4410)
+    assert (len(test_files), top_level_functions) == (442, 4464)
     assert len(DIRECT_TIER1_NODES) == len(set(DIRECT_TIER1_NODES)) == 44
     for node_id in DIRECT_TIER1_NODES:
         path, function = node_id.split("::", maxsplit=1)

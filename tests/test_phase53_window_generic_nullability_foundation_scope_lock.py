@@ -61,6 +61,7 @@ PLAN_H2 = (
     "Slice 6 Private Window Semantic Carrier, WINDOW Stage, Dependency, And Result Roles",
     "Slice 7 row_number Direct-field MVP",
     "Slice 8 rank / dense_rank And Peer Semantics",
+    "Slice 9 percent_rank / cume_dist / ntile",
 )
 SCOPE_H2 = (
     "Purpose And Slice Identity",
@@ -220,7 +221,7 @@ CI_REPAIR_BASE_HEAD_SHA = "c309323216fb7e6c52afba060cb188b3bb618d34"
 CI_REPAIR_MODIFIED_PATHS = {
     "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
 }
-SLICE2_BASE_HEAD_SHA = "6c27621a9a0504f704bfba059f9b262c9f5e3e68"
+SLICE2_BASE_HEAD_SHA = "f90bd653c3ece47a86a121095f4547783f35197f"
 SLICE2_STATE_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
 
 TIER1_EXISTING_NODES = (
@@ -441,6 +442,7 @@ def test_artifact_titles_heading_orders_and_lifecycle_are_locked() -> None:
         "Phase 53 remains `UNSTARTED`",
         "Phase 53 is `ACTIVE`",
         "Slice 8 remains `UNSTARTED` throughout Gate 2",
+        "Slice 9 remains `UNSTARTED` throughout Gate 2",
         "persistence is not activation",
         "Phase 53 Slice 1 Gate 3",
         "no automatic implementation authorization",
@@ -696,9 +698,15 @@ def test_reader_migrations_reconciliation4_and_current_authority_are_locked() ->
         "441 test modules",
         "4410 top-level test functions",
         "7314 collected items",
-        "1222 focused items",
-        "7129 passed and 185 deselected",
-        "7314 passes in each clean-CI Python job",
+        "1646 focused items",
+        "7553 passed and 185 deselected",
+        "7738 passes in each clean-CI Python job",
+        "861 tracked files",
+        "529 Python files",
+        "236 Markdown files",
+        "442 test modules",
+        "4464 top-level test functions",
+        "7738 collected items",
     ):
         assert required in slice2_plan, required
     for relative in (
@@ -708,12 +716,12 @@ def test_reader_migrations_reconciliation4_and_current_authority_are_locked() ->
         "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
         "tests/test_phase52_completion_audit_and_status_lock.py",
     ):
-        assert "(441, 4410)" in _read(relative)
+        assert "(442, 4464)" in _read(relative)
     for relative in (
         "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
         "tests/test_phase52_completion_audit_and_status_lock.py",
     ):
-        assert "(528, 235)" in _read(relative)
+        assert "(529, 236)" in _read(relative)
 
 
 def test_gate2_validation_depth_one_gate3_activation_and_stop_conditions_are_locked() -> (
@@ -724,13 +732,13 @@ def test_gate2_validation_depth_one_gate3_activation_and_stop_conditions_are_loc
     normalized = documents.replace(",", "")
     for required in (
         "depth-one",
-        "7129 passed and 185 deselected",
-        "7314 passes in each clean-CI Python job",
+        "7553 passed and 185 deselected",
+        "7738 passes in each clean-CI Python job",
         "separately authorized Gate 3",
         "one write-mode Ruff invocation",
-        "A2/M60/D0",
+        "A2/M61/D0",
         "STOP",
     ):
         assert required in normalized, required
-    assert 1222 == 279 + 943
-    assert 7314 - 185 == 7129
+    assert 1646 == 424 + 1222
+    assert 7738 - 185 == 7553
