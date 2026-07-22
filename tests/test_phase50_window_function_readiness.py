@@ -409,6 +409,7 @@ def test_current_source_has_generic_calls_but_no_window_model() -> None:
     assert "__all__: tuple[str, ...] = ()" in nullability
 
     semantic_window = _read(REPO_ROOT / "src/pietto/semantic/window_semantics.py")
+    window_analysis = _read(REPO_ROOT / "src/pietto/semantic/window_analysis.py")
     project_window = _read(REPO_ROOT / "src/pietto/_project/window_semantics.py")
     for carrier in (
         "class WindowExpressionStage",
@@ -427,7 +428,11 @@ def test_current_source_has_generic_calls_but_no_window_model() -> None:
     ):
         assert carrier in project_window
     assert "__all__: tuple[str, ...] = ()" in semantic_window
+    assert "def analyze_row_number_window_expression(" in window_analysis
+    assert "_ROW_NUMBER_SIGNATURE = GenericSignature(" in window_analysis
+    assert "nullability=NonNullFormula()" in window_analysis
     assert "__all__: tuple[str, ...] = ()" in project_window
+    assert "def build_row_number_window_result_project_fact(" in project_window
     assert project_model.count('WINDOW_RESULT = "window_result"') == 1
     assert "WINDOW_RESULT" not in metadata_builder
 

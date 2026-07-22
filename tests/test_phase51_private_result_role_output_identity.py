@@ -85,6 +85,11 @@ def test_result_role_and_fact_carriers_are_exact_frozen_and_slots() -> None:
     assert not hasattr(fact, "__dict__")
     with pytest.raises(FrozenInstanceError):
         setattr(fact, "function", "count")
+    window_source = (REPO_ROOT / "src/pietto/_project/window_semantics.py").read_text(
+        encoding="utf-8"
+    )
+    assert "def build_row_number_window_result_project_fact(" in window_source
+    assert "WindowResultProjectFact(" in window_source
 
 
 def test_existing_constructor_shapes_keep_the_ordinary_default() -> None:
@@ -411,6 +416,7 @@ def test_new_private_facts_are_not_exported_or_serialized(tmp_path: Path) -> Non
         "WindowDependencyEdge",
         "WindowResultProjectFact",
         "window_result",
+        "build_row_number_window_result_project_fact",
     ):
         assert not hasattr(pietto, name)
         assert not hasattr(project_package, name)

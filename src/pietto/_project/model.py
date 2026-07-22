@@ -26,6 +26,7 @@ from pietto.ast_nodes import (
     TableDef,
     TypeDef,
     TypeExpr,
+    WindowExpr,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 
@@ -1760,7 +1761,7 @@ def _project_direct_relation_row_schema(
         else None
     )
 
-    for item in definition.select_items:
+    for selected_output_ordinal, item in enumerate(definition.select_items):
         projection = _project_direct_field_projection(
             item,
             source_name=definition.from_clause.source_name,
@@ -1773,6 +1774,20 @@ def _project_direct_relation_row_schema(
                     state_reason=(
                         ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR
                     ),
+                )
+
+            if type(item.expression) is WindowExpr:
+                from pietto._project.window_semantics import (
+                    build_row_number_window_result_project_fact,
+                )
+
+                build_row_number_window_result_project_fact(
+                    definition=definition,
+                    item=item,
+                    selected_output_ordinal=selected_output_ordinal,
+                    source_id=item.expression.span.path or fallback_path,
+                    input_schema=source_schema,
+                    upstream_symbol=source_symbol,
                 )
 
             result = adapt_project_row_expression_schema(

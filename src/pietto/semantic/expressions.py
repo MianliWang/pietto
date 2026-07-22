@@ -262,7 +262,23 @@ def type_relation_expressions(
                 field_qualifier=definition.from_clause.source_name,
                 bare_value_types=let_value_types,
             )
-        for item in definition.select_items:
+        for selected_output_ordinal, item in enumerate(definition.select_items):
+            if type(item.expression) is WindowExpr:
+                from pietto.semantic.window_analysis import (
+                    analyze_row_number_window_expression,
+                )
+
+                analyze_row_number_window_expression(
+                    definition=definition,
+                    item=item,
+                    selected_output_ordinal=selected_output_ordinal,
+                    source_id=item.expression.span.path or definition.name,
+                    input_schema=input_schema,
+                    field_qualifier=definition.from_clause.source_name,
+                    value_types=value_types,
+                    diagnostics=diagnostics,
+                )
+                continue
             select_let_value_types = (
                 let_value_types
                 if (

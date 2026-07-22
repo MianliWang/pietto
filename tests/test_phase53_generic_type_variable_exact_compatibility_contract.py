@@ -94,6 +94,7 @@ SLICE6_H2 = (
     "Slice 6 Private Window Semantic Carrier, WINDOW Stage, Dependency, "
     "And Result Roles"
 )
+SLICE7_H2 = "Slice 7 row_number Direct-field MVP"
 EXPECTED_TEST_NAMES = (
     "test_slice4_artifact_paths_heading_contract_and_lifecycle_are_exact",
     "test_private_module_enum_carrier_and_privacy_shapes_are_exact",
@@ -162,6 +163,7 @@ EXPECTED_CARDINALITIES = (
 )
 FOCUSED_OPERANDS, DIRTY_OVERLAY, ADDED_PATHS, MODIFIED_PATHS = (
     (
+        "tests/test_phase53_row_number_direct_field_mvp_contract.py",
         "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
         "tests/test_phase50_window_function_readiness.py::test_output_dependency_lineage_and_privacy_boundaries_are_locked",
         "tests/test_phase51_private_result_role_output_identity.py::test_result_role_and_fact_carriers_are_exact_frozen_and_slots",
@@ -462,10 +464,9 @@ FOCUSED_OPERANDS, DIRTY_OVERLAY, ADDED_PATHS, MODIFIED_PATHS = (
         "--deselect=tests/test_phase52_scalar_function_operator_signature_facts.py::test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact",
     ),
     (
-        "docs/spec/phase53-private-window-semantic-carrier-stage-dependency-result-role-contract-v1.md",
-        "src/pietto/semantic/window_semantics.py",
-        "src/pietto/_project/window_semantics.py",
-        "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
+        "docs/spec/phase53-row-number-direct-field-mvp-contract-v1.md",
+        "src/pietto/semantic/window_analysis.py",
+        "tests/test_phase53_row_number_direct_field_mvp_contract.py",
     ),
     (
         "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md",
@@ -522,23 +523,26 @@ FOCUSED_OPERANDS, DIRTY_OVERLAY, ADDED_PATHS, MODIFIED_PATHS = (
         "tests/test_phase33_completion_audit.py",
         "tests/test_phase51_private_result_role_output_identity.py",
         "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
+        "src/pietto/semantic/expressions.py",
+        "src/pietto/_project/window_semantics.py",
+        "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
     ),
 )
 EXPECTED_DIRTY_PATHS = frozenset((*ADDED_PATHS, *MODIFIED_PATHS))
 
-BASE_HEAD = "ea90f3957bcac4d85bd4f8b1938ad0508638f13a"
+BASE_HEAD = "0b49cc02dc641472a4f3cc1bdf149b444dade9b2"
 FINAL_COMPILER_DIGEST = (
-    "8a5e870f0c919b46142157dc269e8f60def9c96173bb04f7c50950d9e409604a"
+    "aed75d2bbe6173e1936381b65531d1d102a65a86a1fb7358ff5557a1f8a63e60"
 )
 FINAL_SEMANTIC_DIGEST = (
-    "da5bd93b66619ff3be55a9f524ca3671f8487c0230b4890273633989f3b2dcdc"
+    "13f6a60c86c9bb613d1643b8de4067b12e67eece02c7446a915493c923083ab6"
 )
 FINAL_PHASE15_DIGEST = (
-    "349bdc8b2b9cd8c1f6c5bdad78ff39c72ceb2c690f39bcbc3b301b39341867f1"
+    "e3a989db748a6be91413f1b07d3f7be37efd0b3c2a87955ed33c329bf492402d"
 )
 FINAL_SOURCE_SHA256 = "340703267a6185f0b37401c1097a1f246d34d3d0d46c1f583b5ce5134e5090f8"
 FINAL_SPEC_SHA256 = "194ee730b88782afd6f84d90b52cb4f02a3f5efb386155fae062978f3dfe5bd9"
-FINAL_PLAN_SHA256 = "f59b224b055aac1771f3f90a78c06a810f1f786726040d71b55d12f24311cac6"
+FINAL_PLAN_SHA256 = "04f8b97228f3b2c07a159d0cc4ab048d863ab11edb349e6b03791122a884db03"
 
 PROTECTED_SHA256 = {
     "grammar/Pietto.g4": "1c394db1f72561022941e0e937899e2d340880de220ebfa85cf387b86573384e",
@@ -549,7 +553,7 @@ PROTECTED_SHA256 = {
     "src/pietto/semantic/analyzer.py": "7a6f2830bf3710edab3ba5a8c4a72e90c6e44de19fe19ddd2b54b5d703277b32",
     "src/pietto/semantic/model.py": "55f1d110854073ec3f9b47ecffd3e41c6c2bc3b606da61e8b271a23e736bd4ba",
     "src/pietto/semantic/catalog.py": "f566f39395e3bdc933e60d15e740749255dd3749cf3907684240e4b43dfc9e40",
-    "src/pietto/semantic/expressions.py": "e45b63cd9472d12c5cc38207525392eb371066e7436a749349d954f6d520e686",
+    "src/pietto/semantic/expressions.py": "07fa995858359a17afac5b2e27955484bb0c5699bcefa47ab23679d84a4c65b7",
     "src/pietto/semantic/aggregates.py": "f5d5be237960e50f62f539d76e09be425980c9f8e657846333b5ef1aaa948333",
     "src/pietto/semantic/type_aliases.py": "57be862c49b24a57f53a541e04524e3d511a60b8d4bdbcfc28d3529b484ec9d8",
     "src/pietto/__init__.py": "669ac67bb23a0c8179995e0e415d76c46210c12311e29cd89d2612b45b0a194d",
@@ -716,9 +720,10 @@ def test_slice4_artifact_paths_heading_contract_and_lifecycle_are_exact() -> Non
         "And Nullability Foundation"
     )
     assert plan_h2.count(SLICE4_H2) == 1
-    assert plan_h2[-3:] == (SLICE4_H2, SLICE5_H2, SLICE6_H2)
+    assert plan_h2[-4:] == (SLICE4_H2, SLICE5_H2, SLICE6_H2, SLICE7_H2)
     assert plan_h2.count(SLICE5_H2) == 1
     assert plan_h2.count(SLICE6_H2) == 1
+    assert plan_h2.count(SLICE7_H2) == 1
     assert plan_h3 == ()
     plan = PLAN_PATH.read_text()
     assert "Phase 53 is `ACTIVE`" in plan
@@ -1726,6 +1731,10 @@ def test_current_semantic_analyzer_and_window_paths_do_not_import_generic_compat
         "src/pietto/ast_builder.py",
     ):
         assert "generic_compatibility" not in (REPO_ROOT / relative).read_text()
+    window_analysis = (REPO_ROOT / "src/pietto/semantic/window_analysis.py").read_text()
+    assert "pietto.semantic.generic_compatibility import" in window_analysis
+    assert "_ROW_NUMBER_SIGNATURE = GenericSignature(" in window_analysis
+    assert "bind_signature(_ROW_NUMBER_SIGNATURE, ())" in window_analysis
     assert "PIE-S2103" in (REPO_ROOT / "src/pietto/semantic/expressions.py").read_text()
 
 
@@ -1819,9 +1828,9 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        86,
-        30,
-        27,
+        87,
+        31,
+        28,
     )
     assert _digest(tuple(compiler_paths)) == FINAL_COMPILER_DIGEST
     assert _digest(semantic_paths) == FINAL_SEMANTIC_DIGEST
@@ -1831,9 +1840,9 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
     assert _sha256(PLAN_PATH) == FINAL_PLAN_SHA256
 
     test_paths = tuple((REPO_ROOT / "tests").glob("test_*.py"))
-    assert sum(FINAL_COMPILER_DIGEST in path.read_text() for path in test_paths) == 20
-    assert sum(FINAL_SEMANTIC_DIGEST in path.read_text() for path in test_paths) == 34
-    assert sum(FINAL_PHASE15_DIGEST in path.read_text() for path in test_paths) == 10
+    assert sum(FINAL_COMPILER_DIGEST in path.read_text() for path in test_paths) == 21
+    assert sum(FINAL_SEMANTIC_DIGEST in path.read_text() for path in test_paths) == 35
+    assert sum(FINAL_PHASE15_DIGEST in path.read_text() for path in test_paths) == 11
     assert (
         sum(
             f'BOUNDARY_HASH = "{FINAL_COMPILER_DIGEST}"' in path.read_text()
@@ -1898,7 +1907,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         len(markdown_paths),
         len(test_paths),
         top_level_functions,
-    ) == (854, 525, 233, 439, 4324)
+    ) == (857, 527, 234, 440, 4365)
     self_tree = ast.parse(SELF_PATH.read_text())
     self_names = tuple(
         node.name
@@ -1919,14 +1928,14 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         len(focused_payload),
         hashlib.sha256(focused_payload).hexdigest(),
     ) == (
-        111,
-        64,
-        5,
+        112,
+        65,
+        6,
         106,
-        12755,
-        "f66e1f76dbd0848738be0f6ec9a876e46fd9ca1c1b59517bbb733042c6aed606",
+        12814,
+        "71bb5dfea8348f0497b15705eff79b23f162e284f1fdb0b53659f0e0451cf29c",
     )
-    assert len(set(FOCUSED_OPERANDS)) == 111
+    assert len(set(FOCUSED_OPERANDS)) == 112
 
     overlay_payload = ("\n".join(DIRTY_OVERLAY) + "\n").encode()
     assert (

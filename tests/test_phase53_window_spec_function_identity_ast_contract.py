@@ -46,7 +46,7 @@ SPEC_REL = "docs/spec/phase53-window-spec-function-identity-ast-contract-v1.md"
 IDENTITY_REL = "src/pietto/_window_identity.py"
 SELF_REL = "tests/test_phase53_window_spec_function_identity_ast_contract.py"
 SLICE2_TEST_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
-BASE_HEAD_SHA = "ea90f3957bcac4d85bd4f8b1938ad0508638f13a"
+BASE_HEAD_SHA = "0b49cc02dc641472a4f3cc1bdf149b444dade9b2"
 TEMPORARY_BRIDGE_MESSAGE = (
     "Window syntax is recognized, but WindowSpec AST preservation starts in "
     "Phase 53 Slice 3."
@@ -67,6 +67,7 @@ SLICE6_PLAN_H2 = (
     "Slice 6 Private Window Semantic Carrier, WINDOW Stage, Dependency, "
     "And Result Roles"
 )
+SLICE7_PLAN_H2 = "Slice 7 row_number Direct-field MVP"
 SPEC_H2 = (
     "Status And Slice Identity",
     "Slice 2 Syntax And Lifecycle Authority",
@@ -101,10 +102,9 @@ WINDOW_FUNCTION_NAMES = (
 )
 
 ADDED_PATHS = {
-    "docs/spec/phase53-private-window-semantic-carrier-stage-dependency-result-role-contract-v1.md",
-    "src/pietto/semantic/window_semantics.py",
-    "src/pietto/_project/window_semantics.py",
-    "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
+    "docs/spec/phase53-row-number-direct-field-mvp-contract-v1.md",
+    "src/pietto/semantic/window_analysis.py",
+    "tests/test_phase53_row_number_direct_field_mvp_contract.py",
 }
 MODIFIED_PATHS = {
     "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md",
@@ -161,6 +161,9 @@ MODIFIED_PATHS = {
     "tests/test_phase33_completion_audit.py",
     "tests/test_phase51_private_result_role_output_identity.py",
     "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
+    "src/pietto/semantic/expressions.py",
+    "src/pietto/_project/window_semantics.py",
+    "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
 }
 ALLOWLIST_PATHS = ADDED_PATHS | MODIFIED_PATHS
 
@@ -309,15 +312,15 @@ SEMANTIC_IDENTITY_CASES = (
     ("Org.Analytics.Rank", "Unknown function: Org.Analytics.Rank"),
 )
 
-COMPILER_DIGEST = "8a5e870f0c919b46142157dc269e8f60def9c96173bb04f7c50950d9e409604a"
-SEMANTIC_DIGEST = "da5bd93b66619ff3be55a9f524ca3671f8487c0230b4890273633989f3b2dcdc"
+COMPILER_DIGEST = "aed75d2bbe6173e1936381b65531d1d102a65a86a1fb7358ff5557a1f8a63e60"
+SEMANTIC_DIGEST = "13f6a60c86c9bb613d1643b8de4067b12e67eece02c7446a915493c923083ab6"
 PHASE15_SUBSET_DIGEST = (
-    "349bdc8b2b9cd8c1f6c5bdad78ff39c72ceb2c690f39bcbc3b301b39341867f1"
+    "e3a989db748a6be91413f1b07d3f7be37efd0b3c2a87955ed33c329bf492402d"
 )
 AST_NODES_SHA256 = "b0c41070fca75c89534eba75cf2086f41721de740da9a3573d67411d366204f5"
 AST_BUILDER_SHA256 = "201c74d6a27e57dfc7cd0f9693b388ebe7853b783173a3c4f7191a5f8026e70b"
 SEMANTIC_EXPRESSIONS_SHA256 = (
-    "e45b63cd9472d12c5cc38207525392eb371066e7436a749349d954f6d520e686"
+    "07fa995858359a17afac5b2e27955484bb0c5699bcefa47ab23679d84a4c65b7"
 )
 
 
@@ -472,17 +475,19 @@ def test_slice3_artifact_paths_heading_contract_and_lifecycle_are_exact() -> Non
     assert _headings(SPEC_REL, 2) == SPEC_H2
     assert _headings(SPEC_REL, 3) == ()
     plan_h2 = _headings(PLAN_REL, 2)
-    assert plan_h2[-5:] == (
+    assert plan_h2[-6:] == (
         "Slice 2 Pietto-native Window Syntax And Contextual Grammar Contract",
         SLICE3_PLAN_H2,
         SLICE4_PLAN_H2,
         SLICE5_PLAN_H2,
         SLICE6_PLAN_H2,
+        SLICE7_PLAN_H2,
     )
     assert plan_h2.count(SLICE3_PLAN_H2) == 1
     assert plan_h2.count(SLICE4_PLAN_H2) == 1
     assert plan_h2.count(SLICE5_PLAN_H2) == 1
     assert plan_h2.count(SLICE6_PLAN_H2) == 1
+    assert plan_h2.count(SLICE7_PLAN_H2) == 1
     names, cardinalities = _test_function_shape()
     assert names == EXPECTED_TEST_FUNCTIONS
     assert cardinalities == (
@@ -807,7 +812,7 @@ def test_semantic_check_fails_closed_with_existing_unknown_function_diagnostic(
 
 
 def test_window_expression_publishes_no_semantic_value_type_fact() -> None:
-    result = parse_source(_semantic_window_source("lag(id, 1)"))
+    result = parse_source(_semantic_window_source("row_number()"))
     assert result.diagnostics == ()
     assert result.ast is not None
     expression = cast(
@@ -815,7 +820,7 @@ def test_window_expression_publishes_no_semantic_value_type_fact() -> None:
         cast(QueryDef, result.ast.definitions[-1]).select_items[0].expression,
     )
     semantic = analyze(result.ast)
-    assert any(item.code == "PIE-S2103" for item in semantic.diagnostics)
+    assert not any(item.code == "PIE-S2103" for item in semantic.diagnostics)
     assert expression not in semantic.model.expression_value_types
     assert expression.call not in semantic.model.expression_value_types
     assert all(
@@ -825,7 +830,7 @@ def test_window_expression_publishes_no_semantic_value_type_fact() -> None:
 
 
 def test_ir_lowering_fails_closed_on_missing_window_expression_fact() -> None:
-    result = parse_source(_semantic_window_source("rank()"))
+    result = parse_source(_semantic_window_source("row_number()"))
     assert result.ast is not None
     expression = cast(
         WindowExpr,
@@ -946,9 +951,9 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        86,
-        30,
-        27,
+        87,
+        31,
+        28,
     )
     assert _digest(tuple(compiler_paths)) == COMPILER_DIGEST
     assert _digest(semantic_paths) == SEMANTIC_DIGEST
@@ -992,15 +997,15 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
     readable = {path for path in (*tracked, *untracked) if (REPO_ROOT / path).is_file()}
-    assert len(readable) == 854
-    assert sum(path.endswith(".py") for path in readable) == 525
-    assert sum(path.endswith(".md") for path in readable) == 233
+    assert len(readable) == 857
+    assert sum(path.endswith(".py") for path in readable) == 527
+    assert sum(path.endswith(".md") for path in readable) == 234
     test_modules = {
         path
         for path in readable
         if path.startswith("tests/test_") and path.endswith(".py")
     }
-    assert len(test_modules) == 439
+    assert len(test_modules) == 440
     top_level_tests = 0
     for relative in sorted(test_modules):
         tree = ast.parse(_read(relative), filename=relative)
@@ -1009,14 +1014,18 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 4324
-    assert 775 == 156 + 12 + 145 + 190 + 70 + 70 + 97 + 35
-    assert 6867 == 6711 + 156
-    assert 6867 - 185 == 6682
-    docs = _read(SPEC_REL) + _read(PLAN_REL)
+    assert top_level_tests == 4365
+    assert 943 == 168 + 156 + 12 + 145 + 190 + 70 + 70 + 97 + 35
+    assert 7035 == 6867 + 168
+    assert 7035 - 185 == 6850
+    docs = (
+        _read(SPEC_REL)
+        + _read("docs/spec/phase53-row-number-direct-field-mvp-contract-v1.md")
+        + _read(PLAN_REL)
+    )
     for value in (
-        "9d7668d9edbfb111f080e0ea99438df33266736bb98a3283f6c1a01bc27f6eb0",
-        "15714b4cd20d2b0c17c9aa9a648bb1efefc311dbfb06dd33f3f1c2a1f9d11132",
+        "71bb5dfea8348f0497b15705eff79b23f162e284f1fdb0b53659f0e0451cf29c",
+        "197b591aec962f43b9b9393da99a76ff21c3a36189cc02c7a75dc5a7b85d6b26",
     ):
         assert value in docs
 
@@ -1042,6 +1051,6 @@ def test_validation_gate3_and_no_behavior_boundaries_are_locked() -> None:
         )
         == ""
     )
-    assert len(ALLOWLIST_PATHS) == 58
-    assert len(MODIFIED_PATHS) == 54
-    assert len(ADDED_PATHS) == 4
+    assert len(ALLOWLIST_PATHS) == 60
+    assert len(MODIFIED_PATHS) == 57
+    assert len(ADDED_PATHS) == 3

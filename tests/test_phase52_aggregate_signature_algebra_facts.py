@@ -52,13 +52,13 @@ LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf2
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 SIGNATURE_SHA256 = "810f347080e0bb7dc674821aa6387c5f7618ac216832194ef19820326eef71d2"
 CONTEXT_SHA256 = "132371eccca00ca9f8722a34f1ea0f540933515e560639ee12e53aee6594c60c"
-COMPILER_DIGEST = "8a5e870f0c919b46142157dc269e8f60def9c96173bb04f7c50950d9e409604a"
-SEMANTIC_DIGEST = "da5bd93b66619ff3be55a9f524ca3671f8487c0230b4890273633989f3b2dcdc"
+COMPILER_DIGEST = "aed75d2bbe6173e1936381b65531d1d102a65a86a1fb7358ff5557a1f8a63e60"
+SEMANTIC_DIGEST = "13f6a60c86c9bb613d1643b8de4067b12e67eece02c7446a915493c923083ab6"
 PHASE15_SUBSET_DIGEST = (
-    "349bdc8b2b9cd8c1f6c5bdad78ff39c72ceb2c690f39bcbc3b301b39341867f1"
+    "e3a989db748a6be91413f1b07d3f7be37efd0b3c2a87955ed33c329bf492402d"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "53359c1c76dfaf7276358e273842d07e9c1f14278976f1e09353518abd8af336"
+    "55de72d66b508ced31f176c04d43b37a078aaceaf3f7baf117dd93669d61fe3b"
 )
 
 SPEC_H2 = (
@@ -118,6 +118,7 @@ COMPILER_READERS = (
     "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
     "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
     "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
+    "tests/test_phase53_row_number_direct_field_mvp_contract.py",
 )
 SEMANTIC_READERS = (
     "tests/test_phase11_completion_audit.py",
@@ -154,6 +155,7 @@ SEMANTIC_READERS = (
     "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
     "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
     "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
+    "tests/test_phase53_row_number_direct_field_mvp_contract.py",
 )
 PHASE15_READERS = (
     "tests/test_phase15_semantic_completion_audit.py",
@@ -166,6 +168,7 @@ PHASE15_READERS = (
     "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
     "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
     "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
+    "tests/test_phase53_row_number_direct_field_mvp_contract.py",
 )
 
 MODIFIED_READER_PATHS = (
@@ -1703,9 +1706,9 @@ def test_compiler_semantic_subset_project_and_raw_hash_readers_are_exact() -> No
     )
     project_paths = _project_private_paths()
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        86,
-        30,
-        27,
+        87,
+        31,
+        28,
     )
     assert len(project_paths) == 17
     assert _digest(compiler_paths) == COMPILER_DIGEST
@@ -1940,7 +1943,7 @@ def test_static_test_inventory_and_tier1_selection_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (439, 4324)
+    assert (len(test_files), top_level_functions) == (440, 4365)
 
     compatible, per_file_items = _prior_compatible_nodes()
     assert (len(compatible), per_file_items) == (69, (24, 33, 63))

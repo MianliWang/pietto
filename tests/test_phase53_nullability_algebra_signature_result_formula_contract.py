@@ -98,6 +98,7 @@ SLICE6_PLAN_H2 = (
     "Slice 6 Private Window Semantic Carrier, WINDOW Stage, Dependency, "
     "And Result Roles"
 )
+SLICE7_PLAN_H2 = "Slice 7 row_number Direct-field MVP"
 
 TEST_FUNCTIONS = (
     "test_slice5_artifact_paths_heading_contract_and_lifecycle_are_exact",
@@ -181,10 +182,9 @@ TEST_ITEM_COUNTS = (
 )
 
 ADDED_PATHS = (
-    "docs/spec/phase53-private-window-semantic-carrier-stage-dependency-result-role-contract-v1.md",
-    "src/pietto/semantic/window_semantics.py",
-    "src/pietto/_project/window_semantics.py",
-    "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
+    "docs/spec/phase53-row-number-direct-field-mvp-contract-v1.md",
+    "src/pietto/semantic/window_analysis.py",
+    "tests/test_phase53_row_number_direct_field_mvp_contract.py",
 )
 MODIFIED_PATHS = (
     "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md",
@@ -241,21 +241,24 @@ MODIFIED_PATHS = (
     "tests/test_phase33_completion_audit.py",
     "tests/test_phase51_private_result_role_output_identity.py",
     "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
+    "src/pietto/semantic/expressions.py",
+    "src/pietto/_project/window_semantics.py",
+    "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
 )
 
-BASE_HEAD = "ea90f3957bcac4d85bd4f8b1938ad0508638f13a"
+BASE_HEAD = "0b49cc02dc641472a4f3cc1bdf149b444dade9b2"
 FINAL_COMPILER_DIGEST = (
-    "8a5e870f0c919b46142157dc269e8f60def9c96173bb04f7c50950d9e409604a"
+    "aed75d2bbe6173e1936381b65531d1d102a65a86a1fb7358ff5557a1f8a63e60"
 )
 FINAL_SEMANTIC_DIGEST = (
-    "da5bd93b66619ff3be55a9f524ca3671f8487c0230b4890273633989f3b2dcdc"
+    "13f6a60c86c9bb613d1643b8de4067b12e67eece02c7446a915493c923083ab6"
 )
 FINAL_PHASE15_DIGEST = (
-    "349bdc8b2b9cd8c1f6c5bdad78ff39c72ceb2c690f39bcbc3b301b39341867f1"
+    "e3a989db748a6be91413f1b07d3f7be37efd0b3c2a87955ed33c329bf492402d"
 )
 FINAL_SOURCE_SHA256 = "f4b39fc1446af80ec223b0043ee3e76700dd83224eea8e2a5f60a609a5dd5933"
 FINAL_SPEC_SHA256 = "a37141cd86b32a3325f64d5f0bcda4b6df97c7c89313ba765f24e9f5ee167b2a"
-FINAL_PLAN_SHA256 = "f59b224b055aac1771f3f90a78c06a810f1f786726040d71b55d12f24311cac6"
+FINAL_PLAN_SHA256 = "04f8b97228f3b2c07a159d0cc4ab048d863ab11edb349e6b03791122a884db03"
 
 INT = LogicalTypeIdentity(name="Int", kind=TypeKind.BUILTIN)
 TEXT = LogicalTypeIdentity(name="Text", kind=TypeKind.BUILTIN)
@@ -448,9 +451,10 @@ def test_slice5_artifact_paths_heading_contract_and_lifecycle_are_exact() -> Non
         "Phase 53 — Window Functions, Generic Signature Compatibility, "
         "And Nullability Foundation",
     )
-    assert plan_h2[-2:] == (PLAN_H2, SLICE6_PLAN_H2)
+    assert plan_h2[-3:] == (PLAN_H2, SLICE6_PLAN_H2, SLICE7_PLAN_H2)
     assert plan_h2.count(PLAN_H2) == 1
     assert plan_h2.count(SLICE6_PLAN_H2) == 1
+    assert plan_h2.count(SLICE7_PLAN_H2) == 1
     assert plan_h3 == ()
     plan = PLAN_PATH.read_text()
     assert "Slice 5 remains `UNSTARTED` throughout Gate 2" in plan
@@ -1566,6 +1570,10 @@ def test_current_semantic_analyzer_and_window_paths_do_not_import_nullability_fo
         "nullability_formulas" not in (REPO_ROOT / path).read_text()
         for path in protected_consumers
     )
+    window_analysis = (REPO_ROOT / "src/pietto/semantic/window_analysis.py").read_text()
+    assert "pietto.semantic.nullability_formulas import" in window_analysis
+    assert "SignatureResultFormula(" in window_analysis
+    assert "nullability=NonNullFormula()" in window_analysis
     source = SOURCE_PATH.read_text()
     assert "pietto.semantic.generic_compatibility import" in source
     assert "pietto.semantic.model import EffectiveNullability" in source
@@ -1589,10 +1597,10 @@ def test_concrete_semantic_project_and_aggregate_nullability_authority_is_locked
     expected = {
         "src/pietto/semantic/model.py": "55f1d110854073ec3f9b47ecffd3e41c6c2bc3b606da61e8b271a23e736bd4ba",
         "src/pietto/semantic/analyzer.py": "7a6f2830bf3710edab3ba5a8c4a72e90c6e44de19fe19ddd2b54b5d703277b32",
-        "src/pietto/semantic/expressions.py": "e45b63cd9472d12c5cc38207525392eb371066e7436a749349d954f6d520e686",
+        "src/pietto/semantic/expressions.py": "07fa995858359a17afac5b2e27955484bb0c5699bcefa47ab23679d84a4c65b7",
         "src/pietto/semantic/aggregates.py": "f5d5be237960e50f62f539d76e09be425980c9f8e657846333b5ef1aaa948333",
         "src/pietto/semantic/catalog.py": "f566f39395e3bdc933e60d15e740749255dd3749cf3907684240e4b43dfc9e40",
-        "src/pietto/_project/model.py": "9f35148aa5760bb0982e5369de9c95c18c211e5f3b62a0719ecc41f2bba33953",
+        "src/pietto/_project/model.py": "b89e32a6bc78b634186bab2a881e658fcf2479a1fcf2483571b0ebb6a53ab001",
         "src/pietto/_project/row_expression_schema.py": "fc968a628592640012d59521627c91ee0a0017bc640fab27e8cbd756e4aa1e7d",
         "src/pietto/_project/row_expression_type_facts.py": "37559704de25d9f32a3ed062c0f99f58c29463bff291e38e1fefca70613d15a0",
         "src/pietto/_project/aggregate_grouped_schema.py": "fdedef12ee4c5eff00179f866437f1787f9991d13b8c690a6f725c9ea7a1ff9b",
@@ -1663,9 +1671,9 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        86,
-        30,
-        27,
+        87,
+        31,
+        28,
     )
     assert _digest(tuple(compiler_paths)) == FINAL_COMPILER_DIGEST
     assert _digest(semantic_paths) == FINAL_SEMANTIC_DIGEST
@@ -1674,9 +1682,9 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
     assert _sha256(SPEC_PATH) == FINAL_SPEC_SHA256
     assert _sha256(PLAN_PATH) == FINAL_PLAN_SHA256
     test_paths = tuple((REPO_ROOT / "tests").glob("test_*.py"))
-    assert sum(FINAL_COMPILER_DIGEST in path.read_text() for path in test_paths) == 20
-    assert sum(FINAL_SEMANTIC_DIGEST in path.read_text() for path in test_paths) == 34
-    assert sum(FINAL_PHASE15_DIGEST in path.read_text() for path in test_paths) == 10
+    assert sum(FINAL_COMPILER_DIGEST in path.read_text() for path in test_paths) == 21
+    assert sum(FINAL_SEMANTIC_DIGEST in path.read_text() for path in test_paths) == 35
+    assert sum(FINAL_PHASE15_DIGEST in path.read_text() for path in test_paths) == 11
     assert (
         sum(
             f'BOUNDARY_HASH = "{FINAL_COMPILER_DIGEST}"' in path.read_text()
@@ -1728,11 +1736,11 @@ def test_slice5_dirty_clean_and_depth_one_repository_states_are_locked() -> None
 
 def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
     repository_paths = _all_repository_paths()
-    assert len(repository_paths) == 854
-    assert sum(path.endswith(".py") for path in repository_paths) == 525
-    assert sum(path.endswith(".md") for path in repository_paths) == 233
+    assert len(repository_paths) == 857
+    assert sum(path.endswith(".py") for path in repository_paths) == 527
+    assert sum(path.endswith(".md") for path in repository_paths) == 234
     test_paths = tuple(sorted((REPO_ROOT / "tests").glob("test_*.py")))
-    assert len(test_paths) == 439
+    assert len(test_paths) == 440
     functions = tuple(
         node.name
         for path in test_paths
@@ -1740,7 +1748,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name.startswith("test_")
     )
-    assert len(functions) == 4324
+    assert len(functions) == 4365
     self_functions = tuple(
         node.name
         for node in ast.parse(SELF_PATH.read_text()).body
@@ -1750,7 +1758,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
     assert self_functions == TEST_FUNCTIONS
     assert len(TEST_ITEM_COUNTS) == 38
     assert sum(TEST_ITEM_COUNTS) == 145
-    assert 6711 + 156 == 6867
+    assert 6867 + 168 == 7035
     focused_value, overlay_value, added_value, modified_value = _compound_assignment(
         GENERIC_TEST_PATH
     )
@@ -1760,15 +1768,15 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
     assert cast(tuple[str, ...], modified_value) == MODIFIED_PATHS
     focused_payload = ("\n".join(focused) + "\n").encode()
     overlay_payload = ("\n".join(overlay) + "\n").encode()
-    assert (len(focused), len({item.split("::")[0] for item in focused})) == (111, 64)
+    assert (len(focused), len({item.split("::")[0] for item in focused})) == (112, 65)
     assert (
         sum("::" not in item for item in focused),
         sum("::" in item for item in focused),
-    ) == (5, 106)
-    assert len(focused_payload) == 12755
+    ) == (6, 106)
+    assert len(focused_payload) == 12814
     assert (
         hashlib.sha256(focused_payload).hexdigest()
-        == "f66e1f76dbd0848738be0f6ec9a876e46fd9ca1c1b59517bbb733042c6aed606"
+        == "71bb5dfea8348f0497b15705eff79b23f162e284f1fdb0b53659f0e0451cf29c"
     )
     assert len(focused) == len(set(focused))
     assert (

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from pietto._project.model import (
+    ProjectRowSchema,
     ProjectRowFieldProvenance,
     ProjectRowFieldProvenanceKind,
     ProjectRowResultRole,
@@ -15,10 +16,18 @@ from pietto._project.row_dependency_graph import (
     ProjectRowDependencyNode,
     ProjectRowDependencyNodeKind,
 )
-from pietto.ast_nodes import QueryDef, TableDef
-from pietto.errors import SourceLocation
+from pietto.ast_nodes import (
+    DottedNameExpr,
+    NameExpr,
+    QueryDef,
+    SelectItem,
+    Span,
+    TableDef,
+)
+from pietto.errors import Diagnostic, SourceLocation
 from pietto.semantic.window_semantics import (
     WindowExpressionSemanticFact,
+    WindowExpressionUnsupported,
     WindowOccurrenceIdentity,
 )
 
@@ -262,3 +271,103 @@ class WindowResultProjectFact:
         )
         if self.provenance.location != expected_location:
             raise ValueError("provenance location must match occurrence location")
+
+
+def build_row_number_window_result_project_fact(
+    *,
+    definition: TableDef | QueryDef,
+    item: SelectItem,
+    selected_output_ordinal: int,
+    source_id: str,
+    input_schema: ProjectRowSchema,
+    upstream_symbol: ProjectSymbol,
+) -> WindowResultProjectFact | WindowExpressionUnsupported:
+    """Build one transient project fact for an exact semantic success."""
+
+    from pietto._project.row_expression_type_facts import (
+        project_row_schema_to_semantic_row_schema,
+    )
+    from pietto.semantic.window_analysis import (
+        analyze_row_number_window_expression,
+    )
+
+    diagnostics: list[Diagnostic] = []
+    semantic_fact = analyze_row_number_window_expression(
+        definition=definition,
+        item=item,
+        selected_output_ordinal=selected_output_ordinal,
+        source_id=source_id,
+        input_schema=project_row_schema_to_semantic_row_schema(input_schema),
+        field_qualifier=definition.from_clause.source_name,
+        value_types={},
+        diagnostics=diagnostics,
+    )
+    if isinstance(semantic_fact, WindowExpressionUnsupported):
+        return semantic_fact
+    if item.alias is None:
+        raise AssertionError("successful row_number project fact requires an alias")
+
+    expression = semantic_fact.expression
+    order_expression = expression.spec.order_by[0].expression
+    if isinstance(order_expression, NameExpr):
+        field_name = order_expression.name
+    else:
+        assert isinstance(order_expression, DottedNameExpr)
+        field_name = order_expression.parts[1]
+
+    relation_input = ProjectRowDependencyNode(
+        kind=ProjectRowDependencyNodeKind.RELATION_INPUT,
+        name=upstream_symbol.name,
+        relation_name=upstream_symbol.name,
+        source_name=upstream_symbol.name,
+    )
+    order_field = ProjectRowDependencyNode(
+        kind=ProjectRowDependencyNodeKind.UPSTREAM_FIELD,
+        name=f"{upstream_symbol.name}.{field_name}",
+        relation_name=upstream_symbol.name,
+        source_name=upstream_symbol.name,
+        field_name=field_name,
+    )
+    occurrences = (
+        WindowDependencyOccurrence(
+            global_ordinal=0,
+            role_ordinal=0,
+            role=WindowDependencyRole.RELATION_INPUT,
+            target=relation_input,
+            location=_source_location(expression.call.span),
+        ),
+        WindowDependencyOccurrence(
+            global_ordinal=1,
+            role_ordinal=0,
+            role=WindowDependencyRole.WINDOW_ORDER,
+            target=order_field,
+            location=_source_location(order_expression.span),
+        ),
+    )
+    return WindowResultProjectFact(
+        semantic_fact=semantic_fact,
+        result_identity=WindowResultIdentity(
+            definition=definition,
+            output_name=item.alias,
+            occurrence=semantic_fact.occurrence,
+        ),
+        dependency_occurrences=occurrences,
+        dependency_edges=deduplicate_window_dependency_edges(occurrences),
+        provenance=ProjectRowFieldProvenance(
+            kind=ProjectRowFieldProvenanceKind.DERIVED_EXPRESSION,
+            symbol=upstream_symbol,
+            location=_source_location(expression.span),
+        ),
+    )
+
+
+def _source_location(span: Span) -> SourceLocation:
+    if type(span) is not Span:
+        raise TypeError("span must be an exact Span")
+    return SourceLocation(
+        path=span.path,
+        line=span.line,
+        column=span.column,
+        end_line=span.end_line,
+        end_column=span.end_column,
+    )

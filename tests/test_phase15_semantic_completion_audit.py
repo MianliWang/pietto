@@ -52,8 +52,8 @@ LOCKED_GROUP_HASHES = {
         "bc5be46411f947c4d591e81ce8dd8345140fd5e10276f2ff0055eccfc12babe4",
     ),
     "unchanged_semantic": (
-        27,
-        "349bdc8b2b9cd8c1f6c5bdad78ff39c72ceb2c690f39bcbc3b301b39341867f1",
+        28,
+        "e3a989db748a6be91413f1b07d3f7be37efd0b3c2a87955ed33c329bf492402d",
     ),
     "ir": (
         5,

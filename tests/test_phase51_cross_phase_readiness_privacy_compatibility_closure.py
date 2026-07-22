@@ -94,7 +94,7 @@ PHASE52_UNTRACKED_PATHS = {
     "docs/spec/phase52-core-type-system-capability-foundation-scope-lock-v1.md",
     "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
 }
-SLICE2_BASE_HEAD_SHA = "ea90f3957bcac4d85bd4f8b1938ad0508638f13a"
+SLICE2_BASE_HEAD_SHA = "0b49cc02dc641472a4f3cc1bdf149b444dade9b2"
 SLICE2_STATE_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
 CI_REPAIR_BASE_HEAD_SHA = "321ec6f80737015648bc1f81b0561fdd34610e92"
 CI_REPAIR_MODIFIED_PATHS = {
@@ -898,7 +898,7 @@ def test_cross_phase_transition_and_live_identifier_inventory_is_exact() -> None
 def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> None:
     compiler_digest = _compiler_digest()
     assert compiler_digest == (
-        "8a5e870f0c919b46142157dc269e8f60def9c96173bb04f7c50950d9e409604a"
+        "aed75d2bbe6173e1936381b65531d1d102a65a86a1fb7358ff5557a1f8a63e60"
     )
     for relative_path in BOUNDARY_PATHS:
         boundary_values = re.findall(
@@ -923,7 +923,7 @@ def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> N
     project_digest = _digest(project_paths)
     assert len(project_paths) == 17
     assert project_digest == (
-        "53359c1c76dfaf7276358e273842d07e9c1f14278976f1e09353518abd8af336"
+        "55de72d66b508ced31f176c04d43b37a078aaceaf3f7baf117dd93669d61fe3b"
     )
     phase33 = _read(REPO_ROOT / "tests/test_phase33_completion_audit.py")
     assert (

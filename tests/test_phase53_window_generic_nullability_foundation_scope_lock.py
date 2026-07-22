@@ -59,6 +59,7 @@ PLAN_H2 = (
     "Slice 4 Generic Type-variable, Constraint, And Exact Compatibility Foundation",
     "Slice 5 Nullability Algebra And Signature Result-formula Foundation",
     "Slice 6 Private Window Semantic Carrier, WINDOW Stage, Dependency, And Result Roles",
+    "Slice 7 row_number Direct-field MVP",
 )
 SCOPE_H2 = (
     "Purpose And Slice Identity",
@@ -218,7 +219,7 @@ CI_REPAIR_BASE_HEAD_SHA = "c309323216fb7e6c52afba060cb188b3bb618d34"
 CI_REPAIR_MODIFIED_PATHS = {
     "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
 }
-SLICE2_BASE_HEAD_SHA = "ea90f3957bcac4d85bd4f8b1938ad0508638f13a"
+SLICE2_BASE_HEAD_SHA = "0b49cc02dc641472a4f3cc1bdf149b444dade9b2"
 SLICE2_STATE_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
 
 TIER1_EXISTING_NODES = (
@@ -677,6 +678,15 @@ def test_reader_migrations_reconciliation4_and_current_authority_are_locked() ->
         "775 focused",
         "6682 passed, 185 deselected",
         "6867 clean-CI passes",
+        "857 tracked files",
+        "527 Python files",
+        "234 Markdown files",
+        "440 test modules",
+        "4365 top-level test functions",
+        "7035 collected items",
+        "943 focused items",
+        "6850 passed, 185 deselected",
+        "7035 clean-CI passes",
     ):
         assert required in slice2_plan, required
     for relative in (
@@ -686,12 +696,12 @@ def test_reader_migrations_reconciliation4_and_current_authority_are_locked() ->
         "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
         "tests/test_phase52_completion_audit_and_status_lock.py",
     ):
-        assert "(439, 4324)" in _read(relative)
+        assert "(440, 4365)" in _read(relative)
     for relative in (
         "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
         "tests/test_phase52_completion_audit_and_status_lock.py",
     ):
-        assert "(525, 233)" in _read(relative)
+        assert "(527, 234)" in _read(relative)
 
 
 def test_gate2_validation_depth_one_gate3_activation_and_stop_conditions_are_locked() -> (
@@ -702,13 +712,13 @@ def test_gate2_validation_depth_one_gate3_activation_and_stop_conditions_are_loc
     normalized = documents.replace(",", "")
     for required in (
         "depth-one",
-        "6682 passed 185 deselected",
-        "6867 clean-CI passes",
+        "6850 passed 185 deselected",
+        "7035 clean-CI passes",
         "separately authorized Gate 3",
         "one write-mode Ruff invocation",
-        "A4/M54/D0",
+        "A3/M57/D0",
         "STOP",
     ):
         assert required in normalized, required
-    assert 775 == 156 + 12 + 145 + 190 + 70 + 70 + 97 + 35
-    assert 6867 - 185 == 6682
+    assert 943 == 168 + 775
+    assert 7035 - 185 == 6850
