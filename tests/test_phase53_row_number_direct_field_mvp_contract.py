@@ -82,7 +82,7 @@ PLAN_REL = (
 SPEC_REL = "docs/spec/phase53-row-number-direct-field-mvp-contract-v1.md"
 SEMANTIC_REL = "src/pietto/semantic/window_analysis.py"
 SELF_REL = "tests/test_phase53_row_number_direct_field_mvp_contract.py"
-BASE_HEAD_SHA = "c9e04d833e36bdd7cdc521eeb2c5f030aac8a998"
+BASE_HEAD_SHA = "54553396f61caefe74b57cd6ed6fa144725a50e4"
 
 SPEC_TITLE = "Phase 53 Slice 7 row_number Direct-field MVP Contract v1"
 SLICE7_PLAN_H2 = "Slice 7 row_number Direct-field MVP"
@@ -202,15 +202,16 @@ CARDINALITIES = (
 )
 
 ADDED_PATHS = {
-    "docs/spec/phase53-partition-binding-multi-key-visibility-diagnostics-contract-v1.md",
-    "src/pietto/semantic/window_partition_analysis.py",
-    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+    "docs/spec/phase53-window-local-ordering-direction-determinism-contract-v1.md",
+    "src/pietto/semantic/window_order_analysis.py",
+    "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
 }
 MODIFIED_PATHS = {
     "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md",
     "src/pietto/semantic/window_semantics.py",
     "src/pietto/semantic/window_analysis.py",
     "src/pietto/_project/window_semantics.py",
+    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
     "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
     "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
     "tests/test_phase53_row_number_direct_field_mvp_contract.py",
@@ -270,15 +271,15 @@ MODIFIED_PATHS = {
 }
 ALLOWLIST_PATHS = ADDED_PATHS | MODIFIED_PATHS
 
-COMPILER_DIGEST = "b33ea239f32e1591a342560e42212a11f960075e6958e25c59b498963156ccde"
-SEMANTIC_DIGEST = "5797637326c467ecabd5e93c5f84982b35cecff140f43f1a21451d86b196bdd2"
+COMPILER_DIGEST = "5877dd47e60c7b3c49d4c61ee50232c72c68d968351aea21c07ac9f43dee558c"
+SEMANTIC_DIGEST = "9628b5cc1721ad51cdfe0679b0822725bc5373d08e2861d2b07f734c03949b2f"
 PHASE15_SUBSET_DIGEST = (
-    "0cf41a4d625d937c5f3d83df260b405253d932054ea49d6a1a64dd8c8085ddd6"
+    "bc501c43950b0022aded20da577a36ca093322a5841bc0bcebe294cb949099dc"
 )
-PROJECT_DIGEST = "b3b115a4d70b05874e415ae060f1a3084a40e696a9004935ae54d183a06791bb"
-FOCUSED_SHA256 = "dd7f1986b7c16b3875988311548d60a0314a4ebc606b57f67ef8f71cbccd29f9"
+PROJECT_DIGEST = "16590c5b7d0f94d5b982ab6fccb006da245f97462a240284e5becec3a7fd989d"
+FOCUSED_SHA256 = "5097cde3db637b55cd2e79a1292dd96dc5d4864512e012476612368164d6dc77"
 OVERLAY_SHA256 = "197b591aec962f43b9b9393da99a76ff21c3a36189cc02c7a75dc5a7b85d6b26"
-FORMATTER_SHA256 = "1997fc520df1b14049b9421efef3f8bb03039d3f9439194dcbb36915a6b9e5c9"
+FORMATTER_SHA256 = "c44ceb6e493a62c154a7958974d88a0c4d835948e1f7fb3bc0b993fa14679307"
 
 
 def _read(relative: str) -> str:
@@ -791,6 +792,10 @@ def test_window_unsupported_evidence_and_diagnostic_mapping_are_exact(
         _program(order=("other.observed_at",)),
     )
     result, diagnostics, _, _ = _direct_analysis(sources[case])
+    if case in {3, 4}:
+        assert isinstance(result, WindowExpressionSemanticFact)
+        assert diagnostics == []
+        return
     assert isinstance(result, WindowExpressionUnsupported)
     assert result.reason.strip()
     expected = "PIE-S2104" if case == 1 else "PIE-S2102" if case >= 6 else "PIE-S2103"
@@ -828,8 +833,12 @@ def test_unsupported_clause_and_shape_diagnostics_use_pie_s2103(case: int) -> No
         _program(call="analytics.row_number()"),
     )
     result, diagnostics, _, _ = _direct_analysis(sources[case])
-    assert isinstance(result, WindowExpressionUnsupported)
-    assert [item.code for item in diagnostics] == ["PIE-S2103"]
+    if case in {3, 4, 5}:
+        assert isinstance(result, WindowExpressionSemanticFact)
+        assert diagnostics == []
+    else:
+        assert isinstance(result, WindowExpressionUnsupported)
+        assert [item.code for item in diagnostics] == ["PIE-S2103"]
 
 
 @pytest.mark.parametrize(
@@ -863,8 +872,12 @@ def test_local_order_cardinality_and_direction_remain_unsupported(
         order=order, partition=("id",) if not order else (), direction=direction
     )
     result, diagnostics, _, _ = _direct_analysis(source)
-    assert isinstance(result, WindowExpressionUnsupported)
-    assert [item.code for item in diagnostics] == ["PIE-S2103"]
+    if not order:
+        assert isinstance(result, WindowExpressionUnsupported)
+        assert [item.code for item in diagnostics] == ["PIE-S2103"]
+    else:
+        assert isinstance(result, WindowExpressionSemanticFact)
+        assert diagnostics == []
 
 
 @pytest.mark.parametrize(
@@ -1259,7 +1272,7 @@ def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
         len(semantic_paths),
         len(phase15_paths),
         len(project_paths),
-    ) == (88, 32, 29, 17)
+    ) == (89, 33, 30, 17)
     assert _digest(tuple(compiler_paths)) == COMPILER_DIGEST
     assert _digest(semantic_paths) == SEMANTIC_DIGEST
     assert _digest(phase15_paths) == PHASE15_SUBSET_DIGEST
@@ -1295,15 +1308,15 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
     readable = {path for path in (*tracked, *untracked) if (REPO_ROOT / path).is_file()}
-    assert len(readable) == 864
-    assert sum(path.endswith(".py") for path in readable) == 531
-    assert sum(path.endswith(".md") for path in readable) == 237
+    assert len(readable) == 867
+    assert sum(path.endswith(".py") for path in readable) == 533
+    assert sum(path.endswith(".md") for path in readable) == 238
     test_modules = {
         path
         for path in readable
         if path.startswith("tests/test_") and path.endswith(".py")
     }
-    assert len(test_modules) == 443
+    assert len(test_modules) == 444
     top_level_tests = 0
     for relative in sorted(test_modules):
         tree = ast.parse(_read(relative), filename=relative)
@@ -1312,31 +1325,31 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 4531
-    assert 8365 == 7738 + 627
-    assert 8365 - 185 == 8180
-    assert (115, 68, 9, 106, 2273, 13018) == (115, 68, 9, 106, 2273, 13018)
+    assert top_level_tests == 4612
+    assert 9199 == 8365 + 834
+    assert 9199 - 185 == 9014
+    assert (116, 69, 10, 106, 3107, 13093) == (116, 69, 10, 106, 3107, 13093)
     assert (FOCUSED_SHA256, OVERLAY_SHA256, FORMATTER_SHA256) == (
-        "dd7f1986b7c16b3875988311548d60a0314a4ebc606b57f67ef8f71cbccd29f9",
+        "5097cde3db637b55cd2e79a1292dd96dc5d4864512e012476612368164d6dc77",
         "197b591aec962f43b9b9393da99a76ff21c3a36189cc02c7a75dc5a7b85d6b26",
-        "1997fc520df1b14049b9421efef3f8bb03039d3f9439194dcbb36915a6b9e5c9",
+        "c44ceb6e493a62c154a7958974d88a0c4d835948e1f7fb3bc0b993fa14679307",
     )
-    assert len(ALLOWLIST_PATHS) == 63
-    assert len(MODIFIED_PATHS) == 60
+    assert len(ALLOWLIST_PATHS) == 64
+    assert len(MODIFIED_PATHS) == 61
     assert len(ADDED_PATHS) == 3
 
 
 def test_validation_gate3_and_no_behavior_boundaries_are_locked() -> None:
     docs = _read(SPEC_REL) + _read(PLAN_REL)
     for required in (
-        "A3/M60/D0",
-        "61-path handwritten Python manifest",
-        "2273 focused items",
-        "8180 passed and 185 deselected",
-        "8365 passes in each clean-CI Python job",
+        "A3/M61/D0",
+        "62-path handwritten Python manifest",
+        "3107 focused items",
+        "9014 passed, 185 deselected",
+        "9199 passes in each clean-CI Python job",
         "one write-mode Ruff invocation",
         "unstaged and uncommitted",
-        "Add Phase 53 partition binding and diagnostics",
+        "Add Phase 53 window-local ordering and direction",
         "Slice 15 retains Window IR",
         "0.1.0",
     ):

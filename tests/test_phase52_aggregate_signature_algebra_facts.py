@@ -52,13 +52,13 @@ LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf2
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 SIGNATURE_SHA256 = "810f347080e0bb7dc674821aa6387c5f7618ac216832194ef19820326eef71d2"
 CONTEXT_SHA256 = "132371eccca00ca9f8722a34f1ea0f540933515e560639ee12e53aee6594c60c"
-COMPILER_DIGEST = "b33ea239f32e1591a342560e42212a11f960075e6958e25c59b498963156ccde"
-SEMANTIC_DIGEST = "5797637326c467ecabd5e93c5f84982b35cecff140f43f1a21451d86b196bdd2"
+COMPILER_DIGEST = "5877dd47e60c7b3c49d4c61ee50232c72c68d968351aea21c07ac9f43dee558c"
+SEMANTIC_DIGEST = "9628b5cc1721ad51cdfe0679b0822725bc5373d08e2861d2b07f734c03949b2f"
 PHASE15_SUBSET_DIGEST = (
-    "0cf41a4d625d937c5f3d83df260b405253d932054ea49d6a1a64dd8c8085ddd6"
+    "bc501c43950b0022aded20da577a36ca093322a5841bc0bcebe294cb949099dc"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "b3b115a4d70b05874e415ae060f1a3084a40e696a9004935ae54d183a06791bb"
+    "16590c5b7d0f94d5b982ab6fccb006da245f97462a240284e5becec3a7fd989d"
 )
 
 SPEC_H2 = (
@@ -122,6 +122,7 @@ COMPILER_READERS = (
     "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
     "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
     "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
+    "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
 )
 SEMANTIC_READERS = (
     "tests/test_phase11_completion_audit.py",
@@ -162,6 +163,7 @@ SEMANTIC_READERS = (
     "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
     "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
     "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
+    "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
 )
 PHASE15_READERS = (
     "tests/test_phase15_semantic_completion_audit.py",
@@ -178,6 +180,7 @@ PHASE15_READERS = (
     "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
     "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
     "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
+    "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
 )
 
 MODIFIED_READER_PATHS = (
@@ -1715,9 +1718,9 @@ def test_compiler_semantic_subset_project_and_raw_hash_readers_are_exact() -> No
     )
     project_paths = _project_private_paths()
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        88,
-        32,
-        29,
+        89,
+        33,
+        30,
     )
     assert len(project_paths) == 17
     assert _digest(compiler_paths) == COMPILER_DIGEST
@@ -1800,7 +1803,11 @@ def test_compiler_semantic_subset_project_and_raw_hash_readers_are_exact() -> No
             for path in readable
             if inner_sha.encode("ascii") in (REPO_ROOT / path).read_bytes()
         )
-        assert actual == (*outers, _SLICE10_READER_MIGRATION_PATHS[-1])
+        assert actual == (
+            *outers,
+            _SLICE10_READER_MIGRATION_PATHS[-1],
+            "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
+        )
     for outer in (
         "tests/test_phase14_candidate_decision_audit.py",
         "tests/test_phase14_planning_audit.py",
@@ -1813,7 +1820,10 @@ def test_compiler_semantic_subset_project_and_raw_hash_readers_are_exact() -> No
             for path in readable
             if outer_sha.encode("ascii") in (REPO_ROOT / path).read_bytes()
         )
-        assert actual == (_SLICE10_READER_MIGRATION_PATHS[-1],)
+        assert actual == (
+            _SLICE10_READER_MIGRATION_PATHS[-1],
+            "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
+        )
 
 
 def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> None:
@@ -1954,7 +1964,7 @@ def test_static_test_inventory_and_tier1_selection_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (443, 4531)
+    assert (len(test_files), top_level_functions) == (444, 4612)
 
     compatible, per_file_items = _prior_compatible_nodes()
     assert (len(compatible), per_file_items) == (69, (24, 33, 63))

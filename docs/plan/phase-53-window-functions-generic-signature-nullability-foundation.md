@@ -438,3 +438,75 @@ fact, row-schema/public/IR/SQL widening, second formatter, count/selector drift,
 nonempty index, publication, or unresolved decision. Recommended next
 authorization: `Phase 53 Slice 10 Gate 3`, with commit subject
 `Add Phase 53 partition binding and diagnostics`.
+
+## Slice 11 Window-local Ordering, Direction, Mandatory-order Policy, And Determinism
+
+Phase 53 is `ACTIVE`; Slices 1 through 10 are `COMPLETED`; Slice 11 remains
+`UNSTARTED` throughout Gate 2. Gate 2 owns only an arbitrary non-empty,
+source-ordered tuple of direct local-order fields for the six completed window
+identities, preserved omitted/explicit direction with derived effective
+direction, mandatory local order, structural determinism boundaries, private
+transient order/composite semantic evidence, complete duplicate-preserving
+project occurrences, its contract and focused tests, and the exact reader
+migration. Slice 11 becomes `COMPLETED` only after separately authorized Gate
+3 publication and the unique natural `CI / push / main`, attempt 1, succeeds
+at that exact head.
+
+The selected subset accepts one or more bare or immediate-input-qualified
+direct fields with omitted direction, `asc`, or `desc`. Omitted direction is
+preserved and derives effective ascending. Concrete nullable fields and
+duplicate fields are structurally legal. Every field is resolved exactly once
+in source order before directions are validated. Unknown fields and invalid
+qualifiers use `PIE-S2102`; unsupported shapes, zero order, nonconcrete schema,
+and invalid direction representations use `PIE-S2103`. Partition validation
+precedes order validation, and `ntile` literal validation remains after the
+complete order tuple.
+
+`WindowOrderFieldBinding` and `WindowOrderBindingFact` are private frozen
+sibling carriers. The private `window_order_analysis` helper performs the
+two-pass binding and direction work. `WindowExpressionAnalysis` appends one
+always-present order sibling after its existing core, family, and partition
+fields. Peer-sensitive functions derive peer equality from every order
+expression without direction; `row_number` and `ntile` remain peer-insensitive.
+The generic project builder creates exact role blocks `RELATION_INPUT`, every
+`WINDOW_PARTITION`, then every `WINDOW_ORDER`, preserving duplicates and spans
+while edges deduplicate only the first identical role/target pair.
+
+This is structural compiler evidence only. It proves deterministic traversal,
+source preservation, diagnostics, hashing, and occurrence order; it does not
+prove runtime total order, key uniqueness, tie resolution, null placement,
+collation, or backend execution determinism. Phase 52 capability lookup remains
+descriptive rather than legality authority. No hidden tie-breaker, automatic
+primary key, coercion, promotion, new diagnostic, runtime comparison, or
+backend-specific exception is added.
+
+The exact Gate 2 scope is `A3/M61/D0`: this plan, four private production
+modules, 57 compatibility/hash/state test readers, plus the new specification,
+one private semantic helper, and one 81-function/834-item focused test. Future
+inventory is exactly 867 tracked files, 533 Python files, 238 Markdown files,
+444 test modules, 4612 top-level test functions, 9199 collected items, 89
+compiler files, 33 semantic files, 30 Phase-15 semantic-subset files, 17
+private project files, 8 generated files, and 37 goldens.
+
+Gate 2 uses exactly one write-mode Ruff invocation over the exact ordered
+62-path handwritten Python manifest. It validates 3107 focused items, proves
+real collection of 9199, then runs the dirty overlay with
+`9014 passed, 185 deselected`, and projects 9199 passes in each clean-CI Python job.
+It leaves all 64 paths unstaged and uncommitted with an empty index and
+performs no ANTLR operation, staging, commit, push, CI mutation, tag, Release,
+PR, package build or smoke, golden regeneration, upload, signing, or
+attestation.
+
+Slice 12 receives only reusable typed ordered bindings, source/effective
+direction, and project order occurrences; `lag`, `lead`, offsets, defaults,
+navigation nullability, and navigation behavior remain unimplemented and need
+separate authorization. Slice 13 retains grouped/aggregate/satisfying/let
+visibility; Slice 14 retains multiple outputs, aliases, downstream schema,
+persistence, and lineage; Slice 15 retains Window IR and independent backend
+lowering; Slice 16 retains completion audit/status lock. STOP on an allowlist
+escape, another identity/type/code/resolver, grammar/AST/parser/generated need,
+capability-law inference, runtime or persistent behavior, row-schema/public/
+IR/SQL widening, second formatter, count/selector drift, nonempty index,
+publication, or unresolved decision. Recommended next authorization:
+`Phase 53 Slice 11 Gate 3`, with commit subject
+`Add Phase 53 window-local ordering and direction`.

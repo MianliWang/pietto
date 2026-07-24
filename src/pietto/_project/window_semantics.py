@@ -397,7 +397,9 @@ def _build_window_result_project_fact(
 
     expression = semantic_fact.expression
     partition_expressions = expression.spec.partition_by
-    order_expression = expression.spec.order_by[0].expression
+    order_expressions = tuple(
+        order_item.expression for order_item in expression.spec.order_by
+    )
 
     relation_input = ProjectRowDependencyNode(
         kind=ProjectRowDependencyNodeKind.RELATION_INPUT,
@@ -412,9 +414,12 @@ def _build_window_result_project_fact(
         )
         for partition_expression in partition_expressions
     )
-    order_field = _upstream_field_dependency(
-        expression=order_expression,
-        upstream_symbol=upstream_symbol,
+    order_fields = tuple(
+        _upstream_field_dependency(
+            expression=order_expression,
+            upstream_symbol=upstream_symbol,
+        )
+        for order_expression in order_expressions
     )
     occurrences = tuple(
         [
@@ -440,12 +445,17 @@ def _build_window_result_project_fact(
                     zip(partition_expressions, partition_fields, strict=True)
                 )
             ),
-            WindowDependencyOccurrence(
-                global_ordinal=len(partition_expressions) + 1,
-                role_ordinal=0,
-                role=WindowDependencyRole.WINDOW_ORDER,
-                target=order_field,
-                location=_source_location(order_expression.span),
+            *(
+                WindowDependencyOccurrence(
+                    global_ordinal=(len(partition_expressions) + order_ordinal + 1),
+                    role_ordinal=order_ordinal,
+                    role=WindowDependencyRole.WINDOW_ORDER,
+                    target=order_field,
+                    location=_source_location(order_expression.span),
+                )
+                for order_ordinal, (order_expression, order_field) in enumerate(
+                    zip(order_expressions, order_fields, strict=True)
+                )
             ),
         ]
     )

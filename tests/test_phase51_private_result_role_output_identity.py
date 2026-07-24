@@ -39,6 +39,9 @@ from pietto.semantic.window_semantics import (
     DistributionWindowSemanticFact,
     RankingAdvancePolicy,
     RankingWindowSemanticFact,
+    WindowExpressionAnalysis,
+    WindowOrderBindingFact,
+    WindowOrderFieldBinding,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -109,6 +112,22 @@ def test_result_role_and_fact_carriers_are_exact_frozen_and_slots() -> None:
     )
     assert is_dataclass(DistributionWindowSemanticFact)
     assert hasattr(DistributionWindowSemanticFact, "__slots__")
+    assert tuple(field.name for field in fields(WindowOrderFieldBinding)) == (
+        "order_item",
+        "value_type",
+        "effective_direction",
+    )
+    assert tuple(field.name for field in fields(WindowOrderBindingFact)) == (
+        "semantic_fact",
+        "bindings",
+    )
+    assert tuple(field.name for field in fields(WindowExpressionAnalysis)) == (
+        "semantic_fact",
+        "ranking_fact",
+        "distribution_fact",
+        "partition_binding_fact",
+        "order_binding_fact",
+    )
 
     row_field = _row_field("id")
     fact = _fact(function="Future_AGG", output_name="total")
@@ -452,6 +471,9 @@ def test_new_private_facts_are_not_exported_or_serialized(tmp_path: Path) -> Non
         "RankingWindowSemanticFact",
         "DistributionWindowPolicy",
         "DistributionWindowSemanticFact",
+        "WindowOrderFieldBinding",
+        "WindowOrderBindingFact",
+        "WindowExpressionAnalysis",
         "window_result",
         "analyze_window_expression",
         "analyze_distribution_window_expression",
@@ -660,8 +682,8 @@ def _derived_definition(
     raise AssertionError(f"Derived relation not found: {name}")
 
 
-_SLICE10_READER_MIGRATION_PATHS = (
-    "docs/spec/phase53-partition-binding-multi-key-visibility-diagnostics-contract-v1.md",
-    "src/pietto/semantic/window_partition_analysis.py",
-    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+_SLICE11_READER_MIGRATION_PATHS = (
+    "docs/spec/phase53-window-local-ordering-direction-determinism-contract-v1.md",
+    "src/pietto/semantic/window_order_analysis.py",
+    "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
 )

@@ -6,7 +6,14 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from pietto._window_identity import WindowFunctionIdentity
-from pietto.ast_nodes import DottedNameExpr, Expression, NameExpr, Span, WindowExpr
+from pietto.ast_nodes import (
+    DottedNameExpr,
+    Expression,
+    NameExpr,
+    OrderItem,
+    Span,
+    WindowExpr,
+)
 from pietto.semantic.model import (
     EffectiveNullability,
     TypeKind,
@@ -202,6 +209,115 @@ class WindowPartitionBindingFact:
         return tuple(item.expression for item in self.bindings)
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class WindowOrderFieldBinding:
+    """One source-preserved direct order field and its effective direction."""
+
+    order_item: OrderItem
+    value_type: ValueType
+    effective_direction: str
+
+    def __post_init__(self) -> None:
+        if type(self.order_item) is not OrderItem:
+            raise TypeError("order_item must be an exact OrderItem")
+        if type(self.order_item.expression) not in {NameExpr, DottedNameExpr}:
+            raise TypeError(
+                "order_item expression must be an exact NameExpr or DottedNameExpr"
+            )
+        if (
+            type(self.order_item.expression) is DottedNameExpr
+            and len(self.order_item.expression.parts) != 2
+        ):
+            raise ValueError("qualified order expression must have two parts")
+        if type(self.value_type) is not ValueType:
+            raise TypeError("value_type must be an exact ValueType")
+        if (
+            self.value_type.kind is not ValueTypeKind.KNOWN
+            or self.value_type.resolved_type.kind is TypeKind.UNKNOWN
+        ):
+            raise ValueError("order field value_type must be concrete")
+
+        source_direction = self.order_item.direction
+        if source_direction is not None and type(source_direction) is not str:
+            raise TypeError("source direction must be an exact string or None")
+        if source_direction not in {None, "asc", "desc"}:
+            raise ValueError("source direction must be omitted, asc, or desc")
+        if type(self.effective_direction) is not str:
+            raise TypeError("effective_direction must be an exact string")
+        if self.effective_direction not in {"asc", "desc"}:
+            raise ValueError("effective_direction must be asc or desc")
+        expected_direction = "asc" if source_direction is None else source_direction
+        if self.effective_direction != expected_direction:
+            raise ValueError(
+                "effective_direction must equal the normalized source direction"
+            )
+
+    @property
+    def expression(self) -> NameExpr | DottedNameExpr:
+        """Return the exact source-preserved direct field expression."""
+
+        expression = self.order_item.expression
+        if type(expression) is NameExpr:
+            return expression
+        if type(expression) is DottedNameExpr:
+            return expression
+        raise AssertionError("validated order expression must be a direct field")
+
+    @property
+    def source_direction(self) -> str | None:
+        """Return omitted or explicit source direction without normalization."""
+
+        return self.order_item.direction
+
+    @property
+    def direction_is_explicit(self) -> bool:
+        """Whether the source spelled either supported direction."""
+
+        return self.source_direction is not None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class WindowOrderBindingFact:
+    """Source-ordered semantic bindings for one nonempty local-order tuple."""
+
+    semantic_fact: WindowExpressionSemanticFact
+    bindings: tuple[WindowOrderFieldBinding, ...]
+
+    def __post_init__(self) -> None:
+        if type(self.semantic_fact) is not WindowExpressionSemanticFact:
+            raise TypeError(
+                "semantic_fact must be an exact WindowExpressionSemanticFact"
+            )
+        if type(self.bindings) is not tuple:
+            raise TypeError("bindings must be an exact tuple")
+        if not self.bindings:
+            raise ValueError("order bindings must be nonempty")
+        if any(type(item) is not WindowOrderFieldBinding for item in self.bindings):
+            raise TypeError(
+                "bindings must contain exact WindowOrderFieldBinding instances"
+            )
+        if self.order_items != self.semantic_fact.expression.spec.order_by:
+            raise ValueError("order bindings must equal the source order tuple")
+
+    @property
+    def order_items(self) -> tuple[OrderItem, ...]:
+        """Return every complete source order item in source order."""
+
+        return tuple(item.order_item for item in self.bindings)
+
+    @property
+    def order_key(self) -> tuple[Expression, ...]:
+        """Return every structural local-order expression in source order."""
+
+        return tuple(item.expression for item in self.bindings)
+
+    @property
+    def effective_directions(self) -> tuple[str, ...]:
+        """Return the normalized direction of every source order item."""
+
+        return tuple(item.effective_direction for item in self.bindings)
+
+
 class RankingAdvancePolicy(StrEnum):
     """Private structural advancement policies for ranking windows."""
 
@@ -371,6 +487,7 @@ class WindowExpressionAnalysis:
     ranking_fact: RankingWindowSemanticFact | None
     distribution_fact: DistributionWindowSemanticFact | None
     partition_binding_fact: WindowPartitionBindingFact
+    order_binding_fact: WindowOrderBindingFact
 
     def __post_init__(self) -> None:
         if type(self.semantic_fact) is not WindowExpressionSemanticFact:
@@ -398,6 +515,12 @@ class WindowExpressionAnalysis:
             )
         if self.partition_binding_fact.semantic_fact is not self.semantic_fact:
             raise ValueError("partition fact must share the semantic core")
+        if type(self.order_binding_fact) is not WindowOrderBindingFact:
+            raise TypeError(
+                "order_binding_fact must be an exact WindowOrderBindingFact"
+            )
+        if self.order_binding_fact.semantic_fact is not self.semantic_fact:
+            raise ValueError("order fact must share the semantic core")
         if (
             self.ranking_fact is not None
             and self.ranking_fact.semantic_fact is not self.semantic_fact

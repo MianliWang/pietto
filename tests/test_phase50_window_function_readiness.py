@@ -421,6 +421,9 @@ def test_current_source_has_generic_calls_but_no_window_model() -> None:
         "class RankingWindowSemanticFact:",
         "class DistributionWindowPolicy",
         "class DistributionWindowSemanticFact:",
+        "class WindowOrderFieldBinding:",
+        "class WindowOrderBindingFact:",
+        "class WindowExpressionAnalysis:",
     ):
         assert carrier in semantic_window
     for carrier in (
@@ -436,6 +439,9 @@ def test_current_source_has_generic_calls_but_no_window_model() -> None:
     assert "def analyze_distribution_window_expression(" in window_analysis
     assert "def analyze_ranking_window_expression(" in window_analysis
     assert "def analyze_row_number_window_expression(" in window_analysis
+    assert "def bind_window_order_fields(" in _read(
+        REPO_ROOT / "src/pietto/semantic/window_order_analysis.py"
+    )
     assert "_RANKING_SIGNATURE = GenericSignature(" in window_analysis
     assert "nullability=NonNullFormula()" in window_analysis
     for identity, policy in (
@@ -686,8 +692,8 @@ def test_compatibility_guards_protected_surfaces_and_dirty_set_are_locked() -> N
     )
 
 
-_SLICE10_READER_MIGRATION_PATHS = (
-    "docs/spec/phase53-partition-binding-multi-key-visibility-diagnostics-contract-v1.md",
-    "src/pietto/semantic/window_partition_analysis.py",
-    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+_SLICE11_READER_MIGRATION_PATHS = (
+    "docs/spec/phase53-window-local-ordering-direction-determinism-contract-v1.md",
+    "src/pietto/semantic/window_order_analysis.py",
+    "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
 )

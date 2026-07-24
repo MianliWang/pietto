@@ -118,6 +118,9 @@ SLICE7_PLAN_H2 = "Slice 7 row_number Direct-field MVP"
 SLICE8_PLAN_H2 = "Slice 8 rank / dense_rank And Peer Semantics"
 SLICE9_PLAN_H2 = "Slice 9 percent_rank / cume_dist / ntile"
 SLICE10_PLAN_H2 = "Slice 10 Partition Binding, Multi-key Visibility, And Diagnostics"
+SLICE11_PLAN_H2 = (
+    "Slice 11 Window-local Ordering, Direction, Mandatory-order Policy, And Determinism"
+)
 
 TEST_FUNCTIONS = (
     "test_slice6_artifact_paths_heading_contract_and_lifecycle_are_exact",
@@ -197,33 +200,33 @@ TEST_ITEM_COUNTS = (
 )
 
 ADDED_PATHS = (
-    "docs/spec/phase53-partition-binding-multi-key-visibility-diagnostics-contract-v1.md",
-    "src/pietto/semantic/window_partition_analysis.py",
-    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+    "docs/spec/phase53-window-local-ordering-direction-determinism-contract-v1.md",
+    "src/pietto/semantic/window_order_analysis.py",
+    "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
 )
 
 # Filled after the single write formatter; later edits are literal-only.
-FINAL_SOURCE_SHA256 = "d62fdd13b75ad3abaf54f7a0dcd86b2d52eb89d733874b8fcf63692c6a3f71af"
+FINAL_SOURCE_SHA256 = "85def9b1fa48fd03759caec894b19e5a43b8d2304b1c7258370b5379f5eaceed"
 FINAL_PROJECT_SOURCE_SHA256 = (
-    "9dc4f1b141a53af17d26aa77e30a42e7d7306770935838f637be767f52ddbe34"
+    "d65ff113b462935395d5f5bad1aa1ff65333e5ae60fe28623d2b47ffaba7f8c7"
 )
 FINAL_MODEL_SHA256 = "91db1ae5770eca788ca18e516396c74da08acedfa5fafc400d46b1802d2a1c07"
 FINAL_SPEC_SHA256 = "e3cddc36974cc2d21bd3e0aec8d03c4f56bc4a68091780d9965207f07ea960e7"
-FINAL_PLAN_SHA256 = "61ab560db3af539d1a4eac7b56a5220956d0a76bba31b47a628a2af07e62a21f"
+FINAL_PLAN_SHA256 = "167e1a851b33e036d483b53e763c019c338c0b7adbd21118f29e64986a5a2a99"
 FINAL_COMPILER_DIGEST = (
-    "b33ea239f32e1591a342560e42212a11f960075e6958e25c59b498963156ccde"
+    "5877dd47e60c7b3c49d4c61ee50232c72c68d968351aea21c07ac9f43dee558c"
 )
 FINAL_SEMANTIC_DIGEST = (
-    "5797637326c467ecabd5e93c5f84982b35cecff140f43f1a21451d86b196bdd2"
+    "9628b5cc1721ad51cdfe0679b0822725bc5373d08e2861d2b07f734c03949b2f"
 )
 FINAL_PHASE15_DIGEST = (
-    "0cf41a4d625d937c5f3d83df260b405253d932054ea49d6a1a64dd8c8085ddd6"
+    "bc501c43950b0022aded20da577a36ca093322a5841bc0bcebe294cb949099dc"
 )
 FINAL_PROJECT_DIGEST = (
-    "b3b115a4d70b05874e415ae060f1a3084a40e696a9004935ae54d183a06791bb"
+    "16590c5b7d0f94d5b982ab6fccb006da245f97462a240284e5becec3a7fd989d"
 )
 
-BASE_HEAD = "c9e04d833e36bdd7cdc521eeb2c5f030aac8a998"
+BASE_HEAD = "54553396f61caefe74b57cd6ed6fa144725a50e4"
 CI_REPAIR_BASE_HEAD_SHA = "321ec6f80737015648bc1f81b0561fdd34610e92"
 CI_REPAIR_MODIFIED_PATHS = frozenset(
     {
@@ -670,16 +673,18 @@ def test_slice6_artifact_paths_heading_contract_and_lifecycle_are_exact() -> Non
         "And Nullability Foundation",
     )
     assert plan_h2.count(PLAN_H2) == 1
-    assert plan_h2[-5:] == (
+    assert plan_h2[-6:] == (
         PLAN_H2,
         SLICE7_PLAN_H2,
         SLICE8_PLAN_H2,
         SLICE9_PLAN_H2,
         SLICE10_PLAN_H2,
+        SLICE11_PLAN_H2,
     )
     assert plan_h2.count(SLICE7_PLAN_H2) == 1
     assert plan_h2.count(SLICE8_PLAN_H2) == 1
     assert plan_h2.count(SLICE9_PLAN_H2) == 1
+    assert plan_h2.count(SLICE11_PLAN_H2) == 1
     assert plan_h3 == ()
     plan = PLAN_PATH.read_text()
     assert "Phase 53 is `ACTIVE`; Slices 1 through 5 are `COMPLETED`" in plan
@@ -1840,7 +1845,7 @@ def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
         len(semantic_paths),
         len(phase15_paths),
         len(project_paths),
-    ) == (88, 32, 29, 17)
+    ) == (89, 33, 30, 17)
     assert _digest(tuple(compiler_paths)) == FINAL_COMPILER_DIGEST
     assert _digest(semantic_paths) == FINAL_SEMANTIC_DIGEST
     assert _digest(phase15_paths) == FINAL_PHASE15_DIGEST
@@ -1854,7 +1859,7 @@ def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
     added = _literal_tuple(GENERIC_TEST_PATH, "ADDED_PATHS")
     modified = _literal_tuple(GENERIC_TEST_PATH, "MODIFIED_PATHS")
     assert added == ADDED_PATHS
-    assert len(modified) == 60
+    assert len(modified) == 61
     assert modified[-3:] == (
         "tests/test_phase51_private_result_role_output_identity.py",
         "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
@@ -1911,22 +1916,22 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         len(markdown_paths),
         len(test_paths),
         top_level_functions,
-    ) == (864, 531, 237, 443, 4531)
+    ) == (867, 533, 238, 444, 4612)
     assert len(TEST_FUNCTIONS) == len(TEST_ITEM_COUNTS) == 36
     assert sum(TEST_ITEM_COUNTS) == 156
-    assert 7738 + 627 == 8365
+    assert 8365 + 834 == 9199
 
     focused = _literal_tuple(GENERIC_TEST_PATH, "FOCUSED_OPERANDS")
     overlay = _literal_tuple(GENERIC_TEST_PATH, "DIRTY_OVERLAY")
     focused_payload = ("\n".join(focused) + "\n").encode()
     overlay_payload = ("\n".join(overlay) + "\n").encode()
-    assert len(focused) == 115
-    assert len({operand.split("::", 1)[0] for operand in focused}) == 68
-    assert sum("::" not in operand for operand in focused) == 9
+    assert len(focused) == 116
+    assert len({operand.split("::", 1)[0] for operand in focused}) == 69
+    assert sum("::" not in operand for operand in focused) == 10
     assert sum("::" in operand for operand in focused) == 106
     assert (len(focused_payload), hashlib.sha256(focused_payload).hexdigest()) == (
-        13018,
-        "dd7f1986b7c16b3875988311548d60a0314a4ebc606b57f67ef8f71cbccd29f9",
+        13093,
+        "5097cde3db637b55cd2e79a1292dd96dc5d4864512e012476612368164d6dc77",
     )
     assert len(overlay) == 185
     assert (

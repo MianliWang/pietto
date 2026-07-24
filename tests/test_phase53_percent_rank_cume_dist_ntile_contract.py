@@ -83,7 +83,7 @@ PLAN_REL = (
 )
 SPEC_REL = "docs/spec/phase53-rank-dense-rank-peer-semantics-contract-v1.md"
 SELF_REL = "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py"
-BASE_HEAD_SHA = "c9e04d833e36bdd7cdc521eeb2c5f030aac8a998"
+BASE_HEAD_SHA = "54553396f61caefe74b57cd6ed6fa144725a50e4"
 
 SPEC_REL = "docs/spec/phase53-percent-rank-cume-dist-ntile-contract-v1.md"
 SPEC_TITLE = "Phase 53 percent_rank / cume_dist / ntile Contract v1"
@@ -220,15 +220,16 @@ CARDINALITIES = (
 )
 
 ADDED_PATHS = (
-    "docs/spec/phase53-partition-binding-multi-key-visibility-diagnostics-contract-v1.md",
-    "src/pietto/semantic/window_partition_analysis.py",
-    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+    "docs/spec/phase53-window-local-ordering-direction-determinism-contract-v1.md",
+    "src/pietto/semantic/window_order_analysis.py",
+    "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
 )
 MODIFIED_PATHS = (
     "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md",
     "src/pietto/semantic/window_semantics.py",
     "src/pietto/semantic/window_analysis.py",
     "src/pietto/_project/window_semantics.py",
+    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
     "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
     "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
     "tests/test_phase53_row_number_direct_field_mvp_contract.py",
@@ -289,10 +290,11 @@ MODIFIED_PATHS = (
 ALLOWLIST_PATHS = frozenset((*ADDED_PATHS, *MODIFIED_PATHS))
 
 FORMATTER_PATHS = (
+    "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
     "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
     "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
     "src/pietto/semantic/window_semantics.py",
-    "src/pietto/semantic/window_partition_analysis.py",
+    "src/pietto/semantic/window_order_analysis.py",
     "src/pietto/semantic/window_analysis.py",
     "src/pietto/_project/window_semantics.py",
     "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
@@ -353,6 +355,7 @@ FORMATTER_PATHS = (
 )
 
 FOCUSED_OPERANDS = (
+    "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
     "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
     "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
     "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
@@ -658,15 +661,15 @@ DIRTY_OVERLAY = (
     "--deselect=tests/test_phase52_scalar_function_operator_signature_facts.py::test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact",
 )
 
-COMPILER_DIGEST = "b33ea239f32e1591a342560e42212a11f960075e6958e25c59b498963156ccde"
-SEMANTIC_DIGEST = "5797637326c467ecabd5e93c5f84982b35cecff140f43f1a21451d86b196bdd2"
+COMPILER_DIGEST = "5877dd47e60c7b3c49d4c61ee50232c72c68d968351aea21c07ac9f43dee558c"
+SEMANTIC_DIGEST = "9628b5cc1721ad51cdfe0679b0822725bc5373d08e2861d2b07f734c03949b2f"
 PHASE15_SUBSET_DIGEST = (
-    "0cf41a4d625d937c5f3d83df260b405253d932054ea49d6a1a64dd8c8085ddd6"
+    "bc501c43950b0022aded20da577a36ca093322a5841bc0bcebe294cb949099dc"
 )
-PROJECT_DIGEST = "b3b115a4d70b05874e415ae060f1a3084a40e696a9004935ae54d183a06791bb"
-FOCUSED_SHA256 = "dd7f1986b7c16b3875988311548d60a0314a4ebc606b57f67ef8f71cbccd29f9"
+PROJECT_DIGEST = "16590c5b7d0f94d5b982ab6fccb006da245f97462a240284e5becec3a7fd989d"
+FOCUSED_SHA256 = "5097cde3db637b55cd2e79a1292dd96dc5d4864512e012476612368164d6dc77"
 OVERLAY_SHA256 = "197b591aec962f43b9b9393da99a76ff21c3a36189cc02c7a75dc5a7b85d6b26"
-FORMATTER_SHA256 = "1997fc520df1b14049b9421efef3f8bb03039d3f9439194dcbb36915a6b9e5c9"
+FORMATTER_SHA256 = "c44ceb6e493a62c154a7958974d88a0c4d835948e1f7fb3bc0b993fa14679307"
 
 
 def _read(relative: str) -> str:
@@ -1936,8 +1939,12 @@ def test_distribution_order_cardinality_and_direction_remain_unsupported(
             direction=direction,
         )
     )
-    assert isinstance(result, WindowExpressionUnsupported)
-    assert [item.code for item in diagnostics] == ["PIE-S2103"]
+    if scenario in {1, 2, 3}:
+        assert isinstance(result, DistributionWindowSemanticFact)
+        assert diagnostics == []
+    else:
+        assert isinstance(result, WindowExpressionUnsupported)
+        assert [item.code for item in diagnostics] == ["PIE-S2103"]
 
 
 @pytest.mark.parametrize("case", range(18))
@@ -2373,6 +2380,10 @@ def test_distribution_diagnostic_code_message_location_and_order_are_exact(
         expected_code = "PIE-S2103"
         location_kind = "call"
     result, diagnostics, _, relation = _direct_distribution_analysis(source)
+    if scenario == 3:
+        assert isinstance(result, DistributionWindowSemanticFact)
+        assert diagnostics == []
+        return
     assert isinstance(result, WindowExpressionUnsupported)
     assert [item.code for item in diagnostics] == [expected_code]
     expression = cast(WindowExpr, relation.select_items[-1].expression)
@@ -2558,7 +2569,7 @@ def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
         len(semantic_paths),
         len(phase15_paths),
         len(project_paths),
-    ) == (88, 32, 29, 17)
+    ) == (89, 33, 30, 17)
     assert _digest(compiler_paths) == COMPILER_DIGEST
     assert _digest(semantic_paths) == SEMANTIC_DIGEST
     assert _digest(phase15_paths) == PHASE15_SUBSET_DIGEST
@@ -2600,15 +2611,15 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
     None
 ):
     repository_paths = _repository_paths()
-    assert len(repository_paths) == 864
-    assert sum(path.endswith(".py") for path in repository_paths) == 531
-    assert sum(path.endswith(".md") for path in repository_paths) == 237
+    assert len(repository_paths) == 867
+    assert sum(path.endswith(".py") for path in repository_paths) == 533
+    assert sum(path.endswith(".md") for path in repository_paths) == 238
     test_modules = tuple(
         path
         for path in repository_paths
         if path.startswith("tests/test_") and path.endswith(".py")
     )
-    assert len(test_modules) == 443
+    assert len(test_modules) == 444
     top_level_tests = 0
     for relative in test_modules:
         tree = ast.parse(_read(relative), filename=relative)
@@ -2617,43 +2628,43 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 4531
+    assert top_level_tests == 4612
     focused_payload = ("\n".join(FOCUSED_OPERANDS) + "\n").encode()
     overlay_payload = ("\n".join(DIRTY_OVERLAY) + "\n").encode()
     formatter_payload = ("\n".join(FORMATTER_PATHS) + "\n").encode()
-    assert (len(FOCUSED_OPERANDS), len(focused_payload)) == (115, 13018)
+    assert (len(FOCUSED_OPERANDS), len(focused_payload)) == (116, 13093)
     assert hashlib.sha256(focused_payload).hexdigest() == FOCUSED_SHA256
-    assert len({item.split("::", 1)[0] for item in FOCUSED_OPERANDS}) == 68
-    assert sum("::" not in item for item in FOCUSED_OPERANDS) == 9
+    assert len({item.split("::", 1)[0] for item in FOCUSED_OPERANDS}) == 69
+    assert sum("::" not in item for item in FOCUSED_OPERANDS) == 10
     assert sum("::" in item for item in FOCUSED_OPERANDS) == 106
     assert len(DIRTY_OVERLAY) == 185
     assert len({item.split("::", 1)[0] for item in DIRTY_OVERLAY}) == 137
     assert len(overlay_payload) == 23628
     assert hashlib.sha256(overlay_payload).hexdigest() == OVERLAY_SHA256
-    assert len(FORMATTER_PATHS) == len(set(FORMATTER_PATHS)) == 61
-    assert len(formatter_payload) == 3117
+    assert len(FORMATTER_PATHS) == len(set(FORMATTER_PATHS)) == 62
+    assert len(formatter_payload) == 3188
     assert hashlib.sha256(formatter_payload).hexdigest() == FORMATTER_SHA256
     assert len(ADDED_PATHS) == 3
-    assert len(MODIFIED_PATHS) == 60
-    assert len(ALLOWLIST_PATHS) == 63
-    assert 8365 == 7738 + 627
-    assert 8365 - 185 == 8180
-    assert 2273 == 1646 + 627
+    assert len(MODIFIED_PATHS) == 61
+    assert len(ALLOWLIST_PATHS) == 64
+    assert 9199 == 8365 + 834
+    assert 9199 - 185 == 9014
+    assert 3107 == 2273 + 834
 
 
 def test_validation_gate3_deferred_ownership_and_no_decisions_are_locked() -> None:
     docs = _read(SPEC_REL) + _read(PLAN_REL)
     for required in (
-        "A3/M60/D0",
-        "61-path handwritten Python manifest",
-        "2273 focused",
-        "8180 passed and 185 deselected",
-        "8365 passes",
+        "A3/M61/D0",
+        "62-path handwritten Python manifest",
+        "3107 focused",
+        "9014 passed, 185 deselected",
+        "9199 passes",
         "one write-mode Ruff invocation",
         "unstaged and uncommitted",
-        "Add Phase 53 partition binding and diagnostics",
+        "Add Phase 53 window-local ordering and direction",
         "Slice 15 retains Window IR",
-        "Phase 53 Slice 10 Gate 3",
+        "Phase 53 Slice 11 Gate 3",
         "0.1.0",
     ):
         assert required in docs

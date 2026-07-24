@@ -9,6 +9,7 @@ from pietto.ast_nodes import (
     Expression,
     LiteralExpr,
     NameExpr,
+    OrderItem,
     QueryDef,
     SelectItem,
     TableDef,
@@ -16,7 +17,6 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import contains_semantic_aggregate
-from pietto.semantic.expressions import infer_row_expression
 from pietto.semantic.generic_compatibility import (
     ConcreteTypeExpression,
     GenericSignature,
@@ -31,7 +31,6 @@ from pietto.semantic.model import (
     RowSchema,
     TypeKind,
     ValueType,
-    ValueTypeKind,
 )
 from pietto.semantic.nullability_formulas import (
     NonNullFormula,
@@ -49,10 +48,12 @@ from pietto.semantic.window_semantics import (
     WindowExpressionSemanticFact,
     WindowExpressionUnsupported,
     WindowOccurrenceIdentity,
+    WindowOrderBindingFact,
     WindowPartitionBindingFact,
     WindowResultAvailability,
     WindowResultAvailabilityKind,
 )
+from pietto.semantic.window_order_analysis import bind_window_order_fields
 from pietto.semantic.window_partition_analysis import bind_window_partition_fields
 
 __all__: tuple[str, ...] = ()
@@ -414,14 +415,17 @@ def _analyze_recognized_window_expression(
 
     direct_partition_expressions: list[NameExpr | DottedNameExpr] = []
     for partition_expression in expression.spec.partition_by:
-        if not isinstance(partition_expression, (NameExpr, DottedNameExpr)):
+        if type(partition_expression) is NameExpr:
+            direct_partition_expressions.append(partition_expression)
+        elif type(partition_expression) is DottedNameExpr:
+            direct_partition_expressions.append(partition_expression)
+        else:
             return _unsupported(
                 occurrence=occurrence,
                 expression=expression,
                 reason="window partition expression must be a direct field",
                 diagnostics=diagnostics,
             )
-        direct_partition_expressions.append(partition_expression)
 
     if direct_partition_expressions and input_schema.is_unknown:
         return _unsupported(
@@ -454,31 +458,27 @@ def _analyze_recognized_window_expression(
             reason="window partition field type must be concrete",
         )
 
-    if len(expression.spec.order_by) != 1:
+    if not expression.spec.order_by:
         return _unsupported(
             occurrence=occurrence,
             expression=expression,
-            reason=f"{function_name} requires exactly one window order field",
+            reason=f"{function_name} requires at least one window order field",
             diagnostics=diagnostics,
         )
 
-    order_item = expression.spec.order_by[0]
-    if order_item.direction is not None:
-        return _unsupported(
-            occurrence=occurrence,
-            expression=expression,
-            reason="explicit window order direction is deferred",
-            diagnostics=diagnostics,
-        )
-
-    order_expression = order_item.expression
-    if not isinstance(order_expression, (NameExpr, DottedNameExpr)):
-        return _unsupported(
-            occurrence=occurrence,
-            expression=expression,
-            reason="window order expression must be a direct field",
-            diagnostics=diagnostics,
-        )
+    direct_order_items: list[OrderItem] = []
+    for order_item in expression.spec.order_by:
+        if type(order_item) is not OrderItem or type(order_item.expression) not in {
+            NameExpr,
+            DottedNameExpr,
+        }:
+            return _unsupported(
+                occurrence=occurrence,
+                expression=expression,
+                reason="window order expression must be a direct field",
+                diagnostics=diagnostics,
+            )
+        direct_order_items.append(order_item)
 
     if input_schema.is_unknown:
         return _unsupported(
@@ -489,18 +489,14 @@ def _analyze_recognized_window_expression(
         )
 
     diagnostics_before = len(diagnostics)
-    order_value_type = infer_row_expression(
-        order_expression,
-        input_schema,
-        value_types,
-        diagnostics,
-        report_unknown_name=True,
+    order_bindings = bind_window_order_fields(
+        order_items=tuple(direct_order_items),
+        input_schema=input_schema,
         field_qualifier=field_qualifier,
+        value_types=value_types,
+        diagnostics=diagnostics,
     )
-    if (
-        order_value_type.kind is ValueTypeKind.UNKNOWN
-        or order_value_type.resolved_type.kind is TypeKind.UNKNOWN
-    ):
+    if order_bindings is None:
         if len(diagnostics) == diagnostics_before:
             _append_call_diagnostic(
                 diagnostics,
@@ -512,7 +508,18 @@ def _analyze_recognized_window_expression(
             occurrence=occurrence,
             expression=expression,
             identity=expression.identity,
-            reason="window order field type must be concrete",
+            reason=(
+                "window order direction must be omitted, asc, or desc"
+                if any(
+                    item.direction is not None
+                    and (
+                        type(item.direction) is not str
+                        or item.direction not in ("asc", "desc")
+                    )
+                    for item in direct_order_items
+                )
+                else "window order field type must be concrete"
+            ),
         )
 
     bucket_count: int | None = None
@@ -598,6 +605,10 @@ def _analyze_recognized_window_expression(
         partition_binding_fact=WindowPartitionBindingFact(
             semantic_fact=semantic_fact,
             bindings=partition_bindings,
+        ),
+        order_binding_fact=WindowOrderBindingFact(
+            semantic_fact=semantic_fact,
+            bindings=order_bindings,
         ),
     )
 
