@@ -45,12 +45,15 @@ from pietto.semantic.window_semantics import (
     DistributionWindowSemanticFact,
     RankingAdvancePolicy,
     RankingWindowSemanticFact,
+    WindowExpressionAnalysis,
     WindowExpressionSemanticFact,
     WindowExpressionUnsupported,
     WindowOccurrenceIdentity,
+    WindowPartitionBindingFact,
     WindowResultAvailability,
     WindowResultAvailabilityKind,
 )
+from pietto.semantic.window_partition_analysis import bind_window_partition_fields
 
 __all__: tuple[str, ...] = ()
 
@@ -188,11 +191,7 @@ def analyze_window_expression(
     field_qualifier: str,
     value_types: dict[Expression, ValueType],
     diagnostics: list[Diagnostic],
-) -> (
-    RankingWindowSemanticFact
-    | DistributionWindowSemanticFact
-    | WindowExpressionUnsupported
-):
+) -> WindowExpressionAnalysis | WindowExpressionUnsupported:
     """Analyze one direct selected recognized window expression transiently."""
 
     return _analyze_recognized_window_expression(
@@ -232,9 +231,11 @@ def analyze_distribution_window_expression(
         diagnostics=diagnostics,
         family="distribution",
     )
-    if isinstance(result, RankingWindowSemanticFact):
-        raise AssertionError("distribution analyzer returned a ranking fact")
-    return result
+    if isinstance(result, WindowExpressionUnsupported):
+        return result
+    if result.distribution_fact is None:
+        raise AssertionError("distribution analyzer returned no distribution fact")
+    return result.distribution_fact
 
 
 def analyze_ranking_window_expression(
@@ -261,9 +262,11 @@ def analyze_ranking_window_expression(
         diagnostics=diagnostics,
         family="ranking",
     )
-    if isinstance(result, DistributionWindowSemanticFact):
-        raise AssertionError("ranking analyzer returned a distribution fact")
-    return result
+    if isinstance(result, WindowExpressionUnsupported):
+        return result
+    if result.ranking_fact is None:
+        raise AssertionError("ranking analyzer returned no ranking fact")
+    return result.ranking_fact
 
 
 def analyze_row_number_window_expression(
@@ -305,11 +308,7 @@ def _analyze_recognized_window_expression(
     value_types: dict[Expression, ValueType],
     diagnostics: list[Diagnostic],
     family: str | None,
-) -> (
-    RankingWindowSemanticFact
-    | DistributionWindowSemanticFact
-    | WindowExpressionUnsupported
-):
+) -> WindowExpressionAnalysis | WindowExpressionUnsupported:
     """Own the single common validation and construction path."""
 
     if type(definition) not in {TableDef, QueryDef}:
@@ -413,12 +412,46 @@ def _analyze_recognized_window_expression(
             diagnostics=diagnostics,
         )
 
-    if expression.spec.partition_by:
+    direct_partition_expressions: list[NameExpr | DottedNameExpr] = []
+    for partition_expression in expression.spec.partition_by:
+        if not isinstance(partition_expression, (NameExpr, DottedNameExpr)):
+            return _unsupported(
+                occurrence=occurrence,
+                expression=expression,
+                reason="window partition expression must be a direct field",
+                diagnostics=diagnostics,
+            )
+        direct_partition_expressions.append(partition_expression)
+
+    if direct_partition_expressions and input_schema.is_unknown:
         return _unsupported(
             occurrence=occurrence,
             expression=expression,
-            reason=f"{function_name} partitioning is deferred",
+            reason="window input schema must be concrete",
             diagnostics=diagnostics,
+        )
+
+    diagnostics_before = len(diagnostics)
+    partition_bindings = bind_window_partition_fields(
+        partition_expressions=tuple(direct_partition_expressions),
+        input_schema=input_schema,
+        field_qualifier=field_qualifier,
+        value_types=value_types,
+        diagnostics=diagnostics,
+    )
+    if partition_bindings is None:
+        if len(diagnostics) == diagnostics_before:
+            _append_call_diagnostic(
+                diagnostics,
+                expression.call,
+                code="PIE-S2103",
+                message=f"Unknown function: {_source_function_name(expression.call)}",
+            )
+        return WindowExpressionUnsupported(
+            occurrence=occurrence,
+            expression=expression,
+            identity=expression.identity,
+            reason="window partition field type must be concrete",
         )
 
     if len(expression.spec.order_by) != 1:
@@ -538,24 +571,34 @@ def _analyze_recognized_window_expression(
             value_type=result_type,
         ),
     )
+    ranking_fact: RankingWindowSemanticFact | None = None
+    distribution_fact: DistributionWindowSemanticFact | None = None
     if advance_policy is not None:
-        return RankingWindowSemanticFact(
+        ranking_fact = RankingWindowSemanticFact(
             semantic_fact=semantic_fact,
             advance_policy=advance_policy,
         )
-
-    assert distribution_policy is not None
-    ranking_fact = None
-    if distribution_policy is DistributionWindowPolicy.PERCENT_RANK:
-        ranking_fact = RankingWindowSemanticFact(
+    else:
+        assert distribution_policy is not None
+        if distribution_policy is DistributionWindowPolicy.PERCENT_RANK:
+            ranking_fact = RankingWindowSemanticFact(
+                semantic_fact=semantic_fact,
+                advance_policy=RankingAdvancePolicy.GAPPED_PEER_RANK,
+            )
+        distribution_fact = DistributionWindowSemanticFact(
             semantic_fact=semantic_fact,
-            advance_policy=RankingAdvancePolicy.GAPPED_PEER_RANK,
+            distribution_policy=distribution_policy,
+            ranking_fact=ranking_fact,
+            bucket_count=bucket_count,
         )
-    return DistributionWindowSemanticFact(
+    return WindowExpressionAnalysis(
         semantic_fact=semantic_fact,
-        distribution_policy=distribution_policy,
         ranking_fact=ranking_fact,
-        bucket_count=bucket_count,
+        distribution_fact=distribution_fact,
+        partition_binding_fact=WindowPartitionBindingFact(
+            semantic_fact=semantic_fact,
+            bindings=partition_bindings,
+        ),
     )
 
 

@@ -47,7 +47,7 @@ HISTORICAL_GOLDENS = (
 HISTORICAL_GOLDENS_HASH = (
     "11d4343245dc18fd574999cbef5bff7c316d90975b3856ed729e8d2c1d579cf0"
 )
-BOUNDARY_HASH = "0651eaa531c9bb3a19ffd4b5c79f1796bc0cbf683259c73226a62a0fd66f9318"
+BOUNDARY_HASH = "b33ea239f32e1591a342560e42212a11f960075e6958e25c59b498963156ccde"
 
 
 def _load_module(name: str, path: Path) -> ModuleType:
@@ -304,3 +304,10 @@ def _aggregate_hash(paths: Iterable[Path]) -> str:
         digest.update(path.read_bytes())
         digest.update(b"\0")
     return digest.hexdigest()
+
+
+_SLICE10_READER_MIGRATION_PATHS = (
+    "docs/spec/phase53-partition-binding-multi-key-visibility-diagnostics-contract-v1.md",
+    "src/pietto/semantic/window_partition_analysis.py",
+    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+)

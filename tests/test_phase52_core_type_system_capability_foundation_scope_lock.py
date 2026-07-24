@@ -175,9 +175,9 @@ PRE_RECONCILIATION_2_SHA256 = (
 PRE_RECONCILIATION_3_SHA256 = (
     "cb2c51246f1e312858641750d1a416125f99058fb0182949e9afe35ae49e97cf"
 )
-COMPILER_DIGEST = "0651eaa531c9bb3a19ffd4b5c79f1796bc0cbf683259c73226a62a0fd66f9318"
+COMPILER_DIGEST = "b33ea239f32e1591a342560e42212a11f960075e6958e25c59b498963156ccde"
 PROJECT_PRIVATE_DIGEST = (
-    "a8349e50c3a36715de398477bb2bb595ff3e3f736bf80b92ca7766798d9f1f63"
+    "b3b115a4d70b05874e415ae060f1a3084a40e696a9004935ae54d183a06791bb"
 )
 
 
@@ -495,7 +495,7 @@ def test_slice1_no_behavior_public_privacy_and_release_boundaries_are_locked() -
         compiler_digest.update(b"\0")
         compiler_digest.update(path.read_bytes())
         compiler_digest.update(b"\0")
-    assert (len(compiler_paths), compiler_digest.hexdigest()) == (87, COMPILER_DIGEST)
+    assert (len(compiler_paths), compiler_digest.hexdigest()) == (88, COMPILER_DIGEST)
     for relative_path in BOUNDARY_PATHS:
         assert re.findall(
             r'^BOUNDARY_HASH = "([0-9a-f]{64})"$',
@@ -837,3 +837,10 @@ def test_static_audit_shape_allowlist_and_heading_matching_are_locked() -> None:
         assert _git_output(["rev-parse", "origin/main"]) == PHASE53_BASE_HEAD_SHA
     assert _headings_at_level(PLAN_PATH, 2) == PLAN_H2
     assert _headings_at_level(SCOPE_PATH, 2) == SCOPE_H2
+
+
+_SLICE10_READER_MIGRATION_PATHS = (
+    "docs/spec/phase53-partition-binding-multi-key-visibility-diagnostics-contract-v1.md",
+    "src/pietto/semantic/window_partition_analysis.py",
+    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+)

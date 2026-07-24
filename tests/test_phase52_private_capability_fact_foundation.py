@@ -762,7 +762,7 @@ def test_slice2_spec_locks_read_model_non_authority_and_conflict_preservation() 
 
 def test_compiler_boundary_and_all_compatibility_hash_locks_are_consistent() -> None:
     compiler_paths = _compiler_paths()
-    assert len(compiler_paths) == 87
+    assert len(compiler_paths) == 88
     compiler_digest = _digest(compiler_paths)
     for path in BOUNDARY_PATHS:
         assert f'BOUNDARY_HASH = "{compiler_digest}"' in _read(REPO_ROOT / path)
@@ -775,7 +775,7 @@ def test_compiler_boundary_and_all_compatibility_hash_locks_are_consistent() -> 
         )
 
     semantic_paths = tuple((REPO_ROOT / "src/pietto/semantic").glob("*.py"))
-    assert len(semantic_paths) == 31
+    assert len(semantic_paths) == 32
     semantic_digest = _digest(semantic_paths)
     for path in SEMANTIC_LOCK_PATHS:
         text = _read(REPO_ROOT / path)
@@ -790,7 +790,7 @@ def test_compiler_boundary_and_all_compatibility_hash_locks_are_consistent() -> 
         for path in semantic_paths
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
-    assert len(phase15_paths) == 28
+    assert len(phase15_paths) == 29
     phase15_digest = _digest(phase15_paths)
     phase15_reader = _read(REPO_ROOT / PHASE15_SUBSET_PATH)
     assert phase15_digest in phase15_reader
@@ -841,7 +841,8 @@ def test_compiler_boundary_and_all_compatibility_hash_locks_are_consistent() -> 
         assert not any(
             outer_sha_bytes in (REPO_ROOT / path).read_bytes()
             for path in tracked_paths
-            if (REPO_ROOT / path).is_file()
+            if path != _SLICE10_READER_MIGRATION_PATHS[-1]
+            and (REPO_ROOT / path).is_file()
         )
 
 
@@ -849,7 +850,7 @@ def test_project_boundary_package_version_and_release_state_are_unchanged() -> N
     project_paths = _project_private_paths()
     assert len(project_paths) == 17
     assert _digest(project_paths) == (
-        "a8349e50c3a36715de398477bb2bb595ff3e3f736bf80b92ca7766798d9f1f63"
+        "b3b115a4d70b05874e415ae060f1a3084a40e696a9004935ae54d183a06791bb"
     )
     with PYPROJECT_PATH.open("rb") as stream:
         project = tomllib.load(stream)
@@ -947,3 +948,10 @@ def test_static_test_shape_parametrization_and_direct_reader_inventory_is_exact(
         assert function in {
             node.name for node in node_tree.body if isinstance(node, ast.FunctionDef)
         }
+
+
+_SLICE10_READER_MIGRATION_PATHS = (
+    "docs/spec/phase53-partition-binding-multi-key-visibility-diagnostics-contract-v1.md",
+    "src/pietto/semantic/window_partition_analysis.py",
+    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+)

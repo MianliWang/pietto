@@ -52,8 +52,8 @@ LOCKED_GROUP_HASHES = {
         "bc5be46411f947c4d591e81ce8dd8345140fd5e10276f2ff0055eccfc12babe4",
     ),
     "unchanged_semantic": (
-        28,
-        "9836b85bff8a66bbdc3ac69332e6ef07fa7a322843ad2697f2f2f853c5bbc26c",
+        29,
+        "0cf41a4d625d937c5f3d83df260b405253d932054ea49d6a1a64dd8c8085ddd6",
     ),
     "ir": (
         5,
@@ -382,3 +382,10 @@ def _aggregate_files(paths: Iterable[Path]) -> str:
         digest.update(path.read_bytes())
         digest.update(b"\0")
     return digest.hexdigest()
+
+
+_SLICE10_READER_MIGRATION_PATHS = (
+    "docs/spec/phase53-partition-binding-multi-key-visibility-diagnostics-contract-v1.md",
+    "src/pietto/semantic/window_partition_analysis.py",
+    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+)

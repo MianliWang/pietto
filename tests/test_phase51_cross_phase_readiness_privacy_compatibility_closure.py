@@ -94,7 +94,7 @@ PHASE52_UNTRACKED_PATHS = {
     "docs/spec/phase52-core-type-system-capability-foundation-scope-lock-v1.md",
     "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
 }
-SLICE2_BASE_HEAD_SHA = "f90bd653c3ece47a86a121095f4547783f35197f"
+SLICE2_BASE_HEAD_SHA = "c9e04d833e36bdd7cdc521eeb2c5f030aac8a998"
 SLICE2_STATE_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
 CI_REPAIR_BASE_HEAD_SHA = "321ec6f80737015648bc1f81b0561fdd34610e92"
 CI_REPAIR_MODIFIED_PATHS = {
@@ -898,7 +898,7 @@ def test_cross_phase_transition_and_live_identifier_inventory_is_exact() -> None
 def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> None:
     compiler_digest = _compiler_digest()
     assert compiler_digest == (
-        "0651eaa531c9bb3a19ffd4b5c79f1796bc0cbf683259c73226a62a0fd66f9318"
+        "b33ea239f32e1591a342560e42212a11f960075e6958e25c59b498963156ccde"
     )
     for relative_path in BOUNDARY_PATHS:
         boundary_values = re.findall(
@@ -923,7 +923,7 @@ def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> N
     project_digest = _digest(project_paths)
     assert len(project_paths) == 17
     assert project_digest == (
-        "a8349e50c3a36715de398477bb2bb595ff3e3f736bf80b92ca7766798d9f1f63"
+        "b3b115a4d70b05874e415ae060f1a3084a40e696a9004935ae54d183a06791bb"
     )
     phase33 = _read(REPO_ROOT / "tests/test_phase33_completion_audit.py")
     assert (
@@ -1129,3 +1129,10 @@ def test_slice11_contract_plan_allowlist_and_protected_boundaries_are_locked() -
     pyproject = _read(REPO_ROOT / "pyproject.toml")
     assert 'version = "0.1.0"' in pyproject
     assert _git_output(["tag", "--points-at", "HEAD"]) == ""
+
+
+_SLICE10_READER_MIGRATION_PATHS = (
+    "docs/spec/phase53-partition-binding-multi-key-visibility-diagnostics-contract-v1.md",
+    "src/pietto/semantic/window_partition_analysis.py",
+    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+)

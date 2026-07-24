@@ -658,3 +658,10 @@ def _derived_definition(
             if isinstance(definition, (TableDef, QueryDef)) and definition.name == name:
                 return definition
     raise AssertionError(f"Derived relation not found: {name}")
+
+
+_SLICE10_READER_MIGRATION_PATHS = (
+    "docs/spec/phase53-partition-binding-multi-key-visibility-diagnostics-contract-v1.md",
+    "src/pietto/semantic/window_partition_analysis.py",
+    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+)

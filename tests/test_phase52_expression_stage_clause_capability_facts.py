@@ -73,7 +73,7 @@ LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf2
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 SIGNATURE_SHA256 = "810f347080e0bb7dc674821aa6387c5f7618ac216832194ef19820326eef71d2"
 PROJECT_PRIVATE_DIGEST = (
-    "a8349e50c3a36715de398477bb2bb595ff3e3f736bf80b92ca7766798d9f1f63"
+    "b3b115a4d70b05874e415ae060f1a3084a40e696a9004935ae54d183a06791bb"
 )
 TIER2_MANIFEST_BYTES = 18319
 TIER2_MANIFEST_FILES = 108
@@ -129,6 +129,7 @@ COMPILER_READERS = (
     "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
     "tests/test_phase53_row_number_direct_field_mvp_contract.py",
     "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
+    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
     "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
 )
 SEMANTIC_READERS = (
@@ -168,6 +169,7 @@ SEMANTIC_READERS = (
     "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
     "tests/test_phase53_row_number_direct_field_mvp_contract.py",
     "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
+    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
     "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
 )
 PHASE15_READERS = (
@@ -183,6 +185,7 @@ PHASE15_READERS = (
     "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
     "tests/test_phase53_row_number_direct_field_mvp_contract.py",
     "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
+    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
     "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
 )
 MODIFIED_READER_PATHS = (
@@ -1067,9 +1070,9 @@ def test_compiler_semantic_subset_project_and_raw_hash_readers_are_exact() -> No
     )
     project_paths = _project_private_paths()
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        87,
-        31,
-        28,
+        88,
+        32,
+        29,
     )
     assert len(project_paths) == 17
     assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
@@ -1129,7 +1132,7 @@ def test_compiler_semantic_subset_project_and_raw_hash_readers_are_exact() -> No
             for path in readable
             if inner_sha.encode("ascii") in (REPO_ROOT / path).read_bytes()
         )
-        assert actual == outers
+        assert actual == (*outers, _SLICE10_READER_MIGRATION_PATHS[-1])
     for outer in (
         "tests/test_phase14_candidate_decision_audit.py",
         "tests/test_phase14_planning_audit.py",
@@ -1137,10 +1140,12 @@ def test_compiler_semantic_subset_project_and_raw_hash_readers_are_exact() -> No
         "tests/test_phase16_completion_audit.py",
     ):
         outer_sha = hashlib.sha256((REPO_ROOT / outer).read_bytes()).hexdigest()
-        assert not any(
-            outer_sha.encode("ascii") in (REPO_ROOT / path).read_bytes()
+        actual = tuple(
+            path
             for path in readable
+            if outer_sha.encode("ascii") in (REPO_ROOT / path).read_bytes()
         )
+        assert actual == (_SLICE10_READER_MIGRATION_PATHS[-1],)
 
 
 def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> None:
@@ -1276,7 +1281,7 @@ def test_static_test_inventory_and_tier1_selection_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (442, 4464)
+    assert (len(test_files), top_level_functions) == (443, 4531)
 
     compatible, per_file_items = _prior_compatible_nodes()
     assert (len(compatible), per_file_items) == (96, (24, 33, 63, 63))
@@ -1812,3 +1817,10 @@ def test_clause_omissions_and_tensions_remain_unknown() -> None:
     assert all(
         _lookup(key) == Unknown(CapabilityReasonCode.NOT_EVIDENCED) for key in keys
     )
+
+
+_SLICE10_READER_MIGRATION_PATHS = (
+    "docs/spec/phase53-partition-binding-multi-key-visibility-diagnostics-contract-v1.md",
+    "src/pietto/semantic/window_partition_analysis.py",
+    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+)

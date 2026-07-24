@@ -6,9 +6,10 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from pietto._window_identity import WindowFunctionIdentity
-from pietto.ast_nodes import Expression, Span, WindowExpr
+from pietto.ast_nodes import DottedNameExpr, Expression, NameExpr, Span, WindowExpr
 from pietto.semantic.model import (
     EffectiveNullability,
+    TypeKind,
     ValueType,
     ValueTypeKind,
 )
@@ -150,6 +151,55 @@ class WindowExpressionUnsupported:
             raise ValueError("expression identity must equal supplied identity")
         if self.expression.span != self.occurrence.span:
             raise ValueError("expression and occurrence spans must match")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class WindowPartitionFieldBinding:
+    """One source-preserved direct partition field and its concrete type."""
+
+    expression: NameExpr | DottedNameExpr
+    value_type: ValueType
+
+    def __post_init__(self) -> None:
+        if type(self.expression) not in {NameExpr, DottedNameExpr}:
+            raise TypeError("expression must be an exact NameExpr or DottedNameExpr")
+        if type(self.expression) is DottedNameExpr and len(self.expression.parts) != 2:
+            raise ValueError("qualified partition expression must have two parts")
+        if type(self.value_type) is not ValueType:
+            raise TypeError("value_type must be an exact ValueType")
+        if (
+            self.value_type.kind is not ValueTypeKind.KNOWN
+            or self.value_type.resolved_type.kind is TypeKind.UNKNOWN
+        ):
+            raise ValueError("partition field value_type must be concrete")
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class WindowPartitionBindingFact:
+    """Source-ordered semantic bindings for one window partition tuple."""
+
+    semantic_fact: WindowExpressionSemanticFact
+    bindings: tuple[WindowPartitionFieldBinding, ...]
+
+    def __post_init__(self) -> None:
+        if type(self.semantic_fact) is not WindowExpressionSemanticFact:
+            raise TypeError(
+                "semantic_fact must be an exact WindowExpressionSemanticFact"
+            )
+        if type(self.bindings) is not tuple:
+            raise TypeError("bindings must be an exact tuple")
+        if any(type(item) is not WindowPartitionFieldBinding for item in self.bindings):
+            raise TypeError(
+                "bindings must contain exact WindowPartitionFieldBinding instances"
+            )
+        if self.partition_key != self.semantic_fact.expression.spec.partition_by:
+            raise ValueError("partition bindings must equal the source partition tuple")
+
+    @property
+    def partition_key(self) -> tuple[Expression, ...]:
+        """Return the complete source-ordered structural partition tuple."""
+
+        return tuple(item.expression for item in self.bindings)
 
 
 class RankingAdvancePolicy(StrEnum):
@@ -311,3 +361,74 @@ class DistributionWindowSemanticFact:
         if not self.peer_sensitive:
             return ()
         return self.structural_order_key
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class WindowExpressionAnalysis:
+    """One core fact joined to its family and partition sibling evidence."""
+
+    semantic_fact: WindowExpressionSemanticFact
+    ranking_fact: RankingWindowSemanticFact | None
+    distribution_fact: DistributionWindowSemanticFact | None
+    partition_binding_fact: WindowPartitionBindingFact
+
+    def __post_init__(self) -> None:
+        if type(self.semantic_fact) is not WindowExpressionSemanticFact:
+            raise TypeError(
+                "semantic_fact must be an exact WindowExpressionSemanticFact"
+            )
+        if (
+            self.ranking_fact is not None
+            and type(self.ranking_fact) is not RankingWindowSemanticFact
+        ):
+            raise TypeError(
+                "ranking_fact must be an exact RankingWindowSemanticFact or None"
+            )
+        if (
+            self.distribution_fact is not None
+            and type(self.distribution_fact) is not DistributionWindowSemanticFact
+        ):
+            raise TypeError(
+                "distribution_fact must be an exact "
+                "DistributionWindowSemanticFact or None"
+            )
+        if type(self.partition_binding_fact) is not WindowPartitionBindingFact:
+            raise TypeError(
+                "partition_binding_fact must be an exact WindowPartitionBindingFact"
+            )
+        if self.partition_binding_fact.semantic_fact is not self.semantic_fact:
+            raise ValueError("partition fact must share the semantic core")
+        if (
+            self.ranking_fact is not None
+            and self.ranking_fact.semantic_fact is not self.semantic_fact
+        ):
+            raise ValueError("ranking fact must share the semantic core")
+        if (
+            self.distribution_fact is not None
+            and self.distribution_fact.semantic_fact is not self.semantic_fact
+        ):
+            raise ValueError("distribution fact must share the semantic core")
+        if self.ranking_fact is None and self.distribution_fact is None:
+            raise ValueError("window analysis requires a family fact")
+
+        identity_name = self.semantic_fact.identity.name
+        if identity_name in {"row_number", "rank", "dense_rank"}:
+            if self.ranking_fact is None or self.distribution_fact is not None:
+                raise ValueError("ranking identity requires only a ranking fact")
+            return
+        if identity_name == "percent_rank":
+            if self.ranking_fact is None or self.distribution_fact is None:
+                raise ValueError("percent_rank requires both family facts")
+            if self.distribution_fact.ranking_fact is not self.ranking_fact:
+                raise ValueError(
+                    "percent_rank distribution must reference the ranking fact"
+                )
+            return
+        if identity_name in {"cume_dist", "ntile"}:
+            if self.ranking_fact is not None or self.distribution_fact is None:
+                raise ValueError(
+                    "non-ranking distribution identity requires only a "
+                    "distribution fact"
+                )
+            return
+        raise ValueError("window analysis identity must be one completed identity")

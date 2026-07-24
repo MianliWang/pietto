@@ -110,7 +110,7 @@ LOCKED_PHASE33_SURFACES = {
     "project_private": (
         "src/pietto/_project",
         17,
-        "a8349e50c3a36715de398477bb2bb595ff3e3f736bf80b92ca7766798d9f1f63",
+        "b3b115a4d70b05874e415ae060f1a3084a40e696a9004935ae54d183a06791bb",
     ),
     "cli": (
         "src/pietto/cli.py",
@@ -472,3 +472,10 @@ def _digest(paths: tuple[Path, ...]) -> str:
         relative = path.relative_to(REPO_ROOT).as_posix().encode("utf-8")
         digest.update(relative + b"\0" + path.read_bytes() + b"\0")
     return digest.hexdigest()
+
+
+_SLICE10_READER_MIGRATION_PATHS = (
+    "docs/spec/phase53-partition-binding-multi-key-visibility-diagnostics-contract-v1.md",
+    "src/pietto/semantic/window_partition_analysis.py",
+    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+)

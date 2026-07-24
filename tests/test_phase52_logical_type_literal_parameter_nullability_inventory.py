@@ -66,13 +66,13 @@ SLICE8_GATE2_BASE_HEAD_SHA = "11a0c48941c3c1c650be8d0ec8ddf5201f9525f2"
 
 FACTS_SHA256 = "8a7e7ba8374c59316051f582aecc0c0e797d270fac2ce89a91a55befca562fa9"
 LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26"
-COMPILER_DIGEST = "0651eaa531c9bb3a19ffd4b5c79f1796bc0cbf683259c73226a62a0fd66f9318"
-SEMANTIC_DIGEST = "fb593d3b8c2c0be71f84c9eaed46ee9ff5e51728a17bb790cf086b975d39bb99"
+COMPILER_DIGEST = "b33ea239f32e1591a342560e42212a11f960075e6958e25c59b498963156ccde"
+SEMANTIC_DIGEST = "5797637326c467ecabd5e93c5f84982b35cecff140f43f1a21451d86b196bdd2"
 PHASE15_SUBSET_DIGEST = (
-    "9836b85bff8a66bbdc3ac69332e6ef07fa7a322843ad2697f2f2f853c5bbc26c"
+    "0cf41a4d625d937c5f3d83df260b405253d932054ea49d6a1a64dd8c8085ddd6"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "a8349e50c3a36715de398477bb2bb595ff3e3f736bf80b92ca7766798d9f1f63"
+    "b3b115a4d70b05874e415ae060f1a3084a40e696a9004935ae54d183a06791bb"
 )
 TIER2_MANIFEST_BYTES = 18319
 TIER2_MANIFEST_SHA256 = (
@@ -1040,9 +1040,9 @@ def test_digest_and_nested_raw_sha_reader_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        87,
-        31,
-        28,
+        88,
+        32,
+        29,
     )
     assert _digest(compiler_paths) == COMPILER_DIGEST
     assert _digest(semantic_paths) == SEMANTIC_DIGEST
@@ -1177,3 +1177,10 @@ def test_static_item_allowlist_reader_and_manifest_inventory_is_exact() -> None:
     assert TIER2_MANIFEST_SHA256 == (
         "aea0deb90e0870740b40614fc911ad9483cb3851842aa9a4a9ccecc63baf6f79"
     )
+
+
+_SLICE10_READER_MIGRATION_PATHS = (
+    "docs/spec/phase53-partition-binding-multi-key-visibility-diagnostics-contract-v1.md",
+    "src/pietto/semantic/window_partition_analysis.py",
+    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+)

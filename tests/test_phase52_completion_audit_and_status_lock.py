@@ -174,10 +174,10 @@ MODULE_SHA256 = {
     AGGREGATE_REL: "d7d69fa4b97924ef5462af9c871a910b73cad43a21431e98a72c8bdab8996c80",
 }
 PATH_DIGESTS = {
-    "compiler": "0651eaa531c9bb3a19ffd4b5c79f1796bc0cbf683259c73226a62a0fd66f9318",
-    "semantic": "fb593d3b8c2c0be71f84c9eaed46ee9ff5e51728a17bb790cf086b975d39bb99",
-    "phase15": "9836b85bff8a66bbdc3ac69332e6ef07fa7a322843ad2697f2f2f853c5bbc26c",
-    "project": "a8349e50c3a36715de398477bb2bb595ff3e3f736bf80b92ca7766798d9f1f63",
+    "compiler": "b33ea239f32e1591a342560e42212a11f960075e6958e25c59b498963156ccde",
+    "semantic": "5797637326c467ecabd5e93c5f84982b35cecff140f43f1a21451d86b196bdd2",
+    "phase15": "0cf41a4d625d937c5f3d83df260b405253d932054ea49d6a1a64dd8c8085ddd6",
+    "project": "b3b115a4d70b05874e415ae060f1a3084a40e696a9004935ae54d183a06791bb",
 }
 PROTECTED_SHA256 = {
     ".github/workflows/ci.yml": "2fc5abc1d096b9d32e6f96dc882c09d21db04d7b372eb56727ca12b145cf16f4",
@@ -232,7 +232,7 @@ PHASE53_ADDED_PATHS = {
     "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
 }
 PHASE53_ALLOWLIST_PATHS = PHASE53_MODIFIED_PATHS | PHASE53_ADDED_PATHS
-SLICE2_BASE_HEAD_SHA = "f90bd653c3ece47a86a121095f4547783f35197f"
+SLICE2_BASE_HEAD_SHA = "c9e04d833e36bdd7cdc521eeb2c5f030aac8a998"
 SLICE2_STATE_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
 
 OWNER_HANDOFFS = (
@@ -946,9 +946,9 @@ def test_live_compiler_semantic_phase15_project_protected_version_and_tag_locks_
     )
     project = _project_paths()
     assert (len(compiler), len(semantic), len(phase15), len(project)) == (
-        87,
-        31,
-        28,
+        88,
+        32,
+        29,
         17,
     )
     assert {
@@ -1054,12 +1054,12 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
     assert (
         sum(path.endswith(".py") for path in readable),
         sum(path.endswith(".md") for path in readable),
-    ) == (529, 236)
+    ) == (531, 237)
     for digest, expected in (
-        (PATH_DIGESTS["compiler"], 23),
-        (PATH_DIGESTS["semantic"], 37),
-        (PATH_DIGESTS["phase15"], 13),
-        (PATH_DIGESTS["project"], 16),
+        (PATH_DIGESTS["compiler"], 24),
+        (PATH_DIGESTS["semantic"], 38),
+        (PATH_DIGESTS["phase15"], 14),
+        (PATH_DIGESTS["project"], 17),
     ):
         readers = tuple(
             path
@@ -1129,9 +1129,9 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
         )
         for path in test_files
     )
-    assert (len(test_files), top_functions) == (442, 4464)
-    assert 424 + 279 + 168 + 156 + 12 + 145 + 190 + 70 + 70 + 97 + 35 == 1646
-    assert 7738 - 185 == 7553
+    assert (len(test_files), top_functions) == (443, 4531)
+    assert 627 + 424 + 279 + 168 + 156 + 12 + 145 + 190 + 70 + 70 + 97 + 35 == 2273
+    assert 8365 - 185 == 8180
     assert sum(_pytest_shape(relative)[1] for relative in SLICE_TEST_RELS) == 417
     tier1 = _tier1_operands()
     tier1_payload = "".join(item + "\n" for item in tier1).encode()
@@ -1249,3 +1249,10 @@ def test_static_git_helper_and_exact_slice9_dirty_set_are_locked() -> None:
         assert name_status == tuple(f"M\t{path}" for path in sorted(expected_modified))
     else:
         assert name_status == ()
+
+
+_SLICE10_READER_MIGRATION_PATHS = (
+    "docs/spec/phase53-partition-binding-multi-key-visibility-diagnostics-contract-v1.md",
+    "src/pietto/semantic/window_partition_analysis.py",
+    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+)

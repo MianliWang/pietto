@@ -378,3 +378,63 @@ The exact Gate 2 scope is `A2/M61/D0`: this plan, five private production module
 Gate 2 uses exactly one write-mode Ruff invocation over the exact ordered 61-path handwritten Python manifest. It validates 1646 focused items, proves real collection of 7738, then runs the dirty overlay with 7553 passed and 185 deselected, and projects 7738 passes in each clean-CI Python job. It leaves all 63 paths unstaged and uncommitted with an empty index and performs no ANTLR operation, staging, commit, push, CI mutation, tag, Release, PR, package build or smoke, golden regeneration, upload, signing, or attestation.
 
 Slices 10 and 11 retain partitioning, multiple keys, direction, determinism, null ordering, and collation; Slice 12 retains navigation/value identities; Slices 13 and 14 retain grouped/let visibility, multiple outputs, alias visibility, downstream schema, persistence, and lineage; Slice 15 retains Window IR and independent backend lowering; Slice 16 retains completion audit/status lock. STOP on an allowlist escape, another identity/type/diagnostic/resolver, nonliteral bucket argument, runtime distribution evaluation, persistent facts, row-schema/public/IR/SQL widening, second formatter, count/selector drift, nonempty index, publication, or unresolved decision. Recommended next authorization: `Phase 53 Slice 9 Gate 3`, with commit subject `Add Phase 53 percent-rank cume-dist and ntile semantics`.
+
+## Slice 10 Partition Binding, Multi-key Visibility, And Diagnostics
+
+Phase 53 is `ACTIVE`; Slices 1 through 9 are `COMPLETED`; Slice 10 remains
+`UNSTARTED` throughout Gate 2. Gate 2 owns only arbitrary-length,
+source-ordered direct-field partition tuples for the six completed window
+identities, immediate-input visibility, deterministic existing diagnostics,
+private transient partition/composite semantic evidence, duplicate-preserving
+project occurrences with first-role-target edges, its contract and focused
+tests, and the exact reader migration. Slice 10 becomes `COMPLETED` only after
+separately authorized Gate 3 publication and the unique natural
+`CI / push / main`, attempt 1, succeeds at that exact head.
+
+The selected subset accepts zero or any number of bare or immediate-qualified
+direct partition fields. Concrete nullable fields are structurally legal;
+duplicates remain source-ordered bindings and occurrences while edges dedupe
+only the first identical role/target pair. The existing row resolver owns each
+field exactly once. Unknown or invalid qualifiers use `PIE-S2102`; computed or
+nested partition shapes and nonconcrete schema use `PIE-S2103`. Partition
+validation precedes the unchanged one-field local-order validation, and
+`ntile` literal validation stays after order-field resolution.
+
+`WindowPartitionFieldBinding` and `WindowPartitionBindingFact` are private
+frozen sibling carriers. `WindowExpressionAnalysis` joins the unchanged core,
+unchanged ranking/distribution siblings, and one always-present partition
+sibling. Compatibility analyzers keep their successful return shapes. The
+generic project builder extracts the core and creates exact role blocks:
+`RELATION_INPUT`, source-ordered `WINDOW_PARTITION`, then `WINDOW_ORDER`.
+Result identity, immediate derived provenance, peer/order keys, family
+policies, result types, nullabilities, signatures, formulas, and `ntile`
+bucket evidence remain unchanged.
+
+The exact Gate 2 scope is `A3/M60/D0`: this plan, three private production
+modules, 56 compatibility/hash/state test readers, plus the new specification,
+one private semantic helper, and one 67-function/627-item focused test. Future
+inventory is exactly 864 tracked files, 531 Python files, 237 Markdown files,
+443 test modules, 4531 top-level test functions, 8365 collected items, 88
+compiler files, 32 semantic files, 29 Phase-15 semantic-subset files, 17
+private project files, 8 generated files, and 37 goldens.
+
+Gate 2 uses exactly one write-mode Ruff invocation over the exact ordered
+61-path handwritten Python manifest. It validates 2273 focused items, proves
+real collection of 8365, then runs the dirty overlay with
+8180 passed and 185 deselected, and projects
+8365 passes in each clean-CI Python job. It leaves all
+63 paths unstaged and uncommitted with an empty index and performs no ANTLR
+operation, staging, commit, push, CI mutation, tag, Release, PR, package build
+or smoke, golden regeneration, upload, signing, or attestation.
+
+Slice 11 retains multiple local-order keys, direction, determinism, collation,
+and null ordering; Slice 12 retains navigation/value identities; Slice 13
+retains grouped/aggregate/satisfying/let visibility; Slice 14 retains multiple
+outputs, aliases, downstream schema, persistence, and lineage; Slice 15
+retains Window IR and independent backend lowering; Slice 16 retains completion
+audit/status lock. STOP on an allowlist escape, another identity/type/code or
+resolver, grammar/AST/parser/generated change, runtime evaluation, persistent
+fact, row-schema/public/IR/SQL widening, second formatter, count/selector drift,
+nonempty index, publication, or unresolved decision. Recommended next
+authorization: `Phase 53 Slice 10 Gate 3`, with commit subject
+`Add Phase 53 partition binding and diagnostics`.

@@ -115,13 +115,13 @@ MODIFIED_READER_PATHS = (
 )
 ADDED_PATHS = {CONTEXT_REL, CONTEXT_SPEC_REL, CONTEXT_TEST_REL}
 ALLOWLIST_PATHS = {*MODIFIED_READER_PATHS, *ADDED_PATHS}
-COMPILER_DIGEST = "0651eaa531c9bb3a19ffd4b5c79f1796bc0cbf683259c73226a62a0fd66f9318"
-SEMANTIC_DIGEST = "fb593d3b8c2c0be71f84c9eaed46ee9ff5e51728a17bb790cf086b975d39bb99"
+COMPILER_DIGEST = "b33ea239f32e1591a342560e42212a11f960075e6958e25c59b498963156ccde"
+SEMANTIC_DIGEST = "5797637326c467ecabd5e93c5f84982b35cecff140f43f1a21451d86b196bdd2"
 PHASE15_SUBSET_DIGEST = (
-    "9836b85bff8a66bbdc3ac69332e6ef07fa7a322843ad2697f2f2f853c5bbc26c"
+    "0cf41a4d625d937c5f3d83df260b405253d932054ea49d6a1a64dd8c8085ddd6"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "a8349e50c3a36715de398477bb2bb595ff3e3f736bf80b92ca7766798d9f1f63"
+    "b3b115a4d70b05874e415ae060f1a3084a40e696a9004935ae54d183a06791bb"
 )
 
 COMPILER_READERS = (
@@ -526,9 +526,9 @@ def test_compiler_semantic_and_phase15_boundary_digests_are_refreshed() -> None:
         for path in semantic_paths
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
-    assert len(compiler_paths) == 87
-    assert len(semantic_paths) == 31
-    assert len(phase15_paths) == 28
+    assert len(compiler_paths) == 88
+    assert len(semantic_paths) == 32
+    assert len(phase15_paths) == 29
     assert _digest(compiler_paths) == COMPILER_DIGEST
     assert _digest(semantic_paths) == SEMANTIC_DIGEST
     assert _digest(phase15_paths) == PHASE15_SUBSET_DIGEST
@@ -576,7 +576,8 @@ def test_raw_sha_reader_topology_is_closed_without_layer2_readers() -> None:
         assert not any(
             outer_sha_bytes in (REPO_ROOT / path).read_bytes()
             for path in tracked
-            if (REPO_ROOT / path).is_file()
+            if path != _SLICE10_READER_MIGRATION_PATHS[-1]
+            and (REPO_ROOT / path).is_file()
         )
 
 
@@ -743,3 +744,10 @@ def test_dialect_backend_or_extension_scope_differences_are_conflicts(
         CapabilityReasonCode.CONFLICTING_EVIDENCE,
         (first, second),
     )
+
+
+_SLICE10_READER_MIGRATION_PATHS = (
+    "docs/spec/phase53-partition-binding-multi-key-visibility-diagnostics-contract-v1.md",
+    "src/pietto/semantic/window_partition_analysis.py",
+    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+)

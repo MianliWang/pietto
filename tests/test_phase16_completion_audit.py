@@ -36,13 +36,13 @@ PHASE16_ARTIFACT_HASHES = {
         "580ebcfcc78102d902110d864eb80c7f1a57ffcb6b4b33e1160c9abd17ba07a6"
     ),
     SLICE1_AUDIT_PATH: (
-        "60e6088de3b7a9e2c42cc792a36e8615260560e6c56a4d0bffae6a1ce21a3410"
+        "f473aa88dcbcca75323e3397adf7f1e3f5880b32ab8b8ec07a84c60da1b2c370"
     ),
     SLICE2_AUDIT_PATH: (
-        "1acaa88a2f0401bf9867f10703319e76107b2869cc04c7a14ca093b573954114"
+        "54c48a59d9f5e805651ea65198cbc63f5db2a02ad109af9e4a5228289ca5b70a"
     ),
     SLICE3_AUDIT_PATH: (
-        "137cd0eafbcb539dd0c8c532c57a89e66672e4161e936849dad9c5084c8f9362"
+        "b5fef1f7b78e390c09a8b72b02eef2a0ef324432be7fda4f3d1f1eb4f574f5ca"
     ),
     PLAN_PATH: "adfb0d99075299049c790f465fab7453e0ed73b985e9cff19c6aeb38f94c7f5a",
 }
@@ -99,8 +99,8 @@ LOCKED_GROUP_HASHES = {
         "bc5be46411f947c4d591e81ce8dd8345140fd5e10276f2ff0055eccfc12babe4",
     ),
     "semantic": (
-        31,
-        "fb593d3b8c2c0be71f84c9eaed46ee9ff5e51728a17bb790cf086b975d39bb99",
+        32,
+        "5797637326c467ecabd5e93c5f84982b35cecff140f43f1a21451d86b196bdd2",
     ),
     "ir": (
         5,
@@ -443,3 +443,10 @@ def _aggregate_files(paths: Iterable[Path]) -> str:
         digest.update(path.read_bytes())
         digest.update(b"\0")
     return digest.hexdigest()
+
+
+_SLICE10_READER_MIGRATION_PATHS = (
+    "docs/spec/phase53-partition-binding-multi-key-visibility-diagnostics-contract-v1.md",
+    "src/pietto/semantic/window_partition_analysis.py",
+    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+)

@@ -101,6 +101,7 @@ SLICE6_PLAN_H2 = (
 SLICE7_PLAN_H2 = "Slice 7 row_number Direct-field MVP"
 SLICE8_PLAN_H2 = "Slice 8 rank / dense_rank And Peer Semantics"
 SLICE9_PLAN_H2 = "Slice 9 percent_rank / cume_dist / ntile"
+SLICE10_PLAN_H2 = "Slice 10 Partition Binding, Multi-key Visibility, And Diagnostics"
 
 TEST_FUNCTIONS = (
     "test_slice5_artifact_paths_heading_contract_and_lifecycle_are_exact",
@@ -184,16 +185,16 @@ TEST_ITEM_COUNTS = (
 )
 
 ADDED_PATHS = (
-    "docs/spec/phase53-percent-rank-cume-dist-ntile-contract-v1.md",
-    "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
+    "docs/spec/phase53-partition-binding-multi-key-visibility-diagnostics-contract-v1.md",
+    "src/pietto/semantic/window_partition_analysis.py",
+    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
 )
 MODIFIED_PATHS = (
     "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md",
     "src/pietto/semantic/window_semantics.py",
     "src/pietto/semantic/window_analysis.py",
-    "src/pietto/semantic/expressions.py",
     "src/pietto/_project/window_semantics.py",
-    "src/pietto/_project/model.py",
+    "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
     "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
     "tests/test_phase53_row_number_direct_field_mvp_contract.py",
     "tests/test_phase11_ci_workflow.py",
@@ -251,19 +252,19 @@ MODIFIED_PATHS = (
     "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
 )
 
-BASE_HEAD = "f90bd653c3ece47a86a121095f4547783f35197f"
+BASE_HEAD = "c9e04d833e36bdd7cdc521eeb2c5f030aac8a998"
 FINAL_COMPILER_DIGEST = (
-    "0651eaa531c9bb3a19ffd4b5c79f1796bc0cbf683259c73226a62a0fd66f9318"
+    "b33ea239f32e1591a342560e42212a11f960075e6958e25c59b498963156ccde"
 )
 FINAL_SEMANTIC_DIGEST = (
-    "fb593d3b8c2c0be71f84c9eaed46ee9ff5e51728a17bb790cf086b975d39bb99"
+    "5797637326c467ecabd5e93c5f84982b35cecff140f43f1a21451d86b196bdd2"
 )
 FINAL_PHASE15_DIGEST = (
-    "9836b85bff8a66bbdc3ac69332e6ef07fa7a322843ad2697f2f2f853c5bbc26c"
+    "0cf41a4d625d937c5f3d83df260b405253d932054ea49d6a1a64dd8c8085ddd6"
 )
 FINAL_SOURCE_SHA256 = "f4b39fc1446af80ec223b0043ee3e76700dd83224eea8e2a5f60a609a5dd5933"
 FINAL_SPEC_SHA256 = "a37141cd86b32a3325f64d5f0bcda4b6df97c7c89313ba765f24e9f5ee167b2a"
-FINAL_PLAN_SHA256 = "e65b3f7e1bc099ca3873187230c10f47f26b031dbd5dbbae1c4acd7596e589a4"
+FINAL_PLAN_SHA256 = "61ab560db3af539d1a4eac7b56a5220956d0a76bba31b47a628a2af07e62a21f"
 
 INT = LogicalTypeIdentity(name="Int", kind=TypeKind.BUILTIN)
 TEXT = LogicalTypeIdentity(name="Text", kind=TypeKind.BUILTIN)
@@ -456,12 +457,13 @@ def test_slice5_artifact_paths_heading_contract_and_lifecycle_are_exact() -> Non
         "Phase 53 — Window Functions, Generic Signature Compatibility, "
         "And Nullability Foundation",
     )
-    assert plan_h2[-5:] == (
+    assert plan_h2[-6:] == (
         PLAN_H2,
         SLICE6_PLAN_H2,
         SLICE7_PLAN_H2,
         SLICE8_PLAN_H2,
         SLICE9_PLAN_H2,
+        SLICE10_PLAN_H2,
     )
     assert plan_h2.count(PLAN_H2) == 1
     assert plan_h2.count(SLICE6_PLAN_H2) == 1
@@ -1684,9 +1686,9 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        87,
-        31,
-        28,
+        88,
+        32,
+        29,
     )
     assert _digest(tuple(compiler_paths)) == FINAL_COMPILER_DIGEST
     assert _digest(semantic_paths) == FINAL_SEMANTIC_DIGEST
@@ -1695,9 +1697,9 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
     assert _sha256(SPEC_PATH) == FINAL_SPEC_SHA256
     assert _sha256(PLAN_PATH) == FINAL_PLAN_SHA256
     test_paths = tuple((REPO_ROOT / "tests").glob("test_*.py"))
-    assert sum(FINAL_COMPILER_DIGEST in path.read_text() for path in test_paths) == 23
-    assert sum(FINAL_SEMANTIC_DIGEST in path.read_text() for path in test_paths) == 37
-    assert sum(FINAL_PHASE15_DIGEST in path.read_text() for path in test_paths) == 13
+    assert sum(FINAL_COMPILER_DIGEST in path.read_text() for path in test_paths) == 24
+    assert sum(FINAL_SEMANTIC_DIGEST in path.read_text() for path in test_paths) == 38
+    assert sum(FINAL_PHASE15_DIGEST in path.read_text() for path in test_paths) == 14
     assert (
         sum(
             f'BOUNDARY_HASH = "{FINAL_COMPILER_DIGEST}"' in path.read_text()
@@ -1749,11 +1751,11 @@ def test_slice5_dirty_clean_and_depth_one_repository_states_are_locked() -> None
 
 def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
     repository_paths = _all_repository_paths()
-    assert len(repository_paths) == 861
-    assert sum(path.endswith(".py") for path in repository_paths) == 529
-    assert sum(path.endswith(".md") for path in repository_paths) == 236
+    assert len(repository_paths) == 864
+    assert sum(path.endswith(".py") for path in repository_paths) == 531
+    assert sum(path.endswith(".md") for path in repository_paths) == 237
     test_paths = tuple(sorted((REPO_ROOT / "tests").glob("test_*.py")))
-    assert len(test_paths) == 442
+    assert len(test_paths) == 443
     functions = tuple(
         node.name
         for path in test_paths
@@ -1761,7 +1763,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name.startswith("test_")
     )
-    assert len(functions) == 4464
+    assert len(functions) == 4531
     self_functions = tuple(
         node.name
         for node in ast.parse(SELF_PATH.read_text()).body
@@ -1771,7 +1773,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
     assert self_functions == TEST_FUNCTIONS
     assert len(TEST_ITEM_COUNTS) == 38
     assert sum(TEST_ITEM_COUNTS) == 145
-    assert 7314 + 424 == 7738
+    assert 7738 + 627 == 8365
     focused_value, overlay_value, added_value, modified_value = _compound_assignment(
         GENERIC_TEST_PATH
     )
@@ -1781,15 +1783,15 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
     assert cast(tuple[str, ...], modified_value) == MODIFIED_PATHS
     focused_payload = ("\n".join(focused) + "\n").encode()
     overlay_payload = ("\n".join(overlay) + "\n").encode()
-    assert (len(focused), len({item.split("::")[0] for item in focused})) == (114, 67)
+    assert (len(focused), len({item.split("::")[0] for item in focused})) == (115, 68)
     assert (
         sum("::" not in item for item in focused),
         sum("::" in item for item in focused),
-    ) == (8, 106)
-    assert len(focused_payload) == 12936
+    ) == (9, 106)
+    assert len(focused_payload) == 13018
     assert (
         hashlib.sha256(focused_payload).hexdigest()
-        == "6ade76ae96dadff06cdd701c08e5fe0a4e6e96e5f25b9973b70e8c96037cabba"
+        == "dd7f1986b7c16b3875988311548d60a0314a4ebc606b57f67ef8f71cbccd29f9"
     )
     assert len(focused) == len(set(focused))
     assert (
@@ -1826,3 +1828,10 @@ def test_validation_gate3_and_no_behavior_boundaries_are_locked() -> None:
     ):
         assert command in validate
     assert _git("tag", "--list") == ""
+
+
+_SLICE10_READER_MIGRATION_PATHS = (
+    "docs/spec/phase53-partition-binding-multi-key-visibility-diagnostics-contract-v1.md",
+    "src/pietto/semantic/window_partition_analysis.py",
+    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+)

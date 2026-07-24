@@ -449,7 +449,7 @@ def test_current_source_has_generic_calls_but_no_window_model() -> None:
     assert "def build_window_result_project_fact(" in project_window
     assert "def build_ranking_window_result_project_fact(" in project_window
     assert "def build_row_number_window_result_project_fact(" in project_window
-    assert "semantic_fact = semantic_result.semantic_fact" in project_window
+    assert "semantic_fact=semantic_result.semantic_fact" in project_window
     assert project_model.count('WINDOW_RESULT = "window_result"') == 1
     assert "WINDOW_RESULT" not in metadata_builder
 
@@ -684,3 +684,10 @@ def test_compatibility_guards_protected_surfaces_and_dirty_set_are_locked() -> N
         ALLOWED_PHASE50_SLICE10_GATE2_PATHS,
         ALLOWED_PHASE50_SLICE11_GATE2_PATHS,
     )
+
+
+_SLICE10_READER_MIGRATION_PATHS = (
+    "docs/spec/phase53-partition-binding-multi-key-visibility-diagnostics-contract-v1.md",
+    "src/pietto/semantic/window_partition_analysis.py",
+    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+)

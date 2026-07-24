@@ -73,7 +73,7 @@ FACTS_SHA256 = "8a7e7ba8374c59316051f582aecc0c0e797d270fac2ce89a91a55befca562fa9
 LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26"
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 PROJECT_PRIVATE_DIGEST = (
-    "a8349e50c3a36715de398477bb2bb595ff3e3f736bf80b92ca7766798d9f1f63"
+    "b3b115a4d70b05874e415ae060f1a3084a40e696a9004935ae54d183a06791bb"
 )
 TIER2_MANIFEST_BYTES = 18319
 TIER2_MANIFEST_FILES = 108
@@ -119,6 +119,7 @@ COMPILER_READERS = (
     "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
     "tests/test_phase53_row_number_direct_field_mvp_contract.py",
     "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
+    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
     "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
 )
 SEMANTIC_READERS = (
@@ -158,6 +159,7 @@ SEMANTIC_READERS = (
     "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
     "tests/test_phase53_row_number_direct_field_mvp_contract.py",
     "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
+    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
     "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
 )
 PHASE15_READERS = (
@@ -173,6 +175,7 @@ PHASE15_READERS = (
     "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
     "tests/test_phase53_row_number_direct_field_mvp_contract.py",
     "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
+    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
     "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
 )
 MODIFIED_READER_PATHS = (
@@ -1251,9 +1254,9 @@ def test_compiler_semantic_subset_project_and_raw_hash_readers_are_exact() -> No
     )
     project_paths = _project_private_paths()
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        87,
-        31,
-        28,
+        88,
+        32,
+        29,
     )
     assert len(project_paths) == 17
     assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
@@ -1308,14 +1311,11 @@ def test_compiler_semantic_subset_project_and_raw_hash_readers_are_exact() -> No
     assert sum(len(outers) for _, outers in topology) == 6
     for inner, outers in topology:
         inner_sha = hashlib.sha256((REPO_ROOT / inner).read_bytes()).hexdigest()
-        assert (
-            tuple(
-                path
-                for path in readable
-                if inner_sha.encode("ascii") in (REPO_ROOT / path).read_bytes()
-            )
-            == outers
-        )
+        assert tuple(
+            path
+            for path in readable
+            if inner_sha.encode("ascii") in (REPO_ROOT / path).read_bytes()
+        ) == (*outers, _SLICE10_READER_MIGRATION_PATHS[-1])
     for outer in (
         "tests/test_phase14_candidate_decision_audit.py",
         "tests/test_phase14_planning_audit.py",
@@ -1323,10 +1323,12 @@ def test_compiler_semantic_subset_project_and_raw_hash_readers_are_exact() -> No
         "tests/test_phase16_completion_audit.py",
     ):
         outer_sha = hashlib.sha256((REPO_ROOT / outer).read_bytes()).hexdigest()
-        assert not any(
-            outer_sha.encode("ascii") in (REPO_ROOT / path).read_bytes()
+        actual = tuple(
+            path
             for path in readable
+            if outer_sha.encode("ascii") in (REPO_ROOT / path).read_bytes()
         )
+        assert actual == (_SLICE10_READER_MIGRATION_PATHS[-1],)
 
 
 def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> None:
@@ -1436,7 +1438,7 @@ def test_static_test_inventory_tier1_and_tier2_manifest_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (442, 4464)
+    assert (len(test_files), top_level_functions) == (443, 4531)
     assert len(DIRECT_TIER1_NODES) == len(set(DIRECT_TIER1_NODES)) == 44
     for node_id in DIRECT_TIER1_NODES:
         path, function = node_id.split("::", maxsplit=1)
@@ -1476,3 +1478,10 @@ def test_static_test_inventory_tier1_and_tier2_manifest_are_exact() -> None:
     ]
     assert len(matches) == 1
     assert matches[0].decorator_list == []
+
+
+_SLICE10_READER_MIGRATION_PATHS = (
+    "docs/spec/phase53-partition-binding-multi-key-visibility-diagnostics-contract-v1.md",
+    "src/pietto/semantic/window_partition_analysis.py",
+    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+)

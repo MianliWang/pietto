@@ -18,6 +18,7 @@ from pietto._project.row_dependency_graph import (
 )
 from pietto.ast_nodes import (
     DottedNameExpr,
+    Expression,
     NameExpr,
     QueryDef,
     SelectItem,
@@ -26,8 +27,7 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Diagnostic, SourceLocation
 from pietto.semantic.window_semantics import (
-    DistributionWindowSemanticFact,
-    RankingWindowSemanticFact,
+    WindowExpressionAnalysis,
     WindowExpressionSemanticFact,
     WindowExpressionUnsupported,
     WindowOccurrenceIdentity,
@@ -313,15 +313,10 @@ def build_window_result_project_fact(
     )
     if isinstance(semantic_result, WindowExpressionUnsupported):
         return semantic_result
-    if isinstance(
-        semantic_result,
-        (RankingWindowSemanticFact, DistributionWindowSemanticFact),
-    ):
-        semantic_fact = semantic_result.semantic_fact
-    else:
+    if type(semantic_result) is not WindowExpressionAnalysis:
         raise AssertionError("recognized window analyzer returned an unknown fact")
     return _build_window_result_project_fact(
-        semantic_fact=semantic_fact,
+        semantic_fact=semantic_result.semantic_fact,
         definition=definition,
         item=item,
         upstream_symbol=upstream_symbol,
@@ -401,12 +396,8 @@ def _build_window_result_project_fact(
         raise AssertionError("successful window project fact requires an alias")
 
     expression = semantic_fact.expression
+    partition_expressions = expression.spec.partition_by
     order_expression = expression.spec.order_by[0].expression
-    if isinstance(order_expression, NameExpr):
-        field_name = order_expression.name
-    else:
-        assert isinstance(order_expression, DottedNameExpr)
-        field_name = order_expression.parts[1]
 
     relation_input = ProjectRowDependencyNode(
         kind=ProjectRowDependencyNodeKind.RELATION_INPUT,
@@ -414,28 +405,49 @@ def _build_window_result_project_fact(
         relation_name=upstream_symbol.name,
         source_name=upstream_symbol.name,
     )
-    order_field = ProjectRowDependencyNode(
-        kind=ProjectRowDependencyNodeKind.UPSTREAM_FIELD,
-        name=f"{upstream_symbol.name}.{field_name}",
-        relation_name=upstream_symbol.name,
-        source_name=upstream_symbol.name,
-        field_name=field_name,
+    partition_fields = tuple(
+        _upstream_field_dependency(
+            expression=partition_expression,
+            upstream_symbol=upstream_symbol,
+        )
+        for partition_expression in partition_expressions
     )
-    occurrences = (
-        WindowDependencyOccurrence(
-            global_ordinal=0,
-            role_ordinal=0,
-            role=WindowDependencyRole.RELATION_INPUT,
-            target=relation_input,
-            location=_source_location(expression.call.span),
-        ),
-        WindowDependencyOccurrence(
-            global_ordinal=1,
-            role_ordinal=0,
-            role=WindowDependencyRole.WINDOW_ORDER,
-            target=order_field,
-            location=_source_location(order_expression.span),
-        ),
+    order_field = _upstream_field_dependency(
+        expression=order_expression,
+        upstream_symbol=upstream_symbol,
+    )
+    occurrences = tuple(
+        [
+            WindowDependencyOccurrence(
+                global_ordinal=0,
+                role_ordinal=0,
+                role=WindowDependencyRole.RELATION_INPUT,
+                target=relation_input,
+                location=_source_location(expression.call.span),
+            ),
+            *(
+                WindowDependencyOccurrence(
+                    global_ordinal=partition_ordinal + 1,
+                    role_ordinal=partition_ordinal,
+                    role=WindowDependencyRole.WINDOW_PARTITION,
+                    target=partition_field,
+                    location=_source_location(partition_expression.span),
+                )
+                for partition_ordinal, (
+                    partition_expression,
+                    partition_field,
+                ) in enumerate(
+                    zip(partition_expressions, partition_fields, strict=True)
+                )
+            ),
+            WindowDependencyOccurrence(
+                global_ordinal=len(partition_expressions) + 1,
+                role_ordinal=0,
+                role=WindowDependencyRole.WINDOW_ORDER,
+                target=order_field,
+                location=_source_location(order_expression.span),
+            ),
+        ]
     )
     return WindowResultProjectFact(
         semantic_fact=semantic_fact,
@@ -451,6 +463,28 @@ def _build_window_result_project_fact(
             symbol=upstream_symbol,
             location=_source_location(expression.span),
         ),
+    )
+
+
+def _upstream_field_dependency(
+    *,
+    expression: Expression,
+    upstream_symbol: ProjectSymbol,
+) -> ProjectRowDependencyNode:
+    """Create one already-validated immediate-input field dependency."""
+
+    if type(expression) is NameExpr:
+        field_name = expression.name
+    else:
+        if type(expression) is not DottedNameExpr or len(expression.parts) != 2:
+            raise AssertionError("validated window field must be direct")
+        field_name = expression.parts[1]
+    return ProjectRowDependencyNode(
+        kind=ProjectRowDependencyNodeKind.UPSTREAM_FIELD,
+        name=f"{upstream_symbol.name}.{field_name}",
+        relation_name=upstream_symbol.name,
+        source_name=upstream_symbol.name,
+        field_name=field_name,
     )
 
 
