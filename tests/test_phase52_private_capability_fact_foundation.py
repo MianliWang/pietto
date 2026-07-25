@@ -841,7 +841,7 @@ def test_compiler_boundary_and_all_compatibility_hash_locks_are_consistent() -> 
         assert not any(
             outer_sha_bytes in (REPO_ROOT / path).read_bytes()
             for path in tracked_paths
-            if path != _SLICE10_READER_MIGRATION_PATHS[-1]
+            if path not in _TERMINAL_READER_MIGRATION_PATHS
             and (REPO_ROOT / path).is_file()
         )
 
@@ -950,8 +950,7 @@ def test_static_test_shape_parametrization_and_direct_reader_inventory_is_exact(
         }
 
 
-_SLICE10_READER_MIGRATION_PATHS = (
-    "docs/spec/phase53-partition-binding-multi-key-visibility-diagnostics-contract-v1.md",
-    "src/pietto/semantic/window_partition_analysis.py",
+_TERMINAL_READER_MIGRATION_PATHS = (
     "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+    "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
 )

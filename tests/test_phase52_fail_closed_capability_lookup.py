@@ -576,7 +576,7 @@ def test_raw_sha_reader_topology_is_closed_without_layer2_readers() -> None:
         assert not any(
             outer_sha_bytes in (REPO_ROOT / path).read_bytes()
             for path in tracked
-            if path != _SLICE10_READER_MIGRATION_PATHS[-1]
+            if path not in _TERMINAL_READER_MIGRATION_PATHS
             and (REPO_ROOT / path).is_file()
         )
 
@@ -746,8 +746,7 @@ def test_dialect_backend_or_extension_scope_differences_are_conflicts(
     )
 
 
-_SLICE10_READER_MIGRATION_PATHS = (
-    "docs/spec/phase53-partition-binding-multi-key-visibility-diagnostics-contract-v1.md",
-    "src/pietto/semantic/window_partition_analysis.py",
+_TERMINAL_READER_MIGRATION_PATHS = (
     "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+    "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
 )
