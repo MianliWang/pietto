@@ -118,7 +118,7 @@ PHASE52_UNTRACKED_PATHS = {
     "docs/spec/phase52-core-type-system-capability-foundation-scope-lock-v1.md",
     "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
 }
-SLICE2_BASE_HEAD_SHA = "05114de0effaa3c9fff6ecd0dbb781bd553e91a6"
+SLICE2_BASE_HEAD_SHA = "a5606761c040042d177874253e29c25f2e8e3fff"
 SLICE2_STATE_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
 
 PHASE51_SLICE_ARTIFACTS = (
@@ -324,9 +324,9 @@ PROTECTED_HASHES = {
         "26cc0ae4a68518223d6bf600ad3c4b0b226618aa7ef31b2ae1c25924d2655169"
     ),
 }
-COMPILER_DIGEST = "8323e6b796cfd8102a098e7fcb4cf6f8f591906050cb117838d57451eff72fa3"
+COMPILER_DIGEST = "58c97408c8e8db46ea22bc8163266fa0583c146aab181c1863f77408c17f4665"
 PROJECT_PRIVATE_DIGEST = (
-    "2f2bc5b400de16acc92e3a9182792cb8203f22e3673745ec1ceef3afc052e366"
+    "1cfc82b2f9627ca473c8eaf2516b845463ec3a5afce0103c361924fd63bb9cd2"
 )
 
 PROJECT_JSON_V2_KEYS = (
@@ -1004,7 +1004,7 @@ def test_live_compiler_project_private_protected_version_and_tag_locks_are_dirty
     None
 ):
     compiler_count, compiler_digest = _compiler_digest()
-    assert (compiler_count, compiler_digest) == (90, COMPILER_DIGEST)
+    assert (compiler_count, compiler_digest) == (91, COMPILER_DIGEST)
     for relative_path in BOUNDARY_PATHS:
         boundary_values = re.findall(
             r'^BOUNDARY_HASH = "([0-9a-f]{64})"$',
@@ -1365,3 +1365,4 @@ _SLICE10_READER_MIGRATION_PATHS = (
     "src/pietto/semantic/window_partition_analysis.py",
     "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
 )
+# Phase 53 Slice 13 reader migration.

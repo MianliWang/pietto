@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -31,6 +32,12 @@ from pietto.semantic.window_semantics import (
     WindowExpressionSemanticFact,
     WindowExpressionUnsupported,
     WindowOccurrenceIdentity,
+)
+from pietto.semantic.model import ValueType
+from pietto.semantic.window_input_analysis import (
+    WindowInputOriginKind,
+    WindowInputScope,
+    build_window_input_scope,
 )
 
 __all__: tuple[str, ...] = ()
@@ -81,6 +88,7 @@ class WindowDependencyOccurrence:
     role: WindowDependencyRole
     target: ProjectRowDependencyNode
     location: SourceLocation
+    target_result_role: ProjectRowResultRole | None = None
 
     def __post_init__(self) -> None:
         if type(self.global_ordinal) is not int:
@@ -103,10 +111,12 @@ class WindowDependencyOccurrence:
         elif self.target.kind not in {
             ProjectRowDependencyNodeKind.UPSTREAM_FIELD,
             ProjectRowDependencyNodeKind.LET_BINDING,
+            ProjectRowDependencyNodeKind.OUTPUT_FIELD,
         }:
             raise ValueError(
-                "window expression dependencies require upstream-field or let targets"
+                "window expression dependencies require bounded field targets"
             )
+        _validate_target_result_role(self.target, self.target_result_role)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -115,6 +125,7 @@ class WindowDependencyEdge:
 
     role: WindowDependencyRole
     target: ProjectRowDependencyNode
+    target_result_role: ProjectRowResultRole | None = None
 
     def __post_init__(self) -> None:
         if type(self.role) is not WindowDependencyRole:
@@ -127,10 +138,12 @@ class WindowDependencyEdge:
         elif self.target.kind not in {
             ProjectRowDependencyNodeKind.UPSTREAM_FIELD,
             ProjectRowDependencyNodeKind.LET_BINDING,
+            ProjectRowDependencyNodeKind.OUTPUT_FIELD,
         }:
             raise ValueError(
-                "window expression dependencies require upstream-field or let targets"
+                "window expression dependencies require bounded field targets"
             )
+        _validate_target_result_role(self.target, self.target_result_role)
 
 
 def deduplicate_window_dependency_edges(
@@ -143,20 +156,43 @@ def deduplicate_window_dependency_edges(
     if any(type(item) is not WindowDependencyOccurrence for item in occurrences):
         raise TypeError("occurrences must contain exact WindowDependencyOccurrence")
 
-    seen: list[tuple[WindowDependencyRole, ProjectRowDependencyNode]] = []
+    seen: dict[
+        tuple[WindowDependencyRole, ProjectRowDependencyNode],
+        ProjectRowResultRole | None,
+    ] = {}
     edges: list[WindowDependencyEdge] = []
     for occurrence in occurrences:
         key = (occurrence.role, occurrence.target)
         if key in seen:
+            if seen[key] is not occurrence.target_result_role:
+                raise ValueError("one role-target pair cannot carry conflicting roles")
             continue
-        seen.append(key)
+        seen[key] = occurrence.target_result_role
         edges.append(
             WindowDependencyEdge(
                 role=occurrence.role,
                 target=occurrence.target,
+                target_result_role=occurrence.target_result_role,
             )
         )
     return tuple(edges)
+
+
+def _validate_target_result_role(
+    target: ProjectRowDependencyNode,
+    target_result_role: ProjectRowResultRole | None,
+) -> None:
+    if target.kind is ProjectRowDependencyNodeKind.OUTPUT_FIELD:
+        if target_result_role not in {
+            ProjectRowResultRole.GROUP_KEY,
+            ProjectRowResultRole.AGGREGATE_RESULT,
+        }:
+            raise ValueError(
+                "OUTPUT_FIELD window dependency requires GROUP_KEY or AGGREGATE_RESULT"
+            )
+        return
+    if target_result_role is not None:
+        raise ValueError("non-output window dependency forbids target_result_role")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -292,6 +328,8 @@ def build_window_result_project_fact(
     source_id: str,
     input_schema: ProjectRowSchema,
     upstream_symbol: ProjectSymbol,
+    let_value_types: Mapping[str, ValueType] | None = None,
+    let_expressions: Mapping[str, Expression] | None = None,
 ) -> WindowResultProjectFact | WindowExpressionUnsupported:
     """Build one transient project fact for any recognized window success."""
 
@@ -301,25 +339,40 @@ def build_window_result_project_fact(
     from pietto.semantic.window_analysis import analyze_window_expression
 
     diagnostics: list[Diagnostic] = []
+    let_value_types = let_value_types or {}
+    let_expressions = let_expressions or {}
+    semantic_input_schema = project_row_schema_to_semantic_row_schema(input_schema)
+    value_types: dict[Expression, ValueType] = {}
     semantic_result = analyze_window_expression(
         definition=definition,
         item=item,
         selected_output_ordinal=selected_output_ordinal,
         source_id=source_id,
-        input_schema=project_row_schema_to_semantic_row_schema(input_schema),
+        input_schema=semantic_input_schema,
         field_qualifier=definition.from_clause.source_name,
-        value_types={},
+        value_types=value_types,
         diagnostics=diagnostics,
+        let_value_types=let_value_types,
+        let_expressions=let_expressions,
     )
     if isinstance(semantic_result, WindowExpressionUnsupported):
         return semantic_result
     if type(semantic_result) is not WindowExpressionAnalysis:
         raise AssertionError("recognized window analyzer returned an unknown fact")
+    input_scope = build_window_input_scope(
+        definition=definition,
+        input_schema=semantic_input_schema,
+        field_qualifier=definition.from_clause.source_name,
+        value_types=value_types,
+        let_value_types=let_value_types,
+        let_expressions=let_expressions,
+    )
     return _build_window_result_project_fact(
         semantic_fact=semantic_result.semantic_fact,
         definition=definition,
         item=item,
         upstream_symbol=upstream_symbol,
+        input_scope=input_scope,
     )
 
 
@@ -331,6 +384,8 @@ def build_ranking_window_result_project_fact(
     source_id: str,
     input_schema: ProjectRowSchema,
     upstream_symbol: ProjectSymbol,
+    let_value_types: Mapping[str, ValueType] | None = None,
+    let_expressions: Mapping[str, Expression] | None = None,
 ) -> WindowResultProjectFact | WindowExpressionUnsupported:
     """Build one transient project fact for an exact ranking semantic success."""
 
@@ -342,23 +397,38 @@ def build_ranking_window_result_project_fact(
     )
 
     diagnostics: list[Diagnostic] = []
+    let_value_types = let_value_types or {}
+    let_expressions = let_expressions or {}
+    semantic_input_schema = project_row_schema_to_semantic_row_schema(input_schema)
+    value_types: dict[Expression, ValueType] = {}
     semantic_result = analyze_ranking_window_expression(
         definition=definition,
         item=item,
         selected_output_ordinal=selected_output_ordinal,
         source_id=source_id,
-        input_schema=project_row_schema_to_semantic_row_schema(input_schema),
+        input_schema=semantic_input_schema,
         field_qualifier=definition.from_clause.source_name,
-        value_types={},
+        value_types=value_types,
         diagnostics=diagnostics,
+        let_value_types=let_value_types,
+        let_expressions=let_expressions,
     )
     if isinstance(semantic_result, WindowExpressionUnsupported):
         return semantic_result
+    input_scope = build_window_input_scope(
+        definition=definition,
+        input_schema=semantic_input_schema,
+        field_qualifier=definition.from_clause.source_name,
+        value_types=value_types,
+        let_value_types=let_value_types,
+        let_expressions=let_expressions,
+    )
     return _build_window_result_project_fact(
         semantic_fact=semantic_result.semantic_fact,
         definition=definition,
         item=item,
         upstream_symbol=upstream_symbol,
+        input_scope=input_scope,
     )
 
 
@@ -370,6 +440,8 @@ def build_navigation_window_result_project_fact(
     source_id: str,
     input_schema: ProjectRowSchema,
     upstream_symbol: ProjectSymbol,
+    let_value_types: Mapping[str, ValueType] | None = None,
+    let_expressions: Mapping[str, Expression] | None = None,
 ) -> WindowResultProjectFact | WindowExpressionUnsupported:
     """Build one transient project fact for an exact navigation success."""
 
@@ -381,23 +453,38 @@ def build_navigation_window_result_project_fact(
     )
 
     diagnostics: list[Diagnostic] = []
+    let_value_types = let_value_types or {}
+    let_expressions = let_expressions or {}
+    semantic_input_schema = project_row_schema_to_semantic_row_schema(input_schema)
+    value_types: dict[Expression, ValueType] = {}
     semantic_result = analyze_navigation_window_expression(
         definition=definition,
         item=item,
         selected_output_ordinal=selected_output_ordinal,
         source_id=source_id,
-        input_schema=project_row_schema_to_semantic_row_schema(input_schema),
+        input_schema=semantic_input_schema,
         field_qualifier=definition.from_clause.source_name,
-        value_types={},
+        value_types=value_types,
         diagnostics=diagnostics,
+        let_value_types=let_value_types,
+        let_expressions=let_expressions,
     )
     if isinstance(semantic_result, WindowExpressionUnsupported):
         return semantic_result
+    input_scope = build_window_input_scope(
+        definition=definition,
+        input_schema=semantic_input_schema,
+        field_qualifier=definition.from_clause.source_name,
+        value_types=value_types,
+        let_value_types=let_value_types,
+        let_expressions=let_expressions,
+    )
     return _build_window_result_project_fact(
         semantic_fact=semantic_result.semantic_fact,
         definition=definition,
         item=item,
         upstream_symbol=upstream_symbol,
+        input_scope=input_scope,
     )
 
 
@@ -409,6 +496,8 @@ def build_row_number_window_result_project_fact(
     source_id: str,
     input_schema: ProjectRowSchema,
     upstream_symbol: ProjectSymbol,
+    let_value_types: Mapping[str, ValueType] | None = None,
+    let_expressions: Mapping[str, Expression] | None = None,
 ) -> WindowResultProjectFact | WindowExpressionUnsupported:
     """Retain the Slice 7 project-fact result shape through the ranking builder."""
 
@@ -419,6 +508,8 @@ def build_row_number_window_result_project_fact(
         source_id=source_id,
         input_schema=input_schema,
         upstream_symbol=upstream_symbol,
+        let_value_types=let_value_types,
+        let_expressions=let_expressions,
     )
 
 
@@ -428,6 +519,7 @@ def _build_window_result_project_fact(
     definition: TableDef | QueryDef,
     item: SelectItem,
     upstream_symbol: ProjectSymbol,
+    input_scope: WindowInputScope,
 ) -> WindowResultProjectFact:
     """Convert one successful core semantic fact to project-local evidence."""
 
@@ -457,30 +549,38 @@ def _build_window_result_project_fact(
         source_name=upstream_symbol.name,
     )
     partition_fields = tuple(
-        _upstream_field_dependency(
+        _window_input_dependency(
             expression=partition_expression,
+            definition=definition,
             upstream_symbol=upstream_symbol,
+            input_scope=input_scope,
         )
         for partition_expression in partition_expressions
     )
     order_fields = tuple(
-        _upstream_field_dependency(
+        _window_input_dependency(
             expression=order_expression,
+            definition=definition,
             upstream_symbol=upstream_symbol,
+            input_scope=input_scope,
         )
         for order_expression in order_expressions
     )
     argument_fields = tuple(
-        _upstream_field_dependency(
+        _window_input_dependency(
             expression=argument_expression,
+            definition=definition,
             upstream_symbol=upstream_symbol,
+            input_scope=input_scope,
         )
         for argument_expression in navigation_arguments
     )
     default_fields = tuple(
-        _upstream_field_dependency(
+        _window_input_dependency(
             expression=default_expression,
+            definition=definition,
             upstream_symbol=upstream_symbol,
+            input_scope=input_scope,
         )
         for default_expression in navigation_defaults
     )
@@ -488,7 +588,14 @@ def _build_window_result_project_fact(
     role_inputs: tuple[
         tuple[
             WindowDependencyRole,
-            tuple[tuple[Expression, ProjectRowDependencyNode], ...],
+            tuple[
+                tuple[
+                    Expression,
+                    ProjectRowDependencyNode,
+                    ProjectRowResultRole | None,
+                ],
+                ...,
+            ],
         ],
         ...,
     ] = (
@@ -496,28 +603,60 @@ def _build_window_result_project_fact(
             WindowDependencyRole.RELATION_INPUT,
             ()
             if argument_fields or default_fields
-            else ((expression.call, relation_input),),
+            else ((expression.call, relation_input, None),),
         ),
         (
             WindowDependencyRole.WINDOW_ARGUMENT,
-            tuple(zip(navigation_arguments, argument_fields, strict=True)),
+            tuple(
+                (source, target, target_role)
+                for source, (target, target_role) in zip(
+                    navigation_arguments,
+                    argument_fields,
+                    strict=True,
+                )
+            ),
         ),
         (
             WindowDependencyRole.WINDOW_DEFAULT,
-            tuple(zip(navigation_defaults, default_fields, strict=True)),
+            tuple(
+                (source, target, target_role)
+                for source, (target, target_role) in zip(
+                    navigation_defaults,
+                    default_fields,
+                    strict=True,
+                )
+            ),
         ),
         (
             WindowDependencyRole.WINDOW_PARTITION,
-            tuple(zip(partition_expressions, partition_fields, strict=True)),
+            tuple(
+                (source, target, target_role)
+                for source, (target, target_role) in zip(
+                    partition_expressions,
+                    partition_fields,
+                    strict=True,
+                )
+            ),
         ),
         (
             WindowDependencyRole.WINDOW_ORDER,
-            tuple(zip(order_expressions, order_fields, strict=True)),
+            tuple(
+                (source, target, target_role)
+                for source, (target, target_role) in zip(
+                    order_expressions,
+                    order_fields,
+                    strict=True,
+                )
+            ),
         ),
     )
     occurrences_list: list[WindowDependencyOccurrence] = []
     for role, inputs in role_inputs:
-        for role_ordinal, (source_expression, target) in enumerate(inputs):
+        for role_ordinal, (
+            source_expression,
+            target,
+            target_result_role,
+        ) in enumerate(inputs):
             occurrences_list.append(
                 WindowDependencyOccurrence(
                     global_ordinal=len(occurrences_list),
@@ -525,6 +664,7 @@ def _build_window_result_project_fact(
                     role=role,
                     target=target,
                     location=_source_location(source_expression.span),
+                    target_result_role=target_result_role,
                 )
             )
     occurrences = tuple(occurrences_list)
@@ -545,26 +685,51 @@ def _build_window_result_project_fact(
     )
 
 
-def _upstream_field_dependency(
+def _window_input_dependency(
     *,
     expression: Expression,
+    definition: TableDef | QueryDef,
     upstream_symbol: ProjectSymbol,
-) -> ProjectRowDependencyNode:
-    """Create one already-validated immediate-input field dependency."""
+    input_scope: WindowInputScope,
+) -> tuple[ProjectRowDependencyNode, ProjectRowResultRole | None]:
+    """Translate one validated transient origin to a project dependency."""
 
-    if type(expression) is NameExpr:
-        field_name = expression.name
-    else:
-        if type(expression) is not DottedNameExpr or len(expression.parts) != 2:
-            raise AssertionError("validated window field must be direct")
-        field_name = expression.parts[1]
-    return ProjectRowDependencyNode(
-        kind=ProjectRowDependencyNodeKind.UPSTREAM_FIELD,
-        name=f"{upstream_symbol.name}.{field_name}",
-        relation_name=upstream_symbol.name,
-        source_name=upstream_symbol.name,
-        field_name=field_name,
+    binding = input_scope.resolve(
+        expression,
+        field_qualifier=definition.from_clause.source_name,
     )
+    if binding is None:
+        raise AssertionError("validated window input must have one transient origin")
+    if binding.origin is WindowInputOriginKind.UPSTREAM_FIELD:
+        node = ProjectRowDependencyNode(
+            kind=ProjectRowDependencyNodeKind.UPSTREAM_FIELD,
+            name=f"{upstream_symbol.name}.{binding.target_name}",
+            relation_name=upstream_symbol.name,
+            source_name=upstream_symbol.name,
+            field_name=binding.target_name,
+        )
+        return node, None
+    if binding.origin is WindowInputOriginKind.LET_BINDING:
+        node = ProjectRowDependencyNode(
+            kind=ProjectRowDependencyNodeKind.LET_BINDING,
+            name=binding.target_name,
+            relation_name=definition.name,
+            binding_name=binding.target_name,
+        )
+        return node, None
+
+    target_result_role = (
+        ProjectRowResultRole.GROUP_KEY
+        if binding.origin is WindowInputOriginKind.GROUP_KEY
+        else ProjectRowResultRole.AGGREGATE_RESULT
+    )
+    node = ProjectRowDependencyNode(
+        kind=ProjectRowDependencyNodeKind.OUTPUT_FIELD,
+        name=binding.target_name,
+        relation_name=definition.name,
+        output_name=binding.target_name,
+    )
+    return node, target_result_role
 
 
 def _source_location(span: Span) -> SourceLocation:

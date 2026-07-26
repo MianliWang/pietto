@@ -52,8 +52,8 @@ LOCKED_GROUP_HASHES = {
         "bc5be46411f947c4d591e81ce8dd8345140fd5e10276f2ff0055eccfc12babe4",
     ),
     "unchanged_semantic": (
-        31,
-        "f649850a1b9990eebb1daa8e41ffac6110f8a1c9e9468cbb0f0325951f0f16ab",
+        32,
+        "5718946e55b93874bd092114a4a2b56e1178d5a6d8810c41304dd1213bd0a1c0",
     ),
     "ir": (
         5,
@@ -389,3 +389,4 @@ _SLICE10_READER_MIGRATION_PATHS = (
     "src/pietto/semantic/window_partition_analysis.py",
     "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
 )
+# Phase 53 Slice 13 reader migration.

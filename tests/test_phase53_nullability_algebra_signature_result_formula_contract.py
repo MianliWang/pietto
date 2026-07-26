@@ -106,6 +106,10 @@ SLICE11_PLAN_H2 = (
     "Slice 11 Window-local Ordering, Direction, Mandatory-order Policy, And Determinism"
 )
 SLICE12_PLAN_H2 = "Slice 12 lag / lead Navigation, Offset, Default, And Nullability"
+SLICE13_PLAN_H2 = (
+    "Slice 13 — Grouped-result Ranking, Aggregate-result Inputs, And Bounded Let "
+    "Visibility"
+)
 
 TEST_FUNCTIONS = (
     "test_slice5_artifact_paths_heading_contract_and_lifecycle_are_exact",
@@ -189,15 +193,21 @@ TEST_ITEM_COUNTS = (
 )
 
 ADDED_PATHS = (
-    "docs/spec/phase53-lag-lead-navigation-offset-default-nullability-contract-v1.md",
-    "src/pietto/semantic/window_navigation_analysis.py",
-    "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
+    "docs/spec/phase53-grouped-result-ranking-aggregate-result-inputs-bounded-let-visibility-contract-v1.md",
+    "src/pietto/semantic/window_input_analysis.py",
+    "tests/test_phase53_grouped_result_ranking_aggregate_result_inputs_bounded_let_visibility_contract.py",
 )
 MODIFIED_PATHS = (
     "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md",
-    "src/pietto/semantic/window_semantics.py",
+    "src/pietto/semantic/expressions.py",
+    "src/pietto/semantic/group_by.py",
     "src/pietto/semantic/window_analysis.py",
+    "src/pietto/semantic/window_partition_analysis.py",
+    "src/pietto/semantic/window_navigation_analysis.py",
+    "src/pietto/semantic/window_order_analysis.py",
+    "src/pietto/_project/model.py",
     "src/pietto/_project/window_semantics.py",
+    "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
     "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
     "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
     "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
@@ -258,19 +268,19 @@ MODIFIED_PATHS = (
     "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
 )
 
-BASE_HEAD = "05114de0effaa3c9fff6ecd0dbb781bd553e91a6"
+BASE_HEAD = "a5606761c040042d177874253e29c25f2e8e3fff"
 FINAL_COMPILER_DIGEST = (
-    "8323e6b796cfd8102a098e7fcb4cf6f8f591906050cb117838d57451eff72fa3"
+    "58c97408c8e8db46ea22bc8163266fa0583c146aab181c1863f77408c17f4665"
 )
 FINAL_SEMANTIC_DIGEST = (
-    "17f38bef1abc04776fbce5198a645c884c66cbc151e3a5d79f3dceaa2fb5773b"
+    "e192fa0fda095afaab88176a7dd5943128611ea071b45a8e15916ddcf3ac16db"
 )
 FINAL_PHASE15_DIGEST = (
-    "f649850a1b9990eebb1daa8e41ffac6110f8a1c9e9468cbb0f0325951f0f16ab"
+    "5718946e55b93874bd092114a4a2b56e1178d5a6d8810c41304dd1213bd0a1c0"
 )
 FINAL_SOURCE_SHA256 = "f4b39fc1446af80ec223b0043ee3e76700dd83224eea8e2a5f60a609a5dd5933"
 FINAL_SPEC_SHA256 = "a37141cd86b32a3325f64d5f0bcda4b6df97c7c89313ba765f24e9f5ee167b2a"
-FINAL_PLAN_SHA256 = "5dd461f5678f6e7eb2acbca3423db7aecacdd481afa531c25cd7a09beea7aef8"
+FINAL_PLAN_SHA256 = "904956bc20aa30d34e5649ad35141c52ef4e82729df4b2fdd2560e6b6a27fc78"
 
 INT = LogicalTypeIdentity(name="Int", kind=TypeKind.BUILTIN)
 TEXT = LogicalTypeIdentity(name="Text", kind=TypeKind.BUILTIN)
@@ -463,7 +473,7 @@ def test_slice5_artifact_paths_heading_contract_and_lifecycle_are_exact() -> Non
         "Phase 53 — Window Functions, Generic Signature Compatibility, "
         "And Nullability Foundation",
     )
-    assert plan_h2[-8:] == (
+    assert plan_h2[-9:] == (
         PLAN_H2,
         SLICE6_PLAN_H2,
         SLICE7_PLAN_H2,
@@ -472,6 +482,7 @@ def test_slice5_artifact_paths_heading_contract_and_lifecycle_are_exact() -> Non
         SLICE10_PLAN_H2,
         SLICE11_PLAN_H2,
         SLICE12_PLAN_H2,
+        SLICE13_PLAN_H2,
     )
     assert plan_h2.count(PLAN_H2) == 1
     assert plan_h2.count(SLICE6_PLAN_H2) == 1
@@ -480,6 +491,7 @@ def test_slice5_artifact_paths_heading_contract_and_lifecycle_are_exact() -> Non
     assert plan_h2.count(SLICE9_PLAN_H2) == 1
     assert plan_h2.count(SLICE11_PLAN_H2) == 1
     assert plan_h2.count(SLICE12_PLAN_H2) == 1
+    assert plan_h2.count(SLICE13_PLAN_H2) == 1
     assert plan_h3 == ()
     plan = PLAN_PATH.read_text()
     assert "Slice 5 remains `UNSTARTED` throughout Gate 2" in plan
@@ -1622,10 +1634,10 @@ def test_concrete_semantic_project_and_aggregate_nullability_authority_is_locked
     expected = {
         "src/pietto/semantic/model.py": "55f1d110854073ec3f9b47ecffd3e41c6c2bc3b606da61e8b271a23e736bd4ba",
         "src/pietto/semantic/analyzer.py": "7a6f2830bf3710edab3ba5a8c4a72e90c6e44de19fe19ddd2b54b5d703277b32",
-        "src/pietto/semantic/expressions.py": "e2d76ac96556eb655f1bf43f1f39552f03ea4574025f63a3333c132c1035f6db",
+        "src/pietto/semantic/expressions.py": "9fb27e8b2bb4e2acbcf97fc0971b9cbd5817e14ec0544c858afaf19866e820b2",
         "src/pietto/semantic/aggregates.py": "f5d5be237960e50f62f539d76e09be425980c9f8e657846333b5ef1aaa948333",
         "src/pietto/semantic/catalog.py": "f566f39395e3bdc933e60d15e740749255dd3749cf3907684240e4b43dfc9e40",
-        "src/pietto/_project/model.py": "91db1ae5770eca788ca18e516396c74da08acedfa5fafc400d46b1802d2a1c07",
+        "src/pietto/_project/model.py": "d56caa1f1c2f880bd82e5453f2683002990d740c8d83a2b1cd5a7f304ba81972",
         "src/pietto/_project/row_expression_schema.py": "fc968a628592640012d59521627c91ee0a0017bc640fab27e8cbd756e4aa1e7d",
         "src/pietto/_project/row_expression_type_facts.py": "37559704de25d9f32a3ed062c0f99f58c29463bff291e38e1fefca70613d15a0",
         "src/pietto/_project/aggregate_grouped_schema.py": "fdedef12ee4c5eff00179f866437f1787f9991d13b8c690a6f725c9ea7a1ff9b",
@@ -1696,9 +1708,9 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        90,
-        34,
-        31,
+        91,
+        35,
+        32,
     )
     assert _digest(tuple(compiler_paths)) == FINAL_COMPILER_DIGEST
     assert _digest(semantic_paths) == FINAL_SEMANTIC_DIGEST
@@ -1761,11 +1773,11 @@ def test_slice5_dirty_clean_and_depth_one_repository_states_are_locked() -> None
 
 def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
     repository_paths = _all_repository_paths()
-    assert len(repository_paths) == 870
-    assert sum(path.endswith(".py") for path in repository_paths) == 535
-    assert sum(path.endswith(".md") for path in repository_paths) == 239
+    assert len(repository_paths) == 873
+    assert sum(path.endswith(".py") for path in repository_paths) == 537
+    assert sum(path.endswith(".md") for path in repository_paths) == 240
     test_paths = tuple(sorted((REPO_ROOT / "tests").glob("test_*.py")))
-    assert len(test_paths) == 445
+    assert len(test_paths) == 446
     functions = tuple(
         node.name
         for path in test_paths
@@ -1773,7 +1785,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name.startswith("test_")
     )
-    assert len(functions) == 4676
+    assert len(functions) == 4736
     self_functions = tuple(
         node.name
         for node in ast.parse(SELF_PATH.read_text()).body
@@ -1848,3 +1860,4 @@ _SLICE10_READER_MIGRATION_PATHS = (
     "src/pietto/semantic/window_partition_analysis.py",
     "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
 )
+# Phase 53 Slice 13 reader migration.

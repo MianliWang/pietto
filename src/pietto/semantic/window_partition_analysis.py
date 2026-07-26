@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from pietto.ast_nodes import DottedNameExpr, Expression, NameExpr
 from pietto.errors import Diagnostic
 from pietto.semantic.expressions import infer_row_expression
@@ -18,6 +20,8 @@ def bind_window_partition_fields(
     field_qualifier: str,
     value_types: dict[Expression, ValueType],
     diagnostics: list[Diagnostic],
+    bare_value_types: Mapping[str, ValueType] | None = None,
+    allow_qualified_fields: bool = True,
 ) -> tuple[WindowPartitionFieldBinding, ...] | None:
     """Resolve direct partition fields once each and preserve source order."""
 
@@ -47,7 +51,8 @@ def bind_window_partition_fields(
             value_types,
             diagnostics,
             report_unknown_name=True,
-            field_qualifier=field_qualifier,
+            field_qualifier=field_qualifier if allow_qualified_fields else "",
+            bare_value_types=bare_value_types,
         )
         if (
             value_type.kind is ValueTypeKind.UNKNOWN

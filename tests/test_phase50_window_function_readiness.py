@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import subprocess
 import tomllib
 from pathlib import Path
@@ -684,12 +685,32 @@ def test_compatibility_guards_protected_surfaces_and_dirty_set_are_locked() -> N
                 relative_path,
             )
 
+    slice13_tree = ast.parse(
+        _read(
+            REPO_ROOT
+            / "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
+        )
+    )
+    slice13_parts = {
+        node.targets[0].id: set(ast.literal_eval(node.value))
+        for node in slice13_tree.body
+        if isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
+        and node.targets[0].id in {"MODIFIED_PATHS", "ADDED_PATHS"}
+    }
+    assert set(slice13_parts) == {"MODIFIED_PATHS", "ADDED_PATHS"}
+    slice13_paths = slice13_parts["MODIFIED_PATHS"] | slice13_parts["ADDED_PATHS"]
+
     assert project["version"] == "0.1.0"
     assert _git_output(["tag", "--points-at", "HEAD"]) == ""
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
+    dirty_paths = _dirty_paths()
     for relative_path in PROTECTED_PATHS:
+        if relative_path == "src" and dirty_paths == slice13_paths:
+            continue
         assert _git_output(["diff", "--", relative_path]) == "", relative_path
-    assert _dirty_paths() in (
+    assert dirty_paths in (
         set(),
         ALLOWED_PHASE50_SLICE5_GATE2_PATHS,
         ALLOWED_PHASE50_SLICE6_GATE2_PATHS,
@@ -698,6 +719,7 @@ def test_compatibility_guards_protected_surfaces_and_dirty_set_are_locked() -> N
         ALLOWED_PHASE50_SLICE9_GATE2_PATHS,
         ALLOWED_PHASE50_SLICE10_GATE2_PATHS,
         ALLOWED_PHASE50_SLICE11_GATE2_PATHS,
+        slice13_paths,
     )
 
 
@@ -712,3 +734,4 @@ _SLICE12_READER_MIGRATION_PATHS = (
     "src/pietto/semantic/window_navigation_analysis.py",
     "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
 )
+# Phase 53 Slice 13 reader migration.

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from pietto._window_identity import WindowFunctionIdentity, WindowFunctionRole
 from pietto.ast_nodes import (
     CallExpr,
@@ -16,7 +18,7 @@ from pietto.ast_nodes import (
     WindowExpr,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
-from pietto.semantic.aggregates import contains_semantic_aggregate
+from pietto.semantic.aggregates import child_expressions, contains_semantic_aggregate
 from pietto.semantic.generic_compatibility import (
     ConcreteTypeExpression,
     GenericSignature,
@@ -60,6 +62,10 @@ from pietto.semantic.window_navigation_analysis import (
 )
 from pietto.semantic.window_order_analysis import bind_window_order_fields
 from pietto.semantic.window_partition_analysis import bind_window_partition_fields
+from pietto.semantic.window_input_analysis import (
+    WindowInputScopeKind,
+    build_window_input_scope,
+)
 
 __all__: tuple[str, ...] = ()
 
@@ -197,6 +203,8 @@ def analyze_window_expression(
     field_qualifier: str,
     value_types: dict[Expression, ValueType],
     diagnostics: list[Diagnostic],
+    let_value_types: Mapping[str, ValueType] | None = None,
+    let_expressions: Mapping[str, Expression] | None = None,
 ) -> WindowExpressionAnalysis | WindowExpressionUnsupported:
     """Analyze one direct selected recognized window expression transiently."""
 
@@ -209,6 +217,8 @@ def analyze_window_expression(
         field_qualifier=field_qualifier,
         value_types=value_types,
         diagnostics=diagnostics,
+        let_value_types=let_value_types,
+        let_expressions=let_expressions,
         family=None,
     )
 
@@ -223,6 +233,8 @@ def analyze_distribution_window_expression(
     field_qualifier: str,
     value_types: dict[Expression, ValueType],
     diagnostics: list[Diagnostic],
+    let_value_types: Mapping[str, ValueType] | None = None,
+    let_expressions: Mapping[str, Expression] | None = None,
 ) -> DistributionWindowSemanticFact | WindowExpressionUnsupported:
     """Analyze one direct selected distribution expression transiently."""
 
@@ -235,6 +247,8 @@ def analyze_distribution_window_expression(
         field_qualifier=field_qualifier,
         value_types=value_types,
         diagnostics=diagnostics,
+        let_value_types=let_value_types,
+        let_expressions=let_expressions,
         family="distribution",
     )
     if isinstance(result, WindowExpressionUnsupported):
@@ -254,6 +268,8 @@ def analyze_ranking_window_expression(
     field_qualifier: str,
     value_types: dict[Expression, ValueType],
     diagnostics: list[Diagnostic],
+    let_value_types: Mapping[str, ValueType] | None = None,
+    let_expressions: Mapping[str, Expression] | None = None,
 ) -> RankingWindowSemanticFact | WindowExpressionUnsupported:
     """Analyze one direct selected ranking expression without publishing it."""
 
@@ -266,6 +282,8 @@ def analyze_ranking_window_expression(
         field_qualifier=field_qualifier,
         value_types=value_types,
         diagnostics=diagnostics,
+        let_value_types=let_value_types,
+        let_expressions=let_expressions,
         family="ranking",
     )
     if isinstance(result, WindowExpressionUnsupported):
@@ -285,6 +303,8 @@ def analyze_navigation_window_expression(
     field_qualifier: str,
     value_types: dict[Expression, ValueType],
     diagnostics: list[Diagnostic],
+    let_value_types: Mapping[str, ValueType] | None = None,
+    let_expressions: Mapping[str, Expression] | None = None,
 ) -> NavigationWindowSemanticFact | WindowExpressionUnsupported:
     """Analyze one direct selected navigation expression transiently."""
 
@@ -297,6 +317,8 @@ def analyze_navigation_window_expression(
         field_qualifier=field_qualifier,
         value_types=value_types,
         diagnostics=diagnostics,
+        let_value_types=let_value_types,
+        let_expressions=let_expressions,
         family="navigation",
     )
     if isinstance(result, WindowExpressionUnsupported):
@@ -316,6 +338,8 @@ def analyze_row_number_window_expression(
     field_qualifier: str,
     value_types: dict[Expression, ValueType],
     diagnostics: list[Diagnostic],
+    let_value_types: Mapping[str, ValueType] | None = None,
+    let_expressions: Mapping[str, Expression] | None = None,
 ) -> WindowExpressionSemanticFact | WindowExpressionUnsupported:
     """Retain the Slice 7 core-fact result shape through the ranking analyzer."""
 
@@ -328,6 +352,8 @@ def analyze_row_number_window_expression(
         field_qualifier=field_qualifier,
         value_types=value_types,
         diagnostics=diagnostics,
+        let_value_types=let_value_types,
+        let_expressions=let_expressions,
     )
     if isinstance(result, WindowExpressionUnsupported):
         return result
@@ -344,6 +370,8 @@ def _analyze_recognized_window_expression(
     field_qualifier: str,
     value_types: dict[Expression, ValueType],
     diagnostics: list[Diagnostic],
+    let_value_types: Mapping[str, ValueType] | None,
+    let_expressions: Mapping[str, Expression] | None,
     family: str | None,
 ) -> WindowExpressionAnalysis | WindowExpressionUnsupported:
     """Own the single common validation and construction path."""
@@ -447,7 +475,18 @@ def _analyze_recognized_window_expression(
             diagnostics=diagnostics,
         )
 
-    if (
+    if _relation_has_forbidden_window_placement(definition, item):
+        return _unsupported(
+            occurrence=occurrence,
+            expression=expression,
+            reason="window expression appears outside one direct selected output",
+            diagnostics=diagnostics,
+        )
+
+    has_canonical_scope_facts = (
+        let_value_types is not None or let_expressions is not None
+    )
+    if not has_canonical_scope_facts and (
         definition.group_by_clause is not None
         or definition.satisfying_clause is not None
         or definition.let_clause is not None
@@ -459,8 +498,41 @@ def _analyze_recognized_window_expression(
         return _unsupported(
             occurrence=occurrence,
             expression=expression,
-            reason=f"relation context does not admit {function_name}",
+            reason="relation context requires canonical window input scope facts",
             diagnostics=diagnostics,
+        )
+
+    has_selected_aggregate = any(
+        contains_semantic_aggregate(selected.expression)
+        for selected in definition.select_items
+    )
+    if definition.group_by_clause is None and has_selected_aggregate:
+        # The established aggregate schema pass owns PIE-S2312 for this route.
+        return WindowExpressionUnsupported(
+            occurrence=occurrence,
+            expression=expression,
+            identity=expression.identity,
+            reason=f"no-group aggregate context does not admit {function_name}",
+        )
+
+    input_scope = build_window_input_scope(
+        definition=definition,
+        input_schema=input_schema,
+        field_qualifier=field_qualifier,
+        value_types=value_types,
+        let_value_types=let_value_types,
+        let_expressions=let_expressions,
+    )
+    if (
+        input_scope.kind is WindowInputScopeKind.GROUPED_RESULT
+        and not input_scope.has_valid_group_aggregate
+    ):
+        # GROUP schema validation owns invalid and pure-group diagnostics.
+        return WindowExpressionUnsupported(
+            occurrence=occurrence,
+            expression=expression,
+            identity=expression.identity,
+            reason=f"grouped context does not admit {function_name}",
         )
 
     if (
@@ -491,7 +563,7 @@ def _analyze_recognized_window_expression(
                 diagnostics=diagnostics,
             )
 
-    if direct_partition_expressions and input_schema.is_unknown:
+    if direct_partition_expressions and input_scope.row_schema.is_unknown:
         return _unsupported(
             occurrence=occurrence,
             expression=expression,
@@ -502,10 +574,12 @@ def _analyze_recognized_window_expression(
     diagnostics_before = len(diagnostics)
     partition_bindings = bind_window_partition_fields(
         partition_expressions=tuple(direct_partition_expressions),
-        input_schema=input_schema,
+        input_schema=input_scope.row_schema,
         field_qualifier=field_qualifier,
         value_types=value_types,
         diagnostics=diagnostics,
+        bare_value_types=input_scope.bare_value_types,
+        allow_qualified_fields=input_scope.allows_qualified_fields,
     )
     if partition_bindings is None:
         if len(diagnostics) == diagnostics_before:
@@ -544,7 +618,7 @@ def _analyze_recognized_window_expression(
             )
         direct_order_items.append(order_item)
 
-    if input_schema.is_unknown:
+    if input_scope.row_schema.is_unknown:
         return _unsupported(
             occurrence=occurrence,
             expression=expression,
@@ -555,10 +629,12 @@ def _analyze_recognized_window_expression(
     diagnostics_before = len(diagnostics)
     order_bindings = bind_window_order_fields(
         order_items=tuple(direct_order_items),
-        input_schema=input_schema,
+        input_schema=input_scope.row_schema,
         field_qualifier=field_qualifier,
         value_types=value_types,
         diagnostics=diagnostics,
+        bare_value_types=input_scope.bare_value_types,
+        allow_qualified_fields=input_scope.allows_qualified_fields,
     )
     if order_bindings is None:
         if len(diagnostics) == diagnostics_before:
@@ -590,10 +666,12 @@ def _analyze_recognized_window_expression(
         navigation_result = analyze_navigation_arguments(
             occurrence=occurrence,
             expression=expression,
-            input_schema=input_schema,
+            input_schema=input_scope.row_schema,
             field_qualifier=field_qualifier,
             value_types=value_types,
             diagnostics=diagnostics,
+            bare_value_types=input_scope.bare_value_types,
+            allow_qualified_fields=input_scope.allows_qualified_fields,
         )
         if isinstance(navigation_result, WindowExpressionUnsupported):
             return navigation_result
@@ -714,6 +792,41 @@ def _ranking_policy(expression: WindowExpr) -> RankingAdvancePolicy | None:
         if expression.identity == identity and callee.name == identity.name:
             return advance_policy
     return None
+
+
+def _relation_has_forbidden_window_placement(
+    definition: TableDef | QueryDef,
+    selected_window_item: SelectItem,
+) -> bool:
+    """Reject forbidden placements without reopening the relation context."""
+
+    expressions: list[Expression] = []
+    if definition.where_clause is not None:
+        expressions.append(definition.where_clause.expression)
+    if definition.group_by_clause is not None:
+        expressions.extend(item.key for item in definition.group_by_clause.items)
+    if definition.satisfying_clause is not None:
+        expressions.append(definition.satisfying_clause.expression)
+    if definition.let_clause is not None:
+        expressions.extend(
+            binding.expression for binding in definition.let_clause.bindings
+        )
+    if definition.order_by_clause is not None:
+        expressions.extend(item.expression for item in definition.order_by_clause.items)
+    expressions.extend(
+        item.expression
+        for item in definition.select_items
+        if item is not selected_window_item and type(item.expression) is not WindowExpr
+    )
+    return any(_contains_window_expression(expression) for expression in expressions)
+
+
+def _contains_window_expression(expression: Expression) -> bool:
+    if type(expression) is WindowExpr:
+        return True
+    return any(
+        _contains_window_expression(child) for child in child_expressions(expression)
+    )
 
 
 def _distribution_definition(

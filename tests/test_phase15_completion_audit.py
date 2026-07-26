@@ -36,7 +36,7 @@ PHASE15_ARTIFACT_HASHES = {
         "e2a4219d2e0a0b7cc2d739475e39022df931c58171a87f96436286008a4be3b3"
     ),
     PRIOR_AUDIT_PATH: (
-        "38b3d3cb60ea6ec1bd0dbd7c5f817b41fa01423cb1822dc71079d63291355a02"
+        "b75d5becdb0b8d5b3e19fb3fe1e84266b0738434e35458ce5dca11fd21ba126e"
     ),
 }
 
@@ -73,8 +73,8 @@ LOCKED_GROUP_HASHES = {
         "bc5be46411f947c4d591e81ce8dd8345140fd5e10276f2ff0055eccfc12babe4",
     ),
     "semantic": (
-        34,
-        "17f38bef1abc04776fbce5198a645c884c66cbc151e3a5d79f3dceaa2fb5773b",
+        35,
+        "e192fa0fda095afaab88176a7dd5943128611ea071b45a8e15916ddcf3ac16db",
     ),
     "ir": (
         5,
@@ -435,3 +435,4 @@ _SLICE10_READER_MIGRATION_PATHS = (
     "src/pietto/semantic/window_partition_analysis.py",
     "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
 )
+# Phase 53 Slice 13 reader migration.

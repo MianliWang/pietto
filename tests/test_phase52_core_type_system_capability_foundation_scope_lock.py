@@ -175,14 +175,31 @@ PRE_RECONCILIATION_2_SHA256 = (
 PRE_RECONCILIATION_3_SHA256 = (
     "cb2c51246f1e312858641750d1a416125f99058fb0182949e9afe35ae49e97cf"
 )
-COMPILER_DIGEST = "8323e6b796cfd8102a098e7fcb4cf6f8f591906050cb117838d57451eff72fa3"
+COMPILER_DIGEST = "58c97408c8e8db46ea22bc8163266fa0583c146aab181c1863f77408c17f4665"
 PROJECT_PRIVATE_DIGEST = (
-    "2f2bc5b400de16acc92e3a9182792cb8203f22e3673745ec1ceef3afc052e366"
+    "1cfc82b2f9627ca473c8eaf2516b845463ec3a5afce0103c361924fd63bb9cd2"
 )
 
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+def _slice13_paths(name: str) -> set[str]:
+    path = REPO_ROOT / "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
+    tree = ast.parse(_read(path), filename=path.as_posix())
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id == name
+        ):
+            value = ast.literal_eval(node.value)
+            assert isinstance(value, (set, tuple))
+            assert all(isinstance(item, str) for item in value)
+            return set(value)
+    raise AssertionError(f"missing Slice 13 path manifest {name}")
 
 
 def _normalized(path: Path) -> str:
@@ -495,7 +512,7 @@ def test_slice1_no_behavior_public_privacy_and_release_boundaries_are_locked() -
         compiler_digest.update(b"\0")
         compiler_digest.update(path.read_bytes())
         compiler_digest.update(b"\0")
-    assert (len(compiler_paths), compiler_digest.hexdigest()) == (90, COMPILER_DIGEST)
+    assert (len(compiler_paths), compiler_digest.hexdigest()) == (91, COMPILER_DIGEST)
     for relative_path in BOUNDARY_PATHS:
         assert re.findall(
             r'^BOUNDARY_HASH = "([0-9a-f]{64})"$',
@@ -732,6 +749,7 @@ def test_static_audit_shape_allowlist_and_heading_matching_are_locked() -> None:
     tree = ast.parse(_read(SELF_PATH), filename=SELF_PATH.as_posix())
     expected_functions = (
         "_read",
+        "_slice13_paths",
         "_normalized",
         "_headings_at_level",
         "_git_output",
@@ -757,7 +775,7 @@ def test_static_audit_shape_allowlist_and_heading_matching_are_locked() -> None:
         tuple(node.name for node in tree.body if isinstance(node, ast.FunctionDef))
         == expected_functions
     )
-    assert _top_level_test_names(SELF_PATH) == expected_functions[9:]
+    assert _top_level_test_names(SELF_PATH) == expected_functions[10:]
     assert _pytest_item_count(SELF_PATH) == 12
     assert all(
         not node.decorator_list
@@ -801,12 +819,17 @@ def test_static_audit_shape_allowlist_and_heading_matching_are_locked() -> None:
     assert isinstance(command.elts[1], ast.Starred)
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
 
-    assert _dirty_paths() in (
+    slice13_modified = _slice13_paths("MODIFIED_PATHS")
+    slice13_added = _slice13_paths("ADDED_PATHS")
+    slice13_allowlist = slice13_modified | slice13_added
+    dirty_paths = _dirty_paths()
+    assert dirty_paths in (
         set(),
         PHASE52_GATE2_PATHS,
         PHASE52_SLICE1_CI_REPAIR_PATHS,
         SLICE9_ALLOWLIST_PATHS,
         PHASE53_ALLOWLIST_PATHS,
+        slice13_allowlist,
     )
     untracked_paths = set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
@@ -816,8 +839,19 @@ def test_static_audit_shape_allowlist_and_heading_matching_are_locked() -> None:
         PHASE52_UNTRACKED_PATHS,
         SLICE9_ADDED_PATHS,
         PHASE53_ADDED_PATHS,
+        slice13_added,
     )
-    if _dirty_paths() == SLICE9_ALLOWLIST_PATHS:
+    if dirty_paths == slice13_allowlist:
+        assert set(_git_output(["diff", "--name-only"]).splitlines()) == (
+            slice13_modified
+        )
+        assert untracked_paths == slice13_added
+        assert _git_output(["branch", "--show-current"]) == "main"
+        for reference in ("HEAD", "main", "origin/main"):
+            assert _git_output(["rev-parse", reference]) == (
+                "a5606761c040042d177874253e29c25f2e8e3fff"
+            )
+    if dirty_paths == SLICE9_ALLOWLIST_PATHS:
         assert set(_git_output(["diff", "--name-only"]).splitlines()) == (
             SLICE9_MODIFIED_PATHS
         )
@@ -826,7 +860,7 @@ def test_static_audit_shape_allowlist_and_heading_matching_are_locked() -> None:
         assert _git_output(["rev-parse", "HEAD"]) == SLICE9_BASE_HEAD_SHA
         assert _git_output(["rev-parse", "main"]) == SLICE9_BASE_HEAD_SHA
         assert _git_output(["rev-parse", "origin/main"]) == SLICE9_BASE_HEAD_SHA
-    if _dirty_paths() == PHASE53_ALLOWLIST_PATHS:
+    if dirty_paths == PHASE53_ALLOWLIST_PATHS:
         assert set(_git_output(["diff", "--name-only"]).splitlines()) == (
             PHASE53_MODIFIED_PATHS
         )
@@ -844,3 +878,4 @@ _SLICE10_READER_MIGRATION_PATHS = (
     "src/pietto/semantic/window_partition_analysis.py",
     "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
 )
+# Phase 53 Slice 13 reader migration.

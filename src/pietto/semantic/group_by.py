@@ -17,6 +17,7 @@ from pietto.ast_nodes import (
     SelectItem,
     SourceDef,
     TableDef,
+    WindowExpr,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
@@ -117,6 +118,11 @@ def project_grouped_schema(
                 saw_invalid_projection = True
                 continue
             seen_names.add(output_name)
+
+        # Window outputs belong to the later WINDOW stage.  Keep duplicate-name
+        # ownership above, but do not publish the result into the GROUP schema.
+        if type(item.expression) is WindowExpr:
+            continue
 
         if contains_semantic_aggregate(item.expression):
             aggregate_field, aggregate_diagnostics, valid = _aggregate_output_field(

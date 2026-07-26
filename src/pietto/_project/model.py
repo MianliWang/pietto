@@ -1044,6 +1044,7 @@ def _build_project_relation_row_schemas(
         build_project_aggregate_grouped_persistence,
     )
     from pietto._project.let_scope_facts import (
+        ProjectLetScopeFactsStatus,
         build_project_relation_let_scope_facts,
     )
     from pietto._project.row_dependency_graph import (
@@ -1310,6 +1311,35 @@ def _build_project_relation_row_schemas(
                     persistence.dependency_lineage_readiness.dependency_graph
                 )
                 lineage = persistence.dependency_lineage_readiness.lineage
+                project_let_value_types = (
+                    let_scope_facts.value_types
+                    if let_scope_facts.status is ProjectLetScopeFactsStatus.CONCRETE
+                    else None
+                )
+                project_let_expressions = (
+                    let_scope_facts.binding_expressions
+                    if let_scope_facts.status is ProjectLetScopeFactsStatus.CONCRETE
+                    else None
+                )
+                for selected_output_ordinal, item in enumerate(definition.select_items):
+                    if type(item.expression) is not WindowExpr:
+                        continue
+                    from pietto._project.window_semantics import (
+                        build_window_result_project_fact,
+                    )
+
+                    build_window_result_project_fact(
+                        definition=definition,
+                        item=item,
+                        selected_output_ordinal=selected_output_ordinal,
+                        source_id=(
+                            item.expression.span.path or definition_paths[definition]
+                        ),
+                        input_schema=input_schema,
+                        upstream_symbol=upstream_symbol,
+                        let_value_types=project_let_value_types,
+                        let_expressions=project_let_expressions,
+                    )
             else:
                 let_scope_facts = build_project_relation_let_scope_facts(
                     definition=definition,
@@ -1788,6 +1818,8 @@ def _project_direct_relation_row_schema(
                     source_id=item.expression.span.path or fallback_path,
                     input_schema=source_schema,
                     upstream_symbol=source_symbol,
+                    let_value_types=let_value_types,
+                    let_expressions=let_scope_facts.binding_expressions,
                 )
 
             result = adapt_project_row_expression_schema(

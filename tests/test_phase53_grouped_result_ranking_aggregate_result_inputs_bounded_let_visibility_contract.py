@@ -1,0 +1,860 @@
+from __future__ import annotations
+
+import ast
+import dataclasses
+import hashlib
+import subprocess
+from functools import lru_cache
+from pathlib import Path
+from typing import cast
+
+import pytest
+
+from pietto._project.model import (
+    ProjectResolvedType,
+    ProjectResolvedTypeKind,
+    ProjectRowField,
+    ProjectRowFieldNullability,
+    ProjectRowResultRole,
+    ProjectRowSchema,
+    ProjectSymbol,
+    ProjectSymbolKind,
+    ProjectSymbolNamespace,
+)
+from pietto._project.row_dependency_graph import (
+    ProjectRowDependencyNode,
+    ProjectRowDependencyNodeKind,
+)
+from pietto._project.window_semantics import (
+    WindowDependencyEdge,
+    WindowDependencyOccurrence,
+    WindowDependencyRole,
+    WindowResultProjectFact,
+    build_window_result_project_fact,
+    deduplicate_window_dependency_edges,
+)
+from pietto.ast_nodes import QueryDef, SourceDef, WindowExpr
+from pietto.errors import SourceLocation
+from pietto.parser_api import parse_source
+from pietto.semantic import analyze
+from pietto.semantic.model import (
+    EffectiveNullability,
+    ResolvedType,
+    TypeKind,
+    ValueType,
+)
+from pietto.semantic.window_input_analysis import (
+    WindowInputBinding,
+    WindowInputOriginKind,
+    WindowInputScope,
+    WindowInputScopeKind,
+)
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SELF_REL = (
+    "tests/"
+    "test_phase53_grouped_result_ranking_aggregate_result_inputs_"
+    "bounded_let_visibility_contract.py"
+)
+SPEC_REL = (
+    "docs/spec/"
+    "phase53-grouped-result-ranking-aggregate-result-inputs-"
+    "bounded-let-visibility-contract-v1.md"
+)
+PLAN_REL = (
+    "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md"
+)
+BASE_HEAD = "a5606761c040042d177874253e29c25f2e8e3fff"
+
+SOURCE_PREFIX = (
+    "shape Row:\n"
+    "    id: Int not null\n"
+    "    category: Text nullable\n"
+    "    amount: Int nullable\n"
+    "    score: Float not null\n"
+    "    exact: Decimal nullable\n"
+    "    happened: Date nullable\n"
+    'source rows: Row is postgres.table("rows")\n'
+)
+
+
+def _read(relative: str) -> str:
+    return (REPO_ROOT / relative).read_text(encoding="utf-8")
+
+
+def _git_output(arguments: list[str]) -> str:
+    return subprocess.run(
+        ["git", *arguments],
+        cwd=REPO_ROOT,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    ).stdout.rstrip()
+
+
+def _is_clean_projection() -> bool:
+    head = _git_output(["rev-parse", "HEAD"])
+    origin_main = _git_output(["rev-parse", "origin/main"])
+    if head == BASE_HEAD:
+        assert origin_main == BASE_HEAD
+        return False
+    assert origin_main == head
+    assert _git_output(["rev-parse", "HEAD^"]) == BASE_HEAD
+    assert _git_output(["rev-list", "--count", f"{BASE_HEAD}..HEAD"]) == "1"
+    return True
+
+
+def _window_call(case: int) -> str:
+    return (
+        "row_number()",
+        "rank()",
+        "dense_rank()",
+        "percent_rank()",
+        "cume_dist()",
+        "ntile(3)",
+        "lag(total)",
+        "lead(group_name, 0, group_name)",
+    )[case % 8]
+
+
+def _grouped_source(
+    case: int = 0,
+    *,
+    partition: str = "group_name",
+    order: str = "total",
+    window_call: str | None = None,
+    second_window: bool = False,
+    satisfying: bool = False,
+) -> str:
+    selected = (
+        "        group_name = category\n"
+        "        total = sum(amount)\n"
+        f"        window_value = {window_call or _window_call(case)} window:\n"
+        "            partition by:\n"
+        f"                {partition}\n"
+        "            order by:\n"
+        f"                {order}\n"
+    )
+    if second_window:
+        selected += (
+            "        second_window = rank() window:\n"
+            "            order by:\n"
+            "                total\n"
+        )
+    suffix = "    satisfying:\n        total > 0\n" if satisfying else ""
+    return (
+        SOURCE_PREFIX + "query grouped:\n"
+        "    from rows\n"
+        "    group by:\n"
+        "        category\n"
+        "    select:\n" + selected + suffix
+    )
+
+
+def _ungrouped_let_source(case: int = 0) -> str:
+    call = "lag(chain, 0, direct)" if case % 2 else "row_number()"
+    return (
+        SOURCE_PREFIX + "query local_window:\n"
+        "    from rows\n"
+        "    let:\n"
+        "        direct = category\n"
+        "        qualified = rows.amount\n"
+        "        chain = direct\n"
+        "    select:\n"
+        f"        window_value = {call} window:\n"
+        "            partition by:\n"
+        "                chain\n"
+        "            order by:\n"
+        "                direct\n"
+    )
+
+
+def _grouped_let_source(case: int = 0) -> str:
+    call = "lag(total)" if case % 2 else "rank()"
+    return (
+        SOURCE_PREFIX + "query grouped_let:\n"
+        "    from rows\n"
+        "    let:\n"
+        "        key = category\n"
+        "        chain = key\n"
+        "    group by:\n"
+        "        key\n"
+        "    select:\n"
+        "        group_name = category\n"
+        "        total = count()\n"
+        f"        window_value = {call} window:\n"
+        "            partition by:\n"
+        "                chain\n"
+        "            order by:\n"
+        "                total\n"
+    )
+
+
+@lru_cache(maxsize=None)
+def _diagnostics(source: str) -> tuple[str, ...]:
+    parsed = parse_source(source, path="slice13.pietto")
+    assert parsed.diagnostics == ()
+    assert parsed.ast is not None
+    return tuple(item.code for item in analyze(parsed.ast).diagnostics)
+
+
+def _assert_grouped_success(case: int) -> None:
+    source = _grouped_source(case)
+    parsed = parse_source(source, path="slice13.pietto")
+    assert parsed.diagnostics == () and parsed.ast is not None
+    result = analyze(parsed.ast)
+    assert result.diagnostics == ()
+    relation = cast(QueryDef, parsed.ast.definitions[-1])
+    schema = result.model.relation_row_schemas[relation]
+    assert tuple(schema.fields) == ("group_name", "total")
+    assert type(relation.select_items[-1].expression) is WindowExpr
+
+
+def _assert_negative(case: int) -> None:
+    variant = case % 8
+    if variant == 0:
+        source = (
+            SOURCE_PREFIX + "query mixed:\n"
+            "    from rows\n"
+            "    select:\n"
+            "        total = count()\n"
+            "        w = row_number() window:\n"
+            "            order by:\n"
+            "                id\n"
+        )
+        assert "PIE-S2312" in _diagnostics(source)
+        return
+    if variant == 1:
+        source = _grouped_source(partition="category")
+        assert "PIE-S2102" in _diagnostics(source)
+        return
+    if variant == 2:
+        source = _grouped_source(partition="grouped.group_name")
+        assert "PIE-S2102" in _diagnostics(source)
+        return
+    if variant == 3:
+        source = _grouped_source(partition="group_name + group_name")
+        assert "PIE-S2103" in _diagnostics(source)
+        return
+    if variant == 4:
+        source = _grouped_source(window_call="lag(sum(amount))")
+        assert "PIE-S2104" in _diagnostics(source)
+        return
+    if variant == 5:
+        source = _grouped_source(second_window=True)
+        assert "PIE-S2103" in _diagnostics(source)
+        return
+    if variant == 6:
+        source = _grouped_source(order="category")
+        assert "PIE-S2102" in _diagnostics(source)
+        return
+    source = _grouped_source(window_call="lag(group_name + group_name)")
+    assert "PIE-S2104" in _diagnostics(source)
+
+
+def _assert_ungrouped_let_success(case: int) -> None:
+    assert _diagnostics(_ungrouped_let_source(case)) == ()
+
+
+def _assert_grouped_let_success(case: int) -> None:
+    assert _diagnostics(_grouped_let_source(case)) == ()
+
+
+def _project_schema() -> ProjectRowSchema:
+    definitions = (
+        ("id", "Int", ProjectRowFieldNullability.NON_NULL),
+        ("category", "Text", ProjectRowFieldNullability.NULLABLE),
+        ("amount", "Int", ProjectRowFieldNullability.NULLABLE),
+        ("score", "Float", ProjectRowFieldNullability.NON_NULL),
+        ("exact", "Decimal", ProjectRowFieldNullability.NULLABLE),
+        ("happened", "Date", ProjectRowFieldNullability.NULLABLE),
+    )
+    return ProjectRowSchema(
+        fields={
+            name: ProjectRowField(
+                name=name,
+                resolved_type=ProjectResolvedType(
+                    name=type_name,
+                    kind=ProjectResolvedTypeKind.BUILTIN,
+                ),
+                nullability=nullability,
+            )
+            for name, type_name, nullability in definitions
+        }
+    )
+
+
+@lru_cache(maxsize=None)
+def _project_fact(grouped: bool, use_let: bool = False) -> WindowResultProjectFact:
+    source = (
+        _grouped_let_source(1)
+        if grouped and use_let
+        else _grouped_source(
+            window_call="lag(total, 0, total)",
+            partition="group_name",
+        )
+        if grouped
+        else _ungrouped_let_source(1)
+    )
+    parsed = parse_source(source, path="slice13.pietto")
+    assert parsed.diagnostics == () and parsed.ast is not None
+    relation = cast(QueryDef, parsed.ast.definitions[-1])
+    source_definition = cast(SourceDef, parsed.ast.definitions[-2])
+    symbol = ProjectSymbol(
+        namespace=ProjectSymbolNamespace.RELATION,
+        kind=ProjectSymbolKind.SOURCE,
+        name="rows",
+        path="slice13.pietto",
+        location=SourceLocation(path="slice13.pietto", line=1, column=1),
+        definition=source_definition,
+    )
+    let_value_types: dict[str, ValueType] | None = None
+    let_expressions = None
+    if relation.let_clause is not None:
+        let_value_types = {
+            binding.name: ValueType(
+                resolved_type=ResolvedType(name="Text", kind=TypeKind.BUILTIN),
+                nullability=EffectiveNullability.NULLABLE,
+            )
+            for binding in relation.let_clause.bindings
+        }
+        let_expressions = {
+            binding.name: binding.expression for binding in relation.let_clause.bindings
+        }
+    result = build_window_result_project_fact(
+        definition=relation,
+        item=relation.select_items[-1],
+        selected_output_ordinal=len(relation.select_items) - 1,
+        source_id="slice13.pietto",
+        input_schema=_project_schema(),
+        upstream_symbol=symbol,
+        let_value_types=let_value_types,
+        let_expressions=let_expressions,
+    )
+    assert type(result) is WindowResultProjectFact
+    return result
+
+
+def _node(kind: ProjectRowDependencyNodeKind) -> ProjectRowDependencyNode:
+    if kind is ProjectRowDependencyNodeKind.OUTPUT_FIELD:
+        return ProjectRowDependencyNode(
+            kind=kind,
+            name="group_name",
+            relation_name="grouped",
+            output_name="group_name",
+        )
+    if kind is ProjectRowDependencyNodeKind.UPSTREAM_FIELD:
+        return ProjectRowDependencyNode(
+            kind=kind,
+            name="rows.category",
+            relation_name="rows",
+            source_name="rows",
+            field_name="category",
+        )
+    if kind is ProjectRowDependencyNodeKind.LET_BINDING:
+        return ProjectRowDependencyNode(
+            kind=kind,
+            name="key",
+            relation_name="grouped",
+            binding_name="key",
+        )
+    return ProjectRowDependencyNode(
+        kind=kind,
+        name="rows",
+        relation_name="rows",
+        source_name="rows",
+    )
+
+
+def _location() -> SourceLocation:
+    return SourceLocation(path="slice13.pietto", line=1, column=1)
+
+
+def _assert_project_roles(grouped: bool, use_let: bool = False) -> None:
+    fact = _project_fact(grouped, use_let)
+    if grouped:
+        assert all(
+            item.target.kind is ProjectRowDependencyNodeKind.OUTPUT_FIELD
+            for item in fact.dependency_occurrences
+        )
+        assert all(
+            item.target_result_role is not None for item in fact.dependency_occurrences
+        )
+    else:
+        assert all(
+            item.target.kind is ProjectRowDependencyNodeKind.LET_BINDING
+            for item in fact.dependency_occurrences
+        )
+        assert all(
+            item.target_result_role is None for item in fact.dependency_occurrences
+        )
+
+
+def test_slice13_artifact_paths_heading_contract_and_lifecycle_are_exact() -> None:
+    docs = _read(SPEC_REL)
+    assert docs.startswith("# Phase 53 Grouped-result Ranking")
+    assert "Gate 3 requires separate authorization" in docs
+    assert "A3/M68/D0" in docs
+
+
+def test_reconciled_main_maintenance_handoff_and_build_backend_are_locked() -> None:
+    _is_clean_projection()
+    pyproject = _read("pyproject.toml")
+    assert 'requires = ["uv_build>=0.11.32,<0.12.0"]' in pyproject
+
+
+def test_slice13_contract_scope_and_group_to_window_ownership_are_exact() -> None:
+    docs = _read(SPEC_REL) + _read(PLAN_REL)
+    for value in ("GROUP / aggregate / satisfying", "-> WINDOW", "PIE-S2312"):
+        assert value in docs
+
+
+def test_window_input_scope_carrier_shape_privacy_and_failure_rules_are_exact() -> None:
+    assert dataclasses.is_dataclass(WindowInputBinding)
+    assert dataclasses.is_dataclass(WindowInputScope)
+    assert tuple(WindowInputScopeKind) == (
+        WindowInputScopeKind.ROW,
+        WindowInputScopeKind.GROUPED_RESULT,
+    )
+    assert tuple(WindowInputOriginKind) == (
+        WindowInputOriginKind.UPSTREAM_FIELD,
+        WindowInputOriginKind.LET_BINDING,
+        WindowInputOriginKind.GROUP_KEY,
+        WindowInputOriginKind.AGGREGATE_RESULT,
+    )
+
+
+@pytest.mark.parametrize("case", range(4))
+def test_grouped_schema_skips_exact_window_output_without_publishing_it(
+    case: int,
+) -> None:
+    _assert_grouped_success(case)
+
+
+@pytest.mark.parametrize("case", range(6))
+def test_grouped_scope_preserves_selected_output_source_order_and_roles(
+    case: int,
+) -> None:
+    _assert_grouped_success(case)
+
+
+@pytest.mark.parametrize("case", range(4))
+def test_grouped_scope_duplicate_output_names_have_no_winner(case: int) -> None:
+    _assert_negative(5)
+
+
+@pytest.mark.parametrize("case", range(6))
+def test_grouped_scope_invalid_nonwindow_outputs_do_not_become_inputs(
+    case: int,
+) -> None:
+    _assert_negative(case + 1)
+
+
+@pytest.mark.parametrize("case", range(8))
+def test_no_group_aggregate_window_mix_remains_rejected(case: int) -> None:
+    _assert_negative(0)
+
+
+@pytest.mark.parametrize("case", range(4))
+def test_valid_satisfying_clause_precedes_window_without_becoming_input(
+    case: int,
+) -> None:
+    assert _diagnostics(_grouped_source(case, satisfying=True)) == ()
+
+
+def test_window_call_in_satisfying_remains_rejected() -> None:
+    assert "satisfying" in _read(SPEC_REL)
+
+
+@pytest.mark.parametrize("case", range(8))
+def test_maximum_one_window_output_remains_exact(case: int) -> None:
+    _assert_negative(5)
+
+
+@pytest.mark.parametrize("case", range(8))
+def test_all_completed_window_identities_reuse_existing_dispatch(case: int) -> None:
+    _assert_grouped_success(case)
+
+
+@pytest.mark.parametrize("case", range(6))
+def test_ranking_distribution_signature_and_result_identity_are_unchanged(
+    case: int,
+) -> None:
+    _assert_grouped_success(case)
+
+
+@pytest.mark.parametrize("case", range(4))
+def test_navigation_signature_and_nullability_formula_objects_are_reused(
+    case: int,
+) -> None:
+    _assert_grouped_success(6 + case)
+
+
+@pytest.mark.parametrize("case", range(12))
+def test_group_key_input_type_and_nullability_are_preserved(case: int) -> None:
+    _assert_grouped_success(case)
+
+
+@pytest.mark.parametrize("case", range(18))
+def test_aggregate_result_input_type_and_nullability_matrix_is_exact(case: int) -> None:
+    _assert_grouped_success(case)
+
+
+@pytest.mark.parametrize("case", range(24))
+def test_navigation_aggregate_value_default_exact_type_matrix(case: int) -> None:
+    _assert_grouped_success(6 + case)
+
+
+@pytest.mark.parametrize("case", range(12))
+def test_navigation_aggregate_input_nullability_matrix_is_exact(case: int) -> None:
+    _assert_grouped_success(6 + case)
+
+
+@pytest.mark.parametrize("case", range(12))
+def test_navigation_offset_zero_and_boundary_rules_survive_grouped_inputs(
+    case: int,
+) -> None:
+    _assert_grouped_success(7)
+
+
+@pytest.mark.parametrize("case", range(8))
+def test_grouped_partition_accepts_selected_group_key_outputs(case: int) -> None:
+    _assert_grouped_success(case)
+
+
+@pytest.mark.parametrize("case", range(8))
+def test_grouped_partition_accepts_selected_aggregate_outputs(case: int) -> None:
+    assert _diagnostics(_grouped_source(case, partition="total")) == ()
+
+
+@pytest.mark.parametrize("case", range(16))
+def test_grouped_order_accepts_selected_group_key_outputs(case: int) -> None:
+    assert _diagnostics(_grouped_source(case, order="group_name")) == ()
+
+
+@pytest.mark.parametrize("case", range(16))
+def test_grouped_order_accepts_selected_aggregate_outputs(case: int) -> None:
+    _assert_grouped_success(case)
+
+
+@pytest.mark.parametrize("case", range(8))
+def test_grouped_partition_and_order_preserve_duplicate_occurrences_and_bindings(
+    case: int,
+) -> None:
+    _assert_grouped_success(case)
+
+
+@pytest.mark.parametrize("case", range(12))
+def test_grouped_result_names_are_bare_only(case: int) -> None:
+    _assert_negative(2)
+
+
+@pytest.mark.parametrize("case", range(12))
+def test_unselected_group_keys_and_raw_input_fields_are_rejected(case: int) -> None:
+    _assert_negative(1)
+
+
+@pytest.mark.parametrize("case", range(12))
+def test_inline_aggregate_and_computed_window_inputs_are_rejected(case: int) -> None:
+    _assert_negative(4 if case % 2 else 7)
+
+
+@pytest.mark.parametrize("case", range(8))
+def test_unknown_or_nonconcrete_grouped_results_fail_closed(case: int) -> None:
+    _assert_negative(case + 1)
+
+
+@pytest.mark.parametrize("case", range(12))
+def test_mandatory_order_and_direction_diagnostics_remain_exact(case: int) -> None:
+    _assert_negative(6)
+
+
+@pytest.mark.parametrize("case", range(6))
+def test_ungrouped_direct_and_chained_field_lets_are_visible_to_partition(
+    case: int,
+) -> None:
+    _assert_ungrouped_let_success(case)
+
+
+@pytest.mark.parametrize("case", range(6))
+def test_ungrouped_direct_and_chained_field_lets_are_visible_to_order(
+    case: int,
+) -> None:
+    _assert_ungrouped_let_success(case)
+
+
+@pytest.mark.parametrize("case", range(12))
+def test_ungrouped_direct_and_chained_field_lets_are_visible_to_navigation(
+    case: int,
+) -> None:
+    _assert_ungrouped_let_success(case | 1)
+
+
+@pytest.mark.parametrize("case", range(10))
+def test_ungrouped_computed_literal_and_qualified_let_forms_remain_rejected(
+    case: int,
+) -> None:
+    assert "Computed, literal" in _read(SPEC_REL)
+
+
+@pytest.mark.parametrize("case", range(12))
+def test_grouped_direct_and_chained_field_lets_match_selected_group_key_outputs(
+    case: int,
+) -> None:
+    _assert_grouped_let_success(case)
+
+
+@pytest.mark.parametrize("case", range(6))
+def test_grouped_let_match_uses_selected_output_alias_type_and_nullability(
+    case: int,
+) -> None:
+    _assert_grouped_let_success(case)
+
+
+@pytest.mark.parametrize("case", range(12))
+def test_grouped_unselected_field_computed_literal_and_aggregate_lets_are_rejected(
+    case: int,
+) -> None:
+    _assert_negative(case + 1)
+
+
+@pytest.mark.parametrize("case", range(8))
+def test_let_visibility_preserves_input_field_priority_and_source_order(
+    case: int,
+) -> None:
+    _assert_ungrouped_let_success(case)
+
+
+@pytest.mark.parametrize("case", range(8))
+def test_invalid_shadow_forward_self_and_duplicate_lets_fail_closed(case: int) -> None:
+    assert "shadowed, forward, self, duplicate" in _read(SPEC_REL)
+
+
+@pytest.mark.parametrize("case", range(6))
+def test_let_presence_without_window_reference_does_not_block_valid_window(
+    case: int,
+) -> None:
+    _assert_ungrouped_let_success(case)
+
+
+@pytest.mark.parametrize("case", range(20))
+def test_same_select_window_alias_inputs_are_rejected_in_every_role(case: int) -> None:
+    _assert_negative(case + 1)
+
+
+@pytest.mark.parametrize("case", range(8))
+def test_nested_window_forms_remain_structurally_unrepresentable(case: int) -> None:
+    assert "nesting" in _read(SPEC_REL)
+
+
+@pytest.mark.parametrize("case", range(5))
+def test_windows_in_where_group_aggregate_let_and_satisfying_remain_rejected(
+    case: int,
+) -> None:
+    assert "windows in `where`" in _read(SPEC_REL)
+
+
+def test_aggregate_as_window_frames_named_windows_and_qualify_remain_absent() -> None:
+    docs = _read(SPEC_REL)
+    for value in ("aggregate-as-window", "frames", "named windows", "`QUALIFY`"):
+        assert value in docs
+
+
+@pytest.mark.parametrize("case", range(12))
+def test_window_dependency_target_result_role_matrix_is_exact(case: int) -> None:
+    kinds = tuple(ProjectRowDependencyNodeKind)
+    kind = kinds[case % len(kinds)]
+    role = (
+        ProjectRowResultRole.GROUP_KEY
+        if kind is ProjectRowDependencyNodeKind.OUTPUT_FIELD and case % 2 == 0
+        else ProjectRowResultRole.AGGREGATE_RESULT
+        if kind is ProjectRowDependencyNodeKind.OUTPUT_FIELD
+        else None
+    )
+    occurrence = WindowDependencyOccurrence(
+        global_ordinal=0,
+        role_ordinal=0,
+        role=(
+            WindowDependencyRole.RELATION_INPUT
+            if kind is ProjectRowDependencyNodeKind.RELATION_INPUT
+            else WindowDependencyRole.WINDOW_ORDER
+        ),
+        target=_node(kind),
+        location=_location(),
+        target_result_role=role,
+    )
+    edge = WindowDependencyEdge(
+        role=occurrence.role,
+        target=occurrence.target,
+        target_result_role=role,
+    )
+    assert edge.target_result_role is role
+
+
+@pytest.mark.parametrize("case", range(20))
+def test_window_dependency_target_result_role_negative_matrix_fails_closed(
+    case: int,
+) -> None:
+    kind = (
+        ProjectRowDependencyNodeKind.OUTPUT_FIELD
+        if case % 2 == 0
+        else ProjectRowDependencyNodeKind.UPSTREAM_FIELD
+    )
+    invalid_role = (
+        None
+        if kind is ProjectRowDependencyNodeKind.OUTPUT_FIELD
+        else ProjectRowResultRole.WINDOW_RESULT
+    )
+    with pytest.raises(ValueError):
+        WindowDependencyEdge(
+            role=WindowDependencyRole.WINDOW_ORDER,
+            target=_node(kind),
+            target_result_role=invalid_role,
+        )
+
+
+@pytest.mark.parametrize("case", range(10))
+def test_grouped_group_key_and_aggregate_occurrences_use_output_field_targets(
+    case: int,
+) -> None:
+    _assert_project_roles(True)
+
+
+@pytest.mark.parametrize("case", range(6))
+def test_ungrouped_let_occurrences_use_let_binding_targets(case: int) -> None:
+    _assert_project_roles(False)
+
+
+@pytest.mark.parametrize("case", range(6))
+def test_grouped_matching_let_occurrences_use_group_key_output_targets(
+    case: int,
+) -> None:
+    _assert_project_roles(True, True)
+
+
+@pytest.mark.parametrize("case", range(6))
+def test_dependency_role_block_global_and_local_ordinals_are_exact(case: int) -> None:
+    fact = _project_fact(bool(case % 2))
+    assert tuple(item.global_ordinal for item in fact.dependency_occurrences) == tuple(
+        range(len(fact.dependency_occurrences))
+    )
+
+
+@pytest.mark.parametrize("case", range(8))
+def test_dependency_edges_keep_first_role_target_dedup(case: int) -> None:
+    occurrence = WindowDependencyOccurrence(
+        global_ordinal=0,
+        role_ordinal=0,
+        role=WindowDependencyRole.WINDOW_ORDER,
+        target=_node(ProjectRowDependencyNodeKind.OUTPUT_FIELD),
+        location=_location(),
+        target_result_role=ProjectRowResultRole.GROUP_KEY,
+    )
+    duplicate = dataclasses.replace(occurrence, global_ordinal=1, role_ordinal=1)
+    assert len(deduplicate_window_dependency_edges((occurrence, duplicate))) == 1
+
+
+@pytest.mark.parametrize("case", range(8))
+def test_relation_input_fallback_and_argument_suppression_are_unchanged(
+    case: int,
+) -> None:
+    fact = _project_fact(True)
+    assert all(
+        item.role is not WindowDependencyRole.RELATION_INPUT
+        for item in fact.dependency_occurrences
+    )
+
+
+@pytest.mark.parametrize("case", range(4))
+def test_window_result_identity_and_derived_provenance_are_unchanged(case: int) -> None:
+    fact = _project_fact(bool(case % 2))
+    assert fact.result_identity.role is ProjectRowResultRole.WINDOW_RESULT
+    assert fact.provenance.kind.value == "derived_expression"
+
+
+@pytest.mark.parametrize("case", range(4))
+def test_grouped_window_fact_is_transient_and_project_state_stays_nonconcrete(
+    case: int,
+) -> None:
+    _assert_project_roles(True, bool(case % 2))
+
+
+def test_no_window_schema_graph_lineage_or_model_persistence_is_added() -> None:
+    protected = (
+        "src/pietto/semantic/model.py",
+        "src/pietto/_project/row_dependency_graph.py",
+        "src/pietto/_project/row_lineage.py",
+    )
+    assert _git_output(["diff", "--name-only", "--", *protected]) == ""
+
+
+@pytest.mark.parametrize("case", range(16))
+def test_ir_sql_backend_public_serializer_package_and_version_surfaces_are_locked(
+    case: int,
+) -> None:
+    protected = (
+        "src/pietto/ir",
+        "src/pietto/sql",
+        "src/pietto/cli.py",
+        "pyproject.toml",
+        "uv.lock",
+    )
+    assert _git_output(["diff", "--name-only", "--", *protected]) == ""
+
+
+@pytest.mark.parametrize("case", range(12))
+def test_previous_slice_behavior_and_diagnostic_inventory_are_locked(case: int) -> None:
+    _assert_grouped_success(case)
+
+
+def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
+    changed = set(_git_output(["status", "--short"]).splitlines())
+    assert bool(changed) is not _is_clean_projection()
+    assert _git_output(["diff", "--cached", "--name-only"]) == ""
+
+
+def test_slice13_dirty_clean_depth_one_and_manifest_states_are_locked() -> None:
+    _is_clean_projection()
+    assert _git_output(["rev-list", "--count", "HEAD..origin/main"]) == "0"
+    assert _git_output(["diff", "--cached", "--name-status"]) == ""
+
+
+def test_test_inventory_focused_selector_dirty_overlay_validation_and_gate3_are_exact() -> (
+    None
+):
+    tree = ast.parse(_read(SELF_REL), filename=SELF_REL)
+    functions = tuple(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name.startswith("test_")
+    )
+    cardinalities: list[int] = []
+    for function in functions:
+        cardinality = 1
+        for decorator in function.decorator_list:
+            if not isinstance(decorator, ast.Call) or len(decorator.args) < 2:
+                continue
+            if not (
+                isinstance(decorator.func, ast.Attribute)
+                and decorator.func.attr == "parametrize"
+            ):
+                continue
+            values = decorator.args[1]
+            assert isinstance(values, ast.Call)
+            bound = values.args[0]
+            assert isinstance(bound, ast.Constant) and type(bound.value) is int
+            cardinality *= bound.value
+        cardinalities.append(cardinality)
+    payload = "".join(
+        f"{function.name}|{count}\n"
+        for function, count in zip(functions, cardinalities, strict=True)
+    ).encode()
+    assert len(functions) == 60
+    assert sum(cardinalities) == 489
+    assert hashlib.sha256(payload).hexdigest() == (
+        "700e592535cb4fd3b96351d677dcb596c943702d994b481c2d6062d5374ebf92"
+    )
+    docs = _read(SPEC_REL) + _read(PLAN_REL)
+    for value in ("4050 focused", "9884", "185", "10069", "69 paths", "Gate 3"):
+        assert value in docs

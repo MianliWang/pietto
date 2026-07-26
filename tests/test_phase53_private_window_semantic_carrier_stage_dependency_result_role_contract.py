@@ -123,6 +123,10 @@ SLICE11_PLAN_H2 = (
     "Slice 11 Window-local Ordering, Direction, Mandatory-order Policy, And Determinism"
 )
 SLICE12_PLAN_H2 = "Slice 12 lag / lead Navigation, Offset, Default, And Nullability"
+SLICE13_PLAN_H2 = (
+    "Slice 13 — Grouped-result Ranking, Aggregate-result Inputs, And Bounded Let "
+    "Visibility"
+)
 
 TEST_FUNCTIONS = (
     "test_slice6_artifact_paths_heading_contract_and_lifecycle_are_exact",
@@ -202,33 +206,33 @@ TEST_ITEM_COUNTS = (
 )
 
 ADDED_PATHS = (
-    "docs/spec/phase53-lag-lead-navigation-offset-default-nullability-contract-v1.md",
-    "src/pietto/semantic/window_navigation_analysis.py",
-    "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
+    "docs/spec/phase53-grouped-result-ranking-aggregate-result-inputs-bounded-let-visibility-contract-v1.md",
+    "src/pietto/semantic/window_input_analysis.py",
+    "tests/test_phase53_grouped_result_ranking_aggregate_result_inputs_bounded_let_visibility_contract.py",
 )
 
 # Filled after the single write formatter; later edits are literal-only.
 FINAL_SOURCE_SHA256 = "d6a514bddffee9f53ca1405d28a2dcd9cc84a395a152aacc1ccb9e5b716a5905"
 FINAL_PROJECT_SOURCE_SHA256 = (
-    "a1bac3953abfd850ad98473705c0d2eacb0a105e0fb02ba154d16dd81ad1d739"
+    "c08a42066a71a3ee13be9feddff5e28a910b216226d7e0b8869ee52a90dea2ad"
 )
-FINAL_MODEL_SHA256 = "91db1ae5770eca788ca18e516396c74da08acedfa5fafc400d46b1802d2a1c07"
+FINAL_MODEL_SHA256 = "d56caa1f1c2f880bd82e5453f2683002990d740c8d83a2b1cd5a7f304ba81972"
 FINAL_SPEC_SHA256 = "e3cddc36974cc2d21bd3e0aec8d03c4f56bc4a68091780d9965207f07ea960e7"
-FINAL_PLAN_SHA256 = "5dd461f5678f6e7eb2acbca3423db7aecacdd481afa531c25cd7a09beea7aef8"
+FINAL_PLAN_SHA256 = "904956bc20aa30d34e5649ad35141c52ef4e82729df4b2fdd2560e6b6a27fc78"
 FINAL_COMPILER_DIGEST = (
-    "8323e6b796cfd8102a098e7fcb4cf6f8f591906050cb117838d57451eff72fa3"
+    "58c97408c8e8db46ea22bc8163266fa0583c146aab181c1863f77408c17f4665"
 )
 FINAL_SEMANTIC_DIGEST = (
-    "17f38bef1abc04776fbce5198a645c884c66cbc151e3a5d79f3dceaa2fb5773b"
+    "e192fa0fda095afaab88176a7dd5943128611ea071b45a8e15916ddcf3ac16db"
 )
 FINAL_PHASE15_DIGEST = (
-    "f649850a1b9990eebb1daa8e41ffac6110f8a1c9e9468cbb0f0325951f0f16ab"
+    "5718946e55b93874bd092114a4a2b56e1178d5a6d8810c41304dd1213bd0a1c0"
 )
 FINAL_PROJECT_DIGEST = (
-    "2f2bc5b400de16acc92e3a9182792cb8203f22e3673745ec1ceef3afc052e366"
+    "1cfc82b2f9627ca473c8eaf2516b845463ec3a5afce0103c361924fd63bb9cd2"
 )
 
-BASE_HEAD = "05114de0effaa3c9fff6ecd0dbb781bd553e91a6"
+BASE_HEAD = "a5606761c040042d177874253e29c25f2e8e3fff"
 CI_REPAIR_BASE_HEAD_SHA = "321ec6f80737015648bc1f81b0561fdd34610e92"
 CI_REPAIR_MODIFIED_PATHS = frozenset(
     {
@@ -250,7 +254,7 @@ ANALYZER_CATALOG_DIAGNOSTIC_LOCKS = (
     ),
     (
         "src/pietto/semantic/expressions.py",
-        "e2d76ac96556eb655f1bf43f1f39552f03ea4574025f63a3333c132c1035f6db",
+        "9fb27e8b2bb4e2acbcf97fc0971b9cbd5817e14ec0544c858afaf19866e820b2",
     ),
 )
 
@@ -675,7 +679,7 @@ def test_slice6_artifact_paths_heading_contract_and_lifecycle_are_exact() -> Non
         "And Nullability Foundation",
     )
     assert plan_h2.count(PLAN_H2) == 1
-    assert plan_h2[-7:] == (
+    assert plan_h2[-8:] == (
         PLAN_H2,
         SLICE7_PLAN_H2,
         SLICE8_PLAN_H2,
@@ -683,12 +687,14 @@ def test_slice6_artifact_paths_heading_contract_and_lifecycle_are_exact() -> Non
         SLICE10_PLAN_H2,
         SLICE11_PLAN_H2,
         SLICE12_PLAN_H2,
+        SLICE13_PLAN_H2,
     )
     assert plan_h2.count(SLICE7_PLAN_H2) == 1
     assert plan_h2.count(SLICE8_PLAN_H2) == 1
     assert plan_h2.count(SLICE9_PLAN_H2) == 1
     assert plan_h2.count(SLICE11_PLAN_H2) == 1
     assert plan_h2.count(SLICE12_PLAN_H2) == 1
+    assert plan_h2.count(SLICE13_PLAN_H2) == 1
     assert plan_h3 == ()
     plan = PLAN_PATH.read_text()
     assert "Phase 53 is `ACTIVE`; Slices 1 through 5 are `COMPLETED`" in plan
@@ -751,8 +757,9 @@ def test_project_private_module_enum_carrier_and_privacy_shapes_are_exact() -> N
             "role",
             "target",
             "location",
+            "target_result_role",
         ),
-        WindowDependencyEdge: ("role", "target"),
+        WindowDependencyEdge: ("role", "target", "target_result_role"),
         WindowResultProjectFact: (
             "semantic_fact",
             "result_identity",
@@ -1849,7 +1856,7 @@ def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
         len(semantic_paths),
         len(phase15_paths),
         len(project_paths),
-    ) == (90, 34, 31, 17)
+    ) == (91, 35, 32, 17)
     assert _digest(tuple(compiler_paths)) == FINAL_COMPILER_DIGEST
     assert _digest(semantic_paths) == FINAL_SEMANTIC_DIGEST
     assert _digest(phase15_paths) == FINAL_PHASE15_DIGEST
@@ -1863,7 +1870,7 @@ def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
     added = _literal_tuple(GENERIC_TEST_PATH, "ADDED_PATHS")
     modified = _literal_tuple(GENERIC_TEST_PATH, "MODIFIED_PATHS")
     assert added == ADDED_PATHS
-    assert len(modified) == 62
+    assert len(modified) == 68
     assert modified[-3:] == (
         "tests/test_phase51_private_result_role_output_identity.py",
         "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
@@ -1920,7 +1927,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         len(markdown_paths),
         len(test_paths),
         top_level_functions,
-    ) == (870, 535, 239, 445, 4676)
+    ) == (873, 537, 240, 446, 4736)
     assert len(TEST_FUNCTIONS) == len(TEST_ITEM_COUNTS) == 36
     assert sum(TEST_ITEM_COUNTS) == 156
     assert 9199 + 381 == 9580
@@ -1998,3 +2005,4 @@ _SLICE10_READER_MIGRATION_PATHS = (
     "src/pietto/semantic/window_partition_analysis.py",
     "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
 )
+# Phase 53 Slice 13 reader migration.

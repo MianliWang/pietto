@@ -208,6 +208,23 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+def _slice13_paths(name: str) -> set[str]:
+    path = REPO_ROOT / "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
+    tree = ast.parse(_read(path), filename=path.as_posix())
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id == name
+        ):
+            value = ast.literal_eval(node.value)
+            assert isinstance(value, (set, tuple))
+            assert all(isinstance(item, str) for item in value)
+            return set(value)
+    raise AssertionError(f"missing Slice 13 path manifest {name}")
+
+
 def _git_output(args: list[str]) -> str:
     result = subprocess.run(
         ["git", *args],
@@ -762,7 +779,7 @@ def test_slice2_spec_locks_read_model_non_authority_and_conflict_preservation() 
 
 def test_compiler_boundary_and_all_compatibility_hash_locks_are_consistent() -> None:
     compiler_paths = _compiler_paths()
-    assert len(compiler_paths) == 90
+    assert len(compiler_paths) == 91
     compiler_digest = _digest(compiler_paths)
     for path in BOUNDARY_PATHS:
         assert f'BOUNDARY_HASH = "{compiler_digest}"' in _read(REPO_ROOT / path)
@@ -775,7 +792,7 @@ def test_compiler_boundary_and_all_compatibility_hash_locks_are_consistent() -> 
         )
 
     semantic_paths = tuple((REPO_ROOT / "src/pietto/semantic").glob("*.py"))
-    assert len(semantic_paths) == 34
+    assert len(semantic_paths) == 35
     semantic_digest = _digest(semantic_paths)
     for path in SEMANTIC_LOCK_PATHS:
         text = _read(REPO_ROOT / path)
@@ -790,7 +807,7 @@ def test_compiler_boundary_and_all_compatibility_hash_locks_are_consistent() -> 
         for path in semantic_paths
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
-    assert len(phase15_paths) == 31
+    assert len(phase15_paths) == 32
     phase15_digest = _digest(phase15_paths)
     phase15_reader = _read(REPO_ROOT / PHASE15_SUBSET_PATH)
     assert phase15_digest in phase15_reader
@@ -850,7 +867,7 @@ def test_project_boundary_package_version_and_release_state_are_unchanged() -> N
     project_paths = _project_private_paths()
     assert len(project_paths) == 17
     assert _digest(project_paths) == (
-        "2f2bc5b400de16acc92e3a9182792cb8203f22e3673745ec1ceef3afc052e366"
+        "1cfc82b2f9627ca473c8eaf2516b845463ec3a5afce0103c361924fd63bb9cd2"
     )
     with PYPROJECT_PATH.open("rb") as stream:
         project = tomllib.load(stream)
@@ -860,13 +877,16 @@ def test_project_boundary_package_version_and_release_state_are_unchanged() -> N
 
 def test_gate2_dirty_untracked_and_index_states_are_exact() -> None:
     dirty = _dirty_paths()
-    assert dirty in (set(), ALLOWLIST_PATHS)
+    slice13_modified = _slice13_paths("MODIFIED_PATHS")
+    slice13_added = _slice13_paths("ADDED_PATHS")
+    slice13_allowlist = slice13_modified | slice13_added
+    assert dirty in (set(), ALLOWLIST_PATHS, slice13_allowlist)
     tracked = set(_git_output(["diff", "--name-only"]).splitlines())
-    assert tracked in (set(), set(MODIFIED_READER_PATHS))
+    assert tracked in (set(), set(MODIFIED_READER_PATHS), slice13_modified)
     untracked = set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
-    assert untracked in (set(), ADDED_PATHS)
+    assert untracked in (set(), ADDED_PATHS, slice13_added)
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
 
 
@@ -876,6 +896,7 @@ def test_static_test_shape_parametrization_and_direct_reader_inventory_is_exact(
     tree = ast.parse(_read(SELF_PATH), filename=SELF_PATH.as_posix())
     expected_functions = (
         "_read",
+        "_slice13_paths",
         "_git_output",
         "_dirty_paths",
         "_digest",
@@ -955,3 +976,4 @@ _TERMINAL_READER_MIGRATION_PATHS = (
     "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
     "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
 )
+# Phase 53 Slice 13 reader migration.

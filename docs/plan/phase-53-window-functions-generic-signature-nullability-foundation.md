@@ -575,3 +575,32 @@ new diagnostic, semantic or architecture redesign, second formatter, count or
 selector drift, online fallback, nonempty index, publication, or unresolved
 decision. Recommended next authorization: `Phase 53 Slice 12 Gate 3`, with
 commit subject `Add Phase 53 lag and lead navigation semantics`.
+
+## Slice 13 — Grouped-result Ranking, Aggregate-result Inputs, And Bounded Let Visibility
+
+Slice 13 implements only
+`docs/spec/phase53-grouped-result-ranking-aggregate-result-inputs-bounded-let-visibility-contract-v1.md`.
+It opens the private GROUP-to-WINDOW seam for selected supported group-key and
+direct aggregate-result outputs and admits the existing bare direct/chained
+field-backed let subset under the contract's ROW and grouped matching rules.
+
+The implementation adds one private immutable transient input-scope helper,
+keeps duplicate-name and diagnostic ownership, reuses the eight completed
+window identities and their exact signature/nullability objects, and records
+explicit private project target roles for grouped output fields. Both project
+routes invoke and discard the fact; grouped project state remains non-concrete
+until Slice 14.
+
+Gate 2 is exactly `A3/M68/D0`: one new contract, one private helper, one
+60-function/489-item test, eight production migrations, this plan, and the
+closed reader migration. Validation is 4050 focused, 9884 passed with 185
+deselected in the dirty overlay, 10069 clean-projection passes, 8 generated
+checks, 37 goldens, one write-mode Ruff invocation over 69 paths, strict
+offline package smoke, and installed CLI `0.1.0`.
+
+No staging, commit, push, fetch, merge, CI mutation, tag, release, publish,
+upload, signing, or attestation is authorized in Gate 2. Slice 13 adds no
+window IR/SQL/backend/runtime/database behavior, frame, named window,
+aggregate-as-window behavior, `QUALIFY`, public API/output schema, dependency,
+package version, workflow, fixture, golden, or generated change. Phase 53
+remains active; Slice 14 remains unstarted; Gate 3 remains separate.

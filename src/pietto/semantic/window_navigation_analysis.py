@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TypeGuard
 
 from pietto._window_identity import WindowFunctionIdentity, WindowFunctionRole
@@ -143,6 +144,8 @@ def analyze_navigation_arguments(
     field_qualifier: str,
     value_types: dict[Expression, ValueType],
     diagnostics: list[Diagnostic],
+    bare_value_types: Mapping[str, ValueType] | None = None,
+    allow_qualified_fields: bool = True,
 ) -> NavigationWindowSemanticFact | WindowExpressionUnsupported:
     """Analyze bounded value, offset, default, generic, and nullability facts."""
 
@@ -167,7 +170,11 @@ def analyze_navigation_arguments(
         raise ValueError("navigation arity must be validated before arguments")
 
     value_expression = arguments[0]
-    if not _is_bounded_value_expression(value_expression, field_qualifier):
+    if not _is_bounded_value_expression(
+        value_expression,
+        field_qualifier,
+        allow_qualified_fields=allow_qualified_fields,
+    ):
         return _unsupported(
             occurrence=occurrence,
             expression=expression,
@@ -185,7 +192,8 @@ def analyze_navigation_arguments(
         value_types,
         diagnostics,
         report_unknown_name=True,
-        field_qualifier=field_qualifier,
+        field_qualifier=field_qualifier if allow_qualified_fields else "",
+        bare_value_types=bare_value_types,
     )
     value_always_null = _is_null_literal(value_expression)
     if not value_always_null and not _is_concrete_value_type(value_type):
@@ -241,7 +249,11 @@ def analyze_navigation_arguments(
         )
     else:
         default_expression = arguments[2]
-        if not _is_bounded_value_expression(default_expression, field_qualifier):
+        if not _is_bounded_value_expression(
+            default_expression,
+            field_qualifier,
+            allow_qualified_fields=allow_qualified_fields,
+        ):
             return _unsupported(
                 occurrence=occurrence,
                 expression=expression,
@@ -259,7 +271,8 @@ def analyze_navigation_arguments(
             value_types,
             diagnostics,
             report_unknown_name=True,
-            field_qualifier=field_qualifier,
+            field_qualifier=field_qualifier if allow_qualified_fields else "",
+            bare_value_types=bare_value_types,
         )
         default_always_null = _is_null_literal(default_expression)
         if not default_always_null and not _is_concrete_value_type(default_type):
@@ -386,11 +399,15 @@ def analyze_navigation_arguments(
 def _is_bounded_value_expression(
     expression: Expression,
     field_qualifier: str,
+    *,
+    allow_qualified_fields: bool,
 ) -> TypeGuard[BoundedNavigationExpression]:
     if type(expression) is NameExpr:
         return True
     if type(expression) is DottedNameExpr:
-        return len(expression.parts) == 2 and expression.parts[0] == field_qualifier
+        return len(expression.parts) == 2 and (
+            not allow_qualified_fields or expression.parts[0] == field_qualifier
+        )
     if type(expression) is not LiteralExpr:
         return False
     return expression.value is None or type(expression.value) in {

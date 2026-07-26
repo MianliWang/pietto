@@ -504,13 +504,27 @@ def test_new_private_facts_are_not_exported_or_serialized(tmp_path: Path) -> Non
 
 
 def test_forbidden_compiler_dependency_and_lineage_surfaces_have_no_diff() -> None:
+    allowed_semantic_paths = {
+        "src/pietto/semantic/expressions.py",
+        "src/pietto/semantic/group_by.py",
+        "src/pietto/semantic/window_analysis.py",
+        "src/pietto/semantic/window_input_analysis.py",
+        "src/pietto/semantic/window_navigation_analysis.py",
+        "src/pietto/semantic/window_order_analysis.py",
+        "src/pietto/semantic/window_partition_analysis.py",
+    }
+    forbidden_semantic_paths = tuple(
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in sorted((REPO_ROOT / "src/pietto/semantic").glob("*.py"))
+        if path.relative_to(REPO_ROOT).as_posix() not in allowed_semantic_paths
+    )
     forbidden_paths = (
         "grammar",
         "src/pietto/ast_nodes.py",
         "src/pietto/ast_builder.py",
         "src/pietto/parser_api.py",
         "src/pietto/errors.py",
-        "src/pietto/semantic",
+        *forbidden_semantic_paths,
         "src/pietto/ir",
         "src/pietto/sql",
         "src/pietto/cli.py",
@@ -700,3 +714,4 @@ _SLICE12_READER_MIGRATION_PATHS = (
     "src/pietto/semantic/window_navigation_analysis.py",
     "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
 )
+# Phase 53 Slice 13 reader migration.

@@ -115,13 +115,13 @@ MODIFIED_READER_PATHS = (
 )
 ADDED_PATHS = {CONTEXT_REL, CONTEXT_SPEC_REL, CONTEXT_TEST_REL}
 ALLOWLIST_PATHS = {*MODIFIED_READER_PATHS, *ADDED_PATHS}
-COMPILER_DIGEST = "8323e6b796cfd8102a098e7fcb4cf6f8f591906050cb117838d57451eff72fa3"
-SEMANTIC_DIGEST = "17f38bef1abc04776fbce5198a645c884c66cbc151e3a5d79f3dceaa2fb5773b"
+COMPILER_DIGEST = "58c97408c8e8db46ea22bc8163266fa0583c146aab181c1863f77408c17f4665"
+SEMANTIC_DIGEST = "e192fa0fda095afaab88176a7dd5943128611ea071b45a8e15916ddcf3ac16db"
 PHASE15_SUBSET_DIGEST = (
-    "f649850a1b9990eebb1daa8e41ffac6110f8a1c9e9468cbb0f0325951f0f16ab"
+    "5718946e55b93874bd092114a4a2b56e1178d5a6d8810c41304dd1213bd0a1c0"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "2f2bc5b400de16acc92e3a9182792cb8203f22e3673745ec1ceef3afc052e366"
+    "1cfc82b2f9627ca473c8eaf2516b845463ec3a5afce0103c361924fd63bb9cd2"
 )
 
 COMPILER_READERS = (
@@ -169,6 +169,23 @@ PHASE15_READER = "tests/test_phase15_semantic_completion_audit.py"
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+def _slice13_paths(name: str) -> set[str]:
+    path = REPO_ROOT / "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
+    tree = ast.parse(_read(path), filename=path.as_posix())
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id == name
+        ):
+            value = ast.literal_eval(node.value)
+            assert isinstance(value, (set, tuple))
+            assert all(isinstance(item, str) for item in value)
+            return set(value)
+    raise AssertionError(f"missing Slice 13 path manifest {name}")
 
 
 def _git_output(args: list[str]) -> str:
@@ -526,9 +543,9 @@ def test_compiler_semantic_and_phase15_boundary_digests_are_refreshed() -> None:
         for path in semantic_paths
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
-    assert len(compiler_paths) == 90
-    assert len(semantic_paths) == 34
-    assert len(phase15_paths) == 31
+    assert len(compiler_paths) == 91
+    assert len(semantic_paths) == 35
+    assert len(phase15_paths) == 32
     assert _digest(compiler_paths) == COMPILER_DIGEST
     assert _digest(semantic_paths) == SEMANTIC_DIGEST
     assert _digest(phase15_paths) == PHASE15_SUBSET_DIGEST
@@ -592,13 +609,16 @@ def test_project_package_version_and_tag_boundaries_are_unchanged() -> None:
 
 
 def test_gate2_dirty_untracked_and_index_states_are_exact() -> None:
-    assert _dirty_paths() in (set(), ALLOWLIST_PATHS)
+    slice13_modified = _slice13_paths("MODIFIED_PATHS")
+    slice13_added = _slice13_paths("ADDED_PATHS")
+    slice13_allowlist = slice13_modified | slice13_added
+    assert _dirty_paths() in (set(), ALLOWLIST_PATHS, slice13_allowlist)
     tracked = set(_git_output(["diff", "--name-only"]).splitlines())
-    assert tracked in (set(), set(MODIFIED_READER_PATHS))
+    assert tracked in (set(), set(MODIFIED_READER_PATHS), slice13_modified)
     untracked = set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
-    assert untracked in (set(), ADDED_PATHS)
+    assert untracked in (set(), ADDED_PATHS, slice13_added)
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
 
 
@@ -751,3 +771,4 @@ _TERMINAL_READER_MIGRATION_PATHS = (
     "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
     "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
 )
+# Phase 53 Slice 13 reader migration.

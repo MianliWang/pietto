@@ -70,18 +70,24 @@ FAIL_CLOSED_MESSAGE = (
     "Window syntax is recognized, but WindowSpec AST preservation starts in "
     "Phase 53 Slice 3."
 )
-BASE_HEAD_SHA = "05114de0effaa3c9fff6ecd0dbb781bd553e91a6"
+BASE_HEAD_SHA = "a5606761c040042d177874253e29c25f2e8e3fff"
 
 ADDED_PATHS = {
-    "docs/spec/phase53-lag-lead-navigation-offset-default-nullability-contract-v1.md",
-    "src/pietto/semantic/window_navigation_analysis.py",
-    "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
+    "docs/spec/phase53-grouped-result-ranking-aggregate-result-inputs-bounded-let-visibility-contract-v1.md",
+    "src/pietto/semantic/window_input_analysis.py",
+    "tests/test_phase53_grouped_result_ranking_aggregate_result_inputs_bounded_let_visibility_contract.py",
 }
 MODIFIED_PATHS = {
     "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md",
-    "src/pietto/semantic/window_semantics.py",
+    "src/pietto/semantic/expressions.py",
+    "src/pietto/semantic/group_by.py",
     "src/pietto/semantic/window_analysis.py",
+    "src/pietto/semantic/window_partition_analysis.py",
+    "src/pietto/semantic/window_navigation_analysis.py",
+    "src/pietto/semantic/window_order_analysis.py",
+    "src/pietto/_project/model.py",
     "src/pietto/_project/window_semantics.py",
+    "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
     "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
     "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
     "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
@@ -709,7 +715,7 @@ def test_slice2_artifact_paths_and_heading_contracts_are_exact() -> None:
     assert _headings(SPEC_REL, 1) == (SPEC_TITLE,)
     assert _headings(SPEC_REL, 2) == SPEC_H2
     assert _headings(SPEC_REL, 3) == ()
-    assert _headings(PLAN_REL, 2)[-11:] == (
+    assert _headings(PLAN_REL, 2)[-12:] == (
         SLICE2_PLAN_H2,
         "Slice 3 WindowSpec, Extension-compatible WindowFunctionIdentity, And AST "
         "Contract",
@@ -722,6 +728,7 @@ def test_slice2_artifact_paths_and_heading_contracts_are_exact() -> None:
         "Slice 10 Partition Binding, Multi-key Visibility, And Diagnostics",
         "Slice 11 Window-local Ordering, Direction, Mandatory-order Policy, And Determinism",
         "Slice 12 lag / lead Navigation, Offset, Default, And Nullability",
+        "Slice 13 — Grouped-result Ranking, Aggregate-result Inputs, And Bounded Let Visibility",
     )
     assert _headings(PLAN_REL, 2).count(SLICE2_PLAN_H2) == 1
 
@@ -1012,8 +1019,13 @@ def test_no_ast_semantic_ir_sql_or_public_surface_widening_is_locked() -> None:
         _git_output(["diff", "--name-only", "--", "src/pietto"]).splitlines()
     ) - {""}
     allowed_source = {
-        "src/pietto/semantic/window_semantics.py",
+        "src/pietto/semantic/expressions.py",
+        "src/pietto/semantic/group_by.py",
         "src/pietto/semantic/window_analysis.py",
+        "src/pietto/semantic/window_navigation_analysis.py",
+        "src/pietto/semantic/window_order_analysis.py",
+        "src/pietto/semantic/window_partition_analysis.py",
+        "src/pietto/_project/model.py",
         "src/pietto/_project/window_semantics.py",
     }
     assert changed_source in (set(), allowed_source)
@@ -1065,15 +1077,15 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             assert origin_main == head
 
     readable_paths = set(_git_output(["ls-files"]).splitlines()) | untracked
-    assert len(readable_paths) == 870
-    assert sum(path.endswith(".py") for path in readable_paths) == 535
-    assert sum(path.endswith(".md") for path in readable_paths) == 239
+    assert len(readable_paths) == 873
+    assert sum(path.endswith(".py") for path in readable_paths) == 537
+    assert sum(path.endswith(".md") for path in readable_paths) == 240
     test_modules = {
         path
         for path in readable_paths
         if path.startswith("tests/test_") and path.endswith(".py")
     }
-    assert len(test_modules) == 445
+    assert len(test_modules) == 446
     top_level_tests = 0
     for relative in sorted(test_modules):
         tree = ast.parse(_read(relative), filename=relative)
@@ -1082,7 +1094,7 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 4676
+    assert top_level_tests == 4736
     assert len(GENERATED_PATHS) == 8
     goldens = {
         path
@@ -1098,3 +1110,4 @@ _SLICE11_READER_MIGRATION_PATHS = (
     "src/pietto/semantic/window_order_analysis.py",
     "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
 )
+# Phase 53 Slice 13 reader migration.

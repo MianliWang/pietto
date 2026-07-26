@@ -277,6 +277,8 @@ def type_relation_expressions(
                     field_qualifier=definition.from_clause.source_name,
                     value_types=value_types,
                     diagnostics=diagnostics,
+                    let_value_types=let_value_types or {},
+                    let_expressions=let_expressions or {},
                 )
                 continue
             select_let_value_types = (

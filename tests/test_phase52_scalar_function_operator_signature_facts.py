@@ -73,7 +73,7 @@ FACTS_SHA256 = "8a7e7ba8374c59316051f582aecc0c0e797d270fac2ce89a91a55befca562fa9
 LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26"
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 PROJECT_PRIVATE_DIGEST = (
-    "2f2bc5b400de16acc92e3a9182792cb8203f22e3673745ec1ceef3afc052e366"
+    "1cfc82b2f9627ca473c8eaf2516b845463ec3a5afce0103c361924fd63bb9cd2"
 )
 TIER2_MANIFEST_BYTES = 18319
 TIER2_MANIFEST_FILES = 108
@@ -313,6 +313,23 @@ DIRECT_TIER1_NODES = (
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+def _slice13_paths(name: str) -> set[str]:
+    path = REPO_ROOT / "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
+    tree = ast.parse(_read(path), filename=path.as_posix())
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id == name
+        ):
+            value = ast.literal_eval(node.value)
+            assert isinstance(value, (set, tuple))
+            assert all(isinstance(item, str) for item in value)
+            return set(value)
+    raise AssertionError(f"missing Slice 13 path manifest {name}")
 
 
 def _git_output(args: list[str]) -> str:
@@ -1260,9 +1277,9 @@ def test_compiler_semantic_subset_project_and_raw_hash_readers_are_exact() -> No
     )
     project_paths = _project_private_paths()
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        90,
-        34,
-        31,
+        91,
+        35,
+        32,
     )
     assert len(project_paths) == 17
     assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
@@ -1353,6 +1370,9 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     assert _git_output(["tag", "--points-at", "HEAD"]) == ""
     assert _git_output(["tag", "--list"]) == ""
     dirty = _dirty_paths()
+    slice13_modified = _slice13_paths("MODIFIED_PATHS")
+    slice13_added = _slice13_paths("ADDED_PATHS")
+    slice13_allowlist = slice13_modified | slice13_added
     assert dirty in (
         set(),
         ALLOWLIST_PATHS,
@@ -1360,6 +1380,7 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
         PR_REPAIR_ALLOWLIST_PATHS,
         SLICE8_ALLOWLIST_PATHS,
         SLICE9_ALLOWLIST_PATHS,
+        slice13_allowlist,
     )
     tracked = set(_git_output(["diff", "--name-only"]).splitlines())
     untracked = set(
@@ -1380,6 +1401,13 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
             main=main,
             origin_main=origin_main,
         )
+    elif dirty == slice13_allowlist:
+        status = tuple(_git_output(["diff", "--name-status"]).splitlines())
+        assert tracked == slice13_modified
+        assert status == tuple(f"M\t{path}" for path in sorted(slice13_modified))
+        assert untracked == slice13_added
+        assert branch == "main"
+        assert head == main == origin_main == "a5606761c040042d177874253e29c25f2e8e3fff"
     elif dirty == SLICE9_ALLOWLIST_PATHS:
         status = tuple(_git_output(["diff", "--name-status"]).splitlines())
         assert tracked == SLICE9_MODIFIED_PATHS
@@ -1453,7 +1481,7 @@ def test_static_test_inventory_tier1_and_tier2_manifest_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (445, 4676)
+    assert (len(test_files), top_level_functions) == (446, 4736)
     assert len(DIRECT_TIER1_NODES) == len(set(DIRECT_TIER1_NODES)) == 44
     for node_id in DIRECT_TIER1_NODES:
         path, function = node_id.split("::", maxsplit=1)
@@ -1500,3 +1528,4 @@ _SLICE10_READER_MIGRATION_PATHS = (
     "src/pietto/semantic/window_partition_analysis.py",
     "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
 )
+# Phase 53 Slice 13 reader migration.

@@ -65,6 +65,7 @@ PLAN_H2 = (
     "Slice 10 Partition Binding, Multi-key Visibility, And Diagnostics",
     "Slice 11 Window-local Ordering, Direction, Mandatory-order Policy, And Determinism",
     "Slice 12 lag / lead Navigation, Offset, Default, And Nullability",
+    "Slice 13 — Grouped-result Ranking, Aggregate-result Inputs, And Bounded Let Visibility",
 )
 SCOPE_H2 = (
     "Purpose And Slice Identity",
@@ -224,7 +225,7 @@ CI_REPAIR_BASE_HEAD_SHA = "c309323216fb7e6c52afba060cb188b3bb618d34"
 CI_REPAIR_MODIFIED_PATHS = {
     "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
 }
-SLICE2_BASE_HEAD_SHA = "05114de0effaa3c9fff6ecd0dbb781bd553e91a6"
+SLICE2_BASE_HEAD_SHA = "a5606761c040042d177874253e29c25f2e8e3fff"
 SLICE2_STATE_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
 
 TIER1_EXISTING_NODES = (
@@ -739,12 +740,12 @@ def test_reader_migrations_reconciliation4_and_current_authority_are_locked() ->
         "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
         "tests/test_phase52_completion_audit_and_status_lock.py",
     ):
-        assert "(445, 4676)" in _read(relative)
+        assert "(446, 4736)" in _read(relative)
     for relative in (
         "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
         "tests/test_phase52_completion_audit_and_status_lock.py",
     ):
-        assert "(535, 239)" in _read(relative)
+        assert "(537, 240)" in _read(relative)
 
 
 def test_gate2_validation_depth_one_gate3_activation_and_stop_conditions_are_locked() -> (
@@ -772,3 +773,4 @@ _SLICE11_READER_MIGRATION_PATHS = (
     "src/pietto/semantic/window_order_analysis.py",
     "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
 )
+# Phase 53 Slice 13 reader migration.

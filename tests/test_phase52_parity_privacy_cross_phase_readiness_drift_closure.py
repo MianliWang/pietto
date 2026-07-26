@@ -91,21 +91,21 @@ MODULE_SHA256 = {
 }
 SPEC_SHA256 = "7010cd8a39ed389de588d8cd734b136cc87456c3ef5eb324638467d1188fc935"
 MODIFIED_TEST_SHA256 = {
-    SLICE4_TEST_REL: "6cdd5c6c0e4d99342098faa424897f3fe1fcfa83db89816c2a985b942e2060a6",
-    SLICE5_TEST_REL: "40fd5f26372d28282957c774d6b0913a945d6e95ef3e6df1e97cdf01e8295051",
-    SLICE6_TEST_REL: "740e13d5348d3c4f8eb2e24c13748ff8624ab3a07cb52b7820bb71b9c1e21b16",
-    SLICE7_TEST_REL: "15c4847432c1bb205d29869e8bf0a850b55811347307483699473da4c8629625",
+    SLICE4_TEST_REL: "131897ef0008cfe3c3f884beb84d89be246e4f04be55507b4ae65c31bda6f896",
+    SLICE5_TEST_REL: "ac1e67e71086cef4e3974679a71e86444f927f41db0f3756cf93bd6366f9b1bc",
+    SLICE6_TEST_REL: "f086ffee47040533e4f7cae5a1e12b1976ecaacfc5423ebe618f29d370fbb5be",
+    SLICE7_TEST_REL: "b3a8ac5fac140be4c5b9e24ff9b27c4dc750e684b93ec6174ab9c8a7afbf1eb6",
 }
 WORKFLOW_SHA256 = "6b2302ee9bbbd87420b6b90db8cacc5f5b3dd1e807107569e1ca248a5daa33fb"
 PYPROJECT_SHA256 = "68c3f92a360e0f52a1669aafcfa0f0c207ad3283e5dfd718d2c4beed75b83d0c"
 LOCK_SHA256 = "0c06f18b2a8919c18573c18685a9fb202a74d98ab7c8fa1a5e61c02b8e5aeea9"
-COMPILER_DIGEST = "8323e6b796cfd8102a098e7fcb4cf6f8f591906050cb117838d57451eff72fa3"
-SEMANTIC_DIGEST = "17f38bef1abc04776fbce5198a645c884c66cbc151e3a5d79f3dceaa2fb5773b"
+COMPILER_DIGEST = "58c97408c8e8db46ea22bc8163266fa0583c146aab181c1863f77408c17f4665"
+SEMANTIC_DIGEST = "e192fa0fda095afaab88176a7dd5943128611ea071b45a8e15916ddcf3ac16db"
 PHASE15_SUBSET_DIGEST = (
-    "f649850a1b9990eebb1daa8e41ffac6110f8a1c9e9468cbb0f0325951f0f16ab"
+    "5718946e55b93874bd092114a4a2b56e1178d5a6d8810c41304dd1213bd0a1c0"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "2f2bc5b400de16acc92e3a9182792cb8203f22e3673745ec1ceef3afc052e366"
+    "1cfc82b2f9627ca473c8eaf2516b845463ec3a5afce0103c361924fd63bb9cd2"
 )
 
 SPEC_H2 = (
@@ -209,6 +209,23 @@ EVIDENCE_SOURCE_COUNTS = {
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+def _slice13_paths(name: str) -> set[str]:
+    path = REPO_ROOT / "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
+    tree = ast.parse(_read(path), filename=path.as_posix())
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id == name
+        ):
+            value = ast.literal_eval(node.value)
+            assert isinstance(value, (set, tuple))
+            assert all(isinstance(item, str) for item in value)
+            return set(value)
+    raise AssertionError(f"missing Slice 13 path manifest {name}")
 
 
 def _sha256(path: Path) -> str:
@@ -421,16 +438,26 @@ def _assert_allowed_dirty_state(
     origin_main: str | None,
 ) -> None:
     dirty = tracked | untracked
+    slice13_modified = _slice13_paths("MODIFIED_PATHS")
+    slice13_added = _slice13_paths("ADDED_PATHS")
+    slice13_allowlist = slice13_modified | slice13_added
     assert dirty in (
         set(),
         SLICE8_ALLOWLIST_PATHS,
         CI_REPAIR_MODIFIED_PATHS,
         SLICE9_ALLOWLIST_PATHS,
+        slice13_allowlist,
     )
     if not dirty:
         return
 
     assert branch == "main"
+    if dirty == slice13_allowlist:
+        assert tracked == slice13_modified
+        assert untracked == slice13_added
+        assert head == main == origin_main == "a5606761c040042d177874253e29c25f2e8e3fff"
+        return
+
     if dirty == SLICE9_ALLOWLIST_PATHS:
         assert tracked == SLICE9_MODIFIED_PATHS
         assert untracked == SLICE9_ADDED_PATHS
@@ -1767,7 +1794,7 @@ def test_static_reader_counts_boundary_hash_and_nested_sha_topology_are_exact() 
     assert (
         sum(path.endswith(".py") for path in readable),
         sum(path.endswith(".md") for path in readable),
-    ) == (535, 239)
+    ) == (537, 240)
     compiler_paths = _compiler_paths()
     semantic_paths = tuple((REPO_ROOT / "src/pietto/semantic").glob("*.py"))
     phase15_paths = tuple(
@@ -1777,9 +1804,9 @@ def test_static_reader_counts_boundary_hash_and_nested_sha_topology_are_exact() 
     )
     project_paths = _project_private_paths()
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        90,
-        34,
-        31,
+        91,
+        35,
+        32,
     )
     assert len(project_paths) == 17
     assert _digest(compiler_paths) == COMPILER_DIGEST
@@ -1955,7 +1982,7 @@ def test_test_inventory_tier1_selectors_and_compatibility_counts_are_exact() -> 
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (445, 4676)
+    assert (len(test_files), top_level_functions) == (446, 4736)
     assert tuple(
         _pytest_shape(REPO_ROOT / path)[1]
         for path in (
@@ -2099,3 +2126,4 @@ _SLICE10_READER_MIGRATION_PATHS = (
     "src/pietto/semantic/window_partition_analysis.py",
     "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
 )
+# Phase 53 Slice 13 reader migration.

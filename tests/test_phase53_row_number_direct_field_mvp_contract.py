@@ -82,7 +82,7 @@ PLAN_REL = (
 SPEC_REL = "docs/spec/phase53-row-number-direct-field-mvp-contract-v1.md"
 SEMANTIC_REL = "src/pietto/semantic/window_analysis.py"
 SELF_REL = "tests/test_phase53_row_number_direct_field_mvp_contract.py"
-BASE_HEAD_SHA = "05114de0effaa3c9fff6ecd0dbb781bd553e91a6"
+BASE_HEAD_SHA = "a5606761c040042d177874253e29c25f2e8e3fff"
 
 SPEC_TITLE = "Phase 53 Slice 7 row_number Direct-field MVP Contract v1"
 SLICE7_PLAN_H2 = "Slice 7 row_number Direct-field MVP"
@@ -202,15 +202,21 @@ CARDINALITIES = (
 )
 
 ADDED_PATHS = {
-    "docs/spec/phase53-lag-lead-navigation-offset-default-nullability-contract-v1.md",
-    "src/pietto/semantic/window_navigation_analysis.py",
-    "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
+    "docs/spec/phase53-grouped-result-ranking-aggregate-result-inputs-bounded-let-visibility-contract-v1.md",
+    "src/pietto/semantic/window_input_analysis.py",
+    "tests/test_phase53_grouped_result_ranking_aggregate_result_inputs_bounded_let_visibility_contract.py",
 }
 MODIFIED_PATHS = {
     "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md",
-    "src/pietto/semantic/window_semantics.py",
+    "src/pietto/semantic/expressions.py",
+    "src/pietto/semantic/group_by.py",
     "src/pietto/semantic/window_analysis.py",
+    "src/pietto/semantic/window_navigation_analysis.py",
+    "src/pietto/semantic/window_partition_analysis.py",
+    "src/pietto/semantic/window_order_analysis.py",
+    "src/pietto/_project/model.py",
     "src/pietto/_project/window_semantics.py",
+    "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
     "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
     "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
     "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
@@ -272,12 +278,12 @@ MODIFIED_PATHS = {
 }
 ALLOWLIST_PATHS = ADDED_PATHS | MODIFIED_PATHS
 
-COMPILER_DIGEST = "8323e6b796cfd8102a098e7fcb4cf6f8f591906050cb117838d57451eff72fa3"
-SEMANTIC_DIGEST = "17f38bef1abc04776fbce5198a645c884c66cbc151e3a5d79f3dceaa2fb5773b"
+COMPILER_DIGEST = "58c97408c8e8db46ea22bc8163266fa0583c146aab181c1863f77408c17f4665"
+SEMANTIC_DIGEST = "e192fa0fda095afaab88176a7dd5943128611ea071b45a8e15916ddcf3ac16db"
 PHASE15_SUBSET_DIGEST = (
-    "f649850a1b9990eebb1daa8e41ffac6110f8a1c9e9468cbb0f0325951f0f16ab"
+    "5718946e55b93874bd092114a4a2b56e1178d5a6d8810c41304dd1213bd0a1c0"
 )
-PROJECT_DIGEST = "2f2bc5b400de16acc92e3a9182792cb8203f22e3673745ec1ceef3afc052e366"
+PROJECT_DIGEST = "1cfc82b2f9627ca473c8eaf2516b845463ec3a5afce0103c361924fd63bb9cd2"
 FOCUSED_SHA256 = "764c5879e93871b253e875ce1e8145ce3a998d48a94b578f8af9d31f9562e5ee"
 OVERLAY_SHA256 = "197b591aec962f43b9b9393da99a76ff21c3a36189cc02c7a75dc5a7b85d6b26"
 FORMATTER_SHA256 = "5920e1a21f135b2537e8295b13c8bc6fa2962423812ffc3cbe1e52663e924daf"
@@ -1284,7 +1290,7 @@ def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
         len(semantic_paths),
         len(phase15_paths),
         len(project_paths),
-    ) == (90, 34, 31, 17)
+    ) == (91, 35, 32, 17)
     assert _digest(tuple(compiler_paths)) == COMPILER_DIGEST
     assert _digest(semantic_paths) == SEMANTIC_DIGEST
     assert _digest(phase15_paths) == PHASE15_SUBSET_DIGEST
@@ -1320,15 +1326,15 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
     readable = {path for path in (*tracked, *untracked) if (REPO_ROOT / path).is_file()}
-    assert len(readable) == 870
-    assert sum(path.endswith(".py") for path in readable) == 535
-    assert sum(path.endswith(".md") for path in readable) == 239
+    assert len(readable) == 873
+    assert sum(path.endswith(".py") for path in readable) == 537
+    assert sum(path.endswith(".md") for path in readable) == 240
     test_modules = {
         path
         for path in readable
         if path.startswith("tests/test_") and path.endswith(".py")
     }
-    assert len(test_modules) == 445
+    assert len(test_modules) == 446
     top_level_tests = 0
     for relative in sorted(test_modules):
         tree = ast.parse(_read(relative), filename=relative)
@@ -1337,7 +1343,7 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 4676
+    assert top_level_tests == 4736
     assert 9580 == 9199 + 381
     assert 9580 - 185 == 9395
     assert (117, 70, 11, 106, 3488, 13171) == (117, 70, 11, 106, 3488, 13171)
@@ -1346,8 +1352,8 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
         "197b591aec962f43b9b9393da99a76ff21c3a36189cc02c7a75dc5a7b85d6b26",
         "5920e1a21f135b2537e8295b13c8bc6fa2962423812ffc3cbe1e52663e924daf",
     )
-    assert len(ALLOWLIST_PATHS) == 65
-    assert len(MODIFIED_PATHS) == 62
+    assert len(ALLOWLIST_PATHS) == 71
+    assert len(MODIFIED_PATHS) == 68
     assert len(ADDED_PATHS) == 3
 
 
@@ -1382,3 +1388,4 @@ _SLICE10_READER_MIGRATION_PATHS = (
     "src/pietto/semantic/window_partition_analysis.py",
     "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
 )
+# Phase 53 Slice 13 reader migration.

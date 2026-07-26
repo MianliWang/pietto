@@ -46,7 +46,7 @@ SPEC_REL = "docs/spec/phase53-window-spec-function-identity-ast-contract-v1.md"
 IDENTITY_REL = "src/pietto/_window_identity.py"
 SELF_REL = "tests/test_phase53_window_spec_function_identity_ast_contract.py"
 SLICE2_TEST_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
-BASE_HEAD_SHA = "05114de0effaa3c9fff6ecd0dbb781bd553e91a6"
+BASE_HEAD_SHA = "a5606761c040042d177874253e29c25f2e8e3fff"
 TEMPORARY_BRIDGE_MESSAGE = (
     "Window syntax is recognized, but WindowSpec AST preservation starts in "
     "Phase 53 Slice 3."
@@ -75,6 +75,10 @@ SLICE11_PLAN_H2 = (
     "Slice 11 Window-local Ordering, Direction, Mandatory-order Policy, And Determinism"
 )
 SLICE12_PLAN_H2 = "Slice 12 lag / lead Navigation, Offset, Default, And Nullability"
+SLICE13_PLAN_H2 = (
+    "Slice 13 — Grouped-result Ranking, Aggregate-result Inputs, And Bounded Let "
+    "Visibility"
+)
 SPEC_H2 = (
     "Status And Slice Identity",
     "Slice 2 Syntax And Lifecycle Authority",
@@ -109,15 +113,21 @@ WINDOW_FUNCTION_NAMES = (
 )
 
 ADDED_PATHS = {
-    "docs/spec/phase53-lag-lead-navigation-offset-default-nullability-contract-v1.md",
-    "src/pietto/semantic/window_navigation_analysis.py",
-    "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
+    "docs/spec/phase53-grouped-result-ranking-aggregate-result-inputs-bounded-let-visibility-contract-v1.md",
+    "src/pietto/semantic/window_input_analysis.py",
+    "tests/test_phase53_grouped_result_ranking_aggregate_result_inputs_bounded_let_visibility_contract.py",
 }
 MODIFIED_PATHS = {
     "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md",
-    "src/pietto/semantic/window_semantics.py",
+    "src/pietto/semantic/expressions.py",
+    "src/pietto/semantic/group_by.py",
     "src/pietto/semantic/window_analysis.py",
+    "src/pietto/semantic/window_partition_analysis.py",
+    "src/pietto/semantic/window_navigation_analysis.py",
+    "src/pietto/semantic/window_order_analysis.py",
+    "src/pietto/_project/model.py",
     "src/pietto/_project/window_semantics.py",
+    "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
     "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
     "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
     "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
@@ -324,15 +334,15 @@ SEMANTIC_IDENTITY_CASES = (
     ("Org.Analytics.Rank", "Unknown function: Org.Analytics.Rank"),
 )
 
-COMPILER_DIGEST = "8323e6b796cfd8102a098e7fcb4cf6f8f591906050cb117838d57451eff72fa3"
-SEMANTIC_DIGEST = "17f38bef1abc04776fbce5198a645c884c66cbc151e3a5d79f3dceaa2fb5773b"
+COMPILER_DIGEST = "58c97408c8e8db46ea22bc8163266fa0583c146aab181c1863f77408c17f4665"
+SEMANTIC_DIGEST = "e192fa0fda095afaab88176a7dd5943128611ea071b45a8e15916ddcf3ac16db"
 PHASE15_SUBSET_DIGEST = (
-    "f649850a1b9990eebb1daa8e41ffac6110f8a1c9e9468cbb0f0325951f0f16ab"
+    "5718946e55b93874bd092114a4a2b56e1178d5a6d8810c41304dd1213bd0a1c0"
 )
 AST_NODES_SHA256 = "b0c41070fca75c89534eba75cf2086f41721de740da9a3573d67411d366204f5"
 AST_BUILDER_SHA256 = "201c74d6a27e57dfc7cd0f9693b388ebe7853b783173a3c4f7191a5f8026e70b"
 SEMANTIC_EXPRESSIONS_SHA256 = (
-    "e2d76ac96556eb655f1bf43f1f39552f03ea4574025f63a3333c132c1035f6db"
+    "9fb27e8b2bb4e2acbcf97fc0971b9cbd5817e14ec0544c858afaf19866e820b2"
 )
 
 
@@ -487,7 +497,7 @@ def test_slice3_artifact_paths_heading_contract_and_lifecycle_are_exact() -> Non
     assert _headings(SPEC_REL, 2) == SPEC_H2
     assert _headings(SPEC_REL, 3) == ()
     plan_h2 = _headings(PLAN_REL, 2)
-    assert plan_h2[-11:] == (
+    assert plan_h2[-12:] == (
         "Slice 2 Pietto-native Window Syntax And Contextual Grammar Contract",
         SLICE3_PLAN_H2,
         SLICE4_PLAN_H2,
@@ -499,6 +509,7 @@ def test_slice3_artifact_paths_heading_contract_and_lifecycle_are_exact() -> Non
         SLICE10_PLAN_H2,
         SLICE11_PLAN_H2,
         SLICE12_PLAN_H2,
+        SLICE13_PLAN_H2,
     )
     assert plan_h2.count(SLICE3_PLAN_H2) == 1
     assert plan_h2.count(SLICE4_PLAN_H2) == 1
@@ -509,6 +520,7 @@ def test_slice3_artifact_paths_heading_contract_and_lifecycle_are_exact() -> Non
     assert plan_h2.count(SLICE9_PLAN_H2) == 1
     assert plan_h2.count(SLICE11_PLAN_H2) == 1
     assert plan_h2.count(SLICE12_PLAN_H2) == 1
+    assert plan_h2.count(SLICE13_PLAN_H2) == 1
     names, cardinalities = _test_function_shape()
     assert names == EXPECTED_TEST_FUNCTIONS
     assert cardinalities == (
@@ -976,9 +988,9 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        90,
-        34,
-        31,
+        91,
+        35,
+        32,
     )
     assert _digest(tuple(compiler_paths)) == COMPILER_DIGEST
     assert _digest(semantic_paths) == SEMANTIC_DIGEST
@@ -1022,15 +1034,15 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
     readable = {path for path in (*tracked, *untracked) if (REPO_ROOT / path).is_file()}
-    assert len(readable) == 870
-    assert sum(path.endswith(".py") for path in readable) == 535
-    assert sum(path.endswith(".md") for path in readable) == 239
+    assert len(readable) == 873
+    assert sum(path.endswith(".py") for path in readable) == 537
+    assert sum(path.endswith(".md") for path in readable) == 240
     test_modules = {
         path
         for path in readable
         if path.startswith("tests/test_") and path.endswith(".py")
     }
-    assert len(test_modules) == 445
+    assert len(test_modules) == 446
     top_level_tests = 0
     for relative in sorted(test_modules):
         tree = ast.parse(_read(relative), filename=relative)
@@ -1039,7 +1051,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 4676
+    assert top_level_tests == 4736
     assert (
         3488
         == 381 + 834 + 627 + 424 + 279 + 168 + 156 + 12 + 145 + 190 + 70 + 70 + 97 + 35
@@ -1079,8 +1091,8 @@ def test_validation_gate3_and_no_behavior_boundaries_are_locked() -> None:
         )
         == ""
     )
-    assert len(ALLOWLIST_PATHS) == 65
-    assert len(MODIFIED_PATHS) == 62
+    assert len(ALLOWLIST_PATHS) == 71
+    assert len(MODIFIED_PATHS) == 68
     assert len(ADDED_PATHS) == 3
 
 
@@ -1089,3 +1101,4 @@ _SLICE10_READER_MIGRATION_PATHS = (
     "src/pietto/semantic/window_partition_analysis.py",
     "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
 )
+# Phase 53 Slice 13 reader migration.

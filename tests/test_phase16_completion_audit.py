@@ -36,13 +36,13 @@ PHASE16_ARTIFACT_HASHES = {
         "580ebcfcc78102d902110d864eb80c7f1a57ffcb6b4b33e1160c9abd17ba07a6"
     ),
     SLICE1_AUDIT_PATH: (
-        "aaa92d76aeb2e50afc6c1e7055338f5d78e465a9b2a78b8da46438ffceee3688"
+        "38b9ff4a14fd081efa4454d6523d8f94602c53ee095383d359a5da25f7059aae"
     ),
     SLICE2_AUDIT_PATH: (
-        "2df0dab943bc82ef4ce9c793492aac24deefae6eee15e1380abbbb3aa78cc3b0"
+        "17cb7586031805f50e67def9b06c8bf6ed77d344906e6a4e8cecc68a0b937ddb"
     ),
     SLICE3_AUDIT_PATH: (
-        "867df85090590362d91fe50b142cfb9f2405080d18970fe517ea8538a978a12b"
+        "bafaccc940d1e9b6821e4e04a41abce07e47212d096604637849634b93fb69f3"
     ),
     PLAN_PATH: "adfb0d99075299049c790f465fab7453e0ed73b985e9cff19c6aeb38f94c7f5a",
 }
@@ -99,8 +99,8 @@ LOCKED_GROUP_HASHES = {
         "bc5be46411f947c4d591e81ce8dd8345140fd5e10276f2ff0055eccfc12babe4",
     ),
     "semantic": (
-        34,
-        "17f38bef1abc04776fbce5198a645c884c66cbc151e3a5d79f3dceaa2fb5773b",
+        35,
+        "e192fa0fda095afaab88176a7dd5943128611ea071b45a8e15916ddcf3ac16db",
     ),
     "ir": (
         5,
@@ -450,3 +450,4 @@ _SLICE10_READER_MIGRATION_PATHS = (
     "src/pietto/semantic/window_partition_analysis.py",
     "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
 )
+# Phase 53 Slice 13 reader migration.
