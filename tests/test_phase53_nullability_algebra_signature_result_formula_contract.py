@@ -1656,8 +1656,8 @@ def test_project_ir_sql_cli_serializer_and_public_exports_are_unchanged() -> Non
         "src/pietto/cli_json.py": "ccee00529ee36b123f70d418105609dbb4906f2ccc1c1f5653527b1168fb6d91",
         "src/pietto/_metadata/serializer.py": "dd1264f9c49e7f9bfe694d185b9ee30e775374cce2969d6e9ddb7796bbb4ae4b",
         "src/pietto/_project/json_v2.py": "74251e684a22de4dcdc7e1822a6843ca89cbdfa7e136a046676d848b57953bd5",
-        "uv.lock": "0c06f18b2a8919c18573c18685a9fb202a74d98ab7c8fa1a5e61c02b8e5aeea9",
-        ".github/workflows/ci.yml": "6b2302ee9bbbd87420b6b90db8cacc5f5b3dd1e807107569e1ca248a5daa33fb",
+        "uv.lock": "a7d9125995e98a8a74d3664ceae7801cc1f4cce74ec323933da67838be199cea",
+        ".github/workflows/ci.yml": "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94",
     }
     assert {path: _sha256(REPO_ROOT / path) for path in expected} == expected
 

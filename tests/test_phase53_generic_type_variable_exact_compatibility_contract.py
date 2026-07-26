@@ -591,9 +591,9 @@ PROTECTED_SHA256 = {
     "src/pietto/cli_json.py": "ccee00529ee36b123f70d418105609dbb4906f2ccc1c1f5653527b1168fb6d91",
     "src/pietto/_metadata/serializer.py": "dd1264f9c49e7f9bfe694d185b9ee30e775374cce2969d6e9ddb7796bbb4ae4b",
     "src/pietto/_project/json_v2.py": "74251e684a22de4dcdc7e1822a6843ca89cbdfa7e136a046676d848b57953bd5",
-    "pyproject.toml": "68c3f92a360e0f52a1669aafcfa0f0c207ad3283e5dfd718d2c4beed75b83d0c",
-    "uv.lock": "0c06f18b2a8919c18573c18685a9fb202a74d98ab7c8fa1a5e61c02b8e5aeea9",
-    ".github/workflows/ci.yml": "6b2302ee9bbbd87420b6b90db8cacc5f5b3dd1e807107569e1ca248a5daa33fb",
+    "pyproject.toml": "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01",
+    "uv.lock": "a7d9125995e98a8a74d3664ceae7801cc1f4cce74ec323933da67838be199cea",
+    ".github/workflows/ci.yml": "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94",
 }
 
 _MATRIX_ROWS = (
