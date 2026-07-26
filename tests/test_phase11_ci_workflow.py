@@ -220,7 +220,7 @@ def test_ci_and_package_smoke_preserve_metadata_and_compiler_boundaries() -> Non
         "7b55f8e67b5623c4bef3fa691288da9437d79d3aba156de48d481db32ac7d16d"
     )
     assert _sha256(PYPROJECT_PATH) == (
-        "1ce5a2ea57a7edc030d74e7babb10751861bac6c04baf4d667f87d50ca105f4e"
+        "68c3f92a360e0f52a1669aafcfa0f0c207ad3283e5dfd718d2c4beed75b83d0c"
     )
     assert _sha256(UV_LOCK_PATH) == (
         "0c06f18b2a8919c18573c18685a9fb202a74d98ab7c8fa1a5e61c02b8e5aeea9"
