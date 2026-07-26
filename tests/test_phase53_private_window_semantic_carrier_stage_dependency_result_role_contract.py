@@ -344,7 +344,7 @@ IR_SQL_CAPABILITY_PUBLIC_LOCKS = (
     ),
     (
         "pyproject.toml",
-        "1ce5a2ea57a7edc030d74e7babb10751861bac6c04baf4d667f87d50ca105f4e",
+        "68c3f92a360e0f52a1669aafcfa0f0c207ad3283e5dfd718d2c4beed75b83d0c",
     ),
 )
 
@@ -1981,7 +1981,7 @@ def test_validation_gate3_and_no_behavior_boundaries_are_locked() -> None:
         "0c06f18b2a8919c18573c18685a9fb202a74d98ab7c8fa1a5e61c02b8e5aeea9"
     )
     assert _sha256(REPO_ROOT / ".github/workflows/ci.yml") == (
-        "2fc5abc1d096b9d32e6f96dc882c09d21db04d7b372eb56727ca12b145cf16f4"
+        "6b2302ee9bbbd87420b6b90db8cacc5f5b3dd1e807107569e1ca248a5daa33fb"
     )
     pyproject = (REPO_ROOT / "pyproject.toml").read_text()
     plan = PLAN_PATH.read_text()

@@ -96,8 +96,8 @@ MODIFIED_TEST_SHA256 = {
     SLICE6_TEST_REL: "740e13d5348d3c4f8eb2e24c13748ff8624ab3a07cb52b7820bb71b9c1e21b16",
     SLICE7_TEST_REL: "15c4847432c1bb205d29869e8bf0a850b55811347307483699473da4c8629625",
 }
-WORKFLOW_SHA256 = "2fc5abc1d096b9d32e6f96dc882c09d21db04d7b372eb56727ca12b145cf16f4"
-PYPROJECT_SHA256 = "1ce5a2ea57a7edc030d74e7babb10751861bac6c04baf4d667f87d50ca105f4e"
+WORKFLOW_SHA256 = "6b2302ee9bbbd87420b6b90db8cacc5f5b3dd1e807107569e1ca248a5daa33fb"
+PYPROJECT_SHA256 = "68c3f92a360e0f52a1669aafcfa0f0c207ad3283e5dfd718d2c4beed75b83d0c"
 LOCK_SHA256 = "0c06f18b2a8919c18573c18685a9fb202a74d98ab7c8fa1a5e61c02b8e5aeea9"
 COMPILER_DIGEST = "8323e6b796cfd8102a098e7fcb4cf6f8f591906050cb117838d57451eff72fa3"
 SEMANTIC_DIGEST = "17f38bef1abc04776fbce5198a645c884c66cbc151e3a5d79f3dceaa2fb5773b"
@@ -1451,7 +1451,7 @@ def test_no_authority_behavior_and_repository_sentinels_are_exact() -> None:
     project = _read(REPO_ROOT / "pyproject.toml")
     lock = _read(REPO_ROOT / "uv.lock")
     assert 'version = "0.1.0"' in project
-    assert 'requires = ["uv_build>=0.11.29,<0.12.0"]' in project
+    assert 'requires = ["uv_build>=0.11.32,<0.12.0"]' in project
     assert "ruff>=0.15.22" in project
     assert 'name = "ruff"\nversion = "0.15.22"' in lock
 
@@ -1757,7 +1757,7 @@ def test_pr19_pr20_workflow_dependency_package_tag_and_ref_locks_are_exact() -> 
     with (REPO_ROOT / "pyproject.toml").open("rb") as stream:
         project = tomllib.load(stream)
     assert project["project"]["version"] == "0.1.0"
-    assert project["build-system"]["requires"] == ["uv_build>=0.11.29,<0.12.0"]
+    assert project["build-system"]["requires"] == ["uv_build>=0.11.32,<0.12.0"]
     assert "ruff>=0.15.22" in _read(REPO_ROOT / "pyproject.toml")
     assert 'name = "ruff"\nversion = "0.15.22"' in _read(REPO_ROOT / "uv.lock")
 

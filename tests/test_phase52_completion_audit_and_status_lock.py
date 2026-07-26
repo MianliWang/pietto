@@ -180,8 +180,8 @@ PATH_DIGESTS = {
     "project": "2f2bc5b400de16acc92e3a9182792cb8203f22e3673745ec1ceef3afc052e366",
 }
 PROTECTED_SHA256 = {
-    ".github/workflows/ci.yml": "2fc5abc1d096b9d32e6f96dc882c09d21db04d7b372eb56727ca12b145cf16f4",
-    "pyproject.toml": "1ce5a2ea57a7edc030d74e7babb10751861bac6c04baf4d667f87d50ca105f4e",
+    ".github/workflows/ci.yml": "6b2302ee9bbbd87420b6b90db8cacc5f5b3dd1e807107569e1ca248a5daa33fb",
+    "pyproject.toml": "68c3f92a360e0f52a1669aafcfa0f0c207ad3283e5dfd718d2c4beed75b83d0c",
     "uv.lock": "0c06f18b2a8919c18573c18685a9fb202a74d98ab7c8fa1a5e61c02b8e5aeea9",
     ".python-version": "7b55f8e67b5623c4bef3fa691288da9437d79d3aba156de48d481db32ac7d16d",
     "docs/spec/pietto-roadmap-phase45-60-v1.md": "26cc0ae4a68518223d6bf600ad3c4b0b226618aa7ef31b2ae1c25924d2655169",
@@ -963,7 +963,7 @@ def test_live_compiler_semantic_phase15_project_protected_version_and_tag_locks_
     with (REPO_ROOT / "pyproject.toml").open("rb") as stream:
         pyproject = tomllib.load(stream)
     assert pyproject["project"]["version"] == "0.1.0"
-    assert pyproject["build-system"]["requires"] == ["uv_build>=0.11.29,<0.12.0"]
+    assert pyproject["build-system"]["requires"] == ["uv_build>=0.11.32,<0.12.0"]
     assert "ruff>=0.15.22" in _read("pyproject.toml")
     assert 'name = "ruff"\nversion = "0.15.22"' in _read("uv.lock")
     assert (
