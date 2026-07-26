@@ -600,7 +600,7 @@ ALLOWLIST_PATHS = frozenset((*ADDED_PATHS, *MODIFIED_PATHS))
 FINAL_SHA256: dict[str, str] = {
     "docs/spec/phase53-grouped-result-ranking-aggregate-result-inputs-bounded-let-visibility-contract-v1.md": "56a1868060f6bbcfa878a908857e624815436a58369ff942470424847ee8e955",
     "src/pietto/semantic/window_input_analysis.py": "f3c68b666655c9e1d956ea48b2a4d6cee493bc6da4aed1a2ce2cd12981567a77",
-    "tests/test_phase53_grouped_result_ranking_aggregate_result_inputs_bounded_let_visibility_contract.py": "51ababf0b85052641eea06d0fd705fab052d2037e5186786745b93b3ccdd35af",
+    "tests/test_phase53_grouped_result_ranking_aggregate_result_inputs_bounded_let_visibility_contract.py": "7b53a7febdc0c0f465d0b358d066f3ed9c5713139baedf59def920eb858558d5",
     "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md": "904956bc20aa30d34e5649ad35141c52ef4e82729df4b2fdd2560e6b6a27fc78",
     "src/pietto/semantic/expressions.py": "9fb27e8b2bb4e2acbcf97fc0971b9cbd5817e14ec0544c858afaf19866e820b2",
     "src/pietto/semantic/group_by.py": "cbd4f469f4a51fe21133407533c438f4eb161c5731a3dc470a53a18ad188c12f",
@@ -610,7 +610,7 @@ FINAL_SHA256: dict[str, str] = {
     "src/pietto/semantic/window_order_analysis.py": "3c0d10dd93bc41188bfe9bf666fc0b13e97965e889a40e11b169194e744a7d41",
     "src/pietto/_project/model.py": "d56caa1f1c2f880bd82e5453f2683002990d740c8d83a2b1cd5a7f304ba81972",
     "src/pietto/_project/window_semantics.py": "c08a42066a71a3ee13be9feddff5e28a910b216226d7e0b8869ee52a90dea2ad",
-    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py": "e1e620eb2909748104bb28ce4f47a845e4db14350b3cf29ad2b43c27ca161f77",
+    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py": "6d3a40825b7c918ec3676cdb1b1c8783f337b58edbf7cec78bd43437be16879a",
     "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py": "69b068fb8e76e37f5552be145ba7f3baa6f82dac4a3898587fe1d00f490fbeea",
     "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py": "db5143a6eaffcd7a75da667822cc8649fde1a6f544162adaa568bb4b420a48ca",
     "tests/test_phase53_row_number_direct_field_mvp_contract.py": "94e9f12888c3960ae32c3bcdad55c651fdb5dddc7956a9720d631a764d0f1a40",

@@ -79,6 +79,8 @@ CI_REPAIR_MODIFIED_PATHS = (
     "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
 )
 MAINTENANCE_SUBJECT = "Consolidate major Dependabot updates"
+MAINTENANCE_CANDIDATE_HEAD = "7ad017fd96e4ebaf7290d3042d0538dcf925b267"
+MAINTENANCE_REPAIR_SUBJECT = "Repair Dependabot CI topology guard"
 MAINTENANCE_BRANCH_PREFIX = "maintenance/dependabot-"
 MAINTENANCE_MODIFIED_PATHS = (
     ".github/workflows/ci.yml",
@@ -261,6 +263,24 @@ def _github_pull_request_identity() -> tuple[str, str] | None:
     return base_sha, candidate_sha
 
 
+def _assert_maintenance_candidate_shape(
+    *,
+    parents: tuple[str, ...],
+    subject: str,
+) -> None:
+    if parents == (CI_REPAIR_HEAD,):
+        assert subject == MAINTENANCE_SUBJECT
+        return
+    assert parents == (MAINTENANCE_CANDIDATE_HEAD,)
+    assert subject == MAINTENANCE_REPAIR_SUBJECT
+    if _git_commit_exists(MAINTENANCE_CANDIDATE_HEAD):
+        parent, candidate_subject = _commit_parent_and_message(
+            MAINTENANCE_CANDIDATE_HEAD
+        )
+        assert parent == CI_REPAIR_HEAD
+        assert candidate_subject == MAINTENANCE_SUBJECT
+
+
 def _assert_published_slice13_identity() -> None:
     assert _git_commit_exists(PUBLISHED_SLICE13_HEAD)
     assert _git_commit_exists(BASE_HEAD)
@@ -315,19 +335,17 @@ def _is_clean_projection() -> bool:
         assert base_sha == CI_REPAIR_HEAD
         _assert_clean_state(status=status, staged=staged)
         if head == candidate_sha:
-            assert parents == (CI_REPAIR_HEAD,)
-            assert subject == MAINTENANCE_SUBJECT
+            _assert_maintenance_candidate_shape(parents=parents, subject=subject)
         else:
             assert parents == (CI_REPAIR_HEAD, candidate_sha)
         return True
 
-    assert parents == (CI_REPAIR_HEAD,)
-    assert subject == MAINTENANCE_SUBJECT
+    _assert_maintenance_candidate_shape(parents=parents, subject=subject)
     _assert_clean_state(status=status, staged=staged)
     branch = _git_output(["branch", "--show-current"])
     if branch == "main":
         assert _git_optional_ref("refs/heads/main") == head
-        assert _git_optional_ref("refs/remotes/origin/main") == head
+        assert _git_optional_ref("refs/remotes/origin/main") in (None, head)
         assert os.environ.get("GITHUB_EVENT_NAME") in (None, "push")
         if os.environ.get("GITHUB_EVENT_NAME") == "push":
             assert os.environ.get("GITHUB_SHA") == head
@@ -1060,7 +1078,16 @@ def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
 
 def test_slice13_dirty_clean_depth_one_and_manifest_states_are_locked() -> None:
     _is_clean_projection()
-    assert _git_output(["rev-list", "--count", "HEAD..origin/main"]) == "0"
+    origin_main = _git_optional_ref("refs/remotes/origin/main")
+    if origin_main is not None:
+        assert _git_output(["rev-list", "--count", f"HEAD..{origin_main}"]) == "0"
+    else:
+        assert _git_output(["rev-parse", "--is-shallow-repository"]) == "true"
+        assert _github_pull_request_identity() is not None or (
+            os.environ.get("GITHUB_EVENT_NAME") == "push"
+            and os.environ.get("GITHUB_REF") == "refs/heads/main"
+            and os.environ.get("GITHUB_SHA") == _git_output(["rev-parse", "HEAD"])
+        )
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
 
 

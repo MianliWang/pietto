@@ -729,7 +729,7 @@ ALLOWLIST_PATHS = frozenset((*ADDED_PATHS, *MODIFIED_PATHS))
 FINAL_SHA256: dict[str, str] = {
     "docs/spec/phase53-grouped-result-ranking-aggregate-result-inputs-bounded-let-visibility-contract-v1.md": "56a1868060f6bbcfa878a908857e624815436a58369ff942470424847ee8e955",
     "src/pietto/semantic/window_input_analysis.py": "f3c68b666655c9e1d956ea48b2a4d6cee493bc6da4aed1a2ce2cd12981567a77",
-    "tests/test_phase53_grouped_result_ranking_aggregate_result_inputs_bounded_let_visibility_contract.py": "51ababf0b85052641eea06d0fd705fab052d2037e5186786745b93b3ccdd35af",
+    "tests/test_phase53_grouped_result_ranking_aggregate_result_inputs_bounded_let_visibility_contract.py": "7b53a7febdc0c0f465d0b358d066f3ed9c5713139baedf59def920eb858558d5",
     "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md": "904956bc20aa30d34e5649ad35141c52ef4e82729df4b2fdd2560e6b6a27fc78",
     "src/pietto/semantic/expressions.py": "9fb27e8b2bb4e2acbcf97fc0971b9cbd5817e14ec0544c858afaf19866e820b2",
     "src/pietto/semantic/group_by.py": "cbd4f469f4a51fe21133407533c438f4eb161c5731a3dc470a53a18ad188c12f",
