@@ -37,7 +37,7 @@ FILE_HASHES = {
 
 GROUP_HASHES = {
     "frontend": "cd28ccecc82f9d3f0bfa85fe886490e81d7260e9fe61919a4913ff8d6b21c52f",
-    "semantic": "9628b5cc1721ad51cdfe0679b0822725bc5373d08e2861d2b07f734c03949b2f",
+    "semantic": "17f38bef1abc04776fbce5198a645c884c66cbc151e3a5d79f3dceaa2fb5773b",
     "ir": "57097f43ba5e0ffa8d531b827b7029c9104b85ab3dc0657889cccd28caec5249",
     "sql": "b18229fbda079d706416119002a70d091e7f5b79e0e4818a5b1292d9b88e898b",
     "generated": "bc5be46411f947c4d591e81ce8dd8345140fd5e10276f2ff0055eccfc12babe4",

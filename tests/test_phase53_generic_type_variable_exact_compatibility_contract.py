@@ -101,6 +101,7 @@ SLICE10_H2 = "Slice 10 Partition Binding, Multi-key Visibility, And Diagnostics"
 SLICE11_H2 = (
     "Slice 11 Window-local Ordering, Direction, Mandatory-order Policy, And Determinism"
 )
+SLICE12_H2 = "Slice 12 lag / lead Navigation, Offset, Default, And Nullability"
 EXPECTED_TEST_NAMES = (
     "test_slice4_artifact_paths_heading_contract_and_lifecycle_are_exact",
     "test_private_module_enum_carrier_and_privacy_shapes_are_exact",
@@ -169,6 +170,7 @@ EXPECTED_CARDINALITIES = (
 )
 FOCUSED_OPERANDS, DIRTY_OVERLAY, ADDED_PATHS, MODIFIED_PATHS = (
     (
+        "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
         "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
         "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
         "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
@@ -474,15 +476,16 @@ FOCUSED_OPERANDS, DIRTY_OVERLAY, ADDED_PATHS, MODIFIED_PATHS = (
         "--deselect=tests/test_phase52_scalar_function_operator_signature_facts.py::test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact",
     ),
     (
-        "docs/spec/phase53-window-local-ordering-direction-determinism-contract-v1.md",
-        "src/pietto/semantic/window_order_analysis.py",
-        "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
+        "docs/spec/phase53-lag-lead-navigation-offset-default-nullability-contract-v1.md",
+        "src/pietto/semantic/window_navigation_analysis.py",
+        "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
     ),
     (
         "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md",
         "src/pietto/semantic/window_semantics.py",
         "src/pietto/semantic/window_analysis.py",
         "src/pietto/_project/window_semantics.py",
+        "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
         "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
         "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
         "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
@@ -544,19 +547,19 @@ FOCUSED_OPERANDS, DIRTY_OVERLAY, ADDED_PATHS, MODIFIED_PATHS = (
 )
 EXPECTED_DIRTY_PATHS = frozenset((*ADDED_PATHS, *MODIFIED_PATHS))
 
-BASE_HEAD = "54553396f61caefe74b57cd6ed6fa144725a50e4"
+BASE_HEAD = "05114de0effaa3c9fff6ecd0dbb781bd553e91a6"
 FINAL_COMPILER_DIGEST = (
-    "5877dd47e60c7b3c49d4c61ee50232c72c68d968351aea21c07ac9f43dee558c"
+    "8323e6b796cfd8102a098e7fcb4cf6f8f591906050cb117838d57451eff72fa3"
 )
 FINAL_SEMANTIC_DIGEST = (
-    "9628b5cc1721ad51cdfe0679b0822725bc5373d08e2861d2b07f734c03949b2f"
+    "17f38bef1abc04776fbce5198a645c884c66cbc151e3a5d79f3dceaa2fb5773b"
 )
 FINAL_PHASE15_DIGEST = (
-    "bc501c43950b0022aded20da577a36ca093322a5841bc0bcebe294cb949099dc"
+    "f649850a1b9990eebb1daa8e41ffac6110f8a1c9e9468cbb0f0325951f0f16ab"
 )
 FINAL_SOURCE_SHA256 = "340703267a6185f0b37401c1097a1f246d34d3d0d46c1f583b5ce5134e5090f8"
 FINAL_SPEC_SHA256 = "194ee730b88782afd6f84d90b52cb4f02a3f5efb386155fae062978f3dfe5bd9"
-FINAL_PLAN_SHA256 = "167e1a851b33e036d483b53e763c019c338c0b7adbd21118f29e64986a5a2a99"
+FINAL_PLAN_SHA256 = "5dd461f5678f6e7eb2acbca3423db7aecacdd481afa531c25cd7a09beea7aef8"
 
 PROTECTED_SHA256 = {
     "grammar/Pietto.g4": "1c394db1f72561022941e0e937899e2d340880de220ebfa85cf387b86573384e",
@@ -734,7 +737,7 @@ def test_slice4_artifact_paths_heading_contract_and_lifecycle_are_exact() -> Non
         "And Nullability Foundation"
     )
     assert plan_h2.count(SLICE4_H2) == 1
-    assert plan_h2[-8:] == (
+    assert plan_h2[-9:] == (
         SLICE4_H2,
         SLICE5_H2,
         SLICE6_H2,
@@ -743,6 +746,7 @@ def test_slice4_artifact_paths_heading_contract_and_lifecycle_are_exact() -> Non
         SLICE9_H2,
         SLICE10_H2,
         SLICE11_H2,
+        SLICE12_H2,
     )
     assert plan_h2.count(SLICE5_H2) == 1
     assert plan_h2.count(SLICE6_H2) == 1
@@ -750,6 +754,7 @@ def test_slice4_artifact_paths_heading_contract_and_lifecycle_are_exact() -> Non
     assert plan_h2.count(SLICE8_H2) == 1
     assert plan_h2.count(SLICE9_H2) == 1
     assert plan_h2.count(SLICE11_H2) == 1
+    assert plan_h2.count(SLICE12_H2) == 1
     assert plan_h3 == ()
     plan = PLAN_PATH.read_text()
     assert "Phase 53 is `ACTIVE`" in plan
@@ -1857,9 +1862,9 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        89,
-        33,
-        30,
+        90,
+        34,
+        31,
     )
     assert _digest(tuple(compiler_paths)) == FINAL_COMPILER_DIGEST
     assert _digest(semantic_paths) == FINAL_SEMANTIC_DIGEST
@@ -1869,9 +1874,9 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
     assert _sha256(PLAN_PATH) == FINAL_PLAN_SHA256
 
     test_paths = tuple((REPO_ROOT / "tests").glob("test_*.py"))
-    assert sum(FINAL_COMPILER_DIGEST in path.read_text() for path in test_paths) == 25
-    assert sum(FINAL_SEMANTIC_DIGEST in path.read_text() for path in test_paths) == 39
-    assert sum(FINAL_PHASE15_DIGEST in path.read_text() for path in test_paths) == 15
+    assert sum(FINAL_COMPILER_DIGEST in path.read_text() for path in test_paths) == 26
+    assert sum(FINAL_SEMANTIC_DIGEST in path.read_text() for path in test_paths) == 40
+    assert sum(FINAL_PHASE15_DIGEST in path.read_text() for path in test_paths) == 16
     assert (
         sum(
             f'BOUNDARY_HASH = "{FINAL_COMPILER_DIGEST}"' in path.read_text()
@@ -1936,7 +1941,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         len(markdown_paths),
         len(test_paths),
         top_level_functions,
-    ) == (867, 533, 238, 444, 4612)
+    ) == (870, 535, 239, 445, 4676)
     self_tree = ast.parse(SELF_PATH.read_text())
     self_names = tuple(
         node.name
@@ -1957,14 +1962,14 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         len(focused_payload),
         hashlib.sha256(focused_payload).hexdigest(),
     ) == (
-        116,
-        69,
-        10,
+        117,
+        70,
+        11,
         106,
-        13093,
-        "5097cde3db637b55cd2e79a1292dd96dc5d4864512e012476612368164d6dc77",
+        13171,
+        "764c5879e93871b253e875ce1e8145ce3a998d48a94b578f8af9d31f9562e5ee",
     )
-    assert len(set(FOCUSED_OPERANDS)) == 116
+    assert len(set(FOCUSED_OPERANDS)) == 117
 
     overlay_payload = ("\n".join(DIRTY_OVERLAY) + "\n").encode()
     assert (

@@ -91,21 +91,21 @@ MODULE_SHA256 = {
 }
 SPEC_SHA256 = "7010cd8a39ed389de588d8cd734b136cc87456c3ef5eb324638467d1188fc935"
 MODIFIED_TEST_SHA256 = {
-    SLICE4_TEST_REL: "941bdb9da98d7b3643ae37c726f4c66f7865161e1dc249578c1c24a8aa41df5f",
-    SLICE5_TEST_REL: "c270a6df50d5f97f49dc700b52ad5c52cbc3d13de33457642642ef35f5913c9f",
-    SLICE6_TEST_REL: "d903abb34da5ad2ebc9d04afe8e1f519bf547a1a87f5956751efaf1a30ddcc76",
-    SLICE7_TEST_REL: "f19c934bb787bc46e7ea67d915f4e9b916f1e86e77c94d2e7dbdb22b50f0d8c8",
+    SLICE4_TEST_REL: "6cdd5c6c0e4d99342098faa424897f3fe1fcfa83db89816c2a985b942e2060a6",
+    SLICE5_TEST_REL: "40fd5f26372d28282957c774d6b0913a945d6e95ef3e6df1e97cdf01e8295051",
+    SLICE6_TEST_REL: "740e13d5348d3c4f8eb2e24c13748ff8624ab3a07cb52b7820bb71b9c1e21b16",
+    SLICE7_TEST_REL: "15c4847432c1bb205d29869e8bf0a850b55811347307483699473da4c8629625",
 }
 WORKFLOW_SHA256 = "2fc5abc1d096b9d32e6f96dc882c09d21db04d7b372eb56727ca12b145cf16f4"
 PYPROJECT_SHA256 = "1ce5a2ea57a7edc030d74e7babb10751861bac6c04baf4d667f87d50ca105f4e"
 LOCK_SHA256 = "0c06f18b2a8919c18573c18685a9fb202a74d98ab7c8fa1a5e61c02b8e5aeea9"
-COMPILER_DIGEST = "5877dd47e60c7b3c49d4c61ee50232c72c68d968351aea21c07ac9f43dee558c"
-SEMANTIC_DIGEST = "9628b5cc1721ad51cdfe0679b0822725bc5373d08e2861d2b07f734c03949b2f"
+COMPILER_DIGEST = "8323e6b796cfd8102a098e7fcb4cf6f8f591906050cb117838d57451eff72fa3"
+SEMANTIC_DIGEST = "17f38bef1abc04776fbce5198a645c884c66cbc151e3a5d79f3dceaa2fb5773b"
 PHASE15_SUBSET_DIGEST = (
-    "bc501c43950b0022aded20da577a36ca093322a5841bc0bcebe294cb949099dc"
+    "f649850a1b9990eebb1daa8e41ffac6110f8a1c9e9468cbb0f0325951f0f16ab"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "16590c5b7d0f94d5b982ab6fccb006da245f97462a240284e5becec3a7fd989d"
+    "2f2bc5b400de16acc92e3a9182792cb8203f22e3673745ec1ceef3afc052e366"
 )
 
 SPEC_H2 = (
@@ -452,7 +452,11 @@ def _readable_paths() -> tuple[str, ...]:
     tracked = _git_output(["ls-files"]).splitlines()
     untracked = _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     return tuple(
-        path for path in (*tracked, *untracked) if path and (REPO_ROOT / path).is_file()
+        sorted(
+            path
+            for path in {*tracked, *untracked}
+            if path and (REPO_ROOT / path).is_file()
+        )
     )
 
 
@@ -1763,7 +1767,7 @@ def test_static_reader_counts_boundary_hash_and_nested_sha_topology_are_exact() 
     assert (
         sum(path.endswith(".py") for path in readable),
         sum(path.endswith(".md") for path in readable),
-    ) == (533, 238)
+    ) == (535, 239)
     compiler_paths = _compiler_paths()
     semantic_paths = tuple((REPO_ROOT / "src/pietto/semantic").glob("*.py"))
     phase15_paths = tuple(
@@ -1773,9 +1777,9 @@ def test_static_reader_counts_boundary_hash_and_nested_sha_topology_are_exact() 
     )
     project_paths = _project_private_paths()
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        89,
-        33,
-        30,
+        90,
+        34,
+        31,
     )
     assert len(project_paths) == 17
     assert _digest(compiler_paths) == COMPILER_DIGEST
@@ -1784,10 +1788,10 @@ def test_static_reader_counts_boundary_hash_and_nested_sha_topology_are_exact() 
     assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
 
     for digest, expected_count in (
-        (COMPILER_DIGEST, 25),
-        (SEMANTIC_DIGEST, 39),
-        (PHASE15_SUBSET_DIGEST, 15),
-        (PROJECT_PRIVATE_DIGEST, 18),
+        (COMPILER_DIGEST, 26),
+        (SEMANTIC_DIGEST, 40),
+        (PHASE15_SUBSET_DIGEST, 16),
+        (PROJECT_PRIVATE_DIGEST, 19),
     ):
         readers = tuple(
             path
@@ -1876,6 +1880,7 @@ def test_static_reader_counts_boundary_hash_and_nested_sha_topology_are_exact() 
         )
         assert actual == (
             *expected_outers,
+            "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
             _SLICE10_READER_MIGRATION_PATHS[-1],
             "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
         )
@@ -1891,7 +1896,10 @@ def test_static_reader_counts_boundary_hash_and_nested_sha_topology_are_exact() 
         )
         expected_readers = (SELF_REL, _SLICE10_READER_MIGRATION_PATHS[-1])
         if inner != SPEC_REL:
-            expected_readers += (
+            expected_readers = (
+                SELF_REL,
+                "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
+                _SLICE10_READER_MIGRATION_PATHS[-1],
                 "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
             )
         assert actual == expected_readers
@@ -1903,6 +1911,7 @@ def test_static_reader_counts_boundary_hash_and_nested_sha_topology_are_exact() 
         if self_sha.encode("ascii") in (REPO_ROOT / path).read_bytes()
     )
     assert self_readers == (
+        "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
         _SLICE10_READER_MIGRATION_PATHS[-1],
         "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
     )
@@ -1946,7 +1955,7 @@ def test_test_inventory_tier1_selectors_and_compatibility_counts_are_exact() -> 
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (444, 4612)
+    assert (len(test_files), top_level_functions) == (445, 4676)
     assert tuple(
         _pytest_shape(REPO_ROOT / path)[1]
         for path in (

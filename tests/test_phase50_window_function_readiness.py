@@ -423,6 +423,10 @@ def test_current_source_has_generic_calls_but_no_window_model() -> None:
         "class DistributionWindowSemanticFact:",
         "class WindowOrderFieldBinding:",
         "class WindowOrderBindingFact:",
+        "class NavigationDirection",
+        "class NavigationOffsetFact:",
+        "class NavigationDefaultFact:",
+        "class NavigationWindowSemanticFact:",
         "class WindowExpressionAnalysis:",
     ):
         assert carrier in semantic_window
@@ -439,8 +443,12 @@ def test_current_source_has_generic_calls_but_no_window_model() -> None:
     assert "def analyze_distribution_window_expression(" in window_analysis
     assert "def analyze_ranking_window_expression(" in window_analysis
     assert "def analyze_row_number_window_expression(" in window_analysis
+    assert "def analyze_navigation_window_expression(" in window_analysis
     assert "def bind_window_order_fields(" in _read(
         REPO_ROOT / "src/pietto/semantic/window_order_analysis.py"
+    )
+    assert "def analyze_navigation_arguments(" in _read(
+        REPO_ROOT / "src/pietto/semantic/window_navigation_analysis.py"
     )
     assert "_RANKING_SIGNATURE = GenericSignature(" in window_analysis
     assert "nullability=NonNullFormula()" in window_analysis
@@ -455,6 +463,7 @@ def test_current_source_has_generic_calls_but_no_window_model() -> None:
     assert "def build_window_result_project_fact(" in project_window
     assert "def build_ranking_window_result_project_fact(" in project_window
     assert "def build_row_number_window_result_project_fact(" in project_window
+    assert "def build_navigation_window_result_project_fact(" in project_window
     assert "semantic_fact=semantic_result.semantic_fact" in project_window
     assert project_model.count('WINDOW_RESULT = "window_result"') == 1
     assert "WINDOW_RESULT" not in metadata_builder
@@ -696,4 +705,10 @@ _SLICE11_READER_MIGRATION_PATHS = (
     "docs/spec/phase53-window-local-ordering-direction-determinism-contract-v1.md",
     "src/pietto/semantic/window_order_analysis.py",
     "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
+)
+
+_SLICE12_READER_MIGRATION_PATHS = (
+    "docs/spec/phase53-lag-lead-navigation-offset-default-nullability-contract-v1.md",
+    "src/pietto/semantic/window_navigation_analysis.py",
+    "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
 )

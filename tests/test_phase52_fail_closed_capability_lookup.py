@@ -115,13 +115,13 @@ MODIFIED_READER_PATHS = (
 )
 ADDED_PATHS = {CONTEXT_REL, CONTEXT_SPEC_REL, CONTEXT_TEST_REL}
 ALLOWLIST_PATHS = {*MODIFIED_READER_PATHS, *ADDED_PATHS}
-COMPILER_DIGEST = "5877dd47e60c7b3c49d4c61ee50232c72c68d968351aea21c07ac9f43dee558c"
-SEMANTIC_DIGEST = "9628b5cc1721ad51cdfe0679b0822725bc5373d08e2861d2b07f734c03949b2f"
+COMPILER_DIGEST = "8323e6b796cfd8102a098e7fcb4cf6f8f591906050cb117838d57451eff72fa3"
+SEMANTIC_DIGEST = "17f38bef1abc04776fbce5198a645c884c66cbc151e3a5d79f3dceaa2fb5773b"
 PHASE15_SUBSET_DIGEST = (
-    "bc501c43950b0022aded20da577a36ca093322a5841bc0bcebe294cb949099dc"
+    "f649850a1b9990eebb1daa8e41ffac6110f8a1c9e9468cbb0f0325951f0f16ab"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "16590c5b7d0f94d5b982ab6fccb006da245f97462a240284e5becec3a7fd989d"
+    "2f2bc5b400de16acc92e3a9182792cb8203f22e3673745ec1ceef3afc052e366"
 )
 
 COMPILER_READERS = (
@@ -526,9 +526,9 @@ def test_compiler_semantic_and_phase15_boundary_digests_are_refreshed() -> None:
         for path in semantic_paths
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
-    assert len(compiler_paths) == 89
-    assert len(semantic_paths) == 33
-    assert len(phase15_paths) == 30
+    assert len(compiler_paths) == 90
+    assert len(semantic_paths) == 34
+    assert len(phase15_paths) == 31
     assert _digest(compiler_paths) == COMPILER_DIGEST
     assert _digest(semantic_paths) == SEMANTIC_DIGEST
     assert _digest(phase15_paths) == PHASE15_SUBSET_DIGEST
@@ -747,6 +747,7 @@ def test_dialect_backend_or_extension_scope_differences_are_conflicts(
 
 
 _TERMINAL_READER_MIGRATION_PATHS = (
+    "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
     "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
     "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
 )

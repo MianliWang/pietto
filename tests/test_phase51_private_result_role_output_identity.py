@@ -127,6 +127,7 @@ def test_result_role_and_fact_carriers_are_exact_frozen_and_slots() -> None:
         "distribution_fact",
         "partition_binding_fact",
         "order_binding_fact",
+        "navigation_fact",
     )
 
     row_field = _row_field("id")
@@ -474,12 +475,18 @@ def test_new_private_facts_are_not_exported_or_serialized(tmp_path: Path) -> Non
         "WindowOrderFieldBinding",
         "WindowOrderBindingFact",
         "WindowExpressionAnalysis",
+        "NavigationDirection",
+        "NavigationOffsetFact",
+        "NavigationDefaultFact",
+        "NavigationWindowSemanticFact",
         "window_result",
         "analyze_window_expression",
         "analyze_distribution_window_expression",
         "analyze_ranking_window_expression",
+        "analyze_navigation_window_expression",
         "build_window_result_project_fact",
         "build_ranking_window_result_project_fact",
+        "build_navigation_window_result_project_fact",
         "build_row_number_window_result_project_fact",
     ):
         assert not hasattr(pietto, name)
@@ -686,4 +693,10 @@ _SLICE11_READER_MIGRATION_PATHS = (
     "docs/spec/phase53-window-local-ordering-direction-determinism-contract-v1.md",
     "src/pietto/semantic/window_order_analysis.py",
     "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
+)
+
+_SLICE12_READER_MIGRATION_PATHS = (
+    "docs/spec/phase53-lag-lead-navigation-offset-default-nullability-contract-v1.md",
+    "src/pietto/semantic/window_navigation_analysis.py",
+    "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
 )

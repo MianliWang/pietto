@@ -52,6 +52,7 @@ from pietto.semantic.model import (
     ValueTypeKind,
 )
 from pietto.semantic.window_semantics import (
+    NavigationWindowSemanticFact,
     WindowExpressionSemanticFact,
     WindowExpressionStage,
     WindowExpressionUnsupported,
@@ -121,6 +122,7 @@ SLICE10_PLAN_H2 = "Slice 10 Partition Binding, Multi-key Visibility, And Diagnos
 SLICE11_PLAN_H2 = (
     "Slice 11 Window-local Ordering, Direction, Mandatory-order Policy, And Determinism"
 )
+SLICE12_PLAN_H2 = "Slice 12 lag / lead Navigation, Offset, Default, And Nullability"
 
 TEST_FUNCTIONS = (
     "test_slice6_artifact_paths_heading_contract_and_lifecycle_are_exact",
@@ -200,33 +202,33 @@ TEST_ITEM_COUNTS = (
 )
 
 ADDED_PATHS = (
-    "docs/spec/phase53-window-local-ordering-direction-determinism-contract-v1.md",
-    "src/pietto/semantic/window_order_analysis.py",
-    "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
+    "docs/spec/phase53-lag-lead-navigation-offset-default-nullability-contract-v1.md",
+    "src/pietto/semantic/window_navigation_analysis.py",
+    "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
 )
 
 # Filled after the single write formatter; later edits are literal-only.
-FINAL_SOURCE_SHA256 = "85def9b1fa48fd03759caec894b19e5a43b8d2304b1c7258370b5379f5eaceed"
+FINAL_SOURCE_SHA256 = "d6a514bddffee9f53ca1405d28a2dcd9cc84a395a152aacc1ccb9e5b716a5905"
 FINAL_PROJECT_SOURCE_SHA256 = (
-    "d65ff113b462935395d5f5bad1aa1ff65333e5ae60fe28623d2b47ffaba7f8c7"
+    "a1bac3953abfd850ad98473705c0d2eacb0a105e0fb02ba154d16dd81ad1d739"
 )
 FINAL_MODEL_SHA256 = "91db1ae5770eca788ca18e516396c74da08acedfa5fafc400d46b1802d2a1c07"
 FINAL_SPEC_SHA256 = "e3cddc36974cc2d21bd3e0aec8d03c4f56bc4a68091780d9965207f07ea960e7"
-FINAL_PLAN_SHA256 = "167e1a851b33e036d483b53e763c019c338c0b7adbd21118f29e64986a5a2a99"
+FINAL_PLAN_SHA256 = "5dd461f5678f6e7eb2acbca3423db7aecacdd481afa531c25cd7a09beea7aef8"
 FINAL_COMPILER_DIGEST = (
-    "5877dd47e60c7b3c49d4c61ee50232c72c68d968351aea21c07ac9f43dee558c"
+    "8323e6b796cfd8102a098e7fcb4cf6f8f591906050cb117838d57451eff72fa3"
 )
 FINAL_SEMANTIC_DIGEST = (
-    "9628b5cc1721ad51cdfe0679b0822725bc5373d08e2861d2b07f734c03949b2f"
+    "17f38bef1abc04776fbce5198a645c884c66cbc151e3a5d79f3dceaa2fb5773b"
 )
 FINAL_PHASE15_DIGEST = (
-    "bc501c43950b0022aded20da577a36ca093322a5841bc0bcebe294cb949099dc"
+    "f649850a1b9990eebb1daa8e41ffac6110f8a1c9e9468cbb0f0325951f0f16ab"
 )
 FINAL_PROJECT_DIGEST = (
-    "16590c5b7d0f94d5b982ab6fccb006da245f97462a240284e5becec3a7fd989d"
+    "2f2bc5b400de16acc92e3a9182792cb8203f22e3673745ec1ceef3afc052e366"
 )
 
-BASE_HEAD = "54553396f61caefe74b57cd6ed6fa144725a50e4"
+BASE_HEAD = "05114de0effaa3c9fff6ecd0dbb781bd553e91a6"
 CI_REPAIR_BASE_HEAD_SHA = "321ec6f80737015648bc1f81b0561fdd34610e92"
 CI_REPAIR_MODIFIED_PATHS = frozenset(
     {
@@ -673,18 +675,20 @@ def test_slice6_artifact_paths_heading_contract_and_lifecycle_are_exact() -> Non
         "And Nullability Foundation",
     )
     assert plan_h2.count(PLAN_H2) == 1
-    assert plan_h2[-6:] == (
+    assert plan_h2[-7:] == (
         PLAN_H2,
         SLICE7_PLAN_H2,
         SLICE8_PLAN_H2,
         SLICE9_PLAN_H2,
         SLICE10_PLAN_H2,
         SLICE11_PLAN_H2,
+        SLICE12_PLAN_H2,
     )
     assert plan_h2.count(SLICE7_PLAN_H2) == 1
     assert plan_h2.count(SLICE8_PLAN_H2) == 1
     assert plan_h2.count(SLICE9_PLAN_H2) == 1
     assert plan_h2.count(SLICE11_PLAN_H2) == 1
+    assert plan_h2.count(SLICE12_PLAN_H2) == 1
     assert plan_h3 == ()
     plan = PLAN_PATH.read_text()
     assert "Phase 53 is `ACTIVE`; Slices 1 through 5 are `COMPLETED`" in plan
@@ -1081,13 +1085,6 @@ def test_window_semantic_fact_mismatch_matrix_fails_closed(scenario: str) -> Non
 
 
 def test_window_carriers_do_not_store_generic_or_nullability_formula_evidence() -> None:
-    source = SOURCE_PATH.read_text()
-    assert "generic_compatibility" not in source
-    assert "nullability_formulas" not in source
-    assert "GenericSignature" not in source
-    assert "SignatureResultFormula" not in source
-    assert "bind_signature" not in source
-    assert "evaluate_signature_result_nullability" not in source
     assert tuple(field.name for field in fields(WindowExpressionSemanticFact)) == (
         "occurrence",
         "expression",
@@ -1095,6 +1092,13 @@ def test_window_carriers_do_not_store_generic_or_nullability_formula_evidence() 
         "result",
         "stage",
     )
+    assert tuple(field.name for field in fields(NavigationWindowSemanticFact))[-2:] == (
+        "signature_match",
+        "nullability_match",
+    )
+    base_source = inspect.getsource(WindowExpressionSemanticFact)
+    assert "signature_match" not in base_source
+    assert "nullability_match" not in base_source
 
 
 @pytest.mark.parametrize("scenario", ("table", "blank_alias", "wrong_occurrence"))
@@ -1845,7 +1849,7 @@ def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
         len(semantic_paths),
         len(phase15_paths),
         len(project_paths),
-    ) == (89, 33, 30, 17)
+    ) == (90, 34, 31, 17)
     assert _digest(tuple(compiler_paths)) == FINAL_COMPILER_DIGEST
     assert _digest(semantic_paths) == FINAL_SEMANTIC_DIGEST
     assert _digest(phase15_paths) == FINAL_PHASE15_DIGEST
@@ -1859,7 +1863,7 @@ def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
     added = _literal_tuple(GENERIC_TEST_PATH, "ADDED_PATHS")
     modified = _literal_tuple(GENERIC_TEST_PATH, "MODIFIED_PATHS")
     assert added == ADDED_PATHS
-    assert len(modified) == 61
+    assert len(modified) == 62
     assert modified[-3:] == (
         "tests/test_phase51_private_result_role_output_identity.py",
         "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
@@ -1916,22 +1920,22 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         len(markdown_paths),
         len(test_paths),
         top_level_functions,
-    ) == (867, 533, 238, 444, 4612)
+    ) == (870, 535, 239, 445, 4676)
     assert len(TEST_FUNCTIONS) == len(TEST_ITEM_COUNTS) == 36
     assert sum(TEST_ITEM_COUNTS) == 156
-    assert 8365 + 834 == 9199
+    assert 9199 + 381 == 9580
 
     focused = _literal_tuple(GENERIC_TEST_PATH, "FOCUSED_OPERANDS")
     overlay = _literal_tuple(GENERIC_TEST_PATH, "DIRTY_OVERLAY")
     focused_payload = ("\n".join(focused) + "\n").encode()
     overlay_payload = ("\n".join(overlay) + "\n").encode()
-    assert len(focused) == 116
-    assert len({operand.split("::", 1)[0] for operand in focused}) == 69
-    assert sum("::" not in operand for operand in focused) == 10
+    assert len(focused) == 117
+    assert len({operand.split("::", 1)[0] for operand in focused}) == 70
+    assert sum("::" not in operand for operand in focused) == 11
     assert sum("::" in operand for operand in focused) == 106
     assert (len(focused_payload), hashlib.sha256(focused_payload).hexdigest()) == (
-        13093,
-        "5097cde3db637b55cd2e79a1292dd96dc5d4864512e012476612368164d6dc77",
+        13171,
+        "764c5879e93871b253e875ce1e8145ce3a998d48a94b578f8af9d31f9562e5ee",
     )
     assert len(overlay) == 185
     assert (

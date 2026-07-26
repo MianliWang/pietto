@@ -42,6 +42,7 @@ from pietto.semantic.nullability_formulas import (
 from pietto.semantic.window_semantics import (
     DistributionWindowPolicy,
     DistributionWindowSemanticFact,
+    NavigationWindowSemanticFact,
     RankingAdvancePolicy,
     RankingWindowSemanticFact,
     WindowExpressionAnalysis,
@@ -52,6 +53,10 @@ from pietto.semantic.window_semantics import (
     WindowPartitionBindingFact,
     WindowResultAvailability,
     WindowResultAvailabilityKind,
+)
+from pietto.semantic.window_navigation_analysis import (
+    analyze_navigation_arguments,
+    navigation_direction,
 )
 from pietto.semantic.window_order_analysis import bind_window_order_fields
 from pietto.semantic.window_partition_analysis import bind_window_partition_fields
@@ -270,6 +275,37 @@ def analyze_ranking_window_expression(
     return result.ranking_fact
 
 
+def analyze_navigation_window_expression(
+    *,
+    definition: TableDef | QueryDef,
+    item: SelectItem,
+    selected_output_ordinal: int,
+    source_id: str,
+    input_schema: RowSchema,
+    field_qualifier: str,
+    value_types: dict[Expression, ValueType],
+    diagnostics: list[Diagnostic],
+) -> NavigationWindowSemanticFact | WindowExpressionUnsupported:
+    """Analyze one direct selected navigation expression transiently."""
+
+    result = _analyze_recognized_window_expression(
+        definition=definition,
+        item=item,
+        selected_output_ordinal=selected_output_ordinal,
+        source_id=source_id,
+        input_schema=input_schema,
+        field_qualifier=field_qualifier,
+        value_types=value_types,
+        diagnostics=diagnostics,
+        family="navigation",
+    )
+    if isinstance(result, WindowExpressionUnsupported):
+        return result
+    if result.navigation_fact is None:
+        raise AssertionError("navigation analyzer returned no navigation fact")
+    return result.navigation_fact
+
+
 def analyze_row_number_window_expression(
     *,
     definition: TableDef | QueryDef,
@@ -343,7 +379,14 @@ def _analyze_recognized_window_expression(
         if family in {None, "distribution"}
         else None
     )
-    if advance_policy is None and distribution_definition is None:
+    navigation = (
+        navigation_direction(expression) if family in {None, "navigation"} else None
+    )
+    if (
+        advance_policy is None
+        and distribution_definition is None
+        and navigation is None
+    ):
         return _unsupported(
             occurrence=occurrence,
             expression=expression,
@@ -352,7 +395,11 @@ def _analyze_recognized_window_expression(
         )
 
     function_name = expression.identity.name
-    if advance_policy is not None:
+    if navigation is not None:
+        signature = None
+        result_formula = None
+        distribution_policy = None
+    elif advance_policy is not None:
         signature = _RANKING_SIGNATURE
         result_formula = _RANKING_RESULT_FORMULA
         distribution_policy = None
@@ -360,8 +407,25 @@ def _analyze_recognized_window_expression(
         assert distribution_definition is not None
         _, distribution_policy, signature, result_formula = distribution_definition
 
-    expected_arity = len(signature.parameters)
-    if len(expression.call.arguments) != expected_arity:
+    actual_arity = len(expression.call.arguments)
+    if navigation is not None and actual_arity not in {1, 2, 3}:
+        return _unsupported(
+            occurrence=occurrence,
+            expression=expression,
+            reason=f"{function_name} requires one through three arguments",
+            diagnostics=diagnostics,
+            code="PIE-S2104",
+            message=(
+                f"Invalid arguments for function {function_name}: expected 1 through "
+                f"3, got {actual_arity}"
+            ),
+        )
+    if navigation is None:
+        assert signature is not None
+        expected_arity = len(signature.parameters)
+    else:
+        expected_arity = actual_arity
+    if navigation is None and actual_arity != expected_arity:
         return _unsupported(
             occurrence=occurrence,
             expression=expression,
@@ -371,7 +435,7 @@ def _analyze_recognized_window_expression(
             message=(
                 f"Invalid arguments for function {function_name}: expected "
                 f"{expected_arity}, got "
-                f"{len(expression.call.arguments)}"
+                f"{actual_arity}"
             ),
         )
 
@@ -522,6 +586,35 @@ def _analyze_recognized_window_expression(
             ),
         )
 
+    if navigation is not None:
+        navigation_result = analyze_navigation_arguments(
+            occurrence=occurrence,
+            expression=expression,
+            input_schema=input_schema,
+            field_qualifier=field_qualifier,
+            value_types=value_types,
+            diagnostics=diagnostics,
+        )
+        if isinstance(navigation_result, WindowExpressionUnsupported):
+            return navigation_result
+        semantic_fact = navigation_result.semantic_fact
+        return WindowExpressionAnalysis(
+            semantic_fact=semantic_fact,
+            ranking_fact=None,
+            distribution_fact=None,
+            partition_binding_fact=WindowPartitionBindingFact(
+                semantic_fact=semantic_fact,
+                bindings=partition_bindings,
+            ),
+            order_binding_fact=WindowOrderBindingFact(
+                semantic_fact=semantic_fact,
+                bindings=order_bindings,
+            ),
+            navigation_fact=navigation_result,
+        )
+
+    assert signature is not None
+    assert result_formula is not None
     bucket_count: int | None = None
     signature_arguments: tuple[LogicalTypeIdentity, ...] = ()
     if distribution_policy is DistributionWindowPolicy.BALANCED_BUCKETS:

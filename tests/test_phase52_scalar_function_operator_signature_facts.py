@@ -73,7 +73,7 @@ FACTS_SHA256 = "8a7e7ba8374c59316051f582aecc0c0e797d270fac2ce89a91a55befca562fa9
 LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26"
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 PROJECT_PRIVATE_DIGEST = (
-    "16590c5b7d0f94d5b982ab6fccb006da245f97462a240284e5becec3a7fd989d"
+    "2f2bc5b400de16acc92e3a9182792cb8203f22e3673745ec1ceef3afc052e366"
 )
 TIER2_MANIFEST_BYTES = 18319
 TIER2_MANIFEST_FILES = 108
@@ -107,21 +107,22 @@ COMPILER_READERS = (
     "tests/test_phase12_composition_cli_json_goldens.py",
     "tests/test_phase51_completion_audit_and_status_lock.py",
     "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
+    "tests/test_phase52_aggregate_signature_algebra_facts.py",
+    "tests/test_phase52_completion_audit_and_status_lock.py",
     "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
-    SLICE3_TEST_REL,
-    SLICE4_TEST_REL,
-    SLICE7_TEST_REL,
-    SLICE8_TEST_REL,
-    SLICE9_TEST_REL,
-    "tests/test_phase53_window_spec_function_identity_ast_contract.py",
+    "tests/test_phase52_fail_closed_capability_lookup.py",
+    "tests/test_phase52_logical_type_literal_parameter_nullability_inventory.py",
+    "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
     "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
+    "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
     "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
-    "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
-    "tests/test_phase53_row_number_direct_field_mvp_contract.py",
-    "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
     "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+    "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
+    "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
     "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
+    "tests/test_phase53_row_number_direct_field_mvp_contract.py",
     "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
+    "tests/test_phase53_window_spec_function_identity_ast_contract.py",
 )
 SEMANTIC_READERS = (
     "tests/test_phase11_completion_audit.py",
@@ -149,37 +150,39 @@ SEMANTIC_READERS = (
     "tests/test_phase28_completion_audit.py",
     "tests/test_phase29_completion_audit.py",
     "tests/test_phase30_completion_audit.py",
-    SLICE3_TEST_REL,
-    SLICE4_TEST_REL,
-    SLICE7_TEST_REL,
-    SLICE8_TEST_REL,
-    SLICE9_TEST_REL,
-    "tests/test_phase53_window_spec_function_identity_ast_contract.py",
+    "tests/test_phase52_aggregate_signature_algebra_facts.py",
+    "tests/test_phase52_completion_audit_and_status_lock.py",
+    "tests/test_phase52_fail_closed_capability_lookup.py",
+    "tests/test_phase52_logical_type_literal_parameter_nullability_inventory.py",
+    "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
     "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
+    "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
     "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
-    "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
-    "tests/test_phase53_row_number_direct_field_mvp_contract.py",
-    "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
     "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+    "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
+    "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
     "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
+    "tests/test_phase53_row_number_direct_field_mvp_contract.py",
     "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
+    "tests/test_phase53_window_spec_function_identity_ast_contract.py",
 )
 PHASE15_READERS = (
     "tests/test_phase15_semantic_completion_audit.py",
-    SLICE3_TEST_REL,
-    SLICE4_TEST_REL,
-    SLICE7_TEST_REL,
-    SLICE8_TEST_REL,
-    SLICE9_TEST_REL,
-    "tests/test_phase53_window_spec_function_identity_ast_contract.py",
+    "tests/test_phase52_aggregate_signature_algebra_facts.py",
+    "tests/test_phase52_completion_audit_and_status_lock.py",
+    "tests/test_phase52_fail_closed_capability_lookup.py",
+    "tests/test_phase52_logical_type_literal_parameter_nullability_inventory.py",
+    "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
     "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
+    "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
     "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
-    "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
-    "tests/test_phase53_row_number_direct_field_mvp_contract.py",
-    "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
     "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+    "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
+    "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
     "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
+    "tests/test_phase53_row_number_direct_field_mvp_contract.py",
     "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
+    "tests/test_phase53_window_spec_function_identity_ast_contract.py",
 )
 MODIFIED_READER_PATHS = (
     "tests/test_phase11_ci_workflow.py",
@@ -1257,9 +1260,9 @@ def test_compiler_semantic_subset_project_and_raw_hash_readers_are_exact() -> No
     )
     project_paths = _project_private_paths()
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        89,
-        33,
-        30,
+        90,
+        34,
+        31,
     )
     assert len(project_paths) == 17
     assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
@@ -1269,7 +1272,7 @@ def test_compiler_semantic_subset_project_and_raw_hash_readers_are_exact() -> No
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
     readable = tuple(
-        path for path in (*tracked, *untracked) if (REPO_ROOT / path).is_file()
+        sorted(path for path in {*tracked, *untracked} if (REPO_ROOT / path).is_file())
     )
     for digest, expected_readers in (
         (_digest(compiler_paths), COMPILER_READERS),
@@ -1320,6 +1323,7 @@ def test_compiler_semantic_subset_project_and_raw_hash_readers_are_exact() -> No
             if inner_sha.encode("ascii") in (REPO_ROOT / path).read_bytes()
         ) == (
             *outers,
+            "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
             _SLICE10_READER_MIGRATION_PATHS[-1],
             "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
         )
@@ -1336,6 +1340,7 @@ def test_compiler_semantic_subset_project_and_raw_hash_readers_are_exact() -> No
             if outer_sha.encode("ascii") in (REPO_ROOT / path).read_bytes()
         )
         assert actual == (
+            "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
             _SLICE10_READER_MIGRATION_PATHS[-1],
             "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
         )
@@ -1448,7 +1453,7 @@ def test_static_test_inventory_tier1_and_tier2_manifest_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (444, 4612)
+    assert (len(test_files), top_level_functions) == (445, 4676)
     assert len(DIRECT_TIER1_NODES) == len(set(DIRECT_TIER1_NODES)) == 44
     for node_id in DIRECT_TIER1_NODES:
         path, function = node_id.split("::", maxsplit=1)

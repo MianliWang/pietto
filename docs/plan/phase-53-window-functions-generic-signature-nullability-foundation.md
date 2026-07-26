@@ -510,3 +510,68 @@ IR/SQL widening, second formatter, count/selector drift, nonempty index,
 publication, or unresolved decision. Recommended next authorization:
 `Phase 53 Slice 11 Gate 3`, with commit subject
 `Add Phase 53 window-local ordering and direction`.
+
+## Slice 12 lag / lead Navigation, Offset, Default, And Nullability
+
+Phase 53 is `ACTIVE`; Slices 1 through 11 are `COMPLETED`; Slice 12 remains
+`UNSTARTED` throughout Gate 2. Gate 2 owns only exact lowercase unqualified
+`lag` and `lead`, one through three bounded positional arguments, omitted or
+nonnegative-integer-literal offset, exact generic `T`, complete navigation
+nullability, mandatory local-order reuse, private sibling navigation facts,
+transient project occurrences, its contract and focused tests, and the exact
+reader migration. Slice 12 becomes `COMPLETED` only after separately
+authorized Gate 3 publication and the unique natural `CI / push / main`,
+attempt 1, succeeds at that exact head.
+
+The admitted value and optional default are bare or immediate-qualified direct
+fields or `Bool`, `Text`, `Int`, `Float`, and `NULL` literals. Omitted offset is
+effective `1`; explicit offset is an exact nonnegative `Int` literal and zero
+is legal. Value/default compatibility is exact logical name plus exact kind,
+without coercion, promotion, LUB, or alias expansion. `NULL` is nonbinding, so
+one concrete peer binds `T`, while pure-`NULL` and `NULL` with omitted default
+fail closed. Omitted and positive offsets retain the boundary-nullability
+factor; offset zero follows value nullability or explicit always-null evidence.
+
+Both identities require nonempty local order and reuse the completed
+partition, multi-key order, duplicate, nullable-field, and direction binders.
+They are peer-insensitive and add no frame, total-order proof, uniqueness,
+hidden tie-breaker, collation, null placement, runtime evaluation, or backend
+behavior. Existing `PIE-S2102`, `PIE-S2103`, `PIE-S2104`, and `PIE-I1000`
+remain the complete diagnostic and lowering boundary.
+
+Private `NavigationDirection`, `NavigationOffsetFact`,
+`NavigationDefaultFact`, and `NavigationWindowSemanticFact` retain source,
+type, always-null, signature, and nullability evidence. The sibling
+`window_navigation_analysis` helper performs bounded argument work after the
+common partition and order path. The generic project builder emits exact role
+blocks `RELATION_INPUT`, `WINDOW_ARGUMENT`, `WINDOW_DEFAULT`,
+`WINDOW_PARTITION`, and `WINDOW_ORDER`; direct value/default fields suppress
+the relation-input fallback, occurrences preserve duplicates and ordinals,
+and edges retain first `(role, target)` deduplication.
+
+The exact Gate 2 scope is `A3/M62/D0`: this plan, three private production
+modules, the Slice 11 focused test and 57 inherited compatibility/hash/state
+readers, plus the new specification, one private semantic helper, and one
+64-function/381-item focused test. Future inventory is exactly 870 tracked
+files, 535 Python files, 239 Markdown files, 445 test modules, 4676 top-level
+test functions, 9580 collected items, 90 compiler items, 34 semantic items, 31
+Phase-15 items, 17 project items, 8 generated files, and 37 goldens.
+
+Gate 2 uses exactly one write-mode Ruff invocation over the exact ordered
+63-path handwritten Python manifest. It validates 3488 focused items, proves
+real collection of 9580, then runs the dirty overlay with `9395 passed, 185
+deselected`, and projects 9580 clean-CI passes per Python job. It leaves all 65
+paths unstaged and uncommitted with an empty index. The clean projection uses
+`UV_OFFLINE=1`, `UV_NO_SYNC=1`, the audited two-wheel flat wheelhouse, and a
+fresh empty external cache.
+
+Navigation facts remain transient: no semantic/project model, row schema,
+graph, lineage, serializer, public API, CLI, JSON, metadata, grammar,
+generated, AST, parser, IR, SQL, backend, fixture, golden, package,
+dependency, lockfile, workflow, version, tag, or release behavior changes.
+Slices 13 and 14 retain value-family and frame work; Slice 15 retains lowering;
+Slice 16 retains completion audit/status lock. STOP on an allowlist escape,
+new diagnostic, semantic or architecture redesign, second formatter, count or
+selector drift, online fallback, nonempty index, publication, or unresolved
+decision. Recommended next authorization: `Phase 53 Slice 12 Gate 3`, with
+commit subject `Add Phase 53 lag and lead navigation semantics`.

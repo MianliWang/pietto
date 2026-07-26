@@ -82,7 +82,7 @@ PLAN_REL = (
 SPEC_REL = "docs/spec/phase53-row-number-direct-field-mvp-contract-v1.md"
 SEMANTIC_REL = "src/pietto/semantic/window_analysis.py"
 SELF_REL = "tests/test_phase53_row_number_direct_field_mvp_contract.py"
-BASE_HEAD_SHA = "54553396f61caefe74b57cd6ed6fa144725a50e4"
+BASE_HEAD_SHA = "05114de0effaa3c9fff6ecd0dbb781bd553e91a6"
 
 SPEC_TITLE = "Phase 53 Slice 7 row_number Direct-field MVP Contract v1"
 SLICE7_PLAN_H2 = "Slice 7 row_number Direct-field MVP"
@@ -202,15 +202,16 @@ CARDINALITIES = (
 )
 
 ADDED_PATHS = {
-    "docs/spec/phase53-window-local-ordering-direction-determinism-contract-v1.md",
-    "src/pietto/semantic/window_order_analysis.py",
-    "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
+    "docs/spec/phase53-lag-lead-navigation-offset-default-nullability-contract-v1.md",
+    "src/pietto/semantic/window_navigation_analysis.py",
+    "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
 }
 MODIFIED_PATHS = {
     "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md",
     "src/pietto/semantic/window_semantics.py",
     "src/pietto/semantic/window_analysis.py",
     "src/pietto/_project/window_semantics.py",
+    "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
     "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
     "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
     "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
@@ -271,15 +272,15 @@ MODIFIED_PATHS = {
 }
 ALLOWLIST_PATHS = ADDED_PATHS | MODIFIED_PATHS
 
-COMPILER_DIGEST = "5877dd47e60c7b3c49d4c61ee50232c72c68d968351aea21c07ac9f43dee558c"
-SEMANTIC_DIGEST = "9628b5cc1721ad51cdfe0679b0822725bc5373d08e2861d2b07f734c03949b2f"
+COMPILER_DIGEST = "8323e6b796cfd8102a098e7fcb4cf6f8f591906050cb117838d57451eff72fa3"
+SEMANTIC_DIGEST = "17f38bef1abc04776fbce5198a645c884c66cbc151e3a5d79f3dceaa2fb5773b"
 PHASE15_SUBSET_DIGEST = (
-    "bc501c43950b0022aded20da577a36ca093322a5841bc0bcebe294cb949099dc"
+    "f649850a1b9990eebb1daa8e41ffac6110f8a1c9e9468cbb0f0325951f0f16ab"
 )
-PROJECT_DIGEST = "16590c5b7d0f94d5b982ab6fccb006da245f97462a240284e5becec3a7fd989d"
-FOCUSED_SHA256 = "5097cde3db637b55cd2e79a1292dd96dc5d4864512e012476612368164d6dc77"
+PROJECT_DIGEST = "2f2bc5b400de16acc92e3a9182792cb8203f22e3673745ec1ceef3afc052e366"
+FOCUSED_SHA256 = "764c5879e93871b253e875ce1e8145ce3a998d48a94b578f8af9d31f9562e5ee"
 OVERLAY_SHA256 = "197b591aec962f43b9b9393da99a76ff21c3a36189cc02c7a75dc5a7b85d6b26"
-FORMATTER_SHA256 = "c44ceb6e493a62c154a7958974d88a0c4d835948e1f7fb3bc0b993fa14679307"
+FORMATTER_SHA256 = "5920e1a21f135b2537e8295b13c8bc6fa2962423812ffc3cbe1e52663e924daf"
 
 
 def _read(relative: str) -> str:
@@ -657,6 +658,14 @@ def test_exact_row_number_identity_legality_and_case_policy_are_exact(
             item.code in {"PIE-S2103", "PIE-S2104"} for item in semantic.diagnostics
         )
         assert expression not in semantic.model.expression_value_types
+    elif call in {"lag()", "lead()"}:
+        matching = [item for item in semantic.diagnostics if item.code == "PIE-S2104"]
+        assert len(matching) == 1
+        assert matching[0].message == (
+            f"Invalid arguments for function {call.removesuffix('()')}: "
+            "expected 1 through 3, got 0"
+        )
+        assert matching[0].location.line == expression.call.span.line
     else:
         matching = [item for item in semantic.diagnostics if item.code == "PIE-S2103"]
         assert len(matching) == 1
@@ -1217,12 +1226,15 @@ def test_non_row_number_window_identities_remain_semantically_unsupported(
     call = "ntile(4)" if name == "ntile" else f"{name}()"
     script, _ = _parsed_relation(_program(call=call))
     semantic = analyze(script)
-    matching = [item for item in semantic.diagnostics if item.code == "PIE-S2103"]
-    if name in {"rank", "dense_rank", "percent_rank", "cume_dist", "ntile"}:
-        assert matching == []
-    else:
+    assert all(item.code != "PIE-S2103" for item in semantic.diagnostics)
+    if name in {"lag", "lead"}:
+        matching = [item for item in semantic.diagnostics if item.code == "PIE-S2104"]
         assert len(matching) == 1
-        assert matching[0].message == f"Unknown function: {name}"
+        assert matching[0].message == (
+            f"Invalid arguments for function {name}: expected 1 through 3, got 0"
+        )
+    else:
+        assert all(item.code != "PIE-S2104" for item in semantic.diagnostics)
 
 
 def test_grammar_generated_ast_parser_ir_sql_and_public_bytes_are_locked() -> None:
@@ -1272,7 +1284,7 @@ def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
         len(semantic_paths),
         len(phase15_paths),
         len(project_paths),
-    ) == (89, 33, 30, 17)
+    ) == (90, 34, 31, 17)
     assert _digest(tuple(compiler_paths)) == COMPILER_DIGEST
     assert _digest(semantic_paths) == SEMANTIC_DIGEST
     assert _digest(phase15_paths) == PHASE15_SUBSET_DIGEST
@@ -1308,15 +1320,15 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
     readable = {path for path in (*tracked, *untracked) if (REPO_ROOT / path).is_file()}
-    assert len(readable) == 867
-    assert sum(path.endswith(".py") for path in readable) == 533
-    assert sum(path.endswith(".md") for path in readable) == 238
+    assert len(readable) == 870
+    assert sum(path.endswith(".py") for path in readable) == 535
+    assert sum(path.endswith(".md") for path in readable) == 239
     test_modules = {
         path
         for path in readable
         if path.startswith("tests/test_") and path.endswith(".py")
     }
-    assert len(test_modules) == 444
+    assert len(test_modules) == 445
     top_level_tests = 0
     for relative in sorted(test_modules):
         tree = ast.parse(_read(relative), filename=relative)
@@ -1325,17 +1337,17 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 4612
-    assert 9199 == 8365 + 834
-    assert 9199 - 185 == 9014
-    assert (116, 69, 10, 106, 3107, 13093) == (116, 69, 10, 106, 3107, 13093)
+    assert top_level_tests == 4676
+    assert 9580 == 9199 + 381
+    assert 9580 - 185 == 9395
+    assert (117, 70, 11, 106, 3488, 13171) == (117, 70, 11, 106, 3488, 13171)
     assert (FOCUSED_SHA256, OVERLAY_SHA256, FORMATTER_SHA256) == (
-        "5097cde3db637b55cd2e79a1292dd96dc5d4864512e012476612368164d6dc77",
+        "764c5879e93871b253e875ce1e8145ce3a998d48a94b578f8af9d31f9562e5ee",
         "197b591aec962f43b9b9393da99a76ff21c3a36189cc02c7a75dc5a7b85d6b26",
-        "c44ceb6e493a62c154a7958974d88a0c4d835948e1f7fb3bc0b993fa14679307",
+        "5920e1a21f135b2537e8295b13c8bc6fa2962423812ffc3cbe1e52663e924daf",
     )
-    assert len(ALLOWLIST_PATHS) == 64
-    assert len(MODIFIED_PATHS) == 61
+    assert len(ALLOWLIST_PATHS) == 65
+    assert len(MODIFIED_PATHS) == 62
     assert len(ADDED_PATHS) == 3
 
 

@@ -362,6 +362,45 @@ def build_ranking_window_result_project_fact(
     )
 
 
+def build_navigation_window_result_project_fact(
+    *,
+    definition: TableDef | QueryDef,
+    item: SelectItem,
+    selected_output_ordinal: int,
+    source_id: str,
+    input_schema: ProjectRowSchema,
+    upstream_symbol: ProjectSymbol,
+) -> WindowResultProjectFact | WindowExpressionUnsupported:
+    """Build one transient project fact for an exact navigation success."""
+
+    from pietto._project.row_expression_type_facts import (
+        project_row_schema_to_semantic_row_schema,
+    )
+    from pietto.semantic.window_analysis import (
+        analyze_navigation_window_expression,
+    )
+
+    diagnostics: list[Diagnostic] = []
+    semantic_result = analyze_navigation_window_expression(
+        definition=definition,
+        item=item,
+        selected_output_ordinal=selected_output_ordinal,
+        source_id=source_id,
+        input_schema=project_row_schema_to_semantic_row_schema(input_schema),
+        field_qualifier=definition.from_clause.source_name,
+        value_types={},
+        diagnostics=diagnostics,
+    )
+    if isinstance(semantic_result, WindowExpressionUnsupported):
+        return semantic_result
+    return _build_window_result_project_fact(
+        semantic_fact=semantic_result.semantic_fact,
+        definition=definition,
+        item=item,
+        upstream_symbol=upstream_symbol,
+    )
+
+
 def build_row_number_window_result_project_fact(
     *,
     definition: TableDef | QueryDef,
@@ -400,6 +439,16 @@ def _build_window_result_project_fact(
     order_expressions = tuple(
         order_item.expression for order_item in expression.spec.order_by
     )
+    navigation_arguments: tuple[Expression, ...] = ()
+    navigation_defaults: tuple[Expression, ...] = ()
+    if semantic_fact.identity.name in {"lag", "lead"}:
+        value_expression = expression.call.arguments[0]
+        if type(value_expression) in {NameExpr, DottedNameExpr}:
+            navigation_arguments = (value_expression,)
+        if len(expression.call.arguments) == 3:
+            default_expression = expression.call.arguments[2]
+            if type(default_expression) in {NameExpr, DottedNameExpr}:
+                navigation_defaults = (default_expression,)
 
     relation_input = ProjectRowDependencyNode(
         kind=ProjectRowDependencyNodeKind.RELATION_INPUT,
@@ -421,44 +470,64 @@ def _build_window_result_project_fact(
         )
         for order_expression in order_expressions
     )
-    occurrences = tuple(
-        [
-            WindowDependencyOccurrence(
-                global_ordinal=0,
-                role_ordinal=0,
-                role=WindowDependencyRole.RELATION_INPUT,
-                target=relation_input,
-                location=_source_location(expression.call.span),
-            ),
-            *(
-                WindowDependencyOccurrence(
-                    global_ordinal=partition_ordinal + 1,
-                    role_ordinal=partition_ordinal,
-                    role=WindowDependencyRole.WINDOW_PARTITION,
-                    target=partition_field,
-                    location=_source_location(partition_expression.span),
-                )
-                for partition_ordinal, (
-                    partition_expression,
-                    partition_field,
-                ) in enumerate(
-                    zip(partition_expressions, partition_fields, strict=True)
-                )
-            ),
-            *(
-                WindowDependencyOccurrence(
-                    global_ordinal=(len(partition_expressions) + order_ordinal + 1),
-                    role_ordinal=order_ordinal,
-                    role=WindowDependencyRole.WINDOW_ORDER,
-                    target=order_field,
-                    location=_source_location(order_expression.span),
-                )
-                for order_ordinal, (order_expression, order_field) in enumerate(
-                    zip(order_expressions, order_fields, strict=True)
-                )
-            ),
-        ]
+    argument_fields = tuple(
+        _upstream_field_dependency(
+            expression=argument_expression,
+            upstream_symbol=upstream_symbol,
+        )
+        for argument_expression in navigation_arguments
     )
+    default_fields = tuple(
+        _upstream_field_dependency(
+            expression=default_expression,
+            upstream_symbol=upstream_symbol,
+        )
+        for default_expression in navigation_defaults
+    )
+
+    role_inputs: tuple[
+        tuple[
+            WindowDependencyRole,
+            tuple[tuple[Expression, ProjectRowDependencyNode], ...],
+        ],
+        ...,
+    ] = (
+        (
+            WindowDependencyRole.RELATION_INPUT,
+            ()
+            if argument_fields or default_fields
+            else ((expression.call, relation_input),),
+        ),
+        (
+            WindowDependencyRole.WINDOW_ARGUMENT,
+            tuple(zip(navigation_arguments, argument_fields, strict=True)),
+        ),
+        (
+            WindowDependencyRole.WINDOW_DEFAULT,
+            tuple(zip(navigation_defaults, default_fields, strict=True)),
+        ),
+        (
+            WindowDependencyRole.WINDOW_PARTITION,
+            tuple(zip(partition_expressions, partition_fields, strict=True)),
+        ),
+        (
+            WindowDependencyRole.WINDOW_ORDER,
+            tuple(zip(order_expressions, order_fields, strict=True)),
+        ),
+    )
+    occurrences_list: list[WindowDependencyOccurrence] = []
+    for role, inputs in role_inputs:
+        for role_ordinal, (source_expression, target) in enumerate(inputs):
+            occurrences_list.append(
+                WindowDependencyOccurrence(
+                    global_ordinal=len(occurrences_list),
+                    role_ordinal=role_ordinal,
+                    role=role,
+                    target=target,
+                    location=_source_location(source_expression.span),
+                )
+            )
+    occurrences = tuple(occurrences_list)
     return WindowResultProjectFact(
         semantic_fact=semantic_fact,
         result_identity=WindowResultIdentity(
