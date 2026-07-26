@@ -3,6 +3,7 @@ from __future__ import annotations
 import ast
 import dataclasses
 import hashlib
+import re
 import subprocess
 from functools import lru_cache
 from pathlib import Path
@@ -65,6 +66,15 @@ PLAN_REL = (
     "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md"
 )
 BASE_HEAD = "a5606761c040042d177874253e29c25f2e8e3fff"
+PUBLISHED_SLICE13_HEAD = "933cf2f4ad0aab245feda09462178b90ebf9b7a6"
+PUBLISHED_SLICE13_SUBJECT = "Add Phase 53 grouped-result window inputs."
+CI_REPAIR_SUBJECT = "Repair Phase 53 Slice 13 shallow CI history guard"
+CI_REPAIR_MODIFIED_PATHS = (
+    SELF_REL,
+    "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
+    "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
+    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+)
 
 SOURCE_PREFIX = (
     "shape Row:\n"
@@ -93,15 +103,146 @@ def _git_output(arguments: list[str]) -> str:
     ).stdout.rstrip()
 
 
+def _git_optional_ref(ref: str) -> str | None:
+    result = subprocess.run(
+        ["git", "rev-parse", "--verify", "--quiet", ref],
+        cwd=REPO_ROOT,
+        check=False,
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert result.returncode in (0, 1)
+    assert result.stderr == ""
+    output = result.stdout.strip()
+    if result.returncode == 1:
+        assert output == ""
+        return None
+    assert re.fullmatch(r"[0-9a-f]{40}", output)
+    return output
+
+
+def _commit_available_from_batch_output(commit: str, output: str) -> bool:
+    assert re.fullmatch(r"[0-9a-f]{40}", commit)
+    if output == f"{commit} commit\n":
+        return True
+    if output == f"{commit} missing\n":
+        return False
+    raise AssertionError(f"unexpected git object result: {output!r}")
+
+
+def _git_commit_exists(commit: str) -> bool:
+    assert re.fullmatch(r"[0-9a-f]{40}", commit)
+    result = subprocess.run(
+        ["git", "cat-file", "--batch-check=%(objectname) %(objecttype)"],
+        cwd=REPO_ROOT,
+        check=True,
+        input=f"{commit}\n",
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert result.stderr == ""
+    return _commit_available_from_batch_output(commit, result.stdout)
+
+
+def _historical_objects_available(
+    *,
+    published_available: bool,
+    base_available: bool,
+) -> bool:
+    assert published_available == base_available
+    return published_available
+
+
+def _commit_parent_and_message(commit: str) -> tuple[str, str]:
+    assert re.fullmatch(r"[0-9a-f]{40}", commit)
+    header, separator, message = _git_output(["cat-file", "-p", commit]).partition(
+        "\n\n"
+    )
+    assert separator == "\n\n"
+    parents = tuple(
+        line.removeprefix("parent ")
+        for line in header.splitlines()
+        if line.startswith("parent ")
+    )
+    assert len(parents) == 1
+    assert re.fullmatch(r"[0-9a-f]{40}", parents[0])
+    assert message and "\n" not in message
+    return parents[0], message
+
+
+def _assert_main_refs(head: str) -> None:
+    assert _git_output(["branch", "--show-current"]) == "main"
+    assert _git_optional_ref("refs/heads/main") == head
+    assert _git_optional_ref("refs/remotes/origin/main") == head
+
+
+def _assert_clean_state(*, status: str, staged: str) -> None:
+    assert status == ""
+    assert staged == ""
+
+
+def _assert_repair_dirty_state(*, status: str, staged: str) -> None:
+    expected = {f" M {path}" for path in CI_REPAIR_MODIFIED_PATHS}
+    lines = status.splitlines()
+    assert len(lines) == len(expected)
+    assert set(lines) == expected
+    assert staged == ""
+
+
+def _assert_published_slice13_identity() -> None:
+    assert _git_commit_exists(PUBLISHED_SLICE13_HEAD)
+    assert _git_commit_exists(BASE_HEAD)
+    parent, message = _commit_parent_and_message(PUBLISHED_SLICE13_HEAD)
+    assert parent == BASE_HEAD
+    assert message == PUBLISHED_SLICE13_SUBJECT
+    assert _git_output(["rev-parse", f"{PUBLISHED_SLICE13_HEAD}^"]) == BASE_HEAD
+    assert (
+        _git_output(["rev-list", "--count", f"{BASE_HEAD}..{PUBLISHED_SLICE13_HEAD}"])
+        == "1"
+    )
+
+
 def _is_clean_projection() -> bool:
     head = _git_output(["rev-parse", "HEAD"])
-    origin_main = _git_output(["rev-parse", "origin/main"])
+    status = _git_output(["status", "--porcelain=v1", "--untracked-files=all"])
+    staged = _git_output(["diff", "--cached", "--name-only"])
+    shallow = _git_output(["rev-parse", "--is-shallow-repository"])
+    _assert_main_refs(head)
     if head == BASE_HEAD:
-        assert origin_main == BASE_HEAD
+        assert shallow == "false"
+        assert status
+        assert staged == ""
         return False
-    assert origin_main == head
-    assert _git_output(["rev-parse", "HEAD^"]) == BASE_HEAD
-    assert _git_output(["rev-list", "--count", f"{BASE_HEAD}..HEAD"]) == "1"
+
+    if head == PUBLISHED_SLICE13_HEAD:
+        assert shallow == "false"
+        _assert_published_slice13_identity()
+        if status:
+            _assert_repair_dirty_state(status=status, staged=staged)
+            return False
+        _assert_clean_state(status=status, staged=staged)
+        return True
+
+    parent, message = _commit_parent_and_message(head)
+    assert parent == PUBLISHED_SLICE13_HEAD
+    assert message == CI_REPAIR_SUBJECT
+    _assert_clean_state(status=status, staged=staged)
+    historical_objects_available = _historical_objects_available(
+        published_available=_git_commit_exists(PUBLISHED_SLICE13_HEAD),
+        base_available=_git_commit_exists(BASE_HEAD),
+    )
+    if historical_objects_available:
+        assert shallow == "false"
+        _assert_published_slice13_identity()
+        assert _git_output(["rev-parse", "HEAD^"]) == PUBLISHED_SLICE13_HEAD
+        assert (
+            _git_output(["rev-list", "--count", f"{PUBLISHED_SLICE13_HEAD}..HEAD"])
+            == "1"
+        )
+    else:
+        assert shallow == "true"
     return True
 
 
@@ -400,6 +541,15 @@ def test_slice13_artifact_paths_heading_contract_and_lifecycle_are_exact() -> No
 
 def test_reconciled_main_maintenance_handoff_and_build_backend_are_locked() -> None:
     _is_clean_projection()
+    assert _commit_available_from_batch_output(BASE_HEAD, f"{BASE_HEAD} commit\n")
+    assert not _commit_available_from_batch_output(BASE_HEAD, f"{BASE_HEAD} missing\n")
+    with pytest.raises(AssertionError):
+        _commit_available_from_batch_output(BASE_HEAD, f"{BASE_HEAD} blob\n")
+    with pytest.raises(AssertionError):
+        _historical_objects_available(
+            published_available=True,
+            base_available=False,
+        )
     pyproject = _read("pyproject.toml")
     assert 'requires = ["uv_build>=0.11.32,<0.12.0"]' in pyproject
 
