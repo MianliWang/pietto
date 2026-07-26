@@ -180,9 +180,9 @@ PATH_DIGESTS = {
     "project": "1cfc82b2f9627ca473c8eaf2516b845463ec3a5afce0103c361924fd63bb9cd2",
 }
 PROTECTED_SHA256 = {
-    ".github/workflows/ci.yml": "6b2302ee9bbbd87420b6b90db8cacc5f5b3dd1e807107569e1ca248a5daa33fb",
-    "pyproject.toml": "68c3f92a360e0f52a1669aafcfa0f0c207ad3283e5dfd718d2c4beed75b83d0c",
-    "uv.lock": "0c06f18b2a8919c18573c18685a9fb202a74d98ab7c8fa1a5e61c02b8e5aeea9",
+    ".github/workflows/ci.yml": "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94",
+    "pyproject.toml": "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01",
+    "uv.lock": "a7d9125995e98a8a74d3664ceae7801cc1f4cce74ec323933da67838be199cea",
     ".python-version": "7b55f8e67b5623c4bef3fa691288da9437d79d3aba156de48d481db32ac7d16d",
     "docs/spec/pietto-roadmap-phase45-60-v1.md": "26cc0ae4a68518223d6bf600ad3c4b0b226618aa7ef31b2ae1c25924d2655169",
 }
@@ -964,8 +964,8 @@ def test_live_compiler_semantic_phase15_project_protected_version_and_tag_locks_
         pyproject = tomllib.load(stream)
     assert pyproject["project"]["version"] == "0.1.0"
     assert pyproject["build-system"]["requires"] == ["uv_build>=0.11.32,<0.12.0"]
-    assert "ruff>=0.15.22" in _read("pyproject.toml")
-    assert 'name = "ruff"\nversion = "0.15.22"' in _read("uv.lock")
+    assert "ruff>=0.16.0" in _read("pyproject.toml")
+    assert 'name = "ruff"\nversion = "0.16.0"' in _read("uv.lock")
     assert (
         "actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0"
         in _read(".github/workflows/ci.yml")

@@ -3,6 +3,8 @@ from __future__ import annotations
 import ast
 import dataclasses
 import hashlib
+import json
+import os
 import re
 import subprocess
 from functools import lru_cache
@@ -68,12 +70,39 @@ PLAN_REL = (
 BASE_HEAD = "a5606761c040042d177874253e29c25f2e8e3fff"
 PUBLISHED_SLICE13_HEAD = "933cf2f4ad0aab245feda09462178b90ebf9b7a6"
 PUBLISHED_SLICE13_SUBJECT = "Add Phase 53 grouped-result window inputs."
+CI_REPAIR_HEAD = "e2441308179d34a6806b61f533d5799b910fbbb0"
 CI_REPAIR_SUBJECT = "Repair Phase 53 Slice 13 shallow CI history guard"
 CI_REPAIR_MODIFIED_PATHS = (
     SELF_REL,
     "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
     "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
     "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+)
+MAINTENANCE_SUBJECT = "Consolidate major Dependabot updates"
+MAINTENANCE_BRANCH_PREFIX = "maintenance/dependabot-"
+MAINTENANCE_MODIFIED_PATHS = (
+    ".github/workflows/ci.yml",
+    "pyproject.toml",
+    "tests/test_phase11_ci_workflow.py",
+    "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
+    "tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py",
+    "tests/test_phase51_aggregate_grouped_state_duplicate_hardening.py",
+    "tests/test_phase51_clause_dependency_fail_closed.py",
+    "tests/test_phase51_completion_audit_and_status_lock.py",
+    "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
+    "tests/test_phase51_selected_let_accepted_expression_aggregate.py",
+    "tests/test_phase52_completion_audit_and_status_lock.py",
+    "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
+    "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
+    "tests/test_phase53_grouped_result_ranking_aggregate_result_inputs_bounded_let_visibility_contract.py",
+    "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
+    "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
+    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+    "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
+    "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
+    "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
+    "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
+    "uv.lock",
 )
 
 SOURCE_PREFIX = (
@@ -155,7 +184,7 @@ def _historical_objects_available(
     return published_available
 
 
-def _commit_parent_and_message(commit: str) -> tuple[str, str]:
+def _commit_parents_and_subject(commit: str) -> tuple[tuple[str, ...], str]:
     assert re.fullmatch(r"[0-9a-f]{40}", commit)
     header, separator, message = _git_output(["cat-file", "-p", commit]).partition(
         "\n\n"
@@ -166,10 +195,17 @@ def _commit_parent_and_message(commit: str) -> tuple[str, str]:
         for line in header.splitlines()
         if line.startswith("parent ")
     )
+    assert parents
+    assert all(re.fullmatch(r"[0-9a-f]{40}", parent) for parent in parents)
+    subject = message.partition("\n")[0]
+    assert subject
+    return parents, subject
+
+
+def _commit_parent_and_message(commit: str) -> tuple[str, str]:
+    parents, subject = _commit_parents_and_subject(commit)
     assert len(parents) == 1
-    assert re.fullmatch(r"[0-9a-f]{40}", parents[0])
-    assert message and "\n" not in message
-    return parents[0], message
+    return parents[0], subject
 
 
 def _assert_main_refs(head: str) -> None:
@@ -191,6 +227,40 @@ def _assert_repair_dirty_state(*, status: str, staged: str) -> None:
     assert staged == ""
 
 
+def _assert_maintenance_dirty_state(*, status: str, staged: str) -> None:
+    expected = {f" M {path}" for path in MAINTENANCE_MODIFIED_PATHS}
+    lines = status.splitlines()
+    assert len(lines) == len(expected)
+    assert set(lines) == expected
+    assert staged == ""
+
+
+def _assert_maintenance_base_refs() -> None:
+    branch = _git_output(["branch", "--show-current"])
+    assert branch == "main" or branch.startswith(MAINTENANCE_BRANCH_PREFIX)
+    assert _git_optional_ref("refs/heads/main") == CI_REPAIR_HEAD
+    assert _git_optional_ref("refs/remotes/origin/main") == CI_REPAIR_HEAD
+
+
+def _github_pull_request_identity() -> tuple[str, str] | None:
+    if os.environ.get("GITHUB_EVENT_NAME") != "pull_request":
+        return None
+    event_path = os.environ.get("GITHUB_EVENT_PATH")
+    assert event_path
+    payload = cast(
+        dict[str, object],
+        json.loads(Path(event_path).read_text(encoding="utf-8")),
+    )
+    pull_request = cast(dict[str, object], payload["pull_request"])
+    base = cast(dict[str, object], pull_request["base"])
+    candidate = cast(dict[str, object], pull_request["head"])
+    base_sha = cast(str, base["sha"])
+    candidate_sha = cast(str, candidate["sha"])
+    assert re.fullmatch(r"[0-9a-f]{40}", base_sha)
+    assert re.fullmatch(r"[0-9a-f]{40}", candidate_sha)
+    return base_sha, candidate_sha
+
+
 def _assert_published_slice13_identity() -> None:
     assert _git_commit_exists(PUBLISHED_SLICE13_HEAD)
     assert _git_commit_exists(BASE_HEAD)
@@ -209,14 +279,15 @@ def _is_clean_projection() -> bool:
     status = _git_output(["status", "--porcelain=v1", "--untracked-files=all"])
     staged = _git_output(["diff", "--cached", "--name-only"])
     shallow = _git_output(["rev-parse", "--is-shallow-repository"])
-    _assert_main_refs(head)
     if head == BASE_HEAD:
+        _assert_main_refs(head)
         assert shallow == "false"
         assert status
         assert staged == ""
         return False
 
     if head == PUBLISHED_SLICE13_HEAD:
+        _assert_main_refs(head)
         assert shallow == "false"
         _assert_published_slice13_identity()
         if status:
@@ -225,24 +296,47 @@ def _is_clean_projection() -> bool:
         _assert_clean_state(status=status, staged=staged)
         return True
 
-    parent, message = _commit_parent_and_message(head)
-    assert parent == PUBLISHED_SLICE13_HEAD
-    assert message == CI_REPAIR_SUBJECT
-    _assert_clean_state(status=status, staged=staged)
-    historical_objects_available = _historical_objects_available(
-        published_available=_git_commit_exists(PUBLISHED_SLICE13_HEAD),
-        base_available=_git_commit_exists(BASE_HEAD),
-    )
-    if historical_objects_available:
-        assert shallow == "false"
-        _assert_published_slice13_identity()
-        assert _git_output(["rev-parse", "HEAD^"]) == PUBLISHED_SLICE13_HEAD
-        assert (
-            _git_output(["rev-list", "--count", f"{PUBLISHED_SLICE13_HEAD}..HEAD"])
-            == "1"
-        )
-    else:
+    if head == CI_REPAIR_HEAD:
+        parent, message = _commit_parent_and_message(head)
+        assert parent == PUBLISHED_SLICE13_HEAD
+        assert message == CI_REPAIR_SUBJECT
+        _assert_maintenance_base_refs()
+        if status:
+            _assert_maintenance_dirty_state(status=status, staged=staged)
+            return False
+        _assert_clean_state(status=status, staged=staged)
+        return True
+
+    pull_request_identity = _github_pull_request_identity()
+    parents, subject = _commit_parents_and_subject(head)
+    if pull_request_identity is not None:
+        base_sha, candidate_sha = pull_request_identity
         assert shallow == "true"
+        assert base_sha == CI_REPAIR_HEAD
+        _assert_clean_state(status=status, staged=staged)
+        if head == candidate_sha:
+            assert parents == (CI_REPAIR_HEAD,)
+            assert subject == MAINTENANCE_SUBJECT
+        else:
+            assert parents == (CI_REPAIR_HEAD, candidate_sha)
+        return True
+
+    assert parents == (CI_REPAIR_HEAD,)
+    assert subject == MAINTENANCE_SUBJECT
+    _assert_clean_state(status=status, staged=staged)
+    branch = _git_output(["branch", "--show-current"])
+    if branch == "main":
+        assert _git_optional_ref("refs/heads/main") == head
+        assert _git_optional_ref("refs/remotes/origin/main") == head
+        assert os.environ.get("GITHUB_EVENT_NAME") in (None, "push")
+        if os.environ.get("GITHUB_EVENT_NAME") == "push":
+            assert os.environ.get("GITHUB_SHA") == head
+            assert os.environ.get("GITHUB_REF") == "refs/heads/main"
+    else:
+        assert shallow == "false"
+        assert branch.startswith(MAINTENANCE_BRANCH_PREFIX)
+        assert _git_optional_ref("refs/heads/main") == CI_REPAIR_HEAD
+        assert _git_optional_ref("refs/remotes/origin/main") == CI_REPAIR_HEAD
     return True
 
 

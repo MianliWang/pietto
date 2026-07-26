@@ -1496,8 +1496,8 @@ def test_slice8_documentation_exact_allowlist_dirty_and_protected_boundaries() -
     for path in EXPECTED_GATE2_PATHS:
         assert f"`{path}`" in spec
     assert "The exact final untracked set is:" in spec
-    assert '"ruff>=0.15.22"' in PYPROJECT_PATH.read_text(encoding="utf-8")
-    assert 'name = "ruff"\nversion = "0.15.22"' in LOCK_PATH.read_text(encoding="utf-8")
+    assert '"ruff>=0.16.0"' in PYPROJECT_PATH.read_text(encoding="utf-8")
+    assert 'name = "ruff"\nversion = "0.16.0"' in LOCK_PATH.read_text(encoding="utf-8")
 
     status = subprocess.run(
         ["git", "status", "--porcelain=v1", "--untracked-files=all"],
