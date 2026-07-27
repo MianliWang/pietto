@@ -650,3 +650,85 @@ authorized. Slice 15 exclusively owns Window IR and backend lowering; Phase 60
 retains frames and advanced windows; Phase 63 retains `QUALIFY`; Phase 70
 retains broader public project schema and lineage exposure. The sole next
 authorization after Gate 2 is `SLICE14_GATE3`.
+
+## Slice 15 — Window IR, Dual-backend Lowering, And Window-function Facts
+
+Slice 15 implements only
+`docs/spec/phase53-window-ir-dual-backend-lowering-window-function-facts-contract-v1.md`.
+It closes the compiler seam from the eight completed semantic window identities
+to one private value-based Window IR node family and independent PostgreSQL and
+private-MySQL `OVER (...)` lowering. It also adds one private descriptive
+`WINDOW_FUNCTION` capability domain with 8 signature facts and 16
+dialect-specific lowering facts.
+
+The exact identities remain `row_number`, `rank`, `dense_rank`,
+`percent_rank`, `cume_dist`, `ntile`, `lag`, and `lead`, each with
+`namespace=()`. Result type and nullability are copied from the completed
+semantic facts. Argument omission, partition and order source order and
+duplicates, omitted-versus-explicit direction, multiple selected outputs,
+final output-alias ordering, and ordinary downstream row behavior are
+preserved.
+
+The private IR surface is exactly `WindowFunctionRoleIR`,
+`WindowFunctionIdentityIR`, `WindowOrderItemIR`, `WindowSpecIR`, and
+`WindowCallIR`. The carriers are frozen, slotted, value-based, constructor
+validated, and not exported through `pietto.ir`. Group-key and direct
+aggregate-result inputs lower to underlying selected expressions at the same
+query level; no select alias, subquery, CTE, semantic rerun, or
+aggregate-as-window behavior is introduced.
+
+PostgreSQL and private MySQL render the eight exact uppercase SQL function
+spellings with source-ordered arguments, optional `PARTITION BY`, mandatory
+`ORDER BY`, and explicit effective `ASC` or `DESC`. PostgreSQL retains
+double-quoted identifiers; private MySQL retains backticks and its established
+identifier/alias validation. Malformed Window IR fails closed as
+`PIE-B1000` in each backend. Unrelated missing semantic facts remain
+`PIE-I1000`.
+
+Capability facts remain private descriptive evidence. Exact-key lookup
+preserves `Found`, `Absent`, `Unknown`, and `Conflict`; a supported fact
+does not authorize compiler behavior. No public capability schema, serializer,
+CLI/JSON projection, IR export, semantic persistence map, or extension
+registry is added.
+
+Gate 2 entered with frozen authority `A3/M71/D0`. Mechanical repair rounds 4
+and 6 proved two additional tracked inventory/topology readers, so Gate 2 final
+scope is exactly `A3/M73/D0`: this plan, eight production modules, 64 closed
+compatibility/hash/state readers, plus the new contract, one private semantic
+capability module, and one 33-function/208-item primary test. Prospective
+committed inventory is 879 tracked files, 541 Python files, 242 Markdown files,
+448 test modules, 4836 top-level test functions, and 10784 collected items.
+Compiler inventory is 93, semantic inventory is 36, the Phase-15 semantic
+subset is 33, private project remains 18, generated remains 8, and goldens
+remain 37.
+
+Gate 2 uses exactly one write-mode Ruff invocation over the frozen exact
+72-path handwritten Python manifest. The post-formatter reader repair is
+formatting-neutral and receives read-only Ruff checks only. Validation requires
+4765 focused passes, exact
+collection of 10784, `10599 passed / 185 deselected` in the dirty overlay,
+generated and golden checks, deterministic identity and canonical-patch replay,
+authoritative clean validation, strict offline package smoke, installed CLI
+`0.1.0`, full-history clean, genuine depth-one pull-request, genuine shallow
+push/main, and negative-topology evidence. It leaves exactly 76 paths unstaged
+and uncommitted with an empty index before publication.
+
+The publication path is exactly
+`phase53/slice15-window-ir-dual-backend-lowering`, one commit and ready PR
+titled `Add Phase 53 window IR and dual-backend lowering`, unique natural
+exact-head PR CI, squash merge, and unique natural exact-head main CI. It
+permits no direct-main push, amend, rebase, force-push, manual CI mutation, tag,
+Release, package publish, upload, signing, or attestation.
+
+Frames, `ROWS`, `RANGE`, `GROUPS`, named windows, inheritance,
+aggregate-as-window, `first_value`, `last_value`, `nth_value`, nested or
+same-select windows, `QUALIFY`, extension-specific lowering, additional
+dialects, project IR/SQL, runtime/database behavior, relationship/JOIN/grain,
+public metadata, coercion/promotion/LUB, temporal/Decimal/native mapping,
+grammar, generated, fixture, golden, workflow, dependency, package, and
+version changes remain outside Slice 15.
+
+Phase 53 remains `ACTIVE`; Slices 1 through 15 are `COMPLETED`; Slice 16 is
+`UNSTARTED`. Slice 16 exclusively owns the completion audit and status lock.
+The sole next authorization is `SLICE16_GATE0_GATE1`; Slice 15 starts no
+Slice 16 implementation.

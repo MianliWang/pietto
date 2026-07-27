@@ -52,16 +52,16 @@ LOCKED_GROUP_HASHES = {
         "bc5be46411f947c4d591e81ce8dd8345140fd5e10276f2ff0055eccfc12babe4",
     ),
     "unchanged_semantic": (
-        32,
-        "c095f4c9aaca2d172c9631d06bf564cccaf06258020b93de63f19d8f9c05acaf",
+        33,
+        "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d",
     ),
     "ir": (
         5,
-        "3a8f824f1dc689fcd2cc4667bfa7f790c84c49d8d556cefb339d3259aa78872f",
+        "04cb667ff3c9cdf0189d9fd0caa5dc0f9db74ca78dd86e965f020b4523f543e9",
     ),
     "sql": (
         10,
-        "b18229fbda079d706416119002a70d091e7f5b79e0e4818a5b1292d9b88e898b",
+        "72a23f954c49337192effe005c9b3331359b132cc06f494fd4922b9718d1c026",
     ),
     "examples": (
         10,

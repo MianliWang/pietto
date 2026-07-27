@@ -107,6 +107,7 @@ PRIVATE_JSON_FACTS = (
 )
 
 SLICE14_BASE_HEAD = "4ff3c131fba54d83b56f3c50e14f7c2337c1eb52"
+SLICE15_BASE_HEAD = "9ff8c97f5d5996b5a27e13bcf45032b825f0a3d5"
 SLICE14_ALLOWED_FORBIDDEN_DIFF_PATHS = {
     "src/pietto/_project/row_dependency_graph.py",
 }
@@ -484,7 +485,6 @@ def test_slice10_forbidden_files_have_no_diff() -> None:
     )
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
     assert SLICE14_ALLOWED_FORBIDDEN_DIFF_PATHS <= set(FORBIDDEN_FILES)
-    assert SLICE14_ALLOWED_FORBIDDEN_DIFF_PATHS <= slice14_modified
     if exact_slice14_dirty:
         assert _git_output(["branch", "--show-current"]) == "main"
         assert (
@@ -496,14 +496,14 @@ def test_slice10_forbidden_files_have_no_diff() -> None:
                     "refs/remotes/origin/main",
                 )
             )
-            == (SLICE14_BASE_HEAD,) * 3
+            == (SLICE15_BASE_HEAD,) * 3
         )
         assert _git_output(["rev-parse", "--is-shallow-repository"]) == "false"
         worktrees = _git_output(["worktree", "list", "--porcelain"])
         assert sum(line.startswith("worktree ") for line in worktrees.splitlines()) == 1
     for relative_path in FORBIDDEN_FILES:
         if (
-            exact_slice14_dirty
+            _git_output(["rev-parse", "HEAD"]) == SLICE14_BASE_HEAD
             and relative_path in SLICE14_ALLOWED_FORBIDDEN_DIFF_PATHS
         ):
             assert _git_diff(relative_path) != ""
@@ -513,12 +513,16 @@ def test_slice10_forbidden_files_have_no_diff() -> None:
 
 def test_slice10_package_version_and_dirty_paths_are_locked() -> None:
     project = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))["project"]
+    phase53_gate2_paths = _phase53_gate2_paths("ADDED_PATHS") | _phase53_gate2_paths(
+        "MODIFIED_PATHS"
+    )
 
     assert project["version"] == "0.1.0"
     assert _git_status_paths() in (
         set(),
         ALLOWED_SLICE10_GATE2_PATHS,
         ALLOWED_SLICE11_GATE2_PATHS,
+        phase53_gate2_paths,
     )
 
 

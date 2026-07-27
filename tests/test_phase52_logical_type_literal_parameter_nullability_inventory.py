@@ -64,12 +64,12 @@ GATE2_BASE_HEAD_SHA = "21bb988a8b28e9d13e7e2c8fdf78ea3a7054b5b0"
 REPAIR_BASE_HEAD_SHA = "b1d5002fb48dbbb06cc93de2261e2237655e0eab"
 SLICE8_GATE2_BASE_HEAD_SHA = "11a0c48941c3c1c650be8d0ec8ddf5201f9525f2"
 
-FACTS_SHA256 = "8a7e7ba8374c59316051f582aecc0c0e797d270fac2ce89a91a55befca562fa9"
+FACTS_SHA256 = "bd68bad4e13a2b945962458fc47359a408d27b1563ba25f5713a8f8099671d21"
 LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26"
-COMPILER_DIGEST = "5d4ff6962271498ba95089be4a3e278a72852c8753eb9d145819215b8b9fcf27"
-SEMANTIC_DIGEST = "89fb589b2c94452dd66cc2b301de4a8194ef925ae5a42cf1c84de72977ed7f20"
+COMPILER_DIGEST = "2a46f4add3847663ab1b3e959ca1e59e52f977d2df4f19a95ab4b8738f6c8252"
+SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
-    "c095f4c9aaca2d172c9631d06bf564cccaf06258020b93de63f19d8f9c05acaf"
+    "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 PROJECT_PRIVATE_DIGEST = (
     "e674402d8e428fd2ffbfb8a4f90d7ae0be01a23e379fcf487c16a2dc7e6c8497"
@@ -1057,9 +1057,9 @@ def test_digest_and_nested_raw_sha_reader_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        92,
-        35,
-        32,
+        93,
+        36,
+        33,
     )
     assert _digest(compiler_paths) == COMPILER_DIGEST
     assert _digest(semantic_paths) == SEMANTIC_DIGEST

@@ -30,6 +30,7 @@ from pietto.ast_nodes import (
     TypeDef,
     TypeExpr,
     UniqueDef,
+    WindowExpr,
 )
 from pietto.errors import Diagnostic
 from pietto.ir.diagnostics import missing_semantic_fact_diagnostic
@@ -82,6 +83,7 @@ from pietto.ir.model import (
     SymbolNamespace,
     TypeIR,
     TypeRefIR,
+    WindowCallIR,
 )
 from pietto.semantic import RowField, RowSchema, SemanticModel
 from pietto.semantic.aggregates import (
@@ -440,23 +442,21 @@ def _lower_relation(
             span=lower_span(definition.where_clause.span),
         )
 
-    projections = tuple(
-        _lower_projection(
-            item,
-            semantic_model,
-            input_schema=input_schema,
-            target_symbol=target_symbol,
-            output_fields=output_fields,
-            let_expansions=let_expansions,
-        )
-        for item in definition.select_items
-    )
     group_keys = _lower_group_keys(
         definition,
         semantic_model,
         input_schema=input_schema,
         target_symbol=target_symbol,
         field_qualifier=target.name,
+        let_expansions=let_expansions,
+    )
+    projections = _lower_projections(
+        definition,
+        semantic_model,
+        input_schema=input_schema,
+        target_symbol=target_symbol,
+        output_fields=output_fields,
+        group_keys=group_keys,
         let_expansions=let_expansions,
     )
     order_by = _lower_order_by(
@@ -693,7 +693,63 @@ def _grouped_order_output_expressions(
                 expression,
                 field_identity=expression.field.name,
             )
+            continue
+        if isinstance(expression, WindowCallIR):
+            output_expressions[projection.name] = _GroupedOrderExpression(
+                FieldRefIR(
+                    name=projection.name,
+                    qualifier=(),
+                    field=None,
+                    span=projection.span,
+                    value_type=expression.value_type,
+                )
+            )
     return output_expressions
+
+
+def _grouped_window_input_expressions(
+    projections: tuple[ProjectionIR, ...],
+    *,
+    group_keys: tuple[FieldRefIR, ...],
+    input_schema: RowSchema,
+    field_qualifier: str,
+    let_expansions: Mapping[str, Expression],
+) -> dict[str, ExpressionIR]:
+    """Map grouped window names to selected underlying expression IR."""
+
+    outputs = _grouped_order_output_expressions(
+        projections,
+        group_keys=group_keys,
+    )
+    window_inputs = {name: output.expression for name, output in outputs.items()}
+    for let_name in let_expansions:
+        if let_name in window_inputs:
+            continue
+        effective_expression = _effective_field_let_name(
+            let_name,
+            let_expansions=let_expansions,
+            let_stack=frozenset(),
+        )
+        if effective_expression is None:
+            continue
+        field = _group_key_field(
+            effective_expression,
+            input_schema=input_schema,
+            field_qualifier=field_qualifier,
+        )
+        if field is None:
+            continue
+        matched = next(
+            (
+                output.expression
+                for output in outputs.values()
+                if output.field_identity == field.name
+            ),
+            None,
+        )
+        if matched is not None:
+            window_inputs[let_name] = matched
+    return window_inputs
 
 
 def _grouped_order_let_expression(
@@ -734,17 +790,34 @@ def _effective_field_let_expression(
 ) -> NameExpr | DottedNameExpr | None:
     if expression.name not in let_expansions:
         return expression
-    if expression.name in let_stack:
+    return _effective_field_let_name(
+        expression.name,
+        let_expansions=let_expansions,
+        let_stack=let_stack,
+    )
+
+
+def _effective_field_let_name(
+    name: str,
+    *,
+    let_expansions: Mapping[str, Expression],
+    let_stack: frozenset[str],
+) -> NameExpr | DottedNameExpr | None:
+    if name in let_stack:
         return None
 
-    expanded = let_expansions[expression.name]
+    expanded = let_expansions.get(name)
+    if expanded is None:
+        return None
     if isinstance(expanded, DottedNameExpr):
         return expanded
     if isinstance(expanded, NameExpr):
-        return _effective_field_let_expression(
-            expanded,
+        if expanded.name not in let_expansions:
+            return expanded
+        return _effective_field_let_name(
+            expanded.name,
             let_expansions=let_expansions,
-            let_stack=let_stack | frozenset((expression.name,)),
+            let_stack=let_stack | frozenset((name,)),
         )
     return None
 
@@ -979,6 +1052,70 @@ def _let_expansions(
     }
 
 
+def _lower_projections(
+    definition: DerivedRelation,
+    semantic_model: SemanticModel,
+    *,
+    input_schema: RowSchema,
+    target_symbol: SymbolId,
+    output_fields: Mapping[str, RowFieldIR],
+    group_keys: tuple[FieldRefIR, ...],
+    let_expansions: Mapping[str, Expression],
+) -> tuple[ProjectionIR, ...]:
+    """Lower projections with order-independent grouped window inputs."""
+
+    if definition.group_by_clause is None:
+        return tuple(
+            _lower_projection(
+                item,
+                semantic_model,
+                input_schema=input_schema,
+                target_symbol=target_symbol,
+                output_fields=output_fields,
+                let_expansions=let_expansions,
+            )
+            for item in definition.select_items
+        )
+
+    projections_by_ordinal: dict[int, ProjectionIR] = {}
+    for ordinal, item in enumerate(definition.select_items):
+        if type(item.expression) is WindowExpr:
+            continue
+        projections_by_ordinal[ordinal] = _lower_projection(
+            item,
+            semantic_model,
+            input_schema=input_schema,
+            target_symbol=target_symbol,
+            output_fields=output_fields,
+            let_expansions=let_expansions,
+        )
+
+    window_input_expressions = _grouped_window_input_expressions(
+        tuple(projections_by_ordinal.values()),
+        group_keys=group_keys,
+        input_schema=input_schema,
+        field_qualifier=target_symbol.name,
+        let_expansions=let_expansions,
+    )
+    for ordinal, item in enumerate(definition.select_items):
+        if type(item.expression) is not WindowExpr:
+            continue
+        projections_by_ordinal[ordinal] = _lower_projection(
+            item,
+            semantic_model,
+            input_schema=input_schema,
+            target_symbol=target_symbol,
+            output_fields=output_fields,
+            let_expansions=let_expansions,
+            window_input_expressions=window_input_expressions,
+        )
+
+    return tuple(
+        projections_by_ordinal[ordinal]
+        for ordinal in range(len(definition.select_items))
+    )
+
+
 def _lower_projection(
     item: SelectItem,
     semantic_model: SemanticModel,
@@ -987,6 +1124,7 @@ def _lower_projection(
     target_symbol: SymbolId,
     output_fields: Mapping[str, RowFieldIR],
     let_expansions: Mapping[str, Expression],
+    window_input_expressions: Mapping[str, ExpressionIR] | None = None,
 ) -> ProjectionIR:
     """Lower one projection using existing semantic output-name behavior."""
 
@@ -997,6 +1135,7 @@ def _lower_projection(
         field_owner=target_symbol,
         field_qualifier=target_symbol.name,
         let_expansions=let_expansions,
+        window_input_expressions=window_input_expressions,
     )
     output_name = _projection_output_name(item)
     output_field = output_fields.get(output_name) if output_name is not None else None
@@ -1029,6 +1168,7 @@ def _require_lowered_expression(
     field_owner: SymbolId,
     field_qualifier: str | None = None,
     let_expansions: Mapping[str, Expression] | None = None,
+    window_input_expressions: Mapping[str, ExpressionIR] | None = None,
 ) -> ExpressionIR:
     """Lower a relation expression or convert its diagnostic into IR failure."""
 
@@ -1039,6 +1179,7 @@ def _require_lowered_expression(
         field_owner=field_owner,
         field_qualifier=field_qualifier,
         let_expansions=let_expansions,
+        window_input_expressions=window_input_expressions,
     )
     if result.expression is None:
         raise _MissingSemanticFact(expression, "expression value type")

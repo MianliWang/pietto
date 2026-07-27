@@ -376,6 +376,137 @@ class OrderDirectionIR(StrEnum):
     DESC = "DESC"
 
 
+class WindowFunctionRoleIR(StrEnum):
+    """The private role of a lowered window-function identity."""
+
+    WINDOW_FUNCTION = "window_function"
+
+
+@dataclass(frozen=True, slots=True)
+class WindowFunctionIdentityIR:
+    """A private, source-preserving lowered window-function identity."""
+
+    namespace: tuple[str, ...]
+    name: str
+    role: WindowFunctionRoleIR
+
+    def __post_init__(self) -> None:
+        """Reject malformed identities without normalizing source text."""
+
+        if type(self.namespace) is not tuple:
+            raise TypeError("namespace must be an exact tuple")
+        if any(type(component) is not str for component in self.namespace):
+            raise TypeError("namespace components must be exact strings")
+        if any(not component for component in self.namespace):
+            raise ValueError("namespace components must be non-empty")
+        if type(self.name) is not str:
+            raise TypeError("name must be an exact string")
+        if not self.name:
+            raise ValueError("name must be non-empty")
+        if type(self.role) is not WindowFunctionRoleIR:
+            raise TypeError("role must be an exact WindowFunctionRoleIR")
+        if self.role is not WindowFunctionRoleIR.WINDOW_FUNCTION:
+            raise ValueError("window identity role must be WINDOW_FUNCTION")
+
+
+@dataclass(frozen=True, slots=True)
+class WindowOrderItemIR:
+    """A source-preserving window-local order expression."""
+
+    expression: ExpressionIR
+    direction: OrderDirectionIR
+    direction_is_explicit: bool
+    span: SourceSpan
+
+    def __post_init__(self) -> None:
+        """Keep omitted direction distinct from explicit ascending order."""
+
+        if not isinstance(self.expression, ExpressionIR):
+            raise TypeError("expression must be an ExpressionIR instance")
+        if type(self.direction) is not OrderDirectionIR:
+            raise TypeError("direction must be an exact OrderDirectionIR")
+        if type(self.direction_is_explicit) is not bool:
+            raise TypeError("direction_is_explicit must be an exact bool")
+        if type(self.span) is not SourceSpan:
+            raise TypeError("span must be an exact SourceSpan")
+        if (
+            not self.direction_is_explicit
+            and self.direction is not OrderDirectionIR.ASC
+        ):
+            raise ValueError("an omitted direction must have effective ASC direction")
+
+
+@dataclass(frozen=True, slots=True)
+class WindowSpecIR:
+    """A source-ordered frame-free inline window specification."""
+
+    partition_by: tuple[ExpressionIR, ...]
+    order_by: tuple[WindowOrderItemIR, ...]
+    span: SourceSpan
+
+    def __post_init__(self) -> None:
+        """Require exact ordered tuples and mandatory local ordering."""
+
+        if type(self.partition_by) is not tuple:
+            raise TypeError("partition_by must be an exact tuple")
+        if any(
+            not isinstance(expression, ExpressionIR) for expression in self.partition_by
+        ):
+            raise TypeError("partition_by items must be ExpressionIR instances")
+        if type(self.order_by) is not tuple:
+            raise TypeError("order_by must be an exact tuple")
+        if any(type(item) is not WindowOrderItemIR for item in self.order_by):
+            raise TypeError("order_by items must be exact WindowOrderItemIR instances")
+        if not self.order_by:
+            raise ValueError("window IR requires at least one order item")
+        if type(self.span) is not SourceSpan:
+            raise TypeError("span must be an exact SourceSpan")
+
+
+_WINDOW_ARGUMENT_ARITIES = {
+    "row_number": frozenset({0}),
+    "rank": frozenset({0}),
+    "dense_rank": frozenset({0}),
+    "percent_rank": frozenset({0}),
+    "cume_dist": frozenset({0}),
+    "ntile": frozenset({1}),
+    "lag": frozenset({1, 2, 3}),
+    "lead": frozenset({1, 2, 3}),
+}
+
+
+@dataclass(frozen=True, slots=True)
+class WindowCallIR(ExpressionIR):
+    """A lowered builtin window call with its complete inline specification."""
+
+    identity: WindowFunctionIdentityIR
+    arguments: tuple[ExpressionIR, ...]
+    spec: WindowSpecIR
+
+    def __post_init__(self) -> None:
+        """Fail closed for malformed or unsupported window-call IR."""
+
+        if type(self.span) is not SourceSpan:
+            raise TypeError("span must be an exact SourceSpan")
+        if type(self.value_type) is not TypeRefIR:
+            raise TypeError("value_type must be an exact TypeRefIR")
+        if type(self.identity) is not WindowFunctionIdentityIR:
+            raise TypeError("identity must be an exact WindowFunctionIdentityIR")
+        if type(self.arguments) is not tuple:
+            raise TypeError("arguments must be an exact tuple")
+        if any(not isinstance(argument, ExpressionIR) for argument in self.arguments):
+            raise TypeError("arguments must be ExpressionIR instances")
+        if type(self.spec) is not WindowSpecIR:
+            raise TypeError("spec must be an exact WindowSpecIR")
+        if self.identity.namespace != ():
+            raise ValueError("builtin window call identity namespace must be empty")
+        arities = _WINDOW_ARGUMENT_ARITIES.get(self.identity.name)
+        if arities is None:
+            raise ValueError("window call identity is unsupported")
+        if len(self.arguments) not in arities:
+            raise ValueError("window call argument arity is invalid")
+
+
 @dataclass(frozen=True, slots=True)
 class OrderItemIR:
     """A typed sorting expression with an explicit direction."""

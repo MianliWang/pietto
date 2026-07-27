@@ -13,10 +13,18 @@ from pietto.ir.model import (
     IsNullIR,
     LiteralIR,
     NullabilityIR,
+    OrderDirectionIR,
+    SourceSpan,
     SymbolId,
     SymbolNamespace,
     TypeKindIR,
+    TypeRefIR,
     UnaryIR,
+    WindowCallIR,
+    WindowFunctionIdentityIR,
+    WindowFunctionRoleIR,
+    WindowOrderItemIR,
+    WindowSpecIR,
 )
 from pietto.sql.render import (
     quote_identifier,
@@ -73,6 +81,19 @@ _SUPPORTED_COUNT_DISTINCT_ARGUMENT_TYPES = frozenset(
 )
 _COUNT_DISTINCT_TRANSFORM_NAMES = frozenset({"lower", "trim"})
 _COUNT_EXPRESSION_CALL_NAMES = frozenset({"lower", "trim", "len"})
+_WINDOW_FUNCTION_NAMES = {
+    "row_number": "ROW_NUMBER",
+    "rank": "RANK",
+    "dense_rank": "DENSE_RANK",
+    "percent_rank": "PERCENT_RANK",
+    "cume_dist": "CUME_DIST",
+    "ntile": "NTILE",
+    "lag": "LAG",
+    "lead": "LEAD",
+}
+_ZERO_ARGUMENT_WINDOW_FUNCTIONS = frozenset(
+    {"row_number", "rank", "dense_rank", "percent_rank", "cume_dist"}
+)
 
 
 def render_expression_sql(expression: ExpressionIR) -> str:
@@ -86,6 +107,34 @@ def expression_uses_qualified_field(expression: ExpressionIR) -> bool:
 
     if isinstance(expression, FieldRefIR):
         return bool(expression.qualifier)
+    if isinstance(expression, WindowCallIR):
+        arguments = getattr(expression, "arguments", ())
+        if type(arguments) is tuple and any(
+            expression_uses_qualified_field(argument)
+            for argument in arguments
+            if isinstance(argument, ExpressionIR)
+        ):
+            return True
+        spec = getattr(expression, "spec", None)
+        if type(spec) is not WindowSpecIR:
+            return False
+        partition_by = getattr(spec, "partition_by", ())
+        if type(partition_by) is tuple and any(
+            expression_uses_qualified_field(partition)
+            for partition in partition_by
+            if isinstance(partition, ExpressionIR)
+        ):
+            return True
+        order_by = getattr(spec, "order_by", ())
+        if type(order_by) is not tuple:
+            return False
+        return any(
+            expression_uses_qualified_field(order_expression)
+            for item in order_by
+            if type(item) is WindowOrderItemIR
+            for order_expression in (getattr(item, "expression", None),)
+            if isinstance(order_expression, ExpressionIR)
+        )
     if isinstance(expression, AggregateCallIR):
         return any(
             expression_uses_qualified_field(argument)
@@ -122,6 +171,12 @@ def _render_expression_sql(expression: ExpressionIR, *, nested: bool) -> str:
         return quote_identifier(expression.name)
     if isinstance(expression, AggregateCallIR):
         return _render_aggregate_call(expression)
+    if isinstance(expression, WindowCallIR):
+        if nested:
+            raise ValueError(
+                "PostgreSQL window calls are supported only as direct projections"
+            )
+        return _render_window_call(expression)
     if isinstance(expression, CallIR):
         sql = _render_call(expression)
         return f"({sql})" if nested and expression.callee == "matches" else sql
@@ -167,6 +222,110 @@ def _render_expression_sql(expression: ExpressionIR, *, nested: bool) -> str:
         )
 
     return f"({sql})" if nested else sql
+
+
+def _render_window_call(expression: WindowCallIR) -> str:
+    """Render one independently validated PostgreSQL window call."""
+
+    if type(getattr(expression, "span", None)) is not SourceSpan:
+        raise ValueError("PostgreSQL window call requires an exact source span")
+    if type(getattr(expression, "value_type", None)) is not TypeRefIR:
+        raise ValueError("PostgreSQL window call requires an exact value type")
+    identity = getattr(expression, "identity", None)
+    if type(identity) is not WindowFunctionIdentityIR:
+        raise ValueError("PostgreSQL window call requires an exact identity")
+    namespace = getattr(identity, "namespace", None)
+    name = getattr(identity, "name", None)
+    role = getattr(identity, "role", None)
+    if type(namespace) is not tuple or namespace != ():
+        raise ValueError("PostgreSQL window identity requires an empty namespace")
+    if type(name) is not str or name not in _WINDOW_FUNCTION_NAMES:
+        raise ValueError("PostgreSQL window identity is unsupported")
+    if role is not WindowFunctionRoleIR.WINDOW_FUNCTION:
+        raise ValueError("PostgreSQL window identity requires the window role")
+
+    arguments = getattr(expression, "arguments", None)
+    if type(arguments) is not tuple:
+        raise ValueError("PostgreSQL window arguments require an exact tuple")
+    if name in _ZERO_ARGUMENT_WINDOW_FUNCTIONS:
+        valid_arity = len(arguments) == 0
+    elif name == "ntile":
+        valid_arity = len(arguments) == 1
+    else:
+        valid_arity = len(arguments) in {1, 2, 3}
+    if not valid_arity:
+        raise ValueError(f"PostgreSQL window function {name} has invalid arity")
+    if any(
+        not isinstance(argument, ExpressionIR) or isinstance(argument, WindowCallIR)
+        for argument in arguments
+    ):
+        raise ValueError("PostgreSQL window arguments contain an invalid expression")
+
+    spec = getattr(expression, "spec", None)
+    if type(spec) is not WindowSpecIR:
+        raise ValueError("PostgreSQL window call requires an exact specification")
+    if type(getattr(spec, "span", None)) is not SourceSpan:
+        raise ValueError("PostgreSQL window specification requires an exact span")
+    partition_by = getattr(spec, "partition_by", None)
+    order_by = getattr(spec, "order_by", None)
+    if type(partition_by) is not tuple or type(order_by) is not tuple:
+        raise ValueError("PostgreSQL window specification requires exact tuples")
+    if not order_by:
+        raise ValueError("PostgreSQL window specification requires local ORDER BY")
+    if any(
+        not isinstance(partition, ExpressionIR) or isinstance(partition, WindowCallIR)
+        for partition in partition_by
+    ):
+        raise ValueError("PostgreSQL window partition contains an invalid expression")
+    _validate_window_order_items(order_by)
+
+    argument_sql = ", ".join(
+        _render_expression_sql(argument, nested=True) for argument in arguments
+    )
+    clauses: list[str] = []
+    if partition_by:
+        clauses.append(
+            "PARTITION BY "
+            + ", ".join(
+                _render_expression_sql(partition, nested=True)
+                for partition in partition_by
+            )
+        )
+    clauses.append(
+        "ORDER BY " + ", ".join(_render_window_order_item(item) for item in order_by)
+    )
+    return f"{_WINDOW_FUNCTION_NAMES[name]}({argument_sql}) OVER ({' '.join(clauses)})"
+
+
+def _validate_window_order_items(order_by: tuple[WindowOrderItemIR, ...]) -> None:
+    for item in order_by:
+        if type(item) is not WindowOrderItemIR:
+            raise ValueError("PostgreSQL window order requires exact items")
+        if type(getattr(item, "span", None)) is not SourceSpan:
+            raise ValueError("PostgreSQL window order item requires an exact span")
+        order_expression = getattr(item, "expression", None)
+        if not isinstance(order_expression, ExpressionIR) or isinstance(
+            order_expression, WindowCallIR
+        ):
+            raise ValueError("PostgreSQL window order contains an invalid expression")
+        direction = getattr(item, "direction", None)
+        if type(direction) is not OrderDirectionIR:
+            raise ValueError("PostgreSQL window order direction is invalid")
+        direction_is_explicit = getattr(item, "direction_is_explicit", None)
+        if type(direction_is_explicit) is not bool:
+            raise ValueError(
+                "PostgreSQL window order explicitness requires an exact bool"
+            )
+        if not direction_is_explicit and direction is not OrderDirectionIR.ASC:
+            raise ValueError(
+                "PostgreSQL omitted window order direction must resolve to ASC"
+            )
+
+
+def _render_window_order_item(item: WindowOrderItemIR) -> str:
+    return (
+        f"{_render_expression_sql(item.expression, nested=True)} {item.direction.value}"
+    )
 
 
 def _render_aggregate_call(expression: AggregateCallIR) -> str:

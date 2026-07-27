@@ -21,6 +21,7 @@ class CapabilityDomain(StrEnum):
     NULL_TEST = "null_test"
     CLAUSE = "clause"
     AGGREGATE = "aggregate"
+    WINDOW_FUNCTION = "window_function"
     EXPRESSION_STAGE = "expression_stage"
     CONVERSION = "conversion"
     DIALECT_LOWERING = "dialect_lowering"

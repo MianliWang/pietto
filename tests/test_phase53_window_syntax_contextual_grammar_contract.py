@@ -70,32 +70,26 @@ FAIL_CLOSED_MESSAGE = (
     "Window syntax is recognized, but WindowSpec AST preservation starts in "
     "Phase 53 Slice 3."
 )
-BASE_HEAD_SHA = "4ff3c131fba54d83b56f3c50e14f7c2337c1eb52"
+BASE_HEAD_SHA = "9ff8c97f5d5996b5a27e13bcf45032b825f0a3d5"
 
 ADDED_PATHS = {
-    "docs/spec/phase53-multiple-window-outputs-final-order-alias-downstream-schema-lineage-contract-v1.md",
-    "src/pietto/_project/window_persistence.py",
-    "tests/test_phase53_multiple_window_outputs_final_order_alias_downstream_schema_lineage_contract.py",
+    "docs/spec/phase53-window-ir-dual-backend-lowering-window-function-facts-contract-v1.md",
+    "src/pietto/semantic/capability_windows.py",
+    "tests/test_phase53_window_ir_dual_backend_lowering_window_function_facts_contract.py",
 }
 MODIFIED_PATHS = {
     "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md",
-    "src/pietto/semantic/expressions.py",
-    "src/pietto/semantic/group_by.py",
-    "src/pietto/semantic/window_analysis.py",
+    "src/pietto/ir/model.py",
     "src/pietto/ir/lowering.py",
-    "src/pietto/_project/model.py",
-    "src/pietto/_project/aggregate_grouped_schema.py",
-    "src/pietto/_project/aggregate_grouped_clause_facts.py",
-    "src/pietto/_project/aggregate_grouped_dependency_lineage.py",
-    "src/pietto/_project/row_dependency_graph.py",
-    "src/pietto/_project/row_lineage.py",
-    "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
-    "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
-    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
-    "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
-    "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
-    "tests/test_phase53_row_number_direct_field_mvp_contract.py",
-    "tests/test_phase53_grouped_result_ranking_aggregate_result_inputs_bounded_let_visibility_contract.py",
+    "src/pietto/ir/builder.py",
+    "src/pietto/sql/expressions.py",
+    "src/pietto/sql/relations.py",
+    "src/pietto/sql/mysql_expressions.py",
+    "src/pietto/sql/mysql_relations.py",
+    "src/pietto/semantic/capability_facts.py",
+    "tests/test_phase10_completion_audit.py",
+    "tests/test_phase10_mysql_backend_skeleton.py",
+    "tests/test_phase10_mysql_golden_corpus.py",
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
     "tests/test_phase11_generated_guard.py",
@@ -142,17 +136,20 @@ MODIFIED_PATHS = {
     "tests/test_phase52_private_capability_fact_foundation.py",
     "tests/test_phase52_scalar_function_operator_signature_facts.py",
     "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
+    "tests/test_phase53_grouped_result_ranking_aggregate_result_inputs_bounded_let_visibility_contract.py",
+    "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
+    "tests/test_phase53_multiple_window_outputs_final_order_alias_downstream_schema_lineage_contract.py",
+    "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
+    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+    "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
+    "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
+    "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
+    "tests/test_phase53_row_number_direct_field_mvp_contract.py",
     "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
+    "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
     "tests/test_phase53_window_spec_function_identity_ast_contract.py",
     "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
-    "tests/test_phase33_completion_audit.py",
-    "tests/test_phase51_private_result_role_output_identity.py",
-    "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
-    "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
-    "tests/test_phase49_compatibility_privacy_hash_lock_readiness.py",
-    "tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py",
-    "tests/test_phase51_aggregate_grouped_state_duplicate_hardening.py",
-    "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
+    "tests/test_ir_completion_audit.py",
     "tests/test_phase49_minimal_private_lineage_carrier_source_direct_rename.py",
 }
 ALLOWLIST_PATHS = ADDED_PATHS | MODIFIED_PATHS
@@ -723,7 +720,7 @@ def test_slice2_artifact_paths_and_heading_contracts_are_exact() -> None:
     assert _headings(SPEC_REL, 1) == (SPEC_TITLE,)
     assert _headings(SPEC_REL, 2) == SPEC_H2
     assert _headings(SPEC_REL, 3) == ()
-    assert _headings(PLAN_REL, 2)[-13:] == (
+    assert _headings(PLAN_REL, 2)[-14:] == (
         SLICE2_PLAN_H2,
         "Slice 3 WindowSpec, Extension-compatible WindowFunctionIdentity, And AST "
         "Contract",
@@ -738,6 +735,7 @@ def test_slice2_artifact_paths_and_heading_contracts_are_exact() -> None:
         "Slice 12 lag / lead Navigation, Offset, Default, And Nullability",
         "Slice 13 — Grouped-result Ranking, Aggregate-result Inputs, And Bounded Let Visibility",
         "Slice 14 — Multiple Window Outputs, Final-order Alias, Downstream Schema, And Lineage",
+        "Slice 15 — Window IR, Dual-backend Lowering, And Window-function Facts",
     )
     assert _headings(PLAN_REL, 2).count(SLICE2_PLAN_H2) == 1
 
@@ -1028,23 +1026,16 @@ def test_no_ast_semantic_ir_sql_or_public_surface_widening_is_locked() -> None:
         _git_output(["diff", "--name-only", "--", "src/pietto"]).splitlines()
     ) - {""}
     allowed_source = {
-        "src/pietto/semantic/expressions.py",
-        "src/pietto/semantic/group_by.py",
-        "src/pietto/semantic/window_analysis.py",
+        "src/pietto/ir/model.py",
         "src/pietto/ir/lowering.py",
-        "src/pietto/_project/model.py",
-        "src/pietto/_project/aggregate_grouped_schema.py",
-        "src/pietto/_project/aggregate_grouped_clause_facts.py",
-        "src/pietto/_project/aggregate_grouped_dependency_lineage.py",
-        "src/pietto/_project/row_dependency_graph.py",
-        "src/pietto/_project/row_lineage.py",
-        "src/pietto/_project/window_persistence.py",
+        "src/pietto/ir/builder.py",
+        "src/pietto/sql/expressions.py",
+        "src/pietto/sql/relations.py",
+        "src/pietto/sql/mysql_expressions.py",
+        "src/pietto/sql/mysql_relations.py",
+        "src/pietto/semantic/capability_facts.py",
     }
-    assert changed_source in (
-        set(),
-        allowed_source - {"src/pietto/_project/window_persistence.py"},
-    )
-    assert not any(path.startswith("src/pietto/sql/") for path in changed_source)
+    assert changed_source in (set(), allowed_source)
 
 
 def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None:
@@ -1080,15 +1071,15 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             assert origin_main == head
 
     readable_paths = set(_git_output(["ls-files"]).splitlines()) | untracked
-    assert len(readable_paths) == 876
-    assert sum(path.endswith(".py") for path in readable_paths) == 539
-    assert sum(path.endswith(".md") for path in readable_paths) == 241
+    assert len(readable_paths) == 879
+    assert sum(path.endswith(".py") for path in readable_paths) == 541
+    assert sum(path.endswith(".md") for path in readable_paths) == 242
     test_modules = {
         path
         for path in readable_paths
         if path.startswith("tests/test_") and path.endswith(".py")
     }
-    assert len(test_modules) == 447
+    assert len(test_modules) == 448
     top_level_tests = 0
     for relative in sorted(test_modules):
         tree = ast.parse(_read(relative), filename=relative)
@@ -1097,7 +1088,7 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 4803
+    assert top_level_tests == 4836
     assert len(GENERATED_PATHS) == 8
     goldens = {
         path

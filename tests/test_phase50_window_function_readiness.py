@@ -375,9 +375,16 @@ def test_current_source_has_generic_calls_but_no_window_model() -> None:
     assert "class WindowSpec(Node):" in ast_source
     assert "class WindowExpr(Expression):" in ast_source
     assert "WindowFunctionIdentity" in ast_source
-    assert "class Window" not in ir_model
-    assert "OVER" not in postgres
-    assert "OVER" not in mysql
+    for carrier in (
+        "class WindowFunctionRoleIR(StrEnum):",
+        "class WindowFunctionIdentityIR:",
+        "class WindowOrderItemIR:",
+        "class WindowSpecIR:",
+        "class WindowCallIR(ExpressionIR):",
+    ):
+        assert carrier in ir_model, carrier
+    assert 'return f"{_WINDOW_FUNCTION_NAMES[name]}({argument_sql}) OVER (' in postgres
+    assert 'return f"{_WINDOW_FUNCTION_NAMES[name]}({argument_sql}) OVER (' in mysql
 
     for name in INITIAL_RANKING_CATALOG:
         assert f'"{name}"' not in catalog, name
@@ -685,29 +692,34 @@ def test_compatibility_guards_protected_surfaces_and_dirty_set_are_locked() -> N
                 relative_path,
             )
 
-    slice14_tree = ast.parse(
+    slice15_tree = ast.parse(
         _read(
             REPO_ROOT
-            / "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
+            / "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py"
         )
     )
-    slice14_parts = {
-        node.targets[0].id: set(ast.literal_eval(node.value))
-        for node in slice14_tree.body
+    slice15_assignment = next(
+        node
+        for node in slice15_tree.body
         if isinstance(node, ast.Assign)
         and len(node.targets) == 1
-        and isinstance(node.targets[0], ast.Name)
-        and node.targets[0].id in {"MODIFIED_PATHS", "ADDED_PATHS"}
-    }
-    assert set(slice14_parts) == {"MODIFIED_PATHS", "ADDED_PATHS"}
-    slice14_paths = slice14_parts["MODIFIED_PATHS"] | slice14_parts["ADDED_PATHS"]
+        and isinstance(node.targets[0], ast.Tuple)
+        and [
+            element.id
+            for element in node.targets[0].elts
+            if isinstance(element, ast.Name)
+        ]
+        == ["FOCUSED_OPERANDS", "DIRTY_OVERLAY", "ADDED_PATHS", "MODIFIED_PATHS"]
+    )
+    slice15_values = ast.literal_eval(slice15_assignment.value)
+    slice15_paths = set(slice15_values[2]) | set(slice15_values[3])
 
     assert project["version"] == "0.1.0"
     assert _git_output(["tag", "--points-at", "HEAD"]) == ""
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
     dirty_paths = _dirty_paths()
     for relative_path in PROTECTED_PATHS:
-        if relative_path == "src" and dirty_paths == slice14_paths:
+        if relative_path == "src" and dirty_paths == slice15_paths:
             continue
         assert _git_output(["diff", "--", relative_path]) == "", relative_path
     assert dirty_paths in (
@@ -719,7 +731,7 @@ def test_compatibility_guards_protected_surfaces_and_dirty_set_are_locked() -> N
         ALLOWED_PHASE50_SLICE9_GATE2_PATHS,
         ALLOWED_PHASE50_SLICE10_GATE2_PATHS,
         ALLOWED_PHASE50_SLICE11_GATE2_PATHS,
-        slice14_paths,
+        slice15_paths,
     )
 
 

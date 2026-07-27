@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from pietto._window_identity import WindowFunctionRole
 from pietto.ast_nodes import (
     BetweenExpr,
     BinaryExpr,
@@ -34,6 +35,7 @@ from pietto.ir.model import (
     IsNullIR,
     LiteralIR,
     NullabilityIR,
+    OrderDirectionIR,
     RowFieldIR,
     RowSchemaIR,
     SourceSpan,
@@ -42,6 +44,11 @@ from pietto.ir.model import (
     TypeKindIR,
     TypeRefIR,
     UnaryIR,
+    WindowCallIR,
+    WindowFunctionIdentityIR,
+    WindowFunctionRoleIR,
+    WindowOrderItemIR,
+    WindowSpecIR,
 )
 from pietto.semantic.catalog import BUILTIN_FUNCTIONS
 from pietto.semantic.aggregates import (
@@ -65,6 +72,16 @@ _UNKNOWN_VALUE_TYPE = ValueType(
     nullability=EffectiveNullability.UNKNOWN,
     kind=ValueTypeKind.UNKNOWN,
 )
+_WINDOW_ARGUMENT_ARITIES = {
+    "row_number": frozenset({0}),
+    "rank": frozenset({0}),
+    "dense_rank": frozenset({0}),
+    "percent_rank": frozenset({0}),
+    "cume_dist": frozenset({0}),
+    "ntile": frozenset({1}),
+    "lag": frozenset({1, 2, 3}),
+    "lead": frozenset({1, 2, 3}),
+}
 
 
 def lower_type_ref(
@@ -134,19 +151,9 @@ def lower_expr(
     field_owner: SymbolId | None = None,
     field_qualifier: str | None = None,
     let_expansions: Mapping[str, Expression] | None = None,
+    window_input_expressions: Mapping[str, ExpressionIR] | None = None,
 ) -> ExpressionLoweringResult:
     """Lower one typed expression without re-running semantic analysis."""
-
-    if type(expression) is WindowExpr:
-        return ExpressionLoweringResult(
-            expression=None,
-            diagnostics=(
-                missing_semantic_fact_diagnostic(
-                    expression,
-                    "expression value type",
-                ),
-            ),
-        )
 
     if (
         expression not in semantic_model.expression_value_types
@@ -163,16 +170,27 @@ def lower_expr(
         )
 
     try:
-        lowered = _lower_expr_node(
-            expression,
-            semantic_model,
-            fields=fields or {},
-            field_owner=field_owner,
-            field_qualifier=field_qualifier,
-            let_expansions=let_expansions or {},
-            let_stack=frozenset(),
-        )
-    except _LetExpansionLoweringError as error:
+        if type(expression) is WindowExpr:
+            lowered = _lower_window_expr(
+                expression,
+                semantic_model,
+                fields=fields or {},
+                field_owner=field_owner,
+                field_qualifier=field_qualifier,
+                let_expansions=let_expansions or {},
+                window_input_expressions=window_input_expressions or {},
+            )
+        else:
+            lowered = _lower_expr_node(
+                expression,
+                semantic_model,
+                fields=fields or {},
+                field_owner=field_owner,
+                field_qualifier=field_qualifier,
+                let_expansions=let_expansions or {},
+                let_stack=frozenset(),
+            )
+    except (_LetExpansionLoweringError, _WindowExpressionLoweringError) as error:
         return ExpressionLoweringResult(
             expression=None,
             diagnostics=(
@@ -211,6 +229,99 @@ def lower_group_key_ref(
         field=FieldId(owner=field_owner, name=field.name),
         span=lower_span(expression.span),
         value_type=value_type,
+    )
+
+
+def _lower_window_expr(
+    expression: WindowExpr,
+    semantic_model: SemanticModel,
+    *,
+    fields: Mapping[str, RowField],
+    field_owner: SymbolId | None,
+    field_qualifier: str | None,
+    let_expansions: Mapping[str, Expression],
+    window_input_expressions: Mapping[str, ExpressionIR],
+) -> WindowCallIR:
+    """Lower one semantically admitted window without re-running analysis."""
+
+    identity = expression.identity
+    callee = expression.call.callee
+    arities = _WINDOW_ARGUMENT_ARITIES.get(identity.name)
+    if (
+        identity.namespace != ()
+        or identity.role is not WindowFunctionRole.WINDOW_FUNCTION
+        or arities is None
+        or type(callee) is not NameExpr
+        or callee.name != identity.name
+    ):
+        raise _WindowExpressionLoweringError(
+            expression,
+            "supported window function identity",
+        )
+    if len(expression.call.arguments) not in arities:
+        raise _WindowExpressionLoweringError(
+            expression,
+            "supported window function arity",
+        )
+    if not expression.spec.order_by:
+        raise _WindowExpressionLoweringError(
+            expression,
+            "nonempty window order specification",
+        )
+    if any(
+        item.direction is not None
+        and (type(item.direction) is not str or item.direction not in ("asc", "desc"))
+        for item in expression.spec.order_by
+    ):
+        raise _WindowExpressionLoweringError(
+            expression,
+            "supported window order direction",
+        )
+
+    def lower_operand(operand: Expression) -> ExpressionIR:
+        if type(operand) is NameExpr and operand.name in window_input_expressions:
+            return window_input_expressions[operand.name]
+        return _lower_expr_node(
+            operand,
+            semantic_model,
+            fields=fields,
+            field_owner=field_owner,
+            field_qualifier=field_qualifier,
+            let_expansions=let_expansions,
+            let_stack=frozenset(),
+        )
+
+    return WindowCallIR(
+        span=lower_span(expression.span),
+        value_type=lower_value_type(
+            semantic_model.expression_value_types[expression],
+            semantic_model,
+        ),
+        identity=WindowFunctionIdentityIR(
+            namespace=identity.namespace,
+            name=identity.name,
+            role=WindowFunctionRoleIR(identity.role.value),
+        ),
+        arguments=tuple(
+            lower_operand(argument) for argument in expression.call.arguments
+        ),
+        spec=WindowSpecIR(
+            partition_by=tuple(
+                lower_operand(partition) for partition in expression.spec.partition_by
+            ),
+            order_by=tuple(
+                WindowOrderItemIR(
+                    expression=lower_operand(item.expression),
+                    direction=OrderDirectionIR(
+                        "ASC" if item.direction is None else item.direction.upper()
+                    ),
+                    direction_is_explicit=item.direction is not None,
+                    span=lower_span(item.span),
+                )
+                for item in expression.spec.order_by
+            ),
+            span=lower_span(expression.spec.span),
+        ),
     )
 
 
@@ -460,6 +571,15 @@ def _callee_name(expression: CallExpr) -> str:
 
 class _LetExpansionLoweringError(Exception):
     """Internal fail-closed guard for inconsistent let lowering facts."""
+
+    def __init__(self, expression: Expression, fact: str) -> None:
+        super().__init__(fact)
+        self.expression = expression
+        self.fact = fact
+
+
+class _WindowExpressionLoweringError(Exception):
+    """Internal fail-closed guard for inconsistent window lowering facts."""
 
     def __init__(self, expression: Expression, fact: str) -> None:
         super().__init__(fact)

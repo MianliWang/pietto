@@ -38,6 +38,7 @@ from pietto._project.window_persistence import ProjectWindowPersistenceBundle
 from pietto._project.window_semantics import WindowResultProjectFact
 from pietto.ast_nodes import NameExpr, QueryDef, Script, TableDef, WindowExpr
 from pietto.ir.lowering import lower_expr
+from pietto.ir.model import WindowCallIR
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
 from pietto.semantic.model import EffectiveNullability, SemanticResult
@@ -55,7 +56,7 @@ SPEC_REL = (
 PLAN_REL = (
     "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md"
 )
-BASE_HEAD = "4ff3c131fba54d83b56f3c50e14f7c2337c1eb52"
+BASE_HEAD = "9ff8c97f5d5996b5a27e13bcf45032b825f0a3d5"
 WHEELHOUSE_MANIFEST_SHA256 = (
     "e745cf66b6e8ea2096d5e49bf88ef32f828fe9178561b8ed5456125afeb8a294"
 )
@@ -1368,18 +1369,16 @@ def test_ir_lowering_stays_fail_closed_with_existing_pie_i1000_message(
     _, semantic, relation = _semantic(UNGROUPED_SOURCE)
     expression = _window_items(relation)[case]
     lowered = lower_expr(expression, semantic.model)
-    assert lowered.expression is None
-    assert [item.code for item in lowered.diagnostics] == ["PIE-I1000"]
-    assert lowered.diagnostics[0].message == (
-        "Missing semantic fact required for IR lowering: expression value type"
-    )
+    assert isinstance(lowered.expression, WindowCallIR)
+    assert lowered.expression.identity.name == expression.identity.name
+    assert lowered.diagnostics == ()
 
 
 @pytest.mark.parametrize("case", range(8))
 def test_window_ir_sql_backend_and_runtime_surfaces_remain_absent(case: int) -> None:
     _assert_case(case, 8)
     protected = (
-        "src/pietto/ir/model.py",
+        "src/pietto/ir/diagnostics.py",
         "src/pietto/ir/serializer.py",
         "src/pietto/sql/postgres.py",
         "src/pietto/sql/mysql.py",
@@ -1464,17 +1463,17 @@ def test_test_inventory_focused_overlay_validation_and_gate3_are_exact() -> None
         len(test_paths),
         top_level_tests,
     ) == (
-        876,
-        539,
-        241,
-        447,
-        4803,
+        879,
+        541,
+        242,
+        448,
+        4836,
     )
     docs = _read(PLAN_REL)
     for value in (
-        "4557 focused",
-        "10391 passed / 185 deselected",
-        "10576 clean-projection passes",
-        "SLICE14_GATE3",
+        "4765 focused passes",
+        "10599 passed / 185 deselected",
+        "10784",
+        "SLICE16_GATE0_GATE1",
     ):
         assert value in docs
