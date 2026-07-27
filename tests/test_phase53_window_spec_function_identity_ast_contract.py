@@ -34,6 +34,7 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Severity
 from pietto.ir.lowering import lower_expr
+from pietto.ir.model import WindowCallIR
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
 
@@ -46,7 +47,7 @@ SPEC_REL = "docs/spec/phase53-window-spec-function-identity-ast-contract-v1.md"
 IDENTITY_REL = "src/pietto/_window_identity.py"
 SELF_REL = "tests/test_phase53_window_spec_function_identity_ast_contract.py"
 SLICE2_TEST_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
-BASE_HEAD_SHA = "4ff3c131fba54d83b56f3c50e14f7c2337c1eb52"
+BASE_HEAD_SHA = "9ff8c97f5d5996b5a27e13bcf45032b825f0a3d5"
 TEMPORARY_BRIDGE_MESSAGE = (
     "Window syntax is recognized, but WindowSpec AST preservation starts in "
     "Phase 53 Slice 3."
@@ -83,6 +84,9 @@ SLICE14_PLAN_H2 = (
     "Slice 14 — Multiple Window Outputs, Final-order Alias, Downstream Schema, "
     "And Lineage"
 )
+SLICE15_PLAN_H2 = (
+    "Slice 15 — Window IR, Dual-backend Lowering, And Window-function Facts"
+)
 SPEC_H2 = (
     "Status And Slice Identity",
     "Slice 2 Syntax And Lifecycle Authority",
@@ -117,29 +121,23 @@ WINDOW_FUNCTION_NAMES = (
 )
 
 ADDED_PATHS = {
-    "docs/spec/phase53-multiple-window-outputs-final-order-alias-downstream-schema-lineage-contract-v1.md",
-    "src/pietto/_project/window_persistence.py",
-    "tests/test_phase53_multiple_window_outputs_final_order_alias_downstream_schema_lineage_contract.py",
+    "docs/spec/phase53-window-ir-dual-backend-lowering-window-function-facts-contract-v1.md",
+    "src/pietto/semantic/capability_windows.py",
+    "tests/test_phase53_window_ir_dual_backend_lowering_window_function_facts_contract.py",
 }
 MODIFIED_PATHS = {
     "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md",
-    "src/pietto/semantic/expressions.py",
-    "src/pietto/semantic/group_by.py",
-    "src/pietto/semantic/window_analysis.py",
+    "src/pietto/ir/model.py",
     "src/pietto/ir/lowering.py",
-    "src/pietto/_project/model.py",
-    "src/pietto/_project/aggregate_grouped_schema.py",
-    "src/pietto/_project/aggregate_grouped_clause_facts.py",
-    "src/pietto/_project/aggregate_grouped_dependency_lineage.py",
-    "src/pietto/_project/row_dependency_graph.py",
-    "src/pietto/_project/row_lineage.py",
-    "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
-    "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
-    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
-    "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
-    "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
-    "tests/test_phase53_row_number_direct_field_mvp_contract.py",
-    "tests/test_phase53_grouped_result_ranking_aggregate_result_inputs_bounded_let_visibility_contract.py",
+    "src/pietto/ir/builder.py",
+    "src/pietto/sql/expressions.py",
+    "src/pietto/sql/relations.py",
+    "src/pietto/sql/mysql_expressions.py",
+    "src/pietto/sql/mysql_relations.py",
+    "src/pietto/semantic/capability_facts.py",
+    "tests/test_phase10_completion_audit.py",
+    "tests/test_phase10_mysql_backend_skeleton.py",
+    "tests/test_phase10_mysql_golden_corpus.py",
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
     "tests/test_phase11_generated_guard.py",
@@ -186,17 +184,20 @@ MODIFIED_PATHS = {
     "tests/test_phase52_private_capability_fact_foundation.py",
     "tests/test_phase52_scalar_function_operator_signature_facts.py",
     "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
+    "tests/test_phase53_grouped_result_ranking_aggregate_result_inputs_bounded_let_visibility_contract.py",
+    "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
+    "tests/test_phase53_multiple_window_outputs_final_order_alias_downstream_schema_lineage_contract.py",
+    "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
+    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+    "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
+    "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
+    "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
+    "tests/test_phase53_row_number_direct_field_mvp_contract.py",
     "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
+    "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
     "tests/test_phase53_window_spec_function_identity_ast_contract.py",
     "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
-    "tests/test_phase33_completion_audit.py",
-    "tests/test_phase51_private_result_role_output_identity.py",
-    "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
-    "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
-    "tests/test_phase49_compatibility_privacy_hash_lock_readiness.py",
-    "tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py",
-    "tests/test_phase51_aggregate_grouped_state_duplicate_hardening.py",
-    "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
+    "tests/test_ir_completion_audit.py",
     "tests/test_phase49_minimal_private_lineage_carrier_source_direct_rename.py",
 }
 ALLOWLIST_PATHS = ADDED_PATHS | MODIFIED_PATHS
@@ -346,10 +347,10 @@ SEMANTIC_IDENTITY_CASES = (
     ("Org.Analytics.Rank", "Unknown function: Org.Analytics.Rank"),
 )
 
-COMPILER_DIGEST = "5d4ff6962271498ba95089be4a3e278a72852c8753eb9d145819215b8b9fcf27"
-SEMANTIC_DIGEST = "89fb589b2c94452dd66cc2b301de4a8194ef925ae5a42cf1c84de72977ed7f20"
+COMPILER_DIGEST = "2a46f4add3847663ab1b3e959ca1e59e52f977d2df4f19a95ab4b8738f6c8252"
+SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
-    "c095f4c9aaca2d172c9631d06bf564cccaf06258020b93de63f19d8f9c05acaf"
+    "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 AST_NODES_SHA256 = "b0c41070fca75c89534eba75cf2086f41721de740da9a3573d67411d366204f5"
 AST_BUILDER_SHA256 = "201c74d6a27e57dfc7cd0f9693b388ebe7853b783173a3c4f7191a5f8026e70b"
@@ -509,7 +510,7 @@ def test_slice3_artifact_paths_heading_contract_and_lifecycle_are_exact() -> Non
     assert _headings(SPEC_REL, 2) == SPEC_H2
     assert _headings(SPEC_REL, 3) == ()
     plan_h2 = _headings(PLAN_REL, 2)
-    assert plan_h2[-13:] == (
+    assert plan_h2[-14:] == (
         "Slice 2 Pietto-native Window Syntax And Contextual Grammar Contract",
         SLICE3_PLAN_H2,
         SLICE4_PLAN_H2,
@@ -523,6 +524,7 @@ def test_slice3_artifact_paths_heading_contract_and_lifecycle_are_exact() -> Non
         SLICE12_PLAN_H2,
         SLICE13_PLAN_H2,
         SLICE14_PLAN_H2,
+        SLICE15_PLAN_H2,
     )
     assert plan_h2.count(SLICE3_PLAN_H2) == 1
     assert plan_h2.count(SLICE4_PLAN_H2) == 1
@@ -535,6 +537,7 @@ def test_slice3_artifact_paths_heading_contract_and_lifecycle_are_exact() -> Non
     assert plan_h2.count(SLICE12_PLAN_H2) == 1
     assert plan_h2.count(SLICE13_PLAN_H2) == 1
     assert plan_h2.count(SLICE14_PLAN_H2) == 1
+    assert plan_h2.count(SLICE15_PLAN_H2) == 1
     names, cardinalities = _test_function_shape()
     assert names == EXPECTED_TEST_FUNCTIONS
     assert cardinalities == (
@@ -890,19 +893,10 @@ def test_ir_lowering_fails_closed_on_missing_window_expression_fact() -> None:
     )
     semantic = analyze(result.ast)
     lowered = lower_expr(expression, semantic.model)
-    assert lowered.expression is None
-    assert len(lowered.diagnostics) == 1
-    diagnostic = lowered.diagnostics[0]
-    assert diagnostic.code == "PIE-I1000"
-    assert diagnostic.message == (
-        "Missing semantic fact required for IR lowering: expression value type"
-    )
-    assert (
-        diagnostic.location.line,
-        diagnostic.location.column,
-        diagnostic.location.end_line,
-        diagnostic.location.end_column,
-    ) == _span_tuple(expression.span)
+    assert isinstance(lowered.expression, WindowCallIR)
+    assert lowered.expression.identity.name == "row_number"
+    assert lowered.expression.arguments == ()
+    assert lowered.diagnostics == ()
 
 
 def test_project_parse_only_path_remains_deferred_without_window_result_dependency_or_lineage() -> (
@@ -929,10 +923,10 @@ def test_no_window_ir_sql_catalog_capability_project_role_or_public_serializatio
     None
 ):
     unchanged = (
-        "src/pietto/ir/model.py",
-        "src/pietto/ir/builder.py",
-        "src/pietto/sql/expressions.py",
-        "src/pietto/sql/mysql_expressions.py",
+        "src/pietto/ir/__init__.py",
+        "src/pietto/ir/diagnostics.py",
+        "src/pietto/sql/__init__.py",
+        "src/pietto/sql/postgres.py",
         "src/pietto/semantic/catalog.py",
         "src/pietto/semantic/capability_inventory.py",
         "src/pietto/_project/json_v2.py",
@@ -975,9 +969,10 @@ def test_expression_walkers_and_exhaustive_dispatch_are_classified() -> None:
         "if isinstance(expression, LiteralExpr):"
     )
     assert "if type(expression) is WindowExpr:" in lowering
-    assert lowering.index("if type(expression) is WindowExpr:") < lowering.index(
+    assert lowering.index(
         "expression not in semantic_model.expression_value_types"
-    )
+    ) < lowering.index("if type(expression) is WindowExpr:")
+    assert "_lower_window_expr(" in lowering
     assert "expression value type" in lowering
     for relative in (
         "src/pietto/semantic/aggregates.py",
@@ -1003,9 +998,9 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        92,
-        35,
-        32,
+        93,
+        36,
+        33,
     )
     assert _digest(tuple(compiler_paths)) == COMPILER_DIGEST
     assert _digest(semantic_paths) == SEMANTIC_DIGEST
@@ -1049,15 +1044,15 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
     readable = {path for path in (*tracked, *untracked) if (REPO_ROOT / path).is_file()}
-    assert len(readable) == 876
-    assert sum(path.endswith(".py") for path in readable) == 539
-    assert sum(path.endswith(".md") for path in readable) == 241
+    assert len(readable) == 879
+    assert sum(path.endswith(".py") for path in readable) == 541
+    assert sum(path.endswith(".md") for path in readable) == 242
     test_modules = {
         path
         for path in readable
         if path.startswith("tests/test_") and path.endswith(".py")
     }
-    assert len(test_modules) == 447
+    assert len(test_modules) == 448
     top_level_tests = 0
     for relative in sorted(test_modules):
         tree = ast.parse(_read(relative), filename=relative)
@@ -1066,20 +1061,23 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 4803
+    assert top_level_tests == 4836
     assert (
         3488
         == 381 + 834 + 627 + 424 + 279 + 168 + 156 + 12 + 145 + 190 + 70 + 70 + 97 + 35
     )
-    assert 10576 == 10069 + 507
-    assert 10576 - 185 == 10391
+    assert 10784 == 10576 + 208
+    assert 10784 - 185 == 10599
     docs = (
         _read(SPEC_REL)
         + _read("docs/spec/phase53-row-number-direct-field-mvp-contract-v1.md")
         + _read(PLAN_REL)
+        + _read(
+            "tests/test_phase53_window_ir_dual_backend_lowering_window_function_facts_contract.py"
+        )
     )
     for value in (
-        "71bb5dfea8348f0497b15705eff79b23f162e284f1fdb0b53659f0e0451cf29c",
+        "fb685c521c70d879e0e3e751c434cf142700d82a66976961ca8036e8965b3429",
         "197b591aec962f43b9b9393da99a76ff21c3a36189cc02c7a75dc5a7b85d6b26",
     ):
         assert value in docs
@@ -1106,8 +1104,8 @@ def test_validation_gate3_and_no_behavior_boundaries_are_locked() -> None:
         )
         == ""
     )
-    assert len(ALLOWLIST_PATHS) == 79
-    assert len(MODIFIED_PATHS) == 76
+    assert len(ALLOWLIST_PATHS) == 76
+    assert len(MODIFIED_PATHS) == 73
     assert len(ADDED_PATHS) == 3
 
 

@@ -14,6 +14,7 @@ from pietto.ir.model import (
     RelationIR,
     SourceIR,
     SymbolId,
+    WindowCallIR,
 )
 from pietto.sql.expressions import expression_uses_qualified_field
 from pietto.sql.mysql_expressions import render_mysql_expression
@@ -42,6 +43,7 @@ def render_mysql_relation(
         raise MySqlRenderError("MySQL relation emission requires projections")
     if relation.result_predicate is not None and not relation.group_keys:
         raise MySqlRenderError("MySQL result predicate requires GROUP BY")
+    _validate_window_clause_boundaries(relation)
     if relation.group_keys:
         _validate_grouped_relation(relation)
 
@@ -141,6 +143,8 @@ def _mysql_table_name(source: SourceIR) -> str:
 
 
 def _render_projection(expression: ExpressionIR, name: str | None) -> str:
+    if isinstance(expression, WindowCallIR) and name is None:
+        raise MySqlRenderError("MySQL window projections require an explicit alias")
     sql = render_mysql_expression(expression)
     if name is None:
         return sql
@@ -155,6 +159,7 @@ def _render_projection(expression: ExpressionIR, name: str | None) -> str:
 def _validate_grouped_relation(relation: RelationIR) -> None:
     group_fields = _group_key_fields(relation.group_keys)
     orderable_expressions: list[ExpressionIR] = []
+    selected_window_aliases: set[str] = set()
     saw_aggregate = False
     for projection in relation.projections:
         expression = projection.expression
@@ -165,8 +170,16 @@ def _validate_grouped_relation(relation: RelationIR) -> None:
         if isinstance(expression, FieldRefIR) and expression.field in group_fields:
             orderable_expressions.append(expression)
             continue
+        if isinstance(expression, WindowCallIR):
+            if type(projection.name) is not str or not projection.name:
+                raise MySqlRenderError(
+                    "MySQL grouped window projections require an explicit alias"
+                )
+            selected_window_aliases.add(projection.name)
+            continue
         raise MySqlRenderError(
-            "MySQL grouped projection is neither a GROUP BY key nor aggregate"
+            "MySQL grouped projection is neither a GROUP BY key, aggregate, nor "
+            "direct window"
         )
 
     if not saw_aggregate:
@@ -174,21 +187,52 @@ def _validate_grouped_relation(relation: RelationIR) -> None:
             "MySQL pure grouped output without an aggregate is not supported"
         )
 
-    _validate_grouped_order_by(relation.order_by, orderable_expressions)
+    _validate_grouped_order_by(
+        relation.order_by,
+        orderable_expressions,
+        selected_window_aliases,
+    )
 
 
 def _validate_grouped_order_by(
     order_by: tuple[OrderItemIR, ...],
     orderable_expressions: list[ExpressionIR],
+    selected_window_aliases: set[str],
 ) -> None:
     for item in order_by:
-        if not any(
-            item.expression == expression for expression in orderable_expressions
+        if any(item.expression == expression for expression in orderable_expressions):
+            continue
+        expression = item.expression
+        if (
+            isinstance(expression, FieldRefIR)
+            and expression.qualifier == ()
+            and expression.field is None
+            and expression.name in selected_window_aliases
         ):
-            raise MySqlRenderError(
-                "MySQL grouped ORDER BY expression must match a selected GROUP BY "
-                "key or aggregate projection"
-            )
+            continue
+        raise MySqlRenderError(
+            "MySQL grouped ORDER BY expression must match a selected GROUP BY key, "
+            "aggregate projection, or window alias"
+        )
+
+
+def _validate_window_clause_boundaries(relation: RelationIR) -> None:
+    """Reject direct windows outside an explicitly aliased projection."""
+
+    if relation.filter is not None and isinstance(
+        relation.filter.expression, WindowCallIR
+    ):
+        raise MySqlRenderError("MySQL WHERE does not support direct window calls")
+    if relation.result_predicate is not None and isinstance(
+        relation.result_predicate.expression, WindowCallIR
+    ):
+        raise MySqlRenderError("MySQL HAVING does not support direct window calls")
+    if any(isinstance(key, WindowCallIR) for key in relation.group_keys):
+        raise MySqlRenderError("MySQL GROUP BY does not support direct window calls")
+    if any(isinstance(item.expression, WindowCallIR) for item in relation.order_by):
+        raise MySqlRenderError(
+            "MySQL relation ORDER BY does not support direct windows"
+        )
 
 
 def _group_key_fields(group_keys: tuple[FieldRefIR, ...]) -> set[FieldId]:

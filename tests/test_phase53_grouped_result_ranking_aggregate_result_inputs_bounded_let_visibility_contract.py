@@ -82,8 +82,8 @@ MAINTENANCE_SUBJECT = "Consolidate major Dependabot updates"
 MAINTENANCE_CANDIDATE_HEAD = "7ad017fd96e4ebaf7290d3042d0538dcf925b267"
 MAINTENANCE_REPAIR_SUBJECT = "Repair Dependabot CI topology guard"
 MAINTENANCE_BRANCH_PREFIX = "maintenance/dependabot-"
-SLICE14_BASE_HEAD = "4ff3c131fba54d83b56f3c50e14f7c2337c1eb52"
-SLICE14_SUBJECT = "Add Phase 53 window result propagation and lineage"
+SLICE14_BASE_HEAD = "9ff8c97f5d5996b5a27e13bcf45032b825f0a3d5"
+SLICE14_SUBJECT = "Add Phase 53 window IR and dual-backend lowering"
 MAINTENANCE_MODIFIED_PATHS = (
     ".github/workflows/ci.yml",
     "pyproject.toml",
@@ -1124,8 +1124,8 @@ def test_ir_sql_backend_public_serializer_package_and_version_surfaces_are_locke
     case: int,
 ) -> None:
     protected = (
-        "src/pietto/ir/model.py",
-        "src/pietto/sql",
+        "src/pietto/ir/__init__.py",
+        "src/pietto/sql/__init__.py",
         "src/pietto/cli.py",
         "pyproject.toml",
         "uv.lock",

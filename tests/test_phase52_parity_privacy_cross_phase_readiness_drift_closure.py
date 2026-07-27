@@ -18,6 +18,7 @@ import pietto.semantic.capability_facts as capability_facts
 import pietto.semantic.capability_inventory as capability_inventory
 import pietto.semantic.capability_lookup as capability_lookup
 import pietto.semantic.capability_signatures as capability_signatures
+import pietto.semantic.capability_windows as capability_windows
 from pietto.semantic.capability_facts import (
     CapabilityDispositionKind,
     CapabilityDomain,
@@ -59,6 +60,7 @@ INVENTORY_REL = "src/pietto/semantic/capability_inventory.py"
 SIGNATURE_REL = "src/pietto/semantic/capability_signatures.py"
 CONTEXT_REL = "src/pietto/semantic/capability_contexts.py"
 AGGREGATE_REL = "src/pietto/semantic/capability_aggregates.py"
+WINDOW_REL = "src/pietto/semantic/capability_windows.py"
 MODULE_RELS = (
     FACTS_REL,
     LOOKUP_REL,
@@ -66,6 +68,7 @@ MODULE_RELS = (
     SIGNATURE_REL,
     CONTEXT_REL,
     AGGREGATE_REL,
+    WINDOW_REL,
 )
 MODULE_OBJECTS = (
     capability_facts,
@@ -74,6 +77,7 @@ MODULE_OBJECTS = (
     capability_signatures,
     capability_contexts,
     capability_aggregates,
+    capability_windows,
 )
 
 GATE2_BASE_HEAD_SHA = "11a0c48941c3c1c650be8d0ec8ddf5201f9525f2"
@@ -82,27 +86,28 @@ GATE2_BASE_TREE_SHA = "2953c238f27239d796c9af05543b48c1add2a69d"
 CI_REPAIR_BASE_HEAD_SHA = "7a221ffdca91335a526ed12a1059340bda642fdb"
 SLICE9_BASE_HEAD_SHA = "36e466535d923f708a0201ae15a5708f06f2b1f8"
 MODULE_SHA256 = {
-    FACTS_REL: "8a7e7ba8374c59316051f582aecc0c0e797d270fac2ce89a91a55befca562fa9",
+    FACTS_REL: "bd68bad4e13a2b945962458fc47359a408d27b1563ba25f5713a8f8099671d21",
     LOOKUP_REL: "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26",
     INVENTORY_REL: "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26",
     SIGNATURE_REL: "810f347080e0bb7dc674821aa6387c5f7618ac216832194ef19820326eef71d2",
     CONTEXT_REL: "132371eccca00ca9f8722a34f1ea0f540933515e560639ee12e53aee6594c60c",
     AGGREGATE_REL: "d7d69fa4b97924ef5462af9c871a910b73cad43a21431e98a72c8bdab8996c80",
+    WINDOW_REL: "c0512933fc284bbc1dec98dab96411ee179d64e7bee005aa798b6fd7dba2024e",
 }
 SPEC_SHA256 = "7010cd8a39ed389de588d8cd734b136cc87456c3ef5eb324638467d1188fc935"
 MODIFIED_TEST_SHA256 = {
-    SLICE4_TEST_REL: "0ceae17ecd1be277d85cb397755e7bf8953611944dec0d73e1173e473c18534c",
-    SLICE5_TEST_REL: "a50ae7ff4fd8e7443a321644299f02ccd0992496c52c7c33746e1804fc1b7bb5",
-    SLICE6_TEST_REL: "348a5c795a48821f137f6b989bd6916f6ad1c9efd58b8b9104ef4325be25220d",
-    SLICE7_TEST_REL: "2e6e0c2ee168180d00c92cd1da2e436993361d48a93a56b1ba038519f954a074",
+    SLICE4_TEST_REL: "d9867c0ff748e16bfbc7cf45a7db61e7ee8657386de2f90ca50cb4bac58769dc",
+    SLICE5_TEST_REL: "cbf576d4aafbb49e491bb719329d2d4f4121882936bd7d50eabced2365bf1410",
+    SLICE6_TEST_REL: "ec8a787efd8fc0531dbe5aaa20fbaf493b0a603b6614a9b3d7fec11424f32565",
+    SLICE7_TEST_REL: "bcf092fbaacb3cba9ccfa87f167cecf019c966719f576982f0b05e9265506b7f",
 }
 WORKFLOW_SHA256 = "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94"
 PYPROJECT_SHA256 = "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01"
 LOCK_SHA256 = "a7d9125995e98a8a74d3664ceae7801cc1f4cce74ec323933da67838be199cea"
-COMPILER_DIGEST = "5d4ff6962271498ba95089be4a3e278a72852c8753eb9d145819215b8b9fcf27"
-SEMANTIC_DIGEST = "89fb589b2c94452dd66cc2b301de4a8194ef925ae5a42cf1c84de72977ed7f20"
+COMPILER_DIGEST = "2a46f4add3847663ab1b3e959ca1e59e52f977d2df4f19a95ab4b8738f6c8252"
+SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
-    "c095f4c9aaca2d172c9631d06bf564cccaf06258020b93de63f19d8f9c05acaf"
+    "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 PROJECT_PRIVATE_DIGEST = (
     "e674402d8e428fd2ffbfb8a4f90d7ae0be01a23e379fcf487c16a2dc7e6c8497"
@@ -194,11 +199,11 @@ TIER2_MANIFEST_SHA256 = (
 
 EVIDENCE_SOURCE_COUNTS = {
     CapabilityEvidenceSource.GRAMMAR_AST: 267,
-    CapabilityEvidenceSource.SEMANTIC_CATALOG: 79,
-    CapabilityEvidenceSource.SEMANTIC_PROCEDURE: 389,
+    CapabilityEvidenceSource.SEMANTIC_CATALOG: 87,
+    CapabilityEvidenceSource.SEMANTIC_PROCEDURE: 397,
     CapabilityEvidenceSource.SEMANTIC_MODEL: 130,
-    CapabilityEvidenceSource.IR: 239,
-    CapabilityEvidenceSource.BACKEND: 220,
+    CapabilityEvidenceSource.IR: 247,
+    CapabilityEvidenceSource.BACKEND: 236,
     CapabilityEvidenceSource.PROJECT: 129,
     CapabilityEvidenceSource.PUBLIC: 18,
     CapabilityEvidenceSource.ROADMAP: 90,
@@ -525,6 +530,7 @@ def _families() -> tuple[tuple[CapabilityFact, ...], ...]:
         _facts(capability_signatures, "_CAPABILITY_SIGNATURE_FACTS"),
         _facts(capability_contexts, "_CAPABILITY_CONTEXT_FACTS"),
         _facts(capability_aggregates, "_AGGREGATE_CAPABILITY_FACTS"),
+        _facts(capability_windows, "_WINDOW_CAPABILITY_FACTS"),
     )
 
 
@@ -554,6 +560,8 @@ def _helper_inputs(
         return cast(Any, capability_contexts.stage_clause_lookup_inputs)(key)
     if key.domain is CapabilityDomain.AGGREGATE:
         return cast(Any, capability_aggregates.aggregate_lookup_inputs)(key)
+    if key.domain is CapabilityDomain.WINDOW_FUNCTION:
+        return cast(Any, capability_windows.window_lookup_inputs)(key)
     return (), False, None
 
 
@@ -694,7 +702,7 @@ def test_slice8_artifacts_headings_authority_and_static_only_shape_are_exact() -
 
 def test_all_six_private_module_api_dependency_and_byte_sentinels_are_exact() -> None:
     assert tuple(MODULE_SHA256) == MODULE_RELS
-    assert tuple(module.__all__ for module in MODULE_OBJECTS) == ((),) * 6
+    assert tuple(module.__all__ for module in MODULE_OBJECTS) == ((),) * 7
     assert {
         relative: _sha256(REPO_ROOT / relative) for relative in MODULE_RELS
     } == MODULE_SHA256
@@ -727,7 +735,7 @@ def test_all_six_private_module_api_dependency_and_byte_sentinels_are_exact() ->
         (CapabilityDomain.EXPRESSION_STAGE, 7, "slice6"),
         (CapabilityDomain.CLAUSE, 11, "slice6"),
         (CapabilityDomain.AGGREGATE, 69, "slice7"),
-        (CapabilityDomain.DIALECT_LOWERING, 0, "foundation_only"),
+        (CapabilityDomain.WINDOW_FUNCTION, 24, "phase53_slice15"),
         (CapabilityDomain.CONVERSION, 0, "post60_reserved"),
         (CapabilityDomain.EXTENSION_SIGNATURE, 0, "phase57_reserved"),
     ),
@@ -751,12 +759,15 @@ def test_capability_domain_population_and_reservation_matrix_is_exact(
         CapabilityDomain.EXPRESSION_STAGE: "slice6",
         CapabilityDomain.CLAUSE: "slice6",
         CapabilityDomain.AGGREGATE: "slice7",
-        CapabilityDomain.DIALECT_LOWERING: "foundation_only",
+        CapabilityDomain.WINDOW_FUNCTION: "phase53_slice15",
         CapabilityDomain.CONVERSION: "post60_reserved",
         CapabilityDomain.EXTENSION_SIGNATURE: "phase57_reserved",
     }
     assert expected_owners[domain] == owner
     assert all(fact.key.domain is domain for fact in facts)
+    assert not any(
+        fact.key.domain is CapabilityDomain.DIALECT_LOWERING for fact in _all_facts()
+    )
 
 
 def test_slice4_7_fact_key_totals_duplicates_and_collisions_are_exact() -> None:
@@ -768,10 +779,11 @@ def test_slice4_7_fact_key_totals_duplicates_and_collisions_are_exact() -> None:
         (39, 39),
         (18, 18),
         (69, 68),
+        (24, 24),
     )
     facts = _all_facts()
-    assert (len(facts), len({fact.key for fact in facts})) == (167, 166)
-    assert len(set(facts)) == 167
+    assert (len(facts), len({fact.key for fact in facts})) == (191, 190)
+    assert len(set(facts)) == 191
     repeated = tuple(
         key for key, count in Counter(fact.key for fact in facts).items() if count > 1
     )
@@ -800,8 +812,8 @@ def test_slice4_7_fact_key_totals_duplicates_and_collisions_are_exact() -> None:
 
 
 def test_fact_order_domain_ownership_and_combined_inventory_are_deterministic() -> None:
-    inventory, signatures, contexts, aggregates = _families()
-    assert _all_facts() == (*inventory, *signatures, *contexts, *aggregates)
+    inventory, signatures, contexts, aggregates, windows = _families()
+    assert _all_facts() == (*inventory, *signatures, *contexts, *aggregates, *windows)
     assert inventory == (
         *_facts(capability_inventory, "_LOGICAL_TYPE_FACTS"),
         *_facts(capability_inventory, "_LITERAL_FACTS"),
@@ -823,6 +835,10 @@ def test_fact_order_domain_ownership_and_combined_inventory_are_deterministic() 
         *_facts(capability_aggregates, "_AGGREGATE_SIGNATURE_FACTS"),
         *_facts(capability_aggregates, "_AGGREGATE_ALGEBRA_FACTS"),
     )
+    assert windows == (
+        *_facts(capability_windows, "_WINDOW_SIGNATURE_FACTS"),
+        *_facts(capability_windows, "_WINDOW_LOWERING_FACTS"),
+    )
 
 
 @pytest.mark.parametrize(
@@ -839,7 +855,7 @@ def test_fact_order_domain_ownership_and_combined_inventory_are_deterministic() 
     ),
 )
 def test_all_populated_completeness_schemas_are_exact(schema_group: str) -> None:
-    inventory, signatures, contexts, aggregates = _families()
+    inventory, signatures, contexts, aggregates, _windows = _families()
     if schema_group == "inventory_logical_type":
         keys = tuple(
             fact.key
@@ -1081,7 +1097,7 @@ def test_found_absent_unknown_conflict_precedence_and_duplicate_folding_are_exac
 
 
 def test_each_family_lookup_input_filtering_completeness_and_reason_are_exact() -> None:
-    inventory, signatures, contexts, aggregates = _families()
+    inventory, signatures, contexts, aggregates, windows = _families()
     expected_by_domain = {
         CapabilityDomain.LOGICAL_TYPE: tuple(
             fact
@@ -1112,6 +1128,7 @@ def test_each_family_lookup_input_filtering_completeness_and_reason_are_exact() 
             capability_contexts, "_CLAUSE_CAPABILITY_FACTS"
         ),
         CapabilityDomain.AGGREGATE: aggregates,
+        CapabilityDomain.WINDOW_FUNCTION: windows,
     }
     for domain, expected in expected_by_domain.items():
         key = next(fact.key for fact in _all_facts() if fact.key.domain is domain)
@@ -1121,6 +1138,12 @@ def test_each_family_lookup_input_filtering_completeness_and_reason_are_exact() 
                 _facts(capability_aggregates, "_AGGREGATE_SIGNATURE_FACTS")
                 if key.context == "aggregate_signature"
                 else _facts(capability_aggregates, "_AGGREGATE_ALGEBRA_FACTS")
+            )
+        elif domain is CapabilityDomain.WINDOW_FUNCTION:
+            expected = (
+                _facts(capability_windows, "_WINDOW_SIGNATURE_FACTS")
+                if key.context == "window_signature"
+                else _facts(capability_windows, "_WINDOW_LOWERING_FACTS")
             )
         assert facts == expected
         assert complete is True
@@ -1149,6 +1172,11 @@ def test_each_family_lookup_input_filtering_completeness_and_reason_are_exact() 
         None,
     )
     assert cast(Any, capability_aggregates.aggregate_lookup_inputs)(foreign) == (
+        (),
+        False,
+        None,
+    )
+    assert cast(Any, capability_windows.window_lookup_inputs)(foreign) == (
         (),
         False,
         None,
@@ -1190,7 +1218,7 @@ def test_conflict_evidence_order_and_count_shape_real_conflict_are_exact(
 
 def test_canonical_evidence_source_order_paths_references_and_scope_are_exact() -> None:
     evidence = tuple(item for fact in _all_facts() for item in fact.evidence)
-    assert len(evidence) == 2333
+    assert len(evidence) == 2373
     assert Counter(item.source for item in evidence) == EVIDENCE_SOURCE_COUNTS
     source_order = {
         source: index for index, source in enumerate(CapabilityEvidenceSource)
@@ -1305,16 +1333,16 @@ def test_postgresql_private_mysql_support_lowering_matrix_is_exact(
 def test_support_disposition_owner_reason_and_affirmative_evidence_are_exact() -> None:
     facts = _all_facts()
     assert Counter(fact.support for fact in facts) == {
-        CapabilitySupport.SUPPORTED: 138,
+        CapabilitySupport.SUPPORTED: 162,
         CapabilitySupport.EXPLICITLY_UNSUPPORTED: 29,
     }
     assert Counter(fact.disposition.kind for fact in facts) == {
-        CapabilityDispositionKind.NONE: 152,
+        CapabilityDispositionKind.NONE: 176,
         CapabilityDispositionKind.DEFERRED: 14,
         CapabilityDispositionKind.OUT_OF_SCOPE: 1,
     }
     assert Counter(fact.disposition.owner for fact in facts) == {
-        None: 152,
+        None: 176,
         "POST60_ADVANCED_TYPE_NATIVE_MAPPING": 7,
         "POST60_ADVANCED_AGGREGATION_GROUPING": 7,
         "Pietto charter": 1,
@@ -1423,6 +1451,7 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
         "signature_lookup_inputs",
         "stage_clause_lookup_inputs",
         "aggregate_lookup_inputs",
+        "window_lookup_inputs",
     }
     module_stems = {Path(path).stem for path in MODULE_RELS}
     for path in (REPO_ROOT / "src/pietto").rglob("*.py"):
@@ -1586,6 +1615,19 @@ def test_phase53_window_handoff_remains_unpopulated_and_unknown() -> None:
     )
     assert _helper_inputs(window)[1] is False
     assert _lookup(window) == Unknown(CapabilityReasonCode.NOT_EVIDENCED)
+    window_facts = tuple(
+        fact for fact in facts if fact.key.domain is CapabilityDomain.WINDOW_FUNCTION
+    )
+    assert window_facts == _facts(capability_windows, "_WINDOW_CAPABILITY_FACTS")
+    assert len(window_facts) == len({fact.key for fact in window_facts}) == 24
+    for key in (window_facts[0].key, window_facts[8].key):
+        lookup_facts, complete, reason = _helper_inputs(key)
+        assert complete is True
+        assert reason is None
+        assert key in {fact.key for fact in lookup_facts}
+        assert _lookup(key) == Found(
+            next(fact for fact in lookup_facts if fact.key == key)
+        )
     spec = _read(REPO_ROOT / SPEC_REL)
     assert all(name in spec for name in ("row_number", "rank", "dense_rank"))
 
@@ -1794,7 +1836,7 @@ def test_static_reader_counts_boundary_hash_and_nested_sha_topology_are_exact() 
     assert (
         sum(path.endswith(".py") for path in readable),
         sum(path.endswith(".md") for path in readable),
-    ) == (539, 241)
+    ) == (541, 242)
     compiler_paths = _compiler_paths()
     semantic_paths = tuple((REPO_ROOT / "src/pietto/semantic").glob("*.py"))
     phase15_paths = tuple(
@@ -1804,9 +1846,9 @@ def test_static_reader_counts_boundary_hash_and_nested_sha_topology_are_exact() 
     )
     project_paths = _project_private_paths()
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        92,
-        35,
-        32,
+        93,
+        36,
+        33,
     )
     assert len(project_paths) == 18
     assert _digest(compiler_paths) == COMPILER_DIGEST
@@ -1829,12 +1871,13 @@ def test_static_reader_counts_boundary_hash_and_nested_sha_topology_are_exact() 
         assert SELF_REL in readers
 
     module_reader_counts = {
-        FACTS_REL: 7,
+        FACTS_REL: 10,
         LOOKUP_REL: 7,
         INVENTORY_REL: 6,
         SIGNATURE_REL: 5,
         CONTEXT_REL: 4,
         AGGREGATE_REL: 3,
+        WINDOW_REL: 5,
     }
     for relative, expected_count in module_reader_counts.items():
         readers = tuple(
@@ -1930,7 +1973,7 @@ def test_static_reader_counts_boundary_hash_and_nested_sha_topology_are_exact() 
                 "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
             )
         assert actual == expected_readers
-    assert 6 + len(MODULE_RELS) + len(new_sha_edges) == 17
+    assert 6 + len(MODULE_RELS) + len(new_sha_edges) == 18
     self_sha = _sha256(REPO_ROOT / SELF_REL)
     self_readers = tuple(
         path
@@ -1982,7 +2025,7 @@ def test_test_inventory_tier1_selectors_and_compatibility_counts_are_exact() -> 
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (447, 4803)
+    assert (len(test_files), top_level_functions) == (448, 4836)
     assert tuple(
         _pytest_shape(REPO_ROOT / path)[1]
         for path in (

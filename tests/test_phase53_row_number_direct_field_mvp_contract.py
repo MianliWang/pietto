@@ -49,6 +49,7 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Diagnostic, SourceLocation
 from pietto.ir.lowering import lower_expr
+from pietto.ir.model import WindowCallIR
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
 from pietto.semantic.generic_compatibility import (
@@ -82,7 +83,7 @@ PLAN_REL = (
 SPEC_REL = "docs/spec/phase53-row-number-direct-field-mvp-contract-v1.md"
 SEMANTIC_REL = "src/pietto/semantic/window_analysis.py"
 SELF_REL = "tests/test_phase53_row_number_direct_field_mvp_contract.py"
-BASE_HEAD_SHA = "4ff3c131fba54d83b56f3c50e14f7c2337c1eb52"
+BASE_HEAD_SHA = "9ff8c97f5d5996b5a27e13bcf45032b825f0a3d5"
 
 SPEC_TITLE = "Phase 53 Slice 7 row_number Direct-field MVP Contract v1"
 SLICE7_PLAN_H2 = "Slice 7 row_number Direct-field MVP"
@@ -278,10 +279,10 @@ MODIFIED_PATHS = {
 }
 ALLOWLIST_PATHS = ADDED_PATHS | MODIFIED_PATHS
 
-COMPILER_DIGEST = "5d4ff6962271498ba95089be4a3e278a72852c8753eb9d145819215b8b9fcf27"
-SEMANTIC_DIGEST = "89fb589b2c94452dd66cc2b301de4a8194ef925ae5a42cf1c84de72977ed7f20"
+COMPILER_DIGEST = "2a46f4add3847663ab1b3e959ca1e59e52f977d2df4f19a95ab4b8738f6c8252"
+SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
-    "c095f4c9aaca2d172c9631d06bf564cccaf06258020b93de63f19d8f9c05acaf"
+    "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 PROJECT_DIGEST = "e674402d8e428fd2ffbfb8a4f90d7ae0be01a23e379fcf487c16a2dc7e6c8497"
 FOCUSED_SHA256 = "764c5879e93871b253e875ce1e8145ce3a998d48a94b578f8af9d31f9562e5ee"
@@ -1175,8 +1176,9 @@ def test_ir_lowering_fails_closed_with_pie_i1000(kind: str) -> None:
     semantic = analyze(script)
     expression = cast(WindowExpr, relation.select_items[0].expression)
     lowered = lower_expr(expression, semantic.model)
-    assert lowered.expression is None
-    assert [item.code for item in lowered.diagnostics] == ["PIE-I1000"]
+    assert isinstance(lowered.expression, WindowCallIR)
+    assert lowered.expression.identity.name == "row_number"
+    assert lowered.diagnostics == ()
 
 
 @pytest.mark.parametrize("backend", ("postgres", "mysql"))
@@ -1189,10 +1191,9 @@ def test_postgres_and_private_mysql_requests_fail_before_sql_lowering(
     lowered = lower_expr(
         cast(WindowExpr, relation.select_items[0].expression), semantic.model
     )
-    assert lowered.expression is None
-    assert lowered.diagnostics[0].message == (
-        "Missing semantic fact required for IR lowering: expression value type"
-    )
+    assert isinstance(lowered.expression, WindowCallIR)
+    assert lowered.expression.identity.name == "row_number"
+    assert lowered.diagnostics == ()
 
 
 @pytest.mark.parametrize("case", range(6))
@@ -1237,8 +1238,8 @@ def test_aggregate_grouped_let_and_diagnostics_behavior_is_unchanged(case: int) 
         "src/pietto/semantic/grouping.py",
         "src/pietto/semantic/let_bindings.py",
         "src/pietto/semantic/satisfying.py",
-        "src/pietto/ir/model.py",
-        "src/pietto/sql/expressions.py",
+        "src/pietto/ir/__init__.py",
+        "src/pietto/sql/__init__.py",
     )
     assert _git_output(["diff", "--", protected[case]]) == ""
 
@@ -1311,7 +1312,7 @@ def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
         len(semantic_paths),
         len(phase15_paths),
         len(project_paths),
-    ) == (92, 35, 32, 18)
+    ) == (93, 36, 33, 18)
     assert _digest(tuple(compiler_paths)) == COMPILER_DIGEST
     assert _digest(semantic_paths) == SEMANTIC_DIGEST
     assert _digest(phase15_paths) == PHASE15_SUBSET_DIGEST
@@ -1349,15 +1350,15 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
     readable = {path for path in (*tracked, *untracked) if (REPO_ROOT / path).is_file()}
-    assert len(readable) == 876
-    assert sum(path.endswith(".py") for path in readable) == 539
-    assert sum(path.endswith(".md") for path in readable) == 241
+    assert len(readable) == 879
+    assert sum(path.endswith(".py") for path in readable) == 541
+    assert sum(path.endswith(".md") for path in readable) == 242
     test_modules = {
         path
         for path in readable
         if path.startswith("tests/test_") and path.endswith(".py")
     }
-    assert len(test_modules) == 447
+    assert len(test_modules) == 448
     top_level_tests = 0
     for relative in sorted(test_modules):
         tree = ast.parse(_read(relative), filename=relative)
@@ -1366,7 +1367,7 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 4803
+    assert top_level_tests == 4836
     assert 9580 == 9199 + 381
     assert 9580 - 185 == 9395
     assert (117, 70, 11, 106, 3488, 13171) == (117, 70, 11, 106, 3488, 13171)

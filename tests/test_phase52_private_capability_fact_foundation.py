@@ -389,6 +389,7 @@ def test_exact_enum_member_inventories_are_locked() -> None:
         ("NULL_TEST", "null_test"),
         ("CLAUSE", "clause"),
         ("AGGREGATE", "aggregate"),
+        ("WINDOW_FUNCTION", "window_function"),
         ("EXPRESSION_STAGE", "expression_stage"),
         ("CONVERSION", "conversion"),
         ("DIALECT_LOWERING", "dialect_lowering"),
@@ -716,6 +717,7 @@ def test_private_module_has_no_public_compiler_project_or_serializer_consumers()
                 SIGNATURE_PATH,
                 REPO_ROOT / CONTEXT_REL,
                 REPO_ROOT / AGGREGATE_REL,
+                REPO_ROOT / "src/pietto/semantic/capability_windows.py",
             }
             or "generated" in path.parts
         ):
@@ -779,7 +781,7 @@ def test_slice2_spec_locks_read_model_non_authority_and_conflict_preservation() 
 
 def test_compiler_boundary_and_all_compatibility_hash_locks_are_consistent() -> None:
     compiler_paths = _compiler_paths()
-    assert len(compiler_paths) == 92
+    assert len(compiler_paths) == 93
     compiler_digest = _digest(compiler_paths)
     for path in BOUNDARY_PATHS:
         assert f'BOUNDARY_HASH = "{compiler_digest}"' in _read(REPO_ROOT / path)
@@ -792,7 +794,7 @@ def test_compiler_boundary_and_all_compatibility_hash_locks_are_consistent() -> 
         )
 
     semantic_paths = tuple((REPO_ROOT / "src/pietto/semantic").glob("*.py"))
-    assert len(semantic_paths) == 35
+    assert len(semantic_paths) == 36
     semantic_digest = _digest(semantic_paths)
     for path in SEMANTIC_LOCK_PATHS:
         text = _read(REPO_ROOT / path)
@@ -807,7 +809,7 @@ def test_compiler_boundary_and_all_compatibility_hash_locks_are_consistent() -> 
         for path in semantic_paths
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
-    assert len(phase15_paths) == 32
+    assert len(phase15_paths) == 33
     phase15_digest = _digest(phase15_paths)
     phase15_reader = _read(REPO_ROOT / PHASE15_SUBSET_PATH)
     assert phase15_digest in phase15_reader

@@ -13,10 +13,18 @@ from pietto.ir.model import (
     IsNullIR,
     LiteralIR,
     NullabilityIR,
+    OrderDirectionIR,
+    SourceSpan,
     SymbolId,
     SymbolNamespace,
     TypeKindIR,
+    TypeRefIR,
     UnaryIR,
+    WindowCallIR,
+    WindowFunctionIdentityIR,
+    WindowFunctionRoleIR,
+    WindowOrderItemIR,
+    WindowSpecIR,
 )
 from pietto.sql.mysql_render import (
     MySqlRenderError,
@@ -68,6 +76,19 @@ _SUPPORTED_COUNT_DISTINCT_ARGUMENT_TYPES = frozenset(
 )
 _COUNT_DISTINCT_TRANSFORM_NAMES = frozenset({"lower", "trim"})
 _COUNT_EXPRESSION_CALL_NAMES = frozenset({"lower", "trim", "len"})
+_WINDOW_FUNCTION_NAMES = {
+    "row_number": "ROW_NUMBER",
+    "rank": "RANK",
+    "dense_rank": "DENSE_RANK",
+    "percent_rank": "PERCENT_RANK",
+    "cume_dist": "CUME_DIST",
+    "ntile": "NTILE",
+    "lag": "LAG",
+    "lead": "LEAD",
+}
+_ZERO_ARGUMENT_WINDOW_FUNCTIONS = frozenset(
+    {"row_number", "rank", "dense_rank", "percent_rank", "cume_dist"}
+)
 
 
 def render_mysql_expression(expression: ExpressionIR) -> str:
@@ -85,6 +106,12 @@ def _render_mysql_expression(expression: ExpressionIR, *, nested: bool) -> str:
         return quote_identifier(expression.name, context="column identifier")
     if isinstance(expression, AggregateCallIR):
         return _render_aggregate_call(expression)
+    if isinstance(expression, WindowCallIR):
+        if nested:
+            raise MySqlRenderError(
+                "MySQL window calls are supported only as direct projections"
+            )
+        return _render_mysql_window_call(expression)
     if isinstance(expression, CallIR):
         return _render_call(expression)
     if isinstance(expression, ComparisonIR):
@@ -129,6 +156,114 @@ def _render_mysql_expression(expression: ExpressionIR, *, nested: bool) -> str:
         )
 
     return f"({sql})" if nested else sql
+
+
+def _render_mysql_window_call(expression: WindowCallIR) -> str:
+    """Render one independently validated private-MySQL window call."""
+
+    if type(getattr(expression, "span", None)) is not SourceSpan:
+        raise MySqlRenderError("MySQL window call requires an exact source span")
+    if type(getattr(expression, "value_type", None)) is not TypeRefIR:
+        raise MySqlRenderError("MySQL window call requires an exact value type")
+    identity = getattr(expression, "identity", None)
+    if type(identity) is not WindowFunctionIdentityIR:
+        raise MySqlRenderError("MySQL window call requires an exact identity")
+    namespace = getattr(identity, "namespace", None)
+    name = getattr(identity, "name", None)
+    role = getattr(identity, "role", None)
+    if type(namespace) is not tuple or namespace != ():
+        raise MySqlRenderError("MySQL window identity requires an empty namespace")
+    if type(name) is not str or name not in _WINDOW_FUNCTION_NAMES:
+        raise MySqlRenderError("MySQL window identity is unsupported")
+    if role is not WindowFunctionRoleIR.WINDOW_FUNCTION:
+        raise MySqlRenderError("MySQL window identity requires the window role")
+
+    arguments = getattr(expression, "arguments", None)
+    if type(arguments) is not tuple:
+        raise MySqlRenderError("MySQL window arguments require an exact tuple")
+    if name in _ZERO_ARGUMENT_WINDOW_FUNCTIONS:
+        valid_arity = len(arguments) == 0
+    elif name == "ntile":
+        valid_arity = len(arguments) == 1
+    else:
+        valid_arity = len(arguments) in {1, 2, 3}
+    if not valid_arity:
+        raise MySqlRenderError(f"MySQL window function {name} has invalid arity")
+    if any(
+        not isinstance(argument, ExpressionIR) or isinstance(argument, WindowCallIR)
+        for argument in arguments
+    ):
+        raise MySqlRenderError("MySQL window arguments contain an invalid expression")
+
+    spec = getattr(expression, "spec", None)
+    if type(spec) is not WindowSpecIR:
+        raise MySqlRenderError("MySQL window call requires an exact specification")
+    if type(getattr(spec, "span", None)) is not SourceSpan:
+        raise MySqlRenderError("MySQL window specification requires an exact span")
+    partition_by = getattr(spec, "partition_by", None)
+    order_by = getattr(spec, "order_by", None)
+    if type(partition_by) is not tuple or type(order_by) is not tuple:
+        raise MySqlRenderError("MySQL window specification requires exact tuples")
+    if not order_by:
+        raise MySqlRenderError("MySQL window specification requires local ORDER BY")
+    if any(
+        not isinstance(partition, ExpressionIR) or isinstance(partition, WindowCallIR)
+        for partition in partition_by
+    ):
+        raise MySqlRenderError("MySQL window partition contains an invalid expression")
+    _validate_mysql_window_order_items(order_by)
+
+    argument_sql = ", ".join(
+        _render_mysql_expression(argument, nested=True) for argument in arguments
+    )
+    clauses: list[str] = []
+    if partition_by:
+        clauses.append(
+            "PARTITION BY "
+            + ", ".join(
+                _render_mysql_expression(partition, nested=True)
+                for partition in partition_by
+            )
+        )
+    clauses.append(
+        "ORDER BY "
+        + ", ".join(_render_mysql_window_order_item(item) for item in order_by)
+    )
+    return f"{_WINDOW_FUNCTION_NAMES[name]}({argument_sql}) OVER ({' '.join(clauses)})"
+
+
+def _validate_mysql_window_order_items(
+    order_by: tuple[WindowOrderItemIR, ...],
+) -> None:
+    for item in order_by:
+        if type(item) is not WindowOrderItemIR:
+            raise MySqlRenderError("MySQL window order requires exact items")
+        if type(getattr(item, "span", None)) is not SourceSpan:
+            raise MySqlRenderError("MySQL window order item requires an exact span")
+        order_expression = getattr(item, "expression", None)
+        if not isinstance(order_expression, ExpressionIR) or isinstance(
+            order_expression, WindowCallIR
+        ):
+            raise MySqlRenderError("MySQL window order contains an invalid expression")
+        direction = getattr(item, "direction", None)
+        if type(direction) is not OrderDirectionIR:
+            raise MySqlRenderError("MySQL window order direction is invalid")
+        direction_is_explicit = getattr(item, "direction_is_explicit", None)
+        if type(direction_is_explicit) is not bool:
+            raise MySqlRenderError(
+                "MySQL window order explicitness requires an exact bool"
+            )
+        if not direction_is_explicit and direction is not OrderDirectionIR.ASC:
+            raise MySqlRenderError(
+                "MySQL omitted window order direction must resolve to ASC"
+            )
+
+
+def _render_mysql_window_order_item(item: WindowOrderItemIR) -> str:
+    return (
+        f"{_render_mysql_expression(item.expression, nested=True)} "
+        f"{item.direction.value}"
+    )
 
 
 def _render_aggregate_call(expression: AggregateCallIR) -> str:

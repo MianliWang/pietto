@@ -15,6 +15,7 @@ import pietto.semantic.capability_facts as capability_facts
 import pietto.semantic.capability_inventory as capability_inventory
 import pietto.semantic.capability_lookup as capability_lookup
 import pietto.semantic.capability_signatures as capability_signatures
+import pietto.semantic.capability_windows as capability_windows
 from pietto.semantic.capability_facts import (
     CapabilityDispositionKind,
     CapabilityDomain,
@@ -149,6 +150,7 @@ INVENTORY_REL = "src/pietto/semantic/capability_inventory.py"
 SIGNATURE_REL = "src/pietto/semantic/capability_signatures.py"
 CONTEXT_REL = "src/pietto/semantic/capability_contexts.py"
 AGGREGATE_REL = "src/pietto/semantic/capability_aggregates.py"
+WINDOW_REL = "src/pietto/semantic/capability_windows.py"
 MODULE_RELS = (
     FACTS_REL,
     LOOKUP_REL,
@@ -156,6 +158,7 @@ MODULE_RELS = (
     SIGNATURE_REL,
     CONTEXT_REL,
     AGGREGATE_REL,
+    WINDOW_REL,
 )
 MODULE_OBJECTS = (
     capability_facts,
@@ -164,19 +167,21 @@ MODULE_OBJECTS = (
     capability_signatures,
     capability_contexts,
     capability_aggregates,
+    capability_windows,
 )
 MODULE_SHA256 = {
-    FACTS_REL: "8a7e7ba8374c59316051f582aecc0c0e797d270fac2ce89a91a55befca562fa9",
+    FACTS_REL: "bd68bad4e13a2b945962458fc47359a408d27b1563ba25f5713a8f8099671d21",
     LOOKUP_REL: "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26",
     INVENTORY_REL: "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26",
     SIGNATURE_REL: "810f347080e0bb7dc674821aa6387c5f7618ac216832194ef19820326eef71d2",
     CONTEXT_REL: "132371eccca00ca9f8722a34f1ea0f540933515e560639ee12e53aee6594c60c",
     AGGREGATE_REL: "d7d69fa4b97924ef5462af9c871a910b73cad43a21431e98a72c8bdab8996c80",
+    WINDOW_REL: "c0512933fc284bbc1dec98dab96411ee179d64e7bee005aa798b6fd7dba2024e",
 }
 PATH_DIGESTS = {
-    "compiler": "5d4ff6962271498ba95089be4a3e278a72852c8753eb9d145819215b8b9fcf27",
-    "semantic": "89fb589b2c94452dd66cc2b301de4a8194ef925ae5a42cf1c84de72977ed7f20",
-    "phase15": "c095f4c9aaca2d172c9631d06bf564cccaf06258020b93de63f19d8f9c05acaf",
+    "compiler": "2a46f4add3847663ab1b3e959ca1e59e52f977d2df4f19a95ab4b8738f6c8252",
+    "semantic": "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70",
+    "phase15": "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d",
     "project": "e674402d8e428fd2ffbfb8a4f90d7ae0be01a23e379fcf487c16a2dc7e6c8497",
 }
 PROTECTED_SHA256 = {
@@ -232,7 +237,7 @@ PHASE53_ADDED_PATHS = {
     "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
 }
 PHASE53_ALLOWLIST_PATHS = PHASE53_MODIFIED_PATHS | PHASE53_ADDED_PATHS
-SLICE2_BASE_HEAD_SHA = "4ff3c131fba54d83b56f3c50e14f7c2337c1eb52"
+SLICE2_BASE_HEAD_SHA = "9ff8c97f5d5996b5a27e13bcf45032b825f0a3d5"
 SLICE2_STATE_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
 
 OWNER_HANDOFFS = (
@@ -260,11 +265,11 @@ OWNER_HANDOFFS = (
 )
 EVIDENCE_SOURCE_COUNTS = {
     CapabilityEvidenceSource.GRAMMAR_AST: 267,
-    CapabilityEvidenceSource.SEMANTIC_CATALOG: 79,
-    CapabilityEvidenceSource.SEMANTIC_PROCEDURE: 389,
+    CapabilityEvidenceSource.SEMANTIC_CATALOG: 87,
+    CapabilityEvidenceSource.SEMANTIC_PROCEDURE: 397,
     CapabilityEvidenceSource.SEMANTIC_MODEL: 130,
-    CapabilityEvidenceSource.IR: 239,
-    CapabilityEvidenceSource.BACKEND: 220,
+    CapabilityEvidenceSource.IR: 247,
+    CapabilityEvidenceSource.BACKEND: 236,
     CapabilityEvidenceSource.PROJECT: 129,
     CapabilityEvidenceSource.PUBLIC: 18,
     CapabilityEvidenceSource.ROADMAP: 90,
@@ -614,6 +619,10 @@ def _families() -> tuple[tuple[CapabilityFact, ...], ...]:
             tuple[CapabilityFact, ...],
             capability_aggregates._AGGREGATE_CAPABILITY_FACTS,
         ),
+        cast(
+            tuple[CapabilityFact, ...],
+            capability_windows._WINDOW_CAPABILITY_FACTS,
+        ),
     )
 
 
@@ -647,6 +656,10 @@ def _lookup(key: CapabilityKey) -> Found | Absent | Unknown | Conflict:
         facts, complete, reason = cast(
             Any, capability_aggregates.aggregate_lookup_inputs
         )(key)
+    elif key.domain is CapabilityDomain.WINDOW_FUNCTION:
+        facts, complete, reason = cast(Any, capability_windows.window_lookup_inputs)(
+            key
+        )
     else:
         facts, complete, reason = (), False, None
     return lookup_capability(
@@ -772,11 +785,12 @@ def test_private_capability_modules_fact_key_completeness_lookup_and_conflict_cl
         (39, 39),
         (18, 18),
         (69, 68),
+        (24, 24),
     )
     assert (len(facts), len(set(facts)), len({fact.key for fact in facts})) == (
-        167,
-        167,
-        166,
+        191,
+        191,
+        190,
     )
     collisions = tuple(
         group
@@ -812,16 +826,16 @@ def test_evidence_support_disposition_backend_and_cross_phase_ownership_are_lock
 ):
     facts = _all_facts()
     assert Counter(fact.support for fact in facts) == {
-        CapabilitySupport.SUPPORTED: 138,
+        CapabilitySupport.SUPPORTED: 162,
         CapabilitySupport.EXPLICITLY_UNSUPPORTED: 29,
     }
     assert Counter(fact.disposition.kind for fact in facts) == {
-        CapabilityDispositionKind.NONE: 152,
+        CapabilityDispositionKind.NONE: 176,
         CapabilityDispositionKind.DEFERRED: 14,
         CapabilityDispositionKind.OUT_OF_SCOPE: 1,
     }
     evidence = tuple(item for fact in facts for item in fact.evidence)
-    assert len(evidence) == 2333
+    assert len(evidence) == 2373
     assert Counter(item.source for item in evidence) == EVIDENCE_SOURCE_COUNTS
     dual = tuple(
         fact
@@ -857,6 +871,7 @@ def test_privacy_consumers_exports_authority_and_no_behavior_boundaries_are_lock
         "signature_lookup_inputs",
         "stage_clause_lookup_inputs",
         "aggregate_lookup_inputs",
+        "window_lookup_inputs",
     }
     stems = {Path(relative).stem for relative in MODULE_RELS}
     for path in (REPO_ROOT / "src/pietto").rglob("*.py"):
@@ -946,9 +961,9 @@ def test_live_compiler_semantic_phase15_project_protected_version_and_tag_locks_
     )
     project = _project_paths()
     assert (len(compiler), len(semantic), len(phase15), len(project)) == (
-        92,
-        35,
-        32,
+        93,
+        36,
+        33,
         18,
     )
     assert {
@@ -1054,7 +1069,7 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
     assert (
         sum(path.endswith(".py") for path in readable),
         sum(path.endswith(".md") for path in readable),
-    ) == (539, 241)
+    ) == (541, 242)
     for digest, expected in (
         (PATH_DIGESTS["compiler"], 26),
         (PATH_DIGESTS["semantic"], 40),
@@ -1068,7 +1083,11 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
         )
         assert len(readers) == expected
         assert SELF_REL in readers
-    for relative, expected in zip(MODULE_RELS, (7, 7, 6, 5, 4, 3), strict=True):
+    for relative, expected in zip(
+        MODULE_RELS,
+        (10, 7, 6, 5, 4, 3, 5),
+        strict=True,
+    ):
         readers = tuple(
             path
             for path in readable
@@ -1129,12 +1148,12 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
         )
         for path in test_files
     )
-    assert (len(test_files), top_functions) == (447, 4803)
+    assert (len(test_files), top_functions) == (448, 4836)
     assert (
         381 + 834 + 627 + 424 + 279 + 168 + 156 + 12 + 145 + 190 + 70 + 70 + 97 + 35
         == 3488
     )
-    assert 10576 - 185 == 10391
+    assert 10784 - 185 == 10599
     assert sum(_pytest_shape(relative)[1] for relative in SLICE_TEST_RELS) == 417
     tier1 = _tier1_operands()
     tier1_payload = "".join(item + "\n" for item in tier1).encode()

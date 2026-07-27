@@ -51,6 +51,7 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Diagnostic, SourceLocation
 from pietto.ir.lowering import lower_expr
+from pietto.ir.model import WindowCallIR
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
 from pietto.semantic.generic_compatibility import (
@@ -83,7 +84,7 @@ PLAN_REL = (
 )
 SPEC_REL = "docs/spec/phase53-rank-dense-rank-peer-semantics-contract-v1.md"
 SELF_REL = "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py"
-BASE_HEAD_SHA = "4ff3c131fba54d83b56f3c50e14f7c2337c1eb52"
+BASE_HEAD_SHA = "9ff8c97f5d5996b5a27e13bcf45032b825f0a3d5"
 
 SPEC_REL = "docs/spec/phase53-percent-rank-cume-dist-ntile-contract-v1.md"
 SPEC_TITLE = "Phase 53 percent_rank / cume_dist / ntile Contract v1"
@@ -670,10 +671,10 @@ DIRTY_OVERLAY = (
     "--deselect=tests/test_phase52_scalar_function_operator_signature_facts.py::test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact",
 )
 
-COMPILER_DIGEST = "5d4ff6962271498ba95089be4a3e278a72852c8753eb9d145819215b8b9fcf27"
-SEMANTIC_DIGEST = "89fb589b2c94452dd66cc2b301de4a8194ef925ae5a42cf1c84de72977ed7f20"
+COMPILER_DIGEST = "2a46f4add3847663ab1b3e959ca1e59e52f977d2df4f19a95ab4b8738f6c8252"
+SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
-    "c095f4c9aaca2d172c9631d06bf564cccaf06258020b93de63f19d8f9c05acaf"
+    "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 PROJECT_DIGEST = "e674402d8e428fd2ffbfb8a4f90d7ae0be01a23e379fcf487c16a2dc7e6c8497"
 FOCUSED_SHA256 = "764c5879e93871b253e875ce1e8145ce3a998d48a94b578f8af9d31f9562e5ee"
@@ -2306,18 +2307,9 @@ def test_distribution_ir_lowering_fails_closed_with_pie_i1000(case: int) -> None
     semantic = analyze(script)
     expression = cast(WindowExpr, relation.select_items[-1].expression)
     lowered = lower_expr(expression, semantic.model)
-    assert lowered.expression is None
-    assert [item.code for item in lowered.diagnostics] == ["PIE-I1000"]
-    assert lowered.diagnostics[0].message == (
-        "Missing semantic fact required for IR lowering: expression value type"
-    )
-    assert lowered.diagnostics[0].location == SourceLocation(
-        path=expression.span.path,
-        line=expression.span.line,
-        column=expression.span.column,
-        end_line=expression.span.end_line,
-        end_column=expression.span.end_column,
-    )
+    assert isinstance(lowered.expression, WindowCallIR)
+    assert lowered.expression.identity.name == function_name
+    assert lowered.diagnostics == ()
 
 
 @pytest.mark.parametrize("case", range(6))
@@ -2336,8 +2328,9 @@ def test_distribution_postgres_and_private_mysql_fail_before_sql_lowering(
         semantic.model,
     )
     assert backend in {"postgres", "mysql"}
-    assert lowered.expression is None
-    assert [item.code for item in lowered.diagnostics] == ["PIE-I1000"]
+    assert isinstance(lowered.expression, WindowCallIR)
+    assert lowered.expression.identity.name == function_name
+    assert lowered.diagnostics == ()
 
 
 @pytest.mark.parametrize("case", range(8))
@@ -2351,7 +2344,7 @@ def test_distribution_cli_json_metadata_project_json_and_exports_remain_private(
         "src/pietto/_project/json_v2.py",
         "src/pietto/_metadata/serializer.py",
         "src/pietto/semantic/__init__.py",
-        "src/pietto/ir/model.py",
+        "src/pietto/ir/__init__.py",
         "src/pietto/sql/postgres.py",
     )
     assert _git_output(["diff", "--", protected[case]]) == ""
@@ -2560,10 +2553,10 @@ def test_grammar_generated_ast_parser_ir_sql_and_public_bytes_are_locked() -> No
     )
     assert len(generated) == 8
     assert _digest(ir_paths) == (
-        "3a8f824f1dc689fcd2cc4667bfa7f790c84c49d8d556cefb339d3259aa78872f"
+        "04cb667ff3c9cdf0189d9fd0caa5dc0f9db74ca78dd86e965f020b4523f543e9"
     )
     assert _digest(sql_paths) == (
-        "b18229fbda079d706416119002a70d091e7f5b79e0e4818a5b1292d9b88e898b"
+        "72a23f954c49337192effe005c9b3331359b132cc06f494fd4922b9718d1c026"
     )
 
 
@@ -2596,7 +2589,7 @@ def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
         len(semantic_paths),
         len(phase15_paths),
         len(project_paths),
-    ) == (92, 35, 32, 18)
+    ) == (93, 36, 33, 18)
     assert _digest(compiler_paths) == COMPILER_DIGEST
     assert _digest(semantic_paths) == SEMANTIC_DIGEST
     assert _digest(phase15_paths) == PHASE15_SUBSET_DIGEST
@@ -2640,15 +2633,15 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
     None
 ):
     repository_paths = _repository_paths()
-    assert len(repository_paths) == 876
-    assert sum(path.endswith(".py") for path in repository_paths) == 539
-    assert sum(path.endswith(".md") for path in repository_paths) == 241
+    assert len(repository_paths) == 879
+    assert sum(path.endswith(".py") for path in repository_paths) == 541
+    assert sum(path.endswith(".md") for path in repository_paths) == 242
     test_modules = tuple(
         path
         for path in repository_paths
         if path.startswith("tests/test_") and path.endswith(".py")
     )
-    assert len(test_modules) == 447
+    assert len(test_modules) == 448
     top_level_tests = 0
     for relative in test_modules:
         tree = ast.parse(_read(relative), filename=relative)
@@ -2657,7 +2650,7 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 4803
+    assert top_level_tests == 4836
     focused_payload = ("\n".join(FOCUSED_OPERANDS) + "\n").encode()
     overlay_payload = ("\n".join(DIRTY_OVERLAY) + "\n").encode()
     formatter_payload = ("\n".join(FORMATTER_PATHS) + "\n").encode()
