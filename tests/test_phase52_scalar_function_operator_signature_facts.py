@@ -73,7 +73,7 @@ FACTS_SHA256 = "8a7e7ba8374c59316051f582aecc0c0e797d270fac2ce89a91a55befca562fa9
 LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26"
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 PROJECT_PRIVATE_DIGEST = (
-    "1cfc82b2f9627ca473c8eaf2516b845463ec3a5afce0103c361924fd63bb9cd2"
+    "e674402d8e428fd2ffbfb8a4f90d7ae0be01a23e379fcf487c16a2dc7e6c8497"
 )
 TIER2_MANIFEST_BYTES = 18319
 TIER2_MANIFEST_FILES = 108
@@ -1277,11 +1277,11 @@ def test_compiler_semantic_subset_project_and_raw_hash_readers_are_exact() -> No
     )
     project_paths = _project_private_paths()
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        91,
+        92,
         35,
         32,
     )
-    assert len(project_paths) == 17
+    assert len(project_paths) == 18
     assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
 
     tracked = tuple(_git_output(["ls-files"]).splitlines())
@@ -1407,7 +1407,7 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
         assert status == tuple(f"M\t{path}" for path in sorted(slice13_modified))
         assert untracked == slice13_added
         assert branch == "main"
-        assert head == main == origin_main == "a5606761c040042d177874253e29c25f2e8e3fff"
+        assert head == main == origin_main == "4ff3c131fba54d83b56f3c50e14f7c2337c1eb52"
     elif dirty == SLICE9_ALLOWLIST_PATHS:
         status = tuple(_git_output(["diff", "--name-status"]).splitlines())
         assert tracked == SLICE9_MODIFIED_PATHS
@@ -1481,7 +1481,7 @@ def test_static_test_inventory_tier1_and_tier2_manifest_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (446, 4736)
+    assert (len(test_files), top_level_functions) == (447, 4803)
     assert len(DIRECT_TIER1_NODES) == len(set(DIRECT_TIER1_NODES)) == 44
     for node_id in DIRECT_TIER1_NODES:
         path, function = node_id.split("::", maxsplit=1)

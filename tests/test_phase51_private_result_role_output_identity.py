@@ -518,6 +518,11 @@ def test_forbidden_compiler_dependency_and_lineage_surfaces_have_no_diff() -> No
         for path in sorted((REPO_ROOT / "src/pietto/semantic").glob("*.py"))
         if path.relative_to(REPO_ROOT).as_posix() not in allowed_semantic_paths
     )
+    forbidden_ir_paths = tuple(
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in sorted((REPO_ROOT / "src/pietto/ir").glob("*.py"))
+        if path.relative_to(REPO_ROOT).as_posix() != "src/pietto/ir/lowering.py"
+    )
     forbidden_paths = (
         "grammar",
         "src/pietto/ast_nodes.py",
@@ -525,7 +530,7 @@ def test_forbidden_compiler_dependency_and_lineage_surfaces_have_no_diff() -> No
         "src/pietto/parser_api.py",
         "src/pietto/errors.py",
         *forbidden_semantic_paths,
-        "src/pietto/ir",
+        *forbidden_ir_paths,
         "src/pietto/sql",
         "src/pietto/cli.py",
         "src/pietto/cli_json.py",
@@ -535,8 +540,6 @@ def test_forbidden_compiler_dependency_and_lineage_surfaces_have_no_diff() -> No
         "src/pietto/_project/let_scope_facts.py",
         "src/pietto/_project/row_expression_schema.py",
         "src/pietto/_project/row_expression_type_facts.py",
-        "src/pietto/_project/row_dependency_graph.py",
-        "src/pietto/_project/row_lineage.py",
     )
     result = subprocess.run(
         ["git", "diff", "--exit-code", "--", *forbidden_paths],

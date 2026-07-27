@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Mapping
 
 from pietto.ast_nodes import (
@@ -247,6 +248,20 @@ def type_relation_expressions(
         )
         let_value_types = relation_let_value_types.get(definition)
         let_expressions = relation_let_expressions.get(definition)
+        selected_output_names = tuple(
+            _relation_projection_output_name(item) for item in definition.select_items
+        )
+        selected_output_name_counts = Counter(
+            name for name in selected_output_names if name is not None
+        )
+        duplicate_window_output_names = {
+            item.alias
+            for item in definition.select_items
+            if type(item.expression) is WindowExpr
+            and item.alias is not None
+            and selected_output_name_counts[item.alias] != 1
+        }
+        window_alias_value_types: dict[str, ValueType] = {}
         if definition.where_clause is not None:
             _append_invalid_count_context_diagnostic(
                 definition.where_clause.expression,
@@ -268,7 +283,7 @@ def type_relation_expressions(
                     analyze_window_expression,
                 )
 
-                analyze_window_expression(
+                analysis = analyze_window_expression(
                     definition=definition,
                     item=item,
                     selected_output_ordinal=selected_output_ordinal,
@@ -280,6 +295,23 @@ def type_relation_expressions(
                     let_value_types=let_value_types or {},
                     let_expressions=let_expressions or {},
                 )
+                from pietto.semantic.window_semantics import (
+                    WindowExpressionAnalysis,
+                    WindowResultAvailabilityKind,
+                )
+
+                if type(analysis) is WindowExpressionAnalysis:
+                    result = analysis.semantic_fact.result
+                    if (
+                        result.kind is WindowResultAvailabilityKind.CONCRETE
+                        and result.value_type is not None
+                    ):
+                        value_types[item.expression] = result.value_type
+                        if (
+                            item.alias is not None
+                            and selected_output_name_counts[item.alias] == 1
+                        ):
+                            window_alias_value_types[item.alias] = result.value_type
                 continue
             select_let_value_types = (
                 let_value_types
@@ -312,6 +344,21 @@ def type_relation_expressions(
                     diagnostics,
                     context="order by",
                 )
+                order_bare_value_types = let_value_types
+                if (
+                    type(item.expression) is NameExpr
+                    and item.expression.name in window_alias_value_types
+                ):
+                    order_bare_value_types = dict(window_alias_value_types)
+                    order_bare_value_types.update(let_value_types or {})
+                elif (
+                    type(item.expression) is NameExpr
+                    and item.expression.name in duplicate_window_output_names
+                ):
+                    order_bare_value_types = {
+                        item.expression.name: _UNKNOWN_VALUE_TYPE,
+                        **(let_value_types or {}),
+                    }
                 _infer(
                     item.expression,
                     input_schema,
@@ -319,7 +366,7 @@ def type_relation_expressions(
                     diagnostics,
                     report_unknown_name=True,
                     field_qualifier=definition.from_clause.source_name,
-                    bare_value_types=let_value_types,
+                    bare_value_types=order_bare_value_types,
                     bare_value_expressions=let_expressions,
                 )
 
@@ -418,6 +465,18 @@ def _is_direct_aggregate_projection(item: SelectItem) -> bool:
         and isinstance(expression, CallExpr)
         and is_semantic_aggregate_call(expression)
     )
+
+
+def _relation_projection_output_name(item: SelectItem) -> str | None:
+    """Return one selected output name for duplicate-scope accounting."""
+
+    if item.alias is not None:
+        return item.alias
+    if isinstance(item.expression, NameExpr):
+        return item.expression.name
+    if isinstance(item.expression, DottedNameExpr):
+        return item.expression.parts[-1]
+    return None
 
 
 def _relation_let_expressions(

@@ -43,6 +43,7 @@ from pietto.ast_nodes import (
     SelectItem,
     SourceDef,
     TableDef,
+    WindowExpr,
 )
 from pietto.errors import SourceLocation
 from pietto.semantic.aggregates import (
@@ -719,6 +720,8 @@ def _build_project_group_key_schema_attempt(
             continue
         seen_items.add(item)
         selected_expression = item.expression
+        if type(selected_expression) is WindowExpr:
+            continue
         if contains_semantic_aggregate(selected_expression):
             continue
         if not isinstance(
@@ -815,6 +818,10 @@ def _build_project_aggregate_schema_attempt(
         return _failed_candidate_attempt(
             ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
         )
+    if any(type(item.expression) is WindowExpr for item in definition.select_items):
+        return _failed_candidate_attempt(
+            ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
+        )
     if input_schema.is_unknown:
         return _failed_candidate_attempt(
             ProjectRelationRowSchemaReason.UPSTREAM_UNKNOWN
@@ -827,6 +834,7 @@ def _build_project_aggregate_schema_attempt(
     structural_failure_reasons = [
         reason
         for item in definition.select_items
+        if type(item.expression) is not WindowExpr
         if (reason := _aggregate_selected_structure_failure_reason(item)) is not None
     ]
 
@@ -849,6 +857,8 @@ def _build_project_aggregate_schema_attempt(
     if let_failure_reason is not None:
         failure_reasons.append(let_failure_reason)
     for item in definition.select_items:
+        if type(item.expression) is WindowExpr:
+            continue
         selected_attempt = _build_project_aggregate_selected_result_attempt(
             definition=definition,
             item=item,
@@ -979,6 +989,8 @@ def _build_project_grouped_schema_attempt(
         let_scope_facts=let_scope_facts,
     )
     for item in definition.select_items:
+        if type(item.expression) is WindowExpr:
+            continue
         group_key_field = (
             None
             if group_key_facts is None
@@ -1016,6 +1028,8 @@ def _build_project_grouped_schema_attempt(
     aggregate_count = 0
     aggregate_selection_count = 0
     for item in definition.select_items:
+        if type(item.expression) is WindowExpr:
+            continue
         group_key_field = (
             None
             if group_key_facts is None
@@ -1070,7 +1084,7 @@ def _build_project_grouped_schema_attempt(
         and aggregate_selection_count == 0
         and not failure_reasons
         and group_key_facts is not None
-        and len(selected_occurrences) == len(definition.select_items)
+        and len(selected_occurrences) == len(_base_selected_items(definition))
     ):
         failure_reasons.append(
             ProjectRelationRowSchemaReason.AGGREGATE_OR_GROUPED_DEFERRED
@@ -1078,7 +1092,7 @@ def _build_project_grouped_schema_attempt(
     if (
         group_key_facts is not None
         and not failure_reasons
-        and len(selected_occurrences) != len(definition.select_items)
+        and len(selected_occurrences) != len(_base_selected_items(definition))
     ):
         failure_reasons.append(
             ProjectRelationRowSchemaReason.CONFLICTING_AGGREGATE_OR_GROUPED_FACTS
@@ -1194,7 +1208,8 @@ def _aggregate_grouped_selected_occurrences(
 ]:
     """Validate complete occurrence-level field/fact coherence before dicts."""
 
-    if tuple(facts.selected_results) != tuple(definition.select_items):
+    base_selected_items = _base_selected_items(definition)
+    if tuple(facts.selected_results) != base_selected_items:
         return (
             (),
             ProjectRelationRowSchemaReason.CONFLICTING_AGGREGATE_OR_GROUPED_FACTS,
@@ -1202,7 +1217,7 @@ def _aggregate_grouped_selected_occurrences(
 
     occurrences: list[tuple[ProjectRowField, ProjectAggregateResultFact | None]] = []
     grouped_flags: set[bool] = set()
-    for item in definition.select_items:
+    for item in base_selected_items:
         selected_result = facts.selected_results.get(item)
         if isinstance(selected_result, ProjectAggregateSelectedResult):
             field = selected_result.field
@@ -1273,6 +1288,18 @@ def _aggregate_grouped_selected_occurrences(
             ProjectRelationRowSchemaReason.CONFLICTING_AGGREGATE_OR_GROUPED_FACTS,
         )
     return tuple(occurrences), None
+
+
+def _base_selected_items(
+    definition: TableDef | QueryDef,
+) -> tuple[SelectItem, ...]:
+    """Return outputs owned by the pre-window project schema stage."""
+
+    return tuple(
+        item
+        for item in definition.select_items
+        if type(item.expression) is not WindowExpr
+    )
 
 
 def _aggregate_selected_structure_failure_reason(

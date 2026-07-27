@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
@@ -48,6 +49,7 @@ from pietto.ast_nodes import (
     SourceDef,
     TableDef,
     UnaryExpr,
+    WindowExpr,
 )
 from pietto.errors import Diagnostic
 from pietto.semantic.aggregates import (
@@ -527,6 +529,8 @@ def _output_targets(
     conflicting = False
     expected_names: list[str] = []
     for item in definition.select_items:
+        if type(item.expression) is WindowExpr:
+            continue
         output_name = _projection_output_name(item)
         if output_name is None:
             missing = True
@@ -801,12 +805,15 @@ def _grouped_order_facts(
     unavailable = False
     invalid_output = False
     invalid_expression = False
+    window_output_names = _unique_window_output_names(definition)
     for item in definition.order_by_clause.items:
         expression = item.expression
         if not isinstance(expression, NameExpr):
             invalid_expression = True
             continue
         target = outputs.get(expression.name)
+        if target is None and expression.name in window_output_names:
+            continue
         if target is None and expression.name in let_expressions:
             effective = _effective_field_let_expression(
                 expression,
@@ -1147,6 +1154,7 @@ def _validate_complete_dependency_facts(
             )
 
     if definition.order_by_clause is not None:
+        window_output_names = _unique_window_output_names(definition)
         selected_group_targets: dict[str, _OutputTarget] = {}
         for target in outputs.values():
             if target.field.result_role is not ProjectRowResultRole.GROUP_KEY:
@@ -1162,6 +1170,8 @@ def _validate_complete_dependency_facts(
             if not isinstance(expression, NameExpr):
                 raise ValueError("Concrete readiness has invalid grouped order")
             target = outputs.get(expression.name)
+            if target is None and expression.name in window_output_names:
+                continue
             if target is None:
                 if expression.name not in let_expressions:
                     raise ValueError(
@@ -1202,6 +1212,22 @@ def _validate_complete_dependency_facts(
             or supplied.aggregate_result_fact is not required.aggregate_result_fact
         ):
             raise ValueError("Concrete clause readiness dependency identity mismatch")
+
+
+def _unique_window_output_names(definition: _DerivedRelation) -> frozenset[str]:
+    """Return unique exact window aliases owned by the later WINDOW stage."""
+
+    output_names = tuple(
+        _projection_output_name(item) for item in definition.select_items
+    )
+    counts = Counter(name for name in output_names if name is not None)
+    return frozenset(
+        item.alias
+        for item in definition.select_items
+        if type(item.expression) is WindowExpr
+        and item.alias is not None
+        and counts[item.alias] == 1
+    )
 
 
 def _definition_let_expressions(

@@ -82,7 +82,7 @@ PLAN_REL = (
 SPEC_REL = "docs/spec/phase53-row-number-direct-field-mvp-contract-v1.md"
 SEMANTIC_REL = "src/pietto/semantic/window_analysis.py"
 SELF_REL = "tests/test_phase53_row_number_direct_field_mvp_contract.py"
-BASE_HEAD_SHA = "a5606761c040042d177874253e29c25f2e8e3fff"
+BASE_HEAD_SHA = "4ff3c131fba54d83b56f3c50e14f7c2337c1eb52"
 
 SPEC_TITLE = "Phase 53 Slice 7 row_number Direct-field MVP Contract v1"
 SLICE7_PLAN_H2 = "Slice 7 row_number Direct-field MVP"
@@ -278,12 +278,12 @@ MODIFIED_PATHS = {
 }
 ALLOWLIST_PATHS = ADDED_PATHS | MODIFIED_PATHS
 
-COMPILER_DIGEST = "58c97408c8e8db46ea22bc8163266fa0583c146aab181c1863f77408c17f4665"
-SEMANTIC_DIGEST = "e192fa0fda095afaab88176a7dd5943128611ea071b45a8e15916ddcf3ac16db"
+COMPILER_DIGEST = "5d4ff6962271498ba95089be4a3e278a72852c8753eb9d145819215b8b9fcf27"
+SEMANTIC_DIGEST = "89fb589b2c94452dd66cc2b301de4a8194ef925ae5a42cf1c84de72977ed7f20"
 PHASE15_SUBSET_DIGEST = (
-    "5718946e55b93874bd092114a4a2b56e1178d5a6d8810c41304dd1213bd0a1c0"
+    "c095f4c9aaca2d172c9631d06bf564cccaf06258020b93de63f19d8f9c05acaf"
 )
-PROJECT_DIGEST = "1cfc82b2f9627ca473c8eaf2516b845463ec3a5afce0103c361924fd63bb9cd2"
+PROJECT_DIGEST = "e674402d8e428fd2ffbfb8a4f90d7ae0be01a23e379fcf487c16a2dc7e6c8497"
 FOCUSED_SHA256 = "764c5879e93871b253e875ce1e8145ce3a998d48a94b578f8af9d31f9562e5ee"
 OVERLAY_SHA256 = "197b591aec962f43b9b9393da99a76ff21c3a36189cc02c7a75dc5a7b85d6b26"
 FORMATTER_SHA256 = "5920e1a21f135b2537e8295b13c8bc6fa2962423812ffc3cbe1e52663e924daf"
@@ -295,6 +295,22 @@ def _read(relative: str) -> str:
 
 def _sha256(relative: str) -> str:
     return hashlib.sha256((REPO_ROOT / relative).read_bytes()).hexdigest()
+
+
+def _phase53_gate2_paths(name: str) -> set[str]:
+    path = REPO_ROOT / "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id == name
+        ):
+            value = ast.literal_eval(node.value)
+            assert isinstance(value, set)
+            return value
+    raise AssertionError(name)
 
 
 def _digest(paths: tuple[Path, ...]) -> str:
@@ -658,12 +674,12 @@ def test_exact_row_number_identity_legality_and_case_policy_are_exact(
     expression = cast(WindowExpr, relation.select_items[0].expression)
     if call in {"row_number()", "rank()", "dense_rank()"}:
         assert not any(item.code == "PIE-S2103" for item in semantic.diagnostics)
-        assert expression not in semantic.model.expression_value_types
+        assert expression in semantic.model.expression_value_types
     elif call in {"percent_rank()", "cume_dist()", "ntile(4)"}:
         assert not any(
             item.code in {"PIE-S2103", "PIE-S2104"} for item in semantic.diagnostics
         )
-        assert expression not in semantic.model.expression_value_types
+        assert expression in semantic.model.expression_value_types
     elif call in {"lag()", "lead()"}:
         matching = [item for item in semantic.diagnostics if item.code == "PIE-S2104"]
         assert len(matching) == 1
@@ -764,7 +780,8 @@ def test_one_window_coexists_with_current_legal_non_window_outputs(
     semantic = analyze(script)
     assert not any(item.code == "PIE-S2103" for item in semantic.diagnostics)
     expression = cast(WindowExpr, relation.select_items[1].expression)
-    assert expression not in semantic.model.expression_value_types
+    assert expression in semantic.model.expression_value_types
+    assert "rn" in semantic.model.relation_row_schemas[relation].fields
 
 
 @pytest.mark.parametrize("ordinary_count", range(4))
@@ -1045,8 +1062,9 @@ def test_multiple_nested_and_same_select_windows_remain_unsupported(case: int) -
         value_types={},
         diagnostics=diagnostics,
     )
-    assert isinstance(result, WindowExpressionUnsupported)
-    assert [item.code for item in diagnostics] == ["PIE-S2103"]
+    assert type(result) is WindowExpressionSemanticFact
+    assert diagnostics == []
+    assert result.occurrence.selected_output_ordinal == case % 2
 
 
 @pytest.mark.parametrize(
@@ -1067,10 +1085,9 @@ def test_where_final_order_and_limit_can_coexist_without_window_alias_use(
     )
     semantic = analyze(script)
     assert not any(item.code == "PIE-S2103" for item in semantic.diagnostics)
-    assert (
-        cast(WindowExpr, relation.select_items[0].expression)
-        not in semantic.model.expression_value_types
-    )
+    expression = cast(WindowExpr, relation.select_items[0].expression)
+    assert expression in semantic.model.expression_value_types
+    assert "rn" in semantic.model.relation_row_schemas[relation].fields
 
 
 @pytest.mark.parametrize(
@@ -1126,26 +1143,30 @@ def test_project_result_identity_and_derived_provenance_are_exact(case: int) -> 
 
 @pytest.mark.parametrize("case", range(3))
 def test_project_fact_is_transient_not_model_or_schema_state(case: int) -> None:
-    source = _read("src/pietto/_project/model.py")
+    source = _read("src/pietto/_project/model.py") + _read(
+        "src/pietto/_project/window_persistence.py"
+    )
     required = (
-        "build_window_result_project_fact(",
-        "adapt_project_row_expression_schema(",
-        "ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR",
+        "build_project_window_persistence(",
+        "relation_window_result_facts:",
+        "ProjectRowResultRole.WINDOW_RESULT",
     )
     assert required[case] in source
-    assert "window_result_facts:" not in source
 
 
 @pytest.mark.parametrize("case", range(4))
 def test_window_alias_is_not_downstream_or_final_order_visible(case: int) -> None:
-    docs = _read(SPEC_REL)
-    required = (
-        "unavailable downstream",
-        "final input-scope ordering",
-        "No concrete project row field",
-        "stores no `WindowExpr` value-type fact",
+    script, relation = _parsed_relation(_program())
+    semantic = analyze(script)
+    expression = cast(WindowExpr, relation.select_items[0].expression)
+    field = semantic.model.relation_row_schemas[relation].fields["rn"]
+    assertions = (
+        expression in semantic.model.expression_value_types,
+        field.resolved_type.name == "Int",
+        field.nullability is EffectiveNullability.NON_NULL,
+        "relation_window_result_facts" in _read("src/pietto/_project/model.py"),
     )
-    assert required[case] in docs + _read(PLAN_REL)
+    assert assertions[case]
 
 
 @pytest.mark.parametrize("kind", ("query", "table"))
@@ -1290,7 +1311,7 @@ def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
         len(semantic_paths),
         len(phase15_paths),
         len(project_paths),
-    ) == (91, 35, 32, 17)
+    ) == (92, 35, 32, 18)
     assert _digest(tuple(compiler_paths)) == COMPILER_DIGEST
     assert _digest(semantic_paths) == SEMANTIC_DIGEST
     assert _digest(phase15_paths) == PHASE15_SUBSET_DIGEST
@@ -1304,13 +1325,15 @@ def test_slice7_dirty_clean_and_depth_one_repository_states_are_locked() -> None
     ) - {""}
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
     dirty = tracked | untracked
-    assert dirty in (set(), ALLOWLIST_PATHS)
+    slice14_modified = _phase53_gate2_paths("MODIFIED_PATHS")
+    slice14_added = _phase53_gate2_paths("ADDED_PATHS")
+    assert dirty in (set(), ALLOWLIST_PATHS, slice14_modified | slice14_added)
     head = _git_output(["rev-parse", "HEAD"])
     main = _git_optional_ref("refs/heads/main")
     origin_main = _git_optional_ref("refs/remotes/origin/main")
     if dirty:
-        assert tracked == MODIFIED_PATHS
-        assert untracked == ADDED_PATHS
+        assert tracked in (MODIFIED_PATHS, slice14_modified)
+        assert untracked in (ADDED_PATHS, slice14_added)
         assert _git_output(["branch", "--show-current"]) == "main"
         assert head == main == origin_main == BASE_HEAD_SHA
     else:
@@ -1326,15 +1349,15 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
     readable = {path for path in (*tracked, *untracked) if (REPO_ROOT / path).is_file()}
-    assert len(readable) == 873
-    assert sum(path.endswith(".py") for path in readable) == 537
-    assert sum(path.endswith(".md") for path in readable) == 240
+    assert len(readable) == 876
+    assert sum(path.endswith(".py") for path in readable) == 539
+    assert sum(path.endswith(".md") for path in readable) == 241
     test_modules = {
         path
         for path in readable
         if path.startswith("tests/test_") and path.endswith(".py")
     }
-    assert len(test_modules) == 446
+    assert len(test_modules) == 447
     top_level_tests = 0
     for relative in sorted(test_modules):
         tree = ast.parse(_read(relative), filename=relative)
@@ -1343,7 +1366,7 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 4736
+    assert top_level_tests == 4803
     assert 9580 == 9199 + 381
     assert 9580 - 185 == 9395
     assert (117, 70, 11, 106, 3488, 13171) == (117, 70, 11, 106, 3488, 13171)

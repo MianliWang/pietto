@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
 import hashlib
 import inspect
@@ -125,6 +126,24 @@ CI_REPAIR_MODIFIED_PATHS = {
     "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
     "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
 }
+
+
+def _phase53_gate2_paths(name: str) -> set[str]:
+    path = REPO_ROOT / "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id == name
+        ):
+            value = ast.literal_eval(node.value)
+            assert isinstance(value, set)
+            return value
+    raise AssertionError(name)
+
+
 BOUNDARY_PATHS = (
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
@@ -1232,6 +1251,7 @@ def test_clause_readiness_gates_activation_without_new_persisted_model_field(
         "relation_row_lineages",
         "relation_dependency_graph",
         "relation_aggregate_result_facts",
+        "relation_window_result_facts",
     )
     for name in (
         "relation_clause_readiness",
@@ -1253,7 +1273,9 @@ def test_clause_readiness_gates_activation_without_new_persisted_model_field(
     )
     for private_value in (
         "ProjectAggregateGroupedClauseReadiness",
+        "WindowResultProjectFact",
         "relation_clause_readiness",
+        "relation_window_result_facts",
         "group_key_input",
         "satisfying_output",
         "grouped_order_output",
@@ -1304,6 +1326,8 @@ def test_persistence_helper_is_private_no_full_analyze_and_unserialized(
     for name in (
         "ProjectAggregateGroupedPersistenceBundle",
         "build_project_aggregate_grouped_persistence",
+        "WindowResultProjectFact",
+        "relation_window_result_facts",
     ):
         assert not hasattr(pietto, name)
         assert not hasattr(project_package, name)
@@ -1337,7 +1361,9 @@ def test_persistence_helper_is_private_no_full_analyze_and_unserialized(
     for value in (
         "ProjectAggregateGroupedPersistenceBundle",
         "ProjectAggregateGroupedDependencyLineageReadiness",
+        "WindowResultProjectFact",
         "relation_aggregate_result_facts",
+        "relation_window_result_facts",
         "aggregate_relation_input",
         "satisfying_output",
         "grouped_order_output",
@@ -1370,11 +1396,19 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
         assert f"`{path}`" in spec_text
 
     dirty = _git_paths(["status", "--short", "--untracked-files=all"])
-    assert dirty in (set(), EXPECTED_GATE2_PATHS, CI_REPAIR_MODIFIED_PATHS)
+    slice14_modified = _phase53_gate2_paths("MODIFIED_PATHS")
+    slice14_added = _phase53_gate2_paths("ADDED_PATHS")
+    assert dirty in (
+        set(),
+        EXPECTED_GATE2_PATHS,
+        CI_REPAIR_MODIFIED_PATHS,
+        slice14_modified | slice14_added,
+    )
     untracked = _git_paths(["ls-files", "--others", "--exclude-standard"])
     assert untracked in (
         set(),
         EXPECTED_UNTRACKED_PATHS,
+        slice14_added,
     )
     if dirty == CI_REPAIR_MODIFIED_PATHS:
         assert untracked == set()
@@ -1407,13 +1441,17 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
             assert changed_lines[1] == f'+BOUNDARY_HASH = "{compiler_digest}"'
     project_paths = _project_private_paths()
     project_digest = _digest(project_paths)
-    assert len(project_paths) == 17
+    assert len(project_paths) == 18
+    assert REPO_ROOT / "src/pietto/_project/window_persistence.py" in project_paths
+    assert project_digest == (
+        "e674402d8e428fd2ffbfb8a4f90d7ae0be01a23e379fcf487c16a2dc7e6c8497"
+    )
     phase33 = (REPO_ROOT / "tests/test_phase33_completion_audit.py").read_text(
         encoding="utf-8"
     )
     assert (
         f'"project_private": (\n        "src/pietto/_project",\n'
-        f'        17,\n        "{project_digest}",\n    ),'
+        f'        18,\n        "{project_digest}",\n    ),'
     ) in phase33
     phase33_changed_lines = _git_changed_lines("tests/test_phase33_completion_audit.py")
     if phase33_changed_lines:
@@ -1424,7 +1462,7 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
             phase33_changed_lines[1],
         )
         assert phase33_changed_lines[2:] == [
-            "+        17,",
+            "+        18,",
             f'+        "{project_digest}",',
         ]
 
@@ -1537,6 +1575,7 @@ def _assert_non_concrete_bundle(
         assert state.schema is None
         assert definition not in model.relation_row_schemas
     assert definition not in model.relation_aggregate_result_facts
+    assert definition not in model.relation_window_result_facts
     assert isinstance(let_scope_facts, ProjectRelationLetScopeFacts)
     if definition.let_clause is None:
         assert let_scope_facts.status is ProjectLetScopeFactsStatus.ABSENT

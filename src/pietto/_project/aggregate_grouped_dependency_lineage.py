@@ -66,6 +66,7 @@ from pietto.ast_nodes import (
     SelectItem,
     SourceDef,
     TableDef,
+    WindowExpr,
 )
 from pietto.errors import SourceLocation
 from pietto.semantic.aggregates import (
@@ -315,12 +316,17 @@ def _selected_outputs(
     schema: ProjectRowSchema,
     aggregate_result_facts: Mapping[str, ProjectAggregateResultFact],
 ) -> tuple[_SelectedOutput, ...]:
-    if len(definition.select_items) != len(schema.fields):
+    selected_items = tuple(
+        item
+        for item in definition.select_items
+        if type(item.expression) is not WindowExpr
+    )
+    if len(selected_items) != len(schema.fields):
         _conflicting_failure()
 
     outputs: list[_SelectedOutput] = []
     for item, (output_name, field) in zip(
-        definition.select_items,
+        selected_items,
         schema.fields.items(),
         strict=True,
     ):
@@ -847,7 +853,12 @@ def _validate_graph_shape(
             raise ValueError("Let dependency order mismatch")
         last_binding_index = binding_index
 
-    selected_items = dict(zip(schema.fields, definition.select_items, strict=True))
+    base_selected_items = tuple(
+        item
+        for item in definition.select_items
+        if type(item.expression) is not WindowExpr
+    )
+    selected_items = dict(zip(schema.fields, base_selected_items, strict=True))
     for output_name, field in schema.fields.items():
         outgoing = tuple(
             edge

@@ -18,6 +18,7 @@ from pietto.ast_nodes import (
     TypeDef,
     TypeExpr,
     UnaryExpr,
+    WindowExpr,
 )
 from pietto.ir.diagnostics import missing_semantic_fact_diagnostic
 from pietto.ir.model import (
@@ -135,6 +136,17 @@ def lower_expr(
     let_expansions: Mapping[str, Expression] | None = None,
 ) -> ExpressionLoweringResult:
     """Lower one typed expression without re-running semantic analysis."""
+
+    if type(expression) is WindowExpr:
+        return ExpressionLoweringResult(
+            expression=None,
+            diagnostics=(
+                missing_semantic_fact_diagnostic(
+                    expression,
+                    "expression value type",
+                ),
+            ),
+        )
 
     if (
         expression not in semantic_model.expression_value_types

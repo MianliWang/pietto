@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 from collections.abc import MutableMapping
 from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
 import inspect
@@ -79,6 +80,13 @@ NEW_REASONS = {
     ),
 }
 
+WINDOW_REASONS = {
+    "UNAVAILABLE_WINDOW_RESULT_FACT": "unavailable_window_result_fact",
+    "INVALID_WINDOW_OUTPUT": "invalid_window_output",
+    "WINDOW_RESULT_DEFERRED": "window_result_deferred",
+    "CONFLICTING_WINDOW_RESULT_FACTS": "conflicting_window_result_facts",
+}
+
 OLD_SCHEMA_REASONS = {
     "DIRECT_SOURCE_CONCRETE": "direct_source_concrete",
     "TABLE_UPSTREAM_CONCRETE": "table_upstream_concrete",
@@ -123,6 +131,22 @@ EXPECTED_GATE2_PATHS = {
 }
 
 
+def _phase53_gate2_paths(name: str) -> set[str]:
+    path = REPO_ROOT / "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id == name
+        ):
+            value = ast.literal_eval(node.value)
+            assert isinstance(value, set)
+            return value
+    raise AssertionError(name)
+
+
 def test_exact_four_statuses_and_five_reason_values_are_mirrored() -> None:
     assert {member.name: member.value for member in ProjectRelationRowSchemaStatus} == {
         "CONCRETE": "concrete",
@@ -152,15 +176,18 @@ def test_exact_four_statuses_and_five_reason_values_are_mirrored() -> None:
         member.name: member.value for member in ProjectRowDependencyGraphReason
     }
     lineage_reasons = {member.name: member.value for member in ProjectRowLineageReason}
-    assert schema_reasons == OLD_SCHEMA_REASONS | NEW_REASONS
+    assert schema_reasons == OLD_SCHEMA_REASONS | NEW_REASONS | WINDOW_REASONS
     assert dependency_reasons == (
-        OLD_SCHEMA_REASONS | NEW_REASONS | OLD_DEPENDENCY_ONLY_REASONS
+        OLD_SCHEMA_REASONS | NEW_REASONS | WINDOW_REASONS | OLD_DEPENDENCY_ONLY_REASONS
     )
     assert lineage_reasons == (
-        OLD_SCHEMA_REASONS | NEW_REASONS | OLD_LINEAGE_ONLY_REASONS
+        OLD_SCHEMA_REASONS | NEW_REASONS | WINDOW_REASONS | OLD_LINEAGE_ONLY_REASONS
     )
-    assert {name: dependency_reasons[name] for name in NEW_REASONS} == NEW_REASONS
-    assert {name: lineage_reasons[name] for name in NEW_REASONS} == NEW_REASONS
+    aligned_reasons = NEW_REASONS | WINDOW_REASONS
+    assert {
+        name: dependency_reasons[name] for name in aligned_reasons
+    } == aligned_reasons
+    assert {name: lineage_reasons[name] for name in aligned_reasons} == aligned_reasons
     assert set(schema_reasons.values()) <= set(dependency_reasons.values())
     assert set(schema_reasons.values()) <= set(lineage_reasons.values())
 
@@ -1235,7 +1262,13 @@ def test_slice7_documentation_exact_allowlist_and_protected_boundaries() -> None
         text=True,
     )
     dirty_paths = {line[3:] for line in status.stdout.splitlines()}
-    assert dirty_paths in (set(), EXPECTED_GATE2_PATHS)
+    slice14_modified = _phase53_gate2_paths("MODIFIED_PATHS")
+    slice14_added = _phase53_gate2_paths("ADDED_PATHS")
+    assert dirty_paths in (
+        set(),
+        EXPECTED_GATE2_PATHS,
+        slice14_modified | slice14_added,
+    )
 
     untracked = subprocess.run(
         ["git", "ls-files", "--others", "--exclude-standard"],
@@ -1250,6 +1283,7 @@ def test_slice7_documentation_exact_allowlist_and_protected_boundaries() -> None
             "docs/spec/phase51-type-nullability-availability-state-duplicate-handling-v1.md",
             "tests/test_phase51_aggregate_grouped_state_duplicate_hardening.py",
         },
+        slice14_added,
     )
 
     protected = subprocess.run(

@@ -175,9 +175,9 @@ PRE_RECONCILIATION_2_SHA256 = (
 PRE_RECONCILIATION_3_SHA256 = (
     "cb2c51246f1e312858641750d1a416125f99058fb0182949e9afe35ae49e97cf"
 )
-COMPILER_DIGEST = "58c97408c8e8db46ea22bc8163266fa0583c146aab181c1863f77408c17f4665"
+COMPILER_DIGEST = "5d4ff6962271498ba95089be4a3e278a72852c8753eb9d145819215b8b9fcf27"
 PROJECT_PRIVATE_DIGEST = (
-    "1cfc82b2f9627ca473c8eaf2516b845463ec3a5afce0103c361924fd63bb9cd2"
+    "e674402d8e428fd2ffbfb8a4f90d7ae0be01a23e379fcf487c16a2dc7e6c8497"
 )
 
 
@@ -512,7 +512,7 @@ def test_slice1_no_behavior_public_privacy_and_release_boundaries_are_locked() -
         compiler_digest.update(b"\0")
         compiler_digest.update(path.read_bytes())
         compiler_digest.update(b"\0")
-    assert (len(compiler_paths), compiler_digest.hexdigest()) == (91, COMPILER_DIGEST)
+    assert (len(compiler_paths), compiler_digest.hexdigest()) == (92, COMPILER_DIGEST)
     for relative_path in BOUNDARY_PATHS:
         assert re.findall(
             r'^BOUNDARY_HASH = "([0-9a-f]{64})"$',
@@ -537,12 +537,12 @@ def test_slice1_no_behavior_public_privacy_and_release_boundaries_are_locked() -
         project_digest.update(path.read_bytes())
         project_digest.update(b"\0")
     assert (len(project_paths), project_digest.hexdigest()) == (
-        17,
+        18,
         PROJECT_PRIVATE_DIGEST,
     )
     assert (
         '"project_private": (\n        "src/pietto/_project",\n'
-        f'        17,\n        "{PROJECT_PRIVATE_DIGEST}",\n    ),'
+        f'        18,\n        "{PROJECT_PRIVATE_DIGEST}",\n    ),'
     ) in _read(REPO_ROOT / "tests/test_phase33_completion_audit.py")
 
     project = tomllib.loads(_read(PYPROJECT_PATH))["project"]
@@ -849,7 +849,7 @@ def test_static_audit_shape_allowlist_and_heading_matching_are_locked() -> None:
         assert _git_output(["branch", "--show-current"]) == "main"
         for reference in ("HEAD", "main", "origin/main"):
             assert _git_output(["rev-parse", reference]) == (
-                "a5606761c040042d177874253e29c25f2e8e3fff"
+                "4ff3c131fba54d83b56f3c50e14f7c2337c1eb52"
             )
     if dirty_paths == SLICE9_ALLOWLIST_PATHS:
         assert set(_git_output(["diff", "--name-only"]).splitlines()) == (

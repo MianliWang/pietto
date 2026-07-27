@@ -68,6 +68,10 @@ class ProjectRowDependencyGraphReason(StrEnum):
     INVALID_AGGREGATE_OR_GROUPED_OUTPUT = "invalid_aggregate_or_grouped_output"
     AGGREGATE_OR_GROUPED_DEFERRED = "aggregate_grouped_deferred"
     CONFLICTING_AGGREGATE_OR_GROUPED_FACTS = "conflicting_aggregate_or_grouped_facts"
+    UNAVAILABLE_WINDOW_RESULT_FACT = "unavailable_window_result_fact"
+    INVALID_WINDOW_OUTPUT = "invalid_window_output"
+    WINDOW_RESULT_DEFERRED = "window_result_deferred"
+    CONFLICTING_WINDOW_RESULT_FACTS = "conflicting_window_result_facts"
     DEFERRED_PHASE48_BEHAVIOR = "deferred_phase48_behavior"
     UNRESOLVED_RELATION_BLOCKED = "unresolved_relation_blocked"
     CYCLE_BLOCKED = "cycle_blocked"
@@ -98,6 +102,11 @@ class ProjectRowDependencyEdgeKind(StrEnum):
     LET_EXPRESSION = "let_expression"
     AGGREGATE_ARGUMENT = "aggregate_argument"
     AGGREGATE_RELATION_INPUT = "aggregate_relation_input"
+    WINDOW_RELATION_INPUT = "window_relation_input"
+    WINDOW_ARGUMENT = "window_argument"
+    WINDOW_DEFAULT = "window_default"
+    WINDOW_PARTITION = "window_partition"
+    WINDOW_ORDER = "window_order"
 
 
 @dataclass(frozen=True, slots=True)

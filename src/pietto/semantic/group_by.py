@@ -107,6 +107,7 @@ def project_grouped_schema(
     fields: dict[str, RowField] = {}
     grouped_order_outputs: dict[str, _GroupedOrderOutput] = {}
     seen_names: set[str] = set()
+    duplicate_output_names: set[str] = set()
     saw_valid_aggregate = False
     saw_invalid_projection = False
 
@@ -116,12 +117,42 @@ def project_grouped_schema(
             if output_name in seen_names:
                 diagnostics.append(_duplicate_projection_diagnostic(item, output_name))
                 saw_invalid_projection = True
+                duplicate_output_names.add(output_name)
+                grouped_order_outputs.pop(output_name, None)
                 continue
             seen_names.add(output_name)
 
-        # Window outputs belong to the later WINDOW stage.  Keep duplicate-name
-        # ownership above, but do not publish the result into the GROUP schema.
+        # Window outputs belong to the later WINDOW stage. Keep duplicate-name
+        # ownership above while publishing only a concrete analyzed result into
+        # the final grouped schema and final-order output scope.
         if type(item.expression) is WindowExpr:
+            value_type = (
+                None
+                if expression_value_types is None
+                else expression_value_types.get(item.expression)
+            )
+            valid = (
+                output_name is not None
+                and value_type is not None
+                and value_type.kind is ValueTypeKind.KNOWN
+                and value_type.resolved_type.kind is not TypeKind.UNKNOWN
+                and value_type.nullability
+                in {
+                    EffectiveNullability.NON_NULL,
+                    EffectiveNullability.NULLABLE,
+                }
+            )
+            if output_name is not None:
+                grouped_order_outputs[output_name] = _GroupedOrderOutput(
+                    supported=valid,
+                )
+                if valid:
+                    assert value_type is not None
+                    fields[output_name] = RowField(
+                        name=output_name,
+                        resolved_type=value_type.resolved_type,
+                        nullability=value_type.nullability,
+                    )
             continue
 
         if contains_semantic_aggregate(item.expression):
@@ -206,6 +237,7 @@ def project_grouped_schema(
             grouped_order_outputs,
             input_schema=input_schema,
             let_expansions=let_expansions,
+            suppressed_output_names=duplicate_output_names,
         )
     )
 
@@ -424,6 +456,7 @@ def _grouped_order_by_diagnostics(
     *,
     input_schema: RowSchema | None = None,
     let_expansions: Mapping[str, Expression] | None = None,
+    suppressed_output_names: set[str] | None = None,
 ) -> list[Diagnostic]:
     if definition.order_by_clause is None:
         return []
@@ -440,6 +473,8 @@ def _grouped_order_by_diagnostics(
             diagnostics.append(
                 _grouped_order_by_unsupported_diagnostic(item.expression)
             )
+            continue
+        if item.expression.name in (suppressed_output_names or set()):
             continue
         scoped = output_scope.get(item.expression.name)
         if scoped is not None:
