@@ -118,7 +118,7 @@ PHASE52_UNTRACKED_PATHS = {
     "docs/spec/phase52-core-type-system-capability-foundation-scope-lock-v1.md",
     "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
 }
-SLICE2_BASE_HEAD_SHA = "a5606761c040042d177874253e29c25f2e8e3fff"
+SLICE2_BASE_HEAD_SHA = "4ff3c131fba54d83b56f3c50e14f7c2337c1eb52"
 SLICE2_STATE_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
 
 PHASE51_SLICE_ARTIFACTS = (
@@ -324,9 +324,9 @@ PROTECTED_HASHES = {
         "26cc0ae4a68518223d6bf600ad3c4b0b226618aa7ef31b2ae1c25924d2655169"
     ),
 }
-COMPILER_DIGEST = "58c97408c8e8db46ea22bc8163266fa0583c146aab181c1863f77408c17f4665"
+COMPILER_DIGEST = "5d4ff6962271498ba95089be4a3e278a72852c8753eb9d145819215b8b9fcf27"
 PROJECT_PRIVATE_DIGEST = (
-    "1cfc82b2f9627ca473c8eaf2516b845463ec3a5afce0103c361924fd63bb9cd2"
+    "e674402d8e428fd2ffbfb8a4f90d7ae0be01a23e379fcf487c16a2dc7e6c8497"
 )
 
 PROJECT_JSON_V2_KEYS = (
@@ -874,12 +874,15 @@ def test_dependency_lineage_persistence_and_downstream_completion_is_locked() ->
     assert (
         model.count("persistence = build_project_aggregate_grouped_persistence(") == 1
     )
-    assert "Validate one complete local bundle, then publish all six maps." in model
+    assert (
+        "Validate one complete local bundle, then publish every aligned map." in model
+    )
     for map_name in (
         "relation_row_schemas",
         "relation_row_schema_states",
         "relation_let_scope_facts",
         "relation_aggregate_result_facts",
+        "relation_window_result_facts",
         "relation_row_dependency_graphs",
         "relation_row_lineages",
     ):
@@ -1004,7 +1007,7 @@ def test_live_compiler_project_private_protected_version_and_tag_locks_are_dirty
     None
 ):
     compiler_count, compiler_digest = _compiler_digest()
-    assert (compiler_count, compiler_digest) == (91, COMPILER_DIGEST)
+    assert (compiler_count, compiler_digest) == (92, COMPILER_DIGEST)
     for relative_path in BOUNDARY_PATHS:
         boundary_values = re.findall(
             r'^BOUNDARY_HASH = "([0-9a-f]{64})"$',
@@ -1014,12 +1017,12 @@ def test_live_compiler_project_private_protected_version_and_tag_locks_are_dirty
         assert boundary_values == [COMPILER_DIGEST]
 
     project_paths = _project_private_paths()
-    assert len(project_paths) == 17
+    assert len(project_paths) == 18
     assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
     phase33 = _read(REPO_ROOT / "tests/test_phase33_completion_audit.py")
     assert (
         f'"project_private": (\n        "src/pietto/_project",\n'
-        f'        17,\n        "{PROJECT_PRIVATE_DIGEST}",\n    ),'
+        f'        18,\n        "{PROJECT_PRIVATE_DIGEST}",\n    ),'
     ) in phase33
 
     for relative_path, expected_hash in PROTECTED_HASHES.items():

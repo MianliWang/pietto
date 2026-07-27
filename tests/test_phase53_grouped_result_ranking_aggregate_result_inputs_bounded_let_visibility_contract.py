@@ -82,6 +82,8 @@ MAINTENANCE_SUBJECT = "Consolidate major Dependabot updates"
 MAINTENANCE_CANDIDATE_HEAD = "7ad017fd96e4ebaf7290d3042d0538dcf925b267"
 MAINTENANCE_REPAIR_SUBJECT = "Repair Dependabot CI topology guard"
 MAINTENANCE_BRANCH_PREFIX = "maintenance/dependabot-"
+SLICE14_BASE_HEAD = "4ff3c131fba54d83b56f3c50e14f7c2337c1eb52"
+SLICE14_SUBJECT = "Add Phase 53 window result propagation and lineage"
 MAINTENANCE_MODIFIED_PATHS = (
     ".github/workflows/ci.yml",
     "pyproject.toml",
@@ -121,6 +123,22 @@ SOURCE_PREFIX = (
 
 def _read(relative: str) -> str:
     return (REPO_ROOT / relative).read_text(encoding="utf-8")
+
+
+def _phase53_gate2_paths(name: str) -> set[str]:
+    path = REPO_ROOT / "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id == name
+        ):
+            value = ast.literal_eval(node.value)
+            assert isinstance(value, set)
+            return value
+    raise AssertionError(name)
 
 
 def _git_output(arguments: list[str]) -> str:
@@ -237,6 +255,16 @@ def _assert_maintenance_dirty_state(*, status: str, staged: str) -> None:
     assert staged == ""
 
 
+def _assert_slice14_dirty_state(*, status: str, staged: str) -> None:
+    modified = _phase53_gate2_paths("MODIFIED_PATHS")
+    added = _phase53_gate2_paths("ADDED_PATHS")
+    expected = {f" M {path}" for path in modified} | {f"?? {path}" for path in added}
+    lines = status.splitlines()
+    assert len(lines) == len(expected)
+    assert set(lines) == expected
+    assert staged == ""
+
+
 def _assert_maintenance_base_refs() -> None:
     branch = _git_output(["branch", "--show-current"])
     assert branch == "main" or branch.startswith(MAINTENANCE_BRANCH_PREFIX)
@@ -299,6 +327,12 @@ def _is_clean_projection() -> bool:
     status = _git_output(["status", "--porcelain=v1", "--untracked-files=all"])
     staged = _git_output(["diff", "--cached", "--name-only"])
     shallow = _git_output(["rev-parse", "--is-shallow-repository"])
+    if head == SLICE14_BASE_HEAD:
+        _assert_main_refs(head)
+        assert shallow == "false"
+        _assert_slice14_dirty_state(status=status, staged=staged)
+        return False
+
     if head == BASE_HEAD:
         _assert_main_refs(head)
         assert shallow == "false"
@@ -329,15 +363,33 @@ def _is_clean_projection() -> bool:
 
     pull_request_identity = _github_pull_request_identity()
     parents, subject = _commit_parents_and_subject(head)
+    if parents == (SLICE14_BASE_HEAD,) and subject == SLICE14_SUBJECT:
+        _assert_clean_state(status=status, staged=staged)
+        if pull_request_identity is not None:
+            base_sha, candidate_sha = pull_request_identity
+            assert shallow == "true"
+            assert base_sha == SLICE14_BASE_HEAD
+            assert candidate_sha == head
+            return True
+        if os.environ.get("GITHUB_EVENT_NAME") == "push":
+            assert shallow == "true"
+            assert os.environ.get("GITHUB_REF") == "refs/heads/main"
+            assert os.environ.get("GITHUB_SHA") == head
+            assert _git_optional_ref("refs/remotes/origin/main") in (None, head)
+            return True
+        assert shallow == "false"
+        _assert_main_refs(head)
+        return True
+
     if pull_request_identity is not None:
         base_sha, candidate_sha = pull_request_identity
         assert shallow == "true"
-        assert base_sha == CI_REPAIR_HEAD
+        assert base_sha in (CI_REPAIR_HEAD, SLICE14_BASE_HEAD)
         _assert_clean_state(status=status, staged=staged)
         if head == candidate_sha:
             _assert_maintenance_candidate_shape(parents=parents, subject=subject)
         else:
-            assert parents == (CI_REPAIR_HEAD, candidate_sha)
+            assert parents == (base_sha, candidate_sha)
         return True
 
     _assert_maintenance_candidate_shape(parents=parents, subject=subject)
@@ -460,7 +512,7 @@ def _assert_grouped_success(case: int) -> None:
     assert result.diagnostics == ()
     relation = cast(QueryDef, parsed.ast.definitions[-1])
     schema = result.model.relation_row_schemas[relation]
-    assert tuple(schema.fields) == ("group_name", "total")
+    assert tuple(schema.fields) == ("group_name", "total", "window_value")
     assert type(relation.select_items[-1].expression) is WindowExpr
 
 
@@ -496,7 +548,7 @@ def _assert_negative(case: int) -> None:
         return
     if variant == 5:
         source = _grouped_source(second_window=True)
-        assert "PIE-S2103" in _diagnostics(source)
+        assert _diagnostics(source) == ()
         return
     if variant == 6:
         source = _grouped_source(order="category")
@@ -703,7 +755,11 @@ def test_grouped_scope_preserves_selected_output_source_order_and_roles(
 
 @pytest.mark.parametrize("case", range(4))
 def test_grouped_scope_duplicate_output_names_have_no_winner(case: int) -> None:
-    _assert_negative(5)
+    source = _grouped_source(second_window=True).replace(
+        "second_window = rank() window:",
+        "window_value = rank() window:",
+    )
+    assert _diagnostics(source).count("PIE-S2305") == 1
 
 
 @pytest.mark.parametrize("case", range(6))
@@ -731,7 +787,16 @@ def test_window_call_in_satisfying_remains_rejected() -> None:
 
 @pytest.mark.parametrize("case", range(8))
 def test_maximum_one_window_output_remains_exact(case: int) -> None:
-    _assert_negative(5)
+    source = _grouped_source(case, second_window=True)
+    parsed = parse_source(source, path="slice13.pietto")
+    assert parsed.diagnostics == () and parsed.ast is not None
+    result = analyze(parsed.ast)
+    assert result.diagnostics == ()
+    relation = cast(QueryDef, parsed.ast.definitions[-1])
+    assert tuple(result.model.relation_row_schemas[relation].fields)[-2:] == (
+        "window_value",
+        "second_window",
+    )
 
 
 @pytest.mark.parametrize("case", range(8))
@@ -1043,12 +1108,15 @@ def test_grouped_window_fact_is_transient_and_project_state_stays_nonconcrete(
 
 
 def test_no_window_schema_graph_lineage_or_model_persistence_is_added() -> None:
-    protected = (
-        "src/pietto/semantic/model.py",
-        "src/pietto/_project/row_dependency_graph.py",
-        "src/pietto/_project/row_lineage.py",
+    assert (
+        _git_output(["diff", "--name-only", "--", "src/pietto/semantic/model.py"]) == ""
     )
-    assert _git_output(["diff", "--name-only", "--", *protected]) == ""
+    graph_source = _read("src/pietto/_project/row_dependency_graph.py")
+    lineage_source = _read("src/pietto/_project/row_lineage.py")
+    model_source = _read("src/pietto/_project/model.py")
+    assert 'WINDOW_ORDER = "window_order"' in graph_source
+    assert 'WINDOW_ORDER = "window_order"' in lineage_source
+    assert "relation_window_result_facts" in model_source
 
 
 @pytest.mark.parametrize("case", range(16))
@@ -1056,7 +1124,7 @@ def test_ir_sql_backend_public_serializer_package_and_version_surfaces_are_locke
     case: int,
 ) -> None:
     protected = (
-        "src/pietto/ir",
+        "src/pietto/ir/model.py",
         "src/pietto/sql",
         "src/pietto/cli.py",
         "pyproject.toml",

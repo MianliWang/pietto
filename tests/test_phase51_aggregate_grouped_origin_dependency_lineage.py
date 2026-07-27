@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
 import hashlib
 import inspect
@@ -104,6 +105,24 @@ CI_REPAIR_MODIFIED_PATHS = {
     "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
     "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
 }
+
+
+def _phase53_gate2_paths(name: str) -> set[str]:
+    path = REPO_ROOT / "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id == name
+        ):
+            value = ast.literal_eval(node.value)
+            assert isinstance(value, set)
+            return value
+    raise AssertionError(name)
+
+
 BOUNDARY_PATHS = (
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
@@ -146,6 +165,11 @@ def test_exact_private_enum_extensions_and_composed_carrier_shape(
         ("LET_EXPRESSION", "let_expression"),
         ("AGGREGATE_ARGUMENT", "aggregate_argument"),
         ("AGGREGATE_RELATION_INPUT", "aggregate_relation_input"),
+        ("WINDOW_RELATION_INPUT", "window_relation_input"),
+        ("WINDOW_ARGUMENT", "window_argument"),
+        ("WINDOW_DEFAULT", "window_default"),
+        ("WINDOW_PARTITION", "window_partition"),
+        ("WINDOW_ORDER", "window_order"),
     )
     assert tuple(
         (member.name, member.value) for member in ProjectRowLineageSegmentKind
@@ -167,6 +191,11 @@ def test_exact_private_enum_extensions_and_composed_carrier_shape(
         ("TRANSITIVE_DEPENDENCY", "transitive_dependency"),
         ("AGGREGATE_ARGUMENT", "aggregate_argument"),
         ("AGGREGATE_RELATION_INPUT", "aggregate_relation_input"),
+        ("WINDOW_RELATION_INPUT", "window_relation_input"),
+        ("WINDOW_ARGUMENT", "window_argument"),
+        ("WINDOW_DEFAULT", "window_default"),
+        ("WINDOW_PARTITION", "window_partition"),
+        ("WINDOW_ORDER", "window_order"),
     )
     assert tuple(member.value for member in ProjectRowDependencyGraphStatus) == (
         "concrete",
@@ -856,11 +885,19 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
         assert f"`{path}`" in spec_text
 
     dirty = _git_paths(["status", "--short", "--untracked-files=all"])
-    assert dirty in (set(), EXPECTED_GATE2_PATHS, CI_REPAIR_MODIFIED_PATHS)
+    slice14_modified = _phase53_gate2_paths("MODIFIED_PATHS")
+    slice14_added = _phase53_gate2_paths("ADDED_PATHS")
+    assert dirty in (
+        set(),
+        EXPECTED_GATE2_PATHS,
+        CI_REPAIR_MODIFIED_PATHS,
+        slice14_modified | slice14_added,
+    )
     untracked = _git_paths(["ls-files", "--others", "--exclude-standard"])
     assert untracked in (
         set(),
         EXPECTED_UNTRACKED_PATHS,
+        slice14_added,
     )
     if dirty == CI_REPAIR_MODIFIED_PATHS:
         assert untracked == set()
@@ -885,13 +922,13 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
         assert match.group(1) == compiler_digest
     project_paths = _project_private_paths()
     project_digest = _digest(project_paths)
-    assert len(project_paths) == 17
+    assert len(project_paths) == 18
     phase33 = (REPO_ROOT / "tests/test_phase33_completion_audit.py").read_text(
         encoding="utf-8"
     )
     assert (
         f'"project_private": (\n        "src/pietto/_project",\n'
-        f'        17,\n        "{project_digest}",\n    ),'
+        f'        18,\n        "{project_digest}",\n    ),'
     ) in phase33
 
     protected = (

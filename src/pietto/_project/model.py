@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from pietto._project.let_scope_facts import ProjectRelationLetScopeFacts
     from pietto._project.row_dependency_graph import ProjectRelationRowDependencyGraph
     from pietto._project.row_lineage import ProjectRelationRowLineage
+    from pietto._project.window_semantics import WindowResultProjectFact
 
 _Key = TypeVar("_Key")
 _InnerKey = TypeVar("_InnerKey")
@@ -362,6 +363,10 @@ class ProjectRelationRowSchemaReason(StrEnum):
     INVALID_AGGREGATE_OR_GROUPED_OUTPUT = "invalid_aggregate_or_grouped_output"
     AGGREGATE_OR_GROUPED_DEFERRED = "aggregate_grouped_deferred"
     CONFLICTING_AGGREGATE_OR_GROUPED_FACTS = "conflicting_aggregate_or_grouped_facts"
+    UNAVAILABLE_WINDOW_RESULT_FACT = "unavailable_window_result_fact"
+    INVALID_WINDOW_OUTPUT = "invalid_window_output"
+    WINDOW_RESULT_DEFERRED = "window_result_deferred"
+    CONFLICTING_WINDOW_RESULT_FACTS = "conflicting_window_result_facts"
     DEFERRED_PHASE48_BEHAVIOR = "deferred_phase48_behavior"
     UNRESOLVED_RELATION_BLOCKED = "unresolved_relation_blocked"
     CYCLE_BLOCKED = "cycle_blocked"
@@ -446,6 +451,10 @@ class _ProjectRelationRowSchemasResult:
     relation_aggregate_result_facts: dict[
         TableDef | QueryDef,
         Mapping[str, ProjectAggregateResultFact],
+    ]
+    relation_window_result_facts: dict[
+        TableDef | QueryDef,
+        Mapping[str, WindowResultProjectFact],
     ]
     relation_row_dependency_graphs: dict[
         TableDef | QueryDef, ProjectRelationRowDependencyGraph
@@ -583,6 +592,10 @@ class ProjectSemanticModel:
         TableDef | QueryDef,
         Mapping[str, ProjectAggregateResultFact],
     ] = field(default_factory=lambda: _readonly_mapping())
+    relation_window_result_facts: Mapping[
+        TableDef | QueryDef,
+        Mapping[str, WindowResultProjectFact],
+    ] = field(default_factory=lambda: _readonly_mapping())
 
     def __post_init__(self) -> None:
         """Copy private project semantic maps into immutable mappings."""
@@ -637,9 +650,18 @@ class ProjectSemanticModel:
             "relation_aggregate_result_facts",
             _readonly_nested_mapping(self.relation_aggregate_result_facts),
         )
+        object.__setattr__(
+            self,
+            "relation_window_result_facts",
+            _readonly_nested_mapping(self.relation_window_result_facts),
+        )
         _validate_project_aggregate_result_facts(
             relation_row_schemas=self.relation_row_schemas,
             relation_aggregate_result_facts=self.relation_aggregate_result_facts,
+        )
+        _validate_project_window_result_facts(
+            relation_row_schemas=self.relation_row_schemas,
+            relation_window_result_facts=self.relation_window_result_facts,
         )
 
 
@@ -687,6 +709,52 @@ def _validate_project_aggregate_result_facts(
                 raise ValueError(
                     "Ordinary and group-key project row fields forbid aggregate facts"
                 )
+
+
+def _validate_project_window_result_facts(
+    *,
+    relation_row_schemas: Mapping[TableDef | QueryDef, ProjectRowSchema],
+    relation_window_result_facts: Mapping[
+        TableDef | QueryDef,
+        Mapping[str, WindowResultProjectFact],
+    ],
+) -> None:
+    """Validate private window-result facts bidirectionally against schemas."""
+
+    from pietto._project.window_semantics import WindowResultProjectFact
+
+    for definition, facts in relation_window_result_facts.items():
+        if type(definition) not in {TableDef, QueryDef}:
+            raise ValueError("Project window result facts require relation keys")
+        schema = relation_row_schemas.get(definition)
+        if schema is None:
+            raise ValueError("Project window result facts require relation schema")
+        for output_name, fact in facts.items():
+            if type(fact) is not WindowResultProjectFact:
+                raise ValueError("Project window result facts require fact values")
+            if (
+                fact.result_identity.definition is not definition
+                or fact.result_identity.output_name != output_name
+            ):
+                raise ValueError("Project window result fact output key mismatch")
+            row_field = schema.fields.get(output_name)
+            if (
+                row_field is None
+                or row_field.result_role is not ProjectRowResultRole.WINDOW_RESULT
+            ):
+                raise ValueError("Project window result fact requires schema field")
+
+    for definition, schema in relation_row_schemas.items():
+        facts = relation_window_result_facts.get(definition)
+        for output_name, row_field in schema.fields.items():
+            has_fact = facts is not None and output_name in facts
+            if row_field.result_role is ProjectRowResultRole.WINDOW_RESULT:
+                if not has_fact:
+                    raise ValueError(
+                        "Project window result role requires matching fact"
+                    )
+            elif has_fact:
+                raise ValueError("Non-window project row fields forbid window facts")
 
 
 @dataclass(frozen=True, slots=True)
@@ -800,6 +868,9 @@ def build_empty_project_semantic_result(
             relation_dependency_graph=relation_dependency_graph,
             relation_aggregate_result_facts=(
                 relation_row_schema_result.relation_aggregate_result_facts
+            ),
+            relation_window_result_facts=(
+                relation_row_schema_result.relation_window_result_facts
             ),
         ),
         diagnostics=(
@@ -1044,13 +1115,15 @@ def _build_project_relation_row_schemas(
         build_project_aggregate_grouped_persistence,
     )
     from pietto._project.let_scope_facts import (
-        ProjectLetScopeFactsStatus,
         build_project_relation_let_scope_facts,
     )
     from pietto._project.row_dependency_graph import (
         build_project_relation_row_dependency_graph,
     )
     from pietto._project.row_lineage import build_project_relation_row_lineage
+    from pietto._project.window_persistence import (
+        build_project_window_persistence,
+    )
 
     relation_row_schemas: dict[TableDef | QueryDef, ProjectRowSchema] = {}
     relation_row_schema_states: dict[
@@ -1062,6 +1135,10 @@ def _build_project_relation_row_schemas(
     relation_aggregate_result_facts: dict[
         TableDef | QueryDef,
         Mapping[str, ProjectAggregateResultFact],
+    ] = {}
+    relation_window_result_facts: dict[
+        TableDef | QueryDef,
+        Mapping[str, WindowResultProjectFact],
     ] = {}
     relation_row_dependency_graphs: dict[
         TableDef | QueryDef, ProjectRelationRowDependencyGraph
@@ -1135,12 +1212,14 @@ def _build_project_relation_row_schemas(
             relation_row_schema_states=relation_row_schema_states,
             relation_let_scope_facts=relation_let_scope_facts,
             relation_aggregate_result_facts=relation_aggregate_result_facts,
+            relation_window_result_facts=relation_window_result_facts,
             relation_row_dependency_graphs=relation_row_dependency_graphs,
             relation_row_lineages=relation_row_lineages,
             definition=definition,
             state=state,
             let_scope_facts=let_scope_facts,
             aggregate_result_facts={},
+            window_result_facts={},
             dependency_graph=dependency_graph,
             lineage=lineage,
         )
@@ -1203,12 +1282,14 @@ def _build_project_relation_row_schemas(
                         relation_aggregate_result_facts=(
                             relation_aggregate_result_facts
                         ),
+                        relation_window_result_facts=(relation_window_result_facts),
                         relation_row_dependency_graphs=(relation_row_dependency_graphs),
                         relation_row_lineages=relation_row_lineages,
                         definition=definition,
                         state=state,
                         let_scope_facts=let_scope_facts,
                         aggregate_result_facts={},
+                        window_result_facts={},
                         dependency_graph=dependency_graph,
                         lineage=lineage,
                     )
@@ -1270,12 +1351,14 @@ def _build_project_relation_row_schemas(
                         relation_aggregate_result_facts=(
                             relation_aggregate_result_facts
                         ),
+                        relation_window_result_facts=(relation_window_result_facts),
                         relation_row_dependency_graphs=(relation_row_dependency_graphs),
                         relation_row_lineages=relation_row_lineages,
                         definition=definition,
                         state=state,
                         let_scope_facts=let_scope_facts,
                         aggregate_result_facts={},
+                        window_result_facts={},
                         dependency_graph=dependency_graph,
                         lineage=lineage,
                     )
@@ -1311,35 +1394,6 @@ def _build_project_relation_row_schemas(
                     persistence.dependency_lineage_readiness.dependency_graph
                 )
                 lineage = persistence.dependency_lineage_readiness.lineage
-                project_let_value_types = (
-                    let_scope_facts.value_types
-                    if let_scope_facts.status is ProjectLetScopeFactsStatus.CONCRETE
-                    else None
-                )
-                project_let_expressions = (
-                    let_scope_facts.binding_expressions
-                    if let_scope_facts.status is ProjectLetScopeFactsStatus.CONCRETE
-                    else None
-                )
-                for selected_output_ordinal, item in enumerate(definition.select_items):
-                    if type(item.expression) is not WindowExpr:
-                        continue
-                    from pietto._project.window_semantics import (
-                        build_window_result_project_fact,
-                    )
-
-                    build_window_result_project_fact(
-                        definition=definition,
-                        item=item,
-                        selected_output_ordinal=selected_output_ordinal,
-                        source_id=(
-                            item.expression.span.path or definition_paths[definition]
-                        ),
-                        input_schema=input_schema,
-                        upstream_symbol=upstream_symbol,
-                        let_value_types=project_let_value_types,
-                        let_expressions=project_let_expressions,
-                    )
             else:
                 let_scope_facts = build_project_relation_let_scope_facts(
                     definition=definition,
@@ -1384,17 +1438,41 @@ def _build_project_relation_row_schemas(
                     upstream_lineage=upstream_lineage,
                 )
 
+            window_result_facts: Mapping[str, WindowResultProjectFact] = {}
+            if any(
+                type(item.expression) is WindowExpr for item in definition.select_items
+            ):
+                window_persistence = build_project_window_persistence(
+                    definition=definition,
+                    input_schema=input_schema,
+                    upstream_symbol=upstream_symbol,
+                    upstream_lineage=upstream_lineage,
+                    fallback_path=definition_paths[definition],
+                    let_scope_facts=let_scope_facts,
+                    base_state=state,
+                    base_aggregate_result_facts=aggregate_result_facts,
+                    base_dependency_graph=dependency_graph,
+                    base_lineage=lineage,
+                )
+                state = window_persistence.state
+                aggregate_result_facts = window_persistence.aggregate_result_facts
+                window_result_facts = window_persistence.window_result_facts
+                dependency_graph = window_persistence.dependency_graph
+                lineage = window_persistence.lineage
+
             _record_project_relation_terminal_bundle(
                 relation_row_schemas=relation_row_schemas,
                 relation_row_schema_states=relation_row_schema_states,
                 relation_let_scope_facts=relation_let_scope_facts,
                 relation_aggregate_result_facts=relation_aggregate_result_facts,
+                relation_window_result_facts=relation_window_result_facts,
                 relation_row_dependency_graphs=relation_row_dependency_graphs,
                 relation_row_lineages=relation_row_lineages,
                 definition=definition,
                 state=state,
                 let_scope_facts=let_scope_facts,
                 aggregate_result_facts=aggregate_result_facts,
+                window_result_facts=window_result_facts,
                 dependency_graph=dependency_graph,
                 lineage=lineage,
             )
@@ -1420,6 +1498,11 @@ def _build_project_relation_row_schemas(
             definition: relation_aggregate_result_facts[definition]
             for definition in relation_definitions
             if definition in relation_aggregate_result_facts
+        },
+        relation_window_result_facts={
+            definition: relation_window_result_facts[definition]
+            for definition in relation_definitions
+            if definition in relation_window_result_facts
         },
         relation_row_dependency_graphs={
             definition: relation_row_dependency_graphs[definition]
@@ -1500,6 +1583,10 @@ def _record_project_relation_terminal_bundle(
         TableDef | QueryDef,
         Mapping[str, ProjectAggregateResultFact],
     ],
+    relation_window_result_facts: dict[
+        TableDef | QueryDef,
+        Mapping[str, WindowResultProjectFact],
+    ],
     relation_row_dependency_graphs: dict[
         TableDef | QueryDef, ProjectRelationRowDependencyGraph
     ],
@@ -1508,10 +1595,11 @@ def _record_project_relation_terminal_bundle(
     state: ProjectRelationRowSchemaState,
     let_scope_facts: ProjectRelationLetScopeFacts,
     aggregate_result_facts: Mapping[str, ProjectAggregateResultFact],
+    window_result_facts: Mapping[str, WindowResultProjectFact],
     dependency_graph: ProjectRelationRowDependencyGraph,
     lineage: ProjectRelationRowLineage,
 ) -> None:
-    """Validate one complete local bundle, then publish all six maps."""
+    """Validate one complete local bundle, then publish every aligned map."""
 
     from pietto._project.let_scope_facts import ProjectRelationLetScopeFacts
     from pietto._project.row_dependency_graph import (
@@ -1543,9 +1631,15 @@ def _record_project_relation_terminal_bundle(
                 {definition: aggregate_result_facts} if aggregate_result_facts else {}
             ),
         )
+        _validate_project_window_result_facts(
+            relation_row_schemas={definition: schema},
+            relation_window_result_facts=(
+                {definition: window_result_facts} if window_result_facts else {}
+            ),
+        )
     else:
-        if aggregate_result_facts:
-            raise ValueError("Non-concrete terminal bundle forbids aggregate facts")
+        if aggregate_result_facts or window_result_facts:
+            raise ValueError("Non-concrete terminal bundle forbids result facts")
         if dependency_graph.nodes or dependency_graph.edges or lineage.facts:
             raise ValueError("Non-concrete terminal bundle must be empty")
 
@@ -1559,6 +1653,10 @@ def _record_project_relation_terminal_bundle(
         relation_aggregate_result_facts[definition] = aggregate_result_facts
     else:
         relation_aggregate_result_facts.pop(definition, None)
+    if window_result_facts:
+        relation_window_result_facts[definition] = window_result_facts
+    else:
+        relation_window_result_facts.pop(definition, None)
     relation_row_dependency_graphs[definition] = dependency_graph
     relation_row_lineages[definition] = lineage
 
@@ -1773,7 +1871,7 @@ def _project_direct_relation_row_schema(
         expressions=(
             item.expression
             for item in definition.select_items
-            if item.alias is not None
+            if item.alias is not None and type(item.expression) is not WindowExpr
         ),
         input_schema=source_schema,
         relation_qualifier=definition.from_clause.source_name,
@@ -1791,7 +1889,9 @@ def _project_direct_relation_row_schema(
         else None
     )
 
-    for selected_output_ordinal, item in enumerate(definition.select_items):
+    for item in definition.select_items:
+        if type(item.expression) is WindowExpr:
+            continue
         projection = _project_direct_field_projection(
             item,
             source_name=definition.from_clause.source_name,
@@ -1804,22 +1904,6 @@ def _project_direct_relation_row_schema(
                     state_reason=(
                         ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR
                     ),
-                )
-
-            if type(item.expression) is WindowExpr:
-                from pietto._project.window_semantics import (
-                    build_window_result_project_fact,
-                )
-
-                build_window_result_project_fact(
-                    definition=definition,
-                    item=item,
-                    selected_output_ordinal=selected_output_ordinal,
-                    source_id=item.expression.span.path or fallback_path,
-                    input_schema=source_schema,
-                    upstream_symbol=source_symbol,
-                    let_value_types=let_value_types,
-                    let_expressions=let_scope_facts.binding_expressions,
                 )
 
             result = adapt_project_row_expression_schema(

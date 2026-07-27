@@ -535,20 +535,6 @@ def _analyze_recognized_window_expression(
             reason=f"grouped context does not admit {function_name}",
         )
 
-    if (
-        sum(
-            type(selected.expression) is WindowExpr
-            for selected in definition.select_items
-        )
-        != 1
-    ):
-        return _unsupported(
-            occurrence=occurrence,
-            expression=expression,
-            reason="relation requires exactly one window output",
-            diagnostics=diagnostics,
-        )
-
     direct_partition_expressions: list[NameExpr | DottedNameExpr] = []
     for partition_expression in expression.spec.partition_by:
         if type(partition_expression) is NameExpr:

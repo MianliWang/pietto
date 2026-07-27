@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 from dataclasses import FrozenInstanceError, is_dataclass
 import json
 from pathlib import Path
@@ -104,6 +105,27 @@ PRIVATE_JSON_FACTS = (
     "direct_source_concrete",
     "missing_dependency_graph",
 )
+
+SLICE14_BASE_HEAD = "4ff3c131fba54d83b56f3c50e14f7c2337c1eb52"
+SLICE14_ALLOWED_FORBIDDEN_DIFF_PATHS = {
+    "src/pietto/_project/row_dependency_graph.py",
+}
+
+
+def _phase53_gate2_paths(name: str) -> set[str]:
+    path = REPO_ROOT / "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id == name
+        ):
+            value = ast.literal_eval(node.value)
+            assert isinstance(value, set)
+            return value
+    raise AssertionError(name)
 
 
 def test_row_lineage_carriers_are_private_frozen_dataclasses() -> None:
@@ -448,7 +470,44 @@ def test_row_lineage_module_does_not_call_full_semantic_analyze() -> None:
 
 
 def test_slice10_forbidden_files_have_no_diff() -> None:
+    status_lines = _git_output(
+        ["status", "--porcelain=v1", "--untracked-files=all"]
+    ).splitlines()
+    slice14_modified = _phase53_gate2_paths("MODIFIED_PATHS")
+    slice14_added = _phase53_gate2_paths("ADDED_PATHS")
+    exact_slice14_dirty = (
+        {line[3:] for line in status_lines if line.startswith(" M ")}
+        == slice14_modified
+        and {line[3:] for line in status_lines if line.startswith("?? ")}
+        == slice14_added
+        and len(status_lines) == len(slice14_modified | slice14_added)
+    )
+    assert _git_output(["diff", "--cached", "--name-status"]) == ""
+    assert SLICE14_ALLOWED_FORBIDDEN_DIFF_PATHS <= set(FORBIDDEN_FILES)
+    assert SLICE14_ALLOWED_FORBIDDEN_DIFF_PATHS <= slice14_modified
+    if exact_slice14_dirty:
+        assert _git_output(["branch", "--show-current"]) == "main"
+        assert (
+            tuple(
+                _git_output(["rev-parse", reference])
+                for reference in (
+                    "HEAD",
+                    "refs/heads/main",
+                    "refs/remotes/origin/main",
+                )
+            )
+            == (SLICE14_BASE_HEAD,) * 3
+        )
+        assert _git_output(["rev-parse", "--is-shallow-repository"]) == "false"
+        worktrees = _git_output(["worktree", "list", "--porcelain"])
+        assert sum(line.startswith("worktree ") for line in worktrees.splitlines()) == 1
     for relative_path in FORBIDDEN_FILES:
+        if (
+            exact_slice14_dirty
+            and relative_path in SLICE14_ALLOWED_FORBIDDEN_DIFF_PATHS
+        ):
+            assert _git_diff(relative_path) != ""
+            continue
         assert _git_diff(relative_path) == ""
 
 

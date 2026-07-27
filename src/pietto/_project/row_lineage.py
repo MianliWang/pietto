@@ -50,6 +50,10 @@ class ProjectRowLineageReason(StrEnum):
     INVALID_AGGREGATE_OR_GROUPED_OUTPUT = "invalid_aggregate_or_grouped_output"
     AGGREGATE_OR_GROUPED_DEFERRED = "aggregate_grouped_deferred"
     CONFLICTING_AGGREGATE_OR_GROUPED_FACTS = "conflicting_aggregate_or_grouped_facts"
+    UNAVAILABLE_WINDOW_RESULT_FACT = "unavailable_window_result_fact"
+    INVALID_WINDOW_OUTPUT = "invalid_window_output"
+    WINDOW_RESULT_DEFERRED = "window_result_deferred"
+    CONFLICTING_WINDOW_RESULT_FACTS = "conflicting_window_result_facts"
     DEFERRED_PHASE48_BEHAVIOR = "deferred_phase48_behavior"
     UNRESOLVED_RELATION_BLOCKED = "unresolved_relation_blocked"
     CYCLE_BLOCKED = "cycle_blocked"
@@ -83,6 +87,11 @@ class ProjectRowLineageFactKind(StrEnum):
     TRANSITIVE_DEPENDENCY = "transitive_dependency"
     AGGREGATE_ARGUMENT = "aggregate_argument"
     AGGREGATE_RELATION_INPUT = "aggregate_relation_input"
+    WINDOW_RELATION_INPUT = "window_relation_input"
+    WINDOW_ARGUMENT = "window_argument"
+    WINDOW_DEFAULT = "window_default"
+    WINDOW_PARTITION = "window_partition"
+    WINDOW_ORDER = "window_order"
 
 
 @dataclass(frozen=True, slots=True)
@@ -500,6 +509,19 @@ def _transitive_upstream_segments(
             relation_definitions_by_name=relation_definitions_by_name,
             expand=expand,
         )
+    if (
+        segment.kind is ProjectRowLineageSegmentKind.OUTPUT_FIELD
+        and segment.relation_name == current_relation_name
+    ):
+        return _output_transitive_upstream_segments(
+            segment,
+            current_relation_name=current_relation_name,
+            base_lineages=base_lineages,
+            expanded_lineages=expanded_lineages,
+            relation_definitions_by_name=relation_definitions_by_name,
+            expand=expand,
+            visited_segments=visited_segments,
+        )
     if segment.kind is ProjectRowLineageSegmentKind.LET_BINDING:
         return _let_transitive_upstream_segments(
             segment,
@@ -511,6 +533,51 @@ def _transitive_upstream_segments(
             visited_segments=visited_segments,
         )
     return ()
+
+
+def _output_transitive_upstream_segments(
+    segment: ProjectRowLineageSegment,
+    *,
+    current_relation_name: str | None,
+    base_lineages: Mapping[_DerivedRelation, ProjectRelationRowLineage],
+    expanded_lineages: Mapping[_DerivedRelation, ProjectRelationRowLineage],
+    relation_definitions_by_name: Mapping[str, _DerivedRelation],
+    expand: _LineageExpander,
+    visited_segments: set[_LineageSegmentKey],
+) -> tuple[ProjectRowLineageSegment, ...]:
+    """Expand one same-relation group or aggregate result dependency."""
+
+    relation_name = segment.relation_name or current_relation_name
+    output_name = segment.output_name or segment.name
+    if relation_name is None:
+        return ()
+    definition = relation_definitions_by_name.get(relation_name)
+    if definition is None:
+        return ()
+    base_lineage = base_lineages.get(definition)
+    if (
+        base_lineage is None
+        or base_lineage.status is not ProjectRowLineageStatus.CONCRETE
+    ):
+        return ()
+
+    segments: list[ProjectRowLineageSegment] = []
+    for fact in base_lineage.facts:
+        if not _segment_matches_output(fact.output_segment, output_name):
+            continue
+        segments.append(fact.upstream_segment)
+        segments.extend(
+            _transitive_upstream_segments(
+                fact.upstream_segment,
+                current_relation_name=relation_name,
+                base_lineages=base_lineages,
+                expanded_lineages=expanded_lineages,
+                relation_definitions_by_name=relation_definitions_by_name,
+                expand=expand,
+                visited_segments=visited_segments,
+            )
+        )
+    return _dedupe_segments(segments)
 
 
 def _relation_transitive_upstream_segments(
@@ -633,6 +700,11 @@ def _is_lineage_edge_kind(kind: ProjectRowDependencyEdgeKind) -> bool:
         ProjectRowDependencyEdgeKind.LET_EXPRESSION,
         ProjectRowDependencyEdgeKind.AGGREGATE_ARGUMENT,
         ProjectRowDependencyEdgeKind.AGGREGATE_RELATION_INPUT,
+        ProjectRowDependencyEdgeKind.WINDOW_RELATION_INPUT,
+        ProjectRowDependencyEdgeKind.WINDOW_ARGUMENT,
+        ProjectRowDependencyEdgeKind.WINDOW_DEFAULT,
+        ProjectRowDependencyEdgeKind.WINDOW_PARTITION,
+        ProjectRowDependencyEdgeKind.WINDOW_ORDER,
     }
 
 

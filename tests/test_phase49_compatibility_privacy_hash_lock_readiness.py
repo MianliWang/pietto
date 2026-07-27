@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 from pathlib import Path
 import re
@@ -26,6 +27,23 @@ ALLOWED_SLICE13_GATE2_PATHS = {
     "docs/spec/phase49-compatibility-privacy-hash-lock-readiness-v1.md",
     "tests/test_phase49_compatibility_privacy_hash_lock_readiness.py",
 }
+
+
+def _phase53_gate2_paths(name: str) -> set[str]:
+    path = REPO_ROOT / "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id == name
+        ):
+            value = ast.literal_eval(node.value)
+            assert isinstance(value, set)
+            return value
+    raise AssertionError(name)
+
 
 EXPECTED_PROJECT_JSON_V2_KEYS = (
     "schema_version",
@@ -91,14 +109,11 @@ PRIVATE_JSON_FORBIDDEN_TOKENS = (
 )
 
 FORBIDDEN_DIFF_PATHS = (
-    "src/pietto/_project/model.py",
     "src/pietto/_project/json_v2.py",
     "src/pietto/_project/check.py",
     "src/pietto/_project/row_expression_schema.py",
     "src/pietto/_project/row_expression_type_facts.py",
     "src/pietto/_project/let_scope_facts.py",
-    "src/pietto/_project/row_dependency_graph.py",
-    "src/pietto/_project/row_lineage.py",
     "src/pietto/semantic/let_bindings.py",
     "grammar",
     "src/pietto/generated",
@@ -274,7 +289,10 @@ def test_project_helpers_do_not_call_full_semantic_analyze() -> None:
 def test_slice13_package_version_and_dirty_paths_are_locked() -> None:
     project = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))["project"]
     assert project["version"] == "0.1.0"
-    assert _git_status_paths() in (set(), ALLOWED_SLICE13_GATE2_PATHS)
+    slice14_paths = _phase53_gate2_paths("MODIFIED_PATHS") | _phase53_gate2_paths(
+        "ADDED_PATHS"
+    )
+    assert _git_status_paths() in (set(), ALLOWED_SLICE13_GATE2_PATHS, slice14_paths)
 
 
 def _project_semantic_result(

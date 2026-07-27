@@ -73,7 +73,7 @@ LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf2
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 SIGNATURE_SHA256 = "810f347080e0bb7dc674821aa6387c5f7618ac216832194ef19820326eef71d2"
 PROJECT_PRIVATE_DIGEST = (
-    "1cfc82b2f9627ca473c8eaf2516b845463ec3a5afce0103c361924fd63bb9cd2"
+    "e674402d8e428fd2ffbfb8a4f90d7ae0be01a23e379fcf487c16a2dc7e6c8497"
 )
 TIER2_MANIFEST_BYTES = 18319
 TIER2_MANIFEST_FILES = 108
@@ -1093,11 +1093,11 @@ def test_compiler_semantic_subset_project_and_raw_hash_readers_are_exact() -> No
     )
     project_paths = _project_private_paths()
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        91,
+        92,
         35,
         32,
     )
-    assert len(project_paths) == 17
+    assert len(project_paths) == 18
     assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
 
     tracked = tuple(_git_output(["ls-files"]).splitlines())
@@ -1229,7 +1229,7 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
             f"M\t{path}" for path in sorted(slice13_modified)
         )
         assert untracked_paths == slice13_added
-        assert head == main == origin_main == "a5606761c040042d177874253e29c25f2e8e3fff"
+        assert head == main == origin_main == "4ff3c131fba54d83b56f3c50e14f7c2337c1eb52"
     elif dirty_paths == SLICE9_ALLOWLIST_PATHS:
         assert branch == "main"
         assert tracked_paths == SLICE9_MODIFIED_PATHS
@@ -1325,7 +1325,7 @@ def test_static_test_inventory_and_tier1_selection_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (446, 4736)
+    assert (len(test_files), top_level_functions) == (447, 4803)
 
     compatible, per_file_items = _prior_compatible_nodes()
     assert (len(compatible), per_file_items) == (96, (24, 33, 63, 63))

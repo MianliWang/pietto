@@ -83,7 +83,7 @@ PLAN_REL = (
 )
 SPEC_REL = "docs/spec/phase53-rank-dense-rank-peer-semantics-contract-v1.md"
 SELF_REL = "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py"
-BASE_HEAD_SHA = "a5606761c040042d177874253e29c25f2e8e3fff"
+BASE_HEAD_SHA = "4ff3c131fba54d83b56f3c50e14f7c2337c1eb52"
 
 SPEC_REL = "docs/spec/phase53-percent-rank-cume-dist-ntile-contract-v1.md"
 SPEC_TITLE = "Phase 53 percent_rank / cume_dist / ntile Contract v1"
@@ -670,12 +670,12 @@ DIRTY_OVERLAY = (
     "--deselect=tests/test_phase52_scalar_function_operator_signature_facts.py::test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact",
 )
 
-COMPILER_DIGEST = "58c97408c8e8db46ea22bc8163266fa0583c146aab181c1863f77408c17f4665"
-SEMANTIC_DIGEST = "e192fa0fda095afaab88176a7dd5943128611ea071b45a8e15916ddcf3ac16db"
+COMPILER_DIGEST = "5d4ff6962271498ba95089be4a3e278a72852c8753eb9d145819215b8b9fcf27"
+SEMANTIC_DIGEST = "89fb589b2c94452dd66cc2b301de4a8194ef925ae5a42cf1c84de72977ed7f20"
 PHASE15_SUBSET_DIGEST = (
-    "5718946e55b93874bd092114a4a2b56e1178d5a6d8810c41304dd1213bd0a1c0"
+    "c095f4c9aaca2d172c9631d06bf564cccaf06258020b93de63f19d8f9c05acaf"
 )
-PROJECT_DIGEST = "1cfc82b2f9627ca473c8eaf2516b845463ec3a5afce0103c361924fd63bb9cd2"
+PROJECT_DIGEST = "e674402d8e428fd2ffbfb8a4f90d7ae0be01a23e379fcf487c16a2dc7e6c8497"
 FOCUSED_SHA256 = "764c5879e93871b253e875ce1e8145ce3a998d48a94b578f8af9d31f9562e5ee"
 OVERLAY_SHA256 = "197b591aec962f43b9b9393da99a76ff21c3a36189cc02c7a75dc5a7b85d6b26"
 FORMATTER_SHA256 = "5920e1a21f135b2537e8295b13c8bc6fa2962423812ffc3cbe1e52663e924daf"
@@ -687,6 +687,22 @@ def _read(relative: str) -> str:
 
 def _sha256(relative: str) -> str:
     return hashlib.sha256((REPO_ROOT / relative).read_bytes()).hexdigest()
+
+
+def _phase53_gate2_paths(name: str) -> set[str]:
+    path = REPO_ROOT / "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id == name
+        ):
+            value = ast.literal_eval(node.value)
+            assert isinstance(value, set)
+            return value
+    raise AssertionError(name)
 
 
 def _digest(paths: tuple[Path, ...]) -> str:
@@ -1898,8 +1914,12 @@ def test_unsupported_distribution_clause_and_shape_uses_pie_s2103(case: int) -> 
         cast(TableDef | QueryDef, script.definitions[-1]),
         relation,
     )
-    assert isinstance(result, WindowExpressionUnsupported)
-    assert [item.code for item in diagnostics] == ["PIE-S2103"]
+    if scenario == 5:
+        assert type(result) is DistributionWindowSemanticFact
+        assert diagnostics == []
+    else:
+        assert isinstance(result, WindowExpressionUnsupported)
+        assert [item.code for item in diagnostics] == ["PIE-S2103"]
 
 
 @pytest.mark.parametrize("case", range(12))
@@ -2106,8 +2126,9 @@ def test_distribution_multiple_nested_and_same_select_windows_fail_closed(
         relation,
         selected_output_ordinal=case % 2,
     )
-    assert isinstance(result, WindowExpressionUnsupported)
-    assert [item.code for item in diagnostics] == ["PIE-S2103"]
+    assert type(result) is DistributionWindowSemanticFact
+    assert diagnostics == []
+    assert result.semantic_fact.occurrence.selected_output_ordinal == case % 2
     assert "exactly one selected window output" in _read(SPEC_REL)
 
 
@@ -2136,7 +2157,8 @@ def test_distribution_where_final_order_and_limit_coexist_without_alias_visibili
     semantic = analyze(script)
     assert not any(item.code == "PIE-S2103" for item in semantic.diagnostics)
     expression = cast(WindowExpr, relation.select_items[-1].expression)
-    assert expression not in semantic.model.expression_value_types
+    assert expression in semantic.model.expression_value_types
+    assert "ranking_value" in semantic.model.relation_row_schemas[relation].fields
 
 
 @pytest.mark.parametrize("case", range(18))
@@ -2244,7 +2266,8 @@ def test_distribution_and_project_facts_are_transient_not_model_state(
     )
     semantic = analyze(script)
     expression = cast(WindowExpr, relation.select_items[-1].expression)
-    assert expression not in semantic.model.expression_value_types
+    assert expression in semantic.model.expression_value_types
+    assert "ranking_value" in semantic.model.relation_row_schemas[relation].fields
     model_field_names = tuple(item.name for item in dataclasses.fields(semantic.model))
     forbidden = (
         "distribution_window_facts",
@@ -2267,14 +2290,9 @@ def test_distribution_alias_is_not_row_schema_downstream_or_final_order_visible(
     )
     semantic = analyze(script)
     expression = cast(WindowExpr, relation.select_items[-1].expression)
-    assert expression not in semantic.model.expression_value_types
-    docs = _read(SPEC_REL)
-    required = (
-        "No current or downstream semantic/project\nrow field is created",
-        "window alias remains unavailable to the same\nselect",
-        "existing project schema adapter remains\ndeferred",
-    )
-    assert required[case // 3] in docs
+    assert expression in semantic.model.expression_value_types
+    field = semantic.model.relation_row_schemas[relation].fields["ranking_value"]
+    assert field.resolved_type.name == ("Float" if function_name != "ntile" else "Int")
 
 
 @pytest.mark.parametrize("case", range(6))
@@ -2333,7 +2351,7 @@ def test_distribution_cli_json_metadata_project_json_and_exports_remain_private(
         "src/pietto/_project/json_v2.py",
         "src/pietto/_metadata/serializer.py",
         "src/pietto/semantic/__init__.py",
-        "src/pietto/ir/lowering.py",
+        "src/pietto/ir/model.py",
         "src/pietto/sql/postgres.py",
     )
     assert _git_output(["diff", "--", protected[case]]) == ""
@@ -2542,7 +2560,7 @@ def test_grammar_generated_ast_parser_ir_sql_and_public_bytes_are_locked() -> No
     )
     assert len(generated) == 8
     assert _digest(ir_paths) == (
-        "57097f43ba5e0ffa8d531b827b7029c9104b85ab3dc0657889cccd28caec5249"
+        "3a8f824f1dc689fcd2cc4667bfa7f790c84c49d8d556cefb339d3259aa78872f"
     )
     assert _digest(sql_paths) == (
         "b18229fbda079d706416119002a70d091e7f5b79e0e4818a5b1292d9b88e898b"
@@ -2578,7 +2596,7 @@ def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
         len(semantic_paths),
         len(phase15_paths),
         len(project_paths),
-    ) == (91, 35, 32, 17)
+    ) == (92, 35, 32, 18)
     assert _digest(compiler_paths) == COMPILER_DIGEST
     assert _digest(semantic_paths) == SEMANTIC_DIGEST
     assert _digest(phase15_paths) == PHASE15_SUBSET_DIGEST
@@ -2602,13 +2620,15 @@ def test_slice9_dirty_clean_and_depth_one_repository_states_are_locked() -> None
     ) - {""}
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
     dirty = tracked | untracked
-    assert dirty in (set(), set(ALLOWLIST_PATHS))
+    slice14_modified = _phase53_gate2_paths("MODIFIED_PATHS")
+    slice14_added = _phase53_gate2_paths("ADDED_PATHS")
+    assert dirty in (set(), set(ALLOWLIST_PATHS), slice14_modified | slice14_added)
     head = _git_output(["rev-parse", "HEAD"])
     main = _git_optional_ref("refs/heads/main")
     origin_main = _git_optional_ref("refs/remotes/origin/main")
     if dirty:
-        assert tracked == set(MODIFIED_PATHS)
-        assert untracked == set(ADDED_PATHS)
+        assert tracked in (set(MODIFIED_PATHS), slice14_modified)
+        assert untracked in (set(ADDED_PATHS), slice14_added)
         assert _git_output(["branch", "--show-current"]) == "main"
         assert head == main == origin_main == BASE_HEAD_SHA
     else:
@@ -2620,15 +2640,15 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
     None
 ):
     repository_paths = _repository_paths()
-    assert len(repository_paths) == 873
-    assert sum(path.endswith(".py") for path in repository_paths) == 537
-    assert sum(path.endswith(".md") for path in repository_paths) == 240
+    assert len(repository_paths) == 876
+    assert sum(path.endswith(".py") for path in repository_paths) == 539
+    assert sum(path.endswith(".md") for path in repository_paths) == 241
     test_modules = tuple(
         path
         for path in repository_paths
         if path.startswith("tests/test_") and path.endswith(".py")
     )
-    assert len(test_modules) == 446
+    assert len(test_modules) == 447
     top_level_tests = 0
     for relative in test_modules:
         tree = ast.parse(_read(relative), filename=relative)
@@ -2637,7 +2657,7 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 4736
+    assert top_level_tests == 4803
     focused_payload = ("\n".join(FOCUSED_OPERANDS) + "\n").encode()
     overlay_payload = ("\n".join(DIRTY_OVERLAY) + "\n").encode()
     formatter_payload = ("\n".join(FORMATTER_PATHS) + "\n").encode()

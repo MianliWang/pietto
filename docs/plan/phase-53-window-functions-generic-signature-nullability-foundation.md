@@ -604,3 +604,49 @@ window IR/SQL/backend/runtime/database behavior, frame, named window,
 aggregate-as-window behavior, `QUALIFY`, public API/output schema, dependency,
 package version, workflow, fixture, golden, or generated change. Phase 53
 remains active; Slice 14 remains unstarted; Gate 3 remains separate.
+
+## Slice 14 — Multiple Window Outputs, Final-order Alias, Downstream Schema, And Lineage
+
+Slice 14 implements only
+`docs/spec/phase53-multiple-window-outputs-final-order-alias-downstream-schema-lineage-contract-v1.md`.
+Gate 2 removes the maximum-one selected-window gate, publishes every concrete
+window result in the semantic relation row schema, admits only a bare unique
+window alias in final relation ordering, and lets later relations consume an
+immediate upstream window field through the existing ordinary row rules.
+
+The private project model adds one all-or-none WINDOW-stage persistence overlay
+and one read-only `relation_window_result_facts` mapping. It reconstructs exact
+mixed select order, preserves established base-field identity, adds the five
+window dependency graph and lineage roles, and expands same-relation group-key
+or aggregate-result ancestry without making same-select window aliases
+visible. `UNKNOWN`, `DEFERRED`, and `BLOCKED` remain distinct and atomic.
+
+Gate 2 is exactly `A3/M76/D0`: this plan, ten existing production modules,
+seven completed Slice 7 through Slice 13 behavior tests, 58 recursive
+compatibility/hash/state readers, plus the new specification, one private
+project module, and one 67-function/507-item focused test. Prospective committed
+inventory is 876 tracked files, 539 Python files, 241 Markdown files, 447 test
+modules, 4803 top-level test functions, and 10576 collected items. The private
+project module inventory is 18; generated remains 8 and goldens remain 37.
+
+Gate 2 uses exactly one write-mode Ruff invocation over 75 handwritten Python
+paths and one final check-only invocation over 77 handwritten Python paths.
+Validation requires 4557 focused passes, `10391 passed / 185 deselected`
+in the exact dirty overlay, 10576 clean-projection passes, strict offline
+generated, golden, package-smoke, installed CLI `0.1.0`, and clean/depth-one
+topology proofs. It leaves all 79 paths unstaged and uncommitted with an empty
+index.
+
+The topology proof covers the clean synthetic commit, a genuine depth-one
+`pull_request` checkout, and a shallow `push / refs/heads/main` checkout whose
+event SHA equals `HEAD`; stale, dirty, staged, and mismatched variants fail
+closed.
+
+Slice 14 is implemented and locally validated but unpublished throughout Gate
+2. It becomes `COMPLETED` only after a separately authorized Gate 3 publishes
+the exact reviewed patch and unique natural exact-head PR CI and main CI both
+succeed. Phase 53 remains active; Slice 15 remains unstarted and is not
+authorized. Slice 15 exclusively owns Window IR and backend lowering; Phase 60
+retains frames and advanced windows; Phase 63 retains `QUALIFY`; Phase 70
+retains broader public project schema and lineage exposure. The sole next
+authorization after Gate 2 is `SLICE14_GATE3`.
