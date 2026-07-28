@@ -78,7 +78,7 @@ PLAN_REL = (
     "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md"
 )
 CAPABILITY_REL = "src/pietto/semantic/capability_windows.py"
-BASE_HEAD = "9ff8c97f5d5996b5a27e13bcf45032b825f0a3d5"
+BASE_HEAD = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
 PUBLICATION_BRANCH = "phase53/slice15-window-ir-dual-backend-lowering"
 PUBLICATION_TITLE = "Add Phase 53 window IR and dual-backend lowering"
 
@@ -115,69 +115,18 @@ SQL_NAMES = {
 }
 
 ADDED_PATHS = (
-    SPEC_REL,
-    CAPABILITY_REL,
-    SELF_REL,
+    "docs/spec/phase53-completion-audit-and-status-lock-v1.md",
+    "tests/test_phase53_completion_audit_and_status_lock.py",
 )
-CORE_MODIFIED_PATHS = (
-    PLAN_REL,
-    "src/pietto/ir/model.py",
-    "src/pietto/ir/lowering.py",
-    "src/pietto/ir/builder.py",
-    "src/pietto/sql/expressions.py",
-    "src/pietto/sql/relations.py",
-    "src/pietto/sql/mysql_expressions.py",
-    "src/pietto/sql/mysql_relations.py",
-    "src/pietto/semantic/capability_facts.py",
-)
+CORE_MODIFIED_PATHS = (PLAN_REL,)
 READER_PATHS = (
-    "tests/test_phase10_completion_audit.py",
-    "tests/test_phase10_mysql_backend_skeleton.py",
-    "tests/test_phase10_mysql_golden_corpus.py",
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_generated_guard.py",
-    "tests/test_phase11_golden_policy.py",
-    "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase11_planning_audit.py",
-    "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_phase12_completion_audit.py",
-    "tests/test_phase12_composition_cli_json_goldens.py",
-    "tests/test_phase12_order_limit_contract.py",
-    "tests/test_phase12_planning_audit.py",
-    "tests/test_phase13_completion_audit.py",
-    "tests/test_phase13_planning_audit.py",
-    "tests/test_phase14_candidate_decision_audit.py",
-    "tests/test_phase14_completion_audit.py",
-    "tests/test_phase14_planning_audit.py",
-    "tests/test_phase14_relationship_metadata_completion_audit.py",
-    "tests/test_phase15_completion_audit.py",
-    "tests/test_phase15_semantic_completion_audit.py",
-    "tests/test_phase16_completion_audit.py",
-    "tests/test_phase16_current_syntax_surface_audit.py",
-    "tests/test_phase16_language_direction_audit.py",
-    "tests/test_phase16_safety_deferral_sql_portability.py",
-    "tests/test_phase21_group_by_hardening_audit.py",
-    "tests/test_phase24_aggregate_expression_arguments_readiness.py",
-    "tests/test_phase24_cli_json_output_hardening.py",
-    "tests/test_phase24_completion_audit.py",
-    "tests/test_phase25_completion_audit.py",
-    "tests/test_phase26_completion_audit.py",
-    "tests/test_phase27_completion_audit.py",
-    "tests/test_phase28_completion_audit.py",
-    "tests/test_phase29_completion_audit.py",
-    "tests/test_phase30_completion_audit.py",
-    "tests/test_phase50_window_function_readiness.py",
+    "tests/test_phase49_minimal_private_lineage_carrier_source_direct_rename.py",
     "tests/test_phase51_completion_audit_and_status_lock.py",
     "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
     "tests/test_phase52_aggregate_signature_algebra_facts.py",
     "tests/test_phase52_completion_audit_and_status_lock.py",
-    "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
     "tests/test_phase52_expression_stage_clause_capability_facts.py",
-    "tests/test_phase52_fail_closed_capability_lookup.py",
-    "tests/test_phase52_logical_type_literal_parameter_nullability_inventory.py",
     "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
-    "tests/test_phase52_private_capability_fact_foundation.py",
     "tests/test_phase52_scalar_function_operator_signature_facts.py",
     "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
     "tests/test_phase53_grouped_result_ranking_aggregate_result_inputs_bounded_let_visibility_contract.py",
@@ -190,16 +139,16 @@ READER_PATHS = (
     "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
     "tests/test_phase53_row_number_direct_field_mvp_contract.py",
     "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
+    "tests/test_phase53_window_ir_dual_backend_lowering_window_function_facts_contract.py",
     "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
     "tests/test_phase53_window_spec_function_identity_ast_contract.py",
     "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
-    "tests/test_ir_completion_audit.py",
-    "tests/test_phase49_minimal_private_lineage_carrier_source_direct_rename.py",
 )
 MODIFIED_PATHS = (*CORE_MODIFIED_PATHS, *READER_PATHS)
 POST_FORMATTER_READER_REPAIR_PATHS = (
-    "tests/test_ir_completion_audit.py",
     "tests/test_phase49_minimal_private_lineage_carrier_source_direct_rename.py",
+    "tests/test_phase51_completion_audit_and_status_lock.py",
+    "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
 )
 FORMATTER_PATHS = tuple(
     path
@@ -1755,7 +1704,7 @@ def test_generated_golden_fixture_package_dependency_and_version_boundaries_are_
         sum(path.endswith(".md") for path in paths),
         sum(path.startswith("tests/test_") and path.endswith(".py") for path in paths),
         _top_level_test_function_count(paths),
-    ) == (879, 541, 242, 448, 4836)
+    ) == (881, 542, 243, 449, 4852)
     generated = tuple(
         path for path in paths if path.startswith("src/pietto/generated/")
     )
@@ -1782,23 +1731,23 @@ def test_reader_hash_dag_allowlist_and_fixed_point_are_exact() -> None:
         len(READER_PATHS),
         len(MODIFIED_PATHS),
         len(set((*ADDED_PATHS, *MODIFIED_PATHS))),
-    ) == (3, 9, 64, 73, 76)
+    ) == (2, 1, 23, 24, 26)
     assert set(ADDED_PATHS).isdisjoint(MODIFIED_PATHS)
     assert all((REPO_ROOT / path).is_file() for path in (*ADDED_PATHS, *MODIFIED_PATHS))
     added_manifest = _path_manifest("A", ADDED_PATHS)
     modified_manifest = _path_manifest("M", MODIFIED_PATHS)
     assert (len(added_manifest), hashlib.sha256(added_manifest).hexdigest()) == (
-        226,
-        "3b0d9508e06de3a266a356dcc5d413148938c8b56592c0617f45377f3ff78c54",
+        120,
+        "9512adfa6b71173d89b1a49066ab53a072ef43667245a809dd8dcc3994b75046",
     )
     assert (len(modified_manifest), hashlib.sha256(modified_manifest).hexdigest()) == (
-        4054,
-        "7f84deee5f4e6056138b552de67c731f6085cbae0740f31b97f165392e4ed70a",
+        1832,
+        "bdc6ca87af8ec954bd2e2db19f9b887a128c2eb2415043f63af6021a9abcd903",
     )
     combined = added_manifest + modified_manifest
     assert (len(combined), hashlib.sha256(combined).hexdigest()) == (
-        4280,
-        "16e386b3647aec3fe96c8b750877eeeda87fb23dbc8dfb1852f59eaa6c18dc6f",
+        1952,
+        "5b4b7fa64e84a498437e466d6f96087ce4ebb1503d9215d9b016cbe2013be088",
     )
     assert len(TOPOLOGICAL_PHASE53_READERS) == 13
     assert len(set(TOPOLOGICAL_PHASE53_READERS)) == 13
@@ -1856,9 +1805,9 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
         len(formatter_manifest),
         hashlib.sha256(formatter_manifest).hexdigest(),
     ) == (
-        72,
-        3988,
-        "071b31e662a55286c305aff061175a8330975dcb71646f5d578971fde3f67311",
+        21,
+        1591,
+        "f907acc7860688d52621283a1c54c88cec6c26cb1346059f31d5540f895f3697",
     )
     assert 10784 - len(overlay) == 10599
     assert 4557 + sum(cardinalities) == 4765
@@ -1906,4 +1855,4 @@ def test_gate2_evidence_gate3_publication_and_slice16_stop_contract_are_locked()
     assert "Phase 53 remains `ACTIVE`" in normalized_spec
     assert "Slice 16 remains `UNSTARTED`" in normalized_spec
     assert "SLICE16_GATE0_GATE1" in normalized_spec
-    assert BASE_HEAD == "9ff8c97f5d5996b5a27e13bcf45032b825f0a3d5"
+    assert BASE_HEAD == "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"

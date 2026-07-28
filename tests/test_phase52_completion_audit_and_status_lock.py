@@ -237,7 +237,7 @@ PHASE53_ADDED_PATHS = {
     "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
 }
 PHASE53_ALLOWLIST_PATHS = PHASE53_MODIFIED_PATHS | PHASE53_ADDED_PATHS
-SLICE2_BASE_HEAD_SHA = "9ff8c97f5d5996b5a27e13bcf45032b825f0a3d5"
+SLICE2_BASE_HEAD_SHA = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
 SLICE2_STATE_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
 
 OWNER_HANDOFFS = (
@@ -1069,12 +1069,12 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
     assert (
         sum(path.endswith(".py") for path in readable),
         sum(path.endswith(".md") for path in readable),
-    ) == (541, 242)
+    ) == (542, 243)
     for digest, expected in (
-        (PATH_DIGESTS["compiler"], 26),
-        (PATH_DIGESTS["semantic"], 40),
-        (PATH_DIGESTS["phase15"], 16),
-        (PATH_DIGESTS["project"], 20),
+        (PATH_DIGESTS["compiler"], 27),
+        (PATH_DIGESTS["semantic"], 41),
+        (PATH_DIGESTS["phase15"], 17),
+        (PATH_DIGESTS["project"], 21),
     ):
         readers = tuple(
             path
@@ -1085,7 +1085,7 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
         assert SELF_REL in readers
     for relative, expected in zip(
         MODULE_RELS,
-        (10, 7, 6, 5, 4, 3, 5),
+        (10, 7, 6, 5, 4, 3, 6),
         strict=True,
     ):
         readers = tuple(
@@ -1095,9 +1095,9 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
         )
         assert len(readers) == expected and SELF_REL in readers
     for relative, expected in (
-        (".github/workflows/ci.yml", 10),
-        ("pyproject.toml", 10),
-        ("uv.lock", 11),
+        (".github/workflows/ci.yml", 11),
+        ("pyproject.toml", 11),
+        ("uv.lock", 12),
     ):
         digest = PROTECTED_SHA256[relative]
         readers = tuple(
@@ -1148,7 +1148,7 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
         )
         for path in test_files
     )
-    assert (len(test_files), top_functions) == (448, 4836)
+    assert (len(test_files), top_functions) == (449, 4852)
     assert (
         381 + 834 + 627 + 424 + 279 + 168 + 156 + 12 + 145 + 190 + 70 + 70 + 97 + 35
         == 3488

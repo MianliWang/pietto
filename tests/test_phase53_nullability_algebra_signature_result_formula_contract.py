@@ -200,67 +200,18 @@ TEST_ITEM_COUNTS = (
 )
 
 ADDED_PATHS = (
-    "docs/spec/phase53-window-ir-dual-backend-lowering-window-function-facts-contract-v1.md",
-    "src/pietto/semantic/capability_windows.py",
-    "tests/test_phase53_window_ir_dual_backend_lowering_window_function_facts_contract.py",
+    "docs/spec/phase53-completion-audit-and-status-lock-v1.md",
+    "tests/test_phase53_completion_audit_and_status_lock.py",
 )
 MODIFIED_PATHS = (
     "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md",
-    "src/pietto/ir/model.py",
-    "src/pietto/ir/lowering.py",
-    "src/pietto/ir/builder.py",
-    "src/pietto/sql/expressions.py",
-    "src/pietto/sql/relations.py",
-    "src/pietto/sql/mysql_expressions.py",
-    "src/pietto/sql/mysql_relations.py",
-    "src/pietto/semantic/capability_facts.py",
-    "tests/test_phase10_completion_audit.py",
-    "tests/test_phase10_mysql_backend_skeleton.py",
-    "tests/test_phase10_mysql_golden_corpus.py",
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_generated_guard.py",
-    "tests/test_phase11_golden_policy.py",
-    "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase11_planning_audit.py",
-    "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_phase12_completion_audit.py",
-    "tests/test_phase12_composition_cli_json_goldens.py",
-    "tests/test_phase12_order_limit_contract.py",
-    "tests/test_phase12_planning_audit.py",
-    "tests/test_phase13_completion_audit.py",
-    "tests/test_phase13_planning_audit.py",
-    "tests/test_phase14_candidate_decision_audit.py",
-    "tests/test_phase14_completion_audit.py",
-    "tests/test_phase14_planning_audit.py",
-    "tests/test_phase14_relationship_metadata_completion_audit.py",
-    "tests/test_phase15_completion_audit.py",
-    "tests/test_phase15_semantic_completion_audit.py",
-    "tests/test_phase16_completion_audit.py",
-    "tests/test_phase16_current_syntax_surface_audit.py",
-    "tests/test_phase16_language_direction_audit.py",
-    "tests/test_phase16_safety_deferral_sql_portability.py",
-    "tests/test_phase21_group_by_hardening_audit.py",
-    "tests/test_phase24_aggregate_expression_arguments_readiness.py",
-    "tests/test_phase24_cli_json_output_hardening.py",
-    "tests/test_phase24_completion_audit.py",
-    "tests/test_phase25_completion_audit.py",
-    "tests/test_phase26_completion_audit.py",
-    "tests/test_phase27_completion_audit.py",
-    "tests/test_phase28_completion_audit.py",
-    "tests/test_phase29_completion_audit.py",
-    "tests/test_phase30_completion_audit.py",
-    "tests/test_phase50_window_function_readiness.py",
+    "tests/test_phase49_minimal_private_lineage_carrier_source_direct_rename.py",
     "tests/test_phase51_completion_audit_and_status_lock.py",
     "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
     "tests/test_phase52_aggregate_signature_algebra_facts.py",
     "tests/test_phase52_completion_audit_and_status_lock.py",
-    "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
     "tests/test_phase52_expression_stage_clause_capability_facts.py",
-    "tests/test_phase52_fail_closed_capability_lookup.py",
-    "tests/test_phase52_logical_type_literal_parameter_nullability_inventory.py",
     "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
-    "tests/test_phase52_private_capability_fact_foundation.py",
     "tests/test_phase52_scalar_function_operator_signature_facts.py",
     "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
     "tests/test_phase53_grouped_result_ranking_aggregate_result_inputs_bounded_let_visibility_contract.py",
@@ -273,14 +224,13 @@ MODIFIED_PATHS = (
     "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
     "tests/test_phase53_row_number_direct_field_mvp_contract.py",
     "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
+    "tests/test_phase53_window_ir_dual_backend_lowering_window_function_facts_contract.py",
     "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
     "tests/test_phase53_window_spec_function_identity_ast_contract.py",
     "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
-    "tests/test_ir_completion_audit.py",
-    "tests/test_phase49_minimal_private_lineage_carrier_source_direct_rename.py",
 )
 
-BASE_HEAD = "9ff8c97f5d5996b5a27e13bcf45032b825f0a3d5"
+BASE_HEAD = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
 FINAL_COMPILER_DIGEST = (
     "2a46f4add3847663ab1b3e959ca1e59e52f977d2df4f19a95ab4b8738f6c8252"
 )
@@ -292,7 +242,7 @@ FINAL_PHASE15_DIGEST = (
 )
 FINAL_SOURCE_SHA256 = "f4b39fc1446af80ec223b0043ee3e76700dd83224eea8e2a5f60a609a5dd5933"
 FINAL_SPEC_SHA256 = "a37141cd86b32a3325f64d5f0bcda4b6df97c7c89313ba765f24e9f5ee167b2a"
-FINAL_PLAN_SHA256 = "c0b81b638e317f99f53d21446c403d038ef8db8d84771d7c5a6a03949e1b28f0"
+FINAL_PLAN_SHA256 = "3077c2fec0d7e2c4de717973c6403d5a450b8c01fe5846e427363ffcb41a78f5"
 
 INT = LogicalTypeIdentity(name="Int", kind=TypeKind.BUILTIN)
 TEXT = LogicalTypeIdentity(name="Text", kind=TypeKind.BUILTIN)
@@ -485,7 +435,7 @@ def test_slice5_artifact_paths_heading_contract_and_lifecycle_are_exact() -> Non
         "Phase 53 — Window Functions, Generic Signature Compatibility, "
         "And Nullability Foundation",
     )
-    assert plan_h2[-11:] == (
+    assert plan_h2[-12:] == (
         PLAN_H2,
         SLICE6_PLAN_H2,
         SLICE7_PLAN_H2,
@@ -497,6 +447,8 @@ def test_slice5_artifact_paths_heading_contract_and_lifecycle_are_exact() -> Non
         SLICE13_PLAN_H2,
         SLICE14_PLAN_H2,
         SLICE15_PLAN_H2,
+        "Slice 16 — Completion Audit, Status Lock, Dialect, Privacy, And "
+        "No-authority Closure",
     )
     assert plan_h2.count(PLAN_H2) == 1
     assert plan_h2.count(SLICE6_PLAN_H2) == 1
@@ -1735,9 +1687,9 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
     assert _sha256(SPEC_PATH) == FINAL_SPEC_SHA256
     assert _sha256(PLAN_PATH) == FINAL_PLAN_SHA256
     test_paths = tuple((REPO_ROOT / "tests").glob("test_*.py"))
-    assert sum(FINAL_COMPILER_DIGEST in path.read_text() for path in test_paths) == 26
-    assert sum(FINAL_SEMANTIC_DIGEST in path.read_text() for path in test_paths) == 40
-    assert sum(FINAL_PHASE15_DIGEST in path.read_text() for path in test_paths) == 16
+    assert sum(FINAL_COMPILER_DIGEST in path.read_text() for path in test_paths) == 27
+    assert sum(FINAL_SEMANTIC_DIGEST in path.read_text() for path in test_paths) == 41
+    assert sum(FINAL_PHASE15_DIGEST in path.read_text() for path in test_paths) == 17
     assert (
         sum(
             f'BOUNDARY_HASH = "{FINAL_COMPILER_DIGEST}"' in path.read_text()
@@ -1789,11 +1741,11 @@ def test_slice5_dirty_clean_and_depth_one_repository_states_are_locked() -> None
 
 def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
     repository_paths = _all_repository_paths()
-    assert len(repository_paths) == 879
-    assert sum(path.endswith(".py") for path in repository_paths) == 541
-    assert sum(path.endswith(".md") for path in repository_paths) == 242
+    assert len(repository_paths) == 881
+    assert sum(path.endswith(".py") for path in repository_paths) == 542
+    assert sum(path.endswith(".md") for path in repository_paths) == 243
     test_paths = tuple(sorted((REPO_ROOT / "tests").glob("test_*.py")))
-    assert len(test_paths) == 448
+    assert len(test_paths) == 449
     functions = tuple(
         node.name
         for path in test_paths
@@ -1801,7 +1753,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name.startswith("test_")
     )
-    assert len(functions) == 4836
+    assert len(functions) == 4852
     self_functions = tuple(
         node.name
         for node in ast.parse(SELF_PATH.read_text()).body

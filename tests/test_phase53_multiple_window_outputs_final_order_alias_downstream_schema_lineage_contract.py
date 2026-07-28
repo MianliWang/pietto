@@ -56,7 +56,7 @@ SPEC_REL = (
 PLAN_REL = (
     "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md"
 )
-BASE_HEAD = "9ff8c97f5d5996b5a27e13bcf45032b825f0a3d5"
+BASE_HEAD = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
 WHEELHOUSE_MANIFEST_SHA256 = (
     "e745cf66b6e8ea2096d5e49bf88ef32f828fe9178561b8ed5456125afeb8a294"
 )
@@ -1463,11 +1463,11 @@ def test_test_inventory_focused_overlay_validation_and_gate3_are_exact() -> None
         len(test_paths),
         top_level_tests,
     ) == (
-        879,
-        541,
-        242,
-        448,
-        4836,
+        881,
+        542,
+        243,
+        449,
+        4852,
     )
     docs = _read(PLAN_REL)
     for value in (

@@ -98,6 +98,7 @@ SLICE9_TEST_REL = "tests/test_phase52_completion_audit_and_status_lock.py"
 SLICE9_BASE_HEAD_SHA = "36e466535d923f708a0201ae15a5708f06f2b1f8"
 
 COMPILER_READERS = (
+    "tests/test_phase53_completion_audit_and_status_lock.py",
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
     "tests/test_phase11_generated_guard.py",
@@ -126,6 +127,7 @@ COMPILER_READERS = (
     "tests/test_phase53_window_spec_function_identity_ast_contract.py",
 )
 SEMANTIC_READERS = (
+    "tests/test_phase53_completion_audit_and_status_lock.py",
     "tests/test_phase11_completion_audit.py",
     "tests/test_phase11_planning_audit.py",
     "tests/test_phase12_order_limit_contract.py",
@@ -168,6 +170,7 @@ SEMANTIC_READERS = (
     "tests/test_phase53_window_spec_function_identity_ast_contract.py",
 )
 PHASE15_READERS = (
+    "tests/test_phase53_completion_audit_and_status_lock.py",
     "tests/test_phase15_semantic_completion_audit.py",
     "tests/test_phase52_aggregate_signature_algebra_facts.py",
     "tests/test_phase52_completion_audit_and_status_lock.py",
@@ -1998,7 +2001,7 @@ def test_static_test_inventory_and_tier1_selection_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (448, 4836)
+    assert (len(test_files), top_level_functions) == (449, 4852)
 
     compatible, per_file_items = _prior_compatible_nodes()
     assert (len(compatible), per_file_items) == (69, (24, 33, 63))

@@ -68,6 +68,8 @@ PLAN_H2 = (
     "Slice 13 — Grouped-result Ranking, Aggregate-result Inputs, And Bounded Let Visibility",
     "Slice 14 — Multiple Window Outputs, Final-order Alias, Downstream Schema, And Lineage",
     "Slice 15 — Window IR, Dual-backend Lowering, And Window-function Facts",
+    "Slice 16 — Completion Audit, Status Lock, Dialect, Privacy, And "
+    "No-authority Closure",
 )
 SCOPE_H2 = (
     "Purpose And Slice Identity",
@@ -227,7 +229,7 @@ CI_REPAIR_BASE_HEAD_SHA = "c309323216fb7e6c52afba060cb188b3bb618d34"
 CI_REPAIR_MODIFIED_PATHS = {
     "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
 }
-SLICE2_BASE_HEAD_SHA = "9ff8c97f5d5996b5a27e13bcf45032b825f0a3d5"
+SLICE2_BASE_HEAD_SHA = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
 SLICE2_STATE_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
 
 TIER1_EXISTING_NODES = (
@@ -741,6 +743,14 @@ def test_reader_migrations_reconciliation4_and_current_authority_are_locked() ->
         "10784 collected items",
         "4765 focused passes",
         "10599 passed / 185 deselected",
+        "881 tracked files",
+        "542 Python files",
+        "243 Markdown files",
+        "449 test modules",
+        "4852 top-level test functions",
+        "10800 collected items",
+        "4781 focused passes",
+        "10615 passed / 185 deselected",
     ):
         assert required in slice2_plan, required
     for relative in (
@@ -750,12 +760,12 @@ def test_reader_migrations_reconciliation4_and_current_authority_are_locked() ->
         "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
         "tests/test_phase52_completion_audit_and_status_lock.py",
     ):
-        assert "(448, 4836)" in _read(relative)
+        assert "(449, 4852)" in _read(relative)
     for relative in (
         "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
         "tests/test_phase52_completion_audit_and_status_lock.py",
     ):
-        assert "(541, 242)" in _read(relative)
+        assert "(542, 243)" in _read(relative)
 
 
 def test_gate2_validation_depth_one_gate3_activation_and_stop_conditions_are_locked() -> (

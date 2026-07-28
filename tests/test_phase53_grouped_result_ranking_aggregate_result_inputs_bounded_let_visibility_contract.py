@@ -82,8 +82,8 @@ MAINTENANCE_SUBJECT = "Consolidate major Dependabot updates"
 MAINTENANCE_CANDIDATE_HEAD = "7ad017fd96e4ebaf7290d3042d0538dcf925b267"
 MAINTENANCE_REPAIR_SUBJECT = "Repair Dependabot CI topology guard"
 MAINTENANCE_BRANCH_PREFIX = "maintenance/dependabot-"
-SLICE14_BASE_HEAD = "9ff8c97f5d5996b5a27e13bcf45032b825f0a3d5"
-SLICE14_SUBJECT = "Add Phase 53 window IR and dual-backend lowering"
+SLICE15_PUBLISHED_HEAD = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
+SLICE16_SUBJECT = "Complete Phase 53 status and compatibility audit"
 MAINTENANCE_MODIFIED_PATHS = (
     ".github/workflows/ci.yml",
     "pyproject.toml",
@@ -327,7 +327,7 @@ def _is_clean_projection() -> bool:
     status = _git_output(["status", "--porcelain=v1", "--untracked-files=all"])
     staged = _git_output(["diff", "--cached", "--name-only"])
     shallow = _git_output(["rev-parse", "--is-shallow-repository"])
-    if head == SLICE14_BASE_HEAD:
+    if head == SLICE15_PUBLISHED_HEAD:
         _assert_main_refs(head)
         assert shallow == "false"
         _assert_slice14_dirty_state(status=status, staged=staged)
@@ -363,12 +363,12 @@ def _is_clean_projection() -> bool:
 
     pull_request_identity = _github_pull_request_identity()
     parents, subject = _commit_parents_and_subject(head)
-    if parents == (SLICE14_BASE_HEAD,) and subject == SLICE14_SUBJECT:
+    if parents == (SLICE15_PUBLISHED_HEAD,) and subject == SLICE16_SUBJECT:
         _assert_clean_state(status=status, staged=staged)
         if pull_request_identity is not None:
             base_sha, candidate_sha = pull_request_identity
             assert shallow == "true"
-            assert base_sha == SLICE14_BASE_HEAD
+            assert base_sha == SLICE15_PUBLISHED_HEAD
             assert candidate_sha == head
             return True
         if os.environ.get("GITHUB_EVENT_NAME") == "push":
@@ -384,7 +384,7 @@ def _is_clean_projection() -> bool:
     if pull_request_identity is not None:
         base_sha, candidate_sha = pull_request_identity
         assert shallow == "true"
-        assert base_sha in (CI_REPAIR_HEAD, SLICE14_BASE_HEAD)
+        assert base_sha in (CI_REPAIR_HEAD, SLICE15_PUBLISHED_HEAD)
         _assert_clean_state(status=status, staged=staged)
         if head == candidate_sha:
             _assert_maintenance_candidate_shape(parents=parents, subject=subject)
