@@ -84,6 +84,8 @@ MAINTENANCE_REPAIR_SUBJECT = "Repair Dependabot CI topology guard"
 MAINTENANCE_BRANCH_PREFIX = "maintenance/dependabot-"
 SLICE15_PUBLISHED_HEAD = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
 SLICE16_SUBJECT = "Complete Phase 53 status and compatibility audit"
+PHASE53_COMPLETION_HEAD = "af92f30c22e5d3df5219554a0663855a5b9f51a6"
+PHASE54_SUBJECT = "Add Phase 54 scope authority and expansion route lock"
 MAINTENANCE_MODIFIED_PATHS = (
     ".github/workflows/ci.yml",
     "pyproject.toml",
@@ -139,6 +141,34 @@ def _phase53_gate2_paths(name: str) -> set[str]:
             assert isinstance(value, set)
             return value
     raise AssertionError(name)
+
+
+def _phase54_gate2_paths(name: str) -> set[str]:
+    path = (
+        REPO_ROOT
+        / "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
+    )
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    assignments = {
+        node.targets[0].id: node.value
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
+    }
+
+    def resolve(node: ast.expr) -> set[str]:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return {node.value}
+        if isinstance(node, ast.Name):
+            return resolve(assignments[node.id])
+        if isinstance(node, ast.Starred):
+            return resolve(node.value)
+        if isinstance(node, ast.Set):
+            return set().union(*(resolve(element) for element in node.elts))
+        raise AssertionError(ast.dump(node))
+
+    return resolve(assignments[name])
 
 
 def _git_output(arguments: list[str]) -> str:
@@ -265,6 +295,16 @@ def _assert_slice14_dirty_state(*, status: str, staged: str) -> None:
     assert staged == ""
 
 
+def _assert_phase54_dirty_state(*, status: str, staged: str) -> None:
+    modified = _phase54_gate2_paths("MODIFIED_PATHS")
+    added = _phase54_gate2_paths("ADDED_PATHS")
+    expected = {f" M {path}" for path in modified} | {f"?? {path}" for path in added}
+    lines = status.splitlines()
+    assert len(lines) == len(expected)
+    assert set(lines) == expected
+    assert staged == ""
+
+
 def _assert_maintenance_base_refs() -> None:
     branch = _git_output(["branch", "--show-current"])
     assert branch == "main" or branch.startswith(MAINTENANCE_BRANCH_PREFIX)
@@ -307,6 +347,14 @@ def _assert_maintenance_candidate_shape(
         )
         assert parent == CI_REPAIR_HEAD
         assert candidate_subject == MAINTENANCE_SUBJECT
+
+
+def _is_phase54_subject(subject: str) -> bool:
+    return (
+        subject == PHASE54_SUBJECT
+        or re.fullmatch(rf"{re.escape(PHASE54_SUBJECT)} \(#[0-9]+\)", subject)
+        is not None
+    )
 
 
 def _assert_published_slice13_identity() -> None:
@@ -364,6 +412,11 @@ def _is_clean_projection() -> bool:
     pull_request_identity = _github_pull_request_identity()
     parents, subject = _commit_parents_and_subject(head)
     if parents == (SLICE15_PUBLISHED_HEAD,) and subject == SLICE16_SUBJECT:
+        if status:
+            assert shallow == "false"
+            _assert_main_refs(head)
+            _assert_phase54_dirty_state(status=status, staged=staged)
+            return False
         _assert_clean_state(status=status, staged=staged)
         if pull_request_identity is not None:
             base_sha, candidate_sha = pull_request_identity
@@ -381,10 +434,32 @@ def _is_clean_projection() -> bool:
         _assert_main_refs(head)
         return True
 
+    if parents == (PHASE53_COMPLETION_HEAD,) and _is_phase54_subject(subject):
+        _assert_clean_state(status=status, staged=staged)
+        if pull_request_identity is not None:
+            base_sha, candidate_sha = pull_request_identity
+            assert shallow == "true"
+            assert base_sha == PHASE53_COMPLETION_HEAD
+            assert candidate_sha == head
+            return True
+        if os.environ.get("GITHUB_EVENT_NAME") == "push":
+            assert shallow == "true"
+            assert os.environ.get("GITHUB_REF") == "refs/heads/main"
+            assert os.environ.get("GITHUB_SHA") == head
+            assert _git_optional_ref("refs/remotes/origin/main") in (None, head)
+            return True
+        assert shallow == "false"
+        _assert_main_refs(head)
+        return True
+
     if pull_request_identity is not None:
         base_sha, candidate_sha = pull_request_identity
         assert shallow == "true"
-        assert base_sha in (CI_REPAIR_HEAD, SLICE15_PUBLISHED_HEAD)
+        assert base_sha in (
+            CI_REPAIR_HEAD,
+            SLICE15_PUBLISHED_HEAD,
+            PHASE53_COMPLETION_HEAD,
+        )
         _assert_clean_state(status=status, staged=staged)
         if head == candidate_sha:
             _assert_maintenance_candidate_shape(parents=parents, subject=subject)

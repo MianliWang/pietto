@@ -1687,8 +1687,8 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
     assert _sha256(SPEC_PATH) == FINAL_SPEC_SHA256
     assert _sha256(PLAN_PATH) == FINAL_PLAN_SHA256
     test_paths = tuple((REPO_ROOT / "tests").glob("test_*.py"))
-    assert sum(FINAL_COMPILER_DIGEST in path.read_text() for path in test_paths) == 27
-    assert sum(FINAL_SEMANTIC_DIGEST in path.read_text() for path in test_paths) == 41
+    assert sum(FINAL_COMPILER_DIGEST in path.read_text() for path in test_paths) == 28
+    assert sum(FINAL_SEMANTIC_DIGEST in path.read_text() for path in test_paths) == 42
     assert sum(FINAL_PHASE15_DIGEST in path.read_text() for path in test_paths) == 17
     assert (
         sum(
@@ -1741,11 +1741,11 @@ def test_slice5_dirty_clean_and_depth_one_repository_states_are_locked() -> None
 
 def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
     repository_paths = _all_repository_paths()
-    assert len(repository_paths) == 881
-    assert sum(path.endswith(".py") for path in repository_paths) == 542
-    assert sum(path.endswith(".md") for path in repository_paths) == 243
+    assert len(repository_paths) == 886
+    assert sum(path.endswith(".py") for path in repository_paths) == 543
+    assert sum(path.endswith(".md") for path in repository_paths) == 247
     test_paths = tuple(sorted((REPO_ROOT / "tests").glob("test_*.py")))
-    assert len(test_paths) == 449
+    assert len(test_paths) == 450
     functions = tuple(
         node.name
         for path in test_paths
@@ -1753,7 +1753,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name.startswith("test_")
     )
-    assert len(functions) == 4852
+    assert len(functions) == 4866
     self_functions = tuple(
         node.name
         for node in ast.parse(SELF_PATH.read_text()).body

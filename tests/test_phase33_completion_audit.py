@@ -135,7 +135,7 @@ LOCKED_PHASE33_SURFACES = {
     "agents": (
         "AGENTS.md",
         1,
-        "27fef9e67bec8917eff21ad2dd41cb22f9feea37e62200ac78864cba2d5aa589",
+        "0bacc32f16a9bf5e89f53bcb9d5310ba440539cf100251b86e39fba18c59b0bb",
     ),
     "pietto_v09": (
         "docs/spec/pietto-v0.9.md",

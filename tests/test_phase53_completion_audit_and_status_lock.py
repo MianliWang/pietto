@@ -909,17 +909,17 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
         len(readable),
         sum(path.endswith(".py") for path in readable),
         sum(path.endswith(".md") for path in readable),
-    ) == (881, 542, 243)
+    ) == (886, 543, 247)
     test_files = tuple((REPO_ROOT / "tests").glob("test_*.py"))
     top_functions = sum(
         len(_top_level_test_functions(f"tests/{path.name}")) for path in test_files
     )
-    assert (len(test_files), top_functions) == (449, 4852)
+    assert (len(test_files), top_functions) == (450, 4866)
     for digest, expected in (
-        (PATH_DIGESTS["compiler"], 27),
-        (PATH_DIGESTS["semantic"], 41),
+        (PATH_DIGESTS["compiler"], 28),
+        (PATH_DIGESTS["semantic"], 42),
         (PATH_DIGESTS["phase15"], 17),
-        (PATH_DIGESTS["project"], 21),
+        (PATH_DIGESTS["project"], 22),
     ):
         readers = tuple(
             path
@@ -935,9 +935,9 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
     )
     assert len(window_readers) == 6 and SELF_REL in window_readers
     for relative, expected in (
-        (".github/workflows/ci.yml", 11),
-        ("pyproject.toml", 11),
-        ("uv.lock", 12),
+        (".github/workflows/ci.yml", 12),
+        ("pyproject.toml", 12),
+        ("uv.lock", 13),
     ):
         digest = PROTECTED_SHA256[relative]
         readers = tuple(

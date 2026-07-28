@@ -86,6 +86,27 @@ Rules:
 
 ## Current Phase
 
+Every future Pietto Phase must begin with the permanent **Phase-start
+Expansion, Pull-forward, And Readiness Audit** defined in
+`docs/spec/pietto-phase-start-expansion-pull-forward-readiness-governance-v1.md`.
+Slice 1 must classify each atomic later-phase item as exactly `IMPLEMENT_NOW`,
+`PRIVATE_READINESS_NOW`, `CONTRACT_ONLY_NOW`, `DEFER_BY_NECESSITY`, or
+`OUT_OF_SCOPE`; compare routes from 8 through 16; freeze
+`CURRENT_PRODUCTION`, `CURRENT_READINESS`, and `RETAINED_LATER`; and give a
+necessity-based reason for every substantive deferral. A later Phase number is
+never a sufficient reason.
+
+Phase 53 and Slices 1 through 16 are `COMPLETED`. During Phase 54 Slice 1 Gate
+2, Phase 54 remains `UNSTARTED`; the Slice 1 authority artifacts and active
+roadmap v2 are planned changes only. Only exact reviewed-tree publication,
+natural exact-head PR CI attempt 1, squash-tree equality, natural exact-head
+`main` CI attempt 1, ff-only reconciliation, cleanup, and immutable Gate 3
+evidence make Phase 54 `ACTIVE` and Slice 1 `COMPLETED`. Slices 2 through 16
+then remain `UNSTARTED`, with `next=PHASE54_SLICE2_GATE0_GATE1`. The older
+status paragraphs below are retained as historical checkpoints and are
+superseded where live source, completed-phase evidence, or the activated
+`docs/spec/pietto-active-roadmap-phase53-70-v2.md` disagrees.
+
 Current phase status: Phase 14 is complete. Slice 1 is the final broad
 readiness planning slice. Slice 2 selected the Relationship and endpoint
 metadata syntax foundation and deferred the Ambiguity and name-ownership

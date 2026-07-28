@@ -2633,15 +2633,15 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
     None
 ):
     repository_paths = _repository_paths()
-    assert len(repository_paths) == 881
-    assert sum(path.endswith(".py") for path in repository_paths) == 542
-    assert sum(path.endswith(".md") for path in repository_paths) == 243
+    assert len(repository_paths) == 886
+    assert sum(path.endswith(".py") for path in repository_paths) == 543
+    assert sum(path.endswith(".md") for path in repository_paths) == 247
     test_modules = tuple(
         path
         for path in repository_paths
         if path.startswith("tests/test_") and path.endswith(".py")
     )
-    assert len(test_modules) == 449
+    assert len(test_modules) == 450
     top_level_tests = 0
     for relative in test_modules:
         tree = ast.parse(_read(relative), filename=relative)
@@ -2650,7 +2650,7 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 4852
+    assert top_level_tests == 4866
     focused_payload = ("\n".join(FOCUSED_OPERANDS) + "\n").encode()
     overlay_payload = ("\n".join(DIRTY_OVERLAY) + "\n").encode()
     formatter_payload = ("\n".join(FORMATTER_PATHS) + "\n").encode()
