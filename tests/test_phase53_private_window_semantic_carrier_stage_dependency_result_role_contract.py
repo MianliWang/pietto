@@ -213,9 +213,8 @@ TEST_ITEM_COUNTS = (
 )
 
 ADDED_PATHS = (
-    "docs/spec/phase53-window-ir-dual-backend-lowering-window-function-facts-contract-v1.md",
-    "src/pietto/semantic/capability_windows.py",
-    "tests/test_phase53_window_ir_dual_backend_lowering_window_function_facts_contract.py",
+    "docs/spec/phase53-completion-audit-and-status-lock-v1.md",
+    "tests/test_phase53_completion_audit_and_status_lock.py",
 )
 
 # Filled after the single write formatter; later edits are literal-only.
@@ -225,7 +224,7 @@ FINAL_PROJECT_SOURCE_SHA256 = (
 )
 FINAL_MODEL_SHA256 = "8174dd3ad84646473f354bed16ebe3154d1ab6a39d640f55071dc84b632db5a2"
 FINAL_SPEC_SHA256 = "e3cddc36974cc2d21bd3e0aec8d03c4f56bc4a68091780d9965207f07ea960e7"
-FINAL_PLAN_SHA256 = "c0b81b638e317f99f53d21446c403d038ef8db8d84771d7c5a6a03949e1b28f0"
+FINAL_PLAN_SHA256 = "3077c2fec0d7e2c4de717973c6403d5a450b8c01fe5846e427363ffcb41a78f5"
 FINAL_COMPILER_DIGEST = (
     "2a46f4add3847663ab1b3e959ca1e59e52f977d2df4f19a95ab4b8738f6c8252"
 )
@@ -239,7 +238,7 @@ FINAL_PROJECT_DIGEST = (
     "e674402d8e428fd2ffbfb8a4f90d7ae0be01a23e379fcf487c16a2dc7e6c8497"
 )
 
-BASE_HEAD = "9ff8c97f5d5996b5a27e13bcf45032b825f0a3d5"
+BASE_HEAD = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
 CI_REPAIR_BASE_HEAD_SHA = "321ec6f80737015648bc1f81b0561fdd34610e92"
 CI_REPAIR_MODIFIED_PATHS = frozenset(
     {
@@ -686,7 +685,7 @@ def test_slice6_artifact_paths_heading_contract_and_lifecycle_are_exact() -> Non
         "And Nullability Foundation",
     )
     assert plan_h2.count(PLAN_H2) == 1
-    assert plan_h2[-10:] == (
+    assert plan_h2[-11:] == (
         PLAN_H2,
         SLICE7_PLAN_H2,
         SLICE8_PLAN_H2,
@@ -697,6 +696,8 @@ def test_slice6_artifact_paths_heading_contract_and_lifecycle_are_exact() -> Non
         SLICE13_PLAN_H2,
         SLICE14_PLAN_H2,
         SLICE15_PLAN_H2,
+        "Slice 16 — Completion Audit, Status Lock, Dialect, Privacy, And "
+        "No-authority Closure",
     )
     assert plan_h2.count(SLICE7_PLAN_H2) == 1
     assert plan_h2.count(SLICE8_PLAN_H2) == 1
@@ -1888,8 +1889,9 @@ def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
     added = _literal_tuple(GENERIC_TEST_PATH, "ADDED_PATHS")
     modified = _literal_tuple(GENERIC_TEST_PATH, "MODIFIED_PATHS")
     assert added == ADDED_PATHS
-    assert len(modified) == 73
+    assert len(modified) == 24
     assert modified[-16:-2] == (
+        "tests/test_phase52_scalar_function_operator_signature_facts.py",
         "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
         "tests/test_phase53_grouped_result_ranking_aggregate_result_inputs_bounded_let_visibility_contract.py",
         "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
@@ -1901,13 +1903,12 @@ def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
         "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
         "tests/test_phase53_row_number_direct_field_mvp_contract.py",
         "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
+        "tests/test_phase53_window_ir_dual_backend_lowering_window_function_facts_contract.py",
         "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
-        "tests/test_phase53_window_spec_function_identity_ast_contract.py",
-        "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
     )
     assert modified[-2:] == (
-        "tests/test_ir_completion_audit.py",
-        "tests/test_phase49_minimal_private_lineage_carrier_source_direct_rename.py",
+        "tests/test_phase53_window_spec_function_identity_ast_contract.py",
+        "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
     )
     assert set(added).isdisjoint(modified)
 
@@ -1960,7 +1961,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         len(markdown_paths),
         len(test_paths),
         top_level_functions,
-    ) == (879, 541, 242, 448, 4836)
+    ) == (881, 542, 243, 449, 4852)
     assert len(TEST_FUNCTIONS) == len(TEST_ITEM_COUNTS) == 36
     assert sum(TEST_ITEM_COUNTS) == 156
     assert 10599 + 185 == 10784

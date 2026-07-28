@@ -82,7 +82,7 @@ PLAN_REL = (
 )
 SPEC_REL = "docs/spec/phase53-rank-dense-rank-peer-semantics-contract-v1.md"
 SELF_REL = "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py"
-BASE_HEAD_SHA = "9ff8c97f5d5996b5a27e13bcf45032b825f0a3d5"
+BASE_HEAD_SHA = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
 
 SPEC_TITLE = "Phase 53 rank / dense_rank And Peer Semantics Contract v1"
 SLICE8_PLAN_H2 = "Slice 8 rank / dense_rank And Peer Semantics"
@@ -2325,15 +2325,15 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
     None
 ):
     repository_paths = _repository_paths()
-    assert len(repository_paths) == 879
-    assert sum(path.endswith(".py") for path in repository_paths) == 541
-    assert sum(path.endswith(".md") for path in repository_paths) == 242
+    assert len(repository_paths) == 881
+    assert sum(path.endswith(".py") for path in repository_paths) == 542
+    assert sum(path.endswith(".md") for path in repository_paths) == 243
     test_modules = tuple(
         path
         for path in repository_paths
         if path.startswith("tests/test_") and path.endswith(".py")
     )
-    assert len(test_modules) == 448
+    assert len(test_modules) == 449
     top_level_tests = 0
     for relative in test_modules:
         tree = ast.parse(_read(relative), filename=relative)
@@ -2342,7 +2342,7 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 4836
+    assert top_level_tests == 4852
     focused_payload = ("\n".join(FOCUSED_OPERANDS) + "\n").encode()
     overlay_payload = ("\n".join(DIRTY_OVERLAY) + "\n").encode()
     formatter_payload = ("\n".join(FORMATTER_PATHS) + "\n").encode()

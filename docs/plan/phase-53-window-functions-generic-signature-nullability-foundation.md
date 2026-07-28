@@ -732,3 +732,83 @@ Phase 53 remains `ACTIVE`; Slices 1 through 15 are `COMPLETED`; Slice 16 is
 `UNSTARTED`. Slice 16 exclusively owns the completion audit and status lock.
 The sole next authorization is `SLICE16_GATE0_GATE1`; Slice 15 starts no
 Slice 16 implementation.
+## Slice 16 — Completion Audit, Status Lock, Dialect, Privacy, And No-authority Closure
+
+Slice 16 implements only
+`docs/spec/phase53-completion-audit-and-status-lock-v1.md`.
+It is the static Phase 53 completion audit and status lock. It adds one
+completion specification, one 16-function/16-item primary completion-audit
+test at `tests/test_phase53_completion_audit_and_status_lock.py`, this
+append-only status section, and the exact mechanical tracked test-reader
+migration. It adds no grammar, generated, AST, parser, semantic, capability,
+project, IR, SQL, diagnostic, CLI, serializer, runtime, database, fixture,
+golden, example, script, workflow, dependency, lockfile, package-metadata,
+or version behavior.
+
+The sixteen-row route is complete. Slices 1 through 15 are `COMPLETED` with
+first-parent publication evidence from
+`c309323216fb7e6c52afba060cb188b3bb618d34` through
+`3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68`, including the four recorded
+repair commits and two separately merged Dependabot consolidations. The
+eight window identities remain `row_number`, `rank`, `dense_rank`,
+`percent_rank`, `cume_dist`, `ntile`, `lag`, and `lead`. PostgreSQL and
+private MySQL retain independent bounded `OVER (...)` lowering with
+mandatory `ORDER BY`, explicit direction, grouped underlying-expression
+inputs, final-order aliases, and `PIE-B1000` fail-closed behavior;
+`PIE-I1000` remains the missing-semantic-fact boundary. Frames, named
+windows, inheritance, aggregate-as-window, `first_value`, `last_value`,
+`nth_value`, and advanced windows remain Phase 60; `QUALIFY` remains Phase
+63; extension-specific and additional-dialect lowering remain Phase 69;
+broader public schema, lineage, and attribution exposure remains Phase 70;
+coercion, promotion, LUB, temporal, Decimal-fusion, and native mapping
+remain Phase 64. Same-select window dependencies, nested window calls, and
+window calls in forbidden contexts remain fail-closed without an assigned
+owner. All window carriers, facts, project state, graph, lineage,
+provenance, Window IR, capability facts, and the private-MySQL entrypoint
+remain private; capability facts remain descriptive and grant no compiler
+or backend authority; the public initializers, CLI JSON v1, Project JSON
+v2, and Semantic Metadata Artifact v1 expose no window-specific fact.
+
+Gate 2 entered with frozen authority `A2/M21/D0`. Mechanical repair rounds
+proved three additional tracked current-base-head readers,
+`tests/test_phase49_minimal_private_lineage_carrier_source_direct_rename.py`,
+`tests/test_phase51_completion_audit_and_status_lock.py`, and
+`tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py`,
+so the final scope is exactly `A2/M24/D0`: this plan and twenty-three closed
+compatibility/hash/state test readers, plus the new specification and the
+new primary completion test. Prospective committed
+inventory is exactly 881 tracked files, 542 Python files, 243 Markdown
+files, 449 test modules, 4852 top-level test functions, and 10800 collected
+items. Compiler inventory remains 93, semantic inventory remains 36, the
+Phase-15 semantic subset remains 33, private project remains 18, generated
+remains 8, and goldens remain 37.
+
+Gate 2 uses exactly one write-mode Ruff invocation over the frozen exact
+21-path handwritten Python manifest; the post-formatter reader repairs are
+formatting-neutral and receive read-only Ruff checks only. Validation requires 4781 focused
+passes, exact collection of 10800, `10615 passed / 185 deselected` in the
+exact unchanged dirty overlay, generated and golden checks, deterministic
+identity and canonical-patch replay, authoritative clean validation, strict
+offline package smoke, installed CLI `0.1.0`, full-history clean, genuine
+depth-one pull-request, genuine shallow push/main, and negative-topology
+evidence. It leaves exactly 26 paths unstaged and uncommitted with an
+empty index before publication. Package version remains `0.1.0` with no
+tag, Release, publication, upload, signing, attestation, Rust
+implementation, or remote package-manager work; no release occurs before
+the separately authorized post-Phase-60 release route.
+
+The publication path is exactly
+`phase53/slice16-completion-audit-status-lock`, one commit and ready PR
+titled `Complete Phase 53 status and compatibility audit`, unique natural
+exact-head PR CI, squash merge, and unique natural exact-head main CI with
+both Python jobs reporting exactly `10800 passed`. It permits no
+direct-main push, amend, rebase, force-push, manual CI mutation, tag,
+Release, package publish, upload, signing, or attestation.
+
+Slice 16 is implemented and locally validated but unpublished throughout
+Gate 2: Phase 53 remains `ACTIVE`, Slices 1 through 15 remain `COMPLETED`,
+and Slice 16 is `IMPLEMENTED_UNPUBLISHED`. Phase 53 becomes `COMPLETED`,
+and Slice 16 becomes `COMPLETED`, only after that separately authorized
+Gate 3 publication succeeds at the exact head. Phase 54 through Phase 70
+remain `UNSTARTED`; the sole next authorization after Phase 53 completion
+is `PHASE54_GATE0_GATE1`; Slice 16 starts no Phase 54 implementation.
