@@ -1069,12 +1069,12 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
     assert (
         sum(path.endswith(".py") for path in readable),
         sum(path.endswith(".md") for path in readable),
-    ) == (542, 243)
+    ) == (543, 247)
     for digest, expected in (
-        (PATH_DIGESTS["compiler"], 27),
-        (PATH_DIGESTS["semantic"], 41),
+        (PATH_DIGESTS["compiler"], 28),
+        (PATH_DIGESTS["semantic"], 42),
         (PATH_DIGESTS["phase15"], 17),
-        (PATH_DIGESTS["project"], 21),
+        (PATH_DIGESTS["project"], 22),
     ):
         readers = tuple(
             path
@@ -1095,9 +1095,9 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
         )
         assert len(readers) == expected and SELF_REL in readers
     for relative, expected in (
-        (".github/workflows/ci.yml", 11),
-        ("pyproject.toml", 11),
-        ("uv.lock", 12),
+        (".github/workflows/ci.yml", 12),
+        ("pyproject.toml", 12),
+        ("uv.lock", 13),
     ):
         digest = PROTECTED_SHA256[relative]
         readers = tuple(
@@ -1148,7 +1148,7 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
         )
         for path in test_files
     )
-    assert (len(test_files), top_functions) == (449, 4852)
+    assert (len(test_files), top_functions) == (450, 4866)
     assert (
         381 + 834 + 627 + 424 + 279 + 168 + 156 + 12 + 145 + 190 + 70 + 70 + 97 + 35
         == 3488

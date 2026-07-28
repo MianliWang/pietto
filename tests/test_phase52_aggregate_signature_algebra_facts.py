@@ -125,6 +125,7 @@ COMPILER_READERS = (
     "tests/test_phase53_row_number_direct_field_mvp_contract.py",
     "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
     "tests/test_phase53_window_spec_function_identity_ast_contract.py",
+    "tests/test_phase54_local_import_module_export_foundation_scope_lock.py",
 )
 SEMANTIC_READERS = (
     "tests/test_phase53_completion_audit_and_status_lock.py",
@@ -168,6 +169,7 @@ SEMANTIC_READERS = (
     "tests/test_phase53_row_number_direct_field_mvp_contract.py",
     "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
     "tests/test_phase53_window_spec_function_identity_ast_contract.py",
+    "tests/test_phase54_local_import_module_export_foundation_scope_lock.py",
 )
 PHASE15_READERS = (
     "tests/test_phase53_completion_audit_and_status_lock.py",
@@ -2001,7 +2003,7 @@ def test_static_test_inventory_and_tier1_selection_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (449, 4852)
+    assert (len(test_files), top_level_functions) == (450, 4866)
 
     compatible, per_file_items = _prior_compatible_nodes()
     assert (len(compatible), per_file_items) == (69, (24, 33, 63))

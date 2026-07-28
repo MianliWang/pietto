@@ -1869,8 +1869,8 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
     assert _sha256(PLAN_PATH) == FINAL_PLAN_SHA256
 
     test_paths = tuple((REPO_ROOT / "tests").glob("test_*.py"))
-    assert sum(FINAL_COMPILER_DIGEST in path.read_text() for path in test_paths) == 27
-    assert sum(FINAL_SEMANTIC_DIGEST in path.read_text() for path in test_paths) == 41
+    assert sum(FINAL_COMPILER_DIGEST in path.read_text() for path in test_paths) == 28
+    assert sum(FINAL_SEMANTIC_DIGEST in path.read_text() for path in test_paths) == 42
     assert sum(FINAL_PHASE15_DIGEST in path.read_text() for path in test_paths) == 17
     assert (
         sum(
@@ -1936,7 +1936,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         len(markdown_paths),
         len(test_paths),
         top_level_functions,
-    ) == (881, 542, 243, 449, 4852)
+    ) == (886, 543, 247, 450, 4866)
     self_tree = ast.parse(SELF_PATH.read_text())
     self_names = tuple(
         node.name
