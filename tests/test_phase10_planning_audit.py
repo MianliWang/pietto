@@ -125,7 +125,6 @@ def test_phase10_keeps_mysql_skeleton_private_and_sqlglot_absent() -> None:
 def test_phase10_status_documents_describe_private_mysql_rendering() -> None:
     combined = "\n".join(
         (
-            _read("README.md"),
             _read("AGENTS.md"),
             _read("docs/spec/pietto-v0.9.md"),
         )

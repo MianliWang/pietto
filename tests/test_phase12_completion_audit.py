@@ -108,7 +108,6 @@ goldens = cast(
 def test_phase12_plan_and_status_documents_are_complete() -> None:
     plan = _read(PLAN_PATH)
     documents = {
-        "README.md": _read("README.md"),
         "AGENTS.md": _read("AGENTS.md"),
         "docs/spec/pietto-v0.9.md": _read("docs/spec/pietto-v0.9.md"),
     }

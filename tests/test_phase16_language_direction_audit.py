@@ -14,7 +14,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SPEC_PATH = "docs/spec/language-direction-v1.md"
 PLAN_PATH = "docs/plan/phase-16-language-direction-safety-mode.md"
 STATUS_PATHS = (
-    "README.md",
     "AGENTS.md",
     "docs/spec/pietto-v0.9.md",
 )

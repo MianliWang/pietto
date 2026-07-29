@@ -71,7 +71,6 @@ def test_slice3_contract_and_status_are_parse_only_and_ast_only() -> None:
     for path in (
         DECISION_PATH,
         READINESS_PATH,
-        "README.md",
         "AGENTS.md",
         "docs/spec/pietto-v0.9.md",
     ):

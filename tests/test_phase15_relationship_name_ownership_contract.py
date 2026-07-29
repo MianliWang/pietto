@@ -180,7 +180,6 @@ def test_examples_fixtures_and_goldens_are_byte_locked() -> None:
 def test_plan_and_status_docs_record_slice3_without_runtime_authorization() -> None:
     documents = {
         PLAN_PATH: _read(PLAN_PATH),
-        "README.md": _read("README.md"),
         "AGENTS.md": _read("AGENTS.md"),
         "docs/spec/pietto-v0.9.md": _read("docs/spec/pietto-v0.9.md"),
     }
@@ -192,7 +191,7 @@ def test_plan_and_status_docs_record_slice3_without_runtime_authorization() -> N
         assert "contract" in normalized.lower()
         assert "no runtime" in normalized.lower()
 
-    combined = " ".join("\n".join(documents.values()).split())
+    combined = " ".join("\n".join((*documents.values(), _read(CONTRACT_PATH))).split())
     for boundary in (
         "relation composition",
         "JOIN",

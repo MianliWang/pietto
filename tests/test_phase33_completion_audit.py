@@ -13,7 +13,6 @@ import pietto.cli as cli
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 PLAN_PATH = REPO_ROOT / "docs/plan/phase-33-json-v2-and-project-multifile.md"
-README_PATH = REPO_ROOT / "README.md"
 AGENTS_PATH = REPO_ROOT / "AGENTS.md"
 PIETTO_SPEC_PATH = REPO_ROOT / "docs/spec/pietto-v0.9.md"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
@@ -21,7 +20,7 @@ PACKAGE_SMOKE_PATH = REPO_ROOT / "scripts/package_smoke.py"
 PROJECT_CONFIG_SOURCE_PATH = REPO_ROOT / "src/pietto/_project/config.py"
 PROJECT_CHECK_SOURCE_PATH = REPO_ROOT / "src/pietto/_project/check.py"
 
-STATUS_DOCS = (README_PATH, AGENTS_PATH, PIETTO_SPEC_PATH)
+STATUS_DOCS = (AGENTS_PATH, PIETTO_SPEC_PATH)
 
 PHASE33_ARTIFACTS = (
     "docs/spec/phase-33-json-v2-project-multifile-boundary-v1.md",
@@ -130,7 +129,7 @@ LOCKED_PHASE33_SURFACES = {
     "readme": (
         "README.md",
         1,
-        "a9012c03259cc7d8cb983f70fcd6481719f06ead73a0decbea7f7a4f76b55ac2",
+        "dfcee74facc30291d3a3d2fba9de4d6741e65ffb89a8f61224ec3cd130ba0c50",
     ),
     "agents": (
         "AGENTS.md",

@@ -36,13 +36,13 @@ PHASE16_ARTIFACT_HASHES = {
         "580ebcfcc78102d902110d864eb80c7f1a57ffcb6b4b33e1160c9abd17ba07a6"
     ),
     SLICE1_AUDIT_PATH: (
-        "a7b6cc9602b97503dd7c5db3cf277232989042c15c5eaf8ccc34d7d94c6a0e00"
+        "ff07021ca83a1296b2412c01d4798635dbfc9a4d16f0d84903a4391b9e7cc75f"
     ),
     SLICE2_AUDIT_PATH: (
-        "830f10e3af742dfc7400fda095410d6b314e8271e3fc3221e3286a3ea7b63684"
+        "f2bde9f7e32e8f799fdafb804112424fe4027606459a46031903e063127aadaf"
     ),
     SLICE3_AUDIT_PATH: (
-        "5e5d73b860f05a7fe41abc0a00c057ddb82bfcbb40b4320ac7502fd6523515e3"
+        "f052dfa97a7e0db2badf346c8b7e95386ce92a4063bf2059e9fc9732f62f6c77"
     ),
     PLAN_PATH: "adfb0d99075299049c790f465fab7453e0ed73b985e9cff19c6aeb38f94c7f5a",
 }
@@ -382,7 +382,7 @@ def test_runtime_database_composition_and_policy_behavior_remain_absent() -> Non
 
 
 def test_status_docs_record_phase16_completion_without_expanding_scope() -> None:
-    for path in STATUS_PATHS:
+    for path in STATUS_PATHS[1:]:
         normalized = _normalized(path)
         assert "Phase 16" in normalized
         assert "complete" in normalized

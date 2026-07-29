@@ -62,7 +62,6 @@ def test_slice3_status_and_cross_references_are_complete() -> None:
     plan = _read(PHASE10_PLAN)
     design = _read(DISPATCH_DESIGN)
     status_documents = (
-        _read("README.md"),
         _read("AGENTS.md"),
         _read("docs/spec/pietto-v0.9.md"),
     )

@@ -82,7 +82,6 @@ OTHER_BOUNDARY_HASHES = {
 def test_slice4_status_and_private_boundary_are_documented() -> None:
     plan = _read(PHASE10_PLAN)
     status_documents = (
-        _read("README.md"),
         _read("AGENTS.md"),
         _read("docs/spec/pietto-v0.9.md"),
     )

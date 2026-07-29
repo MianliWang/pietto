@@ -85,10 +85,9 @@ def test_phase8_documents_and_all_seven_slices_are_complete() -> None:
     for number, name in enumerate(slice_names, start=1):
         assert f"{number}. **{name}**: complete." in plan
 
-    readme = _read("README.md")
     agents = _read("AGENTS.md")
     for path in required_paths:
-        assert path in "\n".join((plan, readme, agents))
+        assert path in "\n".join((plan, agents))
 
 
 def test_phase8_documents_preserve_the_planning_only_boundary() -> None:

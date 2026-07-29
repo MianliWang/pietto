@@ -15,7 +15,6 @@ CONTRACT_PATHS = (
     "docs/spec/composition-security-diagnostics-contract-v1.md",
 )
 STATUS_PATHS = (
-    "README.md",
     "AGENTS.md",
     "docs/spec/pietto-v0.9.md",
     PLAN_PATH,

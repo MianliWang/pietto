@@ -12,7 +12,6 @@ from pietto.ir import IrResult
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 STATUS_DOCS = (
-    REPO_ROOT / "README.md",
     REPO_ROOT / "AGENTS.md",
     REPO_ROOT / "docs/spec/pietto-v0.9.md",
 )

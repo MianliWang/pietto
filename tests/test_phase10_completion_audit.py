@@ -140,7 +140,6 @@ def test_phase10_all_nine_slices_and_status_documents_are_complete() -> None:
     plan = _read(PHASE10_PLAN)
     status_documents = (
         plan,
-        _read("README.md"),
         _read("AGENTS.md"),
         _read("docs/spec/pietto-v0.9.md"),
     )

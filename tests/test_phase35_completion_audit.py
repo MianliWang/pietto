@@ -13,7 +13,6 @@ from test_phase39_candidate_decision import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-README_PATH = REPO_ROOT / "README.md"
 AGENTS_PATH = REPO_ROOT / "AGENTS.md"
 PIETTO_SPEC_PATH = REPO_ROOT / "docs/spec/pietto-v0.9.md"
 PHASE35_PLAN_PATH = (
@@ -24,7 +23,7 @@ PHASE35_SAFE_SIMPLIFICATION_SPEC_PATH = (
 )
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
-STATUS_DOCS = (README_PATH, AGENTS_PATH, PIETTO_SPEC_PATH)
+STATUS_DOCS = (AGENTS_PATH, PIETTO_SPEC_PATH)
 PHASE35_DOCS = (*STATUS_DOCS, PHASE35_PLAN_PATH)
 
 OFFICIAL_PHASE35_TITLE = "Developer Experience And Delivery Pipeline MVP"

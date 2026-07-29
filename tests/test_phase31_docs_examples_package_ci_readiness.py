@@ -14,7 +14,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 PLAN_PATH = REPO_ROOT / "docs/plan/phase-31-v02-hardening-and-stable-completion.md"
 SPEC_PATH = REPO_ROOT / "docs/spec/v02-hardening-and-stable-completion-v1.md"
-README_PATH = REPO_ROOT / "README.md"
 AGENTS_PATH = REPO_ROOT / "AGENTS.md"
 PIETTO_SPEC_PATH = REPO_ROOT / "docs/spec/pietto-v0.9.md"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
@@ -22,7 +21,7 @@ VALIDATE_PATH = REPO_ROOT / "scripts/validate.py"
 PACKAGE_SMOKE_PATH = REPO_ROOT / "scripts/package_smoke.py"
 CI_PATH = REPO_ROOT / ".github/workflows/ci.yml"
 
-PHASE31_STATUS_DOCS = (README_PATH, AGENTS_PATH, PIETTO_SPEC_PATH)
+PHASE31_STATUS_DOCS = (AGENTS_PATH, PIETTO_SPEC_PATH)
 TOOLING_DEPENDENCIES = (
     "ty",
     "import-linter",

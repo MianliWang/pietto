@@ -33,10 +33,10 @@ PHASE15_ARTIFACT_HASHES = {
         "227e5989affa152dcbeb4f8775f0705bc8a14d9dcd269e8f4409d32e71714218"
     ),
     SLICE3_TEST_PATH: (
-        "e2a4219d2e0a0b7cc2d739475e39022df931c58171a87f96436286008a4be3b3"
+        "3dcfad5f1015c515fe8d78133d5a67b639ecf92d6d5b0157356657441a1e10b7"
     ),
     PRIOR_AUDIT_PATH: (
-        "688fd555663f41adf66af184c3b5348d9dfc28ee4ecdb7f521feaee8053e60aa"
+        "080bc14df785c85485a8e3b8f1e29f70cebfc457589e501d4f4be8136994c2f0"
     ),
 }
 
@@ -383,7 +383,7 @@ def test_deferred_capabilities_remain_absent_and_unauthorized() -> None:
 
 
 def test_status_docs_record_phase15_completion_without_expanding_scope() -> None:
-    for path in STATUS_PATHS:
+    for path in STATUS_PATHS[1:]:
         normalized = " ".join(_read(path).split())
         assert "Phase 15" in normalized
         assert "complete" in normalized

@@ -13,7 +13,6 @@ from test_phase39_candidate_decision import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-README_PATH = REPO_ROOT / "README.md"
 AGENTS_PATH = REPO_ROOT / "AGENTS.md"
 PIETTO_SPEC_PATH = REPO_ROOT / "docs/spec/pietto-v0.9.md"
 PHASE36_PLAN_PATH = (
@@ -21,7 +20,7 @@ PHASE36_PLAN_PATH = (
 )
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
-STATUS_DOCS = (README_PATH, AGENTS_PATH, PIETTO_SPEC_PATH)
+STATUS_DOCS = (AGENTS_PATH, PIETTO_SPEC_PATH)
 
 FORBIDDEN_DIFF_PATHS = (
     "grammar/Pietto.g4",

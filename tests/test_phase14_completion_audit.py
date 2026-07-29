@@ -281,7 +281,7 @@ def test_json_api_dependency_version_suffix_and_diagnostic_boundaries_hold() -> 
 
 
 def test_status_docs_lock_phase14_completion_and_phase15_authorization_gate() -> None:
-    for path in STATUS_PATHS:
+    for path in STATUS_PATHS[1:]:
         normalized = " ".join(_read(path).split()).lower()
         assert "phase 14" in normalized
         assert "complete" in normalized

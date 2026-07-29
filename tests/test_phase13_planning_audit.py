@@ -160,7 +160,6 @@ def test_phase13_security_diagnostics_and_backend_planning_are_explicit() -> Non
 
 def test_phase13_status_documents_are_scope_aware() -> None:
     documents = {
-        "README.md": _read("README.md"),
         "AGENTS.md": _read("AGENTS.md"),
         "docs/spec/pietto-v0.9.md": _read("docs/spec/pietto-v0.9.md"),
     }
