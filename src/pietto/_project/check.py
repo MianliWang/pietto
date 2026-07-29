@@ -7,6 +7,10 @@ from pathlib import Path
 
 import pietto.parser_api as parser_api
 from pietto._project.config import load_project_config
+from pietto._project.module_carrier import (
+    ProjectCompilationMode,
+    _build_project_logical_modules,
+)
 from pietto._project.model import (
     ProjectConfigPath,
     ProjectDiscoveryError,
@@ -38,15 +42,23 @@ def check_project_parse_only(root: str | Path) -> ProjectParseCheckResult:
             inputs=selection_result.inputs,
             errors=selection_result.errors,
             diagnostics=(),
+            compilation_mode=selection_result.compilation_mode,
+            modules=selection_result.modules,
         )
 
     try:
         resolved_root = Path(root).resolve(strict=True)
     except OSError:
-        return _root_error("Project root does not exist or is not accessible.")
+        return _root_error(
+            "Project root does not exist or is not accessible.",
+            compilation_mode=selection_result.compilation_mode,
+        )
 
     if not resolved_root.is_dir():
-        return _root_error("Project root must be an existing directory.")
+        return _root_error(
+            "Project root must be an existing directory.",
+            compilation_mode=selection_result.compilation_mode,
+        )
 
     inputs: list[ProjectInput] = []
     parsed_inputs: list[ProjectParsedInput] = []
@@ -68,14 +80,22 @@ def check_project_parse_only(root: str | Path) -> ProjectParseCheckResult:
         errors.extend(input_errors)
         diagnostics.extend(input_diagnostics)
 
+    final_inputs = tuple(inputs)
+    final_parsed_inputs = tuple(parsed_inputs)
     return ProjectParseCheckResult(
         root=selection_result.root or ProjectRoot(path=_PROJECT_ROOT_PATH),
         config_path=selection_result.config_path
         or ProjectConfigPath(path=_PROJECT_CONFIG_PATH),
-        inputs=tuple(inputs),
+        inputs=final_inputs,
         errors=tuple(errors),
         diagnostics=tuple(diagnostics),
-        parsed_inputs=tuple(parsed_inputs),
+        parsed_inputs=final_parsed_inputs,
+        compilation_mode=selection_result.compilation_mode,
+        modules=_build_project_logical_modules(
+            selection_result.compilation_mode,
+            final_inputs,
+            final_parsed_inputs,
+        ),
     )
 
 
@@ -202,7 +222,11 @@ def _has_errors(diagnostics: tuple[Diagnostic, ...]) -> bool:
     return any(diagnostic.severity is Severity.ERROR for diagnostic in diagnostics)
 
 
-def _root_error(message: str) -> ProjectParseCheckResult:
+def _root_error(
+    message: str,
+    *,
+    compilation_mode: ProjectCompilationMode = ProjectCompilationMode.LEGACY_FLAT,
+) -> ProjectParseCheckResult:
     return ProjectParseCheckResult(
         root=None,
         config_path=None,
@@ -215,4 +239,5 @@ def _root_error(message: str) -> ProjectParseCheckResult:
             ),
         ),
         diagnostics=(),
+        compilation_mode=compilation_mode,
     )

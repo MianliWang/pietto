@@ -536,7 +536,7 @@ EXPECTED_DIRTY_PATHS = frozenset((*ADDED_PATHS, *MODIFIED_PATHS))
 
 BASE_HEAD = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
 FINAL_COMPILER_DIGEST = (
-    "2a46f4add3847663ab1b3e959ca1e59e52f977d2df4f19a95ab4b8738f6c8252"
+    "6b98059fa09b09fb2c724003f1276bd85077382b597711147d5a9bd5d820f550"
 )
 FINAL_SEMANTIC_DIGEST = (
     "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
@@ -709,8 +709,38 @@ def _assert_unsupported(
 
 def _all_repository_paths() -> tuple[str, ...]:
     paths = set(_git("ls-files").splitlines())
-    paths.update(path for path in ADDED_PATHS if (REPO_ROOT / path).is_file())
+    paths.update(_git("ls-files", "--others", "--exclude-standard").splitlines())
     return tuple(sorted(paths))
+
+
+def _phase54_slice2_paths() -> tuple[frozenset[str], frozenset[str]]:
+    path = (
+        REPO_ROOT
+        / "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
+    )
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=path.as_posix())
+    expected = {
+        "ADDED_PATHS",
+        "NON_READER_MODIFIED_PATHS",
+        "MECHANICAL_READER_PATHS",
+    }
+    values: dict[str, frozenset[str]] = {}
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id in expected
+        ):
+            value = ast.literal_eval(node.value)
+            assert isinstance(value, set)
+            assert all(isinstance(item, str) for item in value)
+            values[node.targets[0].id] = frozenset(value)
+    assert set(values) == expected
+    return (
+        values["NON_READER_MODIFIED_PATHS"] | values["MECHANICAL_READER_PATHS"],
+        values["ADDED_PATHS"],
+    )
 
 
 def test_slice4_artifact_paths_heading_contract_and_lifecycle_are_exact() -> None:
@@ -1857,7 +1887,7 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        93,
+        94,
         36,
         33,
     )
@@ -1889,10 +1919,18 @@ def test_slice4_dirty_clean_and_depth_one_repository_states_are_locked() -> None
     staged = _git("diff", "--cached", "--name-status")
     assert staged == ""
     if tracked or untracked:
-        assert tracked == frozenset(MODIFIED_PATHS)
-        assert untracked == frozenset(ADDED_PATHS)
+        head = _git("rev-parse", "HEAD")
+        if head == "53d8767fc3bdbe5e3f631178652222bbe51f6a33":
+            expected_modified, expected_added = _phase54_slice2_paths()
+            expected_base = "53d8767fc3bdbe5e3f631178652222bbe51f6a33"
+        else:
+            expected_modified = frozenset(MODIFIED_PATHS)
+            expected_added = frozenset(ADDED_PATHS)
+            expected_base = BASE_HEAD
+        assert tracked == expected_modified
+        assert untracked == expected_added
         assert _git("branch", "--show-current") == "main"
-        assert _git("rev-parse", "HEAD") == BASE_HEAD
+        assert head == expected_base
         for reference in ("refs/heads/main", "refs/remotes/origin/main"):
             result = subprocess.run(
                 ("git", "show-ref", "--verify", "--quiet", reference),
@@ -1900,7 +1938,7 @@ def test_slice4_dirty_clean_and_depth_one_repository_states_are_locked() -> None
                 check=False,
             )
             if result.returncode == 0:
-                assert _git("rev-parse", reference) == BASE_HEAD
+                assert _git("rev-parse", reference) == expected_base
     else:
         head = _git("rev-parse", "HEAD")
         for reference in ("refs/heads/main", "refs/remotes/origin/main"):
@@ -1936,7 +1974,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         len(markdown_paths),
         len(test_paths),
         top_level_functions,
-    ) == (886, 543, 247, 450, 4866)
+    ) == (889, 545, 248, 451, 4882)
     self_tree = ast.parse(SELF_PATH.read_text())
     self_names = tuple(
         node.name

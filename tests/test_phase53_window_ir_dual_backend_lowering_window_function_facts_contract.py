@@ -81,6 +81,9 @@ CAPABILITY_REL = "src/pietto/semantic/capability_windows.py"
 BASE_HEAD = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
 PUBLICATION_BRANCH = "phase53/slice15-window-ir-dual-backend-lowering"
 PUBLICATION_TITLE = "Add Phase 53 window IR and dual-backend lowering"
+PHASE54_SLICE2_STATE_REL = (
+    "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
+)
 
 IDENTITIES = (
     "row_number",
@@ -338,6 +341,18 @@ def _module_literal(relative: str, name: str) -> object:
                     assert isinstance(combined, tuple)
                     return combined[names.index(name)]
     raise AssertionError(f"missing module literal {relative}:{name}")
+
+
+def _phase54_slice2_allowlist() -> set[str]:
+    added = cast(set[str], _module_literal(PHASE54_SLICE2_STATE_REL, "ADDED_PATHS"))
+    non_reader = cast(
+        set[str],
+        _module_literal(PHASE54_SLICE2_STATE_REL, "NON_READER_MODIFIED_PATHS"),
+    )
+    readers = cast(
+        set[str], _module_literal(PHASE54_SLICE2_STATE_REL, "MECHANICAL_READER_PATHS")
+    )
+    return added | non_reader | readers
 
 
 def _test_manifest() -> tuple[tuple[str, ...], tuple[int, ...]]:
@@ -1704,7 +1719,7 @@ def test_generated_golden_fixture_package_dependency_and_version_boundaries_are_
         sum(path.endswith(".md") for path in paths),
         sum(path.startswith("tests/test_") and path.endswith(".py") for path in paths),
         _top_level_test_function_count(paths),
-    ) == (886, 543, 247, 450, 4866)
+    ) == (889, 545, 248, 451, 4882)
     generated = tuple(
         path for path in paths if path.startswith("src/pietto/generated/")
     )
@@ -1753,7 +1768,11 @@ def test_reader_hash_dag_allowlist_and_fixed_point_are_exact() -> None:
     assert len(set(TOPOLOGICAL_PHASE53_READERS)) == 13
     assert set(TOPOLOGICAL_PHASE53_READERS) < set(READER_PATHS)
     dirty = _dirty_paths()
-    assert dirty == set() or dirty == set((*ADDED_PATHS, *MODIFIED_PATHS))
+    assert dirty in (
+        set(),
+        set((*ADDED_PATHS, *MODIFIED_PATHS)),
+        _phase54_slice2_allowlist(),
+    )
     assert _git_output(["diff", "--cached", "--name-only"]) == ""
 
 
@@ -1832,7 +1851,11 @@ def test_dirty_clean_depth_one_shallow_and_negative_topology_boundaries_are_exac
     assert " ".join(clauses[_case].split()) in normalized
     if _case == 0:
         dirty = _dirty_paths()
-        assert dirty == set() or dirty == set((*ADDED_PATHS, *MODIFIED_PATHS))
+        assert dirty in (
+            set(),
+            set((*ADDED_PATHS, *MODIFIED_PATHS)),
+            _phase54_slice2_allowlist(),
+        )
         assert _git_output(["diff", "--cached", "--name-only"]) == ""
 
 

@@ -232,7 +232,7 @@ MODIFIED_PATHS = (
 
 BASE_HEAD = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
 FINAL_COMPILER_DIGEST = (
-    "2a46f4add3847663ab1b3e959ca1e59e52f977d2df4f19a95ab4b8738f6c8252"
+    "6b98059fa09b09fb2c724003f1276bd85077382b597711147d5a9bd5d820f550"
 )
 FINAL_SEMANTIC_DIGEST = (
     "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
@@ -402,8 +402,38 @@ def _navigation_formula() -> AnyOfFormula:
 
 def _all_repository_paths() -> tuple[str, ...]:
     paths = set(_git("ls-files").splitlines())
-    paths.update(path for path in ADDED_PATHS if (REPO_ROOT / path).is_file())
+    paths.update(_git("ls-files", "--others", "--exclude-standard").splitlines())
     return tuple(sorted(paths))
+
+
+def _phase54_slice2_paths() -> tuple[frozenset[str], frozenset[str]]:
+    path = (
+        REPO_ROOT
+        / "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
+    )
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=path.as_posix())
+    expected = {
+        "ADDED_PATHS",
+        "NON_READER_MODIFIED_PATHS",
+        "MECHANICAL_READER_PATHS",
+    }
+    values: dict[str, frozenset[str]] = {}
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id in expected
+        ):
+            value = ast.literal_eval(node.value)
+            assert isinstance(value, set)
+            assert all(isinstance(item, str) for item in value)
+            values[node.targets[0].id] = frozenset(value)
+    assert set(values) == expected
+    return (
+        values["NON_READER_MODIFIED_PATHS"] | values["MECHANICAL_READER_PATHS"],
+        values["ADDED_PATHS"],
+    )
 
 
 def _compound_assignment(path: Path) -> tuple[object, ...]:
@@ -1605,7 +1635,7 @@ def test_concrete_semantic_project_and_aggregate_nullability_authority_is_locked
         "src/pietto/semantic/expressions.py": "37b198f72b0c71c90a82d746671be8528a9ea5c2d4818ff7ef4ba55e30e9c595",
         "src/pietto/semantic/aggregates.py": "f5d5be237960e50f62f539d76e09be425980c9f8e657846333b5ef1aaa948333",
         "src/pietto/semantic/catalog.py": "f566f39395e3bdc933e60d15e740749255dd3749cf3907684240e4b43dfc9e40",
-        "src/pietto/_project/model.py": "8174dd3ad84646473f354bed16ebe3154d1ab6a39d640f55071dc84b632db5a2",
+        "src/pietto/_project/model.py": "9f47b27526a5959771b23c6fe150f8c8411bf31908ec808e55657cf963c23280",
         "src/pietto/_project/row_expression_schema.py": "fc968a628592640012d59521627c91ee0a0017bc640fab27e8cbd756e4aa1e7d",
         "src/pietto/_project/row_expression_type_facts.py": "37559704de25d9f32a3ed062c0f99f58c29463bff291e38e1fefca70613d15a0",
         "src/pietto/_project/aggregate_grouped_schema.py": "406fa28ec27a574576508a075305c28f07a495cf91f300d529c62b84a0aa519b",
@@ -1676,7 +1706,7 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        93,
+        94,
         36,
         33,
     )
@@ -1719,10 +1749,17 @@ def test_slice5_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             if result.returncode == 0:
                 assert _git("rev-parse", reference) == head
         return
+    if head == "53d8767fc3bdbe5e3f631178652222bbe51f6a33":
+        expected_modified, expected_added = _phase54_slice2_paths()
+        expected_base = "53d8767fc3bdbe5e3f631178652222bbe51f6a33"
+    else:
+        expected_modified = frozenset(MODIFIED_PATHS)
+        expected_added = frozenset(ADDED_PATHS)
+        expected_base = BASE_HEAD
     assert branch == "main"
-    assert head == BASE_HEAD
-    assert tracked == frozenset(MODIFIED_PATHS)
-    assert untracked == frozenset(ADDED_PATHS)
+    assert head == expected_base
+    assert tracked == expected_modified
+    assert untracked == expected_added
     status = subprocess.run(
         ("git", "status", "--porcelain=v1"),
         cwd=REPO_ROOT,
@@ -1731,21 +1768,23 @@ def test_slice5_dirty_clean_and_depth_one_repository_states_are_locked() -> None
         text=True,
     ).stdout.splitlines()
     assert {line[3:] for line in status if line.startswith(" M ")} == set(
-        MODIFIED_PATHS
+        expected_modified
     )
-    assert {line[3:] for line in status if line.startswith("?? ")} == set(ADDED_PATHS)
+    assert {line[3:] for line in status if line.startswith("?? ")} == set(
+        expected_added
+    )
     assert all(not line.startswith((" D ", "R ")) for line in status)
     for reference in ("refs/heads/main", "refs/remotes/origin/main"):
-        assert _git("rev-parse", reference) == BASE_HEAD
+        assert _git("rev-parse", reference) == expected_base
 
 
 def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
     repository_paths = _all_repository_paths()
-    assert len(repository_paths) == 886
-    assert sum(path.endswith(".py") for path in repository_paths) == 543
-    assert sum(path.endswith(".md") for path in repository_paths) == 247
+    assert len(repository_paths) == 889
+    assert sum(path.endswith(".py") for path in repository_paths) == 545
+    assert sum(path.endswith(".md") for path in repository_paths) == 248
     test_paths = tuple(sorted((REPO_ROOT / "tests").glob("test_*.py")))
-    assert len(test_paths) == 450
+    assert len(test_paths) == 451
     functions = tuple(
         node.name
         for path in test_paths
@@ -1753,7 +1792,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name.startswith("test_")
     )
-    assert len(functions) == 4866
+    assert len(functions) == 4882
     self_functions = tuple(
         node.name
         for node in ast.parse(SELF_PATH.read_text()).body

@@ -222,11 +222,11 @@ FINAL_SOURCE_SHA256 = "d6a514bddffee9f53ca1405d28a2dcd9cc84a395a152aacc1ccb9e5b7
 FINAL_PROJECT_SOURCE_SHA256 = (
     "c08a42066a71a3ee13be9feddff5e28a910b216226d7e0b8869ee52a90dea2ad"
 )
-FINAL_MODEL_SHA256 = "8174dd3ad84646473f354bed16ebe3154d1ab6a39d640f55071dc84b632db5a2"
+FINAL_MODEL_SHA256 = "9f47b27526a5959771b23c6fe150f8c8411bf31908ec808e55657cf963c23280"
 FINAL_SPEC_SHA256 = "e3cddc36974cc2d21bd3e0aec8d03c4f56bc4a68091780d9965207f07ea960e7"
 FINAL_PLAN_SHA256 = "3077c2fec0d7e2c4de717973c6403d5a450b8c01fe5846e427363ffcb41a78f5"
 FINAL_COMPILER_DIGEST = (
-    "2a46f4add3847663ab1b3e959ca1e59e52f977d2df4f19a95ab4b8738f6c8252"
+    "6b98059fa09b09fb2c724003f1276bd85077382b597711147d5a9bd5d820f550"
 )
 FINAL_SEMANTIC_DIGEST = (
     "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
@@ -235,7 +235,7 @@ FINAL_PHASE15_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 FINAL_PROJECT_DIGEST = (
-    "e674402d8e428fd2ffbfb8a4f90d7ae0be01a23e379fcf487c16a2dc7e6c8497"
+    "0b1d9571472263c00f22d69e01754a136455f3c0ac112b2b370cbe2be563a629"
 )
 
 BASE_HEAD = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
@@ -668,8 +668,38 @@ def _literal_tuple(path: Path, name: str) -> tuple[str, ...]:
 
 def _all_repository_paths() -> tuple[str, ...]:
     paths = set(_git("ls-files").splitlines())
-    paths.update(path for path in ADDED_PATHS if (REPO_ROOT / path).is_file())
+    paths.update(_git("ls-files", "--others", "--exclude-standard").splitlines())
     return tuple(sorted(paths))
+
+
+def _phase54_slice2_paths() -> tuple[frozenset[str], frozenset[str]]:
+    path = (
+        REPO_ROOT
+        / "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
+    )
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=path.as_posix())
+    expected = {
+        "ADDED_PATHS",
+        "NON_READER_MODIFIED_PATHS",
+        "MECHANICAL_READER_PATHS",
+    }
+    values: dict[str, frozenset[str]] = {}
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id in expected
+        ):
+            value = ast.literal_eval(node.value)
+            assert isinstance(value, set)
+            assert all(isinstance(item, str) for item in value)
+            values[node.targets[0].id] = frozenset(value)
+    assert set(values) == expected
+    return (
+        values["NON_READER_MODIFIED_PATHS"] | values["MECHANICAL_READER_PATHS"],
+        values["ADDED_PATHS"],
+    )
 
 
 def test_slice6_artifact_paths_heading_contract_and_lifecycle_are_exact() -> None:
@@ -1760,7 +1790,7 @@ def test_current_analyzer_catalog_and_diagnostic_nonintegration_is_exact(
         ("src/pietto/_project/model.py", FINAL_MODEL_SHA256),
         (
             "src/pietto/_project/check.py",
-            "e14182b8097ce385228a553ba46e92898cef5c54df75a68ce4817c9994c814fb",
+            "79d2372e43078b9b68b0fd65f552223a6c17a5eb382986020c4f0c1c1f5d6332",
         ),
         (
             "src/pietto/_project/json_v2.py",
@@ -1875,7 +1905,7 @@ def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
         len(semantic_paths),
         len(phase15_paths),
         len(project_paths),
-    ) == (93, 36, 33, 18)
+    ) == (94, 36, 33, 19)
     assert _digest(tuple(compiler_paths)) == FINAL_COMPILER_DIGEST
     assert _digest(semantic_paths) == FINAL_SEMANTIC_DIGEST
     assert _digest(phase15_paths) == FINAL_PHASE15_DIGEST
@@ -1932,12 +1962,21 @@ def test_slice6_dirty_clean_and_depth_one_repository_states_are_locked() -> None
     if not tracked and not untracked:
         assert branch in {"", "main"}
         return
+    if head == "53d8767fc3bdbe5e3f631178652222bbe51f6a33":
+        expected_modified, expected_added = _phase54_slice2_paths()
+        expected_base = "53d8767fc3bdbe5e3f631178652222bbe51f6a33"
+    else:
+        expected_modified = frozenset(
+            _literal_tuple(GENERIC_TEST_PATH, "MODIFIED_PATHS")
+        )
+        expected_added = frozenset(ADDED_PATHS)
+        expected_base = BASE_HEAD
     assert branch == "main"
-    assert head == BASE_HEAD
-    assert tracked == frozenset(_literal_tuple(GENERIC_TEST_PATH, "MODIFIED_PATHS"))
-    assert untracked == frozenset(ADDED_PATHS)
-    assert _git("rev-parse", "refs/heads/main") == BASE_HEAD
-    assert _git("rev-parse", "refs/remotes/origin/main") == BASE_HEAD
+    assert head == expected_base
+    assert tracked == expected_modified
+    assert untracked == expected_added
+    assert _git("rev-parse", "refs/heads/main") == expected_base
+    assert _git("rev-parse", "refs/remotes/origin/main") == expected_base
 
 
 def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
@@ -1961,7 +2000,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         len(markdown_paths),
         len(test_paths),
         top_level_functions,
-    ) == (886, 543, 247, 450, 4866)
+    ) == (889, 545, 248, 451, 4882)
     assert len(TEST_FUNCTIONS) == len(TEST_ITEM_COUNTS) == 36
     assert sum(TEST_ITEM_COUNTS) == 156
     assert 10599 + 185 == 10784
@@ -2003,10 +2042,17 @@ def test_validation_gate3_and_no_behavior_boundaries_are_locked() -> None:
         (*ADDED_PATHS, *_literal_tuple(GENERIC_TEST_PATH, "MODIFIED_PATHS"))
     )
     repair_state = changed == CI_REPAIR_MODIFIED_PATHS and not untracked
+    phase54_modified, phase54_added = _phase54_slice2_paths()
+    phase54_state = (
+        changed == phase54_modified
+        and untracked == phase54_added
+        and _git("rev-parse", "HEAD") == "53d8767fc3bdbe5e3f631178652222bbe51f6a33"
+    )
     assert (
         (not changed and not untracked)
         or changed | untracked == allowed
         or repair_state
+        or phase54_state
     )
     if repair_state:
         assert _git("diff", "--cached", "--name-only") == ""

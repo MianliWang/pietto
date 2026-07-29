@@ -8,6 +8,10 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import TYPE_CHECKING, TypeVar
 
+from pietto._project.module_carrier import (
+    ProjectCompilationMode,
+    ProjectLogicalModule,
+)
 from pietto.ast_nodes import (
     ConstraintDef,
     Definition,
@@ -134,6 +138,7 @@ class ProjectConfig:
 
     schema_version: int
     sources: ProjectSourceConfig
+    compilation_mode: ProjectCompilationMode = ProjectCompilationMode.LEGACY_FLAT
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,6 +158,8 @@ class ProjectDiscoveryResult:
     config_path: ProjectConfigPath | None
     inputs: tuple[ProjectInput, ...]
     errors: tuple[ProjectDiscoveryError, ...]
+    compilation_mode: ProjectCompilationMode = ProjectCompilationMode.LEGACY_FLAT
+    modules: tuple[ProjectLogicalModule, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -187,6 +194,8 @@ class ProjectParseCheckResult:
     errors: tuple[ProjectDiscoveryError, ...]
     diagnostics: tuple[Diagnostic, ...]
     parsed_inputs: tuple[ProjectParsedInput, ...] = ()
+    compilation_mode: ProjectCompilationMode = ProjectCompilationMode.LEGACY_FLAT
+    modules: tuple[ProjectLogicalModule, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -765,6 +774,8 @@ class ProjectSemanticResult:
     config_path: ProjectConfigPath | None
     model: ProjectSemanticModel | None
     diagnostics: tuple[Diagnostic, ...] = ()
+    compilation_mode: ProjectCompilationMode = ProjectCompilationMode.LEGACY_FLAT
+    modules: tuple[ProjectLogicalModule, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -789,6 +800,17 @@ def build_empty_project_semantic_result(
             root=parse_result.root,
             config_path=parse_result.config_path,
             model=None,
+            compilation_mode=parse_result.compilation_mode,
+            modules=parse_result.modules,
+        )
+
+    if parse_result.compilation_mode is not ProjectCompilationMode.LEGACY_FLAT:
+        return ProjectSemanticResult(
+            root=parse_result.root,
+            config_path=parse_result.config_path,
+            model=None,
+            compilation_mode=parse_result.compilation_mode,
+            modules=parse_result.modules,
         )
 
     catalog, catalog_diagnostics = _build_project_semantic_catalog(
@@ -810,6 +832,8 @@ def build_empty_project_semantic_result(
                 relation_dependency_graph=relation_dependency_graph,
             ),
             diagnostics=catalog_diagnostics,
+            compilation_mode=parse_result.compilation_mode,
+            modules=parse_result.modules,
         )
 
     type_resolutions, source_shape_resolutions, type_diagnostics = (
@@ -879,6 +903,8 @@ def build_empty_project_semantic_result(
             *relation_row_schema_result.diagnostics,
             *cycle_diagnostics,
         ),
+        compilation_mode=parse_result.compilation_mode,
+        modules=parse_result.modules,
     )
 
 

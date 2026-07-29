@@ -118,8 +118,10 @@ PHASE52_UNTRACKED_PATHS = {
     "docs/spec/phase52-core-type-system-capability-foundation-scope-lock-v1.md",
     "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
 }
-SLICE2_BASE_HEAD_SHA = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
-SLICE2_STATE_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
+SLICE2_BASE_HEAD_SHA = "53d8767fc3bdbe5e3f631178652222bbe51f6a33"
+SLICE2_STATE_REL = (
+    "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
+)
 
 PHASE51_SLICE_ARTIFACTS = (
     (
@@ -324,9 +326,9 @@ PROTECTED_HASHES = {
         "26cc0ae4a68518223d6bf600ad3c4b0b226618aa7ef31b2ae1c25924d2655169"
     ),
 }
-COMPILER_DIGEST = "2a46f4add3847663ab1b3e959ca1e59e52f977d2df4f19a95ab4b8738f6c8252"
+COMPILER_DIGEST = "6b98059fa09b09fb2c724003f1276bd85077382b597711147d5a9bd5d820f550"
 PROJECT_PRIVATE_DIGEST = (
-    "e674402d8e428fd2ffbfb8a4f90d7ae0be01a23e379fcf487c16a2dc7e6c8497"
+    "0b1d9571472263c00f22d69e01754a136455f3c0ac112b2b370cbe2be563a629"
 )
 
 PROJECT_JSON_V2_KEYS = (
@@ -1007,7 +1009,7 @@ def test_live_compiler_project_private_protected_version_and_tag_locks_are_dirty
     None
 ):
     compiler_count, compiler_digest = _compiler_digest()
-    assert (compiler_count, compiler_digest) == (93, COMPILER_DIGEST)
+    assert (compiler_count, compiler_digest) == (94, COMPILER_DIGEST)
     for relative_path in BOUNDARY_PATHS:
         boundary_values = re.findall(
             r'^BOUNDARY_HASH = "([0-9a-f]{64})"$',
@@ -1017,12 +1019,12 @@ def test_live_compiler_project_private_protected_version_and_tag_locks_are_dirty
         assert boundary_values == [COMPILER_DIGEST]
 
     project_paths = _project_private_paths()
-    assert len(project_paths) == 18
+    assert len(project_paths) == 19
     assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
     phase33 = _read(REPO_ROOT / "tests/test_phase33_completion_audit.py")
     assert (
         f'"project_private": (\n        "src/pietto/_project",\n'
-        f'        18,\n        "{PROJECT_PRIVATE_DIGEST}",\n    ),'
+        f'        19,\n        "{PROJECT_PRIVATE_DIGEST}",\n    ),'
     ) in phase33
 
     for relative_path, expected_hash in PROTECTED_HASHES.items():
@@ -1332,10 +1334,22 @@ def test_static_git_helper_and_exact_slice12_dirty_set_are_locked() -> None:
         if isinstance(node, ast.Assign)
         and len(node.targets) == 1
         and isinstance(node.targets[0], ast.Name)
-        and node.targets[0].id in {"MODIFIED_PATHS", "ADDED_PATHS"}
+        and node.targets[0].id
+        in {
+            "ADDED_PATHS",
+            "NON_READER_MODIFIED_PATHS",
+            "MECHANICAL_READER_PATHS",
+        }
     }
-    assert set(slice2_sets) == {"MODIFIED_PATHS", "ADDED_PATHS"}
-    slice2_modified = slice2_sets["MODIFIED_PATHS"]
+    assert set(slice2_sets) == {
+        "ADDED_PATHS",
+        "NON_READER_MODIFIED_PATHS",
+        "MECHANICAL_READER_PATHS",
+    }
+    slice2_modified = (
+        slice2_sets["NON_READER_MODIFIED_PATHS"]
+        | slice2_sets["MECHANICAL_READER_PATHS"]
+    )
     slice2_added = slice2_sets["ADDED_PATHS"]
     dirty_paths = _dirty_paths()
     assert dirty_paths in (

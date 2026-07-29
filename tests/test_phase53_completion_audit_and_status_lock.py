@@ -33,6 +33,9 @@ SPEC_REL = "docs/spec/phase53-completion-audit-and-status-lock-v1.md"
 SELF_REL = "tests/test_phase53_completion_audit_and_status_lock.py"
 ROADMAP_REL = "docs/spec/pietto-active-roadmap-phase53-70-v1.md"
 SLICE2_STATE_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
+PHASE54_SLICE2_STATE_REL = (
+    "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
+)
 
 SPEC_TITLE = "Phase 53 Slice 16 Completion Audit And Status Lock v1"
 SPEC_H2 = (
@@ -213,10 +216,10 @@ CAPABILITY_WINDOWS_SHA256 = (
     "c0512933fc284bbc1dec98dab96411ee179d64e7bee005aa798b6fd7dba2024e"
 )
 PATH_DIGESTS = {
-    "compiler": "2a46f4add3847663ab1b3e959ca1e59e52f977d2df4f19a95ab4b8738f6c8252",
+    "compiler": "6b98059fa09b09fb2c724003f1276bd85077382b597711147d5a9bd5d820f550",
     "semantic": "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70",
     "phase15": "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d",
-    "project": "e674402d8e428fd2ffbfb8a4f90d7ae0be01a23e379fcf487c16a2dc7e6c8497",
+    "project": "0b1d9571472263c00f22d69e01754a136455f3c0ac112b2b370cbe2be563a629",
 }
 PROTECTED_SHA256 = {
     ".github/workflows/ci.yml": "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94",
@@ -396,7 +399,18 @@ def _assert_allowed_dirty_state(
     origin_main: str | None,
 ) -> None:
     dirty = tracked | untracked
-    assert dirty in (set(), SLICE16_ALLOWLIST_PATHS)
+    phase54_modified = cast(
+        set[str],
+        _module_literal(PHASE54_SLICE2_STATE_REL, "NON_READER_MODIFIED_PATHS"),
+    ) | cast(
+        set[str],
+        _module_literal(PHASE54_SLICE2_STATE_REL, "MECHANICAL_READER_PATHS"),
+    )
+    phase54_added = cast(
+        set[str], _module_literal(PHASE54_SLICE2_STATE_REL, "ADDED_PATHS")
+    )
+    phase54_allowlist = phase54_modified | phase54_added
+    assert dirty in (set(), SLICE16_ALLOWLIST_PATHS, phase54_allowlist)
     if not dirty:
         assert tracked == untracked == set()
         availability = (
@@ -438,6 +452,14 @@ def _assert_allowed_dirty_state(
                 origin_main=origin_main,
                 exact_main_refs=True,
             )
+        return
+    if dirty == phase54_allowlist:
+        assert tracked == phase54_modified
+        assert untracked == phase54_added
+        assert branch == "main"
+        assert (
+            head == main == origin_main == ("53d8767fc3bdbe5e3f631178652222bbe51f6a33")
+        )
         return
     assert tracked == SLICE16_MODIFIED_PATHS
     assert untracked == SLICE16_ADDED_PATHS
@@ -876,10 +898,10 @@ def test_live_compiler_semantic_phase15_project_protected_version_and_tag_locks_
     )
     project = _project_paths()
     assert (len(compiler), len(semantic), len(phase15), len(project)) == (
-        93,
+        94,
         36,
         33,
-        18,
+        19,
     )
     assert {
         "compiler": _digest(compiler),
@@ -909,12 +931,12 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
         len(readable),
         sum(path.endswith(".py") for path in readable),
         sum(path.endswith(".md") for path in readable),
-    ) == (886, 543, 247)
+    ) == (889, 545, 248)
     test_files = tuple((REPO_ROOT / "tests").glob("test_*.py"))
     top_functions = sum(
         len(_top_level_test_functions(f"tests/{path.name}")) for path in test_files
     )
-    assert (len(test_files), top_functions) == (450, 4866)
+    assert (len(test_files), top_functions) == (451, 4882)
     for digest, expected in (
         (PATH_DIGESTS["compiler"], 28),
         (PATH_DIGESTS["semantic"], 42),
@@ -1055,10 +1077,25 @@ def test_static_git_helper_and_exact_slice16_dirty_set_are_locked() -> None:
         origin_main=_git_optional_ref("refs/remotes/origin/main"),
     )
     if tracked or untracked:
-        assert tracked == SLICE16_MODIFIED_PATHS
-        assert untracked == SLICE16_ADDED_PATHS
-        assert name_status == tuple(
-            f"M\t{path}" for path in sorted(SLICE16_MODIFIED_PATHS)
-        )
+        if _git_output(["rev-parse", "HEAD"]) == (
+            "53d8767fc3bdbe5e3f631178652222bbe51f6a33"
+        ):
+            expected_modified = cast(
+                set[str],
+                _module_literal(PHASE54_SLICE2_STATE_REL, "NON_READER_MODIFIED_PATHS"),
+            ) | cast(
+                set[str],
+                _module_literal(PHASE54_SLICE2_STATE_REL, "MECHANICAL_READER_PATHS"),
+            )
+            expected_added = cast(
+                set[str],
+                _module_literal(PHASE54_SLICE2_STATE_REL, "ADDED_PATHS"),
+            )
+        else:
+            expected_modified = SLICE16_MODIFIED_PATHS
+            expected_added = SLICE16_ADDED_PATHS
+        assert tracked == expected_modified
+        assert untracked == expected_added
+        assert name_status == tuple(f"M\t{path}" for path in sorted(expected_modified))
     else:
         assert name_status == ()

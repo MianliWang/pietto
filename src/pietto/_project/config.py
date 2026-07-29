@@ -7,6 +7,7 @@ from pathlib import Path
 import tomllib
 
 from pietto._project.discovery import PROJECT_CONFIG_FILENAME
+from pietto._project.module_carrier import ProjectCompilationMode
 from pietto._project.model import (
     ProjectConfig,
     ProjectConfigLoadResult,
@@ -18,7 +19,10 @@ from pietto._project.model import (
 )
 
 _PROJECT_ROOT_PATH = "."
-_SCHEMA_VERSION = 1
+_COMPILATION_MODE_BY_SCHEMA_VERSION = {
+    1: ProjectCompilationMode.LEGACY_FLAT,
+    2: ProjectCompilationMode.EXPLICIT_MODULES,
+}
 _TOP_LEVEL_KEYS = frozenset({"schema_version", "sources"})
 _SOURCE_KEYS = frozenset({"include", "exclude"})
 _EXTGLOB_MARKERS = ("@(", "+(", "?(", "*(", "!(")
@@ -95,13 +99,14 @@ def _validate_config(
         return _schema_error(
             root,
             config_path,
-            "Project configuration schema_version must be integer 1.",
+            "Project configuration schema_version must be integer 1 or 2.",
         )
-    if schema_version != _SCHEMA_VERSION:
+    assert isinstance(schema_version, int)
+    if schema_version not in _COMPILATION_MODE_BY_SCHEMA_VERSION:
         return _schema_error(
             root,
             config_path,
-            "Project configuration schema_version must be 1.",
+            "Project configuration schema_version must be 1 or 2.",
         )
 
     sources = document.get("sources")
@@ -176,11 +181,12 @@ def _validate_config(
         root=root,
         config_path=config_path,
         config=ProjectConfig(
-            schema_version=_SCHEMA_VERSION,
+            schema_version=schema_version,
             sources=ProjectSourceConfig(
                 include_patterns=tuple(include),
                 exclude_patterns=tuple(exclude),
             ),
+            compilation_mode=_COMPILATION_MODE_BY_SCHEMA_VERSION[schema_version],
         ),
         errors=(),
     )

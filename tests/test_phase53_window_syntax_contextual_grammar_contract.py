@@ -71,6 +71,10 @@ FAIL_CLOSED_MESSAGE = (
     "Phase 53 Slice 3."
 )
 BASE_HEAD_SHA = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
+PHASE54_SLICE2_BASE_HEAD_SHA = "53d8767fc3bdbe5e3f631178652222bbe51f6a33"
+PHASE54_SLICE2_STATE_REL = (
+    "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
+)
 
 ADDED_PATHS = {
     "docs/spec/phase53-completion-audit-and-status-lock-v1.md",
@@ -183,6 +187,29 @@ def _git_optional_ref(ref: str) -> str | None:
     lines = result.stdout.splitlines()
     assert len(lines) == 1
     return lines[0]
+
+
+def _phase54_slice2_paths() -> tuple[set[str], set[str]]:
+    tree = ast.parse(_read(PHASE54_SLICE2_STATE_REL))
+    values: dict[str, set[str]] = {}
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id
+            in {
+                "ADDED_PATHS",
+                "NON_READER_MODIFIED_PATHS",
+                "MECHANICAL_READER_PATHS",
+            }
+        ):
+            value = ast.literal_eval(node.value)
+            assert isinstance(value, set)
+            values[node.targets[0].id] = value
+    return values["ADDED_PATHS"], (
+        values["NON_READER_MODIFIED_PATHS"] | values["MECHANICAL_READER_PATHS"]
+    )
 
 
 def _window_query(
@@ -987,7 +1014,11 @@ def test_no_ast_semantic_ir_sql_or_public_surface_widening_is_locked() -> None:
         "src/pietto/sql/mysql_relations.py",
         "src/pietto/semantic/capability_facts.py",
     }
-    assert changed_source in (set(), allowed_source)
+    _, phase54_modified = _phase54_slice2_paths()
+    phase54_changed_source = {
+        path for path in phase54_modified if path.startswith("src/pietto/")
+    }
+    assert changed_source in (set(), allowed_source, phase54_changed_source)
 
 
 def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None:
@@ -1005,9 +1036,16 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
     main = _git_optional_ref("refs/heads/main")
     origin_main = _git_optional_ref("refs/remotes/origin/main")
     dirty = tracked | untracked
-    assert dirty in (set(), ALLOWLIST_PATHS)
+    phase54_added, phase54_modified = _phase54_slice2_paths()
+    phase54_allowlist = phase54_added | phase54_modified
+    assert dirty in (set(), ALLOWLIST_PATHS, phase54_allowlist)
 
-    if dirty:
+    if dirty == phase54_allowlist:
+        assert tracked == phase54_modified
+        assert untracked == phase54_added
+        assert branch == "main"
+        assert head == main == origin_main == PHASE54_SLICE2_BASE_HEAD_SHA
+    elif dirty:
         assert tracked == MODIFIED_PATHS
         assert untracked == ADDED_PATHS
         assert branch == "main"
@@ -1023,15 +1061,15 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             assert origin_main == head
 
     readable_paths = set(_git_output(["ls-files"]).splitlines()) | untracked
-    assert len(readable_paths) == 886
-    assert sum(path.endswith(".py") for path in readable_paths) == 543
-    assert sum(path.endswith(".md") for path in readable_paths) == 247
+    assert len(readable_paths) == 889
+    assert sum(path.endswith(".py") for path in readable_paths) == 545
+    assert sum(path.endswith(".md") for path in readable_paths) == 248
     test_modules = {
         path
         for path in readable_paths
         if path.startswith("tests/test_") and path.endswith(".py")
     }
-    assert len(test_modules) == 450
+    assert len(test_modules) == 451
     top_level_tests = 0
     for relative in sorted(test_modules):
         tree = ast.parse(_read(relative), filename=relative)
@@ -1040,7 +1078,7 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 4866
+    assert top_level_tests == 4882
     assert len(GENERATED_PATHS) == 8
     goldens = {
         path

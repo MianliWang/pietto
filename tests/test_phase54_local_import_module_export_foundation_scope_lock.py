@@ -19,6 +19,11 @@ GOVERNANCE_REL = (
 )
 ROADMAP_V1_REL = "docs/spec/pietto-active-roadmap-phase53-70-v1.md"
 ROADMAP_V2_REL = "docs/spec/pietto-active-roadmap-phase53-70-v2.md"
+SLICE2_SPEC_REL = (
+    "docs/spec/phase54-slice2-schema-v2-explicit-module-activation-and-"
+    "immutable-carrier-v1.md"
+)
+SLICE2_TEST_REL = "tests/test_phase54_schema_v2_explicit_module_carrier.py"
 SELF_REL = "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
 
 PLAN_TITLE = "Phase 54 — Local Import / Module / Export Foundation"
@@ -30,6 +35,29 @@ GOVERNANCE_TITLE = (
     "Pietto Phase-start Expansion, Pull-forward, And Readiness Governance v1"
 )
 ROADMAP_V2_TITLE = "Pietto Active Roadmap Phase 53–70 v2"
+SLICE2_SPEC_TITLE = (
+    "Phase 54 Slice 2 Schema-v2 Explicit-module Activation And Immutable "
+    "Project / Module Carrier v1"
+)
+
+SLICE2_EXPECTED_TEST_NAMES = (
+    "test_schema_versions_map_to_exact_project_compilation_modes",
+    "test_schema_version_validation_and_unknown_keys_remain_fail_closed",
+    "test_schema_versions_select_identical_normalized_ordered_inputs",
+    "test_logical_module_carrier_is_frozen_slots_hashable_and_enforces_invariants",
+    "test_selection_builds_one_zero_based_logical_module_per_input",
+    "test_parse_check_rebuilds_modules_with_parsed_input_references",
+    "test_parse_and_read_failures_retain_ordered_logical_modules",
+    "test_explicit_mode_returns_before_legacy_flat_catalog_collection",
+    "test_legacy_mode_still_enters_flat_catalog_and_reports_duplicate_pie_s2001",
+    "test_schema_v2_project_text_cli_fails_closed_without_success_output",
+    "test_schema_v2_project_json_keeps_exact_envelope_and_fails_exit",
+    "test_schema_v1_project_cli_output_remains_exact",
+    "test_project_json_and_public_exports_do_not_expose_module_carriers",
+    "test_single_file_check_behavior_remains_exact",
+    "test_import_export_grammar_ast_and_module_diagnostic_codes_remain_absent",
+    "test_slice2_contract_allowlist_and_retained_later_boundaries_are_exact",
+)
 
 EXPECTED_TEST_NAMES = (
     "test_slice1_artifact_titles_heading_order_and_lifecycle_are_exact",
@@ -132,13 +160,28 @@ CLASSIFICATIONS = (
 FREEZE_LEDGERS = ("CURRENT_PRODUCTION", "CURRENT_READINESS", "RETAINED_LATER")
 
 ADDED_PATHS = {
-    PLAN_REL,
-    SCOPE_REL,
-    GOVERNANCE_REL,
-    ROADMAP_V2_REL,
-    SELF_REL,
+    "docs/spec/phase54-slice2-schema-v2-explicit-module-activation-and-immutable-carrier-v1.md",
+    "src/pietto/_project/module_carrier.py",
+    "tests/test_phase54_schema_v2_explicit_module_carrier.py",
+}
+NON_READER_MODIFIED_PATHS = {
+    "docs/plan/phase-54-local-import-module-export-foundation.md",
+    "src/pietto/_project/config.py",
+    "src/pietto/_project/model.py",
+    "src/pietto/_project/source_selection.py",
+    "src/pietto/_project/check.py",
+    "tests/test_phase44_project_config_loader.py",
 }
 MECHANICAL_READER_PATHS = {
+    "tests/test_phase54_local_import_module_export_foundation_scope_lock.py",
+    "tests/test_phase11_ci_workflow.py",
+    "tests/test_phase11_completion_audit.py",
+    "tests/test_phase11_generated_guard.py",
+    "tests/test_phase11_golden_policy.py",
+    "tests/test_phase11_packaging_smoke.py",
+    "tests/test_phase11_validation_entrypoint.py",
+    "tests/test_phase12_completion_audit.py",
+    "tests/test_phase12_composition_cli_json_goldens.py",
     "tests/test_phase21_group_by_hardening_audit.py",
     "tests/test_phase24_aggregate_expression_arguments_readiness.py",
     "tests/test_phase24_cli_json_output_hardening.py",
@@ -149,10 +192,18 @@ MECHANICAL_READER_PATHS = {
     "tests/test_phase29_completion_audit.py",
     "tests/test_phase30_completion_audit.py",
     "tests/test_phase33_completion_audit.py",
+    "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
+    "tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py",
+    "tests/test_phase51_completion_audit_and_status_lock.py",
+    "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
     "tests/test_phase52_aggregate_signature_algebra_facts.py",
     "tests/test_phase52_completion_audit_and_status_lock.py",
+    "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
     "tests/test_phase52_expression_stage_clause_capability_facts.py",
+    "tests/test_phase52_fail_closed_capability_lookup.py",
+    "tests/test_phase52_logical_type_literal_parameter_nullability_inventory.py",
     "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
+    "tests/test_phase52_private_capability_fact_foundation.py",
     "tests/test_phase52_scalar_function_operator_signature_facts.py",
     "tests/test_phase53_completion_audit_and_status_lock.py",
     "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
@@ -171,9 +222,9 @@ MECHANICAL_READER_PATHS = {
     "tests/test_phase53_window_spec_function_identity_ast_contract.py",
     "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
 }
-MODIFIED_PATHS = {"AGENTS.md", *MECHANICAL_READER_PATHS}
+MODIFIED_PATHS = {*NON_READER_MODIFIED_PATHS, *MECHANICAL_READER_PATHS}
 ALLOWLIST_PATHS = ADDED_PATHS | MODIFIED_PATHS
-FORMATTER_PATHS = {SELF_REL, *MECHANICAL_READER_PATHS}
+FORMATTER_PATHS = {relative for relative in ALLOWLIST_PATHS if relative.endswith(".py")}
 
 PROTECTED_SHA256 = {
     "grammar/Pietto.g4": "1c394db1f72561022941e0e937899e2d340880de220ebfa85cf387b86573384e",
@@ -181,11 +232,13 @@ PROTECTED_SHA256 = {
     "src/pietto/ast_builder.py": "201c74d6a27e57dfc7cd0f9693b388ebe7853b783173a3c4f7191a5f8026e70b",
     "src/pietto/parser_api.py": "aa744c3ee334c8729917ae2aed2ee906874f927d47e99542d5accb8a98aa456b",
     "src/pietto/__init__.py": "669ac67bb23a0c8179995e0e415d76c46210c12311e29cd89d2612b45b0a194d",
-    "src/pietto/_project/config.py": "3e50568f5e2d4deabf9af6ea4dd912014308c31b65d2acad3f7ff539e70d63b3",
-    "src/pietto/_project/model.py": "8174dd3ad84646473f354bed16ebe3154d1ab6a39d640f55071dc84b632db5a2",
-    "src/pietto/_project/source_selection.py": "d1ff4b32ce9933b2dcaff1524d5089cb0d5300ae31c31f691ca3efb6fe7bccbe",
-    "src/pietto/_project/check.py": "e14182b8097ce385228a553ba46e92898cef5c54df75a68ce4817c9994c814fb",
+    "src/pietto/_project/module_carrier.py": "5c6e97c12cced227fa6dc4d9694d19088572d74197d452b83843c206014a7e8e",
+    "src/pietto/_project/config.py": "de099a8d1bfbbb6b80ef2c9d1fa323b53d790d433a9263ce6b539fac27e213a7",
+    "src/pietto/_project/model.py": "9f47b27526a5959771b23c6fe150f8c8411bf31908ec808e55657cf963c23280",
+    "src/pietto/_project/source_selection.py": "92e08a360139cc021de2fcb8b13df5e70412c8d0fb7b4a9cb829cec229ca6508",
+    "src/pietto/_project/check.py": "79d2372e43078b9b68b0fd65f552223a6c17a5eb382986020c4f0c1c1f5d6332",
     "src/pietto/_project/json_v2.py": "74251e684a22de4dcdc7e1822a6843ca89cbdfa7e136a046676d848b57953bd5",
+    SLICE2_TEST_REL: "02c211a0a0010fbc6fddb10f8fdb1ea4daba736862551721e8d167a42c30135b",
     ".github/workflows/ci.yml": "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94",
     "pyproject.toml": "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01",
     "uv.lock": "a7d9125995e98a8a74d3664ceae7801cc1f4cce74ec323933da67838be199cea",
@@ -279,11 +332,12 @@ def test_slice1_artifact_titles_heading_order_and_lifecycle_are_exact() -> None:
     assert _headings(SCOPE_REL, 1) == (SCOPE_TITLE,)
     assert _headings(GOVERNANCE_REL, 1) == (GOVERNANCE_TITLE,)
     assert _headings(ROADMAP_V2_REL, 1) == (ROADMAP_V2_TITLE,)
+    assert _headings(SLICE2_SPEC_REL, 1) == (SLICE2_SPEC_TITLE,)
     for relative in (PLAN_REL, SCOPE_REL, GOVERNANCE_REL, ROADMAP_V2_REL):
         assert _headings(relative, 2)
     plan_h2 = _headings(PLAN_REL, 2)
     assert plan_h2[:5] == (
-        "Status And Slice 1 Lifecycle",
+        "Status And Slice 2 Lifecycle",
         "Trusted Phase 53 Baseline And Controlling Evidence",
         "Phase Identity, Minimum Production Boundary, And Activation",
         "Current Production, Readiness, And Retained-later Freeze",
@@ -293,14 +347,14 @@ def test_slice1_artifact_titles_heading_order_and_lifecycle_are_exact() -> None:
         f"Slice {index} — {title}"
         for index, title in enumerate(PHASE54_ROUTE[1:], start=2)
     )
-    lifecycle = _section(PLAN_REL, "Status And Slice 1 Lifecycle")
+    lifecycle = _section(PLAN_REL, "Status And Slice 2 Lifecycle")
     for phrase in (
         "Phase 53 and Slices 1-16 are `COMPLETED`",
-        "Phase 54 is `UNSTARTED`",
-        "Phase 54 becomes `ACTIVE`",
-        "Slice 1 becomes `COMPLETED`",
-        "Slices 2-16 then remain `UNSTARTED`",
-        "PHASE54_SLICE2_GATE0_GATE1",
+        "Phase 54 is `ACTIVE`",
+        "Slice 1 is\n`COMPLETED`",
+        "Slice 2 becomes `COMPLETED`",
+        "Slices 3-16 then remain `UNSTARTED`",
+        "PHASE54_SLICE3_GATE0_GATE1",
     ):
         assert phrase in lifecycle
     tests = _top_level_test_functions(SELF_REL)
@@ -314,6 +368,17 @@ def test_slice1_artifact_titles_heading_order_and_lifecycle_are_exact() -> None:
     )
     assert len(test_nodes) == 14
     assert all(not node.decorator_list for node in test_nodes)
+    slice2_tests = _top_level_test_functions(SLICE2_TEST_REL)
+    assert slice2_tests == SLICE2_EXPECTED_TEST_NAMES
+    slice2_tree = ast.parse(_read(SLICE2_TEST_REL), filename=SLICE2_TEST_REL)
+    slice2_nodes = tuple(
+        node
+        for node in slice2_tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name.startswith("test_")
+    )
+    assert len(slice2_nodes) == 16
+    assert all(not node.decorator_list for node in slice2_nodes)
 
 
 def test_authority_hierarchy_grounding_and_historical_predecessors_are_exact() -> None:
@@ -601,23 +666,39 @@ def test_legacy_config_discovery_selection_loader_and_project_json_are_byte_lock
     None
 ):
     for relative in (
+        "src/pietto/_project/module_carrier.py",
         "src/pietto/_project/config.py",
         "src/pietto/_project/model.py",
         "src/pietto/_project/source_selection.py",
         "src/pietto/_project/check.py",
         "src/pietto/_project/json_v2.py",
+        SLICE2_TEST_REL,
     ):
         assert _sha256(relative) == PROTECTED_SHA256[relative]
     config = _read("src/pietto/_project/config.py")
     selection = _read("src/pietto/_project/source_selection.py")
     check = _read("src/pietto/_project/check.py")
     model = _read("src/pietto/_project/model.py")
-    assert "_SCHEMA_VERSION = 1" in config
+    carrier = _read("src/pietto/_project/module_carrier.py")
+    assert "_SCHEMA_VERSION = 1" not in config
+    assert "_COMPILATION_MODE_BY_SCHEMA_VERSION" in config
+    assert "1: ProjectCompilationMode.LEGACY_FLAT" in config
+    assert "2: ProjectCompilationMode.EXPLICIT_MODULES" in config
     assert '_TOP_LEVEL_KEYS = frozenset({"schema_version", "sources"})' in config
+    assert 'LEGACY_FLAT = "legacy_flat"' in carrier
+    assert 'EXPLICIT_MODULES = "explicit_modules"' in carrier
+    assert "class ProjectLogicalModule" in carrier
+    assert "_build_project_logical_modules" in selection
     assert "resolved_path.relative_to(root)" in selection
     assert "identities: dict[tuple[int, int], str]" in selection
     assert "ProjectParsedInput" in check and "script=parse_result.ast" in check
     assert "class ProjectInput" in model and "class ProjectParsedInput" in model
+    assert "compilation_mode: ProjectCompilationMode" in model
+    assert "modules: tuple[ProjectLogicalModule, ...]" in model
+    assert (
+        "parse_result.compilation_mode is not ProjectCompilationMode.LEGACY_FLAT"
+        in model
+    )
     assert "os.fstat" not in check
     assert "sha256" not in check.lower()
     scope_readiness = _section(SCOPE_REL, "Current Readiness Ledger")
@@ -635,14 +716,15 @@ def test_flat_catalog_collect_before_resolve_semantic_and_project_fact_surfaces_
     semantic = tuple((REPO_ROOT / "src/pietto/semantic").glob("*.py"))
     project = tuple((REPO_ROOT / "src/pietto/_project").glob("*.py"))
     assert _digest(compiler) == (
-        "2a46f4add3847663ab1b3e959ca1e59e52f977d2df4f19a95ab4b8738f6c8252"
+        "6b98059fa09b09fb2c724003f1276bd85077382b597711147d5a9bd5d820f550"
     )
     assert _digest(semantic) == (
         "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
     )
     assert _digest(project) == (
-        "e674402d8e428fd2ffbfb8a4f90d7ae0be01a23e379fcf487c16a2dc7e6c8497"
+        "0b1d9571472263c00f22d69e01754a136455f3c0ac112b2b370cbe2be563a629"
     )
+    assert len(project) == 19
     model = _read("src/pietto/_project/model.py")
     for namespace in (
         'TYPE = "type"',
@@ -672,6 +754,18 @@ def test_flat_catalog_collect_before_resolve_semantic_and_project_fact_surfaces_
 def test_module_surfaces_and_pie_s2701_s2707_are_reserved_but_not_implemented() -> None:
     production = _production_text()
     assert not re.search(r"PIE-S270[1-7]", production)
+    carrier = _read("src/pietto/_project/module_carrier.py")
+    assert "class ProjectCompilationMode(StrEnum)" in carrier
+    assert "class ProjectLogicalModule" in carrier
+    for forbidden in (
+        "ModuleGraph",
+        "ImportDef",
+        "ExportDef",
+        "declaration_catalog",
+        "content_digest",
+        "opened_identity",
+    ):
+        assert forbidden not in carrier
     reservation = _section(
         SCOPE_REL,
         "Collision Cycle Ordering And PIE-S2701 Through PIE-S2707 Reservation",
@@ -732,21 +826,22 @@ def test_public_json_artifact_cli_sql_dependency_workflow_version_and_release_su
 def test_gate_allowlist_reader_evidence_publication_stop_and_next_state_contracts_are_exact() -> (
     None
 ):
-    assert (len(ADDED_PATHS), len(MODIFIED_PATHS), 0) == (5, 32, 0)
-    assert len(MECHANICAL_READER_PATHS) == 31
-    assert len(FORMATTER_PATHS) == 32
-    assert len(ALLOWLIST_PATHS) == 37
+    assert (len(ADDED_PATHS), len(MODIFIED_PATHS), 0) == (3, 54, 0)
+    assert len(NON_READER_MODIFIED_PATHS) == 6
+    assert len(MECHANICAL_READER_PATHS) == 48
+    assert len(FORMATTER_PATHS) == 55
+    assert len(ALLOWLIST_PATHS) == 57
     readable = _readable_paths()
-    assert len(readable) == 886
-    assert sum(path.endswith(".py") for path in readable) == 543
-    assert sum(path.endswith(".md") for path in readable) == 247
+    assert len(readable) == 889
+    assert sum(path.endswith(".py") for path in readable) == 545
+    assert sum(path.endswith(".md") for path in readable) == 248
     test_modules = tuple(
         path
         for path in readable
         if path.startswith("tests/test_") and path.endswith(".py")
     )
-    assert len(test_modules) == 450
-    assert sum(len(_top_level_test_functions(path)) for path in test_modules) == 4866
+    assert len(test_modules) == 451
+    assert sum(len(_top_level_test_functions(path)) for path in test_modules) == 4882
     dirty = set(_git_output(["diff", "--name-only"]).splitlines()) | set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
@@ -790,6 +885,29 @@ def test_gate_allowlist_reader_evidence_publication_stop_and_next_state_contract
         "report=/home/mianliwang/.local/state/pietto/evidence/phase54-slice1/"
         "gate0-gate1-plan-correction-1.txt next=GATE2_RESUME_OFFLINE" in scope
     )
+    slice2 = _read(SLICE2_SPEC_REL)
+    slice2_flat = " ".join(slice2.split())
+    for phrase in (
+        "Authority is `A3_M54_D0`.",
+        "contains exactly 16 top-level, non-parametrized tests",
+        "ProjectLogicalModule",
+        "permits only `LEGACY_FLAT` to reach `_build_project_semantic_catalog`",
+        "Projected clean collection is 10,830",
+        "executing mechanical reader closure contains exactly 48 modules",
+        "write-mode formatter invocation contains exactly 55 literal Python paths",
+        "Generated inventory remains 8",
+        "Goldens remain 37: 32 SQL and 5 JSON",
+        "Package smoke must pass and installed CLI remains 0.1.0",
+        "`O_CREAT | O_EXCL | O_NOFOLLOW`, mode 0644",
+        "phase54/slice2-schema-v2-module-carrier",
+        "Add Phase 54 schema v2 module activation carrier",
+        "one ready PR",
+        "exact-tree squash",
+        "fetch/ff-only reconciliation",
+        "`next=PHASE54_SLICE3_GATE0_GATE1`",
+        "Do not begin Slice 3",
+    ):
+        assert phrase in slice2_flat
     plan = _read(PLAN_REL)
     for forbidden in ("dirty overlay", "skip", "xfail", "deselection", "masking"):
         assert forbidden in plan
@@ -799,3 +917,6 @@ def test_gate_allowlist_reader_evidence_publication_stop_and_next_state_contract
         in stop
     )
     assert "without a routine user pause" in stop
+    slice2_stop = _section(SLICE2_SPEC_REL, "Stop And Next State")
+    assert "mechanical reader/hash/inventory/topology repair" in slice2_stop
+    assert "not a product decision" in slice2_stop

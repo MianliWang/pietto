@@ -66,13 +66,13 @@ SLICE8_GATE2_BASE_HEAD_SHA = "11a0c48941c3c1c650be8d0ec8ddf5201f9525f2"
 
 FACTS_SHA256 = "bd68bad4e13a2b945962458fc47359a408d27b1563ba25f5713a8f8099671d21"
 LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26"
-COMPILER_DIGEST = "2a46f4add3847663ab1b3e959ca1e59e52f977d2df4f19a95ab4b8738f6c8252"
+COMPILER_DIGEST = "6b98059fa09b09fb2c724003f1276bd85077382b597711147d5a9bd5d820f550"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "e674402d8e428fd2ffbfb8a4f90d7ae0be01a23e379fcf487c16a2dc7e6c8497"
+    "0b1d9571472263c00f22d69e01754a136455f3c0ac112b2b370cbe2be563a629"
 )
 TIER2_MANIFEST_BYTES = 18319
 TIER2_MANIFEST_SHA256 = (
@@ -200,6 +200,14 @@ def _read(path: Path) -> str:
 
 
 def _slice13_paths(name: str) -> set[str]:
+    if _git_output(["rev-parse", "HEAD"]) == (
+        "53d8767fc3bdbe5e3f631178652222bbe51f6a33"
+    ):
+        modified, added = _phase54_slice2_paths()
+        if name == "MODIFIED_PATHS":
+            return modified
+        if name == "ADDED_PATHS":
+            return added
     path = REPO_ROOT / "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
     tree = ast.parse(_read(path), filename=path.as_posix())
     for node in tree.body:
@@ -214,6 +222,36 @@ def _slice13_paths(name: str) -> set[str]:
             assert all(isinstance(item, str) for item in value)
             return set(value)
     raise AssertionError(f"missing Slice 13 path manifest {name}")
+
+
+def _phase54_slice2_paths() -> tuple[set[str], set[str]]:
+    path = (
+        REPO_ROOT
+        / "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
+    )
+    tree = ast.parse(_read(path), filename=path.as_posix())
+    expected = {
+        "ADDED_PATHS",
+        "NON_READER_MODIFIED_PATHS",
+        "MECHANICAL_READER_PATHS",
+    }
+    values: dict[str, set[str]] = {}
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id in expected
+        ):
+            value = ast.literal_eval(node.value)
+            assert isinstance(value, set)
+            assert all(isinstance(item, str) for item in value)
+            values[node.targets[0].id] = value
+    assert set(values) == expected
+    return (
+        values["NON_READER_MODIFIED_PATHS"] | values["MECHANICAL_READER_PATHS"],
+        values["ADDED_PATHS"],
+    )
 
 
 def _git_output(args: list[str]) -> str:
@@ -1057,7 +1095,7 @@ def test_digest_and_nested_raw_sha_reader_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        93,
+        94,
         36,
         33,
     )
@@ -1103,7 +1141,7 @@ def test_digest_and_nested_raw_sha_reader_closure_is_exact() -> None:
 
 def test_project_package_version_and_tag_boundaries_are_unchanged() -> None:
     project_paths = _project_private_paths()
-    assert len(project_paths) == 18
+    assert len(project_paths) == 19
     assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
     with PYPROJECT_PATH.open("rb") as stream:
         project = tomllib.load(stream)
@@ -1148,7 +1186,11 @@ def test_gate2_dirty_untracked_and_index_states_are_exact() -> None:
         assert status == tuple(f"M\t{path}" for path in sorted(slice13_modified))
         assert untracked == slice13_added
         assert branch == "main"
-        assert head == main == origin_main == "4ff3c131fba54d83b56f3c50e14f7c2337c1eb52"
+        assert head == main == origin_main
+        assert head in (
+            "4ff3c131fba54d83b56f3c50e14f7c2337c1eb52",
+            "53d8767fc3bdbe5e3f631178652222bbe51f6a33",
+        )
     elif dirty == SLICE8_ALLOWLIST_PATHS:
         assert tracked == SLICE8_MODIFIED_PATHS
         assert status == tuple(f"M\t{path}" for path in sorted(SLICE8_MODIFIED_PATHS))

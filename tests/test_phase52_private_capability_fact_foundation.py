@@ -209,6 +209,14 @@ def _read(path: Path) -> str:
 
 
 def _slice13_paths(name: str) -> set[str]:
+    if _git_output(["rev-parse", "HEAD"]) == (
+        "53d8767fc3bdbe5e3f631178652222bbe51f6a33"
+    ):
+        modified, added = _phase54_slice2_paths()
+        if name == "MODIFIED_PATHS":
+            return modified
+        if name == "ADDED_PATHS":
+            return added
     path = REPO_ROOT / "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
     tree = ast.parse(_read(path), filename=path.as_posix())
     for node in tree.body:
@@ -223,6 +231,36 @@ def _slice13_paths(name: str) -> set[str]:
             assert all(isinstance(item, str) for item in value)
             return set(value)
     raise AssertionError(f"missing Slice 13 path manifest {name}")
+
+
+def _phase54_slice2_paths() -> tuple[set[str], set[str]]:
+    path = (
+        REPO_ROOT
+        / "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
+    )
+    tree = ast.parse(_read(path), filename=path.as_posix())
+    expected = {
+        "ADDED_PATHS",
+        "NON_READER_MODIFIED_PATHS",
+        "MECHANICAL_READER_PATHS",
+    }
+    values: dict[str, set[str]] = {}
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id in expected
+        ):
+            value = ast.literal_eval(node.value)
+            assert isinstance(value, set)
+            assert all(isinstance(item, str) for item in value)
+            values[node.targets[0].id] = value
+    assert set(values) == expected
+    return (
+        values["NON_READER_MODIFIED_PATHS"] | values["MECHANICAL_READER_PATHS"],
+        values["ADDED_PATHS"],
+    )
 
 
 def _git_output(args: list[str]) -> str:
@@ -781,7 +819,7 @@ def test_slice2_spec_locks_read_model_non_authority_and_conflict_preservation() 
 
 def test_compiler_boundary_and_all_compatibility_hash_locks_are_consistent() -> None:
     compiler_paths = _compiler_paths()
-    assert len(compiler_paths) == 93
+    assert len(compiler_paths) == 94
     compiler_digest = _digest(compiler_paths)
     for path in BOUNDARY_PATHS:
         assert f'BOUNDARY_HASH = "{compiler_digest}"' in _read(REPO_ROOT / path)
@@ -867,9 +905,9 @@ def test_compiler_boundary_and_all_compatibility_hash_locks_are_consistent() -> 
 
 def test_project_boundary_package_version_and_release_state_are_unchanged() -> None:
     project_paths = _project_private_paths()
-    assert len(project_paths) == 18
+    assert len(project_paths) == 19
     assert _digest(project_paths) == (
-        "e674402d8e428fd2ffbfb8a4f90d7ae0be01a23e379fcf487c16a2dc7e6c8497"
+        "0b1d9571472263c00f22d69e01754a136455f3c0ac112b2b370cbe2be563a629"
     )
     with PYPROJECT_PATH.open("rb") as stream:
         project = tomllib.load(stream)
@@ -899,6 +937,7 @@ def test_static_test_shape_parametrization_and_direct_reader_inventory_is_exact(
     expected_functions = (
         "_read",
         "_slice13_paths",
+        "_phase54_slice2_paths",
         "_git_output",
         "_dirty_paths",
         "_digest",
