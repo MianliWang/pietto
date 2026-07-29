@@ -60,6 +60,7 @@ BASE_HEAD = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
 PHASE53_COMPLETION_HEAD = "af92f30c22e5d3df5219554a0663855a5b9f51a6"
 PHASE54_SLICE1_HEAD = "53d8767fc3bdbe5e3f631178652222bbe51f6a33"
 PHASE54_SLICE2_HEAD = "d8a5e9ab3de70ce30575513c73560c86430eca63"
+PHASE54_SLICE3_HEAD = "2752985c3f6343519b7d7d6fe400d16251e64d85"
 WHEELHOUSE_MANIFEST_SHA256 = (
     "e745cf66b6e8ea2096d5e49bf88ef32f828fe9178561b8ed5456125afeb8a294"
 )
@@ -558,8 +559,10 @@ def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> N
                 expected_parent = PHASE53_COMPLETION_HEAD
             elif head == PHASE54_SLICE2_HEAD:
                 expected_parent = PHASE54_SLICE1_HEAD
-            else:
+            elif head == PHASE54_SLICE3_HEAD:
                 expected_parent = PHASE54_SLICE2_HEAD
+            else:
+                expected_parent = PHASE54_SLICE3_HEAD
             assert parents == [expected_parent]
     assert 'requires = ["uv_build>=0.11.32,<0.12.0"]' in pyproject
     assert '"ruff>=0.16.0"' in pyproject
