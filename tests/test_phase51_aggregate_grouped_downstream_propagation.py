@@ -126,7 +126,7 @@ CI_REPAIR_MODIFIED_PATHS = {
     "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
     "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
 }
-PHASE54_BASE_HEAD_SHA = "53d8767fc3bdbe5e3f631178652222bbe51f6a33"
+PHASE54_BASE_HEAD_SHA = "d8a5e9ab3de70ce30575513c73560c86430eca63"
 PHASE54_STATE_REL = (
     "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
 )
@@ -1470,30 +1470,32 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
             assert changed_lines[1] == f'+BOUNDARY_HASH = "{compiler_digest}"'
     project_paths = _project_private_paths()
     project_digest = _digest(project_paths)
-    assert len(project_paths) == 19
+    assert len(project_paths) == 22
     assert REPO_ROOT / "src/pietto/_project/window_persistence.py" in project_paths
     assert project_digest == (
-        "0b1d9571472263c00f22d69e01754a136455f3c0ac112b2b370cbe2be563a629"
+        "4aa0a55517f46e5cbd98a0050ce105a647ca59fdd387e639d5181be6da89490f"
     )
     phase33 = (REPO_ROOT / "tests/test_phase33_completion_audit.py").read_text(
         encoding="utf-8"
     )
     assert (
         f'"project_private": (\n        "src/pietto/_project",\n'
-        f'        19,\n        "{project_digest}",\n    ),'
+        f'        22,\n        "{project_digest}",\n    ),'
     ) in phase33
     phase33_changed_lines = _git_changed_lines("tests/test_phase33_completion_audit.py")
     if phase33_changed_lines:
-        assert len(phase33_changed_lines) == 4
+        assert len(phase33_changed_lines) == 12
         assert re.fullmatch(r"-        [0-9]+,", phase33_changed_lines[0])
         assert re.fullmatch(
             r'-        "[0-9a-f]{64}",',
             phase33_changed_lines[1],
         )
-        assert phase33_changed_lines[2:] == [
-            "+        19,",
+        assert phase33_changed_lines[2:4] == [
+            "+        22,",
             f'+        "{project_digest}",',
         ]
+        assert "path_trust.py" in "\n".join(phase33_changed_lines[4:])
+        assert "trusted_source.py" in "\n".join(phase33_changed_lines[4:])
 
     for relative_path, expected_hash in PROTECTED_HASHES.items():
         assert _sha256(REPO_ROOT / relative_path) == expected_hash

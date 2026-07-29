@@ -12,6 +12,9 @@ from pietto._project.module_carrier import (
     ProjectCompilationMode,
     ProjectLogicalModule,
 )
+from pietto._project.path_trust import ProjectPinnedRoot
+from pietto._project.selected_input_index import ProjectSelectedInputIndex
+from pietto._project.trusted_source import ProjectTrustedSourceSnapshot
 from pietto.ast_nodes import (
     ConstraintDef,
     Definition,
@@ -160,6 +163,8 @@ class ProjectDiscoveryResult:
     errors: tuple[ProjectDiscoveryError, ...]
     compilation_mode: ProjectCompilationMode = ProjectCompilationMode.LEGACY_FLAT
     modules: tuple[ProjectLogicalModule, ...] = ()
+    pinned_root: ProjectPinnedRoot | None = None
+    selected_input_index: ProjectSelectedInputIndex | None = None
 
     @property
     def ok(self) -> bool:
@@ -176,6 +181,7 @@ class ProjectConfigLoadResult:
     config_path: ProjectConfigPath | None
     config: ProjectConfig | None
     errors: tuple[ProjectDiscoveryError, ...]
+    pinned_root: ProjectPinnedRoot | None = None
 
     @property
     def ok(self) -> bool:
@@ -196,6 +202,9 @@ class ProjectParseCheckResult:
     parsed_inputs: tuple[ProjectParsedInput, ...] = ()
     compilation_mode: ProjectCompilationMode = ProjectCompilationMode.LEGACY_FLAT
     modules: tuple[ProjectLogicalModule, ...] = ()
+    pinned_root: ProjectPinnedRoot | None = None
+    selected_input_index: ProjectSelectedInputIndex | None = None
+    trusted_source_snapshots: tuple[ProjectTrustedSourceSnapshot, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -776,6 +785,9 @@ class ProjectSemanticResult:
     diagnostics: tuple[Diagnostic, ...] = ()
     compilation_mode: ProjectCompilationMode = ProjectCompilationMode.LEGACY_FLAT
     modules: tuple[ProjectLogicalModule, ...] = ()
+    pinned_root: ProjectPinnedRoot | None = None
+    selected_input_index: ProjectSelectedInputIndex | None = None
+    trusted_source_snapshots: tuple[ProjectTrustedSourceSnapshot, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -802,6 +814,9 @@ def build_empty_project_semantic_result(
             model=None,
             compilation_mode=parse_result.compilation_mode,
             modules=parse_result.modules,
+            pinned_root=parse_result.pinned_root,
+            selected_input_index=parse_result.selected_input_index,
+            trusted_source_snapshots=parse_result.trusted_source_snapshots,
         )
 
     if parse_result.compilation_mode is not ProjectCompilationMode.LEGACY_FLAT:
@@ -811,6 +826,9 @@ def build_empty_project_semantic_result(
             model=None,
             compilation_mode=parse_result.compilation_mode,
             modules=parse_result.modules,
+            pinned_root=parse_result.pinned_root,
+            selected_input_index=parse_result.selected_input_index,
+            trusted_source_snapshots=parse_result.trusted_source_snapshots,
         )
 
     catalog, catalog_diagnostics = _build_project_semantic_catalog(
@@ -834,6 +852,9 @@ def build_empty_project_semantic_result(
             diagnostics=catalog_diagnostics,
             compilation_mode=parse_result.compilation_mode,
             modules=parse_result.modules,
+            pinned_root=parse_result.pinned_root,
+            selected_input_index=parse_result.selected_input_index,
+            trusted_source_snapshots=parse_result.trusted_source_snapshots,
         )
 
     type_resolutions, source_shape_resolutions, type_diagnostics = (
@@ -905,6 +926,9 @@ def build_empty_project_semantic_result(
         ),
         compilation_mode=parse_result.compilation_mode,
         modules=parse_result.modules,
+        pinned_root=parse_result.pinned_root,
+        selected_input_index=parse_result.selected_input_index,
+        trusted_source_snapshots=parse_result.trusted_source_snapshots,
     )
 
 

@@ -109,8 +109,8 @@ ROADMAP_STATUS = (
 LOCKED_PHASE33_SURFACES = {
     "project_private": (
         "src/pietto/_project",
-        19,
-        "0b1d9571472263c00f22d69e01754a136455f3c0ac112b2b370cbe2be563a629",
+        22,
+        "4aa0a55517f46e5cbd98a0050ce105a647ca59fdd387e639d5181be6da89490f",
     ),
     "cli": (
         "src/pietto/cli.py",
@@ -325,7 +325,13 @@ def test_deferred_project_runtime_surfaces_remain_absent() -> None:
     project_source_without_config_or_check = "\n".join(
         source
         for path, source in project_sources.items()
-        if path not in {PROJECT_CONFIG_SOURCE_PATH, PROJECT_CHECK_SOURCE_PATH}
+        if path
+        not in {
+            PROJECT_CONFIG_SOURCE_PATH,
+            PROJECT_CHECK_SOURCE_PATH,
+            REPO_ROOT / "src/pietto/_project/path_trust.py",
+            REPO_ROOT / "src/pietto/_project/trusted_source.py",
+        }
     )
     source_tree = "\n".join(
         path.read_text(encoding="utf-8")

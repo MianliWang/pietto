@@ -3,11 +3,23 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import os
 from pathlib import Path
+import stat
 import tomllib
 
 from pietto._project.discovery import PROJECT_CONFIG_FILENAME
 from pietto._project.module_carrier import ProjectCompilationMode
+from pietto._project.path_trust import (
+    ProjectIdentityUnavailableError,
+    ProjectPinnedRoot,
+    ProjectRootChangedError,
+    _fstat_state,
+    _lstat_state,
+    _open_pinned_file,
+    _pin_project_root,
+    _verify_pinned_root,
+)
 from pietto._project.model import (
     ProjectConfig,
     ProjectConfigLoadResult,
@@ -32,40 +44,62 @@ def load_project_config(root: str | Path) -> ProjectConfigLoadResult:
     """Load and validate the private Phase 44 project config contract."""
 
     try:
-        resolved_root = Path(root).resolve(strict=True)
-    except OSError:
-        return _root_error("Project root does not exist or is not accessible.")
-
-    if not resolved_root.is_dir():
+        pinned_root = _pin_project_root(root)
+    except ProjectIdentityUnavailableError:
+        return _root_resource_error("Project filesystem identity is unavailable.")
+    except NotADirectoryError:
         return _root_error("Project root must be an existing directory.")
+    except (OSError, RuntimeError):
+        return _root_error("Project root does not exist or is not accessible.")
 
     root_model = ProjectRoot(path=_PROJECT_ROOT_PATH)
     config_model = ProjectConfigPath(path=PROJECT_CONFIG_FILENAME)
-    config_path = resolved_root / PROJECT_CONFIG_FILENAME
+    config_path = pinned_root.canonical_path / PROJECT_CONFIG_FILENAME
 
-    if not config_path.is_file():
+    try:
+        config_bytes = _read_project_config_bytes(pinned_root, config_path)
+    except _ConfigTrustError as error:
         return _load_error(
             root_model,
             config_model,
-            ProjectDiscoveryErrorKind.CONFIG_READ,
-            "Project configuration file is required.",
+            error.kind,
+            error.message,
+            pinned_root,
         )
-
-    try:
-        config_text = config_path.read_text(encoding="utf-8")
+    except ProjectRootChangedError:
+        return _project_level_error(
+            root_model,
+            config_model,
+            ProjectDiscoveryErrorKind.PROJECT_ROOT,
+            "Project root identity changed during project loading.",
+            pinned_root,
+        )
+    except ProjectIdentityUnavailableError:
+        return _project_level_error(
+            root_model,
+            config_model,
+            ProjectDiscoveryErrorKind.PROJECT_RESOURCE,
+            "Project filesystem identity is unavailable.",
+            pinned_root,
+        )
     except OSError:
         return _load_error(
             root_model,
             config_model,
             ProjectDiscoveryErrorKind.CONFIG_READ,
             "Project configuration file is not readable.",
+            pinned_root,
         )
+
+    try:
+        config_text = config_bytes.decode("utf-8")
     except UnicodeDecodeError:
         return _load_error(
             root_model,
             config_model,
             ProjectDiscoveryErrorKind.CONFIG_PARSE,
             "Project configuration file must be valid UTF-8 TOML.",
+            pinned_root,
         )
 
     try:
@@ -76,15 +110,124 @@ def load_project_config(root: str | Path) -> ProjectConfigLoadResult:
             config_model,
             ProjectDiscoveryErrorKind.CONFIG_PARSE,
             f"Project configuration TOML is invalid: {error}.",
+            pinned_root,
         )
 
-    return _validate_config(root_model, config_model, parsed)
+    return _validate_config(root_model, config_model, parsed, pinned_root)
+
+
+class _ConfigTrustError(OSError):
+    """One config-leaf trust failure adapted to the existing envelope."""
+
+    def __init__(self, kind: ProjectDiscoveryErrorKind, message: str) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.message = message
+
+
+def _read_project_config_bytes(
+    pinned_root: ProjectPinnedRoot,
+    config_path: Path,
+) -> bytes:
+    """Read the exact bytes of one verified non-symlink regular config."""
+
+    try:
+        inspected_state = _lstat_state(config_path)
+    except FileNotFoundError as error:
+        _verify_pinned_root(pinned_root)
+        raise _ConfigTrustError(
+            ProjectDiscoveryErrorKind.CONFIG_READ,
+            "Project configuration file is required.",
+        ) from error
+    except ProjectIdentityUnavailableError:
+        raise
+    except OSError:
+        _verify_pinned_root(pinned_root)
+        raise
+
+    if stat.S_ISLNK(inspected_state.file_type):
+        _verify_pinned_root(pinned_root)
+        raise _ConfigTrustError(
+            ProjectDiscoveryErrorKind.CONFIG_READ,
+            "Project configuration path must not be a symbolic link.",
+        )
+    if not stat.S_ISREG(inspected_state.file_type):
+        _verify_pinned_root(pinned_root)
+        raise _ConfigTrustError(
+            ProjectDiscoveryErrorKind.CONFIG_READ,
+            "Project configuration path must be a regular file.",
+        )
+
+    file_descriptor = -1
+    try:
+        try:
+            file_descriptor = _open_pinned_file(pinned_root, config_path)
+        except (ProjectRootChangedError, ProjectIdentityUnavailableError):
+            raise
+        except OSError as error:
+            raise _ConfigTrustError(
+                ProjectDiscoveryErrorKind.CONFIG_READ,
+                "Project configuration opened identity does not match the inspected file.",
+            ) from error
+        opened_state = _fstat_state(file_descriptor)
+        if (
+            not stat.S_ISREG(opened_state.file_type)
+            or opened_state.physical_identity != inspected_state.physical_identity
+        ):
+            _verify_pinned_root(pinned_root)
+            raise _ConfigTrustError(
+                ProjectDiscoveryErrorKind.CONFIG_READ,
+                "Project configuration opened identity does not match the inspected file.",
+            )
+        if opened_state != inspected_state:
+            _verify_pinned_root(pinned_root)
+            raise _ConfigTrustError(
+                ProjectDiscoveryErrorKind.CONFIG_READ,
+                "Project configuration file changed while being read.",
+            )
+
+        with os.fdopen(file_descriptor, "rb", closefd=True) as config_file:
+            file_descriptor = -1
+            config_bytes = config_file.read()
+            final_opened_state = _fstat_state(config_file.fileno())
+    finally:
+        if file_descriptor >= 0:
+            os.close(file_descriptor)
+
+    if final_opened_state != opened_state:
+        _verify_pinned_root(pinned_root)
+        raise _ConfigTrustError(
+            ProjectDiscoveryErrorKind.CONFIG_READ,
+            "Project configuration file changed while being read.",
+        )
+    try:
+        final_inspected_state = _lstat_state(config_path)
+    except ProjectIdentityUnavailableError:
+        raise
+    except OSError as error:
+        _verify_pinned_root(pinned_root)
+        raise _ConfigTrustError(
+            ProjectDiscoveryErrorKind.CONFIG_READ,
+            "Project configuration file changed while being read.",
+        ) from error
+    if (
+        stat.S_ISLNK(final_inspected_state.file_type)
+        or final_inspected_state != inspected_state
+    ):
+        _verify_pinned_root(pinned_root)
+        raise _ConfigTrustError(
+            ProjectDiscoveryErrorKind.CONFIG_READ,
+            "Project configuration file changed while being read.",
+        )
+    _verify_pinned_root(pinned_root)
+    return config_bytes
 
 
 def _validate_config(
     root: ProjectRoot,
     config_path: ProjectConfigPath,
     document: Mapping[str, object],
+    pinned_root: ProjectPinnedRoot,
 ) -> ProjectConfigLoadResult:
     unknown_keys = sorted(set(document) - _TOP_LEVEL_KEYS)
     if unknown_keys:
@@ -92,6 +235,7 @@ def _validate_config(
             root,
             config_path,
             f"Project configuration contains unsupported top-level key: {unknown_keys[0]}.",
+            pinned_root,
         )
 
     schema_version = document.get("schema_version")
@@ -100,6 +244,7 @@ def _validate_config(
             root,
             config_path,
             "Project configuration schema_version must be integer 1 or 2.",
+            pinned_root,
         )
     assert isinstance(schema_version, int)
     if schema_version not in _COMPILATION_MODE_BY_SCHEMA_VERSION:
@@ -107,6 +252,7 @@ def _validate_config(
             root,
             config_path,
             "Project configuration schema_version must be 1 or 2.",
+            pinned_root,
         )
 
     sources = document.get("sources")
@@ -115,6 +261,7 @@ def _validate_config(
             root,
             config_path,
             "Project configuration requires a [sources] table.",
+            pinned_root,
         )
 
     unknown_source_keys = sorted(set(sources) - _SOURCE_KEYS)
@@ -123,6 +270,7 @@ def _validate_config(
             root,
             config_path,
             f"Project [sources] contains unsupported key: {unknown_source_keys[0]}.",
+            pinned_root,
         )
 
     include = sources.get("include")
@@ -131,18 +279,21 @@ def _validate_config(
             root,
             config_path,
             "Project [sources].include must be a non-empty array of strings.",
+            pinned_root,
         )
     if not include:
         return _schema_error(
             root,
             config_path,
             "Project [sources].include must be non-empty.",
+            pinned_root,
         )
     if not all(isinstance(pattern, str) for pattern in include):
         return _schema_error(
             root,
             config_path,
             "Project [sources].include must contain only strings.",
+            pinned_root,
         )
 
     exclude = sources.get("exclude", [])
@@ -151,12 +302,14 @@ def _validate_config(
             root,
             config_path,
             "Project [sources].exclude must be an array of strings.",
+            pinned_root,
         )
     if not all(isinstance(pattern, str) for pattern in exclude):
         return _schema_error(
             root,
             config_path,
             "Project [sources].exclude must contain only strings.",
+            pinned_root,
         )
 
     patterns = tuple(include) + tuple(exclude)
@@ -175,6 +328,7 @@ def _validate_config(
             config_path=config_path,
             config=None,
             errors=path_errors,
+            pinned_root=pinned_root,
         )
 
     return ProjectConfigLoadResult(
@@ -189,6 +343,7 @@ def _validate_config(
             compilation_mode=_COMPILATION_MODE_BY_SCHEMA_VERSION[schema_version],
         ),
         errors=(),
+        pinned_root=pinned_root,
     )
 
 
@@ -251,11 +406,27 @@ def _root_error(message: str) -> ProjectConfigLoadResult:
     )
 
 
+def _root_resource_error(message: str) -> ProjectConfigLoadResult:
+    return ProjectConfigLoadResult(
+        root=None,
+        config_path=None,
+        config=None,
+        errors=(
+            ProjectDiscoveryError(
+                ProjectDiscoveryErrorKind.PROJECT_RESOURCE,
+                message,
+                None,
+            ),
+        ),
+    )
+
+
 def _load_error(
     root: ProjectRoot,
     config_path: ProjectConfigPath,
     kind: ProjectDiscoveryErrorKind,
     message: str,
+    pinned_root: ProjectPinnedRoot,
 ) -> ProjectConfigLoadResult:
     return ProjectConfigLoadResult(
         root=root,
@@ -268,6 +439,23 @@ def _load_error(
                 PROJECT_CONFIG_FILENAME,
             ),
         ),
+        pinned_root=pinned_root,
+    )
+
+
+def _project_level_error(
+    root: ProjectRoot,
+    config_path: ProjectConfigPath,
+    kind: ProjectDiscoveryErrorKind,
+    message: str,
+    pinned_root: ProjectPinnedRoot,
+) -> ProjectConfigLoadResult:
+    return ProjectConfigLoadResult(
+        root=root,
+        config_path=config_path,
+        config=None,
+        errors=(ProjectDiscoveryError(kind, message, None),),
+        pinned_root=pinned_root,
     )
 
 
@@ -275,10 +463,12 @@ def _schema_error(
     root: ProjectRoot,
     config_path: ProjectConfigPath,
     message: str,
+    pinned_root: ProjectPinnedRoot,
 ) -> ProjectConfigLoadResult:
     return _load_error(
         root,
         config_path,
         ProjectDiscoveryErrorKind.CONFIG_SCHEMA,
         message,
+        pinned_root,
     )

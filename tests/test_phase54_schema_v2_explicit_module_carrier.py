@@ -309,16 +309,15 @@ def test_parse_and_read_failures_retain_ordered_logical_modules(
     _write(root, "bad.pietto", "shape Broken\n    id: Int\n")
     _write(root, "good.pietto", "shape Good:\n    id: Int\n")
     _write(root, "unreadable.pietto", "shape Hidden:\n    id: Int\n")
-    original_read = project_check._read_project_source_text
+    original_load = project_check._load_trusted_source
 
-    def read_with_one_failure(source_path: Path, relative_path: str) -> str | object:
-        if relative_path == "unreadable.pietto":
+    def load_with_one_failure(*args: object, **kwargs: object) -> object:
+        selected_input = args[1]
+        if getattr(selected_input, "identity").path == "unreadable.pietto":
             raise OSError("synthetic unreadable input")
-        return original_read(source_path, relative_path)
+        return original_load(*args, **kwargs)  # type: ignore[arg-type]
 
-    monkeypatch.setattr(
-        project_check, "_read_project_source_text", read_with_one_failure
-    )
+    monkeypatch.setattr(project_check, "_load_trusted_source", load_with_one_failure)
 
     result = project_check.check_project_parse_only(root)
 
@@ -496,6 +495,7 @@ def test_project_json_and_public_exports_do_not_expose_module_carriers(
         "config_path",
         "config",
         "errors",
+        "pinned_root",
     )
     assert "compilation_mode" not in {
         field.name for field in fields(ProjectSemanticModel)
@@ -573,8 +573,8 @@ def test_slice2_contract_allowlist_and_retained_later_boundaries_are_exact() -> 
 
     assert len(test_nodes) == 16
     assert all(not node.decorator_list for node in test_nodes)
-    assert "## Status And Slice 2 Lifecycle" in plan
-    assert "## Slice 2 Exact Production Boundary And Gate Contract" in plan
+    assert "## Status And Slice 3 Lifecycle" in plan
+    assert "## Slice 3 Exact Production Boundary And Gate Contract" in plan
     for phrase in (
         "Authority is `A3_M54_D0`.",
         "Mechanical reader modified M48",

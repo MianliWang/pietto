@@ -94,7 +94,7 @@ PHASE52_UNTRACKED_PATHS = {
     "docs/spec/phase52-core-type-system-capability-foundation-scope-lock-v1.md",
     "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
 }
-SLICE2_BASE_HEAD_SHA = "53d8767fc3bdbe5e3f631178652222bbe51f6a33"
+SLICE2_BASE_HEAD_SHA = "d8a5e9ab3de70ce30575513c73560c86430eca63"
 SLICE2_STATE_REL = (
     "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
 )
@@ -900,7 +900,7 @@ def test_cross_phase_transition_and_live_identifier_inventory_is_exact() -> None
 def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> None:
     compiler_digest = _compiler_digest()
     assert compiler_digest == (
-        "6b98059fa09b09fb2c724003f1276bd85077382b597711147d5a9bd5d820f550"
+        "ba1c27b7264dbf44731896e4ef5e8444b7fbc7b4ddac6de545a9c2bf3a106324"
     )
     for relative_path in BOUNDARY_PATHS:
         boundary_values = re.findall(
@@ -923,14 +923,14 @@ def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> N
         )
     )
     project_digest = _digest(project_paths)
-    assert len(project_paths) == 19
+    assert len(project_paths) == 22
     assert project_digest == (
-        "0b1d9571472263c00f22d69e01754a136455f3c0ac112b2b370cbe2be563a629"
+        "4aa0a55517f46e5cbd98a0050ce105a647ca59fdd387e639d5181be6da89490f"
     )
     phase33 = _read(REPO_ROOT / "tests/test_phase33_completion_audit.py")
     assert (
         f'"project_private": (\n        "src/pietto/_project",\n'
-        f'        19,\n        "{project_digest}",\n    ),'
+        f'        22,\n        "{project_digest}",\n    ),'
     ) in phase33
 
     for relative_path in (
@@ -938,7 +938,7 @@ def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> N
         "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
     ):
         source = _read(REPO_ROOT / relative_path)
-        assert "assert len(project_paths) == 19" in source
+        assert "assert len(project_paths) == 22" in source
     stale_count_assertion = "assert len(project_paths) == " + "15"
     assert all(
         stale_count_assertion not in _read(path)
