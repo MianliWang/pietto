@@ -175,9 +175,9 @@ PRE_RECONCILIATION_2_SHA256 = (
 PRE_RECONCILIATION_3_SHA256 = (
     "cb2c51246f1e312858641750d1a416125f99058fb0182949e9afe35ae49e97cf"
 )
-COMPILER_DIGEST = "2a46f4add3847663ab1b3e959ca1e59e52f977d2df4f19a95ab4b8738f6c8252"
+COMPILER_DIGEST = "6b98059fa09b09fb2c724003f1276bd85077382b597711147d5a9bd5d820f550"
 PROJECT_PRIVATE_DIGEST = (
-    "e674402d8e428fd2ffbfb8a4f90d7ae0be01a23e379fcf487c16a2dc7e6c8497"
+    "0b1d9571472263c00f22d69e01754a136455f3c0ac112b2b370cbe2be563a629"
 )
 
 
@@ -186,6 +186,14 @@ def _read(path: Path) -> str:
 
 
 def _slice13_paths(name: str) -> set[str]:
+    if _git_output(["rev-parse", "HEAD"]) == (
+        "53d8767fc3bdbe5e3f631178652222bbe51f6a33"
+    ):
+        modified, added = _phase54_slice2_paths()
+        if name == "MODIFIED_PATHS":
+            return modified
+        if name == "ADDED_PATHS":
+            return added
     path = REPO_ROOT / "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
     tree = ast.parse(_read(path), filename=path.as_posix())
     for node in tree.body:
@@ -200,6 +208,36 @@ def _slice13_paths(name: str) -> set[str]:
             assert all(isinstance(item, str) for item in value)
             return set(value)
     raise AssertionError(f"missing Slice 13 path manifest {name}")
+
+
+def _phase54_slice2_paths() -> tuple[set[str], set[str]]:
+    path = (
+        REPO_ROOT
+        / "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
+    )
+    tree = ast.parse(_read(path), filename=path.as_posix())
+    expected = {
+        "ADDED_PATHS",
+        "NON_READER_MODIFIED_PATHS",
+        "MECHANICAL_READER_PATHS",
+    }
+    values: dict[str, set[str]] = {}
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id in expected
+        ):
+            value = ast.literal_eval(node.value)
+            assert isinstance(value, set)
+            assert all(isinstance(item, str) for item in value)
+            values[node.targets[0].id] = value
+    assert set(values) == expected
+    return (
+        values["NON_READER_MODIFIED_PATHS"] | values["MECHANICAL_READER_PATHS"],
+        values["ADDED_PATHS"],
+    )
 
 
 def _normalized(path: Path) -> str:
@@ -512,7 +550,7 @@ def test_slice1_no_behavior_public_privacy_and_release_boundaries_are_locked() -
         compiler_digest.update(b"\0")
         compiler_digest.update(path.read_bytes())
         compiler_digest.update(b"\0")
-    assert (len(compiler_paths), compiler_digest.hexdigest()) == (93, COMPILER_DIGEST)
+    assert (len(compiler_paths), compiler_digest.hexdigest()) == (94, COMPILER_DIGEST)
     for relative_path in BOUNDARY_PATHS:
         assert re.findall(
             r'^BOUNDARY_HASH = "([0-9a-f]{64})"$',
@@ -537,12 +575,12 @@ def test_slice1_no_behavior_public_privacy_and_release_boundaries_are_locked() -
         project_digest.update(path.read_bytes())
         project_digest.update(b"\0")
     assert (len(project_paths), project_digest.hexdigest()) == (
-        18,
+        19,
         PROJECT_PRIVATE_DIGEST,
     )
     assert (
         '"project_private": (\n        "src/pietto/_project",\n'
-        f'        18,\n        "{PROJECT_PRIVATE_DIGEST}",\n    ),'
+        f'        19,\n        "{PROJECT_PRIVATE_DIGEST}",\n    ),'
     ) in _read(REPO_ROOT / "tests/test_phase33_completion_audit.py")
 
     project = tomllib.loads(_read(PYPROJECT_PATH))["project"]
@@ -750,6 +788,7 @@ def test_static_audit_shape_allowlist_and_heading_matching_are_locked() -> None:
     expected_functions = (
         "_read",
         "_slice13_paths",
+        "_phase54_slice2_paths",
         "_normalized",
         "_headings_at_level",
         "_git_output",
@@ -775,7 +814,7 @@ def test_static_audit_shape_allowlist_and_heading_matching_are_locked() -> None:
         tuple(node.name for node in tree.body if isinstance(node, ast.FunctionDef))
         == expected_functions
     )
-    assert _top_level_test_names(SELF_PATH) == expected_functions[10:]
+    assert _top_level_test_names(SELF_PATH) == expected_functions[11:]
     assert _pytest_item_count(SELF_PATH) == 12
     assert all(
         not node.decorator_list
@@ -847,10 +886,14 @@ def test_static_audit_shape_allowlist_and_heading_matching_are_locked() -> None:
         )
         assert untracked_paths == slice13_added
         assert _git_output(["branch", "--show-current"]) == "main"
+        expected_head = (
+            "53d8767fc3bdbe5e3f631178652222bbe51f6a33"
+            if "docs/spec/phase54-slice2-schema-v2-explicit-module-activation-and-immutable-carrier-v1.md"
+            in slice13_added
+            else "4ff3c131fba54d83b56f3c50e14f7c2337c1eb52"
+        )
         for reference in ("HEAD", "main", "origin/main"):
-            assert _git_output(["rev-parse", reference]) == (
-                "4ff3c131fba54d83b56f3c50e14f7c2337c1eb52"
-            )
+            assert _git_output(["rev-parse", reference]) == expected_head
     if dirty_paths == SLICE9_ALLOWLIST_PATHS:
         assert set(_git_output(["diff", "--name-only"]).splitlines()) == (
             SLICE9_MODIFIED_PATHS

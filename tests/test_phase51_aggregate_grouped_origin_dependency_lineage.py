@@ -105,10 +105,14 @@ CI_REPAIR_MODIFIED_PATHS = {
     "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
     "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
 }
+PHASE54_BASE_HEAD_SHA = "53d8767fc3bdbe5e3f631178652222bbe51f6a33"
+PHASE54_STATE_REL = (
+    "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
+)
 
 
-def _phase53_gate2_paths(name: str) -> set[str]:
-    path = REPO_ROOT / "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
+def _literal_set(relative: str, name: str) -> set[str]:
+    path = REPO_ROOT / relative
     tree = ast.parse(path.read_text(encoding="utf-8"))
     for node in tree.body:
         if (
@@ -121,6 +125,22 @@ def _phase53_gate2_paths(name: str) -> set[str]:
             assert isinstance(value, set)
             return value
     raise AssertionError(name)
+
+
+def _phase53_gate2_paths(name: str) -> set[str]:
+    return _literal_set(
+        "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
+        name,
+    )
+
+
+def _phase54_gate2_paths() -> tuple[set[str], set[str]]:
+    added = _literal_set(PHASE54_STATE_REL, "ADDED_PATHS")
+    modified = _literal_set(
+        PHASE54_STATE_REL,
+        "NON_READER_MODIFIED_PATHS",
+    ) | _literal_set(PHASE54_STATE_REL, "MECHANICAL_READER_PATHS")
+    return modified, added
 
 
 BOUNDARY_PATHS = (
@@ -887,17 +907,20 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
     dirty = _git_paths(["status", "--short", "--untracked-files=all"])
     slice14_modified = _phase53_gate2_paths("MODIFIED_PATHS")
     slice14_added = _phase53_gate2_paths("ADDED_PATHS")
+    phase54_modified, phase54_added = _phase54_gate2_paths()
     assert dirty in (
         set(),
         EXPECTED_GATE2_PATHS,
         CI_REPAIR_MODIFIED_PATHS,
         slice14_modified | slice14_added,
+        phase54_modified | phase54_added,
     )
     untracked = _git_paths(["ls-files", "--others", "--exclude-standard"])
     assert untracked in (
         set(),
         EXPECTED_UNTRACKED_PATHS,
         slice14_added,
+        phase54_added,
     )
     if dirty == CI_REPAIR_MODIFIED_PATHS:
         assert untracked == set()
@@ -909,6 +932,12 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
             )
             == (CI_REPAIR_BASE_HEAD_SHA,) * 3
         )
+    elif dirty == phase54_modified | phase54_added:
+        assert untracked == phase54_added
+        assert set(_git_output(["diff", "--name-only"]).splitlines()) == (
+            phase54_modified
+        )
+        assert _git_output(["rev-parse", "HEAD"]).strip() == PHASE54_BASE_HEAD_SHA
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
 
     compiler_digest = _compiler_digest()
@@ -922,13 +951,13 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
         assert match.group(1) == compiler_digest
     project_paths = _project_private_paths()
     project_digest = _digest(project_paths)
-    assert len(project_paths) == 18
+    assert len(project_paths) == 19
     phase33 = (REPO_ROOT / "tests/test_phase33_completion_audit.py").read_text(
         encoding="utf-8"
     )
     assert (
         f'"project_private": (\n        "src/pietto/_project",\n'
-        f'        18,\n        "{project_digest}",\n    ),'
+        f'        19,\n        "{project_digest}",\n    ),'
     ) in phase33
 
     protected = (
@@ -955,6 +984,8 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
         "tests/goldens",
         "examples",
     )
+    if dirty == phase54_modified | phase54_added:
+        protected = tuple(path for path in protected if path not in phase54_modified)
     assert _git_output(["diff", "--", *protected]) == ""
     pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert 'version = "0.1.0"' in pyproject

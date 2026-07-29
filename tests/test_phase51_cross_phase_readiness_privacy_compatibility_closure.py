@@ -94,8 +94,10 @@ PHASE52_UNTRACKED_PATHS = {
     "docs/spec/phase52-core-type-system-capability-foundation-scope-lock-v1.md",
     "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
 }
-SLICE2_BASE_HEAD_SHA = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
-SLICE2_STATE_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
+SLICE2_BASE_HEAD_SHA = "53d8767fc3bdbe5e3f631178652222bbe51f6a33"
+SLICE2_STATE_REL = (
+    "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
+)
 CI_REPAIR_BASE_HEAD_SHA = "321ec6f80737015648bc1f81b0561fdd34610e92"
 CI_REPAIR_MODIFIED_PATHS = {
     "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
@@ -898,7 +900,7 @@ def test_cross_phase_transition_and_live_identifier_inventory_is_exact() -> None
 def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> None:
     compiler_digest = _compiler_digest()
     assert compiler_digest == (
-        "2a46f4add3847663ab1b3e959ca1e59e52f977d2df4f19a95ab4b8738f6c8252"
+        "6b98059fa09b09fb2c724003f1276bd85077382b597711147d5a9bd5d820f550"
     )
     for relative_path in BOUNDARY_PATHS:
         boundary_values = re.findall(
@@ -921,14 +923,14 @@ def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> N
         )
     )
     project_digest = _digest(project_paths)
-    assert len(project_paths) == 18
+    assert len(project_paths) == 19
     assert project_digest == (
-        "e674402d8e428fd2ffbfb8a4f90d7ae0be01a23e379fcf487c16a2dc7e6c8497"
+        "0b1d9571472263c00f22d69e01754a136455f3c0ac112b2b370cbe2be563a629"
     )
     phase33 = _read(REPO_ROOT / "tests/test_phase33_completion_audit.py")
     assert (
         f'"project_private": (\n        "src/pietto/_project",\n'
-        f'        18,\n        "{project_digest}",\n    ),'
+        f'        19,\n        "{project_digest}",\n    ),'
     ) in phase33
 
     for relative_path in (
@@ -936,7 +938,7 @@ def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> N
         "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
     ):
         source = _read(REPO_ROOT / relative_path)
-        assert "assert len(project_paths) == 18" in source
+        assert "assert len(project_paths) == 19" in source
     stale_count_assertion = "assert len(project_paths) == " + "15"
     assert all(
         stale_count_assertion not in _read(path)
@@ -1078,10 +1080,22 @@ def test_slice11_contract_plan_allowlist_and_protected_boundaries_are_locked() -
         if isinstance(node, ast.Assign)
         and len(node.targets) == 1
         and isinstance(node.targets[0], ast.Name)
-        and node.targets[0].id in {"MODIFIED_PATHS", "ADDED_PATHS"}
+        and node.targets[0].id
+        in {
+            "ADDED_PATHS",
+            "NON_READER_MODIFIED_PATHS",
+            "MECHANICAL_READER_PATHS",
+        }
     }
-    assert set(slice2_sets) == {"MODIFIED_PATHS", "ADDED_PATHS"}
-    slice2_modified = slice2_sets["MODIFIED_PATHS"]
+    assert set(slice2_sets) == {
+        "ADDED_PATHS",
+        "NON_READER_MODIFIED_PATHS",
+        "MECHANICAL_READER_PATHS",
+    }
+    slice2_modified = (
+        slice2_sets["NON_READER_MODIFIED_PATHS"]
+        | slice2_sets["MECHANICAL_READER_PATHS"]
+    )
     slice2_added = slice2_sets["ADDED_PATHS"]
     dirty_paths = _dirty_paths()
     assert dirty_paths in (

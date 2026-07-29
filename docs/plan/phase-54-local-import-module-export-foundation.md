@@ -1,18 +1,18 @@
 # Phase 54 — Local Import / Module / Export Foundation
 
-## Status And Slice 1 Lifecycle
+## Status And Slice 2 Lifecycle
 
-Phase 53 and Slices 1-16 are `COMPLETED` at trusted baseline
-`af92f30c22e5d3df5219554a0663855a5b9f51a6`. Phase 54 is `UNSTARTED`
-throughout Slice 1 Gate 2. Slice 1 is static authority, governance,
-documentation, roadmap, and audit-test work only.
+Phase 53 and Slices 1-16 are `COMPLETED`. Phase 54 is `ACTIVE`, Slice 1 is
+`COMPLETED`, and the trusted Slice 2 base is
+`53d8767fc3bdbe5e3f631178652222bbe51f6a33`. During Slice 2 Gate 2, Slice 2
+remains incomplete and Slices 3-16 remain `UNSTARTED`.
 
-Phase 54 becomes `ACTIVE` and Slice 1 becomes `COMPLETED` only after the exact
+Slice 2 becomes `COMPLETED` only after the exact
 reviewed tree passes natural exact-head PR CI attempt 1, squash-merges with
 tree equality, passes natural exact-head `main` CI attempt 1, reconciles local
 `main` by fetch and ff-only update, cleans the publication branch, and records
-immutable Gate 3 evidence. Slices 2-16 then remain `UNSTARTED`; the next state
-is `PHASE54_SLICE2_GATE0_GATE1`, not Slice 2 implementation.
+immutable Gate 3 evidence. Slices 3-16 then remain `UNSTARTED`; the next state
+is `PHASE54_SLICE3_GATE0_GATE1`, and Slice 3 does not begin in Slice 2.
 
 ## Trusted Phase 53 Baseline And Controlling Evidence
 
@@ -23,6 +23,11 @@ the immutable Phase 54 grounding report, the three immutable Phase 53 Slice 16
 Gate reports, the Phase 54 Slice 1 end-to-end Goal, and the immutable Phase 54
 Slice 1 Gate 0/1 plan. Live source and completed-phase evidence take priority
 over stale historical descriptions.
+
+The binding Slice 1 completion evidence fixes Slice 2 base tree
+`475643a9a9c2a5643aef21a9bffe6a3a4232d4ff`, PR 34, natural PR CI run
+30401411137, natural `main` CI run 30401723363, and next state
+`PHASE54_SLICE2_GATE0_GATE1`.
 
 ## Phase Identity, Minimum Production Boundary, And Activation
 
@@ -261,15 +266,15 @@ routine user pause is required.
 
 ## Validation And Clean-CI Contract
 
-Require 14 primary tests, all reader/SCC families, zero-addition fixed point,
-the already-consumed literal-path write formatter on the original twenty-one
-Python paths, check-only Ruff formatting on the corrected exact thirty-two
-Python paths, Ruff lint, production/test Pyright, clean committed synthetic
-collection and full suite at 10,814, generated 8, goldens 37, package smoke
-PASS, installed CLI 0.1.0, and existing topology negatives. The eleven added
-formatter paths are formatting-neutral and must never receive a write-mode
-formatter invocation. No dirty overlay, skip, xfail, deselection, or masking is
-allowed.
+Slice 2 requires 16 new non-parametrized primary tests, forty-eight exact
+mechanical readers, a zero-addition SCC fixed point, one write-mode Ruff
+format invocation over fifty-five literal Python paths, check-only formatting
+afterward, Ruff lint, production/test Pyright, clean committed synthetic
+collection and full suite at 10,830, generated 8, goldens 37, package smoke
+PASS, installed CLI 0.1.0, and existing topology negatives. No dirty overlay,
+skip, xfail, deselection, or masking is allowed. Every `uv` invocation is
+offline, and authoritative validation starts again from the lockfile gate
+after any environment or projection repair.
 
 ## Package Version, Release, Supply-chain, And Remote Boundary
 
@@ -288,10 +293,33 @@ publication/reconciliation/cleanup ambiguity, or expanded permission. Bounded
 reader/hash/manifest/inventory/heading/formatter/topology/evidence repairs do
 not require a routine pause.
 
+## Slice 2 Exact Production Boundary And Gate Contract
+
+The normative contract is
+`docs/spec/phase54-slice2-schema-v2-explicit-module-activation-and-immutable-carrier-v1.md`.
+Schema v1 remains legacy-flat; schema v2 alone activates explicit modules.
+Private immutable compilation-mode and logical-module carriers are derived
+from validated configuration and retained through selection, parse/check, and
+the semantic result boundary. Explicit mode returns before legacy flat-catalog
+collection. It emits no new diagnostic and changes no public serializer.
+
+The exact Gate 2 authority is `A3_M54_D0`: one contract, one private carrier
+sidecar, one sixteen-test module, six core/status modifications, and
+forty-eight mechanical reader modifications. The index remains empty. Gate 2
+is fully offline. Gate 3 alone owns branch, stage, commit, push, ready PR,
+natural exact-head CI, exact-tree squash, reconciliation, cleanup, and final
+immutable evidence.
+
 ## Slice 2 — Schema-v2 Explicit-module Activation And Immutable Project / Module Carrier
 
-Separately gate exact schema-v2 activation and immutable module carriers while
-preserving schema-v1 compatibility. Prerequisite: Slice 1.
+Accept exact integer schema versions 1 and 2 only. Version 1 keeps the legacy
+flat semantic path. Version 2 activates project-wide explicit-module mode and
+cannot enter the legacy flat catalog. Add only private immutable project-mode
+and ordered logical-module carriers using current selected and parsed input
+facts; retain them through current project result boundaries. Public JSON,
+CLI syntax, Pietto grammar/AST, module resolution, diagnostics, SQL,
+dependencies, version, generated files, fixtures, goldens, release, and Rust
+remain unchanged. Prerequisite: Slice 1.
 
 ## Slice 3 — Module Identity, Selected-input Index, Trusted Local Loader, And Path / Symlink Boundary
 

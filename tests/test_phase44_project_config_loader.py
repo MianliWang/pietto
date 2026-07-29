@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from pietto._project.config import load_project_config
+from pietto._project.module_carrier import ProjectCompilationMode
 from pietto._project.model import ProjectConfigLoadResult, ProjectDiscoveryErrorKind
 
 
@@ -31,6 +32,7 @@ def test_valid_project_config_is_loaded_without_source_selection(
     assert result.config_path.path == "pietto.toml"
     assert result.config is not None
     assert result.config.schema_version == 1
+    assert result.config.compilation_mode is ProjectCompilationMode.LEGACY_FLAT
     assert result.config.sources.include_patterns == (
         "models/**/*.pietto",
         "*.pietto",
@@ -88,7 +90,7 @@ def test_loader_does_not_expand_globs_or_read_sources(tmp_path: Path) -> None:
         include = ["models/**/*.pietto"]
         """,
         """
-        schema_version = 2
+        schema_version = 3
 
         [sources]
         include = ["models/**/*.pietto"]

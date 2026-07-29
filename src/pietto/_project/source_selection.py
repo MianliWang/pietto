@@ -5,6 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from pietto._project.discovery import PROJECT_CONFIG_FILENAME
+from pietto._project.module_carrier import (
+    ProjectCompilationMode,
+    _build_project_logical_modules,
+)
 from pietto._project.model import (
     ProjectConfig,
     ProjectConfigLoadResult,
@@ -38,10 +42,16 @@ def select_project_sources(
     try:
         resolved_root = Path(root).resolve(strict=True)
     except OSError:
-        return _root_error("Project root does not exist or is not accessible.")
+        return _root_error(
+            "Project root does not exist or is not accessible.",
+            compilation_mode=config_result.config.compilation_mode,
+        )
 
     if not resolved_root.is_dir():
-        return _root_error("Project root must be an existing directory.")
+        return _root_error(
+            "Project root must be an existing directory.",
+            compilation_mode=config_result.config.compilation_mode,
+        )
 
     root_model = config_result.root or ProjectRoot(path=_PROJECT_ROOT_PATH)
     config_model = config_result.config_path or ProjectConfigPath(
@@ -54,6 +64,11 @@ def select_project_sources(
         config_path=config_model,
         inputs=inputs,
         errors=errors,
+        compilation_mode=config_result.config.compilation_mode,
+        modules=_build_project_logical_modules(
+            config_result.config.compilation_mode,
+            inputs,
+        ),
     )
 
 
@@ -291,7 +306,11 @@ def _optional_relative_path(parts: tuple[str, ...]) -> str | None:
     return _relative_path(parts)
 
 
-def _root_error(message: str) -> ProjectDiscoveryResult:
+def _root_error(
+    message: str,
+    *,
+    compilation_mode: ProjectCompilationMode = ProjectCompilationMode.LEGACY_FLAT,
+) -> ProjectDiscoveryResult:
     return ProjectDiscoveryResult(
         root=None,
         config_path=None,
@@ -303,4 +322,5 @@ def _root_error(message: str) -> ProjectDiscoveryResult:
                 None,
             ),
         ),
+        compilation_mode=compilation_mode,
     )

@@ -85,7 +85,9 @@ MAINTENANCE_BRANCH_PREFIX = "maintenance/dependabot-"
 SLICE15_PUBLISHED_HEAD = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
 SLICE16_SUBJECT = "Complete Phase 53 status and compatibility audit"
 PHASE53_COMPLETION_HEAD = "af92f30c22e5d3df5219554a0663855a5b9f51a6"
-PHASE54_SUBJECT = "Add Phase 54 scope authority and expansion route lock"
+PHASE54_SLICE1_HEAD = "53d8767fc3bdbe5e3f631178652222bbe51f6a33"
+PHASE54_SLICE1_SUBJECT = "Add Phase 54 scope authority and expansion route lock"
+PHASE54_SLICE2_SUBJECT = "Add Phase 54 schema v2 module activation carrier"
 MAINTENANCE_MODIFIED_PATHS = (
     ".github/workflows/ci.yml",
     "pyproject.toml",
@@ -349,11 +351,10 @@ def _assert_maintenance_candidate_shape(
         assert candidate_subject == MAINTENANCE_SUBJECT
 
 
-def _is_phase54_subject(subject: str) -> bool:
+def _is_phase54_subject(subject: str, expected: str) -> bool:
     return (
-        subject == PHASE54_SUBJECT
-        or re.fullmatch(rf"{re.escape(PHASE54_SUBJECT)} \(#[0-9]+\)", subject)
-        is not None
+        subject == expected
+        or re.fullmatch(rf"{re.escape(expected)} \(#[0-9]+\)", subject) is not None
     )
 
 
@@ -434,12 +435,42 @@ def _is_clean_projection() -> bool:
         _assert_main_refs(head)
         return True
 
-    if parents == (PHASE53_COMPLETION_HEAD,) and _is_phase54_subject(subject):
+    if parents == (PHASE53_COMPLETION_HEAD,) and _is_phase54_subject(
+        subject,
+        PHASE54_SLICE1_SUBJECT,
+    ):
+        if status:
+            assert head == PHASE54_SLICE1_HEAD
+            assert shallow == "false"
+            _assert_main_refs(head)
+            _assert_phase54_dirty_state(status=status, staged=staged)
+            return False
         _assert_clean_state(status=status, staged=staged)
         if pull_request_identity is not None:
             base_sha, candidate_sha = pull_request_identity
             assert shallow == "true"
             assert base_sha == PHASE53_COMPLETION_HEAD
+            assert candidate_sha == head
+            return True
+        if os.environ.get("GITHUB_EVENT_NAME") == "push":
+            assert shallow == "true"
+            assert os.environ.get("GITHUB_REF") == "refs/heads/main"
+            assert os.environ.get("GITHUB_SHA") == head
+            assert _git_optional_ref("refs/remotes/origin/main") in (None, head)
+            return True
+        assert shallow == "false"
+        _assert_main_refs(head)
+        return True
+
+    if parents == (PHASE54_SLICE1_HEAD,) and _is_phase54_subject(
+        subject,
+        PHASE54_SLICE2_SUBJECT,
+    ):
+        _assert_clean_state(status=status, staged=staged)
+        if pull_request_identity is not None:
+            base_sha, candidate_sha = pull_request_identity
+            assert shallow == "true"
+            assert base_sha == PHASE54_SLICE1_HEAD
             assert candidate_sha == head
             return True
         if os.environ.get("GITHUB_EVENT_NAME") == "push":
@@ -459,6 +490,7 @@ def _is_clean_projection() -> bool:
             CI_REPAIR_HEAD,
             SLICE15_PUBLISHED_HEAD,
             PHASE53_COMPLETION_HEAD,
+            PHASE54_SLICE1_HEAD,
         )
         _assert_clean_state(status=status, staged=staged)
         if head == candidate_sha:
