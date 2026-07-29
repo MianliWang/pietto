@@ -446,4 +446,4 @@ _SLICE10_READER_MIGRATION_PATHS = (
     "src/pietto/semantic/window_partition_analysis.py",
     "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
 )
-# Phase 54 Slice 2 reader migration.
+# Phase 54 Slice 3 reader migration.

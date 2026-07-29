@@ -1,18 +1,18 @@
 # Phase 54 — Local Import / Module / Export Foundation
 
-## Status And Slice 2 Lifecycle
+## Status And Slice 3 Lifecycle
 
 Phase 53 and Slices 1-16 are `COMPLETED`. Phase 54 is `ACTIVE`, Slice 1 is
-`COMPLETED`, and the trusted Slice 2 base is
-`53d8767fc3bdbe5e3f631178652222bbe51f6a33`. During Slice 2 Gate 2, Slice 2
-remains incomplete and Slices 3-16 remain `UNSTARTED`.
+`COMPLETED`, Slice 2 is `COMPLETED`, and the trusted Slice 3 base is
+`d8a5e9ab3de70ce30575513c73560c86430eca63`. During Slice 3 Gate 2, Slice 3
+remains incomplete and Slices 4-16 remain `UNSTARTED`.
 
-Slice 2 becomes `COMPLETED` only after the exact
+Slice 3 becomes `COMPLETED` only after the exact
 reviewed tree passes natural exact-head PR CI attempt 1, squash-merges with
 tree equality, passes natural exact-head `main` CI attempt 1, reconciles local
 `main` by fetch and ff-only update, cleans the publication branch, and records
-immutable Gate 3 evidence. Slices 3-16 then remain `UNSTARTED`; the next state
-is `PHASE54_SLICE3_GATE0_GATE1`, and Slice 3 does not begin in Slice 2.
+immutable Gate 3 evidence. Slices 4-16 then remain `UNSTARTED`; the next state
+is `PHASE54_SLICE4_GATE0_GATE1`, and Slice 4 does not begin in Slice 3.
 
 ## Trusted Phase 53 Baseline And Controlling Evidence
 
@@ -293,22 +293,31 @@ publication/reconciliation/cleanup ambiguity, or expanded permission. Bounded
 reader/hash/manifest/inventory/heading/formatter/topology/evidence repairs do
 not require a routine pause.
 
-## Slice 2 Exact Production Boundary And Gate Contract
+## Slice 3 Exact Production Boundary And Gate Contract
 
 The normative contract is
-`docs/spec/phase54-slice2-schema-v2-explicit-module-activation-and-immutable-carrier-v1.md`.
-Schema v1 remains legacy-flat; schema v2 alone activates explicit modules.
-Private immutable compilation-mode and logical-module carriers are derived
-from validated configuration and retained through selection, parse/check, and
-the semantic result boundary. Explicit mode returns before legacy flat-catalog
-collection. It emits no new diagnostic and changes no public serializer.
+`docs/spec/phase54-slice3-module-identity-selected-input-index-trusted-local-loader-path-symlink-boundary-v1.md`.
+Schema v1 remains legacy-flat and schema v2 remains explicit-module mode. Both
+use one once-pinned root, non-symlink config loading, deterministic verified
+selection, one immutable selected-input index, and one trusted descriptor
+loader. Exact normalized project-relative paths remain semantic module
+identity. Physical identity, canonical paths, opened-byte SHA-256, and source
+snapshots remain private trust facts and do not enter public JSON or semantic
+module identity.
 
-The exact Gate 2 authority is `A3_M54_D0`: one contract, one private carrier
-sidecar, one sixteen-test module, six core/status modifications, and
-forty-eight mechanical reader modifications. The index remains empty. Gate 2
-is fully offline. Gate 3 alone owns branch, stage, commit, push, ready PR,
-natural exact-head CI, exact-tree squash, reconciliation, cleanup, and final
-immutable evidence.
+The original Gate 0 / Gate 1 authority was `A5_M55_D0`. The clean-projection
+reader discovery recorded in
+`/home/mianliwang/.local/state/pietto/evidence/pietto-phase54-slice3-gate0-gate1-plan-correction-1.txt`
+adds one mechanical reader and freezes Gate 2 as `A5_M56_D0`: one contract,
+three private trust sidecars, one twenty-six-test module, seven direct
+core/status/test modifications, and forty-nine mechanical reader
+modifications. The Git index remains empty throughout Gate 2. Gate 2 is fully
+offline. Gate 3 alone owns
+branch, stage, commit, push, ready PR, natural exact-head CI, exact-tree squash,
+reconciliation, cleanup, and final immutable evidence. Every new Slice 3
+evidence target is a flat filename directly under
+`/home/mianliwang/.local/state/pietto/evidence`; the forbidden
+`phase54-slice3/` evidence subdirectory is never created.
 
 ## Slice 2 — Schema-v2 Explicit-module Activation And Immutable Project / Module Carrier
 

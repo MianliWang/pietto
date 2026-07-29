@@ -20,6 +20,26 @@ class ProjectCompilationMode(StrEnum):
     EXPLICIT_MODULES = "explicit_modules"
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProjectModuleIdentity:
+    """Stable private module identity defined only by its logical path."""
+
+    path: str
+
+    def __post_init__(self) -> None:
+        """Reject paths outside the exact selected module identity contract."""
+
+        if (
+            type(self.path) is not str
+            or not _is_normalized_project_relative_path(self.path)
+            or not self.path.endswith(".pietto")
+        ):
+            raise ValueError(
+                "Project module identity path must be a normalized project-relative "
+                ".pietto path."
+            )
+
+
 @dataclass(frozen=True, slots=True)
 class ProjectLogicalModule:
     """One ordered logical module for an existing selected project input."""
@@ -62,6 +82,12 @@ class ProjectLogicalModule:
                 raise ValueError(
                     "Project logical module path must match its parsed input."
                 )
+
+    @property
+    def identity(self) -> ProjectModuleIdentity:
+        """Return the path-only stable private identity for this module."""
+
+        return ProjectModuleIdentity(path=self.path)
 
 
 def _build_project_logical_modules(

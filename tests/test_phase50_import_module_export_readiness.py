@@ -392,9 +392,11 @@ def test_current_collection_path_and_project_input_identity_evidence_are_locked(
 
     assert '_PIETTO_SUFFIX = ".pietto"' in source_selection
     assert "for relative_path in sorted(selected_paths):" in source_selection
-    assert "resolved_path.relative_to(root)" in source_selection
-    assert "identity = (stat_result.st_dev, stat_result.st_ino)" in source_selection
-    assert "ProjectParsedInput(path=selected_input.path" in project_check
+    assert "resolved_path.relative_to(pinned_root.canonical_path)" in source_selection
+    assert "identity = final_target_state.physical_identity" in source_selection
+    assert "for entry in selected_input_index.entries:" in project_check
+    assert "trusted_source.source_text" in project_check
+    assert "path=selected_input.identity.path," in project_check
     assert "for parsed_input in parsed_inputs:" in project_model
     assert "for definition in parsed_input.script.definitions:" in project_model
     assert 'code="PIE-S2001"' in project_model

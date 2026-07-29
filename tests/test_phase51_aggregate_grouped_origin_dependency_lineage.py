@@ -105,7 +105,7 @@ CI_REPAIR_MODIFIED_PATHS = {
     "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
     "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
 }
-PHASE54_BASE_HEAD_SHA = "53d8767fc3bdbe5e3f631178652222bbe51f6a33"
+PHASE54_BASE_HEAD_SHA = "d8a5e9ab3de70ce30575513c73560c86430eca63"
 PHASE54_STATE_REL = (
     "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
 )
@@ -951,13 +951,13 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
         assert match.group(1) == compiler_digest
     project_paths = _project_private_paths()
     project_digest = _digest(project_paths)
-    assert len(project_paths) == 19
+    assert len(project_paths) == 22
     phase33 = (REPO_ROOT / "tests/test_phase33_completion_audit.py").read_text(
         encoding="utf-8"
     )
     assert (
         f'"project_private": (\n        "src/pietto/_project",\n'
-        f'        19,\n        "{project_digest}",\n    ),'
+        f'        22,\n        "{project_digest}",\n    ),'
     ) in phase33
 
     protected = (

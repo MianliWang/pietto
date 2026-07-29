@@ -24,6 +24,13 @@ SLICE2_SPEC_REL = (
     "immutable-carrier-v1.md"
 )
 SLICE2_TEST_REL = "tests/test_phase54_schema_v2_explicit_module_carrier.py"
+SLICE3_SPEC_REL = (
+    "docs/spec/phase54-slice3-module-identity-selected-input-index-trusted-"
+    "local-loader-path-symlink-boundary-v1.md"
+)
+SLICE3_TEST_REL = (
+    "tests/test_phase54_module_identity_selected_input_index_trusted_local_loader.py"
+)
 SELF_REL = "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
 
 PLAN_TITLE = "Phase 54 — Local Import / Module / Export Foundation"
@@ -38,6 +45,10 @@ ROADMAP_V2_TITLE = "Pietto Active Roadmap Phase 53–70 v2"
 SLICE2_SPEC_TITLE = (
     "Phase 54 Slice 2 Schema-v2 Explicit-module Activation And Immutable "
     "Project / Module Carrier v1"
+)
+SLICE3_SPEC_TITLE = (
+    "Phase 54 Slice 3 — Module Identity, Selected-input Index, Trusted Local "
+    "Loader, And Path / Symlink Boundary v1"
 )
 
 SLICE2_EXPECTED_TEST_NAMES = (
@@ -57,6 +68,35 @@ SLICE2_EXPECTED_TEST_NAMES = (
     "test_single_file_check_behavior_remains_exact",
     "test_import_export_grammar_ast_and_module_diagnostic_codes_remain_absent",
     "test_slice2_contract_allowlist_and_retained_later_boundaries_are_exact",
+)
+
+SLICE3_EXPECTED_TEST_NAMES = (
+    "test_module_identity_is_exact_normalized_path_only",
+    "test_logical_module_identity_property_preserves_slice2_fields",
+    "test_selected_input_index_is_ordered_immutable_and_filesystem_free",
+    "test_selected_input_index_rejects_duplicate_logical_and_physical_identities",
+    "test_regular_config_pins_root_and_reads_opened_bytes_once",
+    "test_invocation_root_symlink_is_accepted_once_and_retarget_fails_closed",
+    "test_root_replacement_identity_mismatch_fails_closed",
+    "test_config_symlink_and_non_regular_config_are_rejected_exactly",
+    "test_config_opened_identity_and_read_mutation_fail_closed",
+    "test_regular_selected_source_builds_trusted_snapshot_and_exact_digest",
+    "test_inside_root_source_symlink_is_accepted_with_logical_identity",
+    "test_outside_root_source_symlink_is_rejected_exactly",
+    "test_symlink_directory_traversal_remains_excluded",
+    "test_source_symlink_retarget_after_selection_fails_before_parser",
+    "test_regular_source_replacement_after_selection_fails_before_parser",
+    "test_non_regular_selected_source_is_rejected_exactly",
+    "test_physical_duplicate_has_no_selected_index_winner",
+    "test_opened_descriptor_identity_mismatch_fails_before_parser",
+    "test_source_byte_limit_and_oversize_diagnostic_remain_exact",
+    "test_invalid_utf8_and_read_error_order_remain_exact",
+    "test_parser_consumes_snapshot_text_without_second_path_open",
+    "test_source_digest_changes_only_with_exact_accepted_bytes",
+    "test_source_descriptors_close_on_success_and_failure",
+    "test_pre_post_read_mutation_is_rejected_when_observed",
+    "test_schema_v1_and_schema_v2_retain_trust_facts_and_existing_semantics",
+    "test_single_file_public_privacy_scope_and_flat_evidence_contract_remain_exact",
 )
 
 EXPECTED_TEST_NAMES = (
@@ -160,20 +200,27 @@ CLASSIFICATIONS = (
 FREEZE_LEDGERS = ("CURRENT_PRODUCTION", "CURRENT_READINESS", "RETAINED_LATER")
 
 ADDED_PATHS = {
-    "docs/spec/phase54-slice2-schema-v2-explicit-module-activation-and-immutable-carrier-v1.md",
-    "src/pietto/_project/module_carrier.py",
-    "tests/test_phase54_schema_v2_explicit_module_carrier.py",
+    (
+        "docs/spec/phase54-slice3-module-identity-selected-input-index-trusted-"
+        "local-loader-path-symlink-boundary-v1.md"
+    ),
+    "src/pietto/_project/path_trust.py",
+    "src/pietto/_project/selected_input_index.py",
+    "src/pietto/_project/trusted_source.py",
+    "tests/test_phase54_module_identity_selected_input_index_trusted_local_loader.py",
 }
 NON_READER_MODIFIED_PATHS = {
     "docs/plan/phase-54-local-import-module-export-foundation.md",
+    "src/pietto/_project/module_carrier.py",
     "src/pietto/_project/config.py",
     "src/pietto/_project/model.py",
     "src/pietto/_project/source_selection.py",
     "src/pietto/_project/check.py",
-    "tests/test_phase44_project_config_loader.py",
+    "tests/test_phase54_schema_v2_explicit_module_carrier.py",
 }
 MECHANICAL_READER_PATHS = {
     "tests/test_phase54_local_import_module_export_foundation_scope_lock.py",
+    "tests/test_phase50_import_module_export_readiness.py",
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
     "tests/test_phase11_generated_guard.py",
@@ -232,13 +279,17 @@ PROTECTED_SHA256 = {
     "src/pietto/ast_builder.py": "201c74d6a27e57dfc7cd0f9693b388ebe7853b783173a3c4f7191a5f8026e70b",
     "src/pietto/parser_api.py": "aa744c3ee334c8729917ae2aed2ee906874f927d47e99542d5accb8a98aa456b",
     "src/pietto/__init__.py": "669ac67bb23a0c8179995e0e415d76c46210c12311e29cd89d2612b45b0a194d",
-    "src/pietto/_project/module_carrier.py": "5c6e97c12cced227fa6dc4d9694d19088572d74197d452b83843c206014a7e8e",
-    "src/pietto/_project/config.py": "de099a8d1bfbbb6b80ef2c9d1fa323b53d790d433a9263ce6b539fac27e213a7",
-    "src/pietto/_project/model.py": "9f47b27526a5959771b23c6fe150f8c8411bf31908ec808e55657cf963c23280",
-    "src/pietto/_project/source_selection.py": "92e08a360139cc021de2fcb8b13df5e70412c8d0fb7b4a9cb829cec229ca6508",
-    "src/pietto/_project/check.py": "79d2372e43078b9b68b0fd65f552223a6c17a5eb382986020c4f0c1c1f5d6332",
+    "src/pietto/_project/module_carrier.py": "fa235758cc39ddc6efea004d03bd28ccae4833463c14b9f7664cf013f7b66fd5",
+    "src/pietto/_project/path_trust.py": "99923ff2ac195c6400935bb6eb9b7f8212815085a777fa4fd910ad66160dce8a",
+    "src/pietto/_project/selected_input_index.py": "9eef9b472e22eb1de0ca920c4264c72e5661d835d938966c872eba0fdd290772",
+    "src/pietto/_project/trusted_source.py": "21e6962bfb066be6af2539db1229e4fcc97c651d3e29f818794c46039317d8dc",
+    "src/pietto/_project/config.py": "da060cc15428ccc4b29ed992a814d7c5f41cca42dcd200655d2909a9d31a3d1e",
+    "src/pietto/_project/model.py": "8a00edb1b2c8584ed9da2926b33250ac1fe2cfc6eff3631865a6df373243fe22",
+    "src/pietto/_project/source_selection.py": "fb1c531bcdd81696aa0c26b110433a6775cde878aeb4af3373d0d4aaf1f1443e",
+    "src/pietto/_project/check.py": "6f2f2805249cc86a8ff3510a03abc702d2a029186cf16b50cabd11dbaf1da9e1",
     "src/pietto/_project/json_v2.py": "74251e684a22de4dcdc7e1822a6843ca89cbdfa7e136a046676d848b57953bd5",
-    SLICE2_TEST_REL: "02c211a0a0010fbc6fddb10f8fdb1ea4daba736862551721e8d167a42c30135b",
+    SLICE2_TEST_REL: "7d664b4c4f4a89aea96d40cdb6c8f1d4ac91144cf4bfd378cd75b52fef848e1c",
+    SLICE3_TEST_REL: "af3f38b814fef082c033be2a3bae8147613d0e7dda3d11be7ab7fb49854c1e23",
     ".github/workflows/ci.yml": "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94",
     "pyproject.toml": "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01",
     "uv.lock": "a7d9125995e98a8a74d3664ceae7801cc1f4cce74ec323933da67838be199cea",
@@ -333,11 +384,12 @@ def test_slice1_artifact_titles_heading_order_and_lifecycle_are_exact() -> None:
     assert _headings(GOVERNANCE_REL, 1) == (GOVERNANCE_TITLE,)
     assert _headings(ROADMAP_V2_REL, 1) == (ROADMAP_V2_TITLE,)
     assert _headings(SLICE2_SPEC_REL, 1) == (SLICE2_SPEC_TITLE,)
+    assert _headings(SLICE3_SPEC_REL, 1) == (SLICE3_SPEC_TITLE,)
     for relative in (PLAN_REL, SCOPE_REL, GOVERNANCE_REL, ROADMAP_V2_REL):
         assert _headings(relative, 2)
     plan_h2 = _headings(PLAN_REL, 2)
     assert plan_h2[:5] == (
-        "Status And Slice 2 Lifecycle",
+        "Status And Slice 3 Lifecycle",
         "Trusted Phase 53 Baseline And Controlling Evidence",
         "Phase Identity, Minimum Production Boundary, And Activation",
         "Current Production, Readiness, And Retained-later Freeze",
@@ -347,14 +399,15 @@ def test_slice1_artifact_titles_heading_order_and_lifecycle_are_exact() -> None:
         f"Slice {index} — {title}"
         for index, title in enumerate(PHASE54_ROUTE[1:], start=2)
     )
-    lifecycle = _section(PLAN_REL, "Status And Slice 2 Lifecycle")
+    lifecycle = _section(PLAN_REL, "Status And Slice 3 Lifecycle")
     for phrase in (
         "Phase 53 and Slices 1-16 are `COMPLETED`",
         "Phase 54 is `ACTIVE`",
         "Slice 1 is\n`COMPLETED`",
-        "Slice 2 becomes `COMPLETED`",
-        "Slices 3-16 then remain `UNSTARTED`",
-        "PHASE54_SLICE3_GATE0_GATE1",
+        "Slice 2 is `COMPLETED`",
+        "Slice 3 becomes `COMPLETED`",
+        "Slices 4-16 then remain `UNSTARTED`",
+        "PHASE54_SLICE4_GATE0_GATE1",
     ):
         assert phrase in lifecycle
     tests = _top_level_test_functions(SELF_REL)
@@ -379,6 +432,17 @@ def test_slice1_artifact_titles_heading_order_and_lifecycle_are_exact() -> None:
     )
     assert len(slice2_nodes) == 16
     assert all(not node.decorator_list for node in slice2_nodes)
+    slice3_tests = _top_level_test_functions(SLICE3_TEST_REL)
+    assert slice3_tests == SLICE3_EXPECTED_TEST_NAMES
+    slice3_tree = ast.parse(_read(SLICE3_TEST_REL), filename=SLICE3_TEST_REL)
+    slice3_nodes = tuple(
+        node
+        for node in slice3_tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name.startswith("test_")
+    )
+    assert len(slice3_nodes) == 26
+    assert all(not node.decorator_list for node in slice3_nodes)
 
 
 def test_authority_hierarchy_grounding_and_historical_predecessors_are_exact() -> None:
@@ -392,7 +456,7 @@ def test_authority_hierarchy_grounding_and_historical_predecessors_are_exact() -
         "8c3656805db451946d60e341b8ac0ca9181997378d07576133c9c4aeef3e3f77"
     )
     assert _sha256("tests/test_phase50_import_module_export_readiness.py") == (
-        "82cbc7398b6677ec2d11c80d73707bea6b7806b3e513c80e407bd4afb6dc5f9a"
+        "9d91d5a596f2c451d78667ccd17be39bd3c7b6079697c070ff2be505b0a00698"
     )
     scope = _read(SCOPE_REL)
     roadmap = _read(ROADMAP_V2_REL)
@@ -667,12 +731,16 @@ def test_legacy_config_discovery_selection_loader_and_project_json_are_byte_lock
 ):
     for relative in (
         "src/pietto/_project/module_carrier.py",
+        "src/pietto/_project/path_trust.py",
+        "src/pietto/_project/selected_input_index.py",
+        "src/pietto/_project/trusted_source.py",
         "src/pietto/_project/config.py",
         "src/pietto/_project/model.py",
         "src/pietto/_project/source_selection.py",
         "src/pietto/_project/check.py",
         "src/pietto/_project/json_v2.py",
         SLICE2_TEST_REL,
+        SLICE3_TEST_REL,
     ):
         assert _sha256(relative) == PROTECTED_SHA256[relative]
     config = _read("src/pietto/_project/config.py")
@@ -680,6 +748,9 @@ def test_legacy_config_discovery_selection_loader_and_project_json_are_byte_lock
     check = _read("src/pietto/_project/check.py")
     model = _read("src/pietto/_project/model.py")
     carrier = _read("src/pietto/_project/module_carrier.py")
+    path_trust = _read("src/pietto/_project/path_trust.py")
+    index = _read("src/pietto/_project/selected_input_index.py")
+    trusted = _read("src/pietto/_project/trusted_source.py")
     assert "_SCHEMA_VERSION = 1" not in config
     assert "_COMPILATION_MODE_BY_SCHEMA_VERSION" in config
     assert "1: ProjectCompilationMode.LEGACY_FLAT" in config
@@ -687,11 +758,19 @@ def test_legacy_config_discovery_selection_loader_and_project_json_are_byte_lock
     assert '_TOP_LEVEL_KEYS = frozenset({"schema_version", "sources"})' in config
     assert 'LEGACY_FLAT = "legacy_flat"' in carrier
     assert 'EXPLICIT_MODULES = "explicit_modules"' in carrier
+    assert "class ProjectModuleIdentity" in carrier
     assert "class ProjectLogicalModule" in carrier
     assert "_build_project_logical_modules" in selection
-    assert "resolved_path.relative_to(root)" in selection
-    assert "identities: dict[tuple[int, int], str]" in selection
+    assert "resolved_path.relative_to(pinned_root.canonical_path)" in selection
+    assert "ProjectSelectedInputIndex" in selection
     assert "ProjectParsedInput" in check and "script=parse_result.ast" in check
+    assert "_load_trusted_source" in check
+    assert "class ProjectPinnedRoot" in path_trust
+    assert "O_NOFOLLOW" in path_trust and "_fstat_state" in path_trust
+    assert "class ProjectSelectedInputIndex" in index
+    assert "MappingProxyType" in index
+    assert "class ProjectTrustedSourceSnapshot" in trusted
+    assert "hashlib.sha256(source_bytes).hexdigest()" in trusted
     assert "class ProjectInput" in model and "class ProjectParsedInput" in model
     assert "compilation_mode: ProjectCompilationMode" in model
     assert "modules: tuple[ProjectLogicalModule, ...]" in model
@@ -699,14 +778,17 @@ def test_legacy_config_discovery_selection_loader_and_project_json_are_byte_lock
         "parse_result.compilation_mode is not ProjectCompilationMode.LEGACY_FLAT"
         in model
     )
-    assert "os.fstat" not in check
-    assert "sha256" not in check.lower()
+    assert "trusted_source_snapshots" in model
     scope_readiness = _section(SCOPE_REL, "Current Readiness Ledger")
     assert "not a pinned descriptor loader" in scope_readiness
     assert (
         "not bound to later open" in scope_readiness
         or "not a pinned descriptor" in scope_readiness
     )
+    slice3 = _read(SLICE3_SPEC_REL)
+    assert "one once-pinned root" in slice3
+    assert "exact accepted raw bytes" in slice3
+    assert "immutable selected-input index" in slice3.lower()
 
 
 def test_flat_catalog_collect_before_resolve_semantic_and_project_fact_surfaces_are_locked() -> (
@@ -715,16 +797,17 @@ def test_flat_catalog_collect_before_resolve_semantic_and_project_fact_surfaces_
     compiler = _compiler_paths()
     semantic = tuple((REPO_ROOT / "src/pietto/semantic").glob("*.py"))
     project = tuple((REPO_ROOT / "src/pietto/_project").glob("*.py"))
+    assert len(compiler) == 97
     assert _digest(compiler) == (
-        "6b98059fa09b09fb2c724003f1276bd85077382b597711147d5a9bd5d820f550"
+        "ba1c27b7264dbf44731896e4ef5e8444b7fbc7b4ddac6de545a9c2bf3a106324"
     )
     assert _digest(semantic) == (
         "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
     )
     assert _digest(project) == (
-        "0b1d9571472263c00f22d69e01754a136455f3c0ac112b2b370cbe2be563a629"
+        "4aa0a55517f46e5cbd98a0050ce105a647ca59fdd387e639d5181be6da89490f"
     )
-    assert len(project) == 19
+    assert len(project) == 22
     model = _read("src/pietto/_project/model.py")
     for namespace in (
         'TYPE = "type"',
@@ -756,7 +839,11 @@ def test_module_surfaces_and_pie_s2701_s2707_are_reserved_but_not_implemented() 
     assert not re.search(r"PIE-S270[1-7]", production)
     carrier = _read("src/pietto/_project/module_carrier.py")
     assert "class ProjectCompilationMode(StrEnum)" in carrier
+    assert "class ProjectModuleIdentity" in carrier
     assert "class ProjectLogicalModule" in carrier
+    trusted = _read("src/pietto/_project/trusted_source.py")
+    assert "class ProjectTrustedSourceSnapshot" in trusted
+    assert "_load_trusted_source" in trusted
     for forbidden in (
         "ModuleGraph",
         "ImportDef",
@@ -826,22 +913,22 @@ def test_public_json_artifact_cli_sql_dependency_workflow_version_and_release_su
 def test_gate_allowlist_reader_evidence_publication_stop_and_next_state_contracts_are_exact() -> (
     None
 ):
-    assert (len(ADDED_PATHS), len(MODIFIED_PATHS), 0) == (3, 54, 0)
-    assert len(NON_READER_MODIFIED_PATHS) == 6
-    assert len(MECHANICAL_READER_PATHS) == 48
-    assert len(FORMATTER_PATHS) == 55
-    assert len(ALLOWLIST_PATHS) == 57
+    assert (len(ADDED_PATHS), len(MODIFIED_PATHS), 0) == (5, 56, 0)
+    assert len(NON_READER_MODIFIED_PATHS) == 7
+    assert len(MECHANICAL_READER_PATHS) == 49
+    assert len(FORMATTER_PATHS) == 59
+    assert len(ALLOWLIST_PATHS) == 61
     readable = _readable_paths()
-    assert len(readable) == 889
-    assert sum(path.endswith(".py") for path in readable) == 545
-    assert sum(path.endswith(".md") for path in readable) == 248
+    assert len(readable) == 894
+    assert sum(path.endswith(".py") for path in readable) == 549
+    assert sum(path.endswith(".md") for path in readable) == 249
     test_modules = tuple(
         path
         for path in readable
         if path.startswith("tests/test_") and path.endswith(".py")
     )
-    assert len(test_modules) == 451
-    assert sum(len(_top_level_test_functions(path)) for path in test_modules) == 4882
+    assert len(test_modules) == 452
+    assert sum(len(_top_level_test_functions(path)) for path in test_modules) == 4908
     dirty = set(_git_output(["diff", "--name-only"]).splitlines()) | set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
@@ -908,6 +995,27 @@ def test_gate_allowlist_reader_evidence_publication_stop_and_next_state_contract
         "Do not begin Slice 3",
     ):
         assert phrase in slice2_flat
+    slice3 = _read(SLICE3_SPEC_REL)
+    for path in (
+        "/home/mianliwang/.local/state/pietto/evidence/pietto-phase54-slice3-gate0-gate1-plan.txt",
+        "/home/mianliwang/.local/state/pietto/evidence/pietto-phase54-slice3-gate0-gate1-plan-correction-1.txt",
+        "/home/mianliwang/.local/state/pietto/evidence/pietto-phase54-slice3-gate0-gate1-plan-correction-2.txt",
+        "/home/mianliwang/.local/state/pietto/evidence/pietto-phase54-slice3-gate2-evidence-and-diff.txt",
+        "/home/mianliwang/.local/state/pietto/evidence/pietto-phase54-slice3-gate3-publication-evidence.txt",
+    ):
+        assert path in slice3
+    assert "/evidence/phase54-slice3/" not in slice3
+    for phrase in (
+        "`A5_M56_D0`",
+        "exactly 26 undecorated top-level tests",
+        "O_CREAT | O_EXCL | O_NOFOLLOW",
+        "mode=0644",
+        "natural exact-head PR CI attempt 1",
+        "squash-tree equality",
+        "ff-only reconciliation",
+        "next state is\n`PHASE54_SLICE4_GATE0_GATE1`",
+    ):
+        assert phrase in slice3
     plan = _read(PLAN_REL)
     for forbidden in ("dirty overlay", "skip", "xfail", "deselection", "masking"):
         assert forbidden in plan

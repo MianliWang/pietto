@@ -73,7 +73,7 @@ LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf2
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 SIGNATURE_SHA256 = "810f347080e0bb7dc674821aa6387c5f7618ac216832194ef19820326eef71d2"
 PROJECT_PRIVATE_DIGEST = (
-    "0b1d9571472263c00f22d69e01754a136455f3c0ac112b2b370cbe2be563a629"
+    "4aa0a55517f46e5cbd98a0050ce105a647ca59fdd387e639d5181be6da89490f"
 )
 TIER2_MANIFEST_BYTES = 18319
 TIER2_MANIFEST_FILES = 108
@@ -702,7 +702,7 @@ def _read(path: Path) -> str:
 
 def _slice13_paths(name: str) -> set[str]:
     if _git_output(["rev-parse", "HEAD"]) == (
-        "53d8767fc3bdbe5e3f631178652222bbe51f6a33"
+        "d8a5e9ab3de70ce30575513c73560c86430eca63"
     ):
         modified, added = _phase54_slice2_paths()
         if name == "MODIFIED_PATHS":
@@ -1136,11 +1136,11 @@ def test_compiler_semantic_subset_project_and_raw_hash_readers_are_exact() -> No
     )
     project_paths = _project_private_paths()
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        94,
+        97,
         36,
         33,
     )
-    assert len(project_paths) == 19
+    assert len(project_paths) == 22
     assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
 
     tracked = tuple(_git_output(["ls-files"]).splitlines())
@@ -1275,7 +1275,7 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
         assert head == main == origin_main
         assert head in (
             "4ff3c131fba54d83b56f3c50e14f7c2337c1eb52",
-            "53d8767fc3bdbe5e3f631178652222bbe51f6a33",
+            "d8a5e9ab3de70ce30575513c73560c86430eca63",
         )
     elif dirty_paths == SLICE9_ALLOWLIST_PATHS:
         assert branch == "main"
@@ -1372,7 +1372,7 @@ def test_static_test_inventory_and_tier1_selection_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (451, 4882)
+    assert (len(test_files), top_level_functions) == (452, 4908)
 
     compatible, per_file_items = _prior_compatible_nodes()
     assert (len(compatible), per_file_items) == (96, (24, 33, 63, 63))

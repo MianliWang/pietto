@@ -71,7 +71,7 @@ FAIL_CLOSED_MESSAGE = (
     "Phase 53 Slice 3."
 )
 BASE_HEAD_SHA = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
-PHASE54_SLICE2_BASE_HEAD_SHA = "53d8767fc3bdbe5e3f631178652222bbe51f6a33"
+PHASE54_SLICE2_BASE_HEAD_SHA = "d8a5e9ab3de70ce30575513c73560c86430eca63"
 PHASE54_SLICE2_STATE_REL = (
     "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
 )
@@ -1061,15 +1061,15 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             assert origin_main == head
 
     readable_paths = set(_git_output(["ls-files"]).splitlines()) | untracked
-    assert len(readable_paths) == 889
-    assert sum(path.endswith(".py") for path in readable_paths) == 545
-    assert sum(path.endswith(".md") for path in readable_paths) == 248
+    assert len(readable_paths) == 894
+    assert sum(path.endswith(".py") for path in readable_paths) == 549
+    assert sum(path.endswith(".md") for path in readable_paths) == 249
     test_modules = {
         path
         for path in readable_paths
         if path.startswith("tests/test_") and path.endswith(".py")
     }
-    assert len(test_modules) == 451
+    assert len(test_modules) == 452
     top_level_tests = 0
     for relative in sorted(test_modules):
         tree = ast.parse(_read(relative), filename=relative)
@@ -1078,7 +1078,7 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 4882
+    assert top_level_tests == 4908
     assert len(GENERATED_PATHS) == 8
     goldens = {
         path

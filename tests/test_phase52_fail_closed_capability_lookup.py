@@ -116,13 +116,13 @@ MODIFIED_READER_PATHS = (
 )
 ADDED_PATHS = {CONTEXT_REL, CONTEXT_SPEC_REL, CONTEXT_TEST_REL}
 ALLOWLIST_PATHS = {*MODIFIED_READER_PATHS, *ADDED_PATHS}
-COMPILER_DIGEST = "6b98059fa09b09fb2c724003f1276bd85077382b597711147d5a9bd5d820f550"
+COMPILER_DIGEST = "ba1c27b7264dbf44731896e4ef5e8444b7fbc7b4ddac6de545a9c2bf3a106324"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "0b1d9571472263c00f22d69e01754a136455f3c0ac112b2b370cbe2be563a629"
+    "4aa0a55517f46e5cbd98a0050ce105a647ca59fdd387e639d5181be6da89490f"
 )
 
 COMPILER_READERS = (
@@ -174,7 +174,7 @@ def _read(path: Path) -> str:
 
 def _slice13_paths(name: str) -> set[str]:
     if _git_output(["rev-parse", "HEAD"]) == (
-        "53d8767fc3bdbe5e3f631178652222bbe51f6a33"
+        "d8a5e9ab3de70ce30575513c73560c86430eca63"
     ):
         modified, added = _phase54_slice2_paths()
         if name == "MODIFIED_PATHS":
@@ -583,7 +583,7 @@ def test_compiler_semantic_and_phase15_boundary_digests_are_refreshed() -> None:
         for path in semantic_paths
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
-    assert len(compiler_paths) == 94
+    assert len(compiler_paths) == 97
     assert len(semantic_paths) == 36
     assert len(phase15_paths) == 33
     assert _digest(compiler_paths) == COMPILER_DIGEST
@@ -640,7 +640,7 @@ def test_raw_sha_reader_topology_is_closed_without_layer2_readers() -> None:
 
 def test_project_package_version_and_tag_boundaries_are_unchanged() -> None:
     project_paths = _project_private_paths()
-    assert len(project_paths) == 19
+    assert len(project_paths) == 22
     assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
     with PYPROJECT_PATH.open("rb") as stream:
         project = tomllib.load(stream)

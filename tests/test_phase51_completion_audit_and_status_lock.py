@@ -118,7 +118,7 @@ PHASE52_UNTRACKED_PATHS = {
     "docs/spec/phase52-core-type-system-capability-foundation-scope-lock-v1.md",
     "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
 }
-SLICE2_BASE_HEAD_SHA = "53d8767fc3bdbe5e3f631178652222bbe51f6a33"
+SLICE2_BASE_HEAD_SHA = "d8a5e9ab3de70ce30575513c73560c86430eca63"
 SLICE2_STATE_REL = (
     "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
 )
@@ -326,9 +326,9 @@ PROTECTED_HASHES = {
         "26cc0ae4a68518223d6bf600ad3c4b0b226618aa7ef31b2ae1c25924d2655169"
     ),
 }
-COMPILER_DIGEST = "6b98059fa09b09fb2c724003f1276bd85077382b597711147d5a9bd5d820f550"
+COMPILER_DIGEST = "ba1c27b7264dbf44731896e4ef5e8444b7fbc7b4ddac6de545a9c2bf3a106324"
 PROJECT_PRIVATE_DIGEST = (
-    "0b1d9571472263c00f22d69e01754a136455f3c0ac112b2b370cbe2be563a629"
+    "4aa0a55517f46e5cbd98a0050ce105a647ca59fdd387e639d5181be6da89490f"
 )
 
 PROJECT_JSON_V2_KEYS = (
@@ -1009,7 +1009,7 @@ def test_live_compiler_project_private_protected_version_and_tag_locks_are_dirty
     None
 ):
     compiler_count, compiler_digest = _compiler_digest()
-    assert (compiler_count, compiler_digest) == (94, COMPILER_DIGEST)
+    assert (compiler_count, compiler_digest) == (97, COMPILER_DIGEST)
     for relative_path in BOUNDARY_PATHS:
         boundary_values = re.findall(
             r'^BOUNDARY_HASH = "([0-9a-f]{64})"$',
@@ -1019,12 +1019,12 @@ def test_live_compiler_project_private_protected_version_and_tag_locks_are_dirty
         assert boundary_values == [COMPILER_DIGEST]
 
     project_paths = _project_private_paths()
-    assert len(project_paths) == 19
+    assert len(project_paths) == 22
     assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
     phase33 = _read(REPO_ROOT / "tests/test_phase33_completion_audit.py")
     assert (
         f'"project_private": (\n        "src/pietto/_project",\n'
-        f'        19,\n        "{PROJECT_PRIVATE_DIGEST}",\n    ),'
+        f'        22,\n        "{PROJECT_PRIVATE_DIGEST}",\n    ),'
     ) in phase33
 
     for relative_path, expected_hash in PROTECTED_HASHES.items():
