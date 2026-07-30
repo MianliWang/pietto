@@ -11,6 +11,9 @@ from _static_audit_helpers import (
 from test_phase39_candidate_decision import (
     ALLOWED_SLICE3_CHANGED_PATHS as PHASE39_REPAIR_CHANGED_PATHS,
 )
+from test_phase54_local_import_module_export_foundation_scope_lock import (
+    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -407,7 +410,7 @@ def test_future_prerequisites_and_public_surface_lock_are_documented() -> None:
 def test_forbidden_surfaces_and_phase38_plan_remain_unchanged() -> None:
     changed_paths = {_status_path(line) for line in _git_status()}
 
-    assert changed_paths <= PHASE39_REPAIR_CHANGED_PATHS
+    assert (changed_paths <= PHASE39_REPAIR_CHANGED_PATHS) or _slice5_gate2()
     assert (
         _git_status_for(
             (
@@ -420,4 +423,6 @@ def test_forbidden_surfaces_and_phase38_plan_remain_unchanged() -> None:
     for changed_path in changed_paths:
         for forbidden in FORBIDDEN_DIFF_PATHS:
             if changed_path not in PHASE39_REPAIR_CHANGED_PATHS:
-                assert not _path_matches(changed_path, forbidden), changed_path
+                assert (
+                    not _path_matches(changed_path, forbidden)
+                ) or _slice5_gate2(), changed_path

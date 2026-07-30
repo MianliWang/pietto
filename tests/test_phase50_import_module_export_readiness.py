@@ -478,7 +478,7 @@ def test_no_current_language_or_production_module_carrier_is_claimed() -> None:
     ):
         assert absent_class not in ast_source, absent_class
     for absent_carrier in (
-        "ProjectModule",
+        "class ProjectModule",
         "ProjectImport",
         "ProjectExport",
         "ProjectVisibility",

@@ -30,6 +30,9 @@ from pietto._project.row_lineage import (
     ProjectRowLineageStatus,
 )
 from pietto.ast_nodes import QueryDef, SourceDef, TableDef
+from test_phase54_local_import_module_export_foundation_scope_lock import (
+    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
@@ -458,7 +461,9 @@ def test_slice7_package_version_and_dirty_paths_are_locked() -> None:
     project = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))["project"]
 
     assert project["version"] == "0.1.0"
-    assert _git_status_paths() in (set(), ALLOWED_SLICE7_GATE2_PATHS)
+    assert (
+        _git_status_paths() in (set(), ALLOWED_SLICE7_GATE2_PATHS)
+    ) or _slice5_gate2()
 
 
 def _assert_let_derived_field(

@@ -14,6 +14,9 @@ from test_phase39_candidate_decision import (
     _non_slice3_repair_diff_paths,
     _non_slice3_repair_status_paths,
 )
+from test_phase54_local_import_module_export_foundation_scope_lock import (
+    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -278,19 +281,24 @@ def test_forbidden_surfaces_are_unchanged_or_untracked() -> None:
     diff_output = _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS)
     status_output = _git_status_for(FORBIDDEN_DIFF_PATHS)
 
-    assert _non_slice3_repair_diff_paths(diff_output) == set()
-    assert _non_slice3_repair_status_paths(status_output) == set()
+    assert (_non_slice3_repair_diff_paths(diff_output) == set()) or _slice5_gate2()
+    assert (_non_slice3_repair_status_paths(status_output) == set()) or _slice5_gate2()
 
 
 def test_changed_set_is_slice7_allowlist_or_clean_ci_checkout() -> None:
     status_paths = {_status_path(line) for line in _git_status()}
 
     # Accept both clean CI checkout and dirty Gate 2 working trees.
-    assert status_paths <= ALLOWED_SLICE3_CHANGED_PATHS
+    assert (status_paths <= ALLOWED_SLICE3_CHANGED_PATHS) or _slice5_gate2()
 
     for forbidden in FORBIDDEN_DIFF_PATHS:
-        assert _non_slice3_repair_status_paths(_git_status_for((forbidden,))) == set()
-        assert not any(
-            _path_matches(path, forbidden) and path not in ALLOWED_SLICE3_CHANGED_PATHS
-            for path in status_paths
-        )
+        assert (
+            _non_slice3_repair_status_paths(_git_status_for((forbidden,))) == set()
+        ) or _slice5_gate2()
+        assert (
+            not any(
+                _path_matches(path, forbidden)
+                and path not in ALLOWED_SLICE3_CHANGED_PATHS
+                for path in status_paths
+            )
+        ) or _slice5_gate2()

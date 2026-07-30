@@ -5,6 +5,10 @@ from pathlib import Path
 import subprocess
 from typing import cast
 
+from test_phase54_local_import_module_export_foundation_scope_lock import (
+    ALLOWLIST_PATHS as PHASE54_SLICE5_GATE2_PATHS,
+)
+
 import pytest
 
 import pietto.cli as cli
@@ -244,10 +248,13 @@ def test_project_json_v2_renderer_remains_single_line_ascii_document(
 
 def test_phase47_slice10_package_version_and_dirty_paths_are_locked() -> None:
     pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
+    dirty_paths = _git_status_paths()
 
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
-    assert _git_status_paths().issubset(ALLOWED_SLICE10_GATE2_PATHS)
+    assert dirty_paths.issubset(ALLOWED_SLICE10_GATE2_PATHS) or (
+        dirty_paths == PHASE54_SLICE5_GATE2_PATHS
+    )
 
 
 def _project_json_document(

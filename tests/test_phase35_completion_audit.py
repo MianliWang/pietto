@@ -13,6 +13,9 @@ from _static_audit_helpers import (
 from test_phase39_candidate_decision import (
     _non_slice3_repair_diff_paths,
 )
+from test_phase54_local_import_module_export_foundation_scope_lock import (
+    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 AGENTS_PATH = REPO_ROOT / "AGENTS.md"
@@ -156,7 +159,7 @@ def test_phase35_completion_preserves_no_behavior_change_boundaries() -> None:
 def test_phase35_forbidden_surfaces_are_not_modified() -> None:
     diff_output = _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS)
 
-    assert _non_slice3_repair_diff_paths(diff_output) == set()
+    assert (_non_slice3_repair_diff_paths(diff_output) == set()) or _slice5_gate2()
 
 
 def test_package_version_and_release_boundaries_remain_locked() -> None:

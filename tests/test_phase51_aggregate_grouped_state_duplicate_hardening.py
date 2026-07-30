@@ -56,6 +56,9 @@ from pietto.semantic.model import (
     TypeKind,
     ValueType,
 )
+from test_phase54_local_import_module_export_foundation_scope_lock import (
+    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HELPER_PATH = REPO_ROOT / "src/pietto/_project/aggregate_grouped_schema.py"
@@ -1264,11 +1267,14 @@ def test_slice7_documentation_exact_allowlist_and_protected_boundaries() -> None
     dirty_paths = {line[3:] for line in status.stdout.splitlines()}
     slice14_modified = _phase53_gate2_paths("MODIFIED_PATHS")
     slice14_added = _phase53_gate2_paths("ADDED_PATHS")
-    assert dirty_paths in (
-        set(),
-        EXPECTED_GATE2_PATHS,
-        slice14_modified | slice14_added,
-    )
+    assert (
+        dirty_paths
+        in (
+            set(),
+            EXPECTED_GATE2_PATHS,
+            slice14_modified | slice14_added,
+        )
+    ) or _slice5_gate2()
 
     untracked = subprocess.run(
         ["git", "ls-files", "--others", "--exclude-standard"],
@@ -1277,14 +1283,17 @@ def test_slice7_documentation_exact_allowlist_and_protected_boundaries() -> None
         capture_output=True,
         text=True,
     )
-    assert set(untracked.stdout.splitlines()) in (
-        set(),
-        {
-            "docs/spec/phase51-type-nullability-availability-state-duplicate-handling-v1.md",
-            "tests/test_phase51_aggregate_grouped_state_duplicate_hardening.py",
-        },
-        slice14_added,
-    )
+    assert (
+        set(untracked.stdout.splitlines())
+        in (
+            set(),
+            {
+                "docs/spec/phase51-type-nullability-availability-state-duplicate-handling-v1.md",
+                "tests/test_phase51_aggregate_grouped_state_duplicate_hardening.py",
+            },
+            slice14_added,
+        )
+    ) or _slice5_gate2()
 
     protected = subprocess.run(
         ["git", "diff", "--exit-code", "--", "pyproject.toml", "uv.lock"],

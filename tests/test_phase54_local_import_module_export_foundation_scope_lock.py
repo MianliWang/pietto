@@ -36,6 +36,11 @@ SLICE4_SPEC_REL = (
     "parser-and-immutable-ast-v1.md"
 )
 SLICE4_TEST_REL = "tests/test_phase54_import_export_contextual_grammar_ast.py"
+SLICE5_SPEC_REL = (
+    "docs/spec/phase54-slice5-module-qualified-nominal-declaration-identity-"
+    "and-per-module-catalogs-v1.md"
+)
+SLICE5_TEST_REL = "tests/test_phase54_module_qualified_nominal_declaration_catalogs.py"
 SELF_REL = "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
 
 PLAN_TITLE = "Phase 54 — Local Import / Module / Export Foundation"
@@ -58,6 +63,10 @@ SLICE3_SPEC_TITLE = (
 SLICE4_SPEC_TITLE = (
     "Phase 54 Slice 4 — Import / Export Contextual Grammar, Generated Parser, "
     "And Immutable AST v1"
+)
+SLICE5_SPEC_TITLE = (
+    "Phase 54 Slice 5 — Module-qualified Nominal Declaration Identity And "
+    "Per-module Catalogs v1"
 )
 
 SLICE2_EXPECTED_TEST_NAMES = (
@@ -139,6 +148,39 @@ SLICE4_EXPECTED_TEST_NAMES = (
     "test_tabs_and_malformed_module_indentation_use_existing_diagnostics",
     "test_generated_inventory_rules_and_contextual_token_order_are_exact",
     "test_reader_allowlist_retained_later_and_publication_topology_contracts_are_exact",
+)
+
+SLICE5_EXPECTED_TEST_NAMES = (
+    "test_nominal_declaration_identity_is_exact_frozen_slotted_four_component_value",
+    "test_nominal_declaration_identity_preserves_exact_module_path_case_suffix_and_unicode",
+    "test_each_nominal_identity_component_independently_controls_equality_and_hash",
+    "test_occurrence_span_ast_object_positions_and_trust_payload_do_not_change_nominal_identity",
+    "test_nominal_identity_and_occurrence_constructors_reject_wrong_exact_types_and_mismatches",
+    "test_all_eight_definition_classes_map_to_exact_namespace_kind_and_declared_name",
+    "test_relationships_imports_and_exports_are_excluded_from_local_declaration_occurrences",
+    "test_occurrences_retain_exact_module_and_declaration_positions_and_definition_values",
+    "test_module_catalog_is_frozen_slotted_tuple_backed_and_retains_exact_owner",
+    "test_module_catalog_rejects_wrong_mode_unparsed_owner_and_incomplete_or_misordered_occurrences",
+    "test_project_catalog_set_builds_one_catalog_per_module_in_exact_selected_input_order",
+    "test_project_catalog_set_rejects_duplicate_module_paths_and_noncontiguous_or_missing_modules",
+    "test_empty_catalog_set_and_lookup_results_are_exact_immutable_empty_tuples",
+    "test_project_module_path_lookup_returns_exact_zero_or_one_element_tuple",
+    "test_exact_nominal_identity_lookup_returns_all_source_ordered_occurrences",
+    "test_exact_namespace_declared_name_lookup_returns_zero_one_or_multiple_occurrences",
+    "test_catalog_construction_never_reopens_sources_or_consults_import_targets_or_registries",
+    "test_same_declaration_spelling_in_different_modules_has_distinct_nominal_identities",
+    "test_same_spelling_in_different_namespaces_has_distinct_identity_and_lookup_buckets",
+    "test_same_namespace_and_name_across_different_kinds_preserves_one_ambiguous_bucket",
+    "test_repeated_exact_nominal_identity_preserves_every_occurrence_in_source_order",
+    "test_declaration_order_changes_only_occurrence_order_and_never_creates_precedence_or_winner",
+    "test_schema_v2_catalog_collisions_emit_no_pie_s2001_or_pie_s2701_through_pie_s2707",
+    "test_schema_v2_success_retains_catalogs_privately_without_changing_model_diagnostics_ok_or_defaults",
+    "test_schema_v2_parse_or_read_failure_builds_no_complete_or_partial_catalog_set",
+    "test_current_zero_selected_input_project_remains_project_glob_failure_without_catalogs",
+    "test_schema_v2_text_and_json_cli_remain_fail_closed_with_exact_envelope_and_no_catalog_fields",
+    "test_schema_v1_legacy_flat_catalog_duplicate_diagnostics_and_cli_json_remain_exact",
+    "test_import_export_blocks_do_not_add_remove_rename_reorder_or_link_local_declarations",
+    "test_private_public_dependency_version_and_retained_later_surfaces_remain_exact",
 )
 
 EXPECTED_TEST_NAMES = (
@@ -242,114 +284,148 @@ CLASSIFICATIONS = (
 FREEZE_LEDGERS = ("CURRENT_PRODUCTION", "CURRENT_READINESS", "RETAINED_LATER")
 
 ADDED_PATHS = {
-    "docs/spec/phase54-slice4-import-export-contextual-grammar-generated-parser-and-immutable-ast-v1.md",
-    "tests/test_phase54_import_export_contextual_grammar_ast.py",
+    "docs/spec/phase54-slice5-module-qualified-nominal-declaration-identity-and-per-module-catalogs-v1.md",
+    "src/pietto/_project/module_catalog.py",
+    "tests/test_phase54_module_qualified_nominal_declaration_catalogs.py",
 }
 NON_READER_MODIFIED_PATHS = {
     "README.md",
     "docs/plan/phase-54-local-import-module-export-foundation.md",
     "docs/spec/pietto-v0.9.md",
-    "grammar/Pietto.g4",
-    "src/pietto/ast_nodes.py",
-    "src/pietto/ast_builder.py",
-    "src/pietto/generated/Pietto.interp",
-    "src/pietto/generated/Pietto.tokens",
-    "src/pietto/generated/PiettoLexer.interp",
-    "src/pietto/generated/PiettoLexer.py",
-    "src/pietto/generated/PiettoLexer.tokens",
-    "src/pietto/generated/PiettoParser.py",
-    "src/pietto/generated/PiettoVisitor.py",
+    "src/pietto/_project/model.py",
 }
 MECHANICAL_READER_PATHS = {
-    "tests/test_phase10_completion_audit.py",
-    "tests/test_phase10_dialect_dispatch_design.py",
-    "tests/test_phase10_mysql_backend_skeleton.py",
-    "tests/test_phase10_mysql_connector_semantic_surface.py",
-    "tests/test_phase10_mysql_golden_corpus.py",
-    "tests/test_phase10_mysql_rendering_mvp.py",
-    "tests/test_phase10_planning_audit.py",
-    "tests/test_phase10_sqlglot_spike_evaluation.py",
+    "tests/test_maintenance_phase2_agent_workflow_and_roadmap.py",
+    "tests/test_maintenance_phase2_code_audit_security_review.py",
+    "tests/test_maintenance_phase2_completion_audit.py",
+    "tests/test_maintenance_phase2_external_skills_evaluation.py",
+    "tests/test_maintenance_phase3_ci_parallelization.py",
+    "tests/test_maintenance_phase3_completion_audit.py",
+    "tests/test_maintenance_phase3_developer_workflow.py",
+    "tests/test_maintenance_phase3_non_pytest_validation_optimization.py",
+    "tests/test_maintenance_phase3_parallel_safety.py",
+    "tests/test_maintenance_phase3_validation_acceleration_scope_lock.py",
+    "tests/test_maintenance_phase4_benchmark_evidence_decision.py",
+    "tests/test_maintenance_phase4_completion_audit.py",
+    "tests/test_maintenance_phase4_worker_strategy_benchmark_protocol.py",
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
     "tests/test_phase11_generated_guard.py",
     "tests/test_phase11_golden_policy.py",
     "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase11_planning_audit.py",
     "tests/test_phase11_validation_entrypoint.py",
     "tests/test_phase12_completion_audit.py",
     "tests/test_phase12_composition_cli_json_goldens.py",
-    "tests/test_phase12_order_limit_contract.py",
-    "tests/test_phase12_planning_audit.py",
-    "tests/test_phase13_completion_audit.py",
-    "tests/test_phase13_composition_scope_contract.py",
-    "tests/test_phase13_composition_sql_shape_contract.py",
-    "tests/test_phase13_planning_audit.py",
-    "tests/test_phase13_relationship_role_contract.py",
-    "tests/test_phase13_security_diagnostics_contract.py",
-    "tests/test_phase14_candidate_decision_audit.py",
-    "tests/test_phase14_completion_audit.py",
-    "tests/test_phase14_planning_audit.py",
-    "tests/test_phase14_relationship_metadata_completion_audit.py",
-    "tests/test_phase15_completion_audit.py",
-    "tests/test_phase15_relationship_name_ownership_contract.py",
-    "tests/test_phase15_semantic_completion_audit.py",
-    "tests/test_phase16_completion_audit.py",
-    "tests/test_phase16_current_syntax_surface_audit.py",
-    "tests/test_phase16_language_direction_audit.py",
-    "tests/test_phase16_safety_deferral_sql_portability.py",
-    "tests/test_phase17_computed_projection_schema_propagation.py",
-    "tests/test_phase17_core_scalar_expression_semantics.py",
-    "tests/test_phase17_relation_schema_hardening_completion_audit.py",
-    "tests/test_phase17_single_input_qualified_field_binding.py",
-    "tests/test_phase19_completion_audit.py",
-    "tests/test_phase20_completion_audit.py",
     "tests/test_phase21_group_by_hardening_audit.py",
-    "tests/test_phase22_completion_audit.py",
-    "tests/test_phase23_completion_audit.py",
     "tests/test_phase24_aggregate_expression_arguments_readiness.py",
     "tests/test_phase24_cli_json_output_hardening.py",
     "tests/test_phase24_completion_audit.py",
-    "tests/test_phase25_completion_audit.py",
     "tests/test_phase26_completion_audit.py",
-    "tests/test_phase26_decimal_scalar_expression_semantics.py",
-    "tests/test_phase26_numeric_scalar_expression_semantics.py",
     "tests/test_phase27_completion_audit.py",
-    "tests/test_phase27_grouped_order_candidate_decision.py",
     "tests/test_phase28_completion_audit.py",
-    "tests/test_phase28_numeric_literal_aggregate_candidate_decision.py",
     "tests/test_phase29_completion_audit.py",
-    "tests/test_phase29_v02_stabilization_candidate_decision.py",
-    "tests/test_phase30_bool_predicate_semantics_contract.py",
-    "tests/test_phase30_candidate_decision.py",
-    "tests/test_phase30_canonical_scalar_type_registry.py",
     "tests/test_phase30_completion_audit.py",
-    "tests/test_phase30_date_timestamp_formalization_contract.py",
-    "tests/test_phase30_decimal_precision_scale_contract.py",
-    "tests/test_phase30_nullability_propagation_contract.py",
-    "tests/test_phase30_operator_comparison_matrix_contract.py",
-    "tests/test_phase31_candidate_decision.py",
-    "tests/test_phase31_docs_examples_package_ci_readiness.py",
-    "tests/test_phase31_v02_stable_completion_audit.py",
-    "tests/test_phase32_completion_audit.py",
-    "tests/test_phase32_explain_cli.py",
-    "tests/test_phase32_metadata_json_serializer.py",
-    "tests/test_phase32_metadata_query_aggregate_lineage.py",
-    "tests/test_phase32_metadata_schema_type_nullability.py",
-    "tests/test_phase32_private_metadata_builder.py",
-    "tests/test_phase32_semantic_metadata_artifact_contract.py",
-    "tests/test_phase32_semantic_metadata_candidate_decision.py",
-    "tests/test_phase33_candidate_decision.py",
     "tests/test_phase33_completion_audit.py",
-    "tests/test_phase33_project_explain_metadata_contract.py",
     "tests/test_phase35_completion_audit.py",
-    "tests/test_phase35_status_housekeeping.py",
+    "tests/test_phase35_internal_helper_simplification_candidate_decision.py",
+    "tests/test_phase35_safe_simplification_candidate_decision.py",
+    "tests/test_phase35_validation_delivery_workflow_polish.py",
     "tests/test_phase36_completion_audit.py",
+    "tests/test_phase36_public_surface_stability_hardening.py",
     "tests/test_phase36_status_housekeeping.py",
+    "tests/test_phase37_aggregate_filter_distinct_modifier_deferral.py",
+    "tests/test_phase37_candidate_decision.py",
+    "tests/test_phase37_completion_audit.py",
+    "tests/test_phase37_count_distinct_expression_widening_boundary.py",
+    "tests/test_phase37_count_expression_mvp_decision.py",
+    "tests/test_phase37_current_aggregate_matrix.py",
+    "tests/test_phase37_decimal_aggregate_expression_boundary.py",
+    "tests/test_phase37_grouped_aggregate_interaction_hardening.py",
+    "tests/test_phase37_min_max_expression_boundary.py",
+    "tests/test_phase37_nested_aggregate_composition_hardening.py",
+    "tests/test_phase38_binding_filter_post_aggregate_roadmap.py",
+    "tests/test_phase38_boundary_types_capability_contract.py",
+    "tests/test_phase38_candidate_decision.py",
+    "tests/test_phase38_completion_audit.py",
+    "tests/test_phase38_count_family_semantics_contract.py",
+    "tests/test_phase38_distinct_collation_ordering_readiness.py",
+    "tests/test_phase38_type_capability_matrix_contract.py",
+    "tests/test_phase39_candidate_decision.py",
+    "tests/test_phase39_completion_audit.py",
+    "tests/test_phase39_count_expression_mvp_contract.py",
+    "tests/test_phase40_completion_audit.py",
+    "tests/test_phase40_let_binding_model_candidate.py",
+    "tests/test_phase40_let_binding_syntax_scope_contract.py",
+    "tests/test_phase41_decimal_precision_scale_candidate.py",
+    "tests/test_phase41_decimal_precision_scale_completion_audit.py",
+    "tests/test_phase43_completion_audit.py",
+    "tests/test_phase44_completion_audit.py",
+    "tests/test_phase44_project_config_schema_contract.py",
+    "tests/test_phase45_project_semantic_scope_lock.py",
+    "tests/test_phase46_completion_audit.py",
+    "tests/test_phase46_project_compatibility_hardening.py",
+    "tests/test_phase46_project_json_v2_relation_cycle_diagnostics.py",
+    "tests/test_phase46_project_relation_cycle_detection.py",
+    "tests/test_phase46_project_relation_cycle_diagnostics.py",
+    "tests/test_phase46_project_relation_dependency_edge_collection.py",
+    "tests/test_phase46_project_relation_dependency_graph_scaffold.py",
+    "tests/test_phase46_project_semantic_continuation_scope_lock.py",
+    "tests/test_phase47_completion_audit.py",
+    "tests/test_phase47_direct_bare_field_row_schema.py",
+    "tests/test_phase47_direct_field_rename_row_schema.py",
+    "tests/test_phase47_direct_row_schema_scope_lock.py",
+    "tests/test_phase47_downstream_readiness_hardening.py",
+    "tests/test_phase47_private_row_schema_scaffold.py",
+    "tests/test_phase47_project_json_privacy_hardening.py",
+    "tests/test_phase47_qualified_field_row_schema.py",
+    "tests/test_phase47_source_row_schema_propagation.py",
+    "tests/test_phase47_unknown_direct_field_diagnostics.py",
+    "tests/test_phase48_completion_audit_status_lock.py",
+    "tests/test_phase48_deterministic_propagation_order_contract.py",
+    "tests/test_phase48_downstream_diagnostics_ordering_hardening.py",
+    "tests/test_phase48_project_json_private_fact_privacy_readiness.py",
+    "tests/test_phase48_propagated_field_provenance_lineage_hardening.py",
+    "tests/test_phase48_query_to_query_multi_hop_propagation.py",
+    "tests/test_phase48_query_to_query_row_schema_scope_lock.py",
+    "tests/test_phase48_schema_availability_state_carrier.py",
+    "tests/test_phase48_table_upstream_row_schema_propagation.py",
+    "tests/test_phase48_upstream_non_concrete_schema_propagation.py",
+    "tests/test_phase49_compatibility_privacy_hash_lock_readiness.py",
+    "tests/test_phase49_completion_audit_status_lock.py",
+    "tests/test_phase49_computed_alias_origin_provenance_privacy.py",
+    "tests/test_phase49_computed_alias_project_row_schema_mvp.py",
+    "tests/test_phase49_computed_let_multi_hop_row_lineage.py",
+    "tests/test_phase49_let_visibility_order_shadowing_hardening.py",
+    "tests/test_phase49_minimal_private_lineage_carrier_source_direct_rename.py",
+    "tests/test_phase49_private_row_level_dependency_graph_scaffold.py",
+    "tests/test_phase49_project_let_scope_value_facts.py",
+    "tests/test_phase49_project_row_expression_schema_helper_contract.py",
+    "tests/test_phase49_project_row_expression_type_nullability_adapter.py",
+    "tests/test_phase49_row_level_computed_let_schema_scope_lock.py",
+    "tests/test_phase49_selected_let_derived_output_schema.py",
+    "tests/test_phase49_unknown_deferred_diagnostic_ordering_hardening.py",
+    "tests/test_phase50_aggregate_grouped_project_output_schema_readiness.py",
+    "tests/test_phase50_completion_audit_and_status_lock.py",
+    "tests/test_phase50_explain_public_metadata_package_integration_boundary.py",
     "tests/test_phase50_import_module_export_readiness.py",
+    "tests/test_phase50_multi_dialect_capability_ecosystem_readiness.py",
+    "tests/test_phase50_post_v02_deferred_readiness_inventory.py",
+    "tests/test_phase50_postgresql_extension_capability_readiness.py",
+    "tests/test_phase50_semantic_package_extension_capability_scope_lock.py",
+    "tests/test_phase50_semantic_package_model_readiness.py",
+    "tests/test_phase50_type_system_gap_capability_readiness.py",
+    "tests/test_phase50_window_function_readiness.py",
     "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
     "tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py",
+    "tests/test_phase51_aggregate_grouped_output_schema_foundation_scope_lock.py",
+    "tests/test_phase51_aggregate_grouped_state_duplicate_hardening.py",
+    "tests/test_phase51_aggregate_only_project_row_schema.py",
+    "tests/test_phase51_clause_dependency_fail_closed.py",
     "tests/test_phase51_completion_audit_and_status_lock.py",
     "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
+    "tests/test_phase51_group_key_project_row_schema.py",
+    "tests/test_phase51_grouped_aggregate_project_row_schema.py",
+    "tests/test_phase51_selected_let_accepted_expression_aggregate.py",
     "tests/test_phase52_aggregate_signature_algebra_facts.py",
     "tests/test_phase52_completion_audit_and_status_lock.py",
     "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
@@ -375,17 +451,10 @@ MECHANICAL_READER_PATHS = {
     "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
     "tests/test_phase53_window_spec_function_identity_ast_contract.py",
     "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
+    "tests/test_phase54_import_export_contextual_grammar_ast.py",
     "tests/test_phase54_local_import_module_export_foundation_scope_lock.py",
     "tests/test_phase54_module_identity_selected_input_index_trusted_local_loader.py",
     "tests/test_phase54_schema_v2_explicit_module_carrier.py",
-    "tests/test_phase7_completion_audit.py",
-    "tests/test_phase8_completion_audit.py",
-    "tests/test_phase9_5_hardening_audit.py",
-    "tests/test_phase9_backend_abstraction_contract.py",
-    "tests/test_phase9_completion_audit.py",
-    "tests/test_phase9_dialect_source_contract.py",
-    "tests/test_phase9_mysql_mvp_contract.py",
-    "tests/test_phase9_sqlglot_evaluation.py",
 }
 MODIFIED_PATHS = {*NON_READER_MODIFIED_PATHS, *MECHANICAL_READER_PATHS}
 ALLOWLIST_PATHS = ADDED_PATHS | MODIFIED_PATHS
@@ -406,12 +475,12 @@ PROTECTED_SHA256 = {
     "src/pietto/_project/selected_input_index.py": "9eef9b472e22eb1de0ca920c4264c72e5661d835d938966c872eba0fdd290772",
     "src/pietto/_project/trusted_source.py": "21e6962bfb066be6af2539db1229e4fcc97c651d3e29f818794c46039317d8dc",
     "src/pietto/_project/config.py": "da060cc15428ccc4b29ed992a814d7c5f41cca42dcd200655d2909a9d31a3d1e",
-    "src/pietto/_project/model.py": "8a00edb1b2c8584ed9da2926b33250ac1fe2cfc6eff3631865a6df373243fe22",
     "src/pietto/_project/source_selection.py": "fb1c531bcdd81696aa0c26b110433a6775cde878aeb4af3373d0d4aaf1f1443e",
     "src/pietto/_project/check.py": "6f2f2805249cc86a8ff3510a03abc702d2a029186cf16b50cabd11dbaf1da9e1",
     "src/pietto/_project/json_v2.py": "74251e684a22de4dcdc7e1822a6843ca89cbdfa7e136a046676d848b57953bd5",
-    SLICE2_TEST_REL: "f668b8b6f92b10c8c2483834ad8dc88b88ac399389880af647f1b722e231fe5a",
-    SLICE3_TEST_REL: "ec56d99c4d2bc0b037e489fd2d3c28c1ecb77aa6d3e9aa9a4e5c64215a2726d9",
+    SLICE2_TEST_REL: "7915c5a2c98ce922fcd6ed3630697fa88eac858b17eb692622cd67a61cec842a",
+    SLICE3_TEST_REL: "1654175f4a8e0061017f5359053e35a5f8789f6947fb0a12e39f0d3ba40c195e",
+    SLICE4_TEST_REL: "dc98e4a8b5230546b1f14061c3c36b3115b3eea8bfec124616291cb59b1260e0",
     ".github/workflows/ci.yml": "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94",
     "pyproject.toml": "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01",
     "uv.lock": "a7d9125995e98a8a74d3664ceae7801cc1f4cce74ec323933da67838be199cea",
@@ -452,6 +521,15 @@ def _git_output(args: list[str]) -> str:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     ).stdout.rstrip()
+
+
+def phase54_slice5_gate2_manifest_is_active() -> bool:
+    paths = set(_git_output(["diff", "--name-only"]).splitlines())
+    paths.update(
+        _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
+    )
+    paths.discard("")
+    return paths == ALLOWLIST_PATHS
 
 
 def _readable_paths() -> tuple[str, ...]:
@@ -508,11 +586,12 @@ def test_slice1_artifact_titles_heading_order_and_lifecycle_are_exact() -> None:
     assert _headings(SLICE2_SPEC_REL, 1) == (SLICE2_SPEC_TITLE,)
     assert _headings(SLICE3_SPEC_REL, 1) == (SLICE3_SPEC_TITLE,)
     assert _headings(SLICE4_SPEC_REL, 1) == (SLICE4_SPEC_TITLE,)
+    assert _headings(SLICE5_SPEC_REL, 1) == (SLICE5_SPEC_TITLE,)
     for relative in (PLAN_REL, SCOPE_REL, GOVERNANCE_REL, ROADMAP_V2_REL):
         assert _headings(relative, 2)
     plan_h2 = _headings(PLAN_REL, 2)
     assert plan_h2[:5] == (
-        "Status And Slice 4 Lifecycle",
+        "Status And Slice 5 Lifecycle",
         "Trusted Phase 53 Baseline And Controlling Evidence",
         "Phase Identity, Minimum Production Boundary, And Activation",
         "Current Production, Readiness, And Retained-later Freeze",
@@ -522,14 +601,14 @@ def test_slice1_artifact_titles_heading_order_and_lifecycle_are_exact() -> None:
         f"Slice {index} — {title}"
         for index, title in enumerate(PHASE54_ROUTE[1:], start=2)
     )
-    lifecycle = _section(PLAN_REL, "Status And Slice 4 Lifecycle")
+    lifecycle = _section(PLAN_REL, "Status And Slice 5 Lifecycle")
     for phrase in (
         "Phase 53 and Slices 1-16 are `COMPLETED`",
         "Phase 54 is `ACTIVE`",
-        "Slices\n1 through 3 are `COMPLETED`",
-        "Slice 4 becomes `COMPLETED`",
-        "Slices 5-16 then remain `UNSTARTED`",
-        "PHASE54_SLICE5_GATE0_GATE1",
+        "Slices\n1 through 4 are `COMPLETED`",
+        "Slice 5 becomes `COMPLETED`",
+        "Slices 6-16 then remain `UNSTARTED`",
+        "PHASE54_SLICE6_GATE0_GATE1",
     ):
         assert phrase in lifecycle
     tests = _top_level_test_functions(SELF_REL)
@@ -576,6 +655,17 @@ def test_slice1_artifact_titles_heading_order_and_lifecycle_are_exact() -> None:
     )
     assert len(slice4_nodes) == 30
     assert all(not node.decorator_list for node in slice4_nodes)
+    slice5_tests = _top_level_test_functions(SLICE5_TEST_REL)
+    assert slice5_tests == SLICE5_EXPECTED_TEST_NAMES
+    slice5_tree = ast.parse(_read(SLICE5_TEST_REL), filename=SLICE5_TEST_REL)
+    slice5_nodes = tuple(
+        node
+        for node in slice5_tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name.startswith("test_")
+    )
+    assert len(slice5_nodes) == 30
+    assert all(not node.decorator_list for node in slice5_nodes)
 
 
 def test_authority_hierarchy_grounding_and_historical_predecessors_are_exact() -> None:
@@ -589,7 +679,7 @@ def test_authority_hierarchy_grounding_and_historical_predecessors_are_exact() -
         "8c3656805db451946d60e341b8ac0ca9181997378d07576133c9c4aeef3e3f77"
     )
     assert _sha256("tests/test_phase50_import_module_export_readiness.py") == (
-        "d84bec363c7a313b9ce7a9beddcbcd2b634ce1b8b822d089ece36276ed3bcb69"
+        "2fd41a71aaf7d90157d64f9429f1a956e63d0261afb1579b67163e18fa67b0ad"
     )
     scope = _read(SCOPE_REL)
     roadmap = _read(ROADMAP_V2_REL)
@@ -888,12 +978,12 @@ def test_legacy_config_discovery_selection_loader_and_project_json_are_byte_lock
         "src/pietto/_project/selected_input_index.py",
         "src/pietto/_project/trusted_source.py",
         "src/pietto/_project/config.py",
-        "src/pietto/_project/model.py",
         "src/pietto/_project/source_selection.py",
         "src/pietto/_project/check.py",
         "src/pietto/_project/json_v2.py",
         SLICE2_TEST_REL,
         SLICE3_TEST_REL,
+        SLICE4_TEST_REL,
     ):
         assert _sha256(relative) == PROTECTED_SHA256[relative]
     config = _read("src/pietto/_project/config.py")
@@ -932,6 +1022,13 @@ def test_legacy_config_discovery_selection_loader_and_project_json_are_byte_lock
         in model
     )
     assert "trusted_source_snapshots" in model
+    assert "module_catalogs: ProjectModuleCatalogSet | None = None" in model
+    assert "_build_project_module_catalog_set" in model
+    assert (
+        "module_catalogs=_build_project_module_catalog_set(parse_result.modules)"
+        in model
+    )
+    assert "module_catalogs=None" not in model
     scope_readiness = _section(SCOPE_REL, "Current Readiness Ledger")
     assert "not a pinned descriptor loader" in scope_readiness
     assert (
@@ -950,17 +1047,17 @@ def test_flat_catalog_collect_before_resolve_semantic_and_project_fact_surfaces_
     compiler = _compiler_paths()
     semantic = tuple((REPO_ROOT / "src/pietto/semantic").glob("*.py"))
     project = tuple((REPO_ROOT / "src/pietto/_project").glob("*.py"))
-    assert len(compiler) == 97
+    assert len(compiler) == 98
     assert _digest(compiler) == (
-        "a0e0aa11261ca8c921b70ffba10210edbb56fe1f1bc5d2ad4ca8cc806e516e1f"
+        "6602f4b2ed9722fda6b34dff4f28605c09bdd2d5dd0b67a9697da9bc774b7e3a"
     )
     assert _digest(semantic) == (
         "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
     )
     assert _digest(project) == (
-        "4aa0a55517f46e5cbd98a0050ce105a647ca59fdd387e639d5181be6da89490f"
+        "1395529065e9c4d8abb7c5c73b227e7dc808bbd7ed957aa74f73d91670588b46"
     )
-    assert len(project) == 22
+    assert len(project) == 23
     model = _read("src/pietto/_project/model.py")
     for namespace in (
         'TYPE = "type"',
@@ -979,6 +1076,16 @@ def test_flat_catalog_collect_before_resolve_semantic_and_project_fact_surfaces_
         'DERIVE = "derive"',
     ):
         assert kind in model
+    module_catalog = _read("src/pietto/_project/module_catalog.py")
+    for class_name in (
+        "ProjectNominalDeclarationIdentity",
+        "ProjectDeclarationOccurrence",
+        "ProjectModuleCatalog",
+        "ProjectModuleCatalogSet",
+    ):
+        assert f"class {class_name}" in module_catalog
+    assert "def _build_project_module_catalog_set" in module_catalog
+    assert "parsed_input.script.definitions" in module_catalog
     current = _section(SCOPE_REL, "Current Production Ledger")
     assert "flat project-wide catalog before relation resolution" in current
     assert "row-schema, field-origin, aggregate, grouped, window" in current
@@ -1009,6 +1116,14 @@ def test_module_surfaces_and_pie_s2701_s2707_are_reserved_but_not_implemented() 
     trusted = _read("src/pietto/_project/trusted_source.py")
     assert "class ProjectTrustedSourceSnapshot" in trusted
     assert "_load_trusted_source" in trusted
+    module_catalog = _read("src/pietto/_project/module_catalog.py")
+    assert "__all__: tuple[str, ...] = ()" in module_catalog
+    assert "class ProjectNominalDeclarationIdentity" in module_catalog
+    assert "class ProjectModuleCatalogSet" in module_catalog
+    assert "find_identity" in module_catalog
+    assert "find_namespace_name" in module_catalog
+    for forbidden in ("winner", "precedence", "shadow", "PIE-S270"):
+        assert forbidden not in module_catalog
     for forbidden in (
         "ModuleGraph",
         "ImportDef",
@@ -1018,6 +1133,13 @@ def test_module_surfaces_and_pie_s2701_s2707_are_reserved_but_not_implemented() 
         "opened_identity",
     ):
         assert forbidden not in carrier
+    for forbidden in (
+        "ModuleGraph",
+        "ImportBinding",
+        "ExportBinding",
+        "ResolvedModule",
+    ):
+        assert forbidden not in production
     reservation = _section(
         SCOPE_REL,
         "Collision Cycle Ordering And PIE-S2701 Through PIE-S2707 Reservation",
@@ -1078,22 +1200,22 @@ def test_public_json_artifact_cli_sql_dependency_workflow_version_and_release_su
 def test_gate_allowlist_reader_evidence_publication_stop_and_next_state_contracts_are_exact() -> (
     None
 ):
-    assert (len(ADDED_PATHS), len(MODIFIED_PATHS), 0) == (2, 138, 0)
-    assert len(NON_READER_MODIFIED_PATHS) == 13
-    assert len(MECHANICAL_READER_PATHS) == 125
-    assert len(FORMATTER_PATHS) == 128
-    assert len(ALLOWLIST_PATHS) == 140
+    assert (len(ADDED_PATHS), len(MODIFIED_PATHS), 0) == (3, 164, 0)
+    assert len(NON_READER_MODIFIED_PATHS) == 4
+    assert len(MECHANICAL_READER_PATHS) == 160
+    assert len(FORMATTER_PATHS) == 163
+    assert len(ALLOWLIST_PATHS) == 167
     readable = _readable_paths()
-    assert len(readable) == 896
-    assert sum(path.endswith(".py") for path in readable) == 550
-    assert sum(path.endswith(".md") for path in readable) == 250
+    assert len(readable) == 899
+    assert sum(path.endswith(".py") for path in readable) == 552
+    assert sum(path.endswith(".md") for path in readable) == 251
     test_modules = tuple(
         path
         for path in readable
         if path.startswith("tests/test_") and path.endswith(".py")
     )
-    assert len(test_modules) == 453
-    assert sum(len(_top_level_test_functions(path)) for path in test_modules) == 4938
+    assert len(test_modules) == 454
+    assert sum(len(_top_level_test_functions(path)) for path in test_modules) == 4968
     dirty = set(_git_output(["diff", "--name-only"]).splitlines()) | set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
@@ -1195,6 +1317,19 @@ def test_gate_allowlist_reader_evidence_publication_stop_and_next_state_contract
         "PHASE54_SLICE5_GATE0_GATE1",
     ):
         assert phrase in slice4
+    slice5 = _read(SLICE5_SPEC_REL)
+    for phrase in (
+        "`0f3c955c5a5fbd8046ef611ad1bef0b636c8be01`",
+        "`A3_M53_D0`",
+        "exactly 30\nundecorated, non-parametrized top-level tests",
+        "and 49\nexecuting mechanical readers",
+        "52 literal handwritten\nPython paths",
+        "10916",
+        "There is no `first`, winner",
+        "do not emit `PIE-S2001` or `PIE-S2701`\nthrough `PIE-S2707`",
+        "PHASE54_SLICE6_GATE0_GATE1",
+    ):
+        assert phrase in slice5
     plan = _read(PLAN_REL)
     for forbidden in ("dirty overlay", "skip", "xfail", "deselection", "masking"):
         assert forbidden in plan

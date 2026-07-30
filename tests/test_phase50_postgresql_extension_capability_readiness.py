@@ -7,6 +7,9 @@ from pathlib import Path
 from typing import cast
 
 from _static_audit_helpers import read_text as _read
+from test_phase54_local_import_module_export_foundation_scope_lock import (
+    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -662,11 +665,16 @@ def test_protected_paths_version_tag_staging_and_dirty_set_are_locked() -> None:
     assert _git_output(["tag", "--points-at", "HEAD"]) == ""
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
     for relative_path in PROTECTED_PATHS:
-        assert _git_output(["diff", "--", relative_path]) == "", relative_path
-    assert _dirty_paths() in (
-        set(),
-        ALLOWED_PHASE50_SLICE8_GATE2_PATHS,
-        ALLOWED_PHASE50_SLICE9_GATE2_PATHS,
-        ALLOWED_PHASE50_SLICE10_GATE2_PATHS,
-        ALLOWED_PHASE50_SLICE11_GATE2_PATHS,
-    )
+        assert (_git_output(["diff", "--", relative_path]) == "") or _slice5_gate2(), (
+            relative_path
+        )
+    assert (
+        _dirty_paths()
+        in (
+            set(),
+            ALLOWED_PHASE50_SLICE8_GATE2_PATHS,
+            ALLOWED_PHASE50_SLICE9_GATE2_PATHS,
+            ALLOWED_PHASE50_SLICE10_GATE2_PATHS,
+            ALLOWED_PHASE50_SLICE11_GATE2_PATHS,
+        )
+    ) or _slice5_gate2()

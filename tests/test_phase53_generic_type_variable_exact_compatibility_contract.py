@@ -537,8 +537,9 @@ EXPECTED_DIRTY_PATHS = frozenset((*ADDED_PATHS, *MODIFIED_PATHS))
 BASE_HEAD = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
 PHASE54_SLICE2_BASE_HEAD = "d8a5e9ab3de70ce30575513c73560c86430eca63"
 PHASE54_SLICE4_BASE_HEAD = "15bae172ee151e370fe59d3bf909d735aee6aa90"
+PHASE54_SLICE5_BASE_HEAD = "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01"
 FINAL_COMPILER_DIGEST = (
-    "a0e0aa11261ca8c921b70ffba10210edbb56fe1f1bc5d2ad4ca8cc806e516e1f"
+    "6602f4b2ed9722fda6b34dff4f28605c09bdd2d5dd0b67a9697da9bc774b7e3a"
 )
 FINAL_SEMANTIC_DIGEST = (
     "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
@@ -1889,7 +1890,7 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        97,
+        98,
         36,
         33,
     )
@@ -1922,7 +1923,11 @@ def test_slice4_dirty_clean_and_depth_one_repository_states_are_locked() -> None
     assert staged == ""
     if tracked or untracked:
         head = _git("rev-parse", "HEAD")
-        if head in {PHASE54_SLICE2_BASE_HEAD, PHASE54_SLICE4_BASE_HEAD}:
+        if head in {
+            PHASE54_SLICE2_BASE_HEAD,
+            PHASE54_SLICE4_BASE_HEAD,
+            PHASE54_SLICE5_BASE_HEAD,
+        }:
             expected_modified, expected_added = _phase54_slice2_paths()
             expected_base = head
         else:
@@ -1976,7 +1981,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         len(markdown_paths),
         len(test_paths),
         top_level_functions,
-    ) == (896, 550, 250, 453, 4938)
+    ) == (899, 552, 251, 454, 4968)
     self_tree = ast.parse(SELF_PATH.read_text())
     self_names = tuple(
         node.name

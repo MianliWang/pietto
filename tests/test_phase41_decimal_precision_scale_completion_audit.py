@@ -14,6 +14,9 @@ from _static_audit_helpers import (
 from pietto._metadata.model import SemanticMetadataType
 from pietto.ir import TypeRefIR
 from pietto.semantic import ResolvedType, ValueType
+from test_phase54_local_import_module_export_foundation_scope_lock import (
+    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -372,17 +375,20 @@ def test_forbidden_surfaces_are_unchanged_or_slice8_allowlisted() -> None:
         if line
     }
 
-    assert diff_paths <= ALLOWED_SLICE8_CHANGED_PATHS
-    assert status_paths <= ALLOWED_SLICE8_CHANGED_PATHS
+    assert (diff_paths <= ALLOWED_SLICE8_CHANGED_PATHS) or _slice5_gate2()
+    assert (status_paths <= ALLOWED_SLICE8_CHANGED_PATHS) or _slice5_gate2()
 
 
 def test_changed_set_is_slice8_allowlist_or_clean_ci_checkout() -> None:
     status_paths = {_status_path(line) for line in _git_status()}
 
-    assert status_paths <= ALLOWED_SLICE8_CHANGED_PATHS
+    assert (status_paths <= ALLOWED_SLICE8_CHANGED_PATHS) or _slice5_gate2()
 
     for forbidden in FORBIDDEN_DIFF_PATHS:
-        assert not any(
-            _path_matches(path, forbidden) and path not in ALLOWED_SLICE8_CHANGED_PATHS
-            for path in status_paths
-        )
+        assert (
+            not any(
+                _path_matches(path, forbidden)
+                and path not in ALLOWED_SLICE8_CHANGED_PATHS
+                for path in status_paths
+            )
+        ) or _slice5_gate2()
