@@ -9,22 +9,24 @@ Current pipeline: parse -> analyze -> build IR -> emit selected PostgreSQL or My
 
 ---
 
-## Current Phase 54 Slice 4 Module-syntax Status
+## Current Phase 54 Slice 5 Module-catalog Status
 
-Phase 54 is active and Slices 1 through 4 are complete after exact Gate 3
-publication. Slice 4 adds contextual top-level `import`, `export`, and
-`as` syntax, the deterministically regenerated parser, and immutable
-source-located module AST. The exact contract is
-`docs/spec/phase54-slice4-import-export-contextual-grammar-generated-parser-and-immutable-ast-v1.md`.
+Phase 54 is active and Slices 1 through 5 are complete after exact Gate 3
+publication. Slice 4 supplies contextual top-level `import`, `export`, and
+`as` syntax plus immutable source-located module AST. Slice 5 adds private
+four-component nominal declaration identity and one immutable, source-ordered
+local declaration catalog per successfully parsed schema-v2 module. The exact
+Slice 5 contract is
+`docs/spec/phase54-slice5-module-qualified-nominal-declaration-identity-and-per-module-catalogs-v1.md`.
 
-This is a parser/AST foundation only. Semantic analysis deliberately ignores
-module statements. A successful parse or check does not validate import/export
-bindings, visibility, targets, declaration existence, per-module catalogs,
-graphs, or cross-module resolution. Module syntax does not influence Semantic
-IR, PostgreSQL/MySQL SQL, CLI JSON v1, Project JSON v2, Semantic Metadata
-Artifact v1, or public Python exports. `PIE-S2701` through `PIE-S2707`
-remain absent and un-emitted. Slice 5 owns module-qualified declaration identity
-and per-module catalogs.
+Catalogs read only local `Script.definitions`, preserve duplicates without a
+winner, and do not consume import/export statements. Import/export eligibility,
+visibility, binding, re-export, collision diagnostics, graphs, and cross-module
+resolution remain unavailable. Module catalogs do not influence Semantic IR,
+PostgreSQL/MySQL SQL, CLI JSON v1, Project JSON v2, Semantic Metadata Artifact
+v1, or public Python exports. `PIE-S2701` through `PIE-S2707` remain absent and
+un-emitted. Slice 6 owns local export eligibility, visibility, explicit named
+re-export, and facade semantics.
 
 ---
 

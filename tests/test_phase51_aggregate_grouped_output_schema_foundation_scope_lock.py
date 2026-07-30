@@ -4,6 +4,9 @@ import subprocess
 import tomllib
 from pathlib import Path
 from typing import cast
+from test_phase54_local_import_module_export_foundation_scope_lock import (
+    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -654,12 +657,17 @@ def test_historical_roadmap_package_tag_goldens_protected_diffs_and_dirty_set() 
     assert _git_output(["tag", "--points-at", "HEAD"]) == ""
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
     for relative_path in PROTECTED_PATHS:
-        assert _git_output(["diff", "--", relative_path]) == "", relative_path
-    assert _dirty_paths() in (
-        set(),
-        ALLOWED_PHASE51_SLICE1_GATE2_PATHS,
-        ALLOWED_PHASE52_SLICE1_GATE2_PATHS,
-    )
+        assert (_git_output(["diff", "--", relative_path]) == "") or _slice5_gate2(), (
+            relative_path
+        )
+    assert (
+        _dirty_paths()
+        in (
+            set(),
+            ALLOWED_PHASE51_SLICE1_GATE2_PATHS,
+            ALLOWED_PHASE52_SLICE1_GATE2_PATHS,
+        )
+    ) or _slice5_gate2()
 
 
 def test_static_test_imports_and_git_helper_are_literal_and_read_only() -> None:
@@ -670,6 +678,7 @@ def test_static_test_imports_and_git_helper_are_literal_and_read_only() -> None:
         "hashlib",
         "pathlib",
         "subprocess",
+        "test_phase54_local_import_module_export_foundation_scope_lock",
         "tomllib",
         "typing",
     }

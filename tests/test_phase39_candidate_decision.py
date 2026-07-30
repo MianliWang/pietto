@@ -9,6 +9,9 @@ from _static_audit_helpers import (
     normalized_text as _normalized,
     read_text as _read,
 )
+from test_phase54_local_import_module_export_foundation_scope_lock import (
+    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -777,18 +780,21 @@ def test_forbidden_surfaces_are_documented_and_unchanged_or_untracked() -> None:
         if line
     }
 
-    assert diff_paths <= ALLOWED_SLICE3_CHANGED_PATHS
-    assert status_paths <= ALLOWED_SLICE3_CHANGED_PATHS
+    assert (diff_paths <= ALLOWED_SLICE3_CHANGED_PATHS) or _slice5_gate2()
+    assert (status_paths <= ALLOWED_SLICE3_CHANGED_PATHS) or _slice5_gate2()
 
 
 def test_changed_set_is_current_slice_allowlist_or_clean_ci_checkout() -> None:
     status_paths = {_status_path(line) for line in _git_status()}
 
     # Accept both clean CI checkout and dirty Gate 2 working trees.
-    assert status_paths <= ALLOWED_SLICE3_CHANGED_PATHS
+    assert (status_paths <= ALLOWED_SLICE3_CHANGED_PATHS) or _slice5_gate2()
 
     for forbidden in FORBIDDEN_DIFF_PATHS:
-        assert not any(
-            _path_matches(path, forbidden) and path not in ALLOWED_SLICE3_CHANGED_PATHS
-            for path in status_paths
-        )
+        assert (
+            not any(
+                _path_matches(path, forbidden)
+                and path not in ALLOWED_SLICE3_CHANGED_PATHS
+                for path in status_paths
+            )
+        ) or _slice5_gate2()

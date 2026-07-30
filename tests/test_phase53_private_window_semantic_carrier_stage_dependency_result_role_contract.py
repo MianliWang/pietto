@@ -222,11 +222,11 @@ FINAL_SOURCE_SHA256 = "d6a514bddffee9f53ca1405d28a2dcd9cc84a395a152aacc1ccb9e5b7
 FINAL_PROJECT_SOURCE_SHA256 = (
     "c08a42066a71a3ee13be9feddff5e28a910b216226d7e0b8869ee52a90dea2ad"
 )
-FINAL_MODEL_SHA256 = "8a00edb1b2c8584ed9da2926b33250ac1fe2cfc6eff3631865a6df373243fe22"
+FINAL_MODEL_SHA256 = "28940c85c9c122b405259cfe33bd34447bf6453a5ffd8165b3e466462af1a4d2"
 FINAL_SPEC_SHA256 = "e3cddc36974cc2d21bd3e0aec8d03c4f56bc4a68091780d9965207f07ea960e7"
 FINAL_PLAN_SHA256 = "3077c2fec0d7e2c4de717973c6403d5a450b8c01fe5846e427363ffcb41a78f5"
 FINAL_COMPILER_DIGEST = (
-    "a0e0aa11261ca8c921b70ffba10210edbb56fe1f1bc5d2ad4ca8cc806e516e1f"
+    "6602f4b2ed9722fda6b34dff4f28605c09bdd2d5dd0b67a9697da9bc774b7e3a"
 )
 FINAL_SEMANTIC_DIGEST = (
     "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
@@ -235,7 +235,7 @@ FINAL_PHASE15_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 FINAL_PROJECT_DIGEST = (
-    "4aa0a55517f46e5cbd98a0050ce105a647ca59fdd387e639d5181be6da89490f"
+    "1395529065e9c4d8abb7c5c73b227e7dc808bbd7ed957aa74f73d91670588b46"
 )
 
 BASE_HEAD = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
@@ -1905,7 +1905,7 @@ def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
         len(semantic_paths),
         len(phase15_paths),
         len(project_paths),
-    ) == (97, 36, 33, 22)
+    ) == (98, 36, 33, 23)
     assert _digest(tuple(compiler_paths)) == FINAL_COMPILER_DIGEST
     assert _digest(semantic_paths) == FINAL_SEMANTIC_DIGEST
     assert _digest(phase15_paths) == FINAL_PHASE15_DIGEST
@@ -1965,6 +1965,7 @@ def test_slice6_dirty_clean_and_depth_one_repository_states_are_locked() -> None
     if head in {
         "d8a5e9ab3de70ce30575513c73560c86430eca63",
         "15bae172ee151e370fe59d3bf909d735aee6aa90",
+        "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
     }:
         expected_modified, expected_added = _phase54_slice2_paths()
         expected_base = head
@@ -2003,7 +2004,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         len(markdown_paths),
         len(test_paths),
         top_level_functions,
-    ) == (896, 550, 250, 453, 4938)
+    ) == (899, 552, 251, 454, 4968)
     assert len(TEST_FUNCTIONS) == len(TEST_ITEM_COUNTS) == 36
     assert sum(TEST_ITEM_COUNTS) == 156
     assert 10599 + 185 == 10784
@@ -2053,6 +2054,7 @@ def test_validation_gate3_and_no_behavior_boundaries_are_locked() -> None:
         in {
             "d8a5e9ab3de70ce30575513c73560c86430eca63",
             "15bae172ee151e370fe59d3bf909d735aee6aa90",
+            "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
         }
     )
     assert (

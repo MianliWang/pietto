@@ -1,18 +1,18 @@
 # Phase 54 — Local Import / Module / Export Foundation
 
-## Status And Slice 4 Lifecycle
+## Status And Slice 5 Lifecycle
 
 Phase 53 and Slices 1-16 are `COMPLETED`. Phase 54 is `ACTIVE`, and Slices
-1 through 3 are `COMPLETED`. The trusted Slice 4 base is
-`15bae172ee151e370fe59d3bf909d735aee6aa90`. During Slice 4 Gate 2, Slice 4
-remains incomplete and Slices 5-16 remain `UNSTARTED`.
+1 through 4 are `COMPLETED`. The trusted Slice 5 base is
+`0f3c955c5a5fbd8046ef611ad1bef0b636c8be01`. During Slice 5 Gate 2, Slice 5
+remains incomplete and Slices 6-16 remain `UNSTARTED`.
 
-Slice 4 becomes `COMPLETED` only after the exact
+Slice 5 becomes `COMPLETED` only after the exact
 reviewed tree passes natural exact-head PR CI attempt 1, squash-merges with
 tree equality, passes natural exact-head `main` CI attempt 1, reconciles local
 `main` by fetch and ff-only update, cleans the publication branch, and records
-immutable Gate 3 evidence. Slices 5-16 then remain `UNSTARTED`; the next state
-is `PHASE54_SLICE5_GATE0_GATE1`, and Slice 5 does not begin in Slice 4.
+immutable Gate 3 evidence. Slices 6-16 then remain `UNSTARTED`; the next state
+is `PHASE54_SLICE6_GATE0_GATE1`, and Slice 6 does not begin in Slice 5.
 
 ## Trusted Phase 53 Baseline And Controlling Evidence
 
@@ -369,8 +369,21 @@ Slice 1.
 
 ## Slice 5 — Module-qualified Nominal Declaration Identity And Per-module Catalogs
 
-Separately gate declaration identity and isolated per-module catalogs.
-Prerequisites: Slices 2 and 4.
+Gate exactly the private four-component nominal identity `(module logical
+path, namespace, declaration kind, declared name)`, all eight current
+Definition kinds, source-ordered declaration occurrences, and one immutable
+local catalog per successfully parsed schema-v2 module. Preserve every
+duplicate without a winner, retain schema-v1 flat-catalog and `PIE-S2001`
+behavior, and keep schema-v2 fail-closed before the legacy catalog.
+
+The private catalog builder reads only retained `Script.definitions`; it does
+not consume import/export statements, reopen sources, consult target strings,
+resolve names, create graph edges, or emit `PIE-S2701` through `PIE-S2707`.
+`ProjectSemanticResult` privately retains the catalog set while its schema-v2
+`model`, diagnostics, `.ok`, CLI, and JSON behavior remain unchanged. The
+frozen Gate 2 scope is `A3_M53_D0`, with 49 executing readers, 30 focused
+tests, projected clean collection 10916, and 52 literal formatter paths.
+Prerequisites: Slices 2 and 4. After exact Gate 3 completion, Slice 6 is next.
 
 ## Slice 6 — Local Export Eligibility, Visibility, Explicit Named Re-export, And Facade Semantics
 

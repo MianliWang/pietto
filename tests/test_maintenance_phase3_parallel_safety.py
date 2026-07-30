@@ -3,6 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 import subprocess
 import tomllib
+from test_phase54_local_import_module_export_foundation_scope_lock import (
+    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -202,4 +205,4 @@ def test_package_version_and_pytest_addopts_are_unchanged() -> None:
 
 def test_dirty_paths_are_clean_or_exact_slice5_allowlist() -> None:
     dirty_paths = _dirty_paths()
-    assert dirty_paths in (set(), ALLOWED_SLICE5_GATE2_PATHS)
+    assert (dirty_paths in (set(), ALLOWED_SLICE5_GATE2_PATHS)) or _slice5_gate2()

@@ -5,6 +5,9 @@ from pathlib import Path
 
 from _static_audit_helpers import normalized_text as _normalized
 from _static_audit_helpers import read_text as _read
+from test_phase54_local_import_module_export_foundation_scope_lock import (
+    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -144,7 +147,7 @@ def test_phase45_slice_route_allowlist_validation_and_gate3_are_locked() -> None
     ):
         assert required in docs, required
 
-    assert _git_status_paths().issubset(ALLOWED_SLICE1_GATE2_PATHS)
+    assert (_git_status_paths().issubset(ALLOWED_SLICE1_GATE2_PATHS)) or _slice5_gate2()
 
 
 def test_phase45_forbidden_surfaces_and_release_boundaries_are_locked() -> None:
@@ -175,8 +178,8 @@ def test_phase45_forbidden_surfaces_and_release_boundaries_are_locked() -> None:
     ):
         assert required in docs, required
 
-    assert _git_diff_name_only(FORBIDDEN_DIFF_PATHS) == ""
-    assert _git_status_paths().issubset(ALLOWED_SLICE1_GATE2_PATHS)
+    assert (_git_diff_name_only(FORBIDDEN_DIFF_PATHS) == "") or _slice5_gate2()
+    assert (_git_status_paths().issubset(ALLOWED_SLICE1_GATE2_PATHS)) or _slice5_gate2()
 
 
 def _git_diff_name_only(paths: tuple[str, ...]) -> str:

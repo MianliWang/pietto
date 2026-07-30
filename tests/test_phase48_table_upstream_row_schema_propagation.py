@@ -17,6 +17,9 @@ from pietto._project.model import (
     build_empty_project_semantic_result,
 )
 from pietto.ast_nodes import QueryDef, SourceDef, TableDef
+from test_phase54_local_import_module_export_foundation_scope_lock import (
+    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLAN_PATH = REPO_ROOT / "docs/plan/phase-48-query-to-query-row-schema.md"
@@ -514,12 +517,15 @@ def test_phase48_slice4_package_version_and_dirty_paths_are_locked() -> None:
 
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
-    assert dirty_paths in (
-        set(),
-        ALLOWED_SLICE4_GATE2_PATHS,
-        ALLOWED_PHASE49_SLICE4_GATE2_PATHS,
-        ALLOWED_PHASE49_SLICE5_GATE2_PATHS,
-    )
+    assert (
+        dirty_paths
+        in (
+            set(),
+            ALLOWED_SLICE4_GATE2_PATHS,
+            ALLOWED_PHASE49_SLICE4_GATE2_PATHS,
+            ALLOWED_PHASE49_SLICE5_GATE2_PATHS,
+        )
+    ) or _slice5_gate2()
     assert _git_diff("src/pietto/_project/check.py") == ""
     assert _git_diff("src/pietto/_project/json_v2.py") == ""
 

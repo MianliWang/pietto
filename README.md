@@ -55,12 +55,12 @@ and the [Phase 54 plan](docs/plan/phase-54-local-import-module-export-foundation
 | MySQL | Explicit CLI lowering; private emitter/API surface |
 | Single-file mode | Check, explain, and emit SQL |
 | Project schema v1 | Available legacy-flat project checking |
-| Project schema v2 | Explicit-module identity and trusted-loading foundation |
+| Project schema v2 | Explicit modules, trusted loading, module AST, and private local declaration catalogs |
 | Runtime | Compiler only; no database connection or SQL execution |
 
-Phase 54 is **ACTIVE**. Slices 1 through 4 are **COMPLETED**, Slices 5
+Phase 54 is **ACTIVE**. Slices 1 through 5 are **COMPLETED**, Slices 6
 through 16 are **UNSTARTED**, and the next lifecycle state is
-`PHASE54_SLICE5_GATE0_GATE1`.
+`PHASE54_SLICE6_GATE0_GATE1`.
 
 Slice 3 provides stable project-relative module identity, an immutable
 selected-input index, pinned-root path checks, and trusted source loading.
@@ -68,10 +68,13 @@ Slice 4 adds contextual top-level import/export source syntax and immutable,
 source-located parser AST. It is a parser/AST foundation only: successful
 parsing or checking does not validate import/export bindings, visibility,
 target or declaration existence, module graphs, catalogs, or cross-module
-resolution. Slice 5 owns module-qualified declaration identity and per-module
-catalogs. Binding environments, graph resolution, inspection, serialization,
-and end-to-end hardening remain later work within Phase 54. Schema v2 therefore
-remains a foundation rather than a completed module system.
+resolution. Slice 5 adds private module-qualified nominal declaration identity
+and one immutable local-declaration catalog per parsed module. These catalogs
+do not consume import/export metadata and select no duplicate winner. Export
+eligibility, visibility, binding, re-export, collision diagnostics, module
+graphs, cross-module resolution, inspection, and serialization remain later
+work within Phase 54. Schema v2 therefore remains a foundation rather than a
+completed module system. The runnable Quick Start remains schema v1.
 
 ## Quick Start
 

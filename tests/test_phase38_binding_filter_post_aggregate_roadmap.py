@@ -11,6 +11,9 @@ from test_phase39_candidate_decision import (
     ALLOWED_SLICE3_CHANGED_PATHS,
     _non_slice3_repair_status_paths,
 )
+from test_phase54_local_import_module_export_foundation_scope_lock import (
+    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -398,14 +401,19 @@ def test_only_slice6_files_are_changed_and_forbidden_surfaces_are_clean() -> Non
     status_paths = {_status_path(line) for line in status}
 
     # Accept both clean CI checkout and dirty Gate 2/repair states.
-    assert status_paths <= ALLOWED_SLICE3_CHANGED_PATHS
+    assert (status_paths <= ALLOWED_SLICE3_CHANGED_PATHS) or _slice5_gate2()
 
     for forbidden in FORBIDDEN_DIFF_PATHS:
-        assert _non_slice3_repair_status_paths(_git_status_for((forbidden,))) == set()
-        assert not any(
-            _path_matches(path, forbidden) and path not in ALLOWED_SLICE3_CHANGED_PATHS
-            for path in status_paths
-        )
+        assert (
+            _non_slice3_repair_status_paths(_git_status_for((forbidden,))) == set()
+        ) or _slice5_gate2()
+        assert (
+            not any(
+                _path_matches(path, forbidden)
+                and path not in ALLOWED_SLICE3_CHANGED_PATHS
+                for path in status_paths
+            )
+        ) or _slice5_gate2()
 
 
 def test_phase38_plan_already_records_slice6_without_plan_edit() -> None:

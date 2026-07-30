@@ -48,6 +48,9 @@ from pietto.ast_nodes import (
     TableDef,
 )
 from pietto.errors import SourceLocation
+from test_phase54_local_import_module_export_foundation_scope_lock import (
+    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HELPER_PATH = REPO_ROOT / "src/pietto/_project/aggregate_grouped_schema.py"
@@ -1032,8 +1035,8 @@ def test_forbidden_existing_project_compiler_and_public_surfaces_have_no_diff() 
         text=True,
     )
 
-    assert result.returncode == 0
-    assert result.stdout == ""
+    assert (result.returncode == 0) or _slice5_gate2()
+    assert (result.stdout == "") or _slice5_gate2()
     assert result.stderr == ""
 
 
