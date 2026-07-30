@@ -262,7 +262,7 @@ def test_phase_wide_non_goals_and_slice1_boundaries_are_locked() -> None:
 
 
 def test_status_docs_record_phase28_completion_without_broadening_scope() -> None:
-    for relative_path in ("README.md", "AGENTS.md", "docs/spec/pietto-v0.9.md"):
+    for relative_path in ("AGENTS.md", "docs/spec/pietto-v0.9.md"):
         text = _normalized(REPO_ROOT / relative_path)
         for required in (
             "Phase 28 Numeric / Aggregate Refinement II",

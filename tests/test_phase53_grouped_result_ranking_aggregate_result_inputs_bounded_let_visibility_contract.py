@@ -87,9 +87,11 @@ SLICE16_SUBJECT = "Complete Phase 53 status and compatibility audit"
 PHASE53_COMPLETION_HEAD = "af92f30c22e5d3df5219554a0663855a5b9f51a6"
 PHASE54_SLICE1_HEAD = "53d8767fc3bdbe5e3f631178652222bbe51f6a33"
 PHASE54_SLICE2_HEAD = "d8a5e9ab3de70ce30575513c73560c86430eca63"
+PHASE54_SLICE3_HEAD = "2752985c3f6343519b7d7d6fe400d16251e64d85"
 PHASE54_SLICE1_SUBJECT = "Add Phase 54 scope authority and expansion route lock"
 PHASE54_SLICE2_SUBJECT = "Add Phase 54 schema v2 module activation carrier"
 PHASE54_SLICE3_SUBJECT = "Add Phase 54 trusted module loading boundary"
+README_REFRESH_SUBJECT = "Refresh Pietto README and roadmap overview"
 MAINTENANCE_MODIFIED_PATHS = (
     ".github/workflows/ci.yml",
     "pyproject.toml",
@@ -512,6 +514,27 @@ def _is_clean_projection() -> bool:
         _assert_main_refs(head)
         return True
 
+    if parents == (PHASE54_SLICE3_HEAD,) and _is_phase54_subject(
+        subject,
+        README_REFRESH_SUBJECT,
+    ):
+        _assert_clean_state(status=status, staged=staged)
+        if pull_request_identity is not None:
+            base_sha, candidate_sha = pull_request_identity
+            assert shallow == "true"
+            assert base_sha == PHASE54_SLICE3_HEAD
+            assert candidate_sha == head
+            return True
+        if os.environ.get("GITHUB_EVENT_NAME") == "push":
+            assert shallow == "true"
+            assert os.environ.get("GITHUB_REF") == "refs/heads/main"
+            assert os.environ.get("GITHUB_SHA") == head
+            assert _git_optional_ref("refs/remotes/origin/main") in (None, head)
+            return True
+        assert shallow == "false"
+        _assert_main_refs(head)
+        return True
+
     if pull_request_identity is not None:
         base_sha, candidate_sha = pull_request_identity
         assert shallow == "true"
@@ -521,6 +544,7 @@ def _is_clean_projection() -> bool:
             PHASE53_COMPLETION_HEAD,
             PHASE54_SLICE1_HEAD,
             PHASE54_SLICE2_HEAD,
+            PHASE54_SLICE3_HEAD,
         )
         _assert_clean_state(status=status, staged=staged)
         if head == candidate_sha:

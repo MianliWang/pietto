@@ -107,8 +107,17 @@ def test_current_user_facing_commands_use_pietto_suffix() -> None:
     agents = _read("AGENTS.md")
     language_spec = _read("docs/spec/pietto-v0.9.md")
 
-    assert "pietto check file.pietto" in readme
-    assert "pietto emit-sql file.pietto --dialect postgres" in readme
+    readme_commands = {
+        line.removeprefix("uv run ")
+        for block in re.findall(r"```bash\n(.*?)\n```", readme, flags=re.DOTALL)
+        for line in block.splitlines()
+    }
+
+    assert "pietto check demo-project/models/active_users.pietto" in readme_commands
+    assert (
+        "pietto emit-sql demo-project/models/active_users.pietto --dialect postgres"
+        in readme_commands
+    )
     assert "pietto check file.pietto" in agents
     assert "pietto emit-sql file.pietto --dialect postgres" in agents
     assert "pietto check app.pietto" in language_spec

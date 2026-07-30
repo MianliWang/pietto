@@ -17,11 +17,10 @@ CLI_JSON_SPEC_PATH = REPO_ROOT / "docs/spec/cli-json-v1.md"
 CATALOG_PATH = REPO_ROOT / "src/pietto/semantic/catalog.py"
 AGGREGATES_PATH = REPO_ROOT / "src/pietto/semantic/aggregates.py"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-README_PATH = REPO_ROOT / "README.md"
 AGENTS_PATH = REPO_ROOT / "AGENTS.md"
 PIETTO_SPEC_PATH = REPO_ROOT / "docs/spec/pietto-v0.9.md"
 
-STATUS_DOCS = (README_PATH, AGENTS_PATH, PIETTO_SPEC_PATH)
+STATUS_DOCS = (AGENTS_PATH, PIETTO_SPEC_PATH)
 
 
 def test_artifact_v1_identity_and_version_domain_are_locked() -> None:

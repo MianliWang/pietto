@@ -15,7 +15,6 @@ SPEC_PATH = "docs/spec/safety-deferral-and-sql-portability-v1.md"
 LANGUAGE_SPEC_PATH = "docs/spec/language-direction-v1.md"
 PLAN_PATH = "docs/plan/phase-16-language-direction-safety-mode.md"
 STATUS_PATHS = (
-    "README.md",
     "AGENTS.md",
     "docs/spec/pietto-v0.9.md",
 )

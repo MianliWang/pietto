@@ -114,7 +114,6 @@ def test_contract_contains_no_future_syntax_shaped_examples() -> None:
 
 def test_status_documents_link_contract_without_claiming_implementation() -> None:
     documents = {
-        "README.md": _read("README.md"),
         "AGENTS.md": _read("AGENTS.md"),
         "docs/spec/pietto-v0.9.md": _read("docs/spec/pietto-v0.9.md"),
     }

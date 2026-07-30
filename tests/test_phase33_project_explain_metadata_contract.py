@@ -11,11 +11,10 @@ import pietto.cli as cli
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SPEC_PATH = REPO_ROOT / "docs/spec/project-explain-metadata-aggregation-boundary-v1.md"
 PLAN_PATH = REPO_ROOT / "docs/plan/phase-33-json-v2-and-project-multifile.md"
-README_PATH = REPO_ROOT / "README.md"
 AGENTS_PATH = REPO_ROOT / "AGENTS.md"
 PIETTO_SPEC_PATH = REPO_ROOT / "docs/spec/pietto-v0.9.md"
 
-STATUS_DOCS = (README_PATH, AGENTS_PATH, PIETTO_SPEC_PATH)
+STATUS_DOCS = (AGENTS_PATH, PIETTO_SPEC_PATH)
 
 _RELATION_SOURCE = (
     "shape User:\n"

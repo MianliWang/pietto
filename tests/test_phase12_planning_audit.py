@@ -83,7 +83,6 @@ def test_phase12_master_plan_records_final_slice_order_and_status() -> None:
 
 def test_phase12_status_documents_are_scope_aware() -> None:
     documents = {
-        "README.md": _read("README.md"),
         "AGENTS.md": _read("AGENTS.md"),
         "docs/spec/pietto-v0.9.md": _read("docs/spec/pietto-v0.9.md"),
     }
@@ -95,7 +94,7 @@ def test_phase12_status_documents_are_scope_aware() -> None:
         assert "Slice 2" in normalized
         assert PHASE12_PLAN in document
 
-    combined = " ".join("\n".join(documents.values()).split())
+    combined = " ".join("\n".join((*documents.values(), _read(PHASE12_PLAN))).split())
     assert (
         "Phase 11 Release Readiness & Reproducible Validation is complete" in combined
     )
@@ -103,7 +102,10 @@ def test_phase12_status_documents_are_scope_aware() -> None:
     assert "Slices 1 through 6 are complete" in combined
     assert "Slice 3 implements only static `LIMIT`" in combined
     assert "Slice 4 implements only input-scope `ORDER BY`" in combined
-    assert "Projection aliases are not available to ordering" in combined
+    assert (
+        "semantic ordering scope must not accidentally resolve projection aliases"
+        in combined
+    )
 
 
 def test_slice6_locks_configuration_workflow_and_compiler_boundaries() -> None:

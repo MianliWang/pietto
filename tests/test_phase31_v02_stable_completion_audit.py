@@ -11,7 +11,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 PLAN_PATH = REPO_ROOT / "docs/plan/phase-31-v02-hardening-and-stable-completion.md"
 SPEC_PATH = REPO_ROOT / "docs/spec/v02-hardening-and-stable-completion-v1.md"
-README_PATH = REPO_ROOT / "README.md"
 AGENTS_PATH = REPO_ROOT / "AGENTS.md"
 PIETTO_SPEC_PATH = REPO_ROOT / "docs/spec/pietto-v0.9.md"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
@@ -45,7 +44,7 @@ PHASE31_HARDENING_TESTS = (
     "tests/test_phase31_docs_examples_package_ci_readiness.py",
     "tests/test_phase31_v02_stable_completion_audit.py",
 )
-STATUS_DOCS = (README_PATH, AGENTS_PATH, PIETTO_SPEC_PATH)
+STATUS_DOCS = (AGENTS_PATH, PIETTO_SPEC_PATH)
 PHASE31_DOCS = (PLAN_PATH, SPEC_PATH)
 COMPLETION_WORDING = (
     "Pietto v0.2 single-file stable complete",

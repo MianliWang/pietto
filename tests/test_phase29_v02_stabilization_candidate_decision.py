@@ -269,7 +269,7 @@ def test_phase30_through_phase32_mainline_is_locked() -> None:
 
 
 def test_status_docs_record_phase29_slice1_without_broadening_scope() -> None:
-    for relative_path in ("README.md", "AGENTS.md", "docs/spec/pietto-v0.9.md"):
+    for relative_path in ("AGENTS.md", "docs/spec/pietto-v0.9.md"):
         status_doc = _normalized(REPO_ROOT / relative_path)
         for required in (
             "Phase 29 v0.2 Stabilization Boundary",

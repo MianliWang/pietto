@@ -10,7 +10,6 @@ SQLGLOT_EVALUATION = "docs/plan/phase-9-sqlglot-evaluation.md"
 def test_slice4_evaluation_and_status_documents_are_complete() -> None:
     plan = _read(PHASE9_PLAN)
     evaluation = _read(SQLGLOT_EVALUATION)
-    readme = _read("README.md")
     agents = _read("AGENTS.md")
     language_spec = _read("docs/spec/pietto-v0.9.md")
 
@@ -23,7 +22,7 @@ def test_slice4_evaluation_and_status_documents_are_complete() -> None:
             "as a production dependency.**",
         ),
     )
-    for document in (plan, readme, agents, language_spec):
+    for document in (plan, agents, language_spec):
         assert SQLGLOT_EVALUATION in document
 
 

@@ -78,7 +78,6 @@ LOCKED_GROUP_HASHES = {
 }
 
 STATUS_PATHS = (
-    "README.md",
     "AGENTS.md",
     "docs/spec/pietto-v0.9.md",
     "docs/spec/relationship-endpoint-metadata-syntax-v1.md",

@@ -123,7 +123,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "readme": (
         "README.md",
         1,
-        "a9012c03259cc7d8cb983f70fcd6481719f06ead73a0decbea7f7a4f76b55ac2",
+        "dfcee74facc30291d3a3d2fba9de4d6741e65ffb89a8f61224ec3cd130ba0c50",
     ),
     "agents": (
         "AGENTS.md",

@@ -219,7 +219,6 @@ def test_runtime_has_no_composition_sql_shape_implementation_markers() -> None:
 def test_plan_and_status_documents_link_slice4_without_implementation_claims() -> None:
     documents = {
         PLAN_PATH: _read(PLAN_PATH),
-        "README.md": _read("README.md"),
         "AGENTS.md": _read("AGENTS.md"),
         "docs/spec/pietto-v0.9.md": _read("docs/spec/pietto-v0.9.md"),
     }

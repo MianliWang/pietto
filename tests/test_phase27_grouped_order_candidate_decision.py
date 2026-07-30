@@ -275,7 +275,7 @@ def test_required_non_goals_remain_explicitly_deferred() -> None:
 
 
 def test_status_docs_record_phase27_completion_without_broadening_scope() -> None:
-    for relative_path in ("README.md", "AGENTS.md", "docs/spec/pietto-v0.9.md"):
+    for relative_path in ("AGENTS.md", "docs/spec/pietto-v0.9.md"):
         text = _normalized(REPO_ROOT / relative_path)
         for required in (
             "Phase 27 Grouped Result Ordering MVP",

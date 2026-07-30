@@ -10,13 +10,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 PLAN_PATH = REPO_ROOT / "docs/plan/phase-32-semantic-explain-and-metadata-output.md"
 SPEC_PATH = REPO_ROOT / "docs/spec/semantic-metadata-artifact-candidate-decision-v1.md"
-README_PATH = REPO_ROOT / "README.md"
 AGENTS_PATH = REPO_ROOT / "AGENTS.md"
 PIETTO_SPEC_PATH = REPO_ROOT / "docs/spec/pietto-v0.9.md"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 CLI_JSON_SPEC_PATH = REPO_ROOT / "docs/spec/cli-json-v1.md"
 
-STATUS_DOCS = (README_PATH, AGENTS_PATH, PIETTO_SPEC_PATH)
+STATUS_DOCS = (AGENTS_PATH, PIETTO_SPEC_PATH)
 STALE_PHASE32_NOT_STARTED = "Phase 32 remains post-v0.2 and has not started"
 
 

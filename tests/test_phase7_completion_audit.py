@@ -30,7 +30,6 @@ EMIT_KEYS = CHECK_KEYS | {"dialect", "artifacts", "output"}
 def test_phase7_documentation_records_complete_single_file_scope() -> None:
     phase7 = _read("docs/plan/phase-7-developer-workflow-stability.md")
     phase8 = _read("docs/plan/phase-8-project-model-configuration-planning.md")
-    readme = _read("README.md")
     agents = _read("AGENTS.md")
     json_spec = _read("docs/spec/cli-json-v1.md")
     resource_design = _read("docs/plan/phase-7-resource-depth-budget-design.md")
@@ -39,7 +38,6 @@ def test_phase7_documentation_records_complete_single_file_scope() -> None:
     assert "Phase 7 Developer Workflow & Stability Foundation: Complete." in phase7
     for slice_number in range(1, 8):
         assert f"{slice_number}. **" in phase7
-    assert "**Phase 7 Developer Workflow & Stability Foundation: complete**" in readme
     assert (
         "Current phase status: Phase 10 MySQL SQL Generation MVP is complete."
     ) in agents
@@ -61,7 +59,7 @@ def test_phase7_documentation_records_complete_single_file_scope() -> None:
     assert "no lexer token-count limit" not in resource_design
     assert "no workflow capability is implemented" in workflow_design
 
-    combined = "\n".join((phase7, phase8, readme, agents, json_spec, workflow_design))
+    combined = "\n".join((phase7, phase8, agents, json_spec, workflow_design))
     for deferred in (
         "SQL execution",
         "database connection",

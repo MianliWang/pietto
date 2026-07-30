@@ -5,13 +5,12 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLAN_PATH = REPO_ROOT / "docs/plan/phase-32-semantic-explain-and-metadata-output.md"
-README_PATH = REPO_ROOT / "README.md"
 AGENTS_PATH = REPO_ROOT / "AGENTS.md"
 PIETTO_SPEC_PATH = REPO_ROOT / "docs/spec/pietto-v0.9.md"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 PACKAGE_SMOKE_PATH = REPO_ROOT / "scripts/package_smoke.py"
 
-STATUS_DOCS = (README_PATH, AGENTS_PATH, PIETTO_SPEC_PATH)
+STATUS_DOCS = (AGENTS_PATH, PIETTO_SPEC_PATH)
 
 PHASE32_SLICE_STATUS = (
     "Phase 32 Slice 1 is complete as Candidate Decision, Roadmap Alignment, "
@@ -206,8 +205,7 @@ def test_package_smoke_includes_explain_and_project_check_coverage() -> None:
 
 def test_deferred_roadmap_names_and_graph_deferral_are_locked() -> None:
     combined = " ".join(
-        _normalized(path)
-        for path in (PLAN_PATH, README_PATH, AGENTS_PATH, PIETTO_SPEC_PATH)
+        _normalized(path) for path in (PLAN_PATH, AGENTS_PATH, PIETTO_SPEC_PATH)
     )
 
     for required in ROADMAP_STATUS:

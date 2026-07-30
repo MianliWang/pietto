@@ -16,7 +16,6 @@ PHASE10_PLAN = "docs/plan/phase-10-mysql-sql-generation-mvp.md"
 def test_slice5_status_and_cross_references_are_complete() -> None:
     plan = _read(PHASE10_PLAN)
     status_documents = (
-        _read("README.md"),
         _read("AGENTS.md"),
         _read("docs/spec/pietto-v0.9.md"),
     )

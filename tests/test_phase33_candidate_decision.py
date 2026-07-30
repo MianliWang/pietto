@@ -6,14 +6,13 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLAN_PATH = REPO_ROOT / "docs/plan/phase-33-json-v2-and-project-multifile.md"
 SPEC_PATH = REPO_ROOT / "docs/spec/phase-33-json-v2-project-multifile-boundary-v1.md"
-README_PATH = REPO_ROOT / "README.md"
 AGENTS_PATH = REPO_ROOT / "AGENTS.md"
 PIETTO_SPEC_PATH = REPO_ROOT / "docs/spec/pietto-v0.9.md"
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 CLI_JSON_V1_SPEC_PATH = REPO_ROOT / "docs/spec/cli-json-v1.md"
 ARTIFACT_V1_SPEC_PATH = REPO_ROOT / "docs/spec/semantic-metadata-artifact-v1.md"
 
-STATUS_DOCS = (README_PATH, AGENTS_PATH, PIETTO_SPEC_PATH)
+STATUS_DOCS = (AGENTS_PATH, PIETTO_SPEC_PATH)
 
 PHASE_ROADMAP = (
     "Phase 33: JSON v2 And Project / Multi-file MVP",

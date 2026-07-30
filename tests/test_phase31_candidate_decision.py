@@ -482,7 +482,7 @@ def test_phase31_slice1_hard_non_goals_are_locked() -> None:
 
 
 def test_phase31_status_docs_record_slice7_without_v02_completion() -> None:
-    for relative_path in ("README.md", "AGENTS.md", "docs/spec/pietto-v0.9.md"):
+    for relative_path in ("AGENTS.md", "docs/spec/pietto-v0.9.md"):
         status_doc = _normalized(REPO_ROOT / relative_path)
         for required in (
             "Phase 31 v0.2 Hardening And Stable Completion",

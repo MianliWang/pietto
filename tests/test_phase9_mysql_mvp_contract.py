@@ -12,7 +12,6 @@ def test_slice6_contract_and_status_documents_are_complete() -> None:
     contract = _read(MYSQL_CONTRACT)
     documents = (
         plan,
-        _read("README.md"),
         _read("AGENTS.md"),
         _read("docs/spec/pietto-v0.9.md"),
         _read("docs/spec/sql-dialect-source-contract-v1.md"),

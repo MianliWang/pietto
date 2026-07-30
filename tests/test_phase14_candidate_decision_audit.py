@@ -18,7 +18,6 @@ PHASE13_INPUTS = (
     "tests/test_phase13_completion_audit.py",
 )
 STATUS_PATHS = (
-    "README.md",
     "AGENTS.md",
     "docs/spec/pietto-v0.9.md",
 )
@@ -43,7 +42,7 @@ INPUT_HASHES = {
         "2383731c2b9d78f8cf73da8e9d47f973b6eef93eb20e0f03d8f045307b788534"
     ),
     "tests/test_phase13_completion_audit.py": (
-        "b7797fe950ba5de20b00259af21292102b9d3180c523150fe200dbfcf51511a6"
+        "82da5bd46ce6370bb235192255a5b8738289bee7073fc126e9f695c54abd5f9c"
     ),
 }
 

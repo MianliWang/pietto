@@ -232,7 +232,6 @@ def test_phase23_forbidden_features_and_surfaces_remain_deferred() -> None:
 
 def test_status_documents_record_phase23_without_runtime_or_schema_claims() -> None:
     for relative_path in (
-        "README.md",
         "AGENTS.md",
         "docs/spec/pietto-v0.9.md",
     ):

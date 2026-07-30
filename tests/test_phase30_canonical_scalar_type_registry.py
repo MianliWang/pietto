@@ -323,7 +323,7 @@ def test_later_slice_handoff_and_non_goals_are_locked() -> None:
 
 
 def test_status_docs_record_slice2_without_v02_completion_or_behavior_change() -> None:
-    for relative_path in ("README.md", "AGENTS.md", "docs/spec/pietto-v0.9.md"):
+    for relative_path in ("AGENTS.md", "docs/spec/pietto-v0.9.md"):
         status_doc = _normalized(REPO_ROOT / relative_path)
         for required in (
             "Phase 30 Core Type System Stabilization I",

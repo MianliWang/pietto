@@ -642,7 +642,7 @@ def test_handoff_non_goals_and_status_docs_are_locked() -> None:
     for required in PHASE30_HARD_NON_GOALS:
         assert required in plan_and_specs
 
-    for relative_path in ("README.md", "AGENTS.md", "docs/spec/pietto-v0.9.md"):
+    for relative_path in ("AGENTS.md", "docs/spec/pietto-v0.9.md"):
         status_doc = _normalized(REPO_ROOT / relative_path)
         for required in (
             "Phase 30 Core Type System Stabilization I",

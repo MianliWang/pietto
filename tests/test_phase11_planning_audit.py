@@ -63,7 +63,6 @@ def test_phase11_master_plan_records_completed_slices_and_order() -> None:
 
 def test_phase11_status_documents_are_scope_aware() -> None:
     documents = {
-        "README.md": _read("README.md"),
         "AGENTS.md": _read("AGENTS.md"),
         "docs/spec/pietto-v0.9.md": _read("docs/spec/pietto-v0.9.md"),
     }
@@ -74,10 +73,10 @@ def test_phase11_status_documents_are_scope_aware() -> None:
         assert "complete" in normalized
         assert PHASE11_PLAN in document
 
-    combined = "\n".join(documents.values())
+    combined = "\n".join((*documents.values(), _read(PHASE11_PLAN)))
     assert "Phase 10 MySQL SQL Generation MVP is complete" in combined
     assert "Phase 12 SQL Feature Expansion I" in combined
-    assert "require separate explicit" in combined
+    assert "separate explicit authorization" in combined
 
 
 def test_python_floor_and_future_ci_matrix_are_explicit() -> None:

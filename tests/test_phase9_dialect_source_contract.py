@@ -10,7 +10,6 @@ DIALECT_SOURCE_SPEC = "docs/spec/sql-dialect-source-contract-v1.md"
 def test_slice3_contract_and_status_documents_are_complete() -> None:
     plan = _read(PHASE9_PLAN)
     spec = _read(DIALECT_SOURCE_SPEC)
-    readme = _read("README.md")
     agents = _read("AGENTS.md")
     language_spec = _read("docs/spec/pietto-v0.9.md")
 
@@ -20,7 +19,7 @@ def test_slice3_contract_and_status_documents_are_complete() -> None:
         "**Phase 10 Slice 5 implements the `mysql.table(Text)` semantic/IR subset.**"
         in spec
     )
-    for document in (plan, readme, agents, language_spec):
+    for document in (plan, agents, language_spec):
         assert DIALECT_SOURCE_SPEC in document
 
 

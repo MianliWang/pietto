@@ -10,7 +10,6 @@ BACKEND_CONTRACT = "docs/spec/sql-backend-abstraction-contract-v1.md"
 def test_slice5_contract_and_status_documents_are_complete() -> None:
     plan = _read(PHASE9_PLAN)
     contract = _read(BACKEND_CONTRACT)
-    readme = _read("README.md")
     agents = _read("AGENTS.md")
     language_spec = _read("docs/spec/pietto-v0.9.md")
     source_contract = _read("docs/spec/sql-dialect-source-contract-v1.md")
@@ -23,7 +22,6 @@ def test_slice5_contract_and_status_documents_are_complete() -> None:
     )
     for document in (
         plan,
-        readme,
         agents,
         language_spec,
         source_contract,

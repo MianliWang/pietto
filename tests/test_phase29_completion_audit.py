@@ -127,7 +127,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "readme": (
         "README.md",
         1,
-        "a9012c03259cc7d8cb983f70fcd6481719f06ead73a0decbea7f7a4f76b55ac2",
+        "dfcee74facc30291d3a3d2fba9de4d6741e65ffb89a8f61224ec3cd130ba0c50",
     ),
     "agents": (
         "AGENTS.md",
@@ -208,7 +208,7 @@ def test_phase29_status_and_artifact_inventory_are_complete() -> None:
 
 
 def test_phase29_status_docs_lock_v02_completion_after_phase31_slice8() -> None:
-    for relative_path in ("README.md", "AGENTS.md", "docs/spec/pietto-v0.9.md"):
+    for relative_path in ("AGENTS.md", "docs/spec/pietto-v0.9.md"):
         status_doc = _normalized(REPO_ROOT / relative_path)
         for required in (
             "Phase 29 v0.2 Stabilization Boundary",

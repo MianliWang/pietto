@@ -141,16 +141,11 @@ def test_phase11_master_plan_and_status_documents_are_complete() -> None:
     assert "not authorized" in normalized_plan
 
     documents = {
-        "README.md": (REPO_ROOT / "README.md").read_text(encoding="utf-8"),
         "AGENTS.md": (REPO_ROOT / "AGENTS.md").read_text(encoding="utf-8"),
         "docs/spec/pietto-v0.9.md": (REPO_ROOT / "docs/spec/pietto-v0.9.md").read_text(
             encoding="utf-8"
         ),
     }
-    assert (
-        "**Phase 11 Release Readiness & Reproducible Validation: complete**"
-        in (documents["README.md"])
-    )
     normalized_agents = " ".join(documents["AGENTS.md"].split())
     assert (
         "Current phase status: Phase 11 Release Readiness & Reproducible "
@@ -158,7 +153,7 @@ def test_phase11_master_plan_and_status_documents_are_complete() -> None:
     ) in normalized_agents
     assert "Phase 11 complete" in documents["docs/spec/pietto-v0.9.md"]
 
-    combined = " ".join("\n".join(documents.values()).split()).lower()
+    combined = " ".join("\n".join((*documents.values(), plan)).split()).lower()
     for required in (
         "release-readiness",
         "reproducible validation",
