@@ -96,21 +96,21 @@ MODULE_SHA256 = {
 }
 SPEC_SHA256 = "7010cd8a39ed389de588d8cd734b136cc87456c3ef5eb324638467d1188fc935"
 MODIFIED_TEST_SHA256 = {
-    SLICE4_TEST_REL: "1b097b7de1ca6de7ea2d8956bd1d3acf86f22bb8167e9f11221fe08e347ec705",
-    SLICE5_TEST_REL: "7665e4b636e5a6b114aaa32420fe0fbe9c4d54feca897127a99aad76de8a9cde",
-    SLICE6_TEST_REL: "bdf0efc9d14a1a0af47cd749e7efc5097e60050bb71283e6e40d21eecf82e0a2",
-    SLICE7_TEST_REL: "f42af7306d8214965f8dad56df43d7e3516c1495a2baae2990165f6dc3a623d7",
+    SLICE4_TEST_REL: "67892020e1b4f58eaea4d8bbda630fb24abc8843172db4752b2273edf0f83ea0",
+    SLICE5_TEST_REL: "f04fa9581bc37da1df0d037b6638fa5daa9aedabd5e8583a4b129f2afaff35ec",
+    SLICE6_TEST_REL: "e6d5d6287060aebd2ab16db39b7d754824d066006f759cd333e30169977ceddf",
+    SLICE7_TEST_REL: "b5ccd9ad4d7b911c2801e43c225bec6251ab9f443cd0ef2fd60ecec46d13ea71",
 }
 WORKFLOW_SHA256 = "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94"
 PYPROJECT_SHA256 = "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01"
 LOCK_SHA256 = "a7d9125995e98a8a74d3664ceae7801cc1f4cce74ec323933da67838be199cea"
-COMPILER_DIGEST = "6602f4b2ed9722fda6b34dff4f28605c09bdd2d5dd0b67a9697da9bc774b7e3a"
+COMPILER_DIGEST = "395fcfbd790382e22aa4ed7ee07b45d10b079b7a53b6dc872e70314ff4bb195c"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "1395529065e9c4d8abb7c5c73b227e7dc808bbd7ed957aa74f73d91670588b46"
+    "75b90306fdb66ebb6b5ca140a88def5b71582d20da9e3dec7cc726d551521056"
 )
 
 SPEC_H2 = (
@@ -221,6 +221,7 @@ def _slice13_paths(name: str) -> set[str]:
         "d8a5e9ab3de70ce30575513c73560c86430eca63",
         "15bae172ee151e370fe59d3bf909d735aee6aa90",
         "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
+        "c44a4271d9592cb393d2232f127a59d8466cc60a",
     }:
         modified, added = _phase54_slice2_paths()
         if name == "MODIFIED_PATHS":
@@ -244,10 +245,7 @@ def _slice13_paths(name: str) -> set[str]:
 
 
 def _phase54_slice2_paths() -> tuple[set[str], set[str]]:
-    path = (
-        REPO_ROOT
-        / "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
-    )
+    path = REPO_ROOT / "tests/_phase54_active_gate2_manifest.py"
     tree = ast.parse(_read(path), filename=path.as_posix())
     expected = {
         "ADDED_PATHS",
@@ -506,6 +504,7 @@ def _assert_allowed_dirty_state(
             "d8a5e9ab3de70ce30575513c73560c86430eca63",
             "15bae172ee151e370fe59d3bf909d735aee6aa90",
             "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
+            "c44a4271d9592cb393d2232f127a59d8466cc60a",
         )
         return
 
@@ -1882,7 +1881,7 @@ def test_static_reader_counts_boundary_hash_and_nested_sha_topology_are_exact() 
     assert (
         sum(path.endswith(".py") for path in readable),
         sum(path.endswith(".md") for path in readable),
-    ) == (552, 251)
+    ) == (555, 252)
     compiler_paths = _compiler_paths()
     semantic_paths = tuple((REPO_ROOT / "src/pietto/semantic").glob("*.py"))
     phase15_paths = tuple(
@@ -1892,11 +1891,11 @@ def test_static_reader_counts_boundary_hash_and_nested_sha_topology_are_exact() 
     )
     project_paths = _project_private_paths()
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        98,
+        99,
         36,
         33,
     )
-    assert len(project_paths) == 23
+    assert len(project_paths) == 24
     assert _digest(compiler_paths) == COMPILER_DIGEST
     assert _digest(semantic_paths) == SEMANTIC_DIGEST
     assert _digest(phase15_paths) == PHASE15_SUBSET_DIGEST
@@ -2071,7 +2070,7 @@ def test_test_inventory_tier1_selectors_and_compatibility_counts_are_exact() -> 
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (454, 4968)
+    assert (len(test_files), top_level_functions) == (455, 4998)
     assert tuple(
         _pytest_shape(REPO_ROOT / path)[1]
         for path in (

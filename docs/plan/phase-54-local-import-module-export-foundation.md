@@ -1,18 +1,18 @@
 # Phase 54 — Local Import / Module / Export Foundation
 
-## Status And Slice 5 Lifecycle
+## Status And Slice 6 Lifecycle
 
 Phase 53 and Slices 1-16 are `COMPLETED`. Phase 54 is `ACTIVE`, and Slices
-1 through 4 are `COMPLETED`. The trusted Slice 5 base is
-`0f3c955c5a5fbd8046ef611ad1bef0b636c8be01`. During Slice 5 Gate 2, Slice 5
-remains incomplete and Slices 6-16 remain `UNSTARTED`.
+1 through 6 are `COMPLETED` after exact Gate 3 publication. The trusted Slice
+6 base is `c44a4271d9592cb393d2232f127a59d8466cc60a`. Slices 7-16 remain
+`UNSTARTED`.
 
-Slice 5 becomes `COMPLETED` only after the exact
-reviewed tree passes natural exact-head PR CI attempt 1, squash-merges with
-tree equality, passes natural exact-head `main` CI attempt 1, reconciles local
-`main` by fetch and ff-only update, cleans the publication branch, and records
-immutable Gate 3 evidence. Slices 6-16 then remain `UNSTARTED`; the next state
-is `PHASE54_SLICE6_GATE0_GATE1`, and Slice 6 does not begin in Slice 5.
+Slice 6 adds only private-by-default local visibility, exact six-kind export
+eligibility and matching, a narrow caller-supplied explicit named re-export
+candidate seam, private issue facts, and one immutable export facade per parsed
+schema-v2 module. Its entry state was `PHASE54_SLICE6_GATE0_GATE1`. Actual
+import binding remains Slice 7 ownership. The next state is
+`PHASE54_SLICE7_GATE0_GATE1`, and Slice 7 does not begin in Slice 6.
 
 ## Trusted Phase 53 Baseline And Controlling Evidence
 
@@ -387,8 +387,14 @@ Prerequisites: Slices 2 and 4. After exact Gate 3 completion, Slice 6 is next.
 
 ## Slice 6 — Local Export Eligibility, Visibility, Explicit Named Re-export, And Facade Semantics
 
-Separately gate private visibility, eligible exports, and basic explicit named
-re-export. Prerequisite: Slice 5.
+Completed as the private visibility and facade slice. Every local schema-v2
+declaration is private unless one exact six-kind `export` request resolves it.
+The implementation preserves all source requests, fails closed on missing or
+ambiguous candidates, and supports only a caller-supplied, already-resolved,
+explicit named imported-binding candidate for one-hop re-export. One immutable
+facade per parsed module retains entries and private issue facts; schema-v1,
+CLI/JSON, diagnostics, IR, SQL, dependencies, workflows, package version,
+fixtures, and goldens remain unchanged. Prerequisite: Slice 5. Slice 7 is next.
 
 ## Slice 7 — Named Imports, Aliases, Binding Environments, And Collision Rules
 

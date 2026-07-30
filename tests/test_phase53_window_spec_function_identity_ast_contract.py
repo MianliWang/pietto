@@ -51,9 +51,8 @@ BASE_HEAD_SHA = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
 PHASE54_SLICE2_BASE_HEAD_SHA = "d8a5e9ab3de70ce30575513c73560c86430eca63"
 PHASE54_SLICE4_BASE_HEAD_SHA = "15bae172ee151e370fe59d3bf909d735aee6aa90"
 PHASE54_SLICE5_BASE_HEAD_SHA = "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01"
-PHASE54_SLICE2_STATE_REL = (
-    "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
-)
+PHASE54_SLICE6_BASE_HEAD_SHA = "c44a4271d9592cb393d2232f127a59d8466cc60a"
+PHASE54_SLICE2_STATE_REL = "tests/_phase54_active_gate2_manifest.py"
 TEMPORARY_BRIDGE_MESSAGE = (
     "Window syntax is recognized, but WindowSpec AST preservation starts in "
     "Phase 53 Slice 3."
@@ -303,7 +302,7 @@ SEMANTIC_IDENTITY_CASES = (
     ("Org.Analytics.Rank", "Unknown function: Org.Analytics.Rank"),
 )
 
-COMPILER_DIGEST = "6602f4b2ed9722fda6b34dff4f28605c09bdd2d5dd0b67a9697da9bc774b7e3a"
+COMPILER_DIGEST = "395fcfbd790382e22aa4ed7ee07b45d10b079b7a53b6dc872e70314ff4bb195c"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
@@ -979,7 +978,7 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        98,
+        99,
         36,
         33,
     )
@@ -1017,6 +1016,7 @@ def test_slice3_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             PHASE54_SLICE2_BASE_HEAD_SHA,
             PHASE54_SLICE4_BASE_HEAD_SHA,
             PHASE54_SLICE5_BASE_HEAD_SHA,
+            PHASE54_SLICE6_BASE_HEAD_SHA,
         }
     elif dirty:
         assert tracked == MODIFIED_PATHS
@@ -1037,15 +1037,15 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
     readable = {path for path in (*tracked, *untracked) if (REPO_ROOT / path).is_file()}
-    assert len(readable) == 899
-    assert sum(path.endswith(".py") for path in readable) == 552
-    assert sum(path.endswith(".md") for path in readable) == 251
+    assert len(readable) == 903
+    assert sum(path.endswith(".py") for path in readable) == 555
+    assert sum(path.endswith(".md") for path in readable) == 252
     test_modules = {
         path
         for path in readable
         if path.startswith("tests/test_") and path.endswith(".py")
     }
-    assert len(test_modules) == 454
+    assert len(test_modules) == 455
     top_level_tests = 0
     for relative in sorted(test_modules):
         tree = ast.parse(_read(relative), filename=relative)
@@ -1054,7 +1054,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 4968
+    assert top_level_tests == 4998
     assert (
         3488
         == 381 + 834 + 627 + 424 + 279 + 168 + 156 + 12 + 145 + 190 + 70 + 70 + 97 + 35

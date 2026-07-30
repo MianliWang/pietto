@@ -175,9 +175,9 @@ PRE_RECONCILIATION_2_SHA256 = (
 PRE_RECONCILIATION_3_SHA256 = (
     "cb2c51246f1e312858641750d1a416125f99058fb0182949e9afe35ae49e97cf"
 )
-COMPILER_DIGEST = "6602f4b2ed9722fda6b34dff4f28605c09bdd2d5dd0b67a9697da9bc774b7e3a"
+COMPILER_DIGEST = "395fcfbd790382e22aa4ed7ee07b45d10b079b7a53b6dc872e70314ff4bb195c"
 PROJECT_PRIVATE_DIGEST = (
-    "1395529065e9c4d8abb7c5c73b227e7dc808bbd7ed957aa74f73d91670588b46"
+    "75b90306fdb66ebb6b5ca140a88def5b71582d20da9e3dec7cc726d551521056"
 )
 
 
@@ -190,6 +190,7 @@ def _slice13_paths(name: str) -> set[str]:
         "d8a5e9ab3de70ce30575513c73560c86430eca63",
         "15bae172ee151e370fe59d3bf909d735aee6aa90",
         "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
+        "c44a4271d9592cb393d2232f127a59d8466cc60a",
     }:
         modified, added = _phase54_slice2_paths()
         if name == "MODIFIED_PATHS":
@@ -213,10 +214,7 @@ def _slice13_paths(name: str) -> set[str]:
 
 
 def _phase54_slice2_paths() -> tuple[set[str], set[str]]:
-    path = (
-        REPO_ROOT
-        / "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
-    )
+    path = REPO_ROOT / "tests/_phase54_active_gate2_manifest.py"
     tree = ast.parse(_read(path), filename=path.as_posix())
     expected = {
         "ADDED_PATHS",
@@ -552,7 +550,7 @@ def test_slice1_no_behavior_public_privacy_and_release_boundaries_are_locked() -
         compiler_digest.update(b"\0")
         compiler_digest.update(path.read_bytes())
         compiler_digest.update(b"\0")
-    assert (len(compiler_paths), compiler_digest.hexdigest()) == (98, COMPILER_DIGEST)
+    assert (len(compiler_paths), compiler_digest.hexdigest()) == (99, COMPILER_DIGEST)
     for relative_path in BOUNDARY_PATHS:
         assert re.findall(
             r'^BOUNDARY_HASH = "([0-9a-f]{64})"$',
@@ -577,12 +575,12 @@ def test_slice1_no_behavior_public_privacy_and_release_boundaries_are_locked() -
         project_digest.update(path.read_bytes())
         project_digest.update(b"\0")
     assert (len(project_paths), project_digest.hexdigest()) == (
-        23,
+        24,
         PROJECT_PRIVATE_DIGEST,
     )
     assert (
         '"project_private": (\n        "src/pietto/_project",\n'
-        f'        23,\n        "{PROJECT_PRIVATE_DIGEST}",\n    ),'
+        f'        24,\n        "{PROJECT_PRIVATE_DIGEST}",\n    ),'
     ) in _read(REPO_ROOT / "tests/test_phase33_completion_audit.py")
 
     project = tomllib.loads(_read(PYPROJECT_PATH))["project"]
@@ -889,7 +887,11 @@ def test_static_audit_shape_allowlist_and_heading_matching_are_locked() -> None:
         assert untracked_paths == slice13_added
         assert _git_output(["branch", "--show-current"]) == "main"
         expected_head = (
-            "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01"
+            "c44a4271d9592cb393d2232f127a59d8466cc60a"
+            if any(
+                path.startswith("docs/spec/phase54-slice6-") for path in slice13_added
+            )
+            else "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01"
             if any(
                 path.startswith("docs/spec/phase54-slice5-") for path in slice13_added
             )

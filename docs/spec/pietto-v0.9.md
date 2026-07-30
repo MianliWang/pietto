@@ -9,24 +9,28 @@ Current pipeline: parse -> analyze -> build IR -> emit selected PostgreSQL or My
 
 ---
 
-## Current Phase 54 Slice 5 Module-catalog Status
+## Current Phase 54 Slice 6 Export-facade Status
 
-Phase 54 is active and Slices 1 through 5 are complete after exact Gate 3
+Phase 54 is active and Slices 1 through 6 are complete after exact Gate 3
 publication. Slice 4 supplies contextual top-level `import`, `export`, and
 `as` syntax plus immutable source-located module AST. Slice 5 adds private
 four-component nominal declaration identity and one immutable, source-ordered
-local declaration catalog per successfully parsed schema-v2 module. The exact
-Slice 5 contract is
-`docs/spec/phase54-slice5-module-qualified-nominal-declaration-identity-and-per-module-catalogs-v1.md`.
+local declaration catalog per successfully parsed schema-v2 module. Slice 6
+adds private-by-default local declaration visibility, exact six-kind export
+matching, a narrow caller-supplied explicit named re-export seam, and one
+immutable private facade per parsed module. The exact Slice 6 contract is
+`docs/spec/phase54-slice6-local-export-eligibility-visibility-explicit-named-reexport-and-facade-semantics-v1.md`.
 
 Catalogs read only local `Script.definitions`, preserve duplicates without a
-winner, and do not consume import/export statements. Import/export eligibility,
-visibility, binding, re-export, collision diagnostics, graphs, and cross-module
-resolution remain unavailable. Module catalogs do not influence Semantic IR,
+winner, and do not consume import/export statements. Facades consume only
+retained `ExportStatement` values and optional caller-resolved one-hop
+candidates; integrated construction supplies no imported candidates. Actual
+import binding, collision diagnostics, graphs, and cross-module resolution
+remain unavailable. The new private facts do not influence Semantic IR,
 PostgreSQL/MySQL SQL, CLI JSON v1, Project JSON v2, Semantic Metadata Artifact
 v1, or public Python exports. `PIE-S2701` through `PIE-S2707` remain absent and
-un-emitted. Slice 6 owns local export eligibility, visibility, explicit named
-re-export, and facade semantics.
+un-emitted. Slice 7 owns named imports, aliases, binding environments, and
+collision rules.
 
 ---
 
