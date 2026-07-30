@@ -33,9 +33,7 @@ SPEC_REL = "docs/spec/phase53-completion-audit-and-status-lock-v1.md"
 SELF_REL = "tests/test_phase53_completion_audit_and_status_lock.py"
 ROADMAP_REL = "docs/spec/pietto-active-roadmap-phase53-70-v1.md"
 SLICE2_STATE_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
-PHASE54_SLICE2_STATE_REL = (
-    "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
-)
+PHASE54_SLICE2_STATE_REL = "tests/_phase54_active_gate2_manifest.py"
 
 SPEC_TITLE = "Phase 53 Slice 16 Completion Audit And Status Lock v1"
 SPEC_H2 = (
@@ -216,10 +214,10 @@ CAPABILITY_WINDOWS_SHA256 = (
     "c0512933fc284bbc1dec98dab96411ee179d64e7bee005aa798b6fd7dba2024e"
 )
 PATH_DIGESTS = {
-    "compiler": "6602f4b2ed9722fda6b34dff4f28605c09bdd2d5dd0b67a9697da9bc774b7e3a",
+    "compiler": "395fcfbd790382e22aa4ed7ee07b45d10b079b7a53b6dc872e70314ff4bb195c",
     "semantic": "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70",
     "phase15": "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d",
-    "project": "1395529065e9c4d8abb7c5c73b227e7dc808bbd7ed957aa74f73d91670588b46",
+    "project": "75b90306fdb66ebb6b5ca140a88def5b71582d20da9e3dec7cc726d551521056",
 }
 PROTECTED_SHA256 = {
     ".github/workflows/ci.yml": "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94",
@@ -462,6 +460,7 @@ def _assert_allowed_dirty_state(
             "d8a5e9ab3de70ce30575513c73560c86430eca63",
             "15bae172ee151e370fe59d3bf909d735aee6aa90",
             "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
+            "c44a4271d9592cb393d2232f127a59d8466cc60a",
         }
         return
     assert tracked == SLICE16_MODIFIED_PATHS
@@ -901,10 +900,10 @@ def test_live_compiler_semantic_phase15_project_protected_version_and_tag_locks_
     )
     project = _project_paths()
     assert (len(compiler), len(semantic), len(phase15), len(project)) == (
-        98,
+        99,
         36,
         33,
-        23,
+        24,
     )
     assert {
         "compiler": _digest(compiler),
@@ -934,12 +933,12 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
         len(readable),
         sum(path.endswith(".py") for path in readable),
         sum(path.endswith(".md") for path in readable),
-    ) == (899, 552, 251)
+    ) == (903, 555, 252)
     test_files = tuple((REPO_ROOT / "tests").glob("test_*.py"))
     top_functions = sum(
         len(_top_level_test_functions(f"tests/{path.name}")) for path in test_files
     )
-    assert (len(test_files), top_functions) == (454, 4968)
+    assert (len(test_files), top_functions) == (455, 4998)
     for digest, expected in (
         (PATH_DIGESTS["compiler"], 28),
         (PATH_DIGESTS["semantic"], 42),
@@ -1084,6 +1083,7 @@ def test_static_git_helper_and_exact_slice16_dirty_set_are_locked() -> None:
             "d8a5e9ab3de70ce30575513c73560c86430eca63",
             "15bae172ee151e370fe59d3bf909d735aee6aa90",
             "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
+            "c44a4271d9592cb393d2232f127a59d8466cc60a",
         }:
             expected_modified = cast(
                 set[str],

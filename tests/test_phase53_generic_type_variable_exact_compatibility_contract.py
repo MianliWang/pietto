@@ -538,8 +538,9 @@ BASE_HEAD = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
 PHASE54_SLICE2_BASE_HEAD = "d8a5e9ab3de70ce30575513c73560c86430eca63"
 PHASE54_SLICE4_BASE_HEAD = "15bae172ee151e370fe59d3bf909d735aee6aa90"
 PHASE54_SLICE5_BASE_HEAD = "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01"
+PHASE54_SLICE6_BASE_HEAD = "c44a4271d9592cb393d2232f127a59d8466cc60a"
 FINAL_COMPILER_DIGEST = (
-    "6602f4b2ed9722fda6b34dff4f28605c09bdd2d5dd0b67a9697da9bc774b7e3a"
+    "395fcfbd790382e22aa4ed7ee07b45d10b079b7a53b6dc872e70314ff4bb195c"
 )
 FINAL_SEMANTIC_DIGEST = (
     "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
@@ -717,10 +718,7 @@ def _all_repository_paths() -> tuple[str, ...]:
 
 
 def _phase54_slice2_paths() -> tuple[frozenset[str], frozenset[str]]:
-    path = (
-        REPO_ROOT
-        / "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
-    )
+    path = REPO_ROOT / "tests/_phase54_active_gate2_manifest.py"
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=path.as_posix())
     expected = {
         "ADDED_PATHS",
@@ -1890,7 +1888,7 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        98,
+        99,
         36,
         33,
     )
@@ -1927,6 +1925,7 @@ def test_slice4_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             PHASE54_SLICE2_BASE_HEAD,
             PHASE54_SLICE4_BASE_HEAD,
             PHASE54_SLICE5_BASE_HEAD,
+            PHASE54_SLICE6_BASE_HEAD,
         }:
             expected_modified, expected_added = _phase54_slice2_paths()
             expected_base = head
@@ -1981,7 +1980,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         len(markdown_paths),
         len(test_paths),
         top_level_functions,
-    ) == (899, 552, 251, 454, 4968)
+    ) == (903, 555, 252, 455, 4998)
     self_tree = ast.parse(SELF_PATH.read_text())
     self_names = tuple(
         node.name

@@ -81,9 +81,7 @@ CAPABILITY_REL = "src/pietto/semantic/capability_windows.py"
 BASE_HEAD = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
 PUBLICATION_BRANCH = "phase53/slice15-window-ir-dual-backend-lowering"
 PUBLICATION_TITLE = "Add Phase 53 window IR and dual-backend lowering"
-PHASE54_SLICE2_STATE_REL = (
-    "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
-)
+PHASE54_SLICE2_STATE_REL = "tests/_phase54_active_gate2_manifest.py"
 
 IDENTITIES = (
     "row_number",
@@ -1719,7 +1717,7 @@ def test_generated_golden_fixture_package_dependency_and_version_boundaries_are_
         sum(path.endswith(".md") for path in paths),
         sum(path.startswith("tests/test_") and path.endswith(".py") for path in paths),
         _top_level_test_function_count(paths),
-    ) == (899, 552, 251, 454, 4968)
+    ) == (903, 555, 252, 455, 4998)
     generated = tuple(
         path for path in paths if path.startswith("src/pietto/generated/")
     )

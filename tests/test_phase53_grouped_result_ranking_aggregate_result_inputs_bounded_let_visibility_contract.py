@@ -90,6 +90,7 @@ PHASE54_SLICE2_HEAD = "d8a5e9ab3de70ce30575513c73560c86430eca63"
 PHASE54_SLICE3_HEAD = "2752985c3f6343519b7d7d6fe400d16251e64d85"
 README_REFRESH_HEAD = "15bae172ee151e370fe59d3bf909d735aee6aa90"
 PHASE54_SLICE4_HEAD = "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01"
+PHASE54_SLICE5_HEAD = "c44a4271d9592cb393d2232f127a59d8466cc60a"
 PHASE54_SLICE1_SUBJECT = "Add Phase 54 scope authority and expansion route lock"
 PHASE54_SLICE2_SUBJECT = "Add Phase 54 schema v2 module activation carrier"
 PHASE54_SLICE3_SUBJECT = "Add Phase 54 trusted module loading boundary"
@@ -98,6 +99,8 @@ PHASE54_SLICE4_SUBJECT = "Add Phase 54 import export grammar and AST"
 PHASE54_SLICE4_BRANCH = "phase54/slice4-import-export-grammar-ast"
 PHASE54_SLICE5_SUBJECT = "Add Phase 54 module declaration catalogs"
 PHASE54_SLICE5_BRANCH = "phase54/slice5-module-declaration-catalogs"
+PHASE54_SLICE6_SUBJECT = "Add Phase 54 module export surfaces"
+PHASE54_SLICE6_BRANCH = "phase54/slice6-export-visibility-facade"
 MAINTENANCE_MODIFIED_PATHS = (
     ".github/workflows/ci.yml",
     "pyproject.toml",
@@ -156,10 +159,7 @@ def _phase53_gate2_paths(name: str) -> set[str]:
 
 
 def _phase54_gate2_paths(name: str) -> set[str]:
-    path = (
-        REPO_ROOT
-        / "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
-    )
+    path = REPO_ROOT / "tests/_phase54_active_gate2_manifest.py"
     tree = ast.parse(path.read_text(encoding="utf-8"))
     assignments = {
         node.targets[0].id: node.value
@@ -178,6 +178,8 @@ def _phase54_gate2_paths(name: str) -> set[str]:
             return resolve(node.value)
         if isinstance(node, ast.Set):
             return set().union(*(resolve(element) for element in node.elts))
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+            return resolve(node.left) | resolve(node.right)
         raise AssertionError(ast.dump(node))
 
     return resolve(assignments[name])
@@ -600,6 +602,12 @@ def _is_clean_projection() -> bool:
         subject,
         PHASE54_SLICE5_SUBJECT,
     ):
+        if status:
+            assert head == PHASE54_SLICE5_HEAD
+            assert shallow == "false"
+            _assert_main_refs(head)
+            _assert_phase54_dirty_state(status=status, staged=staged)
+            return False
         _assert_clean_state(status=status, staged=staged)
         if pull_request_identity is not None:
             base_sha, candidate_sha = pull_request_identity
@@ -619,6 +627,33 @@ def _is_clean_projection() -> bool:
         if branch == PHASE54_SLICE5_BRANCH:
             assert _git_optional_ref("refs/heads/main") == PHASE54_SLICE4_HEAD
             assert _git_optional_ref("refs/remotes/origin/main") == PHASE54_SLICE4_HEAD
+            return True
+        _assert_main_refs(head)
+        return True
+
+    if parents == (PHASE54_SLICE5_HEAD,) and _is_phase54_subject(
+        subject,
+        PHASE54_SLICE6_SUBJECT,
+    ):
+        _assert_clean_state(status=status, staged=staged)
+        if pull_request_identity is not None:
+            base_sha, candidate_sha = pull_request_identity
+            assert shallow == "true"
+            assert base_sha == PHASE54_SLICE5_HEAD
+            assert candidate_sha == head
+            assert pull_request_refs == ("main", PHASE54_SLICE6_BRANCH)
+            return True
+        if os.environ.get("GITHUB_EVENT_NAME") == "push":
+            assert shallow == "true"
+            assert os.environ.get("GITHUB_REF") == "refs/heads/main"
+            assert os.environ.get("GITHUB_SHA") == head
+            assert _git_optional_ref("refs/remotes/origin/main") in (None, head)
+            return True
+        assert shallow == "false"
+        branch = _git_output(["branch", "--show-current"])
+        if branch == PHASE54_SLICE6_BRANCH:
+            assert _git_optional_ref("refs/heads/main") == PHASE54_SLICE5_HEAD
+            assert _git_optional_ref("refs/remotes/origin/main") == PHASE54_SLICE5_HEAD
             return True
         _assert_main_refs(head)
         return True
@@ -644,6 +679,14 @@ def _is_clean_projection() -> bool:
             assert parents == (PHASE54_SLICE4_HEAD, candidate_sha)
             _assert_clean_state(status=status, staged=staged)
             return True
+        if base_sha == PHASE54_SLICE5_HEAD or candidate_ref == PHASE54_SLICE6_BRANCH:
+            assert base_sha == PHASE54_SLICE5_HEAD
+            assert base_ref == "main"
+            assert candidate_ref == PHASE54_SLICE6_BRANCH
+            assert head != candidate_sha
+            assert parents == (PHASE54_SLICE5_HEAD, candidate_sha)
+            _assert_clean_state(status=status, staged=staged)
+            return True
         assert base_sha in (
             CI_REPAIR_HEAD,
             SLICE15_PUBLISHED_HEAD,
@@ -653,6 +696,7 @@ def _is_clean_projection() -> bool:
             PHASE54_SLICE3_HEAD,
             README_REFRESH_HEAD,
             PHASE54_SLICE4_HEAD,
+            PHASE54_SLICE5_HEAD,
         )
         _assert_clean_state(status=status, staged=staged)
         if head == candidate_sha:

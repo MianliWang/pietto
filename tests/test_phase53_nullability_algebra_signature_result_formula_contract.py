@@ -232,7 +232,7 @@ MODIFIED_PATHS = (
 
 BASE_HEAD = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
 FINAL_COMPILER_DIGEST = (
-    "6602f4b2ed9722fda6b34dff4f28605c09bdd2d5dd0b67a9697da9bc774b7e3a"
+    "395fcfbd790382e22aa4ed7ee07b45d10b079b7a53b6dc872e70314ff4bb195c"
 )
 FINAL_SEMANTIC_DIGEST = (
     "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
@@ -407,10 +407,7 @@ def _all_repository_paths() -> tuple[str, ...]:
 
 
 def _phase54_slice2_paths() -> tuple[frozenset[str], frozenset[str]]:
-    path = (
-        REPO_ROOT
-        / "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
-    )
+    path = REPO_ROOT / "tests/_phase54_active_gate2_manifest.py"
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=path.as_posix())
     expected = {
         "ADDED_PATHS",
@@ -1635,7 +1632,7 @@ def test_concrete_semantic_project_and_aggregate_nullability_authority_is_locked
         "src/pietto/semantic/expressions.py": "37b198f72b0c71c90a82d746671be8528a9ea5c2d4818ff7ef4ba55e30e9c595",
         "src/pietto/semantic/aggregates.py": "f5d5be237960e50f62f539d76e09be425980c9f8e657846333b5ef1aaa948333",
         "src/pietto/semantic/catalog.py": "f566f39395e3bdc933e60d15e740749255dd3749cf3907684240e4b43dfc9e40",
-        "src/pietto/_project/model.py": "28940c85c9c122b405259cfe33bd34447bf6453a5ffd8165b3e466462af1a4d2",
+        "src/pietto/_project/model.py": "48001c4c04b77b589d2c6971c96d70a1f87f3e3b9c46340eeedd7b780927cbd9",
         "src/pietto/_project/row_expression_schema.py": "fc968a628592640012d59521627c91ee0a0017bc640fab27e8cbd756e4aa1e7d",
         "src/pietto/_project/row_expression_type_facts.py": "37559704de25d9f32a3ed062c0f99f58c29463bff291e38e1fefca70613d15a0",
         "src/pietto/_project/aggregate_grouped_schema.py": "406fa28ec27a574576508a075305c28f07a495cf91f300d529c62b84a0aa519b",
@@ -1706,7 +1703,7 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        98,
+        99,
         36,
         33,
     )
@@ -1753,6 +1750,7 @@ def test_slice5_dirty_clean_and_depth_one_repository_states_are_locked() -> None
         "d8a5e9ab3de70ce30575513c73560c86430eca63",
         "15bae172ee151e370fe59d3bf909d735aee6aa90",
         "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
+        "c44a4271d9592cb393d2232f127a59d8466cc60a",
     }:
         expected_modified, expected_added = _phase54_slice2_paths()
         expected_base = head
@@ -1784,11 +1782,11 @@ def test_slice5_dirty_clean_and_depth_one_repository_states_are_locked() -> None
 
 def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
     repository_paths = _all_repository_paths()
-    assert len(repository_paths) == 899
-    assert sum(path.endswith(".py") for path in repository_paths) == 552
-    assert sum(path.endswith(".md") for path in repository_paths) == 251
+    assert len(repository_paths) == 903
+    assert sum(path.endswith(".py") for path in repository_paths) == 555
+    assert sum(path.endswith(".md") for path in repository_paths) == 252
     test_paths = tuple(sorted((REPO_ROOT / "tests").glob("test_*.py")))
-    assert len(test_paths) == 454
+    assert len(test_paths) == 455
     functions = tuple(
         node.name
         for path in test_paths
@@ -1796,7 +1794,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name.startswith("test_")
     )
-    assert len(functions) == 4968
+    assert len(functions) == 4998
     self_functions = tuple(
         node.name
         for node in ast.parse(SELF_PATH.read_text()).body

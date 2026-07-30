@@ -133,6 +133,8 @@ PHASE54_SLICE4_BASE_HEAD_SHA = "15bae172ee151e370fe59d3bf909d735aee6aa90"
 PHASE54_SLICE4_PATH_COUNTS = (138, 2, 140)
 PHASE54_SLICE5_BASE_HEAD_SHA = "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01"
 PHASE54_SLICE5_PATH_COUNTS = (164, 3, 167)
+PHASE54_SLICE6_BASE_HEAD_SHA = "c44a4271d9592cb393d2232f127a59d8466cc60a"
+PHASE54_SLICE6_PATH_COUNTS = (57, 4, 61)
 PHASE54_SLICE4_BOUNDARY_CHANGED_LINE_COUNTS = {
     "tests/test_phase11_ci_workflow.py": 2,
     "tests/test_phase11_completion_audit.py": 8,
@@ -143,9 +145,7 @@ PHASE54_SLICE4_BOUNDARY_CHANGED_LINE_COUNTS = {
     "tests/test_phase12_completion_audit.py": 4,
     "tests/test_phase12_composition_cli_json_goldens.py": 2,
 }
-PHASE54_STATE_REL = (
-    "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
-)
+PHASE54_STATE_REL = "tests/_phase54_active_gate2_manifest.py"
 
 
 def _literal_set(relative: str, name: str) -> set[str]:
@@ -1462,6 +1462,10 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
         dirty == phase54_modified | phase54_added
         and phase54_path_counts == PHASE54_SLICE5_PATH_COUNTS
     )
+    is_phase54_slice6 = (
+        dirty == phase54_modified | phase54_added
+        and phase54_path_counts == PHASE54_SLICE6_PATH_COUNTS
+    )
     if dirty == CI_REPAIR_MODIFIED_PATHS:
         assert untracked == set()
         assert _git_output(["branch", "--show-current"]).strip() == "main"
@@ -1482,6 +1486,8 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
             expected_head = PHASE54_SLICE4_BASE_HEAD_SHA
         elif is_phase54_slice5:
             expected_head = PHASE54_SLICE5_BASE_HEAD_SHA
+        elif is_phase54_slice6:
+            expected_head = PHASE54_SLICE6_BASE_HEAD_SHA
         assert _git_output(["rev-parse", "HEAD"]).strip() == expected_head
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
 
@@ -1533,17 +1539,17 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
                 assert changed_lines[1] == f'+BOUNDARY_HASH = "{compiler_digest}"'
     project_paths = _project_private_paths()
     project_digest = _digest(project_paths)
-    assert len(project_paths) == 23
+    assert len(project_paths) == 24
     assert REPO_ROOT / "src/pietto/_project/window_persistence.py" in project_paths
     assert project_digest == (
-        "1395529065e9c4d8abb7c5c73b227e7dc808bbd7ed957aa74f73d91670588b46"
+        "75b90306fdb66ebb6b5ca140a88def5b71582d20da9e3dec7cc726d551521056"
     )
     phase33 = (REPO_ROOT / "tests/test_phase33_completion_audit.py").read_text(
         encoding="utf-8"
     )
     assert (
         f'"project_private": (\n        "src/pietto/_project",\n'
-        f'        23,\n        "{project_digest}",\n    ),'
+        f'        24,\n        "{project_digest}",\n    ),'
     ) in phase33
     phase33_changed_lines = _git_changed_lines("tests/test_phase33_completion_audit.py")
     if phase33_changed_lines:
@@ -1581,6 +1587,18 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
             )
             assert phase33_changed_lines[7] == (
                 f'+        "{_digest((REPO_ROOT / "docs/spec/pietto-v0.9.md",))}",'
+            )
+        elif is_phase54_slice6:
+            assert len(phase33_changed_lines) == 8
+            assert phase33_changed_lines[0] == "-        23,"
+            assert re.fullmatch(r'-        "[0-9a-f]{64}",', phase33_changed_lines[1])
+            assert phase33_changed_lines[2:4] == [
+                "+        24,",
+                f'+        "{project_digest}",',
+            ]
+            assert all(
+                re.fullmatch(r'[+-]        "[0-9a-f]{64}",', line)
+                for line in phase33_changed_lines[4:]
             )
         else:
             assert len(phase33_changed_lines) == 12

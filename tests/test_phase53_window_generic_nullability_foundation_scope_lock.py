@@ -234,9 +234,8 @@ SLICE2_STATE_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract
 PHASE54_SLICE2_BASE_HEAD_SHA = "d8a5e9ab3de70ce30575513c73560c86430eca63"
 PHASE54_SLICE4_BASE_HEAD_SHA = "15bae172ee151e370fe59d3bf909d735aee6aa90"
 PHASE54_SLICE5_BASE_HEAD_SHA = "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01"
-PHASE54_SLICE2_STATE_REL = (
-    "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
-)
+PHASE54_SLICE6_BASE_HEAD_SHA = "c44a4271d9592cb393d2232f127a59d8466cc60a"
+PHASE54_SLICE2_STATE_REL = "tests/_phase54_active_gate2_manifest.py"
 
 TIER1_EXISTING_NODES = (
     "tests/test_phase51_aggregate_grouped_output_schema_foundation_scope_lock.py::test_artifacts_titles_heading_orders_and_no_behavior_sentence_are_locked",
@@ -388,6 +387,7 @@ def _assert_phase53_repository_state() -> None:
             PHASE54_SLICE2_BASE_HEAD_SHA,
             PHASE54_SLICE4_BASE_HEAD_SHA,
             PHASE54_SLICE5_BASE_HEAD_SHA,
+            PHASE54_SLICE6_BASE_HEAD_SHA,
         }
         return
 
@@ -784,12 +784,12 @@ def test_reader_migrations_reconciliation4_and_current_authority_are_locked() ->
         "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
         "tests/test_phase52_completion_audit_and_status_lock.py",
     ):
-        assert "(454, 4968)" in _read(relative)
+        assert "(455, 4998)" in _read(relative)
     for relative in (
         "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
         "tests/test_phase52_completion_audit_and_status_lock.py",
     ):
-        assert "(552, 251)" in _read(relative)
+        assert "(555, 252)" in _read(relative)
 
 
 def test_gate2_validation_depth_one_gate3_activation_and_stop_conditions_are_locked() -> (
