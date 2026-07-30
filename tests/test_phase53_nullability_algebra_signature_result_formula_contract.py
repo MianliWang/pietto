@@ -232,7 +232,7 @@ MODIFIED_PATHS = (
 
 BASE_HEAD = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
 FINAL_COMPILER_DIGEST = (
-    "ba1c27b7264dbf44731896e4ef5e8444b7fbc7b4ddac6de545a9c2bf3a106324"
+    "a0e0aa11261ca8c921b70ffba10210edbb56fe1f1bc5d2ad4ca8cc806e516e1f"
 )
 FINAL_SEMANTIC_DIGEST = (
     "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
@@ -1662,9 +1662,9 @@ def test_project_ir_sql_cli_serializer_and_public_exports_are_unchanged() -> Non
 
 def test_grammar_ast_generated_parser_window_and_generic_bytes_are_locked() -> None:
     expected = {
-        "grammar/Pietto.g4": "1c394db1f72561022941e0e937899e2d340880de220ebfa85cf387b86573384e",
-        "src/pietto/ast_nodes.py": "b0c41070fca75c89534eba75cf2086f41721de740da9a3573d67411d366204f5",
-        "src/pietto/ast_builder.py": "201c74d6a27e57dfc7cd0f9693b388ebe7853b783173a3c4f7191a5f8026e70b",
+        "grammar/Pietto.g4": "661f00037b4ade8f8b5bef0cb3e070e4379decdd11cd19021d68e960e69d2724",
+        "src/pietto/ast_nodes.py": "bbfd121446d62d33c7990b80d17579d3f8b55763ce1b5f93ee17247cbd2ce0c2",
+        "src/pietto/ast_builder.py": "918dc9f6d7705376b604e69fb80c45cf4c3673c8909a58537770d114d96252cb",
         "src/pietto/parser_api.py": "aa744c3ee334c8729917ae2aed2ee906874f927d47e99542d5accb8a98aa456b",
         "src/pietto/_window_identity.py": "d1223f7095790dc08ffc176c103ae6180cd9e03773ddf9763448d482d6984c9b",
         "src/pietto/semantic/generic_compatibility.py": "340703267a6185f0b37401c1097a1f246d34d3d0d46c1f583b5ce5134e5090f8",
@@ -1679,7 +1679,7 @@ def test_grammar_ast_generated_parser_window_and_generic_bytes_are_locked() -> N
     assert len(generated) == 8
     assert (
         _digest(generated)
-        == "bc5be46411f947c4d591e81ce8dd8345140fd5e10276f2ff0055eccfc12babe4"
+        == "9a84d108062bdbd87f5cd1d6e237e66f8bbb39d1d9d7674312eab6eb156cbad1"
     )
 
 
@@ -1749,9 +1749,12 @@ def test_slice5_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             if result.returncode == 0:
                 assert _git("rev-parse", reference) == head
         return
-    if head == "d8a5e9ab3de70ce30575513c73560c86430eca63":
+    if head in {
+        "d8a5e9ab3de70ce30575513c73560c86430eca63",
+        "15bae172ee151e370fe59d3bf909d735aee6aa90",
+    }:
         expected_modified, expected_added = _phase54_slice2_paths()
-        expected_base = "d8a5e9ab3de70ce30575513c73560c86430eca63"
+        expected_base = head
     else:
         expected_modified = frozenset(MODIFIED_PATHS)
         expected_added = frozenset(ADDED_PATHS)
@@ -1780,11 +1783,11 @@ def test_slice5_dirty_clean_and_depth_one_repository_states_are_locked() -> None
 
 def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
     repository_paths = _all_repository_paths()
-    assert len(repository_paths) == 894
-    assert sum(path.endswith(".py") for path in repository_paths) == 549
-    assert sum(path.endswith(".md") for path in repository_paths) == 249
+    assert len(repository_paths) == 896
+    assert sum(path.endswith(".py") for path in repository_paths) == 550
+    assert sum(path.endswith(".md") for path in repository_paths) == 250
     test_paths = tuple(sorted((REPO_ROOT / "tests").glob("test_*.py")))
-    assert len(test_paths) == 452
+    assert len(test_paths) == 453
     functions = tuple(
         node.name
         for path in test_paths
@@ -1792,7 +1795,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name.startswith("test_")
     )
-    assert len(functions) == 4908
+    assert len(functions) == 4938
     self_functions = tuple(
         node.name
         for node in ast.parse(SELF_PATH.read_text()).body

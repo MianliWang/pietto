@@ -29,22 +29,22 @@ LOCKED_BOUNDARY_SURFACES = {
     "grammar": (
         "grammar/Pietto.g4",
         1,
-        "3e8ba493278a9730a9c13bc5a0ddcea707e543c97b5e3521d2ef049c576553ed",
+        "1abb7763827982777ac1c7af3912a7c6dbea94824d448973e4d640de7dc3247a",
     ),
     "generated": (
         "src/pietto/generated",
         8,
-        "bc5be46411f947c4d591e81ce8dd8345140fd5e10276f2ff0055eccfc12babe4",
+        "9a84d108062bdbd87f5cd1d6e237e66f8bbb39d1d9d7674312eab6eb156cbad1",
     ),
     "ast_nodes": (
         "src/pietto/ast_nodes.py",
         1,
-        "6f25584047be299eae290bc9640e903392c9882c70947a2e5f50a205b5a81368",
+        "261118027be70b53cedd10f7c3c6c29b64fa4e942a99f03a6f594b8647def69a",
     ),
     "ast_builder": (
         "src/pietto/ast_builder.py",
         1,
-        "886150f1a6b13fdb883d8863abe63d0778dd1c6b1dd9166afd532d1f5b574502",
+        "c2c8126fbeeccc4dc264fe9e3a80441ce204205bd2b2b85a2a142bc017a80e0c",
     ),
     "parser_api": (
         "src/pietto/parser_api.py",
@@ -114,7 +114,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "readme": (
         "README.md",
         1,
-        "dfcee74facc30291d3a3d2fba9de4d6741e65ffb89a8f61224ec3cd130ba0c50",
+        "26930e2c198d3cc9b5a4fa0958b48e15def1faa6218b3bf699181f80386f9a54",
     ),
     "agents": (
         "AGENTS.md",
@@ -124,7 +124,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "pietto_v09": (
         "docs/spec/pietto-v0.9.md",
         1,
-        "8c5f7ae8e5f6bbcbe7c004e681ba4bf8e417efb62240137f83ccd6d5a8472b39",
+        "283fb73c5ee1239e2c510c61c861fcf46b8cce52481b5c82a2d8daa74060fb00",
     ),
 }
 

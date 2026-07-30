@@ -551,10 +551,18 @@ def test_import_export_grammar_ast_and_module_diagnostic_codes_remain_absent() -
         for path in sorted((REPO_ROOT / "src/pietto").rglob("*.py"))
     )
 
-    assert re.search(r"\bIMPORT\b", grammar) is None
-    assert re.search(r"\bEXPORT\b", grammar) is None
-    assert "ImportDef" not in ast_source
-    assert "ExportDef" not in ast_source
+    assert re.search(r"(?m)^IMPORT: 'import';$", grammar)
+    assert re.search(r"(?m)^EXPORT: 'export';$", grammar)
+    assert re.search(r"(?m)^AS: 'as';$", grammar)
+    for value in (
+        "class ModuleDeclarationKind",
+        "class ImportItem",
+        "class ImportStatement",
+        "class ExportItem",
+        "class ExportStatement",
+        "module_statements: tuple[ModuleStatement, ...] = ()",
+    ):
+        assert value in ast_source
     for number in range(2701, 2708):
         assert f"PIE-S{number}" not in production
 
@@ -573,8 +581,9 @@ def test_slice2_contract_allowlist_and_retained_later_boundaries_are_exact() -> 
 
     assert len(test_nodes) == 16
     assert all(not node.decorator_list for node in test_nodes)
-    assert "## Status And Slice 3 Lifecycle" in plan
+    assert "## Status And Slice 4 Lifecycle" in plan
     assert "## Slice 3 Exact Production Boundary And Gate Contract" in plan
+    assert "## Slice 4 Exact Production Boundary And Gate Contract" in plan
     for phrase in (
         "Authority is `A3_M54_D0`.",
         "Mechanical reader modified M48",

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# Phase 54 Slice 4 mechanical reader-closure identity refresh.
+
 from collections.abc import Iterable
 from dataclasses import fields, is_dataclass
 from pathlib import Path

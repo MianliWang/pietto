@@ -12,16 +12,16 @@ PHASE11_PLAN = "docs/plan/phase-11-release-readiness-reproducible-validation.md"
 
 FILE_HASHES = {
     "grammar/Pietto.g4": (
-        "1c394db1f72561022941e0e937899e2d340880de220ebfa85cf387b86573384e"
+        "661f00037b4ade8f8b5bef0cb3e070e4379decdd11cd19021d68e960e69d2724"
     ),
 }
 
 GROUP_HASHES = {
-    "frontend": "cd28ccecc82f9d3f0bfa85fe886490e81d7260e9fe61919a4913ff8d6b21c52f",
+    "frontend": "9ec7a4f6c56fc9a1347fcc590bb77704d6d11343bcf6325482d0ecd4d44fa3e5",
     "semantic": "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70",
     "ir": "04cb667ff3c9cdf0189d9fd0caa5dc0f9db74ca78dd86e965f020b4523f543e9",
     "sql": "72a23f954c49337192effe005c9b3331359b132cc06f494fd4922b9718d1c026",
-    "generated": "bc5be46411f947c4d591e81ce8dd8345140fd5e10276f2ff0055eccfc12babe4",
+    "generated": "9a84d108062bdbd87f5cd1d6e237e66f8bbb39d1d9d7674312eab6eb156cbad1",
     "cli": "30e6e4cedfe91b4e52a5cad3e13b302a8617476c2a48dd92361e5fa5d6183019",
 }
 

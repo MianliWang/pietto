@@ -321,9 +321,10 @@ def _read(path: Path) -> str:
 
 
 def _slice13_paths(name: str) -> set[str]:
-    if _git_output(["rev-parse", "HEAD"]) == (
-        "d8a5e9ab3de70ce30575513c73560c86430eca63"
-    ):
+    if _git_output(["rev-parse", "HEAD"]) in {
+        "d8a5e9ab3de70ce30575513c73560c86430eca63",
+        "15bae172ee151e370fe59d3bf909d735aee6aa90",
+    }:
         modified, added = _phase54_slice2_paths()
         if name == "MODIFIED_PATHS":
             return modified
@@ -1455,6 +1456,7 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
         assert head in (
             "4ff3c131fba54d83b56f3c50e14f7c2337c1eb52",
             "d8a5e9ab3de70ce30575513c73560c86430eca63",
+            "15bae172ee151e370fe59d3bf909d735aee6aa90",
         )
     elif dirty == SLICE9_ALLOWLIST_PATHS:
         status = tuple(_git_output(["diff", "--name-status"]).splitlines())
@@ -1529,7 +1531,7 @@ def test_static_test_inventory_tier1_and_tier2_manifest_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (452, 4908)
+    assert (len(test_files), top_level_functions) == (453, 4938)
     assert len(DIRECT_TIER1_NODES) == len(set(DIRECT_TIER1_NODES)) == 44
     for node_id in DIRECT_TIER1_NODES:
         path, function = node_id.split("::", maxsplit=1)

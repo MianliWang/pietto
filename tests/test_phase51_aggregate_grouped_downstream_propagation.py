@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# Phase 54 Slice 4 mechanical reader-closure identity refresh.
+
 import ast
 from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
 import hashlib
@@ -127,6 +129,18 @@ CI_REPAIR_MODIFIED_PATHS = {
     "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
 }
 PHASE54_BASE_HEAD_SHA = "d8a5e9ab3de70ce30575513c73560c86430eca63"
+PHASE54_SLICE4_BASE_HEAD_SHA = "15bae172ee151e370fe59d3bf909d735aee6aa90"
+PHASE54_SLICE4_PATH_COUNTS = (138, 2, 140)
+PHASE54_SLICE4_BOUNDARY_CHANGED_LINE_COUNTS = {
+    "tests/test_phase11_ci_workflow.py": 2,
+    "tests/test_phase11_completion_audit.py": 8,
+    "tests/test_phase11_generated_guard.py": 2,
+    "tests/test_phase11_golden_policy.py": 2,
+    "tests/test_phase11_packaging_smoke.py": 2,
+    "tests/test_phase11_validation_entrypoint.py": 2,
+    "tests/test_phase12_completion_audit.py": 4,
+    "tests/test_phase12_composition_cli_json_goldens.py": 2,
+}
 PHASE54_STATE_REL = (
     "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
 )
@@ -1433,6 +1447,15 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
         slice14_added,
         phase54_added,
     )
+    phase54_path_counts = (
+        len(phase54_modified),
+        len(phase54_added),
+        len(phase54_modified | phase54_added),
+    )
+    is_phase54_slice4 = (
+        dirty == phase54_modified | phase54_added
+        and phase54_path_counts == PHASE54_SLICE4_PATH_COUNTS
+    )
     if dirty == CI_REPAIR_MODIFIED_PATHS:
         assert untracked == set()
         assert _git_output(["branch", "--show-current"]).strip() == "main"
@@ -1448,7 +1471,10 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
         assert set(_git_output(["diff", "--name-only"]).splitlines()) == (
             phase54_modified
         )
-        assert _git_output(["rev-parse", "HEAD"]).strip() == PHASE54_BASE_HEAD_SHA
+        expected_head = (
+            PHASE54_SLICE4_BASE_HEAD_SHA if is_phase54_slice4 else PHASE54_BASE_HEAD_SHA
+        )
+        assert _git_output(["rev-parse", "HEAD"]).strip() == expected_head
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
 
     compiler_digest = _compiler_digest()
@@ -1462,12 +1488,41 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
         assert match.group(1) == compiler_digest
         changed_lines = _git_changed_lines(relative_path)
         if changed_lines:
-            assert len(changed_lines) == 2
-            assert re.fullmatch(
-                r'-BOUNDARY_HASH = "[0-9a-f]{64}"',
-                changed_lines[0],
-            )
-            assert changed_lines[1] == f'+BOUNDARY_HASH = "{compiler_digest}"'
+            if is_phase54_slice4:
+                assert (
+                    len(changed_lines)
+                    == (PHASE54_SLICE4_BOUNDARY_CHANGED_LINE_COUNTS[relative_path])
+                )
+                assert sum(line.startswith("-") for line in changed_lines) == (
+                    len(changed_lines) // 2
+                )
+                assert sum(line.startswith("+") for line in changed_lines) == (
+                    len(changed_lines) // 2
+                )
+                assert all(
+                    re.fullmatch(r'[+-].*"[0-9a-f]{64}",?', line)
+                    for line in changed_lines
+                )
+                assert (
+                    sum(
+                        bool(
+                            re.fullmatch(
+                                r'-BOUNDARY_HASH = "[0-9a-f]{64}"',
+                                line,
+                            )
+                        )
+                        for line in changed_lines
+                    )
+                    == 1
+                )
+                assert changed_lines.count(f'+BOUNDARY_HASH = "{compiler_digest}"') == 1
+            else:
+                assert len(changed_lines) == 2
+                assert re.fullmatch(
+                    r'-BOUNDARY_HASH = "[0-9a-f]{64}"',
+                    changed_lines[0],
+                )
+                assert changed_lines[1] == f'+BOUNDARY_HASH = "{compiler_digest}"'
     project_paths = _project_private_paths()
     project_digest = _digest(project_paths)
     assert len(project_paths) == 22
@@ -1484,18 +1539,27 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
     ) in phase33
     phase33_changed_lines = _git_changed_lines("tests/test_phase33_completion_audit.py")
     if phase33_changed_lines:
-        assert len(phase33_changed_lines) == 12
-        assert re.fullmatch(r"-        [0-9]+,", phase33_changed_lines[0])
-        assert re.fullmatch(
-            r'-        "[0-9a-f]{64}",',
-            phase33_changed_lines[1],
-        )
-        assert phase33_changed_lines[2:4] == [
-            "+        22,",
-            f'+        "{project_digest}",',
-        ]
-        assert "path_trust.py" in "\n".join(phase33_changed_lines[4:])
-        assert "trusted_source.py" in "\n".join(phase33_changed_lines[4:])
+        if is_phase54_slice4:
+            assert len(phase33_changed_lines) == 4
+            assert sum(line.startswith("-") for line in phase33_changed_lines) == 2
+            assert sum(line.startswith("+") for line in phase33_changed_lines) == 2
+            assert all(
+                re.fullmatch(r'[+-]        "[0-9a-f]{64}",', line)
+                for line in phase33_changed_lines
+            )
+        else:
+            assert len(phase33_changed_lines) == 12
+            assert re.fullmatch(r"-        [0-9]+,", phase33_changed_lines[0])
+            assert re.fullmatch(
+                r'-        "[0-9a-f]{64}",',
+                phase33_changed_lines[1],
+            )
+            assert phase33_changed_lines[2:4] == [
+                "+        22,",
+                f'+        "{project_digest}",',
+            ]
+            assert "path_trust.py" in "\n".join(phase33_changed_lines[4:])
+            assert "trusted_source.py" in "\n".join(phase33_changed_lines[4:])
 
     for relative_path, expected_hash in PROTECTED_HASHES.items():
         assert _sha256(REPO_ROOT / relative_path) == expected_hash

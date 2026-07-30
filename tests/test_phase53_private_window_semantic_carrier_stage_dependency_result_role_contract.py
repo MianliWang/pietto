@@ -226,7 +226,7 @@ FINAL_MODEL_SHA256 = "8a00edb1b2c8584ed9da2926b33250ac1fe2cfc6eff3631865a6df3732
 FINAL_SPEC_SHA256 = "e3cddc36974cc2d21bd3e0aec8d03c4f56bc4a68091780d9965207f07ea960e7"
 FINAL_PLAN_SHA256 = "3077c2fec0d7e2c4de717973c6403d5a450b8c01fe5846e427363ffcb41a78f5"
 FINAL_COMPILER_DIGEST = (
-    "ba1c27b7264dbf44731896e4ef5e8444b7fbc7b4ddac6de545a9c2bf3a106324"
+    "a0e0aa11261ca8c921b70ffba10210edbb56fe1f1bc5d2ad4ca8cc806e516e1f"
 )
 FINAL_SEMANTIC_DIGEST = (
     "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
@@ -267,15 +267,15 @@ ANALYZER_CATALOG_DIAGNOSTIC_LOCKS = (
 GRAMMAR_AST_GENERIC_NULLABILITY_LOCKS = (
     (
         "grammar/Pietto.g4",
-        "1c394db1f72561022941e0e937899e2d340880de220ebfa85cf387b86573384e",
+        "661f00037b4ade8f8b5bef0cb3e070e4379decdd11cd19021d68e960e69d2724",
     ),
     (
         "src/pietto/ast_nodes.py",
-        "b0c41070fca75c89534eba75cf2086f41721de740da9a3573d67411d366204f5",
+        "bbfd121446d62d33c7990b80d17579d3f8b55763ce1b5f93ee17247cbd2ce0c2",
     ),
     (
         "src/pietto/ast_builder.py",
-        "201c74d6a27e57dfc7cd0f9693b388ebe7853b783173a3c4f7191a5f8026e70b",
+        "918dc9f6d7705376b604e69fb80c45cf4c3673c8909a58537770d114d96252cb",
     ),
     (
         "src/pietto/parser_api.py",
@@ -303,7 +303,7 @@ GRAMMAR_AST_GENERIC_NULLABILITY_LOCKS = (
     ),
     (
         "src/pietto/generated",
-        "bc5be46411f947c4d591e81ce8dd8345140fd5e10276f2ff0055eccfc12babe4",
+        "9a84d108062bdbd87f5cd1d6e237e66f8bbb39d1d9d7674312eab6eb156cbad1",
     ),
 )
 
@@ -1962,9 +1962,12 @@ def test_slice6_dirty_clean_and_depth_one_repository_states_are_locked() -> None
     if not tracked and not untracked:
         assert branch in {"", "main"}
         return
-    if head == "d8a5e9ab3de70ce30575513c73560c86430eca63":
+    if head in {
+        "d8a5e9ab3de70ce30575513c73560c86430eca63",
+        "15bae172ee151e370fe59d3bf909d735aee6aa90",
+    }:
         expected_modified, expected_added = _phase54_slice2_paths()
-        expected_base = "d8a5e9ab3de70ce30575513c73560c86430eca63"
+        expected_base = head
     else:
         expected_modified = frozenset(
             _literal_tuple(GENERIC_TEST_PATH, "MODIFIED_PATHS")
@@ -2000,7 +2003,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         len(markdown_paths),
         len(test_paths),
         top_level_functions,
-    ) == (894, 549, 249, 452, 4908)
+    ) == (896, 550, 250, 453, 4938)
     assert len(TEST_FUNCTIONS) == len(TEST_ITEM_COUNTS) == 36
     assert sum(TEST_ITEM_COUNTS) == 156
     assert 10599 + 185 == 10784
@@ -2046,7 +2049,11 @@ def test_validation_gate3_and_no_behavior_boundaries_are_locked() -> None:
     phase54_state = (
         changed == phase54_modified
         and untracked == phase54_added
-        and _git("rev-parse", "HEAD") == "d8a5e9ab3de70ce30575513c73560c86430eca63"
+        and _git("rev-parse", "HEAD")
+        in {
+            "d8a5e9ab3de70ce30575513c73560c86430eca63",
+            "15bae172ee151e370fe59d3bf909d735aee6aa90",
+        }
     )
     assert (
         (not changed and not untracked)

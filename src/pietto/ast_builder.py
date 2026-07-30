@@ -23,6 +23,8 @@ from pietto.ast_nodes import (
     DottedNameExpr,
     EnsureClause,
     EnumDef,
+    ExportItem,
+    ExportStatement,
     Expression,
     FieldDef,
     FromClause,
@@ -30,12 +32,15 @@ from pietto.ast_nodes import (
     GroupByItem,
     Header,
     IndexDef,
+    ImportItem,
+    ImportStatement,
     IsNullExpr,
     LetBinding,
     LetClause,
     LimitClause,
     LiteralExpr,
     NameExpr,
+    ModuleDeclarationKind,
     Nullability,
     OrderByClause,
     OrderItem,
@@ -101,11 +106,74 @@ class AstBuilder(PiettoVisitor):
         header = self.visit(ctx.header()) if ctx.header() is not None else None
         definitions = tuple(self.visit(item) for item in ctx.definition())
         relationships = tuple(self.visit(item) for item in ctx.relationshipDefinition())
+        module_statements = tuple(self.visit(item) for item in ctx.moduleStatement())
         return Script(
             span=self._span(ctx),
             header=cast(Header | None, header),
             definitions=definitions,
             relationships=relationships,
+            module_statements=module_statements,
+        )
+
+    def visitModuleStatement(
+        self, ctx: _AntlrContext
+    ) -> ImportStatement | ExportStatement:
+        """Build one source-ordered parser-only module statement."""
+
+        if ctx.importStatement() is not None:
+            return self.visit(ctx.importStatement())
+        return self.visit(ctx.exportStatement())
+
+    def visitImportStatement(self, ctx: _AntlrContext) -> ImportStatement:
+        """Build an import block without resolving its target or names."""
+
+        target = ctx.importTarget()
+        return ImportStatement(
+            span=self._span(ctx),
+            target=self._decode_string_literal(target),
+            target_span=self._span(target),
+            items=tuple(self.visit(item) for item in ctx.importBody().importItem()),
+        )
+
+    def visitImportItem(self, ctx: _AntlrContext) -> ImportItem:
+        """Build one import item and retain both sides of an optional alias."""
+
+        identifiers = ctx.identifier()
+        local_name = identifiers[1].getText() if ctx.AS() is not None else None
+        return ImportItem(
+            span=self._span(ctx),
+            declaration_kind=ModuleDeclarationKind(
+                ctx.moduleDeclarationKind().getText()
+            ),
+            exported_name=identifiers[0].getText(),
+            local_name=local_name,
+            declaration_kind_span=self._span(ctx.moduleDeclarationKind()),
+            exported_name_span=self._span(identifiers[0]),
+            local_name_span=(
+                self._span(identifiers[1]) if local_name is not None else None
+            ),
+        )
+
+    def visitExportStatement(self, ctx: _AntlrContext) -> ExportStatement:
+        """Build an export block without validating visibility or bindings."""
+
+        return ExportStatement(
+            span=self._span(ctx),
+            items=tuple(self.visit(item) for item in ctx.exportBody().exportItem()),
+        )
+
+    def visitExportItem(self, ctx: _AntlrContext) -> ExportItem:
+        """Build one parser-only export item."""
+
+        identifier = ctx.identifier()
+        return ExportItem(
+            span=self._span(ctx),
+            declaration_kind=ModuleDeclarationKind(
+                ctx.moduleDeclarationKind().getText()
+            ),
+            local_name=identifier.getText(),
+            declaration_kind_span=self._span(ctx.moduleDeclarationKind()),
+            local_name_span=self._span(identifier),
         )
 
     def visitHeader(self, ctx: _AntlrContext) -> Header:

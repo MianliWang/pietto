@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# Phase 54 Slice 4 mechanical reader-closure identity refresh.
+
 import ast
 import hashlib
 import re
@@ -209,9 +211,10 @@ def _read(path: Path) -> str:
 
 
 def _slice13_paths(name: str) -> set[str]:
-    if _git_output(["rev-parse", "HEAD"]) == (
-        "d8a5e9ab3de70ce30575513c73560c86430eca63"
-    ):
+    if _git_output(["rev-parse", "HEAD"]) in {
+        "d8a5e9ab3de70ce30575513c73560c86430eca63",
+        "15bae172ee151e370fe59d3bf909d735aee6aa90",
+    }:
         modified, added = _phase54_slice2_paths()
         if name == "MODIFIED_PATHS":
             return modified

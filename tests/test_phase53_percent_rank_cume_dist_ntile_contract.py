@@ -671,7 +671,7 @@ DIRTY_OVERLAY = (
     "--deselect=tests/test_phase52_scalar_function_operator_signature_facts.py::test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact",
 )
 
-COMPILER_DIGEST = "ba1c27b7264dbf44731896e4ef5e8444b7fbc7b4ddac6de545a9c2bf3a106324"
+COMPILER_DIGEST = "a0e0aa11261ca8c921b70ffba10210edbb56fe1f1bc5d2ad4ca8cc806e516e1f"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
@@ -691,9 +691,10 @@ def _sha256(relative: str) -> str:
 
 
 def _phase53_gate2_paths(name: str) -> set[str]:
-    if _git_output(["rev-parse", "HEAD"]) == (
-        "d8a5e9ab3de70ce30575513c73560c86430eca63"
-    ):
+    if _git_output(["rev-parse", "HEAD"]) in {
+        "d8a5e9ab3de70ce30575513c73560c86430eca63",
+        "15bae172ee151e370fe59d3bf909d735aee6aa90",
+    }:
         path = (
             REPO_ROOT
             / "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
@@ -2552,9 +2553,9 @@ def test_all_156_slice6_items_and_core_window_contract_remain_locked() -> None:
 
 def test_grammar_generated_ast_parser_ir_sql_and_public_bytes_are_locked() -> None:
     expected = {
-        "grammar/Pietto.g4": "1c394db1f72561022941e0e937899e2d340880de220ebfa85cf387b86573384e",
-        "src/pietto/ast_nodes.py": "b0c41070fca75c89534eba75cf2086f41721de740da9a3573d67411d366204f5",
-        "src/pietto/ast_builder.py": "201c74d6a27e57dfc7cd0f9693b388ebe7853b783173a3c4f7191a5f8026e70b",
+        "grammar/Pietto.g4": "661f00037b4ade8f8b5bef0cb3e070e4379decdd11cd19021d68e960e69d2724",
+        "src/pietto/ast_nodes.py": "bbfd121446d62d33c7990b80d17579d3f8b55763ce1b5f93ee17247cbd2ce0c2",
+        "src/pietto/ast_builder.py": "918dc9f6d7705376b604e69fb80c45cf4c3673c8909a58537770d114d96252cb",
         "src/pietto/parser_api.py": "aa744c3ee334c8729917ae2aed2ee906874f927d47e99542d5accb8a98aa456b",
         "src/pietto/_window_identity.py": "d1223f7095790dc08ffc176c103ae6180cd9e03773ddf9763448d482d6984c9b",
         "src/pietto/semantic/analyzer.py": "7a6f2830bf3710edab3ba5a8c4a72e90c6e44de19fe19ddd2b54b5d703277b32",
@@ -2657,6 +2658,7 @@ def test_slice9_dirty_clean_and_depth_one_repository_states_are_locked() -> None
         assert head in (
             BASE_HEAD_SHA,
             "d8a5e9ab3de70ce30575513c73560c86430eca63",
+            "15bae172ee151e370fe59d3bf909d735aee6aa90",
         )
     else:
         assert main in (None, head)
@@ -2667,15 +2669,15 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
     None
 ):
     repository_paths = _repository_paths()
-    assert len(repository_paths) == 894
-    assert sum(path.endswith(".py") for path in repository_paths) == 549
-    assert sum(path.endswith(".md") for path in repository_paths) == 249
+    assert len(repository_paths) == 896
+    assert sum(path.endswith(".py") for path in repository_paths) == 550
+    assert sum(path.endswith(".md") for path in repository_paths) == 250
     test_modules = tuple(
         path
         for path in repository_paths
         if path.startswith("tests/test_") and path.endswith(".py")
     )
-    assert len(test_modules) == 452
+    assert len(test_modules) == 453
     top_level_tests = 0
     for relative in test_modules:
         tree = ast.parse(_read(relative), filename=relative)
@@ -2684,7 +2686,7 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 4908
+    assert top_level_tests == 4938
     focused_payload = ("\n".join(FOCUSED_OPERANDS) + "\n").encode()
     overlay_payload = ("\n".join(DIRTY_OVERLAY) + "\n").encode()
     formatter_payload = ("\n".join(FORMATTER_PATHS) + "\n").encode()

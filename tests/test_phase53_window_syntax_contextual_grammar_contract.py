@@ -72,6 +72,7 @@ FAIL_CLOSED_MESSAGE = (
 )
 BASE_HEAD_SHA = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
 PHASE54_SLICE2_BASE_HEAD_SHA = "d8a5e9ab3de70ce30575513c73560c86430eca63"
+PHASE54_SLICE4_BASE_HEAD_SHA = "15bae172ee151e370fe59d3bf909d735aee6aa90"
 PHASE54_SLICE2_STATE_REL = (
     "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
 )
@@ -997,7 +998,7 @@ def test_no_ast_semantic_ir_sql_or_public_surface_widening_is_locked() -> None:
     )
     assert (
         _sha256(AST_NODES_REL)
-        == "b0c41070fca75c89534eba75cf2086f41721de740da9a3573d67411d366204f5"
+        == "bbfd121446d62d33c7990b80d17579d3f8b55763ce1b5f93ee17247cbd2ce0c2"
     )
     assert "class WindowSpec" in _read(AST_NODES_REL)
     assert "class WindowExpr" in _read(AST_NODES_REL)
@@ -1044,7 +1045,8 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
         assert tracked == phase54_modified
         assert untracked == phase54_added
         assert branch == "main"
-        assert head == main == origin_main == PHASE54_SLICE2_BASE_HEAD_SHA
+        assert head == main == origin_main
+        assert head in {PHASE54_SLICE2_BASE_HEAD_SHA, PHASE54_SLICE4_BASE_HEAD_SHA}
     elif dirty:
         assert tracked == MODIFIED_PATHS
         assert untracked == ADDED_PATHS
@@ -1061,15 +1063,15 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             assert origin_main == head
 
     readable_paths = set(_git_output(["ls-files"]).splitlines()) | untracked
-    assert len(readable_paths) == 894
-    assert sum(path.endswith(".py") for path in readable_paths) == 549
-    assert sum(path.endswith(".md") for path in readable_paths) == 249
+    assert len(readable_paths) == 896
+    assert sum(path.endswith(".py") for path in readable_paths) == 550
+    assert sum(path.endswith(".md") for path in readable_paths) == 250
     test_modules = {
         path
         for path in readable_paths
         if path.startswith("tests/test_") and path.endswith(".py")
     }
-    assert len(test_modules) == 452
+    assert len(test_modules) == 453
     top_level_tests = 0
     for relative in sorted(test_modules):
         tree = ast.parse(_read(relative), filename=relative)
@@ -1078,7 +1080,7 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 4908
+    assert top_level_tests == 4938
     assert len(GENERATED_PATHS) == 8
     goldens = {
         path

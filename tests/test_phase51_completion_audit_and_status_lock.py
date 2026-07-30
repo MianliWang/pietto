@@ -119,6 +119,8 @@ PHASE52_UNTRACKED_PATHS = {
     "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
 }
 SLICE2_BASE_HEAD_SHA = "d8a5e9ab3de70ce30575513c73560c86430eca63"
+SLICE4_BASE_HEAD_SHA = "15bae172ee151e370fe59d3bf909d735aee6aa90"
+SLICE4_PATH_COUNTS = (138, 2, 140)
 SLICE2_STATE_REL = (
     "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
 )
@@ -326,7 +328,7 @@ PROTECTED_HASHES = {
         "26cc0ae4a68518223d6bf600ad3c4b0b226618aa7ef31b2ae1c25924d2655169"
     ),
 }
-COMPILER_DIGEST = "ba1c27b7264dbf44731896e4ef5e8444b7fbc7b4ddac6de545a9c2bf3a106324"
+COMPILER_DIGEST = "a0e0aa11261ca8c921b70ffba10210edbb56fe1f1bc5d2ad4ca8cc806e516e1f"
 PROJECT_PRIVATE_DIGEST = (
     "4aa0a55517f46e5cbd98a0050ce105a647ca59fdd387e639d5181be6da89490f"
 )
@@ -1372,7 +1374,17 @@ def test_static_git_helper_and_exact_slice12_dirty_set_are_locked() -> None:
         assert set(_git_output(["diff", "--name-only"]).splitlines()) == (
             slice2_modified
         )
-        assert _git_output(["rev-parse", "HEAD"]) == SLICE2_BASE_HEAD_SHA
+        path_counts = (
+            len(slice2_modified),
+            len(slice2_added),
+            len(slice2_modified | slice2_added),
+        )
+        expected_head = (
+            SLICE4_BASE_HEAD_SHA
+            if path_counts == SLICE4_PATH_COUNTS
+            else SLICE2_BASE_HEAD_SHA
+        )
+        assert _git_output(["rev-parse", "HEAD"]) == expected_head
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
     assert _git_output(["diff", "--check"]) == ""
 

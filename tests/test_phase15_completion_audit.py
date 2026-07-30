@@ -33,22 +33,22 @@ PHASE15_ARTIFACT_HASHES = {
         "227e5989affa152dcbeb4f8775f0705bc8a14d9dcd269e8f4409d32e71714218"
     ),
     SLICE3_TEST_PATH: (
-        "3dcfad5f1015c515fe8d78133d5a67b639ecf92d6d5b0157356657441a1e10b7"
+        "2c09f37df5e4785eb0ea0177bd60fe86c60cc70592fc01aa1547f18a81f1bf4d"
     ),
     PRIOR_AUDIT_PATH: (
-        "080bc14df785c85485a8e3b8f1e29f70cebfc457589e501d4f4be8136994c2f0"
+        "aa4cd190decdc199ba07fafd3cdf5e700cc9aef06487e3b1181d716e0c8d2a8d"
     ),
 }
 
 LOCKED_FILE_HASHES = {
     "grammar/Pietto.g4": (
-        "1c394db1f72561022941e0e937899e2d340880de220ebfa85cf387b86573384e"
+        "661f00037b4ade8f8b5bef0cb3e070e4379decdd11cd19021d68e960e69d2724"
     ),
     "src/pietto/ast_nodes.py": (
-        "b0c41070fca75c89534eba75cf2086f41721de740da9a3573d67411d366204f5"
+        "bbfd121446d62d33c7990b80d17579d3f8b55763ce1b5f93ee17247cbd2ce0c2"
     ),
     "src/pietto/ast_builder.py": (
-        "201c74d6a27e57dfc7cd0f9693b388ebe7853b783173a3c4f7191a5f8026e70b"
+        "918dc9f6d7705376b604e69fb80c45cf4c3673c8909a58537770d114d96252cb"
     ),
     "src/pietto/parser_api.py": (
         "aa744c3ee334c8729917ae2aed2ee906874f927d47e99542d5accb8a98aa456b"
@@ -70,7 +70,7 @@ LOCKED_FILE_HASHES = {
 LOCKED_GROUP_HASHES = {
     "generated": (
         8,
-        "bc5be46411f947c4d591e81ce8dd8345140fd5e10276f2ff0055eccfc12babe4",
+        "9a84d108062bdbd87f5cd1d6e237e66f8bbb39d1d9d7674312eab6eb156cbad1",
     ),
     "semantic": (
         36,

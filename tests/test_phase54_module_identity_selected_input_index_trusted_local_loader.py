@@ -893,8 +893,9 @@ def test_single_file_public_privacy_scope_and_flat_evidence_contract_remain_exac
         path.read_text(encoding="utf-8")
         for path in (REPO_ROOT / "src/pietto").rglob("*.py")
     )
-    assert "## Status And Slice 3 Lifecycle" in plan
+    assert "## Status And Slice 4 Lifecycle" in plan
     assert "## Slice 3 Exact Production Boundary And Gate Contract" in plan
+    assert "## Slice 4 Exact Production Boundary And Gate Contract" in plan
     assert source.count("\ndef test_") == 26
     single = parser_api.parse_source("shape One:\n    id: Int\n", path="one.pietto")
     assert single.ast is not None

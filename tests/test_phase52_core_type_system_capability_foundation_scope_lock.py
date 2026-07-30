@@ -175,7 +175,7 @@ PRE_RECONCILIATION_2_SHA256 = (
 PRE_RECONCILIATION_3_SHA256 = (
     "cb2c51246f1e312858641750d1a416125f99058fb0182949e9afe35ae49e97cf"
 )
-COMPILER_DIGEST = "ba1c27b7264dbf44731896e4ef5e8444b7fbc7b4ddac6de545a9c2bf3a106324"
+COMPILER_DIGEST = "a0e0aa11261ca8c921b70ffba10210edbb56fe1f1bc5d2ad4ca8cc806e516e1f"
 PROJECT_PRIVATE_DIGEST = (
     "4aa0a55517f46e5cbd98a0050ce105a647ca59fdd387e639d5181be6da89490f"
 )
@@ -186,9 +186,10 @@ def _read(path: Path) -> str:
 
 
 def _slice13_paths(name: str) -> set[str]:
-    if _git_output(["rev-parse", "HEAD"]) == (
-        "d8a5e9ab3de70ce30575513c73560c86430eca63"
-    ):
+    if _git_output(["rev-parse", "HEAD"]) in {
+        "d8a5e9ab3de70ce30575513c73560c86430eca63",
+        "15bae172ee151e370fe59d3bf909d735aee6aa90",
+    }:
         modified, added = _phase54_slice2_paths()
         if name == "MODIFIED_PATHS":
             return modified
@@ -887,7 +888,11 @@ def test_static_audit_shape_allowlist_and_heading_matching_are_locked() -> None:
         assert untracked_paths == slice13_added
         assert _git_output(["branch", "--show-current"]) == "main"
         expected_head = (
-            "d8a5e9ab3de70ce30575513c73560c86430eca63"
+            "15bae172ee151e370fe59d3bf909d735aee6aa90"
+            if any(
+                path.startswith("docs/spec/phase54-slice4-") for path in slice13_added
+            )
+            else "d8a5e9ab3de70ce30575513c73560c86430eca63"
             if any(path.startswith("docs/spec/phase54-slice") for path in slice13_added)
             else "4ff3c131fba54d83b56f3c50e14f7c2337c1eb52"
         )

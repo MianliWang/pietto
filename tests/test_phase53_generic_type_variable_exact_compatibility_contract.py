@@ -535,8 +535,10 @@ FOCUSED_OPERANDS, DIRTY_OVERLAY, ADDED_PATHS, MODIFIED_PATHS = (
 EXPECTED_DIRTY_PATHS = frozenset((*ADDED_PATHS, *MODIFIED_PATHS))
 
 BASE_HEAD = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
+PHASE54_SLICE2_BASE_HEAD = "d8a5e9ab3de70ce30575513c73560c86430eca63"
+PHASE54_SLICE4_BASE_HEAD = "15bae172ee151e370fe59d3bf909d735aee6aa90"
 FINAL_COMPILER_DIGEST = (
-    "ba1c27b7264dbf44731896e4ef5e8444b7fbc7b4ddac6de545a9c2bf3a106324"
+    "a0e0aa11261ca8c921b70ffba10210edbb56fe1f1bc5d2ad4ca8cc806e516e1f"
 )
 FINAL_SEMANTIC_DIGEST = (
     "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
@@ -549,9 +551,9 @@ FINAL_SPEC_SHA256 = "194ee730b88782afd6f84d90b52cb4f02a3f5efb386155fae062978f3df
 FINAL_PLAN_SHA256 = "3077c2fec0d7e2c4de717973c6403d5a450b8c01fe5846e427363ffcb41a78f5"
 
 PROTECTED_SHA256 = {
-    "grammar/Pietto.g4": "1c394db1f72561022941e0e937899e2d340880de220ebfa85cf387b86573384e",
-    "src/pietto/ast_nodes.py": "b0c41070fca75c89534eba75cf2086f41721de740da9a3573d67411d366204f5",
-    "src/pietto/ast_builder.py": "201c74d6a27e57dfc7cd0f9693b388ebe7853b783173a3c4f7191a5f8026e70b",
+    "grammar/Pietto.g4": "661f00037b4ade8f8b5bef0cb3e070e4379decdd11cd19021d68e960e69d2724",
+    "src/pietto/ast_nodes.py": "bbfd121446d62d33c7990b80d17579d3f8b55763ce1b5f93ee17247cbd2ce0c2",
+    "src/pietto/ast_builder.py": "918dc9f6d7705376b604e69fb80c45cf4c3673c8909a58537770d114d96252cb",
     "src/pietto/parser_api.py": "aa744c3ee334c8729917ae2aed2ee906874f927d47e99542d5accb8a98aa456b",
     "src/pietto/_window_identity.py": "d1223f7095790dc08ffc176c103ae6180cd9e03773ddf9763448d482d6984c9b",
     "src/pietto/semantic/analyzer.py": "7a6f2830bf3710edab3ba5a8c4a72e90c6e44de19fe19ddd2b54b5d703277b32",
@@ -1860,7 +1862,7 @@ def test_grammar_ast_generated_parser_and_window_identity_are_byte_locked() -> N
     )
     assert len(generated) == 8
     assert _digest(generated) == (
-        "bc5be46411f947c4d591e81ce8dd8345140fd5e10276f2ff0055eccfc12babe4"
+        "9a84d108062bdbd87f5cd1d6e237e66f8bbb39d1d9d7674312eab6eb156cbad1"
     )
 
 
@@ -1920,9 +1922,9 @@ def test_slice4_dirty_clean_and_depth_one_repository_states_are_locked() -> None
     assert staged == ""
     if tracked or untracked:
         head = _git("rev-parse", "HEAD")
-        if head == "d8a5e9ab3de70ce30575513c73560c86430eca63":
+        if head in {PHASE54_SLICE2_BASE_HEAD, PHASE54_SLICE4_BASE_HEAD}:
             expected_modified, expected_added = _phase54_slice2_paths()
-            expected_base = "d8a5e9ab3de70ce30575513c73560c86430eca63"
+            expected_base = head
         else:
             expected_modified = frozenset(MODIFIED_PATHS)
             expected_added = frozenset(ADDED_PATHS)
@@ -1974,7 +1976,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         len(markdown_paths),
         len(test_paths),
         top_level_functions,
-    ) == (894, 549, 249, 452, 4908)
+    ) == (896, 550, 250, 453, 4938)
     self_tree = ast.parse(SELF_PATH.read_text())
     self_names = tuple(
         node.name

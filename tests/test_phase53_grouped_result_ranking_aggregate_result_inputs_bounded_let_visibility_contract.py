@@ -88,10 +88,13 @@ PHASE53_COMPLETION_HEAD = "af92f30c22e5d3df5219554a0663855a5b9f51a6"
 PHASE54_SLICE1_HEAD = "53d8767fc3bdbe5e3f631178652222bbe51f6a33"
 PHASE54_SLICE2_HEAD = "d8a5e9ab3de70ce30575513c73560c86430eca63"
 PHASE54_SLICE3_HEAD = "2752985c3f6343519b7d7d6fe400d16251e64d85"
+README_REFRESH_HEAD = "15bae172ee151e370fe59d3bf909d735aee6aa90"
 PHASE54_SLICE1_SUBJECT = "Add Phase 54 scope authority and expansion route lock"
 PHASE54_SLICE2_SUBJECT = "Add Phase 54 schema v2 module activation carrier"
 PHASE54_SLICE3_SUBJECT = "Add Phase 54 trusted module loading boundary"
 README_REFRESH_SUBJECT = "Refresh Pietto README and roadmap overview"
+PHASE54_SLICE4_SUBJECT = "Add Phase 54 import export grammar and AST"
+PHASE54_SLICE4_BRANCH = "phase54/slice4-import-export-grammar-ast"
 MAINTENANCE_MODIFIED_PATHS = (
     ".github/workflows/ci.yml",
     "pyproject.toml",
@@ -337,6 +340,26 @@ def _github_pull_request_identity() -> tuple[str, str] | None:
     return base_sha, candidate_sha
 
 
+def _github_pull_request_refs() -> tuple[str, str] | None:
+    if os.environ.get("GITHUB_EVENT_NAME") != "pull_request":
+        return None
+    event_path = os.environ.get("GITHUB_EVENT_PATH")
+    assert event_path
+    payload = cast(
+        dict[str, object],
+        json.loads(Path(event_path).read_text(encoding="utf-8")),
+    )
+    pull_request = cast(dict[str, object], payload["pull_request"])
+    base = cast(dict[str, object], pull_request["base"])
+    candidate = cast(dict[str, object], pull_request["head"])
+    base_ref = base.get("ref")
+    candidate_ref = candidate.get("ref")
+    return (
+        base_ref if isinstance(base_ref, str) else "",
+        candidate_ref if isinstance(candidate_ref, str) else "",
+    )
+
+
 def _assert_maintenance_candidate_shape(
     *,
     parents: tuple[str, ...],
@@ -415,6 +438,7 @@ def _is_clean_projection() -> bool:
         return True
 
     pull_request_identity = _github_pull_request_identity()
+    pull_request_refs = _github_pull_request_refs()
     parents, subject = _commit_parents_and_subject(head)
     if parents == (SLICE15_PUBLISHED_HEAD,) and subject == SLICE16_SUBJECT:
         if status:
@@ -518,6 +542,12 @@ def _is_clean_projection() -> bool:
         subject,
         README_REFRESH_SUBJECT,
     ):
+        if status:
+            assert head == README_REFRESH_HEAD
+            assert shallow == "false"
+            _assert_main_refs(head)
+            _assert_phase54_dirty_state(status=status, staged=staged)
+            return False
         _assert_clean_state(status=status, staged=staged)
         if pull_request_identity is not None:
             base_sha, candidate_sha = pull_request_identity
@@ -535,9 +565,41 @@ def _is_clean_projection() -> bool:
         _assert_main_refs(head)
         return True
 
+    if parents == (README_REFRESH_HEAD,) and _is_phase54_subject(
+        subject,
+        PHASE54_SLICE4_SUBJECT,
+    ):
+        _assert_clean_state(status=status, staged=staged)
+        if pull_request_identity is not None:
+            base_sha, candidate_sha = pull_request_identity
+            assert shallow == "true"
+            assert base_sha == README_REFRESH_HEAD
+            assert candidate_sha == head
+            assert pull_request_refs == ("main", PHASE54_SLICE4_BRANCH)
+            return True
+        if os.environ.get("GITHUB_EVENT_NAME") == "push":
+            assert shallow == "true"
+            assert os.environ.get("GITHUB_REF") == "refs/heads/main"
+            assert os.environ.get("GITHUB_SHA") == head
+            assert _git_optional_ref("refs/remotes/origin/main") in (None, head)
+            return True
+        assert shallow == "false"
+        _assert_main_refs(head)
+        return True
+
     if pull_request_identity is not None:
         base_sha, candidate_sha = pull_request_identity
         assert shallow == "true"
+        assert pull_request_refs is not None
+        base_ref, candidate_ref = pull_request_refs
+        if base_sha == README_REFRESH_HEAD or candidate_ref == PHASE54_SLICE4_BRANCH:
+            assert base_sha == README_REFRESH_HEAD
+            assert base_ref == "main"
+            assert candidate_ref == PHASE54_SLICE4_BRANCH
+            assert head != candidate_sha
+            assert parents == (README_REFRESH_HEAD, candidate_sha)
+            _assert_clean_state(status=status, staged=staged)
+            return True
         assert base_sha in (
             CI_REPAIR_HEAD,
             SLICE15_PUBLISHED_HEAD,
@@ -545,6 +607,7 @@ def _is_clean_projection() -> bool:
             PHASE54_SLICE1_HEAD,
             PHASE54_SLICE2_HEAD,
             PHASE54_SLICE3_HEAD,
+            README_REFRESH_HEAD,
         )
         _assert_clean_state(status=status, staged=staged)
         if head == candidate_sha:

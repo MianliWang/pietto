@@ -86,28 +86,28 @@ SQL_CASES: tuple[
 )
 BOUNDARY_HASHES = {
     "grammar/Pietto.g4": (
-        "1c394db1f72561022941e0e937899e2d340880de220ebfa85cf387b86573384e"
+        "661f00037b4ade8f8b5bef0cb3e070e4379decdd11cd19021d68e960e69d2724"
     ),
     "src/pietto/generated/Pietto.interp": (
-        "0ce78bb065e6cb5103964a9152cb72cec95c7b85974f43839425a1ebbdc40d0a"
+        "abdfa9ccaea1b5add75c5eaff7f92ab15dde3465ed69d5f4de97cda0c90d2311"
     ),
     "src/pietto/generated/Pietto.tokens": (
-        "6a341489a576f1971309b99d9832e38d349aaf292dd0aa621bc39ed759674a24"
+        "2f37c985e9790ace0b5760b3955afebc04319e1f7a590330ef471c91876e4317"
     ),
     "src/pietto/generated/PiettoLexer.interp": (
-        "5f70c7315637bf681813e883daf920782aac9ceb97b535fa016ed9ea1d3ec963"
+        "71419a4011792a40b5419d1f6ecdc0f1e7520b48d8578c18dd55a98a786aeacd"
     ),
     "src/pietto/generated/PiettoLexer.py": (
-        "9250ed7010784b5da3adf54ba589fb47051549d7a9bd63c047eab208ed1fb18e"
+        "2d687207a29ed9e85f93d435fe4d0a256a4849900ed291490ed4a95480317e0b"
     ),
     "src/pietto/generated/PiettoLexer.tokens": (
-        "8dbe8dbbdf5bcd0504aa157d42fd53a1f724c6f731ef04b8496b1ef2a9114f23"
+        "12b6e25740215115ef07c1a26aa6f38fac596da27ff0f42205f32962a7c4044a"
     ),
     "src/pietto/generated/PiettoParser.py": (
-        "327d074b4fb307d5f1621cbb4a4a2be51986cc36f4c03b046bdebbf0d0f79691"
+        "5b8f5cebd287319788815605e0d652d8d84448e3b19091d8bb2dedc2baed32dd"
     ),
     "src/pietto/generated/PiettoVisitor.py": (
-        "3bdf37f726b73c667e857670af6c0ca4d4fc820399d842b7f6bf9ef6edbdc67f"
+        "f7e7c73eff460a367fc53f24711c933a9d592ae8a2225b15d93007c828fba3a5"
     ),
     "src/pietto/generated/__init__.py": (
         "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
