@@ -295,6 +295,58 @@ class RelationshipMetadata(Node):
     endpoints: tuple[RelationshipEndpoint, RelationshipEndpoint]
 
 
+class ModuleDeclarationKind(StrEnum):
+    """The closed declaration-kind vocabulary accepted by module items."""
+
+    TYPE = "type"
+    ENUM = "enum"
+    SHAPE = "shape"
+    SOURCE = "source"
+    TABLE = "table"
+    QUERY = "query"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ImportItem(Node):
+    """One source-ordered declaration requested from an import target."""
+
+    declaration_kind: ModuleDeclarationKind
+    exported_name: str
+    local_name: str | None
+    declaration_kind_span: Span
+    exported_name_span: Span
+    local_name_span: Span | None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ImportStatement(Node):
+    """One parser-only import block without resolution or binding facts."""
+
+    target: str
+    target_span: Span
+    items: tuple[ImportItem, ...]
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ExportItem(Node):
+    """One source-ordered local declaration named by an export block."""
+
+    declaration_kind: ModuleDeclarationKind
+    local_name: str
+    declaration_kind_span: Span
+    local_name_span: Span
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ExportStatement(Node):
+    """One parser-only export block without visibility or binding facts."""
+
+    items: tuple[ExportItem, ...]
+
+
+ModuleStatement = ImportStatement | ExportStatement
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class FromClause(Node):
     """A parse-only relation input reference."""
@@ -465,3 +517,4 @@ class Script(Node):
     header: Header | None
     definitions: tuple[Definition, ...]
     relationships: tuple[RelationshipMetadata, ...] = ()
+    module_statements: tuple[ModuleStatement, ...] = ()

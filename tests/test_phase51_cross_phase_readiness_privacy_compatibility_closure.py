@@ -95,6 +95,8 @@ PHASE52_UNTRACKED_PATHS = {
     "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
 }
 SLICE2_BASE_HEAD_SHA = "d8a5e9ab3de70ce30575513c73560c86430eca63"
+SLICE4_BASE_HEAD_SHA = "15bae172ee151e370fe59d3bf909d735aee6aa90"
+SLICE4_PATH_COUNTS = (138, 2, 140)
 SLICE2_STATE_REL = (
     "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
 )
@@ -900,7 +902,7 @@ def test_cross_phase_transition_and_live_identifier_inventory_is_exact() -> None
 def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> None:
     compiler_digest = _compiler_digest()
     assert compiler_digest == (
-        "ba1c27b7264dbf44731896e4ef5e8444b7fbc7b4ddac6de545a9c2bf3a106324"
+        "a0e0aa11261ca8c921b70ffba10210edbb56fe1f1bc5d2ad4ca8cc806e516e1f"
     )
     for relative_path in BOUNDARY_PATHS:
         boundary_values = re.findall(
@@ -1132,7 +1134,17 @@ def test_slice11_contract_plan_allowlist_and_protected_boundaries_are_locked() -
         assert set(_git_output(["diff", "--name-only"]).splitlines()) == (
             slice2_modified
         )
-        assert _git_output(["rev-parse", "HEAD"]) == SLICE2_BASE_HEAD_SHA
+        path_counts = (
+            len(slice2_modified),
+            len(slice2_added),
+            len(slice2_modified | slice2_added),
+        )
+        expected_head = (
+            SLICE4_BASE_HEAD_SHA
+            if path_counts == SLICE4_PATH_COUNTS
+            else SLICE2_BASE_HEAD_SHA
+        )
+        assert _git_output(["rev-parse", "HEAD"]) == expected_head
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
 
     for relative_path, expected_hash in PROTECTED_HASHES.items():

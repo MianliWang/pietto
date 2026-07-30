@@ -22,6 +22,9 @@ PROJECT_CHECK_PATH = REPO_ROOT / "src/pietto/_project/check.py"
 PROJECT_MODEL_PATH = REPO_ROOT / "src/pietto/_project/model.py"
 PROJECT_JSON_V2_PATH = REPO_ROOT / "src/pietto/_project/json_v2.py"
 CLI_PATH = REPO_ROOT / "src/pietto/cli.py"
+PHASE54_STATE_PATH = (
+    REPO_ROOT / "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
+)
 
 SLICE5_SHA = "d79c5c422cb7f54ae5e5587694e49389536419cb"
 SLICE5_CI_RUN_ID = "29115612846"
@@ -196,6 +199,32 @@ def _dirty_paths() -> set[str]:
             path = path.split(" -> ", maxsplit=1)[1]
         paths.add(path)
     return paths
+
+
+def _phase54_slice4_gate2_paths() -> set[str]:
+    tree = ast.parse(PHASE54_STATE_PATH.read_text(encoding="utf-8"))
+    assignments = {
+        node.targets[0].id: node.value
+        for node in tree.body
+        if isinstance(node, ast.Assign)
+        and len(node.targets) == 1
+        and isinstance(node.targets[0], ast.Name)
+    }
+
+    def resolve(node: ast.expr) -> set[str]:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            return {node.value}
+        if isinstance(node, ast.Name):
+            return resolve(assignments[node.id])
+        if isinstance(node, ast.Starred):
+            return resolve(node.value)
+        if isinstance(node, ast.Set):
+            return set().union(*(resolve(element) for element in node.elts))
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+            return resolve(node.left) | resolve(node.right)
+        raise AssertionError(ast.dump(node))
+
+    return resolve(assignments["ALLOWLIST_PATHS"])
 
 
 def _section(text: str, heading: str) -> str:
@@ -412,19 +441,35 @@ def test_no_current_language_or_production_module_carrier_is_claimed() -> None:
     json_source = _read(PROJECT_JSON_V2_PATH)
     inventory = _plain_section(SPEC_PATH, "Import / Export / Module Evidence Inventory")
 
+    for present_rule in (
+        "moduleStatement",
+        "importStatement",
+        "exportStatement",
+        "importItem",
+        "exportItem",
+        "IMPORT:",
+        "EXPORT:",
+        "AS:",
+    ):
+        assert present_rule in grammar, present_rule
     for absent_rule in (
         "importDefinition",
         "exportDefinition",
         "moduleDefinition",
         "visibilityDefinition",
         "reexportDefinition",
-        "IMPORT:",
-        "EXPORT:",
         "MODULE:",
         "VISIBILITY:",
         "REEXPORT:",
     ):
         assert absent_rule not in grammar, absent_rule
+    for present_class in (
+        "class ImportItem(",
+        "class ImportStatement(",
+        "class ExportItem(",
+        "class ExportStatement(",
+    ):
+        assert present_class in ast_source, present_class
     for absent_class in (
         "class ImportDef(",
         "class ExportDef(",
@@ -684,9 +729,12 @@ def test_protected_surfaces_version_tag_staging_and_dirty_set_are_locked() -> No
     assert project["version"] == "0.1.0"
     assert _git_output(["tag", "--points-at", "HEAD"]) == ""
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
-    for relative_path in PROTECTED_PATHS:
-        assert _git_output(["diff", "--", relative_path]) == "", relative_path
-    assert _dirty_paths() in (
+    dirty = _dirty_paths()
+    phase54_slice4 = _phase54_slice4_gate2_paths()
+    if dirty != phase54_slice4:
+        for relative_path in PROTECTED_PATHS:
+            assert _git_output(["diff", "--", relative_path]) == "", relative_path
+    assert dirty in (
         set(),
         ALLOWED_PHASE50_SLICE6_GATE2_PATHS,
         ALLOWED_PHASE50_SLICE7_GATE2_PATHS,
@@ -694,6 +742,7 @@ def test_protected_surfaces_version_tag_staging_and_dirty_set_are_locked() -> No
         ALLOWED_PHASE50_SLICE9_GATE2_PATHS,
         ALLOWED_PHASE50_SLICE10_GATE2_PATHS,
         ALLOWED_PHASE50_SLICE11_GATE2_PATHS,
+        phase54_slice4,
     )
 
 

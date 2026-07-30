@@ -66,7 +66,7 @@ SLICE8_GATE2_BASE_HEAD_SHA = "11a0c48941c3c1c650be8d0ec8ddf5201f9525f2"
 
 FACTS_SHA256 = "bd68bad4e13a2b945962458fc47359a408d27b1563ba25f5713a8f8099671d21"
 LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26"
-COMPILER_DIGEST = "ba1c27b7264dbf44731896e4ef5e8444b7fbc7b4ddac6de545a9c2bf3a106324"
+COMPILER_DIGEST = "a0e0aa11261ca8c921b70ffba10210edbb56fe1f1bc5d2ad4ca8cc806e516e1f"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
@@ -200,9 +200,10 @@ def _read(path: Path) -> str:
 
 
 def _slice13_paths(name: str) -> set[str]:
-    if _git_output(["rev-parse", "HEAD"]) == (
-        "d8a5e9ab3de70ce30575513c73560c86430eca63"
-    ):
+    if _git_output(["rev-parse", "HEAD"]) in {
+        "d8a5e9ab3de70ce30575513c73560c86430eca63",
+        "15bae172ee151e370fe59d3bf909d735aee6aa90",
+    }:
         modified, added = _phase54_slice2_paths()
         if name == "MODIFIED_PATHS":
             return modified
@@ -1190,6 +1191,7 @@ def test_gate2_dirty_untracked_and_index_states_are_exact() -> None:
         assert head in (
             "4ff3c131fba54d83b56f3c50e14f7c2337c1eb52",
             "d8a5e9ab3de70ce30575513c73560c86430eca63",
+            "15bae172ee151e370fe59d3bf909d735aee6aa90",
         )
     elif dirty == SLICE8_ALLOWLIST_PATHS:
         assert tracked == SLICE8_MODIFIED_PATHS

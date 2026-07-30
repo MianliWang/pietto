@@ -179,7 +179,7 @@ MODULE_SHA256 = {
     WINDOW_REL: "c0512933fc284bbc1dec98dab96411ee179d64e7bee005aa798b6fd7dba2024e",
 }
 PATH_DIGESTS = {
-    "compiler": "ba1c27b7264dbf44731896e4ef5e8444b7fbc7b4ddac6de545a9c2bf3a106324",
+    "compiler": "a0e0aa11261ca8c921b70ffba10210edbb56fe1f1bc5d2ad4ca8cc806e516e1f",
     "semantic": "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70",
     "phase15": "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d",
     "project": "4aa0a55517f46e5cbd98a0050ce105a647ca59fdd387e639d5181be6da89490f",
@@ -418,7 +418,10 @@ def _assert_allowed_dirty_state(
     origin_main: str | None,
 ) -> None:
     dirty = tracked | untracked
-    if head == "d8a5e9ab3de70ce30575513c73560c86430eca63":
+    if head in {
+        "d8a5e9ab3de70ce30575513c73560c86430eca63",
+        "15bae172ee151e370fe59d3bf909d735aee6aa90",
+    }:
         phase54_state = (
             "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
         )
@@ -426,7 +429,7 @@ def _assert_allowed_dirty_state(
             phase54_state, "NON_READER_MODIFIED_PATHS"
         ) | _literal_string_set(phase54_state, "MECHANICAL_READER_PATHS")
         slice2_added = _literal_string_set(phase54_state, "ADDED_PATHS")
-        slice2_base = "d8a5e9ab3de70ce30575513c73560c86430eca63"
+        slice2_base = head
     else:
         slice2_modified = _literal_string_set(SLICE2_STATE_REL, "MODIFIED_PATHS")
         slice2_added = _literal_string_set(SLICE2_STATE_REL, "ADDED_PATHS")
@@ -1080,7 +1083,7 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
     assert (
         sum(path.endswith(".py") for path in readable),
         sum(path.endswith(".md") for path in readable),
-    ) == (549, 249)
+    ) == (550, 250)
     for digest, expected in (
         (PATH_DIGESTS["compiler"], 28),
         (PATH_DIGESTS["semantic"], 42),
@@ -1159,7 +1162,7 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
         )
         for path in test_files
     )
-    assert (len(test_files), top_functions) == (452, 4908)
+    assert (len(test_files), top_functions) == (453, 4938)
     assert (
         381 + 834 + 627 + 424 + 279 + 168 + 156 + 12 + 145 + 190 + 70 + 70 + 97 + 35
         == 3488
@@ -1266,9 +1269,10 @@ def test_static_git_helper_and_exact_slice9_dirty_set_are_locked() -> None:
         origin_main=_git_optional_ref("refs/remotes/origin/main"),
     )
     if tracked or untracked:
-        if _git_output(["rev-parse", "HEAD"]) == (
-            "d8a5e9ab3de70ce30575513c73560c86430eca63"
-        ):
+        if _git_output(["rev-parse", "HEAD"]) in {
+            "d8a5e9ab3de70ce30575513c73560c86430eca63",
+            "15bae172ee151e370fe59d3bf909d735aee6aa90",
+        }:
             phase54_state = (
                 "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
             )

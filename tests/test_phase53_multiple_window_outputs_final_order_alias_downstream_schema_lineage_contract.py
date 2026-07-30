@@ -61,6 +61,7 @@ PHASE53_COMPLETION_HEAD = "af92f30c22e5d3df5219554a0663855a5b9f51a6"
 PHASE54_SLICE1_HEAD = "53d8767fc3bdbe5e3f631178652222bbe51f6a33"
 PHASE54_SLICE2_HEAD = "d8a5e9ab3de70ce30575513c73560c86430eca63"
 PHASE54_SLICE3_HEAD = "2752985c3f6343519b7d7d6fe400d16251e64d85"
+README_REFRESH_HEAD = "15bae172ee151e370fe59d3bf909d735aee6aa90"
 WHEELHOUSE_MANIFEST_SHA256 = (
     "e745cf66b6e8ea2096d5e49bf88ef32f828fe9178561b8ed5456125afeb8a294"
 )
@@ -302,6 +303,33 @@ def _git_output(arguments: list[str]) -> str:
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
     ).stdout.rstrip()
+
+
+def _phase54_slice4_paths() -> tuple[set[str], set[str]]:
+    relative = "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
+    tree = ast.parse(_read(relative), filename=relative)
+    expected = {
+        "ADDED_PATHS",
+        "NON_READER_MODIFIED_PATHS",
+        "MECHANICAL_READER_PATHS",
+    }
+    values: dict[str, set[str]] = {}
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and node.targets[0].id in expected
+        ):
+            value = ast.literal_eval(node.value)
+            assert isinstance(value, set)
+            assert all(isinstance(item, str) for item in value)
+            values[node.targets[0].id] = value
+    assert set(values) == expected
+    return (
+        values["NON_READER_MODIFIED_PATHS"] | values["MECHANICAL_READER_PATHS"],
+        values["ADDED_PATHS"],
+    )
 
 
 def _repository_paths() -> tuple[str, ...]:
@@ -561,8 +589,10 @@ def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> N
                 expected_parent = PHASE54_SLICE1_HEAD
             elif head == PHASE54_SLICE3_HEAD:
                 expected_parent = PHASE54_SLICE2_HEAD
-            else:
+            elif head == README_REFRESH_HEAD:
                 expected_parent = PHASE54_SLICE3_HEAD
+            else:
+                expected_parent = README_REFRESH_HEAD
             assert parents == [expected_parent]
     assert 'requires = ["uv_build>=0.11.32,<0.12.0"]' in pyproject
     assert '"ruff>=0.16.0"' in pyproject
@@ -1401,7 +1431,21 @@ def test_window_ir_sql_backend_and_runtime_surfaces_remain_absent(case: int) -> 
         "src/pietto/parser_api.py",
         "src/pietto/cli.py",
     )
-    assert _git_output(["diff", "--name-only", "--", protected[case]]) == ""
+    path = protected[case]
+    changed = set(_git_output(["diff", "--name-only", "--", path]).splitlines()) - {""}
+    phase54_modified, phase54_added = _phase54_slice4_paths()
+    tracked = set(_git_output(["diff", "--name-only"]).splitlines()) - {""}
+    untracked = set(
+        _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
+    ) - {""}
+    if (
+        _git_output(["rev-parse", "HEAD"]) == README_REFRESH_HEAD
+        and tracked == phase54_modified
+        and untracked == phase54_added
+    ):
+        assert changed == ({path} if path in phase54_modified else set())
+    else:
+        assert changed == set()
 
 
 @pytest.mark.parametrize("case", range(8))
@@ -1477,11 +1521,11 @@ def test_test_inventory_focused_overlay_validation_and_gate3_are_exact() -> None
         len(test_paths),
         top_level_tests,
     ) == (
-        894,
-        549,
-        249,
-        452,
-        4908,
+        896,
+        550,
+        250,
+        453,
+        4938,
     )
     docs = _read(PLAN_REL)
     for value in (

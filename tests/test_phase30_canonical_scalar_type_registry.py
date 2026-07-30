@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# Phase 54 Slice 4 mechanical reader-closure identity refresh.
+
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]

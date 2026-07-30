@@ -49,6 +49,7 @@ SELF_REL = "tests/test_phase53_window_spec_function_identity_ast_contract.py"
 SLICE2_TEST_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
 BASE_HEAD_SHA = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
 PHASE54_SLICE2_BASE_HEAD_SHA = "d8a5e9ab3de70ce30575513c73560c86430eca63"
+PHASE54_SLICE4_BASE_HEAD_SHA = "15bae172ee151e370fe59d3bf909d735aee6aa90"
 PHASE54_SLICE2_STATE_REL = (
     "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
 )
@@ -301,13 +302,13 @@ SEMANTIC_IDENTITY_CASES = (
     ("Org.Analytics.Rank", "Unknown function: Org.Analytics.Rank"),
 )
 
-COMPILER_DIGEST = "ba1c27b7264dbf44731896e4ef5e8444b7fbc7b4ddac6de545a9c2bf3a106324"
+COMPILER_DIGEST = "a0e0aa11261ca8c921b70ffba10210edbb56fe1f1bc5d2ad4ca8cc806e516e1f"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
-AST_NODES_SHA256 = "b0c41070fca75c89534eba75cf2086f41721de740da9a3573d67411d366204f5"
-AST_BUILDER_SHA256 = "201c74d6a27e57dfc7cd0f9693b388ebe7853b783173a3c4f7191a5f8026e70b"
+AST_NODES_SHA256 = "bbfd121446d62d33c7990b80d17579d3f8b55763ce1b5f93ee17247cbd2ce0c2"
+AST_BUILDER_SHA256 = "918dc9f6d7705376b604e69fb80c45cf4c3673c8909a58537770d114d96252cb"
 SEMANTIC_EXPRESSIONS_SHA256 = (
     "37b198f72b0c71c90a82d746671be8528a9ea5c2d4818ff7ef4ba55e30e9c595"
 )
@@ -921,7 +922,7 @@ def test_no_window_ir_sql_catalog_capability_project_role_or_public_serializatio
 
 def test_grammar_generated_parser_api_and_public_exports_are_byte_locked() -> None:
     expected = {
-        "grammar/Pietto.g4": "1c394db1f72561022941e0e937899e2d340880de220ebfa85cf387b86573384e",
+        "grammar/Pietto.g4": "661f00037b4ade8f8b5bef0cb3e070e4379decdd11cd19021d68e960e69d2724",
         "src/pietto/parser_api.py": "aa744c3ee334c8729917ae2aed2ee906874f927d47e99542d5accb8a98aa456b",
         "src/pietto/__init__.py": "669ac67bb23a0c8179995e0e415d76c46210c12311e29cd89d2612b45b0a194d",
     }
@@ -933,7 +934,7 @@ def test_grammar_generated_parser_api_and_public_exports_are_byte_locked() -> No
     )
     assert len(generated) == 8
     assert _digest(generated) == (
-        "bc5be46411f947c4d591e81ce8dd8345140fd5e10276f2ff0055eccfc12babe4"
+        "9a84d108062bdbd87f5cd1d6e237e66f8bbb39d1d9d7674312eab6eb156cbad1"
     )
     assert not hasattr(pietto, "WindowExpr")
     assert not hasattr(pietto, "WindowSpec")
@@ -1010,7 +1011,8 @@ def test_slice3_dirty_clean_and_depth_one_repository_states_are_locked() -> None
         assert tracked == phase54_modified
         assert untracked == phase54_added
         assert branch == "main"
-        assert head == main == origin_main == PHASE54_SLICE2_BASE_HEAD_SHA
+        assert head == main == origin_main
+        assert head in {PHASE54_SLICE2_BASE_HEAD_SHA, PHASE54_SLICE4_BASE_HEAD_SHA}
     elif dirty:
         assert tracked == MODIFIED_PATHS
         assert untracked == ADDED_PATHS
@@ -1030,15 +1032,15 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
     readable = {path for path in (*tracked, *untracked) if (REPO_ROOT / path).is_file()}
-    assert len(readable) == 894
-    assert sum(path.endswith(".py") for path in readable) == 549
-    assert sum(path.endswith(".md") for path in readable) == 249
+    assert len(readable) == 896
+    assert sum(path.endswith(".py") for path in readable) == 550
+    assert sum(path.endswith(".md") for path in readable) == 250
     test_modules = {
         path
         for path in readable
         if path.startswith("tests/test_") and path.endswith(".py")
     }
-    assert len(test_modules) == 452
+    assert len(test_modules) == 453
     top_level_tests = 0
     for relative in sorted(test_modules):
         tree = ast.parse(_read(relative), filename=relative)
@@ -1047,7 +1049,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 4908
+    assert top_level_tests == 4938
     assert (
         3488
         == 381 + 834 + 627 + 424 + 279 + 168 + 156 + 12 + 145 + 190 + 70 + 70 + 97 + 35

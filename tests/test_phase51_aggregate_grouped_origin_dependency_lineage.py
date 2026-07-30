@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# Phase 54 Slice 4 mechanical reader-closure identity refresh.
+
 import ast
 from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
 import hashlib
@@ -106,6 +108,8 @@ CI_REPAIR_MODIFIED_PATHS = {
     "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
 }
 PHASE54_BASE_HEAD_SHA = "d8a5e9ab3de70ce30575513c73560c86430eca63"
+PHASE54_SLICE4_BASE_HEAD_SHA = "15bae172ee151e370fe59d3bf909d735aee6aa90"
+PHASE54_SLICE4_PATH_COUNTS = (138, 2, 140)
 PHASE54_STATE_REL = (
     "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
 )
@@ -937,7 +941,17 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
         assert set(_git_output(["diff", "--name-only"]).splitlines()) == (
             phase54_modified
         )
-        assert _git_output(["rev-parse", "HEAD"]).strip() == PHASE54_BASE_HEAD_SHA
+        path_counts = (
+            len(phase54_modified),
+            len(phase54_added),
+            len(phase54_modified | phase54_added),
+        )
+        expected_head = (
+            PHASE54_SLICE4_BASE_HEAD_SHA
+            if path_counts == PHASE54_SLICE4_PATH_COUNTS
+            else PHASE54_BASE_HEAD_SHA
+        )
+        assert _git_output(["rev-parse", "HEAD"]).strip() == expected_head
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
 
     compiler_digest = _compiler_digest()

@@ -22,12 +22,12 @@ LOCKED_FORBIDDEN_SURFACES = {
     "grammar": (
         "grammar",
         1,
-        "3e8ba493278a9730a9c13bc5a0ddcea707e543c97b5e3521d2ef049c576553ed",
+        "1abb7763827982777ac1c7af3912a7c6dbea94824d448973e4d640de7dc3247a",
     ),
     "generated": (
         "src/pietto/generated",
         8,
-        "bc5be46411f947c4d591e81ce8dd8345140fd5e10276f2ff0055eccfc12babe4",
+        "9a84d108062bdbd87f5cd1d6e237e66f8bbb39d1d9d7674312eab6eb156cbad1",
     ),
     "parser_ast": (
         (
@@ -36,7 +36,7 @@ LOCKED_FORBIDDEN_SURFACES = {
             "src/pietto/parser_api.py",
         ),
         3,
-        "767c170e4820cdb7449fffd40f16e7f88dfac0aea92bee07ac2d59ccbf4dd11b",
+        "93607b49ac55700e527d7dc588c5b38363617b62e8da0cd9686cc85f2196c762",
     ),
     "semantic": (
         "src/pietto/semantic",
@@ -71,7 +71,7 @@ LOCKED_FORBIDDEN_SURFACES = {
     "readme": (
         "README.md",
         1,
-        "dfcee74facc30291d3a3d2fba9de4d6741e65ffb89a8f61224ec3cd130ba0c50",
+        "26930e2c198d3cc9b5a4fa0958b48e15def1faa6218b3bf699181f80386f9a54",
     ),
     "agents": (
         "AGENTS.md",
@@ -81,7 +81,7 @@ LOCKED_FORBIDDEN_SURFACES = {
     "pietto_v09": (
         "docs/spec/pietto-v0.9.md",
         1,
-        "8c5f7ae8e5f6bbcbe7c004e681ba4bf8e417efb62240137f83ccd6d5a8472b39",
+        "283fb73c5ee1239e2c510c61c861fcf46b8cce52481b5c82a2d8daa74060fb00",
     ),
     "diagnostics": (
         "docs/spec/diagnostics.md",

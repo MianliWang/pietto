@@ -59,6 +59,51 @@ class PiettoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by PiettoParser#moduleStatement.
+    def visitModuleStatement(self, ctx:PiettoParser.ModuleStatementContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#importStatement.
+    def visitImportStatement(self, ctx:PiettoParser.ImportStatementContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#importTarget.
+    def visitImportTarget(self, ctx:PiettoParser.ImportTargetContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#importBody.
+    def visitImportBody(self, ctx:PiettoParser.ImportBodyContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#importItem.
+    def visitImportItem(self, ctx:PiettoParser.ImportItemContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#exportStatement.
+    def visitExportStatement(self, ctx:PiettoParser.ExportStatementContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#exportBody.
+    def visitExportBody(self, ctx:PiettoParser.ExportBodyContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#exportItem.
+    def visitExportItem(self, ctx:PiettoParser.ExportItemContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#moduleDeclarationKind.
+    def visitModuleDeclarationKind(self, ctx:PiettoParser.ModuleDeclarationKindContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by PiettoParser#typeDefinition.
     def visitTypeDefinition(self, ctx:PiettoParser.TypeDefinitionContext):
         return self.visitChildren(ctx)

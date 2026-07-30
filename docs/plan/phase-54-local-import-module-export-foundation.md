@@ -1,18 +1,18 @@
 # Phase 54 — Local Import / Module / Export Foundation
 
-## Status And Slice 3 Lifecycle
+## Status And Slice 4 Lifecycle
 
-Phase 53 and Slices 1-16 are `COMPLETED`. Phase 54 is `ACTIVE`, Slice 1 is
-`COMPLETED`, Slice 2 is `COMPLETED`, and the trusted Slice 3 base is
-`d8a5e9ab3de70ce30575513c73560c86430eca63`. During Slice 3 Gate 2, Slice 3
-remains incomplete and Slices 4-16 remain `UNSTARTED`.
+Phase 53 and Slices 1-16 are `COMPLETED`. Phase 54 is `ACTIVE`, and Slices
+1 through 3 are `COMPLETED`. The trusted Slice 4 base is
+`15bae172ee151e370fe59d3bf909d735aee6aa90`. During Slice 4 Gate 2, Slice 4
+remains incomplete and Slices 5-16 remain `UNSTARTED`.
 
-Slice 3 becomes `COMPLETED` only after the exact
+Slice 4 becomes `COMPLETED` only after the exact
 reviewed tree passes natural exact-head PR CI attempt 1, squash-merges with
 tree equality, passes natural exact-head `main` CI attempt 1, reconciles local
 `main` by fetch and ff-only update, cleans the publication branch, and records
-immutable Gate 3 evidence. Slices 4-16 then remain `UNSTARTED`; the next state
-is `PHASE54_SLICE4_GATE0_GATE1`, and Slice 4 does not begin in Slice 3.
+immutable Gate 3 evidence. Slices 5-16 then remain `UNSTARTED`; the next state
+is `PHASE54_SLICE5_GATE0_GATE1`, and Slice 5 does not begin in Slice 4.
 
 ## Trusted Phase 53 Baseline And Controlling Evidence
 
@@ -319,6 +319,32 @@ evidence target is a flat filename directly under
 `/home/mianliwang/.local/state/pietto/evidence`; the forbidden
 `phase54-slice3/` evidence subdirectory is never created.
 
+## Slice 4 Exact Production Boundary And Gate Contract
+
+The normative contract is
+`docs/spec/phase54-slice4-import-export-contextual-grammar-generated-parser-and-immutable-ast-v1.md`.
+Slice 4 adds only top-level contextual `import`, `export`, and `as`
+grammar, the complete deterministic generated-parser refresh, and immutable
+parser-owned module AST. Eligible item kinds are exactly `type`, `enum`,
+`shape`, `source`, `table`, and `query`. Import targets are decoded
+strings retained without lookup or normalization; import aliases preserve
+`exported_name as local_name`; exports name only simple local names.
+
+`Script.module_statements` is a separate source-ordered tuple with an empty
+default. Existing definitions and relationships remain unchanged. The analyzer
+deliberately ignores module statements. Parse or check success does not validate
+target existence, declarations, bindings, visibility, catalogs, graphs, or
+cross-module resolution. No `PIE-S2701` through `PIE-S2707` diagnostic,
+public JSON/metadata field, IR/SQL behavior, dependency, workflow, package
+version, or release operation is added.
+
+The Gate 0 / Gate 1 authority freezes Gate 2 as `A2_M138_D0`: one contract,
+one thirty-test focused module, thirteen direct modified paths including seven
+generated outputs, and 125 mechanical reader modifications. The Git index
+remains empty throughout fully offline Gate 2. Gate 3 alone owns branch, one
+stage, one commit, one push, ready PR, natural exact-head CI, exact-tree squash,
+one fetch, ff-only reconciliation, cleanup, and final immutable evidence.
+
 ## Slice 2 — Schema-v2 Explicit-module Activation And Immutable Project / Module Carrier
 
 Accept exact integer schema versions 1 and 2 only. Version 1 keeps the legacy
@@ -338,7 +364,8 @@ loading, containment, identity, digest, and dedup. Prerequisite: Slice 2.
 ## Slice 4 — Import / Export Contextual Grammar, Generated Parser, And Immutable AST
 
 Separately gate the exact P2 source form, generated ANTLR, and immutable AST.
-Prerequisite: Slice 1.
+The parser/AST-only result does not bind or resolve module names. Prerequisite:
+Slice 1.
 
 ## Slice 5 — Module-qualified Nominal Declaration Identity And Per-module Catalogs
 

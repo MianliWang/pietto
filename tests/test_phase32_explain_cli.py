@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# Phase 54 Slice 4 mechanical reader-closure identity refresh.
+
 import json
 from pathlib import Path
 from typing import cast

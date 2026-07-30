@@ -6,7 +6,7 @@ tokens {
 }
 
 script
-    : NEWLINE* header? NEWLINE* ((definition | relationshipDefinition) NEWLINE*)* EOF
+    : NEWLINE* header? NEWLINE* ((definition | relationshipDefinition | moduleStatement) NEWLINE*)* EOF
     ;
 
 header
@@ -54,6 +54,49 @@ relationshipBody
 
 relationshipEndpoint
     : ENDPOINT identifier COLON identifier NEWLINE
+    ;
+
+// Module syntax is parser-only metadata outside semantic definitions.
+moduleStatement
+    : importStatement
+    | exportStatement
+    ;
+
+importStatement
+    : IMPORT importTarget COLON NEWLINE NEWLINE* INDENT importBody DEDENT
+    ;
+
+importTarget
+    : STRING
+    ;
+
+importBody
+    : NEWLINE* importItem (importItem | NEWLINE)*
+    ;
+
+importItem
+    : moduleDeclarationKind identifier (AS identifier)? NEWLINE
+    ;
+
+exportStatement
+    : EXPORT COLON NEWLINE NEWLINE* INDENT exportBody DEDENT
+    ;
+
+exportBody
+    : NEWLINE* exportItem (exportItem | NEWLINE)*
+    ;
+
+exportItem
+    : moduleDeclarationKind identifier NEWLINE
+    ;
+
+moduleDeclarationKind
+    : TYPE
+    | ENUM
+    | SHAPE
+    | SOURCE
+    | TABLE
+    | QUERY
     ;
 
 // Pietto blocks use ':' plus NEWLINE/INDENT/DEDENT, never brace delimiters.
@@ -389,6 +432,9 @@ namePart
 // New language keywords remain valid in identifier positions for compatibility.
 identifier
     : IDENTIFIER
+    | IMPORT
+    | EXPORT
+    | AS
     | ORDER
     | BY
     | ASC
@@ -446,6 +492,9 @@ LIMIT: 'limit';
 SATISFYING: 'satisfying';
 RELATIONSHIP: 'relationship';
 ENDPOINT: 'endpoint';
+IMPORT: 'import';
+EXPORT: 'export';
+AS: 'as';
 WINDOW: 'window';
 PARTITION: 'partition';
 ENSURE: 'ensure';

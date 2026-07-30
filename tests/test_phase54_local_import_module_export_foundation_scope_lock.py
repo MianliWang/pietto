@@ -31,6 +31,11 @@ SLICE3_SPEC_REL = (
 SLICE3_TEST_REL = (
     "tests/test_phase54_module_identity_selected_input_index_trusted_local_loader.py"
 )
+SLICE4_SPEC_REL = (
+    "docs/spec/phase54-slice4-import-export-contextual-grammar-generated-"
+    "parser-and-immutable-ast-v1.md"
+)
+SLICE4_TEST_REL = "tests/test_phase54_import_export_contextual_grammar_ast.py"
 SELF_REL = "tests/test_phase54_local_import_module_export_foundation_scope_lock.py"
 
 PLAN_TITLE = "Phase 54 — Local Import / Module / Export Foundation"
@@ -49,6 +54,10 @@ SLICE2_SPEC_TITLE = (
 SLICE3_SPEC_TITLE = (
     "Phase 54 Slice 3 — Module Identity, Selected-input Index, Trusted Local "
     "Loader, And Path / Symlink Boundary v1"
+)
+SLICE4_SPEC_TITLE = (
+    "Phase 54 Slice 4 — Import / Export Contextual Grammar, Generated Parser, "
+    "And Immutable AST v1"
 )
 
 SLICE2_EXPECTED_TEST_NAMES = (
@@ -97,6 +106,39 @@ SLICE3_EXPECTED_TEST_NAMES = (
     "test_pre_post_read_mutation_is_rejected_when_observed",
     "test_schema_v1_and_schema_v2_retain_trust_facts_and_existing_semantics",
     "test_single_file_public_privacy_scope_and_flat_evidence_contract_remain_exact",
+)
+
+SLICE4_EXPECTED_TEST_NAMES = (
+    "test_slice4_contract_artifacts_ast_surface_and_test_inventory_are_exact",
+    "test_minimal_import_block_preserves_decoded_target_item_and_exact_spans",
+    "test_import_block_accepts_exact_six_declaration_kinds_in_source_order",
+    "test_import_alias_direction_preserves_exported_and_local_names_and_spans",
+    "test_multiple_import_blocks_preserve_module_statement_source_order",
+    "test_import_comments_blank_lines_and_string_escape_policy_are_preserved",
+    "test_import_target_is_retained_without_path_normalization_or_filesystem_lookup",
+    "test_minimal_export_block_preserves_item_and_exact_spans",
+    "test_export_block_accepts_exact_six_declaration_kinds_in_source_order",
+    "test_multiple_export_blocks_preserve_module_statement_source_order",
+    "test_import_export_blocks_interleave_with_definitions_and_relationships_without_reclassification",
+    "test_script_without_module_syntax_keeps_empty_module_statements_and_equal_existing_ast",
+    "test_module_ast_is_frozen_slots_tuple_backed_value_equal_and_hashable",
+    "test_module_ast_contains_no_antlr_nodes_or_semantic_identity_fields",
+    "test_import_export_as_remain_contextual_identifiers_across_existing_definition_positions",
+    "test_import_export_as_remain_contextual_in_relationship_let_aggregate_and_window_positions",
+    "test_existing_parser_ast_corpus_representatives_remain_accepted_and_unchanged",
+    "test_import_export_top_level_blocks_do_not_change_semantic_catalog_or_diagnostics",
+    "test_import_export_top_level_blocks_do_not_change_ir_or_postgres_mysql_sql",
+    "test_import_export_top_level_blocks_do_not_change_public_cli_json_or_metadata_shape",
+    "test_schema_v1_preserves_module_ast_without_import_binding_or_catalog_effect",
+    "test_schema_v2_retains_module_ast_and_stops_before_legacy_flat_catalog",
+    "test_no_module_diagnostics_public_exports_serializer_fields_or_dependency_surfaces_are_added",
+    "test_invalid_import_forms_fail_with_existing_parser_diagnostics_and_spans",
+    "test_invalid_export_forms_fail_with_existing_parser_diagnostics_and_spans",
+    "test_import_and_export_require_nonempty_indented_bodies",
+    "test_import_and_export_are_rejected_outside_top_level",
+    "test_tabs_and_malformed_module_indentation_use_existing_diagnostics",
+    "test_generated_inventory_rules_and_contextual_token_order_are_exact",
+    "test_reader_allowlist_retained_later_and_publication_topology_contracts_are_exact",
 )
 
 EXPECTED_TEST_NAMES = (
@@ -200,45 +242,110 @@ CLASSIFICATIONS = (
 FREEZE_LEDGERS = ("CURRENT_PRODUCTION", "CURRENT_READINESS", "RETAINED_LATER")
 
 ADDED_PATHS = {
-    (
-        "docs/spec/phase54-slice3-module-identity-selected-input-index-trusted-"
-        "local-loader-path-symlink-boundary-v1.md"
-    ),
-    "src/pietto/_project/path_trust.py",
-    "src/pietto/_project/selected_input_index.py",
-    "src/pietto/_project/trusted_source.py",
-    "tests/test_phase54_module_identity_selected_input_index_trusted_local_loader.py",
+    "docs/spec/phase54-slice4-import-export-contextual-grammar-generated-parser-and-immutable-ast-v1.md",
+    "tests/test_phase54_import_export_contextual_grammar_ast.py",
 }
 NON_READER_MODIFIED_PATHS = {
+    "README.md",
     "docs/plan/phase-54-local-import-module-export-foundation.md",
-    "src/pietto/_project/module_carrier.py",
-    "src/pietto/_project/config.py",
-    "src/pietto/_project/model.py",
-    "src/pietto/_project/source_selection.py",
-    "src/pietto/_project/check.py",
-    "tests/test_phase54_schema_v2_explicit_module_carrier.py",
+    "docs/spec/pietto-v0.9.md",
+    "grammar/Pietto.g4",
+    "src/pietto/ast_nodes.py",
+    "src/pietto/ast_builder.py",
+    "src/pietto/generated/Pietto.interp",
+    "src/pietto/generated/Pietto.tokens",
+    "src/pietto/generated/PiettoLexer.interp",
+    "src/pietto/generated/PiettoLexer.py",
+    "src/pietto/generated/PiettoLexer.tokens",
+    "src/pietto/generated/PiettoParser.py",
+    "src/pietto/generated/PiettoVisitor.py",
 }
 MECHANICAL_READER_PATHS = {
-    "tests/test_phase54_local_import_module_export_foundation_scope_lock.py",
-    "tests/test_phase50_import_module_export_readiness.py",
+    "tests/test_phase10_completion_audit.py",
+    "tests/test_phase10_dialect_dispatch_design.py",
+    "tests/test_phase10_mysql_backend_skeleton.py",
+    "tests/test_phase10_mysql_connector_semantic_surface.py",
+    "tests/test_phase10_mysql_golden_corpus.py",
+    "tests/test_phase10_mysql_rendering_mvp.py",
+    "tests/test_phase10_planning_audit.py",
+    "tests/test_phase10_sqlglot_spike_evaluation.py",
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
     "tests/test_phase11_generated_guard.py",
     "tests/test_phase11_golden_policy.py",
     "tests/test_phase11_packaging_smoke.py",
+    "tests/test_phase11_planning_audit.py",
     "tests/test_phase11_validation_entrypoint.py",
     "tests/test_phase12_completion_audit.py",
     "tests/test_phase12_composition_cli_json_goldens.py",
+    "tests/test_phase12_order_limit_contract.py",
+    "tests/test_phase12_planning_audit.py",
+    "tests/test_phase13_completion_audit.py",
+    "tests/test_phase13_composition_scope_contract.py",
+    "tests/test_phase13_composition_sql_shape_contract.py",
+    "tests/test_phase13_planning_audit.py",
+    "tests/test_phase13_relationship_role_contract.py",
+    "tests/test_phase13_security_diagnostics_contract.py",
+    "tests/test_phase14_candidate_decision_audit.py",
+    "tests/test_phase14_completion_audit.py",
+    "tests/test_phase14_planning_audit.py",
+    "tests/test_phase14_relationship_metadata_completion_audit.py",
+    "tests/test_phase15_completion_audit.py",
+    "tests/test_phase15_relationship_name_ownership_contract.py",
+    "tests/test_phase15_semantic_completion_audit.py",
+    "tests/test_phase16_completion_audit.py",
+    "tests/test_phase16_current_syntax_surface_audit.py",
+    "tests/test_phase16_language_direction_audit.py",
+    "tests/test_phase16_safety_deferral_sql_portability.py",
+    "tests/test_phase17_computed_projection_schema_propagation.py",
+    "tests/test_phase17_core_scalar_expression_semantics.py",
+    "tests/test_phase17_relation_schema_hardening_completion_audit.py",
+    "tests/test_phase17_single_input_qualified_field_binding.py",
+    "tests/test_phase19_completion_audit.py",
+    "tests/test_phase20_completion_audit.py",
     "tests/test_phase21_group_by_hardening_audit.py",
+    "tests/test_phase22_completion_audit.py",
+    "tests/test_phase23_completion_audit.py",
     "tests/test_phase24_aggregate_expression_arguments_readiness.py",
     "tests/test_phase24_cli_json_output_hardening.py",
     "tests/test_phase24_completion_audit.py",
+    "tests/test_phase25_completion_audit.py",
     "tests/test_phase26_completion_audit.py",
+    "tests/test_phase26_decimal_scalar_expression_semantics.py",
+    "tests/test_phase26_numeric_scalar_expression_semantics.py",
     "tests/test_phase27_completion_audit.py",
+    "tests/test_phase27_grouped_order_candidate_decision.py",
     "tests/test_phase28_completion_audit.py",
+    "tests/test_phase28_numeric_literal_aggregate_candidate_decision.py",
     "tests/test_phase29_completion_audit.py",
+    "tests/test_phase29_v02_stabilization_candidate_decision.py",
+    "tests/test_phase30_bool_predicate_semantics_contract.py",
+    "tests/test_phase30_candidate_decision.py",
+    "tests/test_phase30_canonical_scalar_type_registry.py",
     "tests/test_phase30_completion_audit.py",
+    "tests/test_phase30_date_timestamp_formalization_contract.py",
+    "tests/test_phase30_decimal_precision_scale_contract.py",
+    "tests/test_phase30_nullability_propagation_contract.py",
+    "tests/test_phase30_operator_comparison_matrix_contract.py",
+    "tests/test_phase31_candidate_decision.py",
+    "tests/test_phase31_docs_examples_package_ci_readiness.py",
+    "tests/test_phase31_v02_stable_completion_audit.py",
+    "tests/test_phase32_completion_audit.py",
+    "tests/test_phase32_explain_cli.py",
+    "tests/test_phase32_metadata_json_serializer.py",
+    "tests/test_phase32_metadata_query_aggregate_lineage.py",
+    "tests/test_phase32_metadata_schema_type_nullability.py",
+    "tests/test_phase32_private_metadata_builder.py",
+    "tests/test_phase32_semantic_metadata_artifact_contract.py",
+    "tests/test_phase32_semantic_metadata_candidate_decision.py",
+    "tests/test_phase33_candidate_decision.py",
     "tests/test_phase33_completion_audit.py",
+    "tests/test_phase33_project_explain_metadata_contract.py",
+    "tests/test_phase35_completion_audit.py",
+    "tests/test_phase35_status_housekeeping.py",
+    "tests/test_phase36_completion_audit.py",
+    "tests/test_phase36_status_housekeeping.py",
+    "tests/test_phase50_import_module_export_readiness.py",
     "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
     "tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py",
     "tests/test_phase51_completion_audit_and_status_lock.py",
@@ -268,15 +375,30 @@ MECHANICAL_READER_PATHS = {
     "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
     "tests/test_phase53_window_spec_function_identity_ast_contract.py",
     "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
+    "tests/test_phase54_local_import_module_export_foundation_scope_lock.py",
+    "tests/test_phase54_module_identity_selected_input_index_trusted_local_loader.py",
+    "tests/test_phase54_schema_v2_explicit_module_carrier.py",
+    "tests/test_phase7_completion_audit.py",
+    "tests/test_phase8_completion_audit.py",
+    "tests/test_phase9_5_hardening_audit.py",
+    "tests/test_phase9_backend_abstraction_contract.py",
+    "tests/test_phase9_completion_audit.py",
+    "tests/test_phase9_dialect_source_contract.py",
+    "tests/test_phase9_mysql_mvp_contract.py",
+    "tests/test_phase9_sqlglot_evaluation.py",
 }
 MODIFIED_PATHS = {*NON_READER_MODIFIED_PATHS, *MECHANICAL_READER_PATHS}
 ALLOWLIST_PATHS = ADDED_PATHS | MODIFIED_PATHS
-FORMATTER_PATHS = {relative for relative in ALLOWLIST_PATHS if relative.endswith(".py")}
+FORMATTER_PATHS = {
+    relative
+    for relative in ALLOWLIST_PATHS
+    if relative.endswith(".py") and not relative.startswith("src/pietto/generated/")
+}
 
 PROTECTED_SHA256 = {
-    "grammar/Pietto.g4": "1c394db1f72561022941e0e937899e2d340880de220ebfa85cf387b86573384e",
-    "src/pietto/ast_nodes.py": "b0c41070fca75c89534eba75cf2086f41721de740da9a3573d67411d366204f5",
-    "src/pietto/ast_builder.py": "201c74d6a27e57dfc7cd0f9693b388ebe7853b783173a3c4f7191a5f8026e70b",
+    "grammar/Pietto.g4": "661f00037b4ade8f8b5bef0cb3e070e4379decdd11cd19021d68e960e69d2724",
+    "src/pietto/ast_nodes.py": "bbfd121446d62d33c7990b80d17579d3f8b55763ce1b5f93ee17247cbd2ce0c2",
+    "src/pietto/ast_builder.py": "918dc9f6d7705376b604e69fb80c45cf4c3673c8909a58537770d114d96252cb",
     "src/pietto/parser_api.py": "aa744c3ee334c8729917ae2aed2ee906874f927d47e99542d5accb8a98aa456b",
     "src/pietto/__init__.py": "669ac67bb23a0c8179995e0e415d76c46210c12311e29cd89d2612b45b0a194d",
     "src/pietto/_project/module_carrier.py": "fa235758cc39ddc6efea004d03bd28ccae4833463c14b9f7664cf013f7b66fd5",
@@ -288,8 +410,8 @@ PROTECTED_SHA256 = {
     "src/pietto/_project/source_selection.py": "fb1c531bcdd81696aa0c26b110433a6775cde878aeb4af3373d0d4aaf1f1443e",
     "src/pietto/_project/check.py": "6f2f2805249cc86a8ff3510a03abc702d2a029186cf16b50cabd11dbaf1da9e1",
     "src/pietto/_project/json_v2.py": "74251e684a22de4dcdc7e1822a6843ca89cbdfa7e136a046676d848b57953bd5",
-    SLICE2_TEST_REL: "7d664b4c4f4a89aea96d40cdb6c8f1d4ac91144cf4bfd378cd75b52fef848e1c",
-    SLICE3_TEST_REL: "af3f38b814fef082c033be2a3bae8147613d0e7dda3d11be7ab7fb49854c1e23",
+    SLICE2_TEST_REL: "f668b8b6f92b10c8c2483834ad8dc88b88ac399389880af647f1b722e231fe5a",
+    SLICE3_TEST_REL: "ec56d99c4d2bc0b037e489fd2d3c28c1ecb77aa6d3e9aa9a4e5c64215a2726d9",
     ".github/workflows/ci.yml": "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94",
     "pyproject.toml": "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01",
     "uv.lock": "a7d9125995e98a8a74d3664ceae7801cc1f4cce74ec323933da67838be199cea",
@@ -385,11 +507,12 @@ def test_slice1_artifact_titles_heading_order_and_lifecycle_are_exact() -> None:
     assert _headings(ROADMAP_V2_REL, 1) == (ROADMAP_V2_TITLE,)
     assert _headings(SLICE2_SPEC_REL, 1) == (SLICE2_SPEC_TITLE,)
     assert _headings(SLICE3_SPEC_REL, 1) == (SLICE3_SPEC_TITLE,)
+    assert _headings(SLICE4_SPEC_REL, 1) == (SLICE4_SPEC_TITLE,)
     for relative in (PLAN_REL, SCOPE_REL, GOVERNANCE_REL, ROADMAP_V2_REL):
         assert _headings(relative, 2)
     plan_h2 = _headings(PLAN_REL, 2)
     assert plan_h2[:5] == (
-        "Status And Slice 3 Lifecycle",
+        "Status And Slice 4 Lifecycle",
         "Trusted Phase 53 Baseline And Controlling Evidence",
         "Phase Identity, Minimum Production Boundary, And Activation",
         "Current Production, Readiness, And Retained-later Freeze",
@@ -399,15 +522,14 @@ def test_slice1_artifact_titles_heading_order_and_lifecycle_are_exact() -> None:
         f"Slice {index} — {title}"
         for index, title in enumerate(PHASE54_ROUTE[1:], start=2)
     )
-    lifecycle = _section(PLAN_REL, "Status And Slice 3 Lifecycle")
+    lifecycle = _section(PLAN_REL, "Status And Slice 4 Lifecycle")
     for phrase in (
         "Phase 53 and Slices 1-16 are `COMPLETED`",
         "Phase 54 is `ACTIVE`",
-        "Slice 1 is\n`COMPLETED`",
-        "Slice 2 is `COMPLETED`",
-        "Slice 3 becomes `COMPLETED`",
-        "Slices 4-16 then remain `UNSTARTED`",
-        "PHASE54_SLICE4_GATE0_GATE1",
+        "Slices\n1 through 3 are `COMPLETED`",
+        "Slice 4 becomes `COMPLETED`",
+        "Slices 5-16 then remain `UNSTARTED`",
+        "PHASE54_SLICE5_GATE0_GATE1",
     ):
         assert phrase in lifecycle
     tests = _top_level_test_functions(SELF_REL)
@@ -443,6 +565,17 @@ def test_slice1_artifact_titles_heading_order_and_lifecycle_are_exact() -> None:
     )
     assert len(slice3_nodes) == 26
     assert all(not node.decorator_list for node in slice3_nodes)
+    slice4_tests = _top_level_test_functions(SLICE4_TEST_REL)
+    assert slice4_tests == SLICE4_EXPECTED_TEST_NAMES
+    slice4_tree = ast.parse(_read(SLICE4_TEST_REL), filename=SLICE4_TEST_REL)
+    slice4_nodes = tuple(
+        node
+        for node in slice4_tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name.startswith("test_")
+    )
+    assert len(slice4_nodes) == 30
+    assert all(not node.decorator_list for node in slice4_nodes)
 
 
 def test_authority_hierarchy_grounding_and_historical_predecessors_are_exact() -> None:
@@ -456,7 +589,7 @@ def test_authority_hierarchy_grounding_and_historical_predecessors_are_exact() -
         "8c3656805db451946d60e341b8ac0ca9181997378d07576133c9c4aeef3e3f77"
     )
     assert _sha256("tests/test_phase50_import_module_export_readiness.py") == (
-        "9d91d5a596f2c451d78667ccd17be39bd3c7b6079697c070ff2be505b0a00698"
+        "d84bec363c7a313b9ce7a9beddcbcd2b634ce1b8b822d089ece36276ed3bcb69"
     )
     scope = _read(SCOPE_REL)
     roadmap = _read(ROADMAP_V2_REL)
@@ -714,15 +847,35 @@ def test_grammar_generated_ast_parser_and_public_exports_are_byte_locked() -> No
     )
     assert len(generated) == 8
     assert _digest(generated) == (
-        "bc5be46411f947c4d591e81ce8dd8345140fd5e10276f2ff0055eccfc12babe4"
+        "9a84d108062bdbd87f5cd1d6e237e66f8bbb39d1d9d7674312eab6eb156cbad1"
     )
     grammar = _read("grammar/Pietto.g4")
     ast_nodes = _read("src/pietto/ast_nodes.py")
+    ast_builder = _read("src/pietto/ast_builder.py")
     parser_api = _read("src/pietto/parser_api.py")
-    assert not re.search(
-        r"(?m)^\s*(?:module|import|export)(?:Statement|Block|Decl)?\s*:", grammar
-    )
-    assert not re.search(r"class (?:Module|Import|Export)\w*\(", ast_nodes)
+    for rule in (
+        "moduleStatement",
+        "importStatement",
+        "importTarget",
+        "importBody",
+        "importItem",
+        "exportStatement",
+        "exportBody",
+        "exportItem",
+        "moduleDeclarationKind",
+    ):
+        assert re.search(rf"(?m)^{rule}\n\s+:", grammar)
+    for class_name in (
+        "ModuleDeclarationKind",
+        "ImportItem",
+        "ImportStatement",
+        "ExportItem",
+        "ExportStatement",
+    ):
+        assert f"class {class_name}" in ast_nodes
+    assert "module_statements: tuple[ModuleStatement, ...] = ()" in ast_nodes
+    assert "def visitImportStatement" in ast_builder
+    assert "def visitExportStatement" in ast_builder
     assert "parse_module" not in parser_api
 
 
@@ -799,7 +952,7 @@ def test_flat_catalog_collect_before_resolve_semantic_and_project_fact_surfaces_
     project = tuple((REPO_ROOT / "src/pietto/_project").glob("*.py"))
     assert len(compiler) == 97
     assert _digest(compiler) == (
-        "ba1c27b7264dbf44731896e4ef5e8444b7fbc7b4ddac6de545a9c2bf3a106324"
+        "a0e0aa11261ca8c921b70ffba10210edbb56fe1f1bc5d2ad4ca8cc806e516e1f"
     )
     assert _digest(semantic) == (
         "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
@@ -837,6 +990,18 @@ def test_flat_catalog_collect_before_resolve_semantic_and_project_fact_surfaces_
 def test_module_surfaces_and_pie_s2701_s2707_are_reserved_but_not_implemented() -> None:
     production = _production_text()
     assert not re.search(r"PIE-S270[1-7]", production)
+    ast_nodes = _read("src/pietto/ast_nodes.py")
+    analyzer = _read("src/pietto/semantic/analyzer.py")
+    for value in (
+        "class ModuleDeclarationKind",
+        "class ImportItem",
+        "class ImportStatement",
+        "class ExportItem",
+        "class ExportStatement",
+        "module_statements: tuple[ModuleStatement, ...] = ()",
+    ):
+        assert value in ast_nodes
+    assert "module_statements" not in analyzer
     carrier = _read("src/pietto/_project/module_carrier.py")
     assert "class ProjectCompilationMode(StrEnum)" in carrier
     assert "class ProjectModuleIdentity" in carrier
@@ -913,22 +1078,22 @@ def test_public_json_artifact_cli_sql_dependency_workflow_version_and_release_su
 def test_gate_allowlist_reader_evidence_publication_stop_and_next_state_contracts_are_exact() -> (
     None
 ):
-    assert (len(ADDED_PATHS), len(MODIFIED_PATHS), 0) == (5, 56, 0)
-    assert len(NON_READER_MODIFIED_PATHS) == 7
-    assert len(MECHANICAL_READER_PATHS) == 49
-    assert len(FORMATTER_PATHS) == 59
-    assert len(ALLOWLIST_PATHS) == 61
+    assert (len(ADDED_PATHS), len(MODIFIED_PATHS), 0) == (2, 138, 0)
+    assert len(NON_READER_MODIFIED_PATHS) == 13
+    assert len(MECHANICAL_READER_PATHS) == 125
+    assert len(FORMATTER_PATHS) == 128
+    assert len(ALLOWLIST_PATHS) == 140
     readable = _readable_paths()
-    assert len(readable) == 894
-    assert sum(path.endswith(".py") for path in readable) == 549
-    assert sum(path.endswith(".md") for path in readable) == 249
+    assert len(readable) == 896
+    assert sum(path.endswith(".py") for path in readable) == 550
+    assert sum(path.endswith(".md") for path in readable) == 250
     test_modules = tuple(
         path
         for path in readable
         if path.startswith("tests/test_") and path.endswith(".py")
     )
-    assert len(test_modules) == 452
-    assert sum(len(_top_level_test_functions(path)) for path in test_modules) == 4908
+    assert len(test_modules) == 453
+    assert sum(len(_top_level_test_functions(path)) for path in test_modules) == 4938
     dirty = set(_git_output(["diff", "--name-only"]).splitlines()) | set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
@@ -1016,6 +1181,20 @@ def test_gate_allowlist_reader_evidence_publication_stop_and_next_state_contract
         "next state is\n`PHASE54_SLICE4_GATE0_GATE1`",
     ):
         assert phrase in slice3
+    slice4 = _read(SLICE4_SPEC_REL)
+    for phrase in (
+        "`15bae172ee151e370fe59d3bf909d735aee6aa90`",
+        "`A2_M138_D0`",
+        "exactly 30 undecorated, non-parametrized",
+        "exactly seven generated paths and 125",
+        "exactly\n128 literal handwritten Python paths",
+        "10886 passed",
+        "Successful\nparsing or checking therefore does not validate",
+        "PIE-S2701",
+        "remain absent and un-emitted",
+        "PHASE54_SLICE5_GATE0_GATE1",
+    ):
+        assert phrase in slice4
     plan = _read(PLAN_REL)
     for forbidden in ("dirty overlay", "skip", "xfail", "deselection", "masking"):
         assert forbidden in plan

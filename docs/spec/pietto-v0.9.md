@@ -9,6 +9,25 @@ Current pipeline: parse -> analyze -> build IR -> emit selected PostgreSQL or My
 
 ---
 
+## Current Phase 54 Slice 4 Module-syntax Status
+
+Phase 54 is active and Slices 1 through 4 are complete after exact Gate 3
+publication. Slice 4 adds contextual top-level `import`, `export`, and
+`as` syntax, the deterministically regenerated parser, and immutable
+source-located module AST. The exact contract is
+`docs/spec/phase54-slice4-import-export-contextual-grammar-generated-parser-and-immutable-ast-v1.md`.
+
+This is a parser/AST foundation only. Semantic analysis deliberately ignores
+module statements. A successful parse or check does not validate import/export
+bindings, visibility, targets, declaration existence, per-module catalogs,
+graphs, or cross-module resolution. Module syntax does not influence Semantic
+IR, PostgreSQL/MySQL SQL, CLI JSON v1, Project JSON v2, Semantic Metadata
+Artifact v1, or public Python exports. `PIE-S2701` through `PIE-S2707`
+remain absent and un-emitted. Slice 5 owns module-qualified declaration identity
+and per-module catalogs.
+
+---
+
 ## 0. Executive Summary
 
 Pietto is a gradual, semantic SQL authoring DSL.
@@ -848,7 +867,7 @@ indentation blocks where the ANTLR grammar permits layout tokens.
 
 ```ebnf
 script
-  ::= header? definition* EOF ;
+  ::= header? (definition | relationship_definition | module_statement)* EOF ;
 
 header
   ::= version_decl mode_decl? dialect_decl? encoding_decl?
@@ -877,6 +896,32 @@ definition
    | source_def
    | table_def
    | query_def ;
+
+relationship_definition
+  ::= 'relationship' IDENTIFIER ':' NEWLINE
+      INDENT relationship_endpoint relationship_endpoint DEDENT ;
+
+relationship_endpoint
+  ::= 'endpoint' IDENTIFIER ':' IDENTIFIER NEWLINE ;
+
+module_statement
+  ::= import_statement
+   | export_statement ;
+
+import_statement
+  ::= 'import' STRING ':' NEWLINE INDENT import_item+ DEDENT ;
+
+import_item
+  ::= module_declaration_kind IDENTIFIER ('as' IDENTIFIER)? NEWLINE ;
+
+export_statement
+  ::= 'export' ':' NEWLINE INDENT export_item+ DEDENT ;
+
+export_item
+  ::= module_declaration_kind IDENTIFIER NEWLINE ;
+
+module_declaration_kind
+  ::= 'type' | 'enum' | 'shape' | 'source' | 'table' | 'query' ;
 
 type_def
   ::= 'type' IDENTIFIER '=' type_expr NEWLINE
@@ -1053,8 +1098,18 @@ IndexDef
 SourceDef
 TableDef
 QueryDef
+RelationshipMetadata
+ModuleDeclarationKind
+ImportItem
+ImportStatement
+ExportItem
+ExportStatement
 Expression
 ```
+
+`Script.module_statements` is an ordered immutable tuple separate from
+`Script.definitions` and `Script.relationships`; its default is empty.
+Import targets and names remain syntax facts only.
 
 ### 9.3 Phase 2 semantic analysis
 

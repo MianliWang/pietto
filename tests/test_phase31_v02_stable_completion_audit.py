@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# Phase 54 Slice 4 mechanical reader-closure identity refresh.
+
 import subprocess
 import tomllib
 from pathlib import Path

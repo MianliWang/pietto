@@ -1719,7 +1719,7 @@ def test_generated_golden_fixture_package_dependency_and_version_boundaries_are_
         sum(path.endswith(".md") for path in paths),
         sum(path.startswith("tests/test_") and path.endswith(".py") for path in paths),
         _top_level_test_function_count(paths),
-    ) == (894, 549, 249, 452, 4908)
+    ) == (896, 550, 250, 453, 4938)
     generated = tuple(
         path for path in paths if path.startswith("src/pietto/generated/")
     )
