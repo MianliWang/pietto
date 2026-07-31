@@ -22,7 +22,7 @@ PROJECT_CHECK_PATH = REPO_ROOT / "src/pietto/_project/check.py"
 PROJECT_MODEL_PATH = REPO_ROOT / "src/pietto/_project/model.py"
 PROJECT_JSON_V2_PATH = REPO_ROOT / "src/pietto/_project/json_v2.py"
 CLI_PATH = REPO_ROOT / "src/pietto/cli.py"
-PHASE54_STATE_PATH = REPO_ROOT / "tests/_phase54_active_gate2_manifest.py"
+PHASE54_STATE_PATH = REPO_ROOT / "tests/_active_gate2_manifest_data.py"
 
 SLICE5_SHA = "d79c5c422cb7f54ae5e5587694e49389536419cb"
 SLICE5_CI_RUN_ID = "29115612846"

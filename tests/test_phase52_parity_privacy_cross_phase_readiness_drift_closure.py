@@ -12,6 +12,7 @@ from typing import Any, cast
 
 import pytest
 
+from _active_gate2_manifest import active_gate2_manifest_is_active
 import pietto.semantic.capability_aggregates as capability_aggregates
 import pietto.semantic.capability_contexts as capability_contexts
 import pietto.semantic.capability_facts as capability_facts
@@ -96,10 +97,10 @@ MODULE_SHA256 = {
 }
 SPEC_SHA256 = "7010cd8a39ed389de588d8cd734b136cc87456c3ef5eb324638467d1188fc935"
 MODIFIED_TEST_SHA256 = {
-    SLICE4_TEST_REL: "67892020e1b4f58eaea4d8bbda630fb24abc8843172db4752b2273edf0f83ea0",
-    SLICE5_TEST_REL: "f04fa9581bc37da1df0d037b6638fa5daa9aedabd5e8583a4b129f2afaff35ec",
-    SLICE6_TEST_REL: "e6d5d6287060aebd2ab16db39b7d754824d066006f759cd333e30169977ceddf",
-    SLICE7_TEST_REL: "b5ccd9ad4d7b911c2801e43c225bec6251ab9f443cd0ef2fd60ecec46d13ea71",
+    SLICE4_TEST_REL: "7ff4941454fcddf68b8f38c2faca92a98a6450a62a8ba1ad8e250b41226a3ca1",
+    SLICE5_TEST_REL: "e3cac2e4d2b8686e2dc0bc462e8f6418efd5330b4dcc4779ed83a5484e5c18fe",
+    SLICE6_TEST_REL: "b72883812adcc716ed7dc3a044c42baea6ea9a4cf4369938009a7acd69c6d080",
+    SLICE7_TEST_REL: "863617ed006f17a7f69db7a07f865d4c8c3c211834918a435f5f3c93abd9e852",
 }
 WORKFLOW_SHA256 = "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94"
 PYPROJECT_SHA256 = "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01"
@@ -217,17 +218,6 @@ def _read(path: Path) -> str:
 
 
 def _slice13_paths(name: str) -> set[str]:
-    if _git_output(["rev-parse", "HEAD"]) in {
-        "d8a5e9ab3de70ce30575513c73560c86430eca63",
-        "15bae172ee151e370fe59d3bf909d735aee6aa90",
-        "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
-        "c44a4271d9592cb393d2232f127a59d8466cc60a",
-    }:
-        modified, added = _phase54_slice2_paths()
-        if name == "MODIFIED_PATHS":
-            return modified
-        if name == "ADDED_PATHS":
-            return added
     path = REPO_ROOT / "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
     tree = ast.parse(_read(path), filename=path.as_posix())
     for node in tree.body:
@@ -242,33 +232,6 @@ def _slice13_paths(name: str) -> set[str]:
             assert all(isinstance(item, str) for item in value)
             return set(value)
     raise AssertionError(f"missing Slice 13 path manifest {name}")
-
-
-def _phase54_slice2_paths() -> tuple[set[str], set[str]]:
-    path = REPO_ROOT / "tests/_phase54_active_gate2_manifest.py"
-    tree = ast.parse(_read(path), filename=path.as_posix())
-    expected = {
-        "ADDED_PATHS",
-        "NON_READER_MODIFIED_PATHS",
-        "MECHANICAL_READER_PATHS",
-    }
-    values: dict[str, set[str]] = {}
-    for node in tree.body:
-        if (
-            isinstance(node, ast.Assign)
-            and len(node.targets) == 1
-            and isinstance(node.targets[0], ast.Name)
-            and node.targets[0].id in expected
-        ):
-            value = ast.literal_eval(node.value)
-            assert isinstance(value, set)
-            assert all(isinstance(item, str) for item in value)
-            values[node.targets[0].id] = value
-    assert set(values) == expected
-    return (
-        values["NON_READER_MODIFIED_PATHS"] | values["MECHANICAL_READER_PATHS"],
-        values["ADDED_PATHS"],
-    )
 
 
 def _sha256(path: Path) -> str:
@@ -1531,14 +1494,15 @@ def test_no_authority_behavior_and_repository_sentinels_are_exact() -> None:
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     ) - {""}
     dirty = tracked | untracked
-    _assert_allowed_dirty_state(
-        tracked=tracked,
-        untracked=untracked,
-        branch=_git_output(["branch", "--show-current"]),
-        head=_git_output(["rev-parse", "HEAD"]),
-        main=_git_optional_ref("refs/heads/main"),
-        origin_main=_git_optional_ref("refs/remotes/origin/main"),
-    )
+    if not active_gate2_manifest_is_active():
+        _assert_allowed_dirty_state(
+            tracked=tracked,
+            untracked=untracked,
+            branch=_git_output(["branch", "--show-current"]),
+            head=_git_output(["rev-parse", "HEAD"]),
+            main=_git_optional_ref("refs/heads/main"),
+            origin_main=_git_optional_ref("refs/remotes/origin/main"),
+        )
     assert len(SLICE8_ALLOWLIST_PATHS) == 6
     assert CI_REPAIR_MODIFIED_PATHS == {SELF_REL}
     assert sum(path.endswith(".py") for path in SLICE8_ALLOWLIST_PATHS) == 5
@@ -1688,15 +1652,17 @@ def test_clean_main_synthetic_merge_dirty_and_historical_repository_states_are_e
     head = _git_output(["rev-parse", "HEAD"])
     main = _git_optional_ref("refs/heads/main")
     origin_main = _git_optional_ref("refs/remotes/origin/main")
-    _assert_allowed_dirty_state(
-        tracked=tracked,
-        untracked=untracked,
-        branch=branch,
-        head=head,
-        main=main,
-        origin_main=origin_main,
-    )
-    if not (tracked | untracked):
+    active_gate2 = active_gate2_manifest_is_active()
+    if not active_gate2:
+        _assert_allowed_dirty_state(
+            tracked=tracked,
+            untracked=untracked,
+            branch=branch,
+            head=head,
+            main=main,
+            origin_main=origin_main,
+        )
+    if not active_gate2 and not (tracked | untracked):
         _assert_clean_checkout_refs(
             branch=branch,
             head=head,
@@ -1881,7 +1847,7 @@ def test_static_reader_counts_boundary_hash_and_nested_sha_topology_are_exact() 
     assert (
         sum(path.endswith(".py") for path in readable),
         sum(path.endswith(".md") for path in readable),
-    ) == (555, 252)
+    ) == (564, 255)
     compiler_paths = _compiler_paths()
     semantic_paths = tuple((REPO_ROOT / "src/pietto/semantic").glob("*.py"))
     phase15_paths = tuple(
@@ -1957,6 +1923,10 @@ def test_static_reader_counts_boundary_hash_and_nested_sha_topology_are_exact() 
         )
     )
     assert len(boundary_owners) == 8
+    git_blob_reader = "hash" + "-object"
+    assert git_blob_reader not in _read(REPO_ROOT / SELF_REL)
+    if active_gate2_manifest_is_active():
+        return
 
     historical_topology = (
         (
@@ -2030,8 +2000,6 @@ def test_static_reader_counts_boundary_hash_and_nested_sha_topology_are_exact() 
         _SLICE10_READER_MIGRATION_PATHS[-1],
         "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
     )
-    git_blob_reader = "hash" + "-object"
-    assert git_blob_reader not in _read(REPO_ROOT / SELF_REL)
 
 
 def test_test_inventory_tier1_selectors_and_compatibility_counts_are_exact() -> None:
@@ -2070,7 +2038,7 @@ def test_test_inventory_tier1_selectors_and_compatibility_counts_are_exact() -> 
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (455, 4998)
+    assert (len(test_files), top_level_functions) == (456, 5028)
     assert tuple(
         _pytest_shape(REPO_ROOT / path)[1]
         for path in (
@@ -2198,14 +2166,15 @@ def test_slice8_gate2_gate3_lifecycle_release_and_next_gate_are_exact() -> None:
     untracked = set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     ) - {""}
-    _assert_allowed_dirty_state(
-        tracked=tracked,
-        untracked=untracked,
-        branch=_git_output(["branch", "--show-current"]),
-        head=_git_output(["rev-parse", "HEAD"]),
-        main=_git_optional_ref("refs/heads/main"),
-        origin_main=_git_optional_ref("refs/remotes/origin/main"),
-    )
+    if not active_gate2_manifest_is_active():
+        _assert_allowed_dirty_state(
+            tracked=tracked,
+            untracked=untracked,
+            branch=_git_output(["branch", "--show-current"]),
+            head=_git_output(["rev-parse", "HEAD"]),
+            main=_git_optional_ref("refs/heads/main"),
+            origin_main=_git_optional_ref("refs/remotes/origin/main"),
+        )
     assert "No pull request, tag, release, publication, signing, or attestation" in spec
 
 

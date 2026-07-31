@@ -9,6 +9,7 @@ from typing import Any, cast
 
 import pytest
 
+from _active_gate2_manifest import active_gate2_manifest_is_active
 import pietto
 import pietto.semantic.window_analysis as window_analysis
 from pietto import _window_identity
@@ -665,52 +666,6 @@ def _read(relative: str) -> str:
 
 def _sha256(relative: str) -> str:
     return hashlib.sha256((REPO_ROOT / relative).read_bytes()).hexdigest()
-
-
-def _phase53_gate2_paths(name: str) -> set[str]:
-    if _git_output(["rev-parse", "HEAD"]) in {
-        "d8a5e9ab3de70ce30575513c73560c86430eca63",
-        "15bae172ee151e370fe59d3bf909d735aee6aa90",
-        "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
-        "c44a4271d9592cb393d2232f127a59d8466cc60a",
-    }:
-        path = REPO_ROOT / "tests/_phase54_active_gate2_manifest.py"
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        values: dict[str, set[str]] = {}
-        for node in tree.body:
-            if (
-                isinstance(node, ast.Assign)
-                and len(node.targets) == 1
-                and isinstance(node.targets[0], ast.Name)
-                and node.targets[0].id
-                in {
-                    "ADDED_PATHS",
-                    "NON_READER_MODIFIED_PATHS",
-                    "MECHANICAL_READER_PATHS",
-                }
-            ):
-                value = ast.literal_eval(node.value)
-                assert isinstance(value, set)
-                values[node.targets[0].id] = value
-        if name == "ADDED_PATHS":
-            return values["ADDED_PATHS"]
-        if name == "MODIFIED_PATHS":
-            return (
-                values["NON_READER_MODIFIED_PATHS"] | values["MECHANICAL_READER_PATHS"]
-            )
-    path = REPO_ROOT / "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
-    tree = ast.parse(path.read_text(encoding="utf-8"))
-    for node in tree.body:
-        if (
-            isinstance(node, ast.Assign)
-            and len(node.targets) == 1
-            and isinstance(node.targets[0], ast.Name)
-            and node.targets[0].id == name
-        ):
-            value = ast.literal_eval(node.value)
-            assert isinstance(value, set)
-            return value
-    raise AssertionError(name)
 
 
 def _digest(paths: tuple[Path, ...]) -> str:
@@ -2334,16 +2289,16 @@ def test_slice8_dirty_clean_and_depth_one_repository_states_are_locked() -> None
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     ) - {""}
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
+    if active_gate2_manifest_is_active():
+        return
     dirty = tracked | untracked
-    slice14_modified = _phase53_gate2_paths("MODIFIED_PATHS")
-    slice14_added = _phase53_gate2_paths("ADDED_PATHS")
-    assert dirty in (set(), set(ALLOWLIST_PATHS), slice14_modified | slice14_added)
+    assert dirty in (set(), set(ALLOWLIST_PATHS))
     head = _git_output(["rev-parse", "HEAD"])
     main = _git_optional_ref("refs/heads/main")
     origin_main = _git_optional_ref("refs/remotes/origin/main")
     if dirty:
-        assert tracked in (set(MODIFIED_PATHS), slice14_modified)
-        assert untracked in (set(ADDED_PATHS), slice14_added)
+        assert tracked == set(MODIFIED_PATHS)
+        assert untracked == set(ADDED_PATHS)
         assert _git_output(["branch", "--show-current"]) == "main"
         assert head == main == origin_main
         assert head in (
@@ -2362,15 +2317,15 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
     None
 ):
     repository_paths = _repository_paths()
-    assert len(repository_paths) == 903
-    assert sum(path.endswith(".py") for path in repository_paths) == 555
-    assert sum(path.endswith(".md") for path in repository_paths) == 252
+    assert len(repository_paths) == 915
+    assert sum(path.endswith(".py") for path in repository_paths) == 564
+    assert sum(path.endswith(".md") for path in repository_paths) == 255
     test_modules = tuple(
         path
         for path in repository_paths
         if path.startswith("tests/test_") and path.endswith(".py")
     )
-    assert len(test_modules) == 455
+    assert len(test_modules) == 456
     top_level_tests = 0
     for relative in test_modules:
         tree = ast.parse(_read(relative), filename=relative)
@@ -2379,7 +2334,7 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 4998
+    assert top_level_tests == 5028
     focused_payload = ("\n".join(FOCUSED_OPERANDS) + "\n").encode()
     overlay_payload = ("\n".join(DIRTY_OVERLAY) + "\n").encode()
     formatter_payload = ("\n".join(FORMATTER_PATHS) + "\n").encode()

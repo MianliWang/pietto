@@ -198,10 +198,15 @@ def test_slice4_keeps_prior_commands_independent_and_later_slices_absent() -> No
     )
 
     assert scripts == (
+        "scripts/audit_gate2_readers.py",
+        "scripts/build_evidence_bundle.py",
         "scripts/check_generated.py",
         "scripts/check_goldens.py",
         "scripts/package_smoke.py",
+        "scripts/run_gate2_topology_checks.py",
+        "scripts/run_lean_gate2.py",
         "scripts/validate.py",
+        "scripts/verify_evidence_bundle.py",
     )
     assert validate.GATES == VALIDATION_GATES
     assert all("check_goldens.py" not in command for _, command in validate.GATES)

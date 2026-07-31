@@ -9,6 +9,7 @@ import tomllib
 from dataclasses import fields
 from pathlib import Path
 
+from _active_gate2_manifest import active_gate2_manifest_is_active
 from pietto._project.aggregate_grouped_clause_facts import (
     ProjectAggregateGroupedClauseReadiness,
     ProjectRelationClauseDependencyFact,
@@ -118,15 +119,6 @@ PHASE52_UNTRACKED_PATHS = {
     "docs/spec/phase52-core-type-system-capability-foundation-scope-lock-v1.md",
     "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
 }
-SLICE2_BASE_HEAD_SHA = "d8a5e9ab3de70ce30575513c73560c86430eca63"
-SLICE4_BASE_HEAD_SHA = "15bae172ee151e370fe59d3bf909d735aee6aa90"
-SLICE4_PATH_COUNTS = (138, 2, 140)
-SLICE5_BASE_HEAD_SHA = "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01"
-SLICE5_PATH_COUNTS = (164, 3, 167)
-SLICE6_BASE_HEAD_SHA = "c44a4271d9592cb393d2232f127a59d8466cc60a"
-SLICE6_PATH_COUNTS = (57, 4, 61)
-SLICE2_STATE_REL = "tests/_phase54_active_gate2_manifest.py"
-
 PHASE51_SLICE_ARTIFACTS = (
     (
         "Scope Architecture And Active-roadmap Lock",
@@ -1331,64 +1323,21 @@ def test_static_git_helper_and_exact_slice12_dirty_set_are_locked() -> None:
             values.append(element.value)
         assert tuple(values) in approved_git_calls
 
-    slice2_tree = ast.parse(_read(REPO_ROOT / SLICE2_STATE_REL))
-    slice2_sets = {
-        node.targets[0].id: set(ast.literal_eval(node.value))
-        for node in slice2_tree.body
-        if isinstance(node, ast.Assign)
-        and len(node.targets) == 1
-        and isinstance(node.targets[0], ast.Name)
-        and node.targets[0].id
-        in {
-            "ADDED_PATHS",
-            "NON_READER_MODIFIED_PATHS",
-            "MECHANICAL_READER_PATHS",
-        }
-    }
-    assert set(slice2_sets) == {
-        "ADDED_PATHS",
-        "NON_READER_MODIFIED_PATHS",
-        "MECHANICAL_READER_PATHS",
-    }
-    slice2_modified = (
-        slice2_sets["NON_READER_MODIFIED_PATHS"]
-        | slice2_sets["MECHANICAL_READER_PATHS"]
-    )
-    slice2_added = slice2_sets["ADDED_PATHS"]
     dirty_paths = _dirty_paths()
-    assert dirty_paths in (
+    active_gate2 = active_gate2_manifest_is_active()
+    assert active_gate2 or dirty_paths in (
         set(),
         SLICE12_GATE2_PATHS,
         PHASE52_GATE2_PATHS,
-        slice2_modified | slice2_added,
     )
     untracked_paths = set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
-    assert untracked_paths in (
+    assert active_gate2 or untracked_paths in (
         set(),
         SLICE12_UNTRACKED_PATHS,
         PHASE52_UNTRACKED_PATHS,
-        slice2_added,
     )
-    if dirty_paths == slice2_modified | slice2_added:
-        assert untracked_paths == slice2_added
-        assert set(_git_output(["diff", "--name-only"]).splitlines()) == (
-            slice2_modified
-        )
-        path_counts = (
-            len(slice2_modified),
-            len(slice2_added),
-            len(slice2_modified | slice2_added),
-        )
-        expected_head = SLICE2_BASE_HEAD_SHA
-        if path_counts == SLICE4_PATH_COUNTS:
-            expected_head = SLICE4_BASE_HEAD_SHA
-        elif path_counts == SLICE5_PATH_COUNTS:
-            expected_head = SLICE5_BASE_HEAD_SHA
-        elif path_counts == SLICE6_PATH_COUNTS:
-            expected_head = SLICE6_BASE_HEAD_SHA
-        assert _git_output(["rev-parse", "HEAD"]) == expected_head
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
     assert _git_output(["diff", "--check"]) == ""
 

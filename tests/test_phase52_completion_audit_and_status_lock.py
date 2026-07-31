@@ -9,6 +9,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, cast
 
+from _active_gate2_manifest import active_gate2_manifest_is_active
 import pietto.semantic.capability_aggregates as capability_aggregates
 import pietto.semantic.capability_contexts as capability_contexts
 import pietto.semantic.capability_facts as capability_facts
@@ -418,22 +419,9 @@ def _assert_allowed_dirty_state(
     origin_main: str | None,
 ) -> None:
     dirty = tracked | untracked
-    if head in {
-        "d8a5e9ab3de70ce30575513c73560c86430eca63",
-        "15bae172ee151e370fe59d3bf909d735aee6aa90",
-        "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
-        "c44a4271d9592cb393d2232f127a59d8466cc60a",
-    }:
-        phase54_state = "tests/_phase54_active_gate2_manifest.py"
-        slice2_modified = _literal_string_set(
-            phase54_state, "NON_READER_MODIFIED_PATHS"
-        ) | _literal_string_set(phase54_state, "MECHANICAL_READER_PATHS")
-        slice2_added = _literal_string_set(phase54_state, "ADDED_PATHS")
-        slice2_base = head
-    else:
-        slice2_modified = _literal_string_set(SLICE2_STATE_REL, "MODIFIED_PATHS")
-        slice2_added = _literal_string_set(SLICE2_STATE_REL, "ADDED_PATHS")
-        slice2_base = SLICE2_BASE_HEAD_SHA
+    slice2_modified = _literal_string_set(SLICE2_STATE_REL, "MODIFIED_PATHS")
+    slice2_added = _literal_string_set(SLICE2_STATE_REL, "ADDED_PATHS")
+    slice2_base = SLICE2_BASE_HEAD_SHA
     slice2_allowlist = slice2_modified | slice2_added
     assert dirty in (
         set(),
@@ -1005,14 +993,15 @@ def test_live_compiler_semantic_phase15_project_protected_version_and_tag_locks_
     untracked = set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     ) - {""}
-    _assert_allowed_dirty_state(
-        tracked=tracked,
-        untracked=untracked,
-        branch=_git_output(["branch", "--show-current"]),
-        head=_git_output(["rev-parse", "HEAD"]),
-        main=_git_optional_ref("refs/heads/main"),
-        origin_main=_git_optional_ref("refs/remotes/origin/main"),
-    )
+    if not active_gate2_manifest_is_active():
+        _assert_allowed_dirty_state(
+            tracked=tracked,
+            untracked=untracked,
+            branch=_git_output(["branch", "--show-current"]),
+            head=_git_output(["rev-parse", "HEAD"]),
+            main=_git_optional_ref("refs/heads/main"),
+            origin_main=_git_optional_ref("refs/remotes/origin/main"),
+        )
 
 
 def test_shallow_push_synthetic_merge_and_historical_provenance_guards_are_locked() -> (
@@ -1049,14 +1038,15 @@ def test_shallow_push_synthetic_merge_and_historical_provenance_guards_are_locke
     untracked = set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     ) - {""}
-    _assert_allowed_dirty_state(
-        tracked=tracked,
-        untracked=untracked,
-        branch=_git_output(["branch", "--show-current"]),
-        head=_git_output(["rev-parse", "HEAD"]),
-        main=_git_optional_ref("refs/heads/main"),
-        origin_main=_git_optional_ref("refs/remotes/origin/main"),
-    )
+    if not active_gate2_manifest_is_active():
+        _assert_allowed_dirty_state(
+            tracked=tracked,
+            untracked=untracked,
+            branch=_git_output(["branch", "--show-current"]),
+            head=_git_output(["rev-parse", "HEAD"]),
+            main=_git_optional_ref("refs/heads/main"),
+            origin_main=_git_optional_ref("refs/remotes/origin/main"),
+        )
     for relative in (
         SLICE1_TEST_REL,
         SLICE5_TEST_REL,
@@ -1083,7 +1073,7 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
     assert (
         sum(path.endswith(".py") for path in readable),
         sum(path.endswith(".md") for path in readable),
-    ) == (555, 252)
+    ) == (564, 255)
     for digest, expected in (
         (PATH_DIGESTS["compiler"], 28),
         (PATH_DIGESTS["semantic"], 42),
@@ -1162,7 +1152,7 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
         )
         for path in test_files
     )
-    assert (len(test_files), top_functions) == (455, 4998)
+    assert (len(test_files), top_functions) == (456, 5028)
     assert (
         381 + 834 + 627 + 424 + 279 + 168 + 156 + 12 + 145 + 190 + 70 + 70 + 97 + 35
         == 3488
@@ -1260,6 +1250,8 @@ def test_static_git_helper_and_exact_slice9_dirty_set_are_locked() -> None:
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     ) - {""}
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
+    if active_gate2_manifest_is_active():
+        return
     _assert_allowed_dirty_state(
         tracked=tracked,
         untracked=untracked,
@@ -1269,20 +1261,8 @@ def test_static_git_helper_and_exact_slice9_dirty_set_are_locked() -> None:
         origin_main=_git_optional_ref("refs/remotes/origin/main"),
     )
     if tracked or untracked:
-        if _git_output(["rev-parse", "HEAD"]) in {
-            "d8a5e9ab3de70ce30575513c73560c86430eca63",
-            "15bae172ee151e370fe59d3bf909d735aee6aa90",
-            "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
-            "c44a4271d9592cb393d2232f127a59d8466cc60a",
-        }:
-            phase54_state = "tests/_phase54_active_gate2_manifest.py"
-            slice2_modified = _literal_string_set(
-                phase54_state, "NON_READER_MODIFIED_PATHS"
-            ) | _literal_string_set(phase54_state, "MECHANICAL_READER_PATHS")
-            slice2_added = _literal_string_set(phase54_state, "ADDED_PATHS")
-        else:
-            slice2_modified = _literal_string_set(SLICE2_STATE_REL, "MODIFIED_PATHS")
-            slice2_added = _literal_string_set(SLICE2_STATE_REL, "ADDED_PATHS")
+        slice2_modified = _literal_string_set(SLICE2_STATE_REL, "MODIFIED_PATHS")
+        slice2_added = _literal_string_set(SLICE2_STATE_REL, "ADDED_PATHS")
         if tracked | untracked == slice2_modified | slice2_added:
             expected_modified = slice2_modified
             expected_added = slice2_added

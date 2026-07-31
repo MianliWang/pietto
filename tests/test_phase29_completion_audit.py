@@ -116,8 +116,8 @@ LOCKED_BOUNDARY_SURFACES = {
     ),
     "scripts": (
         "scripts",
-        4,
-        "013844a763f970b8e0f0094f0c68ad114e3056fb1f12858c5c2758c2c57e9887",
+        9,
+        "b09b2b46f032361605eecd14e6ee9ebc359cd0b1c1404e33c8558f048ce19f28",
     ),
     "makefile": (
         "Makefile",
@@ -132,7 +132,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "agents": (
         "AGENTS.md",
         1,
-        "0bacc32f16a9bf5e89f53bcb9d5310ba440539cf100251b86e39fba18c59b0bb",
+        "fe5728fc9f98a16940c21b3438369d5b540952bee4e630d5b52cf8c44ca6412c",
     ),
     "pietto_v09": (
         "docs/spec/pietto-v0.9.md",

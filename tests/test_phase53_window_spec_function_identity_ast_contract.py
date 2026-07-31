@@ -11,6 +11,7 @@ from typing import Any, cast
 
 import pytest
 
+from _active_gate2_manifest import active_gate2_manifest_is_active
 import pietto
 import pietto.ast_nodes as ast_nodes
 from pietto import _window_identity
@@ -48,11 +49,6 @@ IDENTITY_REL = "src/pietto/_window_identity.py"
 SELF_REL = "tests/test_phase53_window_spec_function_identity_ast_contract.py"
 SLICE2_TEST_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
 BASE_HEAD_SHA = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
-PHASE54_SLICE2_BASE_HEAD_SHA = "d8a5e9ab3de70ce30575513c73560c86430eca63"
-PHASE54_SLICE4_BASE_HEAD_SHA = "15bae172ee151e370fe59d3bf909d735aee6aa90"
-PHASE54_SLICE5_BASE_HEAD_SHA = "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01"
-PHASE54_SLICE6_BASE_HEAD_SHA = "c44a4271d9592cb393d2232f127a59d8466cc60a"
-PHASE54_SLICE2_STATE_REL = "tests/_phase54_active_gate2_manifest.py"
 TEMPORARY_BRIDGE_MESSAGE = (
     "Window syntax is recognized, but WindowSpec AST preservation starts in "
     "Phase 53 Slice 3."
@@ -356,29 +352,6 @@ def _git_optional_ref(ref: str) -> str | None:
     assert result.returncode in (0, 1)
     assert result.stderr == ""
     return result.stdout.strip() or None
-
-
-def _phase54_slice2_paths() -> tuple[set[str], set[str]]:
-    tree = ast.parse(_read(PHASE54_SLICE2_STATE_REL))
-    values: dict[str, set[str]] = {}
-    for node in tree.body:
-        if (
-            isinstance(node, ast.Assign)
-            and len(node.targets) == 1
-            and isinstance(node.targets[0], ast.Name)
-            and node.targets[0].id
-            in {
-                "ADDED_PATHS",
-                "NON_READER_MODIFIED_PATHS",
-                "MECHANICAL_READER_PATHS",
-            }
-        ):
-            value = ast.literal_eval(node.value)
-            assert isinstance(value, set)
-            values[node.targets[0].id] = value
-    return values["ADDED_PATHS"], (
-        values["NON_READER_MODIFIED_PATHS"] | values["MECHANICAL_READER_PATHS"]
-    )
 
 
 def _digest(paths: tuple[Path, ...]) -> str:
@@ -999,26 +972,15 @@ def test_slice3_dirty_clean_and_depth_one_repository_states_are_locked() -> None
     ) - {""}
     cached = _git_output(["diff", "--cached", "--name-status"])
     assert cached == ""
+    if active_gate2_manifest_is_active():
+        return
     dirty = tracked | untracked
-    phase54_added, phase54_modified = _phase54_slice2_paths()
-    phase54_allowlist = phase54_added | phase54_modified
-    assert dirty in (set(), ALLOWLIST_PATHS, phase54_allowlist)
+    assert dirty in (set(), ALLOWLIST_PATHS)
     head = _git_output(["rev-parse", "HEAD"])
     branch = _git_output(["branch", "--show-current"])
     main = _git_optional_ref("refs/heads/main")
     origin_main = _git_optional_ref("refs/remotes/origin/main")
-    if dirty == phase54_allowlist:
-        assert tracked == phase54_modified
-        assert untracked == phase54_added
-        assert branch == "main"
-        assert head == main == origin_main
-        assert head in {
-            PHASE54_SLICE2_BASE_HEAD_SHA,
-            PHASE54_SLICE4_BASE_HEAD_SHA,
-            PHASE54_SLICE5_BASE_HEAD_SHA,
-            PHASE54_SLICE6_BASE_HEAD_SHA,
-        }
-    elif dirty:
+    if dirty:
         assert tracked == MODIFIED_PATHS
         assert untracked == ADDED_PATHS
         assert branch == "main"
@@ -1037,15 +999,15 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
     readable = {path for path in (*tracked, *untracked) if (REPO_ROOT / path).is_file()}
-    assert len(readable) == 903
-    assert sum(path.endswith(".py") for path in readable) == 555
-    assert sum(path.endswith(".md") for path in readable) == 252
+    assert len(readable) == 915
+    assert sum(path.endswith(".py") for path in readable) == 564
+    assert sum(path.endswith(".md") for path in readable) == 255
     test_modules = {
         path
         for path in readable
         if path.startswith("tests/test_") and path.endswith(".py")
     }
-    assert len(test_modules) == 455
+    assert len(test_modules) == 456
     top_level_tests = 0
     for relative in sorted(test_modules):
         tree = ast.parse(_read(relative), filename=relative)
@@ -1054,7 +1016,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 4998
+    assert top_level_tests == 5028
     assert (
         3488
         == 381 + 834 + 627 + 424 + 279 + 168 + 156 + 12 + 145 + 190 + 70 + 70 + 97 + 35

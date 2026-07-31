@@ -8,8 +8,8 @@ import tomllib
 from collections import Counter
 from pathlib import Path
 
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2,
+from _active_gate2_manifest import (
+    active_gate2_manifest_is_active as _phase54_active_gate2,
 )
 
 
@@ -493,7 +493,7 @@ PROTECTED_SHA256 = {
     "src/pietto/_project/json_v2.py": "74251e684a22de4dcdc7e1822a6843ca89cbdfa7e136a046676d848b57953bd5",
     SLICE2_TEST_REL: "07330e58968b2dd856120b9998ca614df9fef6f0921c56b8d39572be5991c2c9",
     SLICE3_TEST_REL: "3b4317f0ba2456fe9fffa06a6826b08679dca2e03e199d43ab205c759cfcb746",
-    SLICE4_TEST_REL: "8012d6f0bb8a4f6178a38a8828cd6b2a4c5eca7f5625f431b69e91df2903b2ef",
+    SLICE4_TEST_REL: "90330f0d2e6c5e3eb80f12fdb2dc0f47fb92ba6fc21d086d979509c1dfa76963",
     ".github/workflows/ci.yml": "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94",
     "pyproject.toml": "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01",
     "uv.lock": "a7d9125995e98a8a74d3664ceae7801cc1f4cce74ec323933da67838be199cea",
@@ -701,7 +701,7 @@ def test_authority_hierarchy_grounding_and_historical_predecessors_are_exact() -
         "8c3656805db451946d60e341b8ac0ca9181997378d07576133c9c4aeef3e3f77"
     )
     assert _sha256("tests/test_phase50_import_module_export_readiness.py") == (
-        "c27f216adeee938b50418e0f54bd8cd08d694d06fafda62b1fd6e8236183b324"
+        "cf5aea7e7e60d2015e8c63d90bc5dbb2392207a7be5f81f95e378cad2c7c501d"
     )
     scope = _read(SCOPE_REL)
     roadmap = _read(ROADMAP_V2_REL)
@@ -1239,16 +1239,16 @@ def test_gate_allowlist_reader_evidence_publication_stop_and_next_state_contract
     assert len(FORMATTER_PATHS) == 163
     assert len(ALLOWLIST_PATHS) == 167
     readable = _readable_paths()
-    assert len(readable) == 903
-    assert sum(path.endswith(".py") for path in readable) == 555
-    assert sum(path.endswith(".md") for path in readable) == 252
+    assert len(readable) == 915
+    assert sum(path.endswith(".py") for path in readable) == 564
+    assert sum(path.endswith(".md") for path in readable) == 255
     test_modules = tuple(
         path
         for path in readable
         if path.startswith("tests/test_") and path.endswith(".py")
     )
-    assert len(test_modules) == 455
-    assert sum(len(_top_level_test_functions(path)) for path in test_modules) == 4998
+    assert len(test_modules) == 456
+    assert sum(len(_top_level_test_functions(path)) for path in test_modules) == 5028
     dirty = set(_git_output(["diff", "--name-only"]).splitlines()) | set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )

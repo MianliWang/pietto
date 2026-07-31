@@ -10,6 +10,7 @@ from typing import cast
 
 import pytest
 
+from _active_gate2_manifest import active_gate2_manifest_is_active
 import pietto.semantic.nullability_formulas as nullability_formulas
 from pietto.semantic.generic_compatibility import (
     ConcreteTypeExpression,
@@ -404,33 +405,6 @@ def _all_repository_paths() -> tuple[str, ...]:
     paths = set(_git("ls-files").splitlines())
     paths.update(_git("ls-files", "--others", "--exclude-standard").splitlines())
     return tuple(sorted(paths))
-
-
-def _phase54_slice2_paths() -> tuple[frozenset[str], frozenset[str]]:
-    path = REPO_ROOT / "tests/_phase54_active_gate2_manifest.py"
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=path.as_posix())
-    expected = {
-        "ADDED_PATHS",
-        "NON_READER_MODIFIED_PATHS",
-        "MECHANICAL_READER_PATHS",
-    }
-    values: dict[str, frozenset[str]] = {}
-    for node in tree.body:
-        if (
-            isinstance(node, ast.Assign)
-            and len(node.targets) == 1
-            and isinstance(node.targets[0], ast.Name)
-            and node.targets[0].id in expected
-        ):
-            value = ast.literal_eval(node.value)
-            assert isinstance(value, set)
-            assert all(isinstance(item, str) for item in value)
-            values[node.targets[0].id] = frozenset(value)
-    assert set(values) == expected
-    return (
-        values["NON_READER_MODIFIED_PATHS"] | values["MECHANICAL_READER_PATHS"],
-        values["ADDED_PATHS"],
-    )
 
 
 def _compound_assignment(path: Path) -> tuple[object, ...]:
@@ -1733,6 +1707,8 @@ def test_slice5_dirty_clean_and_depth_one_repository_states_are_locked() -> None
     ) - {""}
     cached = frozenset(_git("diff", "--cached", "--name-only").splitlines()) - {""}
     assert cached == frozenset()
+    if active_gate2_manifest_is_active():
+        return
     head = _git("rev-parse", "HEAD")
     branch = _git("symbolic-ref", "--quiet", "--short", "HEAD", check=False)
     if not tracked and not untracked:
@@ -1746,18 +1722,9 @@ def test_slice5_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             if result.returncode == 0:
                 assert _git("rev-parse", reference) == head
         return
-    if head in {
-        "d8a5e9ab3de70ce30575513c73560c86430eca63",
-        "15bae172ee151e370fe59d3bf909d735aee6aa90",
-        "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
-        "c44a4271d9592cb393d2232f127a59d8466cc60a",
-    }:
-        expected_modified, expected_added = _phase54_slice2_paths()
-        expected_base = head
-    else:
-        expected_modified = frozenset(MODIFIED_PATHS)
-        expected_added = frozenset(ADDED_PATHS)
-        expected_base = BASE_HEAD
+    expected_modified = frozenset(MODIFIED_PATHS)
+    expected_added = frozenset(ADDED_PATHS)
+    expected_base = BASE_HEAD
     assert branch == "main"
     assert head == expected_base
     assert tracked == expected_modified
@@ -1782,11 +1749,11 @@ def test_slice5_dirty_clean_and_depth_one_repository_states_are_locked() -> None
 
 def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
     repository_paths = _all_repository_paths()
-    assert len(repository_paths) == 903
-    assert sum(path.endswith(".py") for path in repository_paths) == 555
-    assert sum(path.endswith(".md") for path in repository_paths) == 252
+    assert len(repository_paths) == 915
+    assert sum(path.endswith(".py") for path in repository_paths) == 564
+    assert sum(path.endswith(".md") for path in repository_paths) == 255
     test_paths = tuple(sorted((REPO_ROOT / "tests").glob("test_*.py")))
-    assert len(test_paths) == 455
+    assert len(test_paths) == 456
     functions = tuple(
         node.name
         for path in test_paths
@@ -1794,7 +1761,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name.startswith("test_")
     )
-    assert len(functions) == 4998
+    assert len(functions) == 5028
     self_functions = tuple(
         node.name
         for node in ast.parse(SELF_PATH.read_text()).body

@@ -1508,3 +1508,13 @@ code-audit policy, follow:
 
 Do not install external plugins, run external repository scripts, import
 external hooks/MCP configs, or copy external code unless separately approved.
+
+## End-to-end Goal workflow binding
+
+Every future Pietto end-to-end Goal must bind
+`docs/spec/pietto-end-to-end-resilience-and-recovery-standard-v1.md` and
+`docs/spec/pietto-lean-validation-and-evidence-standard-v1.md`. Use the stable
+active-Gate-2 manifest architecture, deterministic reader closure, the single
+topology-sensitive registry, topology-suite separation, and six immutable
+evidence sidecars. Retain full PR/main CI and exact reviewed/candidate/squash
+tree equality. An unresolved dynamic reader is STOP.

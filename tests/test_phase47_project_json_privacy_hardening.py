@@ -5,8 +5,8 @@ from pathlib import Path
 import subprocess
 from typing import cast
 
-from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2,
+from _active_gate2_manifest import (
+    active_gate2_manifest_is_active as _phase54_active_gate2,
 )
 
 import pytest

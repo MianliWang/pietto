@@ -912,6 +912,19 @@ def test_reader_allowlist_retained_later_and_publication_topology_contracts_are_
     assert (
         'PHASE54_SLICE6_BRANCH = "phase54/slice6-export-visibility-facade"' in topology
     )
+    assert (
+        'PHASE54_SLICE6_HEAD = "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16"' in topology
+    )
+    assert '"Add Pietto lean end-to-end workflow infrastructure"' in topology
+    assert (
+        'PHASE54_WORKFLOW_EFFICIENCY_BRANCH = "phase54/post-slice6-workflow-efficiency"'
+        in topology
+    )
+    assert "from _active_gate2_manifest import" in topology
+    assert '"tests/_phase54_active_gate2_manifest.py"' not in topology
+    assert "assert head == PHASE54_SLICE6_HEAD" in topology
+    assert '"main",\n                PHASE54_WORKFLOW_EFFICIENCY_BRANCH,' in topology
+    assert "assert parents == (PHASE54_SLICE6_HEAD, candidate_sha)" in topology
     assert 'assert base_ref == "main"' in topology
     assert "assert candidate_ref == PHASE54_SLICE4_BRANCH" in topology
     assert "assert head != candidate_sha" in topology

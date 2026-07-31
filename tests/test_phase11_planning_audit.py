@@ -101,10 +101,15 @@ def test_slice6_adds_only_the_independent_packaging_smoke_artifact() -> None:
         path.relative_to(REPO_ROOT).as_posix()
         for path in sorted((REPO_ROOT / "scripts").glob("*.py"))
     ) == (
+        "scripts/audit_gate2_readers.py",
+        "scripts/build_evidence_bundle.py",
         "scripts/check_generated.py",
         "scripts/check_goldens.py",
         "scripts/package_smoke.py",
+        "scripts/run_gate2_topology_checks.py",
+        "scripts/run_lean_gate2.py",
         "scripts/validate.py",
+        "scripts/verify_evidence_bundle.py",
     )
     assert (REPO_ROOT / "tools" / "antlr-4.13.2-complete.jar.sha256").read_text(
         encoding="ascii"

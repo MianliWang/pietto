@@ -13,6 +13,7 @@ from antlr4 import CommonTokenStream, InputStream
 from antlr4.ListTokenSource import ListTokenSource
 from antlr4.Token import Token
 
+from _active_gate2_manifest import active_gate2_manifest_is_active
 from pietto.errors import Diagnostic, DiagnosticErrorListener, Severity
 from pietto.generated.PiettoLexer import PiettoLexer
 from pietto.generated.PiettoParser import PiettoParser
@@ -71,11 +72,6 @@ FAIL_CLOSED_MESSAGE = (
     "Phase 53 Slice 3."
 )
 BASE_HEAD_SHA = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
-PHASE54_SLICE2_BASE_HEAD_SHA = "d8a5e9ab3de70ce30575513c73560c86430eca63"
-PHASE54_SLICE4_BASE_HEAD_SHA = "15bae172ee151e370fe59d3bf909d735aee6aa90"
-PHASE54_SLICE5_BASE_HEAD_SHA = "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01"
-PHASE54_SLICE6_BASE_HEAD_SHA = "c44a4271d9592cb393d2232f127a59d8466cc60a"
-PHASE54_SLICE2_STATE_REL = "tests/_phase54_active_gate2_manifest.py"
 
 ADDED_PATHS = {
     "docs/spec/phase53-completion-audit-and-status-lock-v1.md",
@@ -188,29 +184,6 @@ def _git_optional_ref(ref: str) -> str | None:
     lines = result.stdout.splitlines()
     assert len(lines) == 1
     return lines[0]
-
-
-def _phase54_slice2_paths() -> tuple[set[str], set[str]]:
-    tree = ast.parse(_read(PHASE54_SLICE2_STATE_REL))
-    values: dict[str, set[str]] = {}
-    for node in tree.body:
-        if (
-            isinstance(node, ast.Assign)
-            and len(node.targets) == 1
-            and isinstance(node.targets[0], ast.Name)
-            and node.targets[0].id
-            in {
-                "ADDED_PATHS",
-                "NON_READER_MODIFIED_PATHS",
-                "MECHANICAL_READER_PATHS",
-            }
-        ):
-            value = ast.literal_eval(node.value)
-            assert isinstance(value, set)
-            values[node.targets[0].id] = value
-    return values["ADDED_PATHS"], (
-        values["NON_READER_MODIFIED_PATHS"] | values["MECHANICAL_READER_PATHS"]
-    )
 
 
 def _window_query(
@@ -1015,11 +988,7 @@ def test_no_ast_semantic_ir_sql_or_public_surface_widening_is_locked() -> None:
         "src/pietto/sql/mysql_relations.py",
         "src/pietto/semantic/capability_facts.py",
     }
-    _, phase54_modified = _phase54_slice2_paths()
-    phase54_changed_source = {
-        path for path in phase54_modified if path.startswith("src/pietto/")
-    }
-    assert changed_source in (set(), allowed_source, phase54_changed_source)
+    assert changed_source in (set(), allowed_source)
 
 
 def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None:
@@ -1031,52 +1000,40 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
     cached = tuple(_git_output(["diff", "--cached", "--name-status"]).splitlines())
     assert cached == ()
     assert name_status == tuple(f"M\t{path}" for path in sorted(tracked))
+    active_gate2 = active_gate2_manifest_is_active()
 
     branch = _git_output(["branch", "--show-current"])
     head = _git_output(["rev-parse", "HEAD"])
     main = _git_optional_ref("refs/heads/main")
     origin_main = _git_optional_ref("refs/remotes/origin/main")
     dirty = tracked | untracked
-    phase54_added, phase54_modified = _phase54_slice2_paths()
-    phase54_allowlist = phase54_added | phase54_modified
-    assert dirty in (set(), ALLOWLIST_PATHS, phase54_allowlist)
-
-    if dirty == phase54_allowlist:
-        assert tracked == phase54_modified
-        assert untracked == phase54_added
-        assert branch == "main"
-        assert head == main == origin_main
-        assert head in {
-            PHASE54_SLICE2_BASE_HEAD_SHA,
-            PHASE54_SLICE4_BASE_HEAD_SHA,
-            PHASE54_SLICE5_BASE_HEAD_SHA,
-            PHASE54_SLICE6_BASE_HEAD_SHA,
-        }
-    elif dirty:
-        assert tracked == MODIFIED_PATHS
-        assert untracked == ADDED_PATHS
-        assert branch == "main"
-        assert head == main == origin_main == BASE_HEAD_SHA
-    else:
-        assert tracked == untracked == set()
-        assert branch in ("", "main")
-        if branch == "main":
-            assert main == head
-        if main is not None:
-            assert main == head
-        if origin_main is not None:
-            assert origin_main == head
+    if not active_gate2:
+        assert dirty in (set(), ALLOWLIST_PATHS)
+        if dirty:
+            assert tracked == MODIFIED_PATHS
+            assert untracked == ADDED_PATHS
+            assert branch == "main"
+            assert head == main == origin_main == BASE_HEAD_SHA
+        else:
+            assert tracked == untracked == set()
+            assert branch in ("", "main")
+            if branch == "main":
+                assert main == head
+            if main is not None:
+                assert main == head
+            if origin_main is not None:
+                assert origin_main == head
 
     readable_paths = set(_git_output(["ls-files"]).splitlines()) | untracked
-    assert len(readable_paths) == 903
-    assert sum(path.endswith(".py") for path in readable_paths) == 555
-    assert sum(path.endswith(".md") for path in readable_paths) == 252
+    assert len(readable_paths) == 915
+    assert sum(path.endswith(".py") for path in readable_paths) == 564
+    assert sum(path.endswith(".md") for path in readable_paths) == 255
     test_modules = {
         path
         for path in readable_paths
         if path.startswith("tests/test_") and path.endswith(".py")
     }
-    assert len(test_modules) == 455
+    assert len(test_modules) == 456
     top_level_tests = 0
     for relative in sorted(test_modules):
         tree = ast.parse(_read(relative), filename=relative)
@@ -1085,7 +1042,7 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 4998
+    assert top_level_tests == 5028
     assert len(GENERATED_PATHS) == 8
     goldens = {
         path

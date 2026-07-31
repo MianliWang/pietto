@@ -10,6 +10,7 @@ from typing import cast
 
 import pytest
 
+from _active_gate2_manifest import active_gate2_manifest_is_active
 import pietto
 import pietto._project as project_package
 import pietto._project.aggregate_grouped_clause_facts as clause_module
@@ -94,14 +95,6 @@ PHASE52_UNTRACKED_PATHS = {
     "docs/spec/phase52-core-type-system-capability-foundation-scope-lock-v1.md",
     "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
 }
-SLICE2_BASE_HEAD_SHA = "d8a5e9ab3de70ce30575513c73560c86430eca63"
-SLICE4_BASE_HEAD_SHA = "15bae172ee151e370fe59d3bf909d735aee6aa90"
-SLICE4_PATH_COUNTS = (138, 2, 140)
-SLICE5_BASE_HEAD_SHA = "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01"
-SLICE5_PATH_COUNTS = (164, 3, 167)
-SLICE6_BASE_HEAD_SHA = "c44a4271d9592cb393d2232f127a59d8466cc60a"
-SLICE6_PATH_COUNTS = (57, 4, 61)
-SLICE2_STATE_REL = "tests/_phase54_active_gate2_manifest.py"
 CI_REPAIR_BASE_HEAD_SHA = "321ec6f80737015648bc1f81b0561fdd34610e92"
 CI_REPAIR_MODIFIED_PATHS = {
     "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
@@ -1077,48 +1070,25 @@ def test_slice11_contract_plan_allowlist_and_protected_boundaries_are_locked() -
     assert (
         "docs/spec/pietto-active-roadmap-phase51-60-v1.md" not in EXPECTED_GATE2_PATHS
     )
-    slice2_tree = ast.parse(_read(REPO_ROOT / SLICE2_STATE_REL))
-    slice2_sets = {
-        node.targets[0].id: set(ast.literal_eval(node.value))
-        for node in slice2_tree.body
-        if isinstance(node, ast.Assign)
-        and len(node.targets) == 1
-        and isinstance(node.targets[0], ast.Name)
-        and node.targets[0].id
-        in {
-            "ADDED_PATHS",
-            "NON_READER_MODIFIED_PATHS",
-            "MECHANICAL_READER_PATHS",
-        }
-    }
-    assert set(slice2_sets) == {
-        "ADDED_PATHS",
-        "NON_READER_MODIFIED_PATHS",
-        "MECHANICAL_READER_PATHS",
-    }
-    slice2_modified = (
-        slice2_sets["NON_READER_MODIFIED_PATHS"]
-        | slice2_sets["MECHANICAL_READER_PATHS"]
-    )
-    slice2_added = slice2_sets["ADDED_PATHS"]
     dirty_paths = _dirty_paths()
-    assert dirty_paths in (
+    active_gate2 = active_gate2_manifest_is_active()
+    assert active_gate2 or dirty_paths in (
         set(),
         EXPECTED_GATE2_PATHS,
         PHASE52_GATE2_PATHS,
         CI_REPAIR_MODIFIED_PATHS,
-        slice2_modified | slice2_added,
     )
     untracked_paths = set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
-    assert untracked_paths in (
+    assert active_gate2 or untracked_paths in (
         set(),
         EXPECTED_UNTRACKED_PATHS,
         PHASE52_UNTRACKED_PATHS,
-        slice2_added,
     )
-    if dirty_paths == CI_REPAIR_MODIFIED_PATHS:
+    if active_gate2:
+        pass
+    elif dirty_paths == CI_REPAIR_MODIFIED_PATHS:
         assert untracked_paths == set()
         assert set(_git_output(["diff", "--name-only"]).splitlines()) == (
             CI_REPAIR_MODIFIED_PATHS
@@ -1131,24 +1101,6 @@ def test_slice11_contract_plan_allowlist_and_protected_boundaries_are_locked() -
             )
             == (CI_REPAIR_BASE_HEAD_SHA,) * 3
         )
-    elif dirty_paths == slice2_modified | slice2_added:
-        assert untracked_paths == slice2_added
-        assert set(_git_output(["diff", "--name-only"]).splitlines()) == (
-            slice2_modified
-        )
-        path_counts = (
-            len(slice2_modified),
-            len(slice2_added),
-            len(slice2_modified | slice2_added),
-        )
-        expected_head = SLICE2_BASE_HEAD_SHA
-        if path_counts == SLICE4_PATH_COUNTS:
-            expected_head = SLICE4_BASE_HEAD_SHA
-        elif path_counts == SLICE5_PATH_COUNTS:
-            expected_head = SLICE5_BASE_HEAD_SHA
-        elif path_counts == SLICE6_PATH_COUNTS:
-            expected_head = SLICE6_BASE_HEAD_SHA
-        assert _git_output(["rev-parse", "HEAD"]) == expected_head
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
 
     for relative_path, expected_hash in PROTECTED_HASHES.items():

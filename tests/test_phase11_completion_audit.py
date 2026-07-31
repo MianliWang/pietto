@@ -173,10 +173,15 @@ def test_four_workflow_scripts_are_independent_and_byte_locked() -> None:
         for path in sorted((REPO_ROOT / "scripts").glob("*.py"))
     )
     assert scripts == (
+        "scripts/audit_gate2_readers.py",
+        "scripts/build_evidence_bundle.py",
         "scripts/check_generated.py",
         "scripts/check_goldens.py",
         "scripts/package_smoke.py",
+        "scripts/run_gate2_topology_checks.py",
+        "scripts/run_lean_gate2.py",
         "scripts/validate.py",
+        "scripts/verify_evidence_bundle.py",
     )
 
     sources = {

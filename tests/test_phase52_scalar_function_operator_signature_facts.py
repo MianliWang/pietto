@@ -11,6 +11,7 @@ from typing import Any, cast
 
 import pytest
 
+from _active_gate2_manifest import active_gate2_manifest_is_active
 import pietto.semantic.capability_inventory as capability_inventory
 import pietto.semantic.capability_signatures as capability_signatures
 from pietto.semantic.capability_facts import (
@@ -321,17 +322,6 @@ def _read(path: Path) -> str:
 
 
 def _slice13_paths(name: str) -> set[str]:
-    if _git_output(["rev-parse", "HEAD"]) in {
-        "d8a5e9ab3de70ce30575513c73560c86430eca63",
-        "15bae172ee151e370fe59d3bf909d735aee6aa90",
-        "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
-        "c44a4271d9592cb393d2232f127a59d8466cc60a",
-    }:
-        modified, added = _phase54_slice2_paths()
-        if name == "MODIFIED_PATHS":
-            return modified
-        if name == "ADDED_PATHS":
-            return added
     path = REPO_ROOT / "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
     tree = ast.parse(_read(path), filename=path.as_posix())
     for node in tree.body:
@@ -346,33 +336,6 @@ def _slice13_paths(name: str) -> set[str]:
             assert all(isinstance(item, str) for item in value)
             return set(value)
     raise AssertionError(f"missing Slice 13 path manifest {name}")
-
-
-def _phase54_slice2_paths() -> tuple[set[str], set[str]]:
-    path = REPO_ROOT / "tests/_phase54_active_gate2_manifest.py"
-    tree = ast.parse(_read(path), filename=path.as_posix())
-    expected = {
-        "ADDED_PATHS",
-        "NON_READER_MODIFIED_PATHS",
-        "MECHANICAL_READER_PATHS",
-    }
-    values: dict[str, set[str]] = {}
-    for node in tree.body:
-        if (
-            isinstance(node, ast.Assign)
-            and len(node.targets) == 1
-            and isinstance(node.targets[0], ast.Name)
-            and node.targets[0].id in expected
-        ):
-            value = ast.literal_eval(node.value)
-            assert isinstance(value, set)
-            assert all(isinstance(item, str) for item in value)
-            values[node.targets[0].id] = value
-    assert set(values) == expected
-    return (
-        values["NON_READER_MODIFIED_PATHS"] | values["MECHANICAL_READER_PATHS"],
-        values["ADDED_PATHS"],
-    )
 
 
 def _git_output(args: list[str]) -> str:
@@ -1417,7 +1380,8 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     slice13_modified = _slice13_paths("MODIFIED_PATHS")
     slice13_added = _slice13_paths("ADDED_PATHS")
     slice13_allowlist = slice13_modified | slice13_added
-    assert dirty in (
+    active_gate2 = active_gate2_manifest_is_active()
+    assert active_gate2 or dirty in (
         set(),
         ALLOWLIST_PATHS,
         REPAIR_ALLOWLIST_PATHS,
@@ -1436,7 +1400,9 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     main = _git_optional_ref("refs/heads/main")
     origin_main = _git_optional_ref("refs/remotes/origin/main")
     origin_pr_head = _git_optional_ref(PR_REPAIR_GATE2_ORIGIN_REF)
-    if not dirty:
+    if active_gate2:
+        pass
+    elif not dirty:
         assert tracked == set()
         assert untracked == set()
         _assert_clean_checkout_refs(
@@ -1532,7 +1498,7 @@ def test_static_test_inventory_tier1_and_tier2_manifest_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (455, 4998)
+    assert (len(test_files), top_level_functions) == (456, 5028)
     assert len(DIRECT_TIER1_NODES) == len(set(DIRECT_TIER1_NODES)) == 44
     for node_id in DIRECT_TIER1_NODES:
         path, function = node_id.split("::", maxsplit=1)

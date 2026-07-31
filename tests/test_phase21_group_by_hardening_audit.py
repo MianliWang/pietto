@@ -76,7 +76,7 @@ LOCKED_FORBIDDEN_SURFACES = {
     "agents": (
         "AGENTS.md",
         1,
-        "0bacc32f16a9bf5e89f53bcb9d5310ba440539cf100251b86e39fba18c59b0bb",
+        "fe5728fc9f98a16940c21b3438369d5b540952bee4e630d5b52cf8c44ca6412c",
     ),
     "pietto_v09": (
         "docs/spec/pietto-v0.9.md",

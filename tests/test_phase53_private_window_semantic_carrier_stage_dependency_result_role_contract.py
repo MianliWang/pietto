@@ -10,6 +10,7 @@ from typing import Any, cast
 
 import pytest
 
+from _active_gate2_manifest import active_gate2_manifest_is_active
 import pietto
 import pietto._project as project_package
 import pietto._project.window_semantics as project_window_semantics
@@ -670,33 +671,6 @@ def _all_repository_paths() -> tuple[str, ...]:
     paths = set(_git("ls-files").splitlines())
     paths.update(_git("ls-files", "--others", "--exclude-standard").splitlines())
     return tuple(sorted(paths))
-
-
-def _phase54_slice2_paths() -> tuple[frozenset[str], frozenset[str]]:
-    path = REPO_ROOT / "tests/_phase54_active_gate2_manifest.py"
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=path.as_posix())
-    expected = {
-        "ADDED_PATHS",
-        "NON_READER_MODIFIED_PATHS",
-        "MECHANICAL_READER_PATHS",
-    }
-    values: dict[str, frozenset[str]] = {}
-    for node in tree.body:
-        if (
-            isinstance(node, ast.Assign)
-            and len(node.targets) == 1
-            and isinstance(node.targets[0], ast.Name)
-            and node.targets[0].id in expected
-        ):
-            value = ast.literal_eval(node.value)
-            assert isinstance(value, set)
-            assert all(isinstance(item, str) for item in value)
-            values[node.targets[0].id] = frozenset(value)
-    assert set(values) == expected
-    return (
-        values["NON_READER_MODIFIED_PATHS"] | values["MECHANICAL_READER_PATHS"],
-        values["ADDED_PATHS"],
-    )
 
 
 def test_slice6_artifact_paths_heading_contract_and_lifecycle_are_exact() -> None:
@@ -1947,6 +1921,8 @@ def test_slice6_dirty_clean_and_depth_one_repository_states_are_locked() -> None
     ) - {""}
     cached = frozenset(_git("diff", "--cached", "--name-only").splitlines()) - {""}
     assert cached == frozenset()
+    if active_gate2_manifest_is_active():
+        return
     head = _git("rev-parse", "HEAD")
     branch_result = subprocess.run(
         ("git", "symbolic-ref", "--quiet", "--short", "HEAD"),
@@ -1959,20 +1935,9 @@ def test_slice6_dirty_clean_and_depth_one_repository_states_are_locked() -> None
     if not tracked and not untracked:
         assert branch in {"", "main"}
         return
-    if head in {
-        "d8a5e9ab3de70ce30575513c73560c86430eca63",
-        "15bae172ee151e370fe59d3bf909d735aee6aa90",
-        "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
-        "c44a4271d9592cb393d2232f127a59d8466cc60a",
-    }:
-        expected_modified, expected_added = _phase54_slice2_paths()
-        expected_base = head
-    else:
-        expected_modified = frozenset(
-            _literal_tuple(GENERIC_TEST_PATH, "MODIFIED_PATHS")
-        )
-        expected_added = frozenset(ADDED_PATHS)
-        expected_base = BASE_HEAD
+    expected_modified = frozenset(_literal_tuple(GENERIC_TEST_PATH, "MODIFIED_PATHS"))
+    expected_added = frozenset(ADDED_PATHS)
+    expected_base = BASE_HEAD
     assert branch == "main"
     assert head == expected_base
     assert tracked == expected_modified
@@ -2002,7 +1967,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         len(markdown_paths),
         len(test_paths),
         top_level_functions,
-    ) == (903, 555, 252, 455, 4998)
+    ) == (915, 564, 255, 456, 5028)
     assert len(TEST_FUNCTIONS) == len(TEST_ITEM_COUNTS) == 36
     assert sum(TEST_ITEM_COUNTS) == 156
     assert 10599 + 185 == 10784
@@ -2044,23 +2009,12 @@ def test_validation_gate3_and_no_behavior_boundaries_are_locked() -> None:
         (*ADDED_PATHS, *_literal_tuple(GENERIC_TEST_PATH, "MODIFIED_PATHS"))
     )
     repair_state = changed == CI_REPAIR_MODIFIED_PATHS and not untracked
-    phase54_modified, phase54_added = _phase54_slice2_paths()
-    phase54_state = (
-        changed == phase54_modified
-        and untracked == phase54_added
-        and _git("rev-parse", "HEAD")
-        in {
-            "d8a5e9ab3de70ce30575513c73560c86430eca63",
-            "15bae172ee151e370fe59d3bf909d735aee6aa90",
-            "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
-            "c44a4271d9592cb393d2232f127a59d8466cc60a",
-        }
-    )
+    active_gate2_state = active_gate2_manifest_is_active()
     assert (
         (not changed and not untracked)
         or changed | untracked == allowed
         or repair_state
-        or phase54_state
+        or active_gate2_state
     )
     if repair_state:
         assert _git("diff", "--cached", "--name-only") == ""

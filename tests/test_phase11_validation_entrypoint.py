@@ -524,10 +524,15 @@ def test_slice2_validation_stays_separate_from_later_workflows() -> None:
     )
 
     assert scripts == (
+        "scripts/audit_gate2_readers.py",
+        "scripts/build_evidence_bundle.py",
         "scripts/check_generated.py",
         "scripts/check_goldens.py",
         "scripts/package_smoke.py",
+        "scripts/run_gate2_topology_checks.py",
+        "scripts/run_lean_gate2.py",
         "scripts/validate.py",
+        "scripts/verify_evidence_bundle.py",
     )
     assert all("check_generated.py" not in command for _, command in validate.GATES)
     assert all("check_goldens.py" not in command for _, command in validate.GATES)

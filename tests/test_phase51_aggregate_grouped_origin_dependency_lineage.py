@@ -14,6 +14,7 @@ from typing import cast
 
 import pytest
 
+from _active_gate2_manifest import active_gate2_manifest_is_active
 import pietto
 import pietto._project as project_package
 import pietto._project.aggregate_grouped_dependency_lineage as dependency_lineage_module
@@ -107,14 +108,6 @@ CI_REPAIR_MODIFIED_PATHS = {
     "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
     "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
 }
-PHASE54_BASE_HEAD_SHA = "d8a5e9ab3de70ce30575513c73560c86430eca63"
-PHASE54_SLICE4_BASE_HEAD_SHA = "15bae172ee151e370fe59d3bf909d735aee6aa90"
-PHASE54_SLICE4_PATH_COUNTS = (138, 2, 140)
-PHASE54_SLICE5_BASE_HEAD_SHA = "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01"
-PHASE54_SLICE5_PATH_COUNTS = (164, 3, 167)
-PHASE54_SLICE6_BASE_HEAD_SHA = "c44a4271d9592cb393d2232f127a59d8466cc60a"
-PHASE54_SLICE6_PATH_COUNTS = (57, 4, 61)
-PHASE54_STATE_REL = "tests/_phase54_active_gate2_manifest.py"
 
 
 def _literal_set(relative: str, name: str) -> set[str]:
@@ -138,15 +131,6 @@ def _phase53_gate2_paths(name: str) -> set[str]:
         "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
         name,
     )
-
-
-def _phase54_gate2_paths() -> tuple[set[str], set[str]]:
-    added = _literal_set(PHASE54_STATE_REL, "ADDED_PATHS")
-    modified = _literal_set(
-        PHASE54_STATE_REL,
-        "NON_READER_MODIFIED_PATHS",
-    ) | _literal_set(PHASE54_STATE_REL, "MECHANICAL_READER_PATHS")
-    return modified, added
 
 
 BOUNDARY_PATHS = (
@@ -911,24 +895,24 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
         assert f"`{path}`" in spec_text
 
     dirty = _git_paths(["status", "--short", "--untracked-files=all"])
+    active_gate2 = active_gate2_manifest_is_active()
     slice14_modified = _phase53_gate2_paths("MODIFIED_PATHS")
     slice14_added = _phase53_gate2_paths("ADDED_PATHS")
-    phase54_modified, phase54_added = _phase54_gate2_paths()
-    assert dirty in (
+    assert active_gate2 or dirty in (
         set(),
         EXPECTED_GATE2_PATHS,
         CI_REPAIR_MODIFIED_PATHS,
         slice14_modified | slice14_added,
-        phase54_modified | phase54_added,
     )
     untracked = _git_paths(["ls-files", "--others", "--exclude-standard"])
-    assert untracked in (
+    assert active_gate2 or untracked in (
         set(),
         EXPECTED_UNTRACKED_PATHS,
         slice14_added,
-        phase54_added,
     )
-    if dirty == CI_REPAIR_MODIFIED_PATHS:
+    if active_gate2:
+        pass
+    elif dirty == CI_REPAIR_MODIFIED_PATHS:
         assert untracked == set()
         assert _git_output(["branch", "--show-current"]).strip() == "main"
         assert (
@@ -938,24 +922,6 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
             )
             == (CI_REPAIR_BASE_HEAD_SHA,) * 3
         )
-    elif dirty == phase54_modified | phase54_added:
-        assert untracked == phase54_added
-        assert set(_git_output(["diff", "--name-only"]).splitlines()) == (
-            phase54_modified
-        )
-        path_counts = (
-            len(phase54_modified),
-            len(phase54_added),
-            len(phase54_modified | phase54_added),
-        )
-        expected_head = PHASE54_BASE_HEAD_SHA
-        if path_counts == PHASE54_SLICE4_PATH_COUNTS:
-            expected_head = PHASE54_SLICE4_BASE_HEAD_SHA
-        elif path_counts == PHASE54_SLICE5_PATH_COUNTS:
-            expected_head = PHASE54_SLICE5_BASE_HEAD_SHA
-        elif path_counts == PHASE54_SLICE6_PATH_COUNTS:
-            expected_head = PHASE54_SLICE6_BASE_HEAD_SHA
-        assert _git_output(["rev-parse", "HEAD"]).strip() == expected_head
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
 
     compiler_digest = _compiler_digest()
@@ -1002,9 +968,8 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
         "tests/goldens",
         "examples",
     )
-    if dirty == phase54_modified | phase54_added:
-        protected = tuple(path for path in protected if path not in phase54_modified)
-    assert _git_output(["diff", "--", *protected]) == ""
+    if not active_gate2:
+        assert _git_output(["diff", "--", *protected]) == ""
     pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert 'version = "0.1.0"' in pyproject
     assert '"ruff>=0.16.0"' in pyproject

@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from _active_gate2_manifest import active_gate2_manifest_is_active
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLAN_REL = (
@@ -231,12 +232,6 @@ CI_REPAIR_MODIFIED_PATHS = {
 }
 SLICE2_BASE_HEAD_SHA = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
 SLICE2_STATE_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
-PHASE54_SLICE2_BASE_HEAD_SHA = "d8a5e9ab3de70ce30575513c73560c86430eca63"
-PHASE54_SLICE4_BASE_HEAD_SHA = "15bae172ee151e370fe59d3bf909d735aee6aa90"
-PHASE54_SLICE5_BASE_HEAD_SHA = "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01"
-PHASE54_SLICE6_BASE_HEAD_SHA = "c44a4271d9592cb393d2232f127a59d8466cc60a"
-PHASE54_SLICE2_STATE_REL = "tests/_phase54_active_gate2_manifest.py"
-
 TIER1_EXISTING_NODES = (
     "tests/test_phase51_aggregate_grouped_output_schema_foundation_scope_lock.py::test_artifacts_titles_heading_orders_and_no_behavior_sentence_are_locked",
     "tests/test_phase51_aggregate_grouped_output_schema_foundation_scope_lock.py::test_roadmap_governance_status_axes_and_conditional_authority_are_locked",
@@ -356,6 +351,8 @@ def _assert_phase53_repository_state() -> None:
     )
     assert cached_name_status == ()
     assert name_status == tuple(f"M\t{path}" for path in sorted(tracked))
+    if active_gate2_manifest_is_active():
+        return
 
     branch = _git_output(["branch", "--show-current"])
     head = _git_output(["rev-parse", "HEAD"])
@@ -365,31 +362,12 @@ def _assert_phase53_repository_state() -> None:
     slice2_modified = _literal_string_set(SLICE2_STATE_REL, "MODIFIED_PATHS")
     slice2_added = _literal_string_set(SLICE2_STATE_REL, "ADDED_PATHS")
     slice2_allowlist = slice2_modified | slice2_added
-    phase54_added = _literal_string_set(PHASE54_SLICE2_STATE_REL, "ADDED_PATHS")
-    phase54_modified = _literal_string_set(
-        PHASE54_SLICE2_STATE_REL, "NON_READER_MODIFIED_PATHS"
-    ) | _literal_string_set(PHASE54_SLICE2_STATE_REL, "MECHANICAL_READER_PATHS")
-    phase54_allowlist = phase54_added | phase54_modified
     assert dirty in (
         set(),
         PHASE53_ALLOWLIST_PATHS,
         CI_REPAIR_MODIFIED_PATHS,
         slice2_allowlist,
-        phase54_allowlist,
     )
-
-    if dirty == phase54_allowlist:
-        assert tracked == phase54_modified
-        assert untracked == phase54_added
-        assert branch == "main"
-        assert head == main == origin_main
-        assert head in {
-            PHASE54_SLICE2_BASE_HEAD_SHA,
-            PHASE54_SLICE4_BASE_HEAD_SHA,
-            PHASE54_SLICE5_BASE_HEAD_SHA,
-            PHASE54_SLICE6_BASE_HEAD_SHA,
-        }
-        return
 
     if dirty == slice2_allowlist:
         assert tracked == slice2_modified
@@ -784,12 +762,12 @@ def test_reader_migrations_reconciliation4_and_current_authority_are_locked() ->
         "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
         "tests/test_phase52_completion_audit_and_status_lock.py",
     ):
-        assert "(455, 4998)" in _read(relative)
+        assert "(456, 5028)" in _read(relative)
     for relative in (
         "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
         "tests/test_phase52_completion_audit_and_status_lock.py",
     ):
-        assert "(555, 252)" in _read(relative)
+        assert "(564, 255)" in _read(relative)
 
 
 def test_gate2_validation_depth_one_gate3_activation_and_stop_conditions_are_locked() -> (

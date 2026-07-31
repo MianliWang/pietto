@@ -265,6 +265,13 @@ def _active_state() -> Phase54Gate2RepositoryState:
         branch_upstream="origin/main",
         ahead=0,
         behind=0,
+        head_parents=("c44a4271d9592cb393d2232f127a59d8466cc60a",),
+        head_subject="Complete Phase 54 local import module export Slice 6",
+        main_oid=PHASE54_ACTIVE_GATE2_BASE,
+        origin_main_oid=PHASE54_ACTIVE_GATE2_BASE,
+        committed_added_paths=frozenset(),
+        committed_modified_paths=frozenset(),
+        committed_deleted_paths=frozenset(),
         added_paths=PHASE54_ACTIVE_GATE2_ADDED_PATHS,
         modified_paths=PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
         deleted_paths=PHASE54_ACTIVE_GATE2_DELETED_PATHS,
@@ -1196,8 +1203,8 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
     assert tuple(node.name for node in tests) == EXPECTED_TEST_NAMES
     assert len(tests) == 30
     assert all(not node.decorator_list for node in tests)
-    assert len(PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 4
-    assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 57
+    assert len(PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 12
+    assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 51
     assert PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
     dirty = {
         *subprocess.run(

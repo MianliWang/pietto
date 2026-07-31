@@ -13,6 +13,7 @@ from typing import cast
 
 import pytest
 
+from _active_gate2_manifest import active_gate2_manifest_is_active
 from pietto._project.model import (
     ProjectResolvedType,
     ProjectResolvedTypeKind,
@@ -91,6 +92,7 @@ PHASE54_SLICE3_HEAD = "2752985c3f6343519b7d7d6fe400d16251e64d85"
 README_REFRESH_HEAD = "15bae172ee151e370fe59d3bf909d735aee6aa90"
 PHASE54_SLICE4_HEAD = "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01"
 PHASE54_SLICE5_HEAD = "c44a4271d9592cb393d2232f127a59d8466cc60a"
+PHASE54_SLICE6_HEAD = "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16"
 PHASE54_SLICE1_SUBJECT = "Add Phase 54 scope authority and expansion route lock"
 PHASE54_SLICE2_SUBJECT = "Add Phase 54 schema v2 module activation carrier"
 PHASE54_SLICE3_SUBJECT = "Add Phase 54 trusted module loading boundary"
@@ -101,6 +103,10 @@ PHASE54_SLICE5_SUBJECT = "Add Phase 54 module declaration catalogs"
 PHASE54_SLICE5_BRANCH = "phase54/slice5-module-declaration-catalogs"
 PHASE54_SLICE6_SUBJECT = "Add Phase 54 module export surfaces"
 PHASE54_SLICE6_BRANCH = "phase54/slice6-export-visibility-facade"
+PHASE54_WORKFLOW_EFFICIENCY_SUBJECT = (
+    "Add Pietto lean end-to-end workflow infrastructure"
+)
+PHASE54_WORKFLOW_EFFICIENCY_BRANCH = "phase54/post-slice6-workflow-efficiency"
 MAINTENANCE_MODIFIED_PATHS = (
     ".github/workflows/ci.yml",
     "pyproject.toml",
@@ -159,7 +165,7 @@ def _phase53_gate2_paths(name: str) -> set[str]:
 
 
 def _phase54_gate2_paths(name: str) -> set[str]:
-    path = REPO_ROOT / "tests/_phase54_active_gate2_manifest.py"
+    path = REPO_ROOT / "tests/_active_gate2_manifest_data.py"
     tree = ast.parse(path.read_text(encoding="utf-8"))
     assignments = {
         node.targets[0].id: node.value
@@ -317,6 +323,7 @@ def _assert_phase54_dirty_state(*, status: str, staged: str) -> None:
     assert len(lines) == len(expected)
     assert set(lines) == expected
     assert staged == ""
+    assert active_gate2_manifest_is_active()
 
 
 def _assert_maintenance_base_refs() -> None:
@@ -635,6 +642,12 @@ def _is_clean_projection() -> bool:
         subject,
         PHASE54_SLICE6_SUBJECT,
     ):
+        if status:
+            assert head == PHASE54_SLICE6_HEAD
+            assert shallow == "false"
+            _assert_main_refs(head)
+            _assert_phase54_dirty_state(status=status, staged=staged)
+            return False
         _assert_clean_state(status=status, staged=staged)
         if pull_request_identity is not None:
             base_sha, candidate_sha = pull_request_identity
@@ -654,6 +667,36 @@ def _is_clean_projection() -> bool:
         if branch == PHASE54_SLICE6_BRANCH:
             assert _git_optional_ref("refs/heads/main") == PHASE54_SLICE5_HEAD
             assert _git_optional_ref("refs/remotes/origin/main") == PHASE54_SLICE5_HEAD
+            return True
+        _assert_main_refs(head)
+        return True
+
+    if parents == (PHASE54_SLICE6_HEAD,) and _is_phase54_subject(
+        subject,
+        PHASE54_WORKFLOW_EFFICIENCY_SUBJECT,
+    ):
+        _assert_clean_state(status=status, staged=staged)
+        if pull_request_identity is not None:
+            base_sha, candidate_sha = pull_request_identity
+            assert shallow == "true"
+            assert base_sha == PHASE54_SLICE6_HEAD
+            assert candidate_sha == head
+            assert pull_request_refs == (
+                "main",
+                PHASE54_WORKFLOW_EFFICIENCY_BRANCH,
+            )
+            return True
+        if os.environ.get("GITHUB_EVENT_NAME") == "push":
+            assert shallow == "true"
+            assert os.environ.get("GITHUB_REF") == "refs/heads/main"
+            assert os.environ.get("GITHUB_SHA") == head
+            assert _git_optional_ref("refs/remotes/origin/main") in (None, head)
+            return True
+        assert shallow == "false"
+        branch = _git_output(["branch", "--show-current"])
+        if branch == PHASE54_WORKFLOW_EFFICIENCY_BRANCH:
+            assert _git_optional_ref("refs/heads/main") == PHASE54_SLICE6_HEAD
+            assert _git_optional_ref("refs/remotes/origin/main") == PHASE54_SLICE6_HEAD
             return True
         _assert_main_refs(head)
         return True
@@ -687,6 +730,17 @@ def _is_clean_projection() -> bool:
             assert parents == (PHASE54_SLICE5_HEAD, candidate_sha)
             _assert_clean_state(status=status, staged=staged)
             return True
+        if (
+            base_sha == PHASE54_SLICE6_HEAD
+            or candidate_ref == PHASE54_WORKFLOW_EFFICIENCY_BRANCH
+        ):
+            assert base_sha == PHASE54_SLICE6_HEAD
+            assert base_ref == "main"
+            assert candidate_ref == PHASE54_WORKFLOW_EFFICIENCY_BRANCH
+            assert head != candidate_sha
+            assert parents == (PHASE54_SLICE6_HEAD, candidate_sha)
+            _assert_clean_state(status=status, staged=staged)
+            return True
         assert base_sha in (
             CI_REPAIR_HEAD,
             SLICE15_PUBLISHED_HEAD,
@@ -697,6 +751,7 @@ def _is_clean_projection() -> bool:
             README_REFRESH_HEAD,
             PHASE54_SLICE4_HEAD,
             PHASE54_SLICE5_HEAD,
+            PHASE54_SLICE6_HEAD,
         )
         _assert_clean_state(status=status, staged=staged)
         if head == candidate_sha:

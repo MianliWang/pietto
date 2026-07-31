@@ -7,6 +7,7 @@ import subprocess
 import tomllib
 from pathlib import Path
 
+from _active_gate2_manifest import active_gate2_manifest_is_active
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLAN_PATH = REPO_ROOT / "docs/plan/phase-52-core-type-system-capability-foundation.md"
@@ -186,17 +187,6 @@ def _read(path: Path) -> str:
 
 
 def _slice13_paths(name: str) -> set[str]:
-    if _git_output(["rev-parse", "HEAD"]) in {
-        "d8a5e9ab3de70ce30575513c73560c86430eca63",
-        "15bae172ee151e370fe59d3bf909d735aee6aa90",
-        "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
-        "c44a4271d9592cb393d2232f127a59d8466cc60a",
-    }:
-        modified, added = _phase54_slice2_paths()
-        if name == "MODIFIED_PATHS":
-            return modified
-        if name == "ADDED_PATHS":
-            return added
     path = REPO_ROOT / "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
     tree = ast.parse(_read(path), filename=path.as_posix())
     for node in tree.body:
@@ -211,33 +201,6 @@ def _slice13_paths(name: str) -> set[str]:
             assert all(isinstance(item, str) for item in value)
             return set(value)
     raise AssertionError(f"missing Slice 13 path manifest {name}")
-
-
-def _phase54_slice2_paths() -> tuple[set[str], set[str]]:
-    path = REPO_ROOT / "tests/_phase54_active_gate2_manifest.py"
-    tree = ast.parse(_read(path), filename=path.as_posix())
-    expected = {
-        "ADDED_PATHS",
-        "NON_READER_MODIFIED_PATHS",
-        "MECHANICAL_READER_PATHS",
-    }
-    values: dict[str, set[str]] = {}
-    for node in tree.body:
-        if (
-            isinstance(node, ast.Assign)
-            and len(node.targets) == 1
-            and isinstance(node.targets[0], ast.Name)
-            and node.targets[0].id in expected
-        ):
-            value = ast.literal_eval(node.value)
-            assert isinstance(value, set)
-            assert all(isinstance(item, str) for item in value)
-            values[node.targets[0].id] = value
-    assert set(values) == expected
-    return (
-        values["NON_READER_MODIFIED_PATHS"] | values["MECHANICAL_READER_PATHS"],
-        values["ADDED_PATHS"],
-    )
 
 
 def _normalized(path: Path) -> str:
@@ -788,7 +751,6 @@ def test_static_audit_shape_allowlist_and_heading_matching_are_locked() -> None:
     expected_functions = (
         "_read",
         "_slice13_paths",
-        "_phase54_slice2_paths",
         "_normalized",
         "_headings_at_level",
         "_git_output",
@@ -814,7 +776,7 @@ def test_static_audit_shape_allowlist_and_heading_matching_are_locked() -> None:
         tuple(node.name for node in tree.body if isinstance(node, ast.FunctionDef))
         == expected_functions
     )
-    assert _top_level_test_names(SELF_PATH) == expected_functions[11:]
+    assert _top_level_test_names(SELF_PATH) == expected_functions[10:]
     assert _pytest_item_count(SELF_PATH) == 12
     assert all(
         not node.decorator_list
@@ -824,6 +786,7 @@ def test_static_audit_shape_allowlist_and_heading_matching_are_locked() -> None:
 
     allowed_import_roots = {
         "__future__",
+        "_active_gate2_manifest",
         "ast",
         "hashlib",
         "pathlib",
@@ -862,7 +825,8 @@ def test_static_audit_shape_allowlist_and_heading_matching_are_locked() -> None:
     slice13_added = _slice13_paths("ADDED_PATHS")
     slice13_allowlist = slice13_modified | slice13_added
     dirty_paths = _dirty_paths()
-    assert dirty_paths in (
+    active_gate2 = active_gate2_manifest_is_active()
+    assert active_gate2 or dirty_paths in (
         set(),
         PHASE52_GATE2_PATHS,
         PHASE52_SLICE1_CI_REPAIR_PATHS,
@@ -873,14 +837,14 @@ def test_static_audit_shape_allowlist_and_heading_matching_are_locked() -> None:
     untracked_paths = set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
-    assert untracked_paths in (
+    assert active_gate2 or untracked_paths in (
         set(),
         PHASE52_UNTRACKED_PATHS,
         SLICE9_ADDED_PATHS,
         PHASE53_ADDED_PATHS,
         slice13_added,
     )
-    if dirty_paths == slice13_allowlist:
+    if not active_gate2 and dirty_paths == slice13_allowlist:
         assert set(_git_output(["diff", "--name-only"]).splitlines()) == (
             slice13_modified
         )
