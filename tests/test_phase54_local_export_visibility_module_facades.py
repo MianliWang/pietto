@@ -1117,7 +1117,7 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
     gate2_active = phase54_active_gate2_manifest_is_active()
     assert _matches_phase54_active_gate2_manifest(_active_state())
     for changed in (
-        replace(_active_state(), marker="PHASE54_SLICE5_GATE2"),
+        replace(_active_state(), marker="PHASE54_SLICE6_GATE2"),
         replace(_active_state(), branch_oid="0" * 40),
         replace(_active_state(), added_paths=frozenset()),
         replace(
@@ -1196,8 +1196,8 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
     assert tuple(node.name for node in tests) == EXPECTED_TEST_NAMES
     assert len(tests) == 30
     assert all(not node.decorator_list for node in tests)
-    assert len(PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 4
-    assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 57
+    assert len(PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 3
+    assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 59
     assert PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
     dirty = {
         *subprocess.run(

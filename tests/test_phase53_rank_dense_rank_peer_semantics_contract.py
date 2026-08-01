@@ -648,12 +648,12 @@ DIRTY_OVERLAY = (
     "--deselect=tests/test_phase52_scalar_function_operator_signature_facts.py::test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact",
 )
 
-COMPILER_DIGEST = "395fcfbd790382e22aa4ed7ee07b45d10b079b7a53b6dc872e70314ff4bb195c"
+COMPILER_DIGEST = "6f1689dc2d0d679702c782b24c08502630c04cf262d33e339606976a880f370d"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
-PROJECT_DIGEST = "75b90306fdb66ebb6b5ca140a88def5b71582d20da9e3dec7cc726d551521056"
+PROJECT_DIGEST = "9e97a544fba88ee7c93fc0ecb3966fbb4c5d5fe736da0b19c92a53778419e78f"
 FOCUSED_SHA256 = "764c5879e93871b253e875ce1e8145ce3a998d48a94b578f8af9d31f9562e5ee"
 OVERLAY_SHA256 = "197b591aec962f43b9b9393da99a76ff21c3a36189cc02c7a75dc5a7b85d6b26"
 FORMATTER_SHA256 = "5920e1a21f135b2537e8295b13c8bc6fa2962423812ffc3cbe1e52663e924daf"
@@ -673,6 +673,7 @@ def _phase53_gate2_paths(name: str) -> set[str]:
         "15bae172ee151e370fe59d3bf909d735aee6aa90",
         "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
         "c44a4271d9592cb393d2232f127a59d8466cc60a",
+        "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16",
     }:
         path = REPO_ROOT / "tests/_phase54_active_gate2_manifest.py"
         tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -2311,7 +2312,7 @@ def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
         len(semantic_paths),
         len(phase15_paths),
         len(project_paths),
-    ) == (99, 36, 33, 24)
+    ) == (100, 36, 33, 25)
     assert _digest(compiler_paths) == COMPILER_DIGEST
     assert _digest(semantic_paths) == SEMANTIC_DIGEST
     assert _digest(phase15_paths) == PHASE15_SUBSET_DIGEST
@@ -2352,6 +2353,7 @@ def test_slice8_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             "15bae172ee151e370fe59d3bf909d735aee6aa90",
             "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
             "c44a4271d9592cb393d2232f127a59d8466cc60a",
+            "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16",
         )
     else:
         assert main in (None, head)
@@ -2362,15 +2364,15 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
     None
 ):
     repository_paths = _repository_paths()
-    assert len(repository_paths) == 903
-    assert sum(path.endswith(".py") for path in repository_paths) == 555
-    assert sum(path.endswith(".md") for path in repository_paths) == 252
+    assert len(repository_paths) == 906
+    assert sum(path.endswith(".py") for path in repository_paths) == 557
+    assert sum(path.endswith(".md") for path in repository_paths) == 253
     test_modules = tuple(
         path
         for path in repository_paths
         if path.startswith("tests/test_") and path.endswith(".py")
     )
-    assert len(test_modules) == 455
+    assert len(test_modules) == 456
     top_level_tests = 0
     for relative in test_modules:
         tree = ast.parse(_read(relative), filename=relative)
@@ -2379,7 +2381,7 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 4998
+    assert top_level_tests == 5028
     focused_payload = ("\n".join(FOCUSED_OPERANDS) + "\n").encode()
     overlay_payload = ("\n".join(DIRTY_OVERLAY) + "\n").encode()
     formatter_payload = ("\n".join(FORMATTER_PATHS) + "\n").encode()

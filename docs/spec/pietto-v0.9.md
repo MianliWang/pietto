@@ -9,24 +9,29 @@ Current pipeline: parse -> analyze -> build IR -> emit selected PostgreSQL or My
 
 ---
 
-## Current Phase 54 Slice 6 Export-facade Status
+## Current Phase 54 Slice 7 Named-import Binding Status
 
 Phase 54 is active and Slices 1 through 6 are complete after exact Gate 3
-publication. Slice 4 supplies contextual top-level `import`, `export`, and
-`as` syntax plus immutable source-located module AST. Slice 5 adds private
-four-component nominal declaration identity and one immutable, source-ordered
-local declaration catalog per successfully parsed schema-v2 module. Slice 6
-adds private-by-default local declaration visibility, exact six-kind export
-matching, a narrow caller-supplied explicit named re-export seam, and one
-immutable private facade per parsed module. The exact Slice 6 contract is
-`docs/spec/phase54-slice6-local-export-eligibility-visibility-explicit-named-reexport-and-facade-semantics-v1.md`.
+publication. Slice 7 is the Gate 2 named-import binding candidate awaiting
+reviewed-tree publication. Slice 4 supplies contextual top-level `import`,
+`export`, and `as` syntax plus immutable source-located module AST. Slice 5
+adds private four-component nominal declaration identity and one immutable,
+source-ordered local declaration catalog per successfully parsed schema-v2
+module. Slice 6 adds private-by-default local declaration visibility, exact
+six-kind export matching, a caller-supplied explicit named re-export seam, and
+one immutable private facade per parsed module. Slice 7 adds exact
+selected-input-index target resolution, import-side aliases, one immutable
+binding environment per parsed module, private no-winner collision facts, and
+real candidates for the Slice 6 seam. Its exact contract is
+`docs/spec/phase54-slice7-named-imports-aliases-binding-environments-and-collision-rules-v1.md`.
 
 Catalogs read only local `Script.definitions`, preserve duplicates without a
 winner, and do not consume import/export statements. Facades consume only
-retained `ExportStatement` values and optional caller-resolved one-hop
-candidates; integrated construction supplies no imported candidates. Actual
-import binding, collision diagnostics, graphs, and cross-module resolution
-remain unavailable. The new private facts do not influence Semantic IR,
+retained `ExportStatement` values and caller-resolved one-hop candidates.
+Slice 7 integrated construction now supplies those candidates from exact
+direct-facade named imports. Public collision diagnostics, graphs, and
+cross-module resolution remain unavailable. The new private facts do not
+influence Semantic IR,
 PostgreSQL/MySQL SQL, CLI JSON v1, Project JSON v2, Semantic Metadata Artifact
 v1, or public Python exports. `PIE-S2701` through `PIE-S2707` remain absent and
 un-emitted. Slice 7 owns named imports, aliases, binding environments, and

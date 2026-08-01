@@ -114,6 +114,8 @@ PHASE54_SLICE5_BASE_HEAD_SHA = "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01"
 PHASE54_SLICE5_PATH_COUNTS = (164, 3, 167)
 PHASE54_SLICE6_BASE_HEAD_SHA = "c44a4271d9592cb393d2232f127a59d8466cc60a"
 PHASE54_SLICE6_PATH_COUNTS = (57, 4, 61)
+PHASE54_SLICE7_BASE_HEAD_SHA = "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16"
+PHASE54_SLICE7_PATH_COUNTS = (59, 3, 62)
 PHASE54_STATE_REL = "tests/_phase54_active_gate2_manifest.py"
 
 
@@ -955,6 +957,8 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
             expected_head = PHASE54_SLICE5_BASE_HEAD_SHA
         elif path_counts == PHASE54_SLICE6_PATH_COUNTS:
             expected_head = PHASE54_SLICE6_BASE_HEAD_SHA
+        elif path_counts == PHASE54_SLICE7_PATH_COUNTS:
+            expected_head = PHASE54_SLICE7_BASE_HEAD_SHA
         assert _git_output(["rev-parse", "HEAD"]).strip() == expected_head
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
 
@@ -969,13 +973,13 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
         assert match.group(1) == compiler_digest
     project_paths = _project_private_paths()
     project_digest = _digest(project_paths)
-    assert len(project_paths) == 24
+    assert len(project_paths) == 25
     phase33 = (REPO_ROOT / "tests/test_phase33_completion_audit.py").read_text(
         encoding="utf-8"
     )
     assert (
         f'"project_private": (\n        "src/pietto/_project",\n'
-        f'        24,\n        "{project_digest}",\n    ),'
+        f'        25,\n        "{project_digest}",\n    ),'
     ) in phase33
 
     protected = (

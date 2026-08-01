@@ -1,18 +1,22 @@
 # Phase 54 — Local Import / Module / Export Foundation
 
-## Status And Slice 6 Lifecycle
+## Status And Slice 7 Lifecycle
 
 Phase 53 and Slices 1-16 are `COMPLETED`. Phase 54 is `ACTIVE`, and Slices
 1 through 6 are `COMPLETED` after exact Gate 3 publication. The trusted Slice
-6 base is `c44a4271d9592cb393d2232f127a59d8466cc60a`. Slices 7-16 remain
-`UNSTARTED`.
+7 base is `49e95afcc5ed8c3394e6b19a4ea17679bae1bb16`. Slice 7 is the exact Gate 2
+candidate and is not complete before reviewed-tree publication and Gate 3.
+Slices 8-16 remain `UNSTARTED`.
 
-Slice 6 adds only private-by-default local visibility, exact six-kind export
-eligibility and matching, a narrow caller-supplied explicit named re-export
-candidate seam, private issue facts, and one immutable export facade per parsed
-schema-v2 module. Its entry state was `PHASE54_SLICE6_GATE0_GATE1`. Actual
-import binding remains Slice 7 ownership. The next state is
-`PHASE54_SLICE7_GATE0_GATE1`, and Slice 7 does not begin in Slice 6.
+Slice 7 adds only private schema-v2 exact named-import target resolution,
+import-side aliases, immutable per-module binding environments, deterministic
+no-winner collision facts, one direct-facade candidate backfill, and real
+caller-resolved candidates for the existing Slice 6 explicit named re-export
+seam. Schema v2 remains publicly fail closed. Schema v1, public diagnostics,
+CLI/JSON, IR, SQL, dependencies, workflows, package version, fixtures, and
+goldens remain unchanged. The Gate 2 completion state is
+`PHASE54_SLICE7_GATE2_COMPLETED_AWAITING_PUBLICATION`; the next authorized
+state is `PHASE54_SLICE7_GATE3`, and Slice 8 does not begin in Slice 7.
 
 ## Trusted Phase 53 Baseline And Controlling Evidence
 
@@ -398,8 +402,14 @@ fixtures, and goldens remain unchanged. Prerequisite: Slice 5. Slice 7 is next.
 
 ## Slice 7 — Named Imports, Aliases, Binding Environments, And Collision Rules
 
-Separately gate deterministic named imports, local aliases, environments, and
-no-winner collisions. Prerequisite: Slice 6.
+Gate 2 implements deterministic exact named imports through the selected-input
+index and direct Slice 6 facades, import-side aliases, immutable per-module
+binding environments, private structured issue facts, and no-winner
+local/import/alias collisions. A single direct-facade backfill preserves an
+existing `EXPLICIT_REEXPORT` target identity without recursion, graph
+traversal, or implicit transitive export. Integrated schema-v2 construction
+supplies its resolved candidates to the Slice 6 facade seam while remaining
+publicly fail closed. Prerequisite: Slice 6. Completion still requires Gate 3.
 
 ## Slice 8 — Module Graph, Cycles, Diagnostics, And Deterministic Ordering
 

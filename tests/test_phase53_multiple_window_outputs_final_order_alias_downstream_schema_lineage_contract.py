@@ -64,6 +64,7 @@ PHASE54_SLICE3_HEAD = "2752985c3f6343519b7d7d6fe400d16251e64d85"
 README_REFRESH_HEAD = "15bae172ee151e370fe59d3bf909d735aee6aa90"
 PHASE54_SLICE4_HEAD = "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01"
 PHASE54_SLICE5_HEAD = "c44a4271d9592cb393d2232f127a59d8466cc60a"
+PHASE54_SLICE6_HEAD = "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16"
 WHEELHOUSE_MANIFEST_SHA256 = (
     "e745cf66b6e8ea2096d5e49bf88ef32f828fe9178561b8ed5456125afeb8a294"
 )
@@ -597,8 +598,10 @@ def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> N
                 expected_parent = README_REFRESH_HEAD
             elif head == PHASE54_SLICE5_HEAD:
                 expected_parent = PHASE54_SLICE4_HEAD
-            else:
+            elif head == PHASE54_SLICE6_HEAD:
                 expected_parent = PHASE54_SLICE5_HEAD
+            else:
+                expected_parent = PHASE54_SLICE6_HEAD
             assert parents == [expected_parent]
     assert 'requires = ["uv_build>=0.11.32,<0.12.0"]' in pyproject
     assert '"ruff>=0.16.0"' in pyproject
@@ -1483,7 +1486,7 @@ def test_recursive_reader_hash_terminal_and_manifest_fixed_point_is_exact() -> N
         for path in paths
         if path.startswith("src/pietto/_project/") and path.endswith(".py")
     )
-    assert len(project_paths) == 24
+    assert len(project_paths) == 25
     assert "src/pietto/_project/window_persistence.py" in project_paths
     digest = hashlib.sha256()
     for path in project_paths:
@@ -1527,11 +1530,11 @@ def test_test_inventory_focused_overlay_validation_and_gate3_are_exact() -> None
         len(test_paths),
         top_level_tests,
     ) == (
-        903,
-        555,
-        252,
-        455,
-        4998,
+        906,
+        557,
+        253,
+        456,
+        5028,
     )
     docs = _read(PLAN_REL)
     for value in (

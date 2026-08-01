@@ -897,8 +897,9 @@ def test_reader_allowlist_retained_later_and_publication_topology_contracts_are_
     assert "125\nmechanical reader tests" in spec
     assert "128 literal handwritten Python paths" in spec
     assert "10886 passed" in spec
-    assert "## Status And Slice 6 Lifecycle" in plan
-    assert "PHASE54_SLICE6_GATE0_GATE1" in plan
+    assert "## Status And Slice 7 Lifecycle" in plan
+    assert "PHASE54_SLICE7_GATE2_COMPLETED_AWAITING_PUBLICATION" in plan
+    assert "PHASE54_SLICE7_GATE3" in plan
     assert "Slice 5 owns module-qualified nominal declaration identity" in spec
     assert "PIE-S2701" in spec and "remain absent and un-emitted" in spec
     assert "Add Phase 54 import export grammar and AST" in topology
@@ -909,14 +910,23 @@ def test_reader_allowlist_retained_later_and_publication_topology_contracts_are_
     assert 'PHASE54_SLICE5_HEAD = "c44a4271d9592cb393d2232f127a59d8466cc60a"' in (
         topology
     )
+    assert 'PHASE54_SLICE6_HEAD = "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16"' in (
+        topology
+    )
     assert (
         'PHASE54_SLICE6_BRANCH = "phase54/slice6-export-visibility-facade"' in topology
+    )
+    assert "Add Phase 54 named import binding environments" in topology
+    assert (
+        'PHASE54_SLICE7_BRANCH = "phase54/slice7-named-import-binding-environments"'
+        in topology
     )
     assert 'assert base_ref == "main"' in topology
     assert "assert candidate_ref == PHASE54_SLICE4_BRANCH" in topology
     assert "assert head != candidate_sha" in topology
     assert "assert parents == (README_REFRESH_HEAD, candidate_sha)" in topology
     assert "assert parents == (PHASE54_SLICE5_HEAD, candidate_sha)" in topology
+    assert "assert parents == (PHASE54_SLICE6_HEAD, candidate_sha)" in topology
     assert "module_statements: tuple[ModuleStatement, ...] = ()" in ast_source
     assert "def visitImportStatement" in builder_source
     assert "def visitExportStatement" in builder_source
