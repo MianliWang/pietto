@@ -7,6 +7,10 @@ import json
 from pathlib import Path
 from typing import Any, cast
 
+from _phase54_active_gate2_manifest import (  # noqa: F401
+    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+)
+
 import pytest
 
 import pietto
@@ -43,6 +47,7 @@ from pietto.ast_nodes import (
     TableDef,
     TypeDef,
 )
+from pietto.errors import Severity
 from pietto.parser_api import parse_source
 
 
@@ -78,7 +83,7 @@ EXPECTED_TEST_NAMES = (
     "test_same_namespace_and_name_across_different_kinds_preserves_one_ambiguous_bucket",
     "test_repeated_exact_nominal_identity_preserves_every_occurrence_in_source_order",
     "test_declaration_order_changes_only_occurrence_order_and_never_creates_precedence_or_winner",
-    "test_schema_v2_catalog_collisions_emit_no_pie_s2001_or_pie_s2701_through_pie_s2707",
+    "test_schema_v2_catalog_collisions_emit_one_pie_s2001_and_no_pie_s2701_through_pie_s2707",
     "test_schema_v2_success_retains_catalogs_privately_without_changing_model_diagnostics_ok_or_defaults",
     "test_schema_v2_parse_or_read_failure_builds_no_complete_or_partial_catalog_set",
     "test_current_zero_selected_input_project_remains_project_glob_failure_without_catalogs",
@@ -682,7 +687,7 @@ def test_declaration_order_changes_only_occurrence_order_and_never_creates_prece
         assert not hasattr(first, forbidden)
 
 
-def test_schema_v2_catalog_collisions_emit_no_pie_s2001_or_pie_s2701_through_pie_s2707(
+def test_schema_v2_catalog_collisions_emit_one_pie_s2001_and_no_pie_s2701_through_pie_s2707(
     tmp_path: Path,
 ) -> None:
     root = _configured_project(tmp_path / "project", schema_version=2)
@@ -692,7 +697,13 @@ def test_schema_v2_catalog_collisions_emit_no_pie_s2001_or_pie_s2701_through_pie
 
     assert parse_result.ok
     assert semantic.module_catalogs is not None
-    assert semantic.diagnostics == ()
+    assert tuple(
+        (diagnostic.code, diagnostic.message) for diagnostic in semantic.diagnostics
+    ) == (("PIE-S2001", "Duplicate symbol name in type namespace: Shared"),)
+    diagnostic = semantic.diagnostics[0]
+    assert diagnostic.severity is Severity.ERROR
+    assert diagnostic.location.path == "a.pietto"
+    assert diagnostic.location.line == 2
     assert semantic.model is None
     assert not semantic.ok
     assert len(semantic.module_catalogs.catalogs) == 2
@@ -706,7 +717,7 @@ def test_schema_v2_catalog_collisions_emit_no_pie_s2001_or_pie_s2701_through_pie
         == 2
     )
     assert {diagnostic.code for diagnostic in semantic.diagnostics}.isdisjoint(
-        {"PIE-S2001", *(f"PIE-S270{number}" for number in range(1, 8))}
+        {f"PIE-S270{number}" for number in range(1, 8)}
     )
 
 

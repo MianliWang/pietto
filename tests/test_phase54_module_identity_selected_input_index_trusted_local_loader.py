@@ -8,6 +8,10 @@ from pathlib import Path
 import stat
 from types import MappingProxyType
 
+from _phase54_active_gate2_manifest import (  # noqa: F401
+    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+)
+
 import pytest
 
 import pietto
@@ -890,17 +894,18 @@ def test_single_file_public_privacy_scope_and_flat_evidence_contract_remain_exac
         assert path in spec
     assert "/evidence/phase54-slice3/" not in spec
     graph_path = REPO_ROOT / "src/pietto/_project/module_graph.py"
+    resolution_path = REPO_ROOT / "src/pietto/_project/module_resolution.py"
     graph_source = graph_path.read_text(encoding="utf-8")
     non_graph_production = "\n".join(
         path.read_text(encoding="utf-8")
         for path in (REPO_ROOT / "src/pietto").rglob("*.py")
-        if path != graph_path
+        if path not in {graph_path, resolution_path}
     )
     assert all(f"PIE-S270{number}" in graph_source for number in range(1, 8))
     assert not any(
         f"PIE-S270{number}" in non_graph_production for number in range(1, 8)
     )
-    assert "## Status And Slice 8 Lifecycle" in plan
+    assert "## Status And Slice 9 Lifecycle" in plan
     assert "## Slice 3 Exact Production Boundary And Gate Contract" in plan
     assert "## Slice 4 Exact Production Boundary And Gate Contract" in plan
     assert source.count("\ndef test_") == 26

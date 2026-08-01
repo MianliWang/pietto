@@ -8,6 +8,10 @@ from pathlib import Path
 from types import ModuleType
 from typing import cast
 
+from _phase54_active_gate2_manifest import (  # noqa: F401
+    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+)
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLAN_PATH = REPO_ROOT / "docs/plan/phase-25-result-predicate-satisfying-mvp.md"
 DIAGNOSTICS_PATH = REPO_ROOT / "docs/spec/diagnostics.md"
@@ -72,7 +76,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "diagnostics": (
         "docs/spec/diagnostics.md",
         1,
-        "0ce35843a013c0f5926b651021bd7d80e945ada555950ef52f867ef9a501ef36",
+        "5b63cf926e611e8a612c8c1138240f81f90d9b7932115d370d3923f2f2f0b3d6",
     ),
     "check_generated": (
         "scripts/check_generated.py",

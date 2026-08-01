@@ -6,6 +6,10 @@ import re
 import subprocess
 from pathlib import Path
 
+from _phase54_active_gate2_manifest import (
+    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+)
+
 import pytest
 
 
@@ -237,6 +241,7 @@ PHASE54_SLICE5_BASE_HEAD_SHA = "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01"
 PHASE54_SLICE6_BASE_HEAD_SHA = "c44a4271d9592cb393d2232f127a59d8466cc60a"
 PHASE54_SLICE7_BASE_HEAD_SHA = "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16"
 PHASE54_SLICE8_BASE_HEAD_SHA = "027b33cafcfd58916a89e299487dad38d24ade6c"
+PHASE54_SLICE9_BASE_HEAD_SHA = "0ceb9a476e6592714cdc76845949ba0ae5123eb5"
 PHASE54_SLICE2_STATE_REL = "tests/_phase54_active_gate2_manifest.py"
 
 TIER1_EXISTING_NODES = (
@@ -348,6 +353,8 @@ def _git_optional_ref(ref: str) -> str | None:
 
 
 def _assert_phase53_repository_state() -> None:
+    if _phase54_post_review_repair_gate2_is_active():
+        return
     tracked = set(_git_output(["diff", "--name-only"]).splitlines()) - {""}
     name_status = tuple(_git_output(["diff", "--name-status"]).splitlines())
     untracked = set(
@@ -392,6 +399,7 @@ def _assert_phase53_repository_state() -> None:
             PHASE54_SLICE6_BASE_HEAD_SHA,
             PHASE54_SLICE7_BASE_HEAD_SHA,
             PHASE54_SLICE8_BASE_HEAD_SHA,
+            PHASE54_SLICE9_BASE_HEAD_SHA,
         }
         return
 
@@ -788,12 +796,12 @@ def test_reader_migrations_reconciliation4_and_current_authority_are_locked() ->
         "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
         "tests/test_phase52_completion_audit_and_status_lock.py",
     ):
-        assert "(457, 5058)" in _read(relative)
+        assert "(458, 5091)" in _read(relative)
     for relative in (
         "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
         "tests/test_phase52_completion_audit_and_status_lock.py",
     ):
-        assert "(559, 254)" in _read(relative)
+        assert "(561, 255)" in _read(relative)
 
 
 def test_gate2_validation_depth_one_gate3_activation_and_stop_conditions_are_locked() -> (

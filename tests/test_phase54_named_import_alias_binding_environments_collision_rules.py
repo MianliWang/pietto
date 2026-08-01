@@ -8,6 +8,10 @@ import os
 from pathlib import Path
 from types import MappingProxyType
 
+from _phase54_active_gate2_manifest import (  # noqa: F401
+    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+)
+
 import pytest
 
 import pietto
@@ -1114,10 +1118,10 @@ def test_slice7_contract_test_inventory_and_active_gate_manifest_are_exact() -> 
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name.startswith("test_")
     )
-    assert PHASE54_ACTIVE_GATE2_MARKER == "PHASE54_SLICE8_GATE2"
-    assert PHASE54_ACTIVE_GATE2_BASE == "027b33cafcfd58916a89e299487dad38d24ade6c"
+    assert PHASE54_ACTIVE_GATE2_MARKER == "PHASE54_SLICE9_GATE2"
+    assert PHASE54_ACTIVE_GATE2_BASE == "0ceb9a476e6592714cdc76845949ba0ae5123eb5"
     assert len(PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 3
-    assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 66
+    assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 68
     assert PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
     assert _matches_phase54_active_gate2_manifest(_active_state())
     assert "ImportStatement.target" not in inspect.getsource(module_exports)

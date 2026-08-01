@@ -6,6 +6,10 @@ from dataclasses import FrozenInstanceError, fields, is_dataclass
 from pathlib import Path
 from typing import Any
 
+from _phase54_active_gate2_manifest import (  # noqa: F401
+    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+)
+
 import pytest
 
 import pietto
@@ -786,11 +790,12 @@ def test_module_diagnostics_remain_private_without_serializer_or_dependency_surf
         assert not hasattr(pietto, name)
 
     graph_path = REPO_ROOT / "src/pietto/_project/module_graph.py"
+    resolution_path = REPO_ROOT / "src/pietto/_project/module_resolution.py"
     graph_source = graph_path.read_text(encoding="utf-8")
     non_graph_production = "\n".join(
         path.read_text(encoding="utf-8")
         for path in sorted((REPO_ROOT / "src/pietto").rglob("*.py"))
-        if "generated" not in path.parts and path != graph_path
+        if "generated" not in path.parts and path not in {graph_path, resolution_path}
     )
     for number in range(2701, 2708):
         code = f"PIE-S{number}"
@@ -907,9 +912,9 @@ def test_reader_allowlist_retained_later_and_publication_topology_contracts_are_
     assert "125\nmechanical reader tests" in spec
     assert "128 literal handwritten Python paths" in spec
     assert "10886 passed" in spec
-    assert "## Status And Slice 8 Lifecycle" in plan
-    assert "PHASE54_SLICE8_GATE2_COMPLETED_AWAITING_PUBLICATION" in plan
-    assert "PHASE54_SLICE8_GATE3" in plan
+    assert "## Status And Slice 9 Lifecycle" in plan
+    assert "PHASE54_SLICE9_GATE2_COMPLETED_AWAITING_PUBLICATION" in plan
+    assert "PHASE54_SLICE9_GATE3" in plan
     assert "Slice 5 owns module-qualified nominal declaration identity" in spec
     assert "PIE-S2701" in spec and "remain absent and un-emitted" in spec
     assert "Add Phase 54 import export grammar and AST" in topology
@@ -926,6 +931,9 @@ def test_reader_allowlist_retained_later_and_publication_topology_contracts_are_
     assert 'PHASE54_SLICE7_HEAD = "027b33cafcfd58916a89e299487dad38d24ade6c"' in (
         topology
     )
+    assert 'PHASE54_SLICE8_HEAD = "0ceb9a476e6592714cdc76845949ba0ae5123eb5"' in (
+        topology
+    )
     assert (
         'PHASE54_SLICE6_BRANCH = "phase54/slice6-export-visibility-facade"' in topology
     )
@@ -939,6 +947,11 @@ def test_reader_allowlist_retained_later_and_publication_topology_contracts_are_
         'PHASE54_SLICE8_BRANCH = "phase54/slice8-module-graph-cycles-diagnostics"'
         in topology
     )
+    assert "Add Phase 54 cross-module type and source resolution" in topology
+    assert (
+        'PHASE54_SLICE9_BRANCH = "phase54/slice9-cross-module-type-source-resolution"'
+        in topology
+    )
     assert 'assert base_ref == "main"' in topology
     assert "assert candidate_ref == PHASE54_SLICE4_BRANCH" in topology
     assert "assert head != candidate_sha" in topology
@@ -946,6 +959,7 @@ def test_reader_allowlist_retained_later_and_publication_topology_contracts_are_
     assert "assert parents == (PHASE54_SLICE5_HEAD, candidate_sha)" in topology
     assert "assert parents == (PHASE54_SLICE6_HEAD, candidate_sha)" in topology
     assert "assert parents == (PHASE54_SLICE7_HEAD, candidate_sha)" in topology
+    assert "assert parents == (PHASE54_SLICE8_HEAD, candidate_sha)" in topology
     assert "module_statements: tuple[ModuleStatement, ...] = ()" in ast_source
     assert "def visitImportStatement" in builder_source
     assert "def visitExportStatement" in builder_source

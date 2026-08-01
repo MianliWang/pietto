@@ -6,6 +6,10 @@ import tomllib
 from pathlib import Path
 from typing import cast
 
+from _phase54_active_gate2_manifest import (  # noqa: F401
+    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+)
+
 from _static_audit_helpers import read_text as _read
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -199,7 +203,7 @@ def _dirty_paths() -> set[str]:
     return paths
 
 
-def _phase54_slice8_gate2_paths() -> set[str]:
+def _phase54_slice9_gate2_paths() -> set[str]:
     tree = ast.parse(PHASE54_STATE_PATH.read_text(encoding="utf-8"))
     assignments = {
         node.targets[0].id: node.value
@@ -218,6 +222,14 @@ def _phase54_slice8_gate2_paths() -> set[str]:
             return resolve(node.value)
         if isinstance(node, ast.Set):
             return set().union(*(resolve(element) for element in node.elts))
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "set"
+            and not node.args
+            and not node.keywords
+        ):
+            return set()
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
             return resolve(node.left) | resolve(node.right)
         raise AssertionError(ast.dump(node))
@@ -728,8 +740,8 @@ def test_protected_surfaces_version_tag_staging_and_dirty_set_are_locked() -> No
     assert _git_output(["tag", "--points-at", "HEAD"]) == ""
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
     dirty = _dirty_paths()
-    phase54_slice8_gate2 = _phase54_slice8_gate2_paths()
-    if dirty != phase54_slice8_gate2:
+    phase54_slice9_gate2 = _phase54_slice9_gate2_paths()
+    if dirty != phase54_slice9_gate2:
         for relative_path in PROTECTED_PATHS:
             assert _git_output(["diff", "--", relative_path]) == "", relative_path
     assert dirty in (
@@ -740,7 +752,7 @@ def test_protected_surfaces_version_tag_staging_and_dirty_set_are_locked() -> No
         ALLOWED_PHASE50_SLICE9_GATE2_PATHS,
         ALLOWED_PHASE50_SLICE10_GATE2_PATHS,
         ALLOWED_PHASE50_SLICE11_GATE2_PATHS,
-        phase54_slice8_gate2,
+        phase54_slice9_gate2,
     )
 
 

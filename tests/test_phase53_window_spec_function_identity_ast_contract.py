@@ -9,6 +9,10 @@ import textwrap
 from pathlib import Path
 from typing import Any, cast
 
+from _phase54_active_gate2_manifest import (
+    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+)
+
 import pytest
 
 import pietto
@@ -54,6 +58,7 @@ PHASE54_SLICE5_BASE_HEAD_SHA = "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01"
 PHASE54_SLICE6_BASE_HEAD_SHA = "c44a4271d9592cb393d2232f127a59d8466cc60a"
 PHASE54_SLICE7_BASE_HEAD_SHA = "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16"
 PHASE54_SLICE8_BASE_HEAD_SHA = "027b33cafcfd58916a89e299487dad38d24ade6c"
+PHASE54_SLICE9_BASE_HEAD_SHA = "0ceb9a476e6592714cdc76845949ba0ae5123eb5"
 PHASE54_SLICE2_STATE_REL = "tests/_phase54_active_gate2_manifest.py"
 TEMPORARY_BRIDGE_MESSAGE = (
     "Window syntax is recognized, but WindowSpec AST preservation starts in "
@@ -304,7 +309,7 @@ SEMANTIC_IDENTITY_CASES = (
     ("Org.Analytics.Rank", "Unknown function: Org.Analytics.Rank"),
 )
 
-COMPILER_DIGEST = "f40984f94b3aa3c21559726f591c1ce192b6dc54754b4b23b350ae9ba7130eba"
+COMPILER_DIGEST = "fa64bb8f898e4fa77f6911b98b79bd6595b83104f6883b4e5727dd02aaecf9d0"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
@@ -980,7 +985,7 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        101,
+        102,
         36,
         33,
     )
@@ -995,6 +1000,8 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
 
 
 def test_slice3_dirty_clean_and_depth_one_repository_states_are_locked() -> None:
+    if _phase54_post_review_repair_gate2_is_active():
+        return
     tracked = set(_git_output(["diff", "--name-only"]).splitlines()) - {""}
     untracked = set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
@@ -1021,6 +1028,7 @@ def test_slice3_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             PHASE54_SLICE6_BASE_HEAD_SHA,
             PHASE54_SLICE7_BASE_HEAD_SHA,
             PHASE54_SLICE8_BASE_HEAD_SHA,
+            PHASE54_SLICE9_BASE_HEAD_SHA,
         }
     elif dirty:
         assert tracked == MODIFIED_PATHS
@@ -1041,15 +1049,15 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
     readable = {path for path in (*tracked, *untracked) if (REPO_ROOT / path).is_file()}
-    assert len(readable) == 909
-    assert sum(path.endswith(".py") for path in readable) == 559
-    assert sum(path.endswith(".md") for path in readable) == 254
+    assert len(readable) == 912
+    assert sum(path.endswith(".py") for path in readable) == 561
+    assert sum(path.endswith(".md") for path in readable) == 255
     test_modules = {
         path
         for path in readable
         if path.startswith("tests/test_") and path.endswith(".py")
     }
-    assert len(test_modules) == 457
+    assert len(test_modules) == 458
     top_level_tests = 0
     for relative in sorted(test_modules):
         tree = ast.parse(_read(relative), filename=relative)
@@ -1058,7 +1066,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 5058
+    assert top_level_tests == 5091
     assert (
         3488
         == 381 + 834 + 627 + 424 + 279 + 168 + 156 + 12 + 145 + 190 + 70 + 70 + 97 + 35

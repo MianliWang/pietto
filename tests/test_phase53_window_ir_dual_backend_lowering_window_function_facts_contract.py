@@ -9,6 +9,10 @@ import subprocess
 import tomllib
 from typing import cast
 
+from _phase54_active_gate2_manifest import (  # noqa: F401
+    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+)
+
 import pytest
 
 import pietto
@@ -1717,7 +1721,7 @@ def test_generated_golden_fixture_package_dependency_and_version_boundaries_are_
         sum(path.endswith(".md") for path in paths),
         sum(path.startswith("tests/test_") and path.endswith(".py") for path in paths),
         _top_level_test_function_count(paths),
-    ) == (909, 559, 254, 457, 5058)
+    ) == (912, 561, 255, 458, 5091)
     generated = tuple(
         path for path in paths if path.startswith("src/pietto/generated/")
     )

@@ -10,6 +10,10 @@ import subprocess
 from types import MappingProxyType
 from typing import cast
 
+from _phase54_active_gate2_manifest import (
+    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+)
+
 import pytest
 
 import pietto
@@ -66,6 +70,7 @@ PHASE54_SLICE4_HEAD = "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01"
 PHASE54_SLICE5_HEAD = "c44a4271d9592cb393d2232f127a59d8466cc60a"
 PHASE54_SLICE6_HEAD = "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16"
 PHASE54_SLICE7_HEAD = "027b33cafcfd58916a89e299487dad38d24ade6c"
+POST_REVIEW_REPAIR_PARENT_HEAD = "ed37b4938b0ff5efa0842d353ac0610c51afa6cc"
 WHEELHOUSE_MANIFEST_SHA256 = (
     "e745cf66b6e8ea2096d5e49bf88ef32f828fe9178561b8ed5456125afeb8a294"
 )
@@ -585,7 +590,9 @@ def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> N
         if _git_output(["rev-parse", "--is-shallow-repository"]) == "true":
             assert parents == []
         else:
-            if head == PHASE53_COMPLETION_HEAD:
+            if _phase54_post_review_repair_gate2_is_active():
+                expected_parent = POST_REVIEW_REPAIR_PARENT_HEAD
+            elif head == PHASE53_COMPLETION_HEAD:
                 expected_parent = BASE_HEAD
             elif head == PHASE54_SLICE1_HEAD:
                 expected_parent = PHASE53_COMPLETION_HEAD
@@ -1489,7 +1496,7 @@ def test_recursive_reader_hash_terminal_and_manifest_fixed_point_is_exact() -> N
         for path in paths
         if path.startswith("src/pietto/_project/") and path.endswith(".py")
     )
-    assert len(project_paths) == 26
+    assert len(project_paths) == 27
     assert "src/pietto/_project/window_persistence.py" in project_paths
     digest = hashlib.sha256()
     for path in project_paths:
@@ -1533,11 +1540,11 @@ def test_test_inventory_focused_overlay_validation_and_gate3_are_exact() -> None
         len(test_paths),
         top_level_tests,
     ) == (
-        909,
-        559,
-        254,
-        457,
-        5058,
+        912,
+        561,
+        255,
+        458,
+        5091,
     )
     docs = _read(PLAN_REL)
     for value in (

@@ -1,22 +1,23 @@
 # Phase 54 — Local Import / Module / Export Foundation
 
-## Status And Slice 8 Lifecycle
+## Status And Slice 9 Lifecycle
 
 Phase 53 and Slices 1-16 are `COMPLETED`. Phase 54 is `ACTIVE`, and Slices
-1 through 7 are `COMPLETED` after exact Gate 3 publication. The trusted Slice
-8 base is `027b33cafcfd58916a89e299487dad38d24ade6c`. Slice 8 is the exact Gate 2
+1 through 8 are `COMPLETED` after exact Gate 3 publication. The trusted Slice
+9 base is `0ceb9a476e6592714cdc76845949ba0ae5123eb5`. Slice 9 is the exact Gate 2
 candidate and is not complete before reviewed-tree publication and Gate 3.
-Slices 9-16 remain `UNSTARTED`.
+Slices 10-16 remain `UNSTARTED`.
 
-Slice 8 adds only the distinct private schema-v2 selected-module dependency
-graph, repeated evidence and canonical edges, deterministic SCCs and cycle
-witnesses, structured issue ordering, and public `PIE-S2701` through
-`PIE-S2707` adaptation through existing text and Project JSON v2 shapes.
-Schema v2 remains without cross-module semantic resolution and keeps
-`model=None`. Schema v1, IR, SQL, dependencies, workflows, package version,
-fixtures, and goldens remain unchanged. The Gate 2 completion state is
-`PHASE54_SLICE8_GATE2_COMPLETED_AWAITING_PUBLICATION`; the next authorized
-state is `PHASE54_SLICE8_GATE3`, and Slice 9 does not begin in Slice 8.
+Slice 9 adds only private dependency-first schema-v2 resolution for type
+aliases, enums, shapes, sources, shape field type references, and source shape
+references. It preserves import-local binding and complete nominal target
+identity, retains source/field order, reuses existing `PIE-S2001`,
+`PIE-S2002`, `PIE-S2003`, `PIE-S2303`, and Slice 8 root diagnostics, and
+suppresses same-root cascades. Schema v2 keeps `model=None`. Schema v1, table/
+query/relation and row facts, IR, SQL, dependencies, workflows, package
+version, fixtures, and goldens remain unchanged. The Gate 2 completion state
+is `PHASE54_SLICE9_GATE2_COMPLETED_AWAITING_PUBLICATION`; the next authorized
+state is `PHASE54_SLICE9_GATE3`, and Slice 10 does not begin in Slice 9.
 
 ## Trusted Phase 53 Baseline And Controlling Evidence
 
@@ -413,17 +414,24 @@ publicly fail closed. Prerequisite: Slice 6. Slice 8 is next.
 
 ## Slice 8 — Module Graph, Cycles, Diagnostics, And Deterministic Ordering
 
-Gate 2 implements the distinct selected-module graph, repeated evidence and
+Completed after exact Gate 3 publication. It implements the distinct selected-module graph, repeated evidence and
 canonical dependency edges, deterministic SCCs and cycle witnesses, structured
 issue ordering, cascade suppression, and exact `PIE-S2701` through
 `PIE-S2707` adaptation through existing project text and JSON v2 diagnostic
 surfaces. Cross-module type/relation semantics remain absent. Prerequisite:
-Slice 7. Completion still requires Gate 3; Slice 9 is next.
+Slice 7. Slice 9 is next.
 
 ## Slice 9 — Cross-module Type Alias, Enum, Shape, And Source Resolution
 
-Separately gate cross-module type-namespace and source resolution.
-Prerequisite: Slice 8.
+Gate 2 implements the private dependency-first type/source resolution sidecar
+specified by
+`docs/spec/phase54-slice9-cross-module-type-alias-enum-shape-and-source-resolution-v1.md`.
+It resolves `TypeDef.base`, ordered shape field types, and direct source shape
+references through local declarations and explicit named imports, including
+explicit re-export target identity. It excludes cyclic modules, preserves
+no-winner collisions, maps only to existing diagnostics, changes no public
+schema, and retains table/query/relation and row facts for Slice 10.
+Prerequisite: Slice 8. Completion still requires Gate 3; Slice 10 is next.
 
 ## Slice 10 — Cross-module Table / Query / Relation Resolution, Row Facts, And Legacy Compatibility
 

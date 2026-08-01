@@ -9,12 +9,12 @@ Current pipeline: parse -> analyze -> build IR -> emit selected PostgreSQL or My
 
 ---
 
-## Current Phase 54 Slice 8 Module-graph And Diagnostics Status
+## Current Phase 54 Slice 9 Cross-module Type And Source Resolution Status
 
-Phase 54 is active and Slices 1 through 7 are complete after exact Gate 3
-publication. Slice 8 is the Gate 2 module-graph and diagnostics candidate
-awaiting reviewed-tree publication. Slice 4 supplies contextual top-level `import`,
-`export`, and `as` syntax plus immutable source-located module AST. Slice 5
+Phase 54 is active and Slices 1 through 8 are complete after exact Gate 3
+publication. Slice 9 is the Gate 2 cross-module type/source resolution
+candidate awaiting reviewed-tree publication. Slice 4 supplies contextual
+top-level `import`, `export`, and `as` syntax plus immutable source-located module AST. Slice 5
 adds private four-component nominal declaration identity and one immutable,
 source-ordered local declaration catalog per successfully parsed schema-v2
 module. Slice 6 adds private-by-default local declaration visibility, exact
@@ -33,12 +33,17 @@ retained `ExportStatement` values and caller-resolved one-hop candidates.
 Slice 7 integrated construction supplies those candidates from exact
 direct-facade named imports. Slice 8 graph and diagnostic facts remain private
 except for their existing text/Project JSON v2 `Diagnostic` projection.
-Cross-module resolution remains unavailable. The new private facts do not
-influence Semantic IR,
+Slice 9 adds one private dependency-first resolution set for `TypeDef.base`,
+ordered shape-field `TypeExpr` values, direct source shape references, and
+local/imported alias, enum, shape, and source nominal symbols. Import-local
+aliases remain separate from original target identities, including explicit
+re-exports. Module-root failures suppress derived cascades. The new private
+facts do not influence Semantic IR,
 PostgreSQL/MySQL SQL, CLI JSON v1, Project JSON v2, Semantic Metadata Artifact
 v1 fields, or public Python exports. Slice 8 owns module graph edges, SCCs,
 cycles, structured ordering, suppression, and module diagnostics; Slice 9
-retains cross-module type/enum/shape/source resolution.
+owns type/enum/shape/source resolution; Slice 10 retains table/query/relation
+resolution and row facts.
 
 ---
 
