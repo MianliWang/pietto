@@ -9,19 +9,19 @@ import subprocess
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-PHASE54_ACTIVE_GATE2_MARKER = "PHASE54_SLICE6_GATE2"
-PHASE54_ACTIVE_GATE2_BASE = "c44a4271d9592cb393d2232f127a59d8466cc60a"
+PHASE54_ACTIVE_GATE2_MARKER = "PHASE54_SLICE7_GATE2"
+PHASE54_ACTIVE_GATE2_BASE = "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16"
 ADDED_PATHS = {
-    "docs/spec/phase54-slice6-local-export-eligibility-visibility-explicit-named-reexport-and-facade-semantics-v1.md",
-    "src/pietto/_project/module_exports.py",
-    "tests/_phase54_active_gate2_manifest.py",
-    "tests/test_phase54_local_export_visibility_module_facades.py",
+    "docs/spec/phase54-slice7-named-imports-aliases-binding-environments-and-collision-rules-v1.md",
+    "src/pietto/_project/module_bindings.py",
+    "tests/test_phase54_named_import_alias_binding_environments_collision_rules.py",
 }
 NON_READER_MODIFIED_PATHS = {
     "README.md",
     "docs/plan/phase-54-local-import-module-export-foundation.md",
     "docs/spec/pietto-v0.9.md",
     "src/pietto/_project/model.py",
+    "tests/_phase54_active_gate2_manifest.py",
 }
 MECHANICAL_READER_PATHS = {
     "tests/test_phase11_ci_workflow.py",
@@ -74,6 +74,7 @@ MECHANICAL_READER_PATHS = {
     "tests/test_phase53_window_spec_function_identity_ast_contract.py",
     "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
     "tests/test_phase54_import_export_contextual_grammar_ast.py",
+    "tests/test_phase54_local_export_visibility_module_facades.py",
     "tests/test_phase54_local_import_module_export_foundation_scope_lock.py",
     "tests/test_phase54_module_identity_selected_input_index_trusted_local_loader.py",
     "tests/test_phase54_schema_v2_explicit_module_carrier.py",

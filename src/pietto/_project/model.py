@@ -39,6 +39,7 @@ from pietto.errors import Diagnostic, Severity, SourceLocation
 
 if TYPE_CHECKING:
     from pietto._project.let_scope_facts import ProjectRelationLetScopeFacts
+    from pietto._project.module_bindings import ProjectModuleBindingEnvironmentSet
     from pietto._project.module_catalog import ProjectModuleCatalogSet
     from pietto._project.module_exports import ProjectModuleExportSurfaceSet
     from pietto._project.row_dependency_graph import ProjectRelationRowDependencyGraph
@@ -792,6 +793,7 @@ class ProjectSemanticResult:
     trusted_source_snapshots: tuple[ProjectTrustedSourceSnapshot, ...] = ()
     module_catalogs: ProjectModuleCatalogSet | None = None
     module_exports: ProjectModuleExportSurfaceSet | None = None
+    module_bindings: ProjectModuleBindingEnvironmentSet | None = None
 
     @property
     def ok(self) -> bool:
@@ -824,12 +826,21 @@ def build_empty_project_semantic_result(
         )
 
     if parse_result.compilation_mode is not ProjectCompilationMode.LEGACY_FLAT:
+        from pietto._project.module_bindings import (
+            _build_project_module_binding_environment_set,
+        )
         from pietto._project.module_catalog import _build_project_module_catalog_set
         from pietto._project.module_exports import (
             _build_project_module_export_surface_set,
         )
 
         module_catalogs = _build_project_module_catalog_set(parse_result.modules)
+        assert parse_result.selected_input_index is not None
+        module_bindings = _build_project_module_binding_environment_set(
+            parse_result.selected_input_index,
+            parse_result.modules,
+            module_catalogs,
+        )
 
         return ProjectSemanticResult(
             root=parse_result.root,
@@ -841,7 +852,13 @@ def build_empty_project_semantic_result(
             selected_input_index=parse_result.selected_input_index,
             trusted_source_snapshots=parse_result.trusted_source_snapshots,
             module_catalogs=module_catalogs,
-            module_exports=_build_project_module_export_surface_set(module_catalogs),
+            module_exports=_build_project_module_export_surface_set(
+                module_catalogs,
+                imported_binding_candidates=(
+                    module_bindings.imported_export_candidates
+                ),
+            ),
+            module_bindings=module_bindings,
         )
 
     catalog, catalog_diagnostics = _build_project_semantic_catalog(

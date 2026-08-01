@@ -125,6 +125,8 @@ SLICE5_BASE_HEAD_SHA = "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01"
 SLICE5_PATH_COUNTS = (164, 3, 167)
 SLICE6_BASE_HEAD_SHA = "c44a4271d9592cb393d2232f127a59d8466cc60a"
 SLICE6_PATH_COUNTS = (57, 4, 61)
+SLICE7_BASE_HEAD_SHA = "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16"
+SLICE7_PATH_COUNTS = (59, 3, 62)
 SLICE2_STATE_REL = "tests/_phase54_active_gate2_manifest.py"
 
 PHASE51_SLICE_ARTIFACTS = (
@@ -330,9 +332,9 @@ PROTECTED_HASHES = {
         "26cc0ae4a68518223d6bf600ad3c4b0b226618aa7ef31b2ae1c25924d2655169"
     ),
 }
-COMPILER_DIGEST = "395fcfbd790382e22aa4ed7ee07b45d10b079b7a53b6dc872e70314ff4bb195c"
+COMPILER_DIGEST = "6f1689dc2d0d679702c782b24c08502630c04cf262d33e339606976a880f370d"
 PROJECT_PRIVATE_DIGEST = (
-    "75b90306fdb66ebb6b5ca140a88def5b71582d20da9e3dec7cc726d551521056"
+    "9e97a544fba88ee7c93fc0ecb3966fbb4c5d5fe736da0b19c92a53778419e78f"
 )
 
 PROJECT_JSON_V2_KEYS = (
@@ -1013,7 +1015,7 @@ def test_live_compiler_project_private_protected_version_and_tag_locks_are_dirty
     None
 ):
     compiler_count, compiler_digest = _compiler_digest()
-    assert (compiler_count, compiler_digest) == (99, COMPILER_DIGEST)
+    assert (compiler_count, compiler_digest) == (100, COMPILER_DIGEST)
     for relative_path in BOUNDARY_PATHS:
         boundary_values = re.findall(
             r'^BOUNDARY_HASH = "([0-9a-f]{64})"$',
@@ -1023,12 +1025,12 @@ def test_live_compiler_project_private_protected_version_and_tag_locks_are_dirty
         assert boundary_values == [COMPILER_DIGEST]
 
     project_paths = _project_private_paths()
-    assert len(project_paths) == 24
+    assert len(project_paths) == 25
     assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
     phase33 = _read(REPO_ROOT / "tests/test_phase33_completion_audit.py")
     assert (
         f'"project_private": (\n        "src/pietto/_project",\n'
-        f'        24,\n        "{PROJECT_PRIVATE_DIGEST}",\n    ),'
+        f'        25,\n        "{PROJECT_PRIVATE_DIGEST}",\n    ),'
     ) in phase33
 
     for relative_path, expected_hash in PROTECTED_HASHES.items():
@@ -1388,6 +1390,8 @@ def test_static_git_helper_and_exact_slice12_dirty_set_are_locked() -> None:
             expected_head = SLICE5_BASE_HEAD_SHA
         elif path_counts == SLICE6_PATH_COUNTS:
             expected_head = SLICE6_BASE_HEAD_SHA
+        elif path_counts == SLICE7_PATH_COUNTS:
+            expected_head = SLICE7_BASE_HEAD_SHA
         assert _git_output(["rev-parse", "HEAD"]) == expected_head
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
     assert _git_output(["diff", "--check"]) == ""

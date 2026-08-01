@@ -123,7 +123,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "readme": (
         "README.md",
         1,
-        "8cd32bbc4359f85d7f4378867535e4d549a0147c22a1d365843e1f6ffd394138",
+        "b1a1df324e000daa1b11402961cbe404cf11f37c17f06543c5b1088972181dc0",
     ),
     "agents": (
         "AGENTS.md",
@@ -133,7 +133,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "pietto_v09": (
         "docs/spec/pietto-v0.9.md",
         1,
-        "a2a309e528264e3e095b95bbc92dcb9dc62002f303c1dc5522c9e00b37e15a6c",
+        "503d52f4a13bc763e90512a83524fa9778a6ae1c1af44006375c53d54adfa689",
     ),
 }
 

@@ -199,7 +199,7 @@ def _dirty_paths() -> set[str]:
     return paths
 
 
-def _phase54_slice4_gate2_paths() -> set[str]:
+def _phase54_active_gate2_paths() -> set[str]:
     tree = ast.parse(PHASE54_STATE_PATH.read_text(encoding="utf-8"))
     assignments = {
         node.targets[0].id: node.value
@@ -728,8 +728,8 @@ def test_protected_surfaces_version_tag_staging_and_dirty_set_are_locked() -> No
     assert _git_output(["tag", "--points-at", "HEAD"]) == ""
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
     dirty = _dirty_paths()
-    phase54_slice4 = _phase54_slice4_gate2_paths()
-    if dirty != phase54_slice4:
+    phase54_active_gate2 = _phase54_active_gate2_paths()
+    if dirty != phase54_active_gate2:
         for relative_path in PROTECTED_PATHS:
             assert _git_output(["diff", "--", relative_path]) == "", relative_path
     assert dirty in (
@@ -740,7 +740,7 @@ def test_protected_surfaces_version_tag_staging_and_dirty_set_are_locked() -> No
         ALLOWED_PHASE50_SLICE9_GATE2_PATHS,
         ALLOWED_PHASE50_SLICE10_GATE2_PATHS,
         ALLOWED_PHASE50_SLICE11_GATE2_PATHS,
-        phase54_slice4,
+        phase54_active_gate2,
     )
 
 

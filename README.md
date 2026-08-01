@@ -55,12 +55,13 @@ and the [Phase 54 plan](docs/plan/phase-54-local-import-module-export-foundation
 | MySQL | Explicit CLI lowering; private emitter/API surface |
 | Single-file mode | Check, explain, and emit SQL |
 | Project schema v1 | Available legacy-flat project checking |
-| Project schema v2 | Explicit modules, trusted loading, module AST, private local catalogs, and private export facades |
+| Project schema v2 | Explicit modules, trusted loading, module AST, private catalogs, export facades, and named-import binding environments |
 | Runtime | Compiler only; no database connection or SQL execution |
 
-Phase 54 is **ACTIVE**. Slices 1 through 6 are **COMPLETED**, Slices 7
-through 16 are **UNSTARTED**, and the next lifecycle state is
-`PHASE54_SLICE7_GATE0_GATE1`.
+Phase 54 is **ACTIVE**. Slices 1 through 6 are **COMPLETED**. Slice 7 is the
+Gate 2 named-import binding candidate awaiting reviewed-tree publication;
+Slices 8 through 16 are **UNSTARTED**, and the next lifecycle state after Gate
+2 is `PHASE54_SLICE7_GATE3`.
 
 Slice 3 provides stable project-relative module identity, an immutable
 selected-input index, pinned-root path checks, and trusted source loading.
@@ -73,9 +74,13 @@ and one immutable local-declaration catalog per parsed module. These catalogs
 do not consume import/export metadata and select no duplicate winner. Slice 6
 adds private-by-default local visibility, exact six-kind local export matching,
 a narrow caller-supplied explicit named re-export seam, and one immutable
-private export facade per parsed module. Actual import target resolution,
-binding environments, collision diagnostics, module graphs, cross-module
-resolution, inspection, and serialization remain later work within Phase 54.
+private export facade per parsed module. Slice 7 resolves exact named-import
+targets only through the selected-input index and direct facades, preserves
+import-side aliases and nominal target identities, retains immutable binding
+environments and private no-winner collision facts, and supplies real
+candidates to the Slice 6 seam. Public collision diagnostics, module graphs,
+cross-module semantic resolution, inspection, and serialization remain later
+work within Phase 54.
 Schema v2 therefore remains a foundation rather than a completed module
 system. The runnable Quick Start remains schema v1.
 
@@ -235,7 +240,8 @@ facts and forward-compatible foundations.
 | Project provenance, lineage, capability, and module carriers | Private | Compiler facts, not public API promises |
 | Schema-v2 module identity, selected-input index, and trusted loader | Foundation | Active Phase 54 module-loading boundary |
 | Import/export syntax and private export facades | Foundation | Slice 4 AST and Slice 6 private visibility/facade facts |
-| Import bindings and cross-module semantic resolution | Planned | Slice 7 and later Phase 54 work |
+| Named-import aliases and binding environments | Private | Slice 7 exact direct-facade facts; public diagnostics remain deferred |
+| Cross-module semantic resolution | Planned | Slice 8 and later Phase 54 work |
 
 Existing project facts include deterministic source ordering, flat namespace
 resolution for schema v1, row-schema propagation, relation dependency graphs,
@@ -273,20 +279,24 @@ include = ["models/*.pietto"]
 ```
 
 The explicit-module identity, trusted-loading, import/export AST, local
-catalog, and private export-facade foundation exists, while import binding and
-module semantic resolution remain under active Phase 54 development.
+catalog, private export-facade, and named-import binding-environment foundation
+exists, while public module diagnostics and cross-module semantic resolution
+remain under active Phase 54 development.
 
 After Slice 3, each selected path has a stable logical module identity and an
 immutable index entry. Project roots and source targets are pinned and checked
 across discovery and reading; trusted snapshots preserve the exact bytes given
 to the parser. Slice 4 retains contextual import/export AST, Slice 5 builds one
-complete local declaration catalog per parsed module, and Slice 6 derives one
-private-by-default export facade per catalog. These carriers remain private and
-are not serialized into the current public project JSON envelope.
+complete local declaration catalog per parsed module, Slice 6 derives one
+private-by-default export facade per catalog, and Slice 7 builds one immutable
+named-import environment per parsed module and integrates exact candidates back
+into those facades. These carriers remain private and are not serialized into
+the current public project JSON envelope.
 
-Schema-v2 semantic completion intentionally fails closed until module binding
-and cross-module resolution exist. It is not yet a drop-in import system, and
-multiple files cannot import symbols through production module syntax.
+Schema-v2 semantic completion intentionally fails closed even though private
+named-import bindings now exist. It is not yet a public module system because
+graph validation, diagnostics, and cross-module type/relation resolution remain
+future slices.
 
 The activation carrier is specified in the
 [schema-v2 carrier contract](docs/spec/phase54-slice2-schema-v2-explicit-module-activation-and-immutable-carrier-v1.md).
@@ -294,6 +304,8 @@ The loader and identity boundary is specified in the
 [Slice 3 trusted-loader contract](docs/spec/phase54-slice3-module-identity-selected-input-index-trusted-local-loader-path-symlink-boundary-v1.md).
 The private visibility and facade boundary is specified in the
 [Slice 6 export-facade contract](docs/spec/phase54-slice6-local-export-eligibility-visibility-explicit-named-reexport-and-facade-semantics-v1.md).
+The private named-import binding boundary is specified in the
+[Slice 7 binding-environment contract](docs/spec/phase54-slice7-named-imports-aliases-binding-environments-and-collision-rules-v1.md).
 
 ## Compiler Architecture
 
@@ -331,7 +343,7 @@ percentages. The complete route is maintained in the
 
 | Route | Product milestone | Status or boundary |
 | --- | --- | --- |
-| Phase 54 | Local module, import, export, binding, graph, and hardening foundation | Active after Slice 6 |
+| Phase 54 | Local module, import, export, binding, graph, and hardening foundation | Active; Slice 7 Gate 2 candidate |
 | Phases 55–59 | Package assets, capability profiles, extension catalog, public inspection, and local package graph | Planned |
 | Phase 60 | Advanced windows and ecosystem/release-readiness checkpoint | Planned; no tag or publication |
 | Phases 61–63 | Project IR, relationships, JOIN semantics, multi-relation SQL, and `QUALIFY` | Planned |
