@@ -1117,7 +1117,7 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
     gate2_active = phase54_active_gate2_manifest_is_active()
     assert _matches_phase54_active_gate2_manifest(_active_state())
     for changed in (
-        replace(_active_state(), marker="PHASE54_SLICE6_GATE2"),
+        replace(_active_state(), marker="PHASE54_SLICE7_GATE2"),
         replace(_active_state(), branch_oid="0" * 40),
         replace(_active_state(), added_paths=frozenset()),
         replace(
@@ -1156,9 +1156,12 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
         )
 
     source = (REPO_ROOT / SOURCE_REL).read_text(encoding="utf-8")
-    production = "\n".join(
+    graph_path = REPO_ROOT / "src/pietto/_project/module_graph.py"
+    graph_source = graph_path.read_text(encoding="utf-8")
+    non_graph_production = "\n".join(
         path.read_text(encoding="utf-8")
         for path in (REPO_ROOT / "src/pietto").rglob("*.py")
+        if path != graph_path
     )
     public = "\n".join(
         (REPO_ROOT / relative).read_text(encoding="utf-8")
@@ -1172,7 +1175,11 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
     )
     assert "ImportStatement.target" not in source
     assert "module graph" not in source.lower()
-    assert not any(f"PIE-S270{number}" in production for number in range(1, 8))
+    for number in range(1, 8):
+        code = f"PIE-S270{number}"
+        assert code in graph_source
+        assert code not in non_graph_production
+        assert code not in public
     assert "ProjectModuleExport" not in public
     for name in (
         "ProjectModuleExportRequest",
@@ -1197,7 +1204,7 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
     assert len(tests) == 30
     assert all(not node.decorator_list for node in tests)
     assert len(PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 3
-    assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 59
+    assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 66
     assert PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
     dirty = {
         *subprocess.run(

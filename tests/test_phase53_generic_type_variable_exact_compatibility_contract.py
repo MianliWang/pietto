@@ -540,8 +540,9 @@ PHASE54_SLICE4_BASE_HEAD = "15bae172ee151e370fe59d3bf909d735aee6aa90"
 PHASE54_SLICE5_BASE_HEAD = "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01"
 PHASE54_SLICE6_BASE_HEAD = "c44a4271d9592cb393d2232f127a59d8466cc60a"
 PHASE54_SLICE7_BASE_HEAD = "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16"
+PHASE54_SLICE8_BASE_HEAD = "027b33cafcfd58916a89e299487dad38d24ade6c"
 FINAL_COMPILER_DIGEST = (
-    "6f1689dc2d0d679702c782b24c08502630c04cf262d33e339606976a880f370d"
+    "f40984f94b3aa3c21559726f591c1ce192b6dc54754b4b23b350ae9ba7130eba"
 )
 FINAL_SEMANTIC_DIGEST = (
     "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
@@ -1889,7 +1890,7 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        100,
+        101,
         36,
         33,
     )
@@ -1928,6 +1929,7 @@ def test_slice4_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             PHASE54_SLICE5_BASE_HEAD,
             PHASE54_SLICE6_BASE_HEAD,
             PHASE54_SLICE7_BASE_HEAD,
+            PHASE54_SLICE8_BASE_HEAD,
         }:
             expected_modified, expected_added = _phase54_slice2_paths()
             expected_base = head
@@ -1982,7 +1984,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         len(markdown_paths),
         len(test_paths),
         top_level_functions,
-    ) == (906, 557, 253, 456, 5028)
+    ) == (909, 559, 254, 457, 5058)
     self_tree = ast.parse(SELF_PATH.read_text())
     self_names = tuple(
         node.name

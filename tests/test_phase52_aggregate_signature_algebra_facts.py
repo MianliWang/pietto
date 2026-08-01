@@ -52,13 +52,13 @@ LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf2
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 SIGNATURE_SHA256 = "810f347080e0bb7dc674821aa6387c5f7618ac216832194ef19820326eef71d2"
 CONTEXT_SHA256 = "132371eccca00ca9f8722a34f1ea0f540933515e560639ee12e53aee6594c60c"
-COMPILER_DIGEST = "6f1689dc2d0d679702c782b24c08502630c04cf262d33e339606976a880f370d"
+COMPILER_DIGEST = "f40984f94b3aa3c21559726f591c1ce192b6dc54754b4b23b350ae9ba7130eba"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "9e97a544fba88ee7c93fc0ecb3966fbb4c5d5fe736da0b19c92a53778419e78f"
+    "f92400c4c1e9685d434644414a34bf1658ca44fb783d585fbf7f0582dea4e219"
 )
 
 SPEC_H2 = (
@@ -371,6 +371,7 @@ def _slice13_paths(name: str) -> set[str]:
         "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
         "c44a4271d9592cb393d2232f127a59d8466cc60a",
         "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16",
+        "027b33cafcfd58916a89e299487dad38d24ade6c",
     }:
         modified, added = _phase54_slice2_paths()
         if name == "MODIFIED_PATHS":
@@ -1782,11 +1783,11 @@ def test_compiler_semantic_subset_project_and_raw_hash_readers_are_exact() -> No
     )
     project_paths = _project_private_paths()
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        100,
+        101,
         36,
         33,
     )
-    assert len(project_paths) == 25
+    assert len(project_paths) == 26
     assert _digest(compiler_paths) == COMPILER_DIGEST
     assert _digest(semantic_paths) == SEMANTIC_DIGEST
     assert _digest(phase15_paths) == PHASE15_SUBSET_DIGEST
@@ -1949,6 +1950,7 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
             "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
             "c44a4271d9592cb393d2232f127a59d8466cc60a",
             "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16",
+            "027b33cafcfd58916a89e299487dad38d24ade6c",
         )
     elif dirty_paths == SLICE9_ALLOWLIST_PATHS:
         assert branch == "main"
@@ -2050,7 +2052,7 @@ def test_static_test_inventory_and_tier1_selection_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (456, 5028)
+    assert (len(test_files), top_level_functions) == (457, 5058)
 
     compatible, per_file_items = _prior_compatible_nodes()
     assert (len(compatible), per_file_items) == (69, (24, 33, 63))

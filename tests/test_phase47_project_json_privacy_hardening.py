@@ -6,7 +6,7 @@ import subprocess
 from typing import cast
 
 from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_slice8_gate2_is_active,
 )
 
 import pytest
@@ -253,7 +253,8 @@ def test_phase47_slice10_package_version_and_dirty_paths_are_locked() -> None:
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
     assert (
-        dirty_paths.issubset(ALLOWED_SLICE10_GATE2_PATHS) or _phase54_gate2_is_active()
+        dirty_paths.issubset(ALLOWED_SLICE10_GATE2_PATHS)
+        or _phase54_slice8_gate2_is_active()
     )
 
 

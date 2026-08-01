@@ -889,11 +889,18 @@ def test_single_file_public_privacy_scope_and_flat_evidence_contract_remain_exac
     for path in expected_paths:
         assert path in spec
     assert "/evidence/phase54-slice3/" not in spec
-    assert "PIE-S2701" not in "\n".join(
+    graph_path = REPO_ROOT / "src/pietto/_project/module_graph.py"
+    graph_source = graph_path.read_text(encoding="utf-8")
+    non_graph_production = "\n".join(
         path.read_text(encoding="utf-8")
         for path in (REPO_ROOT / "src/pietto").rglob("*.py")
+        if path != graph_path
     )
-    assert "## Status And Slice 7 Lifecycle" in plan
+    assert all(f"PIE-S270{number}" in graph_source for number in range(1, 8))
+    assert not any(
+        f"PIE-S270{number}" in non_graph_production for number in range(1, 8)
+    )
+    assert "## Status And Slice 8 Lifecycle" in plan
     assert "## Slice 3 Exact Production Boundary And Gate Contract" in plan
     assert "## Slice 4 Exact Production Boundary And Gate Contract" in plan
     assert source.count("\ndef test_") == 26

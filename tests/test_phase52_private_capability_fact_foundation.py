@@ -217,6 +217,7 @@ def _slice13_paths(name: str) -> set[str]:
         "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
         "c44a4271d9592cb393d2232f127a59d8466cc60a",
         "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16",
+        "027b33cafcfd58916a89e299487dad38d24ade6c",
     }:
         modified, added = _phase54_slice2_paths()
         if name == "MODIFIED_PATHS":
@@ -822,7 +823,7 @@ def test_slice2_spec_locks_read_model_non_authority_and_conflict_preservation() 
 
 def test_compiler_boundary_and_all_compatibility_hash_locks_are_consistent() -> None:
     compiler_paths = _compiler_paths()
-    assert len(compiler_paths) == 100
+    assert len(compiler_paths) == 101
     compiler_digest = _digest(compiler_paths)
     for path in BOUNDARY_PATHS:
         assert f'BOUNDARY_HASH = "{compiler_digest}"' in _read(REPO_ROOT / path)
@@ -908,9 +909,9 @@ def test_compiler_boundary_and_all_compatibility_hash_locks_are_consistent() -> 
 
 def test_project_boundary_package_version_and_release_state_are_unchanged() -> None:
     project_paths = _project_private_paths()
-    assert len(project_paths) == 25
+    assert len(project_paths) == 26
     assert _digest(project_paths) == (
-        "9e97a544fba88ee7c93fc0ecb3966fbb4c5d5fe736da0b19c92a53778419e78f"
+        "f92400c4c1e9685d434644414a34bf1658ca44fb783d585fbf7f0582dea4e219"
     )
     with PYPROJECT_PATH.open("rb") as stream:
         project = tomllib.load(stream)

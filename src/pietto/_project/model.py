@@ -42,6 +42,10 @@ if TYPE_CHECKING:
     from pietto._project.module_bindings import ProjectModuleBindingEnvironmentSet
     from pietto._project.module_catalog import ProjectModuleCatalogSet
     from pietto._project.module_exports import ProjectModuleExportSurfaceSet
+    from pietto._project.module_graph import (
+        ProjectModuleDiagnosticSet,
+        ProjectModuleGraph,
+    )
     from pietto._project.row_dependency_graph import ProjectRelationRowDependencyGraph
     from pietto._project.row_lineage import ProjectRelationRowLineage
     from pietto._project.window_semantics import WindowResultProjectFact
@@ -794,6 +798,8 @@ class ProjectSemanticResult:
     module_catalogs: ProjectModuleCatalogSet | None = None
     module_exports: ProjectModuleExportSurfaceSet | None = None
     module_bindings: ProjectModuleBindingEnvironmentSet | None = None
+    module_graph: ProjectModuleGraph | None = None
+    module_diagnostic_facts: ProjectModuleDiagnosticSet | None = None
 
     @property
     def ok(self) -> bool:
@@ -833,6 +839,10 @@ def build_empty_project_semantic_result(
         from pietto._project.module_exports import (
             _build_project_module_export_surface_set,
         )
+        from pietto._project.module_graph import (
+            _build_project_module_diagnostic_set,
+            _build_project_module_graph,
+        )
 
         module_catalogs = _build_project_module_catalog_set(parse_result.modules)
         assert parse_result.selected_input_index is not None
@@ -840,6 +850,20 @@ def build_empty_project_semantic_result(
             parse_result.selected_input_index,
             parse_result.modules,
             module_catalogs,
+        )
+        module_exports = _build_project_module_export_surface_set(
+            module_catalogs,
+            imported_binding_candidates=module_bindings.imported_export_candidates,
+        )
+        module_graph = _build_project_module_graph(
+            parse_result.selected_input_index,
+            parse_result.modules,
+            module_bindings,
+        )
+        module_diagnostic_facts = _build_project_module_diagnostic_set(
+            module_graph,
+            module_exports,
+            module_bindings,
         )
 
         return ProjectSemanticResult(
@@ -852,13 +876,11 @@ def build_empty_project_semantic_result(
             selected_input_index=parse_result.selected_input_index,
             trusted_source_snapshots=parse_result.trusted_source_snapshots,
             module_catalogs=module_catalogs,
-            module_exports=_build_project_module_export_surface_set(
-                module_catalogs,
-                imported_binding_candidates=(
-                    module_bindings.imported_export_candidates
-                ),
-            ),
+            module_exports=module_exports,
             module_bindings=module_bindings,
+            module_graph=module_graph,
+            module_diagnostic_facts=module_diagnostic_facts,
+            diagnostics=module_diagnostic_facts.diagnostics,
         )
 
     catalog, catalog_diagnostics = _build_project_semantic_catalog(
