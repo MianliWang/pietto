@@ -3,6 +3,10 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+from _phase54_active_gate2_manifest import (  # noqa: F401
+    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+)
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLAN_PATH = REPO_ROOT / "docs/plan/phase-21-group-by-contract-planning.md"
 CHECK_GOLDENS_PATH = REPO_ROOT / "scripts/check_goldens.py"

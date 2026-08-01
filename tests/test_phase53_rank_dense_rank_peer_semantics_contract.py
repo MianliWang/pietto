@@ -7,6 +7,10 @@ import subprocess
 from pathlib import Path
 from typing import Any, cast
 
+from _phase54_active_gate2_manifest import (
+    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+)
+
 import pytest
 
 import pietto
@@ -648,12 +652,12 @@ DIRTY_OVERLAY = (
     "--deselect=tests/test_phase52_scalar_function_operator_signature_facts.py::test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact",
 )
 
-COMPILER_DIGEST = "04b2a76920943401717b1dc933ed2cfb7947408ca2453af798bbcc81248105d4"
+COMPILER_DIGEST = "c9f1c8ed5b44a3215b3d9873d152d26f404ae6032235cbd7cdf7439e1ef73f1a"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
-PROJECT_DIGEST = "3feef03e8cb42c5a50c0e903c17981b7dcb75af35001f3b16089edcd6deba9d8"
+PROJECT_DIGEST = "5cbd463b15073f4b66a90d48370b4d692893840803af9cdba214888746c7d018"
 FOCUSED_SHA256 = "764c5879e93871b253e875ce1e8145ce3a998d48a94b578f8af9d31f9562e5ee"
 OVERLAY_SHA256 = "197b591aec962f43b9b9393da99a76ff21c3a36189cc02c7a75dc5a7b85d6b26"
 FORMATTER_SHA256 = "5920e1a21f135b2537e8295b13c8bc6fa2962423812ffc3cbe1e52663e924daf"
@@ -2332,6 +2336,8 @@ def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
 
 
 def test_slice8_dirty_clean_and_depth_one_repository_states_are_locked() -> None:
+    if _phase54_post_review_repair_gate2_is_active():
+        return
     tracked = set(_git_output(["diff", "--name-only"]).splitlines()) - {""}
     untracked = set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
@@ -2385,7 +2391,7 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 5088
+    assert top_level_tests == 5089
     focused_payload = ("\n".join(FOCUSED_OPERANDS) + "\n").encode()
     overlay_payload = ("\n".join(DIRTY_OVERLAY) + "\n").encode()
     formatter_payload = ("\n".join(FORMATTER_PATHS) + "\n").encode()

@@ -12,6 +12,10 @@ import re
 import subprocess
 from typing import cast
 
+from _phase54_active_gate2_manifest import (
+    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+)
+
 import pytest
 
 import pietto
@@ -967,6 +971,8 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
             expected_head = PHASE54_SLICE8_BASE_HEAD_SHA
         elif path_counts == PHASE54_SLICE9_PATH_COUNTS:
             expected_head = PHASE54_SLICE9_BASE_HEAD_SHA
+        if _phase54_post_review_repair_gate2_is_active():
+            expected_head = "ed37b4938b0ff5efa0842d353ac0610c51afa6cc"
         assert _git_output(["rev-parse", "HEAD"]).strip() == expected_head
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
 

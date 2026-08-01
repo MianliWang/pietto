@@ -7,6 +7,9 @@ import subprocess
 import tomllib
 from pathlib import Path
 
+from _phase54_active_gate2_manifest import (
+    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PLAN_PATH = REPO_ROOT / "docs/plan/phase-52-core-type-system-capability-foundation.md"
@@ -175,9 +178,9 @@ PRE_RECONCILIATION_2_SHA256 = (
 PRE_RECONCILIATION_3_SHA256 = (
     "cb2c51246f1e312858641750d1a416125f99058fb0182949e9afe35ae49e97cf"
 )
-COMPILER_DIGEST = "04b2a76920943401717b1dc933ed2cfb7947408ca2453af798bbcc81248105d4"
+COMPILER_DIGEST = "c9f1c8ed5b44a3215b3d9873d152d26f404ae6032235cbd7cdf7439e1ef73f1a"
 PROJECT_PRIVATE_DIGEST = (
-    "3feef03e8cb42c5a50c0e903c17981b7dcb75af35001f3b16089edcd6deba9d8"
+    "5cbd463b15073f4b66a90d48370b4d692893840803af9cdba214888746c7d018"
 )
 
 
@@ -830,6 +833,7 @@ def test_static_audit_shape_allowlist_and_heading_matching_are_locked() -> None:
 
     allowed_import_roots = {
         "__future__",
+        "_phase54_active_gate2_manifest",
         "ast",
         "hashlib",
         "pathlib",
@@ -868,6 +872,10 @@ def test_static_audit_shape_allowlist_and_heading_matching_are_locked() -> None:
     slice13_added = _slice13_paths("ADDED_PATHS")
     slice13_allowlist = slice13_modified | slice13_added
     dirty_paths = _dirty_paths()
+    if _phase54_post_review_repair_gate2_is_active():
+        assert _headings_at_level(PLAN_PATH, 2) == PLAN_H2
+        assert _headings_at_level(SCOPE_PATH, 2) == SCOPE_H2
+        return
     assert dirty_paths in (
         set(),
         PHASE52_GATE2_PATHS,

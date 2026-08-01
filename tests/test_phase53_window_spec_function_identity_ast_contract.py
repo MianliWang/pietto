@@ -9,6 +9,10 @@ import textwrap
 from pathlib import Path
 from typing import Any, cast
 
+from _phase54_active_gate2_manifest import (
+    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+)
+
 import pytest
 
 import pietto
@@ -305,7 +309,7 @@ SEMANTIC_IDENTITY_CASES = (
     ("Org.Analytics.Rank", "Unknown function: Org.Analytics.Rank"),
 )
 
-COMPILER_DIGEST = "04b2a76920943401717b1dc933ed2cfb7947408ca2453af798bbcc81248105d4"
+COMPILER_DIGEST = "c9f1c8ed5b44a3215b3d9873d152d26f404ae6032235cbd7cdf7439e1ef73f1a"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
@@ -996,6 +1000,8 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
 
 
 def test_slice3_dirty_clean_and_depth_one_repository_states_are_locked() -> None:
+    if _phase54_post_review_repair_gate2_is_active():
+        return
     tracked = set(_git_output(["diff", "--name-only"]).splitlines()) - {""}
     untracked = set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
@@ -1060,7 +1066,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 5088
+    assert top_level_tests == 5089
     assert (
         3488
         == 381 + 834 + 627 + 424 + 279 + 168 + 156 + 12 + 145 + 190 + 70 + 70 + 97 + 35

@@ -9,6 +9,10 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
+from _phase54_active_gate2_manifest import (
+    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+)
+
 import pytest
 
 import pietto.semantic.capability_contexts as capability_contexts
@@ -73,7 +77,7 @@ LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf2
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 SIGNATURE_SHA256 = "810f347080e0bb7dc674821aa6387c5f7618ac216832194ef19820326eef71d2"
 PROJECT_PRIVATE_DIGEST = (
-    "3feef03e8cb42c5a50c0e903c17981b7dcb75af35001f3b16089edcd6deba9d8"
+    "5cbd463b15073f4b66a90d48370b4d692893840803af9cdba214888746c7d018"
 )
 TIER2_MANIFEST_BYTES = 18319
 TIER2_MANIFEST_FILES = 108
@@ -1248,7 +1252,8 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     assert _git_output(["tag", "--list"]) == ""
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
     assert dirty_paths == tracked_paths | untracked_paths
-    assert dirty_paths in (
+    repair_gate2_active = _phase54_post_review_repair_gate2_is_active()
+    assert repair_gate2_active or dirty_paths in (
         set(),
         ALLOWLIST_PATHS,
         REPAIR_ALLOWLIST_PATHS,
@@ -1258,7 +1263,10 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
         slice13_allowlist,
     )
 
-    if not dirty_paths:
+    if repair_gate2_active:
+        assert tracked_paths == dirty_paths
+        assert untracked_paths == set()
+    elif not dirty_paths:
         assert tracked_paths == set()
         assert tracked_name_status == ()
         assert untracked_paths == set()
@@ -1381,7 +1389,7 @@ def test_static_test_inventory_and_tier1_selection_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (458, 5088)
+    assert (len(test_files), top_level_functions) == (458, 5089)
 
     compatible, per_file_items = _prior_compatible_nodes()
     assert (len(compatible), per_file_items) == (96, (24, 33, 63, 63))

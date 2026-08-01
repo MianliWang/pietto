@@ -10,6 +10,10 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, cast
 
+from _phase54_active_gate2_manifest import (  # noqa: F401
+    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+)
+
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -17,7 +21,7 @@ AUDIT_PATH = REPO_ROOT / "scripts" / "check_goldens.py"
 POLICY_PATH = REPO_ROOT / "docs" / "spec" / "golden-fixture-policy-v1.md"
 GOLDEN_ROOT = REPO_ROOT / "tests" / "fixtures" / "golden"
 GOLDEN_HASH = "0e26a0b367a2ae849e5ec1e9a239be42765bea2c352242db5da930ab56b43004"
-BOUNDARY_HASH = "04b2a76920943401717b1dc933ed2cfb7947408ca2453af798bbcc81248105d4"
+BOUNDARY_HASH = "c9f1c8ed5b44a3215b3d9873d152d26f404ae6032235cbd7cdf7439e1ef73f1a"
 VALIDATION_GATES = (
     ("lockfile", ("uv", "lock", "--check")),
     ("format", ("uv", "run", "ruff", "format", "--check", ".")),

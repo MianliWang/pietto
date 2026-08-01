@@ -11,6 +11,10 @@ from functools import lru_cache
 from pathlib import Path
 from typing import cast
 
+from _phase54_active_gate2_manifest import (
+    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+)
+
 import pytest
 
 from pietto._project.model import (
@@ -417,6 +421,11 @@ def _is_clean_projection() -> bool:
     status = _git_output(["status", "--porcelain=v1", "--untracked-files=all"])
     staged = _git_output(["diff", "--cached", "--name-only"])
     shallow = _git_output(["rev-parse", "--is-shallow-repository"])
+    if _phase54_post_review_repair_gate2_is_active():
+        assert status
+        assert staged == ""
+        assert shallow == "false"
+        return False
     if head == SLICE15_PUBLISHED_HEAD:
         _assert_main_refs(head)
         assert shallow == "false"

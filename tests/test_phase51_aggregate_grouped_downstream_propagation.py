@@ -13,6 +13,10 @@ import subprocess
 from types import MappingProxyType
 from typing import Any, cast
 
+from _phase54_active_gate2_manifest import (
+    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+)
+
 import pytest
 
 import pietto
@@ -1512,6 +1516,8 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
             expected_head = PHASE54_SLICE8_BASE_HEAD_SHA
         elif is_phase54_slice9:
             expected_head = PHASE54_SLICE9_BASE_HEAD_SHA
+        if _phase54_post_review_repair_gate2_is_active():
+            expected_head = "ed37b4938b0ff5efa0842d353ac0610c51afa6cc"
         assert _git_output(["rev-parse", "HEAD"]).strip() == expected_head
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
 
@@ -1554,6 +1560,21 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
                     == 1
                 )
                 assert changed_lines.count(f'+BOUNDARY_HASH = "{compiler_digest}"') == 1
+            elif _phase54_post_review_repair_gate2_is_active():
+                assert changed_lines[0] in {
+                    "+from _phase54_active_gate2_manifest import (",
+                    "+from _phase54_active_gate2_manifest import (  # noqa: F401",
+                }
+                assert changed_lines[1:4] == [
+                    "+    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,",
+                    "+)",
+                    "+",
+                ]
+                assert re.fullmatch(
+                    r'-BOUNDARY_HASH = "[0-9a-f]{64}"',
+                    changed_lines[4],
+                )
+                assert changed_lines[5] == (f'+BOUNDARY_HASH = "{compiler_digest}"')
             else:
                 assert len(changed_lines) == 2
                 assert re.fullmatch(
@@ -1566,7 +1587,7 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
     assert len(project_paths) == 27
     assert REPO_ROOT / "src/pietto/_project/window_persistence.py" in project_paths
     assert project_digest == (
-        "3feef03e8cb42c5a50c0e903c17981b7dcb75af35001f3b16089edcd6deba9d8"
+        "5cbd463b15073f4b66a90d48370b4d692893840803af9cdba214888746c7d018"
     )
     phase33 = (REPO_ROOT / "tests/test_phase33_completion_audit.py").read_text(
         encoding="utf-8"
@@ -1648,6 +1669,21 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
                 re.fullmatch(r'[+-]        "[0-9a-f]{64}",', line)
                 for line in phase33_changed_lines[4:]
             )
+        elif _phase54_post_review_repair_gate2_is_active():
+            assert phase33_changed_lines[0] in {
+                "+from _phase54_active_gate2_manifest import (",
+                "+from _phase54_active_gate2_manifest import (  # noqa: F401",
+            }
+            assert phase33_changed_lines[1:4] == [
+                "+    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,",
+                "+)",
+                "+",
+            ]
+            assert re.fullmatch(
+                r'[+-]        "[0-9a-f]{64}",',
+                phase33_changed_lines[4],
+            )
+            assert phase33_changed_lines[5] == f'+        "{project_digest}",'
         elif is_phase54_slice9:
             assert len(phase33_changed_lines) == 8
             assert phase33_changed_lines[0] == "-        26,"

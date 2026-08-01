@@ -5,6 +5,10 @@ import importlib.util
 from pathlib import Path
 from types import ModuleType
 
+from _phase54_active_gate2_manifest import (  # noqa: F401
+    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+)
+
 import pietto.sql as sql_api
 
 REPO_ROOT = Path(__file__).resolve().parents[1]

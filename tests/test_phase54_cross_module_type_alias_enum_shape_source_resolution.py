@@ -58,6 +58,7 @@ EXPECTED_TEST_NAMES = (
     "test_unresolved_import_root_suppresses_derived_type_error",
     "test_private_import_root_suppresses_derived_type_error",
     "test_import_collision_is_no_winner_and_suppresses_consumers",
+    "test_all_import_kind_local_candidate_collisions_are_no_winner",
     "test_export_and_inconsistent_facade_roots_suppress_consumers",
     "test_local_source_shape_resolves_direct_shape",
     "test_imported_source_and_shape_keep_both_local_and_target_identity",
@@ -224,6 +225,13 @@ def test_carrier_enums_fields_privacy_and_manifest_are_exact() -> None:
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE == (
         "0ceb9a476e6592714cdc76845949ba0ae5123eb5"
     )
+    assert active_gate2_manifest.PHASE54_POST_REVIEW_REPAIR_BASE == (
+        "ed37b4938b0ff5efa0842d353ac0610c51afa6cc"
+    )
+    assert active_gate2_manifest.PHASE54_POST_REVIEW_REPAIR_BRANCH == (
+        "phase54/slice9-cross-module-type-source-resolution"
+    )
+    assert len(active_gate2_manifest.PHASE54_POST_REVIEW_REPAIR_MODIFIED_PATHS) == 65
 
 
 def test_local_imported_and_reexported_nominal_identities_remain_distinct(
@@ -746,6 +754,94 @@ def test_import_collision_is_no_winner_and_suppresses_consumers(
     )
 
 
+def test_all_import_kind_local_candidate_collisions_are_no_winner(
+    tmp_path: Path,
+) -> None:
+    library_source = (
+        "type Email = Text not null\n"
+        "enum Status:\n"
+        "    active\n"
+        "    inactive\n"
+        "shape Customer:\n"
+        "    id: UUID not null\n"
+        'source customers: Customer is postgres.table("public.customers")\n'
+        "table CustomerTable:\n"
+        "    from customers\n"
+        "    select:\n"
+        "        id\n"
+        "query CustomerQuery:\n"
+        "    from CustomerTable\n"
+        "    select:\n"
+        "        id\n"
+        "export:\n"
+        "    type Email\n"
+        "    enum Status\n"
+        "    shape Customer\n"
+        "    source customers\n"
+        "    table CustomerTable\n"
+        "    query CustomerQuery\n"
+    )
+    import_targets = (
+        ("type", "Email"),
+        ("enum", "Status"),
+        ("shape", "Customer"),
+        ("source", "customers"),
+        ("table", "CustomerTable"),
+        ("query", "CustomerQuery"),
+    )
+    local_candidates = {
+        "type": "type X = Text\nshape Consumer:\n    value: X\n",
+        "enum": "enum X:\n    one\nshape Consumer:\n    value: X\n",
+        "shape": ("shape X:\n    value: Text\nshape Consumer:\n    value: X\n"),
+        "source": (
+            "shape LocalRow:\n"
+            "    value: Text\n"
+            'source X: LocalRow is postgres.table("local")\n'
+        ),
+    }
+
+    for import_kind, exported_name in import_targets:
+        for local_kind, local_source in local_candidates.items():
+            _, semantic = _semantic_project(
+                tmp_path / f"{import_kind}-{local_kind}",
+                {
+                    "a.pietto": (
+                        local_source
+                        + 'import "library.pietto":\n'
+                        + f"    {import_kind} {exported_name} as X\n"
+                    ),
+                    "library.pietto": library_source,
+                },
+            )
+            assert _diagnostic_pairs(semantic) == (
+                (
+                    "PIE-S2706",
+                    "Import binding collides with a local declaration: X",
+                ),
+            )
+            environment = _environment(semantic, "a.pietto")
+            assert environment.find_type_name("X") == ()
+            assert environment.find_source_name("X") == ()
+            blockers = tuple(
+                issue
+                for issue in environment.issues
+                if issue.status
+                is module_resolution.ProjectTypeSourceResolutionIssueStatus.MODULE_DIAGNOSTIC_BLOCKED
+                and issue.local_name == "X"
+            )
+            assert len(blockers) == 1
+            assert tuple(item.code for item in blockers[0].suppressing_diagnostics) == (
+                "PIE-S2706",
+            )
+            if local_kind != "source":
+                resolution = _type_resolution(
+                    environment,
+                    owner_name="Consumer",
+                    type_name="X",
+                )
+                assert resolution.direct_kind is ProjectResolvedTypeKind.UNKNOWN
+
+
 def test_export_and_inconsistent_facade_roots_suppress_consumers(
     tmp_path: Path,
 ) -> None:
@@ -942,7 +1038,7 @@ def test_text_json_status_docs_and_reader_fixed_point_are_exact(
         and node.name.startswith("test_")
     )
     assert tests == EXPECTED_TEST_NAMES
-    assert len(tests) == 30
+    assert len(tests) == 31
     assert all(
         not node.decorator_list
         for node in tree.body
@@ -958,14 +1054,18 @@ def test_text_json_status_docs_and_reader_fixed_point_are_exact(
     )
     assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 68
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
+    assert (
+        len(active_gate2_manifest.PHASE54_SLICE9_ORIGINAL_MECHANICAL_READER_PATHS) == 62
+    )
     assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 62
+    assert len(active_gate2_manifest.PHASE54_POST_REVIEW_REPAIR_MODIFIED_PATHS) == 65
     assert (
         "tests/test_phase54_module_graph_cycles_diagnostics_deterministic_ordering.py"
-        in active_gate2_manifest.MECHANICAL_READER_PATHS
+        in active_gate2_manifest.PHASE54_SLICE9_ORIGINAL_MECHANICAL_READER_PATHS
     )
     assert (
         "tests/test_phase54_module_qualified_nominal_declaration_catalogs.py"
-        in active_gate2_manifest.MECHANICAL_READER_PATHS
+        in active_gate2_manifest.PHASE54_SLICE9_ORIGINAL_MECHANICAL_READER_PATHS
     )
     spec = (REPO_ROOT / SPEC_REL).read_text(encoding="utf-8")
     registry = (REPO_ROOT / "docs/spec/diagnostics.md").read_text(encoding="utf-8")

@@ -10,6 +10,11 @@ from collections import Counter
 from pathlib import Path
 from typing import cast
 
+from _phase54_active_gate2_manifest import (
+    PHASE54_POST_REVIEW_REPAIR_MODIFIED_PATHS,
+    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+)
+
 import pietto.ir as ir_package
 import pietto.semantic as semantic_package
 import pietto.semantic.capability_windows as capability_windows
@@ -214,10 +219,10 @@ CAPABILITY_WINDOWS_SHA256 = (
     "c0512933fc284bbc1dec98dab96411ee179d64e7bee005aa798b6fd7dba2024e"
 )
 PATH_DIGESTS = {
-    "compiler": "04b2a76920943401717b1dc933ed2cfb7947408ca2453af798bbcc81248105d4",
+    "compiler": "c9f1c8ed5b44a3215b3d9873d152d26f404ae6032235cbd7cdf7439e1ef73f1a",
     "semantic": "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70",
     "phase15": "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d",
-    "project": "3feef03e8cb42c5a50c0e903c17981b7dcb75af35001f3b16089edcd6deba9d8",
+    "project": "5cbd463b15073f4b66a90d48370b4d692893840803af9cdba214888746c7d018",
 }
 PROTECTED_SHA256 = {
     ".github/workflows/ci.yml": "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94",
@@ -396,6 +401,15 @@ def _assert_allowed_dirty_state(
     main: str | None,
     origin_main: str | None,
 ) -> None:
+    if (
+        _phase54_post_review_repair_gate2_is_active()
+        and tracked == set(PHASE54_POST_REVIEW_REPAIR_MODIFIED_PATHS)
+        and untracked == set()
+        and branch == "phase54/slice9-cross-module-type-source-resolution"
+        and head == "ed37b4938b0ff5efa0842d353ac0610c51afa6cc"
+        and main == origin_main == "0ceb9a476e6592714cdc76845949ba0ae5123eb5"
+    ):
+        return
     dirty = tracked | untracked
     phase54_modified = cast(
         set[str],
@@ -941,7 +955,7 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
     top_functions = sum(
         len(_top_level_test_functions(f"tests/{path.name}")) for path in test_files
     )
-    assert (len(test_files), top_functions) == (458, 5088)
+    assert (len(test_files), top_functions) == (458, 5089)
     for digest, expected in (
         (PATH_DIGESTS["compiler"], 28),
         (PATH_DIGESTS["semantic"], 42),
@@ -1082,7 +1096,9 @@ def test_static_git_helper_and_exact_slice16_dirty_set_are_locked() -> None:
         origin_main=_git_optional_ref("refs/remotes/origin/main"),
     )
     if tracked or untracked:
-        if _git_output(["rev-parse", "HEAD"]) in {
+        if _phase54_post_review_repair_gate2_is_active() or _git_output(
+            ["rev-parse", "HEAD"]
+        ) in {
             "d8a5e9ab3de70ce30575513c73560c86430eca63",
             "15bae172ee151e370fe59d3bf909d735aee6aa90",
             "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",

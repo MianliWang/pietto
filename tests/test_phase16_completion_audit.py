@@ -7,6 +7,10 @@ import tomllib
 from collections.abc import Iterable
 from pathlib import Path
 
+from _phase54_active_gate2_manifest import (  # noqa: F401
+    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+)
+
 import pietto.cli_json as cli_json
 import pietto.sql as sql_api
 
@@ -36,13 +40,13 @@ PHASE16_ARTIFACT_HASHES = {
         "580ebcfcc78102d902110d864eb80c7f1a57ffcb6b4b33e1160c9abd17ba07a6"
     ),
     SLICE1_AUDIT_PATH: (
-        "977d58ce640678f69db874dceeee657de5f554ab734c80bc438b03940d1eef66"
+        "bea65796dae542437614598d2e6bbc23b278804e91f0c520ef68cf20b1de1172"
     ),
     SLICE2_AUDIT_PATH: (
-        "64d4045c452f145e3131a14d050bb9a135062cba95c39331c31e990cd55eacb3"
+        "fe80021e7f132e4a7438ea0cb89dd6434bb580d580338a8fc259e2c3f7ace117"
     ),
     SLICE3_AUDIT_PATH: (
-        "c538585c3338867770bc58a6a03ca803c8f1041e5a580a5db53fed1d14a0915e"
+        "eef0d6bc3bd0113a80cf17cebfde8e660c194b3011d88f7cc5ff6f2ace5b1701"
     ),
     PLAN_PATH: "adfb0d99075299049c790f465fab7453e0ed73b985e9cff19c6aeb38f94c7f5a",
 }

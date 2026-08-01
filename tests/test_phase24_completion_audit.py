@@ -8,6 +8,10 @@ from pathlib import Path
 from types import ModuleType
 from typing import cast
 
+from _phase54_active_gate2_manifest import (  # noqa: F401
+    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+)
+
 from pietto.semantic.catalog import BUILTIN_FUNCTIONS
 
 REPO_ROOT = Path(__file__).resolve().parents[1]

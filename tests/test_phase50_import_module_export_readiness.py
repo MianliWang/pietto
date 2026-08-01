@@ -6,6 +6,10 @@ import tomllib
 from pathlib import Path
 from typing import cast
 
+from _phase54_active_gate2_manifest import (  # noqa: F401
+    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+)
+
 from _static_audit_helpers import read_text as _read
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -218,6 +222,14 @@ def _phase54_slice9_gate2_paths() -> set[str]:
             return resolve(node.value)
         if isinstance(node, ast.Set):
             return set().union(*(resolve(element) for element in node.elts))
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "set"
+            and not node.args
+            and not node.keywords
+        ):
+            return set()
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
             return resolve(node.left) | resolve(node.right)
         raise AssertionError(ast.dump(node))

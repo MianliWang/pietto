@@ -13,6 +13,10 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, cast
 
+from _phase54_active_gate2_manifest import (  # noqa: F401
+    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+)
+
 import pietto.cli as cli
 import pietto.cli_json as cli_json
 import pietto.sql as sql_api
@@ -36,7 +40,7 @@ ALL_GOLDENS_HASH = "0e26a0b367a2ae849e5ec1e9a239be42765bea2c352242db5da930ab56b4
 HISTORICAL_GOLDENS_HASH = (
     "11d4343245dc18fd574999cbef5bff7c316d90975b3856ed729e8d2c1d579cf0"
 )
-BOUNDARY_HASH = "04b2a76920943401717b1dc933ed2cfb7947408ca2453af798bbcc81248105d4"
+BOUNDARY_HASH = "c9f1c8ed5b44a3215b3d9873d152d26f404ae6032235cbd7cdf7439e1ef73f1a"
 GENERATED_HASH = "9a84d108062bdbd87f5cd1d6e237e66f8bbb39d1d9d7674312eab6eb156cbad1"
 EXPECTED_BLOBS = {
     "scripts/validate.py": "e1607a47da34ff868ca09a128c8897a6a0dbad21",

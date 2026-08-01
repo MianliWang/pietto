@@ -55,6 +55,12 @@ _TYPE_KINDS = frozenset(
         ProjectSymbolKind.SHAPE,
     }
 )
+_COLLISION_ISSUE_STATUSES = frozenset(
+    {
+        ProjectModuleBindingIssueStatus.LOCAL_DECLARATION_COLLISION,
+        ProjectModuleBindingIssueStatus.IMPORT_BINDING_COLLISION,
+    }
+)
 _KeyT = TypeVar("_KeyT")
 _ValueT = TypeVar("_ValueT")
 
@@ -834,7 +840,10 @@ def _collect_module_diagnostic_blockers(
         kind = issue.request.identity.declaration_kind
         if kind in _TYPE_KINDS:
             namespace = ProjectSymbolNamespace.TYPE
-        elif kind is ProjectSymbolKind.SOURCE:
+        elif kind is ProjectSymbolKind.SOURCE or (
+            issue.status in _COLLISION_ISSUE_STATUSES
+            and issue.request.identity.namespace is ProjectSymbolNamespace.RELATION
+        ):
             namespace = ProjectSymbolNamespace.RELATION
         else:
             continue
@@ -874,7 +883,10 @@ def _collect_module_diagnostic_blockers(
                 suppressing_diagnostics=roots,
             )
         )
-        if namespace is ProjectSymbolNamespace.TYPE:
+        if any(item.status in _COLLISION_ISSUE_STATUSES for item in issue_tuple):
+            draft.blocked_type_names.add(local_name)
+            draft.blocked_source_names.add(local_name)
+        elif namespace is ProjectSymbolNamespace.TYPE:
             draft.blocked_type_names.add(local_name)
         else:
             draft.blocked_source_names.add(local_name)

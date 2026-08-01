@@ -5,6 +5,10 @@ import re
 from collections.abc import Iterable
 from pathlib import Path
 
+from _phase54_active_gate2_manifest import (  # noqa: F401
+    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+)
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 PYTHON_VERSION_PATH = REPO_ROOT / ".python-version"
@@ -22,7 +26,7 @@ EXPECTED_COMMANDS = (
     "uv run python scripts/check_goldens.py",
     "uv run python scripts/package_smoke.py",
 )
-BOUNDARY_HASH = "04b2a76920943401717b1dc933ed2cfb7947408ca2453af798bbcc81248105d4"
+BOUNDARY_HASH = "c9f1c8ed5b44a3215b3d9873d152d26f404ae6032235cbd7cdf7439e1ef73f1a"
 GOLDEN_HASH = "0e26a0b367a2ae849e5ec1e9a239be42765bea2c352242db5da930ab56b43004"
 SCRIPT_HASHES = {
     "scripts/validate.py": "e1607a47da34ff868ca09a128c8897a6a0dbad21",

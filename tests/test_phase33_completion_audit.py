@@ -6,6 +6,10 @@ import tomllib
 from pathlib import Path
 from typing import cast
 
+from _phase54_active_gate2_manifest import (  # noqa: F401
+    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+)
+
 import pytest
 
 import pietto.cli as cli
@@ -109,7 +113,7 @@ LOCKED_PHASE33_SURFACES = {
     "project_private": (
         "src/pietto/_project",
         27,
-        "3feef03e8cb42c5a50c0e903c17981b7dcb75af35001f3b16089edcd6deba9d8",
+        "5cbd463b15073f4b66a90d48370b4d692893840803af9cdba214888746c7d018",
     ),
     "cli": (
         "src/pietto/cli.py",

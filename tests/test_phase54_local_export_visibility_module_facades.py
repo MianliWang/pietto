@@ -1226,9 +1226,10 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
     active_allowlist = (
         PHASE54_ACTIVE_GATE2_ADDED_PATHS | PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
     )
-    assert dirty in (set(), active_allowlist)
+    repair_allowlist = active_gate2_manifest.PHASE54_POST_REVIEW_REPAIR_MODIFIED_PATHS
+    assert dirty in (set(), active_allowlist, repair_allowlist)
     if dirty:
         assert gate2_active
-        assert dirty == active_allowlist
+        assert dirty in (active_allowlist, repair_allowlist)
     else:
         assert not gate2_active

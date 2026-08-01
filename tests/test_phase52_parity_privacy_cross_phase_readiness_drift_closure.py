@@ -10,6 +10,11 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
+from _phase54_active_gate2_manifest import (
+    PHASE54_POST_REVIEW_REPAIR_MODIFIED_PATHS,
+    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+)
+
 import pytest
 
 import pietto.semantic.capability_aggregates as capability_aggregates
@@ -96,21 +101,21 @@ MODULE_SHA256 = {
 }
 SPEC_SHA256 = "7010cd8a39ed389de588d8cd734b136cc87456c3ef5eb324638467d1188fc935"
 MODIFIED_TEST_SHA256 = {
-    SLICE4_TEST_REL: "8b8e79c3f05bfd6a2192eb6488b584f023cc8a6e7eedffdc1bdc375d99230ed1",
-    SLICE5_TEST_REL: "207908e4323fc7e751ebf3be2143eeeff6e659d9ac5a20be81bde98d46e63119",
-    SLICE6_TEST_REL: "591e34306c38be6401f2b69cdc74fc6bc5e03ee07dd23ca74ed68b080c91129f",
-    SLICE7_TEST_REL: "45718227f523e4381d737c62fc2fc338d79fc9045caaf89d072e2f00c999a282",
+    SLICE4_TEST_REL: "7f37fa7f2037779ae3bc8e288e71aeb3c4251430ed1077ea248c93dfd224d8cf",
+    SLICE5_TEST_REL: "cf03c012e07d7736e63ed71ef0e538d5f5f9146aac7e4aa6f263729ecfb5c99f",
+    SLICE6_TEST_REL: "16ff3185f2488ef81baad83f98dea781631ff25e7239ffb8ca719c8a0d0d6f3c",
+    SLICE7_TEST_REL: "89dfa437a3d89c7e944e60185e71e0585c169b9d9761f6c2100cb2a2e62efb54",
 }
 WORKFLOW_SHA256 = "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94"
 PYPROJECT_SHA256 = "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01"
 LOCK_SHA256 = "a7d9125995e98a8a74d3664ceae7801cc1f4cce74ec323933da67838be199cea"
-COMPILER_DIGEST = "04b2a76920943401717b1dc933ed2cfb7947408ca2453af798bbcc81248105d4"
+COMPILER_DIGEST = "c9f1c8ed5b44a3215b3d9873d152d26f404ae6032235cbd7cdf7439e1ef73f1a"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "3feef03e8cb42c5a50c0e903c17981b7dcb75af35001f3b16089edcd6deba9d8"
+    "5cbd463b15073f4b66a90d48370b4d692893840803af9cdba214888746c7d018"
 )
 
 SPEC_H2 = (
@@ -483,6 +488,15 @@ def _assert_allowed_dirty_state(
     main: str | None,
     origin_main: str | None,
 ) -> None:
+    if (
+        _phase54_post_review_repair_gate2_is_active()
+        and tracked == set(PHASE54_POST_REVIEW_REPAIR_MODIFIED_PATHS)
+        and untracked == set()
+        and branch == "phase54/slice9-cross-module-type-source-resolution"
+        and head == "ed37b4938b0ff5efa0842d353ac0610c51afa6cc"
+        and main == origin_main == "0ceb9a476e6592714cdc76845949ba0ae5123eb5"
+    ):
+        return
     dirty = tracked | untracked
     slice13_modified = _slice13_paths("MODIFIED_PATHS")
     slice13_added = _slice13_paths("ADDED_PATHS")
@@ -2076,7 +2090,7 @@ def test_test_inventory_tier1_selectors_and_compatibility_counts_are_exact() -> 
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (458, 5088)
+    assert (len(test_files), top_level_functions) == (458, 5089)
     assert tuple(
         _pytest_shape(REPO_ROOT / path)[1]
         for path in (

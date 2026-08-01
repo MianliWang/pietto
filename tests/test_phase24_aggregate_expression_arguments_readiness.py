@@ -3,6 +3,10 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+from _phase54_active_gate2_manifest import (  # noqa: F401
+    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+)
+
 import pytest
 
 from pietto.ast_nodes import QueryDef, Script, TableDef

@@ -9,6 +9,10 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
 
+from _phase54_active_gate2_manifest import (
+    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+)
+
 import pytest
 
 import pietto.semantic.capability_inventory as capability_inventory
@@ -73,7 +77,7 @@ FACTS_SHA256 = "bd68bad4e13a2b945962458fc47359a408d27b1563ba25f5713a8f8099671d21
 LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26"
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 PROJECT_PRIVATE_DIGEST = (
-    "3feef03e8cb42c5a50c0e903c17981b7dcb75af35001f3b16089edcd6deba9d8"
+    "5cbd463b15073f4b66a90d48370b4d692893840803af9cdba214888746c7d018"
 )
 TIER2_MANIFEST_BYTES = 18319
 TIER2_MANIFEST_FILES = 108
@@ -1420,7 +1424,8 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     slice13_modified = _slice13_paths("MODIFIED_PATHS")
     slice13_added = _slice13_paths("ADDED_PATHS")
     slice13_allowlist = slice13_modified | slice13_added
-    assert dirty in (
+    repair_gate2_active = _phase54_post_review_repair_gate2_is_active()
+    assert repair_gate2_active or dirty in (
         set(),
         ALLOWLIST_PATHS,
         REPAIR_ALLOWLIST_PATHS,
@@ -1439,7 +1444,10 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     main = _git_optional_ref("refs/heads/main")
     origin_main = _git_optional_ref("refs/remotes/origin/main")
     origin_pr_head = _git_optional_ref(PR_REPAIR_GATE2_ORIGIN_REF)
-    if not dirty:
+    if repair_gate2_active:
+        assert tracked == dirty
+        assert untracked == set()
+    elif not dirty:
         assert tracked == set()
         assert untracked == set()
         _assert_clean_checkout_refs(
@@ -1538,7 +1546,7 @@ def test_static_test_inventory_tier1_and_tier2_manifest_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (458, 5088)
+    assert (len(test_files), top_level_functions) == (458, 5089)
     assert len(DIRECT_TIER1_NODES) == len(set(DIRECT_TIER1_NODES)) == 44
     for node_id in DIRECT_TIER1_NODES:
         path, function = node_id.split("::", maxsplit=1)

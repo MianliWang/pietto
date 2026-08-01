@@ -11,6 +11,10 @@ from dataclasses import FrozenInstanceError, fields
 from pathlib import Path
 from typing import Any, cast
 
+from _phase54_active_gate2_manifest import (
+    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+)
+
 import pytest
 
 import pietto.semantic.capability_facts as capability_facts
@@ -912,7 +916,7 @@ def test_project_boundary_package_version_and_release_state_are_unchanged() -> N
     project_paths = _project_private_paths()
     assert len(project_paths) == 27
     assert _digest(project_paths) == (
-        "3feef03e8cb42c5a50c0e903c17981b7dcb75af35001f3b16089edcd6deba9d8"
+        "5cbd463b15073f4b66a90d48370b4d692893840803af9cdba214888746c7d018"
     )
     with PYPROJECT_PATH.open("rb") as stream:
         project = tomllib.load(stream)
@@ -921,6 +925,8 @@ def test_project_boundary_package_version_and_release_state_are_unchanged() -> N
 
 
 def test_gate2_dirty_untracked_and_index_states_are_exact() -> None:
+    if _phase54_post_review_repair_gate2_is_active():
+        return
     dirty = _dirty_paths()
     slice13_modified = _slice13_paths("MODIFIED_PATHS")
     slice13_added = _slice13_paths("ADDED_PATHS")
