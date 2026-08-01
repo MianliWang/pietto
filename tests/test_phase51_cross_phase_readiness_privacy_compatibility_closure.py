@@ -105,6 +105,8 @@ SLICE7_BASE_HEAD_SHA = "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16"
 SLICE7_PATH_COUNTS = (59, 3, 62)
 SLICE8_BASE_HEAD_SHA = "027b33cafcfd58916a89e299487dad38d24ade6c"
 SLICE8_PATH_COUNTS = (66, 3, 69)
+SLICE9_BASE_HEAD_SHA = "0ceb9a476e6592714cdc76845949ba0ae5123eb5"
+SLICE9_PATH_COUNTS = (68, 3, 71)
 SLICE2_STATE_REL = "tests/_phase54_active_gate2_manifest.py"
 CI_REPAIR_BASE_HEAD_SHA = "321ec6f80737015648bc1f81b0561fdd34610e92"
 CI_REPAIR_MODIFIED_PATHS = {
@@ -908,7 +910,7 @@ def test_cross_phase_transition_and_live_identifier_inventory_is_exact() -> None
 def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> None:
     compiler_digest = _compiler_digest()
     assert compiler_digest == (
-        "f40984f94b3aa3c21559726f591c1ce192b6dc54754b4b23b350ae9ba7130eba"
+        "04b2a76920943401717b1dc933ed2cfb7947408ca2453af798bbcc81248105d4"
     )
     for relative_path in BOUNDARY_PATHS:
         boundary_values = re.findall(
@@ -931,14 +933,14 @@ def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> N
         )
     )
     project_digest = _digest(project_paths)
-    assert len(project_paths) == 26
+    assert len(project_paths) == 27
     assert project_digest == (
-        "f92400c4c1e9685d434644414a34bf1658ca44fb783d585fbf7f0582dea4e219"
+        "3feef03e8cb42c5a50c0e903c17981b7dcb75af35001f3b16089edcd6deba9d8"
     )
     phase33 = _read(REPO_ROOT / "tests/test_phase33_completion_audit.py")
     assert (
         f'"project_private": (\n        "src/pietto/_project",\n'
-        f'        26,\n        "{project_digest}",\n    ),'
+        f'        27,\n        "{project_digest}",\n    ),'
     ) in phase33
 
     for relative_path in (
@@ -946,7 +948,7 @@ def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> N
         "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
     ):
         source = _read(REPO_ROOT / relative_path)
-        assert "assert len(project_paths) == 26" in source
+        assert "assert len(project_paths) == 27" in source
     stale_count_assertion = "assert len(project_paths) == " + "15"
     assert all(
         stale_count_assertion not in _read(path)
@@ -1156,6 +1158,8 @@ def test_slice11_contract_plan_allowlist_and_protected_boundaries_are_locked() -
             expected_head = SLICE7_BASE_HEAD_SHA
         elif path_counts == SLICE8_PATH_COUNTS:
             expected_head = SLICE8_BASE_HEAD_SHA
+        elif path_counts == SLICE9_PATH_COUNTS:
+            expected_head = SLICE9_BASE_HEAD_SHA
         assert _git_output(["rev-parse", "HEAD"]) == expected_head
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
 

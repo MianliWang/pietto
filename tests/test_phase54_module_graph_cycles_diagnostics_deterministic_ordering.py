@@ -180,9 +180,9 @@ def test_graph_carrier_enums_fields_privacy_and_manifest_are_exact() -> None:
     for carrier, names in expected_fields.items():
         assert is_dataclass(carrier)
         assert tuple(item.name for item in fields(carrier)) == names
-    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER == "PHASE54_SLICE8_GATE2"
+    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER == "PHASE54_SLICE9_GATE2"
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE == (
-        "027b33cafcfd58916a89e299487dad38d24ade6c"
+        "0ceb9a476e6592714cdc76845949ba0ae5123eb5"
     )
 
 
@@ -899,5 +899,5 @@ def test_schema_v1_privacy_status_reader_fixed_point_and_slice9_boundary(
         and node.name.startswith("test_")
     )
     assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 3
-    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 66
+    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 68
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()

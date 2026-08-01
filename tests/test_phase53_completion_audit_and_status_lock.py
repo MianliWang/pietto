@@ -214,10 +214,10 @@ CAPABILITY_WINDOWS_SHA256 = (
     "c0512933fc284bbc1dec98dab96411ee179d64e7bee005aa798b6fd7dba2024e"
 )
 PATH_DIGESTS = {
-    "compiler": "f40984f94b3aa3c21559726f591c1ce192b6dc54754b4b23b350ae9ba7130eba",
+    "compiler": "04b2a76920943401717b1dc933ed2cfb7947408ca2453af798bbcc81248105d4",
     "semantic": "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70",
     "phase15": "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d",
-    "project": "f92400c4c1e9685d434644414a34bf1658ca44fb783d585fbf7f0582dea4e219",
+    "project": "3feef03e8cb42c5a50c0e903c17981b7dcb75af35001f3b16089edcd6deba9d8",
 }
 PROTECTED_SHA256 = {
     ".github/workflows/ci.yml": "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94",
@@ -463,6 +463,7 @@ def _assert_allowed_dirty_state(
             "c44a4271d9592cb393d2232f127a59d8466cc60a",
             "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16",
             "027b33cafcfd58916a89e299487dad38d24ade6c",
+            "0ceb9a476e6592714cdc76845949ba0ae5123eb5",
         }
         return
     assert tracked == SLICE16_MODIFIED_PATHS
@@ -902,10 +903,10 @@ def test_live_compiler_semantic_phase15_project_protected_version_and_tag_locks_
     )
     project = _project_paths()
     assert (len(compiler), len(semantic), len(phase15), len(project)) == (
-        101,
+        102,
         36,
         33,
-        26,
+        27,
     )
     assert {
         "compiler": _digest(compiler),
@@ -935,12 +936,12 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
         len(readable),
         sum(path.endswith(".py") for path in readable),
         sum(path.endswith(".md") for path in readable),
-    ) == (909, 559, 254)
+    ) == (912, 561, 255)
     test_files = tuple((REPO_ROOT / "tests").glob("test_*.py"))
     top_functions = sum(
         len(_top_level_test_functions(f"tests/{path.name}")) for path in test_files
     )
-    assert (len(test_files), top_functions) == (457, 5058)
+    assert (len(test_files), top_functions) == (458, 5088)
     for digest, expected in (
         (PATH_DIGESTS["compiler"], 28),
         (PATH_DIGESTS["semantic"], 42),
@@ -1088,6 +1089,7 @@ def test_static_git_helper_and_exact_slice16_dirty_set_are_locked() -> None:
             "c44a4271d9592cb393d2232f127a59d8466cc60a",
             "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16",
             "027b33cafcfd58916a89e299487dad38d24ade6c",
+            "0ceb9a476e6592714cdc76845949ba0ae5123eb5",
         }:
             expected_modified = cast(
                 set[str],

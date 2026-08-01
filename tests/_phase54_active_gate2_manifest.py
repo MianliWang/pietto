@@ -9,12 +9,12 @@ import subprocess
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-PHASE54_ACTIVE_GATE2_MARKER = "PHASE54_SLICE8_GATE2"
-PHASE54_ACTIVE_GATE2_BASE = "027b33cafcfd58916a89e299487dad38d24ade6c"
+PHASE54_ACTIVE_GATE2_MARKER = "PHASE54_SLICE9_GATE2"
+PHASE54_ACTIVE_GATE2_BASE = "0ceb9a476e6592714cdc76845949ba0ae5123eb5"
 ADDED_PATHS = {
-    "docs/spec/phase54-slice8-module-graph-cycles-diagnostics-and-deterministic-ordering-v1.md",
-    "src/pietto/_project/module_graph.py",
-    "tests/test_phase54_module_graph_cycles_diagnostics_deterministic_ordering.py",
+    "docs/spec/phase54-slice9-cross-module-type-alias-enum-shape-and-source-resolution-v1.md",
+    "src/pietto/_project/module_resolution.py",
+    "tests/test_phase54_cross_module_type_alias_enum_shape_source_resolution.py",
 }
 NON_READER_MODIFIED_PATHS = {
     "README.md",
@@ -82,7 +82,9 @@ MECHANICAL_READER_PATHS = {
     "tests/test_phase54_import_export_contextual_grammar_ast.py",
     "tests/test_phase54_local_export_visibility_module_facades.py",
     "tests/test_phase54_local_import_module_export_foundation_scope_lock.py",
+    "tests/test_phase54_module_graph_cycles_diagnostics_deterministic_ordering.py",
     "tests/test_phase54_module_identity_selected_input_index_trusted_local_loader.py",
+    "tests/test_phase54_module_qualified_nominal_declaration_catalogs.py",
     "tests/test_phase54_named_import_alias_binding_environments_collision_rules.py",
     "tests/test_phase54_schema_v2_explicit_module_carrier.py",
 }

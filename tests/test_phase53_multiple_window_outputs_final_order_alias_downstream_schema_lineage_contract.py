@@ -1489,7 +1489,7 @@ def test_recursive_reader_hash_terminal_and_manifest_fixed_point_is_exact() -> N
         for path in paths
         if path.startswith("src/pietto/_project/") and path.endswith(".py")
     )
-    assert len(project_paths) == 26
+    assert len(project_paths) == 27
     assert "src/pietto/_project/window_persistence.py" in project_paths
     digest = hashlib.sha256()
     for path in project_paths:
@@ -1533,11 +1533,11 @@ def test_test_inventory_focused_overlay_validation_and_gate3_are_exact() -> None
         len(test_paths),
         top_level_tests,
     ) == (
-        909,
-        559,
-        254,
-        457,
-        5058,
+        912,
+        561,
+        255,
+        458,
+        5088,
     )
     docs = _read(PLAN_REL)
     for value in (

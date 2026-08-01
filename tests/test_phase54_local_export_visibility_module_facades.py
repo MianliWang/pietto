@@ -1157,11 +1157,12 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
 
     source = (REPO_ROOT / SOURCE_REL).read_text(encoding="utf-8")
     graph_path = REPO_ROOT / "src/pietto/_project/module_graph.py"
+    resolution_path = REPO_ROOT / "src/pietto/_project/module_resolution.py"
     graph_source = graph_path.read_text(encoding="utf-8")
     non_graph_production = "\n".join(
         path.read_text(encoding="utf-8")
         for path in (REPO_ROOT / "src/pietto").rglob("*.py")
-        if path != graph_path
+        if path not in {graph_path, resolution_path}
     )
     public = "\n".join(
         (REPO_ROOT / relative).read_text(encoding="utf-8")
@@ -1204,7 +1205,7 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
     assert len(tests) == 30
     assert all(not node.decorator_list for node in tests)
     assert len(PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 3
-    assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 66
+    assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 68
     assert PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
     dirty = {
         *subprocess.run(

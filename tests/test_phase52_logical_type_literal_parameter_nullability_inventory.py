@@ -66,13 +66,13 @@ SLICE8_GATE2_BASE_HEAD_SHA = "11a0c48941c3c1c650be8d0ec8ddf5201f9525f2"
 
 FACTS_SHA256 = "bd68bad4e13a2b945962458fc47359a408d27b1563ba25f5713a8f8099671d21"
 LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26"
-COMPILER_DIGEST = "f40984f94b3aa3c21559726f591c1ce192b6dc54754b4b23b350ae9ba7130eba"
+COMPILER_DIGEST = "04b2a76920943401717b1dc933ed2cfb7947408ca2453af798bbcc81248105d4"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "f92400c4c1e9685d434644414a34bf1658ca44fb783d585fbf7f0582dea4e219"
+    "3feef03e8cb42c5a50c0e903c17981b7dcb75af35001f3b16089edcd6deba9d8"
 )
 TIER2_MANIFEST_BYTES = 18319
 TIER2_MANIFEST_SHA256 = (
@@ -207,6 +207,7 @@ def _slice13_paths(name: str) -> set[str]:
         "c44a4271d9592cb393d2232f127a59d8466cc60a",
         "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16",
         "027b33cafcfd58916a89e299487dad38d24ade6c",
+        "0ceb9a476e6592714cdc76845949ba0ae5123eb5",
     }:
         modified, added = _phase54_slice2_paths()
         if name == "MODIFIED_PATHS":
@@ -1097,7 +1098,7 @@ def test_digest_and_nested_raw_sha_reader_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        101,
+        102,
         36,
         33,
     )
@@ -1143,7 +1144,7 @@ def test_digest_and_nested_raw_sha_reader_closure_is_exact() -> None:
 
 def test_project_package_version_and_tag_boundaries_are_unchanged() -> None:
     project_paths = _project_private_paths()
-    assert len(project_paths) == 26
+    assert len(project_paths) == 27
     assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
     with PYPROJECT_PATH.open("rb") as stream:
         project = tomllib.load(stream)
@@ -1197,6 +1198,7 @@ def test_gate2_dirty_untracked_and_index_states_are_exact() -> None:
             "c44a4271d9592cb393d2232f127a59d8466cc60a",
             "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16",
             "027b33cafcfd58916a89e299487dad38d24ade6c",
+            "0ceb9a476e6592714cdc76845949ba0ae5123eb5",
         )
     elif dirty == SLICE8_ALLOWLIST_PATHS:
         assert tracked == SLICE8_MODIFIED_PATHS

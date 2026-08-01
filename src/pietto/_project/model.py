@@ -46,6 +46,7 @@ if TYPE_CHECKING:
         ProjectModuleDiagnosticSet,
         ProjectModuleGraph,
     )
+    from pietto._project.module_resolution import ProjectTypeSourceResolutionSet
     from pietto._project.row_dependency_graph import ProjectRelationRowDependencyGraph
     from pietto._project.row_lineage import ProjectRelationRowLineage
     from pietto._project.window_semantics import WindowResultProjectFact
@@ -800,6 +801,7 @@ class ProjectSemanticResult:
     module_bindings: ProjectModuleBindingEnvironmentSet | None = None
     module_graph: ProjectModuleGraph | None = None
     module_diagnostic_facts: ProjectModuleDiagnosticSet | None = None
+    module_type_source_resolutions: ProjectTypeSourceResolutionSet | None = None
 
     @property
     def ok(self) -> bool:
@@ -843,6 +845,9 @@ def build_empty_project_semantic_result(
             _build_project_module_diagnostic_set,
             _build_project_module_graph,
         )
+        from pietto._project.module_resolution import (
+            _build_project_type_source_resolution_set,
+        )
 
         module_catalogs = _build_project_module_catalog_set(parse_result.modules)
         assert parse_result.selected_input_index is not None
@@ -865,6 +870,14 @@ def build_empty_project_semantic_result(
             module_exports,
             module_bindings,
         )
+        module_type_source_resolutions = _build_project_type_source_resolution_set(
+            parse_result.modules,
+            module_catalogs,
+            module_exports,
+            module_bindings,
+            module_graph,
+            module_diagnostic_facts,
+        )
 
         return ProjectSemanticResult(
             root=parse_result.root,
@@ -880,7 +893,11 @@ def build_empty_project_semantic_result(
             module_bindings=module_bindings,
             module_graph=module_graph,
             module_diagnostic_facts=module_diagnostic_facts,
-            diagnostics=module_diagnostic_facts.diagnostics,
+            module_type_source_resolutions=module_type_source_resolutions,
+            diagnostics=(
+                *module_diagnostic_facts.diagnostics,
+                *module_type_source_resolutions.diagnostics,
+            ),
         )
 
     catalog, catalog_diagnostics = _build_project_semantic_catalog(
