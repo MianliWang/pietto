@@ -73,7 +73,7 @@ FACTS_SHA256 = "bd68bad4e13a2b945962458fc47359a408d27b1563ba25f5713a8f8099671d21
 LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26"
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 PROJECT_PRIVATE_DIGEST = (
-    "9e97a544fba88ee7c93fc0ecb3966fbb4c5d5fe736da0b19c92a53778419e78f"
+    "f92400c4c1e9685d434644414a34bf1658ca44fb783d585fbf7f0582dea4e219"
 )
 TIER2_MANIFEST_BYTES = 18319
 TIER2_MANIFEST_FILES = 108
@@ -327,6 +327,7 @@ def _slice13_paths(name: str) -> set[str]:
         "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
         "c44a4271d9592cb393d2232f127a59d8466cc60a",
         "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16",
+        "027b33cafcfd58916a89e299487dad38d24ade6c",
     }:
         modified, added = _phase54_slice2_paths()
         if name == "MODIFIED_PATHS":
@@ -1322,11 +1323,11 @@ def test_compiler_semantic_subset_project_and_raw_hash_readers_are_exact() -> No
     )
     project_paths = _project_private_paths()
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        100,
+        101,
         36,
         33,
     )
-    assert len(project_paths) == 25
+    assert len(project_paths) == 26
     assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
 
     tracked = tuple(_git_output(["ls-files"]).splitlines())
@@ -1460,6 +1461,7 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
             "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
             "c44a4271d9592cb393d2232f127a59d8466cc60a",
             "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16",
+            "027b33cafcfd58916a89e299487dad38d24ade6c",
         )
     elif dirty == SLICE9_ALLOWLIST_PATHS:
         status = tuple(_git_output(["diff", "--name-status"]).splitlines())
@@ -1534,7 +1536,7 @@ def test_static_test_inventory_tier1_and_tier2_manifest_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (456, 5028)
+    assert (len(test_files), top_level_functions) == (457, 5058)
     assert len(DIRECT_TIER1_NODES) == len(set(DIRECT_TIER1_NODES)) == 44
     for node_id in DIRECT_TIER1_NODES:
         path, function = node_id.split("::", maxsplit=1)

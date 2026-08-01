@@ -72,7 +72,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "diagnostics": (
         "docs/spec/diagnostics.md",
         1,
-        "677b1e4f29d16f7bc90335afcfdb36fed42761795814adbf37d657eae267983d",
+        "0ce35843a013c0f5926b651021bd7d80e945ada555950ef52f867ef9a501ef36",
     ),
     "check_generated": (
         "scripts/check_generated.py",

@@ -943,11 +943,17 @@ def test_schema_v2_semantic_result_retains_private_bindings_and_fail_closed_post
     assert semantic.module_catalogs is not None
     assert semantic.module_bindings is not None
     assert semantic.module_exports is not None
+    assert semantic.module_graph is not None
+    assert semantic.module_diagnostic_facts is not None
     assert semantic.model is None
     assert semantic.diagnostics == ()
     assert not semantic.ok
     assert (
         ProjectSemanticResult(root=None, config_path=None, model=None).module_bindings
+        is None
+    )
+    assert (
+        ProjectSemanticResult(root=None, config_path=None, model=None).module_graph
         is None
     )
 
@@ -984,6 +990,7 @@ def test_schema_v2_text_and_json_remain_exact_and_private(
     assert capture.err == ""
     for forbidden in (
         "module_bindings",
+        "module_graph",
         "ProjectModuleBinding",
         "local_binding_name",
         "unresolved_target_module",
@@ -1010,6 +1017,8 @@ def test_schema_v1_semantics_json_and_binding_absence_remain_exact(
     assert semantic.module_catalogs is None
     assert semantic.module_exports is None
     assert semantic.module_bindings is None
+    assert semantic.module_graph is None
+    assert semantic.module_diagnostic_facts is None
     assert tuple(item.code for item in semantic.diagnostics) == ("PIE-S2001",)
     assert semantic.model.catalog.type_symbols["Shared"].path == "a.pietto"
     expected = project_check_result_to_json_dict(
@@ -1060,8 +1069,10 @@ def test_no_public_diagnostics_graph_ir_sql_or_serialized_binding_surface(
             "main.pietto": 'import "library.pietto":\n    shape Missing\n',
         },
     )
-    assert semantic.diagnostics == ()
+    assert tuple(item.code for item in semantic.diagnostics) == ("PIE-S2705",)
     assert semantic.model is None
+    assert semantic.module_graph is not None
+    assert semantic.module_diagnostic_facts is not None
     environment_set = _required_bindings(semantic)
     assert not hasattr(environment_set, "graph")
     assert not hasattr(environment_set, "cycles")
@@ -1076,11 +1087,12 @@ def test_no_public_diagnostics_graph_ir_sql_or_serialized_binding_surface(
         "ProjectModuleBindingEnvironmentSet",
     ):
         assert not hasattr(pietto, name)
-    production = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in (REPO_ROOT / "src/pietto").rglob("*.py")
+    binding_source = (REPO_ROOT / SOURCE_REL).read_text(encoding="utf-8")
+    graph_source = (REPO_ROOT / "src/pietto/_project/module_graph.py").read_text(
+        encoding="utf-8"
     )
-    assert not any(f"PIE-S270{number}" in production for number in range(1, 8))
+    assert all(f"PIE-S270{number}" not in binding_source for number in range(1, 8))
+    assert all(f"PIE-S270{number}" in graph_source for number in range(1, 8))
 
 
 def test_slice7_contract_test_inventory_and_active_gate_manifest_are_exact() -> None:
@@ -1102,10 +1114,10 @@ def test_slice7_contract_test_inventory_and_active_gate_manifest_are_exact() -> 
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name.startswith("test_")
     )
-    assert PHASE54_ACTIVE_GATE2_MARKER == "PHASE54_SLICE7_GATE2"
-    assert PHASE54_ACTIVE_GATE2_BASE == "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16"
+    assert PHASE54_ACTIVE_GATE2_MARKER == "PHASE54_SLICE8_GATE2"
+    assert PHASE54_ACTIVE_GATE2_BASE == "027b33cafcfd58916a89e299487dad38d24ade6c"
     assert len(PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 3
-    assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 59
+    assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 66
     assert PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
     assert _matches_phase54_active_gate2_manifest(_active_state())
     assert "ImportStatement.target" not in inspect.getsource(module_exports)

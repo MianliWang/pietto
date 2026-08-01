@@ -77,7 +77,7 @@ EXPECTED_TEST_NAMES = (
     "test_import_export_top_level_blocks_do_not_change_public_cli_json_or_metadata_shape",
     "test_schema_v1_preserves_module_ast_without_import_binding_or_catalog_effect",
     "test_schema_v2_retains_module_ast_and_stops_before_legacy_flat_catalog",
-    "test_no_module_diagnostics_public_exports_serializer_fields_or_dependency_surfaces_are_added",
+    "test_module_diagnostics_remain_private_without_serializer_or_dependency_surfaces",
     "test_invalid_import_forms_fail_with_existing_parser_diagnostics_and_spans",
     "test_invalid_export_forms_fail_with_existing_parser_diagnostics_and_spans",
     "test_import_and_export_require_nonempty_indented_bodies",
@@ -750,6 +750,8 @@ def test_schema_v1_preserves_module_ast_without_import_binding_or_catalog_effect
     assert tuple(semantic.model.catalog.type_symbols) == ("Row",)
     assert tuple(semantic.model.catalog.relation_symbols) == ("rows", "selected")
     assert "ImportedRow" not in semantic.model.catalog.type_symbols
+    assert semantic.module_graph is None
+    assert semantic.module_diagnostic_facts is None
 
 
 def test_schema_v2_retains_module_ast_and_stops_before_legacy_flat_catalog(
@@ -764,10 +766,12 @@ def test_schema_v2_retains_module_ast_and_stops_before_legacy_flat_catalog(
     semantic = build_empty_project_semantic_result(result)
     assert not semantic.ok
     assert semantic.model is None
-    assert semantic.diagnostics == ()
+    assert tuple(item.code for item in semantic.diagnostics) == ("PIE-S2701",)
+    assert semantic.module_graph is not None
+    assert semantic.module_diagnostic_facts is not None
 
 
-def test_no_module_diagnostics_public_exports_serializer_fields_or_dependency_surfaces_are_added() -> (
+def test_module_diagnostics_remain_private_without_serializer_or_dependency_surfaces() -> (
     None
 ):
     for name in (
@@ -776,16 +780,22 @@ def test_no_module_diagnostics_public_exports_serializer_fields_or_dependency_su
         "ExportItem",
         "ExportStatement",
         "ModuleDeclarationKind",
+        "ProjectModuleGraph",
+        "ProjectModuleDiagnosticFact",
     ):
         assert not hasattr(pietto, name)
 
-    production = "\n".join(
+    graph_path = REPO_ROOT / "src/pietto/_project/module_graph.py"
+    graph_source = graph_path.read_text(encoding="utf-8")
+    non_graph_production = "\n".join(
         path.read_text(encoding="utf-8")
         for path in sorted((REPO_ROOT / "src/pietto").rglob("*.py"))
-        if "generated" not in path.parts
+        if "generated" not in path.parts and path != graph_path
     )
     for number in range(2701, 2708):
-        assert f"PIE-S{number}" not in production
+        code = f"PIE-S{number}"
+        assert code in graph_source
+        assert code not in non_graph_production
 
     pyproject = _read("pyproject.toml")
     assert "phase54" not in pyproject.lower()
@@ -897,9 +907,9 @@ def test_reader_allowlist_retained_later_and_publication_topology_contracts_are_
     assert "125\nmechanical reader tests" in spec
     assert "128 literal handwritten Python paths" in spec
     assert "10886 passed" in spec
-    assert "## Status And Slice 7 Lifecycle" in plan
-    assert "PHASE54_SLICE7_GATE2_COMPLETED_AWAITING_PUBLICATION" in plan
-    assert "PHASE54_SLICE7_GATE3" in plan
+    assert "## Status And Slice 8 Lifecycle" in plan
+    assert "PHASE54_SLICE8_GATE2_COMPLETED_AWAITING_PUBLICATION" in plan
+    assert "PHASE54_SLICE8_GATE3" in plan
     assert "Slice 5 owns module-qualified nominal declaration identity" in spec
     assert "PIE-S2701" in spec and "remain absent and un-emitted" in spec
     assert "Add Phase 54 import export grammar and AST" in topology
@@ -913,6 +923,9 @@ def test_reader_allowlist_retained_later_and_publication_topology_contracts_are_
     assert 'PHASE54_SLICE6_HEAD = "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16"' in (
         topology
     )
+    assert 'PHASE54_SLICE7_HEAD = "027b33cafcfd58916a89e299487dad38d24ade6c"' in (
+        topology
+    )
     assert (
         'PHASE54_SLICE6_BRANCH = "phase54/slice6-export-visibility-facade"' in topology
     )
@@ -921,12 +934,18 @@ def test_reader_allowlist_retained_later_and_publication_topology_contracts_are_
         'PHASE54_SLICE7_BRANCH = "phase54/slice7-named-import-binding-environments"'
         in topology
     )
+    assert "Add Phase 54 module graph and diagnostics" in topology
+    assert (
+        'PHASE54_SLICE8_BRANCH = "phase54/slice8-module-graph-cycles-diagnostics"'
+        in topology
+    )
     assert 'assert base_ref == "main"' in topology
     assert "assert candidate_ref == PHASE54_SLICE4_BRANCH" in topology
     assert "assert head != candidate_sha" in topology
     assert "assert parents == (README_REFRESH_HEAD, candidate_sha)" in topology
     assert "assert parents == (PHASE54_SLICE5_HEAD, candidate_sha)" in topology
     assert "assert parents == (PHASE54_SLICE6_HEAD, candidate_sha)" in topology
+    assert "assert parents == (PHASE54_SLICE7_HEAD, candidate_sha)" in topology
     assert "module_statements: tuple[ModuleStatement, ...] = ()" in ast_source
     assert "def visitImportStatement" in builder_source
     assert "def visitExportStatement" in builder_source

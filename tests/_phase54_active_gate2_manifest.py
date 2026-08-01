@@ -9,16 +9,17 @@ import subprocess
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-PHASE54_ACTIVE_GATE2_MARKER = "PHASE54_SLICE7_GATE2"
-PHASE54_ACTIVE_GATE2_BASE = "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16"
+PHASE54_ACTIVE_GATE2_MARKER = "PHASE54_SLICE8_GATE2"
+PHASE54_ACTIVE_GATE2_BASE = "027b33cafcfd58916a89e299487dad38d24ade6c"
 ADDED_PATHS = {
-    "docs/spec/phase54-slice7-named-imports-aliases-binding-environments-and-collision-rules-v1.md",
-    "src/pietto/_project/module_bindings.py",
-    "tests/test_phase54_named_import_alias_binding_environments_collision_rules.py",
+    "docs/spec/phase54-slice8-module-graph-cycles-diagnostics-and-deterministic-ordering-v1.md",
+    "src/pietto/_project/module_graph.py",
+    "tests/test_phase54_module_graph_cycles_diagnostics_deterministic_ordering.py",
 }
 NON_READER_MODIFIED_PATHS = {
     "README.md",
     "docs/plan/phase-54-local-import-module-export-foundation.md",
+    "docs/spec/diagnostics.md",
     "docs/spec/pietto-v0.9.md",
     "src/pietto/_project/model.py",
     "tests/_phase54_active_gate2_manifest.py",
@@ -32,10 +33,15 @@ MECHANICAL_READER_PATHS = {
     "tests/test_phase11_validation_entrypoint.py",
     "tests/test_phase12_completion_audit.py",
     "tests/test_phase12_composition_cli_json_goldens.py",
+    "tests/test_phase16_completion_audit.py",
+    "tests/test_phase16_current_syntax_surface_audit.py",
+    "tests/test_phase16_language_direction_audit.py",
+    "tests/test_phase16_safety_deferral_sql_portability.py",
     "tests/test_phase21_group_by_hardening_audit.py",
     "tests/test_phase24_aggregate_expression_arguments_readiness.py",
     "tests/test_phase24_cli_json_output_hardening.py",
     "tests/test_phase24_completion_audit.py",
+    "tests/test_phase25_completion_audit.py",
     "tests/test_phase26_completion_audit.py",
     "tests/test_phase27_completion_audit.py",
     "tests/test_phase28_completion_audit.py",
@@ -77,6 +83,7 @@ MECHANICAL_READER_PATHS = {
     "tests/test_phase54_local_export_visibility_module_facades.py",
     "tests/test_phase54_local_import_module_export_foundation_scope_lock.py",
     "tests/test_phase54_module_identity_selected_input_index_trusted_local_loader.py",
+    "tests/test_phase54_named_import_alias_binding_environments_collision_rules.py",
     "tests/test_phase54_schema_v2_explicit_module_carrier.py",
 }
 MODIFIED_PATHS = NON_READER_MODIFIED_PATHS | MECHANICAL_READER_PATHS

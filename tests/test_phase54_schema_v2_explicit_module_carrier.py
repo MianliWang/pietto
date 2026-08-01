@@ -546,9 +546,12 @@ def test_single_file_check_behavior_remains_exact(
 def test_import_export_grammar_ast_and_module_diagnostic_codes_remain_absent() -> None:
     grammar = (REPO_ROOT / "grammar/Pietto.g4").read_text(encoding="utf-8")
     ast_source = (REPO_ROOT / "src/pietto/ast_nodes.py").read_text(encoding="utf-8")
-    production = "\n".join(
+    graph_path = REPO_ROOT / "src/pietto/_project/module_graph.py"
+    graph_source = graph_path.read_text(encoding="utf-8")
+    non_graph_production = "\n".join(
         path.read_text(encoding="utf-8")
         for path in sorted((REPO_ROOT / "src/pietto").rglob("*.py"))
+        if path != graph_path
     )
 
     assert re.search(r"(?m)^IMPORT: 'import';$", grammar)
@@ -564,7 +567,9 @@ def test_import_export_grammar_ast_and_module_diagnostic_codes_remain_absent() -
     ):
         assert value in ast_source
     for number in range(2701, 2708):
-        assert f"PIE-S{number}" not in production
+        code = f"PIE-S{number}"
+        assert code in graph_source
+        assert code not in non_graph_production
 
 
 def test_slice2_contract_allowlist_and_retained_later_boundaries_are_exact() -> None:
@@ -581,7 +586,7 @@ def test_slice2_contract_allowlist_and_retained_later_boundaries_are_exact() -> 
 
     assert len(test_nodes) == 16
     assert all(not node.decorator_list for node in test_nodes)
-    assert "## Status And Slice 7 Lifecycle" in plan
+    assert "## Status And Slice 8 Lifecycle" in plan
     assert "## Slice 3 Exact Production Boundary And Gate Contract" in plan
     assert "## Slice 4 Exact Production Boundary And Gate Contract" in plan
     for phrase in (

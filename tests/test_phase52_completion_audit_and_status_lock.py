@@ -179,10 +179,10 @@ MODULE_SHA256 = {
     WINDOW_REL: "c0512933fc284bbc1dec98dab96411ee179d64e7bee005aa798b6fd7dba2024e",
 }
 PATH_DIGESTS = {
-    "compiler": "6f1689dc2d0d679702c782b24c08502630c04cf262d33e339606976a880f370d",
+    "compiler": "f40984f94b3aa3c21559726f591c1ce192b6dc54754b4b23b350ae9ba7130eba",
     "semantic": "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70",
     "phase15": "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d",
-    "project": "9e97a544fba88ee7c93fc0ecb3966fbb4c5d5fe736da0b19c92a53778419e78f",
+    "project": "f92400c4c1e9685d434644414a34bf1658ca44fb783d585fbf7f0582dea4e219",
 }
 PROTECTED_SHA256 = {
     ".github/workflows/ci.yml": "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94",
@@ -424,6 +424,7 @@ def _assert_allowed_dirty_state(
         "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
         "c44a4271d9592cb393d2232f127a59d8466cc60a",
         "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16",
+        "027b33cafcfd58916a89e299487dad38d24ade6c",
     }:
         phase54_state = "tests/_phase54_active_gate2_manifest.py"
         slice2_modified = _literal_string_set(
@@ -976,10 +977,10 @@ def test_live_compiler_semantic_phase15_project_protected_version_and_tag_locks_
     )
     project = _project_paths()
     assert (len(compiler), len(semantic), len(phase15), len(project)) == (
-        100,
+        101,
         36,
         33,
-        25,
+        26,
     )
     assert {
         "compiler": _digest(compiler),
@@ -1084,7 +1085,7 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
     assert (
         sum(path.endswith(".py") for path in readable),
         sum(path.endswith(".md") for path in readable),
-    ) == (557, 253)
+    ) == (559, 254)
     for digest, expected in (
         (PATH_DIGESTS["compiler"], 28),
         (PATH_DIGESTS["semantic"], 42),
@@ -1163,7 +1164,7 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
         )
         for path in test_files
     )
-    assert (len(test_files), top_functions) == (456, 5028)
+    assert (len(test_files), top_functions) == (457, 5058)
     assert (
         381 + 834 + 627 + 424 + 279 + 168 + 156 + 12 + 145 + 190 + 70 + 70 + 97 + 35
         == 3488
@@ -1181,7 +1182,7 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
         TIER1_BYTES,
         TIER1_SHA256,
     )
-    assert 459 - 3 == 456
+    assert 460 - 3 == 457
     tier2 = _tier2_manifest()
     tier2_payload = "".join(item + "\n" for item in tier2).encode()
     tier2_files = {
@@ -1276,6 +1277,7 @@ def test_static_git_helper_and_exact_slice9_dirty_set_are_locked() -> None:
             "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
             "c44a4271d9592cb393d2232f127a59d8466cc60a",
             "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16",
+            "027b33cafcfd58916a89e299487dad38d24ade6c",
         }:
             phase54_state = "tests/_phase54_active_gate2_manifest.py"
             slice2_modified = _literal_string_set(

@@ -84,6 +84,13 @@ stored separately and is never encoded in the code.
 | `PIE-S2601` | Unknown relationship endpoint relation |
 | `PIE-S2602` | Duplicate relationship metadata name |
 | `PIE-S2603` | Duplicate endpoint local name within one relationship |
+| `PIE-S2701` | Invalid, unselected, or unresolved local module import target |
+| `PIE-S2702` | Duplicate or conflicting logical module identity |
+| `PIE-S2703` | Explicit-module import dependency cycle |
+| `PIE-S2704` | Duplicate, unknown, ineligible, or invalid export request |
+| `PIE-S2705` | Unknown, private, or non-exported imported declaration |
+| `PIE-S2706` | Local, import, alias, or export binding collision |
+| `PIE-S2707` | Unresolved explicit-module reference or unsupported advanced module form |
 
 ## IR Diagnostics
 

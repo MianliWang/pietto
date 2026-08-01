@@ -153,7 +153,7 @@ SLICE4_EXPECTED_TEST_NAMES = (
     "test_import_export_top_level_blocks_do_not_change_public_cli_json_or_metadata_shape",
     "test_schema_v1_preserves_module_ast_without_import_binding_or_catalog_effect",
     "test_schema_v2_retains_module_ast_and_stops_before_legacy_flat_catalog",
-    "test_no_module_diagnostics_public_exports_serializer_fields_or_dependency_surfaces_are_added",
+    "test_module_diagnostics_remain_private_without_serializer_or_dependency_surfaces",
     "test_invalid_import_forms_fail_with_existing_parser_diagnostics_and_spans",
     "test_invalid_export_forms_fail_with_existing_parser_diagnostics_and_spans",
     "test_import_and_export_require_nonempty_indented_bodies",
@@ -491,9 +491,9 @@ PROTECTED_SHA256 = {
     "src/pietto/_project/source_selection.py": "fb1c531bcdd81696aa0c26b110433a6775cde878aeb4af3373d0d4aaf1f1443e",
     "src/pietto/_project/check.py": "6f2f2805249cc86a8ff3510a03abc702d2a029186cf16b50cabd11dbaf1da9e1",
     "src/pietto/_project/json_v2.py": "74251e684a22de4dcdc7e1822a6843ca89cbdfa7e136a046676d848b57953bd5",
-    SLICE2_TEST_REL: "fbeba6b464170a1d6184a3e6f9ecd595503f056b27b3c942f0ae74826014b7fe",
-    SLICE3_TEST_REL: "10cf904f786acc6ac772db3b63fe617d4d4207b5b909d4a71dca1e4450dda615",
-    SLICE4_TEST_REL: "67cb15a2891f3fd0cfabd74d7f71331376175fc25ded10e5d5f82d29584f729b",
+    SLICE2_TEST_REL: "c7f5aac5c48971f6d4d4d840a881d1eb30cf8819cee18ec488bc95adab8c99df",
+    SLICE3_TEST_REL: "0af85fa593ae28e2f8f6e89db5a9283fe383bb17285aa2581dd318d6cfa1b7b0",
+    SLICE4_TEST_REL: "9291b170f1efcdfed78e45caa26ef3b6d8aa3a4989a42ae09bd77b96ae38cda4",
     ".github/workflows/ci.yml": "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94",
     "pyproject.toml": "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01",
     "uv.lock": "a7d9125995e98a8a74d3664ceae7801cc1f4cce74ec323933da67838be199cea",
@@ -602,7 +602,7 @@ def test_slice1_artifact_titles_heading_order_and_lifecycle_are_exact() -> None:
         assert _headings(relative, 2)
     plan_h2 = _headings(PLAN_REL, 2)
     assert plan_h2[:5] == (
-        "Status And Slice 7 Lifecycle",
+        "Status And Slice 8 Lifecycle",
         "Trusted Phase 53 Baseline And Controlling Evidence",
         "Phase Identity, Minimum Production Boundary, And Activation",
         "Current Production, Readiness, And Retained-later Freeze",
@@ -612,15 +612,15 @@ def test_slice1_artifact_titles_heading_order_and_lifecycle_are_exact() -> None:
         f"Slice {index} — {title}"
         for index, title in enumerate(PHASE54_ROUTE[1:], start=2)
     )
-    lifecycle = _section(PLAN_REL, "Status And Slice 7 Lifecycle")
+    lifecycle = _section(PLAN_REL, "Status And Slice 8 Lifecycle")
     for phrase in (
         "Phase 53 and Slices 1-16 are `COMPLETED`",
         "Phase 54 is `ACTIVE`",
-        "Slices\n1 through 6 are `COMPLETED`",
-        "Slices 8-16 remain `UNSTARTED`",
-        "PHASE54_SLICE7_GATE2_COMPLETED_AWAITING_PUBLICATION",
-        "PHASE54_SLICE7_GATE3",
-        "Slice 8 does not begin in Slice 7",
+        "Slices\n1 through 7 are `COMPLETED`",
+        "Slices 9-16 remain `UNSTARTED`",
+        "PHASE54_SLICE8_GATE2_COMPLETED_AWAITING_PUBLICATION",
+        "PHASE54_SLICE8_GATE3",
+        "Slice 9 does not begin in Slice 8",
     ):
         assert phrase in lifecycle
     tests = _top_level_test_functions(SELF_REL)
@@ -702,7 +702,7 @@ def test_authority_hierarchy_grounding_and_historical_predecessors_are_exact() -
         "8c3656805db451946d60e341b8ac0ca9181997378d07576133c9c4aeef3e3f77"
     )
     assert _sha256("tests/test_phase50_import_module_export_readiness.py") == (
-        "9ad9f0833c493032d4f0e3194a616ddc5a4b874f6e1b2aa14d5d6bccd32b11ac"
+        "9f5a453af9ef0ecdb686846942c19f3e11f4a465d7bf3d0c8e226423fc73c0c8"
     )
     scope = _read(SCOPE_REL)
     roadmap = _read(ROADMAP_V2_REL)
@@ -1048,14 +1048,24 @@ def test_legacy_config_discovery_selection_loader_and_project_json_are_byte_lock
     assert "module_catalogs: ProjectModuleCatalogSet | None = None" in model
     assert "module_exports: ProjectModuleExportSurfaceSet | None = None" in model
     assert "module_bindings: ProjectModuleBindingEnvironmentSet | None = None" in model
+    assert "module_graph: ProjectModuleGraph | None = None" in model
+    assert "module_diagnostic_facts: ProjectModuleDiagnosticSet | None = None" in model
     assert "_build_project_module_catalog_set" in model
     assert "module_catalogs = _build_project_module_catalog_set" in model
     assert "_build_project_module_export_surface_set" in model
-    assert "module_exports=_build_project_module_export_surface_set" in model
+    assert "module_exports = _build_project_module_export_surface_set" in model
     assert "_build_project_module_binding_environment_set" in model
     assert "module_bindings = _build_project_module_binding_environment_set" in model
     assert "module_bindings.imported_export_candidates" in model
+    assert "_build_project_module_graph" in model
+    assert "module_graph = _build_project_module_graph" in model
+    assert "_build_project_module_diagnostic_set" in model
+    assert "module_diagnostic_facts = _build_project_module_diagnostic_set" in model
+    assert "module_exports=module_exports" in model
     assert "module_bindings=module_bindings" in model
+    assert "module_graph=module_graph" in model
+    assert "module_diagnostic_facts=module_diagnostic_facts" in model
+    assert "diagnostics=module_diagnostic_facts.diagnostics" in model
     assert "module_catalogs=None" not in model
     scope_readiness = _section(SCOPE_REL, "Current Readiness Ledger")
     assert "not a pinned descriptor loader" in scope_readiness
@@ -1075,17 +1085,17 @@ def test_flat_catalog_collect_before_resolve_semantic_and_project_fact_surfaces_
     compiler = _compiler_paths()
     semantic = tuple((REPO_ROOT / "src/pietto/semantic").glob("*.py"))
     project = tuple((REPO_ROOT / "src/pietto/_project").glob("*.py"))
-    assert len(compiler) == 100
+    assert len(compiler) == 101
     assert _digest(compiler) == (
-        "6f1689dc2d0d679702c782b24c08502630c04cf262d33e339606976a880f370d"
+        "f40984f94b3aa3c21559726f591c1ce192b6dc54754b4b23b350ae9ba7130eba"
     )
     assert _digest(semantic) == (
         "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
     )
     assert _digest(project) == (
-        "9e97a544fba88ee7c93fc0ecb3966fbb4c5d5fe736da0b19c92a53778419e78f"
+        "f92400c4c1e9685d434644414a34bf1658ca44fb783d585fbf7f0582dea4e219"
     )
-    assert len(project) == 25
+    assert len(project) == 26
     model = _read("src/pietto/_project/model.py")
     for namespace in (
         'TYPE = "type"',
@@ -1126,7 +1136,10 @@ def test_private_module_export_surfaces_are_implemented_without_graph_or_public_
     None
 ):
     production = _production_text()
-    assert not re.search(r"PIE-S270[1-7]", production)
+    graph_source = _read("src/pietto/_project/module_graph.py")
+    non_graph_production = production.replace(graph_source, "")
+    assert all(f"PIE-S270{number}" in graph_source for number in range(1, 8))
+    assert not re.search(r"PIE-S270[1-7]", non_graph_production)
     ast_nodes = _read("src/pietto/ast_nodes.py")
     analyzer = _read("src/pietto/semantic/analyzer.py")
     for value in (
@@ -1194,7 +1207,8 @@ def test_private_module_export_surfaces_are_implemented_without_graph_or_public_
         "opened_identity",
     ):
         assert forbidden not in carrier
-    for forbidden in ("ModuleGraph", "ImportBinding", "ResolvedModule"):
+    assert "class ProjectModuleGraph" in graph_source
+    for forbidden in ("ImportBinding", "ResolvedModule"):
         assert forbidden not in production
     reservation = _section(
         SCOPE_REL,
@@ -1262,16 +1276,16 @@ def test_gate_allowlist_reader_evidence_publication_stop_and_next_state_contract
     assert len(FORMATTER_PATHS) == 163
     assert len(ALLOWLIST_PATHS) == 167
     readable = _readable_paths()
-    assert len(readable) == 906
-    assert sum(path.endswith(".py") for path in readable) == 557
-    assert sum(path.endswith(".md") for path in readable) == 253
+    assert len(readable) == 909
+    assert sum(path.endswith(".py") for path in readable) == 559
+    assert sum(path.endswith(".md") for path in readable) == 254
     test_modules = tuple(
         path
         for path in readable
         if path.startswith("tests/test_") and path.endswith(".py")
     )
-    assert len(test_modules) == 456
-    assert sum(len(_top_level_test_functions(path)) for path in test_modules) == 5028
+    assert len(test_modules) == 457
+    assert sum(len(_top_level_test_functions(path)) for path in test_modules) == 5058
     dirty = set(_git_output(["diff", "--name-only"]).splitlines()) | set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
