@@ -70,7 +70,7 @@ PHASE54_SLICE4_HEAD = "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01"
 PHASE54_SLICE5_HEAD = "c44a4271d9592cb393d2232f127a59d8466cc60a"
 PHASE54_SLICE6_HEAD = "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16"
 PHASE54_SLICE7_HEAD = "027b33cafcfd58916a89e299487dad38d24ade6c"
-POST_REVIEW_REPAIR_PARENT_HEAD = "0ceb9a476e6592714cdc76845949ba0ae5123eb5"
+POST_REVIEW_REPAIR_PARENT_HEAD = "ed37b4938b0ff5efa0842d353ac0610c51afa6cc"
 WHEELHOUSE_MANIFEST_SHA256 = (
     "e745cf66b6e8ea2096d5e49bf88ef32f828fe9178561b8ed5456125afeb8a294"
 )
@@ -1544,7 +1544,7 @@ def test_test_inventory_focused_overlay_validation_and_gate3_are_exact() -> None
         561,
         255,
         458,
-        5089,
+        5091,
     )
     docs = _read(PLAN_REL)
     for value in (

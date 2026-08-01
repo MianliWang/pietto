@@ -340,9 +340,9 @@ PROTECTED_HASHES = {
         "26cc0ae4a68518223d6bf600ad3c4b0b226618aa7ef31b2ae1c25924d2655169"
     ),
 }
-COMPILER_DIGEST = "c9f1c8ed5b44a3215b3d9873d152d26f404ae6032235cbd7cdf7439e1ef73f1a"
+COMPILER_DIGEST = "fa64bb8f898e4fa77f6911b98b79bd6595b83104f6883b4e5727dd02aaecf9d0"
 PROJECT_PRIVATE_DIGEST = (
-    "5cbd463b15073f4b66a90d48370b4d692893840803af9cdba214888746c7d018"
+    "cbc633a1c3a0d6a080dcbd30516f25209185b346586d19fc2dec981a7f67d1cc"
 )
 
 PROJECT_JSON_V2_KEYS = (
@@ -1405,7 +1405,7 @@ def test_static_git_helper_and_exact_slice12_dirty_set_are_locked() -> None:
         elif path_counts == SLICE9_PATH_COUNTS:
             expected_head = SLICE9_BASE_HEAD_SHA
         if _phase54_post_review_repair_gate2_is_active():
-            expected_head = "ed37b4938b0ff5efa0842d353ac0610c51afa6cc"
+            expected_head = "6cc20df07f78f4ec2bc252c8ed6f73e0de91a833"
         assert _git_output(["rev-parse", "HEAD"]) == expected_head
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
     assert _git_output(["diff", "--check"]) == ""

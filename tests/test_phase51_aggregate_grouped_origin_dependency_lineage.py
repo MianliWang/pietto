@@ -972,7 +972,7 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
         elif path_counts == PHASE54_SLICE9_PATH_COUNTS:
             expected_head = PHASE54_SLICE9_BASE_HEAD_SHA
         if _phase54_post_review_repair_gate2_is_active():
-            expected_head = "ed37b4938b0ff5efa0842d353ac0610c51afa6cc"
+            expected_head = "6cc20df07f78f4ec2bc252c8ed6f73e0de91a833"
         assert _git_output(["rev-parse", "HEAD"]).strip() == expected_head
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
 

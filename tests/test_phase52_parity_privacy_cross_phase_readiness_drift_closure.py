@@ -101,21 +101,21 @@ MODULE_SHA256 = {
 }
 SPEC_SHA256 = "7010cd8a39ed389de588d8cd734b136cc87456c3ef5eb324638467d1188fc935"
 MODIFIED_TEST_SHA256 = {
-    SLICE4_TEST_REL: "7f37fa7f2037779ae3bc8e288e71aeb3c4251430ed1077ea248c93dfd224d8cf",
-    SLICE5_TEST_REL: "cf03c012e07d7736e63ed71ef0e538d5f5f9146aac7e4aa6f263729ecfb5c99f",
-    SLICE6_TEST_REL: "16ff3185f2488ef81baad83f98dea781631ff25e7239ffb8ca719c8a0d0d6f3c",
-    SLICE7_TEST_REL: "89dfa437a3d89c7e944e60185e71e0585c169b9d9761f6c2100cb2a2e62efb54",
+    SLICE4_TEST_REL: "481f02b3d38303eb1d88204dbdb211a8c480627e46da8975840bdd1eb38dcb58",
+    SLICE5_TEST_REL: "6b73ab7ee6465b90351220c4e232f15596d61186602dbf29903d2bcbfb2bc468",
+    SLICE6_TEST_REL: "956753c56762a4189eecee4d9bb8a5c91a8199b425f1cea07f28b32d5ee6fa15",
+    SLICE7_TEST_REL: "198b9cf8b64fae7af3ddcda327220a11a44a3a8c6dd80577d4cedcbea602d67f",
 }
 WORKFLOW_SHA256 = "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94"
 PYPROJECT_SHA256 = "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01"
 LOCK_SHA256 = "a7d9125995e98a8a74d3664ceae7801cc1f4cce74ec323933da67838be199cea"
-COMPILER_DIGEST = "c9f1c8ed5b44a3215b3d9873d152d26f404ae6032235cbd7cdf7439e1ef73f1a"
+COMPILER_DIGEST = "fa64bb8f898e4fa77f6911b98b79bd6595b83104f6883b4e5727dd02aaecf9d0"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "5cbd463b15073f4b66a90d48370b4d692893840803af9cdba214888746c7d018"
+    "cbc633a1c3a0d6a080dcbd30516f25209185b346586d19fc2dec981a7f67d1cc"
 )
 
 SPEC_H2 = (
@@ -493,7 +493,7 @@ def _assert_allowed_dirty_state(
         and tracked == set(PHASE54_POST_REVIEW_REPAIR_MODIFIED_PATHS)
         and untracked == set()
         and branch == "phase54/slice9-cross-module-type-source-resolution"
-        and head == "ed37b4938b0ff5efa0842d353ac0610c51afa6cc"
+        and head == "6cc20df07f78f4ec2bc252c8ed6f73e0de91a833"
         and main == origin_main == "0ceb9a476e6592714cdc76845949ba0ae5123eb5"
     ):
         return
@@ -2090,7 +2090,7 @@ def test_test_inventory_tier1_selectors_and_compatibility_counts_are_exact() -> 
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (458, 5089)
+    assert (len(test_files), top_level_functions) == (458, 5091)
     assert tuple(
         _pytest_shape(REPO_ROOT / path)[1]
         for path in (

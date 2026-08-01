@@ -1098,13 +1098,13 @@ def test_flat_catalog_collect_before_resolve_semantic_and_project_fact_surfaces_
     project = tuple((REPO_ROOT / "src/pietto/_project").glob("*.py"))
     assert len(compiler) == 102
     assert _digest(compiler) == (
-        "c9f1c8ed5b44a3215b3d9873d152d26f404ae6032235cbd7cdf7439e1ef73f1a"
+        "fa64bb8f898e4fa77f6911b98b79bd6595b83104f6883b4e5727dd02aaecf9d0"
     )
     assert _digest(semantic) == (
         "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
     )
     assert _digest(project) == (
-        "5cbd463b15073f4b66a90d48370b4d692893840803af9cdba214888746c7d018"
+        "cbc633a1c3a0d6a080dcbd30516f25209185b346586d19fc2dec981a7f67d1cc"
     )
     assert len(project) == 27
     model = _read("src/pietto/_project/model.py")
@@ -1299,7 +1299,7 @@ def test_gate_allowlist_reader_evidence_publication_stop_and_next_state_contract
         if path.startswith("tests/test_") and path.endswith(".py")
     )
     assert len(test_modules) == 458
-    assert sum(len(_top_level_test_functions(path)) for path in test_modules) == 5089
+    assert sum(len(_top_level_test_functions(path)) for path in test_modules) == 5091
     dirty = set(_git_output(["diff", "--name-only"]).splitlines()) | set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )

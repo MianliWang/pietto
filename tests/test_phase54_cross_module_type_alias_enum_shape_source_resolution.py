@@ -46,6 +46,8 @@ EXPECTED_TEST_NAMES = (
     "test_local_alias_chain_expands_to_builtin",
     "test_cross_module_alias_chain_expands_by_target_identity",
     "test_explicit_reexport_alias_chain_keeps_original_target_identity",
+    "test_cyclic_direct_facade_reexports_are_no_winner_for_all_slice9_kinds",
+    "test_direct_facade_cycle_precedes_nominal_owner_cycle_and_owner_fallback_remains",
     "test_imported_enums_are_nominal_and_not_flattened",
     "test_imported_shapes_are_nominal_and_field_types_resolve",
     "test_shape_field_reference_order_and_duplicates_are_preserved",
@@ -226,12 +228,12 @@ def test_carrier_enums_fields_privacy_and_manifest_are_exact() -> None:
         "0ceb9a476e6592714cdc76845949ba0ae5123eb5"
     )
     assert active_gate2_manifest.PHASE54_POST_REVIEW_REPAIR_BASE == (
-        "ed37b4938b0ff5efa0842d353ac0610c51afa6cc"
+        "6cc20df07f78f4ec2bc252c8ed6f73e0de91a833"
     )
     assert active_gate2_manifest.PHASE54_POST_REVIEW_REPAIR_BRANCH == (
         "phase54/slice9-cross-module-type-source-resolution"
     )
-    assert len(active_gate2_manifest.PHASE54_POST_REVIEW_REPAIR_MODIFIED_PATHS) == 65
+    assert len(active_gate2_manifest.PHASE54_POST_REVIEW_REPAIR_MODIFIED_PATHS) == 41
 
 
 def test_local_imported_and_reexported_nominal_identities_remain_distinct(
@@ -508,6 +510,186 @@ def test_explicit_reexport_alias_chain_keeps_original_target_identity(
     assert resolution.direct_symbol.target_identity.declared_name == "Base"
     assert tuple(item.module_path for item in resolution.alias_chain) == ("c.pietto",)
     assert resolution.canonical_name == "UUID"
+
+
+def test_cyclic_direct_facade_reexports_are_no_winner_for_all_slice9_kinds(
+    tmp_path: Path,
+) -> None:
+    def owner_definition(kind: str) -> str:
+        if kind == "type":
+            declaration = "type Base = Text\n"
+        elif kind == "enum":
+            declaration = "enum Base:\n    ONE\n"
+        elif kind == "shape":
+            declaration = "shape Base:\n    id: Int\n"
+        else:
+            declaration = 'source Base is postgres.table("base")\n'
+        return declaration + f"export:\n    {kind} Base\n"
+
+    for kind in ("type", "enum", "shape", "source"):
+        for nominal_owner_first in (False, True):
+            nominal_owner = "a.pietto" if nominal_owner_first else "c.pietto"
+            importer = "z.pietto" if nominal_owner_first else "a.pietto"
+            consumer = "" if kind == "source" else "shape Uses:\n    value: Local\n"
+            _, semantic = _semantic_project(
+                tmp_path / f"{kind}-{'owner' if nominal_owner_first else 'importer'}",
+                {
+                    nominal_owner: owner_definition(kind),
+                    "b.pietto": (
+                        f'import "{nominal_owner}":\n    {kind} Base as Public\n'
+                        'import "d.pietto":\n    type D\n'
+                        f"export:\n    {kind} Public\n"
+                    ),
+                    "d.pietto": (
+                        "type D = Int\nexport:\n    type D\n"
+                        f'import "b.pietto":\n    {kind} Public\n'
+                    ),
+                    importer: (
+                        f'import "b.pietto":\n    {kind} Public as Local\n' + consumer
+                    ),
+                },
+            )
+            assert _diagnostic_pairs(semantic) == (
+                (
+                    "PIE-S2703",
+                    "Module import cycle detected: b.pietto -> d.pietto -> b.pietto",
+                ),
+            )
+            environment = _environment(semantic, importer)
+            winners = (
+                environment.find_source_name("Local")
+                if kind == "source"
+                else environment.find_type_name("Local")
+            )
+            assert winners == ()
+            blockers = tuple(
+                issue
+                for issue in environment.issues
+                if issue.status
+                is module_resolution.ProjectTypeSourceResolutionIssueStatus.MODULE_GRAPH_CYCLE_BLOCKED
+                and issue.local_name == "Local"
+            )
+            assert len(blockers) == 1
+            blocker = blockers[0]
+            assert blocker.cycle is not None
+            assert tuple(
+                member.identity.path for member in blocker.cycle.component.members
+            ) == ("b.pietto", "d.pietto")
+            assert tuple(
+                (diagnostic.code, diagnostic.message)
+                for diagnostic in blocker.suppressing_diagnostics
+            ) == _diagnostic_pairs(semantic)
+            if kind != "source":
+                assert (
+                    _type_resolution(
+                        environment,
+                        owner_name="Uses",
+                        type_name="Local",
+                    ).direct_kind
+                    is ProjectResolvedTypeKind.UNKNOWN
+                )
+
+
+def test_direct_facade_cycle_precedes_nominal_owner_cycle_and_owner_fallback_remains(
+    tmp_path: Path,
+) -> None:
+    _, owner_fallback = _semantic_project(
+        tmp_path / "owner-fallback",
+        {
+            "a.pietto": (
+                'import "b.pietto":\n    type Public as Local\n'
+                "shape Uses:\n    value: Local\n"
+            ),
+            "b.pietto": (
+                'import "c.pietto":\n    type Base as Public\n'
+                "export:\n    type Public\n"
+            ),
+            "c.pietto": (
+                "type Base = Text\nexport:\n    type Base\n"
+                'import "d.pietto":\n    type D\n'
+            ),
+            "d.pietto": (
+                'type D = Int\nexport:\n    type D\nimport "c.pietto":\n    type Base\n'
+            ),
+        },
+    )
+    fallback_environment = _environment(owner_fallback, "a.pietto")
+    fallback_blocker = tuple(
+        issue
+        for issue in fallback_environment.issues
+        if issue.status
+        is module_resolution.ProjectTypeSourceResolutionIssueStatus.MODULE_GRAPH_CYCLE_BLOCKED
+        and issue.local_name == "Local"
+    )
+    assert len(fallback_blocker) == 1
+    assert fallback_blocker[0].cycle is not None
+    assert tuple(
+        member.identity.path for member in fallback_blocker[0].cycle.component.members
+    ) == ("c.pietto", "d.pietto")
+    assert fallback_environment.find_type_name("Local") == ()
+    assert _diagnostic_pairs(owner_fallback) == (
+        (
+            "PIE-S2703",
+            "Module import cycle detected: c.pietto -> d.pietto -> c.pietto",
+        ),
+    )
+
+    _, both_cyclic = _semantic_project(
+        tmp_path / "both-cyclic",
+        {
+            "a.pietto": (
+                'import "b.pietto":\n    type Public as Local\n'
+                "shape Uses:\n    value: Local\n"
+            ),
+            "b.pietto": (
+                'import "c.pietto":\n    type Base as Public\n'
+                'import "d.pietto":\n    type D\n'
+                "export:\n    type Public\n"
+            ),
+            "c.pietto": (
+                "type Base = Text\nexport:\n    type Base\n"
+                'import "e.pietto":\n    type E\n'
+            ),
+            "d.pietto": (
+                "type D = Int\nexport:\n    type D\n"
+                'import "b.pietto":\n    type Public\n'
+            ),
+            "e.pietto": (
+                'type E = Int\nexport:\n    type E\nimport "c.pietto":\n    type Base\n'
+            ),
+        },
+    )
+    both_environment = _environment(both_cyclic, "a.pietto")
+    both_blocker = tuple(
+        issue
+        for issue in both_environment.issues
+        if issue.status
+        is module_resolution.ProjectTypeSourceResolutionIssueStatus.MODULE_GRAPH_CYCLE_BLOCKED
+        and issue.local_name == "Local"
+    )
+    assert len(both_blocker) == 1
+    assert both_blocker[0].cycle is not None
+    assert tuple(
+        member.identity.path for member in both_blocker[0].cycle.component.members
+    ) == ("b.pietto", "d.pietto")
+    assert tuple(
+        (diagnostic.code, diagnostic.message)
+        for diagnostic in both_blocker[0].suppressing_diagnostics
+    ) == (
+        (
+            "PIE-S2703",
+            "Module import cycle detected: b.pietto -> d.pietto -> b.pietto",
+        ),
+    )
+    assert both_environment.find_type_name("Local") == ()
+    assert (
+        _type_resolution(
+            both_environment,
+            owner_name="Uses",
+            type_name="Local",
+        ).direct_kind
+        is ProjectResolvedTypeKind.UNKNOWN
+    )
 
 
 def test_imported_enums_are_nominal_and_not_flattened(tmp_path: Path) -> None:
@@ -1038,7 +1220,7 @@ def test_text_json_status_docs_and_reader_fixed_point_are_exact(
         and node.name.startswith("test_")
     )
     assert tests == EXPECTED_TEST_NAMES
-    assert len(tests) == 31
+    assert len(tests) == 33
     assert all(
         not node.decorator_list
         for node in tree.body
@@ -1057,8 +1239,9 @@ def test_text_json_status_docs_and_reader_fixed_point_are_exact(
     assert (
         len(active_gate2_manifest.PHASE54_SLICE9_ORIGINAL_MECHANICAL_READER_PATHS) == 62
     )
-    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 62
-    assert len(active_gate2_manifest.PHASE54_POST_REVIEW_REPAIR_MODIFIED_PATHS) == 65
+    assert len(active_gate2_manifest.VALIDATION_READER_PATHS) == 62
+    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 38
+    assert len(active_gate2_manifest.PHASE54_POST_REVIEW_REPAIR_MODIFIED_PATHS) == 41
     assert (
         "tests/test_phase54_module_graph_cycles_diagnostics_deterministic_ordering.py"
         in active_gate2_manifest.PHASE54_SLICE9_ORIGINAL_MECHANICAL_READER_PATHS

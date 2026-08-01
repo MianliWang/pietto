@@ -219,10 +219,10 @@ CAPABILITY_WINDOWS_SHA256 = (
     "c0512933fc284bbc1dec98dab96411ee179d64e7bee005aa798b6fd7dba2024e"
 )
 PATH_DIGESTS = {
-    "compiler": "c9f1c8ed5b44a3215b3d9873d152d26f404ae6032235cbd7cdf7439e1ef73f1a",
+    "compiler": "fa64bb8f898e4fa77f6911b98b79bd6595b83104f6883b4e5727dd02aaecf9d0",
     "semantic": "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70",
     "phase15": "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d",
-    "project": "5cbd463b15073f4b66a90d48370b4d692893840803af9cdba214888746c7d018",
+    "project": "cbc633a1c3a0d6a080dcbd30516f25209185b346586d19fc2dec981a7f67d1cc",
 }
 PROTECTED_SHA256 = {
     ".github/workflows/ci.yml": "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94",
@@ -406,7 +406,7 @@ def _assert_allowed_dirty_state(
         and tracked == set(PHASE54_POST_REVIEW_REPAIR_MODIFIED_PATHS)
         and untracked == set()
         and branch == "phase54/slice9-cross-module-type-source-resolution"
-        and head == "ed37b4938b0ff5efa0842d353ac0610c51afa6cc"
+        and head == "6cc20df07f78f4ec2bc252c8ed6f73e0de91a833"
         and main == origin_main == "0ceb9a476e6592714cdc76845949ba0ae5123eb5"
     ):
         return
@@ -955,7 +955,7 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
     top_functions = sum(
         len(_top_level_test_functions(f"tests/{path.name}")) for path in test_files
     )
-    assert (len(test_files), top_functions) == (458, 5089)
+    assert (len(test_files), top_functions) == (458, 5091)
     for digest, expected in (
         (PATH_DIGESTS["compiler"], 28),
         (PATH_DIGESTS["semantic"], 42),

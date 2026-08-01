@@ -914,7 +914,7 @@ def test_cross_phase_transition_and_live_identifier_inventory_is_exact() -> None
 def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> None:
     compiler_digest = _compiler_digest()
     assert compiler_digest == (
-        "c9f1c8ed5b44a3215b3d9873d152d26f404ae6032235cbd7cdf7439e1ef73f1a"
+        "fa64bb8f898e4fa77f6911b98b79bd6595b83104f6883b4e5727dd02aaecf9d0"
     )
     for relative_path in BOUNDARY_PATHS:
         boundary_values = re.findall(
@@ -939,7 +939,7 @@ def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> N
     project_digest = _digest(project_paths)
     assert len(project_paths) == 27
     assert project_digest == (
-        "5cbd463b15073f4b66a90d48370b4d692893840803af9cdba214888746c7d018"
+        "cbc633a1c3a0d6a080dcbd30516f25209185b346586d19fc2dec981a7f67d1cc"
     )
     phase33 = _read(REPO_ROOT / "tests/test_phase33_completion_audit.py")
     assert (
@@ -1165,7 +1165,7 @@ def test_slice11_contract_plan_allowlist_and_protected_boundaries_are_locked() -
         elif path_counts == SLICE9_PATH_COUNTS:
             expected_head = SLICE9_BASE_HEAD_SHA
         if _phase54_post_review_repair_gate2_is_active():
-            expected_head = "ed37b4938b0ff5efa0842d353ac0610c51afa6cc"
+            expected_head = "6cc20df07f78f4ec2bc252c8ed6f73e0de91a833"
         assert _git_output(["rev-parse", "HEAD"]) == expected_head
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
 

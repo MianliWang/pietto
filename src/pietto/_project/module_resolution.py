@@ -1020,12 +1020,18 @@ def _collect_imported_symbols(
         local_name = binding.identity.local_binding_name
         if local_name in blocked_names:
             continue
-        surface = target_surface_by_path.get(binding.target_module_path)
+        direct_facade_path = binding.target_module_path
+        surface = target_surface_by_path.get(direct_facade_path)
         if surface is None or binding.resolved_entry not in surface.entries:
             raise ValueError("Imported resolution requires its exact target facade.")
-        target_path = binding.target_identity.module_path
-        if target_path in cyclic_paths:
-            cycle = cycle_by_path[target_path]
+        nominal_target_path = binding.target_identity.module_path
+        cycle_path = None
+        if direct_facade_path in cyclic_paths:
+            cycle_path = direct_facade_path
+        elif nominal_target_path in cyclic_paths:
+            cycle_path = nominal_target_path
+        if cycle_path is not None:
+            cycle = cycle_by_path[cycle_path]
             roots = _suppressing_diagnostics_for_cycle(cycle, module_diagnostics)
             if not roots:
                 raise ValueError("Cyclic imported target requires PIE-S2703.")
@@ -1050,7 +1056,7 @@ def _collect_imported_symbols(
             )
             blocked_names.add(local_name)
             continue
-        if target_path not in processed_paths:
+        if nominal_target_path not in processed_paths:
             raise ValueError("Imported nominal target must precede its importer.")
         occurrences = catalogs.find_identity(binding.target_identity)
         if len(occurrences) != 1:
