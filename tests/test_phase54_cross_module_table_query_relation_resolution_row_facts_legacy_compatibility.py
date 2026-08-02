@@ -198,9 +198,12 @@ def test_slice10_contract_and_status_docs_freeze_exact_boundary() -> None:
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE == (
         "fadb1924af057cfc901a1658e117810d699e2358"
     )
-    assert len(active_gate2_manifest.ADDED_PATHS) == 3
-    assert len(active_gate2_manifest.MODIFIED_PATHS) == 69
-    assert len(active_gate2_manifest.ALLOWLIST_PATHS) == 72
+    assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_ADDED_PATHS) == 3
+    assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS) == 69
+    assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_ALLOWLIST_PATHS) == 72
+    assert active_gate2_manifest.ADDED_PATHS == set()
+    assert len(active_gate2_manifest.MODIFIED_PATHS) == 66
+    assert len(active_gate2_manifest.ALLOWLIST_PATHS) == 66
     frozen_gate2 = active_gate2_manifest.Phase54Gate2RepositoryState(
         marker=active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER,
         branch_oid=active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE,
@@ -208,8 +211,8 @@ def test_slice10_contract_and_status_docs_freeze_exact_boundary() -> None:
         branch_upstream="origin/main",
         ahead=0,
         behind=0,
-        added_paths=active_gate2_manifest.PHASE54_ACTIVE_GATE2_ADDED_PATHS,
-        modified_paths=active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
+        added_paths=active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_ADDED_PATHS,
+        modified_paths=active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS,
         deleted_paths=active_gate2_manifest.PHASE54_ACTIVE_GATE2_DELETED_PATHS,
         staged_paths=frozenset(),
         other_paths=frozenset(),
@@ -218,6 +221,37 @@ def test_slice10_contract_and_status_docs_freeze_exact_boundary() -> None:
         active_git_operation=False,
     )
     assert active_gate2_manifest._matches_phase54_active_gate2_manifest(frozen_gate2)
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR1_SEED_PATHS) == 3
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR1_MODIFIED_PATHS)
+        == 66
+    )
+    repair_state = replace(
+        frozen_gate2,
+        branch_oid=active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
+        branch_head=active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BRANCH,
+        branch_upstream=(
+            f"origin/{active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BRANCH}"
+        ),
+        added_paths=frozenset(),
+        modified_paths=(
+            active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR1_MODIFIED_PATHS
+        ),
+    )
+    assert active_gate2_manifest._matches_phase54_active_gate2_manifest(repair_state)
+    assert not active_gate2_manifest._matches_phase54_active_gate2_manifest(
+        replace(repair_state, staged_paths=frozenset({SOURCE_REL}))
+    )
+    assert not active_gate2_manifest._matches_phase54_active_gate2_manifest(
+        replace(
+            repair_state,
+            modified_paths=frozenset(
+                active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR1_SEED_PATHS
+            ),
+        )
+    )
 
 
 def test_relation_issue_status_and_private_carriers_are_frozen_slotted_keyword_only() -> (
@@ -926,6 +960,38 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
         assert fact.state.status is ProjectRelationRowSchemaStatus.UNKNOWN
     assert all(item.code != "PIE-S2102" for item in semantic.diagnostics)
 
+    foreign_parse, foreign = _semantic_project(
+        tmp_path / "foreign_shape",
+        {
+            "a.pietto": (
+                'import "b.pietto":\n    shape Row\n'
+                'source rows: Row is postgres.table("rows")\n'
+            ),
+            "b.pietto": ("shape Row:\n    id: Missing\nexport:\n    shape Row\n"),
+        },
+    )
+    assert tuple(item.code for item in foreign.diagnostics) == ("PIE-S2002",)
+    foreign_source = _definition(foreign_parse, "a.pietto", "rows")
+    foreign_fact = _fact(foreign, "a.pietto", foreign_source)
+    assert foreign_fact.state.status is ProjectRelationRowSchemaStatus.UNKNOWN
+    blockers = tuple(
+        issue
+        for issue in _environment(foreign, "a.pietto").issues
+        if issue.status
+        is relation_resolution.ProjectModuleRelationResolutionIssueStatus.TYPE_SOURCE_DIAGNOSTIC_BLOCKED
+    )
+    assert len(blockers) == 1
+    blocker = blockers[0]
+    assert blocker.owning_module_path == "a.pietto"
+    assert blocker.local_name == "rows"
+    assert len(blocker.type_source_issues) == 1
+    assert blocker.type_source_issues[0].owning_module_path == "b.pietto"
+    assert blocker.type_source_issues[0].diagnostic is not None
+    assert blocker.type_source_issues[0].diagnostic.code == "PIE-S2002"
+    assert tuple(item.code for item in blocker.suppressing_diagnostics) == (
+        "PIE-S2002",
+    )
+
 
 def test_direct_bare_qualified_and_renamed_fields_produce_concrete_row_facts(
     tmp_path: Path,
@@ -1088,6 +1154,30 @@ def test_duplicate_output_is_unknown_advanced_rows_defer_and_legacy_public_bytes
         advanced_state.reason
         is ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR
     )
+
+    mixed_parse, mixed = _semantic_project(
+        tmp_path / "mixed",
+        {
+            "a.pietto": (
+                "shape Row:\n    id: Int\n"
+                'source rows: Row is postgres.table("rows")\n'
+                "query mixed:\n"
+                "    from rows\n"
+                "    select:\n"
+                "        missing\n"
+                "        total = id + 1\n"
+            )
+        },
+    )
+    assert _diagnostic_pairs(mixed) == (("PIE-S2102", "Unknown field: missing"),)
+    mixed_state = _fact(
+        mixed,
+        "a.pietto",
+        _definition(mixed_parse, "a.pietto", "mixed"),
+    ).state
+    assert mixed_state.status is ProjectRelationRowSchemaStatus.UNKNOWN
+    assert mixed_state.reason is ProjectRelationRowSchemaReason.UNKNOWN_SCHEMA
+
     document = project_check_result_to_json_dict(parse_result)
     serialized = json.dumps(document)
     assert "module_relation_resolutions" not in serialized

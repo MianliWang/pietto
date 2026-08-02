@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import cast
 
 from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_slice10_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
 )
 
 import pytest
@@ -914,7 +914,7 @@ def test_cross_phase_transition_and_live_identifier_inventory_is_exact() -> None
 def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> None:
     compiler_digest = _compiler_digest()
     assert compiler_digest == (
-        "88e48118cc238cd18f032380664178927bd90d42ffbf125b118cab3778e23d47"
+        "36b9d52639fd560f4d7427f918b999634b50b0c0cf638f97cffc23bb7ec5fe4b"
     )
     for relative_path in BOUNDARY_PATHS:
         boundary_values = re.findall(
@@ -939,7 +939,7 @@ def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> N
     project_digest = _digest(project_paths)
     assert len(project_paths) == 28
     assert project_digest == (
-        "70b83a70456479a05b87c542ff73beb864958e9e39751ca3fe9fc68acc471bc5"
+        "34eca9280db98e806793c6561c30e003fb5875b0ff42e0770b3a8d22749c1e49"
     )
     phase33 = _read(REPO_ROOT / "tests/test_phase33_completion_audit.py")
     assert (
@@ -1164,8 +1164,8 @@ def test_slice11_contract_plan_allowlist_and_protected_boundaries_are_locked() -
             expected_head = SLICE8_BASE_HEAD_SHA
         elif path_counts == SLICE9_PATH_COUNTS:
             expected_head = SLICE9_BASE_HEAD_SHA
-        if _phase54_slice10_gate2_is_active():
-            expected_head = "fadb1924af057cfc901a1658e117810d699e2358"
+        if _phase54_product_repair1_gate2_is_active():
+            expected_head = "6104002486d21b7b25dbec74d037c0fc7cc5099a"
         assert _git_output(["rev-parse", "HEAD"]) == expected_head
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
 

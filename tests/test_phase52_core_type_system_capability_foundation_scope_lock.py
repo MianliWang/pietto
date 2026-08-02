@@ -8,7 +8,7 @@ import tomllib
 from pathlib import Path
 
 from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_slice10_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -178,9 +178,9 @@ PRE_RECONCILIATION_2_SHA256 = (
 PRE_RECONCILIATION_3_SHA256 = (
     "cb2c51246f1e312858641750d1a416125f99058fb0182949e9afe35ae49e97cf"
 )
-COMPILER_DIGEST = "88e48118cc238cd18f032380664178927bd90d42ffbf125b118cab3778e23d47"
+COMPILER_DIGEST = "36b9d52639fd560f4d7427f918b999634b50b0c0cf638f97cffc23bb7ec5fe4b"
 PROJECT_PRIVATE_DIGEST = (
-    "70b83a70456479a05b87c542ff73beb864958e9e39751ca3fe9fc68acc471bc5"
+    "34eca9280db98e806793c6561c30e003fb5875b0ff42e0770b3a8d22749c1e49"
 )
 
 
@@ -872,7 +872,7 @@ def test_static_audit_shape_allowlist_and_heading_matching_are_locked() -> None:
     slice13_added = _slice13_paths("ADDED_PATHS")
     slice13_allowlist = slice13_modified | slice13_added
     dirty_paths = _dirty_paths()
-    if _phase54_slice10_gate2_is_active():
+    if _phase54_product_repair1_gate2_is_active():
         assert _headings_at_level(PLAN_PATH, 2) == PLAN_H2
         assert _headings_at_level(SCOPE_PATH, 2) == SCOPE_H2
         return

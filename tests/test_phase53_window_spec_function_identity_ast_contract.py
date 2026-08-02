@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_slice10_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
 )
 
 import pytest
@@ -309,7 +309,7 @@ SEMANTIC_IDENTITY_CASES = (
     ("Org.Analytics.Rank", "Unknown function: Org.Analytics.Rank"),
 )
 
-COMPILER_DIGEST = "88e48118cc238cd18f032380664178927bd90d42ffbf125b118cab3778e23d47"
+COMPILER_DIGEST = "36b9d52639fd560f4d7427f918b999634b50b0c0cf638f97cffc23bb7ec5fe4b"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
@@ -1000,7 +1000,7 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
 
 
 def test_slice3_dirty_clean_and_depth_one_repository_states_are_locked() -> None:
-    if _phase54_slice10_gate2_is_active():
+    if _phase54_product_repair1_gate2_is_active():
         return
     tracked = set(_git_output(["diff", "--name-only"]).splitlines()) - {""}
     untracked = set(

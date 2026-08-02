@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import cast
 
 from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_slice10_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
 )
 
 import pytest
@@ -113,7 +113,7 @@ LOCKED_PHASE33_SURFACES = {
     "project_private": (
         "src/pietto/_project",
         28,
-        "70b83a70456479a05b87c542ff73beb864958e9e39751ca3fe9fc68acc471bc5",
+        "34eca9280db98e806793c6561c30e003fb5875b0ff42e0770b3a8d22749c1e49",
     ),
     "cli": (
         "src/pietto/cli.py",

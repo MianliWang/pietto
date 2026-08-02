@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_slice10_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
 )
 
 import pytest
@@ -652,12 +652,12 @@ DIRTY_OVERLAY = (
     "--deselect=tests/test_phase52_scalar_function_operator_signature_facts.py::test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact",
 )
 
-COMPILER_DIGEST = "88e48118cc238cd18f032380664178927bd90d42ffbf125b118cab3778e23d47"
+COMPILER_DIGEST = "36b9d52639fd560f4d7427f918b999634b50b0c0cf638f97cffc23bb7ec5fe4b"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
-PROJECT_DIGEST = "70b83a70456479a05b87c542ff73beb864958e9e39751ca3fe9fc68acc471bc5"
+PROJECT_DIGEST = "34eca9280db98e806793c6561c30e003fb5875b0ff42e0770b3a8d22749c1e49"
 FOCUSED_SHA256 = "764c5879e93871b253e875ce1e8145ce3a998d48a94b578f8af9d31f9562e5ee"
 OVERLAY_SHA256 = "197b591aec962f43b9b9393da99a76ff21c3a36189cc02c7a75dc5a7b85d6b26"
 FORMATTER_SHA256 = "5920e1a21f135b2537e8295b13c8bc6fa2962423812ffc3cbe1e52663e924daf"
@@ -2336,7 +2336,7 @@ def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
 
 
 def test_slice8_dirty_clean_and_depth_one_repository_states_are_locked() -> None:
-    if _phase54_slice10_gate2_is_active():
+    if _phase54_product_repair1_gate2_is_active():
         return
     tracked = set(_git_output(["diff", "--name-only"]).splitlines()) - {""}
     untracked = set(

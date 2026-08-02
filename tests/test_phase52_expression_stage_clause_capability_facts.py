@@ -12,7 +12,7 @@ from typing import Any, cast
 from _phase54_active_gate2_manifest import (
     PHASE54_ACTIVE_GATE2_ADDED_PATHS,
     PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
-    phase54_active_gate2_manifest_is_active as _phase54_slice10_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
 )
 
 import pytest
@@ -79,7 +79,7 @@ LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf2
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 SIGNATURE_SHA256 = "810f347080e0bb7dc674821aa6387c5f7618ac216832194ef19820326eef71d2"
 PROJECT_PRIVATE_DIGEST = (
-    "70b83a70456479a05b87c542ff73beb864958e9e39751ca3fe9fc68acc471bc5"
+    "34eca9280db98e806793c6561c30e003fb5875b0ff42e0770b3a8d22749c1e49"
 )
 TIER2_MANIFEST_BYTES = 18319
 TIER2_MANIFEST_FILES = 108
@@ -1254,7 +1254,7 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     assert _git_output(["tag", "--list"]) == ""
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
     assert dirty_paths == tracked_paths | untracked_paths
-    repair_gate2_active = _phase54_slice10_gate2_is_active()
+    repair_gate2_active = _phase54_product_repair1_gate2_is_active()
     assert repair_gate2_active or dirty_paths in (
         set(),
         ALLOWLIST_PATHS,

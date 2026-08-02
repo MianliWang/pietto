@@ -14,7 +14,7 @@ from types import ModuleType
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_slice10_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
 )
 
 import pietto.cli as cli
@@ -40,7 +40,7 @@ ALL_GOLDENS_HASH = "0e26a0b367a2ae849e5ec1e9a239be42765bea2c352242db5da930ab56b4
 HISTORICAL_GOLDENS_HASH = (
     "11d4343245dc18fd574999cbef5bff7c316d90975b3856ed729e8d2c1d579cf0"
 )
-BOUNDARY_HASH = "88e48118cc238cd18f032380664178927bd90d42ffbf125b118cab3778e23d47"
+BOUNDARY_HASH = "36b9d52639fd560f4d7427f918b999634b50b0c0cf638f97cffc23bb7ec5fe4b"
 GENERATED_HASH = "9a84d108062bdbd87f5cd1d6e237e66f8bbb39d1d9d7674312eab6eb156cbad1"
 EXPECTED_BLOBS = {
     "scripts/validate.py": "e1607a47da34ff868ca09a128c8897a6a0dbad21",

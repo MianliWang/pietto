@@ -8,7 +8,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_slice10_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
 )
 
 import pietto.cli_json as cli_json
@@ -40,13 +40,13 @@ PHASE16_ARTIFACT_HASHES = {
         "580ebcfcc78102d902110d864eb80c7f1a57ffcb6b4b33e1160c9abd17ba07a6"
     ),
     SLICE1_AUDIT_PATH: (
-        "dd07d245ee2e7203140c00896e346858f8b7c72361a5b25292365f92a9e3e87a"
+        "c165bdfa6343b8e3c5e17b55db21ff312f96e74928e1327bbe6aa5a0c81e94f5"
     ),
     SLICE2_AUDIT_PATH: (
-        "8e13ecd6afaa3ac7ef29e0e6887b1e8435be9e60759278487b02c115356a1e67"
+        "c1e8f22981713f5679f44fbee42a1f1bb5ed98713861c713efc120656ac93bb0"
     ),
     SLICE3_AUDIT_PATH: (
-        "7049788bbc9ef6299205a45a7c7cfb0b6ed4c556e1c18bab3f451fdf07f39cc6"
+        "452832b17744a8c508aa51834637bcd672e93b7b91001957fe4360fa06787b85"
     ),
     PLAN_PATH: "adfb0d99075299049c790f465fab7453e0ed73b985e9cff19c6aeb38f94c7f5a",
 }

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_slice10_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
 )
 
 import pytest
@@ -547,7 +547,7 @@ PHASE54_SLICE7_BASE_HEAD = "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16"
 PHASE54_SLICE8_BASE_HEAD = "027b33cafcfd58916a89e299487dad38d24ade6c"
 PHASE54_SLICE9_BASE_HEAD = "0ceb9a476e6592714cdc76845949ba0ae5123eb5"
 FINAL_COMPILER_DIGEST = (
-    "88e48118cc238cd18f032380664178927bd90d42ffbf125b118cab3778e23d47"
+    "36b9d52639fd560f4d7427f918b999634b50b0c0cf638f97cffc23bb7ec5fe4b"
 )
 FINAL_SEMANTIC_DIGEST = (
     "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
@@ -1920,7 +1920,7 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
 
 
 def test_slice4_dirty_clean_and_depth_one_repository_states_are_locked() -> None:
-    if _phase54_slice10_gate2_is_active():
+    if _phase54_product_repair1_gate2_is_active():
         return
     tracked = frozenset(_git("diff", "--name-only").splitlines()) - {""}
     untracked = frozenset(

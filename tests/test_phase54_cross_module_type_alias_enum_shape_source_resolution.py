@@ -229,8 +229,10 @@ def test_carrier_enums_fields_privacy_and_manifest_are_exact() -> None:
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE == (
         "fadb1924af057cfc901a1658e117810d699e2358"
     )
-    assert len(active_gate2_manifest.ADDED_PATHS) == 3
-    assert len(active_gate2_manifest.MODIFIED_PATHS) == 69
+    assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_ADDED_PATHS) == 3
+    assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS) == 69
+    assert active_gate2_manifest.ADDED_PATHS == set()
+    assert len(active_gate2_manifest.MODIFIED_PATHS) == 66
     assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 63
     assert TEST_REL in active_gate2_manifest.MECHANICAL_READER_PATHS
 
@@ -1230,10 +1232,8 @@ def test_text_json_status_docs_and_reader_fixed_point_are_exact(
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name.startswith("test_")
     )
-    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_ADDED_PATHS == frozenset(
-        active_gate2_manifest.ADDED_PATHS
-    )
-    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 69
+    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_ADDED_PATHS == frozenset()
+    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 66
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
     assert len(active_gate2_manifest.VALIDATION_READER_PATHS) == 63
     assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 63

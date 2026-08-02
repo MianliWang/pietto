@@ -10,7 +10,7 @@ from dataclasses import fields
 from pathlib import Path
 
 from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_slice10_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
 )
 
 from pietto._project.aggregate_grouped_clause_facts import (
@@ -340,9 +340,9 @@ PROTECTED_HASHES = {
         "26cc0ae4a68518223d6bf600ad3c4b0b226618aa7ef31b2ae1c25924d2655169"
     ),
 }
-COMPILER_DIGEST = "88e48118cc238cd18f032380664178927bd90d42ffbf125b118cab3778e23d47"
+COMPILER_DIGEST = "36b9d52639fd560f4d7427f918b999634b50b0c0cf638f97cffc23bb7ec5fe4b"
 PROJECT_PRIVATE_DIGEST = (
-    "70b83a70456479a05b87c542ff73beb864958e9e39751ca3fe9fc68acc471bc5"
+    "34eca9280db98e806793c6561c30e003fb5875b0ff42e0770b3a8d22749c1e49"
 )
 
 PROJECT_JSON_V2_KEYS = (
@@ -1404,8 +1404,8 @@ def test_static_git_helper_and_exact_slice12_dirty_set_are_locked() -> None:
             expected_head = SLICE8_BASE_HEAD_SHA
         elif path_counts == SLICE9_PATH_COUNTS:
             expected_head = SLICE9_BASE_HEAD_SHA
-        if _phase54_slice10_gate2_is_active():
-            expected_head = "fadb1924af057cfc901a1658e117810d699e2358"
+        if _phase54_product_repair1_gate2_is_active():
+            expected_head = "6104002486d21b7b25dbec74d037c0fc7cc5099a"
         assert _git_output(["rev-parse", "HEAD"]) == expected_head
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
     assert _git_output(["diff", "--check"]) == ""

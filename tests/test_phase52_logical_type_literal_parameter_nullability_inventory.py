@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_slice10_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
 )
 
 import pytest
@@ -70,13 +70,13 @@ SLICE8_GATE2_BASE_HEAD_SHA = "11a0c48941c3c1c650be8d0ec8ddf5201f9525f2"
 
 FACTS_SHA256 = "bd68bad4e13a2b945962458fc47359a408d27b1563ba25f5713a8f8099671d21"
 LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26"
-COMPILER_DIGEST = "88e48118cc238cd18f032380664178927bd90d42ffbf125b118cab3778e23d47"
+COMPILER_DIGEST = "36b9d52639fd560f4d7427f918b999634b50b0c0cf638f97cffc23bb7ec5fe4b"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "70b83a70456479a05b87c542ff73beb864958e9e39751ca3fe9fc68acc471bc5"
+    "34eca9280db98e806793c6561c30e003fb5875b0ff42e0770b3a8d22749c1e49"
 )
 TIER2_MANIFEST_BYTES = 18319
 TIER2_MANIFEST_SHA256 = (
@@ -1157,7 +1157,7 @@ def test_project_package_version_and_tag_boundaries_are_unchanged() -> None:
 
 
 def test_gate2_dirty_untracked_and_index_states_are_exact() -> None:
-    if _phase54_slice10_gate2_is_active():
+    if _phase54_product_repair1_gate2_is_active():
         return
     dirty = _dirty_paths()
     slice13_modified = _slice13_paths("MODIFIED_PATHS")

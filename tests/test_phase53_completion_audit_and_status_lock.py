@@ -13,7 +13,7 @@ from typing import cast
 from _phase54_active_gate2_manifest import (
     PHASE54_ACTIVE_GATE2_ADDED_PATHS,
     PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
-    phase54_active_gate2_manifest_is_active as _phase54_slice10_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
 )
 
 import pietto.ir as ir_package
@@ -220,10 +220,10 @@ CAPABILITY_WINDOWS_SHA256 = (
     "c0512933fc284bbc1dec98dab96411ee179d64e7bee005aa798b6fd7dba2024e"
 )
 PATH_DIGESTS = {
-    "compiler": "88e48118cc238cd18f032380664178927bd90d42ffbf125b118cab3778e23d47",
+    "compiler": "36b9d52639fd560f4d7427f918b999634b50b0c0cf638f97cffc23bb7ec5fe4b",
     "semantic": "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70",
     "phase15": "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d",
-    "project": "70b83a70456479a05b87c542ff73beb864958e9e39751ca3fe9fc68acc471bc5",
+    "project": "34eca9280db98e806793c6561c30e003fb5875b0ff42e0770b3a8d22749c1e49",
 }
 PROTECTED_SHA256 = {
     ".github/workflows/ci.yml": "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94",
@@ -403,11 +403,12 @@ def _assert_allowed_dirty_state(
     origin_main: str | None,
 ) -> None:
     if (
-        _phase54_slice10_gate2_is_active()
+        _phase54_product_repair1_gate2_is_active()
         and tracked == set(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS)
         and untracked == set(PHASE54_ACTIVE_GATE2_ADDED_PATHS)
-        and branch == "main"
-        and head == main == origin_main == "fadb1924af057cfc901a1658e117810d699e2358"
+        and branch == "phase54/slice10-cross-module-relation-row-facts"
+        and head == "6104002486d21b7b25dbec74d037c0fc7cc5099a"
+        and main == origin_main == "fadb1924af057cfc901a1658e117810d699e2358"
     ):
         return
     dirty = tracked | untracked
@@ -1096,7 +1097,9 @@ def test_static_git_helper_and_exact_slice16_dirty_set_are_locked() -> None:
         origin_main=_git_optional_ref("refs/remotes/origin/main"),
     )
     if tracked or untracked:
-        if _phase54_slice10_gate2_is_active() or _git_output(["rev-parse", "HEAD"]) in {
+        if _phase54_product_repair1_gate2_is_active() or _git_output(
+            ["rev-parse", "HEAD"]
+        ) in {
             "d8a5e9ab3de70ce30575513c73560c86430eca63",
             "15bae172ee151e370fe59d3bf909d735aee6aa90",
             "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",

@@ -9,7 +9,7 @@ from types import ModuleType
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_slice10_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
 )
 
 import pytest
@@ -27,7 +27,7 @@ EXPECTED_GATES = (
     ),
     ("tests", ("uv", "run", "pytest")),
 )
-BOUNDARY_HASH = "88e48118cc238cd18f032380664178927bd90d42ffbf125b118cab3778e23d47"
+BOUNDARY_HASH = "36b9d52639fd560f4d7427f918b999634b50b0c0cf638f97cffc23bb7ec5fe4b"
 
 
 def _load_validate_module() -> ModuleType:

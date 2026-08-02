@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 
 from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_slice10_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
 )
 
 import pytest
@@ -353,7 +353,7 @@ def _git_optional_ref(ref: str) -> str | None:
 
 
 def _assert_phase53_repository_state() -> None:
-    if _phase54_slice10_gate2_is_active():
+    if _phase54_product_repair1_gate2_is_active():
         return
     tracked = set(_git_output(["diff", "--name-only"]).splitlines()) - {""}
     name_status = tuple(_git_output(["diff", "--name-status"]).splitlines())

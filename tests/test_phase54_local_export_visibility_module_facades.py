@@ -23,6 +23,8 @@ from _phase54_active_gate2_manifest import (
     PHASE54_ACTIVE_GATE2_DELETED_PATHS,
     PHASE54_ACTIVE_GATE2_MARKER,
     PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
+    PHASE54_SLICE10_ORIGINAL_ADDED_PATHS,
+    PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS,
     Phase54Gate2RepositoryState,
     _matches_phase54_active_gate2_manifest,
     phase54_active_gate2_manifest_is_active,
@@ -265,8 +267,8 @@ def _active_state() -> Phase54Gate2RepositoryState:
         branch_upstream="origin/main",
         ahead=0,
         behind=0,
-        added_paths=PHASE54_ACTIVE_GATE2_ADDED_PATHS,
-        modified_paths=PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
+        added_paths=PHASE54_SLICE10_ORIGINAL_ADDED_PATHS,
+        modified_paths=PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS,
         deleted_paths=PHASE54_ACTIVE_GATE2_DELETED_PATHS,
         staged_paths=frozenset(),
         other_paths=frozenset(),
@@ -1207,8 +1209,10 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
     assert tuple(node.name for node in tests) == EXPECTED_TEST_NAMES
     assert len(tests) == 30
     assert all(not node.decorator_list for node in tests)
-    assert len(PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 3
-    assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 69
+    assert len(PHASE54_SLICE10_ORIGINAL_ADDED_PATHS) == 3
+    assert len(PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS) == 69
+    assert PHASE54_ACTIVE_GATE2_ADDED_PATHS == frozenset()
+    assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 66
     assert PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
     dirty = {
         *subprocess.run(

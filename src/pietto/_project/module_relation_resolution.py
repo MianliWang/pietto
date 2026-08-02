@@ -1239,7 +1239,13 @@ def _source_row_state(
         if len(type_facts) != 1 or (
             type_facts[0].canonical_kind is ProjectResolvedTypeKind.UNKNOWN
         ):
-            _append_type_source_blocker(draft, occurrence, source, field_def.type_expr)
+            _append_type_source_blocker(
+                draft,
+                occurrence,
+                source,
+                field_def.type_expr,
+                type_source_environment=type_environment,
+            )
             return _unknown_state(ProjectRelationRowSchemaReason.UNKNOWN_SCHEMA)
         fields[field_def.name] = ProjectRowField(
             name=field_def.name,
@@ -1259,10 +1265,17 @@ def _append_type_source_blocker(
     occurrence: ProjectDeclarationOccurrence,
     source: SourceDef,
     type_expr: object | None = None,
+    *,
+    type_source_environment: ProjectModuleTypeSourceResolutionEnvironment | None = None,
 ) -> None:
+    issue_environment = (
+        draft.type_source_environment
+        if type_source_environment is None
+        else type_source_environment
+    )
     issues = tuple(
         issue
-        for issue in draft.type_source_environment.issues
+        for issue in issue_environment.issues
         if (
             issue.source_reference is not None
             and issue.source_reference.source is source
@@ -1368,24 +1381,21 @@ def _relation_row_state(
     definition = occurrence.definition
     assert type(definition) in {TableDef, QueryDef}
     relation_definition = cast(TableDef | QueryDef, definition)
-    if (
+    has_deferred_behavior = (
         relation_definition.let_clause is not None
         or relation_definition.group_by_clause is not None
         or any(
             type(item.expression) not in {NameExpr, DottedNameExpr}
             for item in relation_definition.select_items
         )
-    ):
-        return ProjectRelationRowSchemaState(
-            status=ProjectRelationRowSchemaStatus.DEFERRED,
-            schema=None,
-            reason=ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR,
-        )
+    )
 
     fields: dict[str, ProjectRowField] = {}
     diagnostics: list[ProjectModuleRelationResolutionIssue] = []
     duplicate = False
     for item in relation_definition.select_items:
+        if type(item.expression) not in {NameExpr, DottedNameExpr}:
+            continue
         decoded = _direct_field_names(
             item,
             source_name=relation_definition.from_clause.source_name,
@@ -1442,6 +1452,12 @@ def _relation_row_state(
     draft.issues.extend(diagnostics)
     if diagnostics:
         return _unknown_state(ProjectRelationRowSchemaReason.UNKNOWN_SCHEMA)
+    if has_deferred_behavior:
+        return ProjectRelationRowSchemaState(
+            status=ProjectRelationRowSchemaStatus.DEFERRED,
+            schema=None,
+            reason=ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR,
+        )
     if duplicate:
         return _unknown_state(ProjectRelationRowSchemaReason.DUPLICATE_OUTPUT_NAME)
     reason = (

@@ -13,7 +13,7 @@ from typing import Any, cast
 from _phase54_active_gate2_manifest import (
     PHASE54_ACTIVE_GATE2_ADDED_PATHS,
     PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
-    phase54_active_gate2_manifest_is_active as _phase54_slice10_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
 )
 
 import pytest
@@ -102,21 +102,21 @@ MODULE_SHA256 = {
 }
 SPEC_SHA256 = "7010cd8a39ed389de588d8cd734b136cc87456c3ef5eb324638467d1188fc935"
 MODIFIED_TEST_SHA256 = {
-    SLICE4_TEST_REL: "0c85dd597847d1128f6fc5836df486bb33049bba1fc32b6fd3c5350e6cc586fb",
-    SLICE5_TEST_REL: "017c9d38b4142c56114c5f8c2a026295bf2a16884cef4546c49c67d62feb4079",
-    SLICE6_TEST_REL: "0a8093d6c4900f1f35ab10adbb52b13504524343f6f4ccb9a9b6629bbc2a0b3c",
-    SLICE7_TEST_REL: "3eec48a92a4011e089622d7fa225c5829349d25577103ba10e20c6c278ae931e",
+    SLICE4_TEST_REL: "fba06fb17d29bd7ea0731f8682c5374b4537a119cda7d278d10ecd46736ad6b7",
+    SLICE5_TEST_REL: "df4244f6e7905fbc1651ffc3e3d270e3fe2744eea730ac2952a607dc21a25e66",
+    SLICE6_TEST_REL: "e3a0d21ff23cf5e05ea0afb25fc0ee38a2c523fd42f350ecef07cb8731007a30",
+    SLICE7_TEST_REL: "2bade7a676a583069b26c55ba76f4ecb1460db5523507c53d4af8c7b506c4158",
 }
 WORKFLOW_SHA256 = "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94"
 PYPROJECT_SHA256 = "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01"
 LOCK_SHA256 = "a7d9125995e98a8a74d3664ceae7801cc1f4cce74ec323933da67838be199cea"
-COMPILER_DIGEST = "88e48118cc238cd18f032380664178927bd90d42ffbf125b118cab3778e23d47"
+COMPILER_DIGEST = "36b9d52639fd560f4d7427f918b999634b50b0c0cf638f97cffc23bb7ec5fe4b"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "70b83a70456479a05b87c542ff73beb864958e9e39751ca3fe9fc68acc471bc5"
+    "34eca9280db98e806793c6561c30e003fb5875b0ff42e0770b3a8d22749c1e49"
 )
 
 SPEC_H2 = (
@@ -490,11 +490,12 @@ def _assert_allowed_dirty_state(
     origin_main: str | None,
 ) -> None:
     if (
-        _phase54_slice10_gate2_is_active()
+        _phase54_product_repair1_gate2_is_active()
         and tracked == set(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS)
         and untracked == set(PHASE54_ACTIVE_GATE2_ADDED_PATHS)
-        and branch == "main"
-        and head == main == origin_main == "fadb1924af057cfc901a1658e117810d699e2358"
+        and branch == "phase54/slice10-cross-module-relation-row-facts"
+        and head == "6104002486d21b7b25dbec74d037c0fc7cc5099a"
+        and main == origin_main == "fadb1924af057cfc901a1658e117810d699e2358"
     ):
         return
     dirty = tracked | untracked

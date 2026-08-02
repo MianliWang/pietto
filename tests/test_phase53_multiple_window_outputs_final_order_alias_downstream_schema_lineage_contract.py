@@ -11,7 +11,7 @@ from types import MappingProxyType
 from typing import cast
 
 from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_slice10_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
 )
 
 import pytest
@@ -593,8 +593,8 @@ def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> N
         if _git_output(["rev-parse", "--is-shallow-repository"]) == "true":
             assert parents == []
         else:
-            if _phase54_slice10_gate2_is_active():
-                expected_parent = PHASE54_SLICE9_PARENT_HEAD
+            if _phase54_product_repair1_gate2_is_active():
+                expected_parent = "42b692d64dcbd9c4f8210accd0106dc11dcd3318"
             elif head == PHASE53_COMPLETION_HEAD:
                 expected_parent = BASE_HEAD
             elif head == PHASE54_SLICE1_HEAD:
@@ -617,6 +617,10 @@ def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> N
                 expected_parent = PHASE54_SLICE7_HEAD
             elif head == PHASE54_SLICE9_HEAD:
                 expected_parent = PHASE54_SLICE8_HEAD
+            elif _git_output(["show", "-s", "--format=%s", "HEAD"]) == (
+                "Fix Phase 54 relation row diagnostics"
+            ):
+                expected_parent = "6104002486d21b7b25dbec74d037c0fc7cc5099a"
             else:
                 expected_parent = PHASE54_SLICE9_HEAD
             assert parents == [expected_parent]

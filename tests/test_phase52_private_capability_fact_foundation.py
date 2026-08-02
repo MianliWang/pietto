@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_slice10_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
 )
 
 import pytest
@@ -916,7 +916,7 @@ def test_project_boundary_package_version_and_release_state_are_unchanged() -> N
     project_paths = _project_private_paths()
     assert len(project_paths) == 28
     assert _digest(project_paths) == (
-        "70b83a70456479a05b87c542ff73beb864958e9e39751ca3fe9fc68acc471bc5"
+        "34eca9280db98e806793c6561c30e003fb5875b0ff42e0770b3a8d22749c1e49"
     )
     with PYPROJECT_PATH.open("rb") as stream:
         project = tomllib.load(stream)
@@ -925,7 +925,7 @@ def test_project_boundary_package_version_and_release_state_are_unchanged() -> N
 
 
 def test_gate2_dirty_untracked_and_index_states_are_exact() -> None:
-    if _phase54_slice10_gate2_is_active():
+    if _phase54_product_repair1_gate2_is_active():
         return
     dirty = _dirty_paths()
     slice13_modified = _slice13_paths("MODIFIED_PATHS")
