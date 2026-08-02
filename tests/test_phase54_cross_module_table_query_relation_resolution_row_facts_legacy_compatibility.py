@@ -201,7 +201,23 @@ def test_slice10_contract_and_status_docs_freeze_exact_boundary() -> None:
     assert len(active_gate2_manifest.ADDED_PATHS) == 3
     assert len(active_gate2_manifest.MODIFIED_PATHS) == 69
     assert len(active_gate2_manifest.ALLOWLIST_PATHS) == 72
-    assert active_gate2_manifest.phase54_active_gate2_manifest_is_active()
+    frozen_gate2 = active_gate2_manifest.Phase54Gate2RepositoryState(
+        marker=active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER,
+        branch_oid=active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE,
+        branch_head="main",
+        branch_upstream="origin/main",
+        ahead=0,
+        behind=0,
+        added_paths=active_gate2_manifest.PHASE54_ACTIVE_GATE2_ADDED_PATHS,
+        modified_paths=active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
+        deleted_paths=active_gate2_manifest.PHASE54_ACTIVE_GATE2_DELETED_PATHS,
+        staged_paths=frozenset(),
+        other_paths=frozenset(),
+        worktree_count=1,
+        shallow=False,
+        active_git_operation=False,
+    )
+    assert active_gate2_manifest._matches_phase54_active_gate2_manifest(frozen_gate2)
 
 
 def test_relation_issue_status_and_private_carriers_are_frozen_slotted_keyword_only() -> (
