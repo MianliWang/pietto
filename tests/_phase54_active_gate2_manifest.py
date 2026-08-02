@@ -19,6 +19,10 @@ PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE = "3caa5e52be41cd7e1ed0ed364f2d62574adc
 PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BRANCH = (
     "phase54/slice10-cross-module-relation-row-facts"
 )
+PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE = "17a5b01e555930537334d4d0bcf3480e332b7e91"
+PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BRANCH = (
+    "phase54/slice10-cross-module-relation-row-facts"
+)
 ADDED_PATHS = set()
 NON_READER_MODIFIED_PATHS = {
     "src/pietto/_project/module_relation_resolution.py",
@@ -175,6 +179,9 @@ PHASE54_POST_REVIEW_PRODUCT_REPAIR1_MODIFIED_PATHS = frozenset(
 PHASE54_POST_REVIEW_PRODUCT_REPAIR2_SEED_PATHS = frozenset(NON_READER_MODIFIED_PATHS)
 PHASE54_POST_REVIEW_PRODUCT_REPAIR2_READER_PATHS = frozenset(MECHANICAL_READER_PATHS)
 PHASE54_POST_REVIEW_PRODUCT_REPAIR2_MODIFIED_PATHS = frozenset(MODIFIED_PATHS)
+PHASE54_POST_REVIEW_PRODUCT_REPAIR3_SEED_PATHS = frozenset(NON_READER_MODIFIED_PATHS)
+PHASE54_POST_REVIEW_PRODUCT_REPAIR3_READER_PATHS = frozenset(MECHANICAL_READER_PATHS)
+PHASE54_POST_REVIEW_PRODUCT_REPAIR3_MODIFIED_PATHS = frozenset(MODIFIED_PATHS)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -331,7 +338,18 @@ def _matches_phase54_active_gate2_manifest(
         and state.modified_paths == PHASE54_POST_REVIEW_PRODUCT_REPAIR2_MODIFIED_PATHS
         and state.deleted_paths == frozenset()
     )
-    return common and (original_gate2 or product_repair1 or product_repair2)
+    product_repair3 = (
+        state.branch_oid == PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE
+        and state.branch_head == PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BRANCH
+        and state.branch_upstream
+        == f"origin/{PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BRANCH}"
+        and state.added_paths == frozenset()
+        and state.modified_paths == PHASE54_POST_REVIEW_PRODUCT_REPAIR3_MODIFIED_PATHS
+        and state.deleted_paths == frozenset()
+    )
+    return common and (
+        original_gate2 or product_repair1 or product_repair2 or product_repair3
+    )
 
 
 def phase54_active_gate2_manifest_is_active() -> bool:

@@ -910,3 +910,10 @@ def test_schema_v1_privacy_status_reader_fixed_point_and_slice9_boundary(
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_ADDED_PATHS == frozenset()
     assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 43
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
+    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE == (
+        "17a5b01e555930537334d4d0bcf3480e332b7e91"
+    )
+    assert (
+        active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_MODIFIED_PATHS
+        == active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
+    )

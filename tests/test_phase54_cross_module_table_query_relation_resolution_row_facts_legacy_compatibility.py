@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 from dataclasses import FrozenInstanceError, fields, replace
+import hashlib
 import inspect
 import json
 from pathlib import Path
@@ -16,6 +17,7 @@ import pietto._project.module_relation_resolution as relation_resolution
 from pietto._project.json_v2 import project_check_result_to_json_dict
 from pietto._project.model import (
     ProjectParseCheckResult,
+    ProjectRelationRowSchemaState,
     ProjectRelationRowSchemaReason,
     ProjectRelationRowSchemaStatus,
     ProjectResolvedTypeKind,
@@ -273,6 +275,28 @@ def test_slice10_contract_and_status_docs_freeze_exact_boundary() -> None:
     assert active_gate2_manifest._matches_phase54_active_gate2_manifest(repair2_state)
     assert not active_gate2_manifest._matches_phase54_active_gate2_manifest(
         replace(repair2_state, staged_paths=frozenset({SOURCE_REL}))
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_SEED_PATHS) == 3
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_MODIFIED_PATHS)
+        == 43
+    )
+    repair3_state = replace(
+        repair2_state,
+        branch_oid=active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,
+        branch_head=active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BRANCH,
+        branch_upstream=(
+            f"origin/{active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BRANCH}"
+        ),
+        modified_paths=(
+            active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_MODIFIED_PATHS
+        ),
+    )
+    assert active_gate2_manifest._matches_phase54_active_gate2_manifest(repair3_state)
+    assert not active_gate2_manifest._matches_phase54_active_gate2_manifest(
+        replace(repair3_state, staged_paths=frozenset({SOURCE_REL}))
     )
 
 
@@ -1203,6 +1227,60 @@ def test_unknown_deferred_and_blocked_upstream_states_propagate_exact_reasons(
 def test_duplicate_output_is_unknown_advanced_rows_defer_and_legacy_public_bytes_stay_exact(
     tmp_path: Path,
 ) -> None:
+    source_prefix = (
+        "shape Row:\n"
+        "    id: Int not null\n"
+        "    name: Text nullable\n"
+        "    score: Int not null\n"
+        'source rows: Row is postgres.table("rows")\n'
+    )
+
+    def matrix_case(
+        name: str,
+        *,
+        select: tuple[str, ...],
+        let: tuple[str, ...] = (),
+        from_name: str = "rows",
+    ) -> tuple[
+        ProjectRelationRowSchemaState,
+        tuple[tuple[str, str], ...],
+        ProjectSemanticResult,
+    ]:
+        let_clause = (
+            ""
+            if not let
+            else "    let:\n" + "".join(f"        {line}\n" for line in let)
+        )
+        query = (
+            "query result:\n"
+            f"    from {from_name}\n"
+            f"{let_clause}"
+            "    select:\n" + "".join(f"        {line}\n" for line in select)
+        )
+        parse_result, semantic = _semantic_project(
+            tmp_path / f"matrix-{name}",
+            {"a.pietto": source_prefix + query},
+        )
+        definition = _definition(parse_result, "a.pietto", "result")
+        return (
+            _fact(semantic, "a.pietto", definition).state,
+            _diagnostic_pairs(semantic),
+            semantic,
+        )
+
+    def assert_non_concrete_state(
+        state: ProjectRelationRowSchemaState,
+        status: ProjectRelationRowSchemaStatus,
+        reason: ProjectRelationRowSchemaReason,
+    ) -> None:
+        assert (state.status, state.reason) == (status, reason)
+        if status is ProjectRelationRowSchemaStatus.UNKNOWN:
+            assert state.schema is not None
+            assert state.schema.is_unknown
+            assert state.schema.fields == {}
+        else:
+            assert state.schema is None
+
     sources = {
         "a.pietto": (
             "shape Row:\n    id: Int not null\n    name: Text nullable\n"
@@ -1232,6 +1310,193 @@ def test_duplicate_output_is_unknown_advanced_rows_defer_and_legacy_public_bytes
         advanced_state.reason
         is ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR
     )
+
+    selected_let, selected_let_diagnostics, selected_let_semantic = matrix_case(
+        "selected-let",
+        let=("total = id + 1",),
+        select=("total",),
+    )
+    assert_non_concrete_state(
+        selected_let,
+        ProjectRelationRowSchemaStatus.DEFERRED,
+        ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR,
+    )
+    assert selected_let_diagnostics == ()
+
+    selected_let_alias, selected_let_alias_diagnostics, _ = matrix_case(
+        "selected-let-alias",
+        let=("total = id + 1",),
+        select=("projected_total = total",),
+    )
+    assert_non_concrete_state(
+        selected_let_alias,
+        ProjectRelationRowSchemaStatus.DEFERRED,
+        ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR,
+    )
+    assert selected_let_alias_diagnostics == ()
+
+    valid_direct_let, valid_direct_let_diagnostics, _ = matrix_case(
+        "valid-direct-let",
+        let=("total = score + 1",),
+        select=("id", "total"),
+    )
+    assert_non_concrete_state(
+        valid_direct_let,
+        ProjectRelationRowSchemaStatus.DEFERRED,
+        ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR,
+    )
+    assert valid_direct_let_diagnostics == ()
+
+    invalid_direct_let, invalid_direct_let_diagnostics, _ = matrix_case(
+        "invalid-direct-let",
+        let=("total = id + 1",),
+        select=("missing", "total"),
+    )
+    assert_non_concrete_state(
+        invalid_direct_let,
+        ProjectRelationRowSchemaStatus.UNKNOWN,
+        ProjectRelationRowSchemaReason.UNKNOWN_SCHEMA,
+    )
+    assert invalid_direct_let_diagnostics == (("PIE-S2102", "Unknown field: missing"),)
+
+    invalid_direct_computed, invalid_direct_computed_diagnostics, _ = matrix_case(
+        "invalid-direct-computed",
+        select=("missing", "total = id + 1"),
+    )
+    assert_non_concrete_state(
+        invalid_direct_computed,
+        ProjectRelationRowSchemaStatus.UNKNOWN,
+        ProjectRelationRowSchemaReason.UNKNOWN_SCHEMA,
+    )
+    assert invalid_direct_computed_diagnostics == (
+        ("PIE-S2102", "Unknown field: missing"),
+    )
+
+    distinct_direct_computed, distinct_direct_computed_diagnostics, _ = matrix_case(
+        "distinct-direct-computed",
+        select=("id", "total = score + 1"),
+    )
+    assert_non_concrete_state(
+        distinct_direct_computed,
+        ProjectRelationRowSchemaStatus.DEFERRED,
+        ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR,
+    )
+    assert distinct_direct_computed_diagnostics == ()
+
+    duplicate_cases = {
+        "direct-computed": {
+            "select": ("id", "id = score + 1"),
+        },
+        "computed-direct": {
+            "select": ("id = score + 1", "id"),
+        },
+        "computed-computed": {
+            "select": ("value = id + 1", "value = score + 1"),
+        },
+        "direct-selected-let": {
+            "let": ("total = score + 1",),
+            "select": ("total = id", "total"),
+        },
+        "selected-let-direct": {
+            "let": ("total = score + 1",),
+            "select": ("total", "total = id"),
+        },
+        "computed-selected-let": {
+            "let": ("total = score + 1",),
+            "select": ("total = id + 1", "total"),
+        },
+        "selected-let-computed": {
+            "let": ("total = score + 1",),
+            "select": ("total", "total = id + 1"),
+        },
+        "selected-let-selected-let": {
+            "let": ("total = score + 1",),
+            "select": ("total", "total"),
+        },
+    }
+    duplicate_outcomes: dict[
+        str,
+        tuple[ProjectRelationRowSchemaStatus, ProjectRelationRowSchemaReason],
+    ] = {}
+    for name, case in duplicate_cases.items():
+        state, diagnostics, _ = matrix_case(
+            name,
+            let=case.get("let", ()),
+            select=case["select"],
+        )
+        assert_non_concrete_state(
+            state,
+            ProjectRelationRowSchemaStatus.UNKNOWN,
+            ProjectRelationRowSchemaReason.DUPLICATE_OUTPUT_NAME,
+        )
+        assert diagnostics == ()
+        duplicate_outcomes[name] = (state.status, state.reason)
+
+    assert (
+        duplicate_outcomes["direct-computed"] == duplicate_outcomes["computed-direct"]
+    )
+    assert (
+        duplicate_outcomes["direct-selected-let"]
+        == duplicate_outcomes["selected-let-direct"]
+    )
+    assert (
+        duplicate_outcomes["computed-selected-let"]
+        == duplicate_outcomes["selected-let-computed"]
+    )
+
+    advanced_only, advanced_only_diagnostics, _ = matrix_case(
+        "advanced-only",
+        select=("total = id + 1",),
+    )
+    assert_non_concrete_state(
+        advanced_only,
+        ProjectRelationRowSchemaStatus.DEFERRED,
+        ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR,
+    )
+    assert advanced_only_diagnostics == ()
+
+    direct_only, direct_only_diagnostics, _ = matrix_case(
+        "direct-only",
+        select=("id", "name"),
+    )
+    assert direct_only.status is ProjectRelationRowSchemaStatus.CONCRETE
+    assert direct_only.reason is ProjectRelationRowSchemaReason.DIRECT_SOURCE_CONCRETE
+    assert direct_only.schema is not None
+    assert tuple(direct_only.schema.fields) == ("id", "name")
+    assert direct_only_diagnostics == ()
+
+    root_blocked, root_blocked_diagnostics, _ = matrix_case(
+        "root-blocked",
+        from_name="missing",
+        select=("total = id + 1", "total = score + 1"),
+    )
+    assert_non_concrete_state(
+        root_blocked,
+        ProjectRelationRowSchemaStatus.BLOCKED,
+        ProjectRelationRowSchemaReason.UNRESOLVED_RELATION_BLOCKED,
+    )
+    assert root_blocked_diagnostics == (("PIE-S2301", "Unknown relation: missing"),)
+
+    dotted_let, dotted_let_diagnostics, _ = matrix_case(
+        "dotted-let-is-direct",
+        let=("total = id + 1",),
+        select=("rows.total",),
+    )
+    assert_non_concrete_state(
+        dotted_let,
+        ProjectRelationRowSchemaStatus.UNKNOWN,
+        ProjectRelationRowSchemaReason.UNKNOWN_SCHEMA,
+    )
+    assert dotted_let_diagnostics == (("PIE-S2102", "Unknown field: rows.total"),)
+
+    qualified_renamed, qualified_renamed_diagnostics, _ = matrix_case(
+        "qualified-renamed",
+        select=("rows.id", "renamed = rows.name"),
+    )
+    assert qualified_renamed.status is ProjectRelationRowSchemaStatus.CONCRETE
+    assert qualified_renamed.schema is not None
+    assert tuple(qualified_renamed.schema.fields) == ("id", "renamed")
+    assert qualified_renamed_diagnostics == ()
 
     mixed_parse, mixed = _semantic_project(
         tmp_path / "mixed",
@@ -1271,6 +1536,15 @@ def test_duplicate_output_is_unknown_advanced_rows_defer_and_legacy_public_bytes
     assert legacy.module_relation_resolutions is None
     assert legacy.diagnostics == ()
     legacy_document = project_check_result_to_json_dict(legacy_parse)
+    legacy_bytes = json.dumps(
+        legacy_document,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode()
+    assert len(legacy_bytes) == 286
+    assert hashlib.sha256(legacy_bytes).hexdigest() == (
+        "105ab045dd2eab655cfb4644fe9dc9e97a773754579c6d80d6f10f0c0d343e54"
+    )
     assert tuple(legacy_document) == (
         "schema_version",
         "command",
@@ -1284,6 +1558,12 @@ def test_duplicate_output_is_unknown_advanced_rows_defer_and_legacy_public_bytes
     )
     public_source = (REPO_ROOT / "src/pietto/__init__.py").read_text(encoding="utf-8")
     assert "ProjectModuleRelationResolutionSet" not in public_source
+    relation_source = (REPO_ROOT / SOURCE_REL).read_text(encoding="utf-8")
+    assert selected_let_semantic.model is None
+    assert selected_let.schema is None
+    assert "build_project_relation_let_scope_facts" not in relation_source
+    assert "adapt_project_row_expression_schema" not in relation_source
+    assert "ProjectRowResultRole" not in relation_source
 
     tree = ast.parse((REPO_ROOT / TEST_REL).read_text(encoding="utf-8"))
     observed = tuple(

@@ -16,6 +16,7 @@ from typing import Any, cast
 from _phase54_active_gate2_manifest import (
     PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,
     phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
 )
 
@@ -1523,6 +1524,7 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
             assert active_head in {
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
+                PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,
             }
             expected_head = active_head
         assert _git_output(["rev-parse", "HEAD"]).strip() == expected_head
@@ -1597,7 +1599,7 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
     assert len(project_paths) == 28
     assert REPO_ROOT / "src/pietto/_project/window_persistence.py" in project_paths
     assert project_digest == (
-        "240e1528b5c524107d8ab5d2edc476083bcd08e391acbfd399a73528a102cd55"
+        "66399b6b7d4eabcc647505c52fa3207a3e9047116f12c257425830c4d796bd31"
     )
     phase33 = (REPO_ROOT / "tests/test_phase33_completion_audit.py").read_text(
         encoding="utf-8"

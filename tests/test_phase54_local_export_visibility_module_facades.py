@@ -1214,6 +1214,13 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
     assert PHASE54_ACTIVE_GATE2_ADDED_PATHS == frozenset()
     assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 43
     assert PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
+    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE == (
+        "17a5b01e555930537334d4d0bcf3480e332b7e91"
+    )
+    assert (
+        active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_MODIFIED_PATHS
+        == PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
+    )
     dirty = {
         *subprocess.run(
             ["git", "diff", "--name-only"],

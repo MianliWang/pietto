@@ -1417,6 +1417,13 @@ def _relation_row_state(
     definition = occurrence.definition
     assert type(definition) in {TableDef, QueryDef}
     relation_definition = cast(TableDef | QueryDef, definition)
+    let_names = (
+        frozenset()
+        if relation_definition.let_clause is None
+        else frozenset(
+            binding.name for binding in relation_definition.let_clause.bindings
+        )
+    )
     has_deferred_behavior = (
         relation_definition.let_clause is not None
         or relation_definition.group_by_clause is not None
@@ -1425,12 +1432,23 @@ def _relation_row_state(
             for item in relation_definition.select_items
         )
     )
+    output_names: set[str] = set()
+    duplicate = False
+    for item in relation_definition.select_items:
+        output_name = _projection_output_name(item)
+        if output_name is None:
+            continue
+        if output_name in output_names:
+            duplicate = True
+            continue
+        output_names.add(output_name)
 
     fields: dict[str, ProjectRowField] = {}
     diagnostics: list[ProjectModuleRelationResolutionIssue] = []
-    duplicate = False
     for item in relation_definition.select_items:
         if type(item.expression) not in {NameExpr, DottedNameExpr}:
+            continue
+        if type(item.expression) is NameExpr and item.expression.name in let_names:
             continue
         decoded = _direct_field_names(
             item,
@@ -1477,7 +1495,6 @@ def _relation_row_state(
             )
             continue
         if output_name in fields:
-            duplicate = True
             continue
         fields[output_name] = ProjectRowField(
             name=output_name,
@@ -1488,14 +1505,14 @@ def _relation_row_state(
     draft.issues.extend(diagnostics)
     if diagnostics:
         return _unknown_state(ProjectRelationRowSchemaReason.UNKNOWN_SCHEMA)
+    if duplicate:
+        return _unknown_state(ProjectRelationRowSchemaReason.DUPLICATE_OUTPUT_NAME)
     if has_deferred_behavior:
         return ProjectRelationRowSchemaState(
             status=ProjectRelationRowSchemaStatus.DEFERRED,
             schema=None,
             reason=ProjectRelationRowSchemaReason.DEFERRED_PHASE48_BEHAVIOR,
         )
-    if duplicate:
-        return _unknown_state(ProjectRelationRowSchemaReason.DUPLICATE_OUTPUT_NAME)
     reason = (
         ProjectRelationRowSchemaReason.DIRECT_SOURCE_CONCRETE
         if resolution.target_symbol.declaration_kind is ProjectSymbolKind.SOURCE
@@ -1506,6 +1523,17 @@ def _relation_row_state(
         schema=ProjectRowSchema(fields=fields),
         reason=reason,
     )
+
+
+def _projection_output_name(item: SelectItem) -> str | None:
+    if item.alias is not None:
+        return item.alias
+    expression = item.expression
+    if type(expression) is NameExpr:
+        return expression.name
+    if type(expression) is DottedNameExpr:
+        return expression.parts[-1]
+    return None
 
 
 def _direct_field_names(
