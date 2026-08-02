@@ -11,6 +11,8 @@ from types import MappingProxyType
 from typing import cast
 
 from _phase54_active_gate2_manifest import (
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
     phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
 )
 
@@ -594,7 +596,11 @@ def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> N
             assert parents == []
         else:
             if _phase54_product_repair1_gate2_is_active():
-                expected_parent = "42b692d64dcbd9c4f8210accd0106dc11dcd3318"
+                if head == PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE:
+                    expected_parent = PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE
+                else:
+                    assert head == PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE
+                    expected_parent = "42b692d64dcbd9c4f8210accd0106dc11dcd3318"
             elif head == PHASE53_COMPLETION_HEAD:
                 expected_parent = BASE_HEAD
             elif head == PHASE54_SLICE1_HEAD:
@@ -617,6 +623,10 @@ def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> N
                 expected_parent = PHASE54_SLICE7_HEAD
             elif head == PHASE54_SLICE9_HEAD:
                 expected_parent = PHASE54_SLICE8_HEAD
+            elif _git_output(["show", "-s", "--format=%s", "HEAD"]) == (
+                "Fix Phase 54 alias blocker provenance"
+            ):
+                expected_parent = "3caa5e52be41cd7e1ed0ed364f2d62574adce840"
             elif _git_output(["show", "-s", "--format=%s", "HEAD"]) == (
                 "Fix Phase 54 relation row diagnostics"
             ):

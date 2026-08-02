@@ -13,6 +13,8 @@ from typing import cast
 from _phase54_active_gate2_manifest import (
     PHASE54_ACTIVE_GATE2_ADDED_PATHS,
     PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
     phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
 )
 
@@ -220,10 +222,10 @@ CAPABILITY_WINDOWS_SHA256 = (
     "c0512933fc284bbc1dec98dab96411ee179d64e7bee005aa798b6fd7dba2024e"
 )
 PATH_DIGESTS = {
-    "compiler": "36b9d52639fd560f4d7427f918b999634b50b0c0cf638f97cffc23bb7ec5fe4b",
+    "compiler": "0ad4101136a87f2d1ad19c845bff69a97fb01b02428e3c36ff0999b3b9e8bcfa",
     "semantic": "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70",
     "phase15": "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d",
-    "project": "34eca9280db98e806793c6561c30e003fb5875b0ff42e0770b3a8d22749c1e49",
+    "project": "240e1528b5c524107d8ab5d2edc476083bcd08e391acbfd399a73528a102cd55",
 }
 PROTECTED_SHA256 = {
     ".github/workflows/ci.yml": "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94",
@@ -407,7 +409,11 @@ def _assert_allowed_dirty_state(
         and tracked == set(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS)
         and untracked == set(PHASE54_ACTIVE_GATE2_ADDED_PATHS)
         and branch == "phase54/slice10-cross-module-relation-row-facts"
-        and head == "6104002486d21b7b25dbec74d037c0fc7cc5099a"
+        and head
+        in {
+            PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
+            PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
+        }
         and main == origin_main == "fadb1924af057cfc901a1658e117810d699e2358"
     ):
         return

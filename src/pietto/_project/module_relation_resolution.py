@@ -52,6 +52,7 @@ from pietto._project.module_graph import (
 )
 from pietto._project.module_resolution import (
     ProjectModuleTypeSourceResolutionEnvironment,
+    ProjectResolvedModuleTypeReference,
     ProjectTypeSourceResolutionIssue,
     ProjectTypeSourceResolutionIssueStatus,
     ProjectTypeSourceResolutionSet,
@@ -1245,6 +1246,10 @@ def _source_row_state(
                 source,
                 field_def.type_expr,
                 type_source_environment=type_environment,
+                type_resolution=None if len(type_facts) != 1 else type_facts[0],
+                type_source_resolutions=(
+                    None if len(type_facts) != 1 else type_source_resolutions
+                ),
             )
             return _unknown_state(ProjectRelationRowSchemaReason.UNKNOWN_SCHEMA)
         fields[field_def.name] = ProjectRowField(
@@ -1267,25 +1272,56 @@ def _append_type_source_blocker(
     type_expr: object | None = None,
     *,
     type_source_environment: ProjectModuleTypeSourceResolutionEnvironment | None = None,
+    type_resolution: ProjectResolvedModuleTypeReference | None = None,
+    type_source_resolutions: ProjectTypeSourceResolutionSet | None = None,
 ) -> None:
-    issue_environment = (
-        draft.type_source_environment
-        if type_source_environment is None
-        else type_source_environment
-    )
-    issues = tuple(
-        issue
-        for issue in issue_environment.issues
+    if type_resolution is None:
+        if type_source_resolutions is not None:
+            raise ValueError("Type/source blocker resolution inputs must be paired.")
+        issue_environment = (
+            draft.type_source_environment
+            if type_source_environment is None
+            else type_source_environment
+        )
+        issues = tuple(
+            issue
+            for issue in issue_environment.issues
+            if (
+                issue.source_reference is not None
+                and issue.source_reference.source is source
+            )
+            or (
+                type_expr is not None
+                and issue.type_reference is not None
+                and issue.type_reference.type_expr is type_expr
+            )
+        )
+    else:
         if (
-            issue.source_reference is not None
-            and issue.source_reference.source is source
+            type_source_resolutions is None
+            or type_expr is not type_resolution.reference.type_expr
+            or type_source_environment is None
+            or type_resolution not in type_source_environment.type_resolutions
+            or type_source_resolutions.find_module_path(
+                type_resolution.reference.owner.identity.module_path
+            )
+            != (type_source_environment,)
+        ):
+            raise ValueError("Type/source blocker resolution inputs must be paired.")
+        alias_identities = frozenset(type_resolution.alias_chain)
+        issues = tuple(
+            issue
+            for issue in type_source_resolutions.issues
+            if (
+                issue.type_reference is not None
+                and (
+                    issue.type_reference.type_expr
+                    is type_resolution.reference.type_expr
+                    or issue.type_reference.owner.identity in alias_identities
+                )
+            )
+            or bool(alias_identities.intersection(issue.alias_cycle))
         )
-        or (
-            type_expr is not None
-            and issue.type_reference is not None
-            and issue.type_reference.type_expr is type_expr
-        )
-    )
     roots = tuple(
         dict.fromkeys(
             diagnostic

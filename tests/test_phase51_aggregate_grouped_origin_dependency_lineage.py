@@ -13,7 +13,10 @@ import subprocess
 from typing import cast
 
 from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
+    PHASE54_ACTIVE_GATE2_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 import pytest
@@ -971,8 +974,14 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
             expected_head = PHASE54_SLICE8_BASE_HEAD_SHA
         elif path_counts == PHASE54_SLICE9_PATH_COUNTS:
             expected_head = PHASE54_SLICE9_BASE_HEAD_SHA
-        if _phase54_product_repair1_gate2_is_active():
-            expected_head = "6104002486d21b7b25dbec74d037c0fc7cc5099a"
+        if _phase54_active_gate2_is_active():
+            active_head = _git_output(["rev-parse", "HEAD"]).strip()
+            assert active_head in {
+                PHASE54_ACTIVE_GATE2_BASE,
+                PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
+                PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
+            }
+            expected_head = active_head
         assert _git_output(["rev-parse", "HEAD"]).strip() == expected_head
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
 

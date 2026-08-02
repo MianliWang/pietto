@@ -202,8 +202,8 @@ def test_slice10_contract_and_status_docs_freeze_exact_boundary() -> None:
     assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS) == 69
     assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_ALLOWLIST_PATHS) == 72
     assert active_gate2_manifest.ADDED_PATHS == set()
-    assert len(active_gate2_manifest.MODIFIED_PATHS) == 66
-    assert len(active_gate2_manifest.ALLOWLIST_PATHS) == 66
+    assert len(active_gate2_manifest.MODIFIED_PATHS) == 43
+    assert len(active_gate2_manifest.ALLOWLIST_PATHS) == 43
     frozen_gate2 = active_gate2_manifest.Phase54Gate2RepositoryState(
         marker=active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER,
         branch_oid=active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE,
@@ -251,6 +251,28 @@ def test_slice10_contract_and_status_docs_freeze_exact_boundary() -> None:
                 active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR1_SEED_PATHS
             ),
         )
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR2_SEED_PATHS) == 3
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR2_MODIFIED_PATHS)
+        == 43
+    )
+    repair2_state = replace(
+        repair_state,
+        branch_oid=active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
+        branch_head=active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BRANCH,
+        branch_upstream=(
+            f"origin/{active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BRANCH}"
+        ),
+        modified_paths=(
+            active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR2_MODIFIED_PATHS
+        ),
+    )
+    assert active_gate2_manifest._matches_phase54_active_gate2_manifest(repair2_state)
+    assert not active_gate2_manifest._matches_phase54_active_gate2_manifest(
+        replace(repair2_state, staged_paths=frozenset({SOURCE_REL}))
     )
 
 
@@ -991,6 +1013,62 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
     assert tuple(item.code for item in blocker.suppressing_diagnostics) == (
         "PIE-S2002",
     )
+
+    alias_cases = (
+        (
+            "alias_cycle",
+            "type A = B\ntype B = A\n",
+            "PIE-S2003",
+            "type_alias_cycle",
+            ("A", "B"),
+        ),
+        (
+            "alias_unknown",
+            "type A = Missing\n",
+            "PIE-S2002",
+            "unknown_type_reference",
+            (),
+        ),
+    )
+    for case, aliases, root_code, issue_status, alias_cycle in alias_cases:
+        alias_parse, alias_semantic = _semantic_project(
+            tmp_path / case,
+            {
+                "a.pietto": (
+                    'import "b.pietto":\n    shape Row\n'
+                    'source rows: Row is postgres.table("rows")\n'
+                ),
+                "b.pietto": (
+                    aliases + "shape Row:\n    value: A\n" + "export:\n    shape Row\n"
+                ),
+            },
+        )
+        assert tuple(item.code for item in alias_semantic.diagnostics) == (root_code,)
+        alias_source = _definition(alias_parse, "a.pietto", "rows")
+        alias_fact = _fact(alias_semantic, "a.pietto", alias_source)
+        assert alias_fact.state.status is ProjectRelationRowSchemaStatus.UNKNOWN
+        alias_blockers = tuple(
+            issue
+            for issue in _environment(alias_semantic, "a.pietto").issues
+            if issue.status
+            is relation_resolution.ProjectModuleRelationResolutionIssueStatus.TYPE_SOURCE_DIAGNOSTIC_BLOCKED
+        )
+        assert len(alias_blockers) == 1
+        alias_blocker = alias_blockers[0]
+        assert alias_blocker.owning_module_path == "a.pietto"
+        assert alias_blocker.local_name == "rows"
+        assert len(alias_blocker.type_source_issues) == 1
+        alias_issue = alias_blocker.type_source_issues[0]
+        assert alias_issue.owning_module_path == "b.pietto"
+        assert alias_issue.status.value == issue_status
+        assert tuple(item.declared_name for item in alias_issue.alias_cycle) == (
+            alias_cycle
+        )
+        assert alias_issue.diagnostic is not None
+        assert alias_issue.diagnostic.code == root_code
+        assert tuple(item.code for item in alias_blocker.suppressing_diagnostics) == (
+            root_code,
+        )
 
 
 def test_direct_bare_qualified_and_renamed_fields_produce_concrete_row_facts(

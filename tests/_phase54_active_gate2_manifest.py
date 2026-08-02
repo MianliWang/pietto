@@ -15,13 +15,17 @@ PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE = "6104002486d21b7b25dbec74d037c0fc7cc5
 PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BRANCH = (
     "phase54/slice10-cross-module-relation-row-facts"
 )
+PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE = "3caa5e52be41cd7e1ed0ed364f2d62574adce840"
+PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BRANCH = (
+    "phase54/slice10-cross-module-relation-row-facts"
+)
 ADDED_PATHS = set()
 NON_READER_MODIFIED_PATHS = {
     "src/pietto/_project/module_relation_resolution.py",
     "tests/_phase54_active_gate2_manifest.py",
     "tests/test_phase54_cross_module_table_query_relation_resolution_row_facts_legacy_compatibility.py",
 }
-MECHANICAL_READER_PATHS = {
+PHASE54_SLICE10_PRIOR_MECHANICAL_READER_PATHS = {
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
     "tests/test_phase11_generated_guard.py",
@@ -86,6 +90,48 @@ MECHANICAL_READER_PATHS = {
     "tests/test_phase54_named_import_alias_binding_environments_collision_rules.py",
     "tests/test_phase54_schema_v2_explicit_module_carrier.py",
 }
+MECHANICAL_READER_PATHS = {
+    "tests/test_phase11_ci_workflow.py",
+    "tests/test_phase11_completion_audit.py",
+    "tests/test_phase11_generated_guard.py",
+    "tests/test_phase11_golden_policy.py",
+    "tests/test_phase11_packaging_smoke.py",
+    "tests/test_phase11_validation_entrypoint.py",
+    "tests/test_phase12_completion_audit.py",
+    "tests/test_phase12_composition_cli_json_goldens.py",
+    "tests/test_phase33_completion_audit.py",
+    "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
+    "tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py",
+    "tests/test_phase51_completion_audit_and_status_lock.py",
+    "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
+    "tests/test_phase52_aggregate_signature_algebra_facts.py",
+    "tests/test_phase52_completion_audit_and_status_lock.py",
+    "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
+    "tests/test_phase52_expression_stage_clause_capability_facts.py",
+    "tests/test_phase52_fail_closed_capability_lookup.py",
+    "tests/test_phase52_logical_type_literal_parameter_nullability_inventory.py",
+    "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
+    "tests/test_phase52_private_capability_fact_foundation.py",
+    "tests/test_phase52_scalar_function_operator_signature_facts.py",
+    "tests/test_phase53_completion_audit_and_status_lock.py",
+    "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
+    "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
+    "tests/test_phase53_multiple_window_outputs_final_order_alias_downstream_schema_lineage_contract.py",
+    "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
+    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+    "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
+    "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
+    "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
+    "tests/test_phase53_row_number_direct_field_mvp_contract.py",
+    "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
+    "tests/test_phase53_window_spec_function_identity_ast_contract.py",
+    "tests/test_phase54_cross_module_type_alias_enum_shape_source_resolution.py",
+    "tests/test_phase54_local_export_visibility_module_facades.py",
+    "tests/test_phase54_local_import_module_export_foundation_scope_lock.py",
+    "tests/test_phase54_module_graph_cycles_diagnostics_deterministic_ordering.py",
+    "tests/test_phase54_module_qualified_nominal_declaration_catalogs.py",
+    "tests/test_phase54_named_import_alias_binding_environments_collision_rules.py",
+}
 VALIDATION_READER_PATHS = set(MECHANICAL_READER_PATHS)
 MODIFIED_PATHS = NON_READER_MODIFIED_PATHS | MECHANICAL_READER_PATHS
 ALLOWLIST_PATHS = ADDED_PATHS | MODIFIED_PATHS
@@ -109,7 +155,9 @@ PHASE54_SLICE10_ORIGINAL_NON_READER_MODIFIED_PATHS = frozenset(
         "tests/_phase54_active_gate2_manifest.py",
     }
 )
-PHASE54_SLICE10_ORIGINAL_MECHANICAL_READER_PATHS = frozenset(MECHANICAL_READER_PATHS)
+PHASE54_SLICE10_ORIGINAL_MECHANICAL_READER_PATHS = frozenset(
+    PHASE54_SLICE10_PRIOR_MECHANICAL_READER_PATHS
+)
 PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS = frozenset(
     PHASE54_SLICE10_ORIGINAL_NON_READER_MODIFIED_PATHS
     | PHASE54_SLICE10_ORIGINAL_MECHANICAL_READER_PATHS
@@ -118,8 +166,15 @@ PHASE54_SLICE10_ORIGINAL_ALLOWLIST_PATHS = frozenset(
     PHASE54_SLICE10_ORIGINAL_ADDED_PATHS | PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS
 )
 PHASE54_POST_REVIEW_PRODUCT_REPAIR1_SEED_PATHS = frozenset(NON_READER_MODIFIED_PATHS)
-PHASE54_POST_REVIEW_PRODUCT_REPAIR1_READER_PATHS = frozenset(MECHANICAL_READER_PATHS)
-PHASE54_POST_REVIEW_PRODUCT_REPAIR1_MODIFIED_PATHS = frozenset(MODIFIED_PATHS)
+PHASE54_POST_REVIEW_PRODUCT_REPAIR1_READER_PATHS = frozenset(
+    PHASE54_SLICE10_PRIOR_MECHANICAL_READER_PATHS
+)
+PHASE54_POST_REVIEW_PRODUCT_REPAIR1_MODIFIED_PATHS = frozenset(
+    NON_READER_MODIFIED_PATHS | PHASE54_POST_REVIEW_PRODUCT_REPAIR1_READER_PATHS
+)
+PHASE54_POST_REVIEW_PRODUCT_REPAIR2_SEED_PATHS = frozenset(NON_READER_MODIFIED_PATHS)
+PHASE54_POST_REVIEW_PRODUCT_REPAIR2_READER_PATHS = frozenset(MECHANICAL_READER_PATHS)
+PHASE54_POST_REVIEW_PRODUCT_REPAIR2_MODIFIED_PATHS = frozenset(MODIFIED_PATHS)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -267,7 +322,16 @@ def _matches_phase54_active_gate2_manifest(
         and state.modified_paths == PHASE54_POST_REVIEW_PRODUCT_REPAIR1_MODIFIED_PATHS
         and state.deleted_paths == frozenset()
     )
-    return common and (original_gate2 or product_repair1)
+    product_repair2 = (
+        state.branch_oid == PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE
+        and state.branch_head == PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BRANCH
+        and state.branch_upstream
+        == f"origin/{PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BRANCH}"
+        and state.added_paths == frozenset()
+        and state.modified_paths == PHASE54_POST_REVIEW_PRODUCT_REPAIR2_MODIFIED_PATHS
+        and state.deleted_paths == frozenset()
+    )
+    return common and (original_gate2 or product_repair1 or product_repair2)
 
 
 def phase54_active_gate2_manifest_is_active() -> bool:

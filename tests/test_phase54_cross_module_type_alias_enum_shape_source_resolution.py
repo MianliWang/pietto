@@ -232,8 +232,8 @@ def test_carrier_enums_fields_privacy_and_manifest_are_exact() -> None:
     assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_ADDED_PATHS) == 3
     assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS) == 69
     assert active_gate2_manifest.ADDED_PATHS == set()
-    assert len(active_gate2_manifest.MODIFIED_PATHS) == 66
-    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 63
+    assert len(active_gate2_manifest.MODIFIED_PATHS) == 43
+    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 40
     assert TEST_REL in active_gate2_manifest.MECHANICAL_READER_PATHS
 
 
@@ -1233,10 +1233,10 @@ def test_text_json_status_docs_and_reader_fixed_point_are_exact(
         and node.name.startswith("test_")
     )
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_ADDED_PATHS == frozenset()
-    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 66
+    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 43
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
-    assert len(active_gate2_manifest.VALIDATION_READER_PATHS) == 63
-    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 63
+    assert len(active_gate2_manifest.VALIDATION_READER_PATHS) == 40
+    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 40
     assert (
         "tests/test_phase54_module_graph_cycles_diagnostics_deterministic_ordering.py"
         in active_gate2_manifest.MECHANICAL_READER_PATHS

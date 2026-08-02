@@ -14,6 +14,8 @@ from types import MappingProxyType
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
     phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
 )
 
@@ -1517,7 +1519,12 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
         elif is_phase54_slice9:
             expected_head = PHASE54_SLICE9_BASE_HEAD_SHA
         if _phase54_product_repair1_gate2_is_active():
-            expected_head = "6104002486d21b7b25dbec74d037c0fc7cc5099a"
+            active_head = _git_output(["rev-parse", "HEAD"]).strip()
+            assert active_head in {
+                PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
+                PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
+            }
+            expected_head = active_head
         assert _git_output(["rev-parse", "HEAD"]).strip() == expected_head
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
 
@@ -1590,7 +1597,7 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
     assert len(project_paths) == 28
     assert REPO_ROOT / "src/pietto/_project/window_persistence.py" in project_paths
     assert project_digest == (
-        "34eca9280db98e806793c6561c30e003fb5875b0ff42e0770b3a8d22749c1e49"
+        "240e1528b5c524107d8ab5d2edc476083bcd08e391acbfd399a73528a102cd55"
     )
     phase33 = (REPO_ROOT / "tests/test_phase33_completion_audit.py").read_text(
         encoding="utf-8"

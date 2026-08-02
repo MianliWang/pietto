@@ -1212,7 +1212,7 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
     assert len(PHASE54_SLICE10_ORIGINAL_ADDED_PATHS) == 3
     assert len(PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS) == 69
     assert PHASE54_ACTIVE_GATE2_ADDED_PATHS == frozenset()
-    assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 66
+    assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 43
     assert PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
     dirty = {
         *subprocess.run(
