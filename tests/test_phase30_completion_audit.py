@@ -6,7 +6,7 @@ from pathlib import Path
 from types import ModuleType
 
 from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_slice10_gate2_is_active,
 )
 
 import pietto.sql as sql_api
@@ -153,7 +153,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "diagnostics": (
         "docs/spec/diagnostics.md",
         1,
-        "5b63cf926e611e8a612c8c1138240f81f90d9b7932115d370d3923f2f2f0b3d6",
+        "efe30986b76da78cfaa8614cc4e3e10b39dac2a6bf984e7dc6878a82308df6da",
     ),
     "fixtures": (
         "tests/fixtures",
@@ -178,7 +178,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "readme": (
         "README.md",
         1,
-        "0bb97fc173b53590e6c3508ae4d3bc61be2c24412505584de8886e66dbc5f998",
+        "20a9bc3e94cf026449bf2e2c1a38ff1080bb3ea144f0bb7140baa3ad67f5c039",
     ),
     "agents": (
         "AGENTS.md",
@@ -188,7 +188,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "pietto_v09": (
         "docs/spec/pietto-v0.9.md",
         1,
-        "cd34d02b1d56016861c344cb1ffabde6455ce8502f1bc2775926d232ca88b560",
+        "03f0c7f7ac446298be106e4d9dbd578eadf2f7db130883ddc34ec02d7ae0065b",
     ),
 }
 

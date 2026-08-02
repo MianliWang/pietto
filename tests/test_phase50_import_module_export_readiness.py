@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import cast
 
 from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_slice10_gate2_is_active,
 )
 
 from _static_audit_helpers import read_text as _read

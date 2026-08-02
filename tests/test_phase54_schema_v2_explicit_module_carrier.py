@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 
 from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_slice10_gate2_is_active,
 )
 
 import pytest
@@ -552,11 +552,14 @@ def test_import_export_grammar_ast_and_module_diagnostic_codes_remain_absent() -
     ast_source = (REPO_ROOT / "src/pietto/ast_nodes.py").read_text(encoding="utf-8")
     graph_path = REPO_ROOT / "src/pietto/_project/module_graph.py"
     resolution_path = REPO_ROOT / "src/pietto/_project/module_resolution.py"
+    relation_resolution_path = (
+        REPO_ROOT / "src/pietto/_project/module_relation_resolution.py"
+    )
     graph_source = graph_path.read_text(encoding="utf-8")
     non_graph_production = "\n".join(
         path.read_text(encoding="utf-8")
         for path in sorted((REPO_ROOT / "src/pietto").rglob("*.py"))
-        if path not in {graph_path, resolution_path}
+        if path not in {graph_path, resolution_path, relation_resolution_path}
     )
 
     assert re.search(r"(?m)^IMPORT: 'import';$", grammar)
@@ -591,7 +594,7 @@ def test_slice2_contract_allowlist_and_retained_later_boundaries_are_exact() -> 
 
     assert len(test_nodes) == 16
     assert all(not node.decorator_list for node in test_nodes)
-    assert "## Status And Slice 9 Lifecycle" in plan
+    assert "## Status And Slice 10 Lifecycle" in plan
     assert "## Slice 3 Exact Production Boundary And Gate Contract" in plan
     assert "## Slice 4 Exact Production Boundary And Gate Contract" in plan
     for phrase in (

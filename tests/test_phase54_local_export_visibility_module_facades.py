@@ -1117,7 +1117,7 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
     gate2_active = phase54_active_gate2_manifest_is_active()
     assert _matches_phase54_active_gate2_manifest(_active_state())
     for changed in (
-        replace(_active_state(), marker="PHASE54_SLICE7_GATE2"),
+        replace(_active_state(), marker="PHASE54_SLICE9_GATE2"),
         replace(_active_state(), branch_oid="0" * 40),
         replace(_active_state(), added_paths=frozenset()),
         replace(
@@ -1158,11 +1158,14 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
     source = (REPO_ROOT / SOURCE_REL).read_text(encoding="utf-8")
     graph_path = REPO_ROOT / "src/pietto/_project/module_graph.py"
     resolution_path = REPO_ROOT / "src/pietto/_project/module_resolution.py"
+    relation_resolution_path = (
+        REPO_ROOT / "src/pietto/_project/module_relation_resolution.py"
+    )
     graph_source = graph_path.read_text(encoding="utf-8")
     non_graph_production = "\n".join(
         path.read_text(encoding="utf-8")
         for path in (REPO_ROOT / "src/pietto").rglob("*.py")
-        if path not in {graph_path, resolution_path}
+        if path not in {graph_path, resolution_path, relation_resolution_path}
     )
     public = "\n".join(
         (REPO_ROOT / relative).read_text(encoding="utf-8")
@@ -1205,7 +1208,7 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
     assert len(tests) == 30
     assert all(not node.decorator_list for node in tests)
     assert len(PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 3
-    assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 68
+    assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 69
     assert PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
     dirty = {
         *subprocess.run(
@@ -1226,10 +1229,9 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
     active_allowlist = (
         PHASE54_ACTIVE_GATE2_ADDED_PATHS | PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
     )
-    repair_allowlist = active_gate2_manifest.PHASE54_POST_REVIEW_REPAIR_MODIFIED_PATHS
-    assert dirty in (set(), active_allowlist, repair_allowlist)
+    assert dirty in (set(), active_allowlist)
     if dirty:
         assert gate2_active
-        assert dirty in (active_allowlist, repair_allowlist)
+        assert dirty == active_allowlist
     else:
         assert not gate2_active

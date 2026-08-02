@@ -10,8 +10,9 @@ from pathlib import Path
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
-    PHASE54_POST_REVIEW_REPAIR_MODIFIED_PATHS,
-    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+    PHASE54_ACTIVE_GATE2_ADDED_PATHS,
+    PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
+    phase54_active_gate2_manifest_is_active as _phase54_slice10_gate2_is_active,
 )
 
 import pietto.semantic.capability_aggregates as capability_aggregates
@@ -184,10 +185,10 @@ MODULE_SHA256 = {
     WINDOW_REL: "c0512933fc284bbc1dec98dab96411ee179d64e7bee005aa798b6fd7dba2024e",
 }
 PATH_DIGESTS = {
-    "compiler": "fa64bb8f898e4fa77f6911b98b79bd6595b83104f6883b4e5727dd02aaecf9d0",
+    "compiler": "88e48118cc238cd18f032380664178927bd90d42ffbf125b118cab3778e23d47",
     "semantic": "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70",
     "phase15": "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d",
-    "project": "cbc633a1c3a0d6a080dcbd30516f25209185b346586d19fc2dec981a7f67d1cc",
+    "project": "70b83a70456479a05b87c542ff73beb864958e9e39751ca3fe9fc68acc471bc5",
 }
 PROTECTED_SHA256 = {
     ".github/workflows/ci.yml": "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94",
@@ -423,12 +424,11 @@ def _assert_allowed_dirty_state(
     origin_main: str | None,
 ) -> None:
     if (
-        _phase54_post_review_repair_gate2_is_active()
-        and tracked == set(PHASE54_POST_REVIEW_REPAIR_MODIFIED_PATHS)
-        and untracked == set()
-        and branch == "phase54/slice9-cross-module-type-source-resolution"
-        and head == "6cc20df07f78f4ec2bc252c8ed6f73e0de91a833"
-        and main == origin_main == "0ceb9a476e6592714cdc76845949ba0ae5123eb5"
+        _phase54_slice10_gate2_is_active()
+        and tracked == set(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS)
+        and untracked == set(PHASE54_ACTIVE_GATE2_ADDED_PATHS)
+        and branch == "main"
+        and head == main == origin_main == "fadb1924af057cfc901a1658e117810d699e2358"
     ):
         return
     dirty = tracked | untracked
@@ -992,10 +992,10 @@ def test_live_compiler_semantic_phase15_project_protected_version_and_tag_locks_
     )
     project = _project_paths()
     assert (len(compiler), len(semantic), len(phase15), len(project)) == (
-        102,
+        103,
         36,
         33,
-        27,
+        28,
     )
     assert {
         "compiler": _digest(compiler),
@@ -1100,7 +1100,7 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
     assert (
         sum(path.endswith(".py") for path in readable),
         sum(path.endswith(".md") for path in readable),
-    ) == (561, 255)
+    ) == (563, 256)
     for digest, expected in (
         (PATH_DIGESTS["compiler"], 28),
         (PATH_DIGESTS["semantic"], 42),
@@ -1179,7 +1179,7 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
         )
         for path in test_files
     )
-    assert (len(test_files), top_functions) == (458, 5091)
+    assert (len(test_files), top_functions) == (459, 5127)
     assert (
         381 + 834 + 627 + 424 + 279 + 168 + 156 + 12 + 145 + 190 + 70 + 70 + 97 + 35
         == 3488
@@ -1197,7 +1197,7 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
         TIER1_BYTES,
         TIER1_SHA256,
     )
-    assert 461 - 3 == 458
+    assert 462 - 3 == 459
     tier2 = _tier2_manifest()
     tier2_payload = "".join(item + "\n" for item in tier2).encode()
     tier2_files = {
@@ -1286,9 +1286,7 @@ def test_static_git_helper_and_exact_slice9_dirty_set_are_locked() -> None:
         origin_main=_git_optional_ref("refs/remotes/origin/main"),
     )
     if tracked or untracked:
-        if _phase54_post_review_repair_gate2_is_active() or _git_output(
-            ["rev-parse", "HEAD"]
-        ) in {
+        if _phase54_slice10_gate2_is_active() or _git_output(["rev-parse", "HEAD"]) in {
             "d8a5e9ab3de70ce30575513c73560c86430eca63",
             "15bae172ee151e370fe59d3bf909d735aee6aa90",
             "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",

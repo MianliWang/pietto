@@ -13,7 +13,7 @@ import subprocess
 from typing import cast
 
 from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_slice10_gate2_is_active,
 )
 
 import pytest
@@ -971,8 +971,8 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
             expected_head = PHASE54_SLICE8_BASE_HEAD_SHA
         elif path_counts == PHASE54_SLICE9_PATH_COUNTS:
             expected_head = PHASE54_SLICE9_BASE_HEAD_SHA
-        if _phase54_post_review_repair_gate2_is_active():
-            expected_head = "6cc20df07f78f4ec2bc252c8ed6f73e0de91a833"
+        if _phase54_slice10_gate2_is_active():
+            expected_head = "fadb1924af057cfc901a1658e117810d699e2358"
         assert _git_output(["rev-parse", "HEAD"]).strip() == expected_head
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
 
@@ -987,13 +987,13 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
         assert match.group(1) == compiler_digest
     project_paths = _project_private_paths()
     project_digest = _digest(project_paths)
-    assert len(project_paths) == 27
+    assert len(project_paths) == 28
     phase33 = (REPO_ROOT / "tests/test_phase33_completion_audit.py").read_text(
         encoding="utf-8"
     )
     assert (
         f'"project_private": (\n        "src/pietto/_project",\n'
-        f'        27,\n        "{project_digest}",\n    ),'
+        f'        28,\n        "{project_digest}",\n    ),'
     ) in phase33
 
     protected = (

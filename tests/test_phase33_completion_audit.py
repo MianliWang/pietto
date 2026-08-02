@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import cast
 
 from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_slice10_gate2_is_active,
 )
 
 import pytest
@@ -112,8 +112,8 @@ ROADMAP_STATUS = (
 LOCKED_PHASE33_SURFACES = {
     "project_private": (
         "src/pietto/_project",
-        27,
-        "cbc633a1c3a0d6a080dcbd30516f25209185b346586d19fc2dec981a7f67d1cc",
+        28,
+        "70b83a70456479a05b87c542ff73beb864958e9e39751ca3fe9fc68acc471bc5",
     ),
     "cli": (
         "src/pietto/cli.py",
@@ -133,7 +133,7 @@ LOCKED_PHASE33_SURFACES = {
     "readme": (
         "README.md",
         1,
-        "0bb97fc173b53590e6c3508ae4d3bc61be2c24412505584de8886e66dbc5f998",
+        "20a9bc3e94cf026449bf2e2c1a38ff1080bb3ea144f0bb7140baa3ad67f5c039",
     ),
     "agents": (
         "AGENTS.md",
@@ -143,7 +143,7 @@ LOCKED_PHASE33_SURFACES = {
     "pietto_v09": (
         "docs/spec/pietto-v0.9.md",
         1,
-        "cd34d02b1d56016861c344cb1ffabde6455ce8502f1bc2775926d232ca88b560",
+        "03f0c7f7ac446298be106e4d9dbd578eadf2f7db130883ddc34ec02d7ae0065b",
     ),
 }
 

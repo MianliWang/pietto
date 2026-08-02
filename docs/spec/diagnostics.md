@@ -34,19 +34,19 @@ stored separately and is never encoded in the code.
 
 | Code | Meaning |
 |---|---|
-| `PIE-S2001` | Duplicate name in one semantic scope or namespace, including a schema-v2 local type/source bucket |
+| `PIE-S2001` | Duplicate name in one semantic scope or namespace, including a schema-v2 local type/source/relation bucket |
 | `PIE-S2002` | Unknown local or explicit-module type reference |
 | `PIE-S2003` | Local type alias cycle, including within one acyclic schema-v2 module |
 | `PIE-S2004` | Invalid Decimal precision-scale type arguments |
 | `PIE-S2005` | Implicit nullability |
 | `PIE-S2006` | Semantic analysis recursion limit exceeded |
-| `PIE-S2102` | Unknown field |
+| `PIE-S2102` | Unknown field, including a schema-v2 minimal direct row-fact projection |
 | `PIE-S2103` | Unknown function |
 | `PIE-S2104` | Invalid built-in function arguments |
 | `PIE-S2105` | Invalid operator operands |
 | `PIE-S2202` | Known non-Bool expression in a predicate context |
-| `PIE-S2301` | Unknown relation |
-| `PIE-S2302` | Relation dependency cycle |
+| `PIE-S2301` | Unknown local or explicit-module relation |
+| `PIE-S2302` | Local relation dependency cycle, including within one acyclic schema-v2 module |
 | `PIE-S2303` | Invalid, missing, or untyped direct local/imported source shape |
 | `PIE-S2304` | Computed projection without an explicit alias |
 | `PIE-S2305` | Duplicate projection output name |

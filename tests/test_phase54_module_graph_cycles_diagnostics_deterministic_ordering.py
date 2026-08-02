@@ -8,7 +8,7 @@ from types import MappingProxyType
 from typing import cast
 
 from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_slice10_gate2_is_active,
 )
 
 import pytest
@@ -184,9 +184,11 @@ def test_graph_carrier_enums_fields_privacy_and_manifest_are_exact() -> None:
     for carrier, names in expected_fields.items():
         assert is_dataclass(carrier)
         assert tuple(item.name for item in fields(carrier)) == names
-    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER == "PHASE54_SLICE9_GATE2"
+    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER == (
+        "PHASE54_SLICE10_GATE2"
+    )
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE == (
-        "0ceb9a476e6592714cdc76845949ba0ae5123eb5"
+        "fadb1924af057cfc901a1658e117810d699e2358"
     )
 
 
@@ -723,6 +725,7 @@ def test_pie_s2707_facade_and_unsupported_adapter_mappings_are_exact(
             "PIE-S2707",
             'Inconsistent explicit-module target facade: "b.pietto"',
         ),
+        ("PIE-S2301", "Unknown relation: missing"),
     )
     graph = _required_graph(semantic)
     assert semantic.module_bindings is not None
@@ -903,5 +906,5 @@ def test_schema_v1_privacy_status_reader_fixed_point_and_slice9_boundary(
         and node.name.startswith("test_")
     )
     assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 3
-    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 68
+    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 69
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
