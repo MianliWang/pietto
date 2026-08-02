@@ -9,6 +9,7 @@ from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (  # noqa: F401
     PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
@@ -977,6 +978,9 @@ def test_private_public_dependency_version_and_retained_later_surfaces_remain_ex
     assert "Slice 8" in spec and "PIE-S2701" in spec
     assert PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE == (
         "17a5b01e555930537334d4d0bcf3480e332b7e91"
+    )
+    assert PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE == (
+        "3f057874a1bec524da38b58c243267f4590c167b"
     )
     assert not hasattr(pietto, "__version__")
     assert version("pietto") == "0.1.0"

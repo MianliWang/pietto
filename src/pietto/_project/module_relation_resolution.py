@@ -51,6 +51,7 @@ from pietto._project.module_graph import (
     ProjectModuleGraph,
 )
 from pietto._project.module_resolution import (
+    ProjectModuleTypeReferenceRole,
     ProjectModuleTypeSourceResolutionEnvironment,
     ProjectResolvedModuleTypeReference,
     ProjectTypeSourceResolutionIssue,
@@ -72,6 +73,7 @@ from pietto.ast_nodes import (
     SourceDef,
     Span,
     TableDef,
+    TypeExpr,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 
@@ -1269,7 +1271,7 @@ def _append_type_source_blocker(
     draft: _RelationResolutionDraft,
     occurrence: ProjectDeclarationOccurrence,
     source: SourceDef,
-    type_expr: object | None = None,
+    type_expr: TypeExpr | None = None,
     *,
     type_source_environment: ProjectModuleTypeSourceResolutionEnvironment | None = None,
     type_resolution: ProjectResolvedModuleTypeReference | None = None,
@@ -1283,6 +1285,12 @@ def _append_type_source_blocker(
             if type_source_environment is None
             else type_source_environment
         )
+        binding_name = source.shape_name if type_expr is None else type_expr.name
+        module_binding_keys = (
+            frozenset()
+            if binding_name is None
+            else frozenset({(issue_environment.module.path, binding_name)})
+        )
         issues = tuple(
             issue
             for issue in issue_environment.issues
@@ -1295,6 +1303,7 @@ def _append_type_source_blocker(
                 and issue.type_reference is not None
                 and issue.type_reference.type_expr is type_expr
             )
+            or _matches_module_diagnostic_binding(issue, module_binding_keys)
         )
     else:
         if (
@@ -1309,6 +1318,10 @@ def _append_type_source_blocker(
         ):
             raise ValueError("Type/source blocker resolution inputs must be paired.")
         alias_identities = frozenset(type_resolution.alias_chain)
+        module_binding_keys = _type_module_binding_keys(
+            type_resolution,
+            type_source_resolutions,
+        )
         issues = tuple(
             issue
             for issue in type_source_resolutions.issues
@@ -1321,6 +1334,7 @@ def _append_type_source_blocker(
                 )
             )
             or bool(alias_identities.intersection(issue.alias_cycle))
+            or _matches_module_diagnostic_binding(issue, module_binding_keys)
         )
     roots = tuple(
         dict.fromkeys(
@@ -1356,6 +1370,43 @@ def _append_type_source_blocker(
         for issue in draft.issues
     ):
         draft.issues.append(candidate)
+
+
+def _matches_module_diagnostic_binding(
+    issue: ProjectTypeSourceResolutionIssue,
+    binding_keys: frozenset[tuple[str, str]],
+) -> bool:
+    return (
+        issue.status is ProjectTypeSourceResolutionIssueStatus.MODULE_DIAGNOSTIC_BLOCKED
+        and issue.local_name is not None
+        and (issue.owning_module_path, issue.local_name) in binding_keys
+    )
+
+
+def _type_module_binding_keys(
+    resolution: ProjectResolvedModuleTypeReference,
+    resolutions: ProjectTypeSourceResolutionSet,
+) -> frozenset[tuple[str, str]]:
+    reference = resolution.reference
+    keys = {
+        (reference.owner.identity.module_path, reference.type_expr.name),
+    }
+    for alias_identity in resolution.alias_chain:
+        matches = tuple(
+            candidate
+            for environment in resolutions.environments
+            for candidate in environment.type_resolutions
+            if candidate.reference.role
+            is ProjectModuleTypeReferenceRole.TYPE_ALIAS_BASE
+            and candidate.reference.owner.identity == alias_identity
+        )
+        if len(matches) != 1:
+            raise ValueError("Resolved alias chain requires one exact base reference.")
+        alias_reference = matches[0].reference
+        keys.add(
+            (alias_reference.owner.identity.module_path, alias_reference.type_expr.name)
+        )
+    return frozenset(keys)
 
 
 def _resolved_row_type(

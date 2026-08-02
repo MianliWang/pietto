@@ -23,6 +23,10 @@ PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE = "17a5b01e555930537334d4d0bcf3480e332b
 PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BRANCH = (
     "phase54/slice10-cross-module-relation-row-facts"
 )
+PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE = "3f057874a1bec524da38b58c243267f4590c167b"
+PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BRANCH = (
+    "phase54/slice10-cross-module-relation-row-facts"
+)
 ADDED_PATHS = set()
 NON_READER_MODIFIED_PATHS = {
     "src/pietto/_project/module_relation_resolution.py",
@@ -182,6 +186,9 @@ PHASE54_POST_REVIEW_PRODUCT_REPAIR2_MODIFIED_PATHS = frozenset(MODIFIED_PATHS)
 PHASE54_POST_REVIEW_PRODUCT_REPAIR3_SEED_PATHS = frozenset(NON_READER_MODIFIED_PATHS)
 PHASE54_POST_REVIEW_PRODUCT_REPAIR3_READER_PATHS = frozenset(MECHANICAL_READER_PATHS)
 PHASE54_POST_REVIEW_PRODUCT_REPAIR3_MODIFIED_PATHS = frozenset(MODIFIED_PATHS)
+PHASE54_POST_REVIEW_PRODUCT_REPAIR4_SEED_PATHS = frozenset(NON_READER_MODIFIED_PATHS)
+PHASE54_POST_REVIEW_PRODUCT_REPAIR4_READER_PATHS = frozenset(MECHANICAL_READER_PATHS)
+PHASE54_POST_REVIEW_PRODUCT_REPAIR4_MODIFIED_PATHS = frozenset(MODIFIED_PATHS)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -347,8 +354,21 @@ def _matches_phase54_active_gate2_manifest(
         and state.modified_paths == PHASE54_POST_REVIEW_PRODUCT_REPAIR3_MODIFIED_PATHS
         and state.deleted_paths == frozenset()
     )
+    product_repair4 = (
+        state.branch_oid == PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE
+        and state.branch_head == PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BRANCH
+        and state.branch_upstream
+        == f"origin/{PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BRANCH}"
+        and state.added_paths == frozenset()
+        and state.modified_paths == PHASE54_POST_REVIEW_PRODUCT_REPAIR4_MODIFIED_PATHS
+        and state.deleted_paths == frozenset()
+    )
     return common and (
-        original_gate2 or product_repair1 or product_repair2 or product_repair3
+        original_gate2
+        or product_repair1
+        or product_repair2
+        or product_repair3
+        or product_repair4
     )
 
 

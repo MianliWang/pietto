@@ -13,6 +13,7 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE,
     phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
 )
 
@@ -343,9 +344,9 @@ PROTECTED_HASHES = {
         "26cc0ae4a68518223d6bf600ad3c4b0b226618aa7ef31b2ae1c25924d2655169"
     ),
 }
-COMPILER_DIGEST = "e08e46dabd09627ff8a13a54a40bc2a2aac854c741c8de702cd5505693fe6b7e"
+COMPILER_DIGEST = "2d32cc288bc35a45f77b9abc9493e41f8abbf5cc2458ca5c5b146bf4ac307c7c"
 PROJECT_PRIVATE_DIGEST = (
-    "66399b6b7d4eabcc647505c52fa3207a3e9047116f12c257425830c4d796bd31"
+    "9388ab542ff00215284d421fff1800d2f9f07a3d7c935151770b011df24974a6"
 )
 
 PROJECT_JSON_V2_KEYS = (
@@ -1413,6 +1414,7 @@ def test_static_git_helper_and_exact_slice12_dirty_set_are_locked() -> None:
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,
+                PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE,
             }
             expected_head = active_head
         assert _git_output(["rev-parse", "HEAD"]) == expected_head

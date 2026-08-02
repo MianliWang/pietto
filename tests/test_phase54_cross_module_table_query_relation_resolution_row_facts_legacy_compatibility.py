@@ -298,6 +298,28 @@ def test_slice10_contract_and_status_docs_freeze_exact_boundary() -> None:
     assert not active_gate2_manifest._matches_phase54_active_gate2_manifest(
         replace(repair3_state, staged_paths=frozenset({SOURCE_REL}))
     )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR4_SEED_PATHS) == 3
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR4_MODIFIED_PATHS)
+        == 43
+    )
+    repair4_state = replace(
+        repair3_state,
+        branch_oid=active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE,
+        branch_head=active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BRANCH,
+        branch_upstream=(
+            f"origin/{active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BRANCH}"
+        ),
+        modified_paths=(
+            active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR4_MODIFIED_PATHS
+        ),
+    )
+    assert active_gate2_manifest._matches_phase54_active_gate2_manifest(repair4_state)
+    assert not active_gate2_manifest._matches_phase54_active_gate2_manifest(
+        replace(repair4_state, staged_paths=frozenset({SOURCE_REL}))
+    )
 
 
 def test_relation_issue_status_and_private_carriers_are_frozen_slotted_keyword_only() -> (
@@ -1093,6 +1115,187 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
         assert tuple(item.code for item in alias_blocker.suppressing_diagnostics) == (
             root_code,
         )
+
+    def assert_module_blocked_source(
+        case: str,
+        sources: dict[str, str],
+        *,
+        root_code: str,
+        local_name: str,
+    ) -> None:
+        blocked_parse, blocked_semantic = _semantic_project(
+            tmp_path / case,
+            sources,
+        )
+        blocked_source = _definition(blocked_parse, "a.pietto", "rows")
+        blocked_fact = _fact(blocked_semantic, "a.pietto", blocked_source)
+        assert blocked_fact.state.status is ProjectRelationRowSchemaStatus.UNKNOWN
+        assert (
+            blocked_fact.state.reason is ProjectRelationRowSchemaReason.UNKNOWN_SCHEMA
+        )
+        assert blocked_fact.state.schema is not None
+        assert blocked_fact.state.schema.is_unknown
+        blocked_issues = tuple(
+            issue
+            for issue in _environment(blocked_semantic, "a.pietto").issues
+            if issue.status
+            is relation_resolution.ProjectModuleRelationResolutionIssueStatus.TYPE_SOURCE_DIAGNOSTIC_BLOCKED
+            and issue.local_name == "rows"
+        )
+        assert len(blocked_issues) == 1
+        blocked_issue = blocked_issues[0]
+        assert len(blocked_issue.type_source_issues) == 1
+        type_source_issue = blocked_issue.type_source_issues[0]
+        assert type_source_issue.status.value == "module_diagnostic_blocked"
+        assert type_source_issue.owning_module_path == "a.pietto"
+        assert type_source_issue.local_name == local_name
+        assert type_source_issue.type_reference is None
+        assert type_source_issue.source_reference is None
+        assert tuple(
+            diagnostic.code for diagnostic in type_source_issue.suppressing_diagnostics
+        ) == (root_code,)
+        assert tuple(
+            diagnostic.code for diagnostic in blocked_issue.suppressing_diagnostics
+        ) == (root_code,)
+
+    module_blocker_cases = (
+        (
+            "private-source-shape-import",
+            {
+                "a.pietto": (
+                    'import "b.pietto":\n    shape Row\n'
+                    'source rows: Row is postgres.table("rows")\n'
+                ),
+                "b.pietto": "shape Row:\n    id: Int not null\n",
+            },
+            "PIE-S2705",
+            "Row",
+        ),
+        (
+            "private-field-type-import",
+            {
+                "a.pietto": (
+                    'import "b.pietto":\n    type Hidden as Local\n'
+                    "shape Row:\n    value: Local\n"
+                    'source rows: Row is postgres.table("rows")\n'
+                ),
+                "b.pietto": "type Hidden = Text\n",
+            },
+            "PIE-S2705",
+            "Local",
+        ),
+        (
+            "private-alias-field-type-import",
+            {
+                "a.pietto": (
+                    'import "b.pietto":\n    type Hidden as Local\n'
+                    "type Alias = Local\n"
+                    "shape Row:\n    value: Alias\n"
+                    'source rows: Row is postgres.table("rows")\n'
+                ),
+                "b.pietto": "type Hidden = Text\n",
+            },
+            "PIE-S2705",
+            "Local",
+        ),
+        (
+            "unresolved-source-shape-import",
+            {
+                "a.pietto": (
+                    'import "missing.pietto":\n    shape Row\n'
+                    'source rows: Row is postgres.table("rows")\n'
+                ),
+            },
+            "PIE-S2701",
+            "Row",
+        ),
+        (
+            "unresolved-field-type-import",
+            {
+                "a.pietto": (
+                    'import "missing.pietto":\n    type Hidden as Local\n'
+                    "shape Row:\n    value: Local\n"
+                    'source rows: Row is postgres.table("rows")\n'
+                ),
+            },
+            "PIE-S2701",
+            "Local",
+        ),
+        (
+            "collision-source-shape-import",
+            {
+                "a.pietto": (
+                    "shape Row:\n    id: Int not null\n"
+                    'import "b.pietto":\n    shape Shared as Row\n'
+                    'source rows: Row is postgres.table("rows")\n'
+                ),
+                "b.pietto": (
+                    "shape Shared:\n    id: Int not null\nexport:\n    shape Shared\n"
+                ),
+            },
+            "PIE-S2706",
+            "Row",
+        ),
+    )
+    for case, sources, root_code, local_name in module_blocker_cases:
+        assert_module_blocked_source(
+            case,
+            sources,
+            root_code=root_code,
+            local_name=local_name,
+        )
+
+    other_module_parse, other_module_semantic = _semantic_project(
+        tmp_path / "same-spelling-other-module",
+        {
+            "a.pietto": (
+                "shape Row:\n    value: Missing\n"
+                'source rows: Row is postgres.table("rows")\n'
+            ),
+            "b.pietto": 'import "absent.pietto":\n    type Hidden as Missing\n',
+        },
+    )
+    other_module_source = _definition(other_module_parse, "a.pietto", "rows")
+    other_module_blocker = tuple(
+        issue
+        for issue in _environment(other_module_semantic, "a.pietto").issues
+        if issue.status
+        is relation_resolution.ProjectModuleRelationResolutionIssueStatus.TYPE_SOURCE_DIAGNOSTIC_BLOCKED
+    )
+    assert len(other_module_blocker) == 1
+    assert tuple(
+        (issue.status.value, issue.owning_module_path, issue.local_name)
+        for issue in other_module_blocker[0].type_source_issues
+    ) == (("unknown_type_reference", "a.pietto", "Missing"),)
+    assert _fact(
+        other_module_semantic, "a.pietto", other_module_source
+    ).state.status is (ProjectRelationRowSchemaStatus.UNKNOWN)
+
+    same_module_parse, same_module_semantic = _semantic_project(
+        tmp_path / "unrelated-same-module-binding",
+        {
+            "a.pietto": (
+                'import "absent.pietto":\n    type Hidden as Blocked\n'
+                "shape Row:\n    value: Missing\n"
+                'source rows: Row is postgres.table("rows")\n'
+            ),
+        },
+    )
+    same_module_source = _definition(same_module_parse, "a.pietto", "rows")
+    same_module_blocker = tuple(
+        issue
+        for issue in _environment(same_module_semantic, "a.pietto").issues
+        if issue.status
+        is relation_resolution.ProjectModuleRelationResolutionIssueStatus.TYPE_SOURCE_DIAGNOSTIC_BLOCKED
+    )
+    assert len(same_module_blocker) == 1
+    assert tuple(
+        (issue.status.value, issue.owning_module_path, issue.local_name)
+        for issue in same_module_blocker[0].type_source_issues
+    ) == (("unknown_type_reference", "a.pietto", "Missing"),)
+    assert _fact(same_module_semantic, "a.pietto", same_module_source).state.status is (
+        ProjectRelationRowSchemaStatus.UNKNOWN
+    )
 
 
 def test_direct_bare_qualified_and_renamed_fields_produce_concrete_row_facts(
