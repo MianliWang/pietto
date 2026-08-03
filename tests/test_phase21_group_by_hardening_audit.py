@@ -4,7 +4,7 @@ import hashlib
 from pathlib import Path
 
 from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -75,7 +75,7 @@ LOCKED_FORBIDDEN_SURFACES = {
     "readme": (
         "README.md",
         1,
-        "0bb97fc173b53590e6c3508ae4d3bc61be2c24412505584de8886e66dbc5f998",
+        "b013853394a45bfc1dd37c44bf2503bcbbb2552b3c0e1c5623c4aef054e4a296",
     ),
     "agents": (
         "AGENTS.md",
@@ -85,12 +85,12 @@ LOCKED_FORBIDDEN_SURFACES = {
     "pietto_v09": (
         "docs/spec/pietto-v0.9.md",
         1,
-        "cd34d02b1d56016861c344cb1ffabde6455ce8502f1bc2775926d232ca88b560",
+        "03f0c7f7ac446298be106e4d9dbd578eadf2f7db130883ddc34ec02d7ae0065b",
     ),
     "diagnostics": (
         "docs/spec/diagnostics.md",
         1,
-        "5b63cf926e611e8a612c8c1138240f81f90d9b7932115d370d3923f2f2f0b3d6",
+        "efe30986b76da78cfaa8614cc4e3e10b39dac2a6bf984e7dc6878a82308df6da",
     ),
 }
 

@@ -10,8 +10,18 @@ from pathlib import Path
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
-    PHASE54_POST_REVIEW_REPAIR_MODIFIED_PATHS,
-    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+    PHASE54_ACTIVE_GATE2_ADDED_PATHS,
+    PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR6_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
 )
 
 import pietto.semantic.capability_aggregates as capability_aggregates
@@ -184,10 +194,10 @@ MODULE_SHA256 = {
     WINDOW_REL: "c0512933fc284bbc1dec98dab96411ee179d64e7bee005aa798b6fd7dba2024e",
 }
 PATH_DIGESTS = {
-    "compiler": "fa64bb8f898e4fa77f6911b98b79bd6595b83104f6883b4e5727dd02aaecf9d0",
+    "compiler": "3d22a6e583e238b723d2dc20a7f809e3196a5ccae30fc54deaeb7d9a6b56dc1d",
     "semantic": "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70",
     "phase15": "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d",
-    "project": "cbc633a1c3a0d6a080dcbd30516f25209185b346586d19fc2dec981a7f67d1cc",
+    "project": "394e07ec91ed57359c64aff62b0709036860585843044d024585d8baa2e4381a",
 }
 PROTECTED_SHA256 = {
     ".github/workflows/ci.yml": "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94",
@@ -423,12 +433,23 @@ def _assert_allowed_dirty_state(
     origin_main: str | None,
 ) -> None:
     if (
-        _phase54_post_review_repair_gate2_is_active()
-        and tracked == set(PHASE54_POST_REVIEW_REPAIR_MODIFIED_PATHS)
-        and untracked == set()
-        and branch == "phase54/slice9-cross-module-type-source-resolution"
-        and head == "6cc20df07f78f4ec2bc252c8ed6f73e0de91a833"
-        and main == origin_main == "0ceb9a476e6592714cdc76845949ba0ae5123eb5"
+        _phase54_product_repair9_gate2_is_active()
+        and tracked == set(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS)
+        and untracked == set(PHASE54_ACTIVE_GATE2_ADDED_PATHS)
+        and branch == "phase54/slice10-cross-module-relation-row-facts"
+        and head
+        in {
+            PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
+            PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
+            PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,
+            PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE,
+            PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BASE,
+            PHASE54_POST_REVIEW_PRODUCT_REPAIR6_BASE,
+            PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE,
+            PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
+            PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
+        }
+        and main == origin_main == "fadb1924af057cfc901a1658e117810d699e2358"
     ):
         return
     dirty = tracked | untracked
@@ -992,10 +1013,10 @@ def test_live_compiler_semantic_phase15_project_protected_version_and_tag_locks_
     )
     project = _project_paths()
     assert (len(compiler), len(semantic), len(phase15), len(project)) == (
-        102,
+        103,
         36,
         33,
-        27,
+        28,
     )
     assert {
         "compiler": _digest(compiler),
@@ -1100,7 +1121,7 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
     assert (
         sum(path.endswith(".py") for path in readable),
         sum(path.endswith(".md") for path in readable),
-    ) == (561, 255)
+    ) == (563, 256)
     for digest, expected in (
         (PATH_DIGESTS["compiler"], 28),
         (PATH_DIGESTS["semantic"], 42),
@@ -1179,7 +1200,7 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
         )
         for path in test_files
     )
-    assert (len(test_files), top_functions) == (458, 5091)
+    assert (len(test_files), top_functions) == (459, 5127)
     assert (
         381 + 834 + 627 + 424 + 279 + 168 + 156 + 12 + 145 + 190 + 70 + 70 + 97 + 35
         == 3488
@@ -1197,7 +1218,7 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
         TIER1_BYTES,
         TIER1_SHA256,
     )
-    assert 461 - 3 == 458
+    assert 462 - 3 == 459
     tier2 = _tier2_manifest()
     tier2_payload = "".join(item + "\n" for item in tier2).encode()
     tier2_files = {
@@ -1286,7 +1307,7 @@ def test_static_git_helper_and_exact_slice9_dirty_set_are_locked() -> None:
         origin_main=_git_optional_ref("refs/remotes/origin/main"),
     )
     if tracked or untracked:
-        if _phase54_post_review_repair_gate2_is_active() or _git_output(
+        if _phase54_product_repair9_gate2_is_active() or _git_output(
             ["rev-parse", "HEAD"]
         ) in {
             "d8a5e9ab3de70ce30575513c73560c86430eca63",

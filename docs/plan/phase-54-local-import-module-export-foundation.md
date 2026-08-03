@@ -1,23 +1,24 @@
 # Phase 54 — Local Import / Module / Export Foundation
 
-## Status And Slice 9 Lifecycle
+## Status And Slice 10 Lifecycle
 
 Phase 53 and Slices 1-16 are `COMPLETED`. Phase 54 is `ACTIVE`, and Slices
-1 through 8 are `COMPLETED` after exact Gate 3 publication. The trusted Slice
-9 base is `0ceb9a476e6592714cdc76845949ba0ae5123eb5`. Slice 9 is the exact Gate 2
-candidate and is not complete before reviewed-tree publication and Gate 3.
-Slices 10-16 remain `UNSTARTED`.
+1 through 9 are `COMPLETED` after exact Gate 3 publication. The trusted Slice
+10 base is `fadb1924af057cfc901a1658e117810d699e2358`. Slice 10 is the exact Gate
+2 candidate and is not complete before reviewed-tree publication and Gate 3.
+Slices 11-16 remain `UNSTARTED`.
 
-Slice 9 adds only private dependency-first schema-v2 resolution for type
-aliases, enums, shapes, sources, shape field type references, and source shape
-references. It preserves import-local binding and complete nominal target
-identity, retains source/field order, reuses existing `PIE-S2001`,
-`PIE-S2002`, `PIE-S2003`, `PIE-S2303`, and Slice 8 root diagnostics, and
-suppresses same-root cascades. Schema v2 keeps `model=None`. Schema v1, table/
-query/relation and row facts, IR, SQL, dependencies, workflows, package
-version, fixtures, and goldens remain unchanged. The Gate 2 completion state
-is `PHASE54_SLICE9_GATE2_COMPLETED_AWAITING_PUBLICATION`; the next authorized
-state is `PHASE54_SLICE9_GATE3`, and Slice 10 does not begin in Slice 9.
+Slice 10 adds only private dependency-first schema-v2 source/table/query
+relation resolution and minimal direct row facts. It preserves import-local
+binding and complete nominal target identity, distinct table/query kinds,
+field order, immediate-upstream aliases, and existing four-state row
+availability. It reuses existing `PIE-S2001`, `PIE-S2102`, `PIE-S2301`,
+`PIE-S2302`, Slice 8 roots, and Slice 9 roots while suppressing same-root
+cascades. Schema v2 keeps `model=None`. Schema v1, advanced row facts, IR, SQL,
+dependencies, workflows, package version, fixtures, and goldens remain
+unchanged. The Gate 2 completion state is
+`PHASE54_SLICE10_GATE2_COMPLETED_AWAITING_PUBLICATION`; the next authorized
+state is `PHASE54_SLICE10_GATE3`, and Slice 11 does not begin in Slice 10.
 
 ## Trusted Phase 53 Baseline And Controlling Evidence
 
@@ -423,7 +424,8 @@ Slice 7. Slice 9 is next.
 
 ## Slice 9 — Cross-module Type Alias, Enum, Shape, And Source Resolution
 
-Gate 2 implements the private dependency-first type/source resolution sidecar
+Completed after exact Gate 3 publication. It implements the private
+dependency-first type/source resolution sidecar
 specified by
 `docs/spec/phase54-slice9-cross-module-type-alias-enum-shape-and-source-resolution-v1.md`.
 It resolves `TypeDef.base`, ordered shape field types, and direct source shape
@@ -431,12 +433,20 @@ references through local declarations and explicit named imports, including
 explicit re-export target identity. It excludes cyclic modules, preserves
 no-winner collisions, maps only to existing diagnostics, changes no public
 schema, and retains table/query/relation and row facts for Slice 10.
-Prerequisite: Slice 8. Completion still requires Gate 3; Slice 10 is next.
+Prerequisite: Slice 8. Slice 10 is next.
 
 ## Slice 10 — Cross-module Table / Query / Relation Resolution, Row Facts, And Legacy Compatibility
 
-Separately gate relation resolution, row facts, and exact legacy behavior.
-Prerequisites: Slices 3, 8, and 9.
+Gate 2 implements the private dependency-first relation-resolution sidecar
+specified by
+`docs/spec/phase54-slice10-cross-module-table-query-relation-resolution-row-facts-and-legacy-compatibility-v1.md`.
+It resolves the exact source/table/query relation namespace through local
+declarations and explicit named imports, retains aliases and nominal target
+identity, blocks complete collision buckets and cycles, and propagates only
+minimal direct row facts through existing availability states. Schema v1 is
+byte-exact, schema v2 retains `model=None`, and attribution/provenance/lineage
+plus advanced row-fact preservation remain Slices 11 and 12. Prerequisites:
+Slices 3, 8, and 9. Completion still requires Gate 3; Slice 11 is next.
 
 ## Slice 11 — Module Attribution, Dependency, Origin, Provenance, And Lineage
 

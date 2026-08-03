@@ -223,17 +223,67 @@ def test_carrier_enums_fields_privacy_and_manifest_are_exact() -> None:
         assert tuple(item.name for item in fields(carrier)) == expected
         assert carrier.__dataclass_params__.frozen
         assert "__dict__" not in carrier.__slots__
-    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER == ("PHASE54_SLICE9_GATE2")
+    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER == (
+        "PHASE54_SLICE10_GATE2"
+    )
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE == (
-        "0ceb9a476e6592714cdc76845949ba0ae5123eb5"
+        "fadb1924af057cfc901a1658e117810d699e2358"
     )
-    assert active_gate2_manifest.PHASE54_POST_REVIEW_REPAIR_BASE == (
-        "6cc20df07f78f4ec2bc252c8ed6f73e0de91a833"
+    assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_ADDED_PATHS) == 3
+    assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS) == 69
+    assert active_gate2_manifest.ADDED_PATHS == set()
+    assert len(active_gate2_manifest.MODIFIED_PATHS) == 66
+    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 63
+    assert TEST_REL in active_gate2_manifest.MECHANICAL_READER_PATHS
+    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE == (
+        "17a5b01e555930537334d4d0bcf3480e332b7e91"
     )
-    assert active_gate2_manifest.PHASE54_POST_REVIEW_REPAIR_BRANCH == (
-        "phase54/slice9-cross-module-type-source-resolution"
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_MODIFIED_PATHS)
+        == 43
     )
-    assert len(active_gate2_manifest.PHASE54_POST_REVIEW_REPAIR_MODIFIED_PATHS) == 41
+    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE == (
+        "3f057874a1bec524da38b58c243267f4590c167b"
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR4_MODIFIED_PATHS)
+        == 43
+    )
+    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BASE == (
+        "fcdd02b5604c2b84d861b593a1887eaeb4620c91"
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR5_MODIFIED_PATHS)
+        == 43
+    )
+    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR6_BASE == (
+        "c73e5ea0628d821ada5a8cbb93102bae69768600"
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR6_MODIFIED_PATHS)
+        == 43
+    )
+    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE == (
+        "a5df3ed264c443d902831fe532d265ac1e452158"
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR7_MODIFIED_PATHS)
+        == 43
+    )
+    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE == (
+        "7b96b416d963e67624a461ec906ab2fe14630380"
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR8_MODIFIED_PATHS)
+        == 43
+    )
+    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE == (
+        "38353a00bdaf6b1edb9a0eb53ada1a3249b6ae79"
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR9_MODIFIED_PATHS)
+        == 66
+    )
 
 
 def test_local_imported_and_reexported_nominal_identities_remain_distinct(
@@ -1053,7 +1103,10 @@ def test_export_and_inconsistent_facade_roots_suppress_consumers(
             ),
         },
     )
-    assert [item.code for item in inconsistent.diagnostics] == ["PIE-S2707"]
+    assert [item.code for item in inconsistent.diagnostics] == [
+        "PIE-S2707",
+        "PIE-S2301",
+    ]
 
 
 def test_local_source_shape_resolves_direct_shape(tmp_path: Path) -> None:
@@ -1159,7 +1212,8 @@ def test_schema_v1_deferred_surfaces_and_public_privacy_are_exact(
     assert environment.find_type_name("Shared")
     assert environment.type_resolutions == ()
     assert explicit.model is None
-    assert explicit.diagnostics == ()
+    assert _diagnostic_pairs(explicit) == (("PIE-S2301", "Unknown relation: missing"),)
+    assert explicit.module_relation_resolutions is not None
     document = project_check_result_to_json_dict(parse_result)
     serialized = json.dumps(document)
     assert "module_type_source_resolutions" not in serialized
@@ -1227,28 +1281,18 @@ def test_text_json_status_docs_and_reader_fixed_point_are_exact(
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name.startswith("test_")
     )
-    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_ADDED_PATHS == frozenset(
-        {
-            SPEC_REL,
-            SOURCE_REL,
-            TEST_REL,
-        }
-    )
-    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 68
+    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_ADDED_PATHS == frozenset()
+    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 66
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
-    assert (
-        len(active_gate2_manifest.PHASE54_SLICE9_ORIGINAL_MECHANICAL_READER_PATHS) == 62
-    )
-    assert len(active_gate2_manifest.VALIDATION_READER_PATHS) == 62
-    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 38
-    assert len(active_gate2_manifest.PHASE54_POST_REVIEW_REPAIR_MODIFIED_PATHS) == 41
+    assert len(active_gate2_manifest.VALIDATION_READER_PATHS) == 63
+    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 63
     assert (
         "tests/test_phase54_module_graph_cycles_diagnostics_deterministic_ordering.py"
-        in active_gate2_manifest.PHASE54_SLICE9_ORIGINAL_MECHANICAL_READER_PATHS
+        in active_gate2_manifest.MECHANICAL_READER_PATHS
     )
     assert (
         "tests/test_phase54_module_qualified_nominal_declaration_catalogs.py"
-        in active_gate2_manifest.PHASE54_SLICE9_ORIGINAL_MECHANICAL_READER_PATHS
+        in active_gate2_manifest.MECHANICAL_READER_PATHS
     )
     spec = (REPO_ROOT / SPEC_REL).read_text(encoding="utf-8")
     registry = (REPO_ROOT / "docs/spec/diagnostics.md").read_text(encoding="utf-8")
@@ -1271,7 +1315,7 @@ def test_text_json_status_docs_and_reader_fixed_point_are_exact(
         assert required in spec
     for code in ("PIE-S2001", "PIE-S2002", "PIE-S2003", "PIE-S2303"):
         assert code in registry
-    assert "Slice 9 is the" in readme
-    assert "PHASE54_SLICE9_GATE3" in readme
-    assert "Status And Slice 9 Lifecycle" in plan
-    assert "Current Phase 54 Slice 9" in whitepaper
+    assert "Slice 10 is the" in readme
+    assert "PHASE54_SLICE10_GATE3" in readme
+    assert "Status And Slice 10 Lifecycle" in plan
+    assert "Current Phase 54 Slice 10" in whitepaper

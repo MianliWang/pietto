@@ -46,6 +46,9 @@ if TYPE_CHECKING:
         ProjectModuleDiagnosticSet,
         ProjectModuleGraph,
     )
+    from pietto._project.module_relation_resolution import (
+        ProjectModuleRelationResolutionSet,
+    )
     from pietto._project.module_resolution import ProjectTypeSourceResolutionSet
     from pietto._project.row_dependency_graph import ProjectRelationRowDependencyGraph
     from pietto._project.row_lineage import ProjectRelationRowLineage
@@ -802,6 +805,7 @@ class ProjectSemanticResult:
     module_graph: ProjectModuleGraph | None = None
     module_diagnostic_facts: ProjectModuleDiagnosticSet | None = None
     module_type_source_resolutions: ProjectTypeSourceResolutionSet | None = None
+    module_relation_resolutions: ProjectModuleRelationResolutionSet | None = None
 
     @property
     def ok(self) -> bool:
@@ -845,6 +849,9 @@ def build_empty_project_semantic_result(
             _build_project_module_diagnostic_set,
             _build_project_module_graph,
         )
+        from pietto._project.module_relation_resolution import (
+            _build_project_module_relation_resolution_set,
+        )
         from pietto._project.module_resolution import (
             _build_project_type_source_resolution_set,
         )
@@ -878,6 +885,15 @@ def build_empty_project_semantic_result(
             module_graph,
             module_diagnostic_facts,
         )
+        module_relation_resolutions = _build_project_module_relation_resolution_set(
+            parse_result.modules,
+            module_catalogs,
+            module_exports,
+            module_bindings,
+            module_graph,
+            module_diagnostic_facts,
+            module_type_source_resolutions,
+        )
 
         return ProjectSemanticResult(
             root=parse_result.root,
@@ -894,9 +910,11 @@ def build_empty_project_semantic_result(
             module_graph=module_graph,
             module_diagnostic_facts=module_diagnostic_facts,
             module_type_source_resolutions=module_type_source_resolutions,
+            module_relation_resolutions=module_relation_resolutions,
             diagnostics=(
                 *module_diagnostic_facts.diagnostics,
                 *module_type_source_resolutions.diagnostics,
+                *module_relation_resolutions.diagnostics,
             ),
         )
 

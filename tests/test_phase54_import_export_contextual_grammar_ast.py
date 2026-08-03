@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
 )
 
 import pytest
@@ -791,11 +791,15 @@ def test_module_diagnostics_remain_private_without_serializer_or_dependency_surf
 
     graph_path = REPO_ROOT / "src/pietto/_project/module_graph.py"
     resolution_path = REPO_ROOT / "src/pietto/_project/module_resolution.py"
+    relation_resolution_path = (
+        REPO_ROOT / "src/pietto/_project/module_relation_resolution.py"
+    )
     graph_source = graph_path.read_text(encoding="utf-8")
     non_graph_production = "\n".join(
         path.read_text(encoding="utf-8")
         for path in sorted((REPO_ROOT / "src/pietto").rglob("*.py"))
-        if "generated" not in path.parts and path not in {graph_path, resolution_path}
+        if "generated" not in path.parts
+        and path not in {graph_path, resolution_path, relation_resolution_path}
     )
     for number in range(2701, 2708):
         code = f"PIE-S{number}"
@@ -912,9 +916,9 @@ def test_reader_allowlist_retained_later_and_publication_topology_contracts_are_
     assert "125\nmechanical reader tests" in spec
     assert "128 literal handwritten Python paths" in spec
     assert "10886 passed" in spec
-    assert "## Status And Slice 9 Lifecycle" in plan
-    assert "PHASE54_SLICE9_GATE2_COMPLETED_AWAITING_PUBLICATION" in plan
-    assert "PHASE54_SLICE9_GATE3" in plan
+    assert "## Status And Slice 10 Lifecycle" in plan
+    assert "PHASE54_SLICE10_GATE2_COMPLETED_AWAITING_PUBLICATION" in plan
+    assert "PHASE54_SLICE10_GATE3" in plan
     assert "Slice 5 owns module-qualified nominal declaration identity" in spec
     assert "PIE-S2701" in spec and "remain absent and un-emitted" in spec
     assert "Add Phase 54 import export grammar and AST" in topology

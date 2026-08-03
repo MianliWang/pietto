@@ -8,7 +8,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
 )
 
 import pietto.cli_json as cli_json
@@ -40,13 +40,13 @@ PHASE16_ARTIFACT_HASHES = {
         "580ebcfcc78102d902110d864eb80c7f1a57ffcb6b4b33e1160c9abd17ba07a6"
     ),
     SLICE1_AUDIT_PATH: (
-        "bea65796dae542437614598d2e6bbc23b278804e91f0c520ef68cf20b1de1172"
+        "de21e92f2e39a01a91bb501449d04b81ebed6297375abad76531fc5404649d2f"
     ),
     SLICE2_AUDIT_PATH: (
-        "fe80021e7f132e4a7438ea0cb89dd6434bb580d580338a8fc259e2c3f7ace117"
+        "e1e3fa778bb39746895d0a09397eff77fc40d37331053d36a419d48ccd03a71b"
     ),
     SLICE3_AUDIT_PATH: (
-        "eef0d6bc3bd0113a80cf17cebfde8e660c194b3011d88f7cc5ff6f2ace5b1701"
+        "4ba232d5518a1817abe56adde2ac52a1e45e878083350718863bfd331c611ed7"
     ),
     PLAN_PATH: "adfb0d99075299049c790f465fab7453e0ed73b985e9cff19c6aeb38f94c7f5a",
 }
@@ -80,7 +80,7 @@ LOCKED_FILE_HASHES = {
         "e40bd3eee7f76bc68313adb8237a7a6c5d84286197261f70c827a4219c9e3418"
     ),
     "docs/spec/diagnostics.md": (
-        "05951892634d6eeffec38879c085117c6c0e6cceccfa35f5748f98cf01036c40"
+        "5d3756bba9e98b267c05cde762e18409fdc8d501a2abf29b94d9b62c53c4aec5"
     ),
     "Makefile": "dbd38c41e2af5275c379de0b88c92f3861efb90724c7de1a291e0aa007ce2db7",
     "scripts/validate.py": (

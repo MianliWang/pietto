@@ -9,7 +9,7 @@ from types import ModuleType
 from typing import cast
 
 from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -76,7 +76,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "diagnostics": (
         "docs/spec/diagnostics.md",
         1,
-        "5b63cf926e611e8a612c8c1138240f81f90d9b7932115d370d3923f2f2f0b3d6",
+        "efe30986b76da78cfaa8614cc4e3e10b39dac2a6bf984e7dc6878a82308df6da",
     ),
     "check_generated": (
         "scripts/check_generated.py",

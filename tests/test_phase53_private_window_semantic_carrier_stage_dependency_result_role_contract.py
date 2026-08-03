@@ -9,7 +9,7 @@ import subprocess
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
 )
 
 import pytest
@@ -226,11 +226,11 @@ FINAL_SOURCE_SHA256 = "d6a514bddffee9f53ca1405d28a2dcd9cc84a395a152aacc1ccb9e5b7
 FINAL_PROJECT_SOURCE_SHA256 = (
     "c08a42066a71a3ee13be9feddff5e28a910b216226d7e0b8869ee52a90dea2ad"
 )
-FINAL_MODEL_SHA256 = "c2590a34ebe1eb7c04f30a3d5b084114f8913ad724b672ea1e269df4ad1dd0f4"
+FINAL_MODEL_SHA256 = "965342eb72c1089b315e598666410605dcf4adf8ddc50a0fc695fb82e3b8df1c"
 FINAL_SPEC_SHA256 = "e3cddc36974cc2d21bd3e0aec8d03c4f56bc4a68091780d9965207f07ea960e7"
 FINAL_PLAN_SHA256 = "3077c2fec0d7e2c4de717973c6403d5a450b8c01fe5846e427363ffcb41a78f5"
 FINAL_COMPILER_DIGEST = (
-    "fa64bb8f898e4fa77f6911b98b79bd6595b83104f6883b4e5727dd02aaecf9d0"
+    "3d22a6e583e238b723d2dc20a7f809e3196a5ccae30fc54deaeb7d9a6b56dc1d"
 )
 FINAL_SEMANTIC_DIGEST = (
     "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
@@ -239,7 +239,7 @@ FINAL_PHASE15_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 FINAL_PROJECT_DIGEST = (
-    "cbc633a1c3a0d6a080dcbd30516f25209185b346586d19fc2dec981a7f67d1cc"
+    "394e07ec91ed57359c64aff62b0709036860585843044d024585d8baa2e4381a"
 )
 
 BASE_HEAD = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
@@ -1906,7 +1906,7 @@ def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
         len(semantic_paths),
         len(phase15_paths),
         len(project_paths),
-    ) == (102, 36, 33, 27)
+    ) == (103, 36, 33, 28)
     assert _digest(tuple(compiler_paths)) == FINAL_COMPILER_DIGEST
     assert _digest(semantic_paths) == FINAL_SEMANTIC_DIGEST
     assert _digest(phase15_paths) == FINAL_PHASE15_DIGEST
@@ -1945,7 +1945,7 @@ def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
 
 
 def test_slice6_dirty_clean_and_depth_one_repository_states_are_locked() -> None:
-    if _phase54_post_review_repair_gate2_is_active():
+    if _phase54_product_repair9_gate2_is_active():
         return
     tracked = frozenset(_git("diff", "--name-only").splitlines()) - {""}
     untracked = frozenset(
@@ -2011,7 +2011,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         len(markdown_paths),
         len(test_paths),
         top_level_functions,
-    ) == (912, 561, 255, 458, 5091)
+    ) == (915, 563, 256, 459, 5127)
     assert len(TEST_FUNCTIONS) == len(TEST_ITEM_COUNTS) == 36
     assert sum(TEST_ITEM_COUNTS) == 156
     assert 10599 + 185 == 10784
@@ -2055,7 +2055,7 @@ def test_validation_gate3_and_no_behavior_boundaries_are_locked() -> None:
     repair_state = changed == CI_REPAIR_MODIFIED_PATHS and not untracked
     phase54_modified, phase54_added = _phase54_slice2_paths()
     phase54_state = (
-        _phase54_post_review_repair_gate2_is_active()
+        _phase54_product_repair9_gate2_is_active()
         or changed == phase54_modified
         and untracked == phase54_added
         and _git("rev-parse", "HEAD")

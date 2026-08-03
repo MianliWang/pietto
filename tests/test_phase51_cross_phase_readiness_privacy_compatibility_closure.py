@@ -9,7 +9,16 @@ from pathlib import Path
 from typing import cast
 
 from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR6_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
 )
 
 import pytest
@@ -914,7 +923,7 @@ def test_cross_phase_transition_and_live_identifier_inventory_is_exact() -> None
 def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> None:
     compiler_digest = _compiler_digest()
     assert compiler_digest == (
-        "fa64bb8f898e4fa77f6911b98b79bd6595b83104f6883b4e5727dd02aaecf9d0"
+        "3d22a6e583e238b723d2dc20a7f809e3196a5ccae30fc54deaeb7d9a6b56dc1d"
     )
     for relative_path in BOUNDARY_PATHS:
         boundary_values = re.findall(
@@ -937,14 +946,14 @@ def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> N
         )
     )
     project_digest = _digest(project_paths)
-    assert len(project_paths) == 27
+    assert len(project_paths) == 28
     assert project_digest == (
-        "cbc633a1c3a0d6a080dcbd30516f25209185b346586d19fc2dec981a7f67d1cc"
+        "394e07ec91ed57359c64aff62b0709036860585843044d024585d8baa2e4381a"
     )
     phase33 = _read(REPO_ROOT / "tests/test_phase33_completion_audit.py")
     assert (
         f'"project_private": (\n        "src/pietto/_project",\n'
-        f'        27,\n        "{project_digest}",\n    ),'
+        f'        28,\n        "{project_digest}",\n    ),'
     ) in phase33
 
     for relative_path in (
@@ -952,7 +961,7 @@ def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> N
         "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
     ):
         source = _read(REPO_ROOT / relative_path)
-        assert "assert len(project_paths) == 27" in source
+        assert "assert len(project_paths) == 28" in source
     stale_count_assertion = "assert len(project_paths) == " + "15"
     assert all(
         stale_count_assertion not in _read(path)
@@ -1164,8 +1173,20 @@ def test_slice11_contract_plan_allowlist_and_protected_boundaries_are_locked() -
             expected_head = SLICE8_BASE_HEAD_SHA
         elif path_counts == SLICE9_PATH_COUNTS:
             expected_head = SLICE9_BASE_HEAD_SHA
-        if _phase54_post_review_repair_gate2_is_active():
-            expected_head = "6cc20df07f78f4ec2bc252c8ed6f73e0de91a833"
+        if _phase54_product_repair9_gate2_is_active():
+            active_head = _git_output(["rev-parse", "HEAD"])
+            assert active_head in {
+                PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
+                PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
+                PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,
+                PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE,
+                PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BASE,
+                PHASE54_POST_REVIEW_PRODUCT_REPAIR6_BASE,
+                PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE,
+                PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
+                PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
+            }
+            expected_head = active_head
         assert _git_output(["rev-parse", "HEAD"]) == expected_head
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
 

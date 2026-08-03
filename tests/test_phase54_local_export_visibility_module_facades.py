@@ -23,6 +23,8 @@ from _phase54_active_gate2_manifest import (
     PHASE54_ACTIVE_GATE2_DELETED_PATHS,
     PHASE54_ACTIVE_GATE2_MARKER,
     PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
+    PHASE54_SLICE10_ORIGINAL_ADDED_PATHS,
+    PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS,
     Phase54Gate2RepositoryState,
     _matches_phase54_active_gate2_manifest,
     phase54_active_gate2_manifest_is_active,
@@ -265,8 +267,8 @@ def _active_state() -> Phase54Gate2RepositoryState:
         branch_upstream="origin/main",
         ahead=0,
         behind=0,
-        added_paths=PHASE54_ACTIVE_GATE2_ADDED_PATHS,
-        modified_paths=PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
+        added_paths=PHASE54_SLICE10_ORIGINAL_ADDED_PATHS,
+        modified_paths=PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS,
         deleted_paths=PHASE54_ACTIVE_GATE2_DELETED_PATHS,
         staged_paths=frozenset(),
         other_paths=frozenset(),
@@ -1117,7 +1119,7 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
     gate2_active = phase54_active_gate2_manifest_is_active()
     assert _matches_phase54_active_gate2_manifest(_active_state())
     for changed in (
-        replace(_active_state(), marker="PHASE54_SLICE7_GATE2"),
+        replace(_active_state(), marker="PHASE54_SLICE9_GATE2"),
         replace(_active_state(), branch_oid="0" * 40),
         replace(_active_state(), added_paths=frozenset()),
         replace(
@@ -1158,11 +1160,14 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
     source = (REPO_ROOT / SOURCE_REL).read_text(encoding="utf-8")
     graph_path = REPO_ROOT / "src/pietto/_project/module_graph.py"
     resolution_path = REPO_ROOT / "src/pietto/_project/module_resolution.py"
+    relation_resolution_path = (
+        REPO_ROOT / "src/pietto/_project/module_relation_resolution.py"
+    )
     graph_source = graph_path.read_text(encoding="utf-8")
     non_graph_production = "\n".join(
         path.read_text(encoding="utf-8")
         for path in (REPO_ROOT / "src/pietto").rglob("*.py")
-        if path not in {graph_path, resolution_path}
+        if path not in {graph_path, resolution_path, relation_resolution_path}
     )
     public = "\n".join(
         (REPO_ROOT / relative).read_text(encoding="utf-8")
@@ -1204,9 +1209,60 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
     assert tuple(node.name for node in tests) == EXPECTED_TEST_NAMES
     assert len(tests) == 30
     assert all(not node.decorator_list for node in tests)
-    assert len(PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 3
-    assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 68
+    assert len(PHASE54_SLICE10_ORIGINAL_ADDED_PATHS) == 3
+    assert len(PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS) == 69
+    assert PHASE54_ACTIVE_GATE2_ADDED_PATHS == frozenset()
+    assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 66
     assert PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
+    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE == (
+        "17a5b01e555930537334d4d0bcf3480e332b7e91"
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_MODIFIED_PATHS)
+        == 43
+    )
+    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE == (
+        "3f057874a1bec524da38b58c243267f4590c167b"
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR4_MODIFIED_PATHS)
+        == 43
+    )
+    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BASE == (
+        "fcdd02b5604c2b84d861b593a1887eaeb4620c91"
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR5_MODIFIED_PATHS)
+        == 43
+    )
+    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR6_BASE == (
+        "c73e5ea0628d821ada5a8cbb93102bae69768600"
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR6_MODIFIED_PATHS)
+        == 43
+    )
+    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE == (
+        "a5df3ed264c443d902831fe532d265ac1e452158"
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR7_MODIFIED_PATHS)
+        == 43
+    )
+    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE == (
+        "7b96b416d963e67624a461ec906ab2fe14630380"
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR8_MODIFIED_PATHS)
+        == 43
+    )
+    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE == (
+        "38353a00bdaf6b1edb9a0eb53ada1a3249b6ae79"
+    )
+    assert (
+        active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR9_MODIFIED_PATHS
+        == PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
+    )
     dirty = {
         *subprocess.run(
             ["git", "diff", "--name-only"],
@@ -1226,10 +1282,9 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
     active_allowlist = (
         PHASE54_ACTIVE_GATE2_ADDED_PATHS | PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
     )
-    repair_allowlist = active_gate2_manifest.PHASE54_POST_REVIEW_REPAIR_MODIFIED_PATHS
-    assert dirty in (set(), active_allowlist, repair_allowlist)
+    assert dirty in (set(), active_allowlist)
     if dirty:
         assert gate2_active
-        assert dirty in (active_allowlist, repair_allowlist)
+        assert dirty == active_allowlist
     else:
         assert not gate2_active

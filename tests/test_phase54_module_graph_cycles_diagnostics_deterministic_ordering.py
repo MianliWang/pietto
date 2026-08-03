@@ -8,7 +8,7 @@ from types import MappingProxyType
 from typing import cast
 
 from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
 )
 
 import pytest
@@ -184,9 +184,11 @@ def test_graph_carrier_enums_fields_privacy_and_manifest_are_exact() -> None:
     for carrier, names in expected_fields.items():
         assert is_dataclass(carrier)
         assert tuple(item.name for item in fields(carrier)) == names
-    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER == "PHASE54_SLICE9_GATE2"
+    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER == (
+        "PHASE54_SLICE10_GATE2"
+    )
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE == (
-        "0ceb9a476e6592714cdc76845949ba0ae5123eb5"
+        "fadb1924af057cfc901a1658e117810d699e2358"
     )
 
 
@@ -723,6 +725,7 @@ def test_pie_s2707_facade_and_unsupported_adapter_mappings_are_exact(
             "PIE-S2707",
             'Inconsistent explicit-module target facade: "b.pietto"',
         ),
+        ("PIE-S2301", "Unknown relation: missing"),
     )
     graph = _required_graph(semantic)
     assert semantic.module_bindings is not None
@@ -902,6 +905,57 @@ def test_schema_v1_privacy_status_reader_fixed_point_and_slice9_boundary(
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name.startswith("test_")
     )
-    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 3
-    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 68
+    assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_ADDED_PATHS) == 3
+    assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS) == 69
+    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_ADDED_PATHS == frozenset()
+    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 66
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
+    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE == (
+        "17a5b01e555930537334d4d0bcf3480e332b7e91"
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_MODIFIED_PATHS)
+        == 43
+    )
+    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE == (
+        "3f057874a1bec524da38b58c243267f4590c167b"
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR4_MODIFIED_PATHS)
+        == 43
+    )
+    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BASE == (
+        "fcdd02b5604c2b84d861b593a1887eaeb4620c91"
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR5_MODIFIED_PATHS)
+        == 43
+    )
+    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR6_BASE == (
+        "c73e5ea0628d821ada5a8cbb93102bae69768600"
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR6_MODIFIED_PATHS)
+        == 43
+    )
+    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE == (
+        "a5df3ed264c443d902831fe532d265ac1e452158"
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR7_MODIFIED_PATHS)
+        == 43
+    )
+    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE == (
+        "7b96b416d963e67624a461ec906ab2fe14630380"
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR8_MODIFIED_PATHS)
+        == 43
+    )
+    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE == (
+        "38353a00bdaf6b1edb9a0eb53ada1a3249b6ae79"
+    )
+    assert (
+        active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR9_MODIFIED_PATHS
+        == active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
+    )

@@ -9,11 +9,11 @@ Current pipeline: parse -> analyze -> build IR -> emit selected PostgreSQL or My
 
 ---
 
-## Current Phase 54 Slice 9 Cross-module Type And Source Resolution Status
+## Current Phase 54 Slice 10 Cross-module Relation And Row-fact Status
 
-Phase 54 is active and Slices 1 through 8 are complete after exact Gate 3
-publication. Slice 9 is the Gate 2 cross-module type/source resolution
-candidate awaiting reviewed-tree publication. Slice 4 supplies contextual
+Phase 54 is active and Slices 1 through 9 are complete after exact Gate 3
+publication. Slice 10 is the Gate 2 cross-module relation-resolution and
+minimal row-fact candidate awaiting reviewed-tree publication. Slice 4 supplies contextual
 top-level `import`, `export`, and `as` syntax plus immutable source-located module AST. Slice 5
 adds private four-component nominal declaration identity and one immutable,
 source-ordered local declaration catalog per successfully parsed schema-v2
@@ -37,13 +37,20 @@ Slice 9 adds one private dependency-first resolution set for `TypeDef.base`,
 ordered shape-field `TypeExpr` values, direct source shape references, and
 local/imported alias, enum, shape, and source nominal symbols. Import-local
 aliases remain separate from original target identities, including explicit
-re-exports. Module-root failures suppress derived cascades. The new private
+re-exports. Slice 10 adds a second private dependency-first resolution set for
+the exact source/table/query relation namespace, `TableDef.from_clause` and
+`QueryDef.from_clause`, plus minimal direct row facts using the existing
+availability states. Module-root and Slice 9 root failures suppress derived
+cascades. Imported aliases remain the immediate-upstream qualifier; original
+target/source names do not become downstream qualifier paths. The new private
 facts do not influence Semantic IR,
 PostgreSQL/MySQL SQL, CLI JSON v1, Project JSON v2, Semantic Metadata Artifact
 v1 fields, or public Python exports. Slice 8 owns module graph edges, SCCs,
 cycles, structured ordering, suppression, and module diagnostics; Slice 9
-owns type/enum/shape/source resolution; Slice 10 retains table/query/relation
-resolution and row facts.
+owns type/enum/shape/source resolution; Slice 10 owns direct table/query/
+relation resolution and minimal row facts. Slice 11 retains full attribution,
+dependency, origin, provenance, and lineage, and Slice 12 retains full generic,
+nullability, aggregate, grouped, window, result-role, and capability facts.
 
 ---
 

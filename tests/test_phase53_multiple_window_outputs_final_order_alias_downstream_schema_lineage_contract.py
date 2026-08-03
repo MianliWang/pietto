@@ -11,7 +11,16 @@ from types import MappingProxyType
 from typing import cast
 
 from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_post_review_repair_gate2_is_active,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR6_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
 )
 
 import pytest
@@ -70,6 +79,9 @@ PHASE54_SLICE4_HEAD = "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01"
 PHASE54_SLICE5_HEAD = "c44a4271d9592cb393d2232f127a59d8466cc60a"
 PHASE54_SLICE6_HEAD = "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16"
 PHASE54_SLICE7_HEAD = "027b33cafcfd58916a89e299487dad38d24ade6c"
+PHASE54_SLICE8_HEAD = "0ceb9a476e6592714cdc76845949ba0ae5123eb5"
+PHASE54_SLICE9_HEAD = "fadb1924af057cfc901a1658e117810d699e2358"
+PHASE54_SLICE9_PARENT_HEAD = PHASE54_SLICE8_HEAD
 POST_REVIEW_REPAIR_PARENT_HEAD = "ed37b4938b0ff5efa0842d353ac0610c51afa6cc"
 WHEELHOUSE_MANIFEST_SHA256 = (
     "e745cf66b6e8ea2096d5e49bf88ef32f828fe9178561b8ed5456125afeb8a294"
@@ -590,8 +602,26 @@ def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> N
         if _git_output(["rev-parse", "--is-shallow-repository"]) == "true":
             assert parents == []
         else:
-            if _phase54_post_review_repair_gate2_is_active():
-                expected_parent = POST_REVIEW_REPAIR_PARENT_HEAD
+            if _phase54_product_repair9_gate2_is_active():
+                if head == PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE:
+                    expected_parent = PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE
+                elif head == PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE:
+                    expected_parent = PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE
+                elif head == PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE:
+                    expected_parent = PHASE54_POST_REVIEW_PRODUCT_REPAIR6_BASE
+                elif head == PHASE54_POST_REVIEW_PRODUCT_REPAIR6_BASE:
+                    expected_parent = PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BASE
+                elif head == PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BASE:
+                    expected_parent = PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE
+                elif head == PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE:
+                    expected_parent = PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE
+                elif head == PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE:
+                    expected_parent = PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE
+                elif head == PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE:
+                    expected_parent = PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE
+                else:
+                    assert head == PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE
+                    expected_parent = "42b692d64dcbd9c4f8210accd0106dc11dcd3318"
             elif head == PHASE53_COMPLETION_HEAD:
                 expected_parent = BASE_HEAD
             elif head == PHASE54_SLICE1_HEAD:
@@ -610,8 +640,20 @@ def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> N
                 expected_parent = PHASE54_SLICE5_HEAD
             elif head == PHASE54_SLICE7_HEAD:
                 expected_parent = PHASE54_SLICE6_HEAD
-            else:
+            elif head == PHASE54_SLICE8_HEAD:
                 expected_parent = PHASE54_SLICE7_HEAD
+            elif head == PHASE54_SLICE9_HEAD:
+                expected_parent = PHASE54_SLICE8_HEAD
+            elif _git_output(["show", "-s", "--format=%s", "HEAD"]) == (
+                "Fix Phase 54 alias blocker provenance"
+            ):
+                expected_parent = "3caa5e52be41cd7e1ed0ed364f2d62574adce840"
+            elif _git_output(["show", "-s", "--format=%s", "HEAD"]) == (
+                "Fix Phase 54 relation row diagnostics"
+            ):
+                expected_parent = "6104002486d21b7b25dbec74d037c0fc7cc5099a"
+            else:
+                expected_parent = PHASE54_SLICE9_HEAD
             assert parents == [expected_parent]
     assert 'requires = ["uv_build>=0.11.32,<0.12.0"]' in pyproject
     assert '"ruff>=0.16.0"' in pyproject
@@ -1496,7 +1538,7 @@ def test_recursive_reader_hash_terminal_and_manifest_fixed_point_is_exact() -> N
         for path in paths
         if path.startswith("src/pietto/_project/") and path.endswith(".py")
     )
-    assert len(project_paths) == 27
+    assert len(project_paths) == 28
     assert "src/pietto/_project/window_persistence.py" in project_paths
     digest = hashlib.sha256()
     for path in project_paths:
@@ -1540,11 +1582,11 @@ def test_test_inventory_focused_overlay_validation_and_gate3_are_exact() -> None
         len(test_paths),
         top_level_tests,
     ) == (
-        912,
-        561,
-        255,
-        458,
-        5091,
+        915,
+        563,
+        256,
+        459,
+        5127,
     )
     docs = _read(PLAN_REL)
     for value in (
