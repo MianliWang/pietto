@@ -21,7 +21,8 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_REVIEW_PRODUCT_REPAIR6_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
-    phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
 )
 
 import pytest
@@ -110,10 +111,10 @@ MODULE_SHA256 = {
 }
 SPEC_SHA256 = "7010cd8a39ed389de588d8cd734b136cc87456c3ef5eb324638467d1188fc935"
 MODIFIED_TEST_SHA256 = {
-    SLICE4_TEST_REL: "eb38a6aee35daf8fcbcebbe0ce74c7656f8aa670bde0ade6ebef3d7872603b18",
-    SLICE5_TEST_REL: "d332c1bb5ee6a49eeb5ff1b45d2060480c8849e179f2ca16fa6136e869cec64f",
-    SLICE6_TEST_REL: "7bc0e317b69a0526fd8c6a31531f59225f8f65ad0779710f54b052588e4a3fc4",
-    SLICE7_TEST_REL: "810e77e20153858d109f2d45e84ff95cba168526957e1d01dc967e1f2bec4cd0",
+    SLICE4_TEST_REL: "3cb7f64cbd0b4becf2fd0bedc9d0d9dc4a625379002ea0db98ed8281c625dc45",
+    SLICE5_TEST_REL: "c15ee0b8a6eab14668b42d2c1b2e44293a4d21eb426afd53ca87db9f60798814",
+    SLICE6_TEST_REL: "9d6d772c3cb56cbff5f322c74cedebc2e247c2933e31364e0f90ceb3a147b8ba",
+    SLICE7_TEST_REL: "947a55e8340c39cce9863aae34bd6c7e346b39025743f061dab0f40fac15b606",
 }
 WORKFLOW_SHA256 = "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94"
 PYPROJECT_SHA256 = "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01"
@@ -498,7 +499,7 @@ def _assert_allowed_dirty_state(
     origin_main: str | None,
 ) -> None:
     if (
-        _phase54_product_repair1_gate2_is_active()
+        _phase54_product_repair9_gate2_is_active()
         and tracked == set(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS)
         and untracked == set(PHASE54_ACTIVE_GATE2_ADDED_PATHS)
         and branch == "phase54/slice10-cross-module-relation-row-facts"
@@ -512,6 +513,7 @@ def _assert_allowed_dirty_state(
             PHASE54_POST_REVIEW_PRODUCT_REPAIR6_BASE,
             PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE,
             PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
+            PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
         }
         and main == origin_main == "fadb1924af057cfc901a1658e117810d699e2358"
     ):

@@ -9,7 +9,7 @@ from collections import Counter
 from pathlib import Path
 
 from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
 )
 
 
@@ -491,9 +491,9 @@ PROTECTED_SHA256 = {
     "src/pietto/_project/source_selection.py": "fb1c531bcdd81696aa0c26b110433a6775cde878aeb4af3373d0d4aaf1f1443e",
     "src/pietto/_project/check.py": "6f2f2805249cc86a8ff3510a03abc702d2a029186cf16b50cabd11dbaf1da9e1",
     "src/pietto/_project/json_v2.py": "74251e684a22de4dcdc7e1822a6843ca89cbdfa7e136a046676d848b57953bd5",
-    SLICE2_TEST_REL: "a6cdb38d7568d88254d557dd367fd5f6c7c0ac11a1d545343bca07a7491db6ed",
-    SLICE3_TEST_REL: "536f3d262fc8b332e6bcda96ee2f7c953e469f037dded36759e6e64eb7b48658",
-    SLICE4_TEST_REL: "3817e31459a177eb9f486a31b8e29f18852cbecef3e9372127b7825da2e841d3",
+    SLICE2_TEST_REL: "39e29d4615853c2284a9e0a799c14d204b592df59e4e4fe921eb22477cdef2e5",
+    SLICE3_TEST_REL: "32b89d0c564e3408978366e41bf8a3cb6669e56969269bcb9a18b40c3f4f2448",
+    SLICE4_TEST_REL: "862a3411c46b9320bbc9ee1711d2c6e26d60c84322b75f560aee0b6792b2c035",
     ".github/workflows/ci.yml": "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94",
     "pyproject.toml": "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01",
     "uv.lock": "a7d9125995e98a8a74d3664ceae7801cc1f4cce74ec323933da67838be199cea",
@@ -539,7 +539,7 @@ def _git_output(args: list[str]) -> str:
 def phase54_slice5_gate2_manifest_is_active() -> bool:
     """Compatibility wrapper for historical readers of the active Gate 2."""
 
-    return _phase54_product_repair1_gate2_is_active()
+    return _phase54_product_repair9_gate2_is_active()
 
 
 def _readable_paths() -> tuple[str, ...]:
@@ -702,7 +702,7 @@ def test_authority_hierarchy_grounding_and_historical_predecessors_are_exact() -
         "8c3656805db451946d60e341b8ac0ca9181997378d07576133c9c4aeef3e3f77"
     )
     assert _sha256("tests/test_phase50_import_module_export_readiness.py") == (
-        "59e5d1aac8ef37e18fcc094f987c5317b7eb390c77cc90b19f8cd9758eb6dbc6"
+        "da6cc57df3910262ce4fb9fd3b0375e9acec5a38a5977aad04e43499bc8f8c76"
     )
     scope = _read(SCOPE_REL)
     roadmap = _read(ROADMAP_V2_REL)
@@ -1310,7 +1310,7 @@ def test_gate_allowlist_reader_evidence_publication_stop_and_next_state_contract
     )
     dirty.discard("")
     if dirty:
-        assert _phase54_product_repair1_gate2_is_active()
+        assert _phase54_product_repair9_gate2_is_active()
         assert _git_output(["diff", "--cached", "--name-only"]) == ""
     scope = _read(SCOPE_REL)
     for path in (

@@ -9,7 +9,7 @@ from types import ModuleType
 from typing import cast
 
 from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -112,7 +112,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "readme": (
         "README.md",
         1,
-        "20a9bc3e94cf026449bf2e2c1a38ff1080bb3ea144f0bb7140baa3ad67f5c039",
+        "b013853394a45bfc1dd37c44bf2503bcbbb2552b3c0e1c5623c4aef054e4a296",
     ),
     "agents": (
         "AGENTS.md",

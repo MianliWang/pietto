@@ -9,7 +9,7 @@ from types import ModuleType
 from typing import cast
 
 from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]

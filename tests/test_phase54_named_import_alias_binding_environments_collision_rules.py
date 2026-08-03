@@ -9,7 +9,7 @@ from pathlib import Path
 from types import MappingProxyType
 
 from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
 )
 
 import pytest
@@ -1125,49 +1125,56 @@ def test_slice7_contract_test_inventory_and_active_gate_manifest_are_exact() -> 
     assert len(PHASE54_SLICE10_ORIGINAL_ADDED_PATHS) == 3
     assert len(PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS) == 69
     assert PHASE54_ACTIVE_GATE2_ADDED_PATHS == frozenset()
-    assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 43
+    assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 66
     assert PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
     assert _matches_phase54_active_gate2_manifest(_active_state())
     assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE == (
         "17a5b01e555930537334d4d0bcf3480e332b7e91"
     )
     assert (
-        active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_MODIFIED_PATHS
-        == PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_MODIFIED_PATHS)
+        == 43
     )
     assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE == (
         "3f057874a1bec524da38b58c243267f4590c167b"
     )
     assert (
-        active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR4_MODIFIED_PATHS
-        == PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR4_MODIFIED_PATHS)
+        == 43
     )
     assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BASE == (
         "fcdd02b5604c2b84d861b593a1887eaeb4620c91"
     )
     assert (
-        active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR5_MODIFIED_PATHS
-        == PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR5_MODIFIED_PATHS)
+        == 43
     )
     assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR6_BASE == (
         "c73e5ea0628d821ada5a8cbb93102bae69768600"
     )
     assert (
-        active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR6_MODIFIED_PATHS
-        == PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR6_MODIFIED_PATHS)
+        == 43
     )
     assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE == (
         "a5df3ed264c443d902831fe532d265ac1e452158"
     )
     assert (
-        active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR7_MODIFIED_PATHS
-        == PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR7_MODIFIED_PATHS)
+        == 43
     )
     assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE == (
         "7b96b416d963e67624a461ec906ab2fe14630380"
     )
     assert (
-        active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR8_MODIFIED_PATHS
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR8_MODIFIED_PATHS)
+        == 43
+    )
+    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE == (
+        "38353a00bdaf6b1edb9a0eb53ada1a3249b6ae79"
+    )
+    assert (
+        active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR9_MODIFIED_PATHS
         == PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
     )
     assert "ImportStatement.target" not in inspect.getsource(module_exports)

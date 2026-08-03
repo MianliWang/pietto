@@ -14,7 +14,8 @@ from _phase54_active_gate2_manifest import (  # noqa: F401
     PHASE54_POST_REVIEW_PRODUCT_REPAIR6_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
 )
 
 import pytest

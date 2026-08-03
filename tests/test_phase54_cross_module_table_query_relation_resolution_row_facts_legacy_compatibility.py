@@ -191,6 +191,21 @@ def test_slice10_contract_and_status_docs_freeze_exact_boundary() -> None:
     assert "Schema v1 continues to use the byte-exact legacy-flat resolver" in spec
     assert "There is no cross-namespace fallback" in spec
     assert "Slice 10 is the\nGate 2 cross-module relation-resolution" in readme
+    assert (
+        "private type/source and relation resolution with minimal row facts" in readme
+    )
+    assert (
+        "private\n"
+        "cross-module type/source and relation resolution sidecars with minimal row\n"
+        "facts exist" in readme
+    )
+    assert (
+        "and private type/source and relation resolution with minimal row facts. It does\n"
+        "not yet produce Project IR or project SQL." in readme
+    )
+    assert "while relation resolution\nand row facts remain" not in readme
+    assert "It does not yet produce cross-module\nrelation/row facts" not in readme
+    assert "Active; Slice 10 Gate 2 candidate" in readme
     assert "## Status And Slice 10 Lifecycle" in plan
     assert (
         "## Current Phase 54 Slice 10 Cross-module Relation And Row-fact Status"
@@ -204,8 +219,8 @@ def test_slice10_contract_and_status_docs_freeze_exact_boundary() -> None:
     assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS) == 69
     assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_ALLOWLIST_PATHS) == 72
     assert active_gate2_manifest.ADDED_PATHS == set()
-    assert len(active_gate2_manifest.MODIFIED_PATHS) == 43
-    assert len(active_gate2_manifest.ALLOWLIST_PATHS) == 43
+    assert len(active_gate2_manifest.MODIFIED_PATHS) == 66
+    assert len(active_gate2_manifest.ALLOWLIST_PATHS) == 66
     frozen_gate2 = active_gate2_manifest.Phase54Gate2RepositoryState(
         marker=active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER,
         branch_oid=active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE,
@@ -407,6 +422,28 @@ def test_slice10_contract_and_status_docs_freeze_exact_boundary() -> None:
     assert active_gate2_manifest._matches_phase54_active_gate2_manifest(repair8_state)
     assert not active_gate2_manifest._matches_phase54_active_gate2_manifest(
         replace(repair8_state, staged_paths=frozenset({SOURCE_REL}))
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR9_SEED_PATHS) == 3
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR9_MODIFIED_PATHS)
+        == 66
+    )
+    repair9_state = replace(
+        repair8_state,
+        branch_oid=active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
+        branch_head=active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BRANCH,
+        branch_upstream=(
+            f"origin/{active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BRANCH}"
+        ),
+        modified_paths=(
+            active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR9_MODIFIED_PATHS
+        ),
+    )
+    assert active_gate2_manifest._matches_phase54_active_gate2_manifest(repair9_state)
+    assert not active_gate2_manifest._matches_phase54_active_gate2_manifest(
+        replace(repair9_state, staged_paths=frozenset({"README.md"}))
     )
 
 

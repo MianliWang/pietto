@@ -55,7 +55,7 @@ and the [Phase 54 plan](docs/plan/phase-54-local-import-module-export-foundation
 | MySQL | Explicit CLI lowering; private emitter/API surface |
 | Single-file mode | Check, explain, and emit SQL |
 | Project schema v1 | Available legacy-flat project checking |
-| Project schema v2 | Explicit modules, trusted loading, private catalogs/facades/bindings, module graph/diagnostics, and private type/source resolution |
+| Project schema v2 | Explicit modules, trusted loading, private catalogs/facades/bindings, module graph/diagnostics, and private type/source and relation resolution with minimal row facts |
 | Runtime | Compiler only; no database connection or SQL execution |
 
 Phase 54 is **ACTIVE**. Slices 1 through 9 are **COMPLETED**. Slice 10 is the
@@ -290,8 +290,10 @@ include = ["models/*.pietto"]
 The explicit-module identity, trusted-loading, import/export AST, local
 catalog, private export-facade, named-import binding environment, distinct
 module graph, public fail-closed module-diagnostic foundation, and private
-cross-module type/source resolution sidecar exist, while relation resolution
-and row facts remain under active Phase 54 development.
+cross-module type/source and relation resolution sidecars with minimal row
+facts exist. Public inspection and serialization of these private carriers,
+full lineage and advanced row preservation, Project IR, and project SQL remain
+future boundaries.
 
 After Slice 3, each selected path has a stable logical module identity and an
 immutable index entry. Project roots and source targets are pinned and checked
@@ -355,8 +357,8 @@ The project path discovers and safely loads selected files. Schema v1 can
 continue into the current flat project semantic model. Schema v2 currently
 continues through per-file parsing, private identity/loading facts, local
 declaration catalogs, export facades, import bindings, module graph/diagnostics,
-and private type/source resolution. It does not yet produce cross-module
-relation/row facts, Project IR, or project SQL.
+and private type/source and relation resolution with minimal row facts. It does
+not yet produce Project IR or project SQL.
 
 ## Roadmap
 

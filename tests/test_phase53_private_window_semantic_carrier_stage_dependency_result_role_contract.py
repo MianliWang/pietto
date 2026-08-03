@@ -9,7 +9,7 @@ import subprocess
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
 )
 
 import pytest
@@ -1945,7 +1945,7 @@ def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
 
 
 def test_slice6_dirty_clean_and_depth_one_repository_states_are_locked() -> None:
-    if _phase54_product_repair1_gate2_is_active():
+    if _phase54_product_repair9_gate2_is_active():
         return
     tracked = frozenset(_git("diff", "--name-only").splitlines()) - {""}
     untracked = frozenset(
@@ -2055,7 +2055,7 @@ def test_validation_gate3_and_no_behavior_boundaries_are_locked() -> None:
     repair_state = changed == CI_REPAIR_MODIFIED_PATHS and not untracked
     phase54_modified, phase54_added = _phase54_slice2_paths()
     phase54_state = (
-        _phase54_product_repair1_gate2_is_active()
+        _phase54_product_repair9_gate2_is_active()
         or changed == phase54_modified
         and untracked == phase54_added
         and _git("rev-parse", "HEAD")

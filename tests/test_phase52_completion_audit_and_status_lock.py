@@ -20,7 +20,8 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_REVIEW_PRODUCT_REPAIR6_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
-    phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
 )
 
 import pietto.semantic.capability_aggregates as capability_aggregates
@@ -432,7 +433,7 @@ def _assert_allowed_dirty_state(
     origin_main: str | None,
 ) -> None:
     if (
-        _phase54_product_repair1_gate2_is_active()
+        _phase54_product_repair9_gate2_is_active()
         and tracked == set(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS)
         and untracked == set(PHASE54_ACTIVE_GATE2_ADDED_PATHS)
         and branch == "phase54/slice10-cross-module-relation-row-facts"
@@ -446,6 +447,7 @@ def _assert_allowed_dirty_state(
             PHASE54_POST_REVIEW_PRODUCT_REPAIR6_BASE,
             PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE,
             PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
+            PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
         }
         and main == origin_main == "fadb1924af057cfc901a1658e117810d699e2358"
     ):
@@ -1305,7 +1307,7 @@ def test_static_git_helper_and_exact_slice9_dirty_set_are_locked() -> None:
         origin_main=_git_optional_ref("refs/remotes/origin/main"),
     )
     if tracked or untracked:
-        if _phase54_product_repair1_gate2_is_active() or _git_output(
+        if _phase54_product_repair9_gate2_is_active() or _git_output(
             ["rev-parse", "HEAD"]
         ) in {
             "d8a5e9ab3de70ce30575513c73560c86430eca63",

@@ -8,7 +8,7 @@ import tomllib
 from pathlib import Path
 
 from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -872,7 +872,7 @@ def test_static_audit_shape_allowlist_and_heading_matching_are_locked() -> None:
     slice13_added = _slice13_paths("ADDED_PATHS")
     slice13_allowlist = slice13_modified | slice13_added
     dirty_paths = _dirty_paths()
-    if _phase54_product_repair1_gate2_is_active():
+    if _phase54_product_repair9_gate2_is_active():
         assert _headings_at_level(PLAN_PATH, 2) == PLAN_H2
         assert _headings_at_level(SCOPE_PATH, 2) == SCOPE_H2
         return

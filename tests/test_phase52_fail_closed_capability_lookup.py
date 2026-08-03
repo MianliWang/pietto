@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
 )
 
 import pytest
@@ -656,7 +656,7 @@ def test_project_package_version_and_tag_boundaries_are_unchanged() -> None:
 
 
 def test_gate2_dirty_untracked_and_index_states_are_exact() -> None:
-    if _phase54_product_repair1_gate2_is_active():
+    if _phase54_product_repair9_gate2_is_active():
         return
     slice13_modified = _slice13_paths("MODIFIED_PATHS")
     slice13_added = _slice13_paths("ADDED_PATHS")

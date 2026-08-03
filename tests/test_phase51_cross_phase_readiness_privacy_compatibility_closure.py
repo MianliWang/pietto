@@ -17,7 +17,8 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_REVIEW_PRODUCT_REPAIR6_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
-    phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
 )
 
 import pytest
@@ -1172,7 +1173,7 @@ def test_slice11_contract_plan_allowlist_and_protected_boundaries_are_locked() -
             expected_head = SLICE8_BASE_HEAD_SHA
         elif path_counts == SLICE9_PATH_COUNTS:
             expected_head = SLICE9_BASE_HEAD_SHA
-        if _phase54_product_repair1_gate2_is_active():
+        if _phase54_product_repair9_gate2_is_active():
             active_head = _git_output(["rev-parse", "HEAD"])
             assert active_head in {
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
@@ -1183,6 +1184,7 @@ def test_slice11_contract_plan_allowlist_and_protected_boundaries_are_locked() -
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR6_BASE,
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE,
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
+                PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
             }
             expected_head = active_head
         assert _git_output(["rev-parse", "HEAD"]) == expected_head

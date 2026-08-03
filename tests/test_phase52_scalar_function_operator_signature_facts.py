@@ -12,7 +12,7 @@ from typing import Any, cast
 from _phase54_active_gate2_manifest import (
     PHASE54_ACTIVE_GATE2_ADDED_PATHS,
     PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
-    phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
 )
 
 import pytest
@@ -1426,7 +1426,7 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     slice13_modified = _slice13_paths("MODIFIED_PATHS")
     slice13_added = _slice13_paths("ADDED_PATHS")
     slice13_allowlist = slice13_modified | slice13_added
-    repair_gate2_active = _phase54_product_repair1_gate2_is_active()
+    repair_gate2_active = _phase54_product_repair9_gate2_is_active()
     assert repair_gate2_active or dirty in (
         set(),
         ALLOWLIST_PATHS,
