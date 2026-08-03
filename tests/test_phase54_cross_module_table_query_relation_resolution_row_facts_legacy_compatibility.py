@@ -342,6 +342,28 @@ def test_slice10_contract_and_status_docs_freeze_exact_boundary() -> None:
     assert not active_gate2_manifest._matches_phase54_active_gate2_manifest(
         replace(repair5_state, staged_paths=frozenset({SOURCE_REL}))
     )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR6_SEED_PATHS) == 3
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR6_MODIFIED_PATHS)
+        == 43
+    )
+    repair6_state = replace(
+        repair5_state,
+        branch_oid=active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR6_BASE,
+        branch_head=active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR6_BRANCH,
+        branch_upstream=(
+            f"origin/{active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR6_BRANCH}"
+        ),
+        modified_paths=(
+            active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR6_MODIFIED_PATHS
+        ),
+    )
+    assert active_gate2_manifest._matches_phase54_active_gate2_manifest(repair6_state)
+    assert not active_gate2_manifest._matches_phase54_active_gate2_manifest(
+        replace(repair6_state, staged_paths=frozenset({SOURCE_REL}))
+    )
 
 
 def test_relation_issue_status_and_private_carriers_are_frozen_slotted_keyword_only() -> (
@@ -1144,6 +1166,7 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
         *,
         public_codes: tuple[str, ...],
         blocker_roots: tuple[tuple[str, ...], ...],
+        blocker_statuses: tuple[tuple[str, ...], ...] | None = None,
     ) -> None:
         blocked_parse, blocked_semantic = _semantic_project(
             tmp_path / case,
@@ -1172,6 +1195,14 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
             )
             == blocker_roots
         )
+        if blocker_statuses is not None:
+            assert (
+                tuple(
+                    tuple(item.status.value for item in issue.type_source_issues)
+                    for issue in blockers
+                )
+                == blocker_statuses
+            )
 
     assert_complete_field_blockers(
         "distinct-unknown-fields-ab",
@@ -1302,6 +1333,208 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
         public_codes=("PIE-S2701", "PIE-S2701"),
         blocker_roots=(("PIE-S2701",), ("PIE-S2701",)),
     )
+
+    type_namespace_root_cases = (
+        (
+            "ambiguous-source-shape-root",
+            {
+                "a.pietto": (
+                    "shape Row:\n    first: Int\n"
+                    "shape Row:\n    second: Text\n"
+                    'source rows: Row is postgres.table("rows")\n'
+                )
+            },
+            ("PIE-S2001",),
+            (("PIE-S2001",),),
+            (("ambiguous_local_type_name",),),
+        ),
+        (
+            "ambiguous-direct-field-type-root",
+            {
+                "a.pietto": (
+                    "type Shared = Int\n"
+                    "enum Shared:\n    ONE\n"
+                    "shape Row:\n    value: Shared\n"
+                    'source rows: Row is postgres.table("rows")\n'
+                )
+            },
+            ("PIE-S2001",),
+            (("PIE-S2001",),),
+            (("ambiguous_local_type_name",),),
+        ),
+        (
+            "ambiguous-alias-base-root",
+            {
+                "a.pietto": (
+                    "type Shared = Int\n"
+                    "enum Shared:\n    ONE\n"
+                    "type Alias = Shared\n"
+                    "shape Row:\n    value: Alias\n"
+                    'source rows: Row is postgres.table("rows")\n'
+                )
+            },
+            ("PIE-S2001",),
+            (("PIE-S2001",),),
+            (("ambiguous_local_type_name",),),
+        ),
+        (
+            "ambiguous-shared-root-dedup",
+            {
+                "a.pietto": (
+                    "type Shared = Int\n"
+                    "enum Shared:\n    ONE\n"
+                    "shape Row:\n    first: Shared\n    second: Shared\n"
+                    'source rows: Row is postgres.table("rows")\n'
+                )
+            },
+            ("PIE-S2001",),
+            (("PIE-S2001",),),
+            (("ambiguous_local_type_name",),),
+        ),
+    )
+    for (
+        case,
+        sources,
+        public_codes,
+        blocker_roots,
+        blocker_statuses,
+    ) in type_namespace_root_cases:
+        assert_complete_field_blockers(
+            case,
+            sources,
+            public_codes=public_codes,
+            blocker_roots=blocker_roots,
+            blocker_statuses=blocker_statuses,
+        )
+
+    cyclic_type_sources = {
+        "a.pietto": (
+            'import "b.pietto":\n    type Public as Local\n'
+            "shape Row:\n    value: Local\n"
+            'source rows: Row is postgres.table("rows")\n'
+        ),
+        "b.pietto": (
+            'import "c.pietto":\n    type Base as Public\n'
+            'import "d.pietto":\n    type D\n'
+            "export:\n    type Public\n"
+        ),
+        "c.pietto": "type Base = Text\nexport:\n    type Base\n",
+        "d.pietto": (
+            'type D = Int\nexport:\n    type D\nimport "b.pietto":\n    type Public\n'
+        ),
+    }
+    assert_complete_field_blockers(
+        "cyclic-imported-field-type-root",
+        cyclic_type_sources,
+        public_codes=("PIE-S2703",),
+        blocker_roots=(("PIE-S2703",),),
+        blocker_statuses=(("module_graph_cycle_blocked",),),
+    )
+
+    cyclic_alias_sources = dict(cyclic_type_sources)
+    cyclic_alias_sources["a.pietto"] = (
+        'import "b.pietto":\n    type Public as Local\n'
+        "type Alias = Local\n"
+        "shape Row:\n    value: Alias\n"
+        'source rows: Row is postgres.table("rows")\n'
+    )
+    assert_complete_field_blockers(
+        "cyclic-imported-alias-base-root",
+        cyclic_alias_sources,
+        public_codes=("PIE-S2703",),
+        blocker_roots=(("PIE-S2703",),),
+        blocker_statuses=(("module_graph_cycle_blocked",),),
+    )
+
+    assert_complete_field_blockers(
+        "cyclic-imported-source-shape-root",
+        {
+            "a.pietto": (
+                'import "b.pietto":\n    shape Public as Local\n'
+                'source rows: Local is postgres.table("rows")\n'
+            ),
+            "b.pietto": (
+                'import "c.pietto":\n    shape Base as Public\n'
+                'import "d.pietto":\n    type D\n'
+                "export:\n    shape Public\n"
+            ),
+            "c.pietto": ("shape Base:\n    value: Text\nexport:\n    shape Base\n"),
+            "d.pietto": (
+                "type D = Int\nexport:\n    type D\n"
+                'import "b.pietto":\n    shape Public\n'
+            ),
+        },
+        public_codes=("PIE-S2703",),
+        blocker_roots=(("PIE-S2703",),),
+        blocker_statuses=(("module_graph_cycle_blocked",),),
+    )
+
+    namespace_isolation_cases = (
+        (
+            "unrelated-source-binding-field-type-spelling",
+            {
+                "a.pietto": (
+                    'import "missing.pietto":\n    source Hidden as Shared\n'
+                    "shape Row:\n    value: Shared\n"
+                    'source rows: Row is postgres.table("rows")\n'
+                )
+            },
+            ("PIE-S2701", "PIE-S2002"),
+            (("PIE-S2002",),),
+            (("unknown_type_reference",),),
+        ),
+        (
+            "unrelated-source-binding-shape-spelling",
+            {
+                "a.pietto": (
+                    'import "missing.pietto":\n    source Hidden as Row\n'
+                    'source rows: Row is postgres.table("rows")\n'
+                )
+            },
+            ("PIE-S2701", "PIE-S2303"),
+            (("PIE-S2303",),),
+            (("unknown_source_shape_reference",),),
+        ),
+        (
+            "unrelated-cyclic-source-binding-field-type-spelling",
+            {
+                "a.pietto": (
+                    'import "b.pietto":\n    source Public as Shared\n'
+                    "shape Row:\n    value: Shared\n"
+                    'source rows: Row is postgres.table("rows")\n'
+                ),
+                "b.pietto": (
+                    'import "c.pietto":\n    source Base as Public\n'
+                    'import "d.pietto":\n    type D\n'
+                    "export:\n    source Public\n"
+                ),
+                "c.pietto": (
+                    'source Base is postgres.table("base")\nexport:\n    source Base\n'
+                ),
+                "d.pietto": (
+                    "type D = Int\nexport:\n    type D\n"
+                    'import "b.pietto":\n    source Public\n'
+                ),
+            },
+            ("PIE-S2703", "PIE-S2002"),
+            (("PIE-S2002",),),
+            (("unknown_type_reference",),),
+        ),
+    )
+    for (
+        case,
+        sources,
+        public_codes,
+        blocker_roots,
+        blocker_statuses,
+    ) in namespace_isolation_cases:
+        assert_complete_field_blockers(
+            case,
+            sources,
+            public_codes=public_codes,
+            blocker_roots=blocker_roots,
+            blocker_statuses=blocker_statuses,
+        )
 
     def assert_module_blocked_source(
         case: str,

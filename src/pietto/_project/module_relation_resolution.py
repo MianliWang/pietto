@@ -641,6 +641,7 @@ def _build_project_module_relation_resolution_set(
         _build_module_row_facts(
             draft,
             catalogs=catalogs,
+            bindings=bindings,
             type_source_resolutions=type_source_resolutions,
             row_fact_by_identity=row_fact_by_identity,
             cycles=cycles,
@@ -1124,6 +1125,7 @@ def _build_module_row_facts(
     draft: _RelationResolutionDraft,
     *,
     catalogs: ProjectModuleCatalogSet,
+    bindings: ProjectModuleBindingEnvironmentSet,
     type_source_resolutions: ProjectTypeSourceResolutionSet,
     row_fact_by_identity: Mapping[
         ProjectNominalDeclarationIdentity, ProjectModuleRelationRowFact
@@ -1152,6 +1154,7 @@ def _build_module_row_facts(
                 draft,
                 occurrence,
                 catalogs=catalogs,
+                bindings=bindings,
                 type_source_resolutions=type_source_resolutions,
             )
         draft.row_facts[occurrence] = ProjectModuleRelationRowFact(
@@ -1216,13 +1219,19 @@ def _source_row_state(
     occurrence: ProjectDeclarationOccurrence,
     *,
     catalogs: ProjectModuleCatalogSet,
+    bindings: ProjectModuleBindingEnvironmentSet,
     type_source_resolutions: ProjectTypeSourceResolutionSet,
 ) -> ProjectRelationRowSchemaState:
     source = occurrence.definition
     assert type(source) is SourceDef
     resolutions = draft.type_source_environment.find_source(source)
     if len(resolutions) != 1:
-        _append_type_source_blocker(draft, occurrence, source)
+        _append_type_source_blocker(
+            draft,
+            occurrence,
+            source,
+            bindings=bindings,
+        )
         return _unknown_state(ProjectRelationRowSchemaReason.UNKNOWN_SCHEMA)
     shape_occurrence = resolutions[0].target_symbol.target_occurrence
     shape = shape_occurrence.definition
@@ -1251,6 +1260,7 @@ def _source_row_state(
                 occurrence,
                 source,
                 field_def.type_expr,
+                bindings=bindings,
                 type_source_environment=type_environment,
                 type_resolution=None if len(type_facts) != 1 else type_facts[0],
                 type_source_resolutions=(
@@ -1282,6 +1292,7 @@ def _append_type_source_blocker(
     source: SourceDef,
     type_expr: TypeExpr | None = None,
     *,
+    bindings: ProjectModuleBindingEnvironmentSet,
     type_source_environment: ProjectModuleTypeSourceResolutionEnvironment | None = None,
     type_resolution: ProjectResolvedModuleTypeReference | None = None,
     type_source_resolutions: ProjectTypeSourceResolutionSet | None = None,
@@ -1312,7 +1323,11 @@ def _append_type_source_blocker(
                 and issue.type_reference is not None
                 and issue.type_reference.type_expr is type_expr
             )
-            or _matches_module_diagnostic_binding(issue, module_binding_keys)
+            or _matches_type_namespace_blocker(
+                issue,
+                module_binding_keys,
+                bindings,
+            )
         )
     else:
         if (
@@ -1343,7 +1358,11 @@ def _append_type_source_blocker(
                 )
             )
             or bool(alias_identities.intersection(issue.alias_cycle))
-            or _matches_module_diagnostic_binding(issue, module_binding_keys)
+            or _matches_type_namespace_blocker(
+                issue,
+                module_binding_keys,
+                bindings,
+            )
         )
     roots = tuple(
         dict.fromkeys(
@@ -1381,15 +1400,50 @@ def _append_type_source_blocker(
         draft.issues.append(candidate)
 
 
-def _matches_module_diagnostic_binding(
+def _matches_type_namespace_blocker(
     issue: ProjectTypeSourceResolutionIssue,
     binding_keys: frozenset[tuple[str, str]],
+    bindings: ProjectModuleBindingEnvironmentSet,
 ) -> bool:
-    return (
-        issue.status is ProjectTypeSourceResolutionIssueStatus.MODULE_DIAGNOSTIC_BLOCKED
-        and issue.local_name is not None
-        and (issue.owning_module_path, issue.local_name) in binding_keys
-    )
+    local_name = issue.local_name
+    if local_name is None or (issue.owning_module_path, local_name) not in binding_keys:
+        return False
+    if issue.status is ProjectTypeSourceResolutionIssueStatus.AMBIGUOUS_LOCAL_TYPE_NAME:
+        return True
+    if issue.status is ProjectTypeSourceResolutionIssueStatus.MODULE_DIAGNOSTIC_BLOCKED:
+        namespaces = tuple(
+            item.request.identity.namespace for item in issue.binding_issues
+        ) + tuple(item.identity.namespace for item in issue.occurrences)
+        return bool(namespaces) and all(
+            namespace is ProjectSymbolNamespace.TYPE for namespace in namespaces
+        )
+    if (
+        issue.status
+        is not ProjectTypeSourceResolutionIssueStatus.MODULE_GRAPH_CYCLE_BLOCKED
+    ):
+        return False
+    environments = bindings.find_module_path(issue.owning_module_path)
+    if len(environments) != 1 or issue.cycle is None:
+        raise ValueError("Cyclic type binding root requires exact retained inputs.")
+    cycle_paths = {member.identity.path for member in issue.cycle.component.members}
+    for binding in environments[0].bindings:
+        identity = binding.identity
+        if (
+            identity.namespace is not ProjectSymbolNamespace.TYPE
+            or identity.local_binding_name != local_name
+            or (
+                binding.target_module_path not in cycle_paths
+                and binding.target_identity.module_path not in cycle_paths
+            )
+        ):
+            continue
+        span = (
+            binding.request.source_item.local_name_span
+            or binding.request.source_item.exported_name_span
+        )
+        if _location(span, fallback_path=issue.owning_module_path) == issue.location:
+            return True
+    return False
 
 
 def _type_module_binding_keys(
