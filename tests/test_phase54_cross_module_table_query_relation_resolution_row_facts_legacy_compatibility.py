@@ -386,6 +386,28 @@ def test_slice10_contract_and_status_docs_freeze_exact_boundary() -> None:
     assert not active_gate2_manifest._matches_phase54_active_gate2_manifest(
         replace(repair7_state, staged_paths=frozenset({SOURCE_REL}))
     )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR8_SEED_PATHS) == 3
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR8_MODIFIED_PATHS)
+        == 43
+    )
+    repair8_state = replace(
+        repair7_state,
+        branch_oid=active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
+        branch_head=active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BRANCH,
+        branch_upstream=(
+            f"origin/{active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BRANCH}"
+        ),
+        modified_paths=(
+            active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR8_MODIFIED_PATHS
+        ),
+    )
+    assert active_gate2_manifest._matches_phase54_active_gate2_manifest(repair8_state)
+    assert not active_gate2_manifest._matches_phase54_active_gate2_manifest(
+        replace(repair8_state, staged_paths=frozenset({SOURCE_REL}))
+    )
 
 
 def test_relation_issue_status_and_private_carriers_are_frozen_slotted_keyword_only() -> (
@@ -1189,6 +1211,7 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
         public_codes: tuple[str, ...],
         blocker_roots: tuple[tuple[str, ...], ...],
         blocker_statuses: tuple[tuple[str, ...], ...] | None = None,
+        blocker_local_names: tuple[tuple[str | None, ...], ...] | None = None,
     ) -> None:
         blocked_parse, blocked_semantic = _semantic_project(
             tmp_path / case,
@@ -1224,6 +1247,14 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
                     for issue in blockers
                 )
                 == blocker_statuses
+            )
+        if blocker_local_names is not None:
+            assert (
+                tuple(
+                    tuple(item.local_name for item in issue.type_source_issues)
+                    for issue in blockers
+                )
+                == blocker_local_names
             )
 
     assert_complete_field_blockers(
@@ -1354,6 +1385,102 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
         },
         public_codes=("PIE-S2701", "PIE-S2701"),
         blocker_roots=(("PIE-S2701",), ("PIE-S2701",)),
+    )
+
+    shared_module_root_cases = (
+        (
+            "shared-module-root-ab",
+            "    first: LocalA\n    second: LocalB\n",
+            (("LocalA", "LocalB"),),
+        ),
+        (
+            "shared-module-root-ba",
+            "    second: LocalB\n    first: LocalA\n",
+            (("LocalB", "LocalA"),),
+        ),
+    )
+    for case, field_lines, blocker_local_names in shared_module_root_cases:
+        assert_complete_field_blockers(
+            case,
+            {
+                "a.pietto": (
+                    'import "missing.pietto":\n'
+                    "    type HiddenA as LocalA\n"
+                    "    type HiddenB as LocalB\n"
+                    "shape Row:\n"
+                    f"{field_lines}"
+                    'source rows: Row is postgres.table("rows")\n'
+                )
+            },
+            public_codes=("PIE-S2701",),
+            blocker_roots=(("PIE-S2701",),),
+            blocker_statuses=(
+                ("module_diagnostic_blocked", "module_diagnostic_blocked"),
+            ),
+            blocker_local_names=blocker_local_names,
+        )
+
+    partial_overlap_cases = (
+        (
+            "partial-overlap-ab",
+            "    first: LocalA\n    second: LocalB\n",
+            (("LocalA", "LocalB"),),
+        ),
+        (
+            "partial-overlap-ba",
+            "    second: LocalB\n    first: LocalA\n",
+            (("LocalB", "LocalA"),),
+        ),
+    )
+    for case, field_lines, blocker_local_names in partial_overlap_cases:
+        assert_complete_field_blockers(
+            case,
+            {
+                "a.pietto": (
+                    "type LocalB = Int\n"
+                    'import "missing.pietto":\n'
+                    "    type HiddenA as LocalA\n"
+                    "    source Remote as LocalB\n"
+                    "shape Row:\n"
+                    f"{field_lines}"
+                    'source rows: Row is postgres.table("rows")\n'
+                )
+            },
+            public_codes=("PIE-S2701", "PIE-S2706"),
+            blocker_roots=(("PIE-S2701", "PIE-S2706"),),
+            blocker_statuses=(
+                ("module_diagnostic_blocked", "module_diagnostic_blocked"),
+            ),
+            blocker_local_names=blocker_local_names,
+        )
+
+    assert_complete_field_blockers(
+        "transitive-overlap-components",
+        {
+            "a.pietto": (
+                'import "missing-a.pietto":\n'
+                "    type HiddenA as LocalA\n"
+                "    source RemoteA as Shared\n"
+                'import "missing-b.pietto":\n'
+                "    type HiddenB as LocalB\n"
+                "    source RemoteB as Shared\n"
+                "shape Row:\n"
+                "    first: LocalA\n"
+                "    second: LocalB\n"
+                "    third: Shared\n"
+                'source rows: Row is postgres.table("rows")\n'
+            )
+        },
+        public_codes=("PIE-S2701", "PIE-S2701", "PIE-S2706"),
+        blocker_roots=(("PIE-S2701", "PIE-S2701", "PIE-S2706"),),
+        blocker_statuses=(
+            (
+                "module_diagnostic_blocked",
+                "module_diagnostic_blocked",
+                "module_diagnostic_blocked",
+            ),
+        ),
+        blocker_local_names=(("LocalA", "LocalB", "Shared"),),
     )
 
     type_namespace_root_cases = (

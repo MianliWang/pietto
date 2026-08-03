@@ -1163,6 +1163,13 @@ def test_slice7_contract_test_inventory_and_active_gate_manifest_are_exact() -> 
         active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR7_MODIFIED_PATHS
         == PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
     )
+    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE == (
+        "7b96b416d963e67624a461ec906ab2fe14630380"
+    )
+    assert (
+        active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR8_MODIFIED_PATHS
+        == PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
+    )
     assert "ImportStatement.target" not in inspect.getsource(module_exports)
     assert "_build_project_module_binding_environment_set" not in pietto.__dict__
     assert active_gate2_manifest.ALLOWLIST_PATHS == (

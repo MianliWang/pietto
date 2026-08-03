@@ -945,3 +945,10 @@ def test_schema_v1_privacy_status_reader_fixed_point_and_slice9_boundary(
         active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR7_MODIFIED_PATHS
         == active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
     )
+    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE == (
+        "7b96b416d963e67624a461ec906ab2fe14630380"
+    )
+    assert (
+        active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR8_MODIFIED_PATHS
+        == active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
+    )

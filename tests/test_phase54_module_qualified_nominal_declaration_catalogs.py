@@ -13,6 +13,7 @@ from _phase54_active_gate2_manifest import (  # noqa: F401
     PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR6_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
@@ -993,6 +994,9 @@ def test_private_public_dependency_version_and_retained_later_surfaces_remain_ex
     )
     assert PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE == (
         "a5df3ed264c443d902831fe532d265ac1e452158"
+    )
+    assert PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE == (
+        "7b96b416d963e67624a461ec906ab2fe14630380"
     )
     assert not hasattr(pietto, "__version__")
     assert version("pietto") == "0.1.0"

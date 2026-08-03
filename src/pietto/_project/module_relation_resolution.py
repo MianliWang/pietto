@@ -1391,13 +1391,58 @@ def _append_type_source_blocker(
         type_source_issues=issues,
         suppressing_diagnostics=roots,
     )
-    if not any(
-        issue.status is candidate.status
-        and issue.local_name == candidate.local_name
-        and issue.type_source_issues == candidate.type_source_issues
-        for issue in draft.issues
-    ):
+    root_set = set(candidate.suppressing_diagnostics)
+    overlapping_positions: set[int] = set()
+    while True:
+        previous_count = len(overlapping_positions)
+        for position, issue in enumerate(draft.issues):
+            if position in overlapping_positions or (
+                issue.status is not candidate.status
+                or issue.owning_module_path != candidate.owning_module_path
+                or issue.local_name != candidate.local_name
+                or issue.location != candidate.location
+                or issue.occurrences != candidate.occurrences
+                or root_set.isdisjoint(issue.suppressing_diagnostics)
+            ):
+                continue
+            overlapping_positions.add(position)
+            root_set.update(issue.suppressing_diagnostics)
+        if len(overlapping_positions) == previous_count:
+            break
+    if not overlapping_positions:
         draft.issues.append(candidate)
+        return
+
+    overlapping = tuple(
+        draft.issues[position] for position in sorted(overlapping_positions)
+    )
+    combined_type_source_issues: list[ProjectTypeSourceResolutionIssue] = []
+    combined_roots: list[Diagnostic] = []
+    for issue in (*overlapping, candidate):
+        for type_source_issue in issue.type_source_issues:
+            if type_source_issue not in combined_type_source_issues:
+                combined_type_source_issues.append(type_source_issue)
+        for root in issue.suppressing_diagnostics:
+            if root not in combined_roots:
+                combined_roots.append(root)
+    combined_root_tuple = tuple(combined_roots)
+    merged = ProjectModuleRelationResolutionIssue(
+        status=candidate.status,
+        owning_module_path=candidate.owning_module_path,
+        local_name=candidate.local_name,
+        location=candidate.location,
+        related_locations=_ordered_related_locations(
+            candidate.location,
+            tuple(root.location for root in combined_root_tuple),
+        ),
+        occurrences=candidate.occurrences,
+        type_source_issues=tuple(combined_type_source_issues),
+        suppressing_diagnostics=combined_root_tuple,
+    )
+    first_position = min(overlapping_positions)
+    draft.issues[first_position] = merged
+    for position in sorted(overlapping_positions - {first_position}, reverse=True):
+        del draft.issues[position]
 
 
 def _matches_type_namespace_blocker(
