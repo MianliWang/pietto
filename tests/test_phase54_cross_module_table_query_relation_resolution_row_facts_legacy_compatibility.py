@@ -364,6 +364,28 @@ def test_slice10_contract_and_status_docs_freeze_exact_boundary() -> None:
     assert not active_gate2_manifest._matches_phase54_active_gate2_manifest(
         replace(repair6_state, staged_paths=frozenset({SOURCE_REL}))
     )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR7_SEED_PATHS) == 3
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR7_MODIFIED_PATHS)
+        == 43
+    )
+    repair7_state = replace(
+        repair6_state,
+        branch_oid=active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE,
+        branch_head=active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BRANCH,
+        branch_upstream=(
+            f"origin/{active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BRANCH}"
+        ),
+        modified_paths=(
+            active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR7_MODIFIED_PATHS
+        ),
+    )
+    assert active_gate2_manifest._matches_phase54_active_gate2_manifest(repair7_state)
+    assert not active_gate2_manifest._matches_phase54_active_gate2_manifest(
+        replace(repair7_state, staged_paths=frozenset({SOURCE_REL}))
+    )
 
 
 def test_relation_issue_status_and_private_carriers_are_frozen_slotted_keyword_only() -> (
@@ -1520,6 +1542,34 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
             (("PIE-S2002",),),
             (("unknown_type_reference",),),
         ),
+        (
+            "unrelated-private-source-binding-field-type-spelling",
+            {
+                "a.pietto": (
+                    'import "b.pietto":\n    source Hidden as Shared\n'
+                    "shape Row:\n    value: Shared\n"
+                    'source rows: Row is postgres.table("rows")\n'
+                ),
+                "b.pietto": 'source Hidden is postgres.table("hidden")\n',
+            },
+            ("PIE-S2705", "PIE-S2002"),
+            (("PIE-S2002",),),
+            (("unknown_type_reference",),),
+        ),
+        (
+            "unrelated-wrong-kind-source-binding-field-type-spelling",
+            {
+                "a.pietto": (
+                    'import "b.pietto":\n    source projected as Shared\n'
+                    "shape Row:\n    value: Shared\n"
+                    'source rows: Row is postgres.table("rows")\n'
+                ),
+                "b.pietto": _library_source(),
+            },
+            ("PIE-S2707", "PIE-S2002"),
+            (("PIE-S2002",),),
+            (("unknown_type_reference",),),
+        ),
     )
     for (
         case,
@@ -1534,6 +1584,159 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
             public_codes=public_codes,
             blocker_roots=blocker_roots,
             blocker_statuses=blocker_statuses,
+        )
+
+    cross_namespace_collision_cases = (
+        (
+            "relation-import-collides-local-type-field-root",
+            {
+                "a.pietto": (
+                    "type Shared = Int\n"
+                    'import "b.pietto":\n    source remote as Shared\n'
+                    "shape Row:\n    value: Shared\n"
+                    'source rows: Row is postgres.table("rows")\n'
+                ),
+                "b.pietto": (
+                    'source remote is postgres.table("remote")\n'
+                    "export:\n    source remote\n"
+                ),
+            },
+            ("PIE-S2706",),
+            (("PIE-S2706",),),
+        ),
+        (
+            "relation-import-collides-local-type-alias-root",
+            {
+                "a.pietto": (
+                    "type Shared = Int\n"
+                    'import "b.pietto":\n    source remote as Shared\n'
+                    "type Alias = Shared\n"
+                    "shape Row:\n    value: Alias\n"
+                    'source rows: Row is postgres.table("rows")\n'
+                ),
+                "b.pietto": (
+                    'source remote is postgres.table("remote")\n'
+                    "export:\n    source remote\n"
+                ),
+            },
+            ("PIE-S2706",),
+            (("PIE-S2706",),),
+        ),
+        (
+            "relation-import-collides-local-source-shape-root",
+            {
+                "a.pietto": (
+                    "shape Row:\n    value: Int\n"
+                    'import "b.pietto":\n    source remote as Row\n'
+                    'source rows: Row is postgres.table("rows")\n'
+                ),
+                "b.pietto": (
+                    'source remote is postgres.table("remote")\n'
+                    "export:\n    source remote\n"
+                ),
+            },
+            ("PIE-S2706",),
+            (("PIE-S2706",),),
+        ),
+        (
+            "two-relation-imports-collide-field-type-root",
+            {
+                "a.pietto": (
+                    'import "b.pietto":\n    source left as Shared\n'
+                    'import "c.pietto":\n    source right as Shared\n'
+                    "shape Row:\n    value: Shared\n"
+                    'source rows: Row is postgres.table("rows")\n'
+                ),
+                "b.pietto": (
+                    'source left is postgres.table("left")\nexport:\n    source left\n'
+                ),
+                "c.pietto": (
+                    'source right is postgres.table("right")\n'
+                    "export:\n    source right\n"
+                ),
+            },
+            ("PIE-S2706",),
+            (("PIE-S2706",),),
+        ),
+        (
+            "two-relation-imports-collide-source-shape-root",
+            {
+                "a.pietto": (
+                    'import "b.pietto":\n    source left as Shared\n'
+                    'import "c.pietto":\n    source right as Shared\n'
+                    'source rows: Shared is postgres.table("rows")\n'
+                ),
+                "b.pietto": (
+                    'source left is postgres.table("left")\nexport:\n    source left\n'
+                ),
+                "c.pietto": (
+                    'source right is postgres.table("right")\n'
+                    "export:\n    source right\n"
+                ),
+            },
+            ("PIE-S2706",),
+            (("PIE-S2706",),),
+        ),
+        (
+            "missing-relation-import-collision-complete-roots",
+            {
+                "a.pietto": (
+                    "type Shared = Int\n"
+                    'import "missing.pietto":\n    source remote as Shared\n'
+                    "shape Row:\n    value: Shared\n"
+                    'source rows: Row is postgres.table("rows")\n'
+                )
+            },
+            ("PIE-S2701", "PIE-S2706"),
+            (("PIE-S2701", "PIE-S2706"),),
+        ),
+        (
+            "relation-collision-shared-field-root-dedup",
+            {
+                "a.pietto": (
+                    "type Shared = Int\n"
+                    'import "b.pietto":\n    source remote as Shared\n'
+                    "shape Row:\n    first: Shared\n    second: Shared\n"
+                    'source rows: Row is postgres.table("rows")\n'
+                ),
+                "b.pietto": (
+                    'source remote is postgres.table("remote")\n'
+                    "export:\n    source remote\n"
+                ),
+            },
+            ("PIE-S2706",),
+            (("PIE-S2706",),),
+        ),
+        (
+            "two-distinct-relation-collision-field-roots",
+            {
+                "a.pietto": (
+                    "type LocalA = Int\ntype LocalB = Text\n"
+                    'import "b.pietto":\n'
+                    "    source first as LocalA\n"
+                    "    source second as LocalB\n"
+                    "shape Row:\n    first: LocalA\n    second: LocalB\n"
+                    'source rows: Row is postgres.table("rows")\n'
+                ),
+                "b.pietto": (
+                    'source first is postgres.table("first")\n'
+                    'source second is postgres.table("second")\n'
+                    "export:\n    source first\n    source second\n"
+                ),
+            },
+            ("PIE-S2706", "PIE-S2706"),
+            (("PIE-S2706",), ("PIE-S2706",)),
+        ),
+    )
+    for case, sources, public_codes, blocker_roots in cross_namespace_collision_cases:
+        assert_complete_field_blockers(
+            case,
+            sources,
+            public_codes=public_codes,
+            blocker_roots=blocker_roots,
+            blocker_statuses=tuple(
+                ("module_diagnostic_blocked",) for _ in blocker_roots
+            ),
         )
 
     def assert_module_blocked_source(

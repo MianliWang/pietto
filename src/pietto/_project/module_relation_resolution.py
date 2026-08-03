@@ -1414,8 +1414,13 @@ def _matches_type_namespace_blocker(
         namespaces = tuple(
             item.request.identity.namespace for item in issue.binding_issues
         ) + tuple(item.identity.namespace for item in issue.occurrences)
-        return bool(namespaces) and all(
-            namespace is ProjectSymbolNamespace.TYPE for namespace in namespaces
+        return (
+            bool(namespaces)
+            and all(
+                namespace is ProjectSymbolNamespace.TYPE for namespace in namespaces
+            )
+        ) or any(
+            item.status in _COLLISION_ISSUE_STATUSES for item in issue.binding_issues
         )
     if (
         issue.status
