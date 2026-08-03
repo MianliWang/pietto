@@ -1235,9 +1235,13 @@ def _source_row_state(
         return _unknown_state(ProjectRelationRowSchemaReason.UNKNOWN_SCHEMA)
     type_environment = type_environments[0]
     fields: dict[str, ProjectRowField] = {}
+    seen_field_names: set[str] = set()
+    has_invalid_field = False
     for field_def in shape.fields:
-        if field_def.name in fields:
-            return _unknown_state(ProjectRelationRowSchemaReason.UNKNOWN_SCHEMA)
+        duplicate_name = field_def.name in seen_field_names
+        seen_field_names.add(field_def.name)
+        if duplicate_name:
+            has_invalid_field = True
         type_facts = type_environment.find_type_expr(field_def.type_expr)
         if len(type_facts) != 1 or (
             type_facts[0].canonical_kind is ProjectResolvedTypeKind.UNKNOWN
@@ -1253,13 +1257,18 @@ def _source_row_state(
                     None if len(type_facts) != 1 else type_source_resolutions
                 ),
             )
-            return _unknown_state(ProjectRelationRowSchemaReason.UNKNOWN_SCHEMA)
+            has_invalid_field = True
+            continue
+        if duplicate_name:
+            continue
         fields[field_def.name] = ProjectRowField(
             name=field_def.name,
             resolved_type=_resolved_row_type(type_facts[0], catalogs),
             nullability=_row_field_nullability(field_def.type_expr.nullability),
             field_def=field_def,
         )
+    if has_invalid_field:
+        return _unknown_state(ProjectRelationRowSchemaReason.UNKNOWN_SCHEMA)
     return ProjectRelationRowSchemaState(
         status=ProjectRelationRowSchemaStatus.CONCRETE,
         schema=ProjectRowSchema(fields=fields),

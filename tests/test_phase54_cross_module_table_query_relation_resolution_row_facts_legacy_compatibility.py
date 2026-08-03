@@ -320,6 +320,28 @@ def test_slice10_contract_and_status_docs_freeze_exact_boundary() -> None:
     assert not active_gate2_manifest._matches_phase54_active_gate2_manifest(
         replace(repair4_state, staged_paths=frozenset({SOURCE_REL}))
     )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR5_SEED_PATHS) == 3
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR5_MODIFIED_PATHS)
+        == 43
+    )
+    repair5_state = replace(
+        repair4_state,
+        branch_oid=active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BASE,
+        branch_head=active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BRANCH,
+        branch_upstream=(
+            f"origin/{active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BRANCH}"
+        ),
+        modified_paths=(
+            active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR5_MODIFIED_PATHS
+        ),
+    )
+    assert active_gate2_manifest._matches_phase54_active_gate2_manifest(repair5_state)
+    assert not active_gate2_manifest._matches_phase54_active_gate2_manifest(
+        replace(repair5_state, staged_paths=frozenset({SOURCE_REL}))
+    )
 
 
 def test_relation_issue_status_and_private_carriers_are_frozen_slotted_keyword_only() -> (
@@ -1115,6 +1137,171 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
         assert tuple(item.code for item in alias_blocker.suppressing_diagnostics) == (
             root_code,
         )
+
+    def assert_complete_field_blockers(
+        case: str,
+        sources: dict[str, str],
+        *,
+        public_codes: tuple[str, ...],
+        blocker_roots: tuple[tuple[str, ...], ...],
+    ) -> None:
+        blocked_parse, blocked_semantic = _semantic_project(
+            tmp_path / case,
+            sources,
+        )
+        blocked_source = _definition(blocked_parse, "a.pietto", "rows")
+        blocked_fact = _fact(blocked_semantic, "a.pietto", blocked_source)
+        assert blocked_fact.state.status is ProjectRelationRowSchemaStatus.UNKNOWN
+        assert (
+            blocked_fact.state.reason is ProjectRelationRowSchemaReason.UNKNOWN_SCHEMA
+        )
+        assert blocked_fact.state.schema is not None
+        assert blocked_fact.state.schema.is_unknown
+        assert tuple(item.code for item in blocked_semantic.diagnostics) == public_codes
+        blockers = tuple(
+            issue
+            for issue in _environment(blocked_semantic, "a.pietto").issues
+            if issue.status
+            is relation_resolution.ProjectModuleRelationResolutionIssueStatus.TYPE_SOURCE_DIAGNOSTIC_BLOCKED
+            and issue.local_name == "rows"
+        )
+        assert (
+            tuple(
+                tuple(item.code for item in issue.suppressing_diagnostics)
+                for issue in blockers
+            )
+            == blocker_roots
+        )
+
+    assert_complete_field_blockers(
+        "distinct-unknown-fields-ab",
+        {
+            "a.pietto": (
+                "shape Row:\n"
+                "    first: MissingA\n"
+                "    second: MissingB\n"
+                'source rows: Row is postgres.table("rows")\n'
+            )
+        },
+        public_codes=("PIE-S2002", "PIE-S2002"),
+        blocker_roots=(("PIE-S2002",), ("PIE-S2002",)),
+    )
+    assert_complete_field_blockers(
+        "distinct-unknown-fields-ba",
+        {
+            "a.pietto": (
+                "shape Row:\n"
+                "    second: MissingB\n"
+                "    first: MissingA\n"
+                'source rows: Row is postgres.table("rows")\n'
+            )
+        },
+        public_codes=("PIE-S2002", "PIE-S2002"),
+        blocker_roots=(("PIE-S2002",), ("PIE-S2002",)),
+    )
+    assert_complete_field_blockers(
+        "shared-alias-root",
+        {
+            "a.pietto": (
+                "type Alias = Missing\n"
+                "shape Row:\n"
+                "    first: Alias\n"
+                "    second: Alias\n"
+                'source rows: Row is postgres.table("rows")\n'
+            )
+        },
+        public_codes=("PIE-S2002",),
+        blocker_roots=(("PIE-S2002",),),
+    )
+    assert_complete_field_blockers(
+        "mixed-direct-alias-cycle-roots",
+        {
+            "a.pietto": (
+                "type A = B\n"
+                "type B = A\n"
+                "shape Row:\n"
+                "    first: Missing\n"
+                "    second: A\n"
+                'source rows: Row is postgres.table("rows")\n'
+            )
+        },
+        public_codes=("PIE-S2003", "PIE-S2002"),
+        blocker_roots=(("PIE-S2002",), ("PIE-S2003",)),
+    )
+    duplicate_cases = (
+        (
+            "duplicate-before-invalid",
+            (
+                "shape Row:\n"
+                "    repeated: Int\n"
+                "    repeated: Text\n"
+                "    missing: Missing\n"
+                'source rows: Row is postgres.table("rows")\n'
+            ),
+        ),
+        (
+            "invalid-before-duplicate",
+            (
+                "shape Row:\n"
+                "    missing: Missing\n"
+                "    repeated: Int\n"
+                "    repeated: Text\n"
+                'source rows: Row is postgres.table("rows")\n'
+            ),
+        ),
+        (
+            "known-invalid-known",
+            (
+                "shape Row:\n"
+                "    before: Int not null\n"
+                "    missing: Missing\n"
+                "    after: Text nullable\n"
+                'source rows: Row is postgres.table("rows")\n'
+            ),
+        ),
+    )
+    for case, source_text in duplicate_cases:
+        assert_complete_field_blockers(
+            case,
+            {"a.pietto": source_text},
+            public_codes=("PIE-S2002",),
+            blocker_roots=(("PIE-S2002",),),
+        )
+
+    assert_complete_field_blockers(
+        "imported-shape-distinct-unknown-fields",
+        {
+            "a.pietto": (
+                'import "b.pietto":\n    shape Row\n'
+                'source rows: Row is postgres.table("rows")\n'
+            ),
+            "b.pietto": (
+                "shape Row:\n"
+                "    first: MissingA\n"
+                "    second: MissingB\n"
+                "export:\n"
+                "    shape Row\n"
+            ),
+        },
+        public_codes=("PIE-S2002", "PIE-S2002"),
+        blocker_roots=(("PIE-S2002",), ("PIE-S2002",)),
+    )
+
+    assert_complete_field_blockers(
+        "two-exact-module-blocked-fields",
+        {
+            "a.pietto": (
+                'import "missing-a.pietto":\n    type HiddenA as LocalA\n'
+                'import "missing-b.pietto":\n    type HiddenB as LocalB\n'
+                "shape Row:\n"
+                "    first: LocalA\n"
+                "    second: LocalB\n"
+                'source rows: Row is postgres.table("rows")\n'
+            )
+        },
+        public_codes=("PIE-S2701", "PIE-S2701"),
+        blocker_roots=(("PIE-S2701",), ("PIE-S2701",)),
+    )
 
     def assert_module_blocked_source(
         case: str,

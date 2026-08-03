@@ -16,6 +16,7 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BASE,
     phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
 )
 
@@ -189,10 +190,10 @@ MODULE_SHA256 = {
     WINDOW_REL: "c0512933fc284bbc1dec98dab96411ee179d64e7bee005aa798b6fd7dba2024e",
 }
 PATH_DIGESTS = {
-    "compiler": "2d32cc288bc35a45f77b9abc9493e41f8abbf5cc2458ca5c5b146bf4ac307c7c",
+    "compiler": "40982fac0c020be60a733bfd1445920d487ebe66558ac46d893e900e169fcad7",
     "semantic": "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70",
     "phase15": "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d",
-    "project": "9388ab542ff00215284d421fff1800d2f9f07a3d7c935151770b011df24974a6",
+    "project": "58fcc79b468148c65e0b6df597ec1200410d7ed700d2485989d3a43466453948",
 }
 PROTECTED_SHA256 = {
     ".github/workflows/ci.yml": "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94",
@@ -438,6 +439,7 @@ def _assert_allowed_dirty_state(
             PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
             PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,
             PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE,
+            PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BASE,
         }
         and main == origin_main == "fadb1924af057cfc901a1658e117810d699e2358"
     ):

@@ -15,6 +15,7 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BASE,
     phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
 )
 
@@ -598,7 +599,9 @@ def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> N
             assert parents == []
         else:
             if _phase54_product_repair1_gate2_is_active():
-                if head == PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE:
+                if head == PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BASE:
+                    expected_parent = PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE
+                elif head == PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE:
                     expected_parent = PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE
                 elif head == PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE:
                     expected_parent = PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE

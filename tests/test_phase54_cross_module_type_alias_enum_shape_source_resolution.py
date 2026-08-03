@@ -249,6 +249,13 @@ def test_carrier_enums_fields_privacy_and_manifest_are_exact() -> None:
         len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR4_MODIFIED_PATHS)
         == 43
     )
+    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BASE == (
+        "fcdd02b5604c2b84d861b593a1887eaeb4620c91"
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR5_MODIFIED_PATHS)
+        == 43
+    )
 
 
 def test_local_imported_and_reexported_nominal_identities_remain_distinct(

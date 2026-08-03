@@ -18,6 +18,7 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BASE,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
@@ -984,6 +985,7 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE,
+                PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BASE,
             }
             expected_head = active_head
         assert _git_output(["rev-parse", "HEAD"]).strip() == expected_head

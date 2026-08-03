@@ -13,6 +13,7 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE,
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BASE,
     phase54_active_gate2_manifest_is_active as _phase54_product_repair1_gate2_is_active,
 )
 
@@ -918,7 +919,7 @@ def test_cross_phase_transition_and_live_identifier_inventory_is_exact() -> None
 def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> None:
     compiler_digest = _compiler_digest()
     assert compiler_digest == (
-        "2d32cc288bc35a45f77b9abc9493e41f8abbf5cc2458ca5c5b146bf4ac307c7c"
+        "40982fac0c020be60a733bfd1445920d487ebe66558ac46d893e900e169fcad7"
     )
     for relative_path in BOUNDARY_PATHS:
         boundary_values = re.findall(
@@ -943,7 +944,7 @@ def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> N
     project_digest = _digest(project_paths)
     assert len(project_paths) == 28
     assert project_digest == (
-        "9388ab542ff00215284d421fff1800d2f9f07a3d7c935151770b011df24974a6"
+        "58fcc79b468148c65e0b6df597ec1200410d7ed700d2485989d3a43466453948"
     )
     phase33 = _read(REPO_ROOT / "tests/test_phase33_completion_audit.py")
     assert (
@@ -1175,6 +1176,7 @@ def test_slice11_contract_plan_allowlist_and_protected_boundaries_are_locked() -
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE,
+                PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BASE,
             }
             expected_head = active_head
         assert _git_output(["rev-parse", "HEAD"]) == expected_head

@@ -1228,6 +1228,13 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
         active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR4_MODIFIED_PATHS
         == PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
     )
+    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BASE == (
+        "fcdd02b5604c2b84d861b593a1887eaeb4620c91"
+    )
+    assert (
+        active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR5_MODIFIED_PATHS
+        == PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
+    )
     dirty = {
         *subprocess.run(
             ["git", "diff", "--name-only"],
