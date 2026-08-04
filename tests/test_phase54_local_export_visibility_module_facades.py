@@ -1211,8 +1211,8 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
     assert all(not node.decorator_list for node in tests)
     assert len(PHASE54_SLICE10_ORIGINAL_ADDED_PATHS) == 3
     assert len(PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS) == 69
-    assert PHASE54_ACTIVE_GATE2_ADDED_PATHS == frozenset()
-    assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 66
+    assert len(PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 3
+    assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 69
     assert PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
     assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE == (
         "17a5b01e555930537334d4d0bcf3480e332b7e91"
@@ -1260,8 +1260,8 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
         "38353a00bdaf6b1edb9a0eb53ada1a3249b6ae79"
     )
     assert (
-        active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR9_MODIFIED_PATHS
-        == PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR9_MODIFIED_PATHS)
+        == 66
     )
     dirty = {
         *subprocess.run(

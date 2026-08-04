@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
 )
 
 import pytest
@@ -162,6 +162,7 @@ def _phase53_gate2_paths(name: str) -> set[str]:
         "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16",
         "027b33cafcfd58916a89e299487dad38d24ade6c",
         "0ceb9a476e6592714cdc76845949ba0ae5123eb5",
+        "b81843acadb294630db361c09949868d004b1bca",
     }:
         path = REPO_ROOT / "tests/_phase54_active_gate2_manifest.py"
         tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -218,6 +219,7 @@ def _phase54_slice4_state() -> tuple[set[str], set[str]] | None:
             "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16",
             "027b33cafcfd58916a89e299487dad38d24ade6c",
             "0ceb9a476e6592714cdc76845949ba0ae5123eb5",
+            "b81843acadb294630db361c09949868d004b1bca",
         }
         and tracked == modified
         and untracked == added
@@ -709,7 +711,7 @@ ALLOWLIST_PATHS = frozenset((*ADDED_PATHS, *MODIFIED_PATHS))
 FINAL_SHA256: dict[str, str] = {
     "docs/spec/phase53-window-ir-dual-backend-lowering-window-function-facts-contract-v1.md": "4ef55e40d3c176319d9316f14203a1f4991dd2e7086fa710ebca5c81f6737158",
     "src/pietto/semantic/capability_windows.py": "c0512933fc284bbc1dec98dab96411ee179d64e7bee005aa798b6fd7dba2024e",
-    "tests/test_phase53_window_ir_dual_backend_lowering_window_function_facts_contract.py": "2bbd90fa0b88ced35bc2575b4170fdea980599ca249a3afc4e4b9c1bebd1f670",
+    "tests/test_phase53_window_ir_dual_backend_lowering_window_function_facts_contract.py": "defb86a0f2566eec627f9f1106070ed76f421a0afeb62f59af97517a3e7e9c48",
     "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md": "3077c2fec0d7e2c4de717973c6403d5a450b8c01fe5846e427363ffcb41a78f5",
     "src/pietto/ir/model.py": "b257f671861604d0e2828c88bbd001f708312e254ac6129f9c35d6483124019d",
     "src/pietto/ir/lowering.py": "20931ae09b9222df32aa16ee75bad86e92848775c6eadf680b4747ac172a9356",
@@ -722,15 +724,15 @@ FINAL_SHA256: dict[str, str] = {
     "tests/test_phase10_completion_audit.py": "e829552dd56db9683929afc2cc14d6847404738f81297653819ab6390261a818",
     "tests/test_phase10_mysql_backend_skeleton.py": "20ea0f35ecbc6190aa1905c84d3cba6776e2a6206e2b93ac5069993b5e890cc9",
     "tests/test_phase10_mysql_golden_corpus.py": "c2d32fe782157f1340761b75ed0f9144b118002f50d9b1ffd55edbfbde11811e",
-    "tests/test_phase11_ci_workflow.py": "558302cdd6f6ba83d04a0e2f6ecbd2e99b3542e390e6cf6cddac8bffdbdc48ef",
-    "tests/test_phase11_completion_audit.py": "c60059b1c5839aa4a0f2d303fb99630e2ecc37220b89f62b84d38ae0400be581",
-    "tests/test_phase11_generated_guard.py": "79f61c212c9bb7cd2fb1a0fb03fedfc5e9e9936903b14fac2666ac6dddc59d42",
-    "tests/test_phase11_golden_policy.py": "1167843356a9066860c315a1f21b13716d080a79b05f790fc01c9643803908f8",
-    "tests/test_phase11_packaging_smoke.py": "414f33c3a7311991cc09df4582ac86847dbc09c27b1d6f822a75e41f52bd0763",
+    "tests/test_phase11_ci_workflow.py": "d3d4a9c2a5e048292978d74ac9202e2c1afd6ecbbbf510ae6dcf390e9bc8ac9f",
+    "tests/test_phase11_completion_audit.py": "c637816443296bfa46ac8792c64256fa83e45ea2fe8fb6f943c18c98dd153c4f",
+    "tests/test_phase11_generated_guard.py": "a79185fe5e009e517c9fc5b12fa7350b9baece416ba920ee0a180751a0ce5be2",
+    "tests/test_phase11_golden_policy.py": "5538e2e349e2d7c32848eef621c88534f9e70848b3ab0733ba773b606c88e706",
+    "tests/test_phase11_packaging_smoke.py": "b7471bbff08ad9e299b50bd18338e9267a1b6efb7b11b333d89cca7731094af7",
     "tests/test_phase11_planning_audit.py": "7a8f1d90196cdb4c863ca74d1901458ac692284f20240b08d423dea12884f91c",
-    "tests/test_phase11_validation_entrypoint.py": "2492347dbd0bfa7b7fefba1a90e7318c0d936519e39afcfff7db882a503adcfa",
-    "tests/test_phase12_completion_audit.py": "63c709c857a4cfebd99a266f11269e19fd33bd7127898e7eeb3743c755c3cbbb",
-    "tests/test_phase12_composition_cli_json_goldens.py": "c2d89c54bd9fa1eb504461e94c19ad597e8976e2327417e8ffa16ee856c95981",
+    "tests/test_phase11_validation_entrypoint.py": "8e42dff6438690cf12b6742f22a6b63681d5599529eef9959c188f07f726bee7",
+    "tests/test_phase12_completion_audit.py": "56d4d1564207f629560541b125427082d4cbd85d0fb434f197b71ab42c0f8ff1",
+    "tests/test_phase12_composition_cli_json_goldens.py": "f9a82d0aa6416dfe4263c9a118f6991e229e57c90e3c0c5d71d84e4485f5389e",
     "tests/test_phase12_order_limit_contract.py": "3b6734d99fe288fa4a1e1fc832c048e68f60bfe5918fdc15fef906214df5e330",
     "tests/test_phase12_planning_audit.py": "5065476f78993d04fd3e353d21ca2f876d61d982739df7be43914f7d2d6f5fe3",
     "tests/test_phase13_completion_audit.py": "064c459033eef9050409cc34f56bb4191bb6fe40e296160d5aa262a5b75e8eb4",
@@ -741,53 +743,53 @@ FINAL_SHA256: dict[str, str] = {
     "tests/test_phase14_relationship_metadata_completion_audit.py": "46babb992b9dc54a76192efb24429e3023a46369579e36c7fe9a64e2305c90e9",
     "tests/test_phase15_completion_audit.py": "c2e9e0ce95dbf712cf55d40533be9c7ee06017ad1ae86f5aadbe9636e635cc79",
     "tests/test_phase15_semantic_completion_audit.py": "aa4cd190decdc199ba07fafd3cdf5e700cc9aef06487e3b1181d716e0c8d2a8d",
-    "tests/test_phase16_completion_audit.py": "e7e67826357b2058de0c0be28097f637698d16b0e86123d8321ddb6d1d08ece0",
-    "tests/test_phase16_current_syntax_surface_audit.py": "4ba232d5518a1817abe56adde2ac52a1e45e878083350718863bfd331c611ed7",
-    "tests/test_phase16_language_direction_audit.py": "de21e92f2e39a01a91bb501449d04b81ebed6297375abad76531fc5404649d2f",
-    "tests/test_phase16_safety_deferral_sql_portability.py": "e1e3fa778bb39746895d0a09397eff77fc40d37331053d36a419d48ccd03a71b",
-    "tests/test_phase21_group_by_hardening_audit.py": "f23fbe7af6eafa430a88e475021821ee35cd5b5c5497a12679623270ad35976d",
-    "tests/test_phase24_aggregate_expression_arguments_readiness.py": "e09f2a0f2155f41058272fce85b290f893c4a3bf21c2d9b08944d1f097750985",
-    "tests/test_phase24_cli_json_output_hardening.py": "03557ddcc496851db9a459e3e5d96191259bbf76fd4cb273f43e13e1b9954c2c",
-    "tests/test_phase24_completion_audit.py": "75e7e2829a48a4a3a25118b2d5827ed40b75375823a1f4bedd2f471967d35e12",
-    "tests/test_phase25_completion_audit.py": "41e1ad615193c08b9fadabc5bac10aed69626366c64ae0c033c2ef5ab8dcc8a5",
-    "tests/test_phase26_completion_audit.py": "fe543a08df35a851aa169c157fd28425ac0eaf108b1a83c2490e0898359ceb89",
-    "tests/test_phase27_completion_audit.py": "796bf6f6171af3f820238591974829b002a38e637f3e892dab69aca763c27212",
-    "tests/test_phase28_completion_audit.py": "9bad63654b98f0d7e91226a5657428b736286ce66e4390ec3cee818147575b29",
-    "tests/test_phase29_completion_audit.py": "8e92a738e37b46e774561b29e74ff689bb1045f73a9acfa66a5a6cd41bf7b5a7",
-    "tests/test_phase30_completion_audit.py": "4228850c6ac46bc29ce4a7ff5714647394643ddc1593d102ff8c0c6695891b1a",
+    "tests/test_phase16_completion_audit.py": "47e61d8fc3f8bfb1f922627a4f11c3c169d2683e4f4d9300b5f2e67129162535",
+    "tests/test_phase16_current_syntax_surface_audit.py": "40d3dd28a6b766c794f176f2991f8d7392654c335a8c289a17c12c5f218233f2",
+    "tests/test_phase16_language_direction_audit.py": "57ad2c716236332ff206bb0a53bf64d2429130c9284c3f8bed77dcbeb043cad6",
+    "tests/test_phase16_safety_deferral_sql_portability.py": "859851e1760c75404e50ca1fb9f467c5152ba9b916f59ee890d3fcdffb76ae0c",
+    "tests/test_phase21_group_by_hardening_audit.py": "dffc8cc6819ed720e10811724c21dcd04b7b6fb0993b99d7d242711e5eda783e",
+    "tests/test_phase24_aggregate_expression_arguments_readiness.py": "ac5c1d4beb42aa9faa67369d9680a7eff77eabe0b75499e1ac8b2a6797415a67",
+    "tests/test_phase24_cli_json_output_hardening.py": "0cb25fb3160ba8e6d9314da91ade3cbcfd614c57b1dc6aff3c27f9e202c707b4",
+    "tests/test_phase24_completion_audit.py": "46c9e9e836f7410c650d5907e326ff2db4788cf1524b7aa4468eca43621da0ca",
+    "tests/test_phase25_completion_audit.py": "684be651e5856eb88ab20bd09691affadebf18b7d59049eed3fc26a32ba5c33e",
+    "tests/test_phase26_completion_audit.py": "b720c6afa165965c2818bbfb18280edc86e71e5639721ebc42b05067d30a4b06",
+    "tests/test_phase27_completion_audit.py": "0ca558fc815d2b78cd4bf7a92520aa01db15bf6835f28f37c641d654c60b922a",
+    "tests/test_phase28_completion_audit.py": "efaa95a855d0b1722693337f52cbd5bd94aeaf0cd2516055686b3cf5ed9d247e",
+    "tests/test_phase29_completion_audit.py": "8c6b73b7152371bfb4976fdf960d409d0701f6054712cc676115e99ca8124a18",
+    "tests/test_phase30_completion_audit.py": "1dbb68b51b570949c8211a8c4d4993d8fa6197195a9be27aad81593b14baddbd",
     "tests/test_phase50_window_function_readiness.py": "75160c478d7bd3b72850f1c4fcbc640c9faf0bd733f899e604e93c567bf742b4",
-    "tests/test_phase51_completion_audit_and_status_lock.py": "d36c24ef4c7d5e0da663dfd7a9ca8693ebe0fe8c2b76ccfdb2705f5cd792adfd",
-    "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py": "d99eaaf20302f9f45aab75864d8e2061a8f349da285fcf523e08ca7adcffe8f3",
-    "tests/test_phase52_aggregate_signature_algebra_facts.py": "947a55e8340c39cce9863aae34bd6c7e346b39025743f061dab0f40fac15b606",
-    "tests/test_phase52_completion_audit_and_status_lock.py": "fb5f364b03a747047f8ecf7473c247a84de4c19d12c727ff70174269339550c2",
-    "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py": "33a01fb63d796aa94be414f59ca3307b9cfab3bb47469aaf054ee367addc1971",
-    "tests/test_phase52_expression_stage_clause_capability_facts.py": "9d6d772c3cb56cbff5f322c74cedebc2e247c2933e31364e0f90ceb3a147b8ba",
-    "tests/test_phase52_fail_closed_capability_lookup.py": "0f63745c06a0bd6c2140b470dc430d728db2e271c0e2561376051f652bbb275a",
-    "tests/test_phase52_logical_type_literal_parameter_nullability_inventory.py": "3cb7f64cbd0b4becf2fd0bedc9d0d9dc4a625379002ea0db98ed8281c625dc45",
-    "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py": "e03d72b630ecb03acf764ea955bd01e1061bdefee5785f2d47bf0edbe4c6e241",
-    "tests/test_phase52_private_capability_fact_foundation.py": "6b8fc9ad6569c2385e57d656294b7821c4bae6e3a9f7d883d9f3f90c955bae55",
-    "tests/test_phase52_scalar_function_operator_signature_facts.py": "c15ee0b8a6eab14668b42d2c1b2e44293a4d21eb426afd53ca87db9f60798814",
-    "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py": "41162b11046aa94ee591756604c89b901b2bb53490f9623a8c56eefda1e55b21",
-    "tests/test_phase53_grouped_result_ranking_aggregate_result_inputs_bounded_let_visibility_contract.py": "ffb11ade9f2072f3bd46c6de4af31743497e5d6697f5fd36734f55473ba13ec6",
-    "tests/test_phase53_multiple_window_outputs_final_order_alias_downstream_schema_lineage_contract.py": "ee2c99dde6e5c43d8fd185433cec2ea9aa72d171e8cf85e1f0de5acbaff4f13a",
-    "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py": "a108d82a57f65e887c3011f40a78b021756c74e407678668e43ee63147c36d7d",
-    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py": "8245940b91b135fd991b8138c1c39bef074114bfb78c48eec1a363b41a7614d0",
-    "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py": "4bba2ef71f466c40771c1527aacbd3088fba4f476a092d830867b92c7c11eca7",
-    "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py": "a529a9abb34a33fa69b10b820e24cce8c5ef9f15db1b7d11b45d347d9d8c1ac7",
-    "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py": "f4c6e2f90030a1f745299eca6eb76a8b0ac1136173737bf2068787bef63e4f19",
-    "tests/test_phase53_row_number_direct_field_mvp_contract.py": "84af0138ec10f9c0d2bd25a3c482da6b623e7c378ab097b570aca71f22d639de",
-    "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py": "83a05e9567a7300382c1e3fbf6500c1fece7a2794b40e47795539457227d47da",
-    "tests/test_phase53_window_spec_function_identity_ast_contract.py": "d413d550bb2a1583fa45704e6ac9825fbe369942569c9cd1932b18183fcedbd7",
-    "tests/test_phase53_window_syntax_contextual_grammar_contract.py": "cd8e2f1a4f4835e657b0803f8a70b3fc849237623f13c7b9f68bd544566429b3",
+    "tests/test_phase51_completion_audit_and_status_lock.py": "a0b9278b382f43c7bdbedc2dd6579e307a8ac92ff9be7c3389aeec57c80479fb",
+    "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py": "c1c11e6c9f07054f3f00dc4dabf801152a2a43a9463b6ed9677a8d31689253b1",
+    "tests/test_phase52_aggregate_signature_algebra_facts.py": "f9067737e3405e1450547f7921fbe3ea2a8521bbb1a6c4d19ae4626ca70e4b10",
+    "tests/test_phase52_completion_audit_and_status_lock.py": "a40ba38fa26f0b5130e5b47a88c733e6d60523339029721c5f6900556f583cdb",
+    "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py": "86b27599ac2f615fdae3b44f811d4bc125098053c4eb553ebe429ca376590bf9",
+    "tests/test_phase52_expression_stage_clause_capability_facts.py": "b23cbc1ad19ceed9b16670342724364509095031847c8f478cb27e742a7b426b",
+    "tests/test_phase52_fail_closed_capability_lookup.py": "5af6927ecd7e127b4aefb5b82347648fc376a7c8cdc4b97cf79629dcbcaa6adc",
+    "tests/test_phase52_logical_type_literal_parameter_nullability_inventory.py": "747b9fce5d1c2039116cc6181e7d40d8497e6631ae7dfbb6f3c057a3c259e1b6",
+    "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py": "6cc1f3e31346ddc572b84b7d30501df6969527e66bda7bb016b6ebef14415a6b",
+    "tests/test_phase52_private_capability_fact_foundation.py": "f1fa4ae81751a9cc83cac32491feb1a10639367677153e191bd9e1f4db7d3b68",
+    "tests/test_phase52_scalar_function_operator_signature_facts.py": "9749a958c28362f017ca75112538b7ac9db7657f5f8ff1b7faeff1bf1dc93350",
+    "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py": "9b466f05397dacce128159bbbd5b53625b86f6c165e95a713a2d896138301f2c",
+    "tests/test_phase53_grouped_result_ranking_aggregate_result_inputs_bounded_let_visibility_contract.py": "4e6cc32a6954e9552856ccad3cd47a514fff696ab42e77c8f768df72ca51d855",
+    "tests/test_phase53_multiple_window_outputs_final_order_alias_downstream_schema_lineage_contract.py": "9a1ec299d861735af17c4b76cf42bcabb87f918a8393be7d863bbcfb5995404f",
+    "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py": "f650f5d8c68822127669c5083db5f4c348a1052766042303ba6c6f8a00114361",
+    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py": "ba3e08d63748dc40e309722c2cb3e5d6997df8e932074dcbd180fd03b5f6a493",
+    "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py": "a94f07a151ae06fd8651af43cb4b4729d74467138315fbc8d11f0f15809ddd38",
+    "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py": "de73cd09769e4a3ae04bb9a2da98d59aba0ea8ebf4a935599bb14c4b52a3182d",
+    "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py": "c5611f25ff18628d0f78b6f95bbd289034002f5a7d1086fd6b2e1a5dcee5a2f3",
+    "tests/test_phase53_row_number_direct_field_mvp_contract.py": "01e5492a279adb2ebf6b5ddca033d35b8efead1904e3f5304d7349876cfb0b52",
+    "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py": "52471c4cfa8ee3bcaa1a8545eeec92d09b621eec2f6d8f19682086b8d9546f3a",
+    "tests/test_phase53_window_spec_function_identity_ast_contract.py": "e8e478a36bf40e848d057c67486d6241b89fc6c0a885054336369a48a529ee40",
+    "tests/test_phase53_window_syntax_contextual_grammar_contract.py": "356120f8b907ca9915925ce820a6a23a6324864f1f2f4219f6dad3bf029d27ff",
     "tests/test_ir_completion_audit.py": "e1467d8191883640e1beca8731b92ccf7c7ce9a25fc74d98664d12195051bf6e",
     "tests/test_phase49_minimal_private_lineage_carrier_source_direct_rename.py": "144566f742a8ec414a0c8d8f8da8e5ce555152b59c01facad3f39391d1802385",
 }
-COMPILER_DIGEST = "3d22a6e583e238b723d2dc20a7f809e3196a5ccae30fc54deaeb7d9a6b56dc1d"
+COMPILER_DIGEST = "91ee36d14fa9867c26a614140e2031cc31391d6d5eaad06ca48342fd159b98d6"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
-PROJECT_DIGEST = "394e07ec91ed57359c64aff62b0709036860585843044d024585d8baa2e4381a"
+PROJECT_DIGEST = "327801df642081679013ebb4d0409791bc2d2db2d9308ae74d41b9ccf57450f7"
 
 FOCUSED_SHA256 = "fb685c521c70d879e0e3e751c434cf142700d82a66976961ca8036e8965b3429"
 OVERLAY_SHA256 = "197b591aec962f43b9b9393da99a76ff21c3a36189cc02c7a75dc5a7b85d6b26"
@@ -2433,7 +2435,7 @@ def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
         len(semantic_paths),
         len(phase15_paths),
         len(project_paths),
-    ) == (103, 36, 33, 28)
+    ) == (104, 36, 33, 29)
     assert _digest(compiler_paths) == COMPILER_DIGEST
     assert _digest(semantic_paths) == SEMANTIC_DIGEST
     assert _digest(phase15_paths) == PHASE15_SUBSET_DIGEST
@@ -2456,7 +2458,7 @@ def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
 
 
 def test_slice11_dirty_clean_and_depth_one_repository_states_are_locked() -> None:
-    if _phase54_product_repair9_gate2_is_active():
+    if _phase54_slice11_gate2_is_active():
         return
     tracked = set(_git_output(["diff", "--name-only"]).splitlines()) - {""}
     untracked = set(
@@ -2480,6 +2482,7 @@ def test_slice11_dirty_clean_and_depth_one_repository_states_are_locked() -> Non
             "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16",
             "027b33cafcfd58916a89e299487dad38d24ade6c",
             "0ceb9a476e6592714cdc76845949ba0ae5123eb5",
+            "b81843acadb294630db361c09949868d004b1bca",
         )
         assert _git_output(["branch", "--show-current"]) == "main"
         assert _git_optional_ref("refs/heads/main") == head
@@ -2515,7 +2518,7 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
         len(markdown_paths),
         len(test_modules),
         top_level_tests,
-    ) == (915, 563, 256, 459, 5127)
+    ) == (918, 565, 257, 460, 5171)
     added_payload = ("\n".join(ADDED_PATHS) + "\n").encode()
     modified_payload = ("\n".join(MODIFIED_PATHS) + "\n").encode()
     changed_payload = (

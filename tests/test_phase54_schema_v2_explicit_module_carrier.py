@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 
 from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
 )
 
 import pytest
@@ -594,7 +594,7 @@ def test_slice2_contract_allowlist_and_retained_later_boundaries_are_exact() -> 
 
     assert len(test_nodes) == 16
     assert all(not node.decorator_list for node in test_nodes)
-    assert "## Status And Slice 10 Lifecycle" in plan
+    assert "## Status And Slice 11 Lifecycle" in plan
     assert "## Slice 3 Exact Production Boundary And Gate Contract" in plan
     assert "## Slice 4 Exact Production Boundary And Gate Contract" in plan
     for phrase in (

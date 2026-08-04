@@ -7,7 +7,7 @@ import subprocess
 from pathlib import Path
 
 from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
 )
 
 import pytest
@@ -353,7 +353,7 @@ def _git_optional_ref(ref: str) -> str | None:
 
 
 def _assert_phase53_repository_state() -> None:
-    if _phase54_product_repair9_gate2_is_active():
+    if _phase54_slice11_gate2_is_active():
         return
     tracked = set(_git_output(["diff", "--name-only"]).splitlines()) - {""}
     name_status = tuple(_git_output(["diff", "--name-status"]).splitlines())
@@ -400,6 +400,7 @@ def _assert_phase53_repository_state() -> None:
             PHASE54_SLICE7_BASE_HEAD_SHA,
             PHASE54_SLICE8_BASE_HEAD_SHA,
             PHASE54_SLICE9_BASE_HEAD_SHA,
+            "b81843acadb294630db361c09949868d004b1bca",
         }
         return
 
@@ -796,12 +797,12 @@ def test_reader_migrations_reconciliation4_and_current_authority_are_locked() ->
         "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
         "tests/test_phase52_completion_audit_and_status_lock.py",
     ):
-        assert "(459, 5127)" in _read(relative)
+        assert "(460, 5171)" in _read(relative)
     for relative in (
         "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
         "tests/test_phase52_completion_audit_and_status_lock.py",
     ):
-        assert "(563, 256)" in _read(relative)
+        assert "(565, 257)" in _read(relative)
 
 
 def test_gate2_validation_depth_one_gate3_activation_and_stop_conditions_are_locked() -> (

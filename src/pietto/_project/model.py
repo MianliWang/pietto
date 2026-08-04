@@ -39,6 +39,7 @@ from pietto.errors import Diagnostic, Severity, SourceLocation
 
 if TYPE_CHECKING:
     from pietto._project.let_scope_facts import ProjectRelationLetScopeFacts
+    from pietto._project.module_attribution import ProjectModuleAttributionFactSet
     from pietto._project.module_bindings import ProjectModuleBindingEnvironmentSet
     from pietto._project.module_catalog import ProjectModuleCatalogSet
     from pietto._project.module_exports import ProjectModuleExportSurfaceSet
@@ -806,6 +807,7 @@ class ProjectSemanticResult:
     module_diagnostic_facts: ProjectModuleDiagnosticSet | None = None
     module_type_source_resolutions: ProjectTypeSourceResolutionSet | None = None
     module_relation_resolutions: ProjectModuleRelationResolutionSet | None = None
+    module_attribution_facts: ProjectModuleAttributionFactSet | None = None
 
     @property
     def ok(self) -> bool:
@@ -840,6 +842,9 @@ def build_empty_project_semantic_result(
     if parse_result.compilation_mode is not ProjectCompilationMode.LEGACY_FLAT:
         from pietto._project.module_bindings import (
             _build_project_module_binding_environment_set,
+        )
+        from pietto._project.module_attribution import (
+            _build_project_module_attribution_fact_set,
         )
         from pietto._project.module_catalog import _build_project_module_catalog_set
         from pietto._project.module_exports import (
@@ -894,6 +899,15 @@ def build_empty_project_semantic_result(
             module_diagnostic_facts,
             module_type_source_resolutions,
         )
+        module_attribution_facts = _build_project_module_attribution_fact_set(
+            parse_result.modules,
+            module_catalogs,
+            module_exports,
+            module_bindings,
+            module_graph,
+            module_type_source_resolutions,
+            module_relation_resolutions,
+        )
 
         return ProjectSemanticResult(
             root=parse_result.root,
@@ -911,6 +925,7 @@ def build_empty_project_semantic_result(
             module_diagnostic_facts=module_diagnostic_facts,
             module_type_source_resolutions=module_type_source_resolutions,
             module_relation_resolutions=module_relation_resolutions,
+            module_attribution_facts=module_attribution_facts,
             diagnostics=(
                 *module_diagnostic_facts.diagnostics,
                 *module_type_source_resolutions.diagnostics,

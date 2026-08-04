@@ -9,8 +9,8 @@ import subprocess
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-PHASE54_ACTIVE_GATE2_MARKER = "PHASE54_SLICE10_GATE2"
-PHASE54_ACTIVE_GATE2_BASE = "fadb1924af057cfc901a1658e117810d699e2358"
+PHASE54_ACTIVE_GATE2_MARKER = "PHASE54_SLICE11_GATE2"
+PHASE54_ACTIVE_GATE2_BASE = "b81843acadb294630db361c09949868d004b1bca"
 PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE = "6104002486d21b7b25dbec74d037c0fc7cc5099a"
 PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BRANCH = (
     "phase54/slice10-cross-module-relation-row-facts"
@@ -47,7 +47,11 @@ PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE = "38353a00bdaf6b1edb9a0eb53ada1a3249b6
 PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BRANCH = (
     "phase54/slice10-cross-module-relation-row-facts"
 )
-ADDED_PATHS = set()
+ADDED_PATHS = {
+    "docs/spec/phase54-slice11-module-attribution-dependency-origin-provenance-and-lineage-v1.md",
+    "src/pietto/_project/module_attribution.py",
+    "tests/test_phase54_module_attribution_dependency_origin_provenance_lineage.py",
+}
 PHASE54_POST_REVIEW_PRODUCT_REPAIR1_TO_8_SEED_PATHS = {
     "src/pietto/_project/module_relation_resolution.py",
     "tests/_phase54_active_gate2_manifest.py",
@@ -109,6 +113,7 @@ MECHANICAL_READER_PATHS = {
     "tests/test_phase53_window_spec_function_identity_ast_contract.py",
     "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
     "tests/test_phase54_cross_module_type_alias_enum_shape_source_resolution.py",
+    "tests/test_phase54_cross_module_table_query_relation_resolution_row_facts_legacy_compatibility.py",
     "tests/test_phase54_import_export_contextual_grammar_ast.py",
     "tests/test_phase54_local_export_visibility_module_facades.py",
     "tests/test_phase54_local_import_module_export_foundation_scope_lock.py",
@@ -160,11 +165,15 @@ PHASE54_POST_REVIEW_PRODUCT_REPAIR2_TO_8_READER_PATHS = {
     "tests/test_phase54_module_qualified_nominal_declaration_catalogs.py",
     "tests/test_phase54_named_import_alias_binding_environments_collision_rules.py",
 }
-PHASE54_SLICE10_PRIOR_MECHANICAL_READER_PATHS = set(MECHANICAL_READER_PATHS)
+PHASE54_SLICE10_PRIOR_MECHANICAL_READER_PATHS = set(MECHANICAL_READER_PATHS) - {
+    "tests/test_phase54_cross_module_table_query_relation_resolution_row_facts_legacy_compatibility.py"
+}
 NON_READER_MODIFIED_PATHS = {
     "README.md",
+    "docs/plan/phase-54-local-import-module-export-foundation.md",
+    "docs/spec/pietto-v0.9.md",
+    "src/pietto/_project/model.py",
     "tests/_phase54_active_gate2_manifest.py",
-    "tests/test_phase54_cross_module_table_query_relation_resolution_row_facts_legacy_compatibility.py",
 }
 VALIDATION_READER_PATHS = set(MECHANICAL_READER_PATHS)
 MODIFIED_PATHS = NON_READER_MODIFIED_PATHS | MECHANICAL_READER_PATHS
@@ -273,9 +282,20 @@ PHASE54_POST_REVIEW_PRODUCT_REPAIR8_READER_PATHS = (
 PHASE54_POST_REVIEW_PRODUCT_REPAIR8_MODIFIED_PATHS = (
     PHASE54_POST_REVIEW_PRODUCT_REPAIR2_MODIFIED_PATHS
 )
-PHASE54_POST_REVIEW_PRODUCT_REPAIR9_SEED_PATHS = frozenset(NON_READER_MODIFIED_PATHS)
-PHASE54_POST_REVIEW_PRODUCT_REPAIR9_READER_PATHS = frozenset(MECHANICAL_READER_PATHS)
-PHASE54_POST_REVIEW_PRODUCT_REPAIR9_MODIFIED_PATHS = frozenset(MODIFIED_PATHS)
+PHASE54_POST_REVIEW_PRODUCT_REPAIR9_SEED_PATHS = frozenset(
+    {
+        "README.md",
+        "tests/_phase54_active_gate2_manifest.py",
+        "tests/test_phase54_cross_module_table_query_relation_resolution_row_facts_legacy_compatibility.py",
+    }
+)
+PHASE54_POST_REVIEW_PRODUCT_REPAIR9_READER_PATHS = frozenset(
+    PHASE54_SLICE10_PRIOR_MECHANICAL_READER_PATHS
+)
+PHASE54_POST_REVIEW_PRODUCT_REPAIR9_MODIFIED_PATHS = frozenset(
+    PHASE54_POST_REVIEW_PRODUCT_REPAIR9_SEED_PATHS
+    | PHASE54_POST_REVIEW_PRODUCT_REPAIR9_READER_PATHS
+)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -406,7 +426,15 @@ def _matches_phase54_active_gate2_manifest(
         and not state.shallow
         and not state.active_git_operation
     )
-    original_gate2 = (
+    active_gate2 = (
+        state.branch_oid == PHASE54_ACTIVE_GATE2_BASE
+        and state.branch_head == "main"
+        and state.branch_upstream == "origin/main"
+        and state.added_paths == PHASE54_ACTIVE_GATE2_ADDED_PATHS
+        and state.modified_paths == PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
+        and state.deleted_paths == PHASE54_ACTIVE_GATE2_DELETED_PATHS
+    )
+    slice10_original_gate2 = (
         state.branch_oid == PHASE54_ACTIVE_GATE2_BASE
         and state.branch_head == "main"
         and state.branch_upstream == "origin/main"
@@ -496,7 +524,8 @@ def _matches_phase54_active_gate2_manifest(
         and state.deleted_paths == frozenset()
     )
     return common and (
-        original_gate2
+        active_gate2
+        or slice10_original_gate2
         or product_repair1
         or product_repair2
         or product_repair3

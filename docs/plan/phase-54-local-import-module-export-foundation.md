@@ -1,24 +1,25 @@
 # Phase 54 — Local Import / Module / Export Foundation
 
-## Status And Slice 10 Lifecycle
+## Status And Slice 11 Lifecycle
 
 Phase 53 and Slices 1-16 are `COMPLETED`. Phase 54 is `ACTIVE`, and Slices
-1 through 9 are `COMPLETED` after exact Gate 3 publication. The trusted Slice
-10 base is `fadb1924af057cfc901a1658e117810d699e2358`. Slice 10 is the exact Gate
+1 through 10 are `COMPLETED` after exact Gate 3 publication. The trusted Slice
+11 base is `b81843acadb294630db361c09949868d004b1bca`. Slice 11 is the exact Gate
 2 candidate and is not complete before reviewed-tree publication and Gate 3.
-Slices 11-16 remain `UNSTARTED`.
+Slices 12-16 remain `UNSTARTED`.
 
-Slice 10 adds only private dependency-first schema-v2 source/table/query
-relation resolution and minimal direct row facts. It preserves import-local
-binding and complete nominal target identity, distinct table/query kinds,
-field order, immediate-upstream aliases, and existing four-state row
-availability. It reuses existing `PIE-S2001`, `PIE-S2102`, `PIE-S2301`,
-`PIE-S2302`, Slice 8 roots, and Slice 9 roots while suppressing same-root
-cascades. Schema v2 keeps `model=None`. Schema v1, advanced row facts, IR, SQL,
-dependencies, workflows, package version, fixtures, and goldens remain
-unchanged. The Gate 2 completion state is
-`PHASE54_SLICE10_GATE2_COMPLETED_AWAITING_PUBLICATION`; the next authorized
-state is `PHASE54_SLICE10_GATE3`, and Slice 11 does not begin in Slice 10.
+Slice 11 adds only private occurrence-safe schema-v2 module attribution,
+dependency, origin, provenance, source-field origin, and minimal concrete
+direct/renamed row-lineage facts. It consumes the complete Slice 5-10
+sidecars, preserves exact import aliases, facade and re-export occurrences,
+nominal targets, reference sites, direct dependency hops, and every concrete
+lineage hop. Unknown, ambiguous, deferred, blocked, and cyclic sites retain
+raw attribution but acquire no guessed provenance or lineage. Schema v2 keeps
+`model=None`. Schema v1, advanced Slice 12 row facts, IR, SQL, diagnostics,
+workflows, package version, fixtures, and goldens remain unchanged. The Gate 2
+completion state is `PHASE54_SLICE11_GATE2_COMPLETED_AWAITING_PUBLICATION`;
+the next authorized state is `PHASE54_SLICE11_GATE3`, and Slice 12 does not
+begin in Slice 11.
 
 ## Trusted Phase 53 Baseline And Controlling Evidence
 
@@ -437,7 +438,8 @@ Prerequisite: Slice 8. Slice 10 is next.
 
 ## Slice 10 — Cross-module Table / Query / Relation Resolution, Row Facts, And Legacy Compatibility
 
-Gate 2 implements the private dependency-first relation-resolution sidecar
+Completed after exact Gate 3 publication. It implements the private
+dependency-first relation-resolution sidecar
 specified by
 `docs/spec/phase54-slice10-cross-module-table-query-relation-resolution-row-facts-and-legacy-compatibility-v1.md`.
 It resolves the exact source/table/query relation namespace through local
@@ -446,12 +448,20 @@ identity, blocks complete collision buckets and cycles, and propagates only
 minimal direct row facts through existing availability states. Schema v1 is
 byte-exact, schema v2 retains `model=None`, and attribution/provenance/lineage
 plus advanced row-fact preservation remain Slices 11 and 12. Prerequisites:
-Slices 3, 8, and 9. Completion still requires Gate 3; Slice 11 is next.
+Slices 3, 8, and 9. Slice 11 is next.
 
 ## Slice 11 — Module Attribution, Dependency, Origin, Provenance, And Lineage
 
-Separately gate identity-safe module attribution and graph facts.
-Prerequisite: Slice 10.
+Gate 2 implements the private occurrence-safe sidecar specified by
+`docs/spec/phase54-slice11-module-attribution-dependency-origin-provenance-and-lineage-v1.md`.
+It attributes every retained declaration/import/facade/reference occurrence,
+retains every Slice 8 import-evidence dependency, reconstructs exact local,
+alias, and explicit re-export origin paths, preserves every supported
+type/source/relation provenance occurrence, and propagates only concrete
+direct or renamed Slice 10 row lineage. It adds no public serialization,
+diagnostic, IR, SQL, grammar, dependency, version, workflow, fixture, or golden
+behavior. Prerequisite: Slice 10. Completion still requires Gate 3; Slice 12
+is next.
 
 ## Slice 12 — Generic-signature, Nullability, Aggregate, Grouped, Window, Result-role, And Capability-fact Preservation
 
