@@ -25,9 +25,11 @@ from _phase54_active_gate2_manifest import (
     PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
     PHASE54_SLICE10_ORIGINAL_ADDED_PATHS,
     PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS,
+    PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
     Phase54Gate2RepositoryState,
     _matches_phase54_active_gate2_manifest,
     phase54_active_gate2_manifest_is_active,
+    phase54_slice11_pr_ci_repair_is_active,
 )
 from pietto._project.json_v2 import project_check_result_to_json_dict
 from pietto._project.model import (
@@ -1117,6 +1119,7 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     gate2_active = phase54_active_gate2_manifest_is_active()
+    repair_gate2_active = phase54_slice11_pr_ci_repair_is_active()
     assert _matches_phase54_active_gate2_manifest(_active_state())
     for changed in (
         replace(_active_state(), marker="PHASE54_SLICE9_GATE2"),
@@ -1282,8 +1285,11 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
     active_allowlist = (
         PHASE54_ACTIVE_GATE2_ADDED_PATHS | PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
     )
-    assert dirty in (set(), active_allowlist)
-    if dirty:
+    repair_allowlist = set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS)
+    assert dirty in (set(), active_allowlist, repair_allowlist)
+    if dirty == repair_allowlist:
+        assert repair_gate2_active
+    elif dirty:
         assert gate2_active
         assert dirty == active_allowlist
     else:

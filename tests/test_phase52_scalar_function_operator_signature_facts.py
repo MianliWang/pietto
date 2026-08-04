@@ -12,7 +12,9 @@ from typing import Any, cast
 from _phase54_active_gate2_manifest import (
     PHASE54_ACTIVE_GATE2_ADDED_PATHS,
     PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
+    PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    phase54_slice11_pr_ci_repair_is_active,
 )
 
 import pytest
@@ -1428,6 +1430,7 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     slice13_added = _slice13_paths("ADDED_PATHS")
     slice13_allowlist = slice13_modified | slice13_added
     repair_gate2_active = _phase54_slice11_gate2_is_active()
+    slice11_pr_ci_repair_active = phase54_slice11_pr_ci_repair_is_active()
     assert repair_gate2_active or dirty in (
         set(),
         ALLOWLIST_PATHS,
@@ -1447,7 +1450,10 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     main = _git_optional_ref("refs/heads/main")
     origin_main = _git_optional_ref("refs/remotes/origin/main")
     origin_pr_head = _git_optional_ref(PR_REPAIR_GATE2_ORIGIN_REF)
-    if repair_gate2_active:
+    if slice11_pr_ci_repair_active:
+        assert tracked == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS)
+        assert untracked == set()
+    elif repair_gate2_active:
         assert tracked == set(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS)
         assert untracked == set(PHASE54_ACTIVE_GATE2_ADDED_PATHS)
     elif not dirty:

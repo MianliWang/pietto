@@ -7,7 +7,9 @@ from pathlib import Path
 from typing import cast
 
 from _phase54_active_gate2_manifest import (  # noqa: F401
+    PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    phase54_slice11_pr_ci_repair_is_active,
 )
 
 from _static_audit_helpers import read_text as _read
@@ -753,7 +755,10 @@ def test_protected_surfaces_version_tag_staging_and_dirty_set_are_locked() -> No
         ALLOWED_PHASE50_SLICE10_GATE2_PATHS,
         ALLOWED_PHASE50_SLICE11_GATE2_PATHS,
         phase54_slice9_gate2,
+        set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS),
     )
+    if dirty == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS):
+        assert phase54_slice11_pr_ci_repair_is_active()
 
 
 def test_plan_slice6_scope_and_exact_allowlist_are_locked() -> None:

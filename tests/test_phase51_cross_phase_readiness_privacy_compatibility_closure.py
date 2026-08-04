@@ -18,7 +18,9 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
+    PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    phase54_slice11_pr_ci_repair_is_active,
 )
 
 import pytest
@@ -1127,6 +1129,7 @@ def test_slice11_contract_plan_allowlist_and_protected_boundaries_are_locked() -
         PHASE52_GATE2_PATHS,
         CI_REPAIR_MODIFIED_PATHS,
         slice2_modified | slice2_added,
+        set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS),
     )
     untracked_paths = set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
@@ -1137,7 +1140,10 @@ def test_slice11_contract_plan_allowlist_and_protected_boundaries_are_locked() -
         PHASE52_UNTRACKED_PATHS,
         slice2_added,
     )
-    if dirty_paths == CI_REPAIR_MODIFIED_PATHS:
+    if dirty_paths == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS):
+        assert phase54_slice11_pr_ci_repair_is_active()
+        assert untracked_paths == set()
+    elif dirty_paths == CI_REPAIR_MODIFIED_PATHS:
         assert untracked_paths == set()
         assert set(_git_output(["diff", "--name-only"]).splitlines()) == (
             CI_REPAIR_MODIFIED_PATHS

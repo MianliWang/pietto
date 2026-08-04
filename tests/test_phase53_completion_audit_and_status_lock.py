@@ -22,7 +22,11 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
+    PHASE54_SLICE11_PR_CI_REPAIR_BASE,
+    PHASE54_SLICE11_PR_CI_REPAIR_BRANCH,
+    PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    phase54_slice11_pr_ci_repair_is_active,
 )
 
 import pietto.ir as ir_package
@@ -411,6 +415,13 @@ def _assert_allowed_dirty_state(
     main: str | None,
     origin_main: str | None,
 ) -> None:
+    if phase54_slice11_pr_ci_repair_is_active():
+        assert tracked == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS)
+        assert untracked == set()
+        assert branch == PHASE54_SLICE11_PR_CI_REPAIR_BRANCH
+        assert head == PHASE54_SLICE11_PR_CI_REPAIR_BASE
+        assert main == origin_main == "b81843acadb294630db361c09949868d004b1bca"
+        return
     if (
         _phase54_slice11_gate2_is_active()
         and tracked == set(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS)
@@ -1118,7 +1129,12 @@ def test_static_git_helper_and_exact_slice16_dirty_set_are_locked() -> None:
         origin_main=_git_optional_ref("refs/remotes/origin/main"),
     )
     if tracked or untracked:
-        if _phase54_slice11_gate2_is_active() or _git_output(["rev-parse", "HEAD"]) in {
+        if phase54_slice11_pr_ci_repair_is_active():
+            expected_modified = set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS)
+            expected_added = set()
+        elif _phase54_slice11_gate2_is_active() or _git_output(
+            ["rev-parse", "HEAD"]
+        ) in {
             "d8a5e9ab3de70ce30575513c73560c86430eca63",
             "15bae172ee151e370fe59d3bf909d735aee6aa90",
             "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",

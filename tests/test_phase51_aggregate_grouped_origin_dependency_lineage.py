@@ -23,7 +23,9 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
+    PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    phase54_slice11_pr_ci_repair_is_active,
 )
 
 import pytest
@@ -940,6 +942,7 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
         CI_REPAIR_MODIFIED_PATHS,
         slice14_modified | slice14_added,
         phase54_modified | phase54_added,
+        set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS),
     )
     untracked = _git_paths(["ls-files", "--others", "--exclude-standard"])
     assert untracked in (
@@ -948,7 +951,10 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
         slice14_added,
         phase54_added,
     )
-    if dirty == CI_REPAIR_MODIFIED_PATHS:
+    if dirty == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS):
+        assert phase54_slice11_pr_ci_repair_is_active()
+        assert untracked == set()
+    elif dirty == CI_REPAIR_MODIFIED_PATHS:
         assert untracked == set()
         assert _git_output(["branch", "--show-current"]).strip() == "main"
         assert (

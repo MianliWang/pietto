@@ -22,7 +22,11 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
+    PHASE54_SLICE11_PR_CI_REPAIR_BASE,
+    PHASE54_SLICE11_PR_CI_REPAIR_BRANCH,
+    PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    phase54_slice11_pr_ci_repair_is_active,
 )
 
 import pytest
@@ -112,9 +116,9 @@ MODULE_SHA256 = {
 SPEC_SHA256 = "7010cd8a39ed389de588d8cd734b136cc87456c3ef5eb324638467d1188fc935"
 MODIFIED_TEST_SHA256 = {
     SLICE4_TEST_REL: "747b9fce5d1c2039116cc6181e7d40d8497e6631ae7dfbb6f3c057a3c259e1b6",
-    SLICE5_TEST_REL: "9749a958c28362f017ca75112538b7ac9db7657f5f8ff1b7faeff1bf1dc93350",
-    SLICE6_TEST_REL: "b23cbc1ad19ceed9b16670342724364509095031847c8f478cb27e742a7b426b",
-    SLICE7_TEST_REL: "f9067737e3405e1450547f7921fbe3ea2a8521bbb1a6c4d19ae4626ca70e4b10",
+    SLICE5_TEST_REL: "592fa76cc42b74c5415f5fdbbc87415982d8a3da62cfb3a0fdfc15b4f751eec2",
+    SLICE6_TEST_REL: "4f975dbfecbde4daf1fd7b223e1b3e3024009b0a2bbbb31580e8d9afe823f512",
+    SLICE7_TEST_REL: "24ad91c5bbdf318f501ccb238f00991faa9e2bcd7959053e8c069cbfdcd532ee",
 }
 WORKFLOW_SHA256 = "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94"
 PYPROJECT_SHA256 = "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01"
@@ -499,6 +503,13 @@ def _assert_allowed_dirty_state(
     main: str | None,
     origin_main: str | None,
 ) -> None:
+    if phase54_slice11_pr_ci_repair_is_active():
+        assert tracked == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS)
+        assert untracked == set()
+        assert branch == PHASE54_SLICE11_PR_CI_REPAIR_BRANCH
+        assert head == PHASE54_SLICE11_PR_CI_REPAIR_BASE
+        assert main == origin_main == "b81843acadb294630db361c09949868d004b1bca"
+        return
     if (
         _phase54_slice11_gate2_is_active()
         and tracked == set(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS)
