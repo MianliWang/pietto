@@ -13,8 +13,10 @@ from _phase54_active_gate2_manifest import (
     PHASE54_ACTIVE_GATE2_ADDED_PATHS,
     PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
     phase54_slice11_pr_ci_repair_is_active,
+    phase54_slice11_substantive_recovery_is_active,
 )
 
 import pytest
@@ -81,7 +83,7 @@ FACTS_SHA256 = "bd68bad4e13a2b945962458fc47359a408d27b1563ba25f5713a8f8099671d21
 LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26"
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 PROJECT_PRIVATE_DIGEST = (
-    "327801df642081679013ebb4d0409791bc2d2db2d9308ae74d41b9ccf57450f7"
+    "8613fe48154768889b06c7bfa5eff5733da2bd727001f64545eb440dc9233b72"
 )
 TIER2_MANIFEST_BYTES = 18319
 TIER2_MANIFEST_FILES = 108
@@ -1431,6 +1433,9 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     slice13_allowlist = slice13_modified | slice13_added
     repair_gate2_active = _phase54_slice11_gate2_is_active()
     slice11_pr_ci_repair_active = phase54_slice11_pr_ci_repair_is_active()
+    slice11_substantive_recovery_active = (
+        phase54_slice11_substantive_recovery_is_active()
+    )
     assert repair_gate2_active or dirty in (
         set(),
         ALLOWLIST_PATHS,
@@ -1450,7 +1455,10 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     main = _git_optional_ref("refs/heads/main")
     origin_main = _git_optional_ref("refs/remotes/origin/main")
     origin_pr_head = _git_optional_ref(PR_REPAIR_GATE2_ORIGIN_REF)
-    if slice11_pr_ci_repair_active:
+    if slice11_substantive_recovery_active:
+        assert tracked == set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS)
+        assert untracked == set()
+    elif slice11_pr_ci_repair_active:
         assert tracked == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS)
         assert untracked == set()
     elif repair_gate2_active:

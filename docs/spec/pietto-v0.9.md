@@ -13,7 +13,11 @@ Current pipeline: parse -> analyze -> build IR -> emit selected PostgreSQL or My
 
 Phase 54 is active and Slices 1 through 10 are complete after exact Gate 3
 publication. Slice 11 is the Gate 2 module attribution, dependency, origin,
-provenance, and lineage candidate awaiting reviewed-tree publication. Slice 4 supplies contextual
+provenance, and lineage substantive-review recovery candidate resumed from
+clean `691db405a7e787adec5d7bd0498330b070bf6b75`. It retains private
+binding-authority roots to validate the complete ordered graph, import
+attribution, and direct module-dependency projections without normalization;
+reviewed-tree publication remains pending. Slice 4 supplies contextual
 top-level `import`, `export`, and `as` syntax plus immutable source-located module AST. Slice 5
 adds private four-component nominal declaration identity and one immutable,
 source-ordered local declaration catalog per successfully parsed schema-v2

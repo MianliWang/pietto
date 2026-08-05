@@ -19,8 +19,10 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
     phase54_slice11_pr_ci_repair_is_active,
+    phase54_slice11_substantive_recovery_is_active,
 )
 
 import pytest
@@ -925,7 +927,7 @@ def test_cross_phase_transition_and_live_identifier_inventory_is_exact() -> None
 def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> None:
     compiler_digest = _compiler_digest()
     assert compiler_digest == (
-        "91ee36d14fa9867c26a614140e2031cc31391d6d5eaad06ca48342fd159b98d6"
+        "ff84f85769a284b70fba5bc89c16926817131663b59cf740866660ebc72813d4"
     )
     for relative_path in BOUNDARY_PATHS:
         boundary_values = re.findall(
@@ -950,7 +952,7 @@ def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> N
     project_digest = _digest(project_paths)
     assert len(project_paths) == 29
     assert project_digest == (
-        "327801df642081679013ebb4d0409791bc2d2db2d9308ae74d41b9ccf57450f7"
+        "8613fe48154768889b06c7bfa5eff5733da2bd727001f64545eb440dc9233b72"
     )
     phase33 = _read(REPO_ROOT / "tests/test_phase33_completion_audit.py")
     assert (
@@ -1130,6 +1132,7 @@ def test_slice11_contract_plan_allowlist_and_protected_boundaries_are_locked() -
         CI_REPAIR_MODIFIED_PATHS,
         slice2_modified | slice2_added,
         set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS),
+        set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS),
     )
     untracked_paths = set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
@@ -1140,7 +1143,9 @@ def test_slice11_contract_plan_allowlist_and_protected_boundaries_are_locked() -
         PHASE52_UNTRACKED_PATHS,
         slice2_added,
     )
-    if dirty_paths == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS):
+    if dirty_paths == set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS):
+        assert phase54_slice11_substantive_recovery_is_active()
+    elif dirty_paths == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS):
         assert phase54_slice11_pr_ci_repair_is_active()
         assert untracked_paths == set()
     elif dirty_paths == CI_REPAIR_MODIFIED_PATHS:

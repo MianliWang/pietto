@@ -24,8 +24,12 @@ from _phase54_active_gate2_manifest import (
     PHASE54_SLICE11_PR_CI_REPAIR_BASE,
     PHASE54_SLICE11_PR_CI_REPAIR_BRANCH,
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE,
+    PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BRANCH,
+    PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
     phase54_slice11_pr_ci_repair_is_active,
+    phase54_slice11_substantive_recovery_is_active,
 )
 
 import pietto.semantic.capability_aggregates as capability_aggregates
@@ -198,10 +202,10 @@ MODULE_SHA256 = {
     WINDOW_REL: "c0512933fc284bbc1dec98dab96411ee179d64e7bee005aa798b6fd7dba2024e",
 }
 PATH_DIGESTS = {
-    "compiler": "91ee36d14fa9867c26a614140e2031cc31391d6d5eaad06ca48342fd159b98d6",
+    "compiler": "ff84f85769a284b70fba5bc89c16926817131663b59cf740866660ebc72813d4",
     "semantic": "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70",
     "phase15": "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d",
-    "project": "327801df642081679013ebb4d0409791bc2d2db2d9308ae74d41b9ccf57450f7",
+    "project": "8613fe48154768889b06c7bfa5eff5733da2bd727001f64545eb440dc9233b72",
 }
 PROTECTED_SHA256 = {
     ".github/workflows/ci.yml": "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94",
@@ -436,6 +440,13 @@ def _assert_allowed_dirty_state(
     main: str | None,
     origin_main: str | None,
 ) -> None:
+    if phase54_slice11_substantive_recovery_is_active():
+        assert tracked == set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS)
+        assert untracked == set()
+        assert branch == PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BRANCH
+        assert head == PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE
+        assert main == origin_main == "b81843acadb294630db361c09949868d004b1bca"
+        return
     if phase54_slice11_pr_ci_repair_is_active():
         assert tracked == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS)
         assert untracked == set()
@@ -1319,7 +1330,10 @@ def test_static_git_helper_and_exact_slice9_dirty_set_are_locked() -> None:
         origin_main=_git_optional_ref("refs/remotes/origin/main"),
     )
     if tracked or untracked:
-        if phase54_slice11_pr_ci_repair_is_active():
+        if phase54_slice11_substantive_recovery_is_active():
+            slice2_modified = set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS)
+            slice2_added = set()
+        elif phase54_slice11_pr_ci_repair_is_active():
             slice2_modified = set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS)
             slice2_added = set()
         elif _phase54_slice11_gate2_is_active() or _git_output(

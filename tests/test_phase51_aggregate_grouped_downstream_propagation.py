@@ -24,8 +24,10 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
     phase54_slice11_pr_ci_repair_is_active,
+    phase54_slice11_substantive_recovery_is_active,
 )
 
 import pytest
@@ -1463,6 +1465,7 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
         slice14_modified | slice14_added,
         phase54_modified | phase54_added,
         set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS),
+        set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS),
     )
     untracked = _git_paths(["ls-files", "--others", "--exclude-standard"])
     assert untracked in (
@@ -1500,7 +1503,9 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
         dirty == phase54_modified | phase54_added
         and phase54_path_counts == PHASE54_SLICE9_PATH_COUNTS
     )
-    if dirty == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS):
+    if dirty == set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS):
+        assert phase54_slice11_substantive_recovery_is_active()
+    elif dirty == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS):
         assert phase54_slice11_pr_ci_repair_is_active()
         assert untracked == set()
     elif dirty == CI_REPAIR_MODIFIED_PATHS:
@@ -1621,7 +1626,7 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
     assert len(project_paths) == 29
     assert REPO_ROOT / "src/pietto/_project/window_persistence.py" in project_paths
     assert project_digest == (
-        "327801df642081679013ebb4d0409791bc2d2db2d9308ae74d41b9ccf57450f7"
+        "8613fe48154768889b06c7bfa5eff5733da2bd727001f64545eb440dc9233b72"
     )
     phase33 = (REPO_ROOT / "tests/test_phase33_completion_audit.py").read_text(
         encoding="utf-8"
@@ -1703,6 +1708,15 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
                 re.fullmatch(r'[+-]        "[0-9a-f]{64}",', line)
                 for line in phase33_changed_lines[4:]
             )
+        elif phase54_slice11_substantive_recovery_is_active():
+            assert phase33_changed_lines == [
+                '-        "327801df642081679013ebb4d0409791bc2d2db2d9308ae74d41b9ccf57450f7",',
+                f'+        "{project_digest}",',
+                '-        "576184558ced800e86afb64ddcec3161f61ff3c1b6a4f2991a1e85739dab8162",',
+                f'+        "{_digest((REPO_ROOT / "README.md",))}",',
+                '-        "c667d91a5c965a0e62359fa1d43e76880804e6527acef1175f6ebc7d1feb646e",',
+                f'+        "{_digest((REPO_ROOT / "docs/spec/pietto-v0.9.md",))}",',
+            ]
         elif _phase54_slice11_gate2_is_active():
             assert len(phase33_changed_lines) == 10
             assert phase33_changed_lines[:2] == [

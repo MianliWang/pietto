@@ -329,9 +329,79 @@ class ProjectModuleGraphIssue:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class _ProjectModuleGraphCanonicalAuthority:
+    """Derive one complete private graph projection from its authority root."""
+
+    binding_authority: ProjectModuleBindingEnvironmentSet = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    vertices: tuple[ProjectModuleGraphVertex, ...] = field(
+        init=False,
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    evidence_edges: tuple[ProjectModuleImportEvidenceEdge, ...] = field(
+        init=False,
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    edges: tuple[ProjectModuleDependencyEdge, ...] = field(
+        init=False,
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    components: tuple[ProjectModuleStronglyConnectedComponent, ...] = field(
+        init=False,
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    cycles: tuple[ProjectModuleCycle, ...] = field(
+        init=False,
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    issues: tuple[ProjectModuleGraphIssue, ...] = field(
+        init=False,
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+
+    def __post_init__(self) -> None:
+        """Derive every non-init graph product from the retained root only."""
+
+        if type(self.binding_authority) is not ProjectModuleBindingEnvironmentSet:
+            raise TypeError("Module graph authority requires exact binding authority.")
+        products = _derive_binding_authority_graph(self.binding_authority)
+        for name, value in zip(
+            ("vertices", "evidence_edges", "edges", "components", "cycles", "issues"),
+            products,
+            strict=True,
+        ):
+            object.__setattr__(self, name, value)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ProjectModuleGraph:
     """The complete deterministic selected-module dependency graph."""
 
+    binding_authority: ProjectModuleBindingEnvironmentSet = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    _canonical_authority: _ProjectModuleGraphCanonicalAuthority = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
     vertices: tuple[ProjectModuleGraphVertex, ...] = ()
     evidence_edges: tuple[ProjectModuleImportEvidenceEdge, ...] = ()
     edges: tuple[ProjectModuleDependencyEdge, ...] = ()
@@ -352,6 +422,14 @@ class ProjectModuleGraph:
     def __post_init__(self) -> None:
         """Validate total coverage, canonical order, and copied lookups."""
 
+        if type(self.binding_authority) is not ProjectModuleBindingEnvironmentSet:
+            raise TypeError("Module graph requires exact binding authority.")
+        if type(self._canonical_authority) is not _ProjectModuleGraphCanonicalAuthority:
+            raise TypeError("Module graph requires exact canonical authority.")
+        if self.binding_authority is not self._canonical_authority.binding_authority:
+            raise ValueError(
+                "Module graph canonical authority must exactly match binding authority root."
+            )
         _require_tuple_items(
             self.vertices,
             ProjectModuleGraphVertex,
@@ -384,6 +462,21 @@ class ProjectModuleGraph:
             raise ValueError("Module graph vertices must retain selected order.")
         if len({vertex.identity for vertex in self.vertices}) != len(self.vertices):
             raise ValueError("Module graph vertex identities must be unique.")
+        if len(self.vertices) != len(self.binding_authority.environments) or any(
+            vertex.identity != environment.module.identity
+            or vertex.position != position
+            or vertex.module is not environment.module
+            for position, (vertex, environment) in enumerate(
+                zip(
+                    self.vertices,
+                    self.binding_authority.environments,
+                    strict=True,
+                )
+            )
+        ):
+            raise ValueError(
+                "Module graph vertices must exactly match binding authority."
+            )
         vertex_set = set(self.vertices)
         evidence_keys = tuple(_evidence_edge_key(edge) for edge in self.evidence_edges)
         if evidence_keys != tuple(sorted(evidence_keys)) or len(
@@ -434,6 +527,151 @@ class ProjectModuleGraph:
         issue_keys = tuple(_graph_issue_order(issue) for issue in self.issues)
         if issue_keys != tuple(sorted(issue_keys)):
             raise ValueError("Module graph issues must be deterministic ordered.")
+
+        (
+            expected_vertices,
+            expected_evidence,
+            expected_edges,
+            expected_components,
+            expected_cycles,
+            expected_issues,
+        ) = _derive_binding_authority_graph(self.binding_authority)
+        if self.vertices != expected_vertices or any(
+            vertex.module is not environment.module
+            for vertex, environment in zip(
+                self.vertices,
+                self.binding_authority.environments,
+                strict=True,
+            )
+        ):
+            raise ValueError(
+                "Module graph vertices must exactly match binding authority."
+            )
+        if self.evidence_edges != expected_evidence or any(
+            actual.request is not expected_item.request
+            for actual, expected_item in zip(
+                self.evidence_edges,
+                expected_evidence,
+                strict=True,
+            )
+        ):
+            raise ValueError(
+                "Module graph evidence must exactly match binding authority."
+            )
+        if self.edges != expected_edges:
+            raise ValueError(
+                "Module graph edges must exactly match binding authority evidence."
+            )
+        if self.components != expected_components:
+            raise ValueError(
+                "Module graph components must exactly match canonical graph edges."
+            )
+        if self.cycles != expected_cycles:
+            raise ValueError(
+                "Module graph cycles must exactly match canonical components."
+            )
+        if self.issues != expected_issues:
+            raise ValueError(
+                "Module graph issues must exactly match binding authority."
+            )
+        if any(
+            edge.origin is not self.vertices[edge.origin.position]
+            or edge.target is not self.vertices[edge.target.position]
+            or any(
+                retained is not evidence
+                for retained, evidence in zip(
+                    edge.evidence_edges,
+                    (
+                        item
+                        for item in self.evidence_edges
+                        if item.origin is edge.origin and item.target is edge.target
+                    ),
+                    strict=True,
+                )
+            )
+            for edge in self.edges
+        ):
+            raise ValueError(
+                "Module graph edges must retain exact graph evidence objects."
+            )
+        if any(
+            any(
+                member is not self.vertices[member.position]
+                for member in component.members
+            )
+            or any(
+                edge is not self.edges[self.edges.index(edge)]
+                for edge in component.internal_edges
+            )
+            for component in self.components
+        ):
+            raise ValueError("Module graph components must retain exact graph objects.")
+        if any(
+            cycle.component
+            is not self.components[self.components.index(cycle.component)]
+            or any(
+                vertex is not self.vertices[vertex.position]
+                for vertex in cycle.witness.vertices
+            )
+            or any(
+                edge is not self.edges[self.edges.index(edge)]
+                for edge in cycle.witness.edges
+            )
+            for cycle in self.cycles
+        ):
+            raise ValueError("Module graph cycles must retain exact graph objects.")
+        if any(
+            issue.owning_vertex is not self.vertices[issue.owning_vertex.position]
+            or (
+                issue.cycle is not None
+                and issue.cycle is not self.cycles[self.cycles.index(issue.cycle)]
+            )
+            or any(
+                actual is not expected_item
+                for actual, expected_item in zip(
+                    issue.requests,
+                    expected_issue.requests,
+                    strict=True,
+                )
+            )
+            or any(
+                actual is not expected_item
+                for actual, expected_item in zip(
+                    issue.binding_issues,
+                    expected_issue.binding_issues,
+                    strict=True,
+                )
+            )
+            for issue, expected_issue in zip(
+                self.issues,
+                expected_issues,
+                strict=True,
+            )
+        ):
+            raise ValueError("Module graph issues must retain exact authority objects.")
+        canonical_tuples = (
+            ("vertices", self.vertices, self._canonical_authority.vertices),
+            (
+                "evidence edges",
+                self.evidence_edges,
+                self._canonical_authority.evidence_edges,
+            ),
+            ("edges", self.edges, self._canonical_authority.edges),
+            ("components", self.components, self._canonical_authority.components),
+            ("cycles", self.cycles, self._canonical_authority.cycles),
+            ("issues", self.issues, self._canonical_authority.issues),
+        )
+        if any(
+            len(actual) != len(canonical)
+            or any(
+                supplied is not retained
+                for supplied, retained in zip(actual, canonical, strict=True)
+            )
+            for _name, actual, canonical in canonical_tuples
+        ):
+            raise ValueError(
+                "Module graph values must retain exact canonical authority objects."
+            )
 
         vertices_by_path = {vertex.identity.path: vertex for vertex in self.vertices}
         outgoing_by_vertex = {
@@ -556,8 +794,54 @@ class ProjectModuleDiagnosticFact:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class _ProjectModuleDiagnosticCanonicalAuthority:
+    """Derive one diagnostic projection from its exact private input roots."""
+
+    graph: ProjectModuleGraph = field(repr=False, compare=False, hash=False)
+    exports: ProjectModuleExportSurfaceSet = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    binding_authority: ProjectModuleBindingEnvironmentSet = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    facts: tuple[ProjectModuleDiagnosticFact, ...] = field(
+        init=False,
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    diagnostics: tuple[Diagnostic, ...] = field(
+        init=False,
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+
+    def __post_init__(self) -> None:
+        """Derive both products only from the retained exact roots."""
+
+        facts, diagnostics = _derive_project_module_diagnostic_products(
+            self.graph,
+            self.exports,
+            self.binding_authority,
+        )
+        object.__setattr__(self, "facts", facts)
+        object.__setattr__(self, "diagnostics", diagnostics)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ProjectModuleDiagnosticSet:
     """One immutable deterministically ordered module diagnostic result."""
+
+    _canonical_authority: _ProjectModuleDiagnosticCanonicalAuthority = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
 
     facts: tuple[ProjectModuleDiagnosticFact, ...] = ()
     diagnostics: tuple[Diagnostic, ...] = ()
@@ -565,6 +849,13 @@ class ProjectModuleDiagnosticSet:
     def __post_init__(self) -> None:
         """Require exact fact order and a lossless public projection."""
 
+        if (
+            type(self._canonical_authority)
+            is not _ProjectModuleDiagnosticCanonicalAuthority
+        ):
+            raise TypeError(
+                "Project module diagnostic set requires exact canonical authority."
+            )
         _require_tuple_items(
             self.facts,
             ProjectModuleDiagnosticFact,
@@ -579,6 +870,26 @@ class ProjectModuleDiagnosticSet:
             raise ValueError("Project module diagnostics must be canonical ordered.")
         if self.diagnostics != tuple(fact.diagnostic for fact in self.facts):
             raise ValueError("Project module diagnostics must project exact facts.")
+        canonical = self._canonical_authority
+        if (
+            len(self.facts) != len(canonical.facts)
+            or len(self.diagnostics) != len(canonical.diagnostics)
+            or any(
+                supplied is not retained
+                for supplied, retained in zip(self.facts, canonical.facts, strict=True)
+            )
+            or any(
+                supplied is not retained
+                for supplied, retained in zip(
+                    self.diagnostics,
+                    canonical.diagnostics,
+                    strict=True,
+                )
+            )
+        ):
+            raise ValueError(
+                "Project module diagnostics must retain exact canonical authority objects."
+            )
 
 
 def _build_project_module_graph(
@@ -589,128 +900,27 @@ def _build_project_module_graph(
     """Build the pure selected-module graph from exact Slice 7 requests."""
 
     _validate_graph_builder_inputs(selected_input_index, modules, bindings)
-    vertices = tuple(
-        ProjectModuleGraphVertex(
-            identity=module.identity,
-            position=module.position,
-            module=module,
-        )
-        for module in modules
-    )
-    vertex_by_path = {vertex.identity.path: vertex for vertex in vertices}
-    evidence_edges: list[ProjectModuleImportEvidenceEdge] = []
-    unresolved_groups: dict[
-        tuple[int, int, str],
-        tuple[list[ProjectModuleImportRequest], list[ProjectModuleBindingIssue]],
-    ] = {}
-
-    for environment in bindings.environments:
-        origin = vertex_by_path[environment.module.path]
-        issues_by_request = {
-            request: tuple(
-                issue for issue in environment.issues if issue.request == request
-            )
-            for request in environment.requests
-        }
-        for request in environment.requests:
-            selected_target = selected_input_index.find_path(request.target_module_path)
-            if selected_target is None:
-                unresolved = tuple(
-                    issue
-                    for issue in issues_by_request[request]
-                    if issue.status
-                    is ProjectModuleBindingIssueStatus.UNRESOLVED_TARGET_MODULE
-                )
-                if len(unresolved) != 1:
-                    raise ValueError(
-                        "Unresolved graph targets require exact Slice 7 evidence."
-                    )
-                key = (
-                    origin.position,
-                    request.module_statement_position,
-                    request.target_module_path,
-                )
-                grouped_requests, grouped_issues = unresolved_groups.setdefault(
-                    key, ([], [])
-                )
-                grouped_requests.append(request)
-                grouped_issues.extend(unresolved)
-                continue
-            target = vertex_by_path.get(selected_target.identity.path)
-            if target is None:
-                raise ValueError("Selected graph target requires one exact vertex.")
-            evidence_edges.append(
-                ProjectModuleImportEvidenceEdge(
-                    origin=origin,
-                    target=target,
-                    request=request,
-                )
-            )
-
-    evidence_tuple = tuple(evidence_edges)
-    edge_buckets: dict[
-        tuple[ProjectModuleGraphVertex, ProjectModuleGraphVertex],
-        list[ProjectModuleImportEvidenceEdge],
-    ] = {}
-    for evidence in evidence_tuple:
-        edge_buckets.setdefault((evidence.origin, evidence.target), []).append(evidence)
-    edges = tuple(
-        ProjectModuleDependencyEdge(
-            origin=origin,
-            target=target,
-            evidence_edges=tuple(edge_buckets[(origin, target)]),
-        )
-        for origin, target in sorted(
-            edge_buckets,
-            key=lambda pair: (pair[0].position, pair[1].position),
-        )
-    )
-    components = _strongly_connected_components(vertices, edges)
-    cycles = tuple(
-        ProjectModuleCycle(
-            component=component,
-            witness=_canonical_cycle_witness(component),
-        )
-        for component in components
-        if component.is_cyclic
-    )
-    graph_issues: list[ProjectModuleGraphIssue] = []
-    for (origin_position, _statement_position, _target), (
-        requests,
-        binding_issues,
-    ) in unresolved_groups.items():
-        graph_issues.append(
-            ProjectModuleGraphIssue(
-                status=ProjectModuleGraphIssueStatus.UNRESOLVED_TARGET_MODULE,
-                owning_vertex=vertices[origin_position],
-                requests=tuple(requests),
-                binding_issues=tuple(binding_issues),
-            )
-        )
-    graph_issues.extend(
-        ProjectModuleGraphIssue(
-            status=ProjectModuleGraphIssueStatus.MODULE_IMPORT_CYCLE,
-            owning_vertex=cycle.component.members[0],
-            cycle=cycle,
-        )
-        for cycle in cycles
+    canonical_authority = _ProjectModuleGraphCanonicalAuthority(
+        binding_authority=bindings,
     )
     return ProjectModuleGraph(
-        vertices=vertices,
-        evidence_edges=evidence_tuple,
-        edges=edges,
-        components=components,
-        cycles=cycles,
-        issues=tuple(sorted(graph_issues, key=_graph_issue_order)),
+        binding_authority=bindings,
+        _canonical_authority=canonical_authority,
+        vertices=canonical_authority.vertices,
+        evidence_edges=canonical_authority.evidence_edges,
+        edges=canonical_authority.edges,
+        components=canonical_authority.components,
+        cycles=canonical_authority.cycles,
+        issues=canonical_authority.issues,
     )
 
 
-def _build_project_module_diagnostic_set(
+def _derive_project_module_diagnostic_products(
     graph: ProjectModuleGraph,
     exports: ProjectModuleExportSurfaceSet,
     bindings: ProjectModuleBindingEnvironmentSet,
-) -> ProjectModuleDiagnosticSet:
-    """Adapt exact private issue facts into ordered public diagnostics."""
+) -> tuple[tuple[ProjectModuleDiagnosticFact, ...], tuple[Diagnostic, ...]]:
+    """Adapt exact-root issue facts into ordered public diagnostic products."""
 
     if type(graph) is not ProjectModuleGraph:
         raise TypeError("Module diagnostic adapter requires a module graph.")
@@ -718,10 +928,26 @@ def _build_project_module_diagnostic_set(
         raise TypeError("Module diagnostic adapter requires export surfaces.")
     if type(bindings) is not ProjectModuleBindingEnvironmentSet:
         raise TypeError("Module diagnostic adapter requires binding environments.")
+    if graph.binding_authority is not bindings:
+        raise ValueError(
+            "Module diagnostic roots must retain exact graph binding authority."
+        )
     if len(graph.vertices) != len(exports.surfaces) or len(graph.vertices) != len(
         bindings.environments
     ):
         raise ValueError("Module diagnostic inputs must cover the same modules.")
+    if any(
+        surface.module is not vertex.module or environment.module is not vertex.module
+        for vertex, surface, environment in zip(
+            graph.vertices,
+            exports.surfaces,
+            bindings.environments,
+            strict=True,
+        )
+    ):
+        raise ValueError(
+            "Module diagnostic roots must retain exact selected module authority."
+        )
 
     module_positions = {
         vertex.identity.path: vertex.position for vertex in graph.vertices
@@ -865,9 +1091,25 @@ def _build_project_module_diagnostic_set(
             )
 
     ordered_facts = tuple(sorted(facts, key=_diagnostic_fact_order))
+    return ordered_facts, tuple(fact.diagnostic for fact in ordered_facts)
+
+
+def _build_project_module_diagnostic_set(
+    graph: ProjectModuleGraph,
+    exports: ProjectModuleExportSurfaceSet,
+    bindings: ProjectModuleBindingEnvironmentSet,
+) -> ProjectModuleDiagnosticSet:
+    """Build one self-verifying private module diagnostic projection."""
+
+    canonical_authority = _ProjectModuleDiagnosticCanonicalAuthority(
+        graph=graph,
+        exports=exports,
+        binding_authority=bindings,
+    )
     return ProjectModuleDiagnosticSet(
-        facts=ordered_facts,
-        diagnostics=tuple(fact.diagnostic for fact in ordered_facts),
+        _canonical_authority=canonical_authority,
+        facts=canonical_authority.facts,
+        diagnostics=canonical_authority.diagnostics,
     )
 
 
@@ -905,6 +1147,137 @@ def _validate_graph_builder_inputs(
             or environment.module is not module
         ):
             raise ValueError("Module graph inputs must retain selected module order.")
+
+
+def _derive_binding_authority_graph(
+    binding_authority: ProjectModuleBindingEnvironmentSet,
+) -> tuple[
+    tuple[ProjectModuleGraphVertex, ...],
+    tuple[ProjectModuleImportEvidenceEdge, ...],
+    tuple[ProjectModuleDependencyEdge, ...],
+    tuple[ProjectModuleStronglyConnectedComponent, ...],
+    tuple[ProjectModuleCycle, ...],
+    tuple[ProjectModuleGraphIssue, ...],
+]:
+    """Derive every ordered graph fact from one complete binding authority."""
+
+    if type(binding_authority) is not ProjectModuleBindingEnvironmentSet:
+        raise TypeError("Module graph authority requires exact binding authority.")
+    vertices = tuple(
+        ProjectModuleGraphVertex(
+            identity=environment.module.identity,
+            position=environment.module.position,
+            module=environment.module,
+        )
+        for environment in binding_authority.environments
+    )
+
+    vertex_by_path = {vertex.identity.path: vertex for vertex in vertices}
+    evidence_edges: list[ProjectModuleImportEvidenceEdge] = []
+    unresolved_groups: dict[
+        tuple[int, int, str],
+        tuple[list[ProjectModuleImportRequest], list[ProjectModuleBindingIssue]],
+    ] = {}
+    for environment in binding_authority.environments:
+        origin = vertex_by_path[environment.module.path]
+        issues_by_request = {
+            request: tuple(
+                issue for issue in environment.issues if issue.request == request
+            )
+            for request in environment.requests
+        }
+        for request in environment.requests:
+            selected_targets = binding_authority.find_module_path(
+                request.target_module_path
+            )
+            if not selected_targets:
+                unresolved = tuple(
+                    issue
+                    for issue in issues_by_request[request]
+                    if issue.status
+                    is ProjectModuleBindingIssueStatus.UNRESOLVED_TARGET_MODULE
+                )
+                if len(unresolved) != 1:
+                    raise ValueError(
+                        "Unresolved graph targets require exact Slice 7 evidence."
+                    )
+                key = (
+                    origin.position,
+                    request.module_statement_position,
+                    request.target_module_path,
+                )
+                grouped_requests, grouped_issues = unresolved_groups.setdefault(
+                    key,
+                    ([], []),
+                )
+                grouped_requests.append(request)
+                grouped_issues.extend(unresolved)
+                continue
+            target = vertex_by_path[selected_targets[0].module.path]
+            evidence_edges.append(
+                ProjectModuleImportEvidenceEdge(
+                    origin=origin,
+                    target=target,
+                    request=request,
+                )
+            )
+
+    evidence_tuple = tuple(evidence_edges)
+    edge_buckets: dict[
+        tuple[ProjectModuleGraphVertex, ProjectModuleGraphVertex],
+        list[ProjectModuleImportEvidenceEdge],
+    ] = {}
+    for evidence in evidence_tuple:
+        edge_buckets.setdefault((evidence.origin, evidence.target), []).append(evidence)
+    edges = tuple(
+        ProjectModuleDependencyEdge(
+            origin=origin,
+            target=target,
+            evidence_edges=tuple(edge_buckets[(origin, target)]),
+        )
+        for origin, target in sorted(
+            edge_buckets,
+            key=lambda pair: (pair[0].position, pair[1].position),
+        )
+    )
+    components = _strongly_connected_components(vertices, edges)
+    cycles = tuple(
+        ProjectModuleCycle(
+            component=component,
+            witness=_canonical_cycle_witness(component),
+        )
+        for component in components
+        if component.is_cyclic
+    )
+    graph_issues: list[ProjectModuleGraphIssue] = []
+    for (origin_position, _statement_position, _target), (
+        requests,
+        binding_issues,
+    ) in unresolved_groups.items():
+        graph_issues.append(
+            ProjectModuleGraphIssue(
+                status=ProjectModuleGraphIssueStatus.UNRESOLVED_TARGET_MODULE,
+                owning_vertex=vertices[origin_position],
+                requests=tuple(requests),
+                binding_issues=tuple(binding_issues),
+            )
+        )
+    graph_issues.extend(
+        ProjectModuleGraphIssue(
+            status=ProjectModuleGraphIssueStatus.MODULE_IMPORT_CYCLE,
+            owning_vertex=cycle.component.members[0],
+            cycle=cycle,
+        )
+        for cycle in cycles
+    )
+    return (
+        vertices,
+        evidence_tuple,
+        edges,
+        components,
+        cycles,
+        tuple(sorted(graph_issues, key=_graph_issue_order)),
+    )
 
 
 def _strongly_connected_components(

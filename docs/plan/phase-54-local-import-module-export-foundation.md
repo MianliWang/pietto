@@ -5,7 +5,10 @@
 Phase 53 and Slices 1-16 are `COMPLETED`. Phase 54 is `ACTIVE`, and Slices
 1 through 10 are `COMPLETED` after exact Gate 3 publication. The trusted Slice
 11 base is `b81843acadb294630db361c09949868d004b1bca`. Slice 11 is the exact Gate
-2 candidate and is not complete before reviewed-tree publication and Gate 3.
+2 substantive-review recovery candidate resumed from clean
+`691db405a7e787adec5d7bd0498330b070bf6b75`; the original Gate 0/1 evidence
+and consumed CI identities remain immutable history. It is not complete before
+the restarted full Gate 2, reviewed-tree publication, and Gate 3.
 Slices 12-16 remain `UNSTARTED`.
 
 Slice 11 adds only private occurrence-safe schema-v2 module attribution,
@@ -17,8 +20,13 @@ lineage hop. Unknown, ambiguous, deferred, blocked, and cyclic sites retain
 raw attribution but acquire no guessed provenance or lineage. Schema v2 keeps
 `model=None`. Schema v1, advanced Slice 12 row facts, IR, SQL, diagnostics,
 workflows, package version, fixtures, and goldens remain unchanged. The Gate 2
-completion state is `PHASE54_SLICE11_GATE2_COMPLETED_AWAITING_PUBLICATION`;
-the next authorized state is `PHASE54_SLICE11_GATE3`, and Slice 12 does not
+recovery retains the exact binding-environment set as a private validation-only
+authority root for the complete ordered graph, import attribution, and direct
+module-dependency projections; mismatches fail closed without normalization.
+All formatter validation is check-only. On successful completion of the
+restarted Gate 2, the state becomes
+`PHASE54_SLICE11_GATE2_COMPLETED_AWAITING_PUBLICATION`; the next authorized
+state is `PHASE54_SLICE11_GATE3`, and Slice 12 does not
 begin in Slice 11.
 
 ## Trusted Phase 53 Baseline And Controlling Evidence

@@ -8,8 +8,10 @@ from typing import cast
 
 from _phase54_active_gate2_manifest import (  # noqa: F401
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
     phase54_slice11_pr_ci_repair_is_active,
+    phase54_slice11_substantive_recovery_is_active,
 )
 
 from _static_audit_helpers import read_text as _read
@@ -743,7 +745,10 @@ def test_protected_surfaces_version_tag_staging_and_dirty_set_are_locked() -> No
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
     dirty = _dirty_paths()
     phase54_slice9_gate2 = _phase54_slice9_gate2_paths()
-    if dirty != phase54_slice9_gate2:
+    if dirty not in (
+        phase54_slice9_gate2,
+        set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS),
+    ):
         for relative_path in PROTECTED_PATHS:
             assert _git_output(["diff", "--", relative_path]) == "", relative_path
     assert dirty in (
@@ -756,8 +761,11 @@ def test_protected_surfaces_version_tag_staging_and_dirty_set_are_locked() -> No
         ALLOWED_PHASE50_SLICE11_GATE2_PATHS,
         phase54_slice9_gate2,
         set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS),
+        set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS),
     )
-    if dirty == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS):
+    if dirty == set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS):
+        assert phase54_slice11_substantive_recovery_is_active()
+    elif dirty == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS):
         assert phase54_slice11_pr_ci_repair_is_active()
 
 

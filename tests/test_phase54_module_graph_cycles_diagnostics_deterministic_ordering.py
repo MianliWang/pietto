@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
+import inspect
 import json
 from pathlib import Path
 from types import MappingProxyType
@@ -168,6 +169,18 @@ def test_graph_carrier_enums_fields_privacy_and_manifest_are_exact() -> None:
             "conflicting_vertices",
             "binding_issues",
         ),
+        module_graph.ProjectModuleGraph: (
+            "binding_authority",
+            "_canonical_authority",
+            "vertices",
+            "evidence_edges",
+            "edges",
+            "components",
+            "cycles",
+            "issues",
+            "_vertices_by_path",
+            "_outgoing_by_vertex",
+        ),
         module_graph.ProjectModuleDiagnosticFact: (
             "origin",
             "diagnostic",
@@ -179,11 +192,66 @@ def test_graph_carrier_enums_fields_privacy_and_manifest_are_exact() -> None:
             "export_issues",
             "binding_issues",
         ),
-        module_graph.ProjectModuleDiagnosticSet: ("facts", "diagnostics"),
+        module_graph.ProjectModuleDiagnosticSet: (
+            "_canonical_authority",
+            "facts",
+            "diagnostics",
+        ),
     }
     for carrier, names in expected_fields.items():
         assert is_dataclass(carrier)
         assert tuple(item.name for item in fields(carrier)) == names
+    authority_field = fields(module_graph.ProjectModuleGraph)[0]
+    assert not authority_field.repr
+    assert not authority_field.compare
+    assert authority_field.hash is False
+    canonical_authority_field = fields(module_graph.ProjectModuleGraph)[1]
+    assert not canonical_authority_field.repr
+    assert not canonical_authority_field.compare
+    assert canonical_authority_field.hash is False
+    canonical_authority = module_graph._ProjectModuleGraphCanonicalAuthority
+    assert is_dataclass(canonical_authority)
+    assert tuple(item.name for item in fields(canonical_authority)) == (
+        "binding_authority",
+        "vertices",
+        "evidence_edges",
+        "edges",
+        "components",
+        "cycles",
+        "issues",
+    )
+    assert tuple(inspect.signature(canonical_authority).parameters) == (
+        "binding_authority",
+    )
+    assert all(
+        not item.init
+        for item in fields(canonical_authority)
+        if item.name
+        in {"vertices", "evidence_edges", "edges", "components", "cycles", "issues"}
+    )
+    diagnostic_authority = module_graph._ProjectModuleDiagnosticCanonicalAuthority
+    assert is_dataclass(diagnostic_authority)
+    assert tuple(item.name for item in fields(diagnostic_authority)) == (
+        "graph",
+        "exports",
+        "binding_authority",
+        "facts",
+        "diagnostics",
+    )
+    assert tuple(inspect.signature(diagnostic_authority).parameters) == (
+        "graph",
+        "exports",
+        "binding_authority",
+    )
+    assert all(
+        not item.init
+        for item in fields(diagnostic_authority)
+        if item.name in {"facts", "diagnostics"}
+    )
+    diagnostic_set_authority = fields(module_graph.ProjectModuleDiagnosticSet)[0]
+    assert not diagnostic_set_authority.repr
+    assert not diagnostic_set_authority.compare
+    assert diagnostic_set_authority.hash is False
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER == (
         "PHASE54_SLICE11_GATE2"
     )
@@ -223,6 +291,78 @@ def test_evidence_and_canonical_edge_invariants_reject_rewrites(
         replace(edge, evidence_edges=())
     with pytest.raises(ValueError, match="match its endpoints"):
         replace(edge, origin=graph.vertices[1])
+    with pytest.raises(ValueError, match="exactly match binding authority evidence"):
+        replace(graph, edges=())
+    with pytest.raises(ValueError, match="partition all vertices"):
+        replace(graph, components=())
+    cloned_evidence = replace(evidence)
+    cloned_edge = replace(edge, evidence_edges=(cloned_evidence,))
+    with pytest.raises(ValueError, match="exact canonical authority objects"):
+        replace(
+            graph,
+            evidence_edges=(cloned_evidence,),
+            edges=(cloned_edge,),
+        )
+    with pytest.raises(ValueError, match="init=False"):
+        replace(
+            graph._canonical_authority,
+            evidence_edges=(cloned_evidence,),
+            edges=(cloned_edge,),
+        )
+
+    rebuilt_authority = replace(graph._canonical_authority)
+    assert rebuilt_authority.binding_authority is graph.binding_authority
+    for name in (
+        "vertices",
+        "evidence_edges",
+        "edges",
+        "components",
+        "cycles",
+        "issues",
+    ):
+        assert getattr(rebuilt_authority, name) == getattr(
+            graph._canonical_authority, name
+        )
+    for name in ("vertices", "evidence_edges", "edges", "components"):
+        assert getattr(rebuilt_authority, name) is not getattr(
+            graph._canonical_authority, name
+        )
+    rebuilt_graph = replace(
+        graph,
+        _canonical_authority=rebuilt_authority,
+        vertices=rebuilt_authority.vertices,
+        evidence_edges=rebuilt_authority.evidence_edges,
+        edges=rebuilt_authority.edges,
+        components=rebuilt_authority.components,
+        cycles=rebuilt_authority.cycles,
+        issues=rebuilt_authority.issues,
+    )
+    assert rebuilt_graph == graph
+    assert rebuilt_graph.vertices is rebuilt_authority.vertices
+    assert rebuilt_graph.edges is rebuilt_authority.edges
+
+    _, foreign_semantic = _semantic_project(
+        tmp_path / "foreign",
+        {
+            "a.pietto": _module_source("A", (("b.pietto", "B"),)),
+            "b.pietto": _module_source("B"),
+        },
+    )
+    assert foreign_semantic.module_bindings is not None
+    with pytest.raises(ValueError, match="exactly match binding authority"):
+        replace(graph, binding_authority=foreign_semantic.module_bindings)
+    foreign_authority = replace(
+        graph._canonical_authority,
+        binding_authority=foreign_semantic.module_bindings,
+    )
+    with pytest.raises(ValueError, match="exactly match binding authority root"):
+        replace(graph, _canonical_authority=foreign_authority)
+    with pytest.raises(ValueError, match="exactly match binding authority"):
+        replace(
+            graph,
+            binding_authority=foreign_semantic.module_bindings,
+            _canonical_authority=foreign_authority,
+        )
 
 
 def test_graph_lookups_adjacency_and_collections_are_immutable(
@@ -325,6 +465,8 @@ def test_unresolved_targets_create_no_edges_and_group_statement_evidence(
         is module_graph.ProjectModuleGraphIssueStatus.UNRESOLVED_TARGET_MODULE
     )
     assert len(issue.requests) == len(issue.binding_issues) == 2
+    with pytest.raises(ValueError, match="issues must exactly match"):
+        replace(graph, issues=())
 
 
 def test_repeated_requests_retain_evidence_but_share_one_canonical_edge(
@@ -401,6 +543,8 @@ def test_two_module_cycle_has_one_canonical_witness(tmp_path: Path) -> None:
         "b.pietto",
         "a.pietto",
     )
+    with pytest.raises(ValueError, match="cover every cyclic component"):
+        replace(graph, cycles=())
 
 
 def test_longer_cycle_uses_lowest_selected_member_as_witness_start(
@@ -414,7 +558,8 @@ def test_longer_cycle_uses_lowest_selected_member_as_witness_start(
             "c.pietto": _module_source("C", (("a.pietto", "A"),)),
         },
     )
-    cycle = _required_graph(semantic).cycles[0]
+    graph = _required_graph(semantic)
+    cycle = graph.cycles[0]
     assert _paths(cycle) == ("a.pietto", "b.pietto", "c.pietto")
     assert tuple(member.position for member in cycle.component.members) == (0, 1, 2)
 
@@ -491,7 +636,8 @@ def test_complex_scc_chooses_shortest_then_selected_order_witness(
             "d.pietto": _module_source("D", (("a.pietto", "A"),)),
         },
     )
-    cycle = _required_graph(semantic).cycles[0]
+    graph = _required_graph(semantic)
+    cycle = graph.cycles[0]
     assert tuple(member.identity.path for member in cycle.component.members) == (
         "a.pietto",
         "b.pietto",
@@ -499,6 +645,24 @@ def test_complex_scc_chooses_shortest_then_selected_order_witness(
         "d.pietto",
     )
     assert _paths(cycle) == ("a.pietto", "b.pietto")
+    edges_by_pair = {
+        (edge.origin.identity.path, edge.target.identity.path): edge
+        for edge in graph.edges
+    }
+    alternate_witness = module_graph.ProjectModuleCycleWitness(
+        vertices=(graph.vertices[0], graph.vertices[2], graph.vertices[3]),
+        edges=(
+            edges_by_pair[("a.pietto", "c.pietto")],
+            edges_by_pair[("c.pietto", "d.pietto")],
+            edges_by_pair[("d.pietto", "a.pietto")],
+        ),
+    )
+    alternate_cycle = module_graph.ProjectModuleCycle(
+        component=cycle.component,
+        witness=alternate_witness,
+    )
+    with pytest.raises(ValueError, match="exactly match canonical components"):
+        replace(graph, cycles=(alternate_cycle,))
 
 
 def test_graph_value_equality_hash_and_evidence_sensitivity_are_exact(
@@ -514,6 +678,48 @@ def test_graph_value_equality_hash_and_evidence_sensitivity_are_exact(
     second_graph = _required_graph(second)
     assert first_graph == second_graph
     assert hash(first_graph) == hash(second_graph)
+    first_diagnostics = _required_diagnostics(first)
+    second_diagnostics = _required_diagnostics(second)
+    assert first_diagnostics == second_diagnostics
+    assert hash(first_diagnostics) == hash(second_diagnostics)
+    assert (
+        first_diagnostics._canonical_authority
+        is not second_diagnostics._canonical_authority
+    )
+    assert (
+        first_diagnostics._canonical_authority.graph is first_graph
+        and first_diagnostics._canonical_authority.exports is first.module_exports
+        and first_diagnostics._canonical_authority.binding_authority
+        is first.module_bindings
+    )
+    with pytest.raises(ValueError, match="exact diagnostic authority"):
+        replace(first, module_diagnostic_facts=second_diagnostics)
+
+    _, first_nonempty = _semantic_project(
+        tmp_path / "first-nonempty",
+        {"a.pietto": 'import "missing.pietto":\n    shape Missing\n'},
+    )
+    _, second_nonempty = _semantic_project(
+        tmp_path / "second-nonempty",
+        {"a.pietto": 'import "missing.pietto":\n    shape Missing\n'},
+    )
+    first_nonempty_diagnostics = _required_diagnostics(first_nonempty)
+    second_nonempty_diagnostics = _required_diagnostics(second_nonempty)
+    assert first_nonempty_diagnostics == second_nonempty_diagnostics
+    assert (
+        first_nonempty_diagnostics._canonical_authority
+        is not second_nonempty_diagnostics._canonical_authority
+    )
+    with pytest.raises(ValueError, match="canonical authority objects"):
+        replace(
+            first_nonempty_diagnostics,
+            _canonical_authority=second_nonempty_diagnostics._canonical_authority,
+        )
+    with pytest.raises(ValueError, match="exact diagnostic authority"):
+        replace(
+            first_nonempty,
+            module_diagnostic_facts=second_nonempty_diagnostics,
+        )
     _, reordered = _semantic_project(
         tmp_path / "reordered",
         {
@@ -908,7 +1114,9 @@ def test_schema_v1_privacy_status_reader_fixed_point_and_slice9_boundary(
     assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_ADDED_PATHS) == 3
     assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS) == 69
     assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 3
-    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 69
+    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 72
+    assert SOURCE_REL in active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
+    assert SPEC_REL in active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
     assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE == (
         "17a5b01e555930537334d4d0bcf3480e332b7e91"

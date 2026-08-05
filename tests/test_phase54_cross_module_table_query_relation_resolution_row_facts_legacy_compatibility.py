@@ -221,8 +221,8 @@ def test_slice10_contract_and_status_docs_freeze_exact_boundary() -> None:
     assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS) == 69
     assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_ALLOWLIST_PATHS) == 72
     assert len(active_gate2_manifest.ADDED_PATHS) == 3
-    assert len(active_gate2_manifest.MODIFIED_PATHS) == 69
-    assert len(active_gate2_manifest.ALLOWLIST_PATHS) == 72
+    assert len(active_gate2_manifest.MODIFIED_PATHS) == 72
+    assert len(active_gate2_manifest.ALLOWLIST_PATHS) == 75
     frozen_gate2 = active_gate2_manifest.Phase54Gate2RepositoryState(
         marker=active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER,
         branch_oid=active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE,
@@ -957,6 +957,57 @@ def test_duplicate_local_relation_cross_kind_emits_one_pie_s2001_without_winner(
     )
     assert _environment(semantic, "a.pietto").find_relation_name("Shared") == ()
 
+    parse_result, causal_semantic = _semantic_project(
+        tmp_path / "exact-imported-causal-root",
+        {
+            "a.pietto": (
+                'import "b.pietto":\n    source Shared as Remote\n'
+                "query Uses:\n    from Remote\n    select:\n        id\n"
+            ),
+            "b.pietto": (
+                "shape Row:\n    id: Int\n"
+                'source Shared: Row is postgres.table("shared")\n'
+                'source Rows: Row is postgres.table("rows")\n'
+                "table Shared:\n    from Rows\n    select:\n        id\n"
+                "table Other:\n    from Rows\n    select:\n        Shared\n"
+                "export:\n    source Shared\n"
+            ),
+        },
+    )
+    assert _diagnostic_pairs(causal_semantic) == (
+        ("PIE-S2001", "Duplicate symbol name in relation namespace: Shared"),
+        ("PIE-S2102", "Unknown field: Shared"),
+    )
+    target_environment = _environment(causal_semantic, "b.pietto")
+    ambiguity = next(
+        issue
+        for issue in target_environment.issues
+        if issue.diagnostic is not None and issue.diagnostic.code == "PIE-S2001"
+    )
+    unrelated = next(
+        issue
+        for issue in target_environment.issues
+        if issue.diagnostic is not None and issue.diagnostic.code == "PIE-S2102"
+    )
+    importer_blocker = next(
+        issue
+        for issue in _environment(causal_semantic, "a.pietto").issues
+        if issue.status
+        is relation_resolution.ProjectModuleRelationResolutionIssueStatus.MODULE_DIAGNOSTIC_BLOCKED
+        and issue.local_name == "Remote"
+    )
+    target_source = _definition(parse_result, "b.pietto", "Shared")
+    target_occurrence = next(
+        occurrence
+        for occurrence in ambiguity.occurrences
+        if occurrence.definition is target_source
+    )
+    assert importer_blocker.occurrences == (target_occurrence,)
+    assert importer_blocker.occurrences[0] is target_occurrence
+    assert importer_blocker.suppressing_diagnostics == (ambiguity.diagnostic,)
+    assert importer_blocker.suppressing_diagnostics[0] is ambiguity.diagnostic
+    assert unrelated.diagnostic is not importer_blocker.suppressing_diagnostics[0]
+
 
 def test_duplicate_local_sources_reuse_slice9_root_without_duplicate_diagnostic(
     tmp_path: Path,
@@ -1521,6 +1572,81 @@ def test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade(
         ),
         blocker_local_names=(("LocalA", "LocalB", "Shared"),),
     )
+
+    equal_root_field_orders = (
+        (
+            "equal-distinct-import-roots-ab",
+            "    first: Alpha\n    second: Beta\n",
+            ("Alpha", "Beta"),
+        ),
+        (
+            "equal-distinct-import-roots-ba",
+            "    second: Beta\n    first: Alpha\n",
+            ("Beta", "Alpha"),
+        ),
+    )
+    for case, field_lines, expected_local_names in equal_root_field_orders:
+        _, equal_root_semantic = _semantic_project(
+            tmp_path / case,
+            {
+                "a.pietto": (
+                    'import "b.pietto":\n'
+                    "    shape Shared as Alpha\n"
+                    "    shape Shared as Beta\n"
+                    "shape Input:\n"
+                    f"{field_lines}"
+                    'source rows: Input is postgres.table("rows")\n'
+                ),
+                "b.pietto": (
+                    "shape Physical:\n"
+                    "    id: Int\n"
+                    'source Shared: Physical is postgres.table("shared")\n'
+                    "export:\n"
+                    "    source Shared\n"
+                ),
+            },
+        )
+        assert tuple(item.code for item in equal_root_semantic.diagnostics) == (
+            "PIE-S2707",
+            "PIE-S2707",
+        )
+        assert equal_root_semantic.module_diagnostic_facts is not None
+        root_facts = tuple(
+            fact
+            for fact in equal_root_semantic.module_diagnostic_facts.facts
+            if fact.diagnostic.code == "PIE-S2707"
+        )
+        assert len(root_facts) == 2
+        first_root, second_root = (fact.diagnostic for fact in root_facts)
+        assert first_root == second_root
+        assert first_root is not second_root
+        roots_by_local_name = {
+            fact.binding_issues[0].request.identity.local_binding_name: fact.diagnostic
+            for fact in root_facts
+        }
+        assert tuple(roots_by_local_name) == ("Alpha", "Beta")
+        equal_root_blockers = tuple(
+            issue
+            for issue in _environment(equal_root_semantic, "a.pietto").issues
+            if issue.status
+            is relation_resolution.ProjectModuleRelationResolutionIssueStatus.TYPE_SOURCE_DIAGNOSTIC_BLOCKED
+            and issue.local_name == "rows"
+        )
+        assert len(equal_root_blockers) == 2
+        assert tuple(
+            tuple(issue.local_name for issue in blocker.type_source_issues)
+            for blocker in equal_root_blockers
+        ) == tuple((name,) for name in expected_local_names)
+        for blocker, expected_local_name in zip(
+            equal_root_blockers,
+            expected_local_names,
+            strict=True,
+        ):
+            assert len(blocker.suppressing_diagnostics) == 1
+            assert (
+                blocker.suppressing_diagnostics[0]
+                is roots_by_local_name[expected_local_name]
+            )
 
     type_namespace_root_cases = (
         (

@@ -25,8 +25,12 @@ from _phase54_active_gate2_manifest import (
     PHASE54_SLICE11_PR_CI_REPAIR_BASE,
     PHASE54_SLICE11_PR_CI_REPAIR_BRANCH,
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE,
+    PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BRANCH,
+    PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
     phase54_slice11_pr_ci_repair_is_active,
+    phase54_slice11_substantive_recovery_is_active,
 )
 
 import pytest
@@ -115,21 +119,21 @@ MODULE_SHA256 = {
 }
 SPEC_SHA256 = "7010cd8a39ed389de588d8cd734b136cc87456c3ef5eb324638467d1188fc935"
 MODIFIED_TEST_SHA256 = {
-    SLICE4_TEST_REL: "747b9fce5d1c2039116cc6181e7d40d8497e6631ae7dfbb6f3c057a3c259e1b6",
-    SLICE5_TEST_REL: "592fa76cc42b74c5415f5fdbbc87415982d8a3da62cfb3a0fdfc15b4f751eec2",
-    SLICE6_TEST_REL: "4f975dbfecbde4daf1fd7b223e1b3e3024009b0a2bbbb31580e8d9afe823f512",
-    SLICE7_TEST_REL: "24ad91c5bbdf318f501ccb238f00991faa9e2bcd7959053e8c069cbfdcd532ee",
+    SLICE4_TEST_REL: "6fc153168dc7463ba8d30fe9b309bddacd57168eed43b3b84bbcb914b6f1e86e",
+    SLICE5_TEST_REL: "082380d64e345a182c4876712453403dfcc8ce7bec265b31b6b75c87c3476d03",
+    SLICE6_TEST_REL: "66aeab6da4982aaf2f3fa61ec44e4a0365dfa96e9e362daeddedc7056ae989c7",
+    SLICE7_TEST_REL: "e0a3264b27cf2c8aa662d2d20189540febdc11d3a9a8384daf5d117b005ef9f0",
 }
 WORKFLOW_SHA256 = "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94"
 PYPROJECT_SHA256 = "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01"
 LOCK_SHA256 = "a7d9125995e98a8a74d3664ceae7801cc1f4cce74ec323933da67838be199cea"
-COMPILER_DIGEST = "91ee36d14fa9867c26a614140e2031cc31391d6d5eaad06ca48342fd159b98d6"
+COMPILER_DIGEST = "ff84f85769a284b70fba5bc89c16926817131663b59cf740866660ebc72813d4"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "327801df642081679013ebb4d0409791bc2d2db2d9308ae74d41b9ccf57450f7"
+    "8613fe48154768889b06c7bfa5eff5733da2bd727001f64545eb440dc9233b72"
 )
 
 SPEC_H2 = (
@@ -503,6 +507,13 @@ def _assert_allowed_dirty_state(
     main: str | None,
     origin_main: str | None,
 ) -> None:
+    if phase54_slice11_substantive_recovery_is_active():
+        assert tracked == set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS)
+        assert untracked == set()
+        assert branch == PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BRANCH
+        assert head == PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE
+        assert main == origin_main == "b81843acadb294630db361c09949868d004b1bca"
+        return
     if phase54_slice11_pr_ci_repair_is_active():
         assert tracked == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS)
         assert untracked == set()

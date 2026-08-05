@@ -13,8 +13,10 @@ from _phase54_active_gate2_manifest import (
     PHASE54_ACTIVE_GATE2_ADDED_PATHS,
     PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
     phase54_slice11_pr_ci_repair_is_active,
+    phase54_slice11_substantive_recovery_is_active,
 )
 
 import pytest
@@ -81,7 +83,7 @@ LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf2
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 SIGNATURE_SHA256 = "810f347080e0bb7dc674821aa6387c5f7618ac216832194ef19820326eef71d2"
 PROJECT_PRIVATE_DIGEST = (
-    "327801df642081679013ebb4d0409791bc2d2db2d9308ae74d41b9ccf57450f7"
+    "8613fe48154768889b06c7bfa5eff5733da2bd727001f64545eb440dc9233b72"
 )
 TIER2_MANIFEST_BYTES = 18319
 TIER2_MANIFEST_FILES = 108
@@ -1259,6 +1261,9 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     assert dirty_paths == tracked_paths | untracked_paths
     repair_gate2_active = _phase54_slice11_gate2_is_active()
     slice11_pr_ci_repair_active = phase54_slice11_pr_ci_repair_is_active()
+    slice11_substantive_recovery_active = (
+        phase54_slice11_substantive_recovery_is_active()
+    )
     assert repair_gate2_active or dirty_paths in (
         set(),
         ALLOWLIST_PATHS,
@@ -1269,7 +1274,10 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
         slice13_allowlist,
     )
 
-    if slice11_pr_ci_repair_active:
+    if slice11_substantive_recovery_active:
+        assert tracked_paths == set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS)
+        assert untracked_paths == set()
+    elif slice11_pr_ci_repair_active:
         assert tracked_paths == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS)
         assert untracked_paths == set()
     elif repair_gate2_active:

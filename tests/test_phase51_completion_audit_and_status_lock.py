@@ -20,8 +20,10 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
     phase54_slice11_pr_ci_repair_is_active,
+    phase54_slice11_substantive_recovery_is_active,
 )
 
 from pietto._project.aggregate_grouped_clause_facts import (
@@ -351,9 +353,9 @@ PROTECTED_HASHES = {
         "26cc0ae4a68518223d6bf600ad3c4b0b226618aa7ef31b2ae1c25924d2655169"
     ),
 }
-COMPILER_DIGEST = "91ee36d14fa9867c26a614140e2031cc31391d6d5eaad06ca48342fd159b98d6"
+COMPILER_DIGEST = "ff84f85769a284b70fba5bc89c16926817131663b59cf740866660ebc72813d4"
 PROJECT_PRIVATE_DIGEST = (
-    "327801df642081679013ebb4d0409791bc2d2db2d9308ae74d41b9ccf57450f7"
+    "8613fe48154768889b06c7bfa5eff5733da2bd727001f64545eb440dc9233b72"
 )
 
 PROJECT_JSON_V2_KEYS = (
@@ -1383,6 +1385,7 @@ def test_static_git_helper_and_exact_slice12_dirty_set_are_locked() -> None:
         PHASE52_GATE2_PATHS,
         slice2_modified | slice2_added,
         set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS),
+        set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS),
     )
     untracked_paths = set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
@@ -1393,7 +1396,9 @@ def test_static_git_helper_and_exact_slice12_dirty_set_are_locked() -> None:
         PHASE52_UNTRACKED_PATHS,
         slice2_added,
     )
-    if dirty_paths == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS):
+    if dirty_paths == set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS):
+        assert phase54_slice11_substantive_recovery_is_active()
+    elif dirty_paths == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS):
         assert phase54_slice11_pr_ci_repair_is_active()
         assert untracked_paths == set()
     elif dirty_paths == slice2_modified | slice2_added:

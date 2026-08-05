@@ -51,6 +51,10 @@ PHASE54_SLICE11_PR_CI_REPAIR_BASE = "c6aba9522f7e16e358005f86cfb119dd6d005463"
 PHASE54_SLICE11_PR_CI_REPAIR_BRANCH = (
     "phase54/slice11-module-attribution-dependency-origin-provenance-lineage"
 )
+PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE = "691db405a7e787adec5d7bd0498330b070bf6b75"
+PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BRANCH = (
+    "phase54/slice11-module-attribution-dependency-origin-provenance-lineage"
+)
 ADDED_PATHS = {
     "docs/spec/phase54-slice11-module-attribution-dependency-origin-provenance-and-lineage-v1.md",
     "src/pietto/_project/module_attribution.py",
@@ -175,8 +179,11 @@ PHASE54_SLICE10_PRIOR_MECHANICAL_READER_PATHS = set(MECHANICAL_READER_PATHS) - {
 NON_READER_MODIFIED_PATHS = {
     "README.md",
     "docs/plan/phase-54-local-import-module-export-foundation.md",
+    "docs/spec/phase54-slice8-module-graph-cycles-diagnostics-and-deterministic-ordering-v1.md",
     "docs/spec/pietto-v0.9.md",
     "src/pietto/_project/model.py",
+    "src/pietto/_project/module_graph.py",
+    "src/pietto/_project/module_relation_resolution.py",
     "tests/_phase54_active_gate2_manifest.py",
 }
 VALIDATION_READER_PATHS = set(MECHANICAL_READER_PATHS)
@@ -207,6 +214,74 @@ PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS = frozenset(
         "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
         "tests/test_phase54_local_export_visibility_module_facades.py",
         "tests/test_phase54_local_import_module_export_foundation_scope_lock.py",
+    }
+)
+PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS = frozenset(
+    {
+        "README.md",
+        "docs/plan/phase-54-local-import-module-export-foundation.md",
+        "docs/spec/phase54-slice11-module-attribution-dependency-origin-provenance-and-lineage-v1.md",
+        "docs/spec/phase54-slice8-module-graph-cycles-diagnostics-and-deterministic-ordering-v1.md",
+        "docs/spec/pietto-v0.9.md",
+        "src/pietto/_project/model.py",
+        "src/pietto/_project/module_attribution.py",
+        "src/pietto/_project/module_graph.py",
+        "src/pietto/_project/module_relation_resolution.py",
+        "tests/_phase54_active_gate2_manifest.py",
+        "tests/test_phase11_ci_workflow.py",
+        "tests/test_phase11_completion_audit.py",
+        "tests/test_phase11_generated_guard.py",
+        "tests/test_phase11_golden_policy.py",
+        "tests/test_phase11_packaging_smoke.py",
+        "tests/test_phase11_validation_entrypoint.py",
+        "tests/test_phase12_completion_audit.py",
+        "tests/test_phase12_composition_cli_json_goldens.py",
+        "tests/test_phase21_group_by_hardening_audit.py",
+        "tests/test_phase24_aggregate_expression_arguments_readiness.py",
+        "tests/test_phase24_cli_json_output_hardening.py",
+        "tests/test_phase24_completion_audit.py",
+        "tests/test_phase26_completion_audit.py",
+        "tests/test_phase27_completion_audit.py",
+        "tests/test_phase28_completion_audit.py",
+        "tests/test_phase29_completion_audit.py",
+        "tests/test_phase30_completion_audit.py",
+        "tests/test_phase33_completion_audit.py",
+        "tests/test_phase50_import_module_export_readiness.py",
+        "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
+        "tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py",
+        "tests/test_phase51_completion_audit_and_status_lock.py",
+        "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
+        "tests/test_phase52_aggregate_signature_algebra_facts.py",
+        "tests/test_phase52_completion_audit_and_status_lock.py",
+        "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
+        "tests/test_phase52_expression_stage_clause_capability_facts.py",
+        "tests/test_phase52_fail_closed_capability_lookup.py",
+        "tests/test_phase52_logical_type_literal_parameter_nullability_inventory.py",
+        "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
+        "tests/test_phase52_private_capability_fact_foundation.py",
+        "tests/test_phase52_scalar_function_operator_signature_facts.py",
+        "tests/test_phase53_completion_audit_and_status_lock.py",
+        "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
+        "tests/test_phase53_grouped_result_ranking_aggregate_result_inputs_bounded_let_visibility_contract.py",
+        "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
+        "tests/test_phase53_multiple_window_outputs_final_order_alias_downstream_schema_lineage_contract.py",
+        "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
+        "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+        "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
+        "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
+        "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
+        "tests/test_phase53_row_number_direct_field_mvp_contract.py",
+        "tests/test_phase53_window_ir_dual_backend_lowering_window_function_facts_contract.py",
+        "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
+        "tests/test_phase53_window_spec_function_identity_ast_contract.py",
+        "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
+        "tests/test_phase54_cross_module_table_query_relation_resolution_row_facts_legacy_compatibility.py",
+        "tests/test_phase54_cross_module_type_alias_enum_shape_source_resolution.py",
+        "tests/test_phase54_local_export_visibility_module_facades.py",
+        "tests/test_phase54_local_import_module_export_foundation_scope_lock.py",
+        "tests/test_phase54_module_attribution_dependency_origin_provenance_lineage.py",
+        "tests/test_phase54_module_graph_cycles_diagnostics_deterministic_ordering.py",
+        "tests/test_phase54_named_import_alias_binding_environments_collision_rules.py",
     }
 )
 PHASE54_SLICE10_ORIGINAL_ADDED_PATHS = frozenset(
@@ -559,6 +634,15 @@ def _matches_phase54_active_gate2_manifest(
         and state.modified_paths == PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS
         and state.deleted_paths == frozenset()
     )
+    slice11_substantive_recovery = (
+        state.branch_oid == PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE
+        and state.branch_head == PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BRANCH
+        and state.branch_upstream
+        == f"origin/{PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BRANCH}"
+        and state.added_paths == frozenset()
+        and state.modified_paths == PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS
+        and state.deleted_paths == frozenset()
+    )
     return common and (
         active_gate2
         or slice10_original_gate2
@@ -572,6 +656,7 @@ def _matches_phase54_active_gate2_manifest(
         or product_repair8
         or product_repair9
         or slice11_pr_ci_repair
+        or slice11_substantive_recovery
     )
 
 
@@ -598,5 +683,22 @@ def phase54_slice11_pr_ci_repair_is_active() -> bool:
         and state.branch_head == PHASE54_SLICE11_PR_CI_REPAIR_BRANCH
         and state.added_paths == frozenset()
         and state.modified_paths == PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS
+        and state.deleted_paths == frozenset()
+    )
+
+
+def phase54_slice11_substantive_recovery_is_active() -> bool:
+    """Recognize only the exact Slice 11 substantive-recovery Gate 2."""
+
+    try:
+        state = _read_phase54_gate2_repository_state()
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+    return (
+        _matches_phase54_active_gate2_manifest(state)
+        and state.branch_oid == PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE
+        and state.branch_head == PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BRANCH
+        and state.added_paths == frozenset()
+        and state.modified_paths == PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS
         and state.deleted_paths == frozenset()
     )

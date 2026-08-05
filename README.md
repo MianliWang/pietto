@@ -60,8 +60,12 @@ and the [Phase 54 plan](docs/plan/phase-54-local-import-module-export-foundation
 
 Phase 54 is **ACTIVE**. Slices 1 through 10 are **COMPLETED**. Slice 11 is the
 Gate 2 module attribution, dependency, origin, provenance, and lineage
-candidate awaiting reviewed-tree publication; Slices 12 through 16 are
-**UNSTARTED**, and the next lifecycle state after Gate 2 is
+substantive-review recovery candidate. This Slice 11 Gate 2 candidate resumes
+from `691db405a7e787adec5d7bd0498330b070bf6b75`, with the original Gate 0/1 and
+consumed CI evidence preserved. The recovery adds private binding-authority
+validation for the complete ordered module graph and attribution import
+carriers. Reviewed-tree publication is still required; Slices 12 through 16
+are **UNSTARTED**, and the next lifecycle state after Gate 2 is
 `PHASE54_SLICE11_GATE3`.
 
 Slice 3 provides stable project-relative module identity, an immutable
@@ -380,7 +384,7 @@ percentages. The complete route is maintained in the
 
 | Route | Product milestone | Status or boundary |
 | --- | --- | --- |
-| Phase 54 | Local module, import, export, binding, graph, and hardening foundation | Active; Slice 11 Gate 2 candidate |
+| Phase 54 | Local module, import, export, binding, graph, and hardening foundation | Active; Slice 11 Gate 2 candidate in substantive-review recovery |
 | Phases 55–59 | Package assets, capability profiles, extension catalog, public inspection, and local package graph | Planned |
 | Phase 60 | Advanced windows and ecosystem/release-readiness checkpoint | Planned; no tag or publication |
 | Phases 61–63 | Project IR, relationships, JOIN semantics, multi-relation SQL, and `QUALIFY` | Planned |

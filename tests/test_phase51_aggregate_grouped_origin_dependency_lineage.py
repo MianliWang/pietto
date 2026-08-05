@@ -24,8 +24,10 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
     phase54_slice11_pr_ci_repair_is_active,
+    phase54_slice11_substantive_recovery_is_active,
 )
 
 import pytest
@@ -943,6 +945,7 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
         slice14_modified | slice14_added,
         phase54_modified | phase54_added,
         set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS),
+        set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS),
     )
     untracked = _git_paths(["ls-files", "--others", "--exclude-standard"])
     assert untracked in (
@@ -951,7 +954,9 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
         slice14_added,
         phase54_added,
     )
-    if dirty == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS):
+    if dirty == set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS):
+        assert phase54_slice11_substantive_recovery_is_active()
+    elif dirty == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS):
         assert phase54_slice11_pr_ci_repair_is_active()
         assert untracked == set()
     elif dirty == CI_REPAIR_MODIFIED_PATHS:
@@ -1049,7 +1054,13 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
         "tests/goldens",
         "examples",
     )
-    if dirty == phase54_modified | phase54_added:
+    if dirty == set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS):
+        protected = tuple(
+            path
+            for path in protected
+            if path not in PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS
+        )
+    elif dirty == phase54_modified | phase54_added:
         protected = tuple(path for path in protected if path not in phase54_modified)
     assert _git_output(["diff", "--", *protected]) == ""
     pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")

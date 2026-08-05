@@ -236,7 +236,7 @@ MODIFIED_PATHS = (
 
 BASE_HEAD = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
 FINAL_COMPILER_DIGEST = (
-    "91ee36d14fa9867c26a614140e2031cc31391d6d5eaad06ca48342fd159b98d6"
+    "ff84f85769a284b70fba5bc89c16926817131663b59cf740866660ebc72813d4"
 )
 FINAL_SEMANTIC_DIGEST = (
     "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
@@ -1636,7 +1636,7 @@ def test_concrete_semantic_project_and_aggregate_nullability_authority_is_locked
         "src/pietto/semantic/expressions.py": "37b198f72b0c71c90a82d746671be8528a9ea5c2d4818ff7ef4ba55e30e9c595",
         "src/pietto/semantic/aggregates.py": "f5d5be237960e50f62f539d76e09be425980c9f8e657846333b5ef1aaa948333",
         "src/pietto/semantic/catalog.py": "f566f39395e3bdc933e60d15e740749255dd3749cf3907684240e4b43dfc9e40",
-        "src/pietto/_project/model.py": "da03fbc58318a4f744261d5913a938677e63319032fbeef4d2e78b792c81dd61",
+        "src/pietto/_project/model.py": "1cbb689dc6f03973f603e8b5839cfff061d8a8e75ed6625ed8374bebdfe54e39",
         "src/pietto/_project/row_expression_schema.py": "fc968a628592640012d59521627c91ee0a0017bc640fab27e8cbd756e4aa1e7d",
         "src/pietto/_project/row_expression_type_facts.py": "37559704de25d9f32a3ed062c0f99f58c29463bff291e38e1fefca70613d15a0",
         "src/pietto/_project/aggregate_grouped_schema.py": "406fa28ec27a574576508a075305c28f07a495cf91f300d529c62b84a0aa519b",

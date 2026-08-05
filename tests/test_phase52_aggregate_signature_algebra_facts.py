@@ -13,8 +13,10 @@ from _phase54_active_gate2_manifest import (
     PHASE54_ACTIVE_GATE2_ADDED_PATHS,
     PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
     phase54_slice11_pr_ci_repair_is_active,
+    phase54_slice11_substantive_recovery_is_active,
 )
 
 import pytest
@@ -60,13 +62,13 @@ LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf2
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 SIGNATURE_SHA256 = "810f347080e0bb7dc674821aa6387c5f7618ac216832194ef19820326eef71d2"
 CONTEXT_SHA256 = "132371eccca00ca9f8722a34f1ea0f540933515e560639ee12e53aee6594c60c"
-COMPILER_DIGEST = "91ee36d14fa9867c26a614140e2031cc31391d6d5eaad06ca48342fd159b98d6"
+COMPILER_DIGEST = "ff84f85769a284b70fba5bc89c16926817131663b59cf740866660ebc72813d4"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "327801df642081679013ebb4d0409791bc2d2db2d9308ae74d41b9ccf57450f7"
+    "8613fe48154768889b06c7bfa5eff5733da2bd727001f64545eb440dc9233b72"
 )
 
 SPEC_H2 = (
@@ -1927,6 +1929,9 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
     repair_gate2_active = _phase54_slice11_gate2_is_active()
     slice11_pr_ci_repair_active = phase54_slice11_pr_ci_repair_is_active()
+    slice11_substantive_recovery_active = (
+        phase54_slice11_substantive_recovery_is_active()
+    )
     assert repair_gate2_active or dirty_paths in (
         set(),
         ALLOWLIST_PATHS,
@@ -1937,7 +1942,10 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
         slice13_allowlist,
     )
 
-    if slice11_pr_ci_repair_active:
+    if slice11_substantive_recovery_active:
+        assert tracked_paths == set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS)
+        assert untracked_paths == set()
+    elif slice11_pr_ci_repair_active:
         assert tracked_paths == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS)
         assert untracked_paths == set()
     elif repair_gate2_active:

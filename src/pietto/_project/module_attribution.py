@@ -9,8 +9,10 @@ from types import MappingProxyType
 from typing import TypeVar, cast
 
 from pietto._project.model import (
+    ProjectParseCheckResult,
     ProjectRelationRowSchemaReason,
     ProjectRelationRowSchemaStatus,
+    ProjectRowField,
     ProjectResolvedTypeKind,
     ProjectSymbolKind,
     ProjectSymbolNamespace,
@@ -38,13 +40,21 @@ from pietto._project.module_exports import (
     ProjectModuleExportEntryOrigin,
     ProjectModuleExportSurfaceSet,
 )
-from pietto._project.module_graph import ProjectModuleGraph, ProjectModuleGraphVertex
+from pietto._project.module_graph import (
+    ProjectModuleDiagnosticSet,
+    ProjectModuleGraph,
+    ProjectModuleGraphVertex,
+    _build_project_module_diagnostic_set,
+)
 from pietto._project.module_relation_resolution import (
     ProjectModuleRelationRowFact,
     ProjectModuleRelationReference,
+    ProjectModuleRelationResolutionIssueStatus,
     ProjectModuleRelationResolutionSet,
     ProjectResolvedModuleRelationReference,
     ProjectResolvedModuleRelationSymbol,
+    _build_project_module_relation_resolution_set,
+    _exact_imported_target_blocker_roots,
 )
 from pietto._project.module_resolution import (
     ProjectModuleSourceShapeReference,
@@ -53,7 +63,10 @@ from pietto._project.module_resolution import (
     ProjectResolvedModuleTypeReference,
     ProjectResolvedNominalSymbol,
     ProjectTypeSourceResolutionSet,
+    _build_project_type_source_resolution_set,
 )
+from pietto._project.selected_input_index import ProjectSelectedInputIndex
+from pietto._project.trusted_source import ProjectTrustedSourceSnapshot
 from pietto.ast_nodes import (
     DottedNameExpr,
     FromClause,
@@ -78,6 +91,30 @@ _RELATION_KINDS = frozenset(
         ProjectSymbolKind.TABLE,
         ProjectSymbolKind.QUERY,
     }
+)
+_ProjectModuleAttributionFactCollections = tuple[
+    tuple["ProjectModuleDeclarationAttribution", ...],
+    tuple["ProjectModuleImportAttribution", ...],
+    tuple["ProjectModuleFacadeAttribution", ...],
+    tuple["ProjectModuleReferenceAttribution", ...],
+    tuple["ProjectModuleOriginPath", ...],
+    tuple["ProjectModuleReferenceProvenance", ...],
+    tuple["ProjectModuleImportDependencyFact", ...],
+    tuple["ProjectModuleDependencyFact", ...],
+    tuple["ProjectModuleSourceFieldOrigin", ...],
+    tuple["ProjectModuleRelationLineage", ...],
+]
+_ATTRIBUTION_FACT_COLLECTION_FIELD_NAMES = (
+    "declarations",
+    "imports",
+    "facades",
+    "references",
+    "origins",
+    "reference_provenance",
+    "module_dependencies",
+    "dependencies",
+    "source_field_origins",
+    "row_lineages",
 )
 
 
@@ -742,9 +779,160 @@ class ProjectModuleRelationLineage:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class _ProjectModuleAttributionAuthority:
+    """Private complete upstream-root and canonical-fact authority.
+
+    This carrier retains the exact preloaded Slice 5--10 roots and derives
+    its complete canonical products from them. Neither category participates
+    in product equality.
+    """
+
+    parse_result: ProjectParseCheckResult = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    selected_input_index: ProjectSelectedInputIndex = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    trusted_source_snapshots: tuple[ProjectTrustedSourceSnapshot, ...] = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    binding_authority: ProjectModuleBindingEnvironmentSet = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    modules: tuple[ProjectLogicalModule, ...] = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    catalogs: ProjectModuleCatalogSet = field(repr=False, compare=False, hash=False)
+    exports: ProjectModuleExportSurfaceSet = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    graph: ProjectModuleGraph = field(repr=False, compare=False, hash=False)
+    module_diagnostic_facts: ProjectModuleDiagnosticSet = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    type_source_resolutions: ProjectTypeSourceResolutionSet = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    relation_resolutions: ProjectModuleRelationResolutionSet = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    declarations: tuple[ProjectModuleDeclarationAttribution, ...] = field(
+        init=False,
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    imports: tuple[ProjectModuleImportAttribution, ...] = field(
+        init=False,
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    facades: tuple[ProjectModuleFacadeAttribution, ...] = field(
+        init=False,
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    references: tuple[ProjectModuleReferenceAttribution, ...] = field(
+        init=False,
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    origins: tuple[ProjectModuleOriginPath, ...] = field(
+        init=False,
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    reference_provenance: tuple[ProjectModuleReferenceProvenance, ...] = field(
+        init=False,
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    module_dependencies: tuple[ProjectModuleImportDependencyFact, ...] = field(
+        init=False,
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    dependencies: tuple[ProjectModuleDependencyFact, ...] = field(
+        init=False,
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    source_field_origins: tuple[ProjectModuleSourceFieldOrigin, ...] = field(
+        init=False,
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    row_lineages: tuple[ProjectModuleRelationLineage, ...] = field(
+        init=False,
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+
+    def __post_init__(self) -> None:
+        """Derive every complete product from the retained exact roots."""
+
+        collections = _derive_project_module_attribution_fact_collections(
+            self.parse_result,
+            self.modules,
+            self.selected_input_index,
+            self.trusted_source_snapshots,
+            self.catalogs,
+            self.exports,
+            self.binding_authority,
+            self.graph,
+            self.module_diagnostic_facts,
+            self.type_source_resolutions,
+            self.relation_resolutions,
+        )
+        for field_name, values in zip(
+            _ATTRIBUTION_FACT_COLLECTION_FIELD_NAMES,
+            collections,
+            strict=True,
+        ):
+            object.__setattr__(self, field_name, values)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ProjectModuleAttributionFactSet:
     """Complete private Slice 11 attribution, provenance, and lineage sidecar."""
 
+    binding_authority: ProjectModuleBindingEnvironmentSet = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    _authority: _ProjectModuleAttributionAuthority = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
     declarations: tuple[ProjectModuleDeclarationAttribution, ...] = ()
     imports: tuple[ProjectModuleImportAttribution, ...] = ()
     facades: tuple[ProjectModuleFacadeAttribution, ...] = ()
@@ -777,6 +965,14 @@ class ProjectModuleAttributionFactSet:
     ] = field(init=False, repr=False, compare=False, hash=False)
 
     def __post_init__(self) -> None:
+        if type(self.binding_authority) is not ProjectModuleBindingEnvironmentSet:
+            raise TypeError("Attribution fact set requires exact binding authority.")
+        if type(self._authority) is not _ProjectModuleAttributionAuthority:
+            raise TypeError("Attribution fact set requires exact private authority.")
+        if self._authority.binding_authority is not self.binding_authority:
+            raise ValueError(
+                "Attribution fact set must retain exact binding authority."
+            )
         collections: tuple[
             tuple[tuple[object, ...], type[object], str],
             ...,
@@ -996,6 +1192,39 @@ class ProjectModuleAttributionFactSet:
         )
         if set(self.dependencies) != expected_dependencies:
             raise ValueError("Dependencies must exactly match retained paths.")
+        expected_imports, expected_module_dependencies = (
+            _binding_authority_attribution_projection(self.binding_authority)
+        )
+        if self.imports != expected_imports:
+            raise ValueError(
+                "Imports must exactly match ordered binding authority requests."
+            )
+        if self.module_dependencies != expected_module_dependencies:
+            raise ValueError(
+                "Module dependencies must exactly match ordered binding authority."
+            )
+        expected_collections = _attribution_fact_collections(self._authority)
+        actual_collections = _attribution_fact_collections(self)
+        if any(
+            supplied != canonical
+            or len(supplied) != len(canonical)
+            or any(
+                item is not expected_item
+                for item, expected_item in zip(
+                    supplied,
+                    canonical,
+                    strict=True,
+                )
+            )
+            for supplied, canonical in zip(
+                actual_collections,
+                expected_collections,
+                strict=True,
+            )
+        ):
+            raise ValueError(
+                "Fact set must retain exact complete canonical authority facts."
+            )
         object.__setattr__(
             self,
             "_origins_by_target",
@@ -1079,23 +1308,31 @@ class ProjectModuleAttributionFactSet:
         return self._row_lineages_by_owner.get(owner, ())
 
 
-def _build_project_module_attribution_fact_set(
+def _derive_project_module_attribution_fact_collections(
+    parse_result: ProjectParseCheckResult,
     modules: tuple[ProjectLogicalModule, ...],
+    selected_input_index: ProjectSelectedInputIndex,
+    trusted_source_snapshots: tuple[ProjectTrustedSourceSnapshot, ...],
     catalogs: ProjectModuleCatalogSet,
     exports: ProjectModuleExportSurfaceSet,
     bindings: ProjectModuleBindingEnvironmentSet,
     graph: ProjectModuleGraph,
+    module_diagnostic_facts: ProjectModuleDiagnosticSet,
     type_source_resolutions: ProjectTypeSourceResolutionSet,
     relation_resolutions: ProjectModuleRelationResolutionSet,
-) -> ProjectModuleAttributionFactSet:
-    """Build pure occurrence-safe facts from the complete Slice 5-10 sidecars."""
+) -> _ProjectModuleAttributionFactCollections:
+    """Derive complete pure facts from the exact Slice 5--10 roots."""
 
     _validate_builder_inputs(
+        parse_result,
         modules,
+        selected_input_index,
+        trusted_source_snapshots,
         catalogs,
         exports,
         bindings,
         graph,
+        module_diagnostic_facts,
         type_source_resolutions,
         relation_resolutions,
     )
@@ -1290,17 +1527,80 @@ def _build_project_module_attribution_fact_set(
     }
     dependencies.sort(key=lambda item: reference_order[item.reference])
 
+    return (
+        declarations,
+        imports,
+        facades,
+        references,
+        origins,
+        reference_provenance,
+        module_dependencies,
+        tuple(dependencies),
+        source_field_origins,
+        row_lineages,
+    )
+
+
+def _build_project_module_attribution_fact_set(
+    parse_result: ProjectParseCheckResult,
+    modules: tuple[ProjectLogicalModule, ...],
+    selected_input_index: ProjectSelectedInputIndex,
+    trusted_source_snapshots: tuple[ProjectTrustedSourceSnapshot, ...],
+    catalogs: ProjectModuleCatalogSet,
+    exports: ProjectModuleExportSurfaceSet,
+    bindings: ProjectModuleBindingEnvironmentSet,
+    graph: ProjectModuleGraph,
+    module_diagnostic_facts: ProjectModuleDiagnosticSet,
+    type_source_resolutions: ProjectTypeSourceResolutionSet,
+    relation_resolutions: ProjectModuleRelationResolutionSet,
+) -> ProjectModuleAttributionFactSet:
+    """Build one private fact set with one self-verifying authority root."""
+
+    authority = _ProjectModuleAttributionAuthority(
+        parse_result=parse_result,
+        selected_input_index=selected_input_index,
+        trusted_source_snapshots=trusted_source_snapshots,
+        binding_authority=bindings,
+        modules=modules,
+        catalogs=catalogs,
+        exports=exports,
+        graph=graph,
+        module_diagnostic_facts=module_diagnostic_facts,
+        type_source_resolutions=type_source_resolutions,
+        relation_resolutions=relation_resolutions,
+    )
     return ProjectModuleAttributionFactSet(
-        declarations=declarations,
-        imports=imports,
-        facades=facades,
-        references=references,
-        origins=origins,
-        reference_provenance=reference_provenance,
-        module_dependencies=module_dependencies,
-        dependencies=tuple(dependencies),
-        source_field_origins=source_field_origins,
-        row_lineages=row_lineages,
+        binding_authority=bindings,
+        _authority=authority,
+        declarations=authority.declarations,
+        imports=authority.imports,
+        facades=authority.facades,
+        references=authority.references,
+        origins=authority.origins,
+        reference_provenance=authority.reference_provenance,
+        module_dependencies=authority.module_dependencies,
+        dependencies=authority.dependencies,
+        source_field_origins=authority.source_field_origins,
+        row_lineages=authority.row_lineages,
+    )
+
+
+def _attribution_fact_collections(
+    source: ProjectModuleAttributionFactSet | _ProjectModuleAttributionAuthority,
+) -> _ProjectModuleAttributionFactCollections:
+    """Return all canonical product collections in one fixed field order."""
+
+    return (
+        source.declarations,
+        source.imports,
+        source.facades,
+        source.references,
+        source.origins,
+        source.reference_provenance,
+        source.module_dependencies,
+        source.dependencies,
+        source.source_field_origins,
+        source.row_lineages,
     )
 
 
@@ -1934,31 +2234,62 @@ def _empty_lineage(
 
 
 def _validate_builder_inputs(
+    parse_result: ProjectParseCheckResult,
     modules: tuple[ProjectLogicalModule, ...],
+    selected_input_index: ProjectSelectedInputIndex,
+    trusted_source_snapshots: tuple[ProjectTrustedSourceSnapshot, ...],
     catalogs: ProjectModuleCatalogSet,
     exports: ProjectModuleExportSurfaceSet,
     bindings: ProjectModuleBindingEnvironmentSet,
     graph: ProjectModuleGraph,
+    module_diagnostic_facts: ProjectModuleDiagnosticSet,
     type_source_resolutions: ProjectTypeSourceResolutionSet,
     relation_resolutions: ProjectModuleRelationResolutionSet,
 ) -> None:
+    if type(parse_result) is not ProjectParseCheckResult:
+        raise TypeError("Attribution builder requires an exact parse result root.")
     if type(modules) is not tuple or any(
         type(module) is not ProjectLogicalModule for module in modules
     ):
         raise TypeError("Attribution builder requires a logical-module tuple.")
+    if type(selected_input_index) is not ProjectSelectedInputIndex:
+        raise TypeError("Attribution builder requires an exact selected-input index.")
+    if type(trusted_source_snapshots) is not tuple or any(
+        type(snapshot) is not ProjectTrustedSourceSnapshot
+        for snapshot in trusted_source_snapshots
+    ):
+        raise TypeError("Attribution builder requires a trusted-source tuple.")
     expected_types = (
         (catalogs, ProjectModuleCatalogSet),
         (exports, ProjectModuleExportSurfaceSet),
         (bindings, ProjectModuleBindingEnvironmentSet),
         (graph, ProjectModuleGraph),
+        (module_diagnostic_facts, ProjectModuleDiagnosticSet),
         (type_source_resolutions, ProjectTypeSourceResolutionSet),
         (relation_resolutions, ProjectModuleRelationResolutionSet),
     )
     for value, expected_type in expected_types:
         if type(value) is not expected_type:
             raise TypeError(f"Attribution builder requires {expected_type.__name__}.")
+    if (
+        not parse_result.ok
+        or parse_result.root is None
+        or parse_result.config_path is None
+        or parse_result.compilation_mode is not ProjectCompilationMode.EXPLICIT_MODULES
+        or parse_result.modules is not modules
+        or parse_result.selected_input_index is not selected_input_index
+        or parse_result.trusted_source_snapshots is not trusted_source_snapshots
+        or parse_result.pinned_root is not selected_input_index.pinned_root
+    ):
+        raise ValueError(
+            "Attribution builder inputs must retain exact parse result roots."
+        )
     lengths = {
         len(modules),
+        len(parse_result.inputs),
+        len(parse_result.parsed_inputs),
+        len(selected_input_index.entries),
+        len(trusted_source_snapshots),
         len(catalogs.catalogs),
         len(exports.surfaces),
         len(bindings.environments),
@@ -1969,6 +2300,8 @@ def _validate_builder_inputs(
     for position, values in enumerate(
         zip(
             modules,
+            selected_input_index.entries,
+            trusted_source_snapshots,
             catalogs.catalogs,
             exports.surfaces,
             bindings.environments,
@@ -1976,17 +2309,29 @@ def _validate_builder_inputs(
             strict=True,
         )
     ):
-        module, catalog, surface, environment, vertex = values
+        module, selected_input, snapshot, catalog, surface, environment, vertex = values
         if (
             module.compilation_mode is not ProjectCompilationMode.EXPLICIT_MODULES
             or module.position != position
             or module.parsed_input is None
+            or module.project_input is not parse_result.inputs[position]
+            or module.parsed_input is not parse_result.parsed_inputs[position]
+            or selected_input.position != position
+            or selected_input_index.find(selected_input.identity) is not selected_input
+            or selected_input.identity != module.identity
+            or snapshot.selected_input is not selected_input
             or catalog.module is not module
             or surface.module is not module
             or environment.module is not module
             or vertex.module is not module
         ):
-            raise ValueError("Attribution inputs must retain selected module order.")
+            raise ValueError(
+                "Attribution inputs must retain exact ordered selected input authority."
+            )
+    if graph.binding_authority is not bindings:
+        raise ValueError(
+            "Attribution graph must retain the exact binding authority object."
+        )
     expected_dependency_order = _dependency_first_identities(graph)
     if (
         type_source_resolutions.dependency_order != expected_dependency_order
@@ -2014,7 +2359,6 @@ def _validate_builder_inputs(
     expected_acyclic = {module.path for module in modules} - cyclic_paths
     if set(dependency_paths) != expected_acyclic:
         raise ValueError("Attribution resolvers must cover every acyclic module.")
-
     catalog_by_path = {catalog.module.path: catalog for catalog in catalogs.catalogs}
     type_environment_by_path = {
         environment.module.path: environment
@@ -2114,6 +2458,559 @@ def _validate_builder_inputs(
         )
         if component.internal_edges != expected_internal:
             raise ValueError("Module component internal edges must be complete.")
+    _validate_resolution_identity_closure(
+        modules,
+        catalogs,
+        exports,
+        bindings,
+        graph,
+        module_diagnostic_facts,
+        type_source_resolutions,
+        relation_resolutions,
+    )
+
+
+def _validate_resolution_identity_closure(
+    modules: tuple[ProjectLogicalModule, ...],
+    catalogs: ProjectModuleCatalogSet,
+    exports: ProjectModuleExportSurfaceSet,
+    bindings: ProjectModuleBindingEnvironmentSet,
+    graph: ProjectModuleGraph,
+    module_diagnostic_facts: ProjectModuleDiagnosticSet,
+    type_source_resolutions: ProjectTypeSourceResolutionSet,
+    relation_resolutions: ProjectModuleRelationResolutionSet,
+) -> None:
+    """Bind every resolver evidence leaf to the exact retained input roots."""
+
+    diagnostic_authority = module_diagnostic_facts._canonical_authority
+    if (
+        diagnostic_authority.graph is not graph
+        or diagnostic_authority.exports is not exports
+        or diagnostic_authority.binding_authority is not bindings
+    ):
+        raise ValueError(
+            "Attribution diagnostics must retain exact canonical authority roots."
+        )
+    expected_module_diagnostic_facts = _build_project_module_diagnostic_set(
+        graph,
+        exports,
+        bindings,
+    )
+    if module_diagnostic_facts != expected_module_diagnostic_facts:
+        raise ValueError(
+            "Attribution diagnostics must match the canonical current outcome."
+        )
+    expected_type_source_resolutions = _build_project_type_source_resolution_set(
+        modules,
+        catalogs,
+        exports,
+        bindings,
+        graph,
+        expected_module_diagnostic_facts,
+    )
+    if type_source_resolutions != expected_type_source_resolutions:
+        raise ValueError(
+            "Attribution resolvers must match canonical current resolution outcomes."
+        )
+    expected_relation_resolutions = _build_project_module_relation_resolution_set(
+        modules,
+        catalogs,
+        exports,
+        bindings,
+        graph,
+        expected_module_diagnostic_facts,
+        expected_type_source_resolutions,
+    )
+    if relation_resolutions != expected_relation_resolutions:
+        raise ValueError(
+            "Attribution resolvers must match canonical current resolution outcomes."
+        )
+
+    module_by_path = {module.path: module for module in modules}
+    occurrences: tuple[object, ...] = tuple(
+        occurrence
+        for catalog in catalogs.catalogs
+        for occurrence in catalog.occurrences
+    )
+    occurrence_identities: tuple[object, ...] = tuple(
+        occurrence.identity
+        for catalog in catalogs.catalogs
+        for occurrence in catalog.occurrences
+    )
+    select_items: tuple[object, ...] = tuple(
+        select_item
+        for catalog in catalogs.catalogs
+        for occurrence in catalog.occurrences
+        if type(occurrence.definition) in {TableDef, QueryDef}
+        for select_item in cast(TableDef | QueryDef, occurrence.definition).select_items
+    )
+    shape_field_defs: tuple[object, ...] = tuple(
+        field_def
+        for catalog in catalogs.catalogs
+        for occurrence in catalog.occurrences
+        if type(occurrence.definition) is ShapeDef
+        for field_def in cast(ShapeDef, occurrence.definition).fields
+    )
+    imported_bindings_by_path: dict[str, tuple[object, ...]] = {
+        environment.module.path: tuple(environment.bindings)
+        for environment in bindings.environments
+    }
+    binding_issues: tuple[object, ...] = tuple(
+        issue for environment in bindings.environments for issue in environment.issues
+    )
+    graph_cycles: tuple[object, ...] = tuple(graph.cycles)
+    module_diagnostics: tuple[object, ...] = tuple(
+        fact.diagnostic for fact in module_diagnostic_facts.facts
+    )
+    expected_module_diagnostics: tuple[object, ...] = module_diagnostics
+    if not _same_exact_objects(
+        tuple(module_diagnostic_facts.diagnostics),
+        expected_module_diagnostics,
+    ):
+        raise ValueError(
+            "Attribution diagnostic facts must retain exact current roots."
+        )
+    graph_issues: tuple[object, ...] = tuple(graph.issues)
+    export_issues: tuple[object, ...] = tuple(
+        issue for surface in exports.surfaces for issue in surface.issues
+    )
+    for fact in module_diagnostic_facts.facts:
+        if not (
+            _all_exact_members(tuple(fact.graph_issues), graph_issues)
+            and _all_exact_members(tuple(fact.export_issues), export_issues)
+            and _all_exact_members(tuple(fact.binding_issues), binding_issues)
+        ):
+            raise ValueError(
+                "Attribution diagnostic facts must retain exact current roots."
+            )
+
+    expected_dependency_order = tuple(_dependency_first_identities(graph))
+    if not _same_exact_objects(
+        tuple(type_source_resolutions.dependency_order),
+        expected_dependency_order,
+    ) or not _same_exact_objects(
+        tuple(relation_resolutions.dependency_order),
+        expected_dependency_order,
+    ):
+        raise ValueError("Attribution resolver facts must retain exact current roots.")
+
+    _validate_type_source_identity_closure(
+        type_source_resolutions,
+        module_by_path=module_by_path,
+        occurrences=occurrences,
+        occurrence_identities=occurrence_identities,
+        imported_bindings_by_path=imported_bindings_by_path,
+        binding_issues=binding_issues,
+        graph_cycles=graph_cycles,
+        module_diagnostics=module_diagnostics,
+    )
+    _validate_relation_identity_closure(
+        relation_resolutions,
+        expected_resolutions=expected_relation_resolutions,
+        type_source_resolutions=type_source_resolutions,
+        module_by_path=module_by_path,
+        occurrences=occurrences,
+        select_items=select_items,
+        shape_field_defs=shape_field_defs,
+        imported_bindings_by_path=imported_bindings_by_path,
+        binding_issues=binding_issues,
+        graph_cycles=graph_cycles,
+        module_diagnostics=module_diagnostics,
+    )
+
+
+def _validate_type_source_identity_closure(
+    resolutions: ProjectTypeSourceResolutionSet,
+    *,
+    module_by_path: Mapping[str, ProjectLogicalModule],
+    occurrences: tuple[object, ...],
+    occurrence_identities: tuple[object, ...],
+    imported_bindings_by_path: Mapping[str, tuple[object, ...]],
+    binding_issues: tuple[object, ...],
+    graph_cycles: tuple[object, ...],
+    module_diagnostics: tuple[object, ...],
+) -> None:
+    type_references: list[object] = []
+    source_references: list[object] = []
+    environment_issues: list[object] = []
+    for environment in resolutions.environments:
+        if module_by_path.get(environment.module.path) is not environment.module:
+            raise ValueError(
+                "Attribution resolver facts must retain exact current roots."
+            )
+        symbols: tuple[object, ...] = tuple(environment.symbols)
+        for symbol in environment.symbols:
+            if (
+                not _is_exact_member(symbol.target_occurrence, occurrences)
+                or symbol.target_identity is not symbol.target_occurrence.identity
+                or (
+                    symbol.local_occurrence is not None
+                    and (
+                        symbol.local_occurrence is not symbol.target_occurrence
+                        or not _is_exact_member(symbol.local_occurrence, occurrences)
+                    )
+                )
+                or (
+                    symbol.imported_binding is not None
+                    and not _is_exact_member(
+                        symbol.imported_binding,
+                        imported_bindings_by_path.get(
+                            symbol.owning_module_path,
+                            (),
+                        ),
+                    )
+                )
+            ):
+                raise ValueError(
+                    "Attribution resolver facts must retain exact current roots."
+                )
+        for resolution in environment.type_resolutions:
+            type_references.append(resolution.reference)
+            if (
+                not _is_exact_member(resolution.reference.owner, occurrences)
+                or not _type_reference_retains_exact_ast(resolution.reference)
+                or (
+                    resolution.direct_symbol is not None
+                    and not _is_exact_member(resolution.direct_symbol, symbols)
+                )
+                or (
+                    resolution.canonical_target_identity is not None
+                    and not _is_exact_member(
+                        resolution.canonical_target_identity,
+                        occurrence_identities,
+                    )
+                )
+                or not _all_exact_members(
+                    tuple(resolution.alias_chain),
+                    occurrence_identities,
+                )
+            ):
+                raise ValueError(
+                    "Attribution resolver facts must retain exact current roots."
+                )
+        current_source_references = tuple(environment.source_shape_references)
+        source_references.extend(current_source_references)
+        if any(
+            not _is_exact_member(reference.owner, occurrences)
+            or reference.source is not reference.owner.definition
+            for reference in current_source_references
+        ) or any(
+            not _is_exact_member(resolution.reference, current_source_references)
+            or not _is_exact_member(resolution.target_symbol, symbols)
+            for resolution in environment.source_shape_resolutions
+        ):
+            raise ValueError(
+                "Attribution resolver facts must retain exact current roots."
+            )
+        environment_issues.extend(environment.issues)
+
+    retained_type_references = tuple(type_references)
+    retained_source_references = tuple(source_references)
+    for issue in resolutions.issues:
+        if not (
+            _all_exact_members(tuple(issue.occurrences), occurrences)
+            and (
+                issue.type_reference is None
+                or _is_exact_member(issue.type_reference, retained_type_references)
+            )
+            and (
+                issue.source_reference is None
+                or _is_exact_member(issue.source_reference, retained_source_references)
+            )
+            and _all_exact_members(tuple(issue.binding_issues), binding_issues)
+            and (issue.cycle is None or _is_exact_member(issue.cycle, graph_cycles))
+            and _all_exact_members(tuple(issue.alias_cycle), occurrence_identities)
+            and _all_exact_members(
+                tuple(issue.suppressing_diagnostics),
+                module_diagnostics,
+            )
+        ):
+            raise ValueError(
+                "Attribution resolver facts must retain exact current roots."
+            )
+    retained_environment_issues = tuple(environment_issues)
+    if not _same_exact_objects(
+        tuple(resolutions.issues[: len(retained_environment_issues)]),
+        retained_environment_issues,
+    ):
+        raise ValueError("Attribution resolver facts must retain exact current roots.")
+    emitted_diagnostics: tuple[object, ...] = tuple(
+        issue.diagnostic for issue in resolutions.issues if issue.diagnostic is not None
+    )
+    if not _same_exact_objects(tuple(resolutions.diagnostics), emitted_diagnostics):
+        raise ValueError("Attribution resolver facts must retain exact current roots.")
+
+
+def _validate_relation_identity_closure(
+    resolutions: ProjectModuleRelationResolutionSet,
+    *,
+    expected_resolutions: ProjectModuleRelationResolutionSet,
+    type_source_resolutions: ProjectTypeSourceResolutionSet,
+    module_by_path: Mapping[str, ProjectLogicalModule],
+    occurrences: tuple[object, ...],
+    select_items: tuple[object, ...],
+    shape_field_defs: tuple[object, ...],
+    imported_bindings_by_path: Mapping[str, tuple[object, ...]],
+    binding_issues: tuple[object, ...],
+    graph_cycles: tuple[object, ...],
+    module_diagnostics: tuple[object, ...],
+) -> None:
+    references: list[object] = []
+    environment_issues: list[object] = []
+    for environment, expected_environment in zip(
+        resolutions.environments,
+        expected_resolutions.environments,
+        strict=True,
+    ):
+        if module_by_path.get(environment.module.path) is not environment.module:
+            raise ValueError(
+                "Attribution resolver facts must retain exact current roots."
+            )
+        symbols: tuple[object, ...] = tuple(environment.symbols)
+        for symbol in environment.symbols:
+            if (
+                not _is_exact_member(symbol.target_occurrence, occurrences)
+                or symbol.target_identity is not symbol.target_occurrence.identity
+                or (
+                    symbol.local_occurrence is not None
+                    and (
+                        symbol.local_occurrence is not symbol.target_occurrence
+                        or not _is_exact_member(symbol.local_occurrence, occurrences)
+                    )
+                )
+                or (
+                    symbol.imported_binding is not None
+                    and not _is_exact_member(
+                        symbol.imported_binding,
+                        imported_bindings_by_path.get(
+                            symbol.owning_module_path,
+                            (),
+                        ),
+                    )
+                )
+            ):
+                raise ValueError(
+                    "Attribution resolver facts must retain exact current roots."
+                )
+        current_references = tuple(environment.references)
+        references.extend(current_references)
+        row_fields_retain_exact_ast = all(
+            fact.owner is expected_fact.owner
+            and _row_state_retains_exact_ast(fact, expected_fact)
+            for fact, expected_fact in zip(
+                environment.row_facts,
+                expected_environment.row_facts,
+                strict=True,
+            )
+        )
+        if (
+            any(
+                not _is_exact_member(reference.owner, occurrences)
+                or not _relation_reference_retains_exact_ast(reference)
+                for reference in current_references
+            )
+            or any(
+                not _is_exact_member(resolution.reference, current_references)
+                or not _is_exact_member(resolution.target_symbol, symbols)
+                for resolution in environment.resolutions
+            )
+            or any(
+                not _is_exact_member(fact.owner, occurrences)
+                or (
+                    fact.state.schema is not None
+                    and any(
+                        row_field.field_def is not None
+                        and not _is_exact_member(row_field.field_def, shape_field_defs)
+                        for row_field in fact.state.schema.fields.values()
+                    )
+                )
+                for fact in environment.row_facts
+            )
+            or not row_fields_retain_exact_ast
+        ):
+            raise ValueError(
+                "Attribution resolver facts must retain exact current roots."
+            )
+        environment_issues.extend(environment.issues)
+
+    retained_references = tuple(references)
+    type_issues: tuple[object, ...] = tuple(type_source_resolutions.issues)
+    relation_diagnostics: tuple[object, ...] = tuple(resolutions.diagnostics)
+    suppressing_diagnostics = (
+        *module_diagnostics,
+        *tuple(type_source_resolutions.diagnostics),
+        *relation_diagnostics,
+    )
+    for issue_position, (issue, expected_issue) in enumerate(
+        zip(
+            resolutions.issues,
+            expected_resolutions.issues,
+            strict=True,
+        )
+    ):
+        relation_roots = tuple(
+            root
+            for root in issue.suppressing_diagnostics
+            if _is_exact_member(root, relation_diagnostics)
+        )
+        retains_exact_relation_roots = not relation_roots
+        if (
+            relation_roots
+            and issue.status
+            is ProjectModuleRelationResolutionIssueStatus.MODULE_DIAGNOSTIC_BLOCKED
+            and len(issue.occurrences) == 1
+        ):
+            target_occurrence = issue.occurrences[0]
+            retains_exact_relation_roots = _same_exact_objects(
+                tuple(issue.suppressing_diagnostics),
+                _exact_imported_target_blocker_roots(
+                    tuple(resolutions.issues[:issue_position]),
+                    target_identity=target_occurrence.identity,
+                    target_occurrence=target_occurrence,
+                ),
+            )
+        if not (
+            retains_exact_relation_roots
+            and _all_exact_members(tuple(issue.occurrences), occurrences)
+            and (
+                issue.reference is None
+                or _is_exact_member(issue.reference, retained_references)
+            )
+            and (
+                issue.select_item is None
+                or (
+                    _is_exact_member(issue.select_item, select_items)
+                    and issue.select_item is expected_issue.select_item
+                    and issue.reference is not None
+                    and type(issue.reference.owner.definition) in {TableDef, QueryDef}
+                    and any(
+                        issue.select_item is retained_item
+                        for retained_item in cast(
+                            TableDef | QueryDef,
+                            issue.reference.owner.definition,
+                        ).select_items
+                    )
+                )
+            )
+            and _all_exact_members(tuple(issue.binding_issues), binding_issues)
+            and (
+                issue.module_cycle is None
+                or _is_exact_member(issue.module_cycle, graph_cycles)
+            )
+            and _all_exact_members(tuple(issue.relation_cycle), occurrences)
+            and _all_exact_members(tuple(issue.type_source_issues), type_issues)
+            and _all_exact_members(
+                tuple(issue.suppressing_diagnostics),
+                suppressing_diagnostics,
+            )
+        ):
+            raise ValueError(
+                "Attribution resolver facts must retain exact current roots."
+            )
+    retained_environment_issues = tuple(environment_issues)
+    if not _same_exact_objects(
+        tuple(resolutions.issues[: len(retained_environment_issues)]),
+        retained_environment_issues,
+    ):
+        raise ValueError("Attribution resolver facts must retain exact current roots.")
+    emitted_diagnostics: tuple[object, ...] = tuple(
+        issue.diagnostic for issue in resolutions.issues if issue.diagnostic is not None
+    )
+    if not _same_exact_objects(tuple(resolutions.diagnostics), emitted_diagnostics):
+        raise ValueError("Attribution resolver facts must retain exact current roots.")
+
+
+def _is_exact_member(value: object, values: tuple[object, ...]) -> bool:
+    return any(value is candidate for candidate in values)
+
+
+def _type_reference_retains_exact_ast(
+    reference: ProjectModuleTypeReference,
+) -> bool:
+    definition = reference.owner.definition
+    if reference.role is ProjectModuleTypeReferenceRole.TYPE_ALIAS_BASE:
+        return type(definition) is TypeDef and reference.type_expr is definition.base
+    return (
+        type(definition) is ShapeDef
+        and reference.member_position < len(definition.fields)
+        and reference.type_expr
+        is definition.fields[reference.member_position].type_expr
+    )
+
+
+def _relation_reference_retains_exact_ast(
+    reference: ProjectModuleRelationReference,
+) -> bool:
+    definition = reference.owner.definition
+    return type(definition) in {TableDef, QueryDef} and (
+        reference.from_clause is cast(TableDef | QueryDef, definition).from_clause
+    )
+
+
+def _row_state_retains_exact_ast(
+    fact: ProjectModuleRelationRowFact,
+    expected_fact: ProjectModuleRelationRowFact,
+) -> bool:
+    """Compare only stable AST leaves across a fresh canonical row rederive."""
+
+    schema = fact.state.schema
+    expected_schema = expected_fact.state.schema
+    if schema is None or expected_schema is None:
+        return schema is expected_schema
+    if tuple(schema.fields) != tuple(expected_schema.fields):
+        return False
+    return all(
+        _row_field_retains_exact_ast(
+            schema.fields[name],
+            expected_schema.fields[name],
+        )
+        for name in schema.fields
+    )
+
+
+def _row_field_retains_exact_ast(
+    field: ProjectRowField,
+    expected_field: ProjectRowField,
+) -> bool:
+    if field.field_def is not expected_field.field_def:
+        return False
+    symbol = field.resolved_type.symbol
+    expected_symbol = expected_field.resolved_type.symbol
+    if (symbol is None) is not (expected_symbol is None):
+        return False
+    if (
+        symbol is not None
+        and expected_symbol is not None
+        and symbol.definition is not expected_symbol.definition
+    ):
+        return False
+    provenance_symbol = None if field.provenance is None else field.provenance.symbol
+    expected_provenance_symbol = (
+        None if expected_field.provenance is None else expected_field.provenance.symbol
+    )
+    if (provenance_symbol is None) is not (expected_provenance_symbol is None):
+        return False
+    return (
+        provenance_symbol is None
+        or expected_provenance_symbol is not None
+        and provenance_symbol.definition is expected_provenance_symbol.definition
+    )
+
+
+def _all_exact_members(
+    values: tuple[object, ...],
+    authority: tuple[object, ...],
+) -> bool:
+    return all(_is_exact_member(value, authority) for value in values)
+
+
+def _same_exact_objects(
+    values: tuple[object, ...],
+    authority: tuple[object, ...],
+) -> bool:
+    return len(values) == len(authority) and all(
+        value is expected for value, expected in zip(values, authority, strict=True)
+    )
 
 
 def _dependency_first_identities(
@@ -2174,6 +3071,39 @@ def _import_identity(
         module_statement_position=request.module_statement_position,
         item_position=request.item_position,
     )
+
+
+def _binding_authority_attribution_projection(
+    binding_authority: ProjectModuleBindingEnvironmentSet,
+) -> tuple[
+    tuple[ProjectModuleImportAttribution, ...],
+    tuple[ProjectModuleImportDependencyFact, ...],
+]:
+    """Project complete ordered import and direct dependency facts."""
+
+    imports = tuple(
+        ProjectModuleImportAttribution(
+            identity=_import_identity(request),
+            request=request,
+        )
+        for environment in binding_authority.environments
+        for request in environment.requests
+    )
+    module_dependencies = tuple(
+        ProjectModuleImportDependencyFact(
+            import_occurrence=_import_identity(request),
+            origin=environment.module.identity,
+            target=selected_targets[0].module.identity,
+        )
+        for environment in binding_authority.environments
+        for request in environment.requests
+        if (
+            selected_targets := binding_authority.find_module_path(
+                request.target_module_path
+            )
+        )
+    )
+    return imports, module_dependencies
 
 
 def _facade_identity(

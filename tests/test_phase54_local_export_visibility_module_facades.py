@@ -26,10 +26,14 @@ from _phase54_active_gate2_manifest import (
     PHASE54_SLICE10_ORIGINAL_ADDED_PATHS,
     PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS,
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE,
+    PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BRANCH,
+    PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
     Phase54Gate2RepositoryState,
     _matches_phase54_active_gate2_manifest,
     phase54_active_gate2_manifest_is_active,
     phase54_slice11_pr_ci_repair_is_active,
+    phase54_slice11_substantive_recovery_is_active,
 )
 from pietto._project.json_v2 import project_check_result_to_json_dict
 from pietto._project.model import (
@@ -1120,7 +1124,17 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
 ) -> None:
     gate2_active = phase54_active_gate2_manifest_is_active()
     repair_gate2_active = phase54_slice11_pr_ci_repair_is_active()
+    recovery_gate2_active = phase54_slice11_substantive_recovery_is_active()
     assert _matches_phase54_active_gate2_manifest(_active_state())
+    recovery_state = replace(
+        _active_state(),
+        branch_oid=PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE,
+        branch_head=PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BRANCH,
+        branch_upstream=f"origin/{PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BRANCH}",
+        added_paths=frozenset(),
+        modified_paths=PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
+    )
+    assert _matches_phase54_active_gate2_manifest(recovery_state)
     for changed in (
         replace(_active_state(), marker="PHASE54_SLICE9_GATE2"),
         replace(_active_state(), branch_oid="0" * 40),
@@ -1215,7 +1229,7 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
     assert len(PHASE54_SLICE10_ORIGINAL_ADDED_PATHS) == 3
     assert len(PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS) == 69
     assert len(PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 3
-    assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 69
+    assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 72
     assert PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
     assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE == (
         "17a5b01e555930537334d4d0bcf3480e332b7e91"
@@ -1286,8 +1300,11 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
         PHASE54_ACTIVE_GATE2_ADDED_PATHS | PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
     )
     repair_allowlist = set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS)
-    assert dirty in (set(), active_allowlist, repair_allowlist)
-    if dirty == repair_allowlist:
+    recovery_allowlist = set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS)
+    assert dirty in (set(), active_allowlist, repair_allowlist, recovery_allowlist)
+    if dirty == recovery_allowlist:
+        assert recovery_gate2_active
+    elif dirty == repair_allowlist:
         assert repair_gate2_active
     elif dirty:
         assert gate2_active

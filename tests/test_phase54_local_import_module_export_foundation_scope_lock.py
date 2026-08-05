@@ -702,7 +702,7 @@ def test_authority_hierarchy_grounding_and_historical_predecessors_are_exact() -
         "8c3656805db451946d60e341b8ac0ca9181997378d07576133c9c4aeef3e3f77"
     )
     assert _sha256("tests/test_phase50_import_module_export_readiness.py") == (
-        "3586b41f207b12002ef0a71fad633a6feda9b4f6b9d21305eac8a8862959fdf1"
+        "d1427693b7088076c4f53605caed4f64cf21488974faa3dc3e54a5a1a2ee0a3d"
     )
     scope = _read(SCOPE_REL)
     roadmap = _read(ROADMAP_V2_REL)
@@ -1098,13 +1098,13 @@ def test_flat_catalog_collect_before_resolve_semantic_and_project_fact_surfaces_
     project = tuple((REPO_ROOT / "src/pietto/_project").glob("*.py"))
     assert len(compiler) == 104
     assert _digest(compiler) == (
-        "91ee36d14fa9867c26a614140e2031cc31391d6d5eaad06ca48342fd159b98d6"
+        "ff84f85769a284b70fba5bc89c16926817131663b59cf740866660ebc72813d4"
     )
     assert _digest(semantic) == (
         "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
     )
     assert _digest(project) == (
-        "327801df642081679013ebb4d0409791bc2d2db2d9308ae74d41b9ccf57450f7"
+        "8613fe48154768889b06c7bfa5eff5733da2bd727001f64545eb440dc9233b72"
     )
     assert len(project) == 29
     model = _read("src/pietto/_project/model.py")
