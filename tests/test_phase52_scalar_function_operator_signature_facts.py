@@ -12,7 +12,13 @@ from typing import Any, cast
 from _phase54_active_gate2_manifest import (
     PHASE54_ACTIVE_GATE2_ADDED_PATHS,
     PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
-    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
+    PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
+    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    phase54_slice11_pr_ci_repair_is_active,
+    phase54_slice11_python313_repair_is_active,
+    phase54_slice11_substantive_recovery_is_active,
 )
 
 import pytest
@@ -79,7 +85,7 @@ FACTS_SHA256 = "bd68bad4e13a2b945962458fc47359a408d27b1563ba25f5713a8f8099671d21
 LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26"
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 PROJECT_PRIVATE_DIGEST = (
-    "394e07ec91ed57359c64aff62b0709036860585843044d024585d8baa2e4381a"
+    "8613fe48154768889b06c7bfa5eff5733da2bd727001f64545eb440dc9233b72"
 )
 TIER2_MANIFEST_BYTES = 18319
 TIER2_MANIFEST_FILES = 108
@@ -335,6 +341,7 @@ def _slice13_paths(name: str) -> set[str]:
         "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16",
         "027b33cafcfd58916a89e299487dad38d24ade6c",
         "0ceb9a476e6592714cdc76845949ba0ae5123eb5",
+        "b81843acadb294630db361c09949868d004b1bca",
     }:
         modified, added = _phase54_slice2_paths()
         if name == "MODIFIED_PATHS":
@@ -1330,11 +1337,11 @@ def test_compiler_semantic_subset_project_and_raw_hash_readers_are_exact() -> No
     )
     project_paths = _project_private_paths()
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        103,
+        104,
         36,
         33,
     )
-    assert len(project_paths) == 28
+    assert len(project_paths) == 29
     assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
 
     tracked = tuple(_git_output(["ls-files"]).splitlines())
@@ -1426,7 +1433,12 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     slice13_modified = _slice13_paths("MODIFIED_PATHS")
     slice13_added = _slice13_paths("ADDED_PATHS")
     slice13_allowlist = slice13_modified | slice13_added
-    repair_gate2_active = _phase54_product_repair9_gate2_is_active()
+    repair_gate2_active = _phase54_slice11_gate2_is_active()
+    slice11_pr_ci_repair_active = phase54_slice11_pr_ci_repair_is_active()
+    slice11_python313_repair_active = phase54_slice11_python313_repair_is_active()
+    slice11_substantive_recovery_active = (
+        phase54_slice11_substantive_recovery_is_active()
+    )
     assert repair_gate2_active or dirty in (
         set(),
         ALLOWLIST_PATHS,
@@ -1446,7 +1458,16 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     main = _git_optional_ref("refs/heads/main")
     origin_main = _git_optional_ref("refs/remotes/origin/main")
     origin_pr_head = _git_optional_ref(PR_REPAIR_GATE2_ORIGIN_REF)
-    if repair_gate2_active:
+    if slice11_python313_repair_active:
+        assert tracked == set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS)
+        assert untracked == set()
+    elif slice11_substantive_recovery_active:
+        assert tracked == set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS)
+        assert untracked == set()
+    elif slice11_pr_ci_repair_active:
+        assert tracked == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS)
+        assert untracked == set()
+    elif repair_gate2_active:
         assert tracked == set(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS)
         assert untracked == set(PHASE54_ACTIVE_GATE2_ADDED_PATHS)
     elif not dirty:
@@ -1474,6 +1495,7 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
             "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16",
             "027b33cafcfd58916a89e299487dad38d24ade6c",
             "0ceb9a476e6592714cdc76845949ba0ae5123eb5",
+            "b81843acadb294630db361c09949868d004b1bca",
         )
     elif dirty == SLICE9_ALLOWLIST_PATHS:
         status = tuple(_git_output(["diff", "--name-status"]).splitlines())
@@ -1548,7 +1570,7 @@ def test_static_test_inventory_tier1_and_tier2_manifest_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (459, 5127)
+    assert (len(test_files), top_level_functions) == (460, 5171)
     assert len(DIRECT_TIER1_NODES) == len(set(DIRECT_TIER1_NODES)) == 44
     for node_id in DIRECT_TIER1_NODES:
         path, function = node_id.split("::", maxsplit=1)

@@ -18,7 +18,13 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
-    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
+    PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
+    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    phase54_slice11_pr_ci_repair_is_active,
+    phase54_slice11_python313_repair_is_active,
+    phase54_slice11_substantive_recovery_is_active,
 )
 
 import pytest
@@ -923,7 +929,7 @@ def test_cross_phase_transition_and_live_identifier_inventory_is_exact() -> None
 def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> None:
     compiler_digest = _compiler_digest()
     assert compiler_digest == (
-        "3d22a6e583e238b723d2dc20a7f809e3196a5ccae30fc54deaeb7d9a6b56dc1d"
+        "ff84f85769a284b70fba5bc89c16926817131663b59cf740866660ebc72813d4"
     )
     for relative_path in BOUNDARY_PATHS:
         boundary_values = re.findall(
@@ -946,14 +952,14 @@ def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> N
         )
     )
     project_digest = _digest(project_paths)
-    assert len(project_paths) == 28
+    assert len(project_paths) == 29
     assert project_digest == (
-        "394e07ec91ed57359c64aff62b0709036860585843044d024585d8baa2e4381a"
+        "8613fe48154768889b06c7bfa5eff5733da2bd727001f64545eb440dc9233b72"
     )
     phase33 = _read(REPO_ROOT / "tests/test_phase33_completion_audit.py")
     assert (
         f'"project_private": (\n        "src/pietto/_project",\n'
-        f'        28,\n        "{project_digest}",\n    ),'
+        f'        29,\n        "{project_digest}",\n    ),'
     ) in phase33
 
     for relative_path in (
@@ -961,7 +967,7 @@ def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> N
         "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
     ):
         source = _read(REPO_ROOT / relative_path)
-        assert "assert len(project_paths) == 28" in source
+        assert "assert len(project_paths) == 29" in source
     stale_count_assertion = "assert len(project_paths) == " + "15"
     assert all(
         stale_count_assertion not in _read(path)
@@ -1127,6 +1133,9 @@ def test_slice11_contract_plan_allowlist_and_protected_boundaries_are_locked() -
         PHASE52_GATE2_PATHS,
         CI_REPAIR_MODIFIED_PATHS,
         slice2_modified | slice2_added,
+        set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS),
+        set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS),
+        set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS),
     )
     untracked_paths = set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
@@ -1137,7 +1146,15 @@ def test_slice11_contract_plan_allowlist_and_protected_boundaries_are_locked() -
         PHASE52_UNTRACKED_PATHS,
         slice2_added,
     )
-    if dirty_paths == CI_REPAIR_MODIFIED_PATHS:
+    if dirty_paths == set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS):
+        assert phase54_slice11_python313_repair_is_active()
+        assert untracked_paths == set()
+    elif dirty_paths == set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS):
+        assert phase54_slice11_substantive_recovery_is_active()
+    elif dirty_paths == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS):
+        assert phase54_slice11_pr_ci_repair_is_active()
+        assert untracked_paths == set()
+    elif dirty_paths == CI_REPAIR_MODIFIED_PATHS:
         assert untracked_paths == set()
         assert set(_git_output(["diff", "--name-only"]).splitlines()) == (
             CI_REPAIR_MODIFIED_PATHS
@@ -1173,9 +1190,10 @@ def test_slice11_contract_plan_allowlist_and_protected_boundaries_are_locked() -
             expected_head = SLICE8_BASE_HEAD_SHA
         elif path_counts == SLICE9_PATH_COUNTS:
             expected_head = SLICE9_BASE_HEAD_SHA
-        if _phase54_product_repair9_gate2_is_active():
+        if _phase54_slice11_gate2_is_active():
             active_head = _git_output(["rev-parse", "HEAD"])
             assert active_head in {
+                "b81843acadb294630db361c09949868d004b1bca",
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,

@@ -94,6 +94,7 @@ _COLLISION_ISSUE_STATUSES = frozenset(
 )
 _DefinitionT = SourceDef | TableDef | QueryDef
 _KeyT = TypeVar("_KeyT")
+_ObjectT = TypeVar("_ObjectT")
 _ValueT = TypeVar("_ValueT")
 
 
@@ -887,26 +888,26 @@ def _collect_imported_symbols(
         target_environment = environment_by_path.get(nominal_target_path)
         if target_environment is None:
             raise ValueError("Imported nominal relation target must precede importer.")
+        target_occurrences = catalogs.find_identity(binding.target_identity)
+        if (
+            len(target_occurrences) != 1
+            or target_occurrences[0].identity is not binding.target_identity
+        ):
+            raise ValueError("Imported relation target must have one exact occurrence.")
+        target_occurrence = target_occurrences[0]
         target_symbols = tuple(
             symbol
             for symbol in target_environment.symbols
             if symbol.local_occurrence is not None
-            and symbol.target_identity == binding.target_identity
+            and symbol.target_identity is binding.target_identity
+            and symbol.target_occurrence is target_occurrence
         )
         if len(target_symbols) != 1:
-            roots = tuple(
-                issue.diagnostic
-                for issue in target_environment.issues
-                if issue.local_name == binding.target_identity.declared_name
-                and issue.diagnostic is not None
+            roots = _exact_imported_target_blocker_roots(
+                target_environment.issues,
+                target_identity=binding.target_identity,
+                target_occurrence=target_occurrence,
             )
-            if not roots:
-                roots = tuple(
-                    diagnostic
-                    for issue in target_environment.issues
-                    if issue.local_name == binding.target_identity.declared_name
-                    for diagnostic in issue.suppressing_diagnostics
-                )
             if not roots:
                 raise ValueError("Blocked nominal relation target requires its root.")
             span = (
@@ -924,24 +925,67 @@ def _collect_imported_symbols(
                         location,
                         tuple(root.location for root in roots),
                     ),
-                    occurrences=tuple(catalogs.find_identity(binding.target_identity)),
-                    suppressing_diagnostics=tuple(dict.fromkeys(roots)),
+                    occurrences=(target_occurrence,),
+                    suppressing_diagnostics=roots,
                 )
             )
             draft.blocked_names.add(local_name)
             continue
-        occurrences = catalogs.find_identity(binding.target_identity)
-        if len(occurrences) != 1:
-            raise ValueError("Imported relation target must have one exact occurrence.")
         draft.symbols.append(
             ProjectResolvedModuleRelationSymbol(
                 owning_module_path=draft.module.path,
                 local_name=local_name,
                 target_identity=binding.target_identity,
-                target_occurrence=occurrences[0],
+                target_occurrence=target_occurrence,
                 imported_binding=binding,
             )
         )
+
+
+def _exact_imported_target_blocker_roots(
+    issues: tuple[ProjectModuleRelationResolutionIssue, ...],
+    *,
+    target_identity: ProjectNominalDeclarationIdentity,
+    target_occurrence: ProjectDeclarationOccurrence,
+) -> tuple[Diagnostic, ...]:
+    """Return canonical roots that structurally block one exact import target."""
+
+    if target_occurrence.identity is not target_identity:
+        raise ValueError("Imported blocker target must retain its exact identity.")
+    roots: list[Diagnostic] = []
+    causal_statuses = {
+        ProjectModuleRelationResolutionIssueStatus.AMBIGUOUS_LOCAL_RELATION_NAME,
+        ProjectModuleRelationResolutionIssueStatus.MODULE_DIAGNOSTIC_BLOCKED,
+        ProjectModuleRelationResolutionIssueStatus.TYPE_SOURCE_DIAGNOSTIC_BLOCKED,
+    }
+    for issue in issues:
+        if (
+            issue.status not in causal_statuses
+            or issue.owning_module_path != target_identity.module_path
+        ):
+            continue
+        retains_target = any(
+            occurrence is target_occurrence for occurrence in issue.occurrences
+        ) or (
+            issue.status
+            is ProjectModuleRelationResolutionIssueStatus.MODULE_DIAGNOSTIC_BLOCKED
+            and any(
+                occurrence is target_occurrence
+                for binding_issue in issue.binding_issues
+                for occurrence in binding_issue.local_occurrences
+            )
+        )
+        if not retains_target:
+            continue
+        issue_roots = (
+            (issue.diagnostic,)
+            if issue.diagnostic is not None
+            else issue.suppressing_diagnostics
+        )
+        for root in issue_roots:
+            if not any(root is retained for retained in roots):
+                roots.append(root)
+    return tuple(roots)
 
 
 def _collect_and_resolve_references(draft: _RelationResolutionDraft) -> None:
@@ -1364,17 +1408,16 @@ def _append_type_source_blocker(
                 bindings,
             )
         )
-    roots = tuple(
-        dict.fromkeys(
-            diagnostic
-            for issue in issues
-            for diagnostic in (
-                (issue.diagnostic,)
-                if issue.diagnostic is not None
-                else issue.suppressing_diagnostics
-            )
+    root_items: list[Diagnostic] = []
+    for issue in issues:
+        issue_roots = (
+            (issue.diagnostic,)
+            if issue.diagnostic is not None
+            else issue.suppressing_diagnostics
         )
-    )
+        for diagnostic in issue_roots:
+            _append_exact_unique(root_items, diagnostic)
+    roots = tuple(root_items)
     if not roots:
         return
     location = _location(source.span, fallback_path=draft.module.path)
@@ -1391,7 +1434,7 @@ def _append_type_source_blocker(
         type_source_issues=issues,
         suppressing_diagnostics=roots,
     )
-    root_set = set(candidate.suppressing_diagnostics)
+    component_roots = list(candidate.suppressing_diagnostics)
     overlapping_positions: set[int] = set()
     while True:
         previous_count = len(overlapping_positions)
@@ -1402,11 +1445,16 @@ def _append_type_source_blocker(
                 or issue.local_name != candidate.local_name
                 or issue.location != candidate.location
                 or issue.occurrences != candidate.occurrences
-                or root_set.isdisjoint(issue.suppressing_diagnostics)
+                or not any(
+                    root is retained_root
+                    for root in component_roots
+                    for retained_root in issue.suppressing_diagnostics
+                )
             ):
                 continue
             overlapping_positions.add(position)
-            root_set.update(issue.suppressing_diagnostics)
+            for root in issue.suppressing_diagnostics:
+                _append_exact_unique(component_roots, root)
         if len(overlapping_positions) == previous_count:
             break
     if not overlapping_positions:
@@ -1420,11 +1468,9 @@ def _append_type_source_blocker(
     combined_roots: list[Diagnostic] = []
     for issue in (*overlapping, candidate):
         for type_source_issue in issue.type_source_issues:
-            if type_source_issue not in combined_type_source_issues:
-                combined_type_source_issues.append(type_source_issue)
+            _append_exact_unique(combined_type_source_issues, type_source_issue)
         for root in issue.suppressing_diagnostics:
-            if root not in combined_roots:
-                combined_roots.append(root)
+            _append_exact_unique(combined_roots, root)
     combined_root_tuple = tuple(combined_roots)
     merged = ProjectModuleRelationResolutionIssue(
         status=candidate.status,
@@ -1443,6 +1489,11 @@ def _append_type_source_blocker(
     draft.issues[first_position] = merged
     for position in sorted(overlapping_positions - {first_position}, reverse=True):
         del draft.issues[position]
+
+
+def _append_exact_unique(items: list[_ObjectT], item: _ObjectT) -> None:
+    if not any(item is retained for retained in items):
+        items.append(item)
 
 
 def _matches_type_namespace_blocker(

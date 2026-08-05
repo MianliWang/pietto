@@ -9,7 +9,7 @@ from collections import Counter
 from pathlib import Path
 
 from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
 )
 
 
@@ -491,9 +491,9 @@ PROTECTED_SHA256 = {
     "src/pietto/_project/source_selection.py": "fb1c531bcdd81696aa0c26b110433a6775cde878aeb4af3373d0d4aaf1f1443e",
     "src/pietto/_project/check.py": "6f2f2805249cc86a8ff3510a03abc702d2a029186cf16b50cabd11dbaf1da9e1",
     "src/pietto/_project/json_v2.py": "74251e684a22de4dcdc7e1822a6843ca89cbdfa7e136a046676d848b57953bd5",
-    SLICE2_TEST_REL: "39e29d4615853c2284a9e0a799c14d204b592df59e4e4fe921eb22477cdef2e5",
-    SLICE3_TEST_REL: "32b89d0c564e3408978366e41bf8a3cb6669e56969269bcb9a18b40c3f4f2448",
-    SLICE4_TEST_REL: "862a3411c46b9320bbc9ee1711d2c6e26d60c84322b75f560aee0b6792b2c035",
+    SLICE2_TEST_REL: "20d3f5b8d0286050b3c0f800a0281a9c15002ceb4f1af349a0feeac17eedac01",
+    SLICE3_TEST_REL: "087e0b08ceba3d65403491f8209fb149acb4d159b1cc67440f4378a8309140fe",
+    SLICE4_TEST_REL: "3411f6087cbd87e1dc857c117586249f07617ab451ab4f47bd48873b8df37148",
     ".github/workflows/ci.yml": "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94",
     "pyproject.toml": "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01",
     "uv.lock": "a7d9125995e98a8a74d3664ceae7801cc1f4cce74ec323933da67838be199cea",
@@ -539,7 +539,7 @@ def _git_output(args: list[str]) -> str:
 def phase54_slice5_gate2_manifest_is_active() -> bool:
     """Compatibility wrapper for historical readers of the active Gate 2."""
 
-    return _phase54_product_repair9_gate2_is_active()
+    return _phase54_slice11_gate2_is_active()
 
 
 def _readable_paths() -> tuple[str, ...]:
@@ -602,7 +602,7 @@ def test_slice1_artifact_titles_heading_order_and_lifecycle_are_exact() -> None:
         assert _headings(relative, 2)
     plan_h2 = _headings(PLAN_REL, 2)
     assert plan_h2[:5] == (
-        "Status And Slice 10 Lifecycle",
+        "Status And Slice 11 Lifecycle",
         "Trusted Phase 53 Baseline And Controlling Evidence",
         "Phase Identity, Minimum Production Boundary, And Activation",
         "Current Production, Readiness, And Retained-later Freeze",
@@ -612,15 +612,15 @@ def test_slice1_artifact_titles_heading_order_and_lifecycle_are_exact() -> None:
         f"Slice {index} — {title}"
         for index, title in enumerate(PHASE54_ROUTE[1:], start=2)
     )
-    lifecycle = _section(PLAN_REL, "Status And Slice 10 Lifecycle")
+    lifecycle = _section(PLAN_REL, "Status And Slice 11 Lifecycle")
     for phrase in (
         "Phase 53 and Slices 1-16 are `COMPLETED`",
         "Phase 54 is `ACTIVE`",
-        "Slices\n1 through 9 are `COMPLETED`",
-        "Slices 11-16 remain `UNSTARTED`",
-        "PHASE54_SLICE10_GATE2_COMPLETED_AWAITING_PUBLICATION",
-        "PHASE54_SLICE10_GATE3",
-        "Slice 11 does not begin in Slice 10",
+        "Slices\n1 through 10 are `COMPLETED`",
+        "Slices 12-16 remain `UNSTARTED`",
+        "PHASE54_SLICE11_GATE2_COMPLETED_AWAITING_PUBLICATION",
+        "PHASE54_SLICE11_GATE3",
+        "Slice 12 does not\nbegin in Slice 11",
     ):
         assert phrase in lifecycle
     tests = _top_level_test_functions(SELF_REL)
@@ -702,7 +702,7 @@ def test_authority_hierarchy_grounding_and_historical_predecessors_are_exact() -
         "8c3656805db451946d60e341b8ac0ca9181997378d07576133c9c4aeef3e3f77"
     )
     assert _sha256("tests/test_phase50_import_module_export_readiness.py") == (
-        "da6cc57df3910262ce4fb9fd3b0375e9acec5a38a5977aad04e43499bc8f8c76"
+        "9f280f44f9ed47eec461eab52308a0bbe51cc71f687c2e50b1464846d2c4d213"
     )
     scope = _read(SCOPE_REL)
     roadmap = _read(ROADMAP_V2_REL)
@@ -1096,17 +1096,17 @@ def test_flat_catalog_collect_before_resolve_semantic_and_project_fact_surfaces_
     compiler = _compiler_paths()
     semantic = tuple((REPO_ROOT / "src/pietto/semantic").glob("*.py"))
     project = tuple((REPO_ROOT / "src/pietto/_project").glob("*.py"))
-    assert len(compiler) == 103
+    assert len(compiler) == 104
     assert _digest(compiler) == (
-        "3d22a6e583e238b723d2dc20a7f809e3196a5ccae30fc54deaeb7d9a6b56dc1d"
+        "ff84f85769a284b70fba5bc89c16926817131663b59cf740866660ebc72813d4"
     )
     assert _digest(semantic) == (
         "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
     )
     assert _digest(project) == (
-        "394e07ec91ed57359c64aff62b0709036860585843044d024585d8baa2e4381a"
+        "8613fe48154768889b06c7bfa5eff5733da2bd727001f64545eb440dc9233b72"
     )
-    assert len(project) == 28
+    assert len(project) == 29
     model = _read("src/pietto/_project/model.py")
     for namespace in (
         'TYPE = "type"',
@@ -1152,10 +1152,12 @@ def test_private_module_export_surfaces_are_implemented_without_graph_or_public_
     relation_resolution_source = _read(
         "src/pietto/_project/module_relation_resolution.py"
     )
+    attribution_source = _read("src/pietto/_project/module_attribution.py")
     non_graph_production = (
         production.replace(graph_source, "")
         .replace(resolution_source, "")
         .replace(relation_resolution_source, "")
+        .replace(attribution_source, "")
     )
     assert all(f"PIE-S270{number}" in graph_source for number in range(1, 8))
     assert not re.search(r"PIE-S270[1-7]", non_graph_production)
@@ -1295,22 +1297,22 @@ def test_gate_allowlist_reader_evidence_publication_stop_and_next_state_contract
     assert len(FORMATTER_PATHS) == 163
     assert len(ALLOWLIST_PATHS) == 167
     readable = _readable_paths()
-    assert len(readable) == 915
-    assert sum(path.endswith(".py") for path in readable) == 563
-    assert sum(path.endswith(".md") for path in readable) == 256
+    assert len(readable) == 918
+    assert sum(path.endswith(".py") for path in readable) == 565
+    assert sum(path.endswith(".md") for path in readable) == 257
     test_modules = tuple(
         path
         for path in readable
         if path.startswith("tests/test_") and path.endswith(".py")
     )
-    assert len(test_modules) == 459
-    assert sum(len(_top_level_test_functions(path)) for path in test_modules) == 5127
+    assert len(test_modules) == 460
+    assert sum(len(_top_level_test_functions(path)) for path in test_modules) == 5171
     dirty = set(_git_output(["diff", "--name-only"]).splitlines()) | set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
     dirty.discard("")
     if dirty:
-        assert _phase54_product_repair9_gate2_is_active()
+        assert _phase54_slice11_gate2_is_active()
         assert _git_output(["diff", "--cached", "--name-only"]) == ""
     scope = _read(SCOPE_REL)
     for path in (

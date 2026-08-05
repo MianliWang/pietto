@@ -9,7 +9,7 @@ import subprocess
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
 )
 
 import pytest
@@ -226,11 +226,11 @@ FINAL_SOURCE_SHA256 = "d6a514bddffee9f53ca1405d28a2dcd9cc84a395a152aacc1ccb9e5b7
 FINAL_PROJECT_SOURCE_SHA256 = (
     "c08a42066a71a3ee13be9feddff5e28a910b216226d7e0b8869ee52a90dea2ad"
 )
-FINAL_MODEL_SHA256 = "965342eb72c1089b315e598666410605dcf4adf8ddc50a0fc695fb82e3b8df1c"
+FINAL_MODEL_SHA256 = "1cbb689dc6f03973f603e8b5839cfff061d8a8e75ed6625ed8374bebdfe54e39"
 FINAL_SPEC_SHA256 = "e3cddc36974cc2d21bd3e0aec8d03c4f56bc4a68091780d9965207f07ea960e7"
 FINAL_PLAN_SHA256 = "3077c2fec0d7e2c4de717973c6403d5a450b8c01fe5846e427363ffcb41a78f5"
 FINAL_COMPILER_DIGEST = (
-    "3d22a6e583e238b723d2dc20a7f809e3196a5ccae30fc54deaeb7d9a6b56dc1d"
+    "ff84f85769a284b70fba5bc89c16926817131663b59cf740866660ebc72813d4"
 )
 FINAL_SEMANTIC_DIGEST = (
     "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
@@ -239,7 +239,7 @@ FINAL_PHASE15_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 FINAL_PROJECT_DIGEST = (
-    "394e07ec91ed57359c64aff62b0709036860585843044d024585d8baa2e4381a"
+    "8613fe48154768889b06c7bfa5eff5733da2bd727001f64545eb440dc9233b72"
 )
 
 BASE_HEAD = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
@@ -1906,7 +1906,7 @@ def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
         len(semantic_paths),
         len(phase15_paths),
         len(project_paths),
-    ) == (103, 36, 33, 28)
+    ) == (104, 36, 33, 29)
     assert _digest(tuple(compiler_paths)) == FINAL_COMPILER_DIGEST
     assert _digest(semantic_paths) == FINAL_SEMANTIC_DIGEST
     assert _digest(phase15_paths) == FINAL_PHASE15_DIGEST
@@ -1945,7 +1945,7 @@ def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
 
 
 def test_slice6_dirty_clean_and_depth_one_repository_states_are_locked() -> None:
-    if _phase54_product_repair9_gate2_is_active():
+    if _phase54_slice11_gate2_is_active():
         return
     tracked = frozenset(_git("diff", "--name-only").splitlines()) - {""}
     untracked = frozenset(
@@ -1973,6 +1973,7 @@ def test_slice6_dirty_clean_and_depth_one_repository_states_are_locked() -> None
         "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16",
         "027b33cafcfd58916a89e299487dad38d24ade6c",
         "0ceb9a476e6592714cdc76845949ba0ae5123eb5",
+        "b81843acadb294630db361c09949868d004b1bca",
     }:
         expected_modified, expected_added = _phase54_slice2_paths()
         expected_base = head
@@ -2011,7 +2012,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         len(markdown_paths),
         len(test_paths),
         top_level_functions,
-    ) == (915, 563, 256, 459, 5127)
+    ) == (918, 565, 257, 460, 5171)
     assert len(TEST_FUNCTIONS) == len(TEST_ITEM_COUNTS) == 36
     assert sum(TEST_ITEM_COUNTS) == 156
     assert 10599 + 185 == 10784
@@ -2055,7 +2056,7 @@ def test_validation_gate3_and_no_behavior_boundaries_are_locked() -> None:
     repair_state = changed == CI_REPAIR_MODIFIED_PATHS and not untracked
     phase54_modified, phase54_added = _phase54_slice2_paths()
     phase54_state = (
-        _phase54_product_repair9_gate2_is_active()
+        _phase54_slice11_gate2_is_active()
         or changed == phase54_modified
         and untracked == phase54_added
         and _git("rev-parse", "HEAD")
@@ -2067,6 +2068,7 @@ def test_validation_gate3_and_no_behavior_boundaries_are_locked() -> None:
             "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16",
             "027b33cafcfd58916a89e299487dad38d24ade6c",
             "0ceb9a476e6592714cdc76845949ba0ae5123eb5",
+            "b81843acadb294630db361c09949868d004b1bca",
         }
     )
     assert (

@@ -8,7 +8,7 @@ import tomllib
 from pathlib import Path
 
 from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -178,9 +178,9 @@ PRE_RECONCILIATION_2_SHA256 = (
 PRE_RECONCILIATION_3_SHA256 = (
     "cb2c51246f1e312858641750d1a416125f99058fb0182949e9afe35ae49e97cf"
 )
-COMPILER_DIGEST = "3d22a6e583e238b723d2dc20a7f809e3196a5ccae30fc54deaeb7d9a6b56dc1d"
+COMPILER_DIGEST = "ff84f85769a284b70fba5bc89c16926817131663b59cf740866660ebc72813d4"
 PROJECT_PRIVATE_DIGEST = (
-    "394e07ec91ed57359c64aff62b0709036860585843044d024585d8baa2e4381a"
+    "8613fe48154768889b06c7bfa5eff5733da2bd727001f64545eb440dc9233b72"
 )
 
 
@@ -197,6 +197,7 @@ def _slice13_paths(name: str) -> set[str]:
         "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16",
         "027b33cafcfd58916a89e299487dad38d24ade6c",
         "0ceb9a476e6592714cdc76845949ba0ae5123eb5",
+        "b81843acadb294630db361c09949868d004b1bca",
     }:
         modified, added = _phase54_slice2_paths()
         if name == "MODIFIED_PATHS":
@@ -557,7 +558,7 @@ def test_slice1_no_behavior_public_privacy_and_release_boundaries_are_locked() -
         compiler_digest.update(path.read_bytes())
         compiler_digest.update(b"\0")
     assert (len(compiler_paths), compiler_digest.hexdigest()) == (
-        103,
+        104,
         COMPILER_DIGEST,
     )
     for relative_path in BOUNDARY_PATHS:
@@ -584,12 +585,12 @@ def test_slice1_no_behavior_public_privacy_and_release_boundaries_are_locked() -
         project_digest.update(path.read_bytes())
         project_digest.update(b"\0")
     assert (len(project_paths), project_digest.hexdigest()) == (
-        28,
+        29,
         PROJECT_PRIVATE_DIGEST,
     )
     assert (
         '"project_private": (\n        "src/pietto/_project",\n'
-        f'        28,\n        "{PROJECT_PRIVATE_DIGEST}",\n    ),'
+        f'        29,\n        "{PROJECT_PRIVATE_DIGEST}",\n    ),'
     ) in _read(REPO_ROOT / "tests/test_phase33_completion_audit.py")
 
     project = tomllib.loads(_read(PYPROJECT_PATH))["project"]
@@ -872,7 +873,7 @@ def test_static_audit_shape_allowlist_and_heading_matching_are_locked() -> None:
     slice13_added = _slice13_paths("ADDED_PATHS")
     slice13_allowlist = slice13_modified | slice13_added
     dirty_paths = _dirty_paths()
-    if _phase54_product_repair9_gate2_is_active():
+    if _phase54_slice11_gate2_is_active():
         assert _headings_at_level(PLAN_PATH, 2) == PLAN_H2
         assert _headings_at_level(SCOPE_PATH, 2) == SCOPE_H2
         return

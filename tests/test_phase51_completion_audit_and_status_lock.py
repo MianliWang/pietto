@@ -19,7 +19,13 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
-    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
+    PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
+    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    phase54_slice11_pr_ci_repair_is_active,
+    phase54_slice11_python313_repair_is_active,
+    phase54_slice11_substantive_recovery_is_active,
 )
 
 from pietto._project.aggregate_grouped_clause_facts import (
@@ -349,9 +355,9 @@ PROTECTED_HASHES = {
         "26cc0ae4a68518223d6bf600ad3c4b0b226618aa7ef31b2ae1c25924d2655169"
     ),
 }
-COMPILER_DIGEST = "3d22a6e583e238b723d2dc20a7f809e3196a5ccae30fc54deaeb7d9a6b56dc1d"
+COMPILER_DIGEST = "ff84f85769a284b70fba5bc89c16926817131663b59cf740866660ebc72813d4"
 PROJECT_PRIVATE_DIGEST = (
-    "394e07ec91ed57359c64aff62b0709036860585843044d024585d8baa2e4381a"
+    "8613fe48154768889b06c7bfa5eff5733da2bd727001f64545eb440dc9233b72"
 )
 
 PROJECT_JSON_V2_KEYS = (
@@ -1032,7 +1038,7 @@ def test_live_compiler_project_private_protected_version_and_tag_locks_are_dirty
     None
 ):
     compiler_count, compiler_digest = _compiler_digest()
-    assert (compiler_count, compiler_digest) == (103, COMPILER_DIGEST)
+    assert (compiler_count, compiler_digest) == (104, COMPILER_DIGEST)
     for relative_path in BOUNDARY_PATHS:
         boundary_values = re.findall(
             r'^BOUNDARY_HASH = "([0-9a-f]{64})"$',
@@ -1042,12 +1048,12 @@ def test_live_compiler_project_private_protected_version_and_tag_locks_are_dirty
         assert boundary_values == [COMPILER_DIGEST]
 
     project_paths = _project_private_paths()
-    assert len(project_paths) == 28
+    assert len(project_paths) == 29
     assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
     phase33 = _read(REPO_ROOT / "tests/test_phase33_completion_audit.py")
     assert (
         f'"project_private": (\n        "src/pietto/_project",\n'
-        f'        28,\n        "{PROJECT_PRIVATE_DIGEST}",\n    ),'
+        f'        29,\n        "{PROJECT_PRIVATE_DIGEST}",\n    ),'
     ) in phase33
 
     for relative_path, expected_hash in PROTECTED_HASHES.items():
@@ -1380,6 +1386,9 @@ def test_static_git_helper_and_exact_slice12_dirty_set_are_locked() -> None:
         SLICE12_GATE2_PATHS,
         PHASE52_GATE2_PATHS,
         slice2_modified | slice2_added,
+        set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS),
+        set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS),
+        set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS),
     )
     untracked_paths = set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
@@ -1390,7 +1399,15 @@ def test_static_git_helper_and_exact_slice12_dirty_set_are_locked() -> None:
         PHASE52_UNTRACKED_PATHS,
         slice2_added,
     )
-    if dirty_paths == slice2_modified | slice2_added:
+    if dirty_paths == set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS):
+        assert phase54_slice11_python313_repair_is_active()
+        assert untracked_paths == set()
+    elif dirty_paths == set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS):
+        assert phase54_slice11_substantive_recovery_is_active()
+    elif dirty_paths == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS):
+        assert phase54_slice11_pr_ci_repair_is_active()
+        assert untracked_paths == set()
+    elif dirty_paths == slice2_modified | slice2_added:
         assert untracked_paths == slice2_added
         assert set(_git_output(["diff", "--name-only"]).splitlines()) == (
             slice2_modified
@@ -1413,9 +1430,10 @@ def test_static_git_helper_and_exact_slice12_dirty_set_are_locked() -> None:
             expected_head = SLICE8_BASE_HEAD_SHA
         elif path_counts == SLICE9_PATH_COUNTS:
             expected_head = SLICE9_BASE_HEAD_SHA
-        if _phase54_product_repair9_gate2_is_active():
+        if _phase54_slice11_gate2_is_active():
             active_head = _git_output(["rev-parse", "HEAD"])
             assert active_head in {
+                "b81843acadb294630db361c09949868d004b1bca",
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,

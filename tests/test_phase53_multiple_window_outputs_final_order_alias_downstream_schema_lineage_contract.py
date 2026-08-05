@@ -20,7 +20,10 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
-    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
+    PHASE54_SLICE11_PR_CI_REPAIR_BASE,
+    PHASE54_SLICE11_PYTHON313_REPAIR_BASE,
+    PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE,
+    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
 )
 
 import pytest
@@ -81,6 +84,7 @@ PHASE54_SLICE6_HEAD = "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16"
 PHASE54_SLICE7_HEAD = "027b33cafcfd58916a89e299487dad38d24ade6c"
 PHASE54_SLICE8_HEAD = "0ceb9a476e6592714cdc76845949ba0ae5123eb5"
 PHASE54_SLICE9_HEAD = "fadb1924af057cfc901a1658e117810d699e2358"
+PHASE54_SLICE10_HEAD = "b81843acadb294630db361c09949868d004b1bca"
 PHASE54_SLICE9_PARENT_HEAD = PHASE54_SLICE8_HEAD
 POST_REVIEW_REPAIR_PARENT_HEAD = "ed37b4938b0ff5efa0842d353ac0610c51afa6cc"
 WHEELHOUSE_MANIFEST_SHA256 = (
@@ -602,8 +606,16 @@ def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> N
         if _git_output(["rev-parse", "--is-shallow-repository"]) == "true":
             assert parents == []
         else:
-            if _phase54_product_repair9_gate2_is_active():
-                if head == PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE:
+            if _phase54_slice11_gate2_is_active():
+                if head == PHASE54_SLICE11_PYTHON313_REPAIR_BASE:
+                    expected_parent = PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE
+                elif head == PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE:
+                    expected_parent = PHASE54_SLICE11_PR_CI_REPAIR_BASE
+                elif head == PHASE54_SLICE11_PR_CI_REPAIR_BASE:
+                    expected_parent = PHASE54_SLICE10_HEAD
+                elif head == PHASE54_SLICE10_HEAD:
+                    expected_parent = PHASE54_SLICE9_HEAD
+                elif head == PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE:
                     expected_parent = PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE
                 elif head == PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE:
                     expected_parent = PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE
@@ -653,7 +665,7 @@ def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> N
             ):
                 expected_parent = "6104002486d21b7b25dbec74d037c0fc7cc5099a"
             else:
-                expected_parent = PHASE54_SLICE9_HEAD
+                expected_parent = PHASE54_SLICE10_HEAD
             assert parents == [expected_parent]
     assert 'requires = ["uv_build>=0.11.32,<0.12.0"]' in pyproject
     assert '"ruff>=0.16.0"' in pyproject
@@ -1538,7 +1550,7 @@ def test_recursive_reader_hash_terminal_and_manifest_fixed_point_is_exact() -> N
         for path in paths
         if path.startswith("src/pietto/_project/") and path.endswith(".py")
     )
-    assert len(project_paths) == 28
+    assert len(project_paths) == 29
     assert "src/pietto/_project/window_persistence.py" in project_paths
     digest = hashlib.sha256()
     for path in project_paths:
@@ -1582,11 +1594,11 @@ def test_test_inventory_focused_overlay_validation_and_gate3_are_exact() -> None
         len(test_paths),
         top_level_tests,
     ) == (
-        915,
-        563,
-        256,
-        459,
-        5127,
+        918,
+        565,
+        257,
+        460,
+        5171,
     )
     docs = _read(PLAN_REL)
     for value in (

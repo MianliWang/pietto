@@ -23,7 +23,13 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
-    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
+    PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
+    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    phase54_slice11_pr_ci_repair_is_active,
+    phase54_slice11_python313_repair_is_active,
+    phase54_slice11_substantive_recovery_is_active,
 )
 
 import pytest
@@ -940,6 +946,9 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
         CI_REPAIR_MODIFIED_PATHS,
         slice14_modified | slice14_added,
         phase54_modified | phase54_added,
+        set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS),
+        set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS),
+        set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS),
     )
     untracked = _git_paths(["ls-files", "--others", "--exclude-standard"])
     assert untracked in (
@@ -948,7 +957,15 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
         slice14_added,
         phase54_added,
     )
-    if dirty == CI_REPAIR_MODIFIED_PATHS:
+    if dirty == set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS):
+        assert phase54_slice11_python313_repair_is_active()
+        assert untracked == set()
+    elif dirty == set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS):
+        assert phase54_slice11_substantive_recovery_is_active()
+    elif dirty == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS):
+        assert phase54_slice11_pr_ci_repair_is_active()
+        assert untracked == set()
+    elif dirty == CI_REPAIR_MODIFIED_PATHS:
         assert untracked == set()
         assert _git_output(["branch", "--show-current"]).strip() == "main"
         assert (
@@ -981,7 +998,7 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
             expected_head = PHASE54_SLICE8_BASE_HEAD_SHA
         elif path_counts == PHASE54_SLICE9_PATH_COUNTS:
             expected_head = PHASE54_SLICE9_BASE_HEAD_SHA
-        if _phase54_product_repair9_gate2_is_active():
+        if _phase54_slice11_gate2_is_active():
             active_head = _git_output(["rev-parse", "HEAD"]).strip()
             assert active_head in {
                 PHASE54_ACTIVE_GATE2_BASE,
@@ -1010,13 +1027,13 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
         assert match.group(1) == compiler_digest
     project_paths = _project_private_paths()
     project_digest = _digest(project_paths)
-    assert len(project_paths) == 28
+    assert len(project_paths) == 29
     phase33 = (REPO_ROOT / "tests/test_phase33_completion_audit.py").read_text(
         encoding="utf-8"
     )
     assert (
         f'"project_private": (\n        "src/pietto/_project",\n'
-        f'        28,\n        "{project_digest}",\n    ),'
+        f'        29,\n        "{project_digest}",\n    ),'
     ) in phase33
 
     protected = (
@@ -1043,7 +1060,13 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
         "tests/goldens",
         "examples",
     )
-    if dirty == phase54_modified | phase54_added:
+    if dirty == set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS):
+        protected = tuple(
+            path
+            for path in protected
+            if path not in PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS
+        )
+    elif dirty == phase54_modified | phase54_added:
         protected = tuple(path for path in protected if path not in phase54_modified)
     assert _git_output(["diff", "--", *protected]) == ""
     pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")

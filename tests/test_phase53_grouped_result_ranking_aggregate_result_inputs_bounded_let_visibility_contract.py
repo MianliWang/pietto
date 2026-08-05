@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import cast
 
 from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
 )
 
 import pytest
@@ -99,6 +99,7 @@ PHASE54_SLICE6_HEAD = "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16"
 PHASE54_SLICE7_HEAD = "027b33cafcfd58916a89e299487dad38d24ade6c"
 PHASE54_SLICE8_HEAD = "0ceb9a476e6592714cdc76845949ba0ae5123eb5"
 PHASE54_SLICE9_HEAD = "fadb1924af057cfc901a1658e117810d699e2358"
+PHASE54_SLICE10_HEAD = "b81843acadb294630db361c09949868d004b1bca"
 PHASE54_SLICE1_SUBJECT = "Add Phase 54 scope authority and expansion route lock"
 PHASE54_SLICE2_SUBJECT = "Add Phase 54 schema v2 module activation carrier"
 PHASE54_SLICE3_SUBJECT = "Add Phase 54 trusted module loading boundary"
@@ -119,6 +120,16 @@ PHASE54_SLICE10_SUBJECT = "Add Phase 54 cross-module relation and row facts"
 PHASE54_SLICE10_BRANCH = "phase54/slice10-cross-module-relation-row-facts"
 PHASE54_SLICE10_CANDIDATE_HEAD = "42b692d64dcbd9c4f8210accd0106dc11dcd3318"
 PHASE54_SLICE10_PR_CI_REPAIR_SUBJECT = "Fix Phase 54 PR CI topology projection"
+PHASE54_SLICE11_SUBJECT = "Add Phase 54 module attribution and lineage facts"
+PHASE54_SLICE11_BRANCH = (
+    "phase54/slice11-module-attribution-dependency-origin-provenance-lineage"
+)
+PHASE54_SLICE11_CANDIDATE_HEAD = "c6aba9522f7e16e358005f86cfb119dd6d005463"
+PHASE54_SLICE11_PR_CI_REPAIR_SUBJECT = "Fix Phase 54 Slice 11 PR CI topology projection"
+PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE = "691db405a7e787adec5d7bd0498330b070bf6b75"
+PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_SUBJECT = (
+    "Repair Phase 54 Slice 11 binding authority closure"
+)
 MAINTENANCE_MODIFIED_PATHS = (
     ".github/workflows/ci.yml",
     "pyproject.toml",
@@ -426,7 +437,7 @@ def _is_clean_projection() -> bool:
     status = _git_output(["status", "--porcelain=v1", "--untracked-files=all"])
     staged = _git_output(["diff", "--cached", "--name-only"])
     shallow = _git_output(["rev-parse", "--is-shallow-repository"])
-    if _phase54_product_repair9_gate2_is_active():
+    if _phase54_slice11_gate2_is_active():
         assert status
         assert staged == ""
         assert shallow == "false"
@@ -827,6 +838,99 @@ def _is_clean_projection() -> bool:
         _assert_clean_state(status=status, staged=staged)
         return True
 
+    if parents == (PHASE54_SLICE10_HEAD,) and _is_phase54_subject(
+        subject,
+        PHASE54_SLICE11_SUBJECT,
+    ):
+        if status:
+            assert shallow == "false"
+            assert _git_output(["branch", "--show-current"]) == PHASE54_SLICE11_BRANCH
+            assert _git_optional_ref("refs/heads/main") == PHASE54_SLICE10_HEAD
+            assert _git_optional_ref("refs/remotes/origin/main") == PHASE54_SLICE10_HEAD
+            assert staged == ""
+            return False
+        _assert_clean_state(status=status, staged=staged)
+        if pull_request_identity is not None:
+            base_sha, candidate_sha = pull_request_identity
+            assert shallow == "true"
+            assert base_sha == PHASE54_SLICE10_HEAD
+            assert candidate_sha == head
+            assert pull_request_refs == ("main", PHASE54_SLICE11_BRANCH)
+            return True
+        if os.environ.get("GITHUB_EVENT_NAME") == "push":
+            assert shallow == "true"
+            assert os.environ.get("GITHUB_REF") == "refs/heads/main"
+            assert os.environ.get("GITHUB_SHA") == head
+            assert _git_optional_ref("refs/remotes/origin/main") in (None, head)
+            return True
+        assert shallow == "false"
+        branch = _git_output(["branch", "--show-current"])
+        if branch == PHASE54_SLICE11_BRANCH:
+            assert _git_optional_ref("refs/heads/main") == PHASE54_SLICE10_HEAD
+            assert _git_optional_ref("refs/remotes/origin/main") == PHASE54_SLICE10_HEAD
+            return True
+        _assert_main_refs(head)
+        return True
+
+    if parents == (PHASE54_SLICE11_CANDIDATE_HEAD,) and (
+        subject == PHASE54_SLICE11_PR_CI_REPAIR_SUBJECT
+    ):
+        assert shallow == "false"
+        assert _git_output(["branch", "--show-current"]) == PHASE54_SLICE11_BRANCH
+        assert _git_optional_ref("refs/heads/main") == PHASE54_SLICE10_HEAD
+        assert _git_optional_ref("refs/remotes/origin/main") == PHASE54_SLICE10_HEAD
+        if status:
+            assert staged == ""
+            return False
+        _assert_clean_state(status=status, staged=staged)
+        return True
+
+    if parents == (PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE,) and (
+        subject == PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_SUBJECT
+    ):
+        if status:
+            assert shallow == "false"
+            assert _git_output(["branch", "--show-current"]) == PHASE54_SLICE11_BRANCH
+            assert _git_optional_ref("refs/heads/main") == PHASE54_SLICE10_HEAD
+            assert _git_optional_ref("refs/remotes/origin/main") == PHASE54_SLICE10_HEAD
+            assert staged == ""
+            return False
+        _assert_clean_state(status=status, staged=staged)
+        if pull_request_identity is not None:
+            base_sha, candidate_sha = pull_request_identity
+            assert shallow == "true"
+            assert base_sha == PHASE54_SLICE10_HEAD
+            assert candidate_sha == head
+            assert pull_request_refs == ("main", PHASE54_SLICE11_BRANCH)
+            return True
+        if os.environ.get("GITHUB_EVENT_NAME") == "push":
+            assert shallow == "true"
+            assert os.environ.get("GITHUB_REF") == "refs/heads/main"
+            assert os.environ.get("GITHUB_SHA") == head
+            assert _git_optional_ref("refs/remotes/origin/main") in (None, head)
+            return True
+        assert shallow == "false"
+        assert _git_output(["branch", "--show-current"]) == PHASE54_SLICE11_BRANCH
+        assert _git_optional_ref("refs/heads/main") == PHASE54_SLICE10_HEAD
+        assert _git_optional_ref("refs/remotes/origin/main") == PHASE54_SLICE10_HEAD
+        return True
+
+    if parents == (PHASE54_SLICE10_HEAD,) and _is_phase54_subject(
+        subject,
+        PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_SUBJECT,
+    ):
+        _assert_clean_state(status=status, staged=staged)
+        if os.environ.get("GITHUB_EVENT_NAME") == "push":
+            assert shallow == "true"
+            assert os.environ.get("GITHUB_REF") == "refs/heads/main"
+            assert os.environ.get("GITHUB_SHA") == head
+            assert _git_optional_ref("refs/remotes/origin/main") in (None, head)
+            return True
+        assert pull_request_identity is None
+        assert shallow == "false"
+        _assert_main_refs(head)
+        return True
+
     if pull_request_identity is not None:
         base_sha, candidate_sha = pull_request_identity
         assert shallow == "true"
@@ -886,6 +990,14 @@ def _is_clean_projection() -> bool:
             assert candidate_ref == PHASE54_SLICE10_BRANCH
             assert head != candidate_sha
             assert parents == (PHASE54_SLICE9_HEAD, candidate_sha)
+            _assert_clean_state(status=status, staged=staged)
+            return True
+        if base_sha == PHASE54_SLICE10_HEAD or candidate_ref == PHASE54_SLICE11_BRANCH:
+            assert base_sha == PHASE54_SLICE10_HEAD
+            assert base_ref == "main"
+            assert candidate_ref == PHASE54_SLICE11_BRANCH
+            assert head != candidate_sha
+            assert parents == (PHASE54_SLICE10_HEAD, candidate_sha)
             _assert_clean_state(status=status, staged=staged)
             return True
         assert base_sha in (

@@ -38,7 +38,11 @@ signing, attestation, or Rust/native behavior.
 `__all__ = ()`. Construction consumes only the trusted selected-input index,
 the selected-order logical-module tuple, Slice 7 binding environments, and
 Slice 6 export surfaces. An edge target is accepted only through exact
-`ProjectSelectedInputIndex.find_path(...)` lookup.
+`ProjectModuleBindingEnvironmentSet.find_module_path(...)` lookup. The
+completed graph retains the exact Slice 7
+`ProjectModuleBindingEnvironmentSet` as a private validation-only authority
+root; this root is excluded from representation,
+semantic equality, and hashing.
 
 The builder never walks the filesystem, reopens source, examines excluded
 files, guesses a path, searches a suffix or basename, folds case, consults a
@@ -81,17 +85,52 @@ The exact carriers are:
 - `ProjectModuleCycle(component, witness)`;
 - `ProjectModuleGraphIssue(status, owning_vertex, requests, cycle,
   conflicting_vertices, binding_issues)`;
-- `ProjectModuleGraph(vertices, evidence_edges, edges, components, cycles,
-  issues)` plus private copied lookups;
+- `ProjectModuleGraph(binding_authority, _canonical_authority, vertices,
+  evidence_edges, edges, components, cycles, issues)` plus private copied
+  lookups. `_canonical_authority` is a private frozen root-derived projection
+  carrier. Its only init field is the exact binding-authority root; its vertex,
+  evidence-edge, edge, component, cycle, and issue fields are non-init private
+  products reconstructed in `__post_init__` from that root;
 - `ProjectModuleDiagnosticFact(origin, diagnostic, module_position,
   module_statement_position, item_position, related_locations, graph_issues,
   export_issues, binding_issues)`;
-- `ProjectModuleDiagnosticSet(facts, diagnostics)`.
+- `ProjectModuleDiagnosticSet(_canonical_authority, facts, diagnostics)`, where
+  `_canonical_authority` is a private frozen root-only carrier with the exact
+  graph, export-surface, and binding-environment roots as its only init inputs.
+  It derives the fact and public-diagnostic tuples in `__post_init__`; the
+  outer set retains that exact authority and every product object by identity.
 
 Vertex equality and hash use path identity plus selected position; the
 validated retained module object is excluded. Evidence and complete graph
 values remain source-evidence sensitive. SCC and cycle computation consult
 only canonical endpoints.
+
+Graph construction and replacement validate, without overwriting or
+normalizing supplied outer graph values, the complete ordered projection
+rederived from the retained binding-authority root: selected vertices and exact
+module objects; every selected request evidence edge; every complete canonical
+edge bucket; exact SCC members and internal edges; canonical cycle witnesses;
+every grouped unresolved issue; and one issue for every cycle. Each supplied
+top-level graph tuple must retain every object by identity from the private
+root-derived authority projection for that same binding root. Replacing the
+authority root independently rebuilds all six private products; replacing a
+non-init product through `dataclasses.replace` is rejected. Any omission,
+injection, reordering, foreign value-equal evidence object, noncanonical
+witness, or authority/product mismatch is a fail-closed `ValueError`.
+Adapter-only issue statuses remain independently validated issue carriers and
+are not invented as graph facts. The authority carrier is private, uses no
+registry or global mutable state, performs no I/O, and adds no public API.
+
+Diagnostic construction follows the same private-root rule. The canonical
+diagnostic authority accepts only mutually aligned exact graph,
+export-surface, and binding-environment roots, then derives both facts and
+diagnostics as non-init products. `ProjectModuleDiagnosticSet` retains the
+authority privately and requires every supplied fact and diagnostic to be the
+same object as its authority product. The authority and all roots are excluded
+from representation, equality, and hashing, but remain available for private
+downstream identity validation: even an empty diagnostic tuple from a foreign
+project has a distinct authority root and cannot be grafted into the current
+project sidecar. No authority is public, serialized, or exported.
 
 ## Strongly Connected Components
 

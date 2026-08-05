@@ -224,16 +224,16 @@ def test_carrier_enums_fields_privacy_and_manifest_are_exact() -> None:
         assert carrier.__dataclass_params__.frozen
         assert "__dict__" not in carrier.__slots__
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER == (
-        "PHASE54_SLICE10_GATE2"
+        "PHASE54_SLICE11_GATE2"
     )
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE == (
-        "fadb1924af057cfc901a1658e117810d699e2358"
+        "b81843acadb294630db361c09949868d004b1bca"
     )
     assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_ADDED_PATHS) == 3
     assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS) == 69
-    assert active_gate2_manifest.ADDED_PATHS == set()
-    assert len(active_gate2_manifest.MODIFIED_PATHS) == 66
-    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 63
+    assert len(active_gate2_manifest.ADDED_PATHS) == 3
+    assert len(active_gate2_manifest.MODIFIED_PATHS) == 72
+    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 64
     assert TEST_REL in active_gate2_manifest.MECHANICAL_READER_PATHS
     assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE == (
         "17a5b01e555930537334d4d0bcf3480e332b7e91"
@@ -1281,11 +1281,11 @@ def test_text_json_status_docs_and_reader_fixed_point_are_exact(
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name.startswith("test_")
     )
-    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_ADDED_PATHS == frozenset()
-    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 66
+    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 3
+    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 72
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
-    assert len(active_gate2_manifest.VALIDATION_READER_PATHS) == 63
-    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 63
+    assert len(active_gate2_manifest.VALIDATION_READER_PATHS) == 64
+    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 64
     assert (
         "tests/test_phase54_module_graph_cycles_diagnostics_deterministic_ordering.py"
         in active_gate2_manifest.MECHANICAL_READER_PATHS
@@ -1315,7 +1315,7 @@ def test_text_json_status_docs_and_reader_fixed_point_are_exact(
         assert required in spec
     for code in ("PIE-S2001", "PIE-S2002", "PIE-S2003", "PIE-S2303"):
         assert code in registry
-    assert "Slice 10 is the" in readme
-    assert "PHASE54_SLICE10_GATE3" in readme
-    assert "Status And Slice 10 Lifecycle" in plan
-    assert "Current Phase 54 Slice 10" in whitepaper
+    assert "Slice 11 is the" in readme
+    assert "PHASE54_SLICE11_GATE3" in readme
+    assert "Status And Slice 11 Lifecycle" in plan
+    assert "Current Phase 54 Slice 11 Module Attribution Status" in whitepaper

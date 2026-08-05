@@ -21,7 +21,19 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
-    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
+    PHASE54_SLICE11_PR_CI_REPAIR_BASE,
+    PHASE54_SLICE11_PR_CI_REPAIR_BRANCH,
+    PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE11_PYTHON313_REPAIR_BASE,
+    PHASE54_SLICE11_PYTHON313_REPAIR_BRANCH,
+    PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE,
+    PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BRANCH,
+    PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
+    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    phase54_slice11_pr_ci_repair_is_active,
+    phase54_slice11_python313_repair_is_active,
+    phase54_slice11_substantive_recovery_is_active,
 )
 
 import pietto.semantic.capability_aggregates as capability_aggregates
@@ -194,10 +206,10 @@ MODULE_SHA256 = {
     WINDOW_REL: "c0512933fc284bbc1dec98dab96411ee179d64e7bee005aa798b6fd7dba2024e",
 }
 PATH_DIGESTS = {
-    "compiler": "3d22a6e583e238b723d2dc20a7f809e3196a5ccae30fc54deaeb7d9a6b56dc1d",
+    "compiler": "ff84f85769a284b70fba5bc89c16926817131663b59cf740866660ebc72813d4",
     "semantic": "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70",
     "phase15": "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d",
-    "project": "394e07ec91ed57359c64aff62b0709036860585843044d024585d8baa2e4381a",
+    "project": "8613fe48154768889b06c7bfa5eff5733da2bd727001f64545eb440dc9233b72",
 }
 PROTECTED_SHA256 = {
     ".github/workflows/ci.yml": "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94",
@@ -432,8 +444,29 @@ def _assert_allowed_dirty_state(
     main: str | None,
     origin_main: str | None,
 ) -> None:
+    if phase54_slice11_python313_repair_is_active():
+        assert tracked == set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS)
+        assert untracked == set()
+        assert branch == PHASE54_SLICE11_PYTHON313_REPAIR_BRANCH
+        assert head == PHASE54_SLICE11_PYTHON313_REPAIR_BASE
+        assert main == origin_main == "b81843acadb294630db361c09949868d004b1bca"
+        return
+    if phase54_slice11_substantive_recovery_is_active():
+        assert tracked == set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS)
+        assert untracked == set()
+        assert branch == PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BRANCH
+        assert head == PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE
+        assert main == origin_main == "b81843acadb294630db361c09949868d004b1bca"
+        return
+    if phase54_slice11_pr_ci_repair_is_active():
+        assert tracked == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS)
+        assert untracked == set()
+        assert branch == PHASE54_SLICE11_PR_CI_REPAIR_BRANCH
+        assert head == PHASE54_SLICE11_PR_CI_REPAIR_BASE
+        assert main == origin_main == "b81843acadb294630db361c09949868d004b1bca"
+        return
     if (
-        _phase54_product_repair9_gate2_is_active()
+        _phase54_slice11_gate2_is_active()
         and tracked == set(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS)
         and untracked == set(PHASE54_ACTIVE_GATE2_ADDED_PATHS)
         and branch == "phase54/slice10-cross-module-relation-row-facts"
@@ -461,6 +494,7 @@ def _assert_allowed_dirty_state(
         "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16",
         "027b33cafcfd58916a89e299487dad38d24ade6c",
         "0ceb9a476e6592714cdc76845949ba0ae5123eb5",
+        "b81843acadb294630db361c09949868d004b1bca",
     }:
         phase54_state = "tests/_phase54_active_gate2_manifest.py"
         slice2_modified = _literal_string_set(
@@ -1013,10 +1047,10 @@ def test_live_compiler_semantic_phase15_project_protected_version_and_tag_locks_
     )
     project = _project_paths()
     assert (len(compiler), len(semantic), len(phase15), len(project)) == (
-        103,
+        104,
         36,
         33,
-        28,
+        29,
     )
     assert {
         "compiler": _digest(compiler),
@@ -1121,7 +1155,7 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
     assert (
         sum(path.endswith(".py") for path in readable),
         sum(path.endswith(".md") for path in readable),
-    ) == (563, 256)
+    ) == (565, 257)
     for digest, expected in (
         (PATH_DIGESTS["compiler"], 28),
         (PATH_DIGESTS["semantic"], 42),
@@ -1200,7 +1234,7 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
         )
         for path in test_files
     )
-    assert (len(test_files), top_functions) == (459, 5127)
+    assert (len(test_files), top_functions) == (460, 5171)
     assert (
         381 + 834 + 627 + 424 + 279 + 168 + 156 + 12 + 145 + 190 + 70 + 70 + 97 + 35
         == 3488
@@ -1307,7 +1341,16 @@ def test_static_git_helper_and_exact_slice9_dirty_set_are_locked() -> None:
         origin_main=_git_optional_ref("refs/remotes/origin/main"),
     )
     if tracked or untracked:
-        if _phase54_product_repair9_gate2_is_active() or _git_output(
+        if phase54_slice11_python313_repair_is_active():
+            slice2_modified = set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS)
+            slice2_added = set()
+        elif phase54_slice11_substantive_recovery_is_active():
+            slice2_modified = set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS)
+            slice2_added = set()
+        elif phase54_slice11_pr_ci_repair_is_active():
+            slice2_modified = set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS)
+            slice2_added = set()
+        elif _phase54_slice11_gate2_is_active() or _git_output(
             ["rev-parse", "HEAD"]
         ) in {
             "d8a5e9ab3de70ce30575513c73560c86430eca63",
@@ -1317,6 +1360,7 @@ def test_static_git_helper_and_exact_slice9_dirty_set_are_locked() -> None:
             "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16",
             "027b33cafcfd58916a89e299487dad38d24ade6c",
             "0ceb9a476e6592714cdc76845949ba0ae5123eb5",
+            "b81843acadb294630db361c09949868d004b1bca",
         }:
             phase54_state = "tests/_phase54_active_gate2_manifest.py"
             slice2_modified = _literal_string_set(

@@ -39,6 +39,7 @@ from pietto.errors import Diagnostic, Severity, SourceLocation
 
 if TYPE_CHECKING:
     from pietto._project.let_scope_facts import ProjectRelationLetScopeFacts
+    from pietto._project.module_attribution import ProjectModuleAttributionFactSet
     from pietto._project.module_bindings import ProjectModuleBindingEnvironmentSet
     from pietto._project.module_catalog import ProjectModuleCatalogSet
     from pietto._project.module_exports import ProjectModuleExportSurfaceSet
@@ -806,6 +807,144 @@ class ProjectSemanticResult:
     module_diagnostic_facts: ProjectModuleDiagnosticSet | None = None
     module_type_source_resolutions: ProjectTypeSourceResolutionSet | None = None
     module_relation_resolutions: ProjectModuleRelationResolutionSet | None = None
+    module_attribution_facts: ProjectModuleAttributionFactSet | None = None
+
+    def __post_init__(self) -> None:
+        """Keep the Slice 11 sidecar bound to this exact semantic result."""
+
+        if type(self.compilation_mode) is not ProjectCompilationMode:
+            raise TypeError("Project semantics require an exact compilation mode.")
+        module_sidecars = (
+            self.module_catalogs,
+            self.module_exports,
+            self.module_bindings,
+            self.module_graph,
+            self.module_diagnostic_facts,
+            self.module_type_source_resolutions,
+            self.module_relation_resolutions,
+            self.module_attribution_facts,
+        )
+        if self.compilation_mode is ProjectCompilationMode.LEGACY_FLAT:
+            if any(sidecar is not None for sidecar in module_sidecars):
+                raise ValueError(
+                    "Legacy-flat project semantics forbid module sidecars."
+                )
+            return
+        if self.model is not None:
+            raise ValueError("Explicit-module project semantics forbid a legacy model.")
+        if all(sidecar is None for sidecar in module_sidecars):
+            return
+        if any(sidecar is None for sidecar in module_sidecars):
+            raise ValueError(
+                "Explicit-module project semantics require all module sidecars."
+            )
+
+        facts = self.module_attribution_facts
+        assert facts is not None
+        from pietto._project.module_attribution import (
+            ProjectModuleAttributionFactSet,
+        )
+
+        if type(facts) is not ProjectModuleAttributionFactSet:
+            raise TypeError(
+                "Project module attribution requires an exact attribution fact set."
+            )
+        if self.compilation_mode is not ProjectCompilationMode.EXPLICIT_MODULES:
+            raise ValueError(
+                "Project module attribution facts require schema-v2 compilation mode."
+            )
+
+        authority = facts._authority
+        parse_result = authority.parse_result
+        if type(parse_result) is not ProjectParseCheckResult:
+            raise TypeError(
+                "Project module attribution requires an exact parse result root."
+            )
+        if (
+            not parse_result.ok
+            or parse_result.compilation_mode
+            is not ProjectCompilationMode.EXPLICIT_MODULES
+            or parse_result.root is not self.root
+            or parse_result.config_path is not self.config_path
+            or parse_result.modules is not self.modules
+            or parse_result.pinned_root is not self.pinned_root
+            or parse_result.selected_input_index is not self.selected_input_index
+            or parse_result.trusted_source_snapshots
+            is not self.trusted_source_snapshots
+        ):
+            raise ValueError(
+                "Project module attribution facts require exact parse result roots."
+            )
+        if authority.selected_input_index is not self.selected_input_index or (
+            authority.trusted_source_snapshots is not self.trusted_source_snapshots
+        ):
+            raise ValueError(
+                "Project module attribution facts require exact project input authority."
+            )
+        if self.selected_input_index is None or (
+            self.pinned_root is not self.selected_input_index.pinned_root
+        ):
+            raise ValueError(
+                "Project module attribution facts require exact selected-input pinned root."
+            )
+        if authority.module_diagnostic_facts is not self.module_diagnostic_facts:
+            raise ValueError(
+                "Project module attribution facts require exact diagnostic authority."
+            )
+        module_diagnostic_facts = self.module_diagnostic_facts
+        module_type_source_resolutions = self.module_type_source_resolutions
+        module_relation_resolutions = self.module_relation_resolutions
+        assert module_diagnostic_facts is not None
+        assert module_type_source_resolutions is not None
+        assert module_relation_resolutions is not None
+        if facts.binding_authority is not self.module_bindings or (
+            authority.binding_authority is not self.module_bindings
+        ):
+            raise ValueError(
+                "Project module attribution facts require exact project binding authority."
+            )
+        diagnostic_authority = module_diagnostic_facts._canonical_authority
+        if (
+            diagnostic_authority.graph is not self.module_graph
+            or diagnostic_authority.exports is not self.module_exports
+            or diagnostic_authority.binding_authority is not self.module_bindings
+        ):
+            raise ValueError(
+                "Project module diagnostics require exact canonical authority roots."
+            )
+        if any(
+            fact_root is not result_root
+            for fact_root, result_root in (
+                (authority.modules, self.modules),
+                (authority.catalogs, self.module_catalogs),
+                (authority.exports, self.module_exports),
+                (authority.graph, self.module_graph),
+                (
+                    authority.type_source_resolutions,
+                    self.module_type_source_resolutions,
+                ),
+                (authority.relation_resolutions, self.module_relation_resolutions),
+            )
+        ):
+            raise ValueError(
+                "Project module attribution facts require exact project semantic roots."
+            )
+        expected_diagnostics = (
+            *module_diagnostic_facts.diagnostics,
+            *module_type_source_resolutions.diagnostics,
+            *module_relation_resolutions.diagnostics,
+        )
+        if len(self.diagnostics) != len(expected_diagnostics) or any(
+            diagnostic is not expected
+            for diagnostic, expected in zip(
+                self.diagnostics,
+                expected_diagnostics,
+                strict=True,
+            )
+        ):
+            raise ValueError(
+                "Project module diagnostics require exact ordered root projection."
+            )
 
     @property
     def ok(self) -> bool:
@@ -840,6 +979,9 @@ def build_empty_project_semantic_result(
     if parse_result.compilation_mode is not ProjectCompilationMode.LEGACY_FLAT:
         from pietto._project.module_bindings import (
             _build_project_module_binding_environment_set,
+        )
+        from pietto._project.module_attribution import (
+            _build_project_module_attribution_fact_set,
         )
         from pietto._project.module_catalog import _build_project_module_catalog_set
         from pietto._project.module_exports import (
@@ -894,6 +1036,19 @@ def build_empty_project_semantic_result(
             module_diagnostic_facts,
             module_type_source_resolutions,
         )
+        module_attribution_facts = _build_project_module_attribution_fact_set(
+            parse_result,
+            parse_result.modules,
+            parse_result.selected_input_index,
+            parse_result.trusted_source_snapshots,
+            module_catalogs,
+            module_exports,
+            module_bindings,
+            module_graph,
+            module_diagnostic_facts,
+            module_type_source_resolutions,
+            module_relation_resolutions,
+        )
 
         return ProjectSemanticResult(
             root=parse_result.root,
@@ -911,6 +1066,7 @@ def build_empty_project_semantic_result(
             module_diagnostic_facts=module_diagnostic_facts,
             module_type_source_resolutions=module_type_source_resolutions,
             module_relation_resolutions=module_relation_resolutions,
+            module_attribution_facts=module_attribution_facts,
             diagnostics=(
                 *module_diagnostic_facts.diagnostics,
                 *module_type_source_resolutions.diagnostics,

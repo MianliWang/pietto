@@ -55,13 +55,18 @@ and the [Phase 54 plan](docs/plan/phase-54-local-import-module-export-foundation
 | MySQL | Explicit CLI lowering; private emitter/API surface |
 | Single-file mode | Check, explain, and emit SQL |
 | Project schema v1 | Available legacy-flat project checking |
-| Project schema v2 | Explicit modules, trusted loading, private catalogs/facades/bindings, module graph/diagnostics, and private type/source and relation resolution with minimal row facts |
+| Project schema v2 | Explicit modules, trusted loading, private catalogs/facades/bindings, module graph/diagnostics, resolution, attribution, provenance, and minimal direct lineage facts |
 | Runtime | Compiler only; no database connection or SQL execution |
 
-Phase 54 is **ACTIVE**. Slices 1 through 9 are **COMPLETED**. Slice 10 is the
-Gate 2 cross-module relation-resolution and minimal row-fact candidate awaiting
-reviewed-tree publication; Slices 11 through 16 are **UNSTARTED**, and the next
-lifecycle state after Gate 2 is `PHASE54_SLICE10_GATE3`.
+Phase 54 is **ACTIVE**. Slices 1 through 10 are **COMPLETED**. Slice 11 is the
+Gate 2 module attribution, dependency, origin, provenance, and lineage
+substantive-review recovery candidate. This Slice 11 Gate 2 candidate resumes
+from `691db405a7e787adec5d7bd0498330b070bf6b75`, with the original Gate 0/1 and
+consumed CI evidence preserved. The recovery adds private binding-authority
+validation for the complete ordered module graph and attribution import
+carriers. Reviewed-tree publication is still required; Slices 12 through 16
+are **UNSTARTED**, and the next lifecycle state after Gate 2 is
+`PHASE54_SLICE11_GATE3`.
 
 Slice 3 provides stable project-relative module identity, an immutable
 selected-input index, pinned-root path checks, and trusted source loading.
@@ -86,8 +91,11 @@ references, and source shape references while preserving import-local and
 nominal target identities. Slice 10 adds private dependency-first source,
 table, and query resolution plus minimal four-state row facts, preserving
 import aliases, nominal kinds, field order, and immediate-upstream
-qualification. Full attribution/provenance/lineage, advanced row-fact
-preservation, inspection, and serialization remain later work within Phase 54.
+qualification. Slice 11 adds private occurrence-safe declaration, import,
+facade, and reference attribution; exact dependency and origin paths; complete
+type/source/relation provenance; and minimal direct or renamed row lineage.
+Advanced row-fact preservation, inspection, and serialization remain later
+work within Phase 54.
 Schema v2 therefore remains a foundation rather than a completed module
 system. The runnable Quick Start remains schema v1.
 
@@ -251,6 +259,7 @@ facts and forward-compatible foundations.
 | Module graph, cycles, and module diagnostics | Private compiler facts plus public diagnostics | Slice 8 deterministic fail-closed boundary |
 | Cross-module type/source resolution | Private | Slice 9 identity-safe type aliases, enums, shapes, and sources |
 | Cross-module relation and row-fact resolution | Private | Slice 10 direct relation resolution and minimal row facts |
+| Module attribution, dependency, origin, provenance, and lineage | Private | Slice 11 occurrence-safe exact paths and minimal concrete direct/renamed lineage |
 
 Existing project facts include deterministic source ordering, flat namespace
 resolution for schema v1, row-schema propagation, relation dependency graphs,
@@ -291,9 +300,10 @@ The explicit-module identity, trusted-loading, import/export AST, local
 catalog, private export-facade, named-import binding environment, distinct
 module graph, public fail-closed module-diagnostic foundation, and private
 cross-module type/source and relation resolution sidecars with minimal row
-facts exist. Public inspection and serialization of these private carriers,
-full lineage and advanced row preservation, Project IR, and project SQL remain
-future boundaries.
+facts, plus private occurrence-safe attribution, dependency, origin,
+provenance, and minimal direct/renamed lineage facts exist. Public inspection
+and serialization of these private carriers, advanced row preservation,
+Project IR, and project SQL remain future boundaries.
 
 After Slice 3, each selected path has a stable logical module identity and an
 immutable index entry. Project roots and source targets are pinned and checked
@@ -306,8 +316,10 @@ into those facades, Slice 8 builds canonical module dependency, SCC, cycle,
 and diagnostic facts, Slice 9 resolves the authorized type/source surfaces,
 and Slice 10 resolves source/table/query references and minimal row facts in
 dependency-first order without collapsing imported-binding and nominal target
-identity. Private carriers are not serialized into the current public project
-JSON envelope.
+identity. Slice 11 retains occurrence-safe attribution, exact import/re-export
+origins, direct semantic dependencies, complete supported provenance, and
+minimal concrete row lineage. Private carriers are not serialized into the
+current public project JSON envelope.
 
 Schema-v2 semantic completion intentionally fails closed. Module graph and
 binding/export failures render deterministic `PIE-S2701` through `PIE-S2707`
@@ -330,6 +342,9 @@ The private type/source resolution boundary is specified in the
 [Slice 9 resolution contract](docs/spec/phase54-slice9-cross-module-type-alias-enum-shape-and-source-resolution-v1.md).
 The private relation and minimal row-fact boundary is specified in the
 [Slice 10 resolution contract](docs/spec/phase54-slice10-cross-module-table-query-relation-resolution-row-facts-and-legacy-compatibility-v1.md).
+The private attribution, dependency, origin, provenance, and lineage boundary
+is specified in the
+[Slice 11 attribution contract](docs/spec/phase54-slice11-module-attribution-dependency-origin-provenance-and-lineage-v1.md).
 
 ## Compiler Architecture
 
@@ -357,8 +372,9 @@ The project path discovers and safely loads selected files. Schema v1 can
 continue into the current flat project semantic model. Schema v2 currently
 continues through per-file parsing, private identity/loading facts, local
 declaration catalogs, export facades, import bindings, module graph/diagnostics,
-and private type/source and relation resolution with minimal row facts. It does
-not yet produce Project IR or project SQL.
+and private type/source and relation resolution with minimal row facts plus
+occurrence-safe attribution, dependency, origin, provenance, and direct or
+renamed lineage. It does not yet produce Project IR or project SQL.
 
 ## Roadmap
 
@@ -368,7 +384,7 @@ percentages. The complete route is maintained in the
 
 | Route | Product milestone | Status or boundary |
 | --- | --- | --- |
-| Phase 54 | Local module, import, export, binding, graph, and hardening foundation | Active; Slice 10 Gate 2 candidate |
+| Phase 54 | Local module, import, export, binding, graph, and hardening foundation | Active; Slice 11 Gate 2 candidate in substantive-review recovery |
 | Phases 55–59 | Package assets, capability profiles, extension catalog, public inspection, and local package graph | Planned |
 | Phase 60 | Advanced windows and ecosystem/release-readiness checkpoint | Planned; no tag or publication |
 | Phases 61–63 | Project IR, relationships, JOIN semantics, multi-relation SQL, and `QUALIFY` | Planned |

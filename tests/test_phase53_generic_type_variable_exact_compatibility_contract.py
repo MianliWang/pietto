@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
 )
 
 import pytest
@@ -547,7 +547,7 @@ PHASE54_SLICE7_BASE_HEAD = "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16"
 PHASE54_SLICE8_BASE_HEAD = "027b33cafcfd58916a89e299487dad38d24ade6c"
 PHASE54_SLICE9_BASE_HEAD = "0ceb9a476e6592714cdc76845949ba0ae5123eb5"
 FINAL_COMPILER_DIGEST = (
-    "3d22a6e583e238b723d2dc20a7f809e3196a5ccae30fc54deaeb7d9a6b56dc1d"
+    "ff84f85769a284b70fba5bc89c16926817131663b59cf740866660ebc72813d4"
 )
 FINAL_SEMANTIC_DIGEST = (
     "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
@@ -1895,7 +1895,7 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        103,
+        104,
         36,
         33,
     )
@@ -1920,7 +1920,7 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
 
 
 def test_slice4_dirty_clean_and_depth_one_repository_states_are_locked() -> None:
-    if _phase54_product_repair9_gate2_is_active():
+    if _phase54_slice11_gate2_is_active():
         return
     tracked = frozenset(_git("diff", "--name-only").splitlines()) - {""}
     untracked = frozenset(
@@ -1992,7 +1992,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         len(markdown_paths),
         len(test_paths),
         top_level_functions,
-    ) == (915, 563, 256, 459, 5127)
+    ) == (918, 565, 257, 460, 5171)
     self_tree = ast.parse(SELF_PATH.read_text())
     self_names = tuple(
         node.name

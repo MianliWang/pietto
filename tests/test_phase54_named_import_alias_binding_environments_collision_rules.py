@@ -9,7 +9,7 @@ from pathlib import Path
 from types import MappingProxyType
 
 from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
 )
 
 import pytest
@@ -1120,12 +1120,12 @@ def test_slice7_contract_test_inventory_and_active_gate_manifest_are_exact() -> 
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name.startswith("test_")
     )
-    assert PHASE54_ACTIVE_GATE2_MARKER == "PHASE54_SLICE10_GATE2"
-    assert PHASE54_ACTIVE_GATE2_BASE == "fadb1924af057cfc901a1658e117810d699e2358"
+    assert PHASE54_ACTIVE_GATE2_MARKER == "PHASE54_SLICE11_GATE2"
+    assert PHASE54_ACTIVE_GATE2_BASE == "b81843acadb294630db361c09949868d004b1bca"
     assert len(PHASE54_SLICE10_ORIGINAL_ADDED_PATHS) == 3
     assert len(PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS) == 69
-    assert PHASE54_ACTIVE_GATE2_ADDED_PATHS == frozenset()
-    assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 66
+    assert len(PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 3
+    assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 72
     assert PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
     assert _matches_phase54_active_gate2_manifest(_active_state())
     assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE == (
@@ -1174,8 +1174,8 @@ def test_slice7_contract_test_inventory_and_active_gate_manifest_are_exact() -> 
         "38353a00bdaf6b1edb9a0eb53ada1a3249b6ae79"
     )
     assert (
-        active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR9_MODIFIED_PATHS
-        == PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
+        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR9_MODIFIED_PATHS)
+        == 66
     )
     assert "ImportStatement.target" not in inspect.getsource(module_exports)
     assert "_build_project_module_binding_environment_set" not in pietto.__dict__

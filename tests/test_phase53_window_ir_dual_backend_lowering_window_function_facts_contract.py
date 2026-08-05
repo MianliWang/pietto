@@ -10,7 +10,13 @@ import tomllib
 from typing import cast
 
 from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
+    PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
+    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    phase54_slice11_pr_ci_repair_is_active,
+    phase54_slice11_python313_repair_is_active,
+    phase54_slice11_substantive_recovery_is_active,
 )
 
 import pytest
@@ -1721,7 +1727,7 @@ def test_generated_golden_fixture_package_dependency_and_version_boundaries_are_
         sum(path.endswith(".md") for path in paths),
         sum(path.startswith("tests/test_") and path.endswith(".py") for path in paths),
         _top_level_test_function_count(paths),
-    ) == (915, 563, 256, 459, 5127)
+    ) == (918, 565, 257, 460, 5171)
     generated = tuple(
         path for path in paths if path.startswith("src/pietto/generated/")
     )
@@ -1774,7 +1780,16 @@ def test_reader_hash_dag_allowlist_and_fixed_point_are_exact() -> None:
         set(),
         set((*ADDED_PATHS, *MODIFIED_PATHS)),
         _phase54_slice2_allowlist(),
+        set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS),
+        set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS),
+        set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS),
     )
+    if dirty == set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS):
+        assert phase54_slice11_python313_repair_is_active()
+    elif dirty == set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS):
+        assert phase54_slice11_substantive_recovery_is_active()
+    elif dirty == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS):
+        assert phase54_slice11_pr_ci_repair_is_active()
     assert _git_output(["diff", "--cached", "--name-only"]) == ""
 
 
@@ -1857,7 +1872,16 @@ def test_dirty_clean_depth_one_shallow_and_negative_topology_boundaries_are_exac
             set(),
             set((*ADDED_PATHS, *MODIFIED_PATHS)),
             _phase54_slice2_allowlist(),
+            set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS),
+            set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS),
+            set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS),
         )
+        if dirty == set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS):
+            assert phase54_slice11_python313_repair_is_active()
+        elif dirty == set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS):
+            assert phase54_slice11_substantive_recovery_is_active()
+        elif dirty == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS):
+            assert phase54_slice11_pr_ci_repair_is_active()
         assert _git_output(["diff", "--cached", "--name-only"]) == ""
 
 

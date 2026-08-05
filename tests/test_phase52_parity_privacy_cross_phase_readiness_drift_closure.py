@@ -22,7 +22,19 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
-    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,
+    PHASE54_SLICE11_PR_CI_REPAIR_BASE,
+    PHASE54_SLICE11_PR_CI_REPAIR_BRANCH,
+    PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE11_PYTHON313_REPAIR_BASE,
+    PHASE54_SLICE11_PYTHON313_REPAIR_BRANCH,
+    PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE,
+    PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BRANCH,
+    PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
+    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    phase54_slice11_pr_ci_repair_is_active,
+    phase54_slice11_python313_repair_is_active,
+    phase54_slice11_substantive_recovery_is_active,
 )
 
 import pytest
@@ -111,21 +123,21 @@ MODULE_SHA256 = {
 }
 SPEC_SHA256 = "7010cd8a39ed389de588d8cd734b136cc87456c3ef5eb324638467d1188fc935"
 MODIFIED_TEST_SHA256 = {
-    SLICE4_TEST_REL: "3cb7f64cbd0b4becf2fd0bedc9d0d9dc4a625379002ea0db98ed8281c625dc45",
-    SLICE5_TEST_REL: "c15ee0b8a6eab14668b42d2c1b2e44293a4d21eb426afd53ca87db9f60798814",
-    SLICE6_TEST_REL: "9d6d772c3cb56cbff5f322c74cedebc2e247c2933e31364e0f90ceb3a147b8ba",
-    SLICE7_TEST_REL: "947a55e8340c39cce9863aae34bd6c7e346b39025743f061dab0f40fac15b606",
+    SLICE4_TEST_REL: "6fc153168dc7463ba8d30fe9b309bddacd57168eed43b3b84bbcb914b6f1e86e",
+    SLICE5_TEST_REL: "7c0c6ec70635f0fc6f62fbd72528664087c2f710becc43ca27d9d4f5c057a306",
+    SLICE6_TEST_REL: "66c29edaf073a6802ad4f2d7c2c45a69ee36a33795817b2358beb70d3ae749c4",
+    SLICE7_TEST_REL: "e738352ef5eeff00d6671e717e0e3287ae54e344bb43f67e5bddffeeb0ffd5e5",
 }
 WORKFLOW_SHA256 = "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94"
 PYPROJECT_SHA256 = "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01"
 LOCK_SHA256 = "a7d9125995e98a8a74d3664ceae7801cc1f4cce74ec323933da67838be199cea"
-COMPILER_DIGEST = "3d22a6e583e238b723d2dc20a7f809e3196a5ccae30fc54deaeb7d9a6b56dc1d"
+COMPILER_DIGEST = "ff84f85769a284b70fba5bc89c16926817131663b59cf740866660ebc72813d4"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "394e07ec91ed57359c64aff62b0709036860585843044d024585d8baa2e4381a"
+    "8613fe48154768889b06c7bfa5eff5733da2bd727001f64545eb440dc9233b72"
 )
 
 SPEC_H2 = (
@@ -240,6 +252,7 @@ def _slice13_paths(name: str) -> set[str]:
         "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16",
         "027b33cafcfd58916a89e299487dad38d24ade6c",
         "0ceb9a476e6592714cdc76845949ba0ae5123eb5",
+        "b81843acadb294630db361c09949868d004b1bca",
     }:
         modified, added = _phase54_slice2_paths()
         if name == "MODIFIED_PATHS":
@@ -498,8 +511,29 @@ def _assert_allowed_dirty_state(
     main: str | None,
     origin_main: str | None,
 ) -> None:
+    if phase54_slice11_python313_repair_is_active():
+        assert tracked == set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS)
+        assert untracked == set()
+        assert branch == PHASE54_SLICE11_PYTHON313_REPAIR_BRANCH
+        assert head == PHASE54_SLICE11_PYTHON313_REPAIR_BASE
+        assert main == origin_main == "b81843acadb294630db361c09949868d004b1bca"
+        return
+    if phase54_slice11_substantive_recovery_is_active():
+        assert tracked == set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS)
+        assert untracked == set()
+        assert branch == PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BRANCH
+        assert head == PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE
+        assert main == origin_main == "b81843acadb294630db361c09949868d004b1bca"
+        return
+    if phase54_slice11_pr_ci_repair_is_active():
+        assert tracked == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS)
+        assert untracked == set()
+        assert branch == PHASE54_SLICE11_PR_CI_REPAIR_BRANCH
+        assert head == PHASE54_SLICE11_PR_CI_REPAIR_BASE
+        assert main == origin_main == "b81843acadb294630db361c09949868d004b1bca"
+        return
     if (
-        _phase54_product_repair9_gate2_is_active()
+        _phase54_slice11_gate2_is_active()
         and tracked == set(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS)
         and untracked == set(PHASE54_ACTIVE_GATE2_ADDED_PATHS)
         and branch == "phase54/slice10-cross-module-relation-row-facts"
@@ -546,6 +580,7 @@ def _assert_allowed_dirty_state(
             "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16",
             "027b33cafcfd58916a89e299487dad38d24ade6c",
             "0ceb9a476e6592714cdc76845949ba0ae5123eb5",
+            "b81843acadb294630db361c09949868d004b1bca",
         )
         return
 
@@ -1922,7 +1957,7 @@ def test_static_reader_counts_boundary_hash_and_nested_sha_topology_are_exact() 
     assert (
         sum(path.endswith(".py") for path in readable),
         sum(path.endswith(".md") for path in readable),
-    ) == (563, 256)
+    ) == (565, 257)
     compiler_paths = _compiler_paths()
     semantic_paths = tuple((REPO_ROOT / "src/pietto/semantic").glob("*.py"))
     phase15_paths = tuple(
@@ -1932,11 +1967,11 @@ def test_static_reader_counts_boundary_hash_and_nested_sha_topology_are_exact() 
     )
     project_paths = _project_private_paths()
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        103,
+        104,
         36,
         33,
     )
-    assert len(project_paths) == 28
+    assert len(project_paths) == 29
     assert _digest(compiler_paths) == COMPILER_DIGEST
     assert _digest(semantic_paths) == SEMANTIC_DIGEST
     assert _digest(phase15_paths) == PHASE15_SUBSET_DIGEST
@@ -2111,7 +2146,7 @@ def test_test_inventory_tier1_selectors_and_compatibility_counts_are_exact() -> 
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (459, 5127)
+    assert (len(test_files), top_level_functions) == (460, 5171)
     assert tuple(
         _pytest_shape(REPO_ROOT / path)[1]
         for path in (
