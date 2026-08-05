@@ -303,7 +303,7 @@ def test_evidence_and_canonical_edge_invariants_reject_rewrites(
             evidence_edges=(cloned_evidence,),
             edges=(cloned_edge,),
         )
-    with pytest.raises(ValueError, match="init=False"):
+    with pytest.raises((TypeError, ValueError), match="init=False"):
         replace(
             graph._canonical_authority,
             evidence_edges=(cloned_evidence,),

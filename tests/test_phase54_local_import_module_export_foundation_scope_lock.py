@@ -702,7 +702,7 @@ def test_authority_hierarchy_grounding_and_historical_predecessors_are_exact() -
         "8c3656805db451946d60e341b8ac0ca9181997378d07576133c9c4aeef3e3f77"
     )
     assert _sha256("tests/test_phase50_import_module_export_readiness.py") == (
-        "d1427693b7088076c4f53605caed4f64cf21488974faa3dc3e54a5a1a2ee0a3d"
+        "9f280f44f9ed47eec461eab52308a0bbe51cc71f687c2e50b1464846d2c4d213"
     )
     scope = _read(SCOPE_REL)
     roadmap = _read(ROADMAP_V2_REL)

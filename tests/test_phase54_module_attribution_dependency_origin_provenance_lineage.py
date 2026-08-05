@@ -1992,7 +1992,7 @@ def test_fact_set_lookups_are_complete_tuple_backed_immutable_and_no_winner(
     with pytest.raises(ValueError, match="canonical authority facts"):
         replace(facts, origins=rebuilt_authority.origins)
     for field_name in canonical_fields:
-        with pytest.raises(ValueError, match="init=False"):
+        with pytest.raises((TypeError, ValueError), match="init=False"):
             replace(facts._authority, **{field_name: ()})
 
     _, row_semantic = _semantic_project(

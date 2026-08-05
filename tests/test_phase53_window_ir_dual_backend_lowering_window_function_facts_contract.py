@@ -11,9 +11,11 @@ from typing import cast
 
 from _phase54_active_gate2_manifest import (  # noqa: F401
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
     phase54_slice11_pr_ci_repair_is_active,
+    phase54_slice11_python313_repair_is_active,
     phase54_slice11_substantive_recovery_is_active,
 )
 
@@ -1779,9 +1781,12 @@ def test_reader_hash_dag_allowlist_and_fixed_point_are_exact() -> None:
         set((*ADDED_PATHS, *MODIFIED_PATHS)),
         _phase54_slice2_allowlist(),
         set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS),
+        set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS),
         set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS),
     )
-    if dirty == set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS):
+    if dirty == set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS):
+        assert phase54_slice11_python313_repair_is_active()
+    elif dirty == set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS):
         assert phase54_slice11_substantive_recovery_is_active()
     elif dirty == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS):
         assert phase54_slice11_pr_ci_repair_is_active()
@@ -1868,9 +1873,12 @@ def test_dirty_clean_depth_one_shallow_and_negative_topology_boundaries_are_exac
             set((*ADDED_PATHS, *MODIFIED_PATHS)),
             _phase54_slice2_allowlist(),
             set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS),
+            set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS),
             set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS),
         )
-        if dirty == set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS):
+        if dirty == set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS):
+            assert phase54_slice11_python313_repair_is_active()
+        elif dirty == set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS):
             assert phase54_slice11_substantive_recovery_is_active()
         elif dirty == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS):
             assert phase54_slice11_pr_ci_repair_is_active()

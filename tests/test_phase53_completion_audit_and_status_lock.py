@@ -25,11 +25,15 @@ from _phase54_active_gate2_manifest import (
     PHASE54_SLICE11_PR_CI_REPAIR_BASE,
     PHASE54_SLICE11_PR_CI_REPAIR_BRANCH,
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE11_PYTHON313_REPAIR_BASE,
+    PHASE54_SLICE11_PYTHON313_REPAIR_BRANCH,
+    PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BRANCH,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
     phase54_slice11_pr_ci_repair_is_active,
+    phase54_slice11_python313_repair_is_active,
     phase54_slice11_substantive_recovery_is_active,
 )
 
@@ -419,6 +423,13 @@ def _assert_allowed_dirty_state(
     main: str | None,
     origin_main: str | None,
 ) -> None:
+    if phase54_slice11_python313_repair_is_active():
+        assert tracked == set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS)
+        assert untracked == set()
+        assert branch == PHASE54_SLICE11_PYTHON313_REPAIR_BRANCH
+        assert head == PHASE54_SLICE11_PYTHON313_REPAIR_BASE
+        assert main == origin_main == "b81843acadb294630db361c09949868d004b1bca"
+        return
     if phase54_slice11_substantive_recovery_is_active():
         assert tracked == set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS)
         assert untracked == set()
@@ -1140,7 +1151,10 @@ def test_static_git_helper_and_exact_slice16_dirty_set_are_locked() -> None:
         origin_main=_git_optional_ref("refs/remotes/origin/main"),
     )
     if tracked or untracked:
-        if phase54_slice11_substantive_recovery_is_active():
+        if phase54_slice11_python313_repair_is_active():
+            expected_modified = set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS)
+            expected_added = set()
+        elif phase54_slice11_substantive_recovery_is_active():
             expected_modified = set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS)
             expected_added = set()
         elif phase54_slice11_pr_ci_repair_is_active():
