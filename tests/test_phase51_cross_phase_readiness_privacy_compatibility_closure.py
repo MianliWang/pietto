@@ -20,11 +20,13 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS,
     PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
     phase54_slice11_pr_ci_repair_is_active,
     phase54_slice12_pr_ci_repair_is_active,
+    phase54_slice12_product_repair3_is_active,
     phase54_slice11_python313_repair_is_active,
     phase54_slice11_substantive_recovery_is_active,
 )
@@ -931,7 +933,7 @@ def test_cross_phase_transition_and_live_identifier_inventory_is_exact() -> None
 def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> None:
     compiler_digest = _compiler_digest()
     assert compiler_digest == (
-        "6a4bc8b810b371645a5ba42588a11ca6539690b9617c652767740f87a3c09422"
+        "00a5673d5d85ab4b349551af477c827b109635e4aeac4ce066e9a5a597ffa0b8"
     )
     for relative_path in BOUNDARY_PATHS:
         boundary_values = re.findall(
@@ -956,7 +958,7 @@ def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> N
     project_digest = _digest(project_paths)
     assert len(project_paths) == 30
     assert project_digest == (
-        "ed1b19e0e1aad6e8b6c912d232fab16a7c2bb71d1e7697e8bc797a42ba14cb9f"
+        "488640a8efdcd90f2c514d22ab57b6b97c6fbd3a39006db81660713e2dcd5f09"
     )
     phase33 = _read(REPO_ROOT / "tests/test_phase33_completion_audit.py")
     assert (
@@ -1137,6 +1139,7 @@ def test_slice11_contract_plan_allowlist_and_protected_boundaries_are_locked() -
         slice2_modified | slice2_added,
         set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS),
         set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS),
+        set(PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS),
         set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS),
         set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS),
     )
@@ -1156,6 +1159,9 @@ def test_slice11_contract_plan_allowlist_and_protected_boundaries_are_locked() -
         assert phase54_slice11_substantive_recovery_is_active()
     elif dirty_paths == set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS):
         assert phase54_slice12_pr_ci_repair_is_active()
+        assert untracked_paths == set()
+    elif dirty_paths == set(PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS):
+        assert phase54_slice12_product_repair3_is_active()
         assert untracked_paths == set()
     elif dirty_paths == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS):
         assert phase54_slice11_pr_ci_repair_is_active()

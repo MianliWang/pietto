@@ -9,11 +9,13 @@ from typing import cast
 from _phase54_active_gate2_manifest import (  # noqa: F401
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS,
     PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
     phase54_slice11_pr_ci_repair_is_active,
     phase54_slice12_pr_ci_repair_is_active,
+    phase54_slice12_product_repair3_is_active,
     phase54_slice11_python313_repair_is_active,
     phase54_slice11_substantive_recovery_is_active,
 )
@@ -753,6 +755,7 @@ def test_protected_surfaces_version_tag_staging_and_dirty_set_are_locked() -> No
         phase54_slice9_gate2,
         set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS),
         set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS),
+        set(PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS),
     ):
         for relative_path in PROTECTED_PATHS:
             assert _git_output(["diff", "--", relative_path]) == "", relative_path
@@ -767,6 +770,7 @@ def test_protected_surfaces_version_tag_staging_and_dirty_set_are_locked() -> No
         phase54_slice9_gate2,
         set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS),
         set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS),
+        set(PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS),
         set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS),
         set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS),
     )
@@ -776,6 +780,8 @@ def test_protected_surfaces_version_tag_staging_and_dirty_set_are_locked() -> No
         assert phase54_slice11_substantive_recovery_is_active()
     elif dirty == set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS):
         assert phase54_slice12_pr_ci_repair_is_active()
+    elif dirty == set(PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS):
+        assert phase54_slice12_product_repair3_is_active()
     elif dirty == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS):
         assert phase54_slice11_pr_ci_repair_is_active()
 

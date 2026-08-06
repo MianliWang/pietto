@@ -14,11 +14,14 @@ from _phase54_active_gate2_manifest import (
     PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS,
     PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
     phase54_slice11_pr_ci_repair_is_active,
     phase54_slice12_pr_ci_repair_is_active,
+    phase54_slice12_product_repair3_clean_topic_is_active,
+    phase54_slice12_product_repair3_is_active,
     phase54_slice11_python313_repair_is_active,
     phase54_slice11_substantive_recovery_is_active,
 )
@@ -87,7 +90,7 @@ FACTS_SHA256 = "bd68bad4e13a2b945962458fc47359a408d27b1563ba25f5713a8f8099671d21
 LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26"
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 PROJECT_PRIVATE_DIGEST = (
-    "ed1b19e0e1aad6e8b6c912d232fab16a7c2bb71d1e7697e8bc797a42ba14cb9f"
+    "488640a8efdcd90f2c514d22ab57b6b97c6fbd3a39006db81660713e2dcd5f09"
 )
 TIER2_MANIFEST_BYTES = 18319
 TIER2_MANIFEST_FILES = 108
@@ -464,6 +467,16 @@ def _assert_clean_checkout_refs(
     main: str | None,
     origin_main: str | None,
 ) -> None:
+    if phase54_slice12_product_repair3_clean_topic_is_active():
+        assert branch == "phase54/slice12-semantic-fact-preservation"
+        assert main == origin_main == "bc46faff1c9aa71f583ed7d2964b651cc659bc90"
+        assert tuple(
+            _git_output(["rev-list", "--parents", "-n", "1", head]).split()[1:]
+        ) == ("ab1445fcb8b3af9a14f0230edb5680c523a754d1",)
+        assert _git_output(["show", "-s", "--format=%s", head]) == (
+            "Fix Phase 54 Slice 12 semantic fact preservation"
+        )
+        return
     if branch == "main":
         assert main == head
         if origin_main is not None:
@@ -1444,6 +1457,10 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     repair_gate2_active = _phase54_active_gate2_is_active()
     slice11_pr_ci_repair_active = phase54_slice11_pr_ci_repair_is_active()
     slice12_pr_ci_repair_active = phase54_slice12_pr_ci_repair_is_active()
+    slice12_product_repair3_active = phase54_slice12_product_repair3_is_active()
+    slice12_product_repair3_clean_topic_active = (
+        phase54_slice12_product_repair3_clean_topic_is_active()
+    )
     slice11_python313_repair_active = phase54_slice11_python313_repair_is_active()
     slice11_substantive_recovery_active = (
         phase54_slice11_substantive_recovery_is_active()
@@ -1479,6 +1496,17 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     elif slice12_pr_ci_repair_active:
         assert tracked == set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS)
         assert untracked == set()
+    elif slice12_product_repair3_active:
+        assert tracked == set(PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS)
+        assert untracked == set()
+    elif slice12_product_repair3_clean_topic_active:
+        assert tracked == untracked == set()
+        _assert_clean_checkout_refs(
+            branch=branch,
+            head=head,
+            main=main,
+            origin_main=origin_main,
+        )
     elif repair_gate2_active:
         assert tracked == set(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS)
         assert untracked == set(PHASE54_ACTIVE_GATE2_ADDED_PATHS)

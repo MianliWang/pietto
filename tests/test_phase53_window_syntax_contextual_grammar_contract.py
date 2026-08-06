@@ -10,8 +10,10 @@ from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
+    PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
     phase54_slice11_substantive_recovery_is_active,
+    phase54_slice12_product_repair3_is_active,
 )
 
 import pytest
@@ -1033,14 +1035,22 @@ def test_no_ast_semantic_ir_sql_or_public_surface_widening_is_locked() -> None:
         for path in PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS
         if path.startswith("src/pietto/")
     }
+    product_repair3_changed_source = {
+        path
+        for path in PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS
+        if path.startswith("src/pietto/")
+    }
     assert changed_source in (
         set(),
         allowed_source,
         phase54_changed_source,
         recovery_changed_source,
+        product_repair3_changed_source,
     )
     if changed_source == recovery_changed_source:
         assert phase54_slice11_substantive_recovery_is_active()
+    elif changed_source == product_repair3_changed_source:
+        assert phase54_slice12_product_repair3_is_active()
 
 
 def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None:

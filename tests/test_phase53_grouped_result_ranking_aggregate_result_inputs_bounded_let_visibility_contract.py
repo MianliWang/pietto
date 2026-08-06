@@ -12,7 +12,10 @@ from pathlib import Path
 from typing import cast
 
 from _phase54_active_gate2_manifest import (
+    PHASE54_SLICE12_PRODUCT_REPAIR3_BASE,
+    PHASE54_SLICE12_PRODUCT_REPAIR3_SUBJECT,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
+    phase54_slice12_product_repair3_clean_topic_is_active,
 )
 
 import pytest
@@ -442,6 +445,13 @@ def _is_clean_projection() -> bool:
     status = _git_output(["status", "--porcelain=v1", "--untracked-files=all"])
     staged = _git_output(["diff", "--cached", "--name-only"])
     shallow = _git_output(["rev-parse", "--is-shallow-repository"])
+    if phase54_slice12_product_repair3_clean_topic_is_active():
+        assert status == staged == ""
+        assert shallow == "false"
+        assert _git_output(["branch", "--show-current"]) == PHASE54_SLICE12_BRANCH
+        assert _git_optional_ref("refs/heads/main") == PHASE54_SLICE11_HEAD
+        assert _git_optional_ref("refs/remotes/origin/main") == PHASE54_SLICE11_HEAD
+        return True
     if _phase54_active_gate2_is_active():
         assert status
         assert staged == ""
@@ -972,6 +982,19 @@ def _is_clean_projection() -> bool:
 
     if parents == (PHASE54_SLICE12_CANDIDATE_HEAD,) and (
         subject == PHASE54_SLICE12_PR_CI_REPAIR_SUBJECT
+    ):
+        assert shallow == "false"
+        assert _git_output(["branch", "--show-current"]) == PHASE54_SLICE12_BRANCH
+        assert _git_optional_ref("refs/heads/main") == PHASE54_SLICE11_HEAD
+        assert _git_optional_ref("refs/remotes/origin/main") == PHASE54_SLICE11_HEAD
+        if status:
+            assert staged == ""
+            return False
+        _assert_clean_state(status=status, staged=staged)
+        return True
+
+    if parents == (PHASE54_SLICE12_PRODUCT_REPAIR3_BASE,) and (
+        subject == PHASE54_SLICE12_PRODUCT_REPAIR3_SUBJECT
     ):
         assert shallow == "false"
         assert _git_output(["branch", "--show-current"]) == PHASE54_SLICE12_BRANCH

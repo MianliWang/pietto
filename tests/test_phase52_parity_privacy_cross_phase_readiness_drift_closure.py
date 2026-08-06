@@ -20,6 +20,10 @@ from _phase54_active_gate2_manifest import (
     PHASE54_SLICE12_PR_CI_REPAIR_BASE,
     PHASE54_SLICE12_PR_CI_REPAIR_BRANCH,
     PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE12_PRODUCT_REPAIR3_BASE,
+    PHASE54_SLICE12_PRODUCT_REPAIR3_BRANCH,
+    PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS,
+    PHASE54_SLICE12_PRODUCT_REPAIR3_SUBJECT,
     PHASE54_SLICE11_PYTHON313_REPAIR_BASE,
     PHASE54_SLICE11_PYTHON313_REPAIR_BRANCH,
     PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS,
@@ -29,6 +33,8 @@ from _phase54_active_gate2_manifest import (
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
     phase54_slice11_pr_ci_repair_is_active,
     phase54_slice12_pr_ci_repair_is_active,
+    phase54_slice12_product_repair3_clean_topic_is_active,
+    phase54_slice12_product_repair3_is_active,
     phase54_slice11_python313_repair_is_active,
     phase54_slice11_substantive_recovery_is_active,
 )
@@ -119,21 +125,21 @@ MODULE_SHA256 = {
 }
 SPEC_SHA256 = "7010cd8a39ed389de588d8cd734b136cc87456c3ef5eb324638467d1188fc935"
 MODIFIED_TEST_SHA256 = {
-    SLICE4_TEST_REL: "02337416105881e0a6a46a962dac691ccdc4bcf7ea40b76537bd743e9d4cf37e",
-    SLICE5_TEST_REL: "6c667b209814f71b725a0b380823cec808b5779dac0cb735ff920fc563780930",
-    SLICE6_TEST_REL: "3a6109f186266449355f0ce0c102061722d7a4bd41811473fbbcff76949a4d2f",
-    SLICE7_TEST_REL: "d1ea898c3d1b2fbe7cdbf4643a017eab3dd3ed7df0564fa3c338bf2c84511fd1",
+    SLICE4_TEST_REL: "50c140b232993dd731454f279277aa64d69463c8abf316737edcff834dc9532f",
+    SLICE5_TEST_REL: "6db1ea7d642cec9314905d74bf1c0e617c332ac9ac6da834807aa63e09bdf2ce",
+    SLICE6_TEST_REL: "902b0cc9782a73322aaaa9e184a4f6aacc00a71577cb153846b055f9c7f98567",
+    SLICE7_TEST_REL: "cdb13fb810190a52c0ee5859089380d927983192e8de5628b35eb67f9bada6d0",
 }
 WORKFLOW_SHA256 = "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94"
 PYPROJECT_SHA256 = "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01"
 LOCK_SHA256 = "a7d9125995e98a8a74d3664ceae7801cc1f4cce74ec323933da67838be199cea"
-COMPILER_DIGEST = "6a4bc8b810b371645a5ba42588a11ca6539690b9617c652767740f87a3c09422"
+COMPILER_DIGEST = "00a5673d5d85ab4b349551af477c827b109635e4aeac4ce066e9a5a597ffa0b8"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "ed1b19e0e1aad6e8b6c912d232fab16a7c2bb71d1e7697e8bc797a42ba14cb9f"
+    "488640a8efdcd90f2c514d22ab57b6b97c6fbd3a39006db81660713e2dcd5f09"
 )
 
 SPEC_H2 = (
@@ -444,6 +450,16 @@ def _assert_clean_checkout_refs(
     origin_main: str | None,
     exact_main_refs: bool = False,
 ) -> None:
+    if phase54_slice12_product_repair3_clean_topic_is_active():
+        assert branch == PHASE54_SLICE12_PRODUCT_REPAIR3_BRANCH
+        assert main == origin_main == PHASE54_ACTIVE_GATE2_BASE
+        assert tuple(
+            _git_output(["rev-list", "--parents", "-n", "1", head]).split()[1:]
+        ) == (PHASE54_SLICE12_PRODUCT_REPAIR3_BASE,)
+        assert _git_output(["show", "-s", "--format=%s", head]) == (
+            PHASE54_SLICE12_PRODUCT_REPAIR3_SUBJECT
+        )
+        return
     refs = _git_refs()
     synthetic = _assert_checkout_ref_shape(
         branch=branch,
@@ -533,6 +549,13 @@ def _assert_allowed_dirty_state(
         assert untracked == set()
         assert branch == PHASE54_SLICE12_PR_CI_REPAIR_BRANCH
         assert head == PHASE54_SLICE12_PR_CI_REPAIR_BASE
+        assert main == origin_main == "bc46faff1c9aa71f583ed7d2964b651cc659bc90"
+        return
+    if phase54_slice12_product_repair3_is_active():
+        assert tracked == set(PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS)
+        assert untracked == set()
+        assert branch == PHASE54_SLICE12_PRODUCT_REPAIR3_BRANCH
+        assert head == PHASE54_SLICE12_PRODUCT_REPAIR3_BASE
         assert main == origin_main == "bc46faff1c9aa71f583ed7d2964b651cc659bc90"
         return
     if (

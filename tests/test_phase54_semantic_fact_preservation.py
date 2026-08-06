@@ -14,6 +14,7 @@ import pytest
 import _phase54_active_gate2_manifest as active_gate2_manifest
 import pietto._project.check as project_check
 import pietto._project.module_semantic_fact_preservation as preservation
+from pietto import cli
 from pietto._project.json_v2 import project_check_result_to_json_dict
 from pietto._project.let_scope_facts import ProjectLetScopeFactsStatus
 from pietto._project.model import (
@@ -26,7 +27,19 @@ from pietto._project.model import (
     build_empty_project_semantic_result,
 )
 from pietto._project.module_carrier import ProjectCompilationMode
-from pietto.ast_nodes import NameExpr, QueryDef, SelectItem, SourceDef
+from pietto._project.window_semantics import (
+    WindowDependencyRole,
+    deduplicate_window_dependency_edges,
+)
+from pietto.ast_nodes import (
+    DottedNameExpr,
+    GroupByItem,
+    NameExpr,
+    QueryDef,
+    SelectItem,
+    SourceDef,
+    WindowExpr,
+)
 from pietto.semantic.capability_facts import (
     CapabilityDomain,
     CapabilityFact,
@@ -34,6 +47,7 @@ from pietto.semantic.capability_facts import (
 )
 from pietto.semantic.capability_lookup import Absent, Conflict, Found, Unknown
 from pietto.semantic.window_semantics import (
+    RankingAdvancePolicy,
     WindowExpressionAnalysis,
     WindowExpressionUnsupported,
 )
@@ -147,6 +161,48 @@ def _relation(
     return matches[0]
 
 
+def _replace_relation_in_final_semantic(
+    semantic: ProjectSemanticResult,
+    original: preservation.ProjectModuleRelationSemanticFacts,
+    replacement: preservation.ProjectModuleRelationSemanticFacts,
+) -> ProjectSemanticResult:
+    facts = _fact_set(semantic)
+    environments = tuple(
+        replace(
+            environment,
+            relation_facts=tuple(
+                replacement if fact is original else fact
+                for fact in environment.relation_facts
+            ),
+        )
+        if any(fact is original for fact in environment.relation_facts)
+        else environment
+        for environment in facts.environments
+    )
+    replaced_facts = replace(facts, environments=environments)
+    return replace(semantic, module_semantic_facts=replaced_facts)
+
+
+def _replace_window_in_final_semantic(
+    semantic: ProjectSemanticResult,
+    relation: preservation.ProjectModuleRelationSemanticFacts,
+    original: preservation.ProjectModuleWindowOutputFact,
+    replacement: preservation.ProjectModuleWindowOutputFact,
+) -> ProjectSemanticResult:
+    replaced_relation = replace(
+        relation,
+        window_outputs=tuple(
+            replacement if output is original else output
+            for output in relation.window_outputs
+        ),
+    )
+    return _replace_relation_in_final_semantic(
+        semantic,
+        relation,
+        replaced_relation,
+    )
+
+
 def _library_source(*, export_relation: str = "table projected") -> str:
     return (
         "shape Row:\n"
@@ -178,13 +234,28 @@ def _query(body: str) -> str:
     return _prefix() + "query result:\n    from rows\n" + body
 
 
-def _unavailable_candidate_body(expressions: tuple[str, ...]) -> str:
-    lines: list[str] = []
-    if expressions:
-        lines.append("    let:")
-        lines.extend(f"        key = {expression}" for expression in expressions)
+def _unavailable_candidate_body(
+    expressions: tuple[str, ...],
+    *,
+    relation_qualifier: str,
+) -> str:
+    lines = ["    let:"]
+    lines.extend(f"        key = {expression}" for expression in expressions)
     lines.extend(
-        ("    group by:", "        id", "    select:", "        projected = key")
+        (
+            f"        qualified_key = {relation_qualifier}.id",
+            "        wrong_qualified_key = other.id",
+        )
+    )
+    lines.extend(
+        (
+            "    group by:",
+            "        id",
+            "    select:",
+            "        projected = key",
+            f"        qualified_projected = {relation_qualifier}.id",
+            "        wrong_qualified_projected = other.id",
+        )
     )
     lines.extend(f"        total = sum({expression})" for expression in expressions)
     lines.extend(
@@ -205,6 +276,7 @@ def _assert_unavailable_candidate_matrix(
     relation_status: ProjectRelationRowSchemaStatus,
     relation_reason: ProjectRelationRowSchemaReason,
     bucket_status: preservation.ProjectModuleCandidateBucketStatus,
+    relation_qualifier: str,
     expect_issues: bool = False,
 ) -> None:
     expression_orders = (
@@ -216,14 +288,24 @@ def _assert_unavailable_candidate_matrix(
     for case_ordinal, expressions in enumerate(expression_orders):
         _, semantic = _semantic_project(
             tmp_path / f"case-{case_ordinal}",
-            {"main.pietto": source_head + _unavailable_candidate_body(expressions)},
+            {
+                "main.pietto": source_head
+                + _unavailable_candidate_body(
+                    expressions,
+                    relation_qualifier=relation_qualifier,
+                )
+            },
         )
         relation = _relation(semantic, "main.pietto", "result")
         definition = cast(QueryDef, relation.owner.definition)
         expected_lets = (
             ()
             if definition.let_clause is None
-            else tuple(definition.let_clause.bindings)
+            else tuple(
+                binding
+                for binding in definition.let_clause.bindings
+                if binding.name == "key"
+            )
         )
         expected_outputs = tuple(
             item for item in definition.select_items if item.alias == "total"
@@ -238,6 +320,40 @@ def _assert_unavailable_candidate_matrix(
         assert len(projected.references) == 1
         assert projected.references[0].let_candidates == expected_lets
         assert projected.references[0].status is bucket_status
+        qualified_references = (
+            next(
+                fact
+                for fact in relation.let_bindings
+                if fact.binding.name == "qualified_key"
+            ).references[0],
+            next(
+                fact
+                for fact in relation.let_bindings
+                if fact.binding.name == "wrong_qualified_key"
+            ).references[0],
+            next(
+                fact
+                for fact in relation.select_facts
+                if fact.output_name == "qualified_projected"
+            ).references[0],
+            next(
+                fact
+                for fact in relation.select_facts
+                if fact.output_name == "wrong_qualified_projected"
+            ).references[0],
+        )
+        assert tuple(reference.role for reference in qualified_references) == (
+            preservation.ProjectModuleFactOccurrenceRole.LET_VALUE,
+            preservation.ProjectModuleFactOccurrenceRole.LET_VALUE,
+            preservation.ProjectModuleFactOccurrenceRole.SELECT_VALUE,
+            preservation.ProjectModuleFactOccurrenceRole.SELECT_VALUE,
+        )
+        for reference in qualified_references:
+            assert type(reference.expression) is DottedNameExpr
+            assert reference.input_field is None
+            assert reference.let_candidates == ()
+            assert reference.selected_output_candidates == ()
+            assert reference.status is bucket_status
         dependencies = {fact.role: fact for fact in relation.clause_dependencies}
         group_key = dependencies[preservation.ProjectModuleFactOccurrenceRole.GROUP_KEY]
         satisfying = dependencies[
@@ -423,6 +539,11 @@ def test_capability_family_inventory_counts_order_and_exact_raw_facts_are_preser
     None
 ):
     capabilities = preservation._capability_inventory()
+    second_inventory = preservation._capability_inventory()
+    assert capabilities.window_signatures is second_inventory.window_signatures
+    assert (
+        capabilities.window_signatures is preservation._CANONICAL_WINDOW_SIGNATURE_FACTS
+    )
     assert tuple(
         len(facts)
         for facts in (
@@ -456,6 +577,17 @@ def test_capability_family_inventory_counts_order_and_exact_raw_facts_are_preser
     ):
         with pytest.raises(ValueError, match="exact canonical tuple"):
             replace(capabilities, **{field_name: ()})
+    signatures = capabilities.window_signatures
+    invalid_signature_snapshots = (
+        (),
+        signatures[:-1],
+        (*signatures, signatures[0]),
+        tuple(reversed(signatures)),
+        tuple(replace(signature) for signature in signatures),
+    )
+    for invalid in invalid_signature_snapshots:
+        with pytest.raises(ValueError, match="exact canonical tuple"):
+            replace(capabilities, window_signatures=invalid)
 
 
 def test_capability_lookup_preserves_found_absent_unknown_conflict_and_duplicate_folding(
@@ -564,6 +696,7 @@ def test_schema_v1_has_no_sidecar_and_text_json_ir_sql_bytes_remain_exact(
 
 def test_schema_v2_builds_sidecar_from_exact_slice10_authority_without_slice11_input(
     tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     parse_result, semantic = _semantic_project(
         tmp_path,
@@ -573,6 +706,20 @@ def test_schema_v2_builds_sidecar_from_exact_slice10_authority_without_slice11_i
     assert facts.authority.modules is parse_result.modules
     assert facts.authority.catalogs is semantic.module_catalogs
     assert facts.authority.relation_resolutions is semantic.module_relation_resolutions
+    relations = tuple(
+        relation
+        for environment in facts.environments
+        for relation in environment.relation_facts
+    )
+    assert len(facts.authority._relation_fact_projections) == len(relations)
+    assert all(
+        projected is relation
+        for projected, relation in zip(
+            facts.authority._relation_fact_projections,
+            relations,
+            strict=True,
+        )
+    )
     signature = inspect.signature(preservation._build_project_module_semantic_fact_set)
     assert tuple(signature.parameters) == (
         "modules",
@@ -581,6 +728,37 @@ def test_schema_v2_builds_sidecar_from_exact_slice10_authority_without_slice11_i
     )
     source = (REPO_ROOT / SOURCE_REL).read_text(encoding="utf-8")
     assert "module_attribution" not in source
+
+    unknown_root = tmp_path / "unknown-window-identity"
+    _, unknown_semantic = _semantic_project(
+        unknown_root,
+        {
+            "main.pietto": _query(
+                "    select:\n"
+                "        mystery = mystery_window() window:\n"
+                "            order by:\n"
+                "                id\n"
+            )
+        },
+    )
+    unknown = _relation(
+        unknown_semantic,
+        "main.pietto",
+        "result",
+    ).window_outputs[0]
+    assert type(unknown.analysis) is WindowExpressionUnsupported
+    assert unknown.analysis.reason == "unsupported window function identity"
+    assert unknown.signature_fact is None
+    assert unknown.project_fact is None
+    assert unknown.status is preservation.ProjectModuleCandidateBucketStatus.UNKNOWN
+    assert unknown.reason == unknown.analysis.reason
+    assert tuple(diagnostic.code for diagnostic in unknown.diagnostics) == (
+        "PIE-S2103",
+    )
+    assert cli.main(["check", "--project", str(unknown_root), "--format", "json"]) == 1
+    cli_payload = json.loads(capsys.readouterr().out)
+    assert cli_payload["ok"] is True
+    assert cli_payload["diagnostics"] == []
 
 
 def test_builder_rejects_value_equal_or_misaligned_foreign_authority_roots(
@@ -623,6 +801,595 @@ def test_builder_rejects_value_equal_or_misaligned_foreign_authority_roots(
     with pytest.raises(ValueError, match="exact Slice 10 environments"):
         replace(facts, environments=(foreign_semantic_environment,))
 
+    rich_query = (
+        "    from rows\n"
+        "    let:\n"
+        "        key = id\n"
+        "    group by:\n"
+        "        key\n"
+        "    select:\n"
+        "        id\n"
+        "        total = sum(amount)\n"
+        "        position = rank() window:\n"
+        "            order by:\n"
+        "                total desc\n"
+        "    satisfying:\n"
+        "        total > 0\n"
+        "    order by:\n"
+        "        position\n"
+    )
+    _, rich_semantic = _semantic_project(
+        tmp_path / "owner-closure",
+        {
+            "main.pietto": (
+                _prefix()
+                + "query first:\n"
+                + rich_query
+                + "query second:\n"
+                + rich_query
+            )
+        },
+    )
+    first = _relation(rich_semantic, "main.pietto", "first")
+    second = _relation(rich_semantic, "main.pietto", "second")
+    with pytest.raises(ValueError, match="exact existing relation projection"):
+        _replace_relation_in_final_semantic(
+            rich_semantic,
+            first,
+            replace(first),
+        )
+    for attribute in (
+        "let_bindings",
+        "select_facts",
+        "clause_dependencies",
+        "window_outputs",
+    ):
+        with pytest.raises(ValueError, match="exact owner"):
+            replace(first, **{attribute: getattr(second, attribute)})
+    assert first.resolution is not None and second.resolution is not None
+    with pytest.raises(ValueError, match="exact owner"):
+        replace(first, resolution=second.resolution)
+    for foreign_resolution in (None, replace(first.resolution)):
+        foreign_relation = replace(first, resolution=foreign_resolution)
+        with pytest.raises(ValueError, match="exact Slice 10 resolution"):
+            _replace_relation_in_final_semantic(
+                rich_semantic,
+                first,
+                foreign_relation,
+            )
+    assert (
+        first.aggregate_grouped_clause_readiness is not None
+        and second.aggregate_grouped_clause_readiness is not None
+    )
+    with pytest.raises(ValueError, match="exact definition"):
+        replace(
+            first,
+            aggregate_grouped_clause_readiness=(
+                second.aggregate_grouped_clause_readiness
+            ),
+        )
+
+    first_let = first.let_bindings[0]
+    assert first_let.value_type is not None
+    missing_let_value_type = replace(first_let, value_type=None)
+    with pytest.raises(ValueError, match="exact existing relation projection"):
+        _replace_relation_in_final_semantic(
+            rich_semantic,
+            first,
+            replace(first, let_bindings=(missing_let_value_type,)),
+        )
+    foreign_let_reference = replace(
+        first_let.references[0],
+        owner=second.owner,
+    )
+    with pytest.raises(ValueError, match="exact source ledger"):
+        replace(first_let, references=(foreign_let_reference,))
+    first_select = first.select_facts[0]
+    foreign_select_reference = replace(
+        first_select.references[0],
+        owner=second.owner,
+    )
+    with pytest.raises(ValueError, match="exact source ledger"):
+        replace(first_select, references=(foreign_select_reference,))
+
+    group_dependency = first.clause_dependencies[0]
+    with pytest.raises(TypeError, match="exact role"):
+        replace(
+            group_dependency,
+            role=cast(
+                preservation.ProjectModuleFactOccurrenceRole,
+                "group_key",
+            ),
+        )
+    cloned_group_item = replace(cast(GroupByItem, group_dependency.source_occurrence))
+    with pytest.raises(ValueError, match="exact source occurrence"):
+        replace(
+            group_dependency,
+            target_occurrences=(cloned_group_item,),
+        )
+    with pytest.raises(ValueError, match="exact source ledger"):
+        replace(first, clause_dependencies=first.clause_dependencies[:-1])
+    with pytest.raises(ValueError, match="exact source ledger"):
+        replace(first, group_key_occurrences=second.group_key_occurrences)
+
+    assert first.aggregate_grouped_clause_readiness is not None
+    cloned_readiness = replace(first.aggregate_grouped_clause_readiness)
+    with pytest.raises(ValueError, match="exact existing relation projection"):
+        _replace_relation_in_final_semantic(
+            rich_semantic,
+            first,
+            replace(
+                first,
+                aggregate_grouped_clause_readiness=cloned_readiness,
+            ),
+        )
+
+    _, carrier_semantic = _semantic_project(
+        tmp_path / "whole-relation-carrier-closure",
+        {
+            "main.pietto": _query(
+                "    let:\n"
+                "        id = amount\n"
+                "        id = category\n"
+                "    select:\n"
+                "        bare = id\n"
+            )
+        },
+    )
+    carrier_relation = _relation(carrier_semantic, "main.pietto", "result")
+    carrier_scope = carrier_relation.let_scope_facts
+    assert carrier_scope is not None
+    assert carrier_scope.status is ProjectLetScopeFactsStatus.UNKNOWN
+    assert len(carrier_scope.bindings) == 2
+    assert (
+        carrier_scope.binding_expressions["id"] is carrier_scope.bindings[0].expression
+    )
+    carrier_select = carrier_relation.select_facts[0]
+    carrier_reference = carrier_select.references[0]
+    assert carrier_reference.input_field is not None
+    assert (
+        carrier_reference.status
+        is preservation.ProjectModuleCandidateBucketStatus.CONCRETE
+    )
+    assert carrier_reference.let_candidates == carrier_scope.bindings
+
+    for forged_reference in (
+        replace(carrier_reference),
+        replace(
+            carrier_reference,
+            input_field=None,
+            let_candidates=(),
+            selected_output_candidates=(),
+            status=preservation.ProjectModuleCandidateBucketStatus.ABSENT,
+        ),
+    ):
+        forged_select = replace(carrier_select, references=(forged_reference,))
+        with pytest.raises(ValueError, match="exact existing relation projection"):
+            _replace_relation_in_final_semantic(
+                carrier_semantic,
+                carrier_relation,
+                replace(carrier_relation, select_facts=(forged_select,)),
+            )
+
+    assert carrier_select.expression_schema is not None
+    assert carrier_select.field is not None
+    missing_select_payload = replace(
+        carrier_select,
+        expression_schema=None,
+        field=None,
+    )
+    with pytest.raises(ValueError, match="exact existing relation projection"):
+        _replace_relation_in_final_semantic(
+            carrier_semantic,
+            carrier_relation,
+            replace(carrier_relation, select_facts=(missing_select_payload,)),
+        )
+
+    forged_scope = replace(
+        carrier_scope,
+        binding_expressions={"id": carrier_scope.bindings[1].expression},
+    )
+    forged_scope_bindings = tuple(
+        replace(binding, scope_facts=forged_scope)
+        for binding in carrier_relation.let_bindings
+    )
+    with pytest.raises(ValueError, match="exact existing relation projection"):
+        _replace_relation_in_final_semantic(
+            carrier_semantic,
+            carrier_relation,
+            replace(
+                carrier_relation,
+                let_scope_facts=forged_scope,
+                let_bindings=forged_scope_bindings,
+            ),
+        )
+
+    assert first.let_scope_facts is not None
+    concrete_value_type = next(iter(first.let_scope_facts.value_types.values()))
+    forged_concrete_scope = replace(
+        carrier_scope,
+        status=ProjectLetScopeFactsStatus.CONCRETE,
+        binding_expressions={"id": carrier_scope.bindings[1].expression},
+        value_types={"id": concrete_value_type},
+    )
+    forged_concrete_bindings = tuple(
+        replace(binding, scope_facts=forged_concrete_scope)
+        for binding in carrier_relation.let_bindings
+    )
+    with pytest.raises(ValueError, match="exact existing relation projection"):
+        _replace_relation_in_final_semantic(
+            carrier_semantic,
+            carrier_relation,
+            replace(
+                carrier_relation,
+                let_scope_facts=forged_concrete_scope,
+                let_bindings=forged_concrete_bindings,
+            ),
+        )
+
+    _, aggregate_semantic = _semantic_project(
+        tmp_path / "whole-relation-aggregate-closure",
+        {"main.pietto": _query("    select:\n        total = count()\n")},
+    )
+    aggregate_relation = _relation(aggregate_semantic, "main.pietto", "result")
+    aggregate_select = aggregate_relation.select_facts[0]
+    assert len(aggregate_relation.aggregate_result_facts) == 1
+    assert (
+        aggregate_select.aggregate_result_fact
+        is (aggregate_relation.aggregate_result_facts[0])
+    )
+    dropped_aggregate_select = replace(
+        aggregate_select,
+        aggregate_result_fact=None,
+    )
+    with pytest.raises(ValueError, match="exact existing relation projection"):
+        _replace_relation_in_final_semantic(
+            aggregate_semantic,
+            aggregate_relation,
+            replace(
+                aggregate_relation,
+                select_facts=(dropped_aggregate_select,),
+                aggregate_result_facts=(),
+            ),
+        )
+
+    first_window = first.window_outputs[0]
+    second_window = second.window_outputs[0]
+    first_analysis = cast(WindowExpressionAnalysis, first_window.analysis)
+    second_analysis = cast(WindowExpressionAnalysis, second_window.analysis)
+    assert first_window.project_fact is not None
+    assert second_window.project_fact is not None
+    with pytest.raises(ValueError, match="exact owner source occurrence"):
+        replace(first_window, analysis=second_analysis)
+    with pytest.raises(ValueError, match="exact owner source occurrence"):
+        replace(first_window, analysis=replace(second_analysis))
+    with pytest.raises(ValueError, match="exact analysis identity"):
+        replace(first_window, project_fact=second_window.project_fact)
+    assert first_analysis.ranking_fact is not None
+    with pytest.raises(ValueError, match="exact existing family payload"):
+        replace(
+            first_window,
+            analysis=replace(
+                first_analysis,
+                ranking_fact=replace(
+                    first_analysis.ranking_fact,
+                    advance_policy=RankingAdvancePolicy.PER_ROW,
+                ),
+            ),
+        )
+
+    first_project_fact = first_window.project_fact
+    foreign_definition = replace(cast(QueryDef, first.owner.definition))
+    foreign_definition_identity = replace(
+        first_project_fact.result_identity,
+        definition=foreign_definition,
+    )
+    with pytest.raises(ValueError, match="exact analysis identity"):
+        replace(
+            first_window,
+            project_fact=replace(
+                first_project_fact,
+                result_identity=foreign_definition_identity,
+            ),
+        )
+    cloned_occurrence = replace(first_analysis.semantic_fact.occurrence)
+    cloned_occurrence_identity = replace(
+        first_project_fact.result_identity,
+        occurrence=cloned_occurrence,
+    )
+    with pytest.raises(ValueError, match="exact analysis identity"):
+        replace(
+            first_window,
+            project_fact=replace(
+                first_project_fact,
+                result_identity=cloned_occurrence_identity,
+            ),
+        )
+    wrong_output_identity = replace(
+        first_project_fact.result_identity,
+        output_name="foreign",
+    )
+    with pytest.raises(ValueError, match="exact analysis identity"):
+        replace(
+            first_window,
+            project_fact=replace(
+                first_project_fact,
+                result_identity=wrong_output_identity,
+            ),
+        )
+
+    unsupported_query = (
+        "    from rows\n"
+        "    select:\n"
+        "        bad = row_number(1) window:\n"
+        "            order by:\n"
+        "                id\n"
+    )
+    _, unsupported_semantic = _semantic_project(
+        tmp_path / "unsupported-owner-closure",
+        {
+            "main.pietto": (
+                _prefix()
+                + "query first:\n"
+                + unsupported_query
+                + "query second:\n"
+                + unsupported_query
+            )
+        },
+    )
+    unsupported_first = _relation(
+        unsupported_semantic,
+        "main.pietto",
+        "first",
+    ).window_outputs[0]
+    unsupported_second = _relation(
+        unsupported_semantic,
+        "main.pietto",
+        "second",
+    ).window_outputs[0]
+    assert isinstance(unsupported_first.analysis, WindowExpressionUnsupported)
+    assert isinstance(unsupported_second.analysis, WindowExpressionUnsupported)
+    with pytest.raises(ValueError, match="exact owner source occurrence"):
+        replace(unsupported_first, analysis=unsupported_second.analysis)
+
+    with pytest.raises(ValueError, match="exact static signature"):
+        replace(first_window, signature_fact=None)
+    assert first_window.signature_fact is not None
+    rich_facts = _fact_set(rich_semantic)
+    foreign_signature = next(
+        signature
+        for signature in rich_facts.capabilities.window_signatures
+        if signature.identity != first_window.signature_fact.identity
+    )
+    with pytest.raises(ValueError, match="exact window identity"):
+        replace(first_window, signature_fact=foreign_signature)
+    with pytest.raises(TypeError, match="exact analysis carrier"):
+        replace(first_window, analysis=None, project_fact=None)
+    with pytest.raises(ValueError, match="exact project fact"):
+        replace(first_window, project_fact=None)
+    with pytest.raises(ValueError, match="exact analysis availability"):
+        replace(
+            first_window,
+            status=preservation.ProjectModuleCandidateBucketStatus.UNKNOWN,
+        )
+    with pytest.raises(ValueError, match="exact analysis availability"):
+        replace(first_window, reason="foreign")
+    with pytest.raises(
+        ValueError,
+        match="cannot publish concrete project evidence",
+    ):
+        replace(
+            unsupported_first,
+            status=preservation.ProjectModuleCandidateBucketStatus.CONCRETE,
+        )
+    for status, reason in (
+        (
+            preservation.ProjectModuleCandidateBucketStatus.UNKNOWN,
+            "foreign",
+        ),
+        (
+            preservation.ProjectModuleCandidateBucketStatus.DEFERRED,
+            unsupported_first.analysis.reason,
+        ),
+        (
+            preservation.ProjectModuleCandidateBucketStatus.BLOCKED,
+            unsupported_first.analysis.reason,
+        ),
+    ):
+        mutated_unsupported = replace(
+            unsupported_first,
+            status=status,
+            reason=reason,
+        )
+        unsupported_relation = _relation(
+            unsupported_semantic,
+            "main.pietto",
+            "first",
+        )
+        with pytest.raises(ValueError, match="exact analyzer availability"):
+            _replace_window_in_final_semantic(
+                unsupported_semantic,
+                unsupported_relation,
+                unsupported_first,
+                mutated_unsupported,
+            )
+    for status in (
+        preservation.ProjectModuleCandidateBucketStatus.ABSENT,
+        preservation.ProjectModuleCandidateBucketStatus.AMBIGUOUS,
+    ):
+        with pytest.raises(ValueError, match="cannot be absent or ambiguous"):
+            replace(unsupported_first, status=status)
+    with pytest.raises(ValueError, match="retain analyzer diagnostics"):
+        replace(unsupported_first, diagnostics=())
+    with pytest.raises(ValueError, match="exact analyzer source evidence"):
+        replace(
+            unsupported_first,
+            diagnostics=unsupported_second.diagnostics,
+        )
+    unsupported_relation = _relation(
+        unsupported_semantic,
+        "main.pietto",
+        "first",
+    )
+    diagnostic = unsupported_first.diagnostics[0]
+    with pytest.raises(ValueError, match="exact existing relation projection"):
+        _replace_relation_in_final_semantic(
+            rich_semantic,
+            first,
+            replace(first, helper_diagnostics=(diagnostic,)),
+        )
+    diagnostic_mutations = (
+        (replace(diagnostic),),
+        (replace(diagnostic, message="foreign"),),
+        (diagnostic, diagnostic),
+    )
+    for diagnostics in diagnostic_mutations:
+        mutated_diagnostics = replace(
+            unsupported_first,
+            diagnostics=diagnostics,
+        )
+        with pytest.raises(ValueError, match="exact analyzer payload and diagnostics"):
+            _replace_window_in_final_semantic(
+                unsupported_semantic,
+                unsupported_relation,
+                unsupported_first,
+                mutated_diagnostics,
+            )
+    forged_analysis = replace(
+        unsupported_first.analysis,
+        reason="forged analyzer availability",
+    )
+    forged_output = replace(
+        unsupported_first,
+        analysis=forged_analysis,
+        reason=forged_analysis.reason,
+    )
+    with pytest.raises(ValueError, match="exact analyzer payload and diagnostics"):
+        _replace_window_in_final_semantic(
+            unsupported_semantic,
+            unsupported_relation,
+            unsupported_first,
+            forged_output,
+        )
+    external_analysis = replace(
+        unsupported_first.analysis,
+        reason="grouped context does not admit forged",
+    )
+    external_output = replace(
+        unsupported_first,
+        analysis=external_analysis,
+        diagnostics=(),
+        reason=external_analysis.reason,
+    )
+    with pytest.raises(ValueError, match="exact analyzer payload and diagnostics"):
+        _replace_window_in_final_semantic(
+            unsupported_semantic,
+            unsupported_relation,
+            unsupported_first,
+            external_output,
+        )
+
+    unavailable_supported = replace(
+        first_window,
+        project_fact=None,
+        status=preservation.ProjectModuleCandidateBucketStatus.BLOCKED,
+        reason="foreign",
+    )
+    with pytest.raises(ValueError, match="Concrete relation window outputs"):
+        replace(first, window_outputs=(unavailable_supported,))
+
+    with pytest.raises(ValueError, match="exact static signature"):
+        replace(
+            first_window,
+            signature_fact=replace(first_window.signature_fact),
+        )
+    assert not hasattr(preservation, "_bind_existing_fact_projections")
+    unbound_authority = replace(rich_facts.authority)
+    with pytest.raises(ValueError, match="authority projections"):
+        replace(rich_facts, authority=unbound_authority)
+
+    foreign_window_body = (
+        "    select:\n"
+        "        position = rank() window:\n"
+        "            order by:\n"
+        "                id\n"
+    )
+    _, foreign_semantic = _semantic_project(
+        tmp_path / "foreign-window-roots",
+        {
+            "main.pietto": (
+                _prefix()
+                + 'source other: Row is postgres.table("other")\n'
+                + "query first:\n"
+                + "    from rows\n"
+                + foreign_window_body
+                + "query second:\n"
+                + "    from other\n"
+                + foreign_window_body
+            )
+        },
+    )
+    foreign_first = _relation(foreign_semantic, "main.pietto", "first")
+    foreign_second = _relation(foreign_semantic, "main.pietto", "second")
+    foreign_first_window = foreign_first.window_outputs[0]
+    foreign_second_window = foreign_second.window_outputs[0]
+    assert foreign_first_window.project_fact is not None
+    assert foreign_second_window.project_fact is not None
+    foreign_provenance = replace(
+        foreign_first_window.project_fact.provenance,
+        symbol=foreign_second_window.project_fact.provenance.symbol,
+    )
+    provenance_project = replace(
+        foreign_first_window.project_fact,
+        provenance=foreign_provenance,
+    )
+    provenance_window = replace(
+        foreign_first_window,
+        project_fact=provenance_project,
+    )
+    with pytest.raises(ValueError, match="exact resolution authority"):
+        _replace_window_in_final_semantic(
+            foreign_semantic,
+            foreign_first,
+            foreign_first_window,
+            provenance_window,
+        )
+
+    first_occurrences = foreign_first_window.project_fact.dependency_occurrences
+    second_occurrences = foreign_second_window.project_fact.dependency_occurrences
+    first_relation_input = next(
+        occurrence
+        for occurrence in first_occurrences
+        if occurrence.role is WindowDependencyRole.RELATION_INPUT
+    )
+    second_relation_input = next(
+        occurrence
+        for occurrence in second_occurrences
+        if occurrence.role is WindowDependencyRole.RELATION_INPUT
+    )
+    dependency_occurrences = tuple(
+        replace(occurrence, target=second_relation_input.target)
+        if occurrence is first_relation_input
+        else occurrence
+        for occurrence in first_occurrences
+    )
+    dependency_project = replace(
+        foreign_first_window.project_fact,
+        dependency_occurrences=dependency_occurrences,
+        dependency_edges=deduplicate_window_dependency_edges(dependency_occurrences),
+    )
+    dependency_window = replace(
+        foreign_first_window,
+        project_fact=dependency_project,
+    )
+    with pytest.raises(ValueError, match="exact source and target authority"):
+        _replace_window_in_final_semantic(
+            foreign_semantic,
+            foreign_first,
+            foreign_first_window,
+            dependency_window,
+        )
+
 
 def test_zero_relation_fact_environment_and_lookup_are_exact(tmp_path: Path) -> None:
     _, semantic = _semantic_project(tmp_path, {"types.pietto": "type Age = Int\n"})
@@ -652,6 +1419,8 @@ def test_source_relation_fact_retains_exact_slice10_owner_state_and_order(
     assert source.base_row_fact is base_source
     assert source.owner is base_source.owner
     assert source.state is base_source.state
+    with pytest.raises(ValueError, match="exact Slice 10 row state"):
+        replace(source, state=replace(source.state))
     semantic_environment = facts.environments[0]
     row_facts = base.environments[0].row_facts
     assert len(semantic_environment.relation_facts) == len(row_facts) == 3
@@ -946,6 +1715,7 @@ def test_unknown_upstream_state_and_reason_propagate_without_child_inference(
         relation_status=ProjectRelationRowSchemaStatus.UNKNOWN,
         relation_reason=ProjectRelationRowSchemaReason.UPSTREAM_UNKNOWN,
         bucket_status=preservation.ProjectModuleCandidateBucketStatus.UNKNOWN,
+        relation_qualifier="unknown",
     )
 
 
@@ -965,6 +1735,7 @@ def test_deferred_upstream_state_and_reason_propagate_without_concretization(
         relation_status=ProjectRelationRowSchemaStatus.DEFERRED,
         relation_reason=ProjectRelationRowSchemaReason.UPSTREAM_DEFERRED,
         bucket_status=preservation.ProjectModuleCandidateBucketStatus.DEFERRED,
+        relation_qualifier="pending",
     )
 
 
@@ -977,6 +1748,7 @@ def test_blocked_unresolved_reference_retains_issue_root_and_empty_candidates(
         relation_status=ProjectRelationRowSchemaStatus.BLOCKED,
         relation_reason=ProjectRelationRowSchemaReason.UNRESOLVED_RELATION_BLOCKED,
         bucket_status=preservation.ProjectModuleCandidateBucketStatus.BLOCKED,
+        relation_qualifier="missing",
         expect_issues=True,
     )
 
@@ -1009,8 +1781,30 @@ def test_local_and_module_cycles_retain_complete_roots_without_guessed_facts(
         tmp_path / "local",
         {
             "main.pietto": (
-                "query a:\n    from b\n    select:\n        id\n"
-                "query b:\n    from a\n    select:\n        id\n"
+                "query a:\n"
+                "    from b\n"
+                "    let:\n"
+                "        qualified = b.id\n"
+                "        wrong = other.id\n"
+                "    select:\n"
+                "        id\n"
+                "        qualified = b.id\n"
+                "        wrong = other.id\n"
+                "        position = rank() window:\n"
+                "            order by:\n"
+                "                id\n"
+                "query b:\n"
+                "    from a\n"
+                "    let:\n"
+                "        qualified = a.id\n"
+                "        wrong = other.id\n"
+                "    select:\n"
+                "        id\n"
+                "        qualified = a.id\n"
+                "        wrong = other.id\n"
+                "        position = rank() window:\n"
+                "            order by:\n"
+                "                id\n"
             )
         },
     )
@@ -1018,6 +1812,36 @@ def test_local_and_module_cycles_retain_complete_roots_without_guessed_facts(
         _relation(local_semantic, "main.pietto", name).state.status
         for name in ("a", "b")
     } == {ProjectRelationRowSchemaStatus.BLOCKED}
+    for name in ("a", "b"):
+        relation = _relation(local_semantic, "main.pietto", name)
+        references = tuple(
+            reference
+            for binding in relation.let_bindings
+            for reference in binding.references
+        ) + tuple(
+            reference
+            for selected in relation.select_facts
+            for reference in selected.references
+        )
+        assert len(references) == 5
+        assert {reference.status for reference in references} == {
+            preservation.ProjectModuleCandidateBucketStatus.BLOCKED
+        }
+        assert all(
+            reference.input_field is None
+            and reference.let_candidates == ()
+            and reference.selected_output_candidates == ()
+            for reference in references
+        )
+        assert len(relation.window_outputs) == 1
+        window = relation.window_outputs[0]
+        assert isinstance(
+            window.analysis,
+            (WindowExpressionAnalysis, WindowExpressionUnsupported),
+        )
+        assert window.project_fact is None
+        assert window.status is preservation.ProjectModuleCandidateBucketStatus.BLOCKED
+        assert window.reason == ProjectRelationRowSchemaReason.CYCLE_BLOCKED.value
     _, module_semantic = _semantic_project(
         tmp_path / "module",
         {
@@ -1086,6 +1910,58 @@ def test_let_binding_ledger_preserves_source_order_duplicates_visibility_and_sta
         assert dependency.target_fields == ()
         assert dependency.aggregate_result_facts == ()
 
+    _, qualified_semantic = _semantic_project(
+        tmp_path / "qualified",
+        {
+            "main.pietto": _query(
+                "    let:\n"
+                "        id = amount\n"
+                "        missing = amount\n"
+                "        qualified = rows.id\n"
+                "    select:\n"
+                "        existing = rows.id\n"
+                "        absent = rows.missing\n"
+                "        bare = id\n"
+            )
+        },
+    )
+    qualified_relation = _relation(qualified_semantic, "main.pietto", "result")
+    qualified_let = qualified_relation.let_bindings[2].references[0]
+    existing = qualified_relation.select_facts[0].references[0]
+    absent = qualified_relation.select_facts[1].references[0]
+    bare = qualified_relation.select_facts[2].references[0]
+    for reference in (qualified_let, existing):
+        assert type(reference.expression) is DottedNameExpr
+        assert reference.input_field is not None
+        assert reference.input_field.name == "id"
+        assert reference.let_candidates == ()
+        assert reference.selected_output_candidates == ()
+        assert (
+            reference.status is preservation.ProjectModuleCandidateBucketStatus.CONCRETE
+        )
+    assert type(absent.expression) is DottedNameExpr
+    assert absent.input_field is None
+    assert absent.let_candidates == ()
+    assert absent.selected_output_candidates == ()
+    assert absent.status is preservation.ProjectModuleCandidateBucketStatus.ABSENT
+    assert bare.input_field is not None
+    assert bare.let_candidates == (qualified_relation.let_bindings[0].binding,)
+    with pytest.raises(ValueError, match="cannot carry local candidates"):
+        replace(
+            existing,
+            let_candidates=(qualified_relation.let_bindings[0].binding,),
+        )
+    with pytest.raises(ValueError, match="cannot carry local candidates"):
+        replace(
+            existing,
+            selected_output_candidates=(qualified_relation.select_facts[0].item,),
+        )
+    with pytest.raises(ValueError, match="require an input field"):
+        replace(
+            absent,
+            status=preservation.ProjectModuleCandidateBucketStatus.CONCRETE,
+        )
+
 
 def test_let_derived_output_preserves_type_nullability_origin_dependency_and_role(
     tmp_path: Path,
@@ -1148,6 +2024,22 @@ def test_select_output_collision_preserves_every_candidate_and_never_overwrites(
     assert len(duplicate_outputs) == 2
     assert aggregate_relation.aggregate_result_facts == ()
     assert all(fact.aggregate_result_fact is None for fact in duplicate_outputs)
+    group_dependency = next(
+        dependency
+        for dependency in aggregate_relation.clause_dependencies
+        if dependency.role is preservation.ProjectModuleFactOccurrenceRole.GROUP_KEY
+    )
+    assert aggregate_relation.group_key_occurrences == (
+        group_dependency.source_occurrence,
+    )
+    assert group_dependency.target_occurrences == (group_dependency.source_occurrence,)
+    assert tuple(field.name for field in group_dependency.target_fields) == (
+        "category",
+    )
+    assert (
+        group_dependency.status
+        is preservation.ProjectModuleCandidateBucketStatus.CONCRETE
+    )
     for dependency in aggregate_relation.clause_dependencies:
         if dependency.role is preservation.ProjectModuleFactOccurrenceRole.GROUP_KEY:
             continue
@@ -1184,6 +2076,220 @@ def test_group_keys_preserve_source_order_visibility_fields_and_result_roles(
         ProjectRowResultRole.GROUP_KEY,
         ProjectRowResultRole.AGGREGATE_RESULT,
     )
+
+    _, let_semantic = _semantic_project(
+        tmp_path / "let-backed",
+        {
+            "main.pietto": _query(
+                "    let:\n"
+                "        category_key = rows.category\n"
+                "        bucket = category_key\n"
+                "        id_key = id\n"
+                "    group by:\n"
+                "        bucket\n"
+                "        id_key\n"
+                "    select:\n"
+                "        category\n"
+                "        id\n"
+                "        total = count()\n"
+            )
+        },
+    )
+    let_relation = _relation(let_semantic, "main.pietto", "result")
+    let_group_dependencies = tuple(
+        fact
+        for fact in let_relation.clause_dependencies
+        if fact.role is preservation.ProjectModuleFactOccurrenceRole.GROUP_KEY
+    )
+    assert tuple(fact.source_ordinal for fact in let_group_dependencies) == (0, 1)
+    assert (
+        tuple(fact.source_occurrence for fact in let_group_dependencies)
+        == let_relation.group_key_occurrences
+    )
+    assert tuple(
+        tuple(field.name for field in fact.target_fields)
+        for fact in let_group_dependencies
+    ) == (("category",), ("id",))
+    assert all(
+        fact.target_occurrences == (fact.source_occurrence,)
+        and fact.status is preservation.ProjectModuleCandidateBucketStatus.CONCRETE
+        for fact in let_group_dependencies
+    )
+
+    for case, body in {
+        "nonconcrete-let": (
+            "    let:\n"
+            "        key = category\n"
+            "        key = id\n"
+            "    group by:\n"
+            "        key\n"
+            "    select:\n"
+            "        category\n"
+            "        total = count()\n"
+        ),
+        "nonconcrete-shadowing-input": (
+            "    let:\n"
+            "        category = id\n"
+            "        category = amount\n"
+            "    group by:\n"
+            "        category\n"
+            "    select:\n"
+            "        category\n"
+            "        total = count()\n"
+        ),
+        "wrong-qualifier": (
+            "    group by:\n"
+            "        other.category\n"
+            "    select:\n"
+            "        category\n"
+            "        total = count()\n"
+        ),
+        "non-direct-let": (
+            "    let:\n"
+            "        key = id + 1\n"
+            "    group by:\n"
+            "        key\n"
+            "    select:\n"
+            "        id\n"
+            "        total = count()\n"
+        ),
+    }.items():
+        _, unavailable_semantic = _semantic_project(
+            tmp_path / case,
+            {"main.pietto": _query(body)},
+        )
+        unavailable_relation = _relation(unavailable_semantic, "main.pietto", "result")
+        unavailable = next(
+            fact
+            for fact in unavailable_relation.clause_dependencies
+            if fact.role is preservation.ProjectModuleFactOccurrenceRole.GROUP_KEY
+        )
+        assert unavailable.target_occurrences == ()
+        assert unavailable.target_fields == ()
+        assert (
+            unavailable.status
+            is preservation.ProjectModuleCandidateBucketStatus.UNKNOWN
+        )
+
+    for case, body in {
+        "unsupported-aggregate": (
+            "    group by:\n"
+            "        category\n"
+            "    select:\n"
+            "        category\n"
+            "        total = sum(category)\n"
+        ),
+        "duplicate-aggregate-alias-reversed": (
+            "    group by:\n"
+            "        category\n"
+            "    select:\n"
+            "        category\n"
+            "        total = sum(amount)\n"
+            "        total = sum(id)\n"
+        ),
+    }.items():
+        _, independent_failure_semantic = _semantic_project(
+            tmp_path / case,
+            {"main.pietto": _query(body)},
+        )
+        independent_failure = _relation(
+            independent_failure_semantic,
+            "main.pietto",
+            "result",
+        )
+        group_dependency = next(
+            fact
+            for fact in independent_failure.clause_dependencies
+            if fact.role is preservation.ProjectModuleFactOccurrenceRole.GROUP_KEY
+        )
+        assert group_dependency.target_occurrences == (
+            group_dependency.source_occurrence,
+        )
+        assert tuple(field.name for field in group_dependency.target_fields) == (
+            "category",
+        )
+        assert (
+            group_dependency.status
+            is preservation.ProjectModuleCandidateBucketStatus.CONCRETE
+        )
+
+    _, duplicate_group_semantic = _semantic_project(
+        tmp_path / "duplicate-group",
+        {
+            "main.pietto": _query(
+                "    group by:\n"
+                "        category\n"
+                "        category\n"
+                "    select:\n"
+                "        category\n"
+                "        total = count()\n"
+            )
+        },
+    )
+    duplicate_group = _relation(duplicate_group_semantic, "main.pietto", "result")
+    duplicate_dependencies = tuple(
+        fact
+        for fact in duplicate_group.clause_dependencies
+        if fact.role is preservation.ProjectModuleFactOccurrenceRole.GROUP_KEY
+    )
+    assert len(duplicate_dependencies) == 2
+    assert tuple(fact.source_ordinal for fact in duplicate_dependencies) == (0, 1)
+    assert (
+        tuple(fact.source_occurrence for fact in duplicate_dependencies)
+        == duplicate_group.group_key_occurrences
+    )
+    assert all(
+        fact.target_occurrences == (fact.source_occurrence,)
+        and tuple(field.name for field in fact.target_fields) == ("category",)
+        and fact.status is preservation.ProjectModuleCandidateBucketStatus.CONCRETE
+        for fact in duplicate_dependencies
+    )
+    assert duplicate_group.state.status is ProjectRelationRowSchemaStatus.UNKNOWN
+    assert (
+        duplicate_group.state.reason
+        is ProjectRelationRowSchemaReason.DUPLICATE_GROUP_KEY
+    )
+
+    for case, keys in {
+        "valid-before-wrong": ("category", "other.id"),
+        "wrong-before-valid": ("other.id", "category"),
+    }.items():
+        _, mixed_semantic = _semantic_project(
+            tmp_path / case,
+            {
+                "main.pietto": _query(
+                    "    group by:\n"
+                    + "".join(f"        {key}\n" for key in keys)
+                    + "    select:\n"
+                    "        category\n"
+                    "        total = count()\n"
+                )
+            },
+        )
+        mixed = _relation(mixed_semantic, "main.pietto", "result")
+        mixed_dependencies = tuple(
+            fact
+            for fact in mixed.clause_dependencies
+            if fact.role is preservation.ProjectModuleFactOccurrenceRole.GROUP_KEY
+        )
+        assert tuple(fact.source_ordinal for fact in mixed_dependencies) == (0, 1)
+        for key, dependency in zip(keys, mixed_dependencies, strict=True):
+            if key == "category":
+                assert dependency.target_occurrences == (dependency.source_occurrence,)
+                assert tuple(field.name for field in dependency.target_fields) == (
+                    "category",
+                )
+                assert (
+                    dependency.status
+                    is preservation.ProjectModuleCandidateBucketStatus.CONCRETE
+                )
+            else:
+                assert dependency.target_occurrences == ()
+                assert dependency.target_fields == ()
+                assert (
+                    dependency.status
+                    is preservation.ProjectModuleCandidateBucketStatus.UNKNOWN
+                )
 
 
 def test_aggregate_results_preserve_function_arguments_type_nullability_origin_and_role(
@@ -1316,6 +2422,59 @@ def test_grouped_order_let_candidate_bucket_preserves_all_matching_outputs(
         and output.status is preservation.ProjectModuleCandidateBucketStatus.CONCRETE
         for output in relation.window_outputs
     )
+    forged_order = replace(
+        order,
+        status=preservation.ProjectModuleCandidateBucketStatus.CONCRETE,
+    )
+    forged_clause_dependencies = tuple(
+        forged_order if fact is order else fact for fact in relation.clause_dependencies
+    )
+    assert relation.aggregate_grouped_clause_readiness is not None
+    forged_state = preservation._reduce_window_outputs_to_state(
+        definition=cast(QueryDef, relation.owner.definition),
+        base_state=relation.aggregate_grouped_clause_readiness.finalization.state,
+        outputs=relation.window_outputs,
+    )
+    forged_relation = replace(
+        relation,
+        clause_dependencies=forged_clause_dependencies,
+        state=forged_state,
+    )
+    with pytest.raises(ValueError, match="exact existing-fact projection"):
+        _replace_relation_in_final_semantic(
+            semantic,
+            relation,
+            forged_relation,
+        )
+
+    _, chained_semantic = _semantic_project(
+        tmp_path / "chained",
+        {
+            "main.pietto": _query(
+                "    let:\n"
+                "        key = category\n"
+                "        bucket = key\n"
+                "    group by:\n"
+                "        category\n"
+                "    select:\n"
+                "        category\n"
+                "        total = count()\n"
+                "    order by:\n"
+                "        bucket\n"
+            )
+        },
+    )
+    chained_relation = _relation(chained_semantic, "main.pietto", "result")
+    chained_order = next(
+        fact
+        for fact in chained_relation.clause_dependencies
+        if fact.role is preservation.ProjectModuleFactOccurrenceRole.GROUPED_ORDER
+    )
+    assert chained_order.target_occurrences == (chained_relation.select_facts[0].item,)
+    assert tuple(field.name for field in chained_order.target_fields) == ("category",)
+    assert (
+        chained_order.status is preservation.ProjectModuleCandidateBucketStatus.CONCRETE
+    )
 
 
 def test_aggregate_grouped_concrete_unknown_deferred_and_blocked_states_are_atomic(
@@ -1382,6 +2541,44 @@ def test_all_eight_window_families_preserve_complete_composite_analysis(
         and output.project_fact is not None
         for output in relation.window_outputs
     )
+    canonical_by_identity = {
+        fact.identity.name: fact
+        for fact in preservation._CANONICAL_WINDOW_SIGNATURE_FACTS
+    }
+    assert all(
+        output.signature_fact
+        is canonical_by_identity[
+            cast(WindowExpressionAnalysis, output.analysis).semantic_fact.identity.name
+        ]
+        for output in relation.window_outputs
+    )
+    ntile_output = relation.window_outputs[5]
+    ntile_analysis = cast(WindowExpressionAnalysis, ntile_output.analysis)
+    assert ntile_analysis.distribution_fact is not None
+    with pytest.raises(ValueError, match="exact existing family payload"):
+        replace(
+            ntile_output,
+            analysis=replace(
+                ntile_analysis,
+                distribution_fact=replace(
+                    ntile_analysis.distribution_fact,
+                    bucket_count=7,
+                ),
+            ),
+        )
+    foreign_state = replace(
+        relation.state,
+        status=ProjectRelationRowSchemaStatus.BLOCKED,
+        schema=None,
+        reason=ProjectRelationRowSchemaReason.CONFLICTING_WINDOW_RESULT_FACTS,
+    )
+    foreign_relation = replace(relation, state=foreign_state)
+    with pytest.raises(ValueError, match="deterministic existing window reduction"):
+        _replace_relation_in_final_semantic(
+            semantic,
+            relation,
+            foreign_relation,
+        )
 
 
 def test_navigation_offset_default_generic_and_nullability_formula_evidence_is_exact(
@@ -1480,6 +2677,74 @@ def test_mixed_window_outcomes_scan_all_candidates_and_publish_no_partial_schema
         assert relation.state.status is ProjectRelationRowSchemaStatus.BLOCKED
         assert relation.state.schema is None
 
+    _, local_nonconcrete_semantic = _semantic_project(
+        tmp_path / "local-nonconcrete",
+        {
+            "main.pietto": _query(
+                "    select:\n"
+                "        missing\n"
+                "        position = rank() window:\n"
+                "            order by:\n"
+                "                id\n"
+            )
+        },
+    )
+    local_nonconcrete = _relation(
+        local_nonconcrete_semantic,
+        "main.pietto",
+        "result",
+    )
+    assert local_nonconcrete.state.status is ProjectRelationRowSchemaStatus.UNKNOWN
+    assert len(local_nonconcrete.window_outputs) == 1
+    local_window = local_nonconcrete.window_outputs[0]
+    assert isinstance(local_window.analysis, WindowExpressionAnalysis)
+    assert local_window.project_fact is None
+    assert (
+        local_window.status is preservation.ProjectModuleCandidateBucketStatus.UNKNOWN
+    )
+    assert local_window.reason == local_nonconcrete.state.reason.value
+
+    _, missing_order_semantic = _semantic_project(
+        tmp_path / "missing-order",
+        {
+            "main.pietto": _query(
+                "    select:\n"
+                "        position = rank() window:\n"
+                "            order by:\n"
+                "                missing\n"
+            )
+        },
+    )
+    missing_order = _relation(missing_order_semantic, "main.pietto", "result")
+    missing_window = missing_order.window_outputs[0]
+    assert isinstance(missing_window.analysis, WindowExpressionUnsupported)
+    assert missing_window.analysis.reason == "window order field type must be concrete"
+    assert len(missing_window.diagnostics) == 1
+    missing_diagnostic = missing_window.diagnostics[0]
+    missing_expression = (
+        cast(
+            WindowExpr,
+            missing_window.item.expression,
+        )
+        .spec.order_by[0]
+        .expression
+    )
+    assert missing_diagnostic.code == "PIE-S2102"
+    assert missing_diagnostic.message == "Unknown field: missing"
+    assert (
+        missing_diagnostic.location.path,
+        missing_diagnostic.location.line,
+        missing_diagnostic.location.column,
+        missing_diagnostic.location.end_line,
+        missing_diagnostic.location.end_column,
+    ) == (
+        missing_expression.span.path,
+        missing_expression.span.line,
+        missing_expression.span.column,
+        missing_expression.span.end_line,
+        missing_expression.span.end_column,
+    )
+
     def unavailable_body(field_name: str) -> str:
         return (
             "    select:\n"
@@ -1532,6 +2797,7 @@ def test_mixed_window_outcomes_scan_all_candidates_and_publish_no_partial_schema
             output.status is output_status
             and output.analysis is not None
             and output.project_fact is None
+            and output.reason == relation.state.reason.value
             for output in relation.window_outputs
         )
         invalid = relation.window_outputs[1]
@@ -1545,6 +2811,29 @@ def test_mixed_window_outcomes_scan_all_candidates_and_publish_no_partial_schema
             assert relation.state.schema.is_unknown
         else:
             assert relation.state.schema is None
+        baseline = relation.window_outputs[0]
+        for status in (
+            preservation.ProjectModuleCandidateBucketStatus.UNKNOWN,
+            preservation.ProjectModuleCandidateBucketStatus.DEFERRED,
+            preservation.ProjectModuleCandidateBucketStatus.BLOCKED,
+        ):
+            for reason in (baseline.reason, "foreign"):
+                if status is baseline.status and reason == baseline.reason:
+                    continue
+                mutated = replace(baseline, status=status, reason=reason)
+                with pytest.raises(ValueError, match="exact upstream availability"):
+                    _replace_window_in_final_semantic(
+                        semantic,
+                        relation,
+                        baseline,
+                        mutated,
+                    )
+        for status in (
+            preservation.ProjectModuleCandidateBucketStatus.ABSENT,
+            preservation.ProjectModuleCandidateBucketStatus.AMBIGUOUS,
+        ):
+            with pytest.raises(ValueError, match="cannot be absent or ambiguous"):
+                replace(baseline, status=status)
 
 
 def test_window_dependency_occurrences_preserve_duplicates_and_edges_first_dedupe_only(
@@ -1564,6 +2853,137 @@ def test_window_dependency_occurrences_preserve_duplicates_and_edges_first_dedup
     assert len(project_fact.dependency_occurrences) == 5
     assert len(project_fact.dependency_edges) == 3
 
+    grouped_relations: list[
+        tuple[ProjectSemanticResult, preservation.ProjectModuleRelationSemanticFacts]
+    ] = []
+    for index, (first_name, second_name) in enumerate(
+        (("first", "second"), ("second", "first"))
+    ):
+        _, grouped_semantic = _semantic_project(
+            tmp_path / f"grouped-let-{index}",
+            {
+                "main.pietto": _query(
+                    "    let:\n"
+                    "        key = id\n"
+                    "    group by:\n"
+                    "        id\n"
+                    "    select:\n"
+                    f"        {first_name} = id\n"
+                    f"        {second_name} = id\n"
+                    "        total = count()\n"
+                    "        position = rank() window:\n"
+                    "            order by:\n"
+                    "                key\n"
+                )
+            },
+        )
+        grouped_relation = _relation(grouped_semantic, "main.pietto", "result")
+        grouped_relations.append((grouped_semantic, grouped_relation))
+        grouped_window = grouped_relation.window_outputs[0]
+        assert grouped_window.project_fact is not None
+        grouped_order = next(
+            occurrence
+            for occurrence in grouped_window.project_fact.dependency_occurrences
+            if occurrence.role is WindowDependencyRole.WINDOW_ORDER
+        )
+        assert grouped_order.target.output_name == first_name
+        assert grouped_order.target_result_role is ProjectRowResultRole.GROUP_KEY
+
+    _, collision_semantic = _semantic_project(
+        tmp_path / "grouped-let-output-collision",
+        {
+            "main.pietto": _query(
+                "    let:\n"
+                "        key = id\n"
+                "    group by:\n"
+                "        id\n"
+                "    select:\n"
+                "        key = id\n"
+                "        first = id\n"
+                "        total = count()\n"
+                "        key = rank() window:\n"
+                "            order by:\n"
+                "                key\n"
+            )
+        },
+    )
+    collision_relation = _relation(collision_semantic, "main.pietto", "result")
+    collision_window = collision_relation.window_outputs[0]
+    assert collision_window.project_fact is None
+    assert (
+        collision_window.status
+        is preservation.ProjectModuleCandidateBucketStatus.UNKNOWN
+    )
+    assert collision_window.reason == "invalid_aggregate_or_grouped_output"
+
+    provider_sources = {
+        "qualified": _query(
+            "    let:\n"
+            "        key = rows.id\n"
+            "    group by:\n"
+            "        key\n"
+            "    select:\n"
+            "        first = rows.id\n"
+            "        total = count()\n"
+            "        position = rank() window:\n"
+            "            order by:\n"
+            "                key\n"
+        ),
+    }
+    for name, provider_source in provider_sources.items():
+        _, provider_semantic = _semantic_project(
+            tmp_path / f"grouped-provider-{name}",
+            {"main.pietto": provider_source},
+        )
+        provider_window = _relation(
+            provider_semantic,
+            "main.pietto",
+            "result",
+        ).window_outputs[0]
+        assert provider_window.project_fact is not None
+        provider_order = next(
+            occurrence
+            for occurrence in provider_window.project_fact.dependency_occurrences
+            if occurrence.role is WindowDependencyRole.WINDOW_ORDER
+        )
+        assert provider_order.target.output_name == "first"
+        assert provider_order.target_result_role is ProjectRowResultRole.GROUP_KEY
+
+    grouped_semantic, grouped_relation = grouped_relations[0]
+    grouped_window = grouped_relation.window_outputs[0]
+    assert grouped_window.project_fact is not None
+    grouped_order = next(
+        occurrence
+        for occurrence in grouped_window.project_fact.dependency_occurrences
+        if occurrence.role is WindowDependencyRole.WINDOW_ORDER
+    )
+    forged_occurrences = tuple(
+        replace(
+            occurrence,
+            target=replace(
+                occurrence.target,
+                name="second",
+                output_name="second",
+            ),
+        )
+        if occurrence is grouped_order
+        else occurrence
+        for occurrence in grouped_window.project_fact.dependency_occurrences
+    )
+    forged_project_fact = replace(
+        grouped_window.project_fact,
+        dependency_occurrences=forged_occurrences,
+        dependency_edges=deduplicate_window_dependency_edges(forged_occurrences),
+    )
+    forged_window = replace(grouped_window, project_fact=forged_project_fact)
+    with pytest.raises(ValueError, match="exact source and target authority"):
+        _replace_window_in_final_semantic(
+            grouped_semantic,
+            grouped_relation,
+            grouped_window,
+            forged_window,
+        )
+
 
 def test_ordinary_group_aggregate_and_window_result_roles_remain_distinct_in_one_relation(
     tmp_path: Path,
@@ -1575,6 +2995,9 @@ def test_ordinary_group_aggregate_and_window_result_roles_remain_distinct_in_one
         "        total = sum(amount)\n"
         "        position = rank() window:\n"
         "            order by:\n                total desc\n"
+        "    order by:\n"
+        "        position\n"
+        "        position desc\n"
     )
     _, semantic = _semantic_project(tmp_path, {"main.pietto": source})
     relation = _relation(semantic, "main.pietto", "result")
@@ -1589,6 +3012,116 @@ def test_ordinary_group_aggregate_and_window_result_roles_remain_distinct_in_one
     )
     assert preservation._capability_inventory().result_roles[0] is (
         ProjectRowResultRole.ORDINARY_ROW_VALUE
+    )
+    grouped_order = tuple(
+        fact
+        for fact in relation.clause_dependencies
+        if fact.role is preservation.ProjectModuleFactOccurrenceRole.GROUPED_ORDER
+    )
+    assert tuple(fact.source_ordinal for fact in grouped_order) == (0, 1)
+    assert all(
+        fact.target_occurrences == (relation.select_facts[2].item,)
+        and fact.target_fields == (relation.state.schema.fields["position"],)
+        and fact.target_fields[0].result_role is ProjectRowResultRole.WINDOW_RESULT
+        and fact.status is preservation.ProjectModuleCandidateBucketStatus.CONCRETE
+        for fact in grouped_order
+    )
+
+    _, satisfying_semantic = _semantic_project(
+        tmp_path / "satisfying-stage",
+        {
+            "main.pietto": _query(
+                "    group by:\n"
+                "        id\n"
+                "    select:\n"
+                "        id\n"
+                "        total = sum(amount)\n"
+                "        position = rank() window:\n"
+                "            order by:\n"
+                "                total desc\n"
+                "    satisfying:\n"
+                "        position > 0\n"
+            )
+        },
+    )
+    satisfying_relation = _relation(satisfying_semantic, "main.pietto", "result")
+    satisfying = next(
+        fact
+        for fact in satisfying_relation.clause_dependencies
+        if fact.role is preservation.ProjectModuleFactOccurrenceRole.SATISFYING
+    )
+    assert satisfying.target_occurrences == (satisfying_relation.select_facts[2].item,)
+    assert satisfying.target_fields == ()
+    assert satisfying.status is preservation.ProjectModuleCandidateBucketStatus.UNKNOWN
+
+    _, collision_semantic = _semantic_project(
+        tmp_path / "collision",
+        {
+            "main.pietto": _query(
+                "    group by:\n"
+                "        id\n"
+                "    select:\n"
+                "        id\n"
+                "        duplicate = sum(amount)\n"
+                "        duplicate = rank() window:\n"
+                "            order by:\n"
+                "                id\n"
+                "    satisfying:\n"
+                "        duplicate > 0\n"
+                "    order by:\n"
+                "        duplicate\n"
+            )
+        },
+    )
+    collision_relation = _relation(collision_semantic, "main.pietto", "result")
+    assert collision_relation.state.status is ProjectRelationRowSchemaStatus.UNKNOWN
+    assert (
+        collision_relation.state.reason
+        is ProjectRelationRowSchemaReason.DUPLICATE_OUTPUT_NAME
+    )
+    collision_order = next(
+        fact
+        for fact in collision_relation.clause_dependencies
+        if fact.role is preservation.ProjectModuleFactOccurrenceRole.GROUPED_ORDER
+    )
+    assert collision_order.target_occurrences == tuple(
+        fact.item
+        for fact in collision_relation.select_facts
+        if fact.output_name == "duplicate"
+    )
+    assert collision_order.target_fields == ()
+    collision_satisfying = next(
+        fact
+        for fact in collision_relation.clause_dependencies
+        if fact.role is preservation.ProjectModuleFactOccurrenceRole.SATISFYING
+    )
+    collision_occurrences = tuple(
+        fact.item
+        for fact in collision_relation.select_facts
+        if fact.output_name == "duplicate"
+    )
+    assert collision_satisfying.target_occurrences == collision_occurrences
+    assert collision_order.target_occurrences == collision_occurrences
+    assert len(collision_satisfying.target_fields) == 1
+    assert (
+        collision_satisfying.target_fields[0].result_role
+        is ProjectRowResultRole.AGGREGATE_RESULT
+    )
+    assert len(collision_satisfying.aggregate_result_facts) == 1
+    assert collision_order.aggregate_result_facts == (
+        collision_satisfying.aggregate_result_facts[0],
+    )
+    assert collision_relation.aggregate_result_facts == ()
+    assert all(
+        fact.aggregate_result_fact is None for fact in collision_relation.select_facts
+    )
+    assert (
+        collision_satisfying.status
+        is preservation.ProjectModuleCandidateBucketStatus.UNKNOWN
+    )
+    assert (
+        collision_order.status
+        is preservation.ProjectModuleCandidateBucketStatus.UNKNOWN
     )
 
 

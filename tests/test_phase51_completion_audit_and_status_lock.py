@@ -21,11 +21,13 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS,
     PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
     phase54_slice11_pr_ci_repair_is_active,
     phase54_slice12_pr_ci_repair_is_active,
+    phase54_slice12_product_repair3_is_active,
     phase54_slice11_python313_repair_is_active,
     phase54_slice11_substantive_recovery_is_active,
 )
@@ -357,9 +359,9 @@ PROTECTED_HASHES = {
         "26cc0ae4a68518223d6bf600ad3c4b0b226618aa7ef31b2ae1c25924d2655169"
     ),
 }
-COMPILER_DIGEST = "6a4bc8b810b371645a5ba42588a11ca6539690b9617c652767740f87a3c09422"
+COMPILER_DIGEST = "00a5673d5d85ab4b349551af477c827b109635e4aeac4ce066e9a5a597ffa0b8"
 PROJECT_PRIVATE_DIGEST = (
-    "ed1b19e0e1aad6e8b6c912d232fab16a7c2bb71d1e7697e8bc797a42ba14cb9f"
+    "488640a8efdcd90f2c514d22ab57b6b97c6fbd3a39006db81660713e2dcd5f09"
 )
 
 PROJECT_JSON_V2_KEYS = (
@@ -1390,6 +1392,7 @@ def test_static_git_helper_and_exact_slice12_dirty_set_are_locked() -> None:
         slice2_modified | slice2_added,
         set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS),
         set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS),
+        set(PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS),
         set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS),
         set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS),
     )
@@ -1409,6 +1412,9 @@ def test_static_git_helper_and_exact_slice12_dirty_set_are_locked() -> None:
         assert phase54_slice11_substantive_recovery_is_active()
     elif dirty_paths == set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS):
         assert phase54_slice12_pr_ci_repair_is_active()
+        assert untracked_paths == set()
+    elif dirty_paths == set(PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS):
+        assert phase54_slice12_product_repair3_is_active()
         assert untracked_paths == set()
     elif dirty_paths == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS):
         assert phase54_slice11_pr_ci_repair_is_active()

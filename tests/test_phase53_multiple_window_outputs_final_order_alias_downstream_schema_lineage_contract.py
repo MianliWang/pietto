@@ -23,6 +23,8 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
     PHASE54_SLICE11_PR_CI_REPAIR_BASE,
     PHASE54_SLICE12_PR_CI_REPAIR_BASE,
+    PHASE54_SLICE12_PRODUCT_REPAIR3_BASE,
+    PHASE54_SLICE12_PRODUCT_REPAIR3_SUBJECT,
     PHASE54_SLICE11_PYTHON313_REPAIR_BASE,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
@@ -609,7 +611,13 @@ def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> N
             assert parents == []
         else:
             if _phase54_active_gate2_is_active():
-                if head == PHASE54_SLICE12_PR_CI_REPAIR_BASE:
+                if _git_output(["show", "-s", "--format=%s", "HEAD"]) == (
+                    PHASE54_SLICE12_PRODUCT_REPAIR3_SUBJECT
+                ):
+                    expected_parent = PHASE54_SLICE12_PRODUCT_REPAIR3_BASE
+                elif head == PHASE54_SLICE12_PRODUCT_REPAIR3_BASE:
+                    expected_parent = PHASE54_SLICE12_PR_CI_REPAIR_BASE
+                elif head == PHASE54_SLICE12_PR_CI_REPAIR_BASE:
                     expected_parent = PHASE54_ACTIVE_GATE2_BASE
                 elif head == PHASE54_ACTIVE_GATE2_BASE:
                     expected_parent = PHASE54_SLICE10_HEAD
