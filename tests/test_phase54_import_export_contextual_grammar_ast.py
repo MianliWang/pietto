@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 import pytest
@@ -916,9 +916,9 @@ def test_reader_allowlist_retained_later_and_publication_topology_contracts_are_
     assert "125\nmechanical reader tests" in spec
     assert "128 literal handwritten Python paths" in spec
     assert "10886 passed" in spec
-    assert "## Status And Slice 11 Lifecycle" in plan
-    assert "PHASE54_SLICE11_GATE2_COMPLETED_AWAITING_PUBLICATION" in plan
-    assert "PHASE54_SLICE11_GATE3" in plan
+    assert "## Status And Slice 12 Lifecycle" in plan
+    assert "PHASE54_SLICE12_GATE2_COMPLETED_AWAITING_PUBLICATION" in plan
+    assert "PHASE54_SLICE12_GATE3" in plan
     assert "Slice 5 owns module-qualified nominal declaration identity" in spec
     assert "PIE-S2701" in spec and "remain absent and un-emitted" in spec
     assert "Add Phase 54 import export grammar and AST" in topology

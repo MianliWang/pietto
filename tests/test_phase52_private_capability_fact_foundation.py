@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 import pytest
@@ -766,6 +766,7 @@ def test_private_module_has_no_public_compiler_project_or_serializer_consumers()
                 REPO_ROOT / CONTEXT_REL,
                 REPO_ROOT / AGGREGATE_REL,
                 REPO_ROOT / "src/pietto/semantic/capability_windows.py",
+                REPO_ROOT / "src/pietto/_project/module_semantic_fact_preservation.py",
             }
             or "generated" in path.parts
         ):
@@ -789,6 +790,11 @@ def test_private_module_has_no_public_compiler_project_or_serializer_consumers()
     signature_source = _read(SIGNATURE_PATH)
     assert "semantic.capability_facts" in signature_source
     assert "CapabilityFact" in signature_source
+    preservation_source = _read(
+        REPO_ROOT / "src/pietto/_project/module_semantic_fact_preservation.py"
+    )
+    assert "semantic.capability_facts" in preservation_source
+    assert "__all__: tuple[str, ...] = ()" in preservation_source
     assert "CapabilityKey" in signature_source
 
 
@@ -829,7 +835,7 @@ def test_slice2_spec_locks_read_model_non_authority_and_conflict_preservation() 
 
 def test_compiler_boundary_and_all_compatibility_hash_locks_are_consistent() -> None:
     compiler_paths = _compiler_paths()
-    assert len(compiler_paths) == 104
+    assert len(compiler_paths) == 105
     compiler_digest = _digest(compiler_paths)
     for path in BOUNDARY_PATHS:
         assert f'BOUNDARY_HASH = "{compiler_digest}"' in _read(REPO_ROOT / path)
@@ -915,9 +921,9 @@ def test_compiler_boundary_and_all_compatibility_hash_locks_are_consistent() -> 
 
 def test_project_boundary_package_version_and_release_state_are_unchanged() -> None:
     project_paths = _project_private_paths()
-    assert len(project_paths) == 29
+    assert len(project_paths) == 30
     assert _digest(project_paths) == (
-        "8613fe48154768889b06c7bfa5eff5733da2bd727001f64545eb440dc9233b72"
+        "ed1b19e0e1aad6e8b6c912d232fab16a7c2bb71d1e7697e8bc797a42ba14cb9f"
     )
     with PYPROJECT_PATH.open("rb") as stream:
         project = tomllib.load(stream)
@@ -926,7 +932,7 @@ def test_project_boundary_package_version_and_release_state_are_unchanged() -> N
 
 
 def test_gate2_dirty_untracked_and_index_states_are_exact() -> None:
-    if _phase54_slice11_gate2_is_active():
+    if _phase54_active_gate2_is_active():
         return
     dirty = _dirty_paths()
     slice13_modified = _slice13_paths("MODIFIED_PATHS")

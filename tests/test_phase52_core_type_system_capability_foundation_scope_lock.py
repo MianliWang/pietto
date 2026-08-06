@@ -8,7 +8,7 @@ import tomllib
 from pathlib import Path
 
 from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -178,9 +178,9 @@ PRE_RECONCILIATION_2_SHA256 = (
 PRE_RECONCILIATION_3_SHA256 = (
     "cb2c51246f1e312858641750d1a416125f99058fb0182949e9afe35ae49e97cf"
 )
-COMPILER_DIGEST = "ff84f85769a284b70fba5bc89c16926817131663b59cf740866660ebc72813d4"
+COMPILER_DIGEST = "6a4bc8b810b371645a5ba42588a11ca6539690b9617c652767740f87a3c09422"
 PROJECT_PRIVATE_DIGEST = (
-    "8613fe48154768889b06c7bfa5eff5733da2bd727001f64545eb440dc9233b72"
+    "ed1b19e0e1aad6e8b6c912d232fab16a7c2bb71d1e7697e8bc797a42ba14cb9f"
 )
 
 
@@ -558,7 +558,7 @@ def test_slice1_no_behavior_public_privacy_and_release_boundaries_are_locked() -
         compiler_digest.update(path.read_bytes())
         compiler_digest.update(b"\0")
     assert (len(compiler_paths), compiler_digest.hexdigest()) == (
-        104,
+        105,
         COMPILER_DIGEST,
     )
     for relative_path in BOUNDARY_PATHS:
@@ -585,12 +585,12 @@ def test_slice1_no_behavior_public_privacy_and_release_boundaries_are_locked() -
         project_digest.update(path.read_bytes())
         project_digest.update(b"\0")
     assert (len(project_paths), project_digest.hexdigest()) == (
-        29,
+        30,
         PROJECT_PRIVATE_DIGEST,
     )
     assert (
         '"project_private": (\n        "src/pietto/_project",\n'
-        f'        29,\n        "{PROJECT_PRIVATE_DIGEST}",\n    ),'
+        f'        30,\n        "{PROJECT_PRIVATE_DIGEST}",\n    ),'
     ) in _read(REPO_ROOT / "tests/test_phase33_completion_audit.py")
 
     project = tomllib.loads(_read(PYPROJECT_PATH))["project"]
@@ -873,7 +873,7 @@ def test_static_audit_shape_allowlist_and_heading_matching_are_locked() -> None:
     slice13_added = _slice13_paths("ADDED_PATHS")
     slice13_allowlist = slice13_modified | slice13_added
     dirty_paths = _dirty_paths()
-    if _phase54_slice11_gate2_is_active():
+    if _phase54_active_gate2_is_active():
         assert _headings_at_level(PLAN_PATH, 2) == PLAN_H2
         assert _headings_at_level(SCOPE_PATH, 2) == SCOPE_H2
         return

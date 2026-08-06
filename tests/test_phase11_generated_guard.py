@@ -11,7 +11,7 @@ from types import ModuleType
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 import pytest
@@ -31,7 +31,7 @@ EXPECTED_INVENTORY = (
     "PiettoVisitor.py",
     "__init__.py",
 )
-BOUNDARY_HASH = "ff84f85769a284b70fba5bc89c16926817131663b59cf740866660ebc72813d4"
+BOUNDARY_HASH = "6a4bc8b810b371645a5ba42588a11ca6539690b9617c652767740f87a3c09422"
 VALIDATION_GATES = (
     ("lockfile", ("uv", "lock", "--check")),
     ("format", ("uv", "run", "ruff", "format", "--check", ".")),

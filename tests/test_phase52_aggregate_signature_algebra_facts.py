@@ -15,7 +15,7 @@ from _phase54_active_gate2_manifest import (
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
-    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
     phase54_slice11_pr_ci_repair_is_active,
     phase54_slice11_python313_repair_is_active,
     phase54_slice11_substantive_recovery_is_active,
@@ -64,13 +64,13 @@ LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf2
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 SIGNATURE_SHA256 = "810f347080e0bb7dc674821aa6387c5f7618ac216832194ef19820326eef71d2"
 CONTEXT_SHA256 = "132371eccca00ca9f8722a34f1ea0f540933515e560639ee12e53aee6594c60c"
-COMPILER_DIGEST = "ff84f85769a284b70fba5bc89c16926817131663b59cf740866660ebc72813d4"
+COMPILER_DIGEST = "6a4bc8b810b371645a5ba42588a11ca6539690b9617c652767740f87a3c09422"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "8613fe48154768889b06c7bfa5eff5733da2bd727001f64545eb440dc9233b72"
+    "ed1b19e0e1aad6e8b6c912d232fab16a7c2bb71d1e7697e8bc797a42ba14cb9f"
 )
 
 SPEC_H2 = (
@@ -1748,12 +1748,18 @@ def test_spec_headings_and_required_phrases_are_exact() -> None:
 
 
 def test_no_existing_consumer_public_export_registry_io_or_callback_exists() -> None:
+    preservation_path = (
+        REPO_ROOT / "src/pietto/_project/module_semantic_fact_preservation.py"
+    )
     for path in (REPO_ROOT / "src/pietto").rglob("*.py"):
-        if path == SOURCE_PATH or "generated" in path.parts:
+        if path in {SOURCE_PATH, preservation_path} or "generated" in path.parts:
             continue
         source = _read(path)
         assert "semantic.capability_aggregates" not in source
         assert "aggregate_lookup_inputs" not in source
+    preservation_source = _read(preservation_path)
+    assert "semantic.capability_aggregates" in preservation_source
+    assert "aggregate_lookup_inputs" in preservation_source
     assert "capability_aggregates" not in _read(
         REPO_ROOT / "src/pietto/semantic/__init__.py"
     )
@@ -1797,11 +1803,11 @@ def test_compiler_semantic_subset_project_and_raw_hash_readers_are_exact() -> No
     )
     project_paths = _project_private_paths()
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        104,
+        105,
         36,
         33,
     )
-    assert len(project_paths) == 29
+    assert len(project_paths) == 30
     assert _digest(compiler_paths) == COMPILER_DIGEST
     assert _digest(semantic_paths) == SEMANTIC_DIGEST
     assert _digest(phase15_paths) == PHASE15_SUBSET_DIGEST
@@ -1929,7 +1935,7 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     assert _git_output(["tag", "--list"]) == ""
     assert _git_output(["tag", "--points-at", "HEAD"]) == ""
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
-    repair_gate2_active = _phase54_slice11_gate2_is_active()
+    repair_gate2_active = _phase54_active_gate2_is_active()
     slice11_pr_ci_repair_active = phase54_slice11_pr_ci_repair_is_active()
     slice11_python313_repair_active = phase54_slice11_python313_repair_is_active()
     slice11_substantive_recovery_active = (
@@ -2086,7 +2092,7 @@ def test_static_test_inventory_and_tier1_selection_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (460, 5171)
+    assert (len(test_files), top_level_functions) == (461, 5215)
 
     compatible, per_file_items = _prior_compatible_nodes()
     assert (len(compatible), per_file_items) == (69, (24, 33, 63))

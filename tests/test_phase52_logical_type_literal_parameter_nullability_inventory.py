@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 import pytest
@@ -70,13 +70,13 @@ SLICE8_GATE2_BASE_HEAD_SHA = "11a0c48941c3c1c650be8d0ec8ddf5201f9525f2"
 
 FACTS_SHA256 = "bd68bad4e13a2b945962458fc47359a408d27b1563ba25f5713a8f8099671d21"
 LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26"
-COMPILER_DIGEST = "ff84f85769a284b70fba5bc89c16926817131663b59cf740866660ebc72813d4"
+COMPILER_DIGEST = "6a4bc8b810b371645a5ba42588a11ca6539690b9617c652767740f87a3c09422"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "8613fe48154768889b06c7bfa5eff5733da2bd727001f64545eb440dc9233b72"
+    "ed1b19e0e1aad6e8b6c912d232fab16a7c2bb71d1e7697e8bc797a42ba14cb9f"
 )
 TIER2_MANIFEST_BYTES = 18319
 TIER2_MANIFEST_SHA256 = (
@@ -1055,12 +1055,18 @@ def test_lookup_folds_duplicates_and_preserves_distinct_same_key_conflicts() -> 
 
 
 def test_private_inventory_has_no_compiler_public_or_serializer_consumer() -> None:
+    preservation_path = (
+        REPO_ROOT / "src/pietto/_project/module_semantic_fact_preservation.py"
+    )
     for path in (REPO_ROOT / "src/pietto").rglob("*.py"):
-        if path == SOURCE_PATH or "generated" in path.parts:
+        if path in {SOURCE_PATH, preservation_path} or "generated" in path.parts:
             continue
         source = _read(path)
         assert "semantic.capability_inventory" not in source
         assert "inventory_lookup_inputs" not in source
+    preservation_source = _read(preservation_path)
+    assert "semantic.capability_inventory" in preservation_source
+    assert "inventory_lookup_inputs" in preservation_source
     assert "capability_inventory" not in _read(
         REPO_ROOT / "src/pietto/semantic/__init__.py"
     )
@@ -1103,7 +1109,7 @@ def test_digest_and_nested_raw_sha_reader_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        104,
+        105,
         36,
         33,
     )
@@ -1149,7 +1155,7 @@ def test_digest_and_nested_raw_sha_reader_closure_is_exact() -> None:
 
 def test_project_package_version_and_tag_boundaries_are_unchanged() -> None:
     project_paths = _project_private_paths()
-    assert len(project_paths) == 29
+    assert len(project_paths) == 30
     assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
     with PYPROJECT_PATH.open("rb") as stream:
         project = tomllib.load(stream)
@@ -1158,7 +1164,7 @@ def test_project_package_version_and_tag_boundaries_are_unchanged() -> None:
 
 
 def test_gate2_dirty_untracked_and_index_states_are_exact() -> None:
-    if _phase54_slice11_gate2_is_active():
+    if _phase54_active_gate2_is_active():
         return
     dirty = _dirty_paths()
     slice13_modified = _slice13_paths("MODIFIED_PATHS")

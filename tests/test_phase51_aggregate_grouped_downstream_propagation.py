@@ -26,7 +26,7 @@ from _phase54_active_gate2_manifest import (
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
-    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
     phase54_slice11_pr_ci_repair_is_active,
     phase54_slice11_python313_repair_is_active,
     phase54_slice11_substantive_recovery_is_active,
@@ -1542,10 +1542,11 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
             expected_head = PHASE54_SLICE8_BASE_HEAD_SHA
         elif is_phase54_slice9:
             expected_head = PHASE54_SLICE9_BASE_HEAD_SHA
-        if _phase54_slice11_gate2_is_active():
+        if _phase54_active_gate2_is_active():
             active_head = _git_output(["rev-parse", "HEAD"]).strip()
             assert active_head in {
                 "b81843acadb294630db361c09949868d004b1bca",
+                "bc46faff1c9aa71f583ed7d2964b651cc659bc90",
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,
@@ -1599,10 +1600,10 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
                     == 1
                 )
                 assert changed_lines.count(f'+BOUNDARY_HASH = "{compiler_digest}"') == 1
-            elif _phase54_slice11_gate2_is_active():
+            elif _phase54_active_gate2_is_active():
                 repair9_identity_change = [
-                    "-    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,",
-                    "+    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,",
+                    "-    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,",
+                    "+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,",
                 ]
                 if changed_lines == repair9_identity_change:
                     pass
@@ -1629,17 +1630,17 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
                 assert changed_lines[1] == f'+BOUNDARY_HASH = "{compiler_digest}"'
     project_paths = _project_private_paths()
     project_digest = _digest(project_paths)
-    assert len(project_paths) == 29
+    assert len(project_paths) == 30
     assert REPO_ROOT / "src/pietto/_project/window_persistence.py" in project_paths
     assert project_digest == (
-        "8613fe48154768889b06c7bfa5eff5733da2bd727001f64545eb440dc9233b72"
+        "ed1b19e0e1aad6e8b6c912d232fab16a7c2bb71d1e7697e8bc797a42ba14cb9f"
     )
     phase33 = (REPO_ROOT / "tests/test_phase33_completion_audit.py").read_text(
         encoding="utf-8"
     )
     assert (
         f'"project_private": (\n        "src/pietto/_project",\n'
-        f'        29,\n        "{project_digest}",\n    ),'
+        f'        30,\n        "{project_digest}",\n    ),'
     ) in phase33
     phase33_changed_lines = _git_changed_lines("tests/test_phase33_completion_audit.py")
     if phase33_changed_lines:
@@ -1723,16 +1724,16 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
                 '-        "c667d91a5c965a0e62359fa1d43e76880804e6527acef1175f6ebc7d1feb646e",',
                 f'+        "{_digest((REPO_ROOT / "docs/spec/pietto-v0.9.md",))}",',
             ]
-        elif _phase54_slice11_gate2_is_active():
+        elif _phase54_active_gate2_is_active():
             assert len(phase33_changed_lines) == 10
             assert phase33_changed_lines[:2] == [
-                "-    phase54_active_gate2_manifest_is_active as _phase54_product_repair9_gate2_is_active,",
-                "+    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,",
+                "-    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,",
+                "+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,",
             ]
-            assert phase33_changed_lines[2] == "-        28,"
+            assert phase33_changed_lines[2] == "-        29,"
             assert re.fullmatch(r'-        "[0-9a-f]{64}",', phase33_changed_lines[3])
             assert phase33_changed_lines[4:6] == [
-                "+        29,",
+                "+        30,",
                 f'+        "{project_digest}",',
             ]
             assert re.fullmatch(r'-        "[0-9a-f]{64}",', phase33_changed_lines[6])

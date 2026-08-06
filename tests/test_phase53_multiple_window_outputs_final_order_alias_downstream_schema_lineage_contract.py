@@ -11,6 +11,7 @@ from types import MappingProxyType
 from typing import cast
 
 from _phase54_active_gate2_manifest import (
+    PHASE54_ACTIVE_GATE2_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,
@@ -23,7 +24,7 @@ from _phase54_active_gate2_manifest import (
     PHASE54_SLICE11_PR_CI_REPAIR_BASE,
     PHASE54_SLICE11_PYTHON313_REPAIR_BASE,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE,
-    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 import pytest
@@ -606,8 +607,10 @@ def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> N
         if _git_output(["rev-parse", "--is-shallow-repository"]) == "true":
             assert parents == []
         else:
-            if _phase54_slice11_gate2_is_active():
-                if head == PHASE54_SLICE11_PYTHON313_REPAIR_BASE:
+            if _phase54_active_gate2_is_active():
+                if head == PHASE54_ACTIVE_GATE2_BASE:
+                    expected_parent = PHASE54_SLICE10_HEAD
+                elif head == PHASE54_SLICE11_PYTHON313_REPAIR_BASE:
                     expected_parent = PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE
                 elif head == PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE:
                     expected_parent = PHASE54_SLICE11_PR_CI_REPAIR_BASE
@@ -1550,7 +1553,7 @@ def test_recursive_reader_hash_terminal_and_manifest_fixed_point_is_exact() -> N
         for path in paths
         if path.startswith("src/pietto/_project/") and path.endswith(".py")
     )
-    assert len(project_paths) == 29
+    assert len(project_paths) == 30
     assert "src/pietto/_project/window_persistence.py" in project_paths
     digest = hashlib.sha256()
     for path in project_paths:
@@ -1594,11 +1597,11 @@ def test_test_inventory_focused_overlay_validation_and_gate3_are_exact() -> None
         len(test_paths),
         top_level_tests,
     ) == (
-        918,
-        565,
-        257,
-        460,
-        5171,
+        921,
+        567,
+        258,
+        461,
+        5215,
     )
     docs = _read(PLAN_REL)
     for value in (

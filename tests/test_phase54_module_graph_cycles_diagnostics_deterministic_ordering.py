@@ -9,7 +9,7 @@ from types import MappingProxyType
 from typing import cast
 
 from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 import pytest
@@ -253,10 +253,10 @@ def test_graph_carrier_enums_fields_privacy_and_manifest_are_exact() -> None:
     assert not diagnostic_set_authority.compare
     assert diagnostic_set_authority.hash is False
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER == (
-        "PHASE54_SLICE11_GATE2"
+        "PHASE54_SLICE12_GATE2"
     )
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE == (
-        "b81843acadb294630db361c09949868d004b1bca"
+        "bc46faff1c9aa71f583ed7d2964b651cc659bc90"
     )
 
 
@@ -1114,9 +1114,15 @@ def test_schema_v1_privacy_status_reader_fixed_point_and_slice9_boundary(
     assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_ADDED_PATHS) == 3
     assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS) == 69
     assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 3
-    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 72
-    assert SOURCE_REL in active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
-    assert SPEC_REL in active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
+    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 70
+    assert SOURCE_REL not in active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
+    assert SPEC_REL not in active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
+    assert TEST_REL in active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
+    assert {
+        "docs/spec/phase54-slice12-semantic-fact-preservation-v1.md",
+        "src/pietto/_project/module_semantic_fact_preservation.py",
+        "tests/test_phase54_semantic_fact_preservation.py",
+    } == set(active_gate2_manifest.PHASE54_ACTIVE_GATE2_ADDED_PATHS)
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
     assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE == (
         "17a5b01e555930537334d4d0bcf3480e332b7e91"

@@ -11,16 +11,8 @@ from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
     PHASE54_ACTIVE_GATE2_ADDED_PATHS,
+    PHASE54_ACTIVE_GATE2_BASE,
     PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
-    PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
-    PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
-    PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,
-    PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE,
-    PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BASE,
-    PHASE54_POST_REVIEW_PRODUCT_REPAIR6_BASE,
-    PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE,
-    PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
-    PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
     PHASE54_SLICE11_PR_CI_REPAIR_BASE,
     PHASE54_SLICE11_PR_CI_REPAIR_BRANCH,
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
@@ -30,7 +22,7 @@ from _phase54_active_gate2_manifest import (
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BRANCH,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
-    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
     phase54_slice11_pr_ci_repair_is_active,
     phase54_slice11_python313_repair_is_active,
     phase54_slice11_substantive_recovery_is_active,
@@ -206,10 +198,10 @@ MODULE_SHA256 = {
     WINDOW_REL: "c0512933fc284bbc1dec98dab96411ee179d64e7bee005aa798b6fd7dba2024e",
 }
 PATH_DIGESTS = {
-    "compiler": "ff84f85769a284b70fba5bc89c16926817131663b59cf740866660ebc72813d4",
+    "compiler": "6a4bc8b810b371645a5ba42588a11ca6539690b9617c652767740f87a3c09422",
     "semantic": "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70",
     "phase15": "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d",
-    "project": "8613fe48154768889b06c7bfa5eff5733da2bd727001f64545eb440dc9233b72",
+    "project": "ed1b19e0e1aad6e8b6c912d232fab16a7c2bb71d1e7697e8bc797a42ba14cb9f",
 }
 PROTECTED_SHA256 = {
     ".github/workflows/ci.yml": "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94",
@@ -466,24 +458,12 @@ def _assert_allowed_dirty_state(
         assert main == origin_main == "b81843acadb294630db361c09949868d004b1bca"
         return
     if (
-        _phase54_slice11_gate2_is_active()
+        _phase54_active_gate2_is_active()
         and tracked == set(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS)
         and untracked == set(PHASE54_ACTIVE_GATE2_ADDED_PATHS)
-        and branch == "phase54/slice10-cross-module-relation-row-facts"
-        and head
-        in {
-            PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
-            PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
-            PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,
-            PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE,
-            PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BASE,
-            PHASE54_POST_REVIEW_PRODUCT_REPAIR6_BASE,
-            PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE,
-            PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
-            PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
-        }
-        and main == origin_main == "fadb1924af057cfc901a1658e117810d699e2358"
     ):
+        assert branch == "main"
+        assert head == main == origin_main == PHASE54_ACTIVE_GATE2_BASE
         return
     dirty = tracked | untracked
     if head in {
@@ -960,13 +940,17 @@ def test_privacy_consumers_exports_authority_and_no_behavior_boundaries_are_lock
         "window_lookup_inputs",
     }
     stems = {Path(relative).stem for relative in MODULE_RELS}
+    preservation_rel = "src/pietto/_project/module_semantic_fact_preservation.py"
     for path in (REPO_ROOT / "src/pietto").rglob("*.py"):
         relative = path.relative_to(REPO_ROOT).as_posix()
-        if relative in MODULE_RELS or "generated" in path.parts:
+        if relative in {*MODULE_RELS, preservation_rel} or "generated" in path.parts:
             continue
         source = path.read_text(encoding="utf-8")
         assert all(name not in source for name in forbidden_names)
         assert all(f"semantic.{stem}" not in source for stem in stems)
+    preservation_source = _read(preservation_rel)
+    assert all(name in preservation_source for name in forbidden_names)
+    assert "__all__: tuple[str, ...] = ()" in preservation_source
     assert "capability_" not in _read("src/pietto/__init__.py")
     assert "capability_" not in _read("src/pietto/semantic/__init__.py")
     spec = _read(SPEC_REL)
@@ -1047,10 +1031,10 @@ def test_live_compiler_semantic_phase15_project_protected_version_and_tag_locks_
     )
     project = _project_paths()
     assert (len(compiler), len(semantic), len(phase15), len(project)) == (
-        104,
+        105,
         36,
         33,
-        29,
+        30,
     )
     assert {
         "compiler": _digest(compiler),
@@ -1155,7 +1139,7 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
     assert (
         sum(path.endswith(".py") for path in readable),
         sum(path.endswith(".md") for path in readable),
-    ) == (565, 257)
+    ) == (567, 258)
     for digest, expected in (
         (PATH_DIGESTS["compiler"], 28),
         (PATH_DIGESTS["semantic"], 42),
@@ -1234,7 +1218,7 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
         )
         for path in test_files
     )
-    assert (len(test_files), top_functions) == (460, 5171)
+    assert (len(test_files), top_functions) == (461, 5215)
     assert (
         381 + 834 + 627 + 424 + 279 + 168 + 156 + 12 + 145 + 190 + 70 + 70 + 97 + 35
         == 3488
@@ -1350,7 +1334,7 @@ def test_static_git_helper_and_exact_slice9_dirty_set_are_locked() -> None:
         elif phase54_slice11_pr_ci_repair_is_active():
             slice2_modified = set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS)
             slice2_added = set()
-        elif _phase54_slice11_gate2_is_active() or _git_output(
+        elif _phase54_active_gate2_is_active() or _git_output(
             ["rev-parse", "HEAD"]
         ) in {
             "d8a5e9ab3de70ce30575513c73560c86430eca63",

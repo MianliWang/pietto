@@ -10,7 +10,7 @@ from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
-    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
     phase54_slice11_substantive_recovery_is_active,
 )
 
@@ -1044,7 +1044,7 @@ def test_no_ast_semantic_ir_sql_or_public_surface_widening_is_locked() -> None:
 
 
 def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None:
-    if _phase54_slice11_gate2_is_active():
+    if _phase54_active_gate2_is_active():
         return
     tracked = set(_git_output(["diff", "--name-only"]).splitlines()) - {""}
     name_status = tuple(_git_output(["diff", "--name-status"]).splitlines())
@@ -1095,15 +1095,15 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             assert origin_main == head
 
     readable_paths = set(_git_output(["ls-files"]).splitlines()) | untracked
-    assert len(readable_paths) == 918
-    assert sum(path.endswith(".py") for path in readable_paths) == 565
-    assert sum(path.endswith(".md") for path in readable_paths) == 257
+    assert len(readable_paths) == 921
+    assert sum(path.endswith(".py") for path in readable_paths) == 567
+    assert sum(path.endswith(".md") for path in readable_paths) == 258
     test_modules = {
         path
         for path in readable_paths
         if path.startswith("tests/test_") and path.endswith(".py")
     }
-    assert len(test_modules) == 460
+    assert len(test_modules) == 461
     top_level_tests = 0
     for relative in sorted(test_modules):
         tree = ast.parse(_read(relative), filename=relative)
@@ -1112,7 +1112,7 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 5171
+    assert top_level_tests == 5215
     assert len(GENERATED_PATHS) == 8
     goldens = {
         path

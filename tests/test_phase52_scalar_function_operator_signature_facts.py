@@ -15,7 +15,7 @@ from _phase54_active_gate2_manifest import (
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
-    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
     phase54_slice11_pr_ci_repair_is_active,
     phase54_slice11_python313_repair_is_active,
     phase54_slice11_substantive_recovery_is_active,
@@ -85,7 +85,7 @@ FACTS_SHA256 = "bd68bad4e13a2b945962458fc47359a408d27b1563ba25f5713a8f8099671d21
 LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26"
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 PROJECT_PRIVATE_DIGEST = (
-    "8613fe48154768889b06c7bfa5eff5733da2bd727001f64545eb440dc9233b72"
+    "ed1b19e0e1aad6e8b6c912d232fab16a7c2bb71d1e7697e8bc797a42ba14cb9f"
 )
 TIER2_MANIFEST_BYTES = 18319
 TIER2_MANIFEST_FILES = 108
@@ -1264,12 +1264,18 @@ def test_no_aggregate_stage_clause_or_window_fact_is_present() -> None:
 
 
 def test_no_compiler_project_public_or_runtime_consumer_exists() -> None:
+    preservation_path = (
+        REPO_ROOT / "src/pietto/_project/module_semantic_fact_preservation.py"
+    )
     for path in (REPO_ROOT / "src/pietto").rglob("*.py"):
-        if path == SOURCE_PATH or "generated" in path.parts:
+        if path in {SOURCE_PATH, preservation_path} or "generated" in path.parts:
             continue
         source = _read(path)
         assert "semantic.capability_signatures" not in source
         assert "signature_lookup_inputs" not in source
+    preservation_source = _read(preservation_path)
+    assert "semantic.capability_signatures" in preservation_source
+    assert "signature_lookup_inputs" in preservation_source
     assert "capability_signatures" not in _read(
         REPO_ROOT / "src/pietto/semantic/__init__.py"
     )
@@ -1337,11 +1343,11 @@ def test_compiler_semantic_subset_project_and_raw_hash_readers_are_exact() -> No
     )
     project_paths = _project_private_paths()
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        104,
+        105,
         36,
         33,
     )
-    assert len(project_paths) == 29
+    assert len(project_paths) == 30
     assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
 
     tracked = tuple(_git_output(["ls-files"]).splitlines())
@@ -1433,7 +1439,7 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     slice13_modified = _slice13_paths("MODIFIED_PATHS")
     slice13_added = _slice13_paths("ADDED_PATHS")
     slice13_allowlist = slice13_modified | slice13_added
-    repair_gate2_active = _phase54_slice11_gate2_is_active()
+    repair_gate2_active = _phase54_active_gate2_is_active()
     slice11_pr_ci_repair_active = phase54_slice11_pr_ci_repair_is_active()
     slice11_python313_repair_active = phase54_slice11_python313_repair_is_active()
     slice11_substantive_recovery_active = (
@@ -1570,7 +1576,7 @@ def test_static_test_inventory_tier1_and_tier2_manifest_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (460, 5171)
+    assert (len(test_files), top_level_functions) == (461, 5215)
     assert len(DIRECT_TIER1_NODES) == len(set(DIRECT_TIER1_NODES)) == 44
     for node_id in DIRECT_TIER1_NODES:
         path, function = node_id.split("::", maxsplit=1)

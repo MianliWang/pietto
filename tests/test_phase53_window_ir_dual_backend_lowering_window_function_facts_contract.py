@@ -13,7 +13,7 @@ from _phase54_active_gate2_manifest import (  # noqa: F401
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
-    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
     phase54_slice11_pr_ci_repair_is_active,
     phase54_slice11_python313_repair_is_active,
     phase54_slice11_substantive_recovery_is_active,
@@ -1727,7 +1727,7 @@ def test_generated_golden_fixture_package_dependency_and_version_boundaries_are_
         sum(path.endswith(".md") for path in paths),
         sum(path.startswith("tests/test_") and path.endswith(".py") for path in paths),
         _top_level_test_function_count(paths),
-    ) == (918, 565, 257, 460, 5171)
+    ) == (921, 567, 258, 461, 5215)
     generated = tuple(
         path for path in paths if path.startswith("src/pietto/generated/")
     )
