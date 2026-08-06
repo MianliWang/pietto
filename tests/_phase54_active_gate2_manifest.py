@@ -59,6 +59,8 @@ PHASE54_SLICE11_PYTHON313_REPAIR_BASE = "35895e72877925603f90159d6830be91a64002e
 PHASE54_SLICE11_PYTHON313_REPAIR_BRANCH = (
     "phase54/slice11-module-attribution-dependency-origin-provenance-lineage"
 )
+PHASE54_SLICE12_PR_CI_REPAIR_BASE = "1c8a9ff9ce95563da0312dc640e6ac30248168e2"
+PHASE54_SLICE12_PR_CI_REPAIR_BRANCH = "phase54/slice12-semantic-fact-preservation"
 ADDED_PATHS = {
     "docs/spec/phase54-slice12-semantic-fact-preservation-v1.md",
     "src/pietto/_project/module_semantic_fact_preservation.py",
@@ -305,6 +307,30 @@ PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS = frozenset(
         "tests/test_phase54_local_import_module_export_foundation_scope_lock.py",
         "tests/test_phase54_module_attribution_dependency_origin_provenance_lineage.py",
         "tests/test_phase54_module_graph_cycles_diagnostics_deterministic_ordering.py",
+    }
+)
+PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS = frozenset(
+    {
+        "tests/_phase54_active_gate2_manifest.py",
+        "tests/test_phase50_import_module_export_readiness.py",
+        "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
+        "tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py",
+        "tests/test_phase51_completion_audit_and_status_lock.py",
+        "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
+        "tests/test_phase52_aggregate_signature_algebra_facts.py",
+        "tests/test_phase52_completion_audit_and_status_lock.py",
+        "tests/test_phase52_expression_stage_clause_capability_facts.py",
+        "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
+        "tests/test_phase52_scalar_function_operator_signature_facts.py",
+        "tests/test_phase53_completion_audit_and_status_lock.py",
+        "tests/test_phase53_grouped_result_ranking_aggregate_result_inputs_bounded_let_visibility_contract.py",
+        "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
+        "tests/test_phase53_multiple_window_outputs_final_order_alias_downstream_schema_lineage_contract.py",
+        "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+        "tests/test_phase53_window_ir_dual_backend_lowering_window_function_facts_contract.py",
+        "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
+        "tests/test_phase54_local_export_visibility_module_facades.py",
+        "tests/test_phase54_local_import_module_export_foundation_scope_lock.py",
     }
 )
 PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS = frozenset(
@@ -742,6 +768,14 @@ def _matches_phase54_active_gate2_manifest(
         and state.modified_paths == PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS
         and state.deleted_paths == frozenset()
     )
+    slice12_pr_ci_repair = (
+        state.branch_oid == PHASE54_SLICE12_PR_CI_REPAIR_BASE
+        and state.branch_head == PHASE54_SLICE12_PR_CI_REPAIR_BRANCH
+        and state.branch_upstream == f"origin/{PHASE54_SLICE12_PR_CI_REPAIR_BRANCH}"
+        and state.added_paths == frozenset()
+        and state.modified_paths == PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS
+        and state.deleted_paths == frozenset()
+    )
     return common and (
         active_gate2
         or slice10_original_gate2
@@ -757,6 +791,7 @@ def _matches_phase54_active_gate2_manifest(
         or slice11_pr_ci_repair
         or slice11_substantive_recovery
         or slice11_python313_repair
+        or slice12_pr_ci_repair
     )
 
 
@@ -817,5 +852,22 @@ def phase54_slice11_python313_repair_is_active() -> bool:
         and state.branch_head == PHASE54_SLICE11_PYTHON313_REPAIR_BRANCH
         and state.added_paths == frozenset()
         and state.modified_paths == PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS
+        and state.deleted_paths == frozenset()
+    )
+
+
+def phase54_slice12_pr_ci_repair_is_active() -> bool:
+    """Recognize only the exact Slice 12 natural-PR-CI mechanical repair."""
+
+    try:
+        state = _read_phase54_gate2_repository_state()
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+    return (
+        _matches_phase54_active_gate2_manifest(state)
+        and state.branch_oid == PHASE54_SLICE12_PR_CI_REPAIR_BASE
+        and state.branch_head == PHASE54_SLICE12_PR_CI_REPAIR_BRANCH
+        and state.added_paths == frozenset()
+        and state.modified_paths == PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS
         and state.deleted_paths == frozenset()
     )

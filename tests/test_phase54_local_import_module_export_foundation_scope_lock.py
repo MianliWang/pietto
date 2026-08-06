@@ -9,7 +9,9 @@ from collections import Counter
 from pathlib import Path
 
 from _phase54_active_gate2_manifest import (
+    PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
+    phase54_slice12_pr_ci_repair_is_active,
 )
 
 
@@ -702,7 +704,7 @@ def test_authority_hierarchy_grounding_and_historical_predecessors_are_exact() -
         "8c3656805db451946d60e341b8ac0ca9181997378d07576133c9c4aeef3e3f77"
     )
     assert _sha256("tests/test_phase50_import_module_export_readiness.py") == (
-        "4690b140a7a34c6a27832177a3a03bdd7eefc60340356329a27be00a2b977c77"
+        "5b30fbd01cf569001f50fe170237065d5500ed97f745660afc9ee24fbd147fd9"
     )
     scope = _read(SCOPE_REL)
     roadmap = _read(ROADMAP_V2_REL)
@@ -1318,6 +1320,8 @@ def test_gate_allowlist_reader_evidence_publication_stop_and_next_state_contract
     dirty.discard("")
     if dirty:
         assert _phase54_active_gate2_is_active()
+        if dirty == set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS):
+            assert phase54_slice12_pr_ci_repair_is_active()
         assert _git_output(["diff", "--cached", "--name-only"]) == ""
     scope = _read(SCOPE_REL)
     for path in (

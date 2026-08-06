@@ -22,6 +22,7 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
     PHASE54_SLICE11_PR_CI_REPAIR_BASE,
+    PHASE54_SLICE12_PR_CI_REPAIR_BASE,
     PHASE54_SLICE11_PYTHON313_REPAIR_BASE,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
@@ -608,7 +609,9 @@ def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> N
             assert parents == []
         else:
             if _phase54_active_gate2_is_active():
-                if head == PHASE54_ACTIVE_GATE2_BASE:
+                if head == PHASE54_SLICE12_PR_CI_REPAIR_BASE:
+                    expected_parent = PHASE54_ACTIVE_GATE2_BASE
+                elif head == PHASE54_ACTIVE_GATE2_BASE:
                     expected_parent = PHASE54_SLICE10_HEAD
                 elif head == PHASE54_SLICE11_PYTHON313_REPAIR_BASE:
                     expected_parent = PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE
@@ -659,6 +662,14 @@ def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> N
                 expected_parent = PHASE54_SLICE7_HEAD
             elif head == PHASE54_SLICE9_HEAD:
                 expected_parent = PHASE54_SLICE8_HEAD
+            elif _git_output(["show", "-s", "--format=%s", "HEAD"]) == (
+                "Add Phase 54 semantic fact preservation"
+            ):
+                expected_parent = PHASE54_ACTIVE_GATE2_BASE
+            elif _git_output(["show", "-s", "--format=%s", "HEAD"]) == (
+                "Fix Phase 54 Slice 12 PR CI topology projection"
+            ):
+                expected_parent = PHASE54_SLICE12_PR_CI_REPAIR_BASE
             elif _git_output(["show", "-s", "--format=%s", "HEAD"]) == (
                 "Fix Phase 54 alias blocker provenance"
             ):

@@ -13,10 +13,12 @@ from _phase54_active_gate2_manifest import (
     PHASE54_ACTIVE_GATE2_ADDED_PATHS,
     PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
     phase54_slice11_pr_ci_repair_is_active,
+    phase54_slice12_pr_ci_repair_is_active,
     phase54_slice11_python313_repair_is_active,
     phase54_slice11_substantive_recovery_is_active,
 )
@@ -1441,6 +1443,7 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     slice13_allowlist = slice13_modified | slice13_added
     repair_gate2_active = _phase54_active_gate2_is_active()
     slice11_pr_ci_repair_active = phase54_slice11_pr_ci_repair_is_active()
+    slice12_pr_ci_repair_active = phase54_slice12_pr_ci_repair_is_active()
     slice11_python313_repair_active = phase54_slice11_python313_repair_is_active()
     slice11_substantive_recovery_active = (
         phase54_slice11_substantive_recovery_is_active()
@@ -1472,6 +1475,9 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
         assert untracked == set()
     elif slice11_pr_ci_repair_active:
         assert tracked == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS)
+        assert untracked == set()
+    elif slice12_pr_ci_repair_active:
+        assert tracked == set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS)
         assert untracked == set()
     elif repair_gate2_active:
         assert tracked == set(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS)

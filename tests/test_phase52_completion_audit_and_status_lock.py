@@ -16,6 +16,9 @@ from _phase54_active_gate2_manifest import (
     PHASE54_SLICE11_PR_CI_REPAIR_BASE,
     PHASE54_SLICE11_PR_CI_REPAIR_BRANCH,
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE12_PR_CI_REPAIR_BASE,
+    PHASE54_SLICE12_PR_CI_REPAIR_BRANCH,
+    PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE11_PYTHON313_REPAIR_BASE,
     PHASE54_SLICE11_PYTHON313_REPAIR_BRANCH,
     PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS,
@@ -24,6 +27,7 @@ from _phase54_active_gate2_manifest import (
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
     phase54_slice11_pr_ci_repair_is_active,
+    phase54_slice12_pr_ci_repair_is_active,
     phase54_slice11_python313_repair_is_active,
     phase54_slice11_substantive_recovery_is_active,
 )
@@ -401,6 +405,20 @@ def _assert_clean_checkout_refs(
             )
         return
 
+    if branch == PHASE54_SLICE12_PR_CI_REPAIR_BRANCH:
+        assert main == origin_main == PHASE54_ACTIVE_GATE2_BASE
+        parents = tuple(
+            _git_output(["rev-list", "--parents", "-n", "1", "HEAD"]).split()[1:]
+        )
+        subject = _git_output(["show", "-s", "--format=%s", "HEAD"])
+        if head == PHASE54_SLICE12_PR_CI_REPAIR_BASE:
+            assert parents == (PHASE54_ACTIVE_GATE2_BASE,)
+            assert subject == "Add Phase 54 semantic fact preservation"
+        else:
+            assert parents == (PHASE54_SLICE12_PR_CI_REPAIR_BASE,)
+            assert subject == "Fix Phase 54 Slice 12 PR CI topology projection"
+        return
+
     assert branch == ""
     assert main is None and origin_main is None
     assert len(refs) == 1
@@ -456,6 +474,13 @@ def _assert_allowed_dirty_state(
         assert branch == PHASE54_SLICE11_PR_CI_REPAIR_BRANCH
         assert head == PHASE54_SLICE11_PR_CI_REPAIR_BASE
         assert main == origin_main == "b81843acadb294630db361c09949868d004b1bca"
+        return
+    if phase54_slice12_pr_ci_repair_is_active():
+        assert tracked == set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS)
+        assert untracked == set()
+        assert branch == PHASE54_SLICE12_PR_CI_REPAIR_BRANCH
+        assert head == PHASE54_SLICE12_PR_CI_REPAIR_BASE
+        assert main == origin_main == "bc46faff1c9aa71f583ed7d2964b651cc659bc90"
         return
     if (
         _phase54_active_gate2_is_active()
@@ -1333,6 +1358,9 @@ def test_static_git_helper_and_exact_slice9_dirty_set_are_locked() -> None:
             slice2_added = set()
         elif phase54_slice11_pr_ci_repair_is_active():
             slice2_modified = set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS)
+            slice2_added = set()
+        elif phase54_slice12_pr_ci_repair_is_active():
+            slice2_modified = set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS)
             slice2_added = set()
         elif _phase54_active_gate2_is_active() or _git_output(
             ["rev-parse", "HEAD"]

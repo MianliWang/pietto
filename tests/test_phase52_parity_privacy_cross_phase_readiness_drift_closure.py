@@ -17,6 +17,9 @@ from _phase54_active_gate2_manifest import (
     PHASE54_SLICE11_PR_CI_REPAIR_BASE,
     PHASE54_SLICE11_PR_CI_REPAIR_BRANCH,
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE12_PR_CI_REPAIR_BASE,
+    PHASE54_SLICE12_PR_CI_REPAIR_BRANCH,
+    PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE11_PYTHON313_REPAIR_BASE,
     PHASE54_SLICE11_PYTHON313_REPAIR_BRANCH,
     PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS,
@@ -25,6 +28,7 @@ from _phase54_active_gate2_manifest import (
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
     phase54_slice11_pr_ci_repair_is_active,
+    phase54_slice12_pr_ci_repair_is_active,
     phase54_slice11_python313_repair_is_active,
     phase54_slice11_substantive_recovery_is_active,
 )
@@ -116,9 +120,9 @@ MODULE_SHA256 = {
 SPEC_SHA256 = "7010cd8a39ed389de588d8cd734b136cc87456c3ef5eb324638467d1188fc935"
 MODIFIED_TEST_SHA256 = {
     SLICE4_TEST_REL: "02337416105881e0a6a46a962dac691ccdc4bcf7ea40b76537bd743e9d4cf37e",
-    SLICE5_TEST_REL: "82319a8aaf100e5f6bdc926facf0058983e73855514eff9090ea98b0faae7f37",
-    SLICE6_TEST_REL: "4a4d9b01cb6e87ba9019923727c6705ab1997acd7fb30f6f4b7decb6208ef7cb",
-    SLICE7_TEST_REL: "baecddf2635bd9c210083ea8bb10779a43f738fc033413cd1200f69ae70f8ada",
+    SLICE5_TEST_REL: "6c667b209814f71b725a0b380823cec808b5779dac0cb735ff920fc563780930",
+    SLICE6_TEST_REL: "3a6109f186266449355f0ce0c102061722d7a4bd41811473fbbcff76949a4d2f",
+    SLICE7_TEST_REL: "d1ea898c3d1b2fbe7cdbf4643a017eab3dd3ed7df0564fa3c338bf2c84511fd1",
 }
 WORKFLOW_SHA256 = "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94"
 PYPROJECT_SHA256 = "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01"
@@ -523,6 +527,13 @@ def _assert_allowed_dirty_state(
         assert branch == PHASE54_SLICE11_PR_CI_REPAIR_BRANCH
         assert head == PHASE54_SLICE11_PR_CI_REPAIR_BASE
         assert main == origin_main == "b81843acadb294630db361c09949868d004b1bca"
+        return
+    if phase54_slice12_pr_ci_repair_is_active():
+        assert tracked == set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS)
+        assert untracked == set()
+        assert branch == PHASE54_SLICE12_PR_CI_REPAIR_BRANCH
+        assert head == PHASE54_SLICE12_PR_CI_REPAIR_BASE
+        assert main == origin_main == "bc46faff1c9aa71f583ed7d2964b651cc659bc90"
         return
     if (
         _phase54_active_gate2_is_active()

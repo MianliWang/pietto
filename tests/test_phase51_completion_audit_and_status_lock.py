@@ -20,10 +20,12 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
     phase54_slice11_pr_ci_repair_is_active,
+    phase54_slice12_pr_ci_repair_is_active,
     phase54_slice11_python313_repair_is_active,
     phase54_slice11_substantive_recovery_is_active,
 )
@@ -1387,6 +1389,7 @@ def test_static_git_helper_and_exact_slice12_dirty_set_are_locked() -> None:
         PHASE52_GATE2_PATHS,
         slice2_modified | slice2_added,
         set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS),
+        set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS),
         set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS),
         set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS),
     )
@@ -1404,6 +1407,9 @@ def test_static_git_helper_and_exact_slice12_dirty_set_are_locked() -> None:
         assert untracked_paths == set()
     elif dirty_paths == set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS):
         assert phase54_slice11_substantive_recovery_is_active()
+    elif dirty_paths == set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS):
+        assert phase54_slice12_pr_ci_repair_is_active()
+        assert untracked_paths == set()
     elif dirty_paths == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS):
         assert phase54_slice11_pr_ci_repair_is_active()
         assert untracked_paths == set()
