@@ -1200,7 +1200,7 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
     top_functions = sum(
         len(_top_level_test_functions(f"tests/{path.name}")) for path in test_files
     )
-    assert (len(test_files), top_functions) == (462, 5276)
+    assert (len(test_files), top_functions) == (462, 5277)
     for digest, expected in (
         (PATH_DIGESTS["compiler"], 28),
         (PATH_DIGESTS["semantic"], 42),

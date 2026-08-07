@@ -705,19 +705,22 @@ def test_clean_topic_predicate_rejects_a_replaced_tree(tmp_path: Path) -> None:
     matches = active_gate2_manifest._phase54_post_slice12_interlude_message_matches_tree
     tree = "a" * 40
     other = "b" * 40
-    assert matches(f"{subject}\n\n{trailer}: {tree}", tree)
-    assert not matches(f"{subject}\n\n{trailer}: {other}", tree)
-    assert not matches(f"{subject}\n\n{trailer}: {tree}", other)
-    assert not matches(f"Other subject\n\n{trailer}: {tree}", tree)
-    assert not matches(subject, tree)
-    assert not matches(f"{subject}\n\n{trailer}: {tree}\n{trailer}: {tree}", tree)
-    assert not matches(f"{subject}\n\n{trailer}: {tree}", "not-a-tree")
-    assert active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR1_TREE == (
-        "9b326c483cda398e8c4c0afc7230e9ac1df54134"
+    assert matches(f"{subject}\n\n{trailer}: {tree}", tree, subject)
+    assert not matches(f"{subject}\n\n{trailer}: {other}", tree, subject)
+    assert not matches(f"{subject}\n\n{trailer}: {tree}", other, subject)
+    assert not matches(f"Other subject\n\n{trailer}: {tree}", tree, subject)
+    assert not matches(subject, tree, subject)
+    assert not matches(
+        f"{subject}\n\n{trailer}: {tree}\n{trailer}: {tree}", tree, subject
     )
-    assert active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_TREE == (
-        "2880cb12fc5b4235fa7c12aee44cbe5efbd34457"
-    )
+    assert not matches(f"{subject}\n\n{trailer}: {tree}", "not-a-tree", subject)
+    shapes = active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_CHILD_SHAPES
+    trees = active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_PUBLISHED_TREES
+    assert len(shapes) == len({base for base, _ in shapes})
+    assert len(shapes) == len({child for _, child in shapes})
+    assert len(trees) == len(set(trees))
+    assert all(len(tree) == 40 for tree in trees)
+    assert active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_TREE == trees[0]
 
 
 def test_wrong_parent_reference_tree_shallow_and_event_are_rejected(
@@ -768,6 +771,19 @@ def test_runtime_journal_requires_non_authority_markers() -> None:
         broken[key] = "AUTHORITATIVE"
         problems = journal.validate_payload(broken)
         assert any(marker in problem for problem in problems)
+
+
+def test_runtime_journal_rejects_a_boolean_version() -> None:
+    payload = _valid_payload()
+    payload["journal_version"] = True
+    problems = journal.validate_payload(payload)
+    assert any("journal_version" in problem for problem in problems)
+    payload["journal_version"] = 0
+    assert journal.validate_payload(payload)
+    payload["journal_version"] = "1"
+    assert journal.validate_payload(payload)
+    payload["journal_version"] = 1
+    assert journal.validate_payload(payload) == ()
 
 
 def test_runtime_journal_requires_the_outranking_authorities() -> None:

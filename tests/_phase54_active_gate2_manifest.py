@@ -118,6 +118,11 @@ PHASE54_POST_SLICE12_INTERLUDE_REPAIR1_SUBJECT = (
 PHASE54_POST_SLICE12_INTERLUDE_TREE = "2880cb12fc5b4235fa7c12aee44cbe5efbd34457"
 PHASE54_POST_SLICE12_INTERLUDE_REPAIR1_TREE = "9b326c483cda398e8c4c0afc7230e9ac1df54134"
 PHASE54_POST_SLICE12_INTERLUDE_REVIEWED_TREE_TRAILER = "Pietto-Reviewed-Tree"
+PHASE54_POST_SLICE12_INTERLUDE_PUBLISHED_TREES: tuple[str, ...] = (
+    "2880cb12fc5b4235fa7c12aee44cbe5efbd34457",
+    "9b326c483cda398e8c4c0afc7230e9ac1df54134",
+    "04ac4ac6cea03b2141609748379b4380359bfdb0",
+)
 PHASE54_POST_SLICE12_INTERLUDE_CHILD_SHAPES: tuple[tuple[str, str], ...] = (
     (
         "bd6bdcf17361b11d3067beec534432d37ffe6f05",
@@ -131,10 +136,18 @@ PHASE54_POST_SLICE12_INTERLUDE_CHILD_SHAPES: tuple[tuple[str, str], ...] = (
         "a90ea30066dd33a805cafb831880eda342b03fe6",
         "Fix Pietto workflow convergence topology fidelity",
     ),
+    (
+        "8304d4b3b04249c3c5f0ffa3e546368752a8d92d",
+        "Fix Pietto workflow convergence identity binding",
+    ),
 )
 PHASE54_POST_SLICE12_INTERLUDE_REPAIR2_BASE = "a90ea30066dd33a805cafb831880eda342b03fe6"
 PHASE54_POST_SLICE12_INTERLUDE_REPAIR2_SUBJECT = (
     "Fix Pietto workflow convergence topology fidelity"
+)
+PHASE54_POST_SLICE12_INTERLUDE_REPAIR3_BASE = "8304d4b3b04249c3c5f0ffa3e546368752a8d92d"
+PHASE54_POST_SLICE12_INTERLUDE_REPAIR3_SUBJECT = (
+    "Fix Pietto workflow convergence identity binding"
 )
 ADDED_PATHS = {
     "docs/spec/phase54-slice12-semantic-fact-preservation-v1.md",
@@ -1046,6 +1059,34 @@ PHASE54_POST_SLICE12_INTERLUDE_REPAIR2_MODIFIED_PATHS = frozenset(
         "tests/test_phase54_post_slice12_workflow_hardening.py",
     }
 )
+PHASE54_POST_SLICE12_INTERLUDE_REPAIR3_MODIFIED_PATHS = frozenset(
+    {
+        "tests/_phase54_active_gate2_manifest.py",
+        "tests/_pietto_runtime_journal.py",
+        "tests/test_phase52_aggregate_signature_algebra_facts.py",
+        "tests/test_phase52_completion_audit_and_status_lock.py",
+        "tests/test_phase52_expression_stage_clause_capability_facts.py",
+        "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
+        "tests/test_phase52_scalar_function_operator_signature_facts.py",
+        "tests/test_phase53_completion_audit_and_status_lock.py",
+        "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
+        "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
+        "tests/test_phase53_multiple_window_outputs_final_order_alias_downstream_schema_lineage_contract.py",
+        "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
+        "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+        "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
+        "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
+        "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
+        "tests/test_phase53_row_number_direct_field_mvp_contract.py",
+        "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
+        "tests/test_phase53_window_ir_dual_backend_lowering_window_function_facts_contract.py",
+        "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
+        "tests/test_phase53_window_spec_function_identity_ast_contract.py",
+        "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
+        "tests/test_phase54_local_import_module_export_foundation_scope_lock.py",
+        "tests/test_phase54_post_slice12_workflow_hardening.py",
+    }
+)
 PHASE54_POST_SLICE12_INTERLUDE_MODIFIED_PATHS = frozenset(
     PHASE54_POST_SLICE12_INTERLUDE_NON_READER_MODIFIED_PATHS
     | PHASE54_POST_SLICE12_INTERLUDE_READER_PATHS
@@ -1264,6 +1305,7 @@ def _phase54_slice12_mechanical_repair4_message_matches_tree(
 def _phase54_post_slice12_interlude_message_matches_tree(
     message: str,
     tree: str,
+    subject: str,
 ) -> bool:
     """Require one canonical interlude reviewed-tree trailer for the exact tree."""
 
@@ -1277,7 +1319,7 @@ def _phase54_post_slice12_interlude_message_matches_tree(
     )
     return (
         len(lines) >= 3
-        and lines[0] == PHASE54_POST_SLICE12_INTERLUDE_REPAIR2_SUBJECT
+        and lines[0] == subject
         and lines[-2] == ""
         and lines[-1] == expected
         and reviewed_tree_lines == (expected,)
@@ -1603,10 +1645,20 @@ def _matches_phase54_active_gate2_manifest(
         == PHASE54_POST_SLICE12_INTERLUDE_REPAIR2_MODIFIED_PATHS
         and state.deleted_paths == frozenset()
     )
+    post_slice12_interlude_repair3 = (
+        state.branch_oid == PHASE54_POST_SLICE12_INTERLUDE_REPAIR3_BASE
+        and state.branch_head == PHASE54_POST_SLICE12_INTERLUDE_BRANCH
+        and state.branch_upstream == f"origin/{PHASE54_POST_SLICE12_INTERLUDE_BRANCH}"
+        and state.added_paths == frozenset()
+        and state.modified_paths
+        == PHASE54_POST_SLICE12_INTERLUDE_REPAIR3_MODIFIED_PATHS
+        and state.deleted_paths == frozenset()
+    )
     return common and (
         post_slice12_interlude
         or post_slice12_interlude_repair1
         or post_slice12_interlude_repair2
+        or post_slice12_interlude_repair3
         or slice12_mechanical_repair4
         or slice12_mechanical_repair3
         or active_gate2
@@ -2454,23 +2506,17 @@ def _matches_phase54_post_slice12_interlude_clean_topic(
     if main != origin_main or main != PHASE54_POST_SLICE12_INTERLUDE_BASE:
         return False
     # A matching parent and subject are not sufficient: a replaced tree must be
-    # rejected, so each recognized child is bound to an exact tree identity.
-    initial = (
-        parents == (PHASE54_POST_SLICE12_INTERLUDE_BASE,)
-        and subject == PHASE54_POST_SLICE12_INTERLUDE_SUBJECT
-        and tree == PHASE54_POST_SLICE12_INTERLUDE_TREE
-    )
-    repair1 = (
-        parents == (PHASE54_POST_SLICE12_INTERLUDE_REPAIR1_BASE,)
-        and subject == PHASE54_POST_SLICE12_INTERLUDE_REPAIR1_SUBJECT
-        and tree == PHASE54_POST_SLICE12_INTERLUDE_REPAIR1_TREE
-    )
-    repair2 = (
-        parents == (PHASE54_POST_SLICE12_INTERLUDE_REPAIR2_BASE,)
-        and subject == PHASE54_POST_SLICE12_INTERLUDE_REPAIR2_SUBJECT
-        and _phase54_post_slice12_interlude_message_matches_tree(message, tree)
-    )
-    return initial or repair1 or repair2
+    # rejected. A child proves its tree either by being one of the published
+    # reviewed trees or by declaring its own tree in the canonical trailer.
+    for child_base, child_subject in PHASE54_POST_SLICE12_INTERLUDE_CHILD_SHAPES:
+        if parents != (child_base,) or subject != child_subject:
+            continue
+        if tree in PHASE54_POST_SLICE12_INTERLUDE_PUBLISHED_TREES:
+            return True
+        return _phase54_post_slice12_interlude_message_matches_tree(
+            message, tree, subject
+        )
+    return False
 
 
 def phase54_post_slice12_interlude_clean_topic_is_active() -> bool:
@@ -2519,18 +2565,39 @@ def phase54_post_slice12_interlude_repair2_is_active() -> bool:
     )
 
 
+def phase54_post_slice12_interlude_repair3_is_active() -> bool:
+    """Recognize only the exact interlude third repair-generation overlay."""
+
+    try:
+        state = _read_phase54_gate2_repository_state()
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+    return (
+        _matches_phase54_active_gate2_manifest(state)
+        and state.branch_oid == PHASE54_POST_SLICE12_INTERLUDE_REPAIR3_BASE
+        and state.branch_head == PHASE54_POST_SLICE12_INTERLUDE_BRANCH
+        and state.added_paths == frozenset()
+        and state.modified_paths
+        == PHASE54_POST_SLICE12_INTERLUDE_REPAIR3_MODIFIED_PATHS
+        and state.deleted_paths == frozenset()
+    )
+
+
 def phase54_post_slice12_interlude_repair_is_active() -> bool:
     """Recognize any interlude repair-generation overlay on the topic branch."""
 
     return (
         phase54_post_slice12_interlude_repair1_is_active()
         or phase54_post_slice12_interlude_repair2_is_active()
+        or phase54_post_slice12_interlude_repair3_is_active()
     )
 
 
 def phase54_post_slice12_interlude_expected_head() -> str:
     """Return the exact head the active interlude overlay must show."""
 
+    if phase54_post_slice12_interlude_repair3_is_active():
+        return PHASE54_POST_SLICE12_INTERLUDE_REPAIR3_BASE
     if phase54_post_slice12_interlude_repair2_is_active():
         return PHASE54_POST_SLICE12_INTERLUDE_REPAIR2_BASE
     if phase54_post_slice12_interlude_repair1_is_active():
@@ -2545,12 +2612,15 @@ def phase54_post_slice12_interlude_dirty_is_active() -> bool:
         phase54_post_slice12_interlude_is_active()
         or phase54_post_slice12_interlude_repair1_is_active()
         or phase54_post_slice12_interlude_repair2_is_active()
+        or phase54_post_slice12_interlude_repair3_is_active()
     )
 
 
 def phase54_post_slice12_interlude_expected_modified_paths() -> frozenset[str]:
     """Return the exact modified set the active interlude overlay must show."""
 
+    if phase54_post_slice12_interlude_repair3_is_active():
+        return PHASE54_POST_SLICE12_INTERLUDE_REPAIR3_MODIFIED_PATHS
     if phase54_post_slice12_interlude_repair2_is_active():
         return PHASE54_POST_SLICE12_INTERLUDE_REPAIR2_MODIFIED_PATHS
     if phase54_post_slice12_interlude_repair1_is_active():
@@ -2561,10 +2631,7 @@ def phase54_post_slice12_interlude_expected_modified_paths() -> frozenset[str]:
 def phase54_post_slice12_interlude_expected_added_paths() -> frozenset[str]:
     """Return the exact untracked set the active interlude overlay must show."""
 
-    if (
-        phase54_post_slice12_interlude_repair1_is_active()
-        or phase54_post_slice12_interlude_repair2_is_active()
-    ):
+    if phase54_post_slice12_interlude_repair_is_active():
         return frozenset()
     return PHASE54_POST_SLICE12_INTERLUDE_ADDED_PATHS
 

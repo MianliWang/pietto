@@ -67,7 +67,8 @@ def validate_payload(payload: Mapping[str, Any]) -> tuple[str, ...]:
         if key in payload and payload[key] != marker:
             problems.append(f"{key} must be {marker}, got {payload[key]!r}")
     version = payload.get("journal_version")
-    if version is not None and (not isinstance(version, int) or version < 1):
+    # `isinstance(True, int)` is true, so a boolean must be excluded explicitly.
+    if version is not None and (type(version) is not int or version < 1):
         problems.append(f"journal_version must be a positive integer, got {version!r}")
     outranked = payload.get("outranked_by")
     if outranked is None:
