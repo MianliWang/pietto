@@ -108,6 +108,9 @@ PHASE54_SLICE12_MECHANICAL_REPAIR4_BASE = "68b13f3289d6519c50d0fa73fc130716a3211
 PHASE54_SLICE12_MECHANICAL_REPAIR4_BRANCH = "phase54/slice12-semantic-fact-preservation"
 PHASE54_SLICE12_MECHANICAL_REPAIR4_SUBJECT = "Fix Phase 54 Slice 12 CI state projection"
 PHASE54_SLICE12_MECHANICAL_REPAIR4_REVIEWED_TREE_TRAILER = "Pietto-Reviewed-Tree"
+PHASE54_POST_SLICE12_INTERLUDE_BASE = "bd6bdcf17361b11d3067beec534432d37ffe6f05"
+PHASE54_POST_SLICE12_INTERLUDE_BRANCH = "phase54/post-slice12-workflow-hardening"
+PHASE54_POST_SLICE12_INTERLUDE_SUBJECT = "Add Pietto workflow convergence tooling"
 ADDED_PATHS = {
     "docs/spec/phase54-slice12-semantic-fact-preservation-v1.md",
     "src/pietto/_project/module_semantic_fact_preservation.py",
@@ -879,6 +882,84 @@ PHASE54_POST_REVIEW_PRODUCT_REPAIR9_MODIFIED_PATHS = frozenset(
 )
 
 
+PHASE54_POST_SLICE12_INTERLUDE_ADDED_PATHS = frozenset(
+    {
+        ".claude/skills/pietto-mechanical-closure/SKILL.md",
+        ".claude/skills/pietto-mechanical-closure/reference.md",
+        ".claude/skills/pietto-publication-topology/SKILL.md",
+        ".claude/skills/pietto-publication-topology/reference.md",
+        ".claude/skills/pietto-semantic-convergence/SKILL.md",
+        ".claude/skills/pietto-semantic-convergence/reference.md",
+        "docs/plan/phase-54-post-slice12-workflow-hardening-and-midphase-route-reconciliation.md",
+        "docs/spec/pietto-semantic-slice-convergence-governance-v1.md",
+        "tests/_pietto_publication_topology.py",
+        "tests/_pietto_reader_closure.py",
+        "tests/_pietto_runtime_journal.py",
+        "tests/test_phase54_post_slice12_workflow_hardening.py",
+    }
+)
+PHASE54_POST_SLICE12_INTERLUDE_NON_READER_MODIFIED_PATHS = frozenset(
+    {
+        "AGENTS.md",
+        "docs/plan/phase-54-local-import-module-export-foundation.md",
+        "docs/spec/pietto-active-roadmap-phase53-70-v2.md",
+        "tests/_phase54_active_gate2_manifest.py",
+    }
+)
+PHASE54_POST_SLICE12_INTERLUDE_READER_PATHS = frozenset(
+    {
+        "tests/test_phase21_group_by_hardening_audit.py",
+        "tests/test_phase24_aggregate_expression_arguments_readiness.py",
+        "tests/test_phase24_cli_json_output_hardening.py",
+        "tests/test_phase24_completion_audit.py",
+        "tests/test_phase26_completion_audit.py",
+        "tests/test_phase27_completion_audit.py",
+        "tests/test_phase28_completion_audit.py",
+        "tests/test_phase29_completion_audit.py",
+        "tests/test_phase30_completion_audit.py",
+        "tests/test_phase33_completion_audit.py",
+        "tests/test_phase50_import_module_export_readiness.py",
+        "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
+        "tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py",
+        "tests/test_phase51_completion_audit_and_status_lock.py",
+        "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
+        "tests/test_phase52_aggregate_signature_algebra_facts.py",
+        "tests/test_phase52_completion_audit_and_status_lock.py",
+        "tests/test_phase52_expression_stage_clause_capability_facts.py",
+        "tests/test_phase52_logical_type_literal_parameter_nullability_inventory.py",
+        "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
+        "tests/test_phase52_scalar_function_operator_signature_facts.py",
+        "tests/test_phase53_completion_audit_and_status_lock.py",
+        "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
+        "tests/test_phase53_grouped_result_ranking_aggregate_result_inputs_bounded_let_visibility_contract.py",
+        "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
+        "tests/test_phase53_multiple_window_outputs_final_order_alias_downstream_schema_lineage_contract.py",
+        "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
+        "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+        "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
+        "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
+        "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
+        "tests/test_phase53_row_number_direct_field_mvp_contract.py",
+        "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
+        "tests/test_phase53_window_ir_dual_backend_lowering_window_function_facts_contract.py",
+        "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
+        "tests/test_phase53_window_spec_function_identity_ast_contract.py",
+        "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
+        "tests/test_phase54_local_export_visibility_module_facades.py",
+        "tests/test_phase54_local_import_module_export_foundation_scope_lock.py",
+        "tests/test_phase54_semantic_fact_preservation.py",
+    }
+)
+PHASE54_POST_SLICE12_INTERLUDE_MODIFIED_PATHS = frozenset(
+    PHASE54_POST_SLICE12_INTERLUDE_NON_READER_MODIFIED_PATHS
+    | PHASE54_POST_SLICE12_INTERLUDE_READER_PATHS
+)
+PHASE54_POST_SLICE12_INTERLUDE_ALLOWLIST_PATHS = frozenset(
+    PHASE54_POST_SLICE12_INTERLUDE_ADDED_PATHS
+    | PHASE54_POST_SLICE12_INTERLUDE_MODIFIED_PATHS
+)
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Phase54Gate2RepositoryState:
     """The exact read-only repository facts used by the active manifest gate."""
@@ -1377,8 +1458,17 @@ def _matches_phase54_active_gate2_manifest(
         and state.modified_paths == PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS
         and state.deleted_paths == frozenset()
     )
+    post_slice12_interlude = (
+        state.branch_oid == PHASE54_POST_SLICE12_INTERLUDE_BASE
+        and state.branch_head == "main"
+        and state.branch_upstream == "origin/main"
+        and state.added_paths == PHASE54_POST_SLICE12_INTERLUDE_ADDED_PATHS
+        and state.modified_paths == PHASE54_POST_SLICE12_INTERLUDE_MODIFIED_PATHS
+        and state.deleted_paths == frozenset()
+    )
     return common and (
-        slice12_mechanical_repair4
+        post_slice12_interlude
+        or slice12_mechanical_repair4
         or slice12_mechanical_repair3
         or active_gate2
         or slice10_original_gate2
@@ -2167,4 +2257,80 @@ def phase54_slice12_mechanical_repair4_is_active() -> bool:
         and state.added_paths == frozenset()
         and state.modified_paths == PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS
         and state.deleted_paths == frozenset()
+    )
+
+
+def phase54_post_slice12_interlude_is_active() -> bool:
+    """Recognize only the exact post-Slice-12 interlude dirty candidate."""
+
+    try:
+        state = _read_phase54_gate2_repository_state()
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+    return (
+        _matches_phase54_active_gate2_manifest(state)
+        and state.branch_oid == PHASE54_POST_SLICE12_INTERLUDE_BASE
+        and state.branch_head == "main"
+        and state.added_paths == PHASE54_POST_SLICE12_INTERLUDE_ADDED_PATHS
+        and state.modified_paths == PHASE54_POST_SLICE12_INTERLUDE_MODIFIED_PATHS
+        and state.deleted_paths == frozenset()
+    )
+
+
+def _matches_phase54_post_slice12_interlude_clean_topic(
+    state: Phase54Gate2RepositoryState,
+) -> bool:
+    """Recognize the clean interlude topic child on its exact parent and tree."""
+
+    if type(state) is not Phase54Gate2RepositoryState:
+        return False
+    clean_topic = (
+        state.marker == PHASE54_ACTIVE_GATE2_MARKER
+        and state.branch_head == PHASE54_POST_SLICE12_INTERLUDE_BRANCH
+        and state.branch_upstream == f"origin/{PHASE54_POST_SLICE12_INTERLUDE_BRANCH}"
+        and state.ahead == 0
+        and state.behind == 0
+        and state.added_paths == frozenset()
+        and state.modified_paths == frozenset()
+        and state.deleted_paths == frozenset()
+        and state.staged_paths == frozenset()
+        and state.other_paths == frozenset()
+        and state.worktree_count == 1
+        and not state.shallow
+        and not state.active_git_operation
+    )
+    if not clean_topic:
+        return False
+    try:
+        parents = tuple(
+            _git_output(["rev-list", "--parents", "-n", "1", "HEAD"]).split()[1:]
+        )
+        subject = _git_output(["show", "-s", "--format=%s", "HEAD"])
+        main = _git_output(["rev-parse", "--verify", "refs/heads/main"])
+        origin_main = _git_output(["rev-parse", "--verify", "refs/remotes/origin/main"])
+    except subprocess.SubprocessError:
+        return False
+    return (
+        parents == (PHASE54_POST_SLICE12_INTERLUDE_BASE,)
+        and subject == PHASE54_POST_SLICE12_INTERLUDE_SUBJECT
+        and main == origin_main == PHASE54_POST_SLICE12_INTERLUDE_BASE
+    )
+
+
+def phase54_post_slice12_interlude_clean_topic_is_active() -> bool:
+    """Recognize only the clean, published-ready interlude topic child."""
+
+    try:
+        state = _read_phase54_gate2_repository_state()
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+    return _matches_phase54_post_slice12_interlude_clean_topic(state)
+
+
+def phase54_post_slice12_interlude_publication_is_active() -> bool:
+    """Recognize the interlude in either its dirty or its clean topic state."""
+
+    return (
+        phase54_post_slice12_interlude_is_active()
+        or phase54_post_slice12_interlude_clean_topic_is_active()
     )

@@ -10,6 +10,9 @@ from pathlib import Path
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
+    PHASE54_POST_SLICE12_INTERLUDE_BRANCH,
+    PHASE54_POST_SLICE12_INTERLUDE_BASE,
+    phase54_post_slice12_interlude_clean_topic_is_active,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
@@ -1040,6 +1043,10 @@ def test_slice3_dirty_clean_and_depth_one_repository_states_are_locked() -> None
         assert branch == "main"
         assert head == main == origin_main == BASE_HEAD_SHA
     else:
+        if branch == PHASE54_POST_SLICE12_INTERLUDE_BRANCH:
+            assert phase54_post_slice12_interlude_clean_topic_is_active()
+            assert main == origin_main == PHASE54_POST_SLICE12_INTERLUDE_BASE
+            return
         assert branch in ("", "main")
         if main is not None:
             assert main == head
@@ -1053,15 +1060,15 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
     readable = {path for path in (*tracked, *untracked) if (REPO_ROOT / path).is_file()}
-    assert len(readable) == 921
-    assert sum(path.endswith(".py") for path in readable) == 567
-    assert sum(path.endswith(".md") for path in readable) == 258
+    assert len(readable) == 933
+    assert sum(path.endswith(".py") for path in readable) == 571
+    assert sum(path.endswith(".md") for path in readable) == 266
     test_modules = {
         path
         for path in readable
         if path.startswith("tests/test_") and path.endswith(".py")
     }
-    assert len(test_modules) == 461
+    assert len(test_modules) == 462
     top_level_tests = 0
     for relative in sorted(test_modules):
         tree = ast.parse(_read(relative), filename=relative)
@@ -1070,7 +1077,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 5215
+    assert top_level_tests == 5269
     assert (
         3488
         == 381 + 834 + 627 + 424 + 279 + 168 + 156 + 12 + 145 + 190 + 70 + 70 + 97 + 35

@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
+    PHASE54_POST_SLICE12_INTERLUDE_BASE,
+    phase54_post_slice12_interlude_clean_topic_is_active,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
@@ -2675,6 +2677,8 @@ def test_slice9_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             "0ceb9a476e6592714cdc76845949ba0ae5123eb5",
             "b81843acadb294630db361c09949868d004b1bca",
         )
+    elif phase54_post_slice12_interlude_clean_topic_is_active():
+        assert main == origin_main == PHASE54_POST_SLICE12_INTERLUDE_BASE
     else:
         assert main in (None, head)
         assert origin_main in (None, head)
@@ -2684,15 +2688,15 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
     None
 ):
     repository_paths = _repository_paths()
-    assert len(repository_paths) == 921
-    assert sum(path.endswith(".py") for path in repository_paths) == 567
-    assert sum(path.endswith(".md") for path in repository_paths) == 258
+    assert len(repository_paths) == 933
+    assert sum(path.endswith(".py") for path in repository_paths) == 571
+    assert sum(path.endswith(".md") for path in repository_paths) == 266
     test_modules = tuple(
         path
         for path in repository_paths
         if path.startswith("tests/test_") and path.endswith(".py")
     )
-    assert len(test_modules) == 461
+    assert len(test_modules) == 462
     top_level_tests = 0
     for relative in test_modules:
         tree = ast.parse(_read(relative), filename=relative)
@@ -2701,7 +2705,7 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 5215
+    assert top_level_tests == 5269
     focused_payload = ("\n".join(FOCUSED_OPERANDS) + "\n").encode()
     overlay_payload = ("\n".join(DIRTY_OVERLAY) + "\n").encode()
     formatter_payload = ("\n".join(FORMATTER_PATHS) + "\n").encode()

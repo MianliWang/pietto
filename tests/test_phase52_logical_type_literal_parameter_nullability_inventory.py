@@ -10,6 +10,9 @@ from pathlib import Path
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
+    PHASE54_POST_SLICE12_INTERLUDE_BRANCH,
+    phase54_post_slice12_interlude_clean_topic_is_active,
+    PHASE54_POST_SLICE12_INTERLUDE_ALLOWLIST_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
@@ -337,6 +340,10 @@ def _assert_clean_checkout_refs(
         assert main == head
         if origin_main is not None:
             assert origin_main == head
+        return
+
+    if branch == PHASE54_POST_SLICE12_INTERLUDE_BRANCH:
+        assert phase54_post_slice12_interlude_clean_topic_is_active()
         return
 
     assert branch == ""
@@ -1176,6 +1183,7 @@ def test_gate2_dirty_untracked_and_index_states_are_exact() -> None:
         REPAIR_ALLOWLIST_PATHS,
         SLICE8_ALLOWLIST_PATHS,
         slice13_allowlist,
+        set(PHASE54_POST_SLICE12_INTERLUDE_ALLOWLIST_PATHS),
     )
     tracked = set(_git_output(["diff", "--name-only"]).splitlines())
     status = tuple(_git_output(["diff", "--name-status"]).splitlines())

@@ -710,7 +710,7 @@ def test_authority_hierarchy_grounding_and_historical_predecessors_are_exact() -
         "8c3656805db451946d60e341b8ac0ca9181997378d07576133c9c4aeef3e3f77"
     )
     assert _sha256("tests/test_phase50_import_module_export_readiness.py") == (
-        "3e6a136bfbef7932624afc9bceb913eb8459680090592c13d3a1b630a2a4971d"
+        "43ab572f0015772e0dc2e6cbb9d751b121dac32717c6b00b031739e2db707441"
     )
     scope = _read(SCOPE_REL)
     roadmap = _read(ROADMAP_V2_REL)
@@ -1310,16 +1310,16 @@ def test_gate_allowlist_reader_evidence_publication_stop_and_next_state_contract
     assert len(FORMATTER_PATHS) == 163
     assert len(ALLOWLIST_PATHS) == 167
     readable = _readable_paths()
-    assert len(readable) == 921
-    assert sum(path.endswith(".py") for path in readable) == 567
-    assert sum(path.endswith(".md") for path in readable) == 258
+    assert len(readable) == 933
+    assert sum(path.endswith(".py") for path in readable) == 571
+    assert sum(path.endswith(".md") for path in readable) == 266
     test_modules = tuple(
         path
         for path in readable
         if path.startswith("tests/test_") and path.endswith(".py")
     )
-    assert len(test_modules) == 461
-    assert sum(len(_top_level_test_functions(path)) for path in test_modules) == 5215
+    assert len(test_modules) == 462
+    assert sum(len(_top_level_test_functions(path)) for path in test_modules) == 5269
     dirty = set(_git_output(["diff", "--name-only"]).splitlines()) | set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )

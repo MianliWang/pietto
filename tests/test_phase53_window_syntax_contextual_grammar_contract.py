@@ -9,6 +9,9 @@ from pathlib import Path
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
+    PHASE54_POST_SLICE12_INTERLUDE_BRANCH,
+    PHASE54_POST_SLICE12_INTERLUDE_BASE,
+    phase54_post_slice12_interlude_clean_topic_is_active,
     PHASE54_ACTIVE_GATE2_BASE,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
     PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS,
@@ -1162,6 +1165,10 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
         assert head == main == origin_main == BASE_HEAD_SHA
     else:
         assert tracked == untracked == set()
+        if branch == PHASE54_POST_SLICE12_INTERLUDE_BRANCH:
+            assert phase54_post_slice12_interlude_clean_topic_is_active()
+            assert main == origin_main == PHASE54_POST_SLICE12_INTERLUDE_BASE
+            return
         assert branch in ("", "main")
         if branch == "main":
             assert main == head
@@ -1171,15 +1178,15 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             assert origin_main == head
 
     readable_paths = set(_git_output(["ls-files"]).splitlines()) | untracked
-    assert len(readable_paths) == 921
-    assert sum(path.endswith(".py") for path in readable_paths) == 567
-    assert sum(path.endswith(".md") for path in readable_paths) == 258
+    assert len(readable_paths) == 933
+    assert sum(path.endswith(".py") for path in readable_paths) == 571
+    assert sum(path.endswith(".md") for path in readable_paths) == 266
     test_modules = {
         path
         for path in readable_paths
         if path.startswith("tests/test_") and path.endswith(".py")
     }
-    assert len(test_modules) == 461
+    assert len(test_modules) == 462
     top_level_tests = 0
     for relative in sorted(test_modules):
         tree = ast.parse(_read(relative), filename=relative)
@@ -1188,7 +1195,7 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 5215
+    assert top_level_tests == 5269
     assert len(GENERATED_PATHS) == 8
     goldens = {
         path

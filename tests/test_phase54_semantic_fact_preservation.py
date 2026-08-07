@@ -534,6 +534,7 @@ def test_slice12_contract_status_active_manifest_and_allowlist_are_exact(
         active_gate2_manifest.phase54_slice12_mechanical_repair3_clean_topic_is_active(),
         active_gate2_manifest.phase54_slice12_mechanical_repair4_is_active(),
         active_gate2_manifest.phase54_slice12_mechanical_repair4_clean_topic_is_active(),
+        active_gate2_manifest.phase54_post_slice12_interlude_is_active(),
     )
     assert sum(publication_states) == int(
         active_gate2_manifest.phase54_active_gate2_manifest_is_active()
