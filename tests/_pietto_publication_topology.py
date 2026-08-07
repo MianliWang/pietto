@@ -78,6 +78,7 @@ class TopologyExpectation:
     added_paths: tuple[str, ...] = ()
     modified_paths: tuple[str, ...] = ()
     deleted_paths: tuple[str, ...] = ()
+    staged_paths: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.kind not in TOPOLOGY_KINDS:
@@ -100,6 +101,7 @@ class TopologyObservation:
     added_paths: tuple[str, ...]
     modified_paths: tuple[str, ...]
     deleted_paths: tuple[str, ...]
+    staged_paths: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -185,22 +187,33 @@ def observe(
     added: list[str] = []
     modified: list[str] = []
     deleted: list[str] = []
+    staged: list[str] = []
     status = _git(root, "status", "--porcelain=v2", "--untracked-files=all")
     for line in status.splitlines():
+        if line.startswith(("# ", "! ")):
+            continue
         if line.startswith("? "):
             added.append(line.removeprefix("? "))
             continue
         if not line.startswith("1 "):
-            continue
+            # Renames, copies, and unmerged records are never a recognized
+            # publication projection; fail closed rather than silently drop them.
+            raise TopologyError(f"unrecognized repository status record: {line}")
         parts = line.split(" ", 8)
         if len(parts) != 9:
-            continue
-        worktree_status = parts[1][1]
+            raise TopologyError(f"unparseable repository status record: {line}")
+        index_status, worktree_status = parts[1]
         path = parts[8]
+        if index_status != ".":
+            staged.append(path)
         if worktree_status == "M":
             modified.append(path)
         elif worktree_status == "D":
             deleted.append(path)
+        elif worktree_status != ".":
+            raise TopologyError(
+                f"unrecognized worktree status {worktree_status}: {path}"
+            )
     return TopologyObservation(
         branch=branch,
         head=head,
@@ -214,6 +227,7 @@ def observe(
         added_paths=tuple(sorted(added)),
         modified_paths=tuple(sorted(modified)),
         deleted_paths=tuple(sorted(deleted)),
+        staged_paths=tuple(sorted(staged)),
     )
 
 
@@ -236,6 +250,7 @@ def verify(
         ("added_paths", observation.added_paths, expectation.added_paths),
         ("modified_paths", observation.modified_paths, expectation.modified_paths),
         ("deleted_paths", observation.deleted_paths, expectation.deleted_paths),
+        ("staged_paths", observation.staged_paths, expectation.staged_paths),
     )
     for name, observed, expected in checks:
         if observed != expected:
@@ -399,18 +414,35 @@ def build_topology(kind: str, root: Path) -> TopologyFixture:
         )
 
     if kind == TOPOLOGY_SHALLOW_PULL_REQUEST:
-        checkout = root.parent / f"{root.name}-shallow"
-        _git(
+        # Integration checks out the synthetic merge commit at depth one and
+        # detached, not the named topic branch. Modelling the branch instead
+        # would describe the pull-request head rather than the checkout.
+        merge = _git(
             root,
-            "clone",
+            "commit-tree",
+            topic_tree,
+            "-p",
+            base,
+            "-p",
+            topic,
+            "-m",
+            f"Merge {topic} into {base}",
+        )
+        _git(root, "update-ref", "refs/pull/1/merge", merge)
+        refs["merge"] = merge
+        checkout = root.parent / f"{root.name}-shallow"
+        _git(root, "init", "--quiet", str(checkout))
+        _git(checkout, "remote", "add", "origin", str(root))
+        _git(
+            checkout,
+            "fetch",
             "--quiet",
             "--depth",
             "1",
-            "--branch",
-            TOPIC_BRANCH,
-            f"file://{root}",
-            str(checkout),
+            "origin",
+            "+refs/pull/1/merge:refs/remotes/pull/1/merge",
         )
+        _git(checkout, "checkout", "--quiet", "--detach", "refs/remotes/pull/1/merge")
         refs["shallow_head"] = _git(checkout, "rev-parse", "HEAD")
         observation = observe(
             checkout,
@@ -421,8 +453,8 @@ def build_topology(kind: str, root: Path) -> TopologyFixture:
         )
         expectation = TopologyExpectation(
             kind=kind,
-            branch=TOPIC_BRANCH,
-            head=topic,
+            branch="HEAD",
+            head=merge,
             head_tree=topic_tree,
             head_parents=(),
             merge_base="",
@@ -512,6 +544,10 @@ def rejected_variants(
             "wrong_dirty_set",
             _replace(expectation, modified_paths=("unexpected.md",)),
         ),
+        (
+            "wrong_staged_set",
+            _replace(expectation, staged_paths=("unexpected.md",)),
+        ),
     ]
     return tuple(variants)
 
@@ -533,6 +569,7 @@ def _replace(
         "added_paths": expectation.added_paths,
         "modified_paths": expectation.modified_paths,
         "deleted_paths": expectation.deleted_paths,
+        "staged_paths": expectation.staged_paths,
     }
     fields.update(changes)
     return TopologyExpectation(**fields)  # pyright: ignore[reportArgumentType]

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import tempfile
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -86,14 +87,44 @@ def is_authoritative(payload: Mapping[str, Any]) -> bool:
     return False
 
 
+def _enclosing_worktree(directory: Path) -> Path | None:
+    """Return the Git worktree containing ``directory``, or None."""
+
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(directory), "rev-parse", "--show-toplevel"],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    top = result.stdout.strip()
+    return Path(top) if top else None
+
+
 def _reject_repository_destination(path: Path, repo_root: Path | None) -> None:
-    if repo_root is None:
-        return
-    resolved_root = repo_root.resolve()
+    """Refuse any destination inside a repository, with or without a hint.
+
+    Omitting ``repo_root`` must not disable the guard: that would make the
+    easiest call form the only unprotected one.
+    """
+
     candidate = path if path.is_absolute() else (Path.cwd() / path)
-    resolved = candidate.parent.resolve() / candidate.name
-    if resolved == resolved_root or resolved_root in resolved.parents:
-        raise JournalError(f"journal destination is inside the repository: {path}")
+    directory = candidate.parent
+    resolved = directory.resolve() / candidate.name
+    roots: list[Path] = []
+    if repo_root is not None:
+        roots.append(repo_root.resolve())
+    if directory.is_dir():
+        enclosing = _enclosing_worktree(directory)
+        if enclosing is not None:
+            roots.append(enclosing.resolve())
+    for root in roots:
+        if resolved == root or root in resolved.parents:
+            raise JournalError(f"journal destination is inside the repository: {path}")
 
 
 def atomic_replace(
@@ -135,7 +166,11 @@ def atomic_replace(
 
 
 def load(path: Path) -> dict[str, Any]:
-    """Load one journal file and fail closed when it is not a valid object."""
+    """Load one journal file, failing closed unless it validates.
+
+    Validating on read as well as on write keeps the non-authority markers
+    machine-checkable for a hand-edited, truncated, or older payload.
+    """
 
     try:
         raw = path.read_text(encoding="utf-8")
@@ -147,4 +182,8 @@ def load(path: Path) -> dict[str, Any]:
         raise JournalError(f"journal is not valid JSON: {error}") from error
     if not isinstance(parsed, dict):
         raise JournalError("journal must be a JSON object")
-    return dict(parsed)
+    payload = dict(parsed)
+    problems = validate_payload(payload)
+    if problems:
+        raise JournalError(f"invalid journal payload: {'; '.join(problems)}")
+    return payload

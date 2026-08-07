@@ -710,7 +710,7 @@ def test_authority_hierarchy_grounding_and_historical_predecessors_are_exact() -
         "8c3656805db451946d60e341b8ac0ca9181997378d07576133c9c4aeef3e3f77"
     )
     assert _sha256("tests/test_phase50_import_module_export_readiness.py") == (
-        "43ab572f0015772e0dc2e6cbb9d751b121dac32717c6b00b031739e2db707441"
+        "22e55fad318240515fa6df8f56d65a2c21e6c862781ec8ca41b72cac11813c1b"
     )
     scope = _read(SCOPE_REL)
     roadmap = _read(ROADMAP_V2_REL)
@@ -1319,7 +1319,7 @@ def test_gate_allowlist_reader_evidence_publication_stop_and_next_state_contract
         if path.startswith("tests/test_") and path.endswith(".py")
     )
     assert len(test_modules) == 462
-    assert sum(len(_top_level_test_functions(path)) for path in test_modules) == 5269
+    assert sum(len(_top_level_test_functions(path)) for path in test_modules) == 5274
     dirty = set(_git_output(["diff", "--name-only"]).splitlines()) | set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )

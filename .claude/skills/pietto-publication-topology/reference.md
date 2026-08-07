@@ -33,6 +33,7 @@ the same commits and the same trees.
 | `event_name` | integration event: pull request, push, or local |
 | `event_head_ref`, `event_base_ref` | event-declared head and base branch names |
 | `added_paths`, `modified_paths`, `deleted_paths` | untracked, modified, and deleted working-tree paths |
+| `staged_paths` | paths whose index entry differs from the head commit |
 
 ## Why each projection exists
 
@@ -45,8 +46,11 @@ the same commits and the same trees.
   rather than replacing it, and that the previous head's guards still hold.
 - **pull-request merge** — two parents in a fixed order and a detached head.
   Guards that assume a named branch or a single parent break here.
-- **shallow pull-request checkout** — no parents and no merge base. Guards that
-  walk history must either tolerate this or declare depth a prerequisite.
+- **shallow pull-request checkout** — the depth-limited *merge* commit, detached,
+  with no parents and no merge base. Integration checks out the synthetic merge,
+  not the named topic branch; a fixture built from the branch would describe the
+  pull-request head instead of the checkout and would pass locally while the real
+  run still failed.
 - **squashed main** — a single parent and a tree equal to the topic tree. This
   is where tree equality is proven.
 - **natural main push** — the squashed result observed under a push event, so
@@ -61,6 +65,7 @@ the same commits and the same trees.
 | moving references read once and reasoned about later | re-reading every reference inside its observation window |
 | a projection sweep that ran the reader set but omitted the focused module | including the focused module in the sweep |
 | a shallow checkout treated as if history were present | the shallow projection with no parents and no merge base |
+| a staged-only change observed as a clean tree | index and worktree status bits are both read, and renames, copies, and unmerged records fail closed |
 | an obsolete generation predicate conflated with the latest clean state | one expectation per projection, compared field by field |
 
 ## Sweep checklist

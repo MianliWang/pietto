@@ -10,8 +10,8 @@ from dataclasses import fields
 from pathlib import Path
 
 from _phase54_active_gate2_manifest import (
-    PHASE54_POST_SLICE12_INTERLUDE_ADDED_PATHS,
-    PHASE54_POST_SLICE12_INTERLUDE_ALLOWLIST_PATHS,
+    phase54_post_slice12_interlude_expected_allowlist_paths,
+    phase54_post_slice12_interlude_expected_added_paths,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,
@@ -1400,7 +1400,7 @@ def test_static_git_helper_and_exact_slice12_dirty_set_are_locked() -> None:
         SLICE12_GATE2_PATHS,
         PHASE52_GATE2_PATHS,
         slice2_modified | slice2_added,
-        set(PHASE54_POST_SLICE12_INTERLUDE_ALLOWLIST_PATHS),
+        set(phase54_post_slice12_interlude_expected_allowlist_paths()),
         set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS),
         set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS),
         set(PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS),
@@ -1419,7 +1419,7 @@ def test_static_git_helper_and_exact_slice12_dirty_set_are_locked() -> None:
         SLICE12_UNTRACKED_PATHS,
         PHASE52_UNTRACKED_PATHS,
         slice2_added,
-        set(PHASE54_POST_SLICE12_INTERLUDE_ADDED_PATHS),
+        set(phase54_post_slice12_interlude_expected_added_paths()),
     )
     if dirty_paths == set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS):
         assert phase54_slice11_python313_repair_is_active()

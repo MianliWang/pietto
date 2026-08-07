@@ -18,8 +18,8 @@ import pietto._project.module_catalog as module_catalog
 import pietto._project.module_exports as module_exports
 import pietto.cli as cli
 from _phase54_active_gate2_manifest import (
-    PHASE54_POST_SLICE12_INTERLUDE_ALLOWLIST_PATHS,
-    phase54_post_slice12_interlude_is_active,
+    phase54_post_slice12_interlude_expected_allowlist_paths,
+    phase54_post_slice12_interlude_dirty_is_active,
     PHASE54_ACTIVE_GATE2_ADDED_PATHS,
     PHASE54_ACTIVE_GATE2_BASE,
     PHASE54_ACTIVE_GATE2_DELETED_PATHS,
@@ -1220,7 +1220,10 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
     )
     python313_repair_active = phase54_slice11_python313_repair_is_active()
     recovery_gate2_active = phase54_slice11_substantive_recovery_is_active()
-    interlude_active = phase54_post_slice12_interlude_is_active()
+    interlude_active = phase54_post_slice12_interlude_dirty_is_active()
+    interlude_expected_allowlist = set(
+        phase54_post_slice12_interlude_expected_allowlist_paths()
+    )
     assert _matches_phase54_active_gate2_manifest(_active_state())
     recovery_state = replace(
         _active_state(),
@@ -1492,7 +1495,7 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
     )
     recovery_allowlist = set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS)
     python313_repair_allowlist = set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS)
-    interlude_allowlist = set(PHASE54_POST_SLICE12_INTERLUDE_ALLOWLIST_PATHS)
+    interlude_allowlist = interlude_expected_allowlist
     assert dirty in (
         set(),
         active_allowlist,

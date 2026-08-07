@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 import subprocess
 from pathlib import Path
@@ -613,6 +614,62 @@ def test_shallow_projection_has_no_parents_and_no_merge_base(tmp_path: Path) -> 
     assert fixture.observation.merge_base == ""
 
 
+def test_shallow_projection_models_the_integration_merge_checkout(
+    tmp_path: Path,
+) -> None:
+    fixture = topology.build_topology(
+        topology.TOPOLOGY_SHALLOW_PULL_REQUEST, tmp_path / "shallow"
+    )
+    assert fixture.observation.branch == "HEAD"
+    assert fixture.observation.head == fixture.refs["merge"]
+    assert fixture.observation.head != fixture.refs["topic"]
+    assert fixture.observation.head_tree == fixture.expectation.head_tree
+    assert fixture.observation.event_name == topology.EVENT_PULL_REQUEST
+    assert topology.verify(fixture.observation, fixture.expectation) == ()
+
+
+def test_observation_reports_staged_paths_and_rejects_a_clean_expectation(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "clean"
+    fixture = topology.build_topology(topology.TOPOLOGY_CLEAN_TOPIC, root)
+    assert fixture.observation.staged_paths == ()
+    (root / "AUTHORITY.md").write_text("# authority\n\nstaged\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", "AUTHORITY.md"], cwd=root, check=True, capture_output=True
+    )
+    staged = topology.observe(
+        root,
+        event_name=topology.EVENT_LOCAL,
+        event_head_ref="",
+        event_base_ref="",
+        base_ref="refs/heads/main",
+    )
+    assert staged.staged_paths == ("AUTHORITY.md",)
+    assert topology.verify(staged, fixture.expectation)
+
+
+def test_observation_fails_closed_on_an_unrecognized_status_record(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "renamed"
+    topology.build_topology(topology.TOPOLOGY_CLEAN_TOPIC, root)
+    subprocess.run(
+        ["git", "mv", "reader.txt", "renamed.txt"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    )
+    with pytest.raises(topology.TopologyError):
+        topology.observe(
+            root,
+            event_name=topology.EVENT_LOCAL,
+            event_head_ref="",
+            event_base_ref="",
+            base_ref="refs/heads/main",
+        )
+
+
 def test_squash_projection_tree_equals_the_topic_tree(tmp_path: Path) -> None:
     fixture = topology.build_topology(
         topology.TOPOLOGY_SQUASH_MAIN, tmp_path / "squash"
@@ -635,6 +692,7 @@ def test_wrong_parent_reference_tree_shallow_and_event_are_rejected(
         "wrong_parent",
         "wrong_ref",
         "wrong_shallow",
+        "wrong_staged_set",
         "wrong_tree",
     )
     for name, corrupted in variants:
@@ -720,6 +778,33 @@ def test_runtime_journal_refuses_a_repository_destination(tmp_path: Path) -> Non
     outside = tmp_path / "journal.json"
     journal.atomic_replace(outside, payload, repo_root=REPO_ROOT)
     assert outside.is_file()
+
+
+def test_runtime_journal_refuses_a_repository_destination_without_a_hint() -> None:
+    payload = _valid_payload()
+    with pytest.raises(journal.JournalError):
+        journal.atomic_replace(REPO_ROOT / "runtime-journal.json", payload)
+    with pytest.raises(journal.JournalError):
+        journal.atomic_replace(REPO_ROOT / "tests" / "runtime-journal.json", payload)
+    assert not (REPO_ROOT / "runtime-journal.json").exists()
+    assert not (REPO_ROOT / "tests" / "runtime-journal.json").exists()
+
+
+def test_runtime_journal_load_validates_the_schema(tmp_path: Path) -> None:
+    destination = tmp_path / "journal.json"
+    payload = _valid_payload()
+    journal.atomic_replace(destination, payload)
+    assert journal.load(destination) == payload
+    destination.write_text('{"authority": "AUTHORITATIVE"}\n', encoding="utf-8")
+    with pytest.raises(journal.JournalError):
+        journal.load(destination)
+    incomplete = dict(payload)
+    del incomplete["outranked_by"]
+    destination.write_text(
+        json.dumps(incomplete, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    with pytest.raises(journal.JournalError):
+        journal.load(destination)
 
 
 def test_runtime_journal_is_never_authoritative(tmp_path: Path) -> None:

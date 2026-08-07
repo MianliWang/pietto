@@ -11,6 +11,8 @@ from types import MappingProxyType
 from typing import cast
 
 from _phase54_active_gate2_manifest import (
+    PHASE54_POST_SLICE12_INTERLUDE_REPAIR1_BASE,
+    PHASE54_POST_SLICE12_INTERLUDE_REPAIR1_SUBJECT,
     PHASE54_POST_SLICE12_INTERLUDE_BASE,
     PHASE54_POST_SLICE12_INTERLUDE_SUBJECT,
     PHASE54_ACTIVE_GATE2_BASE,
@@ -629,7 +631,9 @@ def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> N
         else:
             if _phase54_active_gate2_is_active():
                 subject = _git_output(["show", "-s", "--format=%s", "HEAD"])
-                if subject == PHASE54_POST_SLICE12_INTERLUDE_SUBJECT:
+                if subject == PHASE54_POST_SLICE12_INTERLUDE_REPAIR1_SUBJECT:
+                    expected_parent = PHASE54_POST_SLICE12_INTERLUDE_REPAIR1_BASE
+                elif subject == PHASE54_POST_SLICE12_INTERLUDE_SUBJECT:
                     expected_parent = PHASE54_POST_SLICE12_INTERLUDE_BASE
                 elif head == PHASE54_POST_SLICE12_INTERLUDE_BASE:
                     expected_parent = PHASE54_ACTIVE_GATE2_BASE
@@ -726,6 +730,14 @@ def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> N
                 "Fix Phase 54 relation row diagnostics"
             ):
                 expected_parent = "6104002486d21b7b25dbec74d037c0fc7cc5099a"
+            elif _git_output(["show", "-s", "--format=%s", "HEAD"]) == (
+                PHASE54_POST_SLICE12_INTERLUDE_REPAIR1_SUBJECT
+            ):
+                expected_parent = PHASE54_POST_SLICE12_INTERLUDE_REPAIR1_BASE
+            elif _git_output(["show", "-s", "--format=%s", "HEAD"]) == (
+                PHASE54_POST_SLICE12_INTERLUDE_SUBJECT
+            ):
+                expected_parent = PHASE54_POST_SLICE12_INTERLUDE_BASE
             else:
                 expected_parent = PHASE54_SLICE10_HEAD
             assert parents == [expected_parent]
@@ -1660,7 +1672,7 @@ def test_test_inventory_focused_overlay_validation_and_gate3_are_exact() -> None
         571,
         266,
         462,
-        5269,
+        5274,
     )
     docs = _read(PLAN_REL)
     for value in (

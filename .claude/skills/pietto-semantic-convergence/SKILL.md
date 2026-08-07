@@ -94,3 +94,5 @@ mechanical work must be redone.
 The local runtime journal is orientation only. It is non-authoritative, safe to
 replace atomically, and always revalidated against live state. Never treat it
 as evidence, never track it in the repository, and never let it decide a gate.
+The schema is enforced on read as well as on write, and a destination inside
+any repository worktree is refused whether or not a root hint is supplied.

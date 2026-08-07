@@ -10,13 +10,15 @@ from pathlib import Path
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
+    PHASE54_POST_SLICE12_INTERLUDE_REPAIR1_BASE,
+    phase54_post_slice12_interlude_repair1_is_active,
+    phase54_post_slice12_interlude_dirty_is_active,
+    phase54_post_slice12_interlude_expected_added_paths,
+    phase54_post_slice12_interlude_expected_allowlist_paths,
+    phase54_post_slice12_interlude_expected_modified_paths,
     PHASE54_POST_SLICE12_INTERLUDE_BRANCH,
     phase54_post_slice12_interlude_clean_topic_is_active,
-    PHASE54_POST_SLICE12_INTERLUDE_MODIFIED_PATHS,
-    PHASE54_POST_SLICE12_INTERLUDE_ADDED_PATHS,
     PHASE54_POST_SLICE12_INTERLUDE_BASE,
-    phase54_post_slice12_interlude_is_active,
-    PHASE54_POST_SLICE12_INTERLUDE_ALLOWLIST_PATHS,
     PHASE54_ACTIVE_GATE2_ADDED_PATHS,
     PHASE54_ACTIVE_GATE2_BASE,
     PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
@@ -655,7 +657,7 @@ def _assert_allowed_dirty_state(
         SLICE9_ALLOWLIST_PATHS,
         PHASE53_ALLOWLIST_PATHS,
         slice2_allowlist,
-        set(PHASE54_POST_SLICE12_INTERLUDE_ALLOWLIST_PATHS),
+        set(phase54_post_slice12_interlude_expected_allowlist_paths()),
     )
     if not dirty:
         assert tracked == untracked == set()
@@ -699,11 +701,16 @@ def _assert_allowed_dirty_state(
                 exact_main_refs=True,
             )
         return
-    if phase54_post_slice12_interlude_is_active():
-        assert tracked == set(PHASE54_POST_SLICE12_INTERLUDE_MODIFIED_PATHS)
-        assert untracked == set(PHASE54_POST_SLICE12_INTERLUDE_ADDED_PATHS)
-        assert branch == "main"
-        assert head == main == origin_main == PHASE54_POST_SLICE12_INTERLUDE_BASE
+    if phase54_post_slice12_interlude_dirty_is_active():
+        assert tracked == set(phase54_post_slice12_interlude_expected_modified_paths())
+        assert untracked == set(phase54_post_slice12_interlude_expected_added_paths())
+        if phase54_post_slice12_interlude_repair1_is_active():
+            assert branch == PHASE54_POST_SLICE12_INTERLUDE_BRANCH
+            assert head == PHASE54_POST_SLICE12_INTERLUDE_REPAIR1_BASE
+            assert main == origin_main == PHASE54_POST_SLICE12_INTERLUDE_BASE
+        else:
+            assert branch == "main"
+            assert head == main == origin_main == PHASE54_POST_SLICE12_INTERLUDE_BASE
         return
     if dirty == slice2_allowlist:
         assert tracked == slice2_modified
@@ -1388,7 +1395,7 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
         )
         for path in test_files
     )
-    assert (len(test_files), top_functions) == (462, 5269)
+    assert (len(test_files), top_functions) == (462, 5274)
     assert (
         381 + 834 + 627 + 424 + 279 + 168 + 156 + 12 + 145 + 190 + 70 + 70 + 97 + 35
         == 3488
@@ -1552,10 +1559,12 @@ def test_static_git_helper_and_exact_slice9_dirty_set_are_locked() -> None:
             slice2_modified = _literal_string_set(SLICE2_STATE_REL, "MODIFIED_PATHS")
             slice2_added = _literal_string_set(SLICE2_STATE_REL, "ADDED_PATHS")
         if tracked | untracked == set(
-            PHASE54_POST_SLICE12_INTERLUDE_MODIFIED_PATHS
-        ) | set(PHASE54_POST_SLICE12_INTERLUDE_ADDED_PATHS):
-            expected_modified = set(PHASE54_POST_SLICE12_INTERLUDE_MODIFIED_PATHS)
-            expected_added = set(PHASE54_POST_SLICE12_INTERLUDE_ADDED_PATHS)
+            phase54_post_slice12_interlude_expected_modified_paths()
+        ) | set(phase54_post_slice12_interlude_expected_added_paths()):
+            expected_modified = set(
+                phase54_post_slice12_interlude_expected_modified_paths()
+            )
+            expected_added = set(phase54_post_slice12_interlude_expected_added_paths())
         elif tracked | untracked == slice2_modified | slice2_added:
             expected_modified = slice2_modified
             expected_added = slice2_added

@@ -12,10 +12,12 @@ from pathlib import Path
 from typing import cast
 
 from _phase54_active_gate2_manifest import (
+    PHASE54_POST_SLICE12_INTERLUDE_REPAIR1_BASE,
+    PHASE54_POST_SLICE12_INTERLUDE_REPAIR1_SUBJECT,
+    phase54_post_slice12_interlude_dirty_is_active,
     PHASE54_POST_SLICE12_INTERLUDE_BASE,
     PHASE54_POST_SLICE12_INTERLUDE_BRANCH,
     PHASE54_POST_SLICE12_INTERLUDE_SUBJECT,
-    phase54_post_slice12_interlude_is_active,
     PHASE54_SLICE12_PRODUCT_REPAIR3_BASE,
     PHASE54_SLICE12_PRODUCT_REPAIR3_SUBJECT,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
@@ -966,7 +968,7 @@ def _is_clean_projection() -> bool:
         _assert_main_refs(head)
         return True
 
-    if phase54_post_slice12_interlude_is_active():
+    if phase54_post_slice12_interlude_dirty_is_active():
         assert shallow == "false"
         assert _git_output(["branch", "--show-current"]) == "main"
         assert (
@@ -979,8 +981,12 @@ def _is_clean_projection() -> bool:
         assert staged == ""
         return False
 
-    if parents == (PHASE54_POST_SLICE12_INTERLUDE_BASE,) and (
-        subject == PHASE54_POST_SLICE12_INTERLUDE_SUBJECT
+    if (
+        parents == (PHASE54_POST_SLICE12_INTERLUDE_BASE,)
+        and subject == PHASE54_POST_SLICE12_INTERLUDE_SUBJECT
+    ) or (
+        parents == (PHASE54_POST_SLICE12_INTERLUDE_REPAIR1_BASE,)
+        and subject == PHASE54_POST_SLICE12_INTERLUDE_REPAIR1_SUBJECT
     ):
         if status:
             assert shallow == "false"
@@ -1150,14 +1156,21 @@ def _is_clean_projection() -> bool:
             _assert_clean_state(status=status, staged=staged)
             return True
         if (
-            base_sha == PHASE54_POST_SLICE12_INTERLUDE_BASE
+            base_sha
+            in (
+                PHASE54_POST_SLICE12_INTERLUDE_BASE,
+                PHASE54_POST_SLICE12_INTERLUDE_REPAIR1_BASE,
+            )
             or candidate_ref == PHASE54_POST_SLICE12_INTERLUDE_BRANCH
         ):
-            assert base_sha == PHASE54_POST_SLICE12_INTERLUDE_BASE
+            assert base_sha in (
+                PHASE54_POST_SLICE12_INTERLUDE_BASE,
+                PHASE54_POST_SLICE12_INTERLUDE_REPAIR1_BASE,
+            )
             assert base_ref == "main"
             assert candidate_ref == PHASE54_POST_SLICE12_INTERLUDE_BRANCH
             assert head != candidate_sha
-            assert parents == (PHASE54_POST_SLICE12_INTERLUDE_BASE, candidate_sha)
+            assert parents == (base_sha, candidate_sha)
             _assert_clean_state(status=status, staged=staged)
             return True
         assert base_sha in (
