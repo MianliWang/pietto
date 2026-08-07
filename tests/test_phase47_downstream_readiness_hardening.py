@@ -15,8 +15,8 @@ from pietto._project.model import (
     build_empty_project_semantic_result,
 )
 from pietto.ast_nodes import QueryDef, TableDef
-from test_phase54_local_import_module_export_foundation_scope_lock import (
-    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+from _phase54_active_gate2_manifest import (
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -327,7 +327,7 @@ def test_phase47_slice9_package_version_and_dirty_paths_are_locked() -> None:
             ALLOWED_SLICE4_GATE2_PATHS,
             ALLOWED_PHASE49_SLICE5_GATE2_PATHS,
         )
-    ) or _slice5_gate2()
+    ) or _phase54_active_gate2_is_active()
 
 
 def _project_semantic_result(

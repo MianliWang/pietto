@@ -11,9 +11,13 @@ from pathlib import Path
 from _phase54_active_gate2_manifest import (
     PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS,
+    PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS,
+    PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
     phase54_slice12_pr_ci_repair_is_active,
     phase54_slice12_product_repair3_is_active,
+    phase54_slice12_product_repair10_is_active,
+    phase54_slice12_product_repair11_is_active,
 )
 
 
@@ -706,7 +710,7 @@ def test_authority_hierarchy_grounding_and_historical_predecessors_are_exact() -
         "8c3656805db451946d60e341b8ac0ca9181997378d07576133c9c4aeef3e3f77"
     )
     assert _sha256("tests/test_phase50_import_module_export_readiness.py") == (
-        "388855f0275579cb1c747bd9039cfd812fc65440eb2b1d76e5e668173a48e1c8"
+        "da1b07fddc28b716af0fdbee460abb477ab19c9d9db7c714e519544e279ef63b"
     )
     scope = _read(SCOPE_REL)
     roadmap = _read(ROADMAP_V2_REL)
@@ -1102,13 +1106,13 @@ def test_flat_catalog_collect_before_resolve_semantic_and_project_fact_surfaces_
     project = tuple((REPO_ROOT / "src/pietto/_project").glob("*.py"))
     assert len(compiler) == 105
     assert _digest(compiler) == (
-        "00a5673d5d85ab4b349551af477c827b109635e4aeac4ce066e9a5a597ffa0b8"
+        "f9eca1bf5cadfcc1583ba465f33bf761114e6d9d2785de15a2d73b5a19a6ff62"
     )
     assert _digest(semantic) == (
         "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
     )
     assert _digest(project) == (
-        "488640a8efdcd90f2c514d22ab57b6b97c6fbd3a39006db81660713e2dcd5f09"
+        "9269d0946eaa232a4471633214d6fc55cd69b55d684edba3213532242224183b"
     )
     assert len(project) == 30
     model = _read("src/pietto/_project/model.py")
@@ -1326,6 +1330,10 @@ def test_gate_allowlist_reader_evidence_publication_stop_and_next_state_contract
             assert phase54_slice12_pr_ci_repair_is_active()
         elif dirty == set(PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS):
             assert phase54_slice12_product_repair3_is_active()
+        elif dirty == set(PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS):
+            assert phase54_slice12_product_repair10_is_active()
+        elif dirty == set(PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS):
+            assert phase54_slice12_product_repair11_is_active()
         assert _git_output(["diff", "--cached", "--name-only"]) == ""
     scope = _read(SCOPE_REL)
     for path in (

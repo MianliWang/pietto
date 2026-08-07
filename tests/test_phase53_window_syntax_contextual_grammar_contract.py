@@ -9,11 +9,20 @@ from pathlib import Path
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
+    PHASE54_ACTIVE_GATE2_BASE,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
     PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS,
+    PHASE54_SLICE12_PRODUCT_REPAIR10_BASE,
+    PHASE54_SLICE12_PRODUCT_REPAIR10_BRANCH,
+    PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS,
+    PHASE54_SLICE12_PRODUCT_REPAIR11_BASE,
+    PHASE54_SLICE12_PRODUCT_REPAIR11_BRANCH,
+    PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
     phase54_slice11_substantive_recovery_is_active,
     phase54_slice12_product_repair3_is_active,
+    phase54_slice12_product_repair10_is_active,
+    phase54_slice12_product_repair11_is_active,
 )
 
 import pytest
@@ -1040,20 +1049,77 @@ def test_no_ast_semantic_ir_sql_or_public_surface_widening_is_locked() -> None:
         for path in PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS
         if path.startswith("src/pietto/")
     }
+    product_repair10_changed_source = {
+        path
+        for path in PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS
+        if path.startswith("src/pietto/")
+    }
+    product_repair11_changed_source = {
+        path
+        for path in PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS
+        if path.startswith("src/pietto/")
+    }
     assert changed_source in (
         set(),
         allowed_source,
         phase54_changed_source,
         recovery_changed_source,
         product_repair3_changed_source,
+        product_repair10_changed_source,
+        product_repair11_changed_source,
     )
     if changed_source == recovery_changed_source:
         assert phase54_slice11_substantive_recovery_is_active()
     elif changed_source == product_repair3_changed_source:
         assert phase54_slice12_product_repair3_is_active()
+    elif (
+        changed_source == product_repair11_changed_source
+        and phase54_slice12_product_repair11_is_active()
+    ):
+        assert phase54_slice12_product_repair11_is_active()
+    elif changed_source == product_repair10_changed_source:
+        assert phase54_slice12_product_repair10_is_active()
 
 
 def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None:
+    if phase54_slice12_product_repair11_is_active():
+        tracked = set(_git_output(["diff", "--name-only"]).splitlines()) - {""}
+        untracked = set(
+            _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
+        ) - {""}
+        assert tracked == set(PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS)
+        assert untracked == set()
+        assert _git_output(["diff", "--cached", "--name-status"]) == ""
+        assert _git_output(["branch", "--show-current"]) == (
+            PHASE54_SLICE12_PRODUCT_REPAIR11_BRANCH
+        )
+        assert (
+            _git_output(["rev-parse", "HEAD"]) == PHASE54_SLICE12_PRODUCT_REPAIR11_BASE
+        )
+        assert _git_optional_ref("refs/heads/main") == PHASE54_ACTIVE_GATE2_BASE
+        assert (
+            _git_optional_ref("refs/remotes/origin/main") == PHASE54_ACTIVE_GATE2_BASE
+        )
+        return
+    if phase54_slice12_product_repair10_is_active():
+        tracked = set(_git_output(["diff", "--name-only"]).splitlines()) - {""}
+        untracked = set(
+            _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
+        ) - {""}
+        assert tracked == set(PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS)
+        assert untracked == set()
+        assert _git_output(["diff", "--cached", "--name-status"]) == ""
+        assert _git_output(["branch", "--show-current"]) == (
+            PHASE54_SLICE12_PRODUCT_REPAIR10_BRANCH
+        )
+        assert (
+            _git_output(["rev-parse", "HEAD"]) == PHASE54_SLICE12_PRODUCT_REPAIR10_BASE
+        )
+        assert _git_optional_ref("refs/heads/main") == PHASE54_ACTIVE_GATE2_BASE
+        assert (
+            _git_optional_ref("refs/remotes/origin/main") == PHASE54_ACTIVE_GATE2_BASE
+        )
+        return
     if _phase54_active_gate2_is_active():
         return
     tracked = set(_git_output(["diff", "--name-only"]).splitlines()) - {""}

@@ -15,13 +15,43 @@ from _phase54_active_gate2_manifest import (
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS,
+    PHASE54_SLICE12_PRODUCT_REPAIR10_BASE,
+    PHASE54_SLICE12_PRODUCT_REPAIR10_BRANCH,
+    PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS,
+    PHASE54_SLICE12_PRODUCT_REPAIR10_SUBJECT,
+    PHASE54_SLICE12_PRODUCT_REPAIR11_BASE,
+    PHASE54_SLICE12_PRODUCT_REPAIR11_BRANCH,
+    PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS,
+    PHASE54_SLICE12_PRODUCT_REPAIR11_SUBJECT,
+    PHASE54_SLICE12_PRODUCT_REPAIR12_BASE,
+    PHASE54_SLICE12_PRODUCT_REPAIR12_BRANCH,
+    PHASE54_SLICE12_PRODUCT_REPAIR12_MODIFIED_PATHS,
+    PHASE54_SLICE12_PRODUCT_REPAIR12_SUBJECT,
+    PHASE54_SLICE12_PRODUCT_REPAIR13_BASE,
+    PHASE54_SLICE12_PRODUCT_REPAIR13_BRANCH,
+    PHASE54_SLICE12_PRODUCT_REPAIR13_MODIFIED_PATHS,
+    PHASE54_SLICE12_PRODUCT_REPAIR13_SUBJECT,
+    PHASE54_SLICE12_PRODUCT_REPAIR14_BASE,
+    PHASE54_SLICE12_PRODUCT_REPAIR14_BRANCH,
+    PHASE54_SLICE12_PRODUCT_REPAIR14_MODIFIED_PATHS,
+    PHASE54_SLICE12_PRODUCT_REPAIR14_SUBJECT,
     PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
     phase54_slice11_pr_ci_repair_is_active,
     phase54_slice12_pr_ci_repair_is_active,
     phase54_slice12_product_repair3_clean_topic_is_active,
+    phase54_slice12_product_repair10_clean_topic_is_active,
+    phase54_slice12_product_repair11_clean_topic_is_active,
+    phase54_slice12_product_repair12_clean_topic_is_active,
+    phase54_slice12_product_repair13_clean_topic_is_active,
+    phase54_slice12_product_repair14_clean_topic_is_active,
     phase54_slice12_product_repair3_is_active,
+    phase54_slice12_product_repair10_is_active,
+    phase54_slice12_product_repair11_is_active,
+    phase54_slice12_product_repair12_is_active,
+    phase54_slice12_product_repair13_is_active,
+    phase54_slice12_product_repair14_is_active,
     phase54_slice11_python313_repair_is_active,
     phase54_slice11_substantive_recovery_is_active,
 )
@@ -90,7 +120,7 @@ LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf2
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 SIGNATURE_SHA256 = "810f347080e0bb7dc674821aa6387c5f7618ac216832194ef19820326eef71d2"
 PROJECT_PRIVATE_DIGEST = (
-    "488640a8efdcd90f2c514d22ab57b6b97c6fbd3a39006db81660713e2dcd5f09"
+    "9269d0946eaa232a4471633214d6fc55cd69b55d684edba3213532242224183b"
 )
 TIER2_MANIFEST_BYTES = 18319
 TIER2_MANIFEST_FILES = 108
@@ -837,6 +867,56 @@ def _assert_clean_checkout_refs(
     main: str | None,
     origin_main: str | None,
 ) -> None:
+    if phase54_slice12_product_repair14_clean_topic_is_active():
+        assert branch == PHASE54_SLICE12_PRODUCT_REPAIR14_BRANCH
+        assert main == origin_main == "bc46faff1c9aa71f583ed7d2964b651cc659bc90"
+        assert tuple(
+            _git_output(["rev-list", "--parents", "-n", "1", head]).split()[1:]
+        ) == (PHASE54_SLICE12_PRODUCT_REPAIR14_BASE,)
+        assert _git_output(["show", "-s", "--format=%s", head]) == (
+            PHASE54_SLICE12_PRODUCT_REPAIR14_SUBJECT
+        )
+        return
+    if phase54_slice12_product_repair13_clean_topic_is_active():
+        assert branch == PHASE54_SLICE12_PRODUCT_REPAIR13_BRANCH
+        assert main == origin_main == "bc46faff1c9aa71f583ed7d2964b651cc659bc90"
+        assert tuple(
+            _git_output(["rev-list", "--parents", "-n", "1", head]).split()[1:]
+        ) == (PHASE54_SLICE12_PRODUCT_REPAIR13_BASE,)
+        assert _git_output(["show", "-s", "--format=%s", head]) == (
+            PHASE54_SLICE12_PRODUCT_REPAIR13_SUBJECT
+        )
+        return
+    if phase54_slice12_product_repair12_clean_topic_is_active():
+        assert branch == PHASE54_SLICE12_PRODUCT_REPAIR12_BRANCH
+        assert main == origin_main == "bc46faff1c9aa71f583ed7d2964b651cc659bc90"
+        assert tuple(
+            _git_output(["rev-list", "--parents", "-n", "1", head]).split()[1:]
+        ) == (PHASE54_SLICE12_PRODUCT_REPAIR12_BASE,)
+        assert _git_output(["show", "-s", "--format=%s", head]) == (
+            PHASE54_SLICE12_PRODUCT_REPAIR12_SUBJECT
+        )
+        return
+    if phase54_slice12_product_repair11_clean_topic_is_active():
+        assert branch == PHASE54_SLICE12_PRODUCT_REPAIR11_BRANCH
+        assert main == origin_main == "bc46faff1c9aa71f583ed7d2964b651cc659bc90"
+        assert tuple(
+            _git_output(["rev-list", "--parents", "-n", "1", head]).split()[1:]
+        ) == (PHASE54_SLICE12_PRODUCT_REPAIR11_BASE,)
+        assert _git_output(["show", "-s", "--format=%s", head]) == (
+            PHASE54_SLICE12_PRODUCT_REPAIR11_SUBJECT
+        )
+        return
+    if phase54_slice12_product_repair10_clean_topic_is_active():
+        assert branch == PHASE54_SLICE12_PRODUCT_REPAIR10_BRANCH
+        assert main == origin_main == "bc46faff1c9aa71f583ed7d2964b651cc659bc90"
+        assert tuple(
+            _git_output(["rev-list", "--parents", "-n", "1", head]).split()[1:]
+        ) == (PHASE54_SLICE12_PRODUCT_REPAIR10_BASE,)
+        assert _git_output(["show", "-s", "--format=%s", head]) == (
+            PHASE54_SLICE12_PRODUCT_REPAIR10_SUBJECT
+        )
+        return
     if phase54_slice12_product_repair3_clean_topic_is_active():
         assert branch == "phase54/slice12-semantic-fact-preservation"
         assert main == origin_main == "bc46faff1c9aa71f583ed7d2964b651cc659bc90"
@@ -1286,8 +1366,28 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     slice11_pr_ci_repair_active = phase54_slice11_pr_ci_repair_is_active()
     slice12_pr_ci_repair_active = phase54_slice12_pr_ci_repair_is_active()
     slice12_product_repair3_active = phase54_slice12_product_repair3_is_active()
+    slice12_product_repair10_active = phase54_slice12_product_repair10_is_active()
+    slice12_product_repair11_active = phase54_slice12_product_repair11_is_active()
+    slice12_product_repair12_active = phase54_slice12_product_repair12_is_active()
+    slice12_product_repair13_active = phase54_slice12_product_repair13_is_active()
+    slice12_product_repair14_active = phase54_slice12_product_repair14_is_active()
     slice12_product_repair3_clean_topic_active = (
         phase54_slice12_product_repair3_clean_topic_is_active()
+    )
+    slice12_product_repair10_clean_topic_active = (
+        phase54_slice12_product_repair10_clean_topic_is_active()
+    )
+    slice12_product_repair11_clean_topic_active = (
+        phase54_slice12_product_repair11_clean_topic_is_active()
+    )
+    slice12_product_repair12_clean_topic_active = (
+        phase54_slice12_product_repair12_clean_topic_is_active()
+    )
+    slice12_product_repair13_clean_topic_active = (
+        phase54_slice12_product_repair13_clean_topic_is_active()
+    )
+    slice12_product_repair14_clean_topic_active = (
+        phase54_slice12_product_repair14_clean_topic_is_active()
     )
     slice11_python313_repair_active = phase54_slice11_python313_repair_is_active()
     slice11_substantive_recovery_active = (
@@ -1315,6 +1415,61 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     elif slice12_pr_ci_repair_active:
         assert tracked_paths == set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS)
         assert untracked_paths == set()
+    elif slice12_product_repair14_active:
+        assert tracked_paths == set(PHASE54_SLICE12_PRODUCT_REPAIR14_MODIFIED_PATHS)
+        assert untracked_paths == set()
+    elif slice12_product_repair13_active:
+        assert tracked_paths == set(PHASE54_SLICE12_PRODUCT_REPAIR13_MODIFIED_PATHS)
+        assert untracked_paths == set()
+    elif slice12_product_repair12_active:
+        assert tracked_paths == set(PHASE54_SLICE12_PRODUCT_REPAIR12_MODIFIED_PATHS)
+        assert untracked_paths == set()
+    elif slice12_product_repair11_active:
+        assert tracked_paths == set(PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS)
+        assert untracked_paths == set()
+    elif slice12_product_repair10_active:
+        assert tracked_paths == set(PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS)
+        assert untracked_paths == set()
+    elif slice12_product_repair14_clean_topic_active:
+        assert tracked_paths == untracked_paths == set()
+        _assert_clean_checkout_refs(
+            branch=branch,
+            head=head,
+            main=main,
+            origin_main=origin_main,
+        )
+    elif slice12_product_repair13_clean_topic_active:
+        assert tracked_paths == untracked_paths == set()
+        _assert_clean_checkout_refs(
+            branch=branch,
+            head=head,
+            main=main,
+            origin_main=origin_main,
+        )
+    elif slice12_product_repair12_clean_topic_active:
+        assert tracked_paths == untracked_paths == set()
+        _assert_clean_checkout_refs(
+            branch=branch,
+            head=head,
+            main=main,
+            origin_main=origin_main,
+        )
+    elif slice12_product_repair10_clean_topic_active:
+        assert tracked_paths == untracked_paths == set()
+        _assert_clean_checkout_refs(
+            branch=branch,
+            head=head,
+            main=main,
+            origin_main=origin_main,
+        )
+    elif slice12_product_repair11_clean_topic_active:
+        assert tracked_paths == untracked_paths == set()
+        _assert_clean_checkout_refs(
+            branch=branch,
+            head=head,
+            main=main,
+            origin_main=origin_main,
+        )
     elif slice12_product_repair3_active:
         assert tracked_paths == set(PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS)
         assert untracked_paths == set()

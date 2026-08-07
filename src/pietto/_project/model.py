@@ -2214,15 +2214,6 @@ def _project_direct_relation_row_schema(
             state_reason=ProjectRelationRowSchemaReason.UPSTREAM_UNKNOWN,
         )
 
-    expression_value_types = build_project_row_expression_value_types(
-        expressions=(
-            item.expression
-            for item in definition.select_items
-            if item.alias is not None and type(item.expression) is not WindowExpr
-        ),
-        input_schema=source_schema,
-        relation_qualifier=definition.from_clause.source_name,
-    )
     if let_scope_facts is None:
         let_scope_facts = build_project_relation_let_scope_facts(
             definition=definition,
@@ -2234,6 +2225,16 @@ def _project_direct_relation_row_schema(
         let_scope_facts.value_types
         if let_scope_facts.status is ProjectLetScopeFactsStatus.CONCRETE
         else None
+    )
+    expression_value_types = build_project_row_expression_value_types(
+        expressions=(
+            item.expression
+            for item in definition.select_items
+            if item.alias is not None and type(item.expression) is not WindowExpr
+        ),
+        input_schema=source_schema,
+        relation_qualifier=definition.from_clause.source_name,
+        bare_value_types=let_value_types,
     )
 
     for item in definition.select_items:

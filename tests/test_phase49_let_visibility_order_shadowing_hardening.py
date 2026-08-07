@@ -34,8 +34,8 @@ from pietto.ast_nodes import QueryDef, SourceDef, TableDef
 from pietto.errors import Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import SemanticResult, analyze
-from test_phase54_local_import_module_export_foundation_scope_lock import (
-    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+from _phase54_active_gate2_manifest import (
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -540,7 +540,7 @@ def test_project_json_v2_keeps_slice8_private_facts_private(
 
 def test_slice8_forbidden_files_have_no_diff() -> None:
     for relative_path in FORBIDDEN_FILES:
-        assert (_git_diff(relative_path) == "") or _slice5_gate2()
+        assert (_git_diff(relative_path) == "") or _phase54_active_gate2_is_active()
 
 
 def test_slice8_package_version_and_dirty_paths_are_locked() -> None:
@@ -549,7 +549,7 @@ def test_slice8_package_version_and_dirty_paths_are_locked() -> None:
     assert project["version"] == "0.1.0"
     assert (
         _git_status_paths() in (set(), ALLOWED_SLICE8_GATE2_PATHS)
-    ) or _slice5_gate2()
+    ) or _phase54_active_gate2_is_active()
 
 
 def _analyze_single_file(source: str) -> SemanticResult:

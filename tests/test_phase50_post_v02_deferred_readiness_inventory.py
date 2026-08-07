@@ -7,8 +7,8 @@ from pathlib import Path
 
 from _static_audit_helpers import normalized_text as _normalized
 from _static_audit_helpers import read_text as _read
-from test_phase54_local_import_module_export_foundation_scope_lock import (
-    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+from _phase54_active_gate2_manifest import (
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -599,9 +599,9 @@ def test_package_version_tag_protected_paths_and_dirty_set_are_locked() -> None:
             == "tests/test_phase50_semantic_package_extension_capability_scope_lock.py"
         ):
             continue
-        assert (_git_output(["diff", "--", relative_path]) == "") or _slice5_gate2(), (
-            relative_path
-        )
+        assert (
+            _git_output(["diff", "--", relative_path]) == ""
+        ) or _phase54_active_gate2_is_active(), relative_path
 
     assert SLICE1_SPEC_PATH.is_file()
     assert SLICE1_TEST_PATH.is_file()
@@ -621,4 +621,4 @@ def test_package_version_tag_protected_paths_and_dirty_set_are_locked() -> None:
             ALLOWED_PHASE50_SLICE10_GATE2_PATHS,
             ALLOWED_PHASE50_SLICE11_GATE2_PATHS,
         )
-    ) or _slice5_gate2()
+    ) or _phase54_active_gate2_is_active()

@@ -258,9 +258,9 @@ def test_slice11_contract_status_and_active_manifest_freeze_exact_boundary() -> 
         "tests/test_phase54_semantic_fact_preservation.py",
     }
     assert TEST_REL in active_gate2_manifest.MECHANICAL_READER_PATHS
-    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 65
-    assert len(active_gate2_manifest.MODIFIED_PATHS) == 70
-    assert len(active_gate2_manifest.ALLOWLIST_PATHS) == 73
+    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 173
+    assert len(active_gate2_manifest.MODIFIED_PATHS) == 179
+    assert len(active_gate2_manifest.ALLOWLIST_PATHS) == 182
     assert active_gate2_manifest.PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE == (
         "691db405a7e787adec5d7bd0498330b070bf6b75"
     )

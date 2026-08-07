@@ -47,6 +47,7 @@ def build_project_row_expression_value_types(
     expressions: Iterable[Expression],
     input_schema: ProjectRowSchema,
     relation_qualifier: str | None,
+    bare_value_types: Mapping[str, ValueType] | None = None,
 ) -> Mapping[Expression, ValueType]:
     """Infer known row expression value types from a concrete project schema."""
 
@@ -58,23 +59,30 @@ def build_project_row_expression_value_types(
     for expression in tuple(expressions):
         if contains_semantic_aggregate(expression):
             continue
+        scratch_value_types: dict[Expression, ValueType] = {}
         diagnostics: list[Diagnostic] = []
-        infer_row_expression(
+        root_value_type = infer_row_expression(
             expression,
             row_schema,
-            value_types,
+            scratch_value_types,
             diagnostics,
             report_unknown_name=not isinstance(expression, NameExpr),
             field_qualifier=relation_qualifier,
+            bare_value_types=bare_value_types,
         )
+        if (
+            diagnostics
+            or root_value_type.kind is not ValueTypeKind.KNOWN
+            or expression not in scratch_value_types
+            or any(
+                value_type.kind is not ValueTypeKind.KNOWN
+                for value_type in scratch_value_types.values()
+            )
+        ):
+            continue
+        value_types.update(scratch_value_types)
 
-    return MappingProxyType(
-        {
-            expression: value_type
-            for expression, value_type in value_types.items()
-            if value_type.kind is ValueTypeKind.KNOWN
-        }
-    )
+    return MappingProxyType(value_types)
 
 
 def project_row_schema_to_semantic_row_schema(

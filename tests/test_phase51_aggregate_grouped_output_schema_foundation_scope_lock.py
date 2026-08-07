@@ -4,8 +4,8 @@ import subprocess
 import tomllib
 from pathlib import Path
 from typing import cast
-from test_phase54_local_import_module_export_foundation_scope_lock import (
-    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+from _phase54_active_gate2_manifest import (
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 
@@ -657,9 +657,9 @@ def test_historical_roadmap_package_tag_goldens_protected_diffs_and_dirty_set() 
     assert _git_output(["tag", "--points-at", "HEAD"]) == ""
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
     for relative_path in PROTECTED_PATHS:
-        assert (_git_output(["diff", "--", relative_path]) == "") or _slice5_gate2(), (
-            relative_path
-        )
+        assert (
+            _git_output(["diff", "--", relative_path]) == ""
+        ) or _phase54_active_gate2_is_active(), relative_path
     assert (
         _dirty_paths()
         in (
@@ -667,13 +667,14 @@ def test_historical_roadmap_package_tag_goldens_protected_diffs_and_dirty_set() 
             ALLOWED_PHASE51_SLICE1_GATE2_PATHS,
             ALLOWED_PHASE52_SLICE1_GATE2_PATHS,
         )
-    ) or _slice5_gate2()
+    ) or _phase54_active_gate2_is_active()
 
 
 def test_static_test_imports_and_git_helper_are_literal_and_read_only() -> None:
     source = _read(SELF_PATH)
     tree = ast.parse(source)
     allowed_import_roots = {
+        "_phase54_active_gate2_manifest",
         "ast",
         "hashlib",
         "pathlib",

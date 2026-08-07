@@ -5,8 +5,8 @@ import subprocess
 import tomllib
 from pathlib import Path
 from typing import cast
-from test_phase54_local_import_module_export_foundation_scope_lock import (
-    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+from _phase54_active_gate2_manifest import (
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -300,10 +300,12 @@ def test_gate2_allowlist_and_forbidden_diffs_are_locked() -> None:
             assert required in document, required
 
     for relative_path in FORBIDDEN_DIFF_PATHS:
-        assert (_git_output(["diff", "--", relative_path]) == "") or _slice5_gate2(), (
-            relative_path
-        )
+        assert (
+            _git_output(["diff", "--", relative_path]) == ""
+        ) or _phase54_active_gate2_is_active(), relative_path
 
 
 def test_dirty_paths_are_clean_or_subset_of_slice9_allowlist() -> None:
-    assert (_git_status_paths().issubset(ALLOWED_SLICE9_GATE2_PATHS)) or _slice5_gate2()
+    assert (
+        _git_status_paths().issubset(ALLOWED_SLICE9_GATE2_PATHS)
+    ) or _phase54_active_gate2_is_active()

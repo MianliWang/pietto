@@ -26,12 +26,16 @@ from _phase54_active_gate2_manifest import (
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS,
+    PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS,
+    PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS,
     PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
     phase54_slice11_pr_ci_repair_is_active,
     phase54_slice12_pr_ci_repair_is_active,
     phase54_slice12_product_repair3_is_active,
+    phase54_slice12_product_repair10_is_active,
+    phase54_slice12_product_repair11_is_active,
     phase54_slice11_python313_repair_is_active,
     phase54_slice11_substantive_recovery_is_active,
 )
@@ -953,6 +957,8 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
         set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS),
         set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS),
         set(PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS),
+        set(PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS),
+        set(PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS),
         set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS),
         set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS),
     )
@@ -973,6 +979,12 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
         assert untracked == set()
     elif dirty == set(PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS):
         assert phase54_slice12_product_repair3_is_active()
+        assert untracked == set()
+    elif dirty == set(PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS):
+        assert phase54_slice12_product_repair10_is_active()
+        assert untracked == set()
+    elif dirty == set(PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS):
+        assert phase54_slice12_product_repair11_is_active()
         assert untracked == set()
     elif dirty == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS):
         assert phase54_slice11_pr_ci_repair_is_active()
@@ -1077,6 +1089,20 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
             path
             for path in protected
             if path not in PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS
+        )
+    elif dirty == set(PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS):
+        assert phase54_slice12_product_repair10_is_active()
+        protected = tuple(
+            path
+            for path in protected
+            if path not in PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS
+        )
+    elif dirty == set(PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS):
+        assert phase54_slice12_product_repair11_is_active()
+        protected = tuple(
+            path
+            for path in protected
+            if path not in PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS
         )
     elif dirty == phase54_modified | phase54_added:
         protected = tuple(path for path in protected if path not in phase54_modified)

@@ -5,8 +5,8 @@ from pathlib import Path
 
 from _static_audit_helpers import normalized_text as _normalized
 from _static_audit_helpers import read_text as _read
-from test_phase54_local_import_module_export_foundation_scope_lock import (
-    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+from _phase54_active_gate2_manifest import (
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -207,7 +207,7 @@ def test_slice4_agents_pointer_is_narrow_and_local() -> None:
 
     assert (
         _git_status_paths().issubset(ALLOWED_CURRENT_MAINTENANCE_PHASE2_GATE2_PATHS)
-    ) or _slice5_gate2()
+    ) or _phase54_active_gate2_is_active()
 
 
 def test_slice5_external_skills_matrix_policy_is_locked() -> None:
@@ -235,7 +235,7 @@ def test_slice5_external_skills_matrix_policy_is_locked() -> None:
     assert "docs/spec/external-skills-evaluation-matrix-v1.md" not in agents
     assert (
         _git_status_paths().issubset(ALLOWED_CURRENT_MAINTENANCE_PHASE2_GATE2_PATHS)
-    ) or _slice5_gate2()
+    ) or _phase54_active_gate2_is_active()
 
 
 def test_slice6_completion_audit_status_lock_is_locked() -> None:
@@ -260,7 +260,7 @@ def test_slice6_completion_audit_status_lock_is_locked() -> None:
     assert "docs/spec/external-skills-evaluation-matrix-v1.md" not in agents
     assert (
         _git_status_paths().issubset(ALLOWED_CURRENT_MAINTENANCE_PHASE2_GATE2_PATHS)
-    ) or _slice5_gate2()
+    ) or _phase54_active_gate2_is_active()
 
 
 def test_phase45_60_roadmap_and_phase45_target_are_locked() -> None:
@@ -356,7 +356,7 @@ def test_gate2_allowlist_validation_and_stop_conditions_are_locked() -> None:
 
     assert (
         _git_status_paths().issubset(ALLOWED_CURRENT_MAINTENANCE_PHASE2_GATE2_PATHS)
-    ) or _slice5_gate2()
+    ) or _phase54_active_gate2_is_active()
 
 
 def test_forbidden_surfaces_package_release_and_ci_boundaries_are_locked() -> None:
@@ -366,10 +366,12 @@ def test_forbidden_surfaces_package_release_and_ci_boundaries_are_locked() -> No
 
     assert 'version = "0.1.0"' in pyproject
     assert 'version = "0.2.0"' not in pyproject
-    assert (_git_diff_name_only(FORBIDDEN_DIFF_PATHS) == "") or _slice5_gate2()
+    assert (
+        _git_diff_name_only(FORBIDDEN_DIFF_PATHS) == ""
+    ) or _phase54_active_gate2_is_active()
     assert (
         _git_status_paths().issubset(ALLOWED_CURRENT_MAINTENANCE_PHASE2_GATE2_PATHS)
-    ) or _slice5_gate2()
+    ) or _phase54_active_gate2_is_active()
 
     for required in (
         "`AGENTS.md`",

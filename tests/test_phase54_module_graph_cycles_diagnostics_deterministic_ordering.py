@@ -1114,7 +1114,7 @@ def test_schema_v1_privacy_status_reader_fixed_point_and_slice9_boundary(
     assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_ADDED_PATHS) == 3
     assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS) == 69
     assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 3
-    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 70
+    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 179
     assert SOURCE_REL not in active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
     assert SPEC_REL not in active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
     assert TEST_REL in active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS

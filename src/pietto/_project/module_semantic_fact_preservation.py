@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from types import MappingProxyType
 from typing import cast
 
 from pietto._project.aggregate_grouped_clause_facts import (
     ProjectAggregateGroupedClauseReadiness,
+    ProjectAggregateGroupedClauseReadinessReason,
+    ProjectAggregateGroupedClauseReadinessStatus,
     _effective_field_let_expression,
     build_project_aggregate_grouped_clause_readiness,
 )
@@ -204,6 +206,85 @@ def _require_tuple(
         raise TypeError(f"{label} requires an exact tuple.")
     if any(not isinstance(item, item_type) for item in values):
         raise TypeError(f"{label} contains an invalid item.")
+
+
+def _relation_state_from_aggregate_grouped_clause_readiness(
+    readiness: ProjectAggregateGroupedClauseReadiness,
+) -> ProjectRelationRowSchemaState:
+    """Reduce one complete clause-readiness carrier without partial publication."""
+
+    if type(readiness) is not ProjectAggregateGroupedClauseReadiness:
+        raise TypeError("Clause-readiness reduction requires an exact carrier.")
+    finalization_state = readiness.finalization.state
+    if (
+        readiness.reason
+        is ProjectAggregateGroupedClauseReadinessReason.SCHEMA_FINALIZATION_NON_CONCRETE
+    ):
+        if (
+            finalization_state.status is ProjectRelationRowSchemaStatus.CONCRETE
+            or readiness.status.value != finalization_state.status.value
+        ):
+            raise ValueError("Non-concrete finalization readiness is inconsistent.")
+        return finalization_state
+    if (
+        readiness.status is ProjectAggregateGroupedClauseReadinessStatus.CONCRETE
+        and readiness.reason
+        is ProjectAggregateGroupedClauseReadinessReason.CLAUSES_READY
+    ):
+        if finalization_state.status is not ProjectRelationRowSchemaStatus.CONCRETE:
+            raise ValueError("Ready clauses require a concrete finalization.")
+        return finalization_state
+    if (
+        readiness.status is ProjectAggregateGroupedClauseReadinessStatus.UNKNOWN
+        and readiness.reason
+        is ProjectAggregateGroupedClauseReadinessReason.UNAVAILABLE_CLAUSE_DEPENDENCY
+    ):
+        return ProjectRelationRowSchemaState(
+            status=ProjectRelationRowSchemaStatus.UNKNOWN,
+            schema=ProjectRowSchema(is_unknown=True),
+            reason=(
+                ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT
+            ),
+        )
+    if (
+        readiness.status is ProjectAggregateGroupedClauseReadinessStatus.UNKNOWN
+        and readiness.reason
+        in {
+            ProjectAggregateGroupedClauseReadinessReason.INVALID_CLAUSE_OUTPUT_REFERENCE,
+            ProjectAggregateGroupedClauseReadinessReason.INVALID_CLAUSE_EXPRESSION,
+        }
+    ):
+        return ProjectRelationRowSchemaState(
+            status=ProjectRelationRowSchemaStatus.UNKNOWN,
+            schema=ProjectRowSchema(is_unknown=True),
+            reason=ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT,
+        )
+    if (
+        readiness.status is ProjectAggregateGroupedClauseReadinessStatus.DEFERRED
+        and readiness.reason
+        is ProjectAggregateGroupedClauseReadinessReason.UNSUPPORTED_CLAUSE_FAMILY
+    ):
+        return ProjectRelationRowSchemaState(
+            status=ProjectRelationRowSchemaStatus.DEFERRED,
+            schema=None,
+            reason=ProjectRelationRowSchemaReason.AGGREGATE_OR_GROUPED_DEFERRED,
+        )
+    if (
+        readiness.status is ProjectAggregateGroupedClauseReadinessStatus.BLOCKED
+        and readiness.reason
+        in {
+            ProjectAggregateGroupedClauseReadinessReason.MISSING_REQUIRED_CLAUSE_FACT,
+            ProjectAggregateGroupedClauseReadinessReason.CONFLICTING_CLAUSE_FACTS,
+        }
+    ):
+        return ProjectRelationRowSchemaState(
+            status=ProjectRelationRowSchemaStatus.BLOCKED,
+            schema=None,
+            reason=(
+                ProjectRelationRowSchemaReason.CONFLICTING_AGGREGATE_OR_GROUPED_FACTS
+            ),
+        )
+    raise ValueError("Unsupported aggregate/grouped clause-readiness outcome.")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -750,6 +831,7 @@ class ProjectModuleWindowOutputFact:
     signature_fact: ProjectModuleWindowSignatureFact | None
     analysis: _WindowAnalysis | None
     project_fact: WindowResultProjectFact | None
+    retained_project_fact: WindowResultProjectFact | None
     diagnostics: tuple[Diagnostic, ...] = ()
     status: ProjectModuleCandidateBucketStatus = (
         ProjectModuleCandidateBucketStatus.UNKNOWN
@@ -795,6 +877,18 @@ class ProjectModuleWindowOutputFact:
             and type(self.project_fact) is not WindowResultProjectFact
         ):
             raise TypeError("Window output project fact must be exact.")
+        if (
+            self.retained_project_fact is not None
+            and type(self.retained_project_fact) is not WindowResultProjectFact
+        ):
+            raise TypeError("Window output retained project fact must be exact.")
+        if (
+            self.project_fact is not None
+            and self.retained_project_fact is not self.project_fact
+        ):
+            raise ValueError(
+                "Window project evidence must share its exact retained fact."
+            )
         _require_tuple(self.diagnostics, Diagnostic, "Window output diagnostics")
         if type(self.status) is not ProjectModuleCandidateBucketStatus:
             raise TypeError("Window output requires an exact status.")
@@ -925,24 +1019,27 @@ class ProjectModuleWindowOutputFact:
                 )
         elif self.diagnostics:
             raise ValueError("Supported window evidence cannot invent diagnostics.")
-        if self.project_fact is not None:
+        if self.retained_project_fact is not None:
             if semantic_fact is None:
                 raise ValueError(
-                    "Window project fact requires the exact supported analysis."
+                    "Retained window project fact requires the exact supported "
+                    "analysis."
                 )
-            result_identity = self.project_fact.result_identity
+            result_identity = self.retained_project_fact.result_identity
             if (
-                self.project_fact.semantic_fact is not semantic_fact
+                self.retained_project_fact.semantic_fact is not semantic_fact
                 or result_identity.definition is not derived
                 or result_identity.output_name != self.output_name
                 or result_identity.occurrence is not semantic_fact.occurrence
             ):
                 raise ValueError(
-                    "Window project fact must retain the exact analysis identity."
+                    "Retained window project fact must preserve the exact analysis "
+                    "identity."
                 )
         if type(analysis) is WindowExpressionUnsupported:
             if (
                 self.project_fact is not None
+                or self.retained_project_fact is not None
                 or self.status is ProjectModuleCandidateBucketStatus.CONCRETE
             ):
                 raise ValueError(
@@ -1029,6 +1126,18 @@ class ProjectModuleRelationSemanticFacts:
             is not ProjectAggregateGroupedClauseReadiness
         ):
             raise TypeError("Aggregate/grouped clause readiness must be exact.")
+        if (
+            self.aggregate_grouped_clause_readiness is not None
+            and self.aggregate_grouped_clause_readiness.status
+            is not ProjectAggregateGroupedClauseReadinessStatus.CONCRETE
+            and self.state
+            != _relation_state_from_aggregate_grouped_clause_readiness(
+                self.aggregate_grouped_clause_readiness
+            )
+        ):
+            raise ValueError(
+                "Non-concrete clause readiness must control the relation state."
+            )
         _require_tuple(
             self.clause_dependencies,
             ProjectModuleClauseDependencyFact,
@@ -1045,6 +1154,14 @@ class ProjectModuleRelationSemanticFacts:
             "Window output facts",
         )
         _require_tuple(self.helper_diagnostics, Diagnostic, "Helper diagnostics")
+        if any(
+            fact.status is ProjectModuleCandidateBucketStatus.AMBIGUOUS
+            for fact in self.clause_dependencies
+        ) and any(output.project_fact is not None for output in self.window_outputs):
+            raise ValueError(
+                "Clause-ambiguous semantic facts cannot publish window project "
+                "evidence."
+            )
         if self.state.status is not ProjectRelationRowSchemaStatus.CONCRETE and (
             self.aggregate_result_facts
             or any(fact.aggregate_result_fact is not None for fact in self.select_facts)
@@ -1508,6 +1625,35 @@ def _apply_clause_ambiguity_to_window_state(
     return state
 
 
+def _suppress_window_project_facts_after_clause_ambiguity(
+    *,
+    state: ProjectRelationRowSchemaState,
+    clause_dependencies: tuple[ProjectModuleClauseDependencyFact, ...],
+    window_outputs: tuple[ProjectModuleWindowOutputFact, ...],
+) -> tuple[ProjectModuleWindowOutputFact, ...]:
+    if not any(
+        fact.status is ProjectModuleCandidateBucketStatus.AMBIGUOUS
+        for fact in clause_dependencies
+    ):
+        return window_outputs
+    if (
+        state.status is not ProjectRelationRowSchemaStatus.BLOCKED
+        or state.schema is not None
+        or state.reason
+        is not ProjectRelationRowSchemaReason.CONFLICTING_AGGREGATE_OR_GROUPED_FACTS
+    ):
+        raise ValueError("Clause ambiguity requires the exact blocked relation state.")
+    return tuple(
+        replace(
+            output,
+            project_fact=None,
+            status=ProjectModuleCandidateBucketStatus.BLOCKED,
+            reason=state.reason.value,
+        )
+        for output in window_outputs
+    )
+
+
 def _project_symbol_matches_resolution(
     symbol: ProjectSymbol | None,
     resolution: ProjectResolvedModuleRelationReference,
@@ -1736,10 +1882,12 @@ def _validate_window_dependency_source_ledger(
     upstream: ProjectModuleRelationSemanticFacts,
     output: ProjectModuleWindowOutputFact,
 ) -> None:
-    project_fact = output.project_fact
+    project_fact = output.retained_project_fact
     resolution = relation.resolution
     if project_fact is None or resolution is None:
-        raise ValueError("Window project evidence requires exact upstream authority.")
+        raise ValueError(
+            "Retained window project evidence requires exact upstream authority."
+        )
     provenance_symbol = project_fact.provenance.symbol
     if not _project_symbol_matches_resolution(provenance_symbol, resolution):
         raise ValueError(
@@ -1814,12 +1962,23 @@ def _validate_relation_window_fact_set_closure(
         window_state,
         relation.clause_dependencies,
     )
+    clause_ambiguous = any(
+        fact.status is ProjectModuleCandidateBucketStatus.AMBIGUOUS
+        for fact in relation.clause_dependencies
+    )
+    if clause_ambiguous and (
+        expected_state.status is not ProjectRelationRowSchemaStatus.BLOCKED
+        or expected_state.schema is not None
+        or expected_state.reason
+        is not ProjectRelationRowSchemaReason.CONFLICTING_AGGREGATE_OR_GROUPED_FACTS
+    ):
+        raise ValueError("Clause ambiguity requires the exact blocked relation state.")
     for output in relation.window_outputs:
         expression = cast(WindowExpr, output.item.expression)
         expected_signature = _canonical_window_signature(expression.identity)
         if output.signature_fact is not expected_signature:
             raise ValueError("Window output must retain its exact canonical signature.")
-        if output.project_fact is not None:
+        if output.retained_project_fact is not None:
             if (
                 relation.resolution is None
                 or upstream is None
@@ -1835,7 +1994,37 @@ def _validate_relation_window_fact_set_closure(
                 upstream=upstream,
                 output=output,
             )
+        if output.project_fact is not None:
+            if clause_ambiguous:
+                raise ValueError(
+                    "Clause-ambiguous semantic facts cannot publish window project "
+                    "evidence."
+                )
             continue
+        if clause_ambiguous:
+            if (
+                type(output.analysis) is WindowExpressionAnalysis
+                and pre_window_state.status is ProjectRelationRowSchemaStatus.CONCRETE
+                and output.retained_project_fact is None
+            ):
+                raise ValueError(
+                    "Clause-ambiguous supported window output must retain its exact "
+                    "project evidence."
+                )
+            expected_status = _candidate_status_from_row_state(expected_state)
+            if (
+                output.status is not expected_status
+                or output.reason != expected_state.reason.value
+            ):
+                raise ValueError(
+                    "Clause-ambiguous window output must retain exact blocked "
+                    "availability."
+                )
+            continue
+        if output.retained_project_fact is not None:
+            raise ValueError(
+                "Retained-only window project evidence requires clause ambiguity."
+            )
         authority_state = _projectless_window_authority_state(
             pre_window_state=pre_window_state,
             output=output,
@@ -2414,7 +2603,7 @@ def _build_derived_relation_facts(
             fallback_path=owner.identity.module_path,
             let_scope_facts=let_scope,
         )
-        base_state = readiness.finalization.state
+        base_state = _relation_state_from_aggregate_grouped_clause_readiness(readiness)
         aggregate_result_facts = tuple(
             fact
             for item in definition.select_items
@@ -2472,6 +2661,11 @@ def _build_derived_relation_facts(
     state = _apply_clause_ambiguity_to_window_state(
         window_state,
         clause_dependencies,
+    )
+    window_outputs = _suppress_window_project_facts_after_clause_ambiguity(
+        state=state,
+        clause_dependencies=clause_dependencies,
+        window_outputs=window_outputs,
     )
     published_aggregate_result_facts = (
         aggregate_result_facts
@@ -2660,6 +2854,11 @@ def _select_facts(
     let_scope: ProjectRelationLetScopeFacts,
     aggregate_result_facts: tuple[ProjectAggregateResultFact, ...],
 ) -> tuple[ProjectModuleSelectFact, ...]:
+    let_values = (
+        let_scope.value_types
+        if let_scope.status is ProjectLetScopeFactsStatus.CONCRETE
+        else None
+    )
     expression_types: Mapping[Expression, ValueType] = MappingProxyType({})
     if input_schema is not None and not input_schema.is_unknown:
         expression_types = build_project_row_expression_value_types(
@@ -2670,12 +2869,8 @@ def _select_facts(
             ),
             input_schema=input_schema,
             relation_qualifier=definition.from_clause.source_name,
+            bare_value_types=let_values,
         )
-    let_values = (
-        let_scope.value_types
-        if let_scope.status is ProjectLetScopeFactsStatus.CONCRETE
-        else None
-    )
     aggregate_by_name = {fact.output_name: fact for fact in aggregate_result_facts}
     schema = (
         state.schema
@@ -3389,6 +3584,7 @@ def _window_output_facts(
                 signature_fact=signature,
                 analysis=analysis,
                 project_fact=project_fact,
+                retained_project_fact=project_fact,
                 diagnostics=tuple(diagnostics),
                 status=status,
                 reason=reason,
@@ -3472,6 +3668,7 @@ def _unavailable_window_outputs(
                 ),
                 analysis=analysis,
                 project_fact=None,
+                retained_project_fact=None,
                 diagnostics=tuple(diagnostics),
                 status=status,
                 reason=state.reason.value,

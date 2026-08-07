@@ -25,6 +25,17 @@ from _phase54_active_gate2_manifest import (
     PHASE54_SLICE12_PR_CI_REPAIR_BASE,
     PHASE54_SLICE12_PRODUCT_REPAIR3_BASE,
     PHASE54_SLICE12_PRODUCT_REPAIR3_SUBJECT,
+    PHASE54_SLICE12_PRODUCT_REPAIR10_BASE,
+    PHASE54_SLICE12_PRODUCT_REPAIR10_PARENT,
+    PHASE54_SLICE12_PRODUCT_REPAIR10_SUBJECT,
+    PHASE54_SLICE12_PRODUCT_REPAIR11_BASE,
+    PHASE54_SLICE12_PRODUCT_REPAIR11_SUBJECT,
+    PHASE54_SLICE12_PRODUCT_REPAIR12_BASE,
+    PHASE54_SLICE12_PRODUCT_REPAIR12_SUBJECT,
+    PHASE54_SLICE12_PRODUCT_REPAIR13_BASE,
+    PHASE54_SLICE12_PRODUCT_REPAIR13_SUBJECT,
+    PHASE54_SLICE12_PRODUCT_REPAIR14_BASE,
+    PHASE54_SLICE12_PRODUCT_REPAIR14_SUBJECT,
     PHASE54_SLICE11_PYTHON313_REPAIR_BASE,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
@@ -611,9 +622,20 @@ def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> N
             assert parents == []
         else:
             if _phase54_active_gate2_is_active():
-                if _git_output(["show", "-s", "--format=%s", "HEAD"]) == (
-                    PHASE54_SLICE12_PRODUCT_REPAIR3_SUBJECT
-                ):
+                subject = _git_output(["show", "-s", "--format=%s", "HEAD"])
+                if subject == PHASE54_SLICE12_PRODUCT_REPAIR14_SUBJECT:
+                    expected_parent = PHASE54_SLICE12_PRODUCT_REPAIR14_BASE
+                elif subject == PHASE54_SLICE12_PRODUCT_REPAIR13_SUBJECT:
+                    expected_parent = PHASE54_SLICE12_PRODUCT_REPAIR13_BASE
+                elif subject == PHASE54_SLICE12_PRODUCT_REPAIR12_SUBJECT:
+                    expected_parent = PHASE54_SLICE12_PRODUCT_REPAIR12_BASE
+                elif subject == PHASE54_SLICE12_PRODUCT_REPAIR11_SUBJECT:
+                    expected_parent = PHASE54_SLICE12_PRODUCT_REPAIR11_BASE
+                elif subject == PHASE54_SLICE12_PRODUCT_REPAIR10_SUBJECT:
+                    expected_parent = PHASE54_SLICE12_PRODUCT_REPAIR10_BASE
+                elif head == PHASE54_SLICE12_PRODUCT_REPAIR10_BASE:
+                    expected_parent = PHASE54_SLICE12_PRODUCT_REPAIR10_PARENT
+                elif subject == (PHASE54_SLICE12_PRODUCT_REPAIR3_SUBJECT):
                     expected_parent = PHASE54_SLICE12_PRODUCT_REPAIR3_BASE
                 elif head == PHASE54_SLICE12_PRODUCT_REPAIR3_BASE:
                     expected_parent = PHASE54_SLICE12_PR_CI_REPAIR_BASE

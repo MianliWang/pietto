@@ -409,7 +409,9 @@ def _window_lines(identities: tuple[str, ...]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def test_slice12_contract_status_active_manifest_and_allowlist_are_exact() -> None:
+def test_slice12_contract_status_active_manifest_and_allowlist_are_exact(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     spec = (REPO_ROOT / SPEC_REL).read_text(encoding="utf-8")
     plan = (
         REPO_ROOT / "docs/plan/phase-54-local-import-module-export-foundation.md"
@@ -425,10 +427,977 @@ def test_slice12_contract_status_active_manifest_and_allowlist_are_exact() -> No
         "bc46faff1c9aa71f583ed7d2964b651cc659bc90"
     )
     assert active_gate2_manifest.ADDED_PATHS == {SPEC_REL, SOURCE_REL, TEST_REL}
-    assert len(active_gate2_manifest.NON_READER_MODIFIED_PATHS) == 5
-    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 65
-    assert len(active_gate2_manifest.MODIFIED_PATHS) == 70
-    assert len(active_gate2_manifest.ALLOWLIST_PATHS) == 73
+    assert len(active_gate2_manifest.NON_READER_MODIFIED_PATHS) == 6
+    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 173
+    assert len(active_gate2_manifest.MODIFIED_PATHS) == 179
+    assert len(active_gate2_manifest.ALLOWLIST_PATHS) == 182
+    assert (
+        sum(path.endswith(".py") for path in active_gate2_manifest.ALLOWLIST_PATHS)
+        == 178
+    )
+    assert "173-reader" in spec
+    assert "exact 178 Python paths" in spec
+    assert "exact `A3_M179_D0`" in spec
+    assert "65-reader" not in spec
+    assert "exact 69 Python paths" not in spec
+    assert "`A3_M70_D0`" not in spec
+    assert (
+        len(active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS)
+        == 158
+    )
+    assert active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR11_SEED_PATHS == (
+        active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR10_SEED_PATHS | {SPEC_REL}
+    )
+    assert active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR11_READER_PATHS == (
+        active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR10_READER_PATHS
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS)
+        == 159
+    )
+    assert active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR12_SEED_PATHS == (
+        active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR11_SEED_PATHS
+    )
+    assert active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR12_READER_PATHS == (
+        active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR11_READER_PATHS
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR12_MODIFIED_PATHS)
+        == 159
+    )
+    assert active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR13_SEED_PATHS == (
+        active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR12_SEED_PATHS
+    )
+    assert active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR13_READER_PATHS == (
+        active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR12_READER_PATHS
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR13_MODIFIED_PATHS)
+        == 159
+    )
+    assert active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR14_SEED_PATHS == (
+        active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR13_SEED_PATHS
+    )
+    assert active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR14_READER_PATHS == (
+        active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR13_READER_PATHS
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR14_MODIFIED_PATHS)
+        == 159
+    )
+    assert active_gate2_manifest.phase54_slice12_product_repair11_is_active()
+    assert active_gate2_manifest.phase54_slice12_product_repair12_is_active()
+    assert active_gate2_manifest.phase54_slice12_product_repair13_is_active()
+    assert active_gate2_manifest.phase54_slice12_product_repair14_is_active()
+    assert active_gate2_manifest.phase54_active_gate2_manifest_is_active()
+    child = "1" * 40
+    other_child = "2" * 40
+    tree = "3" * 40
+    other_tree = "4" * 40
+    trailer_key = (
+        active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR10_REVIEWED_TREE_TRAILER
+    )
+    subject = active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR10_SUBJECT
+    message = f"{subject}\n\n{trailer_key}: {tree}"
+    clean_topic_state = active_gate2_manifest.Phase54Gate2RepositoryState(
+        marker=active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER,
+        branch_oid=child,
+        branch_head=active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR10_BRANCH,
+        branch_upstream=(
+            f"origin/{active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR10_BRANCH}"
+        ),
+        ahead=0,
+        behind=0,
+        added_paths=frozenset(),
+        modified_paths=frozenset(),
+        deleted_paths=frozenset(),
+        staged_paths=frozenset(),
+        other_paths=frozenset(),
+        worktree_count=1,
+        shallow=False,
+        active_git_operation=False,
+    )
+
+    def exact_git_output(arguments: list[str]) -> str:
+        values = {
+            ("rev-parse", "--verify", "HEAD^{commit}"): child,
+            ("rev-list", "--parents", "-n", "1", child): (
+                f"{child} {active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR10_BASE}"
+            ),
+            ("show", "-s", "--format=%s", child): subject,
+            ("show", "-s", "--format=%T", child): tree,
+            ("rev-parse", "--verify", "refs/heads/main"): (
+                active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE
+            ),
+            ("rev-parse", "--verify", "refs/remotes/origin/main"): (
+                active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE
+            ),
+        }
+        return values[tuple(arguments)]
+
+    monkeypatch.setattr(active_gate2_manifest, "_git_output", exact_git_output)
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_git_commit_message",
+        lambda revision: message if revision == child else "",
+    )
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_read_phase54_gate2_repository_state",
+        lambda: clean_topic_state,
+    )
+    assert active_gate2_manifest._matches_phase54_slice12_product_repair10_clean_topic(
+        clean_topic_state
+    )
+    invalid_messages = (
+        subject,
+        f"{subject}\n\n{trailer_key}: {other_tree}",
+        f"{message}\n{trailer_key}: {tree}",
+        f"{subject}\n\n{trailer_key}: {other_tree}\n{trailer_key}: {tree}",
+        f"{subject}\n\n{trailer_key.lower()}: {tree}\n{trailer_key}: {tree}",
+        f"{subject}\n\n {trailer_key}: {tree}\n{trailer_key}: {tree}",
+        f"{subject}\n\n{trailer_key} : {tree}",
+        f"{message}\n\nOther-Trailer: value",
+        f"{message} ",
+        f"{subject}\n\n{trailer_key}: {tree[:-1]}",
+        f"{subject}\n\n{trailer_key}: {tree}z",
+    )
+    for invalid_message in invalid_messages:
+        assert not active_gate2_manifest._phase54_slice12_product_repair10_message_matches_tree(
+            invalid_message,
+            tree,
+        )
+    assert not active_gate2_manifest._phase54_slice12_product_repair10_message_matches_tree(
+        message,
+        other_tree,
+    )
+
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_read_phase54_gate2_repository_state",
+        lambda: replace(
+            clean_topic_state,
+            other_paths=frozenset({"persistent-state-drift"}),
+        ),
+    )
+    assert (
+        not active_gate2_manifest._matches_phase54_slice12_product_repair10_clean_topic(
+            clean_topic_state
+        )
+    )
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_read_phase54_gate2_repository_state",
+        lambda: clean_topic_state,
+    )
+    head_reads = iter((child, other_child))
+
+    def moving_head_git_output(arguments: list[str]) -> str:
+        if tuple(arguments) == ("rev-parse", "--verify", "HEAD^{commit}"):
+            return next(head_reads)
+        return exact_git_output(arguments)
+
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_git_output",
+        moving_head_git_output,
+    )
+    assert (
+        not active_gate2_manifest._matches_phase54_slice12_product_repair10_clean_topic(
+            clean_topic_state
+        )
+    )
+    main_ref_reads = {
+        "refs/heads/main": 0,
+        "refs/remotes/origin/main": 0,
+    }
+
+    def moving_main_refs_git_output(arguments: list[str]) -> str:
+        reference = arguments[-1]
+        if tuple(arguments[:2]) == ("rev-parse", "--verify") and (
+            reference in main_ref_reads
+        ):
+            read = main_ref_reads[reference]
+            main_ref_reads[reference] += 1
+            return (
+                active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE
+                if read == 0
+                else other_child
+            )
+        return exact_git_output(arguments)
+
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_git_output",
+        moving_main_refs_git_output,
+    )
+    assert (
+        not active_gate2_manifest._matches_phase54_slice12_product_repair10_clean_topic(
+            clean_topic_state
+        )
+    )
+    assert main_ref_reads == {
+        "refs/heads/main": 2,
+        "refs/remotes/origin/main": 2,
+    }
+
+    repair11_subject = active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR11_SUBJECT
+    repair11_trailer_key = (
+        active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR11_REVIEWED_TREE_TRAILER
+    )
+    repair11_message = f"{repair11_subject}\n\n{repair11_trailer_key}: {tree}"
+    repair11_clean_state = replace(
+        clean_topic_state,
+        branch_head=active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR11_BRANCH,
+        branch_upstream=(
+            f"origin/{active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR11_BRANCH}"
+        ),
+    )
+    repair11_git_values = {
+        ("rev-parse", "--verify", "HEAD^{commit}"): child,
+        ("rev-list", "--parents", "-n", "1", "HEAD"): (
+            f"{child} {active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR11_BASE}"
+        ),
+        ("rev-list", "--parents", "-n", "1", child): (
+            f"{child} {active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR11_BASE}"
+        ),
+        ("show", "-s", "--format=%s", "HEAD"): repair11_subject,
+        ("show", "-s", "--format=%s", child): repair11_subject,
+        ("show", "-s", "--format=%T", child): tree,
+        ("rev-parse", "--verify", "refs/heads/main"): (
+            active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE
+        ),
+        ("rev-parse", "--verify", "refs/remotes/origin/main"): (
+            active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE
+        ),
+    }
+
+    def exact_repair11_git_output(arguments: list[str]) -> str:
+        return repair11_git_values[tuple(arguments)]
+
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_git_output",
+        exact_repair11_git_output,
+    )
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_git_commit_message",
+        lambda revision: repair11_message if revision == child else "",
+    )
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_read_phase54_gate2_repository_state",
+        lambda: repair11_clean_state,
+    )
+    assert active_gate2_manifest._matches_phase54_slice12_product_repair11_clean_topic(
+        repair11_clean_state
+    )
+    assert (
+        active_gate2_manifest.phase54_slice12_product_repair11_clean_topic_is_active()
+    )
+    assert active_gate2_manifest.phase54_active_gate2_manifest_is_active()
+
+    repair11_dirty_state = replace(
+        repair11_clean_state,
+        branch_oid=active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR11_BASE,
+        modified_paths=(
+            active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS
+        ),
+    )
+    assert active_gate2_manifest._matches_phase54_active_gate2_manifest(
+        repair11_dirty_state
+    )
+    repair10_compatible_state = replace(
+        repair11_dirty_state,
+        modified_paths=repair11_dirty_state.modified_paths - {SPEC_REL},
+    )
+    assert active_gate2_manifest._matches_phase54_active_gate2_manifest(
+        repair10_compatible_state
+    )
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_read_phase54_gate2_repository_state",
+        lambda: repair10_compatible_state,
+    )
+    assert active_gate2_manifest.phase54_slice12_product_repair10_is_active()
+    assert not active_gate2_manifest.phase54_slice12_product_repair11_is_active()
+    assert not active_gate2_manifest._matches_phase54_active_gate2_manifest(
+        replace(
+            repair11_dirty_state,
+            modified_paths=repair11_dirty_state.modified_paths | {"unauthorized-path"},
+        )
+    )
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_read_phase54_gate2_repository_state",
+        lambda: repair11_dirty_state,
+    )
+    assert active_gate2_manifest.phase54_slice12_product_repair11_is_active()
+
+    repair11_parent_key = ("rev-list", "--parents", "-n", "1", child)
+    repair11_git_values[repair11_parent_key] = f"{child} {'5' * 40}"
+    assert (
+        not active_gate2_manifest._matches_phase54_slice12_product_repair11_clean_topic(
+            repair11_clean_state
+        )
+    )
+    repair11_git_values[repair11_parent_key] = (
+        f"{child} {active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR11_BASE}"
+    )
+    repair11_subject_key = ("show", "-s", "--format=%s", child)
+    repair11_git_values[repair11_subject_key] = "Wrong Repair11 subject"
+    assert (
+        not active_gate2_manifest._matches_phase54_slice12_product_repair11_clean_topic(
+            repair11_clean_state
+        )
+    )
+    repair11_git_values[repair11_subject_key] = repair11_subject
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_git_commit_message",
+        lambda revision: (
+            f"{repair11_subject}\n\n{repair11_trailer_key}: {other_tree}"
+            if revision == child
+            else ""
+        ),
+    )
+    assert (
+        not active_gate2_manifest._matches_phase54_slice12_product_repair11_clean_topic(
+            repair11_clean_state
+        )
+    )
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_git_commit_message",
+        lambda revision: repair11_message if revision == child else "",
+    )
+    assert (
+        not active_gate2_manifest._matches_phase54_slice12_product_repair11_clean_topic(
+            replace(
+                repair11_clean_state,
+                other_paths=frozenset({"dirty-state-drift"}),
+            )
+        )
+    )
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_read_phase54_gate2_repository_state",
+        lambda: replace(
+            repair11_clean_state,
+            staged_paths=frozenset({"post-read-state-drift"}),
+        ),
+    )
+    assert (
+        not active_gate2_manifest._matches_phase54_slice12_product_repair11_clean_topic(
+            repair11_clean_state
+        )
+    )
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_read_phase54_gate2_repository_state",
+        lambda: repair11_clean_state,
+    )
+    repair11_head_reads = iter((child, other_child))
+
+    def moving_repair11_head_git_output(arguments: list[str]) -> str:
+        if tuple(arguments) == ("rev-parse", "--verify", "HEAD^{commit}"):
+            return next(repair11_head_reads)
+        return exact_repair11_git_output(arguments)
+
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_git_output",
+        moving_repair11_head_git_output,
+    )
+    assert (
+        not active_gate2_manifest._matches_phase54_slice12_product_repair11_clean_topic(
+            repair11_clean_state
+        )
+    )
+    repair11_main_ref_reads = {
+        "refs/heads/main": 0,
+        "refs/remotes/origin/main": 0,
+    }
+
+    def moving_repair11_main_refs_git_output(arguments: list[str]) -> str:
+        reference = arguments[-1]
+        if tuple(arguments[:2]) == ("rev-parse", "--verify") and (
+            reference in repair11_main_ref_reads
+        ):
+            read = repair11_main_ref_reads[reference]
+            repair11_main_ref_reads[reference] += 1
+            return (
+                active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE
+                if read == 0
+                else other_child
+            )
+        return exact_repair11_git_output(arguments)
+
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_git_output",
+        moving_repair11_main_refs_git_output,
+    )
+    assert (
+        not active_gate2_manifest._matches_phase54_slice12_product_repair11_clean_topic(
+            repair11_clean_state
+        )
+    )
+    assert repair11_main_ref_reads == {
+        "refs/heads/main": 2,
+        "refs/remotes/origin/main": 2,
+    }
+
+    repair12_subject = active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR12_SUBJECT
+    repair12_trailer_key = (
+        active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR12_REVIEWED_TREE_TRAILER
+    )
+    repair12_message = f"{repair12_subject}\n\n{repair12_trailer_key}: {tree}"
+    repair12_clean_state = replace(
+        clean_topic_state,
+        branch_head=active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR12_BRANCH,
+        branch_upstream=(
+            f"origin/{active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR12_BRANCH}"
+        ),
+    )
+    repair12_git_values = {
+        ("rev-parse", "--verify", "HEAD^{commit}"): child,
+        ("rev-list", "--parents", "-n", "1", "HEAD"): (
+            f"{child} {active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR12_BASE}"
+        ),
+        ("rev-list", "--parents", "-n", "1", child): (
+            f"{child} {active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR12_BASE}"
+        ),
+        ("show", "-s", "--format=%s", "HEAD"): repair12_subject,
+        ("show", "-s", "--format=%s", child): repair12_subject,
+        ("show", "-s", "--format=%T", child): tree,
+        ("rev-parse", "--verify", "refs/heads/main"): (
+            active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE
+        ),
+        ("rev-parse", "--verify", "refs/remotes/origin/main"): (
+            active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE
+        ),
+    }
+
+    def exact_repair12_git_output(arguments: list[str]) -> str:
+        return repair12_git_values[tuple(arguments)]
+
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_git_output",
+        exact_repair12_git_output,
+    )
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_git_commit_message",
+        lambda revision: repair12_message if revision == child else "",
+    )
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_read_phase54_gate2_repository_state",
+        lambda: repair12_clean_state,
+    )
+    assert active_gate2_manifest._matches_phase54_slice12_product_repair12_clean_topic(
+        repair12_clean_state
+    )
+    assert (
+        active_gate2_manifest.phase54_slice12_product_repair12_clean_topic_is_active()
+    )
+    assert active_gate2_manifest.phase54_active_gate2_manifest_is_active()
+
+    repair12_dirty_state = replace(
+        repair12_clean_state,
+        branch_oid=active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR12_BASE,
+        modified_paths=(
+            active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR12_MODIFIED_PATHS
+        ),
+    )
+    assert active_gate2_manifest._matches_phase54_active_gate2_manifest(
+        repair12_dirty_state
+    )
+    assert not active_gate2_manifest._matches_phase54_active_gate2_manifest(
+        replace(
+            repair12_dirty_state,
+            modified_paths=repair12_dirty_state.modified_paths | {"unauthorized-path"},
+        )
+    )
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_read_phase54_gate2_repository_state",
+        lambda: repair12_dirty_state,
+    )
+    assert active_gate2_manifest.phase54_slice12_product_repair12_is_active()
+
+    repair12_parent_key = ("rev-list", "--parents", "-n", "1", child)
+    repair12_git_values[repair12_parent_key] = f"{child} {'5' * 40}"
+    assert (
+        not active_gate2_manifest._matches_phase54_slice12_product_repair12_clean_topic(
+            repair12_clean_state
+        )
+    )
+    repair12_git_values[repair12_parent_key] = (
+        f"{child} {active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR12_BASE}"
+    )
+    repair12_subject_key = ("show", "-s", "--format=%s", child)
+    repair12_git_values[repair12_subject_key] = "Wrong Repair12 subject"
+    assert (
+        not active_gate2_manifest._matches_phase54_slice12_product_repair12_clean_topic(
+            repair12_clean_state
+        )
+    )
+    repair12_git_values[repair12_subject_key] = repair12_subject
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_git_commit_message",
+        lambda revision: (
+            f"{repair12_subject}\n\n{repair12_trailer_key}: {other_tree}"
+            if revision == child
+            else ""
+        ),
+    )
+    assert (
+        not active_gate2_manifest._matches_phase54_slice12_product_repair12_clean_topic(
+            repair12_clean_state
+        )
+    )
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_git_commit_message",
+        lambda revision: repair12_message if revision == child else "",
+    )
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_read_phase54_gate2_repository_state",
+        lambda: replace(
+            repair12_clean_state,
+            staged_paths=frozenset({"post-read-state-drift"}),
+        ),
+    )
+    assert (
+        not active_gate2_manifest._matches_phase54_slice12_product_repair12_clean_topic(
+            repair12_clean_state
+        )
+    )
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_read_phase54_gate2_repository_state",
+        lambda: repair12_clean_state,
+    )
+    repair12_head_reads = iter((child, other_child))
+
+    def moving_repair12_head_git_output(arguments: list[str]) -> str:
+        if tuple(arguments) == ("rev-parse", "--verify", "HEAD^{commit}"):
+            return next(repair12_head_reads)
+        return exact_repair12_git_output(arguments)
+
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_git_output",
+        moving_repair12_head_git_output,
+    )
+    assert (
+        not active_gate2_manifest._matches_phase54_slice12_product_repair12_clean_topic(
+            repair12_clean_state
+        )
+    )
+    repair12_main_ref_reads = {
+        "refs/heads/main": 0,
+        "refs/remotes/origin/main": 0,
+    }
+
+    def moving_repair12_main_refs_git_output(arguments: list[str]) -> str:
+        reference = arguments[-1]
+        if tuple(arguments[:2]) == ("rev-parse", "--verify") and (
+            reference in repair12_main_ref_reads
+        ):
+            read = repair12_main_ref_reads[reference]
+            repair12_main_ref_reads[reference] += 1
+            return (
+                active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE
+                if read == 0
+                else other_child
+            )
+        return exact_repair12_git_output(arguments)
+
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_git_output",
+        moving_repair12_main_refs_git_output,
+    )
+    assert (
+        not active_gate2_manifest._matches_phase54_slice12_product_repair12_clean_topic(
+            repair12_clean_state
+        )
+    )
+    assert repair12_main_ref_reads == {
+        "refs/heads/main": 2,
+        "refs/remotes/origin/main": 2,
+    }
+
+    repair13_subject = active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR13_SUBJECT
+    repair13_trailer_key = (
+        active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR13_REVIEWED_TREE_TRAILER
+    )
+    repair13_message = f"{repair13_subject}\n\n{repair13_trailer_key}: {tree}"
+    repair13_clean_state = replace(
+        clean_topic_state,
+        branch_head=active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR13_BRANCH,
+        branch_upstream=(
+            f"origin/{active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR13_BRANCH}"
+        ),
+    )
+    repair13_git_values = {
+        ("rev-parse", "--verify", "HEAD^{commit}"): child,
+        ("rev-list", "--parents", "-n", "1", child): (
+            f"{child} {active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR13_BASE}"
+        ),
+        ("show", "-s", "--format=%s", child): repair13_subject,
+        ("show", "-s", "--format=%T", child): tree,
+        ("rev-parse", "--verify", "refs/heads/main"): (
+            active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE
+        ),
+        ("rev-parse", "--verify", "refs/remotes/origin/main"): (
+            active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE
+        ),
+    }
+
+    def exact_repair13_git_output(arguments: list[str]) -> str:
+        return repair13_git_values[tuple(arguments)]
+
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_git_output",
+        exact_repair13_git_output,
+    )
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_git_commit_message",
+        lambda revision: repair13_message if revision == child else "",
+    )
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_read_phase54_gate2_repository_state",
+        lambda: repair13_clean_state,
+    )
+    assert active_gate2_manifest._matches_phase54_slice12_product_repair13_clean_topic(
+        repair13_clean_state
+    )
+    assert (
+        active_gate2_manifest.phase54_slice12_product_repair13_clean_topic_is_active()
+    )
+    assert active_gate2_manifest.phase54_active_gate2_manifest_is_active()
+
+    repair13_dirty_state = replace(
+        repair13_clean_state,
+        branch_oid=active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR13_BASE,
+        modified_paths=(
+            active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR13_MODIFIED_PATHS
+        ),
+    )
+    assert active_gate2_manifest._matches_phase54_active_gate2_manifest(
+        repair13_dirty_state
+    )
+    assert not active_gate2_manifest._matches_phase54_active_gate2_manifest(
+        replace(
+            repair13_dirty_state,
+            modified_paths=repair13_dirty_state.modified_paths | {"unauthorized-path"},
+        )
+    )
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_read_phase54_gate2_repository_state",
+        lambda: repair13_dirty_state,
+    )
+    assert active_gate2_manifest.phase54_slice12_product_repair13_is_active()
+
+    repair13_parent_key = ("rev-list", "--parents", "-n", "1", child)
+    repair13_git_values[repair13_parent_key] = f"{child} {'5' * 40}"
+    assert (
+        not active_gate2_manifest._matches_phase54_slice12_product_repair13_clean_topic(
+            repair13_clean_state
+        )
+    )
+    repair13_git_values[repair13_parent_key] = (
+        f"{child} {active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR13_BASE}"
+    )
+    repair13_subject_key = ("show", "-s", "--format=%s", child)
+    repair13_git_values[repair13_subject_key] = "Wrong Repair13 subject"
+    assert (
+        not active_gate2_manifest._matches_phase54_slice12_product_repair13_clean_topic(
+            repair13_clean_state
+        )
+    )
+    repair13_git_values[repair13_subject_key] = repair13_subject
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_git_commit_message",
+        lambda revision: (
+            f"{repair13_subject}\n\n{repair13_trailer_key}: {other_tree}"
+            if revision == child
+            else ""
+        ),
+    )
+    assert (
+        not active_gate2_manifest._matches_phase54_slice12_product_repair13_clean_topic(
+            repair13_clean_state
+        )
+    )
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_git_commit_message",
+        lambda revision: repair13_message if revision == child else "",
+    )
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_read_phase54_gate2_repository_state",
+        lambda: replace(
+            repair13_clean_state,
+            staged_paths=frozenset({"post-read-state-drift"}),
+        ),
+    )
+    assert (
+        not active_gate2_manifest._matches_phase54_slice12_product_repair13_clean_topic(
+            repair13_clean_state
+        )
+    )
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_read_phase54_gate2_repository_state",
+        lambda: repair13_clean_state,
+    )
+    repair13_head_reads = iter((child, other_child))
+
+    def moving_repair13_head_git_output(arguments: list[str]) -> str:
+        if tuple(arguments) == ("rev-parse", "--verify", "HEAD^{commit}"):
+            return next(repair13_head_reads)
+        return exact_repair13_git_output(arguments)
+
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_git_output",
+        moving_repair13_head_git_output,
+    )
+    assert (
+        not active_gate2_manifest._matches_phase54_slice12_product_repair13_clean_topic(
+            repair13_clean_state
+        )
+    )
+    repair13_main_ref_reads = {
+        "refs/heads/main": 0,
+        "refs/remotes/origin/main": 0,
+    }
+
+    def moving_repair13_main_refs_git_output(arguments: list[str]) -> str:
+        reference = arguments[-1]
+        if tuple(arguments[:2]) == ("rev-parse", "--verify") and (
+            reference in repair13_main_ref_reads
+        ):
+            read = repair13_main_ref_reads[reference]
+            repair13_main_ref_reads[reference] += 1
+            return (
+                active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE
+                if read == 0
+                else other_child
+            )
+        return exact_repair13_git_output(arguments)
+
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_git_output",
+        moving_repair13_main_refs_git_output,
+    )
+    assert (
+        not active_gate2_manifest._matches_phase54_slice12_product_repair13_clean_topic(
+            repair13_clean_state
+        )
+    )
+    assert repair13_main_ref_reads == {
+        "refs/heads/main": 2,
+        "refs/remotes/origin/main": 2,
+    }
+
+    repair14_subject = active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR14_SUBJECT
+    repair14_trailer_key = (
+        active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR14_REVIEWED_TREE_TRAILER
+    )
+    repair14_message = f"{repair14_subject}\n\n{repair14_trailer_key}: {tree}"
+    repair14_clean_state = replace(
+        clean_topic_state,
+        branch_head=active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR14_BRANCH,
+        branch_upstream=(
+            f"origin/{active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR14_BRANCH}"
+        ),
+    )
+    repair14_git_values = {
+        ("rev-parse", "--verify", "HEAD^{commit}"): child,
+        ("rev-list", "--parents", "-n", "1", child): (
+            f"{child} {active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR14_BASE}"
+        ),
+        ("show", "-s", "--format=%s", child): repair14_subject,
+        ("show", "-s", "--format=%T", child): tree,
+        ("rev-parse", "--verify", "refs/heads/main"): (
+            active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE
+        ),
+        ("rev-parse", "--verify", "refs/remotes/origin/main"): (
+            active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE
+        ),
+    }
+
+    def exact_repair14_git_output(arguments: list[str]) -> str:
+        return repair14_git_values[tuple(arguments)]
+
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_git_output",
+        exact_repair14_git_output,
+    )
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_git_commit_message",
+        lambda revision: repair14_message if revision == child else "",
+    )
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_read_phase54_gate2_repository_state",
+        lambda: repair14_clean_state,
+    )
+    assert active_gate2_manifest._matches_phase54_slice12_product_repair14_clean_topic(
+        repair14_clean_state
+    )
+    assert (
+        active_gate2_manifest.phase54_slice12_product_repair14_clean_topic_is_active()
+    )
+    assert active_gate2_manifest.phase54_active_gate2_manifest_is_active()
+
+    repair14_dirty_state = replace(
+        repair14_clean_state,
+        branch_oid=active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR14_BASE,
+        modified_paths=(
+            active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR14_MODIFIED_PATHS
+        ),
+    )
+    assert active_gate2_manifest._matches_phase54_active_gate2_manifest(
+        repair14_dirty_state
+    )
+    assert not active_gate2_manifest._matches_phase54_active_gate2_manifest(
+        replace(
+            repair14_dirty_state,
+            modified_paths=repair14_dirty_state.modified_paths | {"unauthorized-path"},
+        )
+    )
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_read_phase54_gate2_repository_state",
+        lambda: repair14_dirty_state,
+    )
+    assert active_gate2_manifest.phase54_slice12_product_repair14_is_active()
+
+    repair14_parent_key = ("rev-list", "--parents", "-n", "1", child)
+    repair14_git_values[repair14_parent_key] = f"{child} {'5' * 40}"
+    assert (
+        not active_gate2_manifest._matches_phase54_slice12_product_repair14_clean_topic(
+            repair14_clean_state
+        )
+    )
+    repair14_git_values[repair14_parent_key] = (
+        f"{child} {active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR14_BASE}"
+    )
+    repair14_subject_key = ("show", "-s", "--format=%s", child)
+    repair14_git_values[repair14_subject_key] = "Wrong Repair14 subject"
+    assert (
+        not active_gate2_manifest._matches_phase54_slice12_product_repair14_clean_topic(
+            repair14_clean_state
+        )
+    )
+    repair14_git_values[repair14_subject_key] = repair14_subject
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_git_commit_message",
+        lambda revision: (
+            f"{repair14_subject}\n\n{repair14_trailer_key}: {other_tree}"
+            if revision == child
+            else ""
+        ),
+    )
+    assert (
+        not active_gate2_manifest._matches_phase54_slice12_product_repair14_clean_topic(
+            repair14_clean_state
+        )
+    )
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_git_commit_message",
+        lambda revision: repair14_message if revision == child else "",
+    )
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_read_phase54_gate2_repository_state",
+        lambda: replace(
+            repair14_clean_state,
+            staged_paths=frozenset({"post-read-state-drift"}),
+        ),
+    )
+    assert (
+        not active_gate2_manifest._matches_phase54_slice12_product_repair14_clean_topic(
+            repair14_clean_state
+        )
+    )
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_read_phase54_gate2_repository_state",
+        lambda: repair14_clean_state,
+    )
+    repair14_head_reads = iter((child, other_child))
+
+    def moving_repair14_head_git_output(arguments: list[str]) -> str:
+        if tuple(arguments) == ("rev-parse", "--verify", "HEAD^{commit}"):
+            return next(repair14_head_reads)
+        return exact_repair14_git_output(arguments)
+
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_git_output",
+        moving_repair14_head_git_output,
+    )
+    assert (
+        not active_gate2_manifest._matches_phase54_slice12_product_repair14_clean_topic(
+            repair14_clean_state
+        )
+    )
+    repair14_main_ref_reads = {
+        "refs/heads/main": 0,
+        "refs/remotes/origin/main": 0,
+    }
+
+    def moving_repair14_main_refs_git_output(arguments: list[str]) -> str:
+        reference = arguments[-1]
+        if tuple(arguments[:2]) == ("rev-parse", "--verify") and (
+            reference in repair14_main_ref_reads
+        ):
+            read = repair14_main_ref_reads[reference]
+            repair14_main_ref_reads[reference] += 1
+            return (
+                active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE
+                if read == 0
+                else other_child
+            )
+        return exact_repair14_git_output(arguments)
+
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_git_output",
+        moving_repair14_main_refs_git_output,
+    )
+    assert (
+        not active_gate2_manifest._matches_phase54_slice12_product_repair14_clean_topic(
+            repair14_clean_state
+        )
+    )
+    assert repair14_main_ref_reads == {
+        "refs/heads/main": 2,
+        "refs/remotes/origin/main": 2,
+    }
     manifest_tree = ast.parse(
         (REPO_ROOT / "tests/_phase54_active_gate2_manifest.py").read_text(
             encoding="utf-8"
@@ -521,6 +1490,7 @@ def test_private_preservation_carriers_fields_enums_and_privacy_are_exact() -> N
             "signature_fact",
             "analysis",
             "project_fact",
+            "retained_project_fact",
             "diagnostics",
             "status",
             "reason",
@@ -750,6 +1720,7 @@ def test_schema_v2_builds_sidecar_from_exact_slice10_authority_without_slice11_i
     assert unknown.analysis.reason == "unsupported window function identity"
     assert unknown.signature_fact is None
     assert unknown.project_fact is None
+    assert unknown.retained_project_fact is None
     assert unknown.status is preservation.ProjectModuleCandidateBucketStatus.UNKNOWN
     assert unknown.reason == unknown.analysis.reason
     assert tuple(diagnostic.code for diagnostic in unknown.diagnostics) == (
@@ -1059,12 +2030,23 @@ def test_builder_rejects_value_equal_or_misaligned_foreign_authority_roots(
     second_analysis = cast(WindowExpressionAnalysis, second_window.analysis)
     assert first_window.project_fact is not None
     assert second_window.project_fact is not None
+    assert first_window.retained_project_fact is first_window.project_fact
+    assert second_window.retained_project_fact is second_window.project_fact
     with pytest.raises(ValueError, match="exact owner source occurrence"):
         replace(first_window, analysis=second_analysis)
     with pytest.raises(ValueError, match="exact owner source occurrence"):
         replace(first_window, analysis=replace(second_analysis))
     with pytest.raises(ValueError, match="exact analysis identity"):
-        replace(first_window, project_fact=second_window.project_fact)
+        replace(
+            first_window,
+            project_fact=second_window.project_fact,
+            retained_project_fact=second_window.project_fact,
+        )
+    with pytest.raises(ValueError, match="share its exact retained fact"):
+        replace(
+            first_window,
+            retained_project_fact=replace(first_window.project_fact),
+        )
     assert first_analysis.ranking_fact is not None
     with pytest.raises(ValueError, match="exact existing family payload"):
         replace(
@@ -1084,38 +2066,44 @@ def test_builder_rejects_value_equal_or_misaligned_foreign_authority_roots(
         first_project_fact.result_identity,
         definition=foreign_definition,
     )
+    foreign_definition_fact = replace(
+        first_project_fact,
+        result_identity=foreign_definition_identity,
+    )
     with pytest.raises(ValueError, match="exact analysis identity"):
         replace(
             first_window,
-            project_fact=replace(
-                first_project_fact,
-                result_identity=foreign_definition_identity,
-            ),
+            project_fact=foreign_definition_fact,
+            retained_project_fact=foreign_definition_fact,
         )
     cloned_occurrence = replace(first_analysis.semantic_fact.occurrence)
     cloned_occurrence_identity = replace(
         first_project_fact.result_identity,
         occurrence=cloned_occurrence,
     )
+    cloned_occurrence_fact = replace(
+        first_project_fact,
+        result_identity=cloned_occurrence_identity,
+    )
     with pytest.raises(ValueError, match="exact analysis identity"):
         replace(
             first_window,
-            project_fact=replace(
-                first_project_fact,
-                result_identity=cloned_occurrence_identity,
-            ),
+            project_fact=cloned_occurrence_fact,
+            retained_project_fact=cloned_occurrence_fact,
         )
     wrong_output_identity = replace(
         first_project_fact.result_identity,
         output_name="foreign",
     )
+    wrong_output_fact = replace(
+        first_project_fact,
+        result_identity=wrong_output_identity,
+    )
     with pytest.raises(ValueError, match="exact analysis identity"):
         replace(
             first_window,
-            project_fact=replace(
-                first_project_fact,
-                result_identity=wrong_output_identity,
-            ),
+            project_fact=wrong_output_fact,
+            retained_project_fact=wrong_output_fact,
         )
 
     unsupported_query = (
@@ -1346,6 +2334,7 @@ def test_builder_rejects_value_equal_or_misaligned_foreign_authority_roots(
     provenance_window = replace(
         foreign_first_window,
         project_fact=provenance_project,
+        retained_project_fact=provenance_project,
     )
     with pytest.raises(ValueError, match="exact resolution authority"):
         _replace_window_in_final_semantic(
@@ -1381,6 +2370,7 @@ def test_builder_rejects_value_equal_or_misaligned_foreign_authority_roots(
     dependency_window = replace(
         foreign_first_window,
         project_fact=dependency_project,
+        retained_project_fact=dependency_project,
     )
     with pytest.raises(ValueError, match="exact source and target authority"):
         _replace_window_in_final_semantic(
@@ -1478,6 +2468,271 @@ def test_local_computed_output_preserves_expression_type_nullability_origin_and_
     assert selected.field.result_role is ProjectRowResultRole.ORDINARY_ROW_VALUE
     assert selected.field.provenance is not None
     assert selected.field.provenance.kind.value == "derived_expression"
+
+    nested_source = (
+        "shape Row:\n"
+        "    id: Int not null\n"
+        "    amount: Int not null\n"
+        "    tax: Int nullable\n"
+        'source rows: Row is postgres.table("rows")\n'
+        "query result:\n"
+        "    from rows\n"
+        "    let:\n"
+        "        gross = amount + tax\n"
+        "    select:\n"
+        "        adjusted = gross + 1\n"
+    )
+    _, nested_semantic = _semantic_project(
+        tmp_path / "nested-let",
+        {"main.pietto": nested_source},
+    )
+    nested_relation = _relation(nested_semantic, "main.pietto", "result")
+    nested_selected = nested_relation.select_facts[0]
+    nested_schema = nested_relation.state.schema
+    nested_let_scope = nested_relation.let_scope_facts
+
+    assert nested_let_scope is not None
+    assert nested_let_scope.status is ProjectLetScopeFactsStatus.CONCRETE
+    assert nested_let_scope.value_types["gross"].resolved_type.name == "Int"
+    assert nested_relation.state.status is ProjectRelationRowSchemaStatus.CONCRETE
+    assert nested_schema is not None
+    assert nested_selected.expression_schema is not None
+    assert nested_selected.expression_schema.status.value == "concrete"
+    assert nested_selected.expression_schema.reason.value == "known_expression_value"
+    assert nested_selected.expression_schema.origin.value == "derived_expression"
+    assert nested_selected.expression_schema.resolved_type is not None
+    assert nested_selected.expression_schema.resolved_type.name == "Int"
+    assert (
+        nested_selected.expression_schema.nullability
+        is ProjectRowFieldNullability.UNKNOWN
+    )
+    nested_field = nested_selected.field
+    assert nested_field is not None
+    assert nested_field is nested_schema.fields["adjusted"]
+    assert nested_field.resolved_type.name == "Int"
+    assert nested_field.nullability is ProjectRowFieldNullability.UNKNOWN
+    assert nested_field.provenance is not None
+    assert nested_field.provenance.kind.value == "derived_expression"
+    assert len(nested_selected.references) == 1
+    nested_reference = nested_selected.references[0]
+    assert nested_reference.local_name == "gross"
+    assert nested_reference.input_field is None
+    assert nested_reference.let_candidates == (nested_relation.let_bindings[0].binding,)
+    assert (
+        nested_reference.status
+        is preservation.ProjectModuleCandidateBucketStatus.CONCRETE
+    )
+
+    with pytest.raises(ValueError, match="exact existing relation projection"):
+        _replace_relation_in_final_semantic(
+            nested_semantic,
+            nested_relation,
+            replace(
+                nested_relation,
+                select_facts=(
+                    replace(
+                        nested_selected,
+                        expression_schema=replace(nested_selected.expression_schema),
+                    ),
+                ),
+            ),
+        )
+
+    invalid_let_prefix = (
+        "shape Row:\n"
+        "    id: Int not null\n"
+        "    amount: Int not null\n"
+        'source rows: Row is postgres.table("rows")\n'
+        "query result:\n"
+        "    from rows\n"
+        "    let:\n"
+        "        gross = missing + 1\n"
+        "    select:\n"
+    )
+    unavailable_expressions = (
+        "gross",
+        "gross < 0",
+        "gross <= 0",
+        "gross > 0",
+        "gross >= 0",
+        "gross == 0",
+        "gross != 0",
+        "gross is null",
+        "gross is not null",
+        "gross between 0 and 1",
+        "-gross",
+        "gross + 1",
+        "lower(gross)",
+        "(gross > 0) is null",
+    )
+    for position, expression in enumerate(unavailable_expressions):
+        _, unavailable_semantic = _semantic_project(
+            tmp_path / f"unknown-let-{position}",
+            {
+                "main.pietto": (
+                    invalid_let_prefix + f"        adjusted = {expression}\n"
+                )
+            },
+        )
+        unavailable_relation = _relation(
+            unavailable_semantic,
+            "main.pietto",
+            "result",
+        )
+        unavailable_selected = unavailable_relation.select_facts[0]
+        unavailable_let_scope = unavailable_relation.let_scope_facts
+        assert unavailable_let_scope is not None
+        assert unavailable_let_scope.status is ProjectLetScopeFactsStatus.UNKNOWN
+        assert unavailable_let_scope.reason.value == "let_diagnostics_suppressed"
+        assert dict(unavailable_let_scope.value_types) == {}
+        assert unavailable_let_scope.binding_expressions["gross"] is (
+            unavailable_relation.let_bindings[0].binding.expression
+        )
+        assert unavailable_relation.state.status is not (
+            ProjectRelationRowSchemaStatus.CONCRETE
+        )
+        unavailable_schema = unavailable_relation.state.schema
+        assert unavailable_schema is None or (
+            unavailable_schema.is_unknown and not unavailable_schema.fields
+        )
+        assert [
+            diagnostic.code for diagnostic in unavailable_relation.helper_diagnostics
+        ] == (["PIE-S2102"] if expression == "gross" else [])
+        assert unavailable_selected.expression_schema is not None
+        assert unavailable_selected.expression_schema.status.value == "unknown"
+        assert unavailable_selected.expression_schema.reason.value in {
+            "missing_input_field",
+            "missing_value_type",
+        }
+        assert unavailable_selected.expression_schema.resolved_type is None
+        assert unavailable_selected.expression_schema.nullability is None
+        assert unavailable_selected.field is None
+        assert unavailable_selected.aggregate_result_fact is None
+        gross_references = tuple(
+            reference
+            for reference in unavailable_selected.references
+            if reference.local_name == "gross"
+        )
+        assert gross_references
+        assert all(
+            reference.input_field is None
+            and reference.let_candidates
+            == (unavailable_relation.let_bindings[0].binding,)
+            and reference.status
+            is preservation.ProjectModuleCandidateBucketStatus.UNKNOWN
+            for reference in gross_references
+        )
+
+    downstream_source = (
+        invalid_let_prefix
+        + "        adjusted = gross > 0\n"
+        + "query downstream:\n"
+        + "    from result\n"
+        + "    select:\n"
+        + "        adjusted\n"
+    )
+    _, downstream_semantic = _semantic_project(
+        tmp_path / "unknown-let-downstream",
+        {"main.pietto": downstream_source},
+    )
+    downstream_relation = _relation(
+        downstream_semantic,
+        "main.pietto",
+        "downstream",
+    )
+    assert downstream_relation.state.status is ProjectRelationRowSchemaStatus.DEFERRED
+    assert downstream_relation.state.reason is (
+        ProjectRelationRowSchemaReason.UPSTREAM_DEFERRED
+    )
+    assert downstream_relation.state.schema is None
+    assert downstream_relation.select_facts[0].field is None
+
+    for position, expressions in enumerate(
+        (
+            ("missing > 0", "missing"),
+            ("missing", "missing > 0"),
+            ("missing is null", "missing is null"),
+        )
+    ):
+        selection = "".join(
+            f"        output{ordinal} = {expression}\n"
+            for ordinal, expression in enumerate(expressions)
+        )
+        _, permutation_semantic = _semantic_project(
+            tmp_path / f"root-isolation-{position}",
+            {"main.pietto": _query("    select:\n" + selection)},
+        )
+        permutation_relation = _relation(
+            permutation_semantic,
+            "main.pietto",
+            "result",
+        )
+        assert tuple(
+            selected.output_name for selected in permutation_relation.select_facts
+        ) == ("output0", "output1")
+        assert all(
+            selected.expression_schema is not None
+            and selected.expression_schema.status.value == "unknown"
+            and selected.expression_schema.resolved_type is None
+            and selected.field is None
+            for selected in permutation_relation.select_facts
+        )
+
+    shadowing_source = _query(
+        "    let:\n"
+        "        id = missing + 1\n"
+        "    select:\n"
+        "        direct = id\n"
+        "        compared = id > 0\n"
+        "        qualified = rows.id\n"
+    )
+    _, shadowing_semantic = _semantic_project(
+        tmp_path / "invalid-shadowing-let",
+        {"main.pietto": shadowing_source},
+    )
+    shadowing_relation = _relation(
+        shadowing_semantic,
+        "main.pietto",
+        "result",
+    )
+    assert shadowing_relation.let_scope_facts is not None
+    assert (
+        shadowing_relation.let_scope_facts.status is ProjectLetScopeFactsStatus.UNKNOWN
+    )
+    assert shadowing_relation.state.status is ProjectRelationRowSchemaStatus.CONCRETE
+    assert shadowing_relation.state.schema is not None
+    assert tuple(shadowing_relation.state.schema.fields) == (
+        "direct",
+        "compared",
+        "qualified",
+    )
+    assert all(
+        selected.expression_schema is not None
+        and selected.expression_schema.status.value == "concrete"
+        and selected.field is not None
+        for selected in shadowing_relation.select_facts
+    )
+    direct_reference = shadowing_relation.select_facts[0].references[0]
+    assert direct_reference.input_field is not None
+    assert direct_reference.status is (
+        preservation.ProjectModuleCandidateBucketStatus.CONCRETE
+    )
+    assert direct_reference.let_candidates == (
+        shadowing_relation.let_bindings[0].binding,
+    )
+
+    aggregate_source = invalid_let_prefix + "        total = sum(gross)\n"
+    _, aggregate_semantic = _semantic_project(
+        tmp_path / "unknown-let-aggregate",
+        {"main.pietto": aggregate_source},
+    )
+    aggregate_relation = _relation(aggregate_semantic, "main.pietto", "result")
+    assert (
+        aggregate_relation.state.status is not ProjectRelationRowSchemaStatus.CONCRETE
+    )
+    assert aggregate_relation.aggregate_result_facts == ()
+    assert aggregate_relation.select_facts[0].aggregate_result_fact is None
+    assert aggregate_relation.select_facts[0].field is None
 
 
 def test_imported_computed_output_preserves_local_lookup_and_nominal_target(
@@ -2373,10 +3628,269 @@ def test_satisfying_aggregate_candidate_bucket_preserves_all_matches_without_fir
     ) == (3, 4, 5)
     assert all(
         isinstance(output.analysis, WindowExpressionAnalysis)
-        and output.project_fact is not None
-        and output.status is preservation.ProjectModuleCandidateBucketStatus.CONCRETE
+        and output.project_fact is None
+        and output.retained_project_fact is not None
+        and output.retained_project_fact.semantic_fact
+        is cast(WindowExpressionAnalysis, output.analysis).semantic_fact
+        and output.status is preservation.ProjectModuleCandidateBucketStatus.BLOCKED
+        and output.reason == relation.state.reason.value
         for output in relation.window_outputs
     )
+    assert tuple(output.output_name for output in relation.window_outputs) == (
+        "position",
+        "sequence",
+        "dense",
+    )
+
+    for count, window_source in (
+        (0, ""),
+        (
+            1,
+            "        position = rank() window:\n"
+            "            order by:\n"
+            "                id\n",
+        ),
+    ):
+        matrix_source = _query(
+            "    let:\n        gross = amount\n"
+            "    group by:\n        id\n"
+            "    select:\n"
+            "        id\n"
+            "        first = sum(gross)\n"
+            "        second = sum(gross)\n"
+            + window_source
+            + "    satisfying:\n        sum(gross) > 0\n"
+        )
+        _, matrix_semantic = _semantic_project(
+            tmp_path / f"window-count-{count}",
+            {"main.pietto": matrix_source},
+        )
+        matrix_relation = _relation(matrix_semantic, "main.pietto", "result")
+        matrix_satisfying = next(
+            fact
+            for fact in matrix_relation.clause_dependencies
+            if fact.role is preservation.ProjectModuleFactOccurrenceRole.SATISFYING
+        )
+        assert tuple(
+            cast(SelectItem, item).alias
+            for item in matrix_satisfying.target_occurrences
+        ) == ("first", "second")
+        assert (
+            matrix_satisfying.status
+            is preservation.ProjectModuleCandidateBucketStatus.AMBIGUOUS
+        )
+        assert matrix_relation.state.status is ProjectRelationRowSchemaStatus.BLOCKED
+        assert len(matrix_relation.window_outputs) == count
+        assert all(
+            output.project_fact is None
+            and output.retained_project_fact is not None
+            and output.status is preservation.ProjectModuleCandidateBucketStatus.BLOCKED
+            and output.reason == matrix_relation.state.reason.value
+            for output in matrix_relation.window_outputs
+        )
+
+    upstream = _relation(semantic, "main.pietto", "rows")
+    assert relation.resolution is not None
+    assert relation.let_scope_facts is not None
+    assert relation.aggregate_grouped_clause_readiness is not None
+    assert upstream.state.schema is not None
+    _, raw_window_outputs = preservation._window_output_facts(
+        owner=relation.owner,
+        definition=cast(QueryDef, relation.owner.definition),
+        input_schema=upstream.state.schema,
+        upstream_symbol=preservation._project_symbol_for_resolution(
+            relation.resolution
+        ),
+        let_scope=relation.let_scope_facts,
+        base_state=relation.aggregate_grouped_clause_readiness.finalization.state,
+        capabilities=_fact_set(semantic).capabilities,
+    )
+    assert all(output.project_fact is not None for output in raw_window_outputs)
+    assert all(
+        output.retained_project_fact is output.project_fact
+        for output in raw_window_outputs
+    )
+    suppressed_window_outputs = (
+        preservation._suppress_window_project_facts_after_clause_ambiguity(
+            state=relation.state,
+            clause_dependencies=relation.clause_dependencies,
+            window_outputs=raw_window_outputs,
+        )
+    )
+    for raw_output, suppressed_output in zip(
+        raw_window_outputs,
+        suppressed_window_outputs,
+        strict=True,
+    ):
+        assert suppressed_output.item is raw_output.item
+        assert suppressed_output.signature_fact is raw_output.signature_fact
+        assert suppressed_output.analysis is raw_output.analysis
+        assert suppressed_output.diagnostics is raw_output.diagnostics
+        assert suppressed_output.project_fact is None
+        assert suppressed_output.retained_project_fact is raw_output.project_fact
+    retained_roles = tuple(
+        tuple(
+            (
+                occurrence.role,
+                occurrence.target.name,
+                occurrence.target_result_role,
+            )
+            for occurrence in cast(
+                preservation.WindowResultProjectFact,
+                output.retained_project_fact,
+            ).dependency_occurrences
+        )
+        for output in relation.window_outputs
+    )
+    assert retained_roles == (
+        (
+            (WindowDependencyRole.RELATION_INPUT, "rows", None),
+            (WindowDependencyRole.WINDOW_ORDER, "id", ProjectRowResultRole.GROUP_KEY),
+        ),
+        (
+            (WindowDependencyRole.RELATION_INPUT, "rows", None),
+            (
+                WindowDependencyRole.WINDOW_ORDER,
+                "first",
+                ProjectRowResultRole.AGGREGATE_RESULT,
+            ),
+        ),
+        (
+            (WindowDependencyRole.RELATION_INPUT, "rows", None),
+            (
+                WindowDependencyRole.WINDOW_ORDER,
+                "second",
+                ProjectRowResultRole.AGGREGATE_RESULT,
+            ),
+        ),
+    )
+
+    _, navigation_semantic = _semantic_project(
+        tmp_path / "navigation-window",
+        {
+            "main.pietto": _query(
+                "    let:\n        gross = amount\n"
+                "    group by:\n        id\n"
+                "    select:\n"
+                "        id\n"
+                "        first = sum(gross)\n"
+                "        second = sum(gross)\n"
+                "        previous = lag(first, 2, second) window:\n"
+                "            partition by:\n"
+                "                id\n"
+                "                id\n"
+                "            order by:\n"
+                "                first\n"
+                "                first\n"
+                "    satisfying:\n        sum(gross) > 0\n"
+            )
+        },
+    )
+    navigation_relation = _relation(
+        navigation_semantic,
+        "main.pietto",
+        "result",
+    )
+    navigation_output = navigation_relation.window_outputs[0]
+    navigation_project = navigation_output.retained_project_fact
+    assert navigation_output.project_fact is None
+    assert navigation_project is not None
+    assert tuple(
+        (
+            occurrence.global_ordinal,
+            occurrence.role_ordinal,
+            occurrence.role,
+            occurrence.target.name,
+            occurrence.target_result_role,
+        )
+        for occurrence in navigation_project.dependency_occurrences
+    ) == (
+        (
+            0,
+            0,
+            WindowDependencyRole.WINDOW_ARGUMENT,
+            "first",
+            ProjectRowResultRole.AGGREGATE_RESULT,
+        ),
+        (
+            1,
+            0,
+            WindowDependencyRole.WINDOW_DEFAULT,
+            "second",
+            ProjectRowResultRole.AGGREGATE_RESULT,
+        ),
+        (
+            2,
+            0,
+            WindowDependencyRole.WINDOW_PARTITION,
+            "id",
+            ProjectRowResultRole.GROUP_KEY,
+        ),
+        (
+            3,
+            1,
+            WindowDependencyRole.WINDOW_PARTITION,
+            "id",
+            ProjectRowResultRole.GROUP_KEY,
+        ),
+        (
+            4,
+            0,
+            WindowDependencyRole.WINDOW_ORDER,
+            "first",
+            ProjectRowResultRole.AGGREGATE_RESULT,
+        ),
+        (
+            5,
+            1,
+            WindowDependencyRole.WINDOW_ORDER,
+            "first",
+            ProjectRowResultRole.AGGREGATE_RESULT,
+        ),
+    )
+    assert tuple(
+        (edge.role, edge.target.name, edge.target_result_role)
+        for edge in navigation_project.dependency_edges
+    ) == (
+        (
+            WindowDependencyRole.WINDOW_ARGUMENT,
+            "first",
+            ProjectRowResultRole.AGGREGATE_RESULT,
+        ),
+        (
+            WindowDependencyRole.WINDOW_DEFAULT,
+            "second",
+            ProjectRowResultRole.AGGREGATE_RESULT,
+        ),
+        (
+            WindowDependencyRole.WINDOW_PARTITION,
+            "id",
+            ProjectRowResultRole.GROUP_KEY,
+        ),
+        (
+            WindowDependencyRole.WINDOW_ORDER,
+            "first",
+            ProjectRowResultRole.AGGREGATE_RESULT,
+        ),
+    )
+    with pytest.raises(
+        ValueError,
+        match="Clause-ambiguous supported window output must retain",
+    ):
+        _replace_window_in_final_semantic(
+            semantic,
+            relation,
+            relation.window_outputs[0],
+            replace(
+                relation.window_outputs[0],
+                retained_project_fact=None,
+            ),
+        )
+    with pytest.raises(
+        ValueError,
+        match="Clause-ambiguous semantic facts cannot publish window project evidence",
+    ):
+        replace(relation, window_outputs=raw_window_outputs)
 
 
 def test_grouped_order_let_candidate_bucket_preserves_all_matching_outputs(
@@ -2418,10 +3932,59 @@ def test_grouped_order_let_candidate_bucket_preserves_all_matching_outputs(
     ) == (3, 4, 5)
     assert all(
         isinstance(output.analysis, WindowExpressionAnalysis)
-        and output.project_fact is not None
-        and output.status is preservation.ProjectModuleCandidateBucketStatus.CONCRETE
+        and output.project_fact is None
+        and output.retained_project_fact is not None
+        and output.retained_project_fact.semantic_fact
+        is cast(WindowExpressionAnalysis, output.analysis).semantic_fact
+        and output.status is preservation.ProjectModuleCandidateBucketStatus.BLOCKED
+        and output.reason == relation.state.reason.value
         for output in relation.window_outputs
     )
+    for count, window_source in (
+        (0, ""),
+        (
+            1,
+            "        position = rank() window:\n"
+            "            order by:\n"
+            "                first\n",
+        ),
+    ):
+        matrix_source = _query(
+            "    let:\n        key = id\n"
+            "    group by:\n        id\n"
+            "    select:\n"
+            "        first = id\n"
+            "        second = id\n"
+            "        total = sum(amount)\n"
+            + window_source
+            + "    order by:\n        key\n"
+        )
+        _, matrix_semantic = _semantic_project(
+            tmp_path / f"window-count-{count}",
+            {"main.pietto": matrix_source},
+        )
+        matrix_relation = _relation(matrix_semantic, "main.pietto", "result")
+        matrix_order = next(
+            fact
+            for fact in matrix_relation.clause_dependencies
+            if fact.role is preservation.ProjectModuleFactOccurrenceRole.GROUPED_ORDER
+        )
+        assert tuple(
+            cast(SelectItem, item).alias for item in matrix_order.target_occurrences
+        ) == ("first", "second")
+        assert (
+            matrix_order.status
+            is preservation.ProjectModuleCandidateBucketStatus.AMBIGUOUS
+        )
+        assert matrix_relation.state.status is ProjectRelationRowSchemaStatus.BLOCKED
+        assert len(matrix_relation.window_outputs) == count
+        assert all(
+            output.project_fact is None
+            and output.retained_project_fact is not None
+            and output.status is preservation.ProjectModuleCandidateBucketStatus.BLOCKED
+            and output.reason == matrix_relation.state.reason.value
+            for output in matrix_relation.window_outputs
+        )
     forged_order = replace(
         order,
         status=preservation.ProjectModuleCandidateBucketStatus.CONCRETE,
@@ -2539,6 +4102,7 @@ def test_all_eight_window_families_preserve_complete_composite_analysis(
     assert all(
         isinstance(output.analysis, WindowExpressionAnalysis)
         and output.project_fact is not None
+        and output.retained_project_fact is output.project_fact
         for output in relation.window_outputs
     )
     canonical_by_identity = {
@@ -2590,6 +4154,11 @@ def test_navigation_offset_default_generic_and_nullability_formula_evidence_is_e
     )
     outputs = _relation(semantic, "main.pietto", "result").window_outputs
     assert all(output.signature_fact is not None for output in outputs)
+    assert all(
+        output.project_fact is not None
+        and output.retained_project_fact is output.project_fact
+        for output in outputs
+    )
     assert tuple(
         len(
             cast(
@@ -2676,6 +4245,28 @@ def test_mixed_window_outcomes_scan_all_candidates_and_publish_no_partial_schema
         }
         assert relation.state.status is ProjectRelationRowSchemaStatus.BLOCKED
         assert relation.state.schema is None
+        outputs_by_name = {
+            output.output_name: output for output in relation.window_outputs
+        }
+        assert (
+            outputs_by_name["good"].status
+            is preservation.ProjectModuleCandidateBucketStatus.CONCRETE
+        )
+        assert outputs_by_name["good"].project_fact is not None
+        assert (
+            outputs_by_name["good"].retained_project_fact
+            is outputs_by_name["good"].project_fact
+        )
+        assert (
+            outputs_by_name["bad"].status
+            is preservation.ProjectModuleCandidateBucketStatus.UNKNOWN
+        )
+        assert outputs_by_name["bad"].project_fact is None
+        assert outputs_by_name["bad"].retained_project_fact is None
+        assert all(
+            fact.status is not preservation.ProjectModuleCandidateBucketStatus.AMBIGUOUS
+            for fact in relation.clause_dependencies
+        )
 
     _, local_nonconcrete_semantic = _semantic_project(
         tmp_path / "local-nonconcrete",
@@ -2699,6 +4290,7 @@ def test_mixed_window_outcomes_scan_all_candidates_and_publish_no_partial_schema
     local_window = local_nonconcrete.window_outputs[0]
     assert isinstance(local_window.analysis, WindowExpressionAnalysis)
     assert local_window.project_fact is None
+    assert local_window.retained_project_fact is None
     assert (
         local_window.status is preservation.ProjectModuleCandidateBucketStatus.UNKNOWN
     )
@@ -2797,6 +4389,7 @@ def test_mixed_window_outcomes_scan_all_candidates_and_publish_no_partial_schema
             output.status is output_status
             and output.analysis is not None
             and output.project_fact is None
+            and output.retained_project_fact is None
             and output.reason == relation.state.reason.value
             for output in relation.window_outputs
         )
@@ -2975,7 +4568,11 @@ def test_window_dependency_occurrences_preserve_duplicates_and_edges_first_dedup
         dependency_occurrences=forged_occurrences,
         dependency_edges=deduplicate_window_dependency_edges(forged_occurrences),
     )
-    forged_window = replace(grouped_window, project_fact=forged_project_fact)
+    forged_window = replace(
+        grouped_window,
+        project_fact=forged_project_fact,
+        retained_project_fact=forged_project_fact,
+    )
     with pytest.raises(ValueError, match="exact source and target authority"):
         _replace_window_in_final_semantic(
             grouped_semantic,
@@ -3030,17 +4627,23 @@ def test_ordinary_group_aggregate_and_window_result_roles_remain_distinct_in_one
     _, satisfying_semantic = _semantic_project(
         tmp_path / "satisfying-stage",
         {
-            "main.pietto": _query(
-                "    group by:\n"
-                "        id\n"
-                "    select:\n"
-                "        id\n"
-                "        total = sum(amount)\n"
-                "        position = rank() window:\n"
-                "            order by:\n"
-                "                total desc\n"
-                "    satisfying:\n"
-                "        position > 0\n"
+            "main.pietto": (
+                _query(
+                    "    group by:\n"
+                    "        id\n"
+                    "    select:\n"
+                    "        id\n"
+                    "        total = sum(amount)\n"
+                    "        position = rank() window:\n"
+                    "            order by:\n"
+                    "                total desc\n"
+                    "    satisfying:\n"
+                    "        position > 0\n"
+                )
+                + "query downstream:\n"
+                + "    from result\n"
+                + "    select:\n"
+                + "        total\n"
             )
         },
     )
@@ -3053,6 +4656,251 @@ def test_ordinary_group_aggregate_and_window_result_roles_remain_distinct_in_one
     assert satisfying.target_occurrences == (satisfying_relation.select_facts[2].item,)
     assert satisfying.target_fields == ()
     assert satisfying.status is preservation.ProjectModuleCandidateBucketStatus.UNKNOWN
+    assert satisfying_relation.aggregate_grouped_clause_readiness is not None
+    assert satisfying_relation.aggregate_grouped_clause_readiness.status is (
+        preservation.ProjectAggregateGroupedClauseReadinessStatus.UNKNOWN
+    )
+    assert satisfying_relation.aggregate_grouped_clause_readiness.reason is (
+        preservation.ProjectAggregateGroupedClauseReadinessReason.INVALID_CLAUSE_OUTPUT_REFERENCE
+    )
+    assert satisfying_relation.state.status is ProjectRelationRowSchemaStatus.UNKNOWN
+    assert satisfying_relation.state.reason is (
+        ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
+    )
+    assert satisfying_relation.state.schema is not None
+    assert satisfying_relation.state.schema.is_unknown
+    assert not satisfying_relation.state.schema.fields
+    assert satisfying_relation.aggregate_result_facts == ()
+    assert all(
+        fact.aggregate_result_fact is None for fact in satisfying_relation.select_facts
+    )
+    assert len(satisfying_relation.window_outputs) == 1
+    assert satisfying_relation.window_outputs[0].analysis is not None
+    assert satisfying_relation.window_outputs[0].project_fact is None
+    assert satisfying_relation.window_outputs[0].status is (
+        preservation.ProjectModuleCandidateBucketStatus.UNKNOWN
+    )
+    satisfying_downstream = _relation(
+        satisfying_semantic,
+        "main.pietto",
+        "downstream",
+    )
+    assert satisfying_downstream.state.status is ProjectRelationRowSchemaStatus.UNKNOWN
+    assert (
+        satisfying_downstream.state.reason
+        is ProjectRelationRowSchemaReason.UPSTREAM_UNKNOWN
+    )
+    assert satisfying_downstream.state.schema is not None
+    assert satisfying_downstream.state.schema.is_unknown
+    assert not satisfying_downstream.state.schema.fields
+    assert satisfying_downstream.aggregate_result_facts == ()
+    assert satisfying_downstream.select_facts[0].field is None
+    with pytest.raises(
+        ValueError,
+        match="Non-concrete clause readiness must control the relation state",
+    ):
+        replace(
+            satisfying_relation,
+            state=satisfying_relation.aggregate_grouped_clause_readiness.finalization.state,
+        )
+
+    missing_grouped_order_source = (
+        _query(
+            "    group by:\n"
+            "        id\n"
+            "    select:\n"
+            "        id\n"
+            "        total = sum(amount)\n"
+            "    order by:\n"
+            "        missing\n"
+        )
+        + "query downstream:\n"
+        + "    from result\n"
+        + "    select:\n"
+        + "        total\n"
+    )
+    _, missing_semantic = _semantic_project(
+        tmp_path / "missing-grouped-order",
+        {"main.pietto": missing_grouped_order_source},
+    )
+    missing_relation = _relation(missing_semantic, "main.pietto", "result")
+    assert missing_relation.aggregate_grouped_clause_readiness is not None
+    assert missing_relation.aggregate_grouped_clause_readiness.status is (
+        preservation.ProjectAggregateGroupedClauseReadinessStatus.UNKNOWN
+    )
+    assert missing_relation.aggregate_grouped_clause_readiness.reason is (
+        preservation.ProjectAggregateGroupedClauseReadinessReason.UNAVAILABLE_CLAUSE_DEPENDENCY
+    )
+    assert missing_relation.state.status is ProjectRelationRowSchemaStatus.UNKNOWN
+    assert missing_relation.state.reason is (
+        ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT
+    )
+    assert missing_relation.aggregate_result_facts == ()
+    assert all(
+        fact.aggregate_result_fact is None for fact in missing_relation.select_facts
+    )
+    missing_grouped_order = next(
+        fact
+        for fact in missing_relation.clause_dependencies
+        if fact.role is preservation.ProjectModuleFactOccurrenceRole.GROUPED_ORDER
+    )
+    assert missing_grouped_order.status is (
+        preservation.ProjectModuleCandidateBucketStatus.UNKNOWN
+    )
+    assert missing_grouped_order.target_occurrences == ()
+    assert missing_grouped_order.target_fields == ()
+    missing_downstream = _relation(missing_semantic, "main.pietto", "downstream")
+    assert missing_downstream.state.status is ProjectRelationRowSchemaStatus.UNKNOWN
+    assert (
+        missing_downstream.state.reason
+        is ProjectRelationRowSchemaReason.UPSTREAM_UNKNOWN
+    )
+    assert missing_downstream.state.schema is not None
+    assert missing_downstream.state.schema.is_unknown
+    assert not missing_downstream.state.schema.fields
+    assert missing_downstream.select_facts[0].field is None
+
+    concrete_readiness = relation.aggregate_grouped_clause_readiness
+    assert concrete_readiness is not None
+    assert (
+        preservation._relation_state_from_aggregate_grouped_clause_readiness(
+            concrete_readiness
+        )
+        is concrete_readiness.finalization.state
+    )
+    unknown_finalization_state = preservation.ProjectRelationRowSchemaState(
+        status=ProjectRelationRowSchemaStatus.UNKNOWN,
+        schema=preservation.ProjectRowSchema(is_unknown=True),
+        reason=ProjectRelationRowSchemaReason.UPSTREAM_UNKNOWN,
+    )
+    mirrored_readiness = replace(
+        concrete_readiness,
+        finalization=replace(
+            concrete_readiness.finalization,
+            state=unknown_finalization_state,
+            aggregate_result_facts={},
+        ),
+        status=preservation.ProjectAggregateGroupedClauseReadinessStatus.UNKNOWN,
+        reason=(
+            preservation.ProjectAggregateGroupedClauseReadinessReason.SCHEMA_FINALIZATION_NON_CONCRETE
+        ),
+        dependency_facts=(),
+        limit_present=False,
+    )
+    assert (
+        preservation._relation_state_from_aggregate_grouped_clause_readiness(
+            mirrored_readiness
+        )
+        is unknown_finalization_state
+    )
+    for readiness_reason, expected_reason in (
+        (
+            preservation.ProjectAggregateGroupedClauseReadinessReason.UNAVAILABLE_CLAUSE_DEPENDENCY,
+            ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT,
+        ),
+        (
+            preservation.ProjectAggregateGroupedClauseReadinessReason.INVALID_CLAUSE_OUTPUT_REFERENCE,
+            ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT,
+        ),
+        (
+            preservation.ProjectAggregateGroupedClauseReadinessReason.INVALID_CLAUSE_EXPRESSION,
+            ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT,
+        ),
+    ):
+        unknown_readiness = replace(
+            concrete_readiness,
+            status=preservation.ProjectAggregateGroupedClauseReadinessStatus.UNKNOWN,
+            reason=readiness_reason,
+            dependency_facts=(),
+        )
+        unknown_state = (
+            preservation._relation_state_from_aggregate_grouped_clause_readiness(
+                unknown_readiness
+            )
+        )
+        assert unknown_state.status is ProjectRelationRowSchemaStatus.UNKNOWN
+        assert unknown_state.reason is expected_reason
+        assert unknown_state.schema is not None
+        assert unknown_state.schema.is_unknown
+        assert not unknown_state.schema.fields
+
+    for readiness_reason in (
+        preservation.ProjectAggregateGroupedClauseReadinessReason.MISSING_REQUIRED_CLAUSE_FACT,
+        preservation.ProjectAggregateGroupedClauseReadinessReason.CONFLICTING_CLAUSE_FACTS,
+    ):
+        blocked_readiness = replace(
+            concrete_readiness,
+            status=preservation.ProjectAggregateGroupedClauseReadinessStatus.BLOCKED,
+            reason=readiness_reason,
+            dependency_facts=(),
+        )
+        blocked_state = (
+            preservation._relation_state_from_aggregate_grouped_clause_readiness(
+                blocked_readiness
+            )
+        )
+        assert blocked_state.status is ProjectRelationRowSchemaStatus.BLOCKED
+        assert blocked_state.reason is (
+            ProjectRelationRowSchemaReason.CONFLICTING_AGGREGATE_OR_GROUPED_FACTS
+        )
+        assert blocked_state.schema is None
+
+    _, deferred_semantic = _semantic_project(
+        tmp_path / "unsupported-no-group-order",
+        {
+            "main.pietto": _query(
+                "    select:\n"
+                "        total = sum(amount)\n"
+                "    order by:\n"
+                "        amount desc\n"
+            )
+        },
+    )
+    deferred_relation = _relation(deferred_semantic, "main.pietto", "result")
+    deferred_readiness = deferred_relation.aggregate_grouped_clause_readiness
+    assert deferred_readiness is not None
+    assert deferred_readiness.status is (
+        preservation.ProjectAggregateGroupedClauseReadinessStatus.DEFERRED
+    )
+    assert deferred_readiness.reason is (
+        preservation.ProjectAggregateGroupedClauseReadinessReason.UNSUPPORTED_CLAUSE_FAMILY
+    )
+    deferred_state = (
+        preservation._relation_state_from_aggregate_grouped_clause_readiness(
+            deferred_readiness
+        )
+    )
+    assert deferred_state.status is ProjectRelationRowSchemaStatus.DEFERRED
+    assert deferred_state.reason is (
+        ProjectRelationRowSchemaReason.AGGREGATE_OR_GROUPED_DEFERRED
+    )
+    assert deferred_state.schema is None
+    assert deferred_relation.state == deferred_state
+    assert deferred_relation.aggregate_result_facts == ()
+    assert all(
+        fact.aggregate_result_fact is None for fact in deferred_relation.select_facts
+    )
+
+    invalid_readiness = replace(
+        concrete_readiness,
+        status=preservation.ProjectAggregateGroupedClauseReadinessStatus.UNKNOWN,
+        reason=(
+            preservation.ProjectAggregateGroupedClauseReadinessReason.UNAVAILABLE_CLAUSE_DEPENDENCY
+        ),
+        dependency_facts=(),
+    )
+    object.__setattr__(
+        invalid_readiness,
+        "reason",
+        preservation.ProjectAggregateGroupedClauseReadinessReason.CLAUSES_READY,
+    )
+    with pytest.raises(
+        ValueError,
+        match="Unsupported aggregate/grouped clause-readiness outcome",
+    ):
+        preservation._relation_state_from_aggregate_grouped_clause_readiness(
+            invalid_readiness
+        )
 
     _, collision_semantic = _semantic_project(
         tmp_path / "collision",

@@ -99,6 +99,28 @@ satisfying, and grouped-order availability. A unique syntactic select item is
 not `CONCRETE` without its complete target evidence, and a lossy first-name
 `let` map is never consumed unless the established scope is concrete.
 
+Private row-expression type facts are inferred independently for each requested
+root. A root is published only when its inference emits no diagnostic, retains
+the root itself, and every inferred descendant is known. A known outer
+comparison or null predicate never converts an unknown descendant into a
+concrete model or sidecar fact, and one failed root cannot seed another root's
+inference cache.
+
+Aggregate/grouped clause readiness is reduced atomically after schema
+finalization. `CLAUSES_READY` alone may retain a concrete finalization;
+`SCHEMA_FINALIZATION_NON_CONCRETE` retains that complete finalization state.
+Unavailable dependencies map to the existing unknown unavailable-aggregate
+reason, invalid output references or expressions map to the existing unknown
+invalid-output reason, unsupported clause families map to the existing
+deferred reason, and missing or conflicting clause facts map to the existing
+blocked conflict reason. Every other status/reason pair fails closed. A
+non-concrete clause outcome still retains raw clause and window analysis
+evidence, but publishes no relation schema, aggregate result link, window
+project fact eligible for schema reduction, or concrete downstream schema. It
+retains the exact already-constructed `WindowResultProjectFact` separately as
+private lineage evidence; that retention-only carrier is never consumed as a
+schema result.
+
 Unknown upstream, deferred upstream, blocked upstream, collision roots, local
 cycles, and module cycles never cause name-based recovery. Their exact Slice
 10 issue roots remain available on the fact set. A non-concrete relation
@@ -120,8 +142,20 @@ Every unavailable-upstream window occurrence still enters the shared semantic
 analyzer with an explicitly unknown input. Its analysis and diagnostics are
 retained, while its existing upstream availability family remains authoritative
 and no project fact or partial schema is adapted. When a concrete base exists,
-clause ambiguity is reduced only after every window analysis and project fact
-has been retained.
+clause ambiguity is reduced only after every window analysis and provisional
+project fact has been constructed. If any raw clause candidate bucket is
+`AMBIGUOUS`, the final blocked relation preserves each exact window item,
+ordinal, signature, analysis object, diagnostic tuple, result identity,
+duplicate-preserving dependency occurrence ledger, first-occurrence-derived
+edge tuple, dependency target and result-role identity, and exact provenance
+symbol and location. The schema-eligible `project_fact` becomes `None`, while
+the same original object remains available only through the private
+`retained_project_fact`; it is not rebuilt, copied, re-resolved, or consumed by
+schema reduction. Every retained window output carries the final blocked
+clause-conflict availability. This post-clause publication rule does not alter
+the established mixed-window reduction: without clause ambiguity, an otherwise
+blocked mixed-window relation retains each existing per-output availability and
+its valid concrete project evidence.
 
 The private sidecar may advance a Slice 10
 `DEFERRED_PHASE48_BEHAVIOR` placeholder only by applying already established
@@ -180,10 +214,10 @@ eight windows; full multi-output scans; repeated dependencies; and capability
 `Found`, `Absent`, `Unknown`, and `Conflict` outcomes without a Cartesian
 product.
 
-Gate 2 additionally requires the corrected exact 65-reader zero-addition fixed
-point, check-only Ruff over the exact 69 Python paths, production and test Pyright,
-focused and compatibility suites, generated count 8, golden count 37, package
-smoke, lock check, authoritative offline validation, independent full pytest,
-clean collection 11163, exact `A3_M70_D0`, empty index, reviewed tree, and
-immutable evidence. Gate 3 alone may make Slice 12 `COMPLETED`; the next valid
-resume point is then `PHASE54_SLICE13_GATE0_GATE1`.
+Gate 2 additionally requires the corrected exact 173-reader zero-addition fixed
+point, check-only Ruff over the exact 178 Python paths, production and test
+Pyright, focused and compatibility suites, generated count 8, golden count 37,
+package smoke, lock check, authoritative offline validation, independent full
+pytest, clean collection 11163, exact `A3_M179_D0`, empty index, reviewed tree,
+and immutable evidence. Gate 3 alone may make Slice 12 `COMPLETED`; the next
+valid resume point is then `PHASE54_SLICE13_GATE0_GATE1`.

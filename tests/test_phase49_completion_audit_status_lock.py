@@ -12,8 +12,8 @@ from pietto._project.model import (
     ProjectSemanticResult,
     build_empty_project_semantic_result,
 )
-from test_phase54_local_import_module_export_foundation_scope_lock import (
-    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+from _phase54_active_gate2_manifest import (
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -238,9 +238,9 @@ def test_deferred_work_status_is_locked() -> None:
 
 def test_forbidden_source_and_public_surface_diffs_are_empty() -> None:
     for relative_path in FORBIDDEN_DIFF_PATHS:
-        assert (_git_output(["diff", "--", relative_path]) == "") or _slice5_gate2(), (
-            relative_path
-        )
+        assert (
+            _git_output(["diff", "--", relative_path]) == ""
+        ) or _phase54_active_gate2_is_active(), relative_path
 
 
 def test_package_version_and_dirty_paths_are_locked() -> None:
@@ -248,7 +248,7 @@ def test_package_version_and_dirty_paths_are_locked() -> None:
     assert project["version"] == "0.1.0"
     assert (
         _git_status_paths() in (set(), ALLOWED_SLICE14_GATE2_PATHS)
-    ) or _slice5_gate2()
+    ) or _phase54_active_gate2_is_active()
 
 
 def _project_semantic_result(

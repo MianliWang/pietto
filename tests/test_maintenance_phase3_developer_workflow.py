@@ -3,8 +3,8 @@ from __future__ import annotations
 import subprocess
 import tomllib
 from pathlib import Path
-from test_phase54_local_import_module_export_foundation_scope_lock import (
-    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+from _phase54_active_gate2_manifest import (
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -201,9 +201,9 @@ def test_forbidden_documentation_workflow_scripts_and_lockfiles_have_no_diff() -
         assert path.is_file()
 
     for relative_path in UNCHANGED_PATHS:
-        assert (_git_output(["diff", "--", relative_path]) == "") or _slice5_gate2(), (
-            relative_path
-        )
+        assert (
+            _git_output(["diff", "--", relative_path]) == ""
+        ) or _phase54_active_gate2_is_active(), relative_path
 
 
 def test_package_version_and_global_pytest_addopts_are_unchanged() -> None:
@@ -216,4 +216,6 @@ def test_package_version_and_global_pytest_addopts_are_unchanged() -> None:
 
 def test_dirty_paths_are_clean_or_exact_slice8_allowlist() -> None:
     dirty_paths = _dirty_paths()
-    assert (dirty_paths in (set(), ALLOWED_SLICE8_GATE2_PATHS)) or _slice5_gate2()
+    assert (
+        dirty_paths in (set(), ALLOWED_SLICE8_GATE2_PATHS)
+    ) or _phase54_active_gate2_is_active()

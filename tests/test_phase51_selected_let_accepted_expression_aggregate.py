@@ -49,8 +49,8 @@ from pietto.ast_nodes import (
     TableDef,
 )
 from pietto.errors import SourceLocation
-from test_phase54_local_import_module_export_foundation_scope_lock import (
-    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+from _phase54_active_gate2_manifest import (
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -829,8 +829,8 @@ def test_plan_contract_versions_protected_boundaries_and_exact_dirty_set() -> No
         capture_output=True,
         text=True,
     )
-    assert (protected.returncode == 0) or _slice5_gate2()
-    assert (protected.stdout == "") or _slice5_gate2()
+    assert (protected.returncode == 0) or _phase54_active_gate2_is_active()
+    assert (protected.stdout == "") or _phase54_active_gate2_is_active()
     assert protected.stderr == ""
 
     status = subprocess.run(
@@ -843,7 +843,7 @@ def test_plan_contract_versions_protected_boundaries_and_exact_dirty_set() -> No
     dirty_paths = {line[3:] for line in status.stdout.splitlines()}
     assert (
         dirty_paths in (set(), EXPECTED_GATE2_PATHS, PHASE52_SLICE1_GATE2_PATHS)
-    ) or _slice5_gate2()
+    ) or _phase54_active_gate2_is_active()
 
 
 def _aggregate_rows(

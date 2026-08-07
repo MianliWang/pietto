@@ -220,8 +220,8 @@ def test_slice10_contract_and_status_docs_freeze_exact_boundary() -> None:
     assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS) == 69
     assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_ALLOWLIST_PATHS) == 72
     assert len(active_gate2_manifest.ADDED_PATHS) == 3
-    assert len(active_gate2_manifest.MODIFIED_PATHS) == 70
-    assert len(active_gate2_manifest.ALLOWLIST_PATHS) == 73
+    assert len(active_gate2_manifest.MODIFIED_PATHS) == 179
+    assert len(active_gate2_manifest.ALLOWLIST_PATHS) == 182
     frozen_gate2 = active_gate2_manifest.Phase54Gate2RepositoryState(
         marker=active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER,
         branch_oid=active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE,
