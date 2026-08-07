@@ -24,7 +24,7 @@ file.
 | pull-request merge | detached merge commit with two parents, base first, head second |
 | shallow pull-request checkout | depth-limited checkout, no parents, no merge base |
 | squashed main | base branch, single parent, tree equal to the topic tree |
-| natural main push | squashed main observed under a push event |
+| natural main push | the squashed head checked out at depth one under a push event |
 
 ## 2. Establish before observing
 

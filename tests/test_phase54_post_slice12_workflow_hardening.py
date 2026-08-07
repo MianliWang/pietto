@@ -679,6 +679,47 @@ def test_squash_projection_tree_equals_the_topic_tree(tmp_path: Path) -> None:
     assert fixture.observation.branch == topology.MAIN_BRANCH
 
 
+def test_main_push_projection_models_the_integration_depth_one_checkout(
+    tmp_path: Path,
+) -> None:
+    fixture = topology.build_topology(
+        topology.TOPOLOGY_MAIN_PUSH, tmp_path / "mainpush"
+    )
+    assert fixture.observation.shallow is True
+    assert fixture.observation.head_parents == ()
+    assert fixture.observation.merge_base == ""
+    assert fixture.observation.branch == topology.MAIN_BRANCH
+    assert fixture.observation.event_name == topology.EVENT_PUSH
+    assert fixture.observation.head == fixture.refs["squash"]
+    assert topology.verify(fixture.observation, fixture.expectation) == ()
+    local = topology.build_topology(
+        topology.TOPOLOGY_SQUASH_MAIN, tmp_path / "localsquash"
+    )
+    assert local.observation.shallow is False
+    assert local.observation.head_parents == (local.refs["base"],)
+
+
+def test_clean_topic_predicate_rejects_a_replaced_tree(tmp_path: Path) -> None:
+    trailer = active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REVIEWED_TREE_TRAILER
+    subject = active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR2_SUBJECT
+    matches = active_gate2_manifest._phase54_post_slice12_interlude_message_matches_tree
+    tree = "a" * 40
+    other = "b" * 40
+    assert matches(f"{subject}\n\n{trailer}: {tree}", tree)
+    assert not matches(f"{subject}\n\n{trailer}: {other}", tree)
+    assert not matches(f"{subject}\n\n{trailer}: {tree}", other)
+    assert not matches(f"Other subject\n\n{trailer}: {tree}", tree)
+    assert not matches(subject, tree)
+    assert not matches(f"{subject}\n\n{trailer}: {tree}\n{trailer}: {tree}", tree)
+    assert not matches(f"{subject}\n\n{trailer}: {tree}", "not-a-tree")
+    assert active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR1_TREE == (
+        "9b326c483cda398e8c4c0afc7230e9ac1df54134"
+    )
+    assert active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_TREE == (
+        "2880cb12fc5b4235fa7c12aee44cbe5efbd34457"
+    )
+
+
 def test_wrong_parent_reference_tree_shallow_and_event_are_rejected(
     tmp_path: Path,
 ) -> None:

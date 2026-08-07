@@ -11,8 +11,8 @@ from pathlib import Path
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
-    PHASE54_POST_SLICE12_INTERLUDE_REPAIR1_BASE,
-    phase54_post_slice12_interlude_repair1_is_active,
+    phase54_post_slice12_interlude_expected_head,
+    phase54_post_slice12_interlude_repair_is_active,
     phase54_post_slice12_interlude_dirty_is_active,
     phase54_post_slice12_interlude_expected_added_paths,
     phase54_post_slice12_interlude_expected_allowlist_paths,
@@ -177,9 +177,9 @@ MODULE_SHA256 = {
 SPEC_SHA256 = "7010cd8a39ed389de588d8cd734b136cc87456c3ef5eb324638467d1188fc935"
 MODIFIED_TEST_SHA256 = {
     SLICE4_TEST_REL: "828ae13d9c071fd3f9fbc89efbc7fdf399969d8e48e6bcb32d93f5062f5fc864",
-    SLICE5_TEST_REL: "e878223dac4720702f905cbb144207c2af01beb613ba3c8ce0c7cd569ab1c5d6",
-    SLICE6_TEST_REL: "89c4370324026626f1cba8bf7cf6a9e201bcd72d21e286977aaaff5d938346c8",
-    SLICE7_TEST_REL: "77190a3ee9ecbdc8ea114a59cba9934c4f255a90d668f21fab1c2b53af1c4265",
+    SLICE5_TEST_REL: "98f6e3c4066816c8c7f281267d5e117d0569a000d19bf8832737815b43fbb096",
+    SLICE6_TEST_REL: "2d093eb1992edbb6e5a2aecc055020afe942ec9cc402280365b5b746b602bf9b",
+    SLICE7_TEST_REL: "1af87a170f1f686be843ffeb14a8135367dab627bb0de07d24de74ee26ba6413",
 }
 WORKFLOW_SHA256 = "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94"
 PYPROJECT_SHA256 = "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01"
@@ -755,11 +755,11 @@ def _assert_allowed_dirty_state(
     if not dirty:
         return
 
-    if phase54_post_slice12_interlude_repair1_is_active():
+    if phase54_post_slice12_interlude_repair_is_active():
         assert branch == PHASE54_POST_SLICE12_INTERLUDE_BRANCH
         assert tracked == set(phase54_post_slice12_interlude_expected_modified_paths())
         assert untracked == set(phase54_post_slice12_interlude_expected_added_paths())
-        assert head == PHASE54_POST_SLICE12_INTERLUDE_REPAIR1_BASE
+        assert head == phase54_post_slice12_interlude_expected_head()
         assert main == origin_main == PHASE54_POST_SLICE12_INTERLUDE_BASE
         return
 
@@ -2354,7 +2354,7 @@ def test_test_inventory_tier1_selectors_and_compatibility_counts_are_exact() -> 
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (462, 5274)
+    assert (len(test_files), top_level_functions) == (462, 5276)
     assert tuple(
         _pytest_shape(REPO_ROOT / path)[1]
         for path in (

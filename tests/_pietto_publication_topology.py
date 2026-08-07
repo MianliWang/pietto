@@ -476,11 +476,55 @@ def build_topology(kind: str, root: Path) -> TopologyFixture:
     squash = _commit(root, TOPIC_SUBJECT)
     _set_upstream(root, MAIN_BRANCH, squash)
     refs["squash"] = squash
-    event_name = EVENT_PUSH if kind == TOPOLOGY_MAIN_PUSH else EVENT_LOCAL
+
+    if kind == TOPOLOGY_MAIN_PUSH:
+        # Integration checks the merged head out at depth one, exactly as it
+        # does for a pull request. Reusing the full local repository here would
+        # hide every guard that depends on history or on the shallow boundary.
+        checkout = root.parent / f"{root.name}-mainpush"
+        _git(root, "init", "--quiet", str(checkout))
+        _git(checkout, "remote", "add", "origin", str(root))
+        _git(
+            checkout,
+            "fetch",
+            "--quiet",
+            "--depth",
+            "1",
+            "origin",
+            f"+refs/heads/{MAIN_BRANCH}:refs/remotes/origin/{MAIN_BRANCH}",
+        )
+        _git(checkout, "checkout", "--quiet", "-B", MAIN_BRANCH, squash)
+        observation = observe(
+            checkout,
+            event_name=EVENT_PUSH,
+            event_head_ref=MAIN_BRANCH,
+            event_base_ref="",
+            base_ref="",
+        )
+        expectation = TopologyExpectation(
+            kind=kind,
+            branch=MAIN_BRANCH,
+            head=squash,
+            head_tree=topic_tree,
+            head_parents=(),
+            merge_base="",
+            shallow=True,
+            event_name=EVENT_PUSH,
+            event_head_ref=MAIN_BRANCH,
+            event_base_ref="",
+        )
+        return TopologyFixture(
+            kind=kind,
+            root=checkout,
+            expectation=expectation,
+            observation=observation,
+            refs=refs,
+        )
+
     observation = observe(
         root,
-        event_name=event_name,
-        event_head_ref=MAIN_BRANCH if kind == TOPOLOGY_MAIN_PUSH else "",
+        event_name=EVENT_LOCAL,
+        event_head_ref="",
         event_base_ref="",
         base_ref=f"refs/remotes/origin/{MAIN_BRANCH}",
     )
@@ -492,8 +536,8 @@ def build_topology(kind: str, root: Path) -> TopologyFixture:
         head_parents=(base,),
         merge_base=squash,
         shallow=False,
-        event_name=event_name,
-        event_head_ref=MAIN_BRANCH if kind == TOPOLOGY_MAIN_PUSH else "",
+        event_name=EVENT_LOCAL,
+        event_head_ref="",
         event_base_ref="",
     )
     return TopologyFixture(

@@ -53,8 +53,10 @@ the same commits and the same trees.
   run still failed.
 - **squashed main** — a single parent and a tree equal to the topic tree. This
   is where tree equality is proven.
-- **natural main push** — the squashed result observed under a push event, so
-  event-scoped guards are exercised on the merged head.
+- **natural main push** — the squashed result checked out at depth one under a
+  push event, with no parents and no merge base. Integration truncates history
+  here exactly as it does for a pull request, so reusing the full local
+  repository would hide every guard that walks history.
 
 ## Failure modes this harness models
 
@@ -67,6 +69,8 @@ the same commits and the same trees.
 | a shallow checkout treated as if history were present | the shallow projection with no parents and no merge base |
 | a staged-only change observed as a clean tree | index and worktree status bits are both read, and renames, copies, and unmerged records fail closed |
 | an obsolete generation predicate conflated with the latest clean state | one expectation per projection, compared field by field |
+| a merged head assumed to carry full history | the main-push projection is depth-one with no parents and no merge base |
+| a clean child accepted on parent and subject alone | every recognized child is bound to an exact tree identity |
 
 ## Sweep checklist
 

@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
-    PHASE54_POST_SLICE12_INTERLUDE_REPAIR1_BASE,
-    phase54_post_slice12_interlude_repair1_is_active,
+    phase54_post_slice12_interlude_expected_head,
+    phase54_post_slice12_interlude_repair_is_active,
     phase54_post_slice12_interlude_dirty_is_active,
     phase54_post_slice12_interlude_expected_added_paths,
     phase54_post_slice12_interlude_expected_allowlist_paths,
@@ -704,9 +704,9 @@ def _assert_allowed_dirty_state(
     if phase54_post_slice12_interlude_dirty_is_active():
         assert tracked == set(phase54_post_slice12_interlude_expected_modified_paths())
         assert untracked == set(phase54_post_slice12_interlude_expected_added_paths())
-        if phase54_post_slice12_interlude_repair1_is_active():
+        if phase54_post_slice12_interlude_repair_is_active():
             assert branch == PHASE54_POST_SLICE12_INTERLUDE_BRANCH
-            assert head == PHASE54_POST_SLICE12_INTERLUDE_REPAIR1_BASE
+            assert head == phase54_post_slice12_interlude_expected_head()
             assert main == origin_main == PHASE54_POST_SLICE12_INTERLUDE_BASE
         else:
             assert branch == "main"
@@ -1395,7 +1395,7 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
         )
         for path in test_files
     )
-    assert (len(test_files), top_functions) == (462, 5274)
+    assert (len(test_files), top_functions) == (462, 5276)
     assert (
         381 + 834 + 627 + 424 + 279 + 168 + 156 + 12 + 145 + 190 + 70 + 70 + 97 + 35
         == 3488
