@@ -20,6 +20,10 @@ from _phase54_active_gate2_manifest import (
     PHASE54_SLICE12_PR_CI_REPAIR_BASE,
     PHASE54_SLICE12_PR_CI_REPAIR_BRANCH,
     PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE12_MECHANICAL_REPAIR3_BASE,
+    PHASE54_SLICE12_MECHANICAL_REPAIR3_BRANCH,
+    PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS,
+    PHASE54_SLICE12_MECHANICAL_REPAIR3_SUBJECT,
     PHASE54_SLICE12_PRODUCT_REPAIR3_BASE,
     PHASE54_SLICE12_PRODUCT_REPAIR3_BRANCH,
     PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS,
@@ -53,6 +57,8 @@ from _phase54_active_gate2_manifest import (
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
     phase54_slice11_pr_ci_repair_is_active,
     phase54_slice12_pr_ci_repair_is_active,
+    phase54_slice12_mechanical_repair3_clean_topic_is_active,
+    phase54_slice12_mechanical_repair3_is_active,
     phase54_slice12_product_repair3_clean_topic_is_active,
     phase54_slice12_product_repair10_clean_topic_is_active,
     phase54_slice12_product_repair11_clean_topic_is_active,
@@ -156,9 +162,9 @@ MODULE_SHA256 = {
 SPEC_SHA256 = "7010cd8a39ed389de588d8cd734b136cc87456c3ef5eb324638467d1188fc935"
 MODIFIED_TEST_SHA256 = {
     SLICE4_TEST_REL: "42db35abcf7467e9299418b748d49dbeff4be2218af3e9f8e2eae2fdb936047d",
-    SLICE5_TEST_REL: "e61f62dec8f5612a305c6c62e369221d7cc0e44fbb021b0359161822e473c433",
-    SLICE6_TEST_REL: "19e0b404de433dba341544b4e1ec049ea5314867dae3707e5172395a4c017f13",
-    SLICE7_TEST_REL: "af0ee4ed4767e2b3cba65843808e19b7f0c22d69d827a3256d7de031fe35cade",
+    SLICE5_TEST_REL: "2667309291cf40d7b5f9004b5fca2afdd96b11bdf5a991eb1172ffbe059a7520",
+    SLICE6_TEST_REL: "ea4ff13c512792da0d8e55bb84707dae3fa53ae108a3fa702a5470d559fde57b",
+    SLICE7_TEST_REL: "f32e572ff2d831a6ffc452de4ade1aa1c96b32141f402a3645f33e85b5185309",
 }
 WORKFLOW_SHA256 = "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94"
 PYPROJECT_SHA256 = "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01"
@@ -480,6 +486,16 @@ def _assert_clean_checkout_refs(
     origin_main: str | None,
     exact_main_refs: bool = False,
 ) -> None:
+    if phase54_slice12_mechanical_repair3_clean_topic_is_active():
+        assert branch == PHASE54_SLICE12_MECHANICAL_REPAIR3_BRANCH
+        assert main == origin_main == PHASE54_ACTIVE_GATE2_BASE
+        assert tuple(
+            _git_output(["rev-list", "--parents", "-n", "1", head]).split()[1:]
+        ) == (PHASE54_SLICE12_MECHANICAL_REPAIR3_BASE,)
+        assert _git_output(["show", "-s", "--format=%s", head]) == (
+            PHASE54_SLICE12_MECHANICAL_REPAIR3_SUBJECT
+        )
+        return
     if phase54_slice12_product_repair14_clean_topic_is_active():
         assert branch == PHASE54_SLICE12_PRODUCT_REPAIR14_BRANCH
         assert main == origin_main == PHASE54_ACTIVE_GATE2_BASE
@@ -629,6 +645,13 @@ def _assert_allowed_dirty_state(
         assert untracked == set()
         assert branch == PHASE54_SLICE12_PR_CI_REPAIR_BRANCH
         assert head == PHASE54_SLICE12_PR_CI_REPAIR_BASE
+        assert main == origin_main == "bc46faff1c9aa71f583ed7d2964b651cc659bc90"
+        return
+    if phase54_slice12_mechanical_repair3_is_active():
+        assert tracked == set(PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS)
+        assert untracked == set()
+        assert branch == PHASE54_SLICE12_MECHANICAL_REPAIR3_BRANCH
+        assert head == PHASE54_SLICE12_MECHANICAL_REPAIR3_BASE
         assert main == origin_main == "bc46faff1c9aa71f583ed7d2964b651cc659bc90"
         return
     if phase54_slice12_product_repair14_is_active():
