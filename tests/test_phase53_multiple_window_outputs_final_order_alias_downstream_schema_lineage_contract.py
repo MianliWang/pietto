@@ -11,6 +11,7 @@ from types import MappingProxyType
 from typing import cast
 
 from _phase54_active_gate2_manifest import (
+    PHASE54_ACTIVE_GATE2_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,
@@ -21,9 +22,27 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
     PHASE54_SLICE11_PR_CI_REPAIR_BASE,
+    PHASE54_SLICE12_PR_CI_REPAIR_BASE,
+    PHASE54_SLICE12_MECHANICAL_REPAIR3_BASE,
+    PHASE54_SLICE12_MECHANICAL_REPAIR3_SUBJECT,
+    PHASE54_SLICE12_MECHANICAL_REPAIR4_BASE,
+    PHASE54_SLICE12_MECHANICAL_REPAIR4_SUBJECT,
+    PHASE54_SLICE12_PRODUCT_REPAIR3_BASE,
+    PHASE54_SLICE12_PRODUCT_REPAIR3_SUBJECT,
+    PHASE54_SLICE12_PRODUCT_REPAIR10_BASE,
+    PHASE54_SLICE12_PRODUCT_REPAIR10_PARENT,
+    PHASE54_SLICE12_PRODUCT_REPAIR10_SUBJECT,
+    PHASE54_SLICE12_PRODUCT_REPAIR11_BASE,
+    PHASE54_SLICE12_PRODUCT_REPAIR11_SUBJECT,
+    PHASE54_SLICE12_PRODUCT_REPAIR12_BASE,
+    PHASE54_SLICE12_PRODUCT_REPAIR12_SUBJECT,
+    PHASE54_SLICE12_PRODUCT_REPAIR13_BASE,
+    PHASE54_SLICE12_PRODUCT_REPAIR13_SUBJECT,
+    PHASE54_SLICE12_PRODUCT_REPAIR14_BASE,
+    PHASE54_SLICE12_PRODUCT_REPAIR14_SUBJECT,
     PHASE54_SLICE11_PYTHON313_REPAIR_BASE,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE,
-    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 import pytest
@@ -606,8 +625,33 @@ def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> N
         if _git_output(["rev-parse", "--is-shallow-repository"]) == "true":
             assert parents == []
         else:
-            if _phase54_slice11_gate2_is_active():
-                if head == PHASE54_SLICE11_PYTHON313_REPAIR_BASE:
+            if _phase54_active_gate2_is_active():
+                subject = _git_output(["show", "-s", "--format=%s", "HEAD"])
+                if subject == PHASE54_SLICE12_MECHANICAL_REPAIR4_SUBJECT:
+                    expected_parent = PHASE54_SLICE12_MECHANICAL_REPAIR4_BASE
+                elif subject == PHASE54_SLICE12_MECHANICAL_REPAIR3_SUBJECT:
+                    expected_parent = PHASE54_SLICE12_MECHANICAL_REPAIR3_BASE
+                elif subject == PHASE54_SLICE12_PRODUCT_REPAIR14_SUBJECT:
+                    expected_parent = PHASE54_SLICE12_PRODUCT_REPAIR14_BASE
+                elif subject == PHASE54_SLICE12_PRODUCT_REPAIR13_SUBJECT:
+                    expected_parent = PHASE54_SLICE12_PRODUCT_REPAIR13_BASE
+                elif subject == PHASE54_SLICE12_PRODUCT_REPAIR12_SUBJECT:
+                    expected_parent = PHASE54_SLICE12_PRODUCT_REPAIR12_BASE
+                elif subject == PHASE54_SLICE12_PRODUCT_REPAIR11_SUBJECT:
+                    expected_parent = PHASE54_SLICE12_PRODUCT_REPAIR11_BASE
+                elif subject == PHASE54_SLICE12_PRODUCT_REPAIR10_SUBJECT:
+                    expected_parent = PHASE54_SLICE12_PRODUCT_REPAIR10_BASE
+                elif head == PHASE54_SLICE12_PRODUCT_REPAIR10_BASE:
+                    expected_parent = PHASE54_SLICE12_PRODUCT_REPAIR10_PARENT
+                elif subject == (PHASE54_SLICE12_PRODUCT_REPAIR3_SUBJECT):
+                    expected_parent = PHASE54_SLICE12_PRODUCT_REPAIR3_BASE
+                elif head == PHASE54_SLICE12_PRODUCT_REPAIR3_BASE:
+                    expected_parent = PHASE54_SLICE12_PR_CI_REPAIR_BASE
+                elif head == PHASE54_SLICE12_PR_CI_REPAIR_BASE:
+                    expected_parent = PHASE54_ACTIVE_GATE2_BASE
+                elif head == PHASE54_ACTIVE_GATE2_BASE:
+                    expected_parent = PHASE54_SLICE10_HEAD
+                elif head == PHASE54_SLICE11_PYTHON313_REPAIR_BASE:
                     expected_parent = PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE
                 elif head == PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE:
                     expected_parent = PHASE54_SLICE11_PR_CI_REPAIR_BASE
@@ -656,6 +700,14 @@ def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> N
                 expected_parent = PHASE54_SLICE7_HEAD
             elif head == PHASE54_SLICE9_HEAD:
                 expected_parent = PHASE54_SLICE8_HEAD
+            elif _git_output(["show", "-s", "--format=%s", "HEAD"]) == (
+                "Add Phase 54 semantic fact preservation"
+            ):
+                expected_parent = PHASE54_ACTIVE_GATE2_BASE
+            elif _git_output(["show", "-s", "--format=%s", "HEAD"]) == (
+                "Fix Phase 54 Slice 12 PR CI topology projection"
+            ):
+                expected_parent = PHASE54_SLICE12_PR_CI_REPAIR_BASE
             elif _git_output(["show", "-s", "--format=%s", "HEAD"]) == (
                 "Fix Phase 54 alias blocker provenance"
             ):
@@ -1550,7 +1602,7 @@ def test_recursive_reader_hash_terminal_and_manifest_fixed_point_is_exact() -> N
         for path in paths
         if path.startswith("src/pietto/_project/") and path.endswith(".py")
     )
-    assert len(project_paths) == 29
+    assert len(project_paths) == 30
     assert "src/pietto/_project/window_persistence.py" in project_paths
     digest = hashlib.sha256()
     for path in project_paths:
@@ -1594,11 +1646,11 @@ def test_test_inventory_focused_overlay_validation_and_gate3_are_exact() -> None
         len(test_paths),
         top_level_tests,
     ) == (
-        918,
-        565,
-        257,
-        460,
-        5171,
+        921,
+        567,
+        258,
+        461,
+        5215,
     )
     docs = _read(PLAN_REL)
     for value in (

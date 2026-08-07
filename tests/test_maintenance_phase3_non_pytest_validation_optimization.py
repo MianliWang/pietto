@@ -4,8 +4,8 @@ import re
 import subprocess
 import tomllib
 from pathlib import Path
-from test_phase54_local_import_module_export_foundation_scope_lock import (
-    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+from _phase54_active_gate2_manifest import (
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -209,4 +209,6 @@ def test_ci_workflow_commands_cache_and_worker_strategy_are_unchanged() -> None:
 
 def test_dirty_paths_are_clean_or_exact_slice7_allowlist() -> None:
     dirty_paths = _dirty_paths()
-    assert (dirty_paths in (set(), ALLOWED_SLICE7_GATE2_PATHS)) or _slice5_gate2()
+    assert (
+        dirty_paths in (set(), ALLOWED_SLICE7_GATE2_PATHS)
+    ) or _phase54_active_gate2_is_active()

@@ -15,8 +15,8 @@ from test_phase39_candidate_decision import ALLOWED_SLICE3_CHANGED_PATHS
 from pietto.errors import Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
-from test_phase54_local_import_module_export_foundation_scope_lock import (
-    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+from _phase54_active_gate2_manifest import (
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -505,8 +505,12 @@ def test_forbidden_surfaces_are_not_modified_or_untracked() -> None:
         if line
     }
 
-    assert (diff_paths <= ALLOWED_SLICE3_CHANGED_PATHS) or _slice5_gate2()
-    assert (status_paths <= ALLOWED_SLICE3_CHANGED_PATHS) or _slice5_gate2()
+    assert (
+        diff_paths <= ALLOWED_SLICE3_CHANGED_PATHS
+    ) or _phase54_active_gate2_is_active()
+    assert (
+        status_paths <= ALLOWED_SLICE3_CHANGED_PATHS
+    ) or _phase54_active_gate2_is_active()
 
 
 def test_only_phase37_static_audit_files_are_changed_or_untracked() -> None:
@@ -519,4 +523,4 @@ def test_only_phase37_static_audit_files_are_changed_or_untracked() -> None:
         and path not in ALLOWED_SLICE3_CHANGED_PATHS
     )
 
-    assert (non_phase37_static_audit_paths == []) or _slice5_gate2()
+    assert (non_phase37_static_audit_paths == []) or _phase54_active_gate2_is_active()

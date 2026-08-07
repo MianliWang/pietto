@@ -8,7 +8,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 import pietto.cli_json as cli_json

@@ -4,8 +4,8 @@ import subprocess
 import tomllib
 from pathlib import Path
 from typing import cast
-from test_phase54_local_import_module_export_foundation_scope_lock import (
-    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+from _phase54_active_gate2_manifest import (
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -348,9 +348,9 @@ def test_local_first_ci_sequence_deferrals_and_non_goals_are_locked() -> None:
 
 def test_forbidden_surfaces_have_no_diff() -> None:
     for relative_path in UNCHANGED_PATHS:
-        assert (_git_output(["diff", "--", relative_path]) == "") or _slice5_gate2(), (
-            relative_path
-        )
+        assert (
+            _git_output(["diff", "--", relative_path]) == ""
+        ) or _phase54_active_gate2_is_active(), relative_path
 
 
 def test_package_version_addopts_and_xdist_dependency_scope_are_unchanged() -> None:
@@ -369,4 +369,6 @@ def test_package_version_addopts_and_xdist_dependency_scope_are_unchanged() -> N
 
 
 def test_dirty_paths_are_clean_or_exact_slice1_allowlist() -> None:
-    assert (_dirty_paths() in (set(), ALLOWED_SLICE1_GATE2_PATHS)) or _slice5_gate2()
+    assert (
+        _dirty_paths() in (set(), ALLOWED_SLICE1_GATE2_PATHS)
+    ) or _phase54_active_gate2_is_active()

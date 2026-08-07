@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 import subprocess
 import tomllib
-from test_phase54_local_import_module_export_foundation_scope_lock import (
-    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+from _phase54_active_gate2_manifest import (
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -266,9 +266,9 @@ def test_ci_workflow_and_forbidden_public_surfaces_have_no_diff() -> None:
     assert _git_output(["diff", "--", ".github/workflows/ci.yml"]) == ""
 
     for relative_path in FORBIDDEN_DIFF_PATHS:
-        assert (_git_output(["diff", "--", relative_path]) == "") or _slice5_gate2(), (
-            relative_path
-        )
+        assert (
+            _git_output(["diff", "--", relative_path]) == ""
+        ) or _phase54_active_gate2_is_active(), relative_path
 
 
 def test_dirty_paths_are_clean_or_exact_slice3_allowlist() -> None:
@@ -276,4 +276,4 @@ def test_dirty_paths_are_clean_or_exact_slice3_allowlist() -> None:
     assert (
         dirty_paths in (set(), ALLOWED_SLICE3_GATE2_PATHS)
         or (dirty_paths <= ALLOWED_SLICE4_GATE2_PATHS)
-    ) or _slice5_gate2()
+    ) or _phase54_active_gate2_is_active()

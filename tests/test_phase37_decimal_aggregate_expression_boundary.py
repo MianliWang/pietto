@@ -14,8 +14,8 @@ from test_phase39_candidate_decision import (
     _non_slice3_repair_diff_paths,
     _non_slice3_repair_status_paths,
 )
-from test_phase54_local_import_module_export_foundation_scope_lock import (
-    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+from _phase54_active_gate2_manifest import (
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -398,8 +398,12 @@ def test_forbidden_surfaces_are_not_modified_or_untracked() -> None:
     diff_output = _git_diff_name_only(REPO_ROOT, FORBIDDEN_DIFF_PATHS)
     status_output = _git_status_for(FORBIDDEN_DIFF_PATHS)
 
-    assert (_non_slice3_repair_diff_paths(diff_output) == set()) or _slice5_gate2()
-    assert (_non_slice3_repair_status_paths(status_output) == set()) or _slice5_gate2()
+    assert (
+        _non_slice3_repair_diff_paths(diff_output) == set()
+    ) or _phase54_active_gate2_is_active()
+    assert (
+        _non_slice3_repair_status_paths(status_output) == set()
+    ) or _phase54_active_gate2_is_active()
 
 
 def test_only_phase37_static_audit_files_are_changed_or_untracked() -> None:
@@ -411,4 +415,6 @@ def test_only_phase37_static_audit_files_are_changed_or_untracked() -> None:
         if not _is_in_progress_phase37_static_audit_path(path)
     )
 
-    assert (set(forbidden_paths) <= ALLOWED_SLICE3_CHANGED_PATHS) or _slice5_gate2()
+    assert (
+        set(forbidden_paths) <= ALLOWED_SLICE3_CHANGED_PATHS
+    ) or _phase54_active_gate2_is_active()

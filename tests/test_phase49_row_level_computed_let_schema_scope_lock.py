@@ -6,8 +6,8 @@ import tomllib
 
 from _static_audit_helpers import normalized_text as _normalized
 from _static_audit_helpers import read_text as _read
-from test_phase54_local_import_module_export_foundation_scope_lock import (
-    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+from _phase54_active_gate2_manifest import (
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -276,14 +276,18 @@ def test_slice1_gate2_allowlist_and_dirty_paths_are_locked() -> None:
 
     dirty_paths = _dirty_paths()
     unexpected_paths = dirty_paths - ALLOWED_SLICE1_GATE2_PATHS
-    assert (unexpected_paths == set()) or _slice5_gate2()
+    assert (unexpected_paths == set()) or _phase54_active_gate2_is_active()
 
 
 def test_forbidden_surfaces_have_empty_diffs() -> None:
     for path in FORBIDDEN_DIFF_PATHS:
-        assert (_git_output(["diff", "--", path]) == "") or _slice5_gate2(), path
+        assert (
+            _git_output(["diff", "--", path]) == ""
+        ) or _phase54_active_gate2_is_active(), path
 
 
 def test_hash_lock_tests_remain_unchanged() -> None:
     for path in HASH_LOCK_TEST_PATHS:
-        assert (_git_output(["diff", "--", path]) == "") or _slice5_gate2(), path
+        assert (
+            _git_output(["diff", "--", path]) == ""
+        ) or _phase54_active_gate2_is_active(), path

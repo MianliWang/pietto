@@ -51,6 +51,9 @@ if TYPE_CHECKING:
         ProjectModuleRelationResolutionSet,
     )
     from pietto._project.module_resolution import ProjectTypeSourceResolutionSet
+    from pietto._project.module_semantic_fact_preservation import (
+        ProjectModuleSemanticFactSet,
+    )
     from pietto._project.row_dependency_graph import ProjectRelationRowDependencyGraph
     from pietto._project.row_lineage import ProjectRelationRowLineage
     from pietto._project.window_semantics import WindowResultProjectFact
@@ -807,10 +810,11 @@ class ProjectSemanticResult:
     module_diagnostic_facts: ProjectModuleDiagnosticSet | None = None
     module_type_source_resolutions: ProjectTypeSourceResolutionSet | None = None
     module_relation_resolutions: ProjectModuleRelationResolutionSet | None = None
+    module_semantic_facts: ProjectModuleSemanticFactSet | None = None
     module_attribution_facts: ProjectModuleAttributionFactSet | None = None
 
     def __post_init__(self) -> None:
-        """Keep the Slice 11 sidecar bound to this exact semantic result."""
+        """Keep the Slice 11 and Slice 12 sidecars on exact independent roots."""
 
         if type(self.compilation_mode) is not ProjectCompilationMode:
             raise TypeError("Project semantics require an exact compilation mode.")
@@ -822,6 +826,7 @@ class ProjectSemanticResult:
             self.module_diagnostic_facts,
             self.module_type_source_resolutions,
             self.module_relation_resolutions,
+            self.module_semantic_facts,
             self.module_attribution_facts,
         )
         if self.compilation_mode is ProjectCompilationMode.LEGACY_FLAT:
@@ -929,6 +934,46 @@ class ProjectSemanticResult:
             raise ValueError(
                 "Project module attribution facts require exact project semantic roots."
             )
+
+        semantic_facts = self.module_semantic_facts
+        assert semantic_facts is not None
+        from pietto._project.module_semantic_fact_preservation import (
+            ProjectModuleSemanticFactSet,
+        )
+
+        if type(semantic_facts) is not ProjectModuleSemanticFactSet:
+            raise TypeError(
+                "Project module semantic facts require an exact preservation set."
+            )
+        semantic_authority = semantic_facts.authority
+        if (
+            semantic_authority.modules is not self.modules
+            or semantic_authority.catalogs is not self.module_catalogs
+            or semantic_authority.relation_resolutions
+            is not self.module_relation_resolutions
+        ):
+            raise ValueError(
+                "Project module semantic facts require exact Slice 10 roots."
+            )
+        if (
+            semantic_facts.dependency_order
+            is not module_relation_resolutions.dependency_order
+            or semantic_facts.issues is not module_relation_resolutions.issues
+            or len(semantic_facts.environments)
+            != len(module_relation_resolutions.environments)
+            or any(
+                semantic_environment.resolution_environment is not relation_environment
+                for semantic_environment, relation_environment in zip(
+                    semantic_facts.environments,
+                    module_relation_resolutions.environments,
+                    strict=True,
+                )
+            )
+        ):
+            raise ValueError(
+                "Project module semantic facts require exact ordered Slice 10 facts."
+            )
+
         expected_diagnostics = (
             *module_diagnostic_facts.diagnostics,
             *module_type_source_resolutions.diagnostics,
@@ -997,6 +1042,9 @@ def build_empty_project_semantic_result(
         from pietto._project.module_resolution import (
             _build_project_type_source_resolution_set,
         )
+        from pietto._project.module_semantic_fact_preservation import (
+            _build_project_module_semantic_fact_set,
+        )
 
         module_catalogs = _build_project_module_catalog_set(parse_result.modules)
         assert parse_result.selected_input_index is not None
@@ -1036,6 +1084,11 @@ def build_empty_project_semantic_result(
             module_diagnostic_facts,
             module_type_source_resolutions,
         )
+        module_semantic_facts = _build_project_module_semantic_fact_set(
+            parse_result.modules,
+            module_catalogs,
+            module_relation_resolutions,
+        )
         module_attribution_facts = _build_project_module_attribution_fact_set(
             parse_result,
             parse_result.modules,
@@ -1066,6 +1119,7 @@ def build_empty_project_semantic_result(
             module_diagnostic_facts=module_diagnostic_facts,
             module_type_source_resolutions=module_type_source_resolutions,
             module_relation_resolutions=module_relation_resolutions,
+            module_semantic_facts=module_semantic_facts,
             module_attribution_facts=module_attribution_facts,
             diagnostics=(
                 *module_diagnostic_facts.diagnostics,
@@ -2160,15 +2214,6 @@ def _project_direct_relation_row_schema(
             state_reason=ProjectRelationRowSchemaReason.UPSTREAM_UNKNOWN,
         )
 
-    expression_value_types = build_project_row_expression_value_types(
-        expressions=(
-            item.expression
-            for item in definition.select_items
-            if item.alias is not None and type(item.expression) is not WindowExpr
-        ),
-        input_schema=source_schema,
-        relation_qualifier=definition.from_clause.source_name,
-    )
     if let_scope_facts is None:
         let_scope_facts = build_project_relation_let_scope_facts(
             definition=definition,
@@ -2180,6 +2225,16 @@ def _project_direct_relation_row_schema(
         let_scope_facts.value_types
         if let_scope_facts.status is ProjectLetScopeFactsStatus.CONCRETE
         else None
+    )
+    expression_value_types = build_project_row_expression_value_types(
+        expressions=(
+            item.expression
+            for item in definition.select_items
+            if item.alias is not None and type(item.expression) is not WindowExpr
+        ),
+        input_schema=source_schema,
+        relation_qualifier=definition.from_clause.source_name,
+        bare_value_types=let_value_types,
     )
 
     for item in definition.select_items:

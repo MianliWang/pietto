@@ -9,7 +9,15 @@ from collections import Counter
 from pathlib import Path
 
 from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS,
+    PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS,
+    PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS,
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
+    phase54_slice12_pr_ci_repair_is_active,
+    phase54_slice12_product_repair3_is_active,
+    phase54_slice12_product_repair10_is_active,
+    phase54_slice12_product_repair11_is_active,
 )
 
 
@@ -491,9 +499,9 @@ PROTECTED_SHA256 = {
     "src/pietto/_project/source_selection.py": "fb1c531bcdd81696aa0c26b110433a6775cde878aeb4af3373d0d4aaf1f1443e",
     "src/pietto/_project/check.py": "6f2f2805249cc86a8ff3510a03abc702d2a029186cf16b50cabd11dbaf1da9e1",
     "src/pietto/_project/json_v2.py": "74251e684a22de4dcdc7e1822a6843ca89cbdfa7e136a046676d848b57953bd5",
-    SLICE2_TEST_REL: "20d3f5b8d0286050b3c0f800a0281a9c15002ceb4f1af349a0feeac17eedac01",
-    SLICE3_TEST_REL: "087e0b08ceba3d65403491f8209fb149acb4d159b1cc67440f4378a8309140fe",
-    SLICE4_TEST_REL: "3411f6087cbd87e1dc857c117586249f07617ab451ab4f47bd48873b8df37148",
+    SLICE2_TEST_REL: "2b9c49867f87813f7f6410916a7295cf0b1694018806335f80ba167cbe016487",
+    SLICE3_TEST_REL: "959030adf9da374fe2375533efdd4ed839bb63bf3513939bba3182b34e198de0",
+    SLICE4_TEST_REL: "d8d054aeffc85e24e61b574bbef84b219cfcfe3e3f90ba0f39f8c2ceaa455d29",
     ".github/workflows/ci.yml": "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94",
     "pyproject.toml": "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01",
     "uv.lock": "a7d9125995e98a8a74d3664ceae7801cc1f4cce74ec323933da67838be199cea",
@@ -539,7 +547,7 @@ def _git_output(args: list[str]) -> str:
 def phase54_slice5_gate2_manifest_is_active() -> bool:
     """Compatibility wrapper for historical readers of the active Gate 2."""
 
-    return _phase54_slice11_gate2_is_active()
+    return _phase54_active_gate2_is_active()
 
 
 def _readable_paths() -> tuple[str, ...]:
@@ -602,7 +610,7 @@ def test_slice1_artifact_titles_heading_order_and_lifecycle_are_exact() -> None:
         assert _headings(relative, 2)
     plan_h2 = _headings(PLAN_REL, 2)
     assert plan_h2[:5] == (
-        "Status And Slice 11 Lifecycle",
+        "Status And Slice 12 Lifecycle",
         "Trusted Phase 53 Baseline And Controlling Evidence",
         "Phase Identity, Minimum Production Boundary, And Activation",
         "Current Production, Readiness, And Retained-later Freeze",
@@ -612,15 +620,15 @@ def test_slice1_artifact_titles_heading_order_and_lifecycle_are_exact() -> None:
         f"Slice {index} — {title}"
         for index, title in enumerate(PHASE54_ROUTE[1:], start=2)
     )
-    lifecycle = _section(PLAN_REL, "Status And Slice 11 Lifecycle")
+    lifecycle = _section(PLAN_REL, "Status And Slice 12 Lifecycle")
     for phrase in (
         "Phase 53 and Slices 1-16 are `COMPLETED`",
         "Phase 54 is `ACTIVE`",
-        "Slices\n1 through 10 are `COMPLETED`",
-        "Slices 12-16 remain `UNSTARTED`",
-        "PHASE54_SLICE11_GATE2_COMPLETED_AWAITING_PUBLICATION",
-        "PHASE54_SLICE11_GATE3",
-        "Slice 12 does not\nbegin in Slice 11",
+        "Slices\n1 through 11 are `COMPLETED`",
+        "Slices 13-16\nremain `UNSTARTED`",
+        "PHASE54_SLICE12_GATE2_COMPLETED_AWAITING_PUBLICATION",
+        "PHASE54_SLICE12_GATE3",
+        "Slice 13 does not begin in\nSlice 12",
     ):
         assert phrase in lifecycle
     tests = _top_level_test_functions(SELF_REL)
@@ -702,7 +710,7 @@ def test_authority_hierarchy_grounding_and_historical_predecessors_are_exact() -
         "8c3656805db451946d60e341b8ac0ca9181997378d07576133c9c4aeef3e3f77"
     )
     assert _sha256("tests/test_phase50_import_module_export_readiness.py") == (
-        "9f280f44f9ed47eec461eab52308a0bbe51cc71f687c2e50b1464846d2c4d213"
+        "3e6a136bfbef7932624afc9bceb913eb8459680090592c13d3a1b630a2a4971d"
     )
     scope = _read(SCOPE_REL)
     roadmap = _read(ROADMAP_V2_REL)
@@ -1096,17 +1104,17 @@ def test_flat_catalog_collect_before_resolve_semantic_and_project_fact_surfaces_
     compiler = _compiler_paths()
     semantic = tuple((REPO_ROOT / "src/pietto/semantic").glob("*.py"))
     project = tuple((REPO_ROOT / "src/pietto/_project").glob("*.py"))
-    assert len(compiler) == 104
+    assert len(compiler) == 105
     assert _digest(compiler) == (
-        "ff84f85769a284b70fba5bc89c16926817131663b59cf740866660ebc72813d4"
+        "f9eca1bf5cadfcc1583ba465f33bf761114e6d9d2785de15a2d73b5a19a6ff62"
     )
     assert _digest(semantic) == (
         "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
     )
     assert _digest(project) == (
-        "8613fe48154768889b06c7bfa5eff5733da2bd727001f64545eb440dc9233b72"
+        "9269d0946eaa232a4471633214d6fc55cd69b55d684edba3213532242224183b"
     )
-    assert len(project) == 29
+    assert len(project) == 30
     model = _read("src/pietto/_project/model.py")
     for namespace in (
         'TYPE = "type"',
@@ -1153,11 +1161,15 @@ def test_private_module_export_surfaces_are_implemented_without_graph_or_public_
         "src/pietto/_project/module_relation_resolution.py"
     )
     attribution_source = _read("src/pietto/_project/module_attribution.py")
+    preservation_source = _read(
+        "src/pietto/_project/module_semantic_fact_preservation.py"
+    )
     non_graph_production = (
         production.replace(graph_source, "")
         .replace(resolution_source, "")
         .replace(relation_resolution_source, "")
         .replace(attribution_source, "")
+        .replace(preservation_source, "")
     )
     assert all(f"PIE-S270{number}" in graph_source for number in range(1, 8))
     assert not re.search(r"PIE-S270[1-7]", non_graph_production)
@@ -1231,6 +1243,7 @@ def test_private_module_export_surfaces_are_implemented_without_graph_or_public_
     assert "class ProjectModuleGraph" in graph_source
     for forbidden in ("ImportBinding", "ResolvedModule"):
         assert forbidden not in non_graph_production
+    assert "ProjectResolvedModuleRelationReference" in preservation_source
     reservation = _section(
         SCOPE_REL,
         "Collision Cycle Ordering And PIE-S2701 Through PIE-S2707 Reservation",
@@ -1297,22 +1310,30 @@ def test_gate_allowlist_reader_evidence_publication_stop_and_next_state_contract
     assert len(FORMATTER_PATHS) == 163
     assert len(ALLOWLIST_PATHS) == 167
     readable = _readable_paths()
-    assert len(readable) == 918
-    assert sum(path.endswith(".py") for path in readable) == 565
-    assert sum(path.endswith(".md") for path in readable) == 257
+    assert len(readable) == 921
+    assert sum(path.endswith(".py") for path in readable) == 567
+    assert sum(path.endswith(".md") for path in readable) == 258
     test_modules = tuple(
         path
         for path in readable
         if path.startswith("tests/test_") and path.endswith(".py")
     )
-    assert len(test_modules) == 460
-    assert sum(len(_top_level_test_functions(path)) for path in test_modules) == 5171
+    assert len(test_modules) == 461
+    assert sum(len(_top_level_test_functions(path)) for path in test_modules) == 5215
     dirty = set(_git_output(["diff", "--name-only"]).splitlines()) | set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
     dirty.discard("")
     if dirty:
-        assert _phase54_slice11_gate2_is_active()
+        assert _phase54_active_gate2_is_active()
+        if dirty == set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS):
+            assert phase54_slice12_pr_ci_repair_is_active()
+        elif dirty == set(PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS):
+            assert phase54_slice12_product_repair3_is_active()
+        elif dirty == set(PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS):
+            assert phase54_slice12_product_repair10_is_active()
+        elif dirty == set(PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS):
+            assert phase54_slice12_product_repair11_is_active()
         assert _git_output(["diff", "--cached", "--name-only"]) == ""
     scope = _read(SCOPE_REL)
     for path in (

@@ -244,21 +244,23 @@ def test_slice11_contract_status_and_active_manifest_freeze_exact_boundary() -> 
     assert "reparse is introduced." in spec
     assert "Slice 11 Gate 2 candidate" in readme
     assert "module attribution, dependency, origin, provenance, and lineage" in readme
-    assert "## Status And Slice 11 Lifecycle" in plan
-    assert "## Current Phase 54 Slice 11 Module Attribution Status" in current
+    assert "## Status And Slice 12 Lifecycle" in plan
+    assert "## Current Phase 54 Slice 12 Semantic Fact Preservation Status" in current
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER == (
-        "PHASE54_SLICE11_GATE2"
+        "PHASE54_SLICE12_GATE2"
     )
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE == (
-        "b81843acadb294630db361c09949868d004b1bca"
+        "bc46faff1c9aa71f583ed7d2964b651cc659bc90"
     )
     assert active_gate2_manifest.ADDED_PATHS == {
-        SPEC_REL,
-        SOURCE_REL,
-        TEST_REL,
+        "docs/spec/phase54-slice12-semantic-fact-preservation-v1.md",
+        "src/pietto/_project/module_semantic_fact_preservation.py",
+        "tests/test_phase54_semantic_fact_preservation.py",
     }
-    assert len(active_gate2_manifest.MODIFIED_PATHS) == 72
-    assert len(active_gate2_manifest.ALLOWLIST_PATHS) == 75
+    assert TEST_REL in active_gate2_manifest.MECHANICAL_READER_PATHS
+    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 173
+    assert len(active_gate2_manifest.MODIFIED_PATHS) == 179
+    assert len(active_gate2_manifest.ALLOWLIST_PATHS) == 182
     assert active_gate2_manifest.PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE == (
         "691db405a7e787adec5d7bd0498330b070bf6b75"
     )

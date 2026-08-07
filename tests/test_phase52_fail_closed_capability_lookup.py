@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 import pytest
@@ -120,13 +120,13 @@ MODIFIED_READER_PATHS = (
 )
 ADDED_PATHS = {CONTEXT_REL, CONTEXT_SPEC_REL, CONTEXT_TEST_REL}
 ALLOWLIST_PATHS = {*MODIFIED_READER_PATHS, *ADDED_PATHS}
-COMPILER_DIGEST = "ff84f85769a284b70fba5bc89c16926817131663b59cf740866660ebc72813d4"
+COMPILER_DIGEST = "f9eca1bf5cadfcc1583ba465f33bf761114e6d9d2785de15a2d73b5a19a6ff62"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "8613fe48154768889b06c7bfa5eff5733da2bd727001f64545eb440dc9233b72"
+    "9269d0946eaa232a4471633214d6fc55cd69b55d684edba3213532242224183b"
 )
 
 COMPILER_READERS = (
@@ -549,6 +549,7 @@ def test_lookup_and_inventory_are_only_private_fact_consumers_without_registry()
                 REPO_ROOT / CONTEXT_REL,
                 REPO_ROOT / AGGREGATE_REL,
                 REPO_ROOT / WINDOW_REL,
+                REPO_ROOT / "src/pietto/_project/module_semantic_fact_preservation.py",
             }
             or "generated" in path.parts
         ):
@@ -561,6 +562,11 @@ def test_lookup_and_inventory_are_only_private_fact_consumers_without_registry()
     assert "semantic.capability_facts" in signature_source
     assert "CapabilityFact" in signature_source
     assert "CapabilityKey" in signature_source
+    preservation_source = _read(
+        REPO_ROOT / "src/pietto/_project/module_semantic_fact_preservation.py"
+    )
+    assert "semantic.capability_facts" in preservation_source
+    assert "__all__: tuple[str, ...] = ()" in preservation_source
 
 
 def test_spec_exact_headings_and_fail_closed_contract_are_locked() -> None:
@@ -591,7 +597,7 @@ def test_compiler_semantic_and_phase15_boundary_digests_are_refreshed() -> None:
         for path in semantic_paths
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
-    assert len(compiler_paths) == 104
+    assert len(compiler_paths) == 105
     assert len(semantic_paths) == 36
     assert len(phase15_paths) == 33
     assert _digest(compiler_paths) == COMPILER_DIGEST
@@ -648,7 +654,7 @@ def test_raw_sha_reader_topology_is_closed_without_layer2_readers() -> None:
 
 def test_project_package_version_and_tag_boundaries_are_unchanged() -> None:
     project_paths = _project_private_paths()
-    assert len(project_paths) == 29
+    assert len(project_paths) == 30
     assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
     with PYPROJECT_PATH.open("rb") as stream:
         project = tomllib.load(stream)
@@ -657,7 +663,7 @@ def test_project_package_version_and_tag_boundaries_are_unchanged() -> None:
 
 
 def test_gate2_dirty_untracked_and_index_states_are_exact() -> None:
-    if _phase54_slice11_gate2_is_active():
+    if _phase54_active_gate2_is_active():
         return
     slice13_modified = _slice13_paths("MODIFIED_PATHS")
     slice13_added = _slice13_paths("ADDED_PATHS")

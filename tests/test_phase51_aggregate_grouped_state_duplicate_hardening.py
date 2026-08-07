@@ -56,8 +56,8 @@ from pietto.semantic.model import (
     TypeKind,
     ValueType,
 )
-from test_phase54_local_import_module_export_foundation_scope_lock import (
-    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+from _phase54_active_gate2_manifest import (
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -1274,7 +1274,7 @@ def test_slice7_documentation_exact_allowlist_and_protected_boundaries() -> None
             EXPECTED_GATE2_PATHS,
             slice14_modified | slice14_added,
         )
-    ) or _slice5_gate2()
+    ) or _phase54_active_gate2_is_active()
 
     untracked = subprocess.run(
         ["git", "ls-files", "--others", "--exclude-standard"],
@@ -1293,7 +1293,7 @@ def test_slice7_documentation_exact_allowlist_and_protected_boundaries() -> None
             },
             slice14_added,
         )
-    ) or _slice5_gate2()
+    ) or _phase54_active_gate2_is_active()
 
     protected = subprocess.run(
         ["git", "diff", "--exit-code", "--", "pyproject.toml", "uv.lock"],

@@ -20,8 +20,8 @@ from pietto._project.model import (
 )
 from pietto.ast_nodes import QueryDef, SourceDef, TableDef
 from pietto.semantic.model import EffectiveNullability, ValueTypeKind
-from test_phase54_local_import_module_export_foundation_scope_lock import (
-    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+from _phase54_active_gate2_manifest import (
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -378,7 +378,7 @@ def test_phase49_slice6_package_version_and_dirty_paths_are_locked() -> None:
             ALLOWED_SLICE6_GATE2_PATHS,
             ALLOWED_SLICE7_GATE2_PATHS,
         )
-    ) or _slice5_gate2()
+    ) or _phase54_active_gate2_is_active()
 
 
 def _assert_let_state(

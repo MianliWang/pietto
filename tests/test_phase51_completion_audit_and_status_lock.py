@@ -20,10 +20,22 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS,
+    PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS,
+    PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS,
+    PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS,
+    PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS,
     PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
-    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
     phase54_slice11_pr_ci_repair_is_active,
+    phase54_slice12_pr_ci_repair_is_active,
+    phase54_slice12_mechanical_repair3_is_active,
+    phase54_slice12_mechanical_repair4_is_active,
+    phase54_slice12_product_repair3_is_active,
+    phase54_slice12_product_repair10_is_active,
+    phase54_slice12_product_repair11_is_active,
     phase54_slice11_python313_repair_is_active,
     phase54_slice11_substantive_recovery_is_active,
 )
@@ -355,9 +367,9 @@ PROTECTED_HASHES = {
         "26cc0ae4a68518223d6bf600ad3c4b0b226618aa7ef31b2ae1c25924d2655169"
     ),
 }
-COMPILER_DIGEST = "ff84f85769a284b70fba5bc89c16926817131663b59cf740866660ebc72813d4"
+COMPILER_DIGEST = "f9eca1bf5cadfcc1583ba465f33bf761114e6d9d2785de15a2d73b5a19a6ff62"
 PROJECT_PRIVATE_DIGEST = (
-    "8613fe48154768889b06c7bfa5eff5733da2bd727001f64545eb440dc9233b72"
+    "9269d0946eaa232a4471633214d6fc55cd69b55d684edba3213532242224183b"
 )
 
 PROJECT_JSON_V2_KEYS = (
@@ -1038,7 +1050,7 @@ def test_live_compiler_project_private_protected_version_and_tag_locks_are_dirty
     None
 ):
     compiler_count, compiler_digest = _compiler_digest()
-    assert (compiler_count, compiler_digest) == (104, COMPILER_DIGEST)
+    assert (compiler_count, compiler_digest) == (105, COMPILER_DIGEST)
     for relative_path in BOUNDARY_PATHS:
         boundary_values = re.findall(
             r'^BOUNDARY_HASH = "([0-9a-f]{64})"$',
@@ -1048,12 +1060,12 @@ def test_live_compiler_project_private_protected_version_and_tag_locks_are_dirty
         assert boundary_values == [COMPILER_DIGEST]
 
     project_paths = _project_private_paths()
-    assert len(project_paths) == 29
+    assert len(project_paths) == 30
     assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
     phase33 = _read(REPO_ROOT / "tests/test_phase33_completion_audit.py")
     assert (
         f'"project_private": (\n        "src/pietto/_project",\n'
-        f'        29,\n        "{PROJECT_PRIVATE_DIGEST}",\n    ),'
+        f'        30,\n        "{PROJECT_PRIVATE_DIGEST}",\n    ),'
     ) in phase33
 
     for relative_path, expected_hash in PROTECTED_HASHES.items():
@@ -1387,6 +1399,12 @@ def test_static_git_helper_and_exact_slice12_dirty_set_are_locked() -> None:
         PHASE52_GATE2_PATHS,
         slice2_modified | slice2_added,
         set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS),
+        set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS),
+        set(PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS),
+        set(PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS),
+        set(PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS),
+        set(PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS),
+        set(PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS),
         set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS),
         set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS),
     )
@@ -1404,6 +1422,24 @@ def test_static_git_helper_and_exact_slice12_dirty_set_are_locked() -> None:
         assert untracked_paths == set()
     elif dirty_paths == set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS):
         assert phase54_slice11_substantive_recovery_is_active()
+    elif dirty_paths == set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS):
+        assert phase54_slice12_pr_ci_repair_is_active()
+        assert untracked_paths == set()
+    elif dirty_paths == set(PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS):
+        assert phase54_slice12_mechanical_repair4_is_active()
+        assert untracked_paths == set()
+    elif dirty_paths == set(PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS):
+        assert phase54_slice12_mechanical_repair3_is_active()
+        assert untracked_paths == set()
+    elif dirty_paths == set(PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS):
+        assert phase54_slice12_product_repair3_is_active()
+        assert untracked_paths == set()
+    elif dirty_paths == set(PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS):
+        assert phase54_slice12_product_repair10_is_active()
+        assert untracked_paths == set()
+    elif dirty_paths == set(PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS):
+        assert phase54_slice12_product_repair11_is_active()
+        assert untracked_paths == set()
     elif dirty_paths == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS):
         assert phase54_slice11_pr_ci_repair_is_active()
         assert untracked_paths == set()
@@ -1430,10 +1466,11 @@ def test_static_git_helper_and_exact_slice12_dirty_set_are_locked() -> None:
             expected_head = SLICE8_BASE_HEAD_SHA
         elif path_counts == SLICE9_PATH_COUNTS:
             expected_head = SLICE9_BASE_HEAD_SHA
-        if _phase54_slice11_gate2_is_active():
+        if _phase54_active_gate2_is_active():
             active_head = _git_output(["rev-parse", "HEAD"])
             assert active_head in {
                 "b81843acadb294630db361c09949868d004b1bca",
+                "bc46faff1c9aa71f583ed7d2964b651cc659bc90",
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,

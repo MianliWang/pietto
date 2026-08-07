@@ -24,10 +24,22 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS,
+    PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS,
+    PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS,
+    PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS,
+    PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS,
+    PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS,
     PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
-    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
     phase54_slice11_pr_ci_repair_is_active,
+    phase54_slice12_pr_ci_repair_is_active,
+    phase54_slice12_mechanical_repair3_is_active,
+    phase54_slice12_mechanical_repair4_is_active,
+    phase54_slice12_product_repair3_is_active,
+    phase54_slice12_product_repair10_is_active,
+    phase54_slice12_product_repair11_is_active,
     phase54_slice11_python313_repair_is_active,
     phase54_slice11_substantive_recovery_is_active,
 )
@@ -947,6 +959,12 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
         slice14_modified | slice14_added,
         phase54_modified | phase54_added,
         set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS),
+        set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS),
+        set(PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS),
+        set(PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS),
+        set(PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS),
+        set(PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS),
+        set(PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS),
         set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS),
         set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS),
     )
@@ -962,6 +980,24 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
         assert untracked == set()
     elif dirty == set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS):
         assert phase54_slice11_substantive_recovery_is_active()
+    elif dirty == set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS):
+        assert phase54_slice12_pr_ci_repair_is_active()
+        assert untracked == set()
+    elif dirty == set(PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS):
+        assert phase54_slice12_mechanical_repair4_is_active()
+        assert untracked == set()
+    elif dirty == set(PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS):
+        assert phase54_slice12_mechanical_repair3_is_active()
+        assert untracked == set()
+    elif dirty == set(PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS):
+        assert phase54_slice12_product_repair3_is_active()
+        assert untracked == set()
+    elif dirty == set(PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS):
+        assert phase54_slice12_product_repair10_is_active()
+        assert untracked == set()
+    elif dirty == set(PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS):
+        assert phase54_slice12_product_repair11_is_active()
+        assert untracked == set()
     elif dirty == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS):
         assert phase54_slice11_pr_ci_repair_is_active()
         assert untracked == set()
@@ -998,7 +1034,7 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
             expected_head = PHASE54_SLICE8_BASE_HEAD_SHA
         elif path_counts == PHASE54_SLICE9_PATH_COUNTS:
             expected_head = PHASE54_SLICE9_BASE_HEAD_SHA
-        if _phase54_slice11_gate2_is_active():
+        if _phase54_active_gate2_is_active():
             active_head = _git_output(["rev-parse", "HEAD"]).strip()
             assert active_head in {
                 PHASE54_ACTIVE_GATE2_BASE,
@@ -1027,13 +1063,13 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
         assert match.group(1) == compiler_digest
     project_paths = _project_private_paths()
     project_digest = _digest(project_paths)
-    assert len(project_paths) == 29
+    assert len(project_paths) == 30
     phase33 = (REPO_ROOT / "tests/test_phase33_completion_audit.py").read_text(
         encoding="utf-8"
     )
     assert (
         f'"project_private": (\n        "src/pietto/_project",\n'
-        f'        29,\n        "{project_digest}",\n    ),'
+        f'        30,\n        "{project_digest}",\n    ),'
     ) in phase33
 
     protected = (
@@ -1065,6 +1101,20 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
             path
             for path in protected
             if path not in PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS
+        )
+    elif dirty == set(PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS):
+        assert phase54_slice12_product_repair10_is_active()
+        protected = tuple(
+            path
+            for path in protected
+            if path not in PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS
+        )
+    elif dirty == set(PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS):
+        assert phase54_slice12_product_repair11_is_active()
+        protected = tuple(
+            path
+            for path in protected
+            if path not in PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS
         )
     elif dirty == phase54_modified | phase54_added:
         protected = tuple(path for path in protected if path not in phase54_modified)

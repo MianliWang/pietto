@@ -9,15 +9,14 @@ Current pipeline: parse -> analyze -> build IR -> emit selected PostgreSQL or My
 
 ---
 
-## Current Phase 54 Slice 11 Module Attribution Status
+## Current Phase 54 Slice 12 Semantic Fact Preservation Status
 
-Phase 54 is active and Slices 1 through 10 are complete after exact Gate 3
-publication. Slice 11 is the Gate 2 module attribution, dependency, origin,
-provenance, and lineage substantive-review recovery candidate resumed from
-clean `691db405a7e787adec5d7bd0498330b070bf6b75`. It retains private
-binding-authority roots to validate the complete ordered graph, import
-attribution, and direct module-dependency projections without normalization;
-reviewed-tree publication remains pending. Slice 4 supplies contextual
+Phase 54 is active and Slices 1 through 11 are complete after exact Gate 3
+publication. Slice 12 is the Gate 2 candidate for lossless private preservation
+of existing semantic facts from exact base
+`bc46faff1c9aa71f583ed7d2964b651cc659bc90`. Slice 10 is the sole semantic
+authority root. Slice 11 attribution is not consumed, and reviewed-tree
+publication remains pending. Slice 4 supplies contextual
 top-level `import`, `export`, and `as` syntax plus immutable source-located module AST. Slice 5
 adds private four-component nominal declaration identity and one immutable,
 source-ordered local declaration catalog per successfully parsed schema-v2
@@ -60,7 +59,10 @@ owns type/enum/shape/source resolution; Slice 10 owns direct table/query/
 relation resolution and minimal row facts. Slice 11 owns occurrence-safe
 attribution, dependency, origin, supported provenance, and minimal concrete
 direct/renamed lineage. Slice 12 retains full generic, nullability, aggregate,
-grouped, window, result-role, and capability facts.
+grouped, window, result-role, and capability facts without collapsing nominal
+identity, occurrence order, multiplicity, or availability state. It remains a
+private sidecar and changes no Semantic IR, PostgreSQL/MySQL SQL, CLI JSON v1,
+Project JSON v2, Semantic Metadata Artifact v1, or public Python export.
 
 ---
 

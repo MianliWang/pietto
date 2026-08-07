@@ -42,8 +42,8 @@ from pietto.semantic.model import (
     ValueType,
     ValueTypeKind,
 )
-from test_phase54_local_import_module_export_foundation_scope_lock import (
-    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+from _phase54_active_gate2_manifest import (
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -388,7 +388,7 @@ def test_slice3_module_does_not_call_forbidden_semantic_shortcuts() -> None:
 def test_slice3_keeps_project_model_and_json_serializer_untouched() -> None:
     assert (
         _git_output(["diff", "--", "src/pietto/_project/model.py"]) == ""
-    ) or _slice5_gate2()
+    ) or _phase54_active_gate2_is_active()
     assert _git_output(["diff", "--", "src/pietto/_project/json_v2.py"]) == ""
 
 
@@ -400,7 +400,7 @@ def test_slice3_dirty_paths_are_exactly_gate2_allowlist() -> None:
             ALLOWED_SLICE3_GATE2_PATHS,
             ALLOWED_SLICE3_REPAIR_GATE2_PATHS,
         )
-    ) or _slice5_gate2()
+    ) or _phase54_active_gate2_is_active()
 
 
 def test_slice3_package_version_remains_010() -> None:

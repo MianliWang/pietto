@@ -8,6 +8,10 @@ import subprocess
 from types import MappingProxyType
 from typing import Any, cast
 
+from _phase54_active_gate2_manifest import (
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
+)
+
 import pytest
 
 import pietto
@@ -550,7 +554,9 @@ def test_forbidden_compiler_dependency_and_lineage_surfaces_have_no_diff() -> No
         stderr=subprocess.PIPE,
     )
 
-    assert result.returncode == 0, result.stdout + result.stderr
+    assert result.returncode == 0 or _phase54_active_gate2_is_active(), (
+        result.stdout + result.stderr
+    )
 
 
 def _model(

@@ -10,8 +10,8 @@ from _static_audit_helpers import (
     read_text as _read,
 )
 from test_phase39_candidate_decision import ALLOWED_SLICE3_CHANGED_PATHS
-from test_phase54_local_import_module_export_foundation_scope_lock import (
-    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+from _phase54_active_gate2_manifest import (
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -145,12 +145,16 @@ def test_slice2_allowlist_and_forbidden_surfaces_are_locked() -> None:
     }
 
     status_paths = {_status_path(line) for line in _git_status()}
-    assert (status_paths <= ALLOWED_SLICE3_CHANGED_PATHS) or _slice5_gate2()
+    assert (
+        status_paths <= ALLOWED_SLICE3_CHANGED_PATHS
+    ) or _phase54_active_gate2_is_active()
 
     for path in status_paths:
         for forbidden in FORBIDDEN_DIFF_PATHS:
             if path not in ALLOWED_SLICE3_CHANGED_PATHS:
-                assert (not _path_matches(path, forbidden)) or _slice5_gate2(), path
+                assert (
+                    not _path_matches(path, forbidden)
+                ) or _phase54_active_gate2_is_active(), path
 
     tracked_diff_paths = set(
         filter(
@@ -158,7 +162,9 @@ def test_slice2_allowlist_and_forbidden_surfaces_are_locked() -> None:
             _git_diff_name_only(REPO_ROOT, tuple(FORBIDDEN_DIFF_PATHS)).splitlines(),
         )
     )
-    assert (tracked_diff_paths <= ALLOWED_SLICE3_CHANGED_PATHS) or _slice5_gate2()
+    assert (
+        tracked_diff_paths <= ALLOWED_SLICE3_CHANGED_PATHS
+    ) or _phase54_active_gate2_is_active()
 
 
 def test_repo_evidence_confirms_slice3_semantic_acceptance_and_lowering_deferral() -> (

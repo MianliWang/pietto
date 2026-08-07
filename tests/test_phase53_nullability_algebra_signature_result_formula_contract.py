@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import cast
 
 from _phase54_active_gate2_manifest import (
-    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 import pytest
@@ -236,7 +236,7 @@ MODIFIED_PATHS = (
 
 BASE_HEAD = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
 FINAL_COMPILER_DIGEST = (
-    "ff84f85769a284b70fba5bc89c16926817131663b59cf740866660ebc72813d4"
+    "f9eca1bf5cadfcc1583ba465f33bf761114e6d9d2785de15a2d73b5a19a6ff62"
 )
 FINAL_SEMANTIC_DIGEST = (
     "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
@@ -1636,9 +1636,9 @@ def test_concrete_semantic_project_and_aggregate_nullability_authority_is_locked
         "src/pietto/semantic/expressions.py": "37b198f72b0c71c90a82d746671be8528a9ea5c2d4818ff7ef4ba55e30e9c595",
         "src/pietto/semantic/aggregates.py": "f5d5be237960e50f62f539d76e09be425980c9f8e657846333b5ef1aaa948333",
         "src/pietto/semantic/catalog.py": "f566f39395e3bdc933e60d15e740749255dd3749cf3907684240e4b43dfc9e40",
-        "src/pietto/_project/model.py": "1cbb689dc6f03973f603e8b5839cfff061d8a8e75ed6625ed8374bebdfe54e39",
+        "src/pietto/_project/model.py": "a586b0aee80b1d0f149e5d3b2fd9d88e7598a22f3cf34479e0a6a40f9e6f7886",
         "src/pietto/_project/row_expression_schema.py": "fc968a628592640012d59521627c91ee0a0017bc640fab27e8cbd756e4aa1e7d",
-        "src/pietto/_project/row_expression_type_facts.py": "37559704de25d9f32a3ed062c0f99f58c29463bff291e38e1fefca70613d15a0",
+        "src/pietto/_project/row_expression_type_facts.py": "2c04a335fe594a599df7bced676fd8767688eaa91045c90473a494bafc7d9278",
         "src/pietto/_project/aggregate_grouped_schema.py": "406fa28ec27a574576508a075305c28f07a495cf91f300d529c62b84a0aa519b",
     }
     assert {path: _sha256(REPO_ROOT / path) for path in expected} == expected
@@ -1707,7 +1707,7 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        104,
+        105,
         36,
         33,
     )
@@ -1731,7 +1731,7 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
 
 
 def test_slice5_dirty_clean_and_depth_one_repository_states_are_locked() -> None:
-    if _phase54_slice11_gate2_is_active():
+    if _phase54_active_gate2_is_active():
         return
     tracked = frozenset(_git("diff", "--name-only").splitlines()) - {""}
     untracked = frozenset(
@@ -1792,11 +1792,11 @@ def test_slice5_dirty_clean_and_depth_one_repository_states_are_locked() -> None
 
 def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
     repository_paths = _all_repository_paths()
-    assert len(repository_paths) == 918
-    assert sum(path.endswith(".py") for path in repository_paths) == 565
-    assert sum(path.endswith(".md") for path in repository_paths) == 257
+    assert len(repository_paths) == 921
+    assert sum(path.endswith(".py") for path in repository_paths) == 567
+    assert sum(path.endswith(".md") for path in repository_paths) == 258
     test_paths = tuple(sorted((REPO_ROOT / "tests").glob("test_*.py")))
-    assert len(test_paths) == 460
+    assert len(test_paths) == 461
     functions = tuple(
         node.name
         for path in test_paths
@@ -1804,7 +1804,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name.startswith("test_")
     )
-    assert len(functions) == 5171
+    assert len(functions) == 5215
     self_functions = tuple(
         node.name
         for node in ast.parse(SELF_PATH.read_text()).body

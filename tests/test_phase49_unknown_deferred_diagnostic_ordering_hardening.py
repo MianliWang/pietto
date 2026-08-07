@@ -27,8 +27,8 @@ from pietto._project.row_lineage import (
     ProjectRowLineageStatus,
 )
 from pietto.ast_nodes import QueryDef, TableDef
-from test_phase54_local_import_module_export_foundation_scope_lock import (
-    phase54_slice5_gate2_manifest_is_active as _slice5_gate2,
+from _phase54_active_gate2_manifest import (
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -417,10 +417,12 @@ def test_slice12_forbidden_files_package_version_and_dirty_paths_are_locked() ->
     assert project["version"] == "0.1.0"
     assert (
         _git_status_paths() in (set(), ALLOWED_SLICE12_GATE2_PATHS)
-    ) or _slice5_gate2()
+    ) or _phase54_active_gate2_is_active()
 
     for path in FORBIDDEN_SOURCE_DIFF_PATHS:
-        assert (_git_output(["diff", "--", path]) == "") or _slice5_gate2(), path
+        assert (
+            _git_output(["diff", "--", path]) == ""
+        ) or _phase54_active_gate2_is_active(), path
     assert _git_output(["diff", "--", "grammar"]) == ""
     assert _git_output(["diff", "--", "generated"]) == ""
     assert _git_output(["diff", "--", ".github/workflows"]) == ""

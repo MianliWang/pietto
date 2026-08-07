@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import cast
 
 from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,
+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
 import pytest
@@ -125,7 +125,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "readme": (
         "README.md",
         1,
-        "03a276e17792e682af53c17ae2a0c962962fdea285941ee8635f209afc35b4b0",
+        "412d2de4c7d7b27bdeb0dd03f6bfd6242dfc2a70b1cc30c34c4385570de18e8b",
     ),
     "agents": (
         "AGENTS.md",
@@ -135,7 +135,7 @@ LOCKED_BOUNDARY_SURFACES = {
     "pietto_v09": (
         "docs/spec/pietto-v0.9.md",
         1,
-        "7e918e5c88c86479eec474ed142971e591799758c1aa62e6fbc375219c938b12",
+        "5dbd8b7ac10c2737848be8dc9571f1305c05b3226b3a6a32b06127912e3d0f1e",
     ),
 }
 
