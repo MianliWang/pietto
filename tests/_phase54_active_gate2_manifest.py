@@ -104,6 +104,10 @@ PHASE54_SLICE12_MECHANICAL_REPAIR3_SUBJECT = (
     "Fix Phase 54 Slice 12 clean topic manifest"
 )
 PHASE54_SLICE12_MECHANICAL_REPAIR3_REVIEWED_TREE_TRAILER = "Pietto-Reviewed-Tree"
+PHASE54_SLICE12_MECHANICAL_REPAIR4_BASE = "68b13f3289d6519c50d0fa73fc130716a3211b54"
+PHASE54_SLICE12_MECHANICAL_REPAIR4_BRANCH = "phase54/slice12-semantic-fact-preservation"
+PHASE54_SLICE12_MECHANICAL_REPAIR4_SUBJECT = "Fix Phase 54 Slice 12 CI state projection"
+PHASE54_SLICE12_MECHANICAL_REPAIR4_REVIEWED_TREE_TRAILER = "Pietto-Reviewed-Tree"
 ADDED_PATHS = {
     "docs/spec/phase54-slice12-semantic-fact-preservation-v1.md",
     "src/pietto/_project/module_semantic_fact_preservation.py",
@@ -775,6 +779,16 @@ PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS = frozenset(
     PHASE54_SLICE12_MECHANICAL_REPAIR3_SEED_PATHS
     | PHASE54_SLICE12_MECHANICAL_REPAIR3_READER_PATHS
 )
+PHASE54_SLICE12_MECHANICAL_REPAIR4_SEED_PATHS = frozenset(
+    PHASE54_SLICE12_MECHANICAL_REPAIR3_SEED_PATHS
+)
+PHASE54_SLICE12_MECHANICAL_REPAIR4_READER_PATHS = frozenset(
+    PHASE54_SLICE12_MECHANICAL_REPAIR3_READER_PATHS
+)
+PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS = frozenset(
+    PHASE54_SLICE12_MECHANICAL_REPAIR4_SEED_PATHS
+    | PHASE54_SLICE12_MECHANICAL_REPAIR4_READER_PATHS
+)
 PHASE54_POST_REVIEW_PRODUCT_REPAIR1_SEED_PATHS = frozenset(
     PHASE54_POST_REVIEW_PRODUCT_REPAIR1_TO_8_SEED_PATHS
 )
@@ -1041,6 +1055,29 @@ def _phase54_slice12_mechanical_repair3_message_matches_tree(
     return (
         len(lines) >= 3
         and lines[0] == PHASE54_SLICE12_MECHANICAL_REPAIR3_SUBJECT
+        and lines[-2] == ""
+        and lines[-1] == expected
+        and reviewed_tree_lines == (expected,)
+    )
+
+
+def _phase54_slice12_mechanical_repair4_message_matches_tree(
+    message: str,
+    tree: str,
+) -> bool:
+    """Require one canonical mechanical-repair4 reviewed-tree trailer."""
+
+    if re.fullmatch(r"[0-9a-f]{40}", tree) is None:
+        return False
+    lines = message.splitlines()
+    expected = f"{PHASE54_SLICE12_MECHANICAL_REPAIR4_REVIEWED_TREE_TRAILER}: {tree}"
+    trailer_key = PHASE54_SLICE12_MECHANICAL_REPAIR4_REVIEWED_TREE_TRAILER.casefold()
+    reviewed_tree_lines = tuple(
+        line for line in lines if line.lstrip().casefold().startswith(trailer_key)
+    )
+    return (
+        len(lines) >= 3
+        and lines[0] == PHASE54_SLICE12_MECHANICAL_REPAIR4_SUBJECT
         and lines[-2] == ""
         and lines[-1] == expected
         and reviewed_tree_lines == (expected,)
@@ -1331,8 +1368,18 @@ def _matches_phase54_active_gate2_manifest(
         and state.modified_paths == PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS
         and state.deleted_paths == frozenset()
     )
+    slice12_mechanical_repair4 = (
+        state.branch_oid == PHASE54_SLICE12_MECHANICAL_REPAIR4_BASE
+        and state.branch_head == PHASE54_SLICE12_MECHANICAL_REPAIR4_BRANCH
+        and state.branch_upstream
+        == f"origin/{PHASE54_SLICE12_MECHANICAL_REPAIR4_BRANCH}"
+        and state.added_paths == frozenset()
+        and state.modified_paths == PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS
+        and state.deleted_paths == frozenset()
+    )
     return common and (
-        slice12_mechanical_repair3
+        slice12_mechanical_repair4
+        or slice12_mechanical_repair3
         or active_gate2
         or slice10_original_gate2
         or product_repair1
@@ -1758,6 +1805,67 @@ def _matches_phase54_slice12_mechanical_repair3_clean_topic(
     )
 
 
+def _matches_phase54_slice12_mechanical_repair4_clean_topic(
+    state: Phase54Gate2RepositoryState,
+) -> bool:
+    """Recognize the clean non-amend mechanical-repair4 child."""
+
+    if type(state) is not Phase54Gate2RepositoryState:
+        return False
+    clean_topic = (
+        state.marker == PHASE54_ACTIVE_GATE2_MARKER
+        and state.branch_head == PHASE54_SLICE12_MECHANICAL_REPAIR4_BRANCH
+        and state.branch_upstream
+        == f"origin/{PHASE54_SLICE12_MECHANICAL_REPAIR4_BRANCH}"
+        and state.ahead == 0
+        and state.behind == 0
+        and state.added_paths == frozenset()
+        and state.modified_paths == frozenset()
+        and state.deleted_paths == frozenset()
+        and state.staged_paths == frozenset()
+        and state.other_paths == frozenset()
+        and state.worktree_count == 1
+        and not state.shallow
+        and not state.active_git_operation
+    )
+    if not clean_topic:
+        return False
+    try:
+        head_before = _git_output(["rev-parse", "--verify", "HEAD^{commit}"])
+        revision = tuple(
+            _git_output(["rev-list", "--parents", "-n", "1", head_before]).split()
+        )
+        subject = _git_output(["show", "-s", "--format=%s", head_before])
+        tree = _git_output(["show", "-s", "--format=%T", head_before])
+        message = _git_commit_message(head_before)
+        main_before = _git_output(["rev-parse", "--verify", "refs/heads/main"])
+        origin_main_before = _git_output(
+            ["rev-parse", "--verify", "refs/remotes/origin/main"]
+        )
+        state_after = _read_phase54_gate2_repository_state()
+        head_after = _git_output(["rev-parse", "--verify", "HEAD^{commit}"])
+        main_after = _git_output(["rev-parse", "--verify", "refs/heads/main"])
+        origin_main_after = _git_output(
+            ["rev-parse", "--verify", "refs/remotes/origin/main"]
+        )
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+    return (
+        state.branch_oid == head_before == head_after
+        and state_after == state
+        and state_after.branch_oid == head_after
+        and revision == (head_before, PHASE54_SLICE12_MECHANICAL_REPAIR4_BASE)
+        and subject == PHASE54_SLICE12_MECHANICAL_REPAIR4_SUBJECT
+        # Create-once mechanical Gate 2 evidence authorizes this tree claim.
+        and _phase54_slice12_mechanical_repair4_message_matches_tree(message, tree)
+        and main_before
+        == origin_main_before
+        == main_after
+        == origin_main_after
+        == PHASE54_ACTIVE_GATE2_BASE
+    )
+
+
 def phase54_active_gate2_manifest_is_active() -> bool:
     """Read exact local Git facts and recognize only the active Gate 2 state."""
 
@@ -1767,6 +1875,7 @@ def phase54_active_gate2_manifest_is_active() -> bool:
         return False
     return (
         _matches_phase54_active_gate2_manifest(state)
+        or _matches_phase54_slice12_mechanical_repair4_clean_topic(state)
         or _matches_phase54_slice12_mechanical_repair3_clean_topic(state)
         or _matches_phase54_slice12_product_repair14_clean_topic(state)
         or _matches_phase54_slice12_product_repair13_clean_topic(state)
@@ -1845,6 +1954,16 @@ def phase54_slice12_mechanical_repair3_clean_topic_is_active() -> bool:
     except (OSError, subprocess.SubprocessError, ValueError):
         return False
     return _matches_phase54_slice12_mechanical_repair3_clean_topic(state)
+
+
+def phase54_slice12_mechanical_repair4_clean_topic_is_active() -> bool:
+    """Recognize only the clean non-amend mechanical-repair4 topic child."""
+
+    try:
+        state = _read_phase54_gate2_repository_state()
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+    return _matches_phase54_slice12_mechanical_repair4_clean_topic(state)
 
 
 def phase54_slice11_pr_ci_repair_is_active() -> bool:
@@ -2030,5 +2149,22 @@ def phase54_slice12_mechanical_repair3_is_active() -> bool:
         and state.branch_head == PHASE54_SLICE12_MECHANICAL_REPAIR3_BRANCH
         and state.added_paths == frozenset()
         and state.modified_paths == PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS
+        and state.deleted_paths == frozenset()
+    )
+
+
+def phase54_slice12_mechanical_repair4_is_active() -> bool:
+    """Recognize only the exact Slice 12 mechanical-repair4 dirty overlay."""
+
+    try:
+        state = _read_phase54_gate2_repository_state()
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+    return (
+        _matches_phase54_active_gate2_manifest(state)
+        and state.branch_oid == PHASE54_SLICE12_MECHANICAL_REPAIR4_BASE
+        and state.branch_head == PHASE54_SLICE12_MECHANICAL_REPAIR4_BRANCH
+        and state.added_paths == frozenset()
+        and state.modified_paths == PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS
         and state.deleted_paths == frozenset()
     )

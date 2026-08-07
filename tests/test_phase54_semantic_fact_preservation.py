@@ -514,6 +514,16 @@ def test_slice12_contract_status_active_manifest_and_allowlist_are_exact(
         len(active_gate2_manifest.PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS)
         == 21
     )
+    assert active_gate2_manifest.PHASE54_SLICE12_MECHANICAL_REPAIR4_SEED_PATHS == (
+        active_gate2_manifest.PHASE54_SLICE12_MECHANICAL_REPAIR3_SEED_PATHS
+    )
+    assert active_gate2_manifest.PHASE54_SLICE12_MECHANICAL_REPAIR4_READER_PATHS == (
+        active_gate2_manifest.PHASE54_SLICE12_MECHANICAL_REPAIR3_READER_PATHS
+    )
+    assert (
+        len(active_gate2_manifest.PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS)
+        == 21
+    )
     assert not active_gate2_manifest.phase54_slice12_product_repair11_is_active()
     assert not active_gate2_manifest.phase54_slice12_product_repair12_is_active()
     assert not active_gate2_manifest.phase54_slice12_product_repair13_is_active()
@@ -522,9 +532,12 @@ def test_slice12_contract_status_active_manifest_and_allowlist_are_exact(
         active_gate2_manifest.phase54_slice12_product_repair14_clean_topic_is_active(),
         active_gate2_manifest.phase54_slice12_mechanical_repair3_is_active(),
         active_gate2_manifest.phase54_slice12_mechanical_repair3_clean_topic_is_active(),
+        active_gate2_manifest.phase54_slice12_mechanical_repair4_is_active(),
+        active_gate2_manifest.phase54_slice12_mechanical_repair4_clean_topic_is_active(),
     )
-    assert sum(publication_states) == 1
-    assert active_gate2_manifest.phase54_active_gate2_manifest_is_active()
+    assert sum(publication_states) == int(
+        active_gate2_manifest.phase54_active_gate2_manifest_is_active()
+    )
     child = "1" * 40
     other_child = "2" * 40
     tree = "3" * 40
@@ -1624,6 +1637,198 @@ def test_slice12_contract_status_active_manifest_and_allowlist_are_exact(
         mechanical_clean_state
     )
     assert mechanical_main_ref_reads == {
+        "refs/heads/main": 2,
+        "refs/remotes/origin/main": 2,
+    }
+
+    mechanical4_subject = (
+        active_gate2_manifest.PHASE54_SLICE12_MECHANICAL_REPAIR4_SUBJECT
+    )
+    mechanical4_trailer_key = (
+        active_gate2_manifest.PHASE54_SLICE12_MECHANICAL_REPAIR4_REVIEWED_TREE_TRAILER
+    )
+    mechanical4_message = f"{mechanical4_subject}\n\n{mechanical4_trailer_key}: {tree}"
+    mechanical4_clean_state = replace(
+        clean_topic_state,
+        branch_head=active_gate2_manifest.PHASE54_SLICE12_MECHANICAL_REPAIR4_BRANCH,
+        branch_upstream=(
+            f"origin/{active_gate2_manifest.PHASE54_SLICE12_MECHANICAL_REPAIR4_BRANCH}"
+        ),
+    )
+    mechanical4_git_values = {
+        ("rev-parse", "--verify", "HEAD^{commit}"): child,
+        ("rev-list", "--parents", "-n", "1", child): (
+            f"{child} {active_gate2_manifest.PHASE54_SLICE12_MECHANICAL_REPAIR4_BASE}"
+        ),
+        ("show", "-s", "--format=%s", child): mechanical4_subject,
+        ("show", "-s", "--format=%T", child): tree,
+        ("rev-parse", "--verify", "refs/heads/main"): (
+            active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE
+        ),
+        ("rev-parse", "--verify", "refs/remotes/origin/main"): (
+            active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE
+        ),
+    }
+
+    def exact_mechanical4_git_output(arguments: list[str]) -> str:
+        return mechanical4_git_values[tuple(arguments)]
+
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_git_output",
+        exact_mechanical4_git_output,
+    )
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_git_commit_message",
+        lambda revision: mechanical4_message if revision == child else "",
+    )
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_read_phase54_gate2_repository_state",
+        lambda: mechanical4_clean_state,
+    )
+    assert (
+        active_gate2_manifest._matches_phase54_slice12_mechanical_repair4_clean_topic(
+            mechanical4_clean_state
+        )
+    )
+    assert (
+        active_gate2_manifest.phase54_slice12_mechanical_repair4_clean_topic_is_active()
+    )
+    assert not active_gate2_manifest.phase54_slice12_mechanical_repair4_is_active()
+    assert not active_gate2_manifest.phase54_slice12_mechanical_repair3_clean_topic_is_active()
+    assert active_gate2_manifest.phase54_active_gate2_manifest_is_active()
+
+    mechanical4_dirty_state = replace(
+        mechanical4_clean_state,
+        branch_oid=active_gate2_manifest.PHASE54_SLICE12_MECHANICAL_REPAIR4_BASE,
+        modified_paths=(
+            active_gate2_manifest.PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS
+        ),
+    )
+    assert active_gate2_manifest._matches_phase54_active_gate2_manifest(
+        mechanical4_dirty_state
+    )
+    assert not active_gate2_manifest._matches_phase54_active_gate2_manifest(
+        replace(
+            mechanical4_dirty_state,
+            modified_paths=mechanical4_dirty_state.modified_paths
+            | {"unauthorized-path"},
+        )
+    )
+    assert not active_gate2_manifest._matches_phase54_active_gate2_manifest(
+        replace(
+            mechanical4_dirty_state,
+            other_paths=frozenset({"untracked-state-drift"}),
+        )
+    )
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_read_phase54_gate2_repository_state",
+        lambda: mechanical4_dirty_state,
+    )
+    assert active_gate2_manifest.phase54_slice12_mechanical_repair4_is_active()
+    assert not active_gate2_manifest.phase54_slice12_mechanical_repair4_clean_topic_is_active()
+    assert not active_gate2_manifest.phase54_slice12_mechanical_repair3_is_active()
+    assert not active_gate2_manifest.phase54_slice12_mechanical_repair3_clean_topic_is_active()
+    assert active_gate2_manifest.phase54_active_gate2_manifest_is_active()
+
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_read_phase54_gate2_repository_state",
+        lambda: mechanical4_clean_state,
+    )
+    mechanical4_parent_key = ("rev-list", "--parents", "-n", "1", child)
+    mechanical4_git_values[mechanical4_parent_key] = f"{child} {'5' * 40}"
+    assert not active_gate2_manifest._matches_phase54_slice12_mechanical_repair4_clean_topic(
+        mechanical4_clean_state
+    )
+    mechanical4_git_values[mechanical4_parent_key] = (
+        f"{child} {active_gate2_manifest.PHASE54_SLICE12_MECHANICAL_REPAIR4_BASE}"
+    )
+    mechanical4_subject_key = ("show", "-s", "--format=%s", child)
+    mechanical4_git_values[mechanical4_subject_key] = "Wrong mechanical Repair4 subject"
+    assert not active_gate2_manifest._matches_phase54_slice12_mechanical_repair4_clean_topic(
+        mechanical4_clean_state
+    )
+    mechanical4_git_values[mechanical4_subject_key] = mechanical4_subject
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_git_commit_message",
+        lambda revision: (
+            f"{mechanical4_subject}\n\n{mechanical4_trailer_key}: {other_tree}"
+            if revision == child
+            else ""
+        ),
+    )
+    assert not active_gate2_manifest._matches_phase54_slice12_mechanical_repair4_clean_topic(
+        mechanical4_clean_state
+    )
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_git_commit_message",
+        lambda revision: mechanical4_message if revision == child else "",
+    )
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_read_phase54_gate2_repository_state",
+        lambda: replace(
+            mechanical4_clean_state,
+            staged_paths=frozenset({"post-read-state-drift"}),
+        ),
+    )
+    assert not active_gate2_manifest._matches_phase54_slice12_mechanical_repair4_clean_topic(
+        mechanical4_clean_state
+    )
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_read_phase54_gate2_repository_state",
+        lambda: mechanical4_clean_state,
+    )
+    mechanical4_head_reads = iter((child, other_child))
+
+    def moving_mechanical4_head_git_output(arguments: list[str]) -> str:
+        if tuple(arguments) == ("rev-parse", "--verify", "HEAD^{commit}"):
+            return next(mechanical4_head_reads)
+        return exact_mechanical4_git_output(arguments)
+
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_git_output",
+        moving_mechanical4_head_git_output,
+    )
+    assert not active_gate2_manifest._matches_phase54_slice12_mechanical_repair4_clean_topic(
+        mechanical4_clean_state
+    )
+    mechanical4_main_ref_reads = {
+        "refs/heads/main": 0,
+        "refs/remotes/origin/main": 0,
+    }
+
+    def moving_mechanical4_main_refs_git_output(arguments: list[str]) -> str:
+        reference = arguments[-1]
+        if tuple(arguments[:2]) == ("rev-parse", "--verify") and (
+            reference in mechanical4_main_ref_reads
+        ):
+            read = mechanical4_main_ref_reads[reference]
+            mechanical4_main_ref_reads[reference] += 1
+            return (
+                active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE
+                if read == 0
+                else other_child
+            )
+        return exact_mechanical4_git_output(arguments)
+
+    monkeypatch.setattr(
+        active_gate2_manifest,
+        "_git_output",
+        moving_mechanical4_main_refs_git_output,
+    )
+    assert not active_gate2_manifest._matches_phase54_slice12_mechanical_repair4_clean_topic(
+        mechanical4_clean_state
+    )
+    assert mechanical4_main_ref_reads == {
         "refs/heads/main": 2,
         "refs/remotes/origin/main": 2,
     }

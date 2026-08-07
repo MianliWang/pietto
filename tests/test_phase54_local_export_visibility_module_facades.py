@@ -32,6 +32,9 @@ from _phase54_active_gate2_manifest import (
     PHASE54_SLICE12_MECHANICAL_REPAIR3_BASE,
     PHASE54_SLICE12_MECHANICAL_REPAIR3_BRANCH,
     PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS,
+    PHASE54_SLICE12_MECHANICAL_REPAIR4_BASE,
+    PHASE54_SLICE12_MECHANICAL_REPAIR4_BRANCH,
+    PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS,
     PHASE54_SLICE12_PRODUCT_REPAIR3_BASE,
     PHASE54_SLICE12_PRODUCT_REPAIR3_BRANCH,
     PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS,
@@ -63,6 +66,8 @@ from _phase54_active_gate2_manifest import (
     phase54_slice12_pr_ci_repair_is_active,
     phase54_slice12_mechanical_repair3_clean_topic_is_active,
     phase54_slice12_mechanical_repair3_is_active,
+    phase54_slice12_mechanical_repair4_clean_topic_is_active,
+    phase54_slice12_mechanical_repair4_is_active,
     phase54_slice12_product_repair3_clean_topic_is_active,
     phase54_slice12_product_repair10_clean_topic_is_active,
     phase54_slice12_product_repair11_clean_topic_is_active,
@@ -1203,6 +1208,10 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
     slice12_mechanical_repair3_clean_topic_active = (
         phase54_slice12_mechanical_repair3_clean_topic_is_active()
     )
+    slice12_mechanical_repair4_active = phase54_slice12_mechanical_repair4_is_active()
+    slice12_mechanical_repair4_clean_topic_active = (
+        phase54_slice12_mechanical_repair4_clean_topic_is_active()
+    )
     slice12_product_repair14_active = phase54_slice12_product_repair14_is_active()
     slice12_product_repair14_clean_topic_active = (
         phase54_slice12_product_repair14_clean_topic_is_active()
@@ -1472,6 +1481,9 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
     slice12_mechanical_repair3_allowlist = set(
         PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS
     )
+    slice12_mechanical_repair4_allowlist = set(
+        PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS
+    )
     slice12_product_repair14_allowlist = set(
         PHASE54_SLICE12_PRODUCT_REPAIR14_MODIFIED_PATHS
     )
@@ -1487,6 +1499,7 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
         slice12_product_repair11_allowlist,
         slice12_product_repair12_allowlist,
         slice12_product_repair13_allowlist,
+        slice12_mechanical_repair4_allowlist,
         slice12_mechanical_repair3_allowlist,
         slice12_product_repair14_allowlist,
         recovery_allowlist,
@@ -1500,6 +1513,14 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
         assert slice12_repair_gate2_active
     elif dirty == slice12_product_repair3_allowlist:
         assert slice12_product_repair3_active
+    elif dirty == slice12_mechanical_repair4_allowlist:
+        assert slice12_mechanical_repair4_active
+        assert _git_output(["branch", "--show-current"]) == (
+            PHASE54_SLICE12_MECHANICAL_REPAIR4_BRANCH
+        )
+        assert _git_output(["rev-parse", "HEAD"]) == (
+            PHASE54_SLICE12_MECHANICAL_REPAIR4_BASE
+        )
     elif dirty == slice12_mechanical_repair3_allowlist:
         assert slice12_mechanical_repair3_active
         assert _git_output(["branch", "--show-current"]) == (
@@ -1531,7 +1552,8 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
         assert dirty == active_allowlist
     else:
         assert gate2_active is (
-            slice12_mechanical_repair3_clean_topic_active
+            slice12_mechanical_repair4_clean_topic_active
+            or slice12_mechanical_repair3_clean_topic_active
             or slice12_product_repair3_clean_topic_active
             or slice12_product_repair10_clean_topic_active
             or slice12_product_repair11_clean_topic_active

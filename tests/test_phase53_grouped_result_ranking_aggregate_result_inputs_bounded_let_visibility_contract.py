@@ -16,6 +16,7 @@ from _phase54_active_gate2_manifest import (
     PHASE54_SLICE12_PRODUCT_REPAIR3_SUBJECT,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
     phase54_slice12_mechanical_repair3_clean_topic_is_active,
+    phase54_slice12_mechanical_repair4_clean_topic_is_active,
     phase54_slice12_product_repair3_clean_topic_is_active,
     phase54_slice12_product_repair10_clean_topic_is_active,
     phase54_slice12_product_repair11_clean_topic_is_active,
@@ -452,7 +453,8 @@ def _is_clean_projection() -> bool:
     staged = _git_output(["diff", "--cached", "--name-only"])
     shallow = _git_output(["rev-parse", "--is-shallow-repository"])
     if (
-        phase54_slice12_mechanical_repair3_clean_topic_is_active()
+        phase54_slice12_mechanical_repair4_clean_topic_is_active()
+        or phase54_slice12_mechanical_repair3_clean_topic_is_active()
         or phase54_slice12_product_repair10_clean_topic_is_active()
         or phase54_slice12_product_repair11_clean_topic_is_active()
         or phase54_slice12_product_repair12_clean_topic_is_active()

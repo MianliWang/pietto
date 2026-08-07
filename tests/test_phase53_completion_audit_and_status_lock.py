@@ -33,6 +33,10 @@ from _phase54_active_gate2_manifest import (
     PHASE54_SLICE12_MECHANICAL_REPAIR3_BRANCH,
     PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS,
     PHASE54_SLICE12_MECHANICAL_REPAIR3_SUBJECT,
+    PHASE54_SLICE12_MECHANICAL_REPAIR4_BASE,
+    PHASE54_SLICE12_MECHANICAL_REPAIR4_BRANCH,
+    PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS,
+    PHASE54_SLICE12_MECHANICAL_REPAIR4_SUBJECT,
     PHASE54_SLICE12_PRODUCT_REPAIR3_BASE,
     PHASE54_SLICE12_PRODUCT_REPAIR3_BRANCH,
     PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS,
@@ -68,6 +72,8 @@ from _phase54_active_gate2_manifest import (
     phase54_slice12_pr_ci_repair_is_active,
     phase54_slice12_mechanical_repair3_clean_topic_is_active,
     phase54_slice12_mechanical_repair3_is_active,
+    phase54_slice12_mechanical_repair4_clean_topic_is_active,
+    phase54_slice12_mechanical_repair4_is_active,
     phase54_slice12_product_repair3_is_active,
     phase54_slice12_product_repair10_clean_topic_is_active,
     phase54_slice12_product_repair11_clean_topic_is_active,
@@ -446,6 +452,9 @@ def _assert_clean_checkout_refs(
         elif head == PHASE54_SLICE12_PRODUCT_REPAIR3_BASE:
             assert parents == (PHASE54_SLICE12_PR_CI_REPAIR_BASE,)
             assert subject == "Fix Phase 54 Slice 12 PR CI topology projection"
+        elif phase54_slice12_mechanical_repair4_clean_topic_is_active():
+            assert parents == (PHASE54_SLICE12_MECHANICAL_REPAIR4_BASE,)
+            assert subject == PHASE54_SLICE12_MECHANICAL_REPAIR4_SUBJECT
         elif phase54_slice12_mechanical_repair3_clean_topic_is_active():
             assert parents == (PHASE54_SLICE12_MECHANICAL_REPAIR3_BASE,)
             assert subject == PHASE54_SLICE12_MECHANICAL_REPAIR3_SUBJECT
@@ -530,6 +539,13 @@ def _assert_allowed_dirty_state(
         assert untracked == set()
         assert branch == PHASE54_SLICE12_PR_CI_REPAIR_BRANCH
         assert head == PHASE54_SLICE12_PR_CI_REPAIR_BASE
+        assert main == origin_main == "bc46faff1c9aa71f583ed7d2964b651cc659bc90"
+        return
+    if phase54_slice12_mechanical_repair4_is_active():
+        assert tracked == set(PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS)
+        assert untracked == set()
+        assert branch == PHASE54_SLICE12_MECHANICAL_REPAIR4_BRANCH
+        assert head == PHASE54_SLICE12_MECHANICAL_REPAIR4_BASE
         assert main == origin_main == "bc46faff1c9aa71f583ed7d2964b651cc659bc90"
         return
     if phase54_slice12_mechanical_repair3_is_active():
@@ -1310,6 +1326,9 @@ def test_static_git_helper_and_exact_slice16_dirty_set_are_locked() -> None:
             expected_added = set()
         elif phase54_slice12_product_repair3_is_active():
             expected_modified = set(PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS)
+            expected_added = set()
+        elif phase54_slice12_mechanical_repair4_is_active():
+            expected_modified = set(PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS)
             expected_added = set()
         elif phase54_slice12_mechanical_repair3_is_active():
             expected_modified = set(PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS)

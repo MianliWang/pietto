@@ -18,6 +18,10 @@ from _phase54_active_gate2_manifest import (
     PHASE54_SLICE12_MECHANICAL_REPAIR3_BRANCH,
     PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS,
     PHASE54_SLICE12_MECHANICAL_REPAIR3_SUBJECT,
+    PHASE54_SLICE12_MECHANICAL_REPAIR4_BASE,
+    PHASE54_SLICE12_MECHANICAL_REPAIR4_BRANCH,
+    PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS,
+    PHASE54_SLICE12_MECHANICAL_REPAIR4_SUBJECT,
     PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS,
     PHASE54_SLICE12_PRODUCT_REPAIR10_BASE,
     PHASE54_SLICE12_PRODUCT_REPAIR10_BRANCH,
@@ -46,6 +50,8 @@ from _phase54_active_gate2_manifest import (
     phase54_slice12_pr_ci_repair_is_active,
     phase54_slice12_mechanical_repair3_clean_topic_is_active,
     phase54_slice12_mechanical_repair3_is_active,
+    phase54_slice12_mechanical_repair4_clean_topic_is_active,
+    phase54_slice12_mechanical_repair4_is_active,
     phase54_slice12_product_repair3_clean_topic_is_active,
     phase54_slice12_product_repair10_clean_topic_is_active,
     phase54_slice12_product_repair11_clean_topic_is_active,
@@ -873,6 +879,16 @@ def _assert_clean_checkout_refs(
     main: str | None,
     origin_main: str | None,
 ) -> None:
+    if phase54_slice12_mechanical_repair4_clean_topic_is_active():
+        assert branch == PHASE54_SLICE12_MECHANICAL_REPAIR4_BRANCH
+        assert main == origin_main == "bc46faff1c9aa71f583ed7d2964b651cc659bc90"
+        assert tuple(
+            _git_output(["rev-list", "--parents", "-n", "1", head]).split()[1:]
+        ) == (PHASE54_SLICE12_MECHANICAL_REPAIR4_BASE,)
+        assert _git_output(["show", "-s", "--format=%s", head]) == (
+            PHASE54_SLICE12_MECHANICAL_REPAIR4_SUBJECT
+        )
+        return
     if phase54_slice12_mechanical_repair3_clean_topic_is_active():
         assert branch == PHASE54_SLICE12_MECHANICAL_REPAIR3_BRANCH
         assert main == origin_main == "bc46faff1c9aa71f583ed7d2964b651cc659bc90"
@@ -1387,6 +1403,7 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     slice12_product_repair12_active = phase54_slice12_product_repair12_is_active()
     slice12_product_repair13_active = phase54_slice12_product_repair13_is_active()
     slice12_product_repair14_active = phase54_slice12_product_repair14_is_active()
+    slice12_mechanical_repair4_active = phase54_slice12_mechanical_repair4_is_active()
     slice12_mechanical_repair3_active = phase54_slice12_mechanical_repair3_is_active()
     slice12_product_repair3_clean_topic_active = (
         phase54_slice12_product_repair3_clean_topic_is_active()
@@ -1408,6 +1425,9 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     )
     slice12_mechanical_repair3_clean_topic_active = (
         phase54_slice12_mechanical_repair3_clean_topic_is_active()
+    )
+    slice12_mechanical_repair4_clean_topic_active = (
+        phase54_slice12_mechanical_repair4_clean_topic_is_active()
     )
     slice11_python313_repair_active = phase54_slice11_python313_repair_is_active()
     slice11_substantive_recovery_active = (
@@ -1435,6 +1455,9 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     elif slice12_pr_ci_repair_active:
         assert tracked_paths == set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS)
         assert untracked_paths == set()
+    elif slice12_mechanical_repair4_active:
+        assert tracked_paths == set(PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS)
+        assert untracked_paths == set()
     elif slice12_mechanical_repair3_active:
         assert tracked_paths == set(PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS)
         assert untracked_paths == set()
@@ -1453,6 +1476,14 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     elif slice12_product_repair10_active:
         assert tracked_paths == set(PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS)
         assert untracked_paths == set()
+    elif slice12_mechanical_repair4_clean_topic_active:
+        assert tracked_paths == untracked_paths == set()
+        _assert_clean_checkout_refs(
+            branch=branch,
+            head=head,
+            main=main,
+            origin_main=origin_main,
+        )
     elif slice12_mechanical_repair3_clean_topic_active:
         assert tracked_paths == untracked_paths == set()
         _assert_clean_checkout_refs(

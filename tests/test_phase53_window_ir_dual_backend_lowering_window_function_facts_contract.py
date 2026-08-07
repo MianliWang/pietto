@@ -13,6 +13,7 @@ from _phase54_active_gate2_manifest import (  # noqa: F401
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS,
+    PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS,
     PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS,
     PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS,
     PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS,
@@ -22,6 +23,7 @@ from _phase54_active_gate2_manifest import (  # noqa: F401
     phase54_slice11_pr_ci_repair_is_active,
     phase54_slice12_pr_ci_repair_is_active,
     phase54_slice12_mechanical_repair3_is_active,
+    phase54_slice12_mechanical_repair4_is_active,
     phase54_slice12_product_repair3_is_active,
     phase54_slice12_product_repair10_is_active,
     phase54_slice12_product_repair11_is_active,
@@ -1792,6 +1794,7 @@ def test_reader_hash_dag_allowlist_and_fixed_point_are_exact() -> None:
         _phase54_slice2_allowlist(),
         set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS),
         set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS),
+        set(PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS),
         set(PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS),
         set(PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS),
         set(PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS),
@@ -1805,6 +1808,8 @@ def test_reader_hash_dag_allowlist_and_fixed_point_are_exact() -> None:
         assert phase54_slice11_substantive_recovery_is_active()
     elif dirty == set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS):
         assert phase54_slice12_pr_ci_repair_is_active()
+    elif dirty == set(PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS):
+        assert phase54_slice12_mechanical_repair4_is_active()
     elif dirty == set(PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS):
         assert phase54_slice12_mechanical_repair3_is_active()
     elif dirty == set(PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS):
@@ -1899,6 +1904,7 @@ def test_dirty_clean_depth_one_shallow_and_negative_topology_boundaries_are_exac
             _phase54_slice2_allowlist(),
             set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS),
             set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS),
+            set(PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS),
             set(PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS),
             set(PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS),
             set(PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS),
@@ -1912,6 +1918,8 @@ def test_dirty_clean_depth_one_shallow_and_negative_topology_boundaries_are_exac
             assert phase54_slice11_substantive_recovery_is_active()
         elif dirty == set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS):
             assert phase54_slice12_pr_ci_repair_is_active()
+        elif dirty == set(PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS):
+            assert phase54_slice12_mechanical_repair4_is_active()
         elif dirty == set(PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS):
             assert phase54_slice12_mechanical_repair3_is_active()
         elif dirty == set(PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS):
