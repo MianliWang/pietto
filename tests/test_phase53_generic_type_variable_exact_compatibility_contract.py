@@ -2000,7 +2000,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         len(markdown_paths),
         len(test_paths),
         top_level_functions,
-    ) == (933, 571, 266, 462, 5358)
+    ) == (933, 571, 266, 462, 5361)
     self_tree = ast.parse(SELF_PATH.read_text())
     self_names = tuple(
         node.name

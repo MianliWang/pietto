@@ -2005,6 +2005,14 @@ def test_observation_rejects_a_moving_base_reference(tmp_path: Path) -> None:
     assert seen
 
 
+def _reset_local_git_variable_caches() -> None:
+    """Forget every module's derived override set before a probe."""
+
+    active_gate2_manifest.reset_local_git_variables()
+    topology.reset_local_git_variables()
+    journal.reset_local_git_variables()
+
+
 def test_local_git_variables_cover_every_reported_override() -> None:
     reported = set(
         subprocess.run(
@@ -2025,7 +2033,7 @@ def test_local_git_variables_cover_every_reported_override() -> None:
         topology.local_git_variables,
         journal.local_git_variables,
     ):
-        derive.cache_clear()
+        _reset_local_git_variable_caches()
         derived = set(derive())
         # Git is the authority on its own overrides; a hand-maintained subset
         # cannot track them.
@@ -2037,12 +2045,7 @@ def test_local_git_variables_cover_every_reported_override() -> None:
 def test_environment_sanitizers_remove_every_local_override(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    for derive in (
-        active_gate2_manifest.local_git_variables,
-        topology.local_git_variables,
-        journal.local_git_variables,
-    ):
-        derive.cache_clear()
+    _reset_local_git_variable_caches()
     overrides = set(active_gate2_manifest.local_git_variables())
     for name in sorted(overrides):
         monkeypatch.setenv(name, "/nonexistent/override")
@@ -2052,7 +2055,7 @@ def test_environment_sanitizers_remove_every_local_override(
         topology.local_git_variables,
         journal.local_git_variables,
     ):
-        derive.cache_clear()
+        _reset_local_git_variable_caches()
         assert overrides <= set(derive())
     for sanitize in (
         active_gate2_manifest._git_environment,
@@ -2070,7 +2073,7 @@ def test_forged_shallow_file_cannot_falsify_gate2_state(
     head = _git("rev-parse", "HEAD")
     forged = tmp_path / "forged-shallow"
     forged.write_text(f"{head}\n", encoding="utf-8")
-    active_gate2_manifest.local_git_variables.cache_clear()
+    active_gate2_manifest.reset_local_git_variables()
     overrides = set(active_gate2_manifest.local_git_variables())
     sanitized = {
         name: value for name, value in os.environ.items() if name not in overrides
@@ -2096,15 +2099,100 @@ def test_forged_shallow_file_cannot_falsify_gate2_state(
     if truth == "false":
         assert raw != truth
     monkeypatch.setenv("GIT_SHALLOW_FILE", str(forged))
-    active_gate2_manifest.local_git_variables.cache_clear()
+    active_gate2_manifest.reset_local_git_variables()
     state = active_gate2_manifest._read_phase54_gate2_repository_state()
     assert state.shallow is (truth == "true")
     assert state.branch_oid == head
 
 
+def test_the_fail_closed_floor_alone_covers_every_reported_override() -> None:
+    reported = set(
+        subprocess.run(
+            ["git", "rev-parse", "--local-env-vars"],
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout.split()
+    )
+    # The floor is what a failed probe falls back to, so it must already be
+    # complete on its own: a degraded answer must still remove GIT_SHALLOW_FILE.
+    for floor in (
+        set(active_gate2_manifest._GIT_LOCATION_VARIABLES),
+        set(topology._FALLBACK_LOCAL_GIT_VARIABLES),
+        set(journal.LOCATION_VARIABLES),
+    ):
+        assert reported <= floor, sorted(reported - floor)
+        assert "GIT_SHALLOW_FILE" in floor
+
+
+def test_a_failed_probe_is_never_cached_as_the_derived_set() -> None:
+    for module in (active_gate2_manifest, topology, journal):
+        module.reset_local_git_variables()
+        original = module.subprocess.run
+
+        def _unusable(*args: object, **kwargs: object) -> object:
+            raise OSError("git is unavailable")
+
+        module.subprocess.run = _unusable
+        try:
+            degraded = set(module.local_git_variables())
+        finally:
+            module.subprocess.run = original
+        # A probe that fails once must not freeze its answer for the process.
+        recovered = set(module.local_git_variables())
+        assert "GIT_SHALLOW_FILE" in degraded
+        assert degraded <= recovered
+        assert recovered >= set(
+            subprocess.run(
+                ["git", "rev-parse", "--local-env-vars"],
+                check=True,
+                text=True,
+                capture_output=True,
+            ).stdout.split()
+        )
+        module.reset_local_git_variables()
+
+
+def test_a_registered_publication_shape_never_certifies_itself() -> None:
+    matches = active_gate2_manifest._phase54_post_slice12_interlude_publication_identity_matches
+    trailer = active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REVIEWED_TREE_TRAILER
+    identities = active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_CHILD_IDENTITIES
+    replaced = "e" * 40
+    for base, subject, tree in identities:
+        assert matches((base,), subject, tree, subject)
+        # A frozen shape stays frozen even when the message declares the tree
+        # it carries: only a genuinely open shape may certify itself.
+        assert not matches(
+            (base,), subject, replaced, f"{subject}\n\n{trailer}: {replaced}"
+        )
+    squash_base, squash_subject, squash_tree = (
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_SQUASH_IDENTITY
+    )
+    assert matches((squash_base,), squash_subject, squash_tree, squash_subject)
+    assert not matches(
+        (squash_base,),
+        squash_subject,
+        replaced,
+        f"{squash_subject}\n\n{trailer}: {replaced}",
+    )
+    open_shapes = (
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_UNREGISTERED_CHILD_SHAPE,
+        (
+            active_gate2_manifest.PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_BASE,
+            active_gate2_manifest.PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_SUBJECT,
+        ),
+    )
+    assert len(open_shapes) == len(set(open_shapes))
+    for base, subject in open_shapes:
+        assert (base, subject) not in tuple((b, s) for b, s, _ in identities)
+        assert matches(
+            (base,), subject, replaced, f"{subject}\n\n{trailer}: {replaced}"
+        )
+
+
 def test_local_git_variables_fall_back_when_git_cannot_report() -> None:
     derive = active_gate2_manifest.local_git_variables
-    derive.cache_clear()
+    active_gate2_manifest.reset_local_git_variables()
     original = subprocess.run
 
     def _unusable(*args: object, **kwargs: object) -> object:
@@ -2115,7 +2203,7 @@ def test_local_git_variables_fall_back_when_git_cannot_report() -> None:
         fallback = set(derive())
     finally:
         active_gate2_manifest.subprocess.run = original
-        derive.cache_clear()
+        active_gate2_manifest.reset_local_git_variables()
     assert {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"} <= fallback
     assert fallback == set(active_gate2_manifest._GIT_LOCATION_VARIABLES)
 
@@ -2153,8 +2241,7 @@ def test_stale_shallow_file_cannot_falsify_shallow_identity(
     ).stdout.strip()
     # The override really does falsify a raw reading, which is the defect.
     assert falsified == "false"
-    for derive in (topology.local_git_variables,):
-        derive.cache_clear()
+    topology.reset_local_git_variables()
     assert topology._git(checkout, "rev-parse", "--is-shallow-repository") == "true"
 
 
@@ -2355,6 +2442,26 @@ def test_publication_identity_rejects_a_replaced_tree_on_a_known_shape() -> None
         second_subject,
         first_tree,
         f"{second_subject}\n\n{trailer}: {first_tree}",
+    )
+    # The interlude's own squash is published, so its shape is frozen to that
+    # exact tree and can no longer certify any other tree for itself.
+    interlude_squash = (
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_SQUASH_IDENTITY
+    )
+    assert matches(
+        (interlude_squash[0],), interlude_squash[1], interlude_squash[2], squash_subject
+    )
+    assert not matches(
+        (base,),
+        squash_subject,
+        "d" * 40,
+        f"{squash_subject}\n\n{trailer}: {'d' * 40}",
+    )
+    # Only the repair's own squash shape, which is still open, may prove its
+    # tree through the canonical trailer.
+    base = active_gate2_manifest.PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_BASE
+    squash_subject = (
+        active_gate2_manifest.PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_SUBJECT
     )
     squash_tree = "d" * 40
     assert matches(
@@ -2688,7 +2795,11 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
         active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_UNREGISTERED_CHILD_SHAPE
     )
     assert trees == tuple(tree for _, _, tree in identities)
-    assert shapes == (*((base, subject) for base, subject, _ in identities), newest)
+    assert shapes == (
+        *((base, subject) for base, subject, _ in identities),
+        newest,
+        active_gate2_manifest.PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_SQUASH_SHAPE,
+    )
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (

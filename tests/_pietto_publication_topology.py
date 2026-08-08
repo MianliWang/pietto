@@ -14,7 +14,6 @@ declared field matches exactly.
 
 from __future__ import annotations
 
-import functools
 import hashlib
 import io
 import json
@@ -174,16 +173,34 @@ _FALLBACK_LOCAL_GIT_VARIABLES: tuple[str, ...] = (
     "GIT_ALTERNATE_OBJECT_DIRECTORIES",
     "GIT_CEILING_DIRECTORIES",
     "GIT_COMMON_DIR",
+    "GIT_CONFIG",
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_PARAMETERS",
     "GIT_DIR",
     "GIT_GRAFT_FILE",
+    "GIT_IMPLICIT_WORK_TREE",
     "GIT_INDEX_FILE",
     "GIT_NAMESPACE",
+    "GIT_NO_REPLACE_OBJECTS",
     "GIT_OBJECT_DIRECTORY",
+    "GIT_PREFIX",
+    "GIT_REPLACE_REF_BASE",
+    "GIT_SHALLOW_FILE",
     "GIT_WORK_TREE",
 )
 
 
-@functools.lru_cache(maxsize=1)
+_LOCAL_GIT_VARIABLES: tuple[str, ...] | None = None
+
+
+def reset_local_git_variables() -> None:
+    """Forget a cached derivation so the next call probes Git again."""
+
+    global _LOCAL_GIT_VARIABLES
+
+    _LOCAL_GIT_VARIABLES = None
+
+
 def local_git_variables() -> tuple[str, ...]:
     """Return every environment variable that relocates or reconfigures Git.
 
@@ -194,6 +211,10 @@ def local_git_variables() -> tuple[str, ...]:
     the fallback is unioned in so the removed set can only grow.
     """
 
+    global _LOCAL_GIT_VARIABLES
+
+    if _LOCAL_GIT_VARIABLES is not None:
+        return _LOCAL_GIT_VARIABLES
     try:
         result = subprocess.run(
             ["git", "rev-parse", "--local-env-vars"],
@@ -211,7 +232,12 @@ def local_git_variables() -> tuple[str, ...]:
     reported = tuple(name for name in _decoded(result.stdout).split() if name)
     if not reported:
         return _FALLBACK_LOCAL_GIT_VARIABLES
-    return tuple(sorted(set(reported) | set(_FALLBACK_LOCAL_GIT_VARIABLES)))
+    # Only a complete derivation is cached. A probe that fails once must
+    # not freeze the degraded answer for the life of the process.
+    _LOCAL_GIT_VARIABLES = tuple(
+        sorted(set(reported) | set(_FALLBACK_LOCAL_GIT_VARIABLES))
+    )
+    return _LOCAL_GIT_VARIABLES
 
 
 def _inherited_environment() -> dict[str, str]:
