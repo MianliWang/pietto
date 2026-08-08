@@ -448,6 +448,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--path", action="append", default=[])
     parser.add_argument("--target", action="append", default=[])
     parser.add_argument("--count-literal", action="append", default=[])
+    parser.add_argument(
+        "--inventory-root",
+        action="append",
+        default=[],
+        help="directory prefix whose enumeration the change perturbs",
+    )
     parser.add_argument("--rule", action="append", default=[])
     return parser
 
@@ -470,11 +476,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     repo_root = Path(arguments.repo_root)
     try:
         if arguments.mode == "discover":
+            # Refuse before discovering: a run that inspected no target at all
+            # must never print an empty closure and exit successfully.
+            if not (
+                arguments.target or arguments.count_literal or arguments.inventory_root
+            ):
+                raise ClosureError(
+                    "discovery requires at least one target, count literal, "
+                    "or inventory root"
+                )
             edges = discover_edges(
                 repo_root=repo_root,
                 universe=arguments.path,
                 targets=arguments.target,
                 count_literals=arguments.count_literal,
+                inventory_roots=arguments.inventory_root,
             )
             print(
                 json.dumps(
@@ -491,7 +507,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                         "readers": list(
                             readers_of(
                                 edges,
-                                (*arguments.target, *arguments.count_literal),
+                                (
+                                    *arguments.target,
+                                    *arguments.count_literal,
+                                    *arguments.inventory_root,
+                                ),
                             )
                         ),
                     },
@@ -500,10 +520,6 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             )
             return 0
-        if arguments.mode == "discover" and not (
-            arguments.target or arguments.count_literal
-        ):
-            raise ClosureError("discovery requires at least one target or literal")
         rules = _parse_rules(arguments.rule)
         if arguments.mode == "plan":
             plan = calculate_replacements(

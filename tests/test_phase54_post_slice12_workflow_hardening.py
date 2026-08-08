@@ -623,6 +623,54 @@ def test_discovery_summary_includes_count_literal_readers(tmp_path: Path) -> Non
     )
 
 
+def test_discovery_refuses_an_empty_target_set_before_reading(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "counts.py").write_text("assert total == 461\n", encoding="utf-8")
+    exit_code = closure.main(
+        [
+            "--repo-root",
+            str(tmp_path),
+            "--mode",
+            "discover",
+            "--path",
+            "counts.py",
+        ]
+    )
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert captured.out == ""
+    assert "discovery requires at least one target" in captured.err
+
+
+def test_discovery_command_line_reaches_inventory_root_readers(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "inventory.py").write_text(
+        'ROOTS = ("docs/spec/",)\n', encoding="utf-8"
+    )
+    edges = closure.discover_edges(
+        repo_root=tmp_path, universe=("inventory.py",), inventory_roots=("docs/spec/",)
+    )
+    assert closure.readers_of(edges, ("docs/spec/",)) == ("inventory.py",)
+    exit_code = closure.main(
+        [
+            "--repo-root",
+            str(tmp_path),
+            "--mode",
+            "discover",
+            "--path",
+            "inventory.py",
+            "--inventory-root",
+            "docs/spec/",
+        ]
+    )
+    reported = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert reported["readers"] == ["inventory.py"]
+    assert reported["edges"][0]["kind"] == closure.READER_KIND_INVENTORY
+
+
 def test_zero_delta_verification_is_independent_of_the_plan(tmp_path: Path) -> None:
     source = tmp_path / "one.py"
     source.write_text("total = 461\n", encoding="utf-8")
@@ -790,6 +838,99 @@ def test_clean_topic_predicate_rejects_a_replaced_tree(tmp_path: Path) -> None:
     assert active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_TREE == trees[0]
 
 
+def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
+    identities = active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_CHILD_IDENTITIES
+    shapes = active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_CHILD_SHAPES
+    trees = active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_PUBLISHED_TREES
+    newest = (
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_UNREGISTERED_CHILD_SHAPE
+    )
+    assert trees == tuple(tree for _, _, tree in identities)
+    assert shapes == (*((base, subject) for base, subject, _ in identities), newest)
+    assert newest not in tuple((base, subject) for base, subject, _ in identities)
+    assert newest[0] not in trees
+    assert newest == (
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR5_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR5_SUBJECT,
+    )
+    for base, subject, tree in identities:
+        assert re.fullmatch(r"[0-9a-f]{40}", base), base
+        assert re.fullmatch(r"[0-9a-f]{40}", tree), tree
+        assert subject.startswith(("Add Pietto workflow", "Fix Pietto workflow"))
+
+
+def test_clean_topic_rejects_a_published_tree_grafted_onto_another_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    identities = active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_CHILD_IDENTITIES
+    newest = (
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_UNREGISTERED_CHILD_SHAPE
+    )
+    trailer = active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REVIEWED_TREE_TRAILER
+    base_head = active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_BASE
+    branch = active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_BRANCH
+    state = active_gate2_manifest.Phase54Gate2RepositoryState(
+        marker=active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER,
+        branch_oid="c" * 40,
+        branch_head=branch,
+        branch_upstream=f"origin/{branch}",
+        ahead=0,
+        behind=0,
+        added_paths=frozenset(),
+        modified_paths=frozenset(),
+        deleted_paths=frozenset(),
+        staged_paths=frozenset(),
+        other_paths=frozenset(),
+        worktree_count=1,
+        shallow=False,
+        active_git_operation=False,
+    )
+
+    matches_clean = (
+        active_gate2_manifest._matches_phase54_post_slice12_interlude_clean_topic
+    )
+
+    def _recognized(parent: str, subject: str, tree: str, message: str) -> bool:
+        def _output(args: list[str]) -> str:
+            if args[:2] == ["rev-list", "--parents"]:
+                return f"{'c' * 40} {parent}"
+            if args[:3] == ["show", "-s", "--format=%s"]:
+                return subject
+            if args == ["rev-parse", "HEAD^{tree}"]:
+                return tree
+            if args[:2] == ["rev-parse", "--verify"]:
+                return base_head
+            raise AssertionError(args)
+
+        monkeypatch.setattr(active_gate2_manifest, "_git_output", _output)
+        monkeypatch.setattr(
+            active_gate2_manifest, "_git_commit_message", lambda revision: message
+        )
+        return matches_clean(state)
+
+    first_base, first_subject, first_tree = identities[0]
+    last_tree = identities[-1][2]
+    assert _recognized(first_base, first_subject, first_tree, first_subject)
+    assert not _recognized(first_base, first_subject, last_tree, first_subject)
+    assert not _recognized(first_base, first_subject, "d" * 40, first_subject)
+    assert not _recognized(
+        first_base,
+        first_subject,
+        last_tree,
+        f"{first_subject}\n\n{trailer}: {last_tree}",
+    )
+    assert not _recognized(first_base, identities[1][1], first_tree, first_subject)
+    newest_tree = "e" * 40
+    assert _recognized(
+        newest[0], newest[1], newest_tree, f"{newest[1]}\n\n{trailer}: {newest_tree}"
+    )
+    assert not _recognized(newest[0], newest[1], newest_tree, newest[1])
+    assert not _recognized(
+        newest[0], newest[1], newest_tree, f"{newest[1]}\n\n{trailer}: {first_tree}"
+    )
+    assert not _recognized("f" * 40, newest[1], newest_tree, newest[1])
+
+
 def test_wrong_parent_reference_tree_shallow_and_event_are_rejected(
     tmp_path: Path,
 ) -> None:
@@ -837,6 +978,58 @@ def test_projections_can_be_built_from_a_real_repository_and_run_commands(
         topology.build_topology(
             topology.TOPOLOGY_CLEAN_TOPIC, tmp_path / "fromempty", source=empty
         )
+
+
+def test_each_projection_declares_its_own_integration_event_environment(
+    tmp_path: Path,
+) -> None:
+    leaked = {
+        "GITHUB_EVENT_NAME": "pull_request",
+        "GITHUB_HEAD_REF": "leaked/head",
+        "GITHUB_BASE_REF": "leaked/base",
+        "GITHUB_REF": "refs/pull/9999/merge",
+        "GITHUB_SHA": "9" * 40,
+        "PATH": "/usr/bin",
+    }
+    seen: dict[str, dict[str, str]] = {}
+    for fixture in topology.build_all(tmp_path / "all"):
+        environment = topology.projection_environment(fixture.expectation, leaked)
+        seen[fixture.kind] = environment
+        assert environment["PATH"] == "/usr/bin"
+        if fixture.expectation.event_name == topology.EVENT_LOCAL:
+            for name in topology.CI_EVENT_VARIABLES:
+                assert name not in environment, (fixture.kind, name)
+            continue
+        assert environment["GITHUB_EVENT_NAME"] == fixture.expectation.event_name
+        assert environment["GITHUB_SHA"] == fixture.expectation.head
+        assert environment["GITHUB_HEAD_REF"] == fixture.expectation.event_head_ref
+    push = seen[topology.TOPOLOGY_MAIN_PUSH]
+    assert push["GITHUB_REF"] == f"refs/heads/{topology.MAIN_BRANCH}"
+    assert "GITHUB_BASE_REF" not in push
+    for kind in (
+        topology.TOPOLOGY_PULL_REQUEST_MERGE,
+        topology.TOPOLOGY_SHALLOW_PULL_REQUEST,
+    ):
+        assert seen[kind]["GITHUB_REF"] == topology.PULL_REQUEST_MERGE_REF
+        assert seen[kind]["GITHUB_BASE_REF"] == topology.MAIN_BRANCH
+
+
+def test_projection_commands_run_under_the_projection_event(tmp_path: Path) -> None:
+    fixture = topology.build_topology(topology.TOPOLOGY_MAIN_PUSH, tmp_path / "push")
+    result = topology.run_in_projection(
+        fixture,
+        [
+            "python3",
+            "-c",
+            "import json, os; print(json.dumps({k: os.environ.get(k) "
+            "for k in ('GITHUB_EVENT_NAME', 'GITHUB_REF', 'GITHUB_SHA')}))",
+        ],
+    )
+    assert result.returncode == 0
+    reported = json.loads(result.stdout)
+    assert reported["GITHUB_EVENT_NAME"] == topology.EVENT_PUSH
+    assert reported["GITHUB_REF"] == f"refs/heads/{topology.MAIN_BRANCH}"
+    assert reported["GITHUB_SHA"] == fixture.observation.head
 
 
 def test_topology_fixture_rejects_a_non_empty_root(tmp_path: Path) -> None:

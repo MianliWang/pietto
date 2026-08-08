@@ -1166,16 +1166,20 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
     else:
         assert tracked == untracked == set()
         if branch == PHASE54_POST_SLICE12_INTERLUDE_BRANCH:
+            # The clean topic projection keeps its own topology assertions and
+            # then continues into the shared inventory below: returning early
+            # would leave the refreshed counts unverified in exactly the
+            # projection the publication lifecycle checks out.
             assert phase54_post_slice12_interlude_clean_topic_is_active()
             assert main == origin_main == PHASE54_POST_SLICE12_INTERLUDE_BASE
-            return
-        assert branch in ("", "main")
-        if branch == "main":
-            assert main == head
-        if main is not None:
-            assert main == head
-        if origin_main is not None:
-            assert origin_main == head
+        else:
+            assert branch in ("", "main")
+            if branch == "main":
+                assert main == head
+            if main is not None:
+                assert main == head
+            if origin_main is not None:
+                assert origin_main == head
 
     readable_paths = set(_git_output(["ls-files"]).splitlines()) | untracked
     assert len(readable_paths) == 933
@@ -1195,7 +1199,7 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 5281
+    assert top_level_tests == 5287
     assert len(GENERATED_PATHS) == 8
     goldens = {
         path

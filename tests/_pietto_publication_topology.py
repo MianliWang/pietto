@@ -41,6 +41,15 @@ EVENT_PULL_REQUEST = "pull_request"
 EVENT_PUSH = "push"
 EVENT_LOCAL = "local"
 
+PULL_REQUEST_MERGE_REF = "refs/pull/1/merge"
+CI_EVENT_VARIABLES: tuple[str, ...] = (
+    "GITHUB_BASE_REF",
+    "GITHUB_EVENT_NAME",
+    "GITHUB_HEAD_REF",
+    "GITHUB_REF",
+    "GITHUB_SHA",
+)
+
 TOPIC_BRANCH = "phase54/post-slice12-workflow-hardening"
 MAIN_BRANCH = "main"
 BASE_SUBJECT = "Base commit"
@@ -179,6 +188,38 @@ def _init_base(root: Path, source: Path | None = None) -> str:
     return _git(root, "rev-parse", "HEAD")
 
 
+def projection_environment(
+    expectation: TopologyExpectation,
+    inherited: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Return the exact continuous-integration event environment of a projection.
+
+    Readers branch on the event variables, so a projection is only reproduced
+    when they are set from its own expectation. Every variable is cleared first:
+    a sweep that runs inside one integration job must not leak that job's event
+    into the other six projections.
+    """
+
+    environment = dict(
+        _inherited_environment() if inherited is None else dict(inherited)
+    )
+    for name in CI_EVENT_VARIABLES:
+        environment.pop(name, None)
+    if expectation.event_name == EVENT_LOCAL:
+        return environment
+    environment["GITHUB_EVENT_NAME"] = expectation.event_name
+    environment["GITHUB_SHA"] = expectation.head
+    if expectation.event_head_ref:
+        environment["GITHUB_HEAD_REF"] = expectation.event_head_ref
+    if expectation.event_base_ref:
+        environment["GITHUB_BASE_REF"] = expectation.event_base_ref
+    if expectation.event_name == EVENT_PUSH:
+        environment["GITHUB_REF"] = f"refs/heads/{expectation.event_head_ref}"
+    else:
+        environment["GITHUB_REF"] = PULL_REQUEST_MERGE_REF
+    return environment
+
+
 def run_in_projection(
     fixture: TopologyFixture,
     command: Sequence[str],
@@ -187,6 +228,7 @@ def run_in_projection(
 
     This is the entry point that lets the real topology-sensitive reader set
     execute under every projection rather than only self-verifying the fixture.
+    The command runs under the projection's own event environment.
     """
 
     if not command:
@@ -196,6 +238,7 @@ def run_in_projection(
         cwd=fixture.root,
         text=True,
         capture_output=True,
+        env=projection_environment(fixture.expectation),
     )
 
 
@@ -440,7 +483,7 @@ def build_topology(
             "-m",
             f"Merge {TOPIC_BRANCH} into {MAIN_BRANCH}",
         )
-        _git(root, "update-ref", "refs/pull/1/merge", merge)
+        _git(root, "update-ref", PULL_REQUEST_MERGE_REF, merge)
         _git(root, "checkout", "--quiet", "--detach", merge)
         refs["merge"] = merge
         observation = observe(
@@ -485,7 +528,7 @@ def build_topology(
             "-m",
             f"Merge {topic} into {base}",
         )
-        _git(root, "update-ref", "refs/pull/1/merge", merge)
+        _git(root, "update-ref", PULL_REQUEST_MERGE_REF, merge)
         refs["merge"] = merge
         checkout = root.parent / f"{root.name}-shallow"
         _git(root, "init", "--quiet", str(checkout))
@@ -497,7 +540,7 @@ def build_topology(
             "--depth",
             "1",
             "origin",
-            "+refs/pull/1/merge:refs/remotes/pull/1/merge",
+            f"+{PULL_REQUEST_MERGE_REF}:refs/remotes/pull/1/merge",
         )
         _git(checkout, "checkout", "--quiet", "--detach", "refs/remotes/pull/1/merge")
         refs["shallow_head"] = _git(checkout, "rev-parse", "HEAD")
