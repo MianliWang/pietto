@@ -13,6 +13,7 @@ from typing import cast
 
 from _phase54_active_gate2_manifest import (
     PHASE54_POST_SLICE12_INTERLUDE_CHILD_SHAPES,
+    phase54_post_slice12_interlude_head_is_recognized_publication,
     phase54_post_slice12_interlude_dirty_is_active,
     PHASE54_POST_SLICE12_INTERLUDE_BASE,
     PHASE54_POST_SLICE12_INTERLUDE_BRANCH,
@@ -983,6 +984,9 @@ def _is_clean_projection() -> bool:
         parents == (child_base,) and subject == child_subject
         for child_base, child_subject in PHASE54_POST_SLICE12_INTERLUDE_CHILD_SHAPES
     ):
+        # A known parent and subject are not enough: a replaced tree on a known
+        # shape must be rejected, so the exact publication identity is checked.
+        assert phase54_post_slice12_interlude_head_is_recognized_publication()
         if status:
             assert shallow == "false"
             assert (

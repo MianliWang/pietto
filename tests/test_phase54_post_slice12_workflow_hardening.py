@@ -672,6 +672,86 @@ def test_source_backed_projection_carries_the_exact_candidate_tree(
         assert topology.verify(fixture.observation, fixture.expectation) == (), kind
 
 
+def test_replacement_plan_rejects_a_rule_recreated_across_the_seam(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "one.py").write_text("abb\n", encoding="utf-8")
+    with pytest.raises(closure.ClosureError):
+        closure.calculate_replacements(
+            repo_root=tmp_path,
+            paths=("one.py",),
+            rules=(closure.ReplacementRule(old="ab", new="a"),),
+        )
+    (tmp_path / "two.py").write_text("total = 461\n", encoding="utf-8")
+    plan = closure.calculate_replacements(
+        repo_root=tmp_path,
+        paths=("two.py",),
+        rules=(closure.ReplacementRule(old="461", new="462"),),
+    )
+    assert plan.total_occurrences == 1
+
+
+def test_source_projection_propagates_a_deleted_path(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "--quiet"], cwd=source, check=True)
+    (source / "kept.py").write_text("kept\n", encoding="utf-8")
+    (source / "removed.py").write_text("removed\n", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=source, check=True)
+    subprocess.run(
+        ["git", "-c", "user.name=T", "-c", "user.email=t@x", "commit", "-q", "-m", "b"],
+        cwd=source,
+        check=True,
+    )
+    (source / "removed.py").unlink()
+
+    added, modified, deleted = topology.source_dirty_paths(source)
+    assert (added, modified, deleted) == ((), (), ("removed.py",))
+    dirty = topology.build_topology(
+        topology.TOPOLOGY_DIRTY_GATE2, tmp_path / "dirty", source=source
+    )
+    assert dirty.expectation.deleted_paths == ("removed.py",)
+    assert topology.verify(dirty.observation, dirty.expectation) == ()
+
+    clean = topology.build_topology(
+        topology.TOPOLOGY_CLEAN_TOPIC, tmp_path / "clean", source=source
+    )
+    listed = topology.run_in_projection(clean, ["git", "ls-files"])
+    assert listed.stdout.split() == ["kept.py"]
+    assert not (clean.root / "removed.py").exists()
+
+
+def test_publication_identity_rejects_a_replaced_tree_on_a_known_shape() -> None:
+    manifest_module = active_gate2_manifest
+    matches = (
+        manifest_module._phase54_post_slice12_interlude_publication_identity_matches
+    )
+    identities = active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_CHILD_IDENTITIES
+    trailer = active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REVIEWED_TREE_TRAILER
+    base = active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_BASE
+    squash_subject = active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_SUBJECT
+    first_base, first_subject, first_tree = identities[0]
+    second_base, second_subject, second_tree = identities[1]
+    assert matches((first_base,), first_subject, first_tree, first_subject)
+    assert not matches((first_base,), first_subject, second_tree, first_subject)
+    assert not matches((second_base,), second_subject, first_tree, second_subject)
+    assert not matches(
+        (second_base,),
+        second_subject,
+        first_tree,
+        f"{second_subject}\n\n{trailer}: {first_tree}",
+    )
+    squash_tree = "d" * 40
+    assert matches(
+        (base,),
+        squash_subject,
+        squash_tree,
+        f"{squash_subject}\n\n{trailer}: {squash_tree}",
+    )
+    assert not matches((base,), squash_subject, squash_tree, squash_subject)
+    assert not matches((base,), squash_subject, squash_tree, f"{squash_subject}\n\nx")
+
+
 def test_discovery_summary_includes_count_literal_readers(tmp_path: Path) -> None:
     (tmp_path / "counts.py").write_text("assert total == 461\n", encoding="utf-8")
     edges = closure.discover_edges(
@@ -922,8 +1002,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR7_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR7_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR8_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR8_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base

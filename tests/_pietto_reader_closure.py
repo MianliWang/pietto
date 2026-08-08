@@ -352,6 +352,27 @@ def _reject_interacting_rules(rules: Sequence[ReplacementRule]) -> None:
                 )
 
 
+def _reject_regenerating_rules(
+    path: str, source: str, rules: Sequence[ReplacementRule]
+) -> None:
+    """Reject rules whose own result recreates a match across the seam.
+
+    ``ab => a`` applied to ``abb`` leaves ``ab`` behind, so one application can
+    never reach zero delta even though every literal check passes in isolation.
+    The plan is simulated on the exact source text before it is proposed.
+    """
+
+    simulated = source
+    for rule in rules:
+        simulated = simulated.replace(rule.old, rule.new)
+    for rule in rules:
+        if rule.old in simulated:
+            raise ClosureError(
+                f"replacement rule {rule.old!r} is recreated in {path} after one "
+                "application"
+            )
+
+
 def calculate_replacements(
     *,
     repo_root: Path,
@@ -380,6 +401,7 @@ def calculate_replacements(
     replacements: list[PathReplacement] = []
     for path in ordered_paths:
         source = read_source(repo_root, path)
+        _reject_regenerating_rules(path, source, rules)
         for rule in rules:
             occurrences = source.count(rule.old)
             if occurrences:

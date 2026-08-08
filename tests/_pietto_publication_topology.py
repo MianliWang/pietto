@@ -170,35 +170,39 @@ def _source_output(source: Path, *args: str) -> str:
 
 
 def _source_working_paths(source: Path) -> tuple[str, ...]:
-    listing = _source_output(
+    """Return the paths that actually exist in one source working tree.
+
+    A tracked path the source deleted is still listed by the index, so the
+    listing is filtered by real existence. Otherwise the deletion would never
+    reach the projection and the projected tree would not be the candidate.
+    """
+
+    listed = _source_lines(
         source, "ls-files", "--cached", "--others", "--exclude-standard"
     )
-    entries = tuple(line for line in listing.splitlines() if line)
+    entries = tuple(relative for relative in listed if (source / relative).is_file())
     if not entries:
         raise TopologyError(f"source repository has no content: {source}")
     return entries
 
 
-def source_dirty_paths(source: Path) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """Return one source repository's (added, modified) uncommitted paths."""
+def source_dirty_paths(
+    source: Path,
+) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    """Return one source repository's (added, modified, deleted) uncommitted paths."""
 
+    deleted = tuple(sorted(_source_lines(source, "ls-files", "--deleted")))
     modified = tuple(
-        sorted(
-            line
-            for line in _source_output(source, "diff", "--name-only").split("\n")
-            if line
-        )
+        sorted(set(_source_lines(source, "diff", "--name-only")) - set(deleted))
     )
     added = tuple(
-        sorted(
-            line
-            for line in _source_output(
-                source, "ls-files", "--others", "--exclude-standard"
-            ).split("\n")
-            if line
-        )
+        sorted(_source_lines(source, "ls-files", "--others", "--exclude-standard"))
     )
-    return added, modified
+    return added, modified, deleted
+
+
+def _source_lines(source: Path, *args: str) -> tuple[str, ...]:
+    return tuple(line for line in _source_output(source, *args).splitlines() if line)
 
 
 def _seed_committed_tree(root: Path, source: Path) -> None:
@@ -227,8 +231,6 @@ def _seed_working_tree(root: Path, source: Path) -> None:
     wanted = set(entries)
     for relative in entries:
         origin = source / relative
-        if not origin.is_file():
-            continue
         destination = root / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(origin.read_bytes())
@@ -465,8 +467,8 @@ def build_topology(
 
     if kind == TOPOLOGY_DIRTY_GATE2:
         _apply_candidate(root, source, _SYNTHETIC_CANDIDATE)
-        dirty_added, dirty_modified = (
-            (("added.md",), ("AUTHORITY.md",))
+        dirty_added, dirty_modified, dirty_deleted = (
+            (("added.md",), ("AUTHORITY.md",), ())
             if source is None
             else source_dirty_paths(source)
         )
@@ -490,6 +492,7 @@ def build_topology(
             event_base_ref="",
             added_paths=dirty_added,
             modified_paths=dirty_modified,
+            deleted_paths=dirty_deleted,
         )
         return TopologyFixture(
             kind=kind,
