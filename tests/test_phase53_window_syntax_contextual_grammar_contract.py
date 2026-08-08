@@ -1199,7 +1199,7 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 5338
+    assert top_level_tests == 5339
     assert len(GENERATED_PATHS) == 8
     goldens = {
         path

@@ -1491,11 +1491,13 @@ def test_merge_projections_use_a_real_merge_tree(tmp_path: Path) -> None:
     for kind in (
         topology.TOPOLOGY_PULL_REQUEST_MERGE,
         topology.TOPOLOGY_SHALLOW_PULL_REQUEST,
+        topology.TOPOLOGY_SQUASH_MAIN,
+        topology.TOPOLOGY_MAIN_PUSH,
     ):
         fixture = topology.build_topology(kind, tmp_path / kind, source=source)
         listed = topology.run_in_projection(fixture, ["git", "ls-tree", "-r", "HEAD"])
         paths = sorted(line.split("\t")[1] for line in listed.stdout.splitlines())
-        # A diverged main keeps its own file in the projected merge.
+        # A diverged main keeps its own file in every projected integration.
         assert paths == ["mainline.py", "shared.py", "topic.py"], kind
         assert topology.verify(fixture.observation, fixture.expectation) == (), kind
 
@@ -1549,6 +1551,28 @@ def test_source_projection_ignores_a_symbolic_ancestor_deletion(
         topology.TOPOLOGY_DIRTY_GATE2, tmp_path / "dirty", source=source
     )
     assert topology.verify(fixture.observation, fixture.expectation) == ()
+
+
+def test_journal_refuses_a_refused_repository_probe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    subprocess.run(
+        ["git", "init", "--quiet", "--initial-branch", "main"], cwd=repository
+    )
+    refusing = tmp_path / "bin"
+    refusing.mkdir()
+    stub = refusing / "git"
+    stub.write_text(
+        "#!/bin/sh\necho 'fatal: detected dubious ownership' >&2\nexit 128\n",
+        encoding="utf-8",
+    )
+    stub.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{refusing}:{os.environ['PATH']}")
+    with pytest.raises(journal.JournalError):
+        journal.atomic_replace(repository / "journal.json", _valid_payload())
+    assert not (repository / "journal.json").exists()
 
 
 def test_source_projection_refuses_a_gitlink_source(tmp_path: Path) -> None:
@@ -2083,8 +2107,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR33_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR33_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR34_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR34_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base

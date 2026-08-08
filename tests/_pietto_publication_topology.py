@@ -1306,6 +1306,11 @@ def build_topology(
     squash = _commit(root, TOPIC_SUBJECT)
     _set_upstream(root, MAIN_BRANCH, squash)
     refs["squash"] = squash
+    # A squash of a diverged main carries both sides, so the expected tree is
+    # the real merge result, not the topic tree.
+    squash_tree = _merge_tree(root, base, topic)
+    if _git(root, "rev-parse", f"{squash}^{{tree}}") != squash_tree:
+        raise TopologyError(f"squash tree does not match the merge of {base}, {topic}")
 
     if kind == TOPOLOGY_MAIN_PUSH:
         # Integration checks the merged head out at depth one, exactly as it
@@ -1335,7 +1340,7 @@ def build_topology(
             kind=kind,
             branch=MAIN_BRANCH,
             head=squash,
-            head_tree=topic_tree,
+            head_tree=squash_tree,
             head_parents=(),
             merge_base="",
             shallow=True,
@@ -1362,7 +1367,7 @@ def build_topology(
         kind=kind,
         branch=MAIN_BRANCH,
         head=squash,
-        head_tree=topic_tree,
+        head_tree=squash_tree,
         head_parents=(base,),
         merge_base=squash,
         shallow=False,

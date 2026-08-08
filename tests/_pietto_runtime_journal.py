@@ -104,6 +104,12 @@ def _enclosing_worktree(directory: Path) -> Path | None:
         # repository, so the destination guard must not treat it as one.
         raise JournalError(f"cannot probe {directory} for a repository: {error}")
     if result.returncode != 0:
+        # Only a definite "this is not a repository" answer may be treated as
+        # one. A refused probe - dubious ownership, for instance - is an error.
+        if "not a git repository" not in result.stderr.lower():
+            raise JournalError(
+                f"cannot probe {directory} for a repository: {result.stderr.strip()}"
+            )
         return None
     top = result.stdout.strip()
     return Path(top) if top else None
@@ -162,6 +168,11 @@ def _enclosing_repository_roots(directory: Path) -> tuple[Path, ...]:
                 f"cannot probe {directory} for a repository: {error}"
             ) from error
         if result.returncode != 0:
+            if "not a git repository" not in result.stderr.lower():
+                raise JournalError(
+                    f"cannot probe {directory} for a repository: "
+                    f"{result.stderr.strip()}"
+                )
             continue
         reported = result.stdout.strip()
         if reported:
