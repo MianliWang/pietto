@@ -285,6 +285,7 @@ def source_base_revision(source: Path) -> str:
             text=True,
             capture_output=True,
             check=False,
+            env=_inherited_environment(),
         )
         if result.returncode == 0 and result.stdout.strip():
             return candidate

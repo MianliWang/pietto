@@ -1344,6 +1344,58 @@ def test_source_projection_keeps_sparse_index_entries(tmp_path: Path) -> None:
     assert topology.verify(fixture.observation, fixture.expectation) == ()
 
 
+def test_journal_guard_ignores_inherited_repository_location(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    destination = tmp_path / "destination"
+    destination.mkdir()
+    subprocess.run(
+        ["git", "init", "--quiet", "--initial-branch", "main"], cwd=destination
+    )
+    victim = tmp_path / "victim"
+    victim.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=victim)
+    monkeypatch.setenv("GIT_DIR", str(victim / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(victim))
+
+    assert "GIT_DIR" in journal.LOCATION_VARIABLES
+    payload = _valid_payload()
+    with pytest.raises(journal.JournalError):
+        journal.atomic_replace(destination / "journal.json", payload)
+    assert not (destination / "journal.json").exists()
+    outside = tmp_path / "state"
+    outside.mkdir()
+    written = journal.atomic_replace(outside / "journal.json", payload)
+    assert journal.load(written)["authority"] == journal.AUTHORITY_MARKER
+
+
+def test_base_revision_probe_ignores_inherited_location(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "trunk"], cwd=source)
+    (source / "reader.py").write_text("reader\n", encoding="utf-8")
+    _commit_source(source, "first")
+    (source / "reader.py").write_text("reader two\n", encoding="utf-8")
+    _commit_source(source, "second")
+    expected_base = _source_revision(source, "HEAD~1")
+    victim = tmp_path / "victim"
+    victim.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=victim)
+    (victim / "other.py").write_text("other\n", encoding="utf-8")
+    _commit_source(victim, "victim commit")
+    monkeypatch.setenv("GIT_DIR", str(victim / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(victim))
+
+    # The source has no main branch, so its base is its own previous commit.
+    assert topology.source_base_revision(source) == "HEAD~1"
+    fixture = topology.build_topology(
+        topology.TOPOLOGY_CLEAN_TOPIC, tmp_path / "clean", source=source
+    )
+    assert fixture.refs["base"] == expected_base
+
+
 def test_source_projection_refuses_a_gitlink_source(tmp_path: Path) -> None:
     inner = tmp_path / "inner"
     inner.mkdir()
@@ -1876,8 +1928,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR30_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR30_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR31_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR31_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base

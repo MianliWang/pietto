@@ -97,6 +97,7 @@ def _enclosing_worktree(directory: Path) -> Path | None:
             text=True,
             capture_output=True,
             check=False,
+            env=_isolated_environment(),
         )
     except OSError:
         return None
@@ -104,6 +105,33 @@ def _enclosing_worktree(directory: Path) -> Path | None:
         return None
     top = result.stdout.strip()
     return Path(top) if top else None
+
+
+LOCATION_VARIABLES: tuple[str, ...] = (
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CEILING_DIRECTORIES",
+    "GIT_COMMON_DIR",
+    "GIT_DIR",
+    "GIT_GRAFT_FILE",
+    "GIT_INDEX_FILE",
+    "GIT_NAMESPACE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_WORK_TREE",
+)
+
+
+def _isolated_environment() -> dict[str, str]:
+    """Return the environment without any Git repository relocation.
+
+    ``GIT_DIR`` and its relatives override ``-C``, so an inherited value would
+    make the guard inspect a different repository than the destination's.
+    """
+
+    return {
+        name: value
+        for name, value in os.environ.items()
+        if name not in LOCATION_VARIABLES
+    }
 
 
 def _enclosing_repository_roots(directory: Path) -> tuple[Path, ...]:
@@ -125,6 +153,7 @@ def _enclosing_repository_roots(directory: Path) -> tuple[Path, ...]:
                 text=True,
                 capture_output=True,
                 check=False,
+                env=_isolated_environment(),
             )
         except OSError:
             continue
