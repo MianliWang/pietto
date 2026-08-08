@@ -965,6 +965,9 @@ def test_committed_candidate_keeps_its_real_commit_identity(tmp_path: Path) -> N
     assert clean.refs["topic"] == repair_sha
     assert clean.observation.head == repair_sha
     assert clean.observation.head_parents == (topic_sha,)
+    # Three generations deep, the fixture must still verify against itself.
+    assert clean.expectation.head_parents == (topic_sha,)
+    assert topology.verify(clean.observation, clean.expectation) == ()
 
     merge = topology.build_topology(
         topology.TOPOLOGY_PULL_REQUEST_MERGE, tmp_path / "merge", source=source
@@ -1601,8 +1604,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR24_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR24_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR25_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR25_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base

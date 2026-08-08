@@ -840,6 +840,7 @@ def build_topology(
             raise TopologyError(f"cannot resolve {committed_revision} in {source}")
         _git(root, "checkout", "--quiet", "-B", TOPIC_BRANCH, topic)
         _verify_committed_candidate(root, committed_entries(source, committed_revision))
+        topic_parents = source_commit_parents(source, committed_revision)
     elif kind == TOPOLOGY_REPAIR_CHILD and source is not None:
         # The repair child keeps the whole chain: main authority, the committed
         # topic child, then the uncommitted repair candidate. The topic child
@@ -853,11 +854,13 @@ def build_topology(
             raise TopologyError(f"cannot resolve HEAD in {source}")
         _git(root, "checkout", "--quiet", "-B", TOPIC_BRANCH, topic)
         _verify_committed_candidate(root, committed_entries(source, "HEAD"))
+        topic_parents = source_commit_parents(source, "HEAD")
     else:
         _apply_candidate(root, source, _SYNTHETIC_CANDIDATE)
         topic = _commit(root, TOPIC_SUBJECT, allow_empty=source is not None)
         if source is not None:
             _verify_candidate(root, source, committed=True)
+        topic_parents = (base,)
     _set_upstream(root, TOPIC_BRANCH, topic)
     refs["topic"] = topic
     topic_tree = _git(root, "rev-parse", "HEAD^{tree}")
@@ -875,7 +878,9 @@ def build_topology(
             branch=TOPIC_BRANCH,
             head=topic,
             head_tree=topic_tree,
-            head_parents=(base,),
+            # A real topic branch may already carry several non-amend children,
+            # so the declared parent is the checked-out generation's own parent.
+            head_parents=topic_parents,
             merge_base=base,
             shallow=False,
             event_name=EVENT_LOCAL,
