@@ -195,6 +195,8 @@ def _write_pull_request_event(root: Path, *, base: str, head: str) -> Path:
     """Write one pull-request event payload beside, never inside, a projection."""
 
     destination = root.parent / f"{root.name}-event.json"
+    if destination.exists() or destination.is_symlink():
+        raise TopologyError(f"event payload path is occupied: {destination}")
     destination.write_text(
         json.dumps(
             {
@@ -354,15 +356,43 @@ def _entry_of(path: Path) -> tuple[str, str]:
 def candidate_entries(source: Path) -> dict[str, tuple[str, str]]:
     """Return the exact Git entry of every path in one source working tree.
 
-    Tree identity includes entry type and mode, so a projection that copied only
-    dereferenced bytes would carry a different tree than the candidate it claims
-    to be. These entries are what the projection is verified against.
+    Tree identity includes entry type and mode, and Git may apply a clean filter
+    that the raw working-tree bytes do not show. Unchanged paths therefore take
+    their recorded index entry, and only changed paths are hashed - through Git,
+    so the source's own conversion rules decide the object name.
     """
 
-    return {
-        relative: _entry_of(source / relative)
-        for relative in _source_working_paths(source)
-    }
+    wanted = set(_source_working_paths(source))
+    entries: dict[str, tuple[str, str]] = {}
+    for record in _source_lines(source, "ls-files", "--stage"):
+        metadata, separator, relative = record.partition("\t")
+        fields = metadata.split()
+        if not separator or len(fields) != 3:
+            raise TopologyError(f"unparseable source index record: {record}")
+        # ``ls-files --stage`` prints mode, object name, then stage number.
+        if relative in wanted:
+            entries[relative] = (fields[0], fields[1])
+    added, modified, _ = source_dirty_paths(source)
+    for relative in (*added, *modified):
+        if relative not in wanted:
+            continue
+        path = source / relative
+        if path.is_symlink():
+            entries[relative] = _entry_of(path)
+            continue
+        oid = _source_output(
+            source, "hash-object", "--path", relative, "--", str(path)
+        ).strip()
+        if len(oid) != 40:
+            raise TopologyError(f"cannot hash {relative} in {source}")
+        executable = bool(path.stat().st_mode & 0o111)
+        entries[relative] = ("100755" if executable else "100644", oid)
+    missing = wanted - set(entries)
+    if missing:
+        raise TopologyError(
+            f"source entries have no object name: {sorted(missing)[:5]}"
+        )
+    return entries
 
 
 def _directory_entries(root: Path) -> dict[str, tuple[str, str]]:
@@ -838,6 +868,8 @@ def build_topology(
         topic = _source_output(source, "rev-parse", committed_revision).strip()
         if not topic:
             raise TopologyError(f"cannot resolve {committed_revision} in {source}")
+        if kind == TOPOLOGY_REPAIR_CHILD and topic == base:
+            raise TopologyError(f"source has no committed topic child: {source}")
         _git(root, "checkout", "--quiet", "-B", TOPIC_BRANCH, topic)
         _verify_committed_candidate(root, committed_entries(source, committed_revision))
         topic_parents = source_commit_parents(source, committed_revision)
@@ -856,11 +888,20 @@ def build_topology(
         _verify_committed_candidate(root, committed_entries(source, "HEAD"))
         topic_parents = source_commit_parents(source, "HEAD")
     else:
+        candidate_parent = base
+        if source is not None:
+            # An uncommitted candidate is published as a child of the source
+            # head, not of main. Chaining onto the real commit keeps the merge,
+            # squash, and push projections on the topology that will exist.
+            head_sha = _source_output(source, "rev-parse", "HEAD").strip()
+            if head_sha and head_sha != base:
+                _git(root, "checkout", "--quiet", "-B", TOPIC_BRANCH, head_sha)
+                candidate_parent = head_sha
         _apply_candidate(root, source, _SYNTHETIC_CANDIDATE)
         topic = _commit(root, TOPIC_SUBJECT, allow_empty=source is not None)
         if source is not None:
             _verify_candidate(root, source, committed=True)
-        topic_parents = (base,)
+        topic_parents = (candidate_parent,)
     _set_upstream(root, TOPIC_BRANCH, topic)
     refs["topic"] = topic
     topic_tree = _git(root, "rev-parse", "HEAD^{tree}")

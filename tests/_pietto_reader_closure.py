@@ -182,7 +182,11 @@ def discover_edges(
         dict.fromkeys(target_identity(repo_root, target) for target in targets)
     )
     ordered_literals = tuple(dict.fromkeys(count_literals))
-    ordered_roots = tuple(dict.fromkeys(inventory_roots))
+    # An inventory root is a repository directory prefix, so it carries the same
+    # unique identity rule as a path target.
+    ordered_roots = tuple(
+        dict.fromkeys(target_identity(repo_root, root) for root in inventory_roots)
+    )
     edges: list[ReaderEdge] = []
     for reader in ordered_universe:
         source = read_source(repo_root, reader)
@@ -615,7 +619,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                                         for target in arguments.target
                                     ),
                                     *arguments.count_literal,
-                                    *arguments.inventory_root,
+                                    *(
+                                        target_identity(repo_root, root)
+                                        for root in arguments.inventory_root
+                                    ),
                                 ),
                             )
                         ),

@@ -1072,6 +1072,92 @@ def test_dirty_projection_keeps_awkward_paths_and_type_changes(
     assert (fixture.root / "becomes-link.py").is_symlink()
 
 
+def test_integration_projections_chain_an_uncommitted_repair(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=source)
+    (source / "reader.py").write_text("assert total == 1\n", encoding="utf-8")
+    _commit_source(source, "main baseline")
+    main_sha = _source_revision(source, "refs/heads/main")
+    subprocess.run(["git", "checkout", "-q", "-b", "topic"], cwd=source, check=True)
+    (source / "reader.py").write_text("assert total == 2\n", encoding="utf-8")
+    _commit_source(source, "topic child")
+    topic_sha = _source_revision(source, "HEAD")
+    (source / "reader.py").write_text("assert total == 3\n", encoding="utf-8")
+
+    for kind in (
+        topology.TOPOLOGY_CLEAN_TOPIC,
+        topology.TOPOLOGY_PULL_REQUEST_MERGE,
+        topology.TOPOLOGY_SQUASH_MAIN,
+    ):
+        fixture = topology.build_topology(kind, tmp_path / kind, source=source)
+        assert fixture.refs["base"] == main_sha, kind
+        # The uncommitted repair is published as a child of the source head.
+        parents = topology.run_in_projection(
+            fixture, ["git", "rev-list", "--parents", "-n", "1", fixture.refs["topic"]]
+        ).stdout.split()[1:]
+        assert parents == [topic_sha], kind
+        assert topology.verify(fixture.observation, fixture.expectation) == (), kind
+
+
+def test_repair_child_refuses_a_single_candidate_source(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=source)
+    (source / "reader.py").write_text("assert total == 1\n", encoding="utf-8")
+    _commit_source(source, "main baseline")
+    subprocess.run(["git", "checkout", "-q", "-b", "topic"], cwd=source, check=True)
+    (source / "reader.py").write_text("assert total == 2\n", encoding="utf-8")
+    _commit_source(source, "only candidate")
+    with pytest.raises(topology.TopologyError):
+        topology.build_topology(
+            topology.TOPOLOGY_REPAIR_CHILD, tmp_path / "repair", source=source
+        )
+
+
+def test_pull_request_event_payload_refuses_an_occupied_path(tmp_path: Path) -> None:
+    occupied = tmp_path / "merge-event.json"
+    occupied.write_text("{}", encoding="utf-8")
+    with pytest.raises(topology.TopologyError):
+        topology.build_topology(
+            topology.TOPOLOGY_PULL_REQUEST_MERGE, tmp_path / "merge"
+        )
+    assert occupied.read_text("utf-8") == "{}"
+
+
+def test_candidate_entries_use_the_source_object_names(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=source)
+    (source / "reader.py").write_text("assert total == 1\n", encoding="utf-8")
+    (source / "kept.py").write_text("kept\n", encoding="utf-8")
+    _commit_source(source, "first")
+    (source / "reader.py").write_text("assert total == 2\n", encoding="utf-8")
+
+    entries = topology.candidate_entries(source)
+    staged = subprocess.run(
+        ["git", "ls-files", "--stage"],
+        cwd=source,
+        check=True,
+        text=True,
+        capture_output=True,
+    ).stdout
+    index_oid = {
+        line.split("\t")[1]: line.split()[1] for line in staged.splitlines() if line
+    }
+    # An unchanged path keeps its recorded index object name.
+    assert entries["kept.py"][1] == index_oid["kept.py"]
+    # A changed path is hashed through Git, under the source's own rules.
+    hashed = subprocess.run(
+        ["git", "hash-object", "--path", "reader.py", "--", str(source / "reader.py")],
+        cwd=source,
+        check=True,
+        text=True,
+        capture_output=True,
+    ).stdout.strip()
+    assert entries["reader.py"][1] == hashed
+
+
 def test_source_projection_refuses_a_gitlink_source(tmp_path: Path) -> None:
     inner = tmp_path / "inner"
     inner.mkdir()
@@ -1406,7 +1492,7 @@ def test_discovery_command_line_reaches_inventory_root_readers(
     edges = closure.discover_edges(
         repo_root=tmp_path, universe=("inventory.py",), inventory_roots=("docs/spec/",)
     )
-    assert closure.readers_of(edges, ("docs/spec/",)) == ("inventory.py",)
+    assert closure.readers_of(edges, ("docs/spec",)) == ("inventory.py",)
     exit_code = closure.main(
         [
             "--repo-root",
@@ -1604,8 +1690,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR25_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR25_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR26_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR26_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base
