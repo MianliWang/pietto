@@ -1680,7 +1680,7 @@ def test_test_inventory_focused_overlay_validation_and_gate3_are_exact() -> None
         571,
         266,
         462,
-        5301,
+        5302,
     )
     docs = _read(PLAN_REL)
     for value in (

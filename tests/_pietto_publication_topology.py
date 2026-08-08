@@ -194,6 +194,26 @@ def _write_pull_request_event(root: Path, *, base: str, head: str) -> Path:
     return destination
 
 
+def source_base_revision(source: Path) -> str:
+    """Return the revision a source-backed projection must treat as its base.
+
+    The publication baseline is the source's own main authority, not whatever
+    its head happens to be. Anchoring a merge, squash, or push projection to a
+    topic child would model a release topology that never exists.
+    """
+
+    for candidate in ("refs/heads/main", "refs/remotes/origin/main", "HEAD~1"):
+        result = subprocess.run(
+            ["git", "-C", str(source), "rev-parse", "--verify", "--quiet", candidate],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return candidate
+    return "HEAD"
+
+
 def _reject_staged_source(source: Path) -> None:
     """Refuse a source whose index is not empty.
 
@@ -647,12 +667,13 @@ def build_topology(
     if root.exists() and any(root.iterdir()):
         raise TopologyError(f"topology root must be empty: {root}")
 
-    # A repair child needs three distinct trees. A source-backed projection takes
-    # them from the source's own history: the base is the generation before its
-    # head, the topic child is its head, and the repair child is its working
-    # tree. Reusing one tree twice would model an empty repair.
+    # A dirty candidate is defined relative to the source head. Every other
+    # source-backed projection is anchored to the source's main authority, so a
+    # merge, squash, or push projection carries the real publication baseline.
     base_revision = (
-        "HEAD~1" if kind == TOPOLOGY_REPAIR_CHILD and source is not None else "HEAD"
+        source_base_revision(source)
+        if source is not None and kind != TOPOLOGY_DIRTY_GATE2
+        else "HEAD"
     )
     base = _init_base(root, source, base_revision)
     _set_upstream(root, MAIN_BRANCH, base)
@@ -699,6 +720,12 @@ def build_topology(
 
     _git(root, "checkout", "--quiet", "-b", TOPIC_BRANCH)
     if kind == TOPOLOGY_REPAIR_CHILD and source is not None:
+        # The repair child keeps the whole chain: main authority, the committed
+        # topic child, then the uncommitted repair candidate.
+        if committed_entries(source, "HEAD") == committed_entries(
+            source, base_revision
+        ):
+            raise TopologyError(f"source has no committed topic child: {source}")
         _apply_committed_candidate(root, source, "HEAD")
         topic = _commit(root, TOPIC_SUBJECT)
         _verify_committed_candidate(root, committed_entries(source, "HEAD"))

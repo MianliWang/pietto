@@ -790,7 +790,7 @@ def test_source_backed_projection_carries_the_exact_candidate_tree(
     assert len(set(trees)) == 3
     assert trees[1:] == [
         _source_tree(source, "HEAD"),
-        _source_tree(source, "HEAD~1"),
+        _source_tree(source, topology.source_base_revision(source)),
     ]
 
 
@@ -811,6 +811,44 @@ def test_replacement_plan_rejects_a_rule_recreated_across_the_seam(
         rules=(closure.ReplacementRule(old="461", new="462"),),
     )
     assert plan.total_occurrences == 1
+
+
+def test_source_projections_are_anchored_to_the_main_authority(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=source)
+    (source / "reader.py").write_text("assert total == 1\n", encoding="utf-8")
+    _commit_source(source, "main baseline")
+    main_tree = _source_tree(source, "refs/heads/main")
+    subprocess.run(["git", "checkout", "-q", "-b", "topic"], cwd=source, check=True)
+    (source / "reader.py").write_text("assert total == 2\n", encoding="utf-8")
+    _commit_source(source, "topic child")
+    (source / "reader.py").write_text("assert total == 3\n", encoding="utf-8")
+
+    assert topology.source_base_revision(source) == "refs/heads/main"
+    for kind in (
+        topology.TOPOLOGY_CLEAN_TOPIC,
+        topology.TOPOLOGY_PULL_REQUEST_MERGE,
+        topology.TOPOLOGY_SQUASH_MAIN,
+    ):
+        fixture = topology.build_topology(kind, tmp_path / kind, source=source)
+        base_tree = topology.run_in_projection(
+            fixture, ["git", "rev-parse", f"{fixture.refs['base']}^{{tree}}"]
+        ).stdout.strip()
+        assert base_tree == main_tree, kind
+        assert topology.verify(fixture.observation, fixture.expectation) == (), kind
+
+    clean = tmp_path / "cleansource"
+    clean.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=clean)
+    (clean / "reader.py").write_text("only\n", encoding="utf-8")
+    _commit_source(clean, "only commit")
+    with pytest.raises(topology.TopologyError):
+        topology.build_topology(
+            topology.TOPOLOGY_REPAIR_CHILD, tmp_path / "norepair", source=clean
+        )
 
 
 def test_source_projection_propagates_a_deleted_path(tmp_path: Path) -> None:
@@ -1197,8 +1235,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR13_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR13_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR14_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR14_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base
