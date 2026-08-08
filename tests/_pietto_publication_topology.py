@@ -366,6 +366,30 @@ def _reject_foreign_object_format(source: Path) -> None:
         raise TopologyError(f"source uses the {reported} object format: {source}")
 
 
+def _reject_unreproducible_source(source: Path) -> None:
+    """Refuse a source whose content authority the projection cannot reproduce.
+
+    ``core.symlinks=false`` stores a symbolic entry as a plain file, and a local
+    attributes authority decides which paths a clean filter touches. Neither
+    travels with the tree, so a projection built from such a source would carry
+    a different candidate than the one it claims to be.
+    """
+
+    symlinks = _source_output(
+        source, "config", "--bool", "--default", "true", "--get", "core.symlinks"
+    ).strip()
+    if symlinks == "false":
+        raise TopologyError(f"source disables symbolic links: {source}")
+    attributes = _source_output(
+        source, "config", "--default", "", "--get", "core.attributesFile"
+    ).strip()
+    if attributes:
+        raise TopologyError(f"source declares a local attributes file: {source}")
+    git_dir = _source_output(source, "rev-parse", "--absolute-git-dir").strip()
+    if git_dir and (Path(git_dir) / "info" / "attributes").exists():
+        raise TopologyError(f"source declares repository-local attributes: {source}")
+
+
 def _reject_gitlink_source(source: Path) -> None:
     """Refuse a source that carries a gitlink entry.
 
@@ -411,6 +435,7 @@ def _source_working_paths(source: Path) -> tuple[str, ...]:
     """
 
     _reject_foreign_object_format(source)
+    _reject_unreproducible_source(source)
     _reject_staged_source(source)
     _reject_gitlink_source(source)
     listed = _source_lines(
@@ -827,6 +852,7 @@ def _init_base(root: Path, source: Path | None = None, revision: str = "HEAD") -
         # readers assert the exact base object name, and a synthetic identity
         # would make every merge and push projection unrecognizable.
         _reject_foreign_object_format(source)
+        _reject_unreproducible_source(source)
         _reject_staged_source(source)
         _reject_gitlink_source(source)
         _mirror_conversion_config(root, source)
@@ -950,10 +976,13 @@ def observe(
     parents = tuple(_git(root, "rev-list", "--parents", "-n", "1", head).split()[1:])
     shallow = _git(root, "rev-parse", "--is-shallow-repository") == "true"
     merge_base = ""
+    base_identity = ""
     if base_ref and not shallow:
         try:
-            merge_base = _git(root, "merge-base", "HEAD", base_ref)
+            base_identity = _git(root, "rev-parse", base_ref)
+            merge_base = _git(root, "merge-base", head, base_ref)
         except TopologyError:
+            base_identity = ""
             merge_base = ""
     added: list[str] = []
     modified: list[str] = []
@@ -994,6 +1023,7 @@ def observe(
         _git(root, "rev-parse", "HEAD") != head
         or _git(root, "rev-parse", "--abbrev-ref", "HEAD") != branch
         or _git_raw(root, *status_arguments) != status
+        or (base_identity and _git(root, "rev-parse", base_ref) != base_identity)
     ):
         # The object name, the symbolic identity, and the working state must all
         # still hold: any of them changing means these facts never described one

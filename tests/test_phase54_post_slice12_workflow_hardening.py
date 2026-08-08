@@ -1755,6 +1755,75 @@ def test_observation_rejects_a_sibling_branch_switch(tmp_path: Path) -> None:
     assert topology.verify(moved, fixture.expectation) != ()
 
 
+def test_source_projection_refuses_an_unreproducible_content_authority(
+    tmp_path: Path,
+) -> None:
+    for setting, value in (
+        ("core.symlinks", "false"),
+        ("core.attributesFile", "/nonexistent/attributes"),
+    ):
+        source = tmp_path / setting.replace(".", "-")
+        source.mkdir()
+        subprocess.run(
+            ["git", "init", "--quiet", "--initial-branch", "main"], cwd=source
+        )
+        (source / "reader.py").write_text("reader\n", encoding="utf-8")
+        _commit_source(source, "first")
+        (source / "reader.py").write_text("reader two\n", encoding="utf-8")
+        subprocess.run(["git", "config", setting, value], cwd=source, check=True)
+        with pytest.raises(topology.TopologyError):
+            topology.candidate_entries(source)
+        with pytest.raises(topology.TopologyError):
+            topology.build_topology(
+                topology.TOPOLOGY_CLEAN_TOPIC,
+                tmp_path / f"clean-{setting}",
+                source=source,
+            )
+    local = tmp_path / "local-attributes"
+    local.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=local)
+    (local / "reader.py").write_text("reader\n", encoding="utf-8")
+    _commit_source(local, "first")
+    (local / "reader.py").write_text("reader two\n", encoding="utf-8")
+    info = local / ".git" / "info"
+    info.mkdir(parents=True, exist_ok=True)
+    (info / "attributes").write_text("*.py text\n", encoding="utf-8")
+    with pytest.raises(topology.TopologyError):
+        topology.candidate_entries(local)
+
+
+def test_observation_rejects_a_moving_base_reference(tmp_path: Path) -> None:
+    fixture = topology.build_topology(topology.TOPOLOGY_CLEAN_TOPIC, tmp_path / "clean")
+    original = topology._git
+    seen: list[int] = []
+
+    def _moving(root: Path, *args: str) -> str:
+        result = original(root, *args)
+        if args[:1] == ("merge-base",):
+            seen.append(len(seen))
+            original(
+                root,
+                "update-ref",
+                f"refs/heads/{topology.MAIN_BRANCH}",
+                fixture.refs["topic"],
+            )
+        return result
+
+    topology._git = _moving
+    try:
+        with pytest.raises(topology.TopologyError):
+            topology.observe(
+                fixture.root,
+                event_name=topology.EVENT_LOCAL,
+                event_head_ref="",
+                event_base_ref="",
+                base_ref=f"refs/heads/{topology.MAIN_BRANCH}",
+            )
+    finally:
+        topology._git = original
+    assert seen
+
+
 def test_source_projection_refuses_a_gitlink_source(tmp_path: Path) -> None:
     inner = tmp_path / "inner"
     inner.mkdir()
@@ -2287,8 +2356,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR39_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR39_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR40_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR40_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base
