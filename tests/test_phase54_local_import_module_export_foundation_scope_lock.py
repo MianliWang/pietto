@@ -1319,7 +1319,7 @@ def test_gate_allowlist_reader_evidence_publication_stop_and_next_state_contract
         if path.startswith("tests/test_") and path.endswith(".py")
     )
     assert len(test_modules) == 462
-    assert sum(len(_top_level_test_functions(path)) for path in test_modules) == 5349
+    assert sum(len(_top_level_test_functions(path)) for path in test_modules) == 5361
     dirty = set(_git_output(["diff", "--name-only"]).splitlines()) | set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )

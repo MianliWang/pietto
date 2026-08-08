@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import cast
 
 from _phase54_active_gate2_manifest import (
-    PHASE54_POST_SLICE12_INTERLUDE_BASE,
+    phase54_post_slice12_interlude_expected_topic_base,
     phase54_post_slice12_interlude_clean_topic_is_active,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
@@ -1391,7 +1391,9 @@ def test_slice7_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             "b81843acadb294630db361c09949868d004b1bca",
         )
     elif phase54_post_slice12_interlude_clean_topic_is_active():
-        assert main == origin_main == PHASE54_POST_SLICE12_INTERLUDE_BASE
+        assert (
+            main == origin_main == phase54_post_slice12_interlude_expected_topic_base()
+        )
     else:
         assert main in (None, head)
         assert origin_main in (None, head)
@@ -1422,7 +1424,7 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 5349
+    assert top_level_tests == 5361
     assert 9580 == 9199 + 381
     assert 9580 - 185 == 9395
     assert (117, 70, 11, 106, 3488, 13171) == (117, 70, 11, 106, 3488, 13171)

@@ -119,13 +119,73 @@ LOCATION_VARIABLES: tuple[str, ...] = (
     "GIT_ALTERNATE_OBJECT_DIRECTORIES",
     "GIT_CEILING_DIRECTORIES",
     "GIT_COMMON_DIR",
+    "GIT_CONFIG",
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_PARAMETERS",
     "GIT_DIR",
     "GIT_GRAFT_FILE",
+    "GIT_IMPLICIT_WORK_TREE",
     "GIT_INDEX_FILE",
     "GIT_NAMESPACE",
+    "GIT_NO_REPLACE_OBJECTS",
     "GIT_OBJECT_DIRECTORY",
+    "GIT_PREFIX",
+    "GIT_REPLACE_REF_BASE",
+    "GIT_SHALLOW_FILE",
     "GIT_WORK_TREE",
 )
+
+
+_LOCAL_GIT_VARIABLES: tuple[str, ...] | None = None
+
+
+def reset_local_git_variables() -> None:
+    """Forget a cached derivation so the next call probes Git again."""
+
+    global _LOCAL_GIT_VARIABLES
+
+    _LOCAL_GIT_VARIABLES = None
+
+
+def local_git_variables() -> tuple[str, ...]:
+    """Return every environment variable that relocates or reconfigures Git.
+
+    Git reports its own complete set; a hand-maintained list cannot track it.
+    Discovery runs under the fallback-sanitized environment so it never
+    inherits the overrides it is asked to report, and the fallback is unioned
+    in so the removed set can only grow.
+    """
+
+    global _LOCAL_GIT_VARIABLES
+
+    if _LOCAL_GIT_VARIABLES is not None:
+        return _LOCAL_GIT_VARIABLES
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--local-env-vars"],
+            capture_output=True,
+            check=False,
+            env={
+                name: value
+                for name, value in os.environ.items()
+                if name not in LOCATION_VARIABLES
+            },
+        )
+    except OSError:
+        return LOCATION_VARIABLES
+    if result.returncode != 0:
+        return LOCATION_VARIABLES
+    reported = tuple(
+        name
+        for name in result.stdout.decode("utf-8", "surrogateescape").split()
+        if name
+    )
+    if not reported:
+        return LOCATION_VARIABLES
+    # Only a complete derivation is cached. A probe that fails once must
+    # not freeze the degraded answer for the life of the process.
+    _LOCAL_GIT_VARIABLES = tuple(sorted(set(reported) | set(LOCATION_VARIABLES)))
+    return _LOCAL_GIT_VARIABLES
 
 
 def _isolated_environment() -> dict[str, str]:
@@ -138,7 +198,7 @@ def _isolated_environment() -> dict[str, str]:
     return {
         name: value
         for name, value in os.environ.items()
-        if name not in LOCATION_VARIABLES
+        if name not in local_git_variables()
     }
 
 

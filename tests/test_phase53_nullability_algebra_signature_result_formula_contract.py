@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import cast
 
 from _phase54_active_gate2_manifest import (
-    PHASE54_POST_SLICE12_INTERLUDE_BRANCH,
     phase54_post_slice12_interlude_clean_topic_is_active,
+    phase54_post_slice12_interlude_expected_branch,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
@@ -1744,7 +1744,7 @@ def test_slice5_dirty_clean_and_depth_one_repository_states_are_locked() -> None
     head = _git("rev-parse", "HEAD")
     branch = _git("symbolic-ref", "--quiet", "--short", "HEAD", check=False)
     if not tracked and not untracked:
-        if branch == PHASE54_POST_SLICE12_INTERLUDE_BRANCH:
+        if branch == phase54_post_slice12_interlude_expected_branch():
             assert phase54_post_slice12_interlude_clean_topic_is_active()
             return
         assert branch in {"", "main"}
@@ -1809,7 +1809,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name.startswith("test_")
     )
-    assert len(functions) == 5349
+    assert len(functions) == 5361
     self_functions = tuple(
         node.name
         for node in ast.parse(SELF_PATH.read_text()).body

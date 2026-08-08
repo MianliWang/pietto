@@ -620,13 +620,24 @@ def test_slice14_artifact_paths_heading_contract_and_lifecycle_are_exact() -> No
     assert len(functions) == 67 and sum(cardinalities) == 507
 
 
-def _interlude_expected_parent(subject: str) -> str | None:
-    """Return the parent an interlude publication child with this subject must have."""
+def _interlude_expected_parent(subject: str, parents: list[str]) -> str | None:
+    """Return the parent an interlude publication child with this subject must have.
 
-    for child_base, child_subject in PHASE54_POST_SLICE12_INTERLUDE_CHILD_SHAPES:
-        if subject == child_subject:
-            return child_base
-    return None
+    A repair publishes successive children under one subject, so a subject can
+    name more than one registered shape. The observed parent is returned only
+    when it is one of them, which keeps the caller's equality assertion exact.
+    """
+
+    admissible = tuple(
+        child_base
+        for child_base, child_subject in PHASE54_POST_SLICE12_INTERLUDE_CHILD_SHAPES
+        if subject == child_subject
+    )
+    if not admissible:
+        return None
+    if len(parents) == 1 and parents[0] in admissible:
+        return parents[0]
+    return admissible[0]
 
 
 def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> None:
@@ -639,7 +650,7 @@ def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> N
         else:
             if _phase54_active_gate2_is_active():
                 subject = _git_output(["show", "-s", "--format=%s", "HEAD"])
-                interlude_parent = _interlude_expected_parent(subject)
+                interlude_parent = _interlude_expected_parent(subject, parents)
                 if interlude_parent is not None:
                     expected_parent = interlude_parent
                 elif head == PHASE54_POST_SLICE12_INTERLUDE_BASE:
@@ -739,12 +750,12 @@ def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> N
                 expected_parent = "6104002486d21b7b25dbec74d037c0fc7cc5099a"
             elif (
                 _interlude_expected_parent(
-                    _git_output(["show", "-s", "--format=%s", "HEAD"])
+                    _git_output(["show", "-s", "--format=%s", "HEAD"]), parents
                 )
                 is not None
             ):
                 expected_parent = _interlude_expected_parent(
-                    _git_output(["show", "-s", "--format=%s", "HEAD"])
+                    _git_output(["show", "-s", "--format=%s", "HEAD"]), parents
                 )
             else:
                 expected_parent = PHASE54_SLICE10_HEAD
@@ -1680,7 +1691,7 @@ def test_test_inventory_focused_overlay_validation_and_gate3_are_exact() -> None
         571,
         266,
         462,
-        5349,
+        5361,
     )
     docs = _read(PLAN_REL)
     for value in (

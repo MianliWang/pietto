@@ -15,8 +15,8 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_SLICE12_INTERLUDE_CHILD_SHAPES,
     phase54_post_slice12_interlude_head_is_recognized_publication,
     phase54_post_slice12_interlude_dirty_is_active,
-    PHASE54_POST_SLICE12_INTERLUDE_BASE,
-    PHASE54_POST_SLICE12_INTERLUDE_BRANCH,
+    phase54_post_slice12_interlude_expected_branch,
+    phase54_post_slice12_interlude_expected_topic_base,
     PHASE54_SLICE12_PRODUCT_REPAIR3_BASE,
     PHASE54_SLICE12_PRODUCT_REPAIR3_SUBJECT,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
@@ -971,11 +971,12 @@ def _is_clean_projection() -> bool:
         assert shallow == "false"
         assert _git_output(["branch", "--show-current"]) == "main"
         assert (
-            _git_optional_ref("refs/heads/main") == PHASE54_POST_SLICE12_INTERLUDE_BASE
+            _git_optional_ref("refs/heads/main")
+            == phase54_post_slice12_interlude_expected_topic_base()
         )
         assert (
             _git_optional_ref("refs/remotes/origin/main")
-            == PHASE54_POST_SLICE12_INTERLUDE_BASE
+            == phase54_post_slice12_interlude_expected_topic_base()
         )
         assert staged == ""
         return False
@@ -991,7 +992,7 @@ def _is_clean_projection() -> bool:
             assert shallow == "false"
             assert (
                 _git_output(["branch", "--show-current"])
-                == PHASE54_POST_SLICE12_INTERLUDE_BRANCH
+                == phase54_post_slice12_interlude_expected_branch()
             )
             assert staged == ""
             return False
@@ -1004,14 +1005,14 @@ def _is_clean_projection() -> bool:
             return True
         assert shallow == "false"
         branch = _git_output(["branch", "--show-current"])
-        if branch == PHASE54_POST_SLICE12_INTERLUDE_BRANCH:
+        if branch == phase54_post_slice12_interlude_expected_branch():
             assert (
                 _git_optional_ref("refs/heads/main")
-                == PHASE54_POST_SLICE12_INTERLUDE_BASE
+                == phase54_post_slice12_interlude_expected_topic_base()
             )
             assert (
                 _git_optional_ref("refs/remotes/origin/main")
-                == PHASE54_POST_SLICE12_INTERLUDE_BASE
+                == phase54_post_slice12_interlude_expected_topic_base()
             )
             return True
         _assert_main_refs(head)
@@ -1159,11 +1160,11 @@ def _is_clean_projection() -> bool:
         )
         if (
             base_sha in interlude_bases
-            or candidate_ref == PHASE54_POST_SLICE12_INTERLUDE_BRANCH
+            or candidate_ref == phase54_post_slice12_interlude_expected_branch()
         ):
             assert base_sha in interlude_bases
             assert base_ref == "main"
-            assert candidate_ref == PHASE54_POST_SLICE12_INTERLUDE_BRANCH
+            assert candidate_ref == phase54_post_slice12_interlude_expected_branch()
             assert head != candidate_sha
             assert parents == (base_sha, candidate_sha)
             _assert_clean_state(status=status, staged=staged)

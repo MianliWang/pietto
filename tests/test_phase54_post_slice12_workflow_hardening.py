@@ -1743,6 +1743,181 @@ def test_observation_rejects_a_moving_working_state(tmp_path: Path) -> None:
         topology._git_raw = original
 
 
+def test_observation_rejects_shallow_state_drift(tmp_path: Path) -> None:
+    fixture = topology.build_topology(
+        topology.TOPOLOGY_SHALLOW_PULL_REQUEST, tmp_path / "shallow"
+    )
+    assert fixture.observation.shallow is True
+    assert topology.verify(fixture.observation, fixture.expectation) == ()
+    original = topology._git
+    readings: list[str] = []
+
+    def _unshallowing(root: Path, *args: str) -> str:
+        result = original(root, *args)
+        if args == ("rev-parse", "--is-shallow-repository"):
+            readings.append(result)
+            if len(readings) == 1:
+                # A real concurrent unshallow: it moves no reference, no
+                # branch, no working state, and no base authority.
+                original(root, "fetch", "--quiet", "--unshallow", "origin")
+        return result
+
+    head_before = original(fixture.root, "rev-parse", "HEAD")
+    branch_before = original(fixture.root, "rev-parse", "--abbrev-ref", "HEAD")
+    topology._git = _unshallowing
+    try:
+        with pytest.raises(topology.TopologyError):
+            topology.observe(
+                fixture.root,
+                event_name=topology.EVENT_PULL_REQUEST,
+                event_head_ref=topology.TOPIC_BRANCH,
+                event_base_ref=topology.MAIN_BRANCH,
+                base_ref="",
+            )
+    finally:
+        topology._git = original
+    assert readings == ["true", "false"]
+    # Nothing else moved, so only the shallow re-read can have rejected it.
+    assert original(fixture.root, "rev-parse", "HEAD") == head_before
+    assert original(fixture.root, "rev-parse", "--abbrev-ref", "HEAD") == branch_before
+
+
+def test_observation_accepts_stable_shallow_and_complete_states(
+    tmp_path: Path,
+) -> None:
+    shallow = topology.build_topology(
+        topology.TOPOLOGY_SHALLOW_PULL_REQUEST, tmp_path / "shallow"
+    )
+    again = topology.observe(
+        shallow.root,
+        event_name=topology.EVENT_PULL_REQUEST,
+        event_head_ref=topology.TOPIC_BRANCH,
+        event_base_ref=topology.MAIN_BRANCH,
+        base_ref="",
+    )
+    assert again.shallow is True
+    assert topology.verify(again, shallow.expectation) == ()
+    complete = topology.build_topology(
+        topology.TOPOLOGY_CLEAN_TOPIC, tmp_path / "clean"
+    )
+    assert complete.observation.shallow is False
+    assert topology.verify(complete.observation, complete.expectation) == ()
+
+
+def test_observation_rejects_a_revealed_parent_line(tmp_path: Path) -> None:
+    # Deepening can only reveal a parent when the origin actually holds one, so
+    # this fixture carries its own history. The ambient repository is a
+    # depth-one checkout under integration, and anchoring to it would leave
+    # nothing to reveal and silently stop exercising the window.
+    origin = tmp_path / "origin"
+    origin.mkdir()
+    environment = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "Pietto",
+        "GIT_AUTHOR_EMAIL": "pietto@pietto.invalid",
+        "GIT_COMMITTER_NAME": "Pietto",
+        "GIT_COMMITTER_EMAIL": "pietto@pietto.invalid",
+    }
+
+    def _run(root: Path, *args: str) -> None:
+        subprocess.run(
+            ["git", *args],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            env=environment,
+        )
+
+    _run(origin, "init", "--quiet", "--initial-branch", "main", ".")
+    for index in range(3):
+        (origin / f"record{index}.txt").write_text(f"{index}\n", encoding="utf-8")
+        _run(origin, "add", "-A")
+        _run(origin, "commit", "--quiet", "-m", f"Record {index}")
+    shallow = tmp_path / "shallow"
+    # A local path clone ignores --depth, so the origin is addressed as a URL.
+    subprocess.run(
+        ["git", "clone", "--quiet", "--depth", "1", origin.as_uri(), str(shallow)],
+        check=True,
+        capture_output=True,
+        env=environment,
+    )
+
+    original = topology._git
+    assert original(shallow, "rev-parse", "--is-shallow-repository") == "true"
+    assert (
+        original(shallow, "rev-list", "--parents", "-n", "1", "HEAD").split()[1:] == []
+    )
+    seen: list[int] = []
+
+    def _deepening(root: Path, *args: str) -> str:
+        result = original(root, *args)
+        if args[:2] == ("rev-list", "--parents"):
+            seen.append(len(seen))
+            if len(seen) == 1:
+                # Deepening reveals the boundary commit's parents while the
+                # shallow flag itself stays true.
+                original(root, "fetch", "--quiet", "--deepen", "1", "origin")
+        return result
+
+    topology._git = _deepening
+    try:
+        with pytest.raises(topology.TopologyError):
+            topology.observe(
+                shallow,
+                event_name=topology.EVENT_LOCAL,
+                event_head_ref="",
+                event_base_ref="",
+                base_ref="",
+            )
+    finally:
+        topology._git = original
+    assert original(shallow, "rev-parse", "--is-shallow-repository") == "true"
+    assert (
+        original(shallow, "rev-list", "--parents", "-n", "1", "HEAD").split()[1:] != []
+    )
+    assert len(seen) == 2
+
+
+def test_observation_revalidates_an_unresolvable_base_reference(
+    tmp_path: Path,
+) -> None:
+    fixture = topology.build_topology(topology.TOPOLOGY_CLEAN_TOPIC, tmp_path / "clean")
+    missing = "refs/heads/absent-base"
+    # An unresolvable base reference is recorded as unresolvable, and the
+    # window must reject it appearing.
+    observation = topology.observe(
+        fixture.root,
+        event_name=topology.EVENT_LOCAL,
+        event_head_ref="",
+        event_base_ref="",
+        base_ref=missing,
+    )
+    assert observation.merge_base == ""
+    original = topology._git
+    seen: list[int] = []
+
+    def _appearing(root: Path, *args: str) -> str:
+        if args[:2] == ("rev-parse", missing):
+            seen.append(len(seen))
+            if len(seen) == 2:
+                original(root, "update-ref", missing, fixture.refs["base"])
+        return original(root, *args)
+
+    topology._git = _appearing
+    try:
+        with pytest.raises(topology.TopologyError):
+            topology.observe(
+                fixture.root,
+                event_name=topology.EVENT_LOCAL,
+                event_head_ref="",
+                event_base_ref="",
+                base_ref=missing,
+            )
+    finally:
+        topology._git = original
+    assert len(seen) >= 2
+
+
 def test_observation_rejects_a_sibling_branch_switch(tmp_path: Path) -> None:
     fixture = topology.build_topology(topology.TOPOLOGY_CLEAN_TOPIC, tmp_path / "clean")
     assert fixture.observation.branch == topology.TOPIC_BRANCH
@@ -1828,6 +2003,246 @@ def test_observation_rejects_a_moving_base_reference(tmp_path: Path) -> None:
     finally:
         topology._git = original
     assert seen
+
+
+def _reset_local_git_variable_caches() -> None:
+    """Forget every module's derived override set before a probe."""
+
+    active_gate2_manifest.reset_local_git_variables()
+    topology.reset_local_git_variables()
+    journal.reset_local_git_variables()
+
+
+def test_local_git_variables_cover_every_reported_override() -> None:
+    reported = set(
+        subprocess.run(
+            ["git", "rev-parse", "--local-env-vars"],
+            check=True,
+            text=True,
+            capture_output=True,
+            env={
+                name: value
+                for name, value in os.environ.items()
+                if not name.startswith("GIT_")
+            },
+        ).stdout.split()
+    )
+    assert "GIT_SHALLOW_FILE" in reported
+    for derive in (
+        active_gate2_manifest.local_git_variables,
+        topology.local_git_variables,
+        journal.local_git_variables,
+    ):
+        _reset_local_git_variable_caches()
+        derived = set(derive())
+        # Git is the authority on its own overrides; a hand-maintained subset
+        # cannot track them.
+        assert reported <= derived, sorted(reported - derived)
+        assert "GIT_SHALLOW_FILE" in derived
+        assert "GIT_DIR" in derived
+
+
+def test_environment_sanitizers_remove_every_local_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _reset_local_git_variable_caches()
+    overrides = set(active_gate2_manifest.local_git_variables())
+    for name in sorted(overrides):
+        monkeypatch.setenv(name, "/nonexistent/override")
+    # Discovery must not inherit the very overrides it is asked to report.
+    for derive in (
+        active_gate2_manifest.local_git_variables,
+        topology.local_git_variables,
+        journal.local_git_variables,
+    ):
+        _reset_local_git_variable_caches()
+        assert overrides <= set(derive())
+    for sanitize in (
+        active_gate2_manifest._git_environment,
+        topology._inherited_environment,
+        journal._isolated_environment,
+    ):
+        environment = sanitize()
+        assert not [name for name in environment if name in overrides]
+        assert environment.get("PATH") == os.environ.get("PATH")
+
+
+def test_forged_shallow_file_cannot_falsify_gate2_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    head = _git("rev-parse", "HEAD")
+    forged = tmp_path / "forged-shallow"
+    forged.write_text(f"{head}\n", encoding="utf-8")
+    active_gate2_manifest.reset_local_git_variables()
+    overrides = set(active_gate2_manifest.local_git_variables())
+    sanitized = {
+        name: value for name, value in os.environ.items() if name not in overrides
+    }
+
+    def _reading(environment: dict[str, str]) -> str:
+        return subprocess.run(
+            ["git", "rev-parse", "--is-shallow-repository"],
+            cwd=REPO_ROOT,
+            check=True,
+            text=True,
+            capture_output=True,
+            env=environment,
+        ).stdout.strip()
+
+    # The repository's own answer, taken with every local override removed.
+    truth = _reading(sanitized)
+    raw = _reading({**os.environ, "GIT_SHALLOW_FILE": str(forged)})
+    # A forged shallow file always reads as shallow, so it falsifies the raw
+    # reading of any repository that is not already shallow. That is the defect,
+    # and it must be visible under whichever projection this suite runs in.
+    assert raw == "true"
+    if truth == "false":
+        assert raw != truth
+    monkeypatch.setenv("GIT_SHALLOW_FILE", str(forged))
+    active_gate2_manifest.reset_local_git_variables()
+    state = active_gate2_manifest._read_phase54_gate2_repository_state()
+    assert state.shallow is (truth == "true")
+    assert state.branch_oid == head
+
+
+def test_the_fail_closed_floor_alone_covers_every_reported_override() -> None:
+    reported = set(
+        subprocess.run(
+            ["git", "rev-parse", "--local-env-vars"],
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout.split()
+    )
+    # The floor is what a failed probe falls back to, so it must already be
+    # complete on its own: a degraded answer must still remove GIT_SHALLOW_FILE.
+    for floor in (
+        set(active_gate2_manifest._GIT_LOCATION_VARIABLES),
+        set(topology._FALLBACK_LOCAL_GIT_VARIABLES),
+        set(journal.LOCATION_VARIABLES),
+    ):
+        assert reported <= floor, sorted(reported - floor)
+        assert "GIT_SHALLOW_FILE" in floor
+
+
+def test_a_failed_probe_is_never_cached_as_the_derived_set() -> None:
+    for module in (active_gate2_manifest, topology, journal):
+        module.reset_local_git_variables()
+        original = module.subprocess.run
+
+        def _unusable(*args: object, **kwargs: object) -> object:
+            raise OSError("git is unavailable")
+
+        module.subprocess.run = _unusable
+        try:
+            degraded = set(module.local_git_variables())
+        finally:
+            module.subprocess.run = original
+        # A probe that fails once must not freeze its answer for the process.
+        recovered = set(module.local_git_variables())
+        assert "GIT_SHALLOW_FILE" in degraded
+        assert degraded <= recovered
+        assert recovered >= set(
+            subprocess.run(
+                ["git", "rev-parse", "--local-env-vars"],
+                check=True,
+                text=True,
+                capture_output=True,
+            ).stdout.split()
+        )
+        module.reset_local_git_variables()
+
+
+def test_a_registered_publication_shape_never_certifies_itself() -> None:
+    matches = active_gate2_manifest._phase54_post_slice12_interlude_publication_identity_matches
+    trailer = active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REVIEWED_TREE_TRAILER
+    identities = active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_CHILD_IDENTITIES
+    replaced = "e" * 40
+    for base, subject, tree in identities:
+        assert matches((base,), subject, tree, subject)
+        # A frozen shape stays frozen even when the message declares the tree
+        # it carries: only a genuinely open shape may certify itself.
+        assert not matches(
+            (base,), subject, replaced, f"{subject}\n\n{trailer}: {replaced}"
+        )
+    squash_base, squash_subject, squash_tree = (
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_SQUASH_IDENTITY
+    )
+    assert matches((squash_base,), squash_subject, squash_tree, squash_subject)
+    assert not matches(
+        (squash_base,),
+        squash_subject,
+        replaced,
+        f"{squash_subject}\n\n{trailer}: {replaced}",
+    )
+    open_shapes = (
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_UNREGISTERED_CHILD_SHAPE,
+        (
+            active_gate2_manifest.PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_BASE,
+            active_gate2_manifest.PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_SUBJECT,
+        ),
+    )
+    assert len(open_shapes) == len(set(open_shapes))
+    for base, subject in open_shapes:
+        assert (base, subject) not in tuple((b, s) for b, s, _ in identities)
+        assert matches(
+            (base,), subject, replaced, f"{subject}\n\n{trailer}: {replaced}"
+        )
+
+
+def test_local_git_variables_fall_back_when_git_cannot_report() -> None:
+    derive = active_gate2_manifest.local_git_variables
+    active_gate2_manifest.reset_local_git_variables()
+    original = subprocess.run
+
+    def _unusable(*args: object, **kwargs: object) -> object:
+        raise OSError("git is unavailable")
+
+    active_gate2_manifest.subprocess.run = _unusable
+    try:
+        fallback = set(derive())
+    finally:
+        active_gate2_manifest.subprocess.run = original
+        active_gate2_manifest.reset_local_git_variables()
+    assert {"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"} <= fallback
+    assert fallback == set(active_gate2_manifest._GIT_LOCATION_VARIABLES)
+
+
+def test_stale_shallow_file_cannot_falsify_shallow_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    origin = tmp_path / "origin"
+    origin.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=origin)
+    (origin / "reader.py").write_text("one\n", encoding="utf-8")
+    _commit_source(origin, "one")
+    (origin / "reader.py").write_text("two\n", encoding="utf-8")
+    _commit_source(origin, "two")
+    checkout = tmp_path / "shallow"
+    subprocess.run(
+        ["git", "clone", "--quiet", "--depth", "1", origin.as_uri(), str(checkout)],
+        check=True,
+    )
+    honest = subprocess.run(
+        ["git", "rev-parse", "--is-shallow-repository"],
+        cwd=checkout,
+        check=True,
+        text=True,
+        capture_output=True,
+    ).stdout.strip()
+    assert honest == "true"
+    monkeypatch.setenv("GIT_SHALLOW_FILE", str(tmp_path / "absent-shallow"))
+    falsified = subprocess.run(
+        ["git", "rev-parse", "--is-shallow-repository"],
+        cwd=checkout,
+        check=True,
+        text=True,
+        capture_output=True,
+    ).stdout.strip()
+    # The override really does falsify a raw reading, which is the defect.
+    assert falsified == "false"
+    topology.reset_local_git_variables()
+    assert topology._git(checkout, "rev-parse", "--is-shallow-repository") == "true"
 
 
 def test_source_projection_refuses_a_gitlink_source(tmp_path: Path) -> None:
@@ -2027,6 +2442,26 @@ def test_publication_identity_rejects_a_replaced_tree_on_a_known_shape() -> None
         second_subject,
         first_tree,
         f"{second_subject}\n\n{trailer}: {first_tree}",
+    )
+    # The interlude's own squash is published, so its shape is frozen to that
+    # exact tree and can no longer certify any other tree for itself.
+    interlude_squash = (
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_SQUASH_IDENTITY
+    )
+    assert matches(
+        (interlude_squash[0],), interlude_squash[1], interlude_squash[2], squash_subject
+    )
+    assert not matches(
+        (base,),
+        squash_subject,
+        "d" * 40,
+        f"{squash_subject}\n\n{trailer}: {'d' * 40}",
+    )
+    # Only the repair's own squash shape, which is still open, may prove its
+    # tree through the canonical trailer.
+    base = active_gate2_manifest.PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_BASE
+    squash_subject = (
+        active_gate2_manifest.PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_SUBJECT
     )
     squash_tree = "d" * 40
     assert matches(
@@ -2344,7 +2779,9 @@ def test_clean_topic_predicate_rejects_a_replaced_tree(tmp_path: Path) -> None:
     shapes = active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_CHILD_SHAPES
     trees = active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_PUBLISHED_TREES
     assert len(shapes) == len({base for base, _ in shapes})
-    assert len(shapes) == len({child for _, child in shapes})
+    # A repair publishes successive children under one subject, so the shape,
+    # not the subject alone, is what must stay unique.
+    assert len(shapes) == len(set(shapes))
     assert len(trees) == len(set(trees))
     assert all(len(tree) == 40 for tree in trees)
     assert active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_TREE == trees[0]
@@ -2358,17 +2795,23 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
         active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_UNREGISTERED_CHILD_SHAPE
     )
     assert trees == tuple(tree for _, _, tree in identities)
-    assert shapes == (*((base, subject) for base, subject, _ in identities), newest)
+    assert shapes == (
+        *((base, subject) for base, subject, _ in identities),
+        newest,
+        active_gate2_manifest.PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_SQUASH_SHAPE,
+    )
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR42_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR42_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_GENERATION2_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base
         assert re.fullmatch(r"[0-9a-f]{40}", tree), tree
-        assert subject.startswith(("Add Pietto workflow", "Fix Pietto workflow"))
+        assert subject.startswith(
+            ("Add Pietto workflow", "Fix Pietto workflow", "Repair Pietto workflow")
+        )
 
 
 def test_clean_topic_rejects_a_published_tree_grafted_onto_another_shape(
@@ -2379,8 +2822,10 @@ def test_clean_topic_rejects_a_published_tree_grafted_onto_another_shape(
         active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_UNREGISTERED_CHILD_SHAPE
     )
     trailer = active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REVIEWED_TREE_TRAILER
-    base_head = active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_BASE
-    branch = active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_BRANCH
+    base_head = (
+        active_gate2_manifest.phase54_post_slice12_interlude_expected_topic_base()
+    )
+    branch = active_gate2_manifest.phase54_post_slice12_interlude_expected_branch()
     state = active_gate2_manifest.Phase54Gate2RepositoryState(
         marker=active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER,
         branch_oid="c" * 40,
@@ -2404,8 +2849,22 @@ def test_clean_topic_rejects_a_published_tree_grafted_onto_another_shape(
 
     head_oid = "c" * 40
 
-    def _recognized(parent: str, subject: str, tree: str, message: str) -> bool:
+    def _recognized(
+        parent: str,
+        subject: str,
+        tree: str,
+        message: str,
+        symbolic: str | None = None,
+        drifted: str | None = None,
+    ) -> bool:
+        symbolic_readings: list[str] = []
+
         def _output(args: list[str]) -> str:
+            if args == ["rev-parse", "--abbrev-ref", "HEAD"]:
+                symbolic_readings.append(args[-1])
+                if drifted is not None and len(symbolic_readings) > 1:
+                    return drifted
+                return branch if symbolic is None else symbolic
             if args == ["rev-parse", "HEAD"]:
                 return head_oid
             if args[:2] == ["rev-list", "--parents"]:
@@ -2445,6 +2904,25 @@ def test_clean_topic_rejects_a_published_tree_grafted_onto_another_shape(
         newest[0], newest[1], newest_tree, f"{newest[1]}\n\n{trailer}: {first_tree}"
     )
     assert not _recognized("f" * 40, newest[1], newest_tree, newest[1])
+    # The state authorizes one symbolic branch; a same-object-name move to a
+    # detached HEAD or to a sibling branch must be rejected, and a move inside
+    # the second window must be rejected too.
+    assert not _recognized(
+        first_base, first_subject, first_tree, first_subject, symbolic="HEAD"
+    )
+    assert not _recognized(
+        first_base,
+        first_subject,
+        first_tree,
+        first_subject,
+        symbolic="phase54/sibling",
+    )
+    assert not _recognized(
+        first_base, first_subject, first_tree, first_subject, drifted="HEAD"
+    )
+    assert _recognized(
+        first_base, first_subject, first_tree, first_subject, symbolic=branch
+    )
 
 
 def test_wrong_parent_reference_tree_shallow_and_event_are_rejected(

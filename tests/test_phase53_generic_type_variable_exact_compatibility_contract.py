@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
-    PHASE54_POST_SLICE12_INTERLUDE_BASE,
+    phase54_post_slice12_interlude_expected_topic_base,
     phase54_post_slice12_interlude_clean_topic_is_active,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
@@ -1961,7 +1961,10 @@ def test_slice4_dirty_clean_and_depth_one_repository_states_are_locked() -> None
                 assert _git("rev-parse", reference) == expected_base
     elif phase54_post_slice12_interlude_clean_topic_is_active():
         for reference in ("refs/heads/main", "refs/remotes/origin/main"):
-            assert _git("rev-parse", reference) == PHASE54_POST_SLICE12_INTERLUDE_BASE
+            assert (
+                _git("rev-parse", reference)
+                == phase54_post_slice12_interlude_expected_topic_base()
+            )
     else:
         head = _git("rev-parse", "HEAD")
         for reference in ("refs/heads/main", "refs/remotes/origin/main"):
@@ -1997,7 +2000,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         len(markdown_paths),
         len(test_paths),
         top_level_functions,
-    ) == (933, 571, 266, 462, 5349)
+    ) == (933, 571, 266, 462, 5361)
     self_tree = ast.parse(SELF_PATH.read_text())
     self_names = tuple(
         node.name

@@ -11,8 +11,8 @@ from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
     phase54_post_slice12_interlude_expected_allowlist_paths,
-    PHASE54_POST_SLICE12_INTERLUDE_BRANCH,
     phase54_post_slice12_interlude_clean_topic_is_active,
+    phase54_post_slice12_interlude_expected_branch,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
@@ -342,7 +342,7 @@ def _assert_clean_checkout_refs(
             assert origin_main == head
         return
 
-    if branch == PHASE54_POST_SLICE12_INTERLUDE_BRANCH:
+    if branch == phase54_post_slice12_interlude_expected_branch():
         assert phase54_post_slice12_interlude_clean_topic_is_active()
         return
 

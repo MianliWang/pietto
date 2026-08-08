@@ -9,8 +9,8 @@ import subprocess
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
-    PHASE54_POST_SLICE12_INTERLUDE_BRANCH,
     phase54_post_slice12_interlude_clean_topic_is_active,
+    phase54_post_slice12_interlude_expected_branch,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
@@ -1965,7 +1965,7 @@ def test_slice6_dirty_clean_and_depth_one_repository_states_are_locked() -> None
     )
     branch = branch_result.stdout.strip() if branch_result.returncode == 0 else ""
     if not tracked and not untracked:
-        if branch == PHASE54_POST_SLICE12_INTERLUDE_BRANCH:
+        if branch == phase54_post_slice12_interlude_expected_branch():
             assert phase54_post_slice12_interlude_clean_topic_is_active()
             return
         assert branch in {"", "main"}
@@ -2017,7 +2017,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         len(markdown_paths),
         len(test_paths),
         top_level_functions,
-    ) == (933, 571, 266, 462, 5349)
+    ) == (933, 571, 266, 462, 5361)
     assert len(TEST_FUNCTIONS) == len(TEST_ITEM_COUNTS) == 36
     assert sum(TEST_ITEM_COUNTS) == 156
     assert 10599 + 185 == 10784

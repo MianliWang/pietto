@@ -173,31 +173,71 @@ _FALLBACK_LOCAL_GIT_VARIABLES: tuple[str, ...] = (
     "GIT_ALTERNATE_OBJECT_DIRECTORIES",
     "GIT_CEILING_DIRECTORIES",
     "GIT_COMMON_DIR",
+    "GIT_CONFIG",
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG_PARAMETERS",
     "GIT_DIR",
     "GIT_GRAFT_FILE",
+    "GIT_IMPLICIT_WORK_TREE",
     "GIT_INDEX_FILE",
     "GIT_NAMESPACE",
+    "GIT_NO_REPLACE_OBJECTS",
     "GIT_OBJECT_DIRECTORY",
+    "GIT_PREFIX",
+    "GIT_REPLACE_REF_BASE",
+    "GIT_SHALLOW_FILE",
     "GIT_WORK_TREE",
 )
 
 
-def local_git_variables() -> tuple[str, ...]:
-    """Return the environment variables that relocate a Git repository."""
+_LOCAL_GIT_VARIABLES: tuple[str, ...] | None = None
 
-    result = subprocess.run(
-        ["git", "rev-parse", "--local-env-vars"],
-        capture_output=True,
-        env={
-            name: value
-            for name, value in os.environ.items()
-            if name not in _FALLBACK_LOCAL_GIT_VARIABLES
-        },
-    )
+
+def reset_local_git_variables() -> None:
+    """Forget a cached derivation so the next call probes Git again."""
+
+    global _LOCAL_GIT_VARIABLES
+
+    _LOCAL_GIT_VARIABLES = None
+
+
+def local_git_variables() -> tuple[str, ...]:
+    """Return every environment variable that relocates or reconfigures Git.
+
+    Git reports its own complete set, which a hand-maintained list cannot
+    track: an inherited ``GIT_SHALLOW_FILE`` alone makes a shallow repository
+    report itself as complete. Discovery runs under the fallback-sanitized
+    environment so it never inherits the overrides it is asked to report, and
+    the fallback is unioned in so the removed set can only grow.
+    """
+
+    global _LOCAL_GIT_VARIABLES
+
+    if _LOCAL_GIT_VARIABLES is not None:
+        return _LOCAL_GIT_VARIABLES
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--local-env-vars"],
+            capture_output=True,
+            env={
+                name: value
+                for name, value in os.environ.items()
+                if name not in _FALLBACK_LOCAL_GIT_VARIABLES
+            },
+        )
+    except OSError:
+        return _FALLBACK_LOCAL_GIT_VARIABLES
     if result.returncode != 0:
         return _FALLBACK_LOCAL_GIT_VARIABLES
     reported = tuple(name for name in _decoded(result.stdout).split() if name)
-    return reported or _FALLBACK_LOCAL_GIT_VARIABLES
+    if not reported:
+        return _FALLBACK_LOCAL_GIT_VARIABLES
+    # Only a complete derivation is cached. A probe that fails once must
+    # not freeze the degraded answer for the life of the process.
+    _LOCAL_GIT_VARIABLES = tuple(
+        sorted(set(reported) | set(_FALLBACK_LOCAL_GIT_VARIABLES))
+    )
+    return _LOCAL_GIT_VARIABLES
 
 
 def _inherited_environment() -> dict[str, str]:
@@ -968,6 +1008,20 @@ def _set_upstream(root: Path, branch: str, oid: str) -> None:
     _git(root, "config", f"branch.{branch}.merge", f"refs/heads/{branch}")
 
 
+def _optional_reference(root: Path, reference: str) -> str:
+    """Return one reference's object name, or the empty string when unresolvable.
+
+    A reference that could not be resolved when the window opened must be
+    revalidated as still unresolvable: comparing against a truthy value only
+    would make that half of the check unreachable.
+    """
+
+    try:
+        return _git(root, "rev-parse", reference)
+    except TopologyError:
+        return ""
+
+
 def observe(
     root: Path,
     *,
@@ -983,11 +1037,17 @@ def observe(
     # Read every derived fact from the resolved object name, not from the moving
     # reference, and confirm the reference again at the end of the window.
     head_tree = _git(root, "rev-parse", f"{head}^{{tree}}")
-    parents = tuple(_git(root, "rev-list", "--parents", "-n", "1", head).split()[1:])
-    shallow = _git(root, "rev-parse", "--is-shallow-repository") == "true"
+    shallow_reading = _git(root, "rev-parse", "--is-shallow-repository")
+    shallow = shallow_reading == "true"
+    # The parent line is graph truncation dependent, not content addressed: a
+    # concurrent deepen reveals a boundary commit's parents while the shallow
+    # flag itself stays true, so the raw line is kept for revalidation.
+    parent_reading = _git(root, "rev-list", "--parents", "-n", "1", head)
+    parents = tuple(parent_reading.split()[1:])
     merge_base = ""
     base_identity = ""
-    if base_ref and not shallow:
+    base_probed = bool(base_ref) and not shallow
+    if base_probed:
         try:
             base_identity = _git(root, "rev-parse", base_ref)
             merge_base = _git(root, "merge-base", head, base_ref)
@@ -1033,11 +1093,15 @@ def observe(
         _git(root, "rev-parse", "HEAD") != head
         or _git(root, "rev-parse", "--abbrev-ref", "HEAD") != branch
         or _git_raw(root, *status_arguments) != status
-        or (base_identity and _git(root, "rev-parse", base_ref) != base_identity)
+        or (base_probed and _optional_reference(root, base_ref) != base_identity)
+        or _git(root, "rev-parse", "--is-shallow-repository") != shallow_reading
+        or _git(root, "rev-list", "--parents", "-n", "1", head) != parent_reading
     ):
-        # The object name, the symbolic identity, and the working state must all
-        # still hold: any of them changing means these facts never described one
-        # repository state.
+        # Every fact this observation reports must still hold: the object name,
+        # the symbolic identity, the working state, the base authority in both
+        # directions, the shallow boundary, and the parent line. A concurrent
+        # unshallow or deepen leaves all the others equal while the shallow and
+        # parent facts go stale, so they are re-read here too.
         raise TopologyError(f"repository moved while observing {root}")
     return TopologyObservation(
         branch=branch,
