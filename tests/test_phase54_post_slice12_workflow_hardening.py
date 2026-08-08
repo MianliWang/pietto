@@ -1605,6 +1605,67 @@ def test_source_projection_refuses_a_foreign_object_format(tmp_path: Path) -> No
         )
 
 
+def test_projection_never_clears_paths_above_its_root(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=source)
+    (source / "docs").mkdir()
+    (source / "docs" / "spec.md").write_text("spec\n", encoding="utf-8")
+    _commit_source(source, "first")
+    (source / "docs" / "spec.md").write_text("spec two\n", encoding="utf-8")
+    real = tmp_path / "real"
+    real.mkdir()
+    (real / "keep.txt").write_text("keep\n", encoding="utf-8")
+    link = tmp_path / "link"
+    link.symlink_to(real, target_is_directory=True)
+
+    fixture = topology.build_topology(
+        topology.TOPOLOGY_DIRTY_GATE2, link / "projection", source=source
+    )
+    assert topology.verify(fixture.observation, fixture.expectation) == ()
+    assert link.is_symlink()
+    assert (real / "keep.txt").read_text("utf-8") == "keep\n"
+
+
+def test_candidate_entries_do_not_carry_a_mode_across_a_type_change(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=source)
+    subprocess.run(["git", "config", "core.filemode", "false"], cwd=source, check=True)
+    (source / "target.txt").write_text("target\n", encoding="utf-8")
+    (source / "entry").symlink_to("target.txt")
+    _commit_source(source, "first")
+    (source / "entry").unlink()
+    (source / "entry").write_text("now a regular file\n", encoding="utf-8")
+
+    entries = topology.candidate_entries(source)
+    # A type change is never suppressed by the filemode rule.
+    assert entries["entry"][0] == "100644"
+    for kind in (topology.TOPOLOGY_DIRTY_GATE2, topology.TOPOLOGY_CLEAN_TOPIC):
+        fixture = topology.build_topology(kind, tmp_path / kind, source=source)
+        assert topology.verify(fixture.observation, fixture.expectation) == (), kind
+
+
+def test_source_projection_defaults_a_missing_filemode(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=source)
+    subprocess.run(
+        ["git", "config", "--unset", "core.filemode"], cwd=source, check=False
+    )
+    (source / "reader.py").write_text("reader\n", encoding="utf-8")
+    _commit_source(source, "first")
+    (source / "reader.py").write_text("reader two\n", encoding="utf-8")
+
+    assert topology.candidate_entries(source)["reader.py"][0] == "100644"
+    fixture = topology.build_topology(
+        topology.TOPOLOGY_CLEAN_TOPIC, tmp_path / "clean", source=source
+    )
+    assert topology.verify(fixture.observation, fixture.expectation) == ()
+
+
 def test_source_projection_refuses_a_gitlink_source(tmp_path: Path) -> None:
     inner = tmp_path / "inner"
     inner.mkdir()
@@ -2137,8 +2198,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR36_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR36_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR37_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR37_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base

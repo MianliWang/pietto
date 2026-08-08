@@ -544,8 +544,11 @@ def candidate_entries(source: Path) -> dict[str, tuple[str, str]]:
     wanted = set(_source_working_paths(source))
     # ``core.filemode=false`` tells Git to keep the recorded mode, so the
     # filesystem permission bit is not the authority on a tracked path.
+    # Git's default is true, and an unset key exits non-zero without --default.
     filemode = (
-        _source_output(source, "config", "--bool", "--get", "core.filemode").strip()
+        _source_output(
+            source, "config", "--bool", "--default", "true", "--get", "core.filemode"
+        ).strip()
         != "false"
     )
     index_modes: dict[str, str] = {}
@@ -573,7 +576,9 @@ def candidate_entries(source: Path) -> dict[str, tuple[str, str]]:
         if len(oid) != 40:
             raise TopologyError(f"cannot hash {relative} in {source}")
         recorded = index_modes.get(relative)
-        if recorded is not None and not filemode:
+        # Disabling filemode suppresses an executable-bit change on a regular
+        # file. It never carries an entry type across a type change.
+        if recorded is not None and recorded.startswith("100") and not filemode:
             mode = recorded
         else:
             mode = "100755" if path.stat().st_mode & 0o111 else "100644"
@@ -594,7 +599,10 @@ def _directory_entries(root: Path) -> dict[str, tuple[str, str]]:
     would when the candidate is committed.
     """
 
-    filemode = _git(root, "config", "--bool", "--get", "core.filemode") != "false"
+    filemode = (
+        _git(root, "config", "--bool", "--default", "true", "--get", "core.filemode")
+        != "false"
+    )
     index_modes: dict[str, str] = {}
     listing = _git_raw(root, "ls-files", "--stage", "-z")
     for record in (entry for entry in listing.split("\0") if entry):
@@ -616,7 +624,7 @@ def _directory_entries(root: Path) -> dict[str, tuple[str, str]]:
         if len(oid) != 40:
             raise TopologyError(f"cannot hash {relative} in {root}")
         recorded = index_modes.get(str(relative))
-        if recorded is not None and not filemode:
+        if recorded is not None and recorded.startswith("100") and not filemode:
             mode = recorded
         else:
             mode = "100755" if path.stat().st_mode & 0o111 else "100644"
@@ -727,8 +735,16 @@ def _seed_working_tree(root: Path, source: Path) -> None:
             continue
         destination = root / relative
         # A path may change between file, symlink, and directory. Clear whatever
-        # occupies the destination or blocks its parents before writing.
-        for ancestor in reversed(destination.parents):
+        # occupies the destination or blocks its parents, never stepping above
+        # the projection root: the caller owns everything outside it.
+        blocking = [
+            ancestor
+            for ancestor in destination.parents
+            if root in ancestor.parents or ancestor == root
+        ]
+        for ancestor in reversed(blocking):
+            if ancestor == root:
+                continue
             if ancestor.is_symlink() or (ancestor.exists() and not ancestor.is_dir()):
                 ancestor.unlink()
         destination.parent.mkdir(parents=True, exist_ok=True)
