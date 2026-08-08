@@ -851,6 +851,62 @@ def test_source_projections_are_anchored_to_the_main_authority(
         )
 
 
+def test_source_projection_refuses_a_gitlink_source(tmp_path: Path) -> None:
+    inner = tmp_path / "inner"
+    inner.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=inner)
+    (inner / "inner.py").write_text("inner\n", encoding="utf-8")
+    _commit_source(inner, "inner")
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=source)
+    (source / "reader.py").write_text("reader\n", encoding="utf-8")
+    _commit_source(source, "first")
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            "--quiet",
+            str(inner),
+            "vendor",
+        ],
+        cwd=source,
+        check=True,
+    )
+    _commit_source(source, "add submodule")
+    staged = subprocess.run(
+        ["git", "ls-files", "--stage"],
+        cwd=source,
+        check=True,
+        text=True,
+        capture_output=True,
+    ).stdout
+    assert "160000" in staged
+    with pytest.raises(topology.TopologyError):
+        topology.candidate_entries(source)
+    with pytest.raises(topology.TopologyError):
+        topology.build_topology(
+            topology.TOPOLOGY_CLEAN_TOPIC, tmp_path / "clean", source=source
+        )
+
+
+def test_discovery_universe_uses_one_identity_per_reader(tmp_path: Path) -> None:
+    (tmp_path / "reader.py").write_text("assert total == 461\n", encoding="utf-8")
+    edges = closure.discover_edges(
+        repo_root=tmp_path,
+        universe=("reader.py", "./reader.py"),
+        count_literals=("== 461",),
+    )
+    assert len(edges) == 1
+    assert edges[0].reader == "reader.py"
+    assert closure.readers_of(edges, ("== 461",)) == ("reader.py",)
+    graph = closure.graph_from_edges(edges)
+    assert graph.nodes == ("== 461", "reader.py")
+
+
 def test_source_projection_propagates_a_deleted_path(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
@@ -1235,8 +1291,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR14_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR14_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR15_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR15_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base

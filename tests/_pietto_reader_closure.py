@@ -152,7 +152,11 @@ def discover_edges(
 
     if not universe:
         raise ClosureError("reader discovery requires a non-empty universe")
-    ordered_universe = tuple(dict.fromkeys(universe))
+    # Two spellings of one reader would produce two edge sets and two graph
+    # nodes for a single physical file, breaking collection identity.
+    ordered_universe = tuple(
+        dict.fromkeys(normalized_path(repo_root, reader) for reader in universe)
+    )
     edges: list[ReaderEdge] = []
     for reader in ordered_universe:
         source = read_source(repo_root, reader)

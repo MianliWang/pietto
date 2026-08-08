@@ -214,6 +214,19 @@ def source_base_revision(source: Path) -> str:
     return "HEAD"
 
 
+def _reject_gitlink_source(source: Path) -> None:
+    """Refuse a source that carries a gitlink entry.
+
+    A submodule is recorded as mode ``160000`` and appears as a directory in the
+    working tree, so copying entries would silently drop it and still declare
+    the projection identical to the candidate. Refusing is the honest outcome.
+    """
+
+    for line in _source_lines(source, "ls-files", "--stage"):
+        if line.startswith("160000"):
+            raise TopologyError(f"source repository contains a gitlink: {source}")
+
+
 def _reject_staged_source(source: Path) -> None:
     """Refuse a source whose index is not empty.
 
@@ -235,6 +248,7 @@ def _source_working_paths(source: Path) -> tuple[str, ...]:
     """
 
     _reject_staged_source(source)
+    _reject_gitlink_source(source)
     listed = _source_lines(
         source, "ls-files", "--cached", "--others", "--exclude-standard"
     )
@@ -243,6 +257,12 @@ def _source_working_paths(source: Path) -> tuple[str, ...]:
         for relative in listed
         if (source / relative).is_symlink() or (source / relative).is_file()
     )
+    # A tracked path the candidate deleted is legitimately absent; anything else
+    # that is neither a file nor a symlink is refused instead of dropped.
+    known = set(entries) | set(_source_lines(source, "ls-files", "--deleted"))
+    unusable = tuple(relative for relative in listed if relative not in known)
+    if unusable:
+        raise TopologyError(f"source entries are not regular files: {unusable[:5]}")
     if not entries:
         raise TopologyError(f"source repository has no content: {source}")
     return entries
