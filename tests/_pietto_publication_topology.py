@@ -18,6 +18,7 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import subprocess
 import tarfile
 from collections.abc import Mapping, Sequence
@@ -273,10 +274,16 @@ def _source_working_paths(source: Path) -> tuple[str, ...]:
         for relative in listed
         if (source / relative).is_symlink() or (source / relative).is_file()
     )
-    # A tracked path the candidate deleted is legitimately absent; anything else
-    # that is neither a file nor a symlink is refused instead of dropped.
-    known = set(entries) | set(_source_lines(source, "ls-files", "--deleted"))
-    unusable = tuple(relative for relative in listed if relative not in known)
+    # A tracked path may be deleted, or replaced by a directory that now holds
+    # new entries. Both are trees Git can represent. Only an entry that exists
+    # as something else entirely - a device or socket - is refused.
+    unusable = tuple(
+        relative
+        for relative in listed
+        if relative not in set(entries)
+        and (source / relative).exists()
+        and not (source / relative).is_dir()
+    )
     if unusable:
         raise TopologyError(f"source entries are not regular files: {unusable[:5]}")
     if not entries:
@@ -442,9 +449,18 @@ def _seed_working_tree(root: Path, source: Path) -> None:
     for relative in entries:
         origin = source / relative
         destination = root / relative
+        # A path may change between file, symlink, and directory. Clear whatever
+        # occupies the destination or blocks its parents before writing.
+        for ancestor in reversed(destination.parents):
+            if ancestor.is_symlink() or (ancestor.exists() and not ancestor.is_dir()):
+                ancestor.unlink()
         destination.parent.mkdir(parents=True, exist_ok=True)
-        if destination.is_symlink() or destination.exists():
+        if destination.is_symlink() or (
+            destination.exists() and not destination.is_dir()
+        ):
             destination.unlink()
+        elif destination.is_dir():
+            shutil.rmtree(destination)
         if origin.is_symlink():
             os.symlink(os.readlink(origin), destination)
             continue

@@ -997,9 +997,23 @@ def test_discovery_targets_use_one_identity_per_path(tmp_path: Path) -> None:
     assert len(edges) == 1
     assert edges[0].target == "docs/target.md"
     assert closure.readers_of(edges, ("docs/target.md",)) == ("reader.py",)
+    # A deleted target is exactly the case discovery must still find.
+    deleted = closure.discover_edges(
+        repo_root=tmp_path, universe=("reader.py",), targets=("docs/target.md",)
+    )
+    (tmp_path / "docs" / "target.md").unlink()
+    assert (
+        closure.discover_edges(
+            repo_root=tmp_path, universe=("reader.py",), targets=("./docs/target.md",)
+        )
+        == deleted
+    )
+    assert closure.target_identity(tmp_path, "./docs/gone.md") == "docs/gone.md"
+    with pytest.raises(closure.ClosureError):
+        closure.target_identity(tmp_path, "../outside.md")
     with pytest.raises(closure.ClosureError):
         closure.discover_edges(
-            repo_root=tmp_path, universe=("reader.py",), targets=("docs/missing.md",)
+            repo_root=tmp_path, universe=("reader.py",), targets=("../outside.md",)
         )
 
 
@@ -1024,6 +1038,43 @@ def test_discovery_command_line_summarizes_normalized_targets(
     assert exit_code == 0
     assert reported["readers"] == ["reader.py"]
     assert reported["edges"][0]["target"] == "target.md"
+
+
+def test_replacement_plan_rejects_aliased_paths_even_with_an_order(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "one.py").write_text("total = 461\n", encoding="utf-8")
+    rules = (closure.ReplacementRule(old="461", new="462"),)
+    with pytest.raises(closure.ClosureError):
+        closure.calculate_replacements(
+            repo_root=tmp_path,
+            paths=("one.py", "./one.py"),
+            rules=rules,
+            order=("one.py",),
+        )
+
+
+def test_source_projection_accepts_a_file_to_directory_transition(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=source)
+    (source / "reader.py").write_text("reader\n", encoding="utf-8")
+    (source / "a").write_text("file\n", encoding="utf-8")
+    _commit_source(source, "first")
+    (source / "a").unlink()
+    (source / "a").mkdir()
+    (source / "a" / "b").write_text("now a directory\n", encoding="utf-8")
+
+    entries = topology.candidate_entries(source)
+    assert set(entries) == {"reader.py", "a/b"}
+    fixture = topology.build_topology(
+        topology.TOPOLOGY_CLEAN_TOPIC, tmp_path / "clean", source=source
+    )
+    listed = topology.run_in_projection(fixture, ["git", "ls-files"])
+    assert sorted(listed.stdout.split()) == ["a/b", "reader.py"]
+    assert (fixture.root / "a").is_dir()
 
 
 def test_source_projection_propagates_a_deleted_path(tmp_path: Path) -> None:
@@ -1410,8 +1461,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR19_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR19_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR20_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR20_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base

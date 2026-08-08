@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -132,6 +133,20 @@ def normalized_path(repo_root: Path, path: str) -> str:
     return str(candidate.resolve().relative_to(repo_root.resolve()))
 
 
+def target_identity(repo_root: Path, path: str) -> str:
+    """Return a changed path's repository-relative identity, lexically.
+
+    A target names a path the change touches, and a change may delete it. Its
+    identity therefore must not depend on the path still existing.
+    """
+
+    root = Path(os.path.normpath(repo_root))
+    candidate = Path(os.path.normpath(root / path))
+    if candidate == root or root not in candidate.parents:
+        raise ClosureError(f"path escapes the repository root: {path}")
+    return str(candidate.relative_to(root))
+
+
 def read_source(repo_root: Path, path: str) -> str:
     """Return one repository file as text, failing closed on any problem."""
 
@@ -164,7 +179,7 @@ def discover_edges(
     # A target is a repository path, so it is matched by its unique identity as
     # well. An alias would miss the readers that spell it canonically.
     ordered_targets = tuple(
-        dict.fromkeys(normalized_path(repo_root, target) for target in targets)
+        dict.fromkeys(target_identity(repo_root, target) for target in targets)
     )
     ordered_literals = tuple(dict.fromkeys(count_literals))
     ordered_roots = tuple(dict.fromkeys(inventory_roots))
@@ -427,6 +442,9 @@ def calculate_replacements(
         seen_old.add(rule.old)
     _reject_interacting_rules(rules)
     identities = tuple(normalized_path(repo_root, path) for path in paths)
+    if len(set(identities)) != len(identities):
+        # An explicit order must not be able to hide an aliased duplicate.
+        raise ClosureError("supplied paths name the same file more than once")
     ordered_paths = tuple(sorted(dict.fromkeys(identities)))
     if order:
         ordered_order = tuple(normalized_path(repo_root, path) for path in order)
@@ -435,8 +453,6 @@ def calculate_replacements(
         if set(ordered_order) != set(identities):
             raise ClosureError("explicit order must cover exactly the supplied paths")
         ordered_paths = ordered_order
-    elif len(set(identities)) != len(identities):
-        raise ClosureError("supplied paths name the same file more than once")
     replacements: list[PathReplacement] = []
     for path in ordered_paths:
         source = read_source(repo_root, path)
@@ -595,7 +611,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                                     # Edges carry normalized target identity, so
                                     # the summary must ask for the same identity.
                                     *(
-                                        normalized_path(repo_root, target)
+                                        target_identity(repo_root, target)
                                         for target in arguments.target
                                     ),
                                     *arguments.count_literal,

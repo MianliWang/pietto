@@ -1422,7 +1422,7 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 5309
+    assert top_level_tests == 5311
     assert 9580 == 9199 + 381
     assert 9580 - 185 == 9395
     assert (117, 70, 11, 106, 3488, 13171) == (117, 70, 11, 106, 3488, 13171)
