@@ -100,7 +100,7 @@ PHASE54_SLICE12_PRODUCT_REPAIR14_SUBJECT = (
     "Fix Phase 54 Slice 12 window lineage preservation"
 )
 PHASE54_SLICE12_PRODUCT_REPAIR14_REVIEWED_TREE_TRAILER = "Pietto-Reviewed-Tree"
-PHASE54_SLICE12_MECHANICAL_REPAIR3_BASE = "f7cf045361db7280acb66288d30e0bf64cce966d"
+PHASE54_SLICE12_MECHANICAL_REPAIR3_BASE = "f7cf045358db7280acb66288d30e0bf64cce966d"
 PHASE54_SLICE12_MECHANICAL_REPAIR3_BRANCH = "phase54/slice12-semantic-fact-preservation"
 PHASE54_SLICE12_MECHANICAL_REPAIR3_SUBJECT = (
     "Fix Phase 54 Slice 12 clean topic manifest"
@@ -161,6 +161,10 @@ PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_GENERATIONS: tuple[
     (
         "26db9f4ff2e5f689d06e5b3574d2bf7ce25f8407",
         PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_TOPIC_PATHS,
+    ),
+    (
+        "53842ec9e28782bbdfd1787454371cba3211dff2",
+        frozenset({"tests/_phase54_active_gate2_manifest.py"}),
     ),
 )
 PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_GENERATION2_BASE = (
@@ -399,6 +403,11 @@ PHASE54_POST_SLICE12_INTERLUDE_CHILD_IDENTITIES: tuple[tuple[str, str, str], ...
         "15e46551c4fcc55b6143f663daa1d84fe847eaeb",
         "Repair Pietto workflow hardening post-merge findings",
         "ae42d11339141edb7b791cb55a49f052f5c4d22a",
+    ),
+    (
+        "26db9f4ff2e5f689d06e5b3574d2bf7ce25f8407",
+        "Repair Pietto workflow hardening post-merge findings",
+        "075c459d22903071d013a7ab42ece9b2f383f0dd",
     ),
 )
 # A commit cannot name its own tree inside that tree, so exactly one shape - the
@@ -3687,7 +3696,13 @@ def _matches_phase54_active_gate2_manifest(
         and state.branch_upstream
         == f"origin/{PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_BRANCH}"
         and state.added_paths == PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_ADDED_PATHS
-        and state.modified_paths == PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_TOPIC_PATHS
+        and any(
+            state.branch_oid == generation_base
+            and state.modified_paths == generation_paths
+            for generation_base, generation_paths in (
+                PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_GENERATIONS
+            )
+        )
         and state.deleted_paths == frozenset()
     )
     return common and (
@@ -5539,7 +5554,13 @@ def phase54_post_slice12_post_merge_repair1_generation2_is_active() -> bool:
         )
         and state.branch_head == PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_BRANCH
         and state.added_paths == PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_ADDED_PATHS
-        and state.modified_paths == PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_TOPIC_PATHS
+        and any(
+            state.branch_oid == generation_base
+            and state.modified_paths == generation_paths
+            for generation_base, generation_paths in (
+                PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_GENERATIONS
+            )
+        )
         and state.deleted_paths == frozenset()
     )
 
@@ -5801,7 +5822,14 @@ def phase54_post_slice12_interlude_expected_modified_paths() -> frozenset[str]:
     """Return the exact modified set the active interlude overlay must show."""
 
     if phase54_post_slice12_post_merge_repair1_generation2_is_active():
-        return PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_TOPIC_PATHS
+        head = _git_output(["rev-parse", "HEAD"])
+        for (
+            generation_base,
+            generation_paths,
+        ) in PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_GENERATIONS:
+            if head == generation_base:
+                return generation_paths
+        return frozenset()
     if phase54_post_slice12_post_merge_repair1_is_active():
         return PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_MODIFIED_PATHS
     if phase54_post_slice12_interlude_repair42_is_active():
