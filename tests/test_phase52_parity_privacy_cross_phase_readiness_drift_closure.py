@@ -12,14 +12,14 @@ from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
     phase54_post_slice12_interlude_expected_head,
+    phase54_post_slice12_interlude_expected_topic_base,
     phase54_post_slice12_interlude_repair_is_active,
     phase54_post_slice12_interlude_dirty_is_active,
     phase54_post_slice12_interlude_expected_added_paths,
     phase54_post_slice12_interlude_expected_allowlist_paths,
     phase54_post_slice12_interlude_expected_modified_paths,
-    PHASE54_POST_SLICE12_INTERLUDE_BRANCH,
     phase54_post_slice12_interlude_clean_topic_is_active,
-    PHASE54_POST_SLICE12_INTERLUDE_BASE,
+    phase54_post_slice12_interlude_expected_branch,
     PHASE54_ACTIVE_GATE2_ADDED_PATHS,
     PHASE54_ACTIVE_GATE2_BASE,
     PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
@@ -176,10 +176,10 @@ MODULE_SHA256 = {
 }
 SPEC_SHA256 = "7010cd8a39ed389de588d8cd734b136cc87456c3ef5eb324638467d1188fc935"
 MODIFIED_TEST_SHA256 = {
-    SLICE4_TEST_REL: "828ae13d9c071fd3f9fbc89efbc7fdf399969d8e48e6bcb32d93f5062f5fc864",
-    SLICE5_TEST_REL: "53b652505df04a5c30e039006f968a5ec166e2f30890af88a79e19eb7468a683",
-    SLICE6_TEST_REL: "4a6cf7b3b2d8edc4783ef202895476161b6f77707f39e5adbaff290d0d716c80",
-    SLICE7_TEST_REL: "c36f2bd3c44223d3839386c039c8edb8b291e261da7e7b1b3a611c527a32b4a1",
+    SLICE4_TEST_REL: "e7c0f1a63bfdef20cbc7558dcadb0b01c8312c03c9bd0f49381828493675ea58",
+    SLICE5_TEST_REL: "bf1ecbbc074203eb88bf34ab3d537c57a994236b62f152f12b00867cfe5002d3",
+    SLICE6_TEST_REL: "4e5bbe94738909955b14e9269fff87eb93aa07d63012952db6357693517c4214",
+    SLICE7_TEST_REL: "cfe74d468a13ddc4ceb7c3522d718d1d2a1d3916dfcbfa578bc195e0bb8ad27d",
 }
 WORKFLOW_SHA256 = "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94"
 PYPROJECT_SHA256 = "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01"
@@ -457,7 +457,7 @@ def _assert_checkout_ref_shape(
             )
         return False
 
-    if branch == PHASE54_POST_SLICE12_INTERLUDE_BRANCH:
+    if branch == phase54_post_slice12_interlude_expected_branch():
         assert phase54_post_slice12_interlude_clean_topic_is_active()
         return False
 
@@ -756,11 +756,13 @@ def _assert_allowed_dirty_state(
         return
 
     if phase54_post_slice12_interlude_repair_is_active():
-        assert branch == PHASE54_POST_SLICE12_INTERLUDE_BRANCH
+        assert branch == phase54_post_slice12_interlude_expected_branch()
         assert tracked == set(phase54_post_slice12_interlude_expected_modified_paths())
         assert untracked == set(phase54_post_slice12_interlude_expected_added_paths())
         assert head == phase54_post_slice12_interlude_expected_head()
-        assert main == origin_main == PHASE54_POST_SLICE12_INTERLUDE_BASE
+        assert (
+            main == origin_main == phase54_post_slice12_interlude_expected_topic_base()
+        )
         return
 
     assert branch == "main"
@@ -790,7 +792,12 @@ def _assert_allowed_dirty_state(
     if phase54_post_slice12_interlude_dirty_is_active():
         assert tracked == set(phase54_post_slice12_interlude_expected_modified_paths())
         assert untracked == set(phase54_post_slice12_interlude_expected_added_paths())
-        assert head == main == origin_main == PHASE54_POST_SLICE12_INTERLUDE_BASE
+        assert (
+            head
+            == main
+            == origin_main
+            == phase54_post_slice12_interlude_expected_head()
+        )
         return
 
     if dirty == SLICE8_ALLOWLIST_PATHS:
@@ -2354,7 +2361,7 @@ def test_test_inventory_tier1_selectors_and_compatibility_counts_are_exact() -> 
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (462, 5349)
+    assert (len(test_files), top_level_functions) == (462, 5358)
     assert tuple(
         _pytest_shape(REPO_ROOT / path)[1]
         for path in (

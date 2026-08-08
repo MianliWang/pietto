@@ -7,8 +7,8 @@ import subprocess
 from pathlib import Path
 
 from _phase54_active_gate2_manifest import (
-    PHASE54_POST_SLICE12_INTERLUDE_BRANCH,
     phase54_post_slice12_interlude_clean_topic_is_active,
+    phase54_post_slice12_interlude_expected_branch,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
@@ -431,7 +431,7 @@ def _assert_phase53_repository_state() -> None:
     assert tracked == untracked == set()
     if branch == "main":
         assert main == head
-    elif branch == PHASE54_POST_SLICE12_INTERLUDE_BRANCH:
+    elif branch == phase54_post_slice12_interlude_expected_branch():
         assert phase54_post_slice12_interlude_clean_topic_is_active()
         return
     else:
@@ -802,7 +802,7 @@ def test_reader_migrations_reconciliation4_and_current_authority_are_locked() ->
         "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
         "tests/test_phase52_completion_audit_and_status_lock.py",
     ):
-        assert "(462, 5349)" in _read(relative)
+        assert "(462, 5358)" in _read(relative)
     for relative in (
         "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
         "tests/test_phase52_completion_audit_and_status_lock.py",

@@ -9,9 +9,9 @@ from pathlib import Path
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
-    PHASE54_POST_SLICE12_INTERLUDE_BRANCH,
-    PHASE54_POST_SLICE12_INTERLUDE_BASE,
     phase54_post_slice12_interlude_clean_topic_is_active,
+    phase54_post_slice12_interlude_expected_branch,
+    phase54_post_slice12_interlude_expected_topic_base,
     PHASE54_ACTIVE_GATE2_BASE,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
     PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS,
@@ -1165,13 +1165,17 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
         assert head == main == origin_main == BASE_HEAD_SHA
     else:
         assert tracked == untracked == set()
-        if branch == PHASE54_POST_SLICE12_INTERLUDE_BRANCH:
+        if branch == phase54_post_slice12_interlude_expected_branch():
             # The clean topic projection keeps its own topology assertions and
             # then continues into the shared inventory below: returning early
             # would leave the refreshed counts unverified in exactly the
             # projection the publication lifecycle checks out.
             assert phase54_post_slice12_interlude_clean_topic_is_active()
-            assert main == origin_main == PHASE54_POST_SLICE12_INTERLUDE_BASE
+            assert (
+                main
+                == origin_main
+                == phase54_post_slice12_interlude_expected_topic_base()
+            )
         else:
             assert branch in ("", "main")
             if branch == "main":
@@ -1199,7 +1203,7 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 5349
+    assert top_level_tests == 5358
     assert len(GENERATED_PATHS) == 8
     goldens = {
         path

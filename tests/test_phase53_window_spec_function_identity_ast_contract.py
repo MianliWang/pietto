@@ -10,9 +10,9 @@ from pathlib import Path
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
-    PHASE54_POST_SLICE12_INTERLUDE_BRANCH,
-    PHASE54_POST_SLICE12_INTERLUDE_BASE,
     phase54_post_slice12_interlude_clean_topic_is_active,
+    phase54_post_slice12_interlude_expected_branch,
+    phase54_post_slice12_interlude_expected_topic_base,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
@@ -1043,9 +1043,13 @@ def test_slice3_dirty_clean_and_depth_one_repository_states_are_locked() -> None
         assert branch == "main"
         assert head == main == origin_main == BASE_HEAD_SHA
     else:
-        if branch == PHASE54_POST_SLICE12_INTERLUDE_BRANCH:
+        if branch == phase54_post_slice12_interlude_expected_branch():
             assert phase54_post_slice12_interlude_clean_topic_is_active()
-            assert main == origin_main == PHASE54_POST_SLICE12_INTERLUDE_BASE
+            assert (
+                main
+                == origin_main
+                == phase54_post_slice12_interlude_expected_topic_base()
+            )
             return
         assert branch in ("", "main")
         if main is not None:
@@ -1077,7 +1081,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 5349
+    assert top_level_tests == 5358
     assert (
         3488
         == 381 + 834 + 627 + 424 + 279 + 168 + 156 + 12 + 145 + 190 + 70 + 70 + 97 + 35

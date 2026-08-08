@@ -11,6 +11,7 @@ refuse to touch the repository.
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 import subprocess
@@ -128,6 +129,41 @@ LOCATION_VARIABLES: tuple[str, ...] = (
 )
 
 
+@functools.lru_cache(maxsize=1)
+def local_git_variables() -> tuple[str, ...]:
+    """Return every environment variable that relocates or reconfigures Git.
+
+    Git reports its own complete set; a hand-maintained list cannot track it.
+    Discovery runs under the fallback-sanitized environment so it never
+    inherits the overrides it is asked to report, and the fallback is unioned
+    in so the removed set can only grow.
+    """
+
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--local-env-vars"],
+            capture_output=True,
+            check=False,
+            env={
+                name: value
+                for name, value in os.environ.items()
+                if name not in LOCATION_VARIABLES
+            },
+        )
+    except OSError:
+        return LOCATION_VARIABLES
+    if result.returncode != 0:
+        return LOCATION_VARIABLES
+    reported = tuple(
+        name
+        for name in result.stdout.decode("utf-8", "surrogateescape").split()
+        if name
+    )
+    if not reported:
+        return LOCATION_VARIABLES
+    return tuple(sorted(set(reported) | set(LOCATION_VARIABLES)))
+
+
 def _isolated_environment() -> dict[str, str]:
     """Return the environment without any Git repository relocation.
 
@@ -138,7 +174,7 @@ def _isolated_environment() -> dict[str, str]:
     return {
         name: value
         for name, value in os.environ.items()
-        if name not in LOCATION_VARIABLES
+        if name not in local_git_variables()
     }
 
 
