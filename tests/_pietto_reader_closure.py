@@ -592,7 +592,12 @@ def main(argv: Sequence[str] | None = None) -> int:
                             readers_of(
                                 edges,
                                 (
-                                    *arguments.target,
+                                    # Edges carry normalized target identity, so
+                                    # the summary must ask for the same identity.
+                                    *(
+                                        normalized_path(repo_root, target)
+                                        for target in arguments.target
+                                    ),
                                     *arguments.count_literal,
                                     *arguments.inventory_root,
                                 ),

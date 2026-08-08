@@ -1003,6 +1003,29 @@ def test_discovery_targets_use_one_identity_per_path(tmp_path: Path) -> None:
         )
 
 
+def test_discovery_command_line_summarizes_normalized_targets(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "target.md").write_text("# target\n", encoding="utf-8")
+    (tmp_path / "reader.py").write_text('SPEC = "target.md"\n', encoding="utf-8")
+    exit_code = closure.main(
+        [
+            "--repo-root",
+            str(tmp_path),
+            "--mode",
+            "discover",
+            "--path",
+            "./reader.py",
+            "--target",
+            "./target.md",
+        ]
+    )
+    reported = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert reported["readers"] == ["reader.py"]
+    assert reported["edges"][0]["target"] == "target.md"
+
+
 def test_source_projection_propagates_a_deleted_path(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
@@ -1387,8 +1410,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR18_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR18_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR19_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR19_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base
