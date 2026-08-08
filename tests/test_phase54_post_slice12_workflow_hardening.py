@@ -627,6 +627,35 @@ def test_replacement_plan_rejects_partially_overlapping_literals(
     assert plan.total_occurrences == 0
 
 
+def _commit_source(source: Path, message: str) -> None:
+    subprocess.run(["git", "add", "-A"], cwd=source, check=True)
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.name=T",
+            "-c",
+            "user.email=t@x",
+            "commit",
+            "-q",
+            "-m",
+            message,
+        ],
+        cwd=source,
+        check=True,
+    )
+
+
+def _source_tree(source: Path, revision: str) -> str:
+    return subprocess.run(
+        ["git", "rev-parse", f"{revision}^{{tree}}"],
+        cwd=source,
+        check=True,
+        text=True,
+        capture_output=True,
+    ).stdout.strip()
+
+
 def test_replacement_rule_rejects_a_literal_surviving_its_own_result() -> None:
     with pytest.raises(closure.ClosureError):
         closure.ReplacementRule(old="v1", new="v10")
@@ -644,13 +673,10 @@ def test_source_backed_projection_carries_the_exact_candidate_tree(
     (source / "docs").mkdir(parents=True)
     subprocess.run(["git", "init", "--quiet"], cwd=source, check=True)
     (source / "docs" / "spec.md").write_text("# spec\n", encoding="utf-8")
+    (source / "reader.py").write_text("assert total == 1\n", encoding="utf-8")
+    _commit_source(source, "first")
     (source / "reader.py").write_text("assert total == 2\n", encoding="utf-8")
-    subprocess.run(["git", "add", "-A"], cwd=source, check=True)
-    subprocess.run(
-        ["git", "-c", "user.name=T", "-c", "user.email=t@x", "commit", "-q", "-m", "b"],
-        cwd=source,
-        check=True,
-    )
+    _commit_source(source, "second")
     (source / "reader.py").write_text("assert total == 3\n", encoding="utf-8")
     (source / "docs" / "added.md").write_text("# added\n", encoding="utf-8")
     expected = ("docs/added.md", "docs/spec.md", "reader.py")
@@ -670,6 +696,18 @@ def test_source_backed_projection_carries_the_exact_candidate_tree(
         assert not (fixture.root / "added.md").exists(), kind
         assert (fixture.root / "reader.py").read_text("utf-8") == "assert total == 3\n"
         assert topology.verify(fixture.observation, fixture.expectation) == (), kind
+
+    repair = topology.build_topology(
+        topology.TOPOLOGY_REPAIR_CHILD, tmp_path / "threetrees", source=source
+    )
+    trees = topology.run_in_projection(
+        repair, ["git", "log", "--format=%T", "-n", "3", "HEAD"]
+    ).stdout.split()
+    assert len(set(trees)) == 3
+    assert trees[1:] == [
+        _source_tree(source, "HEAD"),
+        _source_tree(source, "HEAD~1"),
+    ]
 
 
 def test_replacement_plan_rejects_a_rule_recreated_across_the_seam(
@@ -747,6 +785,21 @@ def test_publication_identity_rejects_a_replaced_tree_on_a_known_shape() -> None
         squash_subject,
         squash_tree,
         f"{squash_subject}\n\n{trailer}: {squash_tree}",
+    )
+    # A forge-composed squash body may carry earlier historical trailers; only
+    # the final line is authoritative for the squashed tree.
+    assert matches(
+        (base,),
+        squash_subject,
+        squash_tree,
+        f"{squash_subject}\n\n* one\n\n{trailer}: {first_tree}\n\n"
+        f"* two\n\n{trailer}: {squash_tree}",
+    )
+    assert not matches(
+        (base,),
+        squash_subject,
+        squash_tree,
+        f"{squash_subject}\n\n{trailer}: {squash_tree}\n\n{trailer}: {first_tree}",
     )
     assert not matches((base,), squash_subject, squash_tree, squash_subject)
     assert not matches((base,), squash_subject, squash_tree, f"{squash_subject}\n\nx")
@@ -1060,8 +1113,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR9_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR9_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR10_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR10_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base

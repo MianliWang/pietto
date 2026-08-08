@@ -266,6 +266,21 @@ def _tree_entries(root: Path) -> dict[str, tuple[str, str]]:
     return observed
 
 
+def _verify_committed_candidate(
+    root: Path, expected: dict[str, tuple[str, str]]
+) -> None:
+    """Fail closed unless the committed head carries exactly these entries."""
+
+    observed = _tree_entries(root)
+    if observed != expected:
+        difference = sorted(
+            relative
+            for relative in set(expected) | set(observed)
+            if expected.get(relative) != observed.get(relative)
+        )
+        raise TopologyError(f"projected commit differs: {difference[:5]}")
+
+
 def _verify_candidate(root: Path, source: Path, *, committed: bool) -> None:
     """Fail closed unless the projection carries exactly the candidate entries."""
 
@@ -281,11 +296,28 @@ def _verify_candidate(root: Path, source: Path, *, committed: bool) -> None:
     raise TopologyError(f"projected candidate differs from {source}: {difference[:5]}")
 
 
-def _seed_committed_tree(root: Path, source: Path) -> None:
-    """Materialize one source repository's committed HEAD tree, byte for byte."""
+def committed_entries(
+    source: Path, revision: str = "HEAD"
+) -> dict[str, tuple[str, str]]:
+    """Return the exact Git entry of every path in one committed source tree."""
+
+    entries: dict[str, tuple[str, str]] = {}
+    for line in _source_lines(source, "ls-tree", "-r", revision):
+        metadata, separator, relative = line.partition("\t")
+        fields = metadata.split()
+        if not separator or len(fields) != 3:
+            raise TopologyError(f"unparseable source tree entry: {line}")
+        entries[relative] = (fields[0], fields[2])
+    if not entries:
+        raise TopologyError(f"source revision has no content: {source}@{revision}")
+    return entries
+
+
+def _seed_committed_tree(root: Path, source: Path, revision: str = "HEAD") -> None:
+    """Materialize one source repository's committed tree, byte for byte."""
 
     archive = subprocess.run(
-        ["git", "archive", "--format=tar", "HEAD"],
+        ["git", "archive", "--format=tar", revision],
         cwd=source,
         capture_output=True,
     )
@@ -323,6 +355,22 @@ def _seed_working_tree(root: Path, source: Path) -> None:
             existing.unlink()
 
 
+def _clear_worktree(root: Path) -> None:
+    for path in sorted(root.rglob("*"), reverse=True):
+        relative = path.relative_to(root)
+        if ".git" in relative.parts:
+            continue
+        if path.is_symlink() or path.is_file():
+            path.unlink()
+
+
+def _apply_committed_candidate(root: Path, source: Path, revision: str) -> None:
+    """Replace the working tree with one committed source revision."""
+
+    _clear_worktree(root)
+    _seed_committed_tree(root, source, revision)
+
+
 def _apply_candidate(
     root: Path, source: Path | None, synthetic: Mapping[str, str]
 ) -> None:
@@ -340,16 +388,16 @@ def _apply_candidate(
     _seed_working_tree(root, source)
 
 
-def _init_base(root: Path, source: Path | None = None) -> str:
+def _init_base(root: Path, source: Path | None = None, revision: str = "HEAD") -> str:
     root.mkdir(parents=True, exist_ok=True)
     _git(root, "init", "--quiet", "--initial-branch", MAIN_BRANCH)
     if source is None:
         _write(root, "AUTHORITY.md", "# authority\n\nbase\n")
         _write(root, "reader.txt", "count=1\n")
     else:
-        # The base of a source-backed projection is that repository's committed
-        # HEAD tree; every candidate below is its working tree.
-        _seed_committed_tree(root, source)
+        # The base of a source-backed projection is a committed source tree;
+        # every candidate below is derived from that repository as well.
+        _seed_committed_tree(root, source, revision)
     _git(root, "add", "-A")
     _git(root, "commit", "--quiet", "-m", BASE_SUBJECT)
     return _git(root, "rev-parse", "HEAD")
@@ -543,7 +591,14 @@ def build_topology(
     if root.exists() and any(root.iterdir()):
         raise TopologyError(f"topology root must be empty: {root}")
 
-    base = _init_base(root, source)
+    # A repair child needs three distinct trees. A source-backed projection takes
+    # them from the source's own history: the base is the generation before its
+    # head, the topic child is its head, and the repair child is its working
+    # tree. Reusing one tree twice would model an empty repair.
+    base_revision = (
+        "HEAD~1" if kind == TOPOLOGY_REPAIR_CHILD and source is not None else "HEAD"
+    )
+    base = _init_base(root, source, base_revision)
     _set_upstream(root, MAIN_BRANCH, base)
     refs: dict[str, str] = {"base": base}
 
@@ -587,10 +642,15 @@ def build_topology(
         )
 
     _git(root, "checkout", "--quiet", "-b", TOPIC_BRANCH)
-    _apply_candidate(root, source, _SYNTHETIC_CANDIDATE)
-    topic = _commit(root, TOPIC_SUBJECT, allow_empty=source is not None)
-    if source is not None:
-        _verify_candidate(root, source, committed=True)
+    if kind == TOPOLOGY_REPAIR_CHILD and source is not None:
+        _apply_committed_candidate(root, source, "HEAD")
+        topic = _commit(root, TOPIC_SUBJECT)
+        _verify_committed_candidate(root, committed_entries(source, "HEAD"))
+    else:
+        _apply_candidate(root, source, _SYNTHETIC_CANDIDATE)
+        topic = _commit(root, TOPIC_SUBJECT, allow_empty=source is not None)
+        if source is not None:
+            _verify_candidate(root, source, committed=True)
     _set_upstream(root, TOPIC_BRANCH, topic)
     refs["topic"] = topic
     topic_tree = _git(root, "rev-parse", "HEAD^{tree}")
@@ -628,6 +688,10 @@ def build_topology(
         repair = _commit(root, REPAIR_SUBJECT, allow_empty=source is not None)
         if source is not None:
             _verify_candidate(root, source, committed=True)
+            if _git(root, "rev-parse", "HEAD^{tree}") == _git(
+                root, "rev-parse", "HEAD^^{tree}"
+            ):
+                raise TopologyError("repair child must change the topic tree")
         _set_upstream(root, TOPIC_BRANCH, repair)
         refs["repair"] = repair
         observation = observe(
