@@ -151,6 +151,22 @@ def _git(root: Path, *args: str) -> str:
     return result.stdout.strip()
 
 
+def _git_raw(root: Path, *args: str) -> str:
+    """Run one Git command and return its output without stripping."""
+
+    environment = dict(_FIXED_IDENTITY)
+    result = subprocess.run(
+        ["git", *args],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        env={**_inherited_environment(), **environment},
+    )
+    if result.returncode != 0:
+        raise TopologyError(f"git {' '.join(args)} failed: {result.stderr.strip()}")
+    return result.stdout
+
+
 def _inherited_environment() -> dict[str, str]:
     import os
 
@@ -308,7 +324,15 @@ def source_dirty_paths(
 
 
 def _source_lines(source: Path, *args: str) -> tuple[str, ...]:
-    return tuple(line for line in _source_output(source, *args).splitlines() if line)
+    """Return one read-only Git listing, split on NUL.
+
+    Git path output is NUL separated for a reason: a path may contain a
+    newline, and splitting on lines would silently break that entry in two.
+    """
+
+    return tuple(
+        record for record in _source_output(source, *args, "-z").split("\0") if record
+    )
 
 
 def _blob_oid(data: bytes) -> str:
@@ -355,7 +379,8 @@ def _directory_entries(root: Path) -> dict[str, tuple[str, str]]:
 
 def _tree_entries(root: Path) -> dict[str, tuple[str, str]]:
     observed: dict[str, tuple[str, str]] = {}
-    for line in _git(root, "ls-tree", "-r", "HEAD").splitlines():
+    listing = _git_raw(root, "ls-tree", "-r", "-z", "HEAD")
+    for line in (record for record in listing.split("\0") if record):
         metadata, separator, relative = line.partition("\t")
         if not separator:
             raise TopologyError(f"unparseable tree entry: {line}")
@@ -479,12 +504,19 @@ def _seed_working_tree(root: Path, source: Path) -> None:
 
 
 def _clear_worktree(root: Path) -> None:
-    for path in sorted(root.rglob("*"), reverse=True):
-        relative = path.relative_to(root)
-        if ".git" in relative.parts:
+    """Empty the working tree, directories included.
+
+    Leaving an empty directory behind would block materializing a file at the
+    same path, which is exactly what a directory to file transition needs.
+    """
+
+    for entry in sorted(root.iterdir()):
+        if entry.name == ".git":
             continue
-        if path.is_symlink() or path.is_file():
-            path.unlink()
+        if entry.is_dir() and not entry.is_symlink():
+            shutil.rmtree(entry)
+        else:
+            entry.unlink()
 
 
 def _apply_committed_candidate(root: Path, source: Path, revision: str) -> None:

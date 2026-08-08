@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -995,6 +996,48 @@ def test_dirty_projection_refuses_a_clean_source(tmp_path: Path) -> None:
     assert fixture.expectation.modified_paths == ("reader.py",)
 
 
+def test_source_projection_keeps_a_newline_in_a_path(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=source)
+    awkward = "two\nlines.md"
+    (source / "reader.py").write_text("reader\n", encoding="utf-8")
+    (source / awkward).write_text("# awkward\n", encoding="utf-8")
+    _commit_source(source, "first")
+    (source / "reader.py").write_text("reader two\n", encoding="utf-8")
+
+    entries = topology.candidate_entries(source)
+    assert set(entries) == {"reader.py", awkward}
+    fixture = topology.build_topology(
+        topology.TOPOLOGY_CLEAN_TOPIC, tmp_path / "clean", source=source
+    )
+    assert (fixture.root / awkward).read_text("utf-8") == "# awkward\n"
+    assert topology.verify(fixture.observation, fixture.expectation) == ()
+
+
+def test_committed_repair_replaces_a_directory_with_a_file(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=source)
+    (source / "reader.py").write_text("reader\n", encoding="utf-8")
+    _commit_source(source, "main baseline")
+    subprocess.run(["git", "checkout", "-q", "-b", "topic"], cwd=source, check=True)
+    (source / "a").mkdir()
+    (source / "a" / "b").write_text("directory entry\n", encoding="utf-8")
+    _commit_source(source, "topic child")
+    shutil.rmtree(source / "a")
+    (source / "a").write_text("now a file\n", encoding="utf-8")
+    _commit_source(source, "committed repair child")
+
+    fixture = topology.build_topology(
+        topology.TOPOLOGY_REPAIR_CHILD, tmp_path / "repair", source=source
+    )
+    assert (fixture.root / "a").is_file()
+    listed = topology.run_in_projection(fixture, ["git", "ls-files"])
+    assert sorted(listed.stdout.split()) == ["a", "reader.py"]
+    assert topology.verify(fixture.observation, fixture.expectation) == ()
+
+
 def test_source_projection_refuses_a_gitlink_source(tmp_path: Path) -> None:
     inner = tmp_path / "inner"
     inner.mkdir()
@@ -1527,8 +1570,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR21_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR21_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR22_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR22_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base
