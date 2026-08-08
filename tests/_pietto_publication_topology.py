@@ -214,6 +214,15 @@ def source_base_revision(source: Path) -> str:
     return "HEAD"
 
 
+def source_commit_parents(source: Path, revision: str) -> tuple[str, ...]:
+    """Return one source commit's declared parents, oldest first."""
+
+    listing = _source_lines(source, "rev-list", "--parents", "-n", "1", revision)
+    if not listing:
+        raise TopologyError(f"cannot read parents of {revision} in {source}")
+    return tuple(listing[0].split()[1:])
+
+
 def source_is_dirty(source: Path) -> bool:
     """Return whether one source working tree differs from its own head."""
 
@@ -489,13 +498,30 @@ def _apply_candidate(
 def _init_base(root: Path, source: Path | None = None, revision: str = "HEAD") -> str:
     root.mkdir(parents=True, exist_ok=True)
     _git(root, "init", "--quiet", "--initial-branch", MAIN_BRANCH)
-    if source is None:
-        _write(root, "AUTHORITY.md", "# authority\n\nbase\n")
-        _write(root, "reader.txt", "count=1\n")
-    else:
-        # The base of a source-backed projection is a committed source tree;
-        # every candidate below is derived from that repository as well.
-        _seed_committed_tree(root, source, revision)
+    if source is not None:
+        # Import the real baseline commit instead of re-committing its files:
+        # readers assert the exact base object name, and a synthetic identity
+        # would make every merge and push projection unrecognizable.
+        _reject_staged_source(source)
+        _reject_gitlink_source(source)
+        _git(root, "remote", "add", "origin", str(source))
+        _git(
+            root,
+            "fetch",
+            "--quiet",
+            "--no-tags",
+            "origin",
+            "+refs/heads/*:refs/remotes/origin/*",
+            "+HEAD:refs/remotes/origin/source-head",
+        )
+        base = _source_output(source, "rev-parse", revision).strip()
+        if not base:
+            raise TopologyError(f"cannot resolve {revision} in {source}")
+        _git(root, "checkout", "--quiet", "-B", MAIN_BRANCH, base)
+        _verify_committed_candidate(root, committed_entries(source, revision))
+        return base
+    _write(root, "AUTHORITY.md", "# authority\n\nbase\n")
+    _write(root, "reader.txt", "count=1\n")
     _git(root, "add", "-A")
     _git(root, "commit", "--quiet", "-m", BASE_SUBJECT)
     return _git(root, "rev-parse", "HEAD")
@@ -727,7 +753,9 @@ def build_topology(
             branch=MAIN_BRANCH,
             head=base,
             head_tree=_git(root, "rev-parse", "HEAD^{tree}"),
-            head_parents=(),
+            head_parents=(
+                () if source is None else source_commit_parents(source, base)
+            ),
             merge_base=base,
             shallow=False,
             event_name=EVENT_LOCAL,

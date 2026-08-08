@@ -177,9 +177,9 @@ MODULE_SHA256 = {
 SPEC_SHA256 = "7010cd8a39ed389de588d8cd734b136cc87456c3ef5eb324638467d1188fc935"
 MODIFIED_TEST_SHA256 = {
     SLICE4_TEST_REL: "828ae13d9c071fd3f9fbc89efbc7fdf399969d8e48e6bcb32d93f5062f5fc864",
-    SLICE5_TEST_REL: "f12dd9027ae27e2301d5162a5365e0bd4973da6cbc7fabf60cb61c8fe2295d9b",
-    SLICE6_TEST_REL: "707deda5140b1fa3075e42c5f3267afe718d16e518f09c9d2f5dbcaeaa4eba68",
-    SLICE7_TEST_REL: "bb6895e6107d968f56307251915ab953ffec71ea5627cbe0d2276da16dfa9ef7",
+    SLICE5_TEST_REL: "e0a719c8e229fbf45f013006c5744218cc37796fdf816bd6572b122596740819",
+    SLICE6_TEST_REL: "f00643a5c3a0c5cf43eb41ce8df4268314c99016cd10815397664bf1b8e85d5a",
+    SLICE7_TEST_REL: "547fc652376ceecb3b36d6562e7a96198282da6538a8c5bd3c169aee48328ae1",
 }
 WORKFLOW_SHA256 = "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94"
 PYPROJECT_SHA256 = "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01"
@@ -2354,7 +2354,7 @@ def test_test_inventory_tier1_selectors_and_compatibility_counts_are_exact() -> 
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (462, 5306)
+    assert (len(test_files), top_level_functions) == (462, 5308)
     assert tuple(
         _pytest_shape(REPO_ROOT / path)[1]
         for path in (

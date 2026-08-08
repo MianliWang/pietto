@@ -877,6 +877,58 @@ def test_repair_child_projects_a_committed_repair_source(tmp_path: Path) -> None
     assert topology.verify(fixture.observation, fixture.expectation) == ()
 
 
+def test_source_projection_imports_the_real_baseline_identity(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=source)
+    (source / "reader.py").write_text("assert total == 1\n", encoding="utf-8")
+    _commit_source(source, "root")
+    (source / "reader.py").write_text("assert total == 2\n", encoding="utf-8")
+    _commit_source(source, "main baseline")
+    main_sha = subprocess.run(
+        ["git", "rev-parse", "refs/heads/main"],
+        cwd=source,
+        check=True,
+        text=True,
+        capture_output=True,
+    ).stdout.strip()
+    subprocess.run(["git", "checkout", "-q", "-b", "topic"], cwd=source, check=True)
+    (source / "reader.py").write_text("assert total == 3\n", encoding="utf-8")
+    _commit_source(source, "topic child")
+
+    for kind in (
+        topology.TOPOLOGY_CLEAN_TOPIC,
+        topology.TOPOLOGY_PULL_REQUEST_MERGE,
+        topology.TOPOLOGY_SHALLOW_PULL_REQUEST,
+        topology.TOPOLOGY_SQUASH_MAIN,
+    ):
+        fixture = topology.build_topology(kind, tmp_path / kind, source=source)
+        assert fixture.refs["base"] == main_sha, kind
+        assert topology.verify(fixture.observation, fixture.expectation) == (), kind
+        if fixture.event_path is not None:
+            payload = json.loads(fixture.event_path.read_text("utf-8"))
+            assert payload["pull_request"]["base"]["sha"] == main_sha, kind
+    assert topology.source_commit_parents(source, main_sha) != ()
+
+
+def test_reader_closure_refuses_a_symbolic_link_reader(tmp_path: Path) -> None:
+    (tmp_path / "reader.py").write_text("assert total == 461\n", encoding="utf-8")
+    (tmp_path / "alias.py").symlink_to("reader.py")
+    with pytest.raises(closure.ClosureError):
+        closure.normalized_path(tmp_path, "alias.py")
+    with pytest.raises(closure.ClosureError):
+        closure.discover_edges(
+            repo_root=tmp_path,
+            universe=("reader.py", "alias.py"),
+            count_literals=("== 461",),
+        )
+    with pytest.raises(closure.ClosureError):
+        closure.read_source(tmp_path, "alias.py")
+    assert closure.normalized_path(tmp_path, "reader.py") == "reader.py"
+
+
 def test_source_projection_refuses_a_gitlink_source(tmp_path: Path) -> None:
     inner = tmp_path / "inner"
     inner.mkdir()
@@ -1335,8 +1387,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR17_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR17_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR18_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR18_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base
