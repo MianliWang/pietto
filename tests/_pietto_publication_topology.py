@@ -14,7 +14,9 @@ declared field matches exactly.
 
 from __future__ import annotations
 
+import hashlib
 import io
+import os
 import subprocess
 import tarfile
 from collections.abc import Mapping, Sequence
@@ -180,7 +182,11 @@ def _source_working_paths(source: Path) -> tuple[str, ...]:
     listed = _source_lines(
         source, "ls-files", "--cached", "--others", "--exclude-standard"
     )
-    entries = tuple(relative for relative in listed if (source / relative).is_file())
+    entries = tuple(
+        relative
+        for relative in listed
+        if (source / relative).is_symlink() or (source / relative).is_file()
+    )
     if not entries:
         raise TopologyError(f"source repository has no content: {source}")
     return entries
@@ -203,6 +209,76 @@ def source_dirty_paths(
 
 def _source_lines(source: Path, *args: str) -> tuple[str, ...]:
     return tuple(line for line in _source_output(source, *args).splitlines() if line)
+
+
+def _blob_oid(data: bytes) -> str:
+    """Return the Git blob object name of one payload."""
+
+    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+
+
+def _entry_of(path: Path) -> tuple[str, str]:
+    """Return one path's exact Git entry: its mode and its blob object name."""
+
+    if path.is_symlink():
+        return "120000", _blob_oid(os.readlink(path).encode("utf-8"))
+    data = path.read_bytes()
+    executable = bool(path.stat().st_mode & 0o111)
+    return ("100755" if executable else "100644"), _blob_oid(data)
+
+
+def candidate_entries(source: Path) -> dict[str, tuple[str, str]]:
+    """Return the exact Git entry of every path in one source working tree.
+
+    Tree identity includes entry type and mode, so a projection that copied only
+    dereferenced bytes would carry a different tree than the candidate it claims
+    to be. These entries are what the projection is verified against.
+    """
+
+    return {
+        relative: _entry_of(source / relative)
+        for relative in _source_working_paths(source)
+    }
+
+
+def _directory_entries(root: Path) -> dict[str, tuple[str, str]]:
+    observed: dict[str, tuple[str, str]] = {}
+    for path in sorted(root.rglob("*")):
+        relative = path.relative_to(root)
+        if ".git" in relative.parts:
+            continue
+        if not path.is_symlink() and not path.is_file():
+            continue
+        observed[str(relative)] = _entry_of(path)
+    return observed
+
+
+def _tree_entries(root: Path) -> dict[str, tuple[str, str]]:
+    observed: dict[str, tuple[str, str]] = {}
+    for line in _git(root, "ls-tree", "-r", "HEAD").splitlines():
+        metadata, separator, relative = line.partition("\t")
+        if not separator:
+            raise TopologyError(f"unparseable tree entry: {line}")
+        fields = metadata.split()
+        if len(fields) != 3:
+            raise TopologyError(f"unparseable tree entry: {line}")
+        observed[relative] = (fields[0], fields[2])
+    return observed
+
+
+def _verify_candidate(root: Path, source: Path, *, committed: bool) -> None:
+    """Fail closed unless the projection carries exactly the candidate entries."""
+
+    expected = candidate_entries(source)
+    observed = _tree_entries(root) if committed else _directory_entries(root)
+    if observed == expected:
+        return
+    difference = sorted(
+        relative
+        for relative in set(expected) | set(observed)
+        if expected.get(relative) != observed.get(relative)
+    )
+    raise TopologyError(f"projected candidate differs from {source}: {difference[:5]}")
 
 
 def _seed_committed_tree(root: Path, source: Path) -> None:
@@ -233,7 +309,13 @@ def _seed_working_tree(root: Path, source: Path) -> None:
         origin = source / relative
         destination = root / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
+        if destination.is_symlink() or destination.exists():
+            destination.unlink()
+        if origin.is_symlink():
+            os.symlink(os.readlink(origin), destination)
+            continue
         destination.write_bytes(origin.read_bytes())
+        destination.chmod(0o755 if origin.stat().st_mode & 0o111 else 0o644)
     for existing in sorted(root.rglob("*")):
         if not existing.is_file() or ".git" in existing.relative_to(root).parts:
             continue
@@ -467,6 +549,8 @@ def build_topology(
 
     if kind == TOPOLOGY_DIRTY_GATE2:
         _apply_candidate(root, source, _SYNTHETIC_CANDIDATE)
+        if source is not None:
+            _verify_candidate(root, source, committed=False)
         dirty_added, dirty_modified, dirty_deleted = (
             (("added.md",), ("AUTHORITY.md",), ())
             if source is None
@@ -505,6 +589,8 @@ def build_topology(
     _git(root, "checkout", "--quiet", "-b", TOPIC_BRANCH)
     _apply_candidate(root, source, _SYNTHETIC_CANDIDATE)
     topic = _commit(root, TOPIC_SUBJECT, allow_empty=source is not None)
+    if source is not None:
+        _verify_candidate(root, source, committed=True)
     _set_upstream(root, TOPIC_BRANCH, topic)
     refs["topic"] = topic
     topic_tree = _git(root, "rev-parse", "HEAD^{tree}")
@@ -540,6 +626,8 @@ def build_topology(
     if kind == TOPOLOGY_REPAIR_CHILD:
         _apply_candidate(root, source, {"reader.txt": "count=2\n"})
         repair = _commit(root, REPAIR_SUBJECT, allow_empty=source is not None)
+        if source is not None:
+            _verify_candidate(root, source, committed=True)
         _set_upstream(root, TOPIC_BRANCH, repair)
         refs["repair"] = repair
         observation = observe(

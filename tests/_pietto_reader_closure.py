@@ -364,6 +364,14 @@ def _reject_regenerating_rules(
 
     simulated = source
     for rule in rules:
+        # Every rule must match exactly what the original source shows. A match
+        # created by an earlier rule would make the reported occurrence count
+        # unreachable by applying the plan as written.
+        if simulated.count(rule.old) != source.count(rule.old):
+            raise ClosureError(
+                f"replacement rule {rule.old!r} matches text created by an "
+                f"earlier rule in {path}"
+            )
         simulated = simulated.replace(rule.old, rule.new)
     for rule in rules:
         if rule.old in simulated:

@@ -752,6 +752,64 @@ def test_publication_identity_rejects_a_replaced_tree_on_a_known_shape() -> None
     assert not matches((base,), squash_subject, squash_tree, f"{squash_subject}\n\nx")
 
 
+def test_replacement_plan_rejects_a_match_created_by_an_earlier_rule(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "one.py").write_text("ay\n", encoding="utf-8")
+    with pytest.raises(closure.ClosureError):
+        closure.calculate_replacements(
+            repo_root=tmp_path,
+            paths=("one.py",),
+            rules=(
+                closure.ReplacementRule(old="a", new="x"),
+                closure.ReplacementRule(old="xy", new="z"),
+            ),
+        )
+
+
+def test_source_projection_preserves_entry_type_and_mode(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "--quiet"], cwd=source, check=True)
+    plain = source / "plain.py"
+    plain.write_text("plain\n", encoding="utf-8")
+    script = source / "run.sh"
+    script.write_text("#!/bin/sh\n", encoding="utf-8")
+    script.chmod(0o755)
+    (source / "link.py").symlink_to("plain.py")
+    subprocess.run(["git", "add", "-A"], cwd=source, check=True)
+    subprocess.run(
+        ["git", "-c", "user.name=T", "-c", "user.email=t@x", "commit", "-q", "-m", "b"],
+        cwd=source,
+        check=True,
+    )
+    script.write_text("#!/bin/sh\necho hi\n", encoding="utf-8")
+
+    expected = topology.candidate_entries(source)
+    assert expected["run.sh"][0] == "100755"
+    assert expected["link.py"][0] == "120000"
+    assert expected["plain.py"][0] == "100644"
+
+    fixture = topology.build_topology(
+        topology.TOPOLOGY_CLEAN_TOPIC, tmp_path / "clean", source=source
+    )
+    listing = topology.run_in_projection(fixture, ["git", "ls-tree", "-r", "HEAD"])
+    observed = {}
+    for line in listing.stdout.splitlines():
+        metadata, _, relative = line.partition("\t")
+        fields = metadata.split()
+        observed[relative] = (fields[0], fields[2])
+    assert observed == expected
+    assert (fixture.root / "link.py").is_symlink()
+
+    other = tmp_path / "other"
+    other.mkdir()
+    subprocess.run(["git", "init", "--quiet"], cwd=other, check=True)
+    (other / "plain.py").write_text("different\n", encoding="utf-8")
+    with pytest.raises(topology.TopologyError):
+        topology._verify_candidate(fixture.root, other, committed=True)
+
+
 def test_discovery_summary_includes_count_literal_readers(tmp_path: Path) -> None:
     (tmp_path / "counts.py").write_text("assert total == 461\n", encoding="utf-8")
     edges = closure.discover_edges(
@@ -1002,8 +1060,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR8_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR8_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR9_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR9_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base
