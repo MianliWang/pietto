@@ -99,8 +99,10 @@ def _enclosing_worktree(directory: Path) -> Path | None:
             check=False,
             env=_isolated_environment(),
         )
-    except OSError:
-        return None
+    except OSError as error:
+        # An unusable probe is not evidence that the path is outside a
+        # repository, so the destination guard must not treat it as one.
+        raise JournalError(f"cannot probe {directory} for a repository: {error}")
     if result.returncode != 0:
         return None
     top = result.stdout.strip()
@@ -155,8 +157,10 @@ def _enclosing_repository_roots(directory: Path) -> tuple[Path, ...]:
                 check=False,
                 env=_isolated_environment(),
             )
-        except OSError:
-            continue
+        except OSError as error:
+            raise JournalError(
+                f"cannot probe {directory} for a repository: {error}"
+            ) from error
         if result.returncode != 0:
             continue
         reported = result.stdout.strip()

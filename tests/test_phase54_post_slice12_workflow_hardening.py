@@ -1303,6 +1303,7 @@ def test_source_reads_ignore_inherited_repository_location(
     (source / "reader.py").write_text("reader\n", encoding="utf-8")
     _commit_source(source, "source commit")
     source_head = _source_revision(source, "HEAD")
+    (source / "reader.py").write_text("reader two\n", encoding="utf-8")
     victim = tmp_path / "victim"
     victim.mkdir()
     subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=victim)
@@ -1394,6 +1395,64 @@ def test_base_revision_probe_ignores_inherited_location(
         topology.TOPOLOGY_CLEAN_TOPIC, tmp_path / "clean", source=source
     )
     assert fixture.refs["base"] == expected_base
+
+
+def test_candidate_entries_follow_the_source_filemode_rule(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=source)
+    subprocess.run(["git", "config", "core.filemode", "false"], cwd=source, check=True)
+    script = source / "run.sh"
+    script.write_text("#!/bin/sh\n", encoding="utf-8")
+    _commit_source(source, "first")
+    script.write_text("#!/bin/sh\necho hi\n", encoding="utf-8")
+    script.chmod(0o755)
+
+    entries = topology.candidate_entries(source)
+    # Git keeps the recorded mode when the source disables filemode.
+    assert entries["run.sh"][0] == "100644"
+    fixture = topology.build_topology(
+        topology.TOPOLOGY_CLEAN_TOPIC, tmp_path / "clean", source=source
+    )
+    listing = topology.run_in_projection(fixture, ["git", "ls-tree", "-r", "HEAD"])
+    assert listing.stdout.split("\n")[0].startswith("100644")
+    assert topology.verify(fixture.observation, fixture.expectation) == ()
+
+
+def test_clean_topic_refuses_a_source_without_a_candidate(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=source)
+    (source / "reader.py").write_text("reader\n", encoding="utf-8")
+    _commit_source(source, "only baseline")
+    with pytest.raises(topology.TopologyError):
+        topology.build_topology(
+            topology.TOPOLOGY_CLEAN_TOPIC, tmp_path / "clean", source=source
+        )
+
+
+def test_topology_root_refuses_a_symbolic_link(tmp_path: Path) -> None:
+    target = tmp_path / "target"
+    target.mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(target, target_is_directory=True)
+    with pytest.raises(topology.TopologyError):
+        topology.build_topology(topology.TOPOLOGY_CLEAN_TOPIC, link)
+    assert list(target.iterdir()) == []
+
+
+def test_journal_refuses_an_unusable_repository_probe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = tmp_path / "repository"
+    repository.mkdir()
+    subprocess.run(
+        ["git", "init", "--quiet", "--initial-branch", "main"], cwd=repository
+    )
+    monkeypatch.setenv("PATH", str(tmp_path / "empty-bin"))
+    with pytest.raises(journal.JournalError):
+        journal.atomic_replace(repository / "journal.json", _valid_payload())
+    assert not (repository / "journal.json").exists()
 
 
 def test_source_projection_refuses_a_gitlink_source(tmp_path: Path) -> None:
@@ -1928,8 +1987,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR31_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR31_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR32_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR32_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base
@@ -1968,13 +2027,17 @@ def test_clean_topic_rejects_a_published_tree_grafted_onto_another_shape(
         active_gate2_manifest._matches_phase54_post_slice12_interlude_clean_topic
     )
 
+    head_oid = "c" * 40
+
     def _recognized(parent: str, subject: str, tree: str, message: str) -> bool:
         def _output(args: list[str]) -> str:
+            if args == ["rev-parse", "HEAD"]:
+                return head_oid
             if args[:2] == ["rev-list", "--parents"]:
-                return f"{'c' * 40} {parent}"
+                return f"{head_oid} {parent}"
             if args[:3] == ["show", "-s", "--format=%s"]:
                 return subject
-            if args == ["rev-parse", "HEAD^{tree}"]:
+            if args == ["rev-parse", f"{head_oid}^{{tree}}"]:
                 return tree
             if args[:2] == ["rev-parse", "--verify"]:
                 return base_head
@@ -2035,7 +2098,7 @@ def test_projections_can_be_built_from_a_real_repository_and_run_commands(
     source = tmp_path / "source"
     source.mkdir()
     subprocess.run(["git", "init", "--quiet"], cwd=source, check=True)
-    (source / "marker.txt").write_text("real content\n", encoding="utf-8")
+    (source / "marker.txt").write_text("base content\n", encoding="utf-8")
     (source / "nested").mkdir()
     (source / "nested" / "reader.txt").write_text("count=1\n", encoding="utf-8")
     subprocess.run(["git", "add", "-A"], cwd=source, check=True)
@@ -2044,6 +2107,9 @@ def test_projections_can_be_built_from_a_real_repository_and_run_commands(
         cwd=source,
         check=True,
     )
+    # A candidate generation is required: the projection needs a topic distinct
+    # from the publication base.
+    (source / "marker.txt").write_text("real content\n", encoding="utf-8")
     fixture = topology.build_topology(
         topology.TOPOLOGY_CLEAN_TOPIC, tmp_path / "projected", source=source
     )

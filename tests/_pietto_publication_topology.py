@@ -321,9 +321,12 @@ def _mirror_conversion_config(root: Path, source: Path) -> None:
         if not separator:
             continue
         lowered = key.lower()
-        if lowered in ("core.autocrlf", "core.eol", "core.safecrlf") or (
-            lowered.startswith("filter.")
-        ):
+        if lowered in (
+            "core.autocrlf",
+            "core.eol",
+            "core.filemode",
+            "core.safecrlf",
+        ) or lowered.startswith("filter."):
             _git(root, "config", key, value)
 
 
@@ -453,6 +456,12 @@ def candidate_entries(source: Path) -> dict[str, tuple[str, str]]:
     """
 
     wanted = set(_source_working_paths(source))
+    # ``core.filemode=false`` tells Git to keep the recorded mode, so the
+    # filesystem permission bit is not the authority on a tracked path.
+    filemode = (
+        _source_output(source, "config", "--get", "core.filemode").strip() != "false"
+    )
+    index_modes: dict[str, str] = {}
     entries: dict[str, tuple[str, str]] = {}
     for record in _source_lines(source, "ls-files", "--stage"):
         metadata, separator, relative = record.partition("\t")
@@ -460,6 +469,7 @@ def candidate_entries(source: Path) -> dict[str, tuple[str, str]]:
         if not separator or len(fields) != 3:
             raise TopologyError(f"unparseable source index record: {record}")
         # ``ls-files --stage`` prints mode, object name, then stage number.
+        index_modes[relative] = fields[0]
         if relative in wanted:
             entries[relative] = (fields[0], fields[1])
     added, modified, _ = source_dirty_paths(source)
@@ -475,8 +485,12 @@ def candidate_entries(source: Path) -> dict[str, tuple[str, str]]:
         ).strip()
         if len(oid) != 40:
             raise TopologyError(f"cannot hash {relative} in {source}")
-        executable = bool(path.stat().st_mode & 0o111)
-        entries[relative] = ("100755" if executable else "100644", oid)
+        recorded = index_modes.get(relative)
+        if recorded is not None and not filemode:
+            mode = recorded
+        else:
+            mode = "100755" if path.stat().st_mode & 0o111 else "100644"
+        entries[relative] = (mode, oid)
     missing = wanted - set(entries)
     if missing:
         raise TopologyError(
@@ -913,6 +927,9 @@ def build_topology(
 
     if kind not in TOPOLOGY_KINDS:
         raise TopologyError(f"unknown topology kind: {kind}")
+    if root.is_symlink():
+        # A symbolic root would place the whole projection in its target.
+        raise TopologyError(f"topology root must not be a symbolic link: {root}")
     if root.exists() and any(root.iterdir()):
         raise TopologyError(f"topology root must be empty: {root}")
 
@@ -982,7 +999,8 @@ def build_topology(
         topic = _source_output(source, "rev-parse", committed_revision).strip()
         if not topic:
             raise TopologyError(f"cannot resolve {committed_revision} in {source}")
-        if kind == TOPOLOGY_REPAIR_CHILD and topic == base:
+        if topic == base:
+            # Without a candidate generation there is no topic to project.
             raise TopologyError(f"source has no committed topic child: {source}")
         _git(root, "checkout", "--quiet", "-B", TOPIC_BRANCH, topic)
         _verify_committed_candidate(root, committed_entries(source, committed_revision))
