@@ -116,11 +116,19 @@ def _reject_repository_destination(path: Path, repo_root: Path | None) -> None:
     candidate = path if path.is_absolute() else (Path.cwd() / path)
     directory = candidate.parent
     resolved = directory.resolve() / candidate.name
+    # A Git metadata directory is not a worktree, so ``rev-parse
+    # --show-toplevel`` fails there. Treating that failure as "outside a
+    # repository" would let the journal overwrite HEAD or config.
+    if any(part == ".git" for part in resolved.parts):
+        raise JournalError(f"journal destination is inside Git metadata: {path}")
     roots: list[Path] = []
     if repo_root is not None:
         roots.append(repo_root.resolve())
-    if directory.is_dir():
-        enclosing = _enclosing_worktree(directory)
+    probe = directory
+    while not probe.is_dir() and probe != probe.parent:
+        probe = probe.parent
+    if probe.is_dir():
+        enclosing = _enclosing_worktree(probe)
         if enclosing is not None:
             roots.append(enclosing.resolve())
     for root in roots:

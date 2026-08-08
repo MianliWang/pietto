@@ -656,6 +656,45 @@ def _source_tree(source: Path, revision: str) -> str:
     ).stdout.strip()
 
 
+def test_journal_refuses_a_git_metadata_destination(tmp_path: Path) -> None:
+    repository = tmp_path / "clone"
+    repository.mkdir()
+    subprocess.run(["git", "init", "--quiet"], cwd=repository, check=True)
+    payload = _valid_payload()
+    for destination in (
+        repository / ".git" / "journal.json",
+        repository / ".git" / "HEAD",
+        repository / ".git" / "refs" / "journal.json",
+        repository / "journal.json",
+    ):
+        with pytest.raises(journal.JournalError):
+            journal.atomic_replace(destination, payload)
+    assert (repository / ".git" / "HEAD").read_text("utf-8").startswith("ref:")
+    outside = tmp_path / "state"
+    outside.mkdir()
+    written = journal.atomic_replace(outside / "journal.json", payload)
+    assert journal.load(written)["authority"] == journal.AUTHORITY_MARKER
+
+
+def test_source_projection_removes_a_dangling_symlink(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "--quiet"], cwd=source, check=True)
+    (source / "kept.py").write_text("kept\n", encoding="utf-8")
+    (source / "dangling").symlink_to("missing-target")
+    _commit_source(source, "first")
+    (source / "dangling").unlink()
+
+    entries = topology.candidate_entries(source)
+    assert set(entries) == {"kept.py"}
+    fixture = topology.build_topology(
+        topology.TOPOLOGY_CLEAN_TOPIC, tmp_path / "clean", source=source
+    )
+    assert not (fixture.root / "dangling").is_symlink()
+    listed = topology.run_in_projection(fixture, ["git", "ls-files"])
+    assert listed.stdout.split() == ["kept.py"]
+
+
 def test_replacement_rule_rejects_a_literal_surviving_its_own_result() -> None:
     with pytest.raises(closure.ClosureError):
         closure.ReplacementRule(old="v1", new="v10")
@@ -1113,8 +1152,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR10_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR10_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR11_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR11_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base

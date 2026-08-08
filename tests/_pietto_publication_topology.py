@@ -349,9 +349,14 @@ def _seed_working_tree(root: Path, source: Path) -> None:
         destination.write_bytes(origin.read_bytes())
         destination.chmod(0o755 if origin.stat().st_mode & 0o111 else 0o644)
     for existing in sorted(root.rglob("*")):
-        if not existing.is_file() or ".git" in existing.relative_to(root).parts:
+        relative = existing.relative_to(root)
+        if ".git" in relative.parts:
             continue
-        if str(existing.relative_to(root)) not in wanted:
+        # A dangling symlink is still a Git entry the candidate may remove, and
+        # ``is_file`` follows the link, so entry type is what decides here.
+        if not existing.is_symlink() and not existing.is_file():
+            continue
+        if str(relative) not in wanted:
             existing.unlink()
 
 
