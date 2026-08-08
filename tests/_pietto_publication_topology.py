@@ -609,10 +609,16 @@ def candidate_entries(source: Path) -> dict[str, tuple[str, str]]:
         if len(oid) != 40:
             raise TopologyError(f"cannot hash {relative} in {source}")
         recorded = index_modes.get(relative)
-        # Disabling filemode suppresses an executable-bit change on a regular
-        # file. It never carries an entry type across a type change.
-        if recorded is not None and recorded.startswith("100") and not filemode:
-            mode = recorded
+        # Disabling filemode makes Git ignore the working-tree executable bit
+        # entirely: a recorded regular-file mode is kept, and anything else -
+        # including a new file - is recorded as a plain regular file. It never
+        # carries an entry type across a type change.
+        if not filemode:
+            mode = (
+                recorded
+                if recorded is not None and recorded.startswith("100")
+                else "100644"
+            )
         else:
             mode = "100755" if path.stat().st_mode & 0o111 else "100644"
         entries[relative] = (mode, oid)
@@ -657,8 +663,12 @@ def _directory_entries(root: Path) -> dict[str, tuple[str, str]]:
         if len(oid) != 40:
             raise TopologyError(f"cannot hash {relative} in {root}")
         recorded = index_modes.get(str(relative))
-        if recorded is not None and recorded.startswith("100") and not filemode:
-            mode = recorded
+        if not filemode:
+            mode = (
+                recorded
+                if recorded is not None and recorded.startswith("100")
+                else "100644"
+            )
         else:
             mode = "100755" if path.stat().st_mode & 0o111 else "100644"
         observed[str(relative)] = (mode, oid)

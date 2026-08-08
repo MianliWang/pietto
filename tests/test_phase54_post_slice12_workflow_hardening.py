@@ -1409,9 +1409,15 @@ def test_candidate_entries_follow_the_source_filemode_rule(tmp_path: Path) -> No
     script.write_text("#!/bin/sh\necho hi\n", encoding="utf-8")
     script.chmod(0o755)
 
+    added = source / "added.sh"
+    added.write_text("#!/bin/sh\n", encoding="utf-8")
+    added.chmod(0o755)
+
     entries = topology.candidate_entries(source)
-    # Git keeps the recorded mode when the source disables filemode.
+    # Git keeps the recorded mode when the source disables filemode, and a new
+    # file is recorded as a plain regular file.
     assert entries["run.sh"][0] == "100644"
+    assert entries["added.sh"][0] == "100644"
     fixture = topology.build_topology(
         topology.TOPOLOGY_CLEAN_TOPIC, tmp_path / "clean", source=source
     )
@@ -2356,8 +2362,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR41_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR41_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR42_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR42_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base
