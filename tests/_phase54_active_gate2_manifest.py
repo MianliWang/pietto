@@ -119,35 +119,6 @@ PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_BRANCH = (
 PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_SUBJECT = (
     "Repair Pietto workflow hardening post-merge findings"
 )
-PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_TOPIC_PATHS = frozenset(
-    {
-        "tests/_phase54_active_gate2_manifest.py",
-        "tests/_pietto_publication_topology.py",
-        "tests/_pietto_runtime_journal.py",
-        "tests/test_phase52_aggregate_signature_algebra_facts.py",
-        "tests/test_phase52_completion_audit_and_status_lock.py",
-        "tests/test_phase52_expression_stage_clause_capability_facts.py",
-        "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
-        "tests/test_phase52_scalar_function_operator_signature_facts.py",
-        "tests/test_phase53_completion_audit_and_status_lock.py",
-        "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
-        "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
-        "tests/test_phase53_multiple_window_outputs_final_order_alias_downstream_schema_lineage_contract.py",
-        "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
-        "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
-        "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
-        "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
-        "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
-        "tests/test_phase53_row_number_direct_field_mvp_contract.py",
-        "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
-        "tests/test_phase53_window_ir_dual_backend_lowering_window_function_facts_contract.py",
-        "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
-        "tests/test_phase53_window_spec_function_identity_ast_contract.py",
-        "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
-        "tests/test_phase54_local_import_module_export_foundation_scope_lock.py",
-        "tests/test_phase54_post_slice12_workflow_hardening.py",
-    }
-)
 # Each published child of this repair opens the next generation. A generation is
 # one exact (base, modified set) pair, so a further repair round adds one entry
 # here and nothing else.
@@ -156,15 +127,64 @@ PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_GENERATIONS: tuple[
 ] = (
     (
         "15e46551c4fcc55b6143f663daa1d84fe847eaeb",
-        PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_TOPIC_PATHS,
+        frozenset(
+            {
+                "tests/_phase54_active_gate2_manifest.py",
+                "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
+                "tests/test_phase53_multiple_window_outputs_final_order_alias_downstream_schema_lineage_contract.py",
+                "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+                "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
+                "tests/test_phase54_post_slice12_workflow_hardening.py",
+            }
+        ),
     ),
     (
         "26db9f4ff2e5f689d06e5b3574d2bf7ce25f8407",
-        PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_TOPIC_PATHS,
+        frozenset(
+            {
+                "tests/_phase54_active_gate2_manifest.py",
+                "tests/_pietto_publication_topology.py",
+                "tests/_pietto_runtime_journal.py",
+                "tests/test_phase52_aggregate_signature_algebra_facts.py",
+                "tests/test_phase52_completion_audit_and_status_lock.py",
+                "tests/test_phase52_expression_stage_clause_capability_facts.py",
+                "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
+                "tests/test_phase52_scalar_function_operator_signature_facts.py",
+                "tests/test_phase53_completion_audit_and_status_lock.py",
+                "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
+                "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
+                "tests/test_phase53_multiple_window_outputs_final_order_alias_downstream_schema_lineage_contract.py",
+                "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
+                "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+                "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
+                "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
+                "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
+                "tests/test_phase53_row_number_direct_field_mvp_contract.py",
+                "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
+                "tests/test_phase53_window_ir_dual_backend_lowering_window_function_facts_contract.py",
+                "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
+                "tests/test_phase53_window_spec_function_identity_ast_contract.py",
+                "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
+                "tests/test_phase54_local_import_module_export_foundation_scope_lock.py",
+                "tests/test_phase54_post_slice12_workflow_hardening.py",
+            }
+        ),
     ),
     (
         "53842ec9e28782bbdfd1787454371cba3211dff2",
-        frozenset({"tests/_phase54_active_gate2_manifest.py"}),
+        frozenset(
+            {
+                "tests/_phase54_active_gate2_manifest.py",
+            }
+        ),
+    ),
+    (
+        "300043698420076213a08315f22366739fd2e50f",
+        frozenset(
+            {
+                "tests/_phase54_active_gate2_manifest.py",
+            }
+        ),
     ),
 )
 PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_GENERATION2_BASE = (
@@ -408,6 +428,11 @@ PHASE54_POST_SLICE12_INTERLUDE_CHILD_IDENTITIES: tuple[tuple[str, str, str], ...
         "26db9f4ff2e5f689d06e5b3574d2bf7ce25f8407",
         "Repair Pietto workflow hardening post-merge findings",
         "075c459d22903071d013a7ab42ece9b2f383f0dd",
+    ),
+    (
+        "53842ec9e28782bbdfd1787454371cba3211dff2",
+        "Repair Pietto workflow hardening post-merge findings",
+        "3ace8351f2162327b4d3a1d258ae0be885369876",
     ),
 )
 # A commit cannot name its own tree inside that tree, so exactly one shape - the
