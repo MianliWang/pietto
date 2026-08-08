@@ -676,6 +676,51 @@ def test_journal_refuses_a_git_metadata_destination(tmp_path: Path) -> None:
     assert journal.load(written)["authority"] == journal.AUTHORITY_MARKER
 
 
+def test_journal_refuses_bare_and_separate_git_directories(tmp_path: Path) -> None:
+    payload = _valid_payload()
+    bare = tmp_path / "bare.git"
+    subprocess.run(["git", "init", "--bare", "--quiet", str(bare)], check=True)
+    for destination in (bare / "HEAD", bare / "config", bare / "refs" / "journal.json"):
+        with pytest.raises(journal.JournalError):
+            journal.atomic_replace(destination, payload)
+    assert (bare / "HEAD").read_text("utf-8").startswith("ref:")
+    worktree = tmp_path / "work"
+    worktree.mkdir()
+    metadata = tmp_path / "meta"
+    subprocess.run(
+        ["git", "init", "--quiet", "--separate-git-dir", str(metadata), str(worktree)],
+        check=True,
+    )
+    with pytest.raises(journal.JournalError):
+        journal.atomic_replace(metadata / "HEAD", payload)
+    assert (metadata / "HEAD").read_text("utf-8").startswith("ref:")
+
+
+def test_replacement_plan_normalizes_aliased_paths(tmp_path: Path) -> None:
+    (tmp_path / "one.py").write_text("total = 461\n", encoding="utf-8")
+    assert closure.normalized_path(tmp_path, "./one.py") == "one.py"
+    rules = (closure.ReplacementRule(old="461", new="462"),)
+    with pytest.raises(closure.ClosureError):
+        closure.calculate_replacements(
+            repo_root=tmp_path, paths=("one.py", "./one.py"), rules=rules
+        )
+    with pytest.raises(closure.ClosureError):
+        closure.calculate_replacements(
+            repo_root=tmp_path,
+            paths=("one.py",),
+            rules=rules,
+            order=("one.py", "./one.py"),
+        )
+    plan = closure.calculate_replacements(
+        repo_root=tmp_path, paths=("./one.py",), rules=rules
+    )
+    assert plan.order == ("one.py",)
+    assert plan.total_occurrences == 1
+    assert closure.verify_zero_delta(
+        repo_root=tmp_path, paths=("one.py", "./one.py"), rules=rules
+    ) == ("one.py:461:1",)
+
+
 def test_source_projection_removes_a_dangling_symlink(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
@@ -1152,8 +1197,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR12_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR12_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR13_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR13_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base

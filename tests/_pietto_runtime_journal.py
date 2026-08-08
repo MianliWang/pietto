@@ -106,6 +106,36 @@ def _enclosing_worktree(directory: Path) -> Path | None:
     return Path(top) if top else None
 
 
+def _enclosing_repository_roots(directory: Path) -> tuple[Path, ...]:
+    """Return every repository root containing this directory.
+
+    A bare repository and a ``--separate-git-dir`` metadata directory have no
+    worktree and no ``.git`` path component, so the Git directory itself must be
+    probed as well. Otherwise the easiest destination to corrupt stays open.
+    """
+
+    roots: list[Path] = []
+    worktree = _enclosing_worktree(directory)
+    if worktree is not None:
+        roots.append(worktree)
+    for flag in ("--absolute-git-dir", "--git-common-dir"):
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(directory), "rev-parse", flag],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+        except OSError:
+            continue
+        if result.returncode != 0:
+            continue
+        reported = result.stdout.strip()
+        if reported:
+            roots.append((directory / reported).resolve())
+    return tuple(roots)
+
+
 def _reject_repository_destination(path: Path, repo_root: Path | None) -> None:
     """Refuse any destination inside a repository, with or without a hint.
 
@@ -128,9 +158,7 @@ def _reject_repository_destination(path: Path, repo_root: Path | None) -> None:
     while not probe.is_dir() and probe != probe.parent:
         probe = probe.parent
     if probe.is_dir():
-        enclosing = _enclosing_worktree(probe)
-        if enclosing is not None:
-            roots.append(enclosing.resolve())
+        roots.extend(root.resolve() for root in _enclosing_repository_roots(probe))
     for root in roots:
         if resolved == root or root in resolved.parents:
             raise JournalError(f"journal destination is inside the repository: {path}")

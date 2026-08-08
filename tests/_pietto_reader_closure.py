@@ -117,6 +117,17 @@ def _relative(repo_root: Path, path: str) -> Path:
     return candidate
 
 
+def normalized_path(repo_root: Path, path: str) -> str:
+    """Return one path's unique repository-relative identity.
+
+    Two spellings of the same file must not be treated as two paths: they would
+    be read twice and their single occurrence reported twice.
+    """
+
+    candidate = _relative(repo_root, path)
+    return str(candidate.resolve().relative_to(repo_root.resolve()))
+
+
 def read_source(repo_root: Path, path: str) -> str:
     """Return one repository file as text, failing closed on any problem."""
 
@@ -400,12 +411,17 @@ def calculate_replacements(
             raise ClosureError(f"duplicate replacement rule for {rule.old!r}")
         seen_old.add(rule.old)
     _reject_interacting_rules(rules)
-    ordered_paths = tuple(order) if order else tuple(sorted(dict.fromkeys(paths)))
+    identities = tuple(normalized_path(repo_root, path) for path in paths)
+    ordered_paths = tuple(sorted(dict.fromkeys(identities)))
     if order:
-        if len(set(order)) != len(order):
+        ordered_order = tuple(normalized_path(repo_root, path) for path in order)
+        if len(set(ordered_order)) != len(ordered_order):
             raise ClosureError("explicit order must not repeat a path")
-        if set(order) != set(paths):
+        if set(ordered_order) != set(identities):
             raise ClosureError("explicit order must cover exactly the supplied paths")
+        ordered_paths = ordered_order
+    elif len(set(identities)) != len(identities):
+        raise ClosureError("supplied paths name the same file more than once")
     replacements: list[PathReplacement] = []
     for path in ordered_paths:
         source = read_source(repo_root, path)
@@ -446,7 +462,8 @@ def verify_zero_delta(
     if not rules:
         raise ClosureError("zero-delta verification requires at least one rule")
     remaining: list[str] = []
-    for path in sorted(dict.fromkeys(paths)):
+    identities = tuple(normalized_path(repo_root, path) for path in paths)
+    for path in sorted(dict.fromkeys(identities)):
         source = read_source(repo_root, path)
         for rule in rules:
             occurrences = source.count(rule.old)
