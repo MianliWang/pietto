@@ -851,6 +851,32 @@ def test_source_projections_are_anchored_to_the_main_authority(
         )
 
 
+def test_repair_child_projects_a_committed_repair_source(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=source)
+    (source / "reader.py").write_text("assert total == 1\n", encoding="utf-8")
+    _commit_source(source, "main baseline")
+    main_tree = _source_tree(source, "refs/heads/main")
+    subprocess.run(["git", "checkout", "-q", "-b", "topic"], cwd=source, check=True)
+    (source / "reader.py").write_text("assert total == 2\n", encoding="utf-8")
+    _commit_source(source, "topic child")
+    topic_tree = _source_tree(source, "HEAD")
+    (source / "reader.py").write_text("assert total == 3\n", encoding="utf-8")
+    _commit_source(source, "committed repair child")
+    repair_tree = _source_tree(source, "HEAD")
+
+    assert not topology.source_is_dirty(source)
+    fixture = topology.build_topology(
+        topology.TOPOLOGY_REPAIR_CHILD, tmp_path / "repair", source=source
+    )
+    trees = topology.run_in_projection(
+        fixture, ["git", "log", "--format=%T", "-n", "3", "HEAD"]
+    ).stdout.split()
+    assert trees == [repair_tree, topic_tree, main_tree]
+    assert topology.verify(fixture.observation, fixture.expectation) == ()
+
+
 def test_source_projection_refuses_a_gitlink_source(tmp_path: Path) -> None:
     inner = tmp_path / "inner"
     inner.mkdir()
@@ -1291,8 +1317,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR15_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR15_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR16_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR16_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base

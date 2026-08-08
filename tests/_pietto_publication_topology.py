@@ -214,6 +214,13 @@ def source_base_revision(source: Path) -> str:
     return "HEAD"
 
 
+def source_is_dirty(source: Path) -> bool:
+    """Return whether one source working tree differs from its own head."""
+
+    added, modified, deleted = source_dirty_paths(source)
+    return bool(added or modified or deleted)
+
+
 def _reject_gitlink_source(source: Path) -> None:
     """Refuse a source that carries a gitlink entry.
 
@@ -740,15 +747,18 @@ def build_topology(
 
     _git(root, "checkout", "--quiet", "-b", TOPIC_BRANCH)
     if kind == TOPOLOGY_REPAIR_CHILD and source is not None:
-        # The repair child keeps the whole chain: main authority, the committed
-        # topic child, then the uncommitted repair candidate.
-        if committed_entries(source, "HEAD") == committed_entries(
+        # The repair child keeps the whole chain: main authority, the topic
+        # child, then the repair candidate. Both a committed repair (the state a
+        # pre-push sweep runs in) and an uncommitted one must be projectable, so
+        # the topic revision is the head's parent when the source is clean.
+        topic_revision = "HEAD" if source_is_dirty(source) else "HEAD^"
+        if committed_entries(source, topic_revision) == committed_entries(
             source, base_revision
         ):
             raise TopologyError(f"source has no committed topic child: {source}")
-        _apply_committed_candidate(root, source, "HEAD")
+        _apply_committed_candidate(root, source, topic_revision)
         topic = _commit(root, TOPIC_SUBJECT)
-        _verify_committed_candidate(root, committed_entries(source, "HEAD"))
+        _verify_committed_candidate(root, committed_entries(source, topic_revision))
     else:
         _apply_candidate(root, source, _SYNTHETIC_CANDIDATE)
         topic = _commit(root, TOPIC_SUBJECT, allow_empty=source is not None)
@@ -787,10 +797,16 @@ def build_topology(
         )
 
     if kind == TOPOLOGY_REPAIR_CHILD:
-        _apply_candidate(root, source, {"reader.txt": "count=2\n"})
-        repair = _commit(root, REPAIR_SUBJECT, allow_empty=source is not None)
+        if source is not None and not source_is_dirty(source):
+            _apply_committed_candidate(root, source, "HEAD")
+            repair = _commit(root, REPAIR_SUBJECT)
+            _verify_committed_candidate(root, committed_entries(source, "HEAD"))
+        else:
+            _apply_candidate(root, source, {"reader.txt": "count=2\n"})
+            repair = _commit(root, REPAIR_SUBJECT, allow_empty=source is not None)
+            if source is not None:
+                _verify_candidate(root, source, committed=True)
         if source is not None:
-            _verify_candidate(root, source, committed=True)
             if _git(root, "rev-parse", "HEAD^{tree}") == _git(
                 root, "rev-parse", "HEAD^^{tree}"
             ):
