@@ -545,7 +545,8 @@ def candidate_entries(source: Path) -> dict[str, tuple[str, str]]:
     # ``core.filemode=false`` tells Git to keep the recorded mode, so the
     # filesystem permission bit is not the authority on a tracked path.
     filemode = (
-        _source_output(source, "config", "--get", "core.filemode").strip() != "false"
+        _source_output(source, "config", "--bool", "--get", "core.filemode").strip()
+        != "false"
     )
     index_modes: dict[str, str] = {}
     entries: dict[str, tuple[str, str]] = {}
@@ -593,7 +594,7 @@ def _directory_entries(root: Path) -> dict[str, tuple[str, str]]:
     would when the candidate is committed.
     """
 
-    filemode = _git(root, "config", "--get", "core.filemode") != "false"
+    filemode = _git(root, "config", "--bool", "--get", "core.filemode") != "false"
     index_modes: dict[str, str] = {}
     listing = _git_raw(root, "ls-files", "--stage", "-z")
     for record in (entry for entry in listing.split("\0") if entry):

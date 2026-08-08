@@ -1401,7 +1401,8 @@ def test_candidate_entries_follow_the_source_filemode_rule(tmp_path: Path) -> No
     source = tmp_path / "source"
     source.mkdir()
     subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=source)
-    subprocess.run(["git", "config", "core.filemode", "false"], cwd=source, check=True)
+    # Git accepts several spellings of false; the rule follows the boolean.
+    subprocess.run(["git", "config", "core.filemode", "off"], cwd=source, check=True)
     script = source / "run.sh"
     script.write_text("#!/bin/sh\n", encoding="utf-8")
     _commit_source(source, "first")
@@ -2136,8 +2137,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR35_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR35_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR36_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR36_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base

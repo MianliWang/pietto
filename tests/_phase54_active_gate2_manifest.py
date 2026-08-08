@@ -299,13 +299,18 @@ PHASE54_POST_SLICE12_INTERLUDE_CHILD_IDENTITIES: tuple[tuple[str, str, str], ...
         "Fix Pietto workflow convergence squash tree and probe outcomes",
         "b549efd02342aaf16e4a4ffe05385a856ecee2b8",
     ),
+    (
+        "9ed0448acb45325d4f6a824afff4b6f223251b05",
+        "Fix Pietto workflow convergence state window and object format",
+        "123e69e39d3ec7050801f9d1d170dcc5e2b66cba",
+    ),
 )
 # A commit cannot name its own tree inside that tree, so exactly one shape - the
 # newest child - is unregistered and must prove its tree through the canonical
 # trailer. Every earlier shape is bound to its exact reviewed tree above.
 PHASE54_POST_SLICE12_INTERLUDE_UNREGISTERED_CHILD_SHAPE: tuple[str, str] = (
-    "9ed0448acb45325d4f6a824afff4b6f223251b05",
-    "Fix Pietto workflow convergence state window and object format",
+    "8173243428e9dad5e24265ddf1359131c1dbad87",
+    "Fix Pietto workflow convergence squash documentation and filemode",
 )
 PHASE54_POST_SLICE12_INTERLUDE_PUBLISHED_TREES: tuple[str, ...] = tuple(
     tree for _, _, tree in PHASE54_POST_SLICE12_INTERLUDE_CHILD_IDENTITIES
@@ -500,9 +505,15 @@ PHASE54_POST_SLICE12_INTERLUDE_REPAIR34_SUBJECT = (
     "Fix Pietto workflow convergence squash tree and probe outcomes"
 )
 PHASE54_POST_SLICE12_INTERLUDE_REPAIR35_BASE = (
-    PHASE54_POST_SLICE12_INTERLUDE_UNREGISTERED_CHILD_SHAPE[0]
+    "9ed0448acb45325d4f6a824afff4b6f223251b05"
 )
 PHASE54_POST_SLICE12_INTERLUDE_REPAIR35_SUBJECT = (
+    "Fix Pietto workflow convergence state window and object format"
+)
+PHASE54_POST_SLICE12_INTERLUDE_REPAIR36_BASE = (
+    PHASE54_POST_SLICE12_INTERLUDE_UNREGISTERED_CHILD_SHAPE[0]
+)
+PHASE54_POST_SLICE12_INTERLUDE_REPAIR36_SUBJECT = (
     PHASE54_POST_SLICE12_INTERLUDE_UNREGISTERED_CHILD_SHAPE[1]
 )
 ADDED_PATHS = {
@@ -2293,6 +2304,15 @@ PHASE54_POST_SLICE12_INTERLUDE_REPAIR35_MODIFIED_PATHS = frozenset(
         "tests/test_phase54_post_slice12_workflow_hardening.py",
     }
 )
+PHASE54_POST_SLICE12_INTERLUDE_REPAIR36_MODIFIED_PATHS = frozenset(
+    {
+        ".claude/skills/pietto-publication-topology/SKILL.md",
+        ".claude/skills/pietto-publication-topology/reference.md",
+        "tests/_phase54_active_gate2_manifest.py",
+        "tests/_pietto_publication_topology.py",
+        "tests/test_phase54_post_slice12_workflow_hardening.py",
+    }
+)
 PHASE54_POST_SLICE12_INTERLUDE_MODIFIED_PATHS = frozenset(
     PHASE54_POST_SLICE12_INTERLUDE_NON_READER_MODIFIED_PATHS
     | PHASE54_POST_SLICE12_INTERLUDE_READER_PATHS
@@ -3189,6 +3209,15 @@ def _matches_phase54_active_gate2_manifest(
         == PHASE54_POST_SLICE12_INTERLUDE_REPAIR35_MODIFIED_PATHS
         and state.deleted_paths == frozenset()
     )
+    post_slice12_interlude_repair36 = (
+        state.branch_oid == PHASE54_POST_SLICE12_INTERLUDE_REPAIR36_BASE
+        and state.branch_head == PHASE54_POST_SLICE12_INTERLUDE_BRANCH
+        and state.branch_upstream == f"origin/{PHASE54_POST_SLICE12_INTERLUDE_BRANCH}"
+        and state.added_paths == frozenset()
+        and state.modified_paths
+        == PHASE54_POST_SLICE12_INTERLUDE_REPAIR36_MODIFIED_PATHS
+        and state.deleted_paths == frozenset()
+    )
     return common and (
         post_slice12_interlude
         or post_slice12_interlude_repair1
@@ -3226,6 +3255,7 @@ def _matches_phase54_active_gate2_manifest(
         or post_slice12_interlude_repair33
         or post_slice12_interlude_repair34
         or post_slice12_interlude_repair35
+        or post_slice12_interlude_repair36
         or slice12_mechanical_repair4
         or slice12_mechanical_repair3
         or active_gate2
@@ -4827,6 +4857,24 @@ def phase54_post_slice12_interlude_repair35_is_active() -> bool:
     )
 
 
+def phase54_post_slice12_interlude_repair36_is_active() -> bool:
+    """Recognize only the exact interlude thirty-sixth repair-generation overlay."""
+
+    try:
+        state = _read_phase54_gate2_repository_state()
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+    return (
+        _matches_phase54_active_gate2_manifest(state)
+        and state.branch_oid == PHASE54_POST_SLICE12_INTERLUDE_REPAIR36_BASE
+        and state.branch_head == PHASE54_POST_SLICE12_INTERLUDE_BRANCH
+        and state.added_paths == frozenset()
+        and state.modified_paths
+        == PHASE54_POST_SLICE12_INTERLUDE_REPAIR36_MODIFIED_PATHS
+        and state.deleted_paths == frozenset()
+    )
+
+
 def phase54_post_slice12_interlude_repair_is_active() -> bool:
     """Recognize any interlude repair-generation overlay on the topic branch."""
 
@@ -4866,12 +4914,15 @@ def phase54_post_slice12_interlude_repair_is_active() -> bool:
         or phase54_post_slice12_interlude_repair33_is_active()
         or phase54_post_slice12_interlude_repair34_is_active()
         or phase54_post_slice12_interlude_repair35_is_active()
+        or phase54_post_slice12_interlude_repair36_is_active()
     )
 
 
 def phase54_post_slice12_interlude_expected_head() -> str:
     """Return the exact head the active interlude overlay must show."""
 
+    if phase54_post_slice12_interlude_repair36_is_active():
+        return PHASE54_POST_SLICE12_INTERLUDE_REPAIR36_BASE
     if phase54_post_slice12_interlude_repair35_is_active():
         return PHASE54_POST_SLICE12_INTERLUDE_REPAIR35_BASE
     if phase54_post_slice12_interlude_repair34_is_active():
@@ -4985,12 +5036,15 @@ def phase54_post_slice12_interlude_dirty_is_active() -> bool:
         or phase54_post_slice12_interlude_repair33_is_active()
         or phase54_post_slice12_interlude_repair34_is_active()
         or phase54_post_slice12_interlude_repair35_is_active()
+        or phase54_post_slice12_interlude_repair36_is_active()
     )
 
 
 def phase54_post_slice12_interlude_expected_modified_paths() -> frozenset[str]:
     """Return the exact modified set the active interlude overlay must show."""
 
+    if phase54_post_slice12_interlude_repair36_is_active():
+        return PHASE54_POST_SLICE12_INTERLUDE_REPAIR36_MODIFIED_PATHS
     if phase54_post_slice12_interlude_repair35_is_active():
         return PHASE54_POST_SLICE12_INTERLUDE_REPAIR35_MODIFIED_PATHS
     if phase54_post_slice12_interlude_repair34_is_active():

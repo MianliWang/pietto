@@ -51,7 +51,7 @@ the same commits and the same trees.
   not the named topic branch; a fixture built from the branch would describe the
   pull-request head instead of the checkout and would pass locally while the real
   run still failed.
-- **squashed main** — a single parent and a tree equal to the topic tree. This
+- **squashed main** — a single parent and a tree equal to the real merge of the base and the topic. This
   is where tree equality is proven.
 - **natural main push** — the squashed result checked out at depth one under a
   push event, with no parents and no merge base. Integration truncates history

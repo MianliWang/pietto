@@ -23,7 +23,7 @@ file.
 | non-amend repair child | topic branch, a further commit whose parent is the previous head |
 | pull-request merge | detached merge commit with two parents, base first, head second |
 | shallow pull-request checkout | depth-limited checkout, no parents, no merge base |
-| squashed main | base branch, single parent, tree equal to the topic tree |
+| squashed main | base branch, single parent, tree equal to the real merge of the base and the topic |
 | natural main push | the squashed head checked out at depth one under a push event |
 
 ## 2. Establish before observing
