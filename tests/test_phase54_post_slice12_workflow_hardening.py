@@ -803,6 +803,10 @@ def test_source_backed_projection_carries_the_exact_candidate_tree(
         _source_tree(source, "HEAD"),
         _source_tree(source, topology.source_base_revision(source)),
     ]
+    # The committed topic child keeps its real identity even when the repair
+    # candidate is still uncommitted.
+    assert repair.refs["topic"] == _source_revision(source, "HEAD")
+    assert repair.observation.head_parents == (_source_revision(source, "HEAD"),)
 
 
 def test_replacement_plan_rejects_a_rule_recreated_across_the_seam(
@@ -1570,8 +1574,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR22_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR22_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR23_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR23_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base

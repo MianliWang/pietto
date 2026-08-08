@@ -837,18 +837,18 @@ def build_topology(
         _git(root, "checkout", "--quiet", "-B", TOPIC_BRANCH, topic)
         _verify_committed_candidate(root, committed_entries(source, committed_revision))
     elif kind == TOPOLOGY_REPAIR_CHILD and source is not None:
-        # The repair child keeps the whole chain: main authority, the topic
-        # child, then the repair candidate. Both a committed repair (the state a
-        # pre-push sweep runs in) and an uncommitted one must be projectable, so
-        # the topic revision is the head's parent when the source is clean.
-        topic_revision = "HEAD" if source_is_dirty(source) else "HEAD^"
-        if committed_entries(source, topic_revision) == committed_entries(
+        # The repair child keeps the whole chain: main authority, the committed
+        # topic child, then the uncommitted repair candidate. The topic child
+        # already exists, so its real commit is checked out rather than rebuilt.
+        if committed_entries(source, "HEAD") == committed_entries(
             source, base_revision
         ):
             raise TopologyError(f"source has no committed topic child: {source}")
-        _apply_committed_candidate(root, source, topic_revision)
-        topic = _commit(root, TOPIC_SUBJECT)
-        _verify_committed_candidate(root, committed_entries(source, topic_revision))
+        topic = _source_output(source, "rev-parse", "HEAD").strip()
+        if not topic:
+            raise TopologyError(f"cannot resolve HEAD in {source}")
+        _git(root, "checkout", "--quiet", "-B", TOPIC_BRANCH, topic)
+        _verify_committed_candidate(root, committed_entries(source, "HEAD"))
     else:
         _apply_candidate(root, source, _SYNTHETIC_CANDIDATE)
         topic = _commit(root, TOPIC_SUBJECT, allow_empty=source is not None)
