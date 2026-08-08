@@ -646,6 +646,16 @@ def _commit_source(source: Path, message: str) -> None:
     )
 
 
+def _source_revision(source: Path, revision: str) -> str:
+    return subprocess.run(
+        ["git", "rev-parse", revision],
+        cwd=source,
+        check=True,
+        text=True,
+        capture_output=True,
+    ).stdout.strip()
+
+
 def _source_tree(source: Path, revision: str) -> str:
     return subprocess.run(
         ["git", "rev-parse", f"{revision}^{{tree}}"],
@@ -927,6 +937,62 @@ def test_reader_closure_refuses_a_symbolic_link_reader(tmp_path: Path) -> None:
     with pytest.raises(closure.ClosureError):
         closure.read_source(tmp_path, "alias.py")
     assert closure.normalized_path(tmp_path, "reader.py") == "reader.py"
+
+
+def test_committed_candidate_keeps_its_real_commit_identity(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=source)
+    (source / "reader.py").write_text("assert total == 1\n", encoding="utf-8")
+    _commit_source(source, "main baseline")
+    main_sha = _source_revision(source, "refs/heads/main")
+    subprocess.run(["git", "checkout", "-q", "-b", "topic"], cwd=source, check=True)
+    (source / "reader.py").write_text("assert total == 2\n", encoding="utf-8")
+    _commit_source(source, "topic child")
+    topic_sha = _source_revision(source, "HEAD")
+    (source / "reader.py").write_text("assert total == 3\n", encoding="utf-8")
+    _commit_source(source, "committed repair child")
+    repair_sha = _source_revision(source, "HEAD")
+
+    clean = topology.build_topology(
+        topology.TOPOLOGY_CLEAN_TOPIC, tmp_path / "clean", source=source
+    )
+    assert clean.refs["topic"] == repair_sha
+    assert clean.observation.head == repair_sha
+    assert clean.observation.head_parents == (topic_sha,)
+
+    merge = topology.build_topology(
+        topology.TOPOLOGY_PULL_REQUEST_MERGE, tmp_path / "merge", source=source
+    )
+    assert merge.observation.head_parents == (main_sha, repair_sha)
+    assert merge.event_path is not None
+    payload = json.loads(merge.event_path.read_text("utf-8"))
+    assert payload["pull_request"]["head"]["sha"] == repair_sha
+
+    repair = topology.build_topology(
+        topology.TOPOLOGY_REPAIR_CHILD, tmp_path / "repair", source=source
+    )
+    assert repair.refs["topic"] == topic_sha
+    assert repair.refs["repair"] == repair_sha
+    assert repair.observation.head_parents == (topic_sha,)
+
+
+def test_dirty_projection_refuses_a_clean_source(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=source)
+    (source / "reader.py").write_text("assert total == 1\n", encoding="utf-8")
+    _commit_source(source, "only commit")
+    assert not topology.source_is_dirty(source)
+    with pytest.raises(topology.TopologyError):
+        topology.build_topology(
+            topology.TOPOLOGY_DIRTY_GATE2, tmp_path / "dirty", source=source
+        )
+    (source / "reader.py").write_text("assert total == 2\n", encoding="utf-8")
+    fixture = topology.build_topology(
+        topology.TOPOLOGY_DIRTY_GATE2, tmp_path / "dirtyok", source=source
+    )
+    assert fixture.expectation.modified_paths == ("reader.py",)
 
 
 def test_source_projection_refuses_a_gitlink_source(tmp_path: Path) -> None:
@@ -1461,8 +1527,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR20_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR20_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR21_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR21_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base

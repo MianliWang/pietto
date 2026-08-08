@@ -749,6 +749,11 @@ def build_topology(
     refs: dict[str, str] = {"base": base}
 
     if kind == TOPOLOGY_DIRTY_GATE2:
+        if source is not None and not source_is_dirty(source):
+            # A gate candidate is defined by its non-empty dirty set. A clean
+            # source would project an empty one and silently skip the branch
+            # every dirty-state reader exists to check.
+            raise TopologyError(f"source has no uncommitted candidate: {source}")
         _apply_candidate(root, source, _SYNTHETIC_CANDIDATE)
         if source is not None:
             _verify_candidate(root, source, committed=False)
@@ -790,7 +795,16 @@ def build_topology(
         )
 
     _git(root, "checkout", "--quiet", "-b", TOPIC_BRANCH)
-    if kind == TOPOLOGY_REPAIR_CHILD and source is not None:
+    if source is not None and not source_is_dirty(source):
+        # The candidate is already committed, so the projection reuses its real
+        # object identity instead of re-committing its tree under a new one.
+        committed_revision = "HEAD^" if kind == TOPOLOGY_REPAIR_CHILD else "HEAD"
+        topic = _source_output(source, "rev-parse", committed_revision).strip()
+        if not topic:
+            raise TopologyError(f"cannot resolve {committed_revision} in {source}")
+        _git(root, "checkout", "--quiet", "-B", TOPIC_BRANCH, topic)
+        _verify_committed_candidate(root, committed_entries(source, committed_revision))
+    elif kind == TOPOLOGY_REPAIR_CHILD and source is not None:
         # The repair child keeps the whole chain: main authority, the topic
         # child, then the repair candidate. Both a committed repair (the state a
         # pre-push sweep runs in) and an uncommitted one must be projectable, so
@@ -842,8 +856,8 @@ def build_topology(
 
     if kind == TOPOLOGY_REPAIR_CHILD:
         if source is not None and not source_is_dirty(source):
-            _apply_committed_candidate(root, source, "HEAD")
-            repair = _commit(root, REPAIR_SUBJECT)
+            repair = _source_output(source, "rev-parse", "HEAD").strip()
+            _git(root, "checkout", "--quiet", "-B", TOPIC_BRANCH, repair)
             _verify_committed_candidate(root, committed_entries(source, "HEAD"))
         else:
             _apply_candidate(root, source, {"reader.txt": "count=2\n"})
