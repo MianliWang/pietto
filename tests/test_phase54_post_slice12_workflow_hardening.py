@@ -1042,6 +1042,33 @@ def test_committed_repair_replaces_a_directory_with_a_file(tmp_path: Path) -> No
     assert topology.verify(fixture.observation, fixture.expectation) == ()
 
 
+def test_dirty_projection_keeps_awkward_paths_and_type_changes(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=source)
+    awkward = "two\nlines.md"
+    (source / awkward).write_text("# awkward\n", encoding="utf-8")
+    (source / "becomes-link.py").write_text("plain\n", encoding="utf-8")
+    (source / "reader.py").write_text("reader\n", encoding="utf-8")
+    _commit_source(source, "first")
+    (source / awkward).write_text("# awkward two\n", encoding="utf-8")
+    (source / "becomes-link.py").unlink()
+    (source / "becomes-link.py").symlink_to("reader.py")
+
+    added, modified, deleted = topology.source_dirty_paths(source)
+    assert added == ()
+    assert modified == ("becomes-link.py", awkward)
+    assert deleted == ()
+    fixture = topology.build_topology(
+        topology.TOPOLOGY_DIRTY_GATE2, tmp_path / "dirty", source=source
+    )
+    assert fixture.observation.modified_paths == ("becomes-link.py", awkward)
+    assert topology.verify(fixture.observation, fixture.expectation) == ()
+    assert (fixture.root / "becomes-link.py").is_symlink()
+
+
 def test_source_projection_refuses_a_gitlink_source(tmp_path: Path) -> None:
     inner = tmp_path / "inner"
     inner.mkdir()
@@ -1574,8 +1601,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR23_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR23_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR24_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR24_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base

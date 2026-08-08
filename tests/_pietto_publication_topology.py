@@ -679,8 +679,10 @@ def observe(
     modified: list[str] = []
     deleted: list[str] = []
     staged: list[str] = []
-    status = _git(root, "status", "--porcelain=v2", "--untracked-files=all")
-    for line in status.splitlines():
+    # NUL separated records keep the exact path: the line oriented form quotes
+    # any path containing a newline, a tab, or a non-ASCII byte.
+    status = _git_raw(root, "status", "--porcelain=v2", "-z", "--untracked-files=all")
+    for line in (record for record in status.split("\0") if record):
         if line.startswith(("# ", "! ")):
             continue
         if line.startswith("? "):
@@ -697,7 +699,9 @@ def observe(
         path = parts[8]
         if index_status != ".":
             staged.append(path)
-        if worktree_status == "M":
+        if worktree_status in ("M", "T"):
+            # A regular file that became a symbolic link, or the reverse, is a
+            # modification of that path, not an unknown state.
             modified.append(path)
         elif worktree_status == "D":
             deleted.append(path)
