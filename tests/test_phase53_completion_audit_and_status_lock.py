@@ -11,6 +11,15 @@ from pathlib import Path
 from typing import cast
 
 from _phase54_active_gate2_manifest import (
+    phase54_post_slice12_interlude_expected_head,
+    phase54_post_slice12_interlude_repair_is_active,
+    phase54_post_slice12_interlude_dirty_is_active,
+    phase54_post_slice12_interlude_expected_added_paths,
+    phase54_post_slice12_interlude_expected_allowlist_paths,
+    phase54_post_slice12_interlude_expected_modified_paths,
+    PHASE54_POST_SLICE12_INTERLUDE_BRANCH,
+    phase54_post_slice12_interlude_clean_topic_is_active,
+    PHASE54_POST_SLICE12_INTERLUDE_BASE,
     PHASE54_ACTIVE_GATE2_ADDED_PATHS,
     PHASE54_ACTIVE_GATE2_BASE,
     PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
@@ -478,6 +487,10 @@ def _assert_clean_checkout_refs(
             assert subject == PHASE54_SLICE12_PRODUCT_REPAIR3_SUBJECT
         return
 
+    if branch == PHASE54_POST_SLICE12_INTERLUDE_BRANCH:
+        assert phase54_post_slice12_interlude_clean_topic_is_active()
+        return
+
     assert branch == ""
     assert main is None and origin_main is None
     assert len(refs) == 1
@@ -629,7 +642,12 @@ def _assert_allowed_dirty_state(
         set[str], _module_literal(PHASE54_SLICE2_STATE_REL, "ADDED_PATHS")
     )
     phase54_allowlist = phase54_modified | phase54_added
-    assert dirty in (set(), SLICE16_ALLOWLIST_PATHS, phase54_allowlist)
+    assert dirty in (
+        set(),
+        SLICE16_ALLOWLIST_PATHS,
+        phase54_allowlist,
+        set(phase54_post_slice12_interlude_expected_allowlist_paths()),
+    )
     if not dirty:
         assert tracked == untracked == set()
         availability = (
@@ -688,6 +706,17 @@ def _assert_allowed_dirty_state(
             "b81843acadb294630db361c09949868d004b1bca",
             "bc46faff1c9aa71f583ed7d2964b651cc659bc90",
         }
+        return
+    if phase54_post_slice12_interlude_dirty_is_active():
+        assert tracked == set(phase54_post_slice12_interlude_expected_modified_paths())
+        assert untracked == set(phase54_post_slice12_interlude_expected_added_paths())
+        if phase54_post_slice12_interlude_repair_is_active():
+            assert branch == PHASE54_POST_SLICE12_INTERLUDE_BRANCH
+            assert head == phase54_post_slice12_interlude_expected_head()
+            assert main == origin_main == PHASE54_POST_SLICE12_INTERLUDE_BASE
+        else:
+            assert branch == "main"
+            assert head == main == origin_main == PHASE54_POST_SLICE12_INTERLUDE_BASE
         return
     assert tracked == SLICE16_MODIFIED_PATHS
     assert untracked == SLICE16_ADDED_PATHS
@@ -1166,12 +1195,12 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
         len(readable),
         sum(path.endswith(".py") for path in readable),
         sum(path.endswith(".md") for path in readable),
-    ) == (921, 567, 258)
+    ) == (933, 571, 266)
     test_files = tuple((REPO_ROOT / "tests").glob("test_*.py"))
     top_functions = sum(
         len(_top_level_test_functions(f"tests/{path.name}")) for path in test_files
     )
-    assert (len(test_files), top_functions) == (461, 5215)
+    assert (len(test_files), top_functions) == (462, 5349)
     for digest, expected in (
         (PATH_DIGESTS["compiler"], 28),
         (PATH_DIGESTS["semantic"], 42),
@@ -1348,6 +1377,13 @@ def test_static_git_helper_and_exact_slice16_dirty_set_are_locked() -> None:
         elif phase54_slice12_product_repair10_is_active():
             expected_modified = set(PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS)
             expected_added = set()
+        elif tracked | untracked == set(
+            phase54_post_slice12_interlude_expected_modified_paths()
+        ) | set(phase54_post_slice12_interlude_expected_added_paths()):
+            expected_modified = set(
+                phase54_post_slice12_interlude_expected_modified_paths()
+            )
+            expected_added = set(phase54_post_slice12_interlude_expected_added_paths())
         elif _phase54_active_gate2_is_active() or _git_output(
             ["rev-parse", "HEAD"]
         ) in {

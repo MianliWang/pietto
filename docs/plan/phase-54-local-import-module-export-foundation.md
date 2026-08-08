@@ -301,6 +301,38 @@ publication/reconciliation/cleanup ambiguity, or expanded permission. Bounded
 reader/hash/manifest/inventory/heading/formatter/topology/evidence repairs do
 not require a routine pause.
 
+## Slice 12 Publication Outcome And Post-Slice-12 Workflow Hardening Interlude
+
+The Slice 12 lifecycle paragraph above is the historical Gate 2 checkpoint and
+is retained unchanged. It is superseded by this published outcome.
+
+Slice 12 completed its full publication lifecycle. The reviewed tree is
+`b4691181f4d535ab10757e89d75dd881a37f418b`, the squash commit is
+`bd6bdcf17361b11d3067beec534432d37ffe6f05` with the single parent
+`bc46faff1c9aa71f583ed7d2964b651cc659bc90`, and the cumulative allowlist is
+`A3_M179_D0` over 182 paths. Slice 12 required 14 semantic generations, 4
+mechanical repairs, and 1 mechanical availability recovery, and it settled on a
+173-path executing reader closure. Phase 54 is `ACTIVE`, Slices 1 through 12 are
+`COMPLETED`, and Slices 13 through 16 remain `UNSTARTED`.
+
+One unnumbered mid-phase interlude follows Slice 12 and precedes Slice 13:
+**Post-Slice-12 Workflow Hardening And Mid-phase Route Reconciliation**,
+recorded in
+`docs/plan/phase-54-post-slice12-workflow-hardening-and-midphase-route-reconciliation.md`.
+It is workflow, governance, development tooling, and readiness work. It adds no
+Slice, changes no Slice title or prerequisite, moves no material product
+ownership, and changes no Pietto language, compiler, public, dependency,
+workflow, version, or release behavior. The route remains exactly sixteen
+Slices.
+
+The interlude persists the permanent convergence discipline in
+`docs/spec/pietto-semantic-slice-convergence-governance-v1.md`, adds three
+explicit-invocation project skills under `.claude/skills/`, and adds
+deterministic read-only reader-closure, publication-topology, and
+runtime-journal helpers under `tests/`. After it publishes, the next product
+lifecycle state remains `PHASE54_SLICE13_GATE0_GATE1`, and Slice 13 does not
+begin in the interlude.
+
 ## Slice 3 Exact Production Boundary And Gate Contract
 
 The normative contract is

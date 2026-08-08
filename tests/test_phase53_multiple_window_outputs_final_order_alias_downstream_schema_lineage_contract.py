@@ -11,6 +11,9 @@ from types import MappingProxyType
 from typing import cast
 
 from _phase54_active_gate2_manifest import (
+    PHASE54_POST_SLICE12_INTERLUDE_CHILD_SHAPES,
+    PHASE54_POST_SLICE12_INTERLUDE_BASE,
+    PHASE54_POST_SLICE12_INTERLUDE_SUBJECT,
     PHASE54_ACTIVE_GATE2_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
@@ -617,6 +620,15 @@ def test_slice14_artifact_paths_heading_contract_and_lifecycle_are_exact() -> No
     assert len(functions) == 67 and sum(cardinalities) == 507
 
 
+def _interlude_expected_parent(subject: str) -> str | None:
+    """Return the parent an interlude publication child with this subject must have."""
+
+    for child_base, child_subject in PHASE54_POST_SLICE12_INTERLUDE_CHILD_SHAPES:
+        if subject == child_subject:
+            return child_base
+    return None
+
+
 def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> None:
     pyproject = _read("pyproject.toml")
     head = _git_output(["rev-parse", "HEAD"])
@@ -627,7 +639,12 @@ def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> N
         else:
             if _phase54_active_gate2_is_active():
                 subject = _git_output(["show", "-s", "--format=%s", "HEAD"])
-                if subject == PHASE54_SLICE12_MECHANICAL_REPAIR4_SUBJECT:
+                interlude_parent = _interlude_expected_parent(subject)
+                if interlude_parent is not None:
+                    expected_parent = interlude_parent
+                elif head == PHASE54_POST_SLICE12_INTERLUDE_BASE:
+                    expected_parent = PHASE54_ACTIVE_GATE2_BASE
+                elif subject == PHASE54_SLICE12_MECHANICAL_REPAIR4_SUBJECT:
                     expected_parent = PHASE54_SLICE12_MECHANICAL_REPAIR4_BASE
                 elif subject == PHASE54_SLICE12_MECHANICAL_REPAIR3_SUBJECT:
                     expected_parent = PHASE54_SLICE12_MECHANICAL_REPAIR3_BASE
@@ -701,6 +718,10 @@ def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> N
             elif head == PHASE54_SLICE9_HEAD:
                 expected_parent = PHASE54_SLICE8_HEAD
             elif _git_output(["show", "-s", "--format=%s", "HEAD"]) == (
+                PHASE54_POST_SLICE12_INTERLUDE_SUBJECT
+            ):
+                expected_parent = PHASE54_POST_SLICE12_INTERLUDE_BASE
+            elif _git_output(["show", "-s", "--format=%s", "HEAD"]) == (
                 "Add Phase 54 semantic fact preservation"
             ):
                 expected_parent = PHASE54_ACTIVE_GATE2_BASE
@@ -716,6 +737,15 @@ def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> N
                 "Fix Phase 54 relation row diagnostics"
             ):
                 expected_parent = "6104002486d21b7b25dbec74d037c0fc7cc5099a"
+            elif (
+                _interlude_expected_parent(
+                    _git_output(["show", "-s", "--format=%s", "HEAD"])
+                )
+                is not None
+            ):
+                expected_parent = _interlude_expected_parent(
+                    _git_output(["show", "-s", "--format=%s", "HEAD"])
+                )
             else:
                 expected_parent = PHASE54_SLICE10_HEAD
             assert parents == [expected_parent]
@@ -1646,11 +1676,11 @@ def test_test_inventory_focused_overlay_validation_and_gate3_are_exact() -> None
         len(test_paths),
         top_level_tests,
     ) == (
-        921,
-        567,
-        258,
-        461,
-        5215,
+        933,
+        571,
+        266,
+        462,
+        5349,
     )
     docs = _read(PLAN_REL)
     for value in (

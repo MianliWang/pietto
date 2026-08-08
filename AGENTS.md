@@ -84,6 +84,40 @@ Rules:
 - Keep syntax readable and minimal.
 - Avoid adding new keywords unless clearly necessary.
 
+## Semantic Slice Convergence
+
+Every non-trivial semantic, module, provenance, lineage, capability,
+preservation, identity, or package-readiness slice follows the permanent
+convergence discipline in
+`docs/spec/pietto-semantic-slice-convergence-governance-v1.md`. The
+project-scoped skills under `.claude/skills/` are explicit-invocation
+checklists for that specification; they are never an independent authority.
+
+- Identify the exact authority roots before designing any derived carrier, and
+  prefer one canonical root-derived projection. Indexes, maps, buckets, and
+  lookup views are derived conveniences, never independent authorities.
+- Preserve exact identity, complete collections, source and authority order,
+  multiplicity, and availability state. Fail closed on omission, injection,
+  reordering, foreign value-equal grafting, coordinated mixed-root products,
+  and arbitrary winner selection.
+- Converge the product tree and its adversarial and property behavior before
+  refreshing reader, hash, digest, and publication-topology closure. A new
+  semantic edit invalidates the previous semantic freeze.
+- Collect the meaningful findings for one exact tree, reproduce them, and group
+  them by violated invariant or causal root before repairing. Review comment
+  arrival order must not define repair generations.
+- When repeated reviewed generations expose isomorphic defects in one
+  subsystem, inspect the authority root, canonical projection, construction
+  boundary, reducer, and collection algebra instead of adding leaf-specific
+  guards.
+- Freeze behavior, property dimensions, compatibility boundaries, and minimum
+  required coverage before implementing. Final test, reader, and collection
+  counts are facts of the sealed tree, not numbers guessed in advance.
+- Keep reader, hash, and digest work deterministic, dependency-aware, and
+  dry-run first: discovery, dependency graph, condensation order, expected
+  replacements, reviewed patch, primary application, then a zero-addition and
+  zero-delta pass. No tool may rewrite repository files during discovery.
+
 ## Current Phase
 
 Every future Pietto Phase must begin with the permanent **Phase-start

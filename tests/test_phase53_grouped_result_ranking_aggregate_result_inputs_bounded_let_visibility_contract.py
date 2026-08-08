@@ -12,6 +12,11 @@ from pathlib import Path
 from typing import cast
 
 from _phase54_active_gate2_manifest import (
+    PHASE54_POST_SLICE12_INTERLUDE_CHILD_SHAPES,
+    phase54_post_slice12_interlude_head_is_recognized_publication,
+    phase54_post_slice12_interlude_dirty_is_active,
+    PHASE54_POST_SLICE12_INTERLUDE_BASE,
+    PHASE54_POST_SLICE12_INTERLUDE_BRANCH,
     PHASE54_SLICE12_PRODUCT_REPAIR3_BASE,
     PHASE54_SLICE12_PRODUCT_REPAIR3_SUBJECT,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
@@ -962,6 +967,56 @@ def _is_clean_projection() -> bool:
         _assert_main_refs(head)
         return True
 
+    if phase54_post_slice12_interlude_dirty_is_active():
+        assert shallow == "false"
+        assert _git_output(["branch", "--show-current"]) == "main"
+        assert (
+            _git_optional_ref("refs/heads/main") == PHASE54_POST_SLICE12_INTERLUDE_BASE
+        )
+        assert (
+            _git_optional_ref("refs/remotes/origin/main")
+            == PHASE54_POST_SLICE12_INTERLUDE_BASE
+        )
+        assert staged == ""
+        return False
+
+    if any(
+        parents == (child_base,) and subject == child_subject
+        for child_base, child_subject in PHASE54_POST_SLICE12_INTERLUDE_CHILD_SHAPES
+    ):
+        # A known parent and subject are not enough: a replaced tree on a known
+        # shape must be rejected, so the exact publication identity is checked.
+        assert phase54_post_slice12_interlude_head_is_recognized_publication()
+        if status:
+            assert shallow == "false"
+            assert (
+                _git_output(["branch", "--show-current"])
+                == PHASE54_POST_SLICE12_INTERLUDE_BRANCH
+            )
+            assert staged == ""
+            return False
+        _assert_clean_state(status=status, staged=staged)
+        if os.environ.get("GITHUB_EVENT_NAME") == "push":
+            assert shallow == "true"
+            assert os.environ.get("GITHUB_REF") == "refs/heads/main"
+            assert os.environ.get("GITHUB_SHA") == head
+            assert _git_optional_ref("refs/remotes/origin/main") in (None, head)
+            return True
+        assert shallow == "false"
+        branch = _git_output(["branch", "--show-current"])
+        if branch == PHASE54_POST_SLICE12_INTERLUDE_BRANCH:
+            assert (
+                _git_optional_ref("refs/heads/main")
+                == PHASE54_POST_SLICE12_INTERLUDE_BASE
+            )
+            assert (
+                _git_optional_ref("refs/remotes/origin/main")
+                == PHASE54_POST_SLICE12_INTERLUDE_BASE
+            )
+            return True
+        _assert_main_refs(head)
+        return True
+
     if parents == (PHASE54_SLICE11_HEAD,) and _is_phase54_subject(
         subject,
         PHASE54_SLICE12_SUBJECT,
@@ -1097,6 +1152,20 @@ def _is_clean_projection() -> bool:
             assert candidate_ref == PHASE54_SLICE12_BRANCH
             assert head != candidate_sha
             assert parents == (PHASE54_SLICE11_HEAD, candidate_sha)
+            _assert_clean_state(status=status, staged=staged)
+            return True
+        interlude_bases = tuple(
+            child_base for child_base, _ in PHASE54_POST_SLICE12_INTERLUDE_CHILD_SHAPES
+        )
+        if (
+            base_sha in interlude_bases
+            or candidate_ref == PHASE54_POST_SLICE12_INTERLUDE_BRANCH
+        ):
+            assert base_sha in interlude_bases
+            assert base_ref == "main"
+            assert candidate_ref == PHASE54_POST_SLICE12_INTERLUDE_BRANCH
+            assert head != candidate_sha
+            assert parents == (base_sha, candidate_sha)
             _assert_clean_state(status=status, staged=staged)
             return True
         assert base_sha in (

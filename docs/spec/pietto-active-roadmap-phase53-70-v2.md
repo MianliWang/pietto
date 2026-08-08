@@ -18,6 +18,29 @@ Slice 1 `COMPLETED`; Slices 2-16 and Phases 55-70 remain `UNSTARTED`, with
 
 Persistence alone activates nothing and authorizes no later slice.
 
+## Activated Authority And Published Phase 54 Progress
+
+The activation condition above was met. This document is the sole current
+roadmap authority. Phase 54 is `ACTIVE`, Slices 1 through 12 are `COMPLETED`
+after exact Gate 3 publication, and Slices 13 through 16 remain `UNSTARTED`.
+The published Slice 12 tree is `b4691181f4d535ab10757e89d75dd881a37f418b` and
+its squash commit is `bd6bdcf17361b11d3067beec534432d37ffe6f05`. The next
+product lifecycle state is `PHASE54_SLICE13_GATE0_GATE1`.
+
+One unnumbered mid-phase interlude, **Post-Slice-12 Workflow Hardening And
+Mid-phase Route Reconciliation**, follows Slice 12 and precedes Slice 13. It is
+workflow, governance, development tooling, and readiness work recorded in
+`docs/plan/phase-54-post-slice12-workflow-hardening-and-midphase-route-reconciliation.md`
+and governed by
+`docs/spec/pietto-semantic-slice-convergence-governance-v1.md`. It is not a
+Slice, it does not change the sixteen-slice route, the slice titles, the
+prerequisites, or any retained later-phase ownership, and it authorizes no
+Slice 13 behavior.
+
+The paragraphs above are the original Slice 1 Gate 2 status text and are
+retained as historical checkpoints. Where they describe Phase 54 as
+`UNSTARTED`, this section supersedes them.
+
 ## Predecessor And Append-only Lineage
 
 The authority lineage is ordered and immutable:

@@ -10,6 +10,8 @@ import tomllib
 from typing import cast
 
 from _phase54_active_gate2_manifest import (  # noqa: F401
+    phase54_post_slice12_interlude_expected_allowlist_paths,
+    PHASE54_POST_SLICE12_INTERLUDE_ALLOWLIST_PATHS,
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS,
@@ -1739,7 +1741,7 @@ def test_generated_golden_fixture_package_dependency_and_version_boundaries_are_
         sum(path.endswith(".md") for path in paths),
         sum(path.startswith("tests/test_") and path.endswith(".py") for path in paths),
         _top_level_test_function_count(paths),
-    ) == (921, 567, 258, 461, 5215)
+    ) == (933, 571, 266, 462, 5349)
     generated = tuple(
         path for path in paths if path.startswith("src/pietto/generated/")
     )
@@ -1793,6 +1795,7 @@ def test_reader_hash_dag_allowlist_and_fixed_point_are_exact() -> None:
         set((*ADDED_PATHS, *MODIFIED_PATHS)),
         _phase54_slice2_allowlist(),
         set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS),
+        set(phase54_post_slice12_interlude_expected_allowlist_paths()),
         set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS),
         set(PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS),
         set(PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS),
@@ -1903,6 +1906,7 @@ def test_dirty_clean_depth_one_shallow_and_negative_topology_boundaries_are_exac
             set((*ADDED_PATHS, *MODIFIED_PATHS)),
             _phase54_slice2_allowlist(),
             set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS),
+            set(phase54_post_slice12_interlude_expected_allowlist_paths()),
             set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS),
             set(PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS),
             set(PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS),

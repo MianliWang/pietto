@@ -10,6 +10,11 @@ from pathlib import Path
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
+    phase54_post_slice12_interlude_dirty_is_active,
+    phase54_post_slice12_interlude_expected_added_paths,
+    phase54_post_slice12_interlude_expected_modified_paths,
+    PHASE54_POST_SLICE12_INTERLUDE_BRANCH,
+    phase54_post_slice12_interlude_clean_topic_is_active,
     PHASE54_ACTIVE_GATE2_ADDED_PATHS,
     PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
@@ -593,6 +598,10 @@ def _assert_clean_checkout_refs(
         assert main == head
         if origin_main is not None:
             assert origin_main == head
+        return
+
+    if branch == PHASE54_POST_SLICE12_INTERLUDE_BRANCH:
+        assert phase54_post_slice12_interlude_clean_topic_is_active()
         return
 
     assert branch == ""
@@ -1724,6 +1733,9 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
             main=main,
             origin_main=origin_main,
         )
+    elif phase54_post_slice12_interlude_dirty_is_active():
+        assert tracked == set(phase54_post_slice12_interlude_expected_modified_paths())
+        assert untracked == set(phase54_post_slice12_interlude_expected_added_paths())
     elif repair_gate2_active:
         assert tracked == set(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS)
         assert untracked == set(PHASE54_ACTIVE_GATE2_ADDED_PATHS)
@@ -1827,7 +1839,7 @@ def test_static_test_inventory_tier1_and_tier2_manifest_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (461, 5215)
+    assert (len(test_files), top_level_functions) == (462, 5349)
     assert len(DIRECT_TIER1_NODES) == len(set(DIRECT_TIER1_NODES)) == 44
     for node_id in DIRECT_TIER1_NODES:
         path, function = node_id.split("::", maxsplit=1)

@@ -13,6 +13,8 @@ import subprocess
 from typing import cast
 
 from _phase54_active_gate2_manifest import (
+    phase54_post_slice12_interlude_expected_allowlist_paths,
+    phase54_post_slice12_interlude_expected_added_paths,
     PHASE54_ACTIVE_GATE2_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
@@ -958,6 +960,7 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
         CI_REPAIR_MODIFIED_PATHS,
         slice14_modified | slice14_added,
         phase54_modified | phase54_added,
+        set(phase54_post_slice12_interlude_expected_allowlist_paths()),
         set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS),
         set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS),
         set(PHASE54_SLICE12_MECHANICAL_REPAIR4_MODIFIED_PATHS),
@@ -974,6 +977,7 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
         EXPECTED_UNTRACKED_PATHS,
         slice14_added,
         phase54_added,
+        set(phase54_post_slice12_interlude_expected_added_paths()),
     )
     if dirty == set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS):
         assert phase54_slice11_python313_repair_is_active()
