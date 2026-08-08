@@ -1158,6 +1158,38 @@ def test_candidate_entries_use_the_source_object_names(tmp_path: Path) -> None:
     assert entries["reader.py"][1] == hashed
 
 
+def test_reader_closure_refuses_a_symbolic_ancestor(tmp_path: Path) -> None:
+    (tmp_path / "real").mkdir()
+    (tmp_path / "real" / "reader.py").write_text(
+        "assert total == 461\n", encoding="utf-8"
+    )
+    (tmp_path / "alias").symlink_to("real", target_is_directory=True)
+    assert closure.normalized_path(tmp_path, "real/reader.py") == "real/reader.py"
+    with pytest.raises(closure.ClosureError):
+        closure.normalized_path(tmp_path, "alias/reader.py")
+    with pytest.raises(closure.ClosureError):
+        closure.read_source(tmp_path, "alias/reader.py")
+    with pytest.raises(closure.ClosureError):
+        closure.discover_edges(
+            repo_root=tmp_path,
+            universe=("alias/reader.py",),
+            count_literals=("== 461",),
+        )
+
+
+def test_projection_siblings_refuse_an_occupied_path(tmp_path: Path) -> None:
+    for kind, suffix in (
+        (topology.TOPOLOGY_SHALLOW_PULL_REQUEST, "shallow"),
+        (topology.TOPOLOGY_MAIN_PUSH, "mainpush"),
+    ):
+        occupied = tmp_path / f"{kind}-{suffix}"
+        occupied.mkdir()
+        (occupied / "existing.txt").write_text("keep\n", encoding="utf-8")
+        with pytest.raises(topology.TopologyError):
+            topology.build_topology(kind, tmp_path / kind)
+        assert sorted(entry.name for entry in occupied.iterdir()) == ["existing.txt"]
+
+
 def test_source_projection_refuses_a_gitlink_source(tmp_path: Path) -> None:
     inner = tmp_path / "inner"
     inner.mkdir()
@@ -1690,8 +1722,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR26_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR26_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR27_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR27_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base

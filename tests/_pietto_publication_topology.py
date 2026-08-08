@@ -191,6 +191,15 @@ def _source_output(source: Path, *args: str) -> str:
     return result.stdout
 
 
+def _reserve_sibling(root: Path, suffix: str) -> Path:
+    """Return an unused sibling directory path, or fail closed."""
+
+    destination = root.parent / f"{root.name}-{suffix}"
+    if destination.exists() or destination.is_symlink():
+        raise TopologyError(f"projection sibling path is occupied: {destination}")
+    return destination
+
+
 def _write_pull_request_event(root: Path, *, base: str, head: str) -> Path:
     """Write one pull-request event payload beside, never inside, a projection."""
 
@@ -1041,7 +1050,7 @@ def build_topology(
         )
         _git(root, "update-ref", PULL_REQUEST_MERGE_REF, merge)
         refs["merge"] = merge
-        checkout = root.parent / f"{root.name}-shallow"
+        checkout = _reserve_sibling(root, "shallow")
         _git(root, "init", "--quiet", str(checkout))
         _git(checkout, "remote", "add", "origin", str(root))
         _git(
@@ -1093,7 +1102,7 @@ def build_topology(
         # Integration checks the merged head out at depth one, exactly as it
         # does for a pull request. Reusing the full local repository here would
         # hide every guard that depends on history or on the shallow boundary.
-        checkout = root.parent / f"{root.name}-mainpush"
+        checkout = _reserve_sibling(root, "mainpush")
         _git(root, "init", "--quiet", str(checkout))
         _git(checkout, "remote", "add", "origin", str(root))
         _git(

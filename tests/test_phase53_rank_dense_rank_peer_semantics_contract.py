@@ -2397,7 +2397,7 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 5320
+    assert top_level_tests == 5322
     focused_payload = ("\n".join(FOCUSED_OPERANDS) + "\n").encode()
     overlay_payload = ("\n".join(DIRTY_OVERLAY) + "\n").encode()
     formatter_payload = ("\n".join(FORMATTER_PATHS) + "\n").encode()

@@ -113,10 +113,15 @@ def _relative(repo_root: Path, path: str) -> Path:
         raise ClosureError(f"cannot resolve {path}: {error}") from error
     if resolved != resolved_root and resolved_root not in resolved.parents:
         raise ClosureError(f"path escapes the repository root: {path}")
-    if candidate.is_symlink():
-        # Resolving a symlink would collapse it into its target identity and
-        # read the target's bytes instead of the recorded link value.
-        raise ClosureError(f"path is a symbolic link: {path}")
+    lexical = Path(os.path.normpath(candidate))
+    root = Path(os.path.normpath(repo_root))
+    for ancestor in (lexical, *lexical.parents):
+        if ancestor == root:
+            break
+        if ancestor.is_symlink():
+            # Resolving any symbolic component would collapse the path into its
+            # target identity and read the target's bytes instead of this entry.
+            raise ClosureError(f"path crosses a symbolic link: {path}")
     if not candidate.is_file():
         raise ClosureError(f"path is not a regular file: {path}")
     return candidate
