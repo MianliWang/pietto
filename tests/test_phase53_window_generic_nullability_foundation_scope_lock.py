@@ -802,7 +802,7 @@ def test_reader_migrations_reconciliation4_and_current_authority_are_locked() ->
         "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
         "tests/test_phase52_completion_audit_and_status_lock.py",
     ):
-        assert "(462, 5297)" in _read(relative)
+        assert "(462, 5299)" in _read(relative)
     for relative in (
         "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
         "tests/test_phase52_completion_audit_and_status_lock.py",

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import os
 import subprocess
 import tarfile
@@ -49,6 +50,7 @@ PULL_REQUEST_MERGE_REF = "refs/pull/1/merge"
 CI_EVENT_VARIABLES: tuple[str, ...] = (
     "GITHUB_BASE_REF",
     "GITHUB_EVENT_NAME",
+    "GITHUB_EVENT_PATH",
     "GITHUB_HEAD_REF",
     "GITHUB_REF",
     "GITHUB_SHA",
@@ -131,6 +133,7 @@ class TopologyFixture:
     expectation: TopologyExpectation
     observation: TopologyObservation
     refs: Mapping[str, str] = field(default_factory=dict)
+    event_path: Path | None = None
 
 
 def _git(root: Path, *args: str) -> str:
@@ -171,6 +174,38 @@ def _source_output(source: Path, *args: str) -> str:
     return result.stdout
 
 
+def _write_pull_request_event(root: Path, *, base: str, head: str) -> Path:
+    """Write one pull-request event payload beside, never inside, a projection."""
+
+    destination = root.parent / f"{root.name}-event.json"
+    destination.write_text(
+        json.dumps(
+            {
+                "pull_request": {
+                    "base": {"sha": base, "ref": MAIN_BRANCH},
+                    "head": {"sha": head, "ref": TOPIC_BRANCH},
+                }
+            },
+            indent=1,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    return destination
+
+
+def _reject_staged_source(source: Path) -> None:
+    """Refuse a source whose index is not empty.
+
+    The gate contract keeps the index empty, and a staged change is invisible to
+    both the unstaged diff and the untracked listing. Refusing is honest;
+    reporting such a source as clean would project the wrong candidate.
+    """
+
+    if _source_lines(source, "diff", "--cached", "--name-only"):
+        raise TopologyError(f"source repository has a non-empty index: {source}")
+
+
 def _source_working_paths(source: Path) -> tuple[str, ...]:
     """Return the paths that actually exist in one source working tree.
 
@@ -179,6 +214,7 @@ def _source_working_paths(source: Path) -> tuple[str, ...]:
     reach the projection and the projected tree would not be the candidate.
     """
 
+    _reject_staged_source(source)
     listed = _source_lines(
         source, "ls-files", "--cached", "--others", "--exclude-standard"
     )
@@ -197,6 +233,7 @@ def source_dirty_paths(
 ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
     """Return one source repository's (added, modified, deleted) uncommitted paths."""
 
+    _reject_staged_source(source)
     deleted = tuple(sorted(_source_lines(source, "ls-files", "--deleted")))
     modified = tuple(
         sorted(set(_source_lines(source, "diff", "--name-only")) - set(deleted))
@@ -330,6 +367,15 @@ def _seed_committed_tree(root: Path, source: Path, revision: str = "HEAD") -> No
     root.mkdir(parents=True, exist_ok=True)
     with tarfile.open(fileobj=io.BytesIO(archive.stdout)) as bundle:
         bundle.extractall(root, filter="data")
+    # ``git archive`` stamps every entry with its commit time. Two source
+    # commits made in the same second would then produce identical size and
+    # timestamp, and Git's stat cache would report the extraction as unchanged.
+    for extracted in root.rglob("*"):
+        if ".git" in extracted.relative_to(root).parts:
+            continue
+        if extracted.is_symlink() or not extracted.is_file():
+            continue
+        os.utime(extracted)
 
 
 def _seed_working_tree(root: Path, source: Path) -> None:
@@ -456,12 +502,17 @@ def run_in_projection(
 
     if not command:
         raise TopologyError("a projection command must not be empty")
+    environment = projection_environment(fixture.expectation)
+    if fixture.event_path is not None:
+        environment["GITHUB_EVENT_PATH"] = str(fixture.event_path)
+    elif fixture.expectation.event_name == EVENT_PULL_REQUEST:
+        raise TopologyError("a pull-request projection requires an event payload")
     return subprocess.run(
         list(command),
         cwd=fixture.root,
         text=True,
         capture_output=True,
-        env=projection_environment(fixture.expectation),
+        env=environment,
     )
 
 
@@ -767,6 +818,7 @@ def build_topology(
             expectation=expectation,
             observation=observation,
             refs=refs,
+            event_path=_write_pull_request_event(root, base=base, head=topic),
         )
 
     if kind == TOPOLOGY_SHALLOW_PULL_REQUEST:
@@ -825,6 +877,7 @@ def build_topology(
             expectation=expectation,
             observation=observation,
             refs=refs,
+            event_path=_write_pull_request_event(checkout, base=base, head=topic),
         )
 
     _git(root, "checkout", "--quiet", MAIN_BRANCH)

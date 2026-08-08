@@ -1152,8 +1152,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR11_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR11_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR12_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR12_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base
@@ -1323,6 +1323,55 @@ def test_each_projection_declares_its_own_integration_event_environment(
     ):
         assert seen[kind]["GITHUB_REF"] == topology.PULL_REQUEST_MERGE_REF
         assert seen[kind]["GITHUB_BASE_REF"] == topology.MAIN_BRANCH
+
+
+def test_pull_request_projections_carry_an_isolated_event_payload(
+    tmp_path: Path,
+) -> None:
+    leaked = tmp_path / "host-event.json"
+    leaked.write_text("{}", encoding="utf-8")
+    for kind in (
+        topology.TOPOLOGY_PULL_REQUEST_MERGE,
+        topology.TOPOLOGY_SHALLOW_PULL_REQUEST,
+    ):
+        fixture = topology.build_topology(kind, tmp_path / kind)
+        assert fixture.event_path is not None, kind
+        assert fixture.root not in fixture.event_path.parents, kind
+        payload = json.loads(fixture.event_path.read_text("utf-8"))
+        request = payload["pull_request"]
+        assert request["base"]["sha"] == fixture.refs["base"], kind
+        assert request["head"]["sha"] == fixture.refs["topic"], kind
+        assert request["base"]["ref"] == topology.MAIN_BRANCH, kind
+        assert request["head"]["ref"] == topology.TOPIC_BRANCH, kind
+        reported = topology.run_in_projection(
+            fixture,
+            [
+                "python3",
+                "-c",
+                "import json, os; print(json.dumps(os.environ.get('GITHUB_EVENT_PATH')))",
+            ],
+        )
+        assert json.loads(reported.stdout) == str(fixture.event_path), kind
+        assert "GITHUB_EVENT_PATH" in topology.CI_EVENT_VARIABLES
+        assert "GITHUB_EVENT_PATH" not in topology.projection_environment(
+            fixture.expectation, {"GITHUB_EVENT_PATH": str(leaked)}
+        ), kind
+
+
+def test_source_projection_refuses_a_staged_source(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "--quiet"], cwd=source, check=True)
+    (source / "kept.py").write_text("kept\n", encoding="utf-8")
+    _commit_source(source, "first")
+    (source / "kept.py").write_text("staged\n", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=source, check=True)
+    with pytest.raises(topology.TopologyError):
+        topology.source_dirty_paths(source)
+    with pytest.raises(topology.TopologyError):
+        topology.build_topology(
+            topology.TOPOLOGY_CLEAN_TOPIC, tmp_path / "clean", source=source
+        )
 
 
 def test_projection_commands_run_under_the_projection_event(tmp_path: Path) -> None:
