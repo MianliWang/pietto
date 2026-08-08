@@ -188,6 +188,11 @@ def local_git_variables() -> tuple[str, ...]:
     result = subprocess.run(
         ["git", "rev-parse", "--local-env-vars"],
         capture_output=True,
+        env={
+            name: value
+            for name, value in os.environ.items()
+            if name not in _FALLBACK_LOCAL_GIT_VARIABLES
+        },
     )
     if result.returncode != 0:
         return _FALLBACK_LOCAL_GIT_VARIABLES
@@ -228,6 +233,7 @@ def _source_output(source: Path, *args: str) -> str:
         ["git", *args],
         cwd=source,
         capture_output=True,
+        env=_inherited_environment(),
     )
     if result.returncode != 0:
         raise TopologyError(f"cannot read {source}: {_decoded(result.stderr).strip()}")
@@ -358,10 +364,21 @@ def _source_working_paths(source: Path) -> tuple[str, ...]:
     listed = _source_lines(
         source, "ls-files", "--cached", "--others", "--exclude-standard"
     )
+    # A sparse checkout leaves skip-worktree entries unmaterialized. They are
+    # still part of the candidate tree, so only a real deletion removes a path.
+    deleted = set(_source_lines(source, "ls-files", "--deleted"))
+    tracked = set(_source_lines(source, "ls-files", "--cached"))
     entries = tuple(
         relative
         for relative in listed
-        if (source / relative).is_symlink() or (source / relative).is_file()
+        if (source / relative).is_symlink()
+        or (source / relative).is_file()
+        or (
+            # Absent, tracked, and not deleted: a skip-worktree entry.
+            relative in tracked
+            and relative not in deleted
+            and not (source / relative).exists()
+        )
     )
     # A tracked path may be deleted, or replaced by a directory that now holds
     # new entries. Both are trees Git can represent. Only an entry that exists
@@ -561,6 +578,7 @@ def _seed_committed_tree(root: Path, source: Path, revision: str = "HEAD") -> No
         ["git", "archive", "--format=tar", revision],
         cwd=source,
         capture_output=True,
+        env=_inherited_environment(),
     )
     if archive.returncode != 0:
         raise TopologyError(
@@ -589,6 +607,10 @@ def _seed_working_tree(root: Path, source: Path) -> None:
     wanted = set(entries)
     for relative in entries:
         origin = source / relative
+        if not origin.is_symlink() and not origin.is_file():
+            # An unmaterialized sparse entry keeps whatever the base placed
+            # there; it is unchanged by definition.
+            continue
         destination = root / relative
         # A path may change between file, symlink, and directory. Clear whatever
         # occupies the destination or blocks its parents before writing.
