@@ -209,14 +209,17 @@ def projection_environment(
         return environment
     environment["GITHUB_EVENT_NAME"] = expectation.event_name
     environment["GITHUB_SHA"] = expectation.head
+    if expectation.event_name == EVENT_PUSH:
+        # A push event carries no pull-request head or base reference. Exporting
+        # either one would let a reader observe a state main integration never
+        # produces, which is the opposite of what a projection is for.
+        environment["GITHUB_REF"] = f"refs/heads/{expectation.event_head_ref}"
+        return environment
+    environment["GITHUB_REF"] = PULL_REQUEST_MERGE_REF
     if expectation.event_head_ref:
         environment["GITHUB_HEAD_REF"] = expectation.event_head_ref
     if expectation.event_base_ref:
         environment["GITHUB_BASE_REF"] = expectation.event_base_ref
-    if expectation.event_name == EVENT_PUSH:
-        environment["GITHUB_REF"] = f"refs/heads/{expectation.event_head_ref}"
-    else:
-        environment["GITHUB_REF"] = PULL_REQUEST_MERGE_REF
     return environment
 
 

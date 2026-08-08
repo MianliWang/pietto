@@ -313,6 +313,22 @@ def condensation_order(graph: ReaderGraph) -> tuple[tuple[str, ...], ...]:
     return tuple(components[position] for position in ordered)
 
 
+def literals_can_interact(first: str, second: str) -> bool:
+    """Return True when two literals can ever compete for the same characters.
+
+    Containment is not the only interaction: a proper suffix of one literal that
+    is a proper prefix of the other also makes the two counts non-additive,
+    because applying either replacement destroys the other match.
+    """
+
+    if first in second or second in first:
+        return True
+    for size in range(1, min(len(first), len(second))):
+        if first[-size:] == second[:size] or second[-size:] == first[:size]:
+            return True
+    return False
+
+
 def _reject_interacting_rules(rules: Sequence[ReplacementRule]) -> None:
     """Reject rules whose effects overlap, because their counts are not additive."""
 
@@ -320,7 +336,7 @@ def _reject_interacting_rules(rules: Sequence[ReplacementRule]) -> None:
         for other in rules:
             if rule is other:
                 continue
-            if rule.old in other.old:
+            if literals_can_interact(rule.old, other.old):
                 raise ClosureError(
                     f"replacement rule {rule.old!r} overlaps {other.old!r}"
                 )

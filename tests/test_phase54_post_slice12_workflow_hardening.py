@@ -600,6 +600,33 @@ def test_replacement_plan_rejects_interacting_rules(tmp_path: Path) -> None:
         )
 
 
+def test_replacement_plan_rejects_partially_overlapping_literals(
+    tmp_path: Path,
+) -> None:
+    assert closure.literals_can_interact("ab", "bc")
+    assert closure.literals_can_interact("bc", "ab")
+    assert closure.literals_can_interact("aa", "a")
+    assert not closure.literals_can_interact("ab", "cd")
+    assert not closure.literals_can_interact("== 100", "!= 200")
+    (tmp_path / "one.py").write_text("abc\n", encoding="utf-8")
+    partial = (
+        closure.ReplacementRule(old="ab", new="X"),
+        closure.ReplacementRule(old="bc", new="Y"),
+    )
+    with pytest.raises(closure.ClosureError):
+        closure.calculate_replacements(
+            repo_root=tmp_path, paths=("one.py",), rules=partial
+        )
+    independent = (
+        closure.ReplacementRule(old="== 100", new="== 101"),
+        closure.ReplacementRule(old="!= 200", new="!= 201"),
+    )
+    plan = closure.calculate_replacements(
+        repo_root=tmp_path, paths=("one.py",), rules=independent
+    )
+    assert plan.total_occurrences == 0
+
+
 def test_discovery_summary_includes_count_literal_readers(tmp_path: Path) -> None:
     (tmp_path / "counts.py").write_text("assert total == 461\n", encoding="utf-8")
     edges = closure.discover_edges(
@@ -850,8 +877,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR5_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR5_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR6_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR6_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base
@@ -1002,10 +1029,13 @@ def test_each_projection_declares_its_own_integration_event_environment(
             continue
         assert environment["GITHUB_EVENT_NAME"] == fixture.expectation.event_name
         assert environment["GITHUB_SHA"] == fixture.expectation.head
-        assert environment["GITHUB_HEAD_REF"] == fixture.expectation.event_head_ref
+        if fixture.expectation.event_name == topology.EVENT_PULL_REQUEST:
+            assert environment["GITHUB_HEAD_REF"] == fixture.expectation.event_head_ref
     push = seen[topology.TOPOLOGY_MAIN_PUSH]
     assert push["GITHUB_REF"] == f"refs/heads/{topology.MAIN_BRANCH}"
+    # A push event exposes neither pull-request reference.
     assert "GITHUB_BASE_REF" not in push
+    assert "GITHUB_HEAD_REF" not in push
     for kind in (
         topology.TOPOLOGY_PULL_REQUEST_MERGE,
         topology.TOPOLOGY_SHALLOW_PULL_REQUEST,
@@ -1022,7 +1052,8 @@ def test_projection_commands_run_under_the_projection_event(tmp_path: Path) -> N
             "python3",
             "-c",
             "import json, os; print(json.dumps({k: os.environ.get(k) "
-            "for k in ('GITHUB_EVENT_NAME', 'GITHUB_REF', 'GITHUB_SHA')}))",
+            "for k in ('GITHUB_EVENT_NAME', 'GITHUB_REF', 'GITHUB_SHA', "
+            "'GITHUB_HEAD_REF')}))",
         ],
     )
     assert result.returncode == 0
@@ -1030,6 +1061,7 @@ def test_projection_commands_run_under_the_projection_event(tmp_path: Path) -> N
     assert reported["GITHUB_EVENT_NAME"] == topology.EVENT_PUSH
     assert reported["GITHUB_REF"] == f"refs/heads/{topology.MAIN_BRANCH}"
     assert reported["GITHUB_SHA"] == fixture.observation.head
+    assert reported["GITHUB_HEAD_REF"] is None
 
 
 def test_topology_fixture_rejects_a_non_empty_root(tmp_path: Path) -> None:
