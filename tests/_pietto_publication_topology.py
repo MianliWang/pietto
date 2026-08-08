@@ -20,6 +20,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tarfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -158,13 +159,14 @@ def _git_raw(root: Path, *args: str) -> str:
     result = subprocess.run(
         ["git", *args],
         cwd=root,
-        text=True,
         capture_output=True,
         env={**_inherited_environment(), **environment},
     )
     if result.returncode != 0:
-        raise TopologyError(f"git {' '.join(args)} failed: {result.stderr.strip()}")
-    return result.stdout
+        raise TopologyError(
+            f"git {' '.join(args)} failed: {_decoded(result.stderr).strip()}"
+        )
+    return _decoded(result.stdout)
 
 
 def _inherited_environment() -> dict[str, str]:
@@ -179,16 +181,23 @@ def _write(root: Path, relative: str, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def _decoded(payload: bytes) -> str:
+    """Decode Git output the way the filesystem does, preserving stray bytes."""
+
+    return payload.decode(sys.getfilesystemencoding(), "surrogateescape")
+
+
 def _source_output(source: Path, *args: str) -> str:
+    # Git paths are bytes. Decoding strictly would raise before a valid but
+    # undecodable path could even be reported.
     result = subprocess.run(
         ["git", *args],
         cwd=source,
-        text=True,
         capture_output=True,
     )
     if result.returncode != 0:
-        raise TopologyError(f"cannot read {source}: {result.stderr.strip()}")
-    return result.stdout
+        raise TopologyError(f"cannot read {source}: {_decoded(result.stderr).strip()}")
+    return _decoded(result.stdout)
 
 
 def _reserve_sibling(root: Path, suffix: str) -> Path:
@@ -256,6 +265,25 @@ def source_is_dirty(source: Path) -> bool:
 
     added, modified, deleted = source_dirty_paths(source)
     return bool(added or modified or deleted)
+
+
+def _mirror_conversion_config(root: Path, source: Path) -> None:
+    """Copy the source's content-conversion configuration into the projection.
+
+    Git may clean content on the way into a commit. The projection commits the
+    same working-tree bytes, so it must convert them by the same rules or its
+    tree would not be the candidate's tree.
+    """
+
+    for record in _source_output(source, "config", "--list").splitlines():
+        key, separator, value = record.partition("=")
+        if not separator:
+            continue
+        lowered = key.lower()
+        if lowered in ("core.autocrlf", "core.eol", "core.safecrlf") or (
+            lowered.startswith("filter.")
+        ):
+            _git(root, "config", key, value)
 
 
 def _reject_gitlink_source(source: Path) -> None:
@@ -405,14 +433,28 @@ def candidate_entries(source: Path) -> dict[str, tuple[str, str]]:
 
 
 def _directory_entries(root: Path) -> dict[str, tuple[str, str]]:
+    """Return the Git entry of every working-tree path under root.
+
+    Regular files are hashed through Git so the projection's own conversion
+    rules - mirrored from the source - decide the object name, exactly as they
+    would when the candidate is committed.
+    """
+
     observed: dict[str, tuple[str, str]] = {}
     for path in sorted(root.rglob("*")):
         relative = path.relative_to(root)
         if ".git" in relative.parts:
             continue
-        if not path.is_symlink() and not path.is_file():
+        if path.is_symlink():
+            observed[str(relative)] = _entry_of(path)
             continue
-        observed[str(relative)] = _entry_of(path)
+        if not path.is_file():
+            continue
+        oid = _git(root, "hash-object", "--path", str(relative), "--", str(path))
+        if len(oid) != 40:
+            raise TopologyError(f"cannot hash {relative} in {root}")
+        executable = bool(path.stat().st_mode & 0o111)
+        observed[str(relative)] = ("100755" if executable else "100644", oid)
     return observed
 
 
@@ -591,6 +633,7 @@ def _init_base(root: Path, source: Path | None = None, revision: str = "HEAD") -
         # would make every merge and push projection unrecognizable.
         _reject_staged_source(source)
         _reject_gitlink_source(source)
+        _mirror_conversion_config(root, source)
         _git(root, "remote", "add", "origin", str(source))
         _git(
             root,
