@@ -1575,6 +1575,35 @@ def test_journal_refuses_a_refused_repository_probe(
     assert not (repository / "journal.json").exists()
 
 
+def test_source_projection_refuses_a_foreign_object_format(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    created = subprocess.run(
+        [
+            "git",
+            "init",
+            "--quiet",
+            "--initial-branch",
+            "main",
+            "--object-format=sha256",
+        ],
+        cwd=source,
+        capture_output=True,
+        text=True,
+    )
+    if created.returncode != 0:
+        pytest.skip("this Git build cannot create a sha256 repository")
+    (source / "reader.py").write_text("reader\n", encoding="utf-8")
+    _commit_source(source, "first")
+    (source / "reader.py").write_text("reader two\n", encoding="utf-8")
+    with pytest.raises(topology.TopologyError):
+        topology.candidate_entries(source)
+    with pytest.raises(topology.TopologyError):
+        topology.build_topology(
+            topology.TOPOLOGY_CLEAN_TOPIC, tmp_path / "clean", source=source
+        )
+
+
 def test_source_projection_refuses_a_gitlink_source(tmp_path: Path) -> None:
     inner = tmp_path / "inner"
     inner.mkdir()
@@ -2107,8 +2136,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR34_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR34_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR35_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR35_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base

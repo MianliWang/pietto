@@ -353,6 +353,19 @@ def _mirror_conversion_config(root: Path, source: Path) -> None:
             _git(root, "config", key, value)
 
 
+def _reject_foreign_object_format(source: Path) -> None:
+    """Refuse a source whose object names are not the ones this module asserts.
+
+    Every identity here is a forty character SHA-1 object name. A SHA-256
+    repository is a valid Git repository with different names, so it is refused
+    instead of projected under an identity model that does not describe it.
+    """
+
+    reported = _source_output(source, "rev-parse", "--show-object-format").strip()
+    if reported and reported != "sha1":
+        raise TopologyError(f"source uses the {reported} object format: {source}")
+
+
 def _reject_gitlink_source(source: Path) -> None:
     """Refuse a source that carries a gitlink entry.
 
@@ -397,6 +410,7 @@ def _source_working_paths(source: Path) -> tuple[str, ...]:
     reach the projection and the projected tree would not be the candidate.
     """
 
+    _reject_foreign_object_format(source)
     _reject_staged_source(source)
     _reject_gitlink_source(source)
     listed = _source_lines(
@@ -787,6 +801,7 @@ def _init_base(root: Path, source: Path | None = None, revision: str = "HEAD") -
         # Import the real baseline commit instead of re-committing its files:
         # readers assert the exact base object name, and a synthetic identity
         # would make every merge and push projection unrecognizable.
+        _reject_foreign_object_format(source)
         _reject_staged_source(source)
         _reject_gitlink_source(source)
         _mirror_conversion_config(root, source)
