@@ -313,6 +313,23 @@ def condensation_order(graph: ReaderGraph) -> tuple[tuple[str, ...], ...]:
     return tuple(components[position] for position in ordered)
 
 
+def _reject_interacting_rules(rules: Sequence[ReplacementRule]) -> None:
+    """Reject rules whose effects overlap, because their counts are not additive."""
+
+    for rule in rules:
+        for other in rules:
+            if rule is other:
+                continue
+            if rule.old in other.old:
+                raise ClosureError(
+                    f"replacement rule {rule.old!r} overlaps {other.old!r}"
+                )
+            if rule.old in other.new:
+                raise ClosureError(
+                    f"replacement rule {rule.old!r} matches the result of {other.old!r}"
+                )
+
+
 def calculate_replacements(
     *,
     repo_root: Path,
@@ -324,13 +341,18 @@ def calculate_replacements(
 
     if not rules:
         raise ClosureError("a replacement plan requires at least one rule")
+    if not paths:
+        raise ClosureError("a replacement plan requires at least one path")
     seen_old: set[str] = set()
     for rule in rules:
         if rule.old in seen_old:
             raise ClosureError(f"duplicate replacement rule for {rule.old!r}")
         seen_old.add(rule.old)
+    _reject_interacting_rules(rules)
     ordered_paths = tuple(order) if order else tuple(sorted(dict.fromkeys(paths)))
     if order:
+        if len(set(order)) != len(order):
+            raise ClosureError("explicit order must not repeat a path")
         if set(order) != set(paths):
             raise ClosureError("explicit order must cover exactly the supplied paths")
     replacements: list[PathReplacement] = []
@@ -361,8 +383,16 @@ def verify_zero_delta(
     paths: Sequence[str],
     rules: Sequence[ReplacementRule],
 ) -> tuple[str, ...]:
-    """Independently confirm no rule still matches. Empty means closed."""
+    """Independently confirm no rule still matches. Empty means closed.
 
+    An empty path set or an empty rule set is refused: a check that inspected
+    nothing must never be reported as a successful closure.
+    """
+
+    if not paths:
+        raise ClosureError("zero-delta verification requires at least one path")
+    if not rules:
+        raise ClosureError("zero-delta verification requires at least one rule")
     remaining: list[str] = []
     for path in sorted(dict.fromkeys(paths)):
         source = read_source(repo_root, path)
@@ -458,13 +488,22 @@ def main(argv: Sequence[str] | None = None) -> int:
                             }
                             for edge in edges
                         ],
-                        "readers": list(readers_of(edges, arguments.target)),
+                        "readers": list(
+                            readers_of(
+                                edges,
+                                (*arguments.target, *arguments.count_literal),
+                            )
+                        ),
                     },
                     indent=1,
                     sort_keys=True,
                 )
             )
             return 0
+        if arguments.mode == "discover" and not (
+            arguments.target or arguments.count_literal
+        ):
+            raise ClosureError("discovery requires at least one target or literal")
         rules = _parse_rules(arguments.rule)
         if arguments.mode == "plan":
             plan = calculate_replacements(

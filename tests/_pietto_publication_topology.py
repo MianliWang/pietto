@@ -141,14 +141,62 @@ def _write(root: Path, relative: str, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def _init_base(root: Path) -> str:
+def _seed_from_source(root: Path, source: Path) -> None:
+    """Copy one source repository's tracked and untracked working tree into root."""
+
+    listing = subprocess.run(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+        cwd=source,
+        text=True,
+        capture_output=True,
+    )
+    if listing.returncode != 0:
+        raise TopologyError(f"cannot list {source}: {listing.stderr.strip()}")
+    entries = [line for line in listing.stdout.splitlines() if line]
+    if not entries:
+        raise TopologyError(f"source repository has no content: {source}")
+    for relative in entries:
+        origin = source / relative
+        if not origin.is_file():
+            continue
+        destination = root / relative
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(origin.read_bytes())
+
+
+def _init_base(root: Path, source: Path | None = None) -> str:
     root.mkdir(parents=True, exist_ok=True)
     _git(root, "init", "--quiet", "--initial-branch", MAIN_BRANCH)
-    _write(root, "AUTHORITY.md", "# authority\n\nbase\n")
-    _write(root, "reader.txt", "count=1\n")
+    if source is None:
+        _write(root, "AUTHORITY.md", "# authority\n\nbase\n")
+        _write(root, "reader.txt", "count=1\n")
+    else:
+        # Projections built from the real tree let the actual reader set run
+        # inside each checkout; a synthetic repository proves nothing about them.
+        _seed_from_source(root, source)
     _git(root, "add", "-A")
     _git(root, "commit", "--quiet", "-m", BASE_SUBJECT)
     return _git(root, "rev-parse", "HEAD")
+
+
+def run_in_projection(
+    fixture: TopologyFixture,
+    command: Sequence[str],
+) -> subprocess.CompletedProcess[str]:
+    """Run one read-only command inside a built projection and return its result.
+
+    This is the entry point that lets the real topology-sensitive reader set
+    execute under every projection rather than only self-verifying the fixture.
+    """
+
+    if not command:
+        raise TopologyError("a projection command must not be empty")
+    return subprocess.run(
+        list(command),
+        cwd=fixture.root,
+        text=True,
+        capture_output=True,
+    )
 
 
 def _commit(root: Path, subject: str) -> str:
@@ -258,15 +306,24 @@ def verify(
     return tuple(reasons)
 
 
-def build_topology(kind: str, root: Path) -> TopologyFixture:
-    """Build one temporary projection under ``root`` and observe it."""
+def build_topology(
+    kind: str,
+    root: Path,
+    *,
+    source: Path | None = None,
+) -> TopologyFixture:
+    """Build one temporary projection under ``root`` and observe it.
+
+    Supplying ``source`` seeds the projection from that repository's working
+    tree, so the real reader set can run inside the checkout.
+    """
 
     if kind not in TOPOLOGY_KINDS:
         raise TopologyError(f"unknown topology kind: {kind}")
     if root.exists() and any(root.iterdir()):
         raise TopologyError(f"topology root must be empty: {root}")
 
-    base = _init_base(root)
+    base = _init_base(root, source)
     _set_upstream(root, MAIN_BRANCH, base)
     refs: dict[str, str] = {"base": base}
 
@@ -549,12 +606,16 @@ def build_topology(kind: str, root: Path) -> TopologyFixture:
     )
 
 
-def build_all(root: Path) -> tuple[TopologyFixture, ...]:
+def build_all(
+    root: Path,
+    *,
+    source: Path | None = None,
+) -> tuple[TopologyFixture, ...]:
     """Build every standardized projection under one temporary root."""
 
     fixtures: list[TopologyFixture] = []
     for kind in TOPOLOGY_KINDS:
-        fixtures.append(build_topology(kind, root / kind))
+        fixtures.append(build_topology(kind, root / kind, source=source))
     return tuple(fixtures)
 
 

@@ -556,6 +556,73 @@ def test_replacement_plan_is_dry_run_and_writes_nothing(tmp_path: Path) -> None:
     assert '"applied": false' in closure.plan_as_json(plan)
 
 
+def test_zero_delta_verification_refuses_an_empty_check(tmp_path: Path) -> None:
+    (tmp_path / "one.py").write_text("total = 461\n", encoding="utf-8")
+    rules = (closure.ReplacementRule(old="461", new="462"),)
+    with pytest.raises(closure.ClosureError):
+        closure.verify_zero_delta(repo_root=tmp_path, paths=(), rules=rules)
+    with pytest.raises(closure.ClosureError):
+        closure.verify_zero_delta(repo_root=tmp_path, paths=("one.py",), rules=())
+    assert closure.main(["--repo-root", str(tmp_path), "--mode", "verify"]) == 2
+    assert closure.main(["--repo-root", str(tmp_path), "--mode", "discover"]) == 2
+
+
+def test_replacement_plan_rejects_interacting_rules(tmp_path: Path) -> None:
+    (tmp_path / "one.py").write_text("aaa\n", encoding="utf-8")
+    overlapping = (
+        closure.ReplacementRule(old="aa", new="b"),
+        closure.ReplacementRule(old="a", new="c"),
+    )
+    with pytest.raises(closure.ClosureError):
+        closure.calculate_replacements(
+            repo_root=tmp_path, paths=("one.py",), rules=overlapping
+        )
+    chained = (
+        closure.ReplacementRule(old="x", new="y"),
+        closure.ReplacementRule(old="y", new="z"),
+    )
+    with pytest.raises(closure.ClosureError):
+        closure.calculate_replacements(
+            repo_root=tmp_path, paths=("one.py",), rules=chained
+        )
+    with pytest.raises(closure.ClosureError):
+        closure.calculate_replacements(
+            repo_root=tmp_path,
+            paths=("one.py",),
+            rules=(closure.ReplacementRule(old="aaa", new="b"),),
+            order=("one.py", "one.py"),
+        )
+    with pytest.raises(closure.ClosureError):
+        closure.calculate_replacements(
+            repo_root=tmp_path,
+            paths=(),
+            rules=(closure.ReplacementRule(old="aaa", new="b"),),
+        )
+
+
+def test_discovery_summary_includes_count_literal_readers(tmp_path: Path) -> None:
+    (tmp_path / "counts.py").write_text("assert total == 461\n", encoding="utf-8")
+    edges = closure.discover_edges(
+        repo_root=tmp_path, universe=("counts.py",), count_literals=("== 461",)
+    )
+    assert closure.readers_of(edges, ("== 461",)) == ("counts.py",)
+    assert (
+        closure.main(
+            [
+                "--repo-root",
+                str(tmp_path),
+                "--mode",
+                "discover",
+                "--path",
+                "counts.py",
+                "--count-literal",
+                "== 461",
+            ]
+        )
+        == 0
+    )
+
+
 def test_zero_delta_verification_is_independent_of_the_plan(tmp_path: Path) -> None:
     source = tmp_path / "one.py"
     source.write_text("total = 461\n", encoding="utf-8")
@@ -741,6 +808,35 @@ def test_wrong_parent_reference_tree_shallow_and_event_are_rejected(
     )
     for name, corrupted in variants:
         assert topology.verify(fixture.observation, corrupted), name
+
+
+def test_projections_can_be_built_from_a_real_repository_and_run_commands(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "--quiet"], cwd=source, check=True)
+    (source / "marker.txt").write_text("real content\n", encoding="utf-8")
+    (source / "nested").mkdir()
+    (source / "nested" / "reader.txt").write_text("count=1\n", encoding="utf-8")
+    fixture = topology.build_topology(
+        topology.TOPOLOGY_CLEAN_TOPIC, tmp_path / "projected", source=source
+    )
+    assert (fixture.root / "marker.txt").read_text("utf-8") == "real content\n"
+    assert (fixture.root / "nested" / "reader.txt").is_file()
+    assert not (fixture.root / "reader.txt").is_file()
+    result = topology.run_in_projection(fixture, ["git", "rev-parse", "HEAD"])
+    assert result.returncode == 0
+    assert result.stdout.strip() == fixture.observation.head
+    with pytest.raises(topology.TopologyError):
+        topology.run_in_projection(fixture, [])
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    subprocess.run(["git", "init", "--quiet"], cwd=empty, check=True)
+    with pytest.raises(topology.TopologyError):
+        topology.build_topology(
+            topology.TOPOLOGY_CLEAN_TOPIC, tmp_path / "fromempty", source=empty
+        )
 
 
 def test_topology_fixture_rejects_a_non_empty_root(tmp_path: Path) -> None:
