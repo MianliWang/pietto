@@ -1666,6 +1666,66 @@ def test_source_projection_defaults_a_missing_filemode(tmp_path: Path) -> None:
     assert topology.verify(fixture.observation, fixture.expectation) == ()
 
 
+def test_source_projection_allows_a_symbolic_path_to_the_repository(
+    tmp_path: Path,
+) -> None:
+    real = tmp_path / "real"
+    real.mkdir()
+    source = real / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=source)
+    (source / "reader.py").write_text("reader\n", encoding="utf-8")
+    _commit_source(source, "first")
+    (source / "reader.py").write_text("reader two\n", encoding="utf-8")
+    link = tmp_path / "link"
+    link.symlink_to(real, target_is_directory=True)
+
+    linked = link / "source"
+    assert topology.candidate_entries(linked).keys() == {"reader.py"}
+    fixture = topology.build_topology(
+        topology.TOPOLOGY_CLEAN_TOPIC, tmp_path / "clean", source=linked
+    )
+    assert topology.verify(fixture.observation, fixture.expectation) == ()
+
+
+def test_source_projection_refuses_a_nested_repository(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=source)
+    (source / "reader.py").write_text("reader\n", encoding="utf-8")
+    _commit_source(source, "first")
+    nested = source / "nested"
+    nested.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=nested)
+    (nested / "inner.py").write_text("inner\n", encoding="utf-8")
+    _commit_source(nested, "inner")
+
+    with pytest.raises(topology.TopologyError):
+        topology.candidate_entries(source)
+    with pytest.raises(topology.TopologyError):
+        topology.build_topology(
+            topology.TOPOLOGY_CLEAN_TOPIC, tmp_path / "clean", source=source
+        )
+
+
+def test_observation_rejects_a_sibling_branch_switch(tmp_path: Path) -> None:
+    fixture = topology.build_topology(topology.TOPOLOGY_CLEAN_TOPIC, tmp_path / "clean")
+    assert fixture.observation.branch == topology.TOPIC_BRANCH
+    subprocess.run(
+        ["git", "checkout", "-q", "-b", "sibling"], cwd=fixture.root, check=True
+    )
+    moved = topology.observe(
+        fixture.root,
+        event_name=topology.EVENT_LOCAL,
+        event_head_ref="",
+        event_base_ref="",
+        base_ref=f"refs/heads/{topology.MAIN_BRANCH}",
+    )
+    # The same commit under another ref is a different repository state.
+    assert moved.branch == "sibling"
+    assert topology.verify(moved, fixture.expectation) != ()
+
+
 def test_source_projection_refuses_a_gitlink_source(tmp_path: Path) -> None:
     inner = tmp_path / "inner"
     inner.mkdir()
@@ -2198,8 +2258,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR37_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR37_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR38_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR38_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base

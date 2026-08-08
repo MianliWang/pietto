@@ -424,9 +424,11 @@ def _source_working_paths(source: Path) -> tuple[str, ...]:
 
     def _blocked(relative: str) -> bool:
         # A symbolic or non-directory ancestor removes the entry from the tree,
-        # so it must never make a deleted path look present.
+        # so it must never make a deleted path look present. Only components
+        # inside the repository are Git entries; the path to the repository is
+        # the caller's and may legitimately cross a link.
         for ancestor in reversed((source / relative).parents):
-            if ancestor == source:
+            if ancestor == source or source not in ancestor.parents:
                 continue
             if ancestor.is_symlink() or (ancestor.exists() and not ancestor.is_dir()):
                 return True
@@ -453,6 +455,12 @@ def _source_working_paths(source: Path) -> tuple[str, ...]:
     # A tracked path may be deleted, or replaced by a directory that now holds
     # new entries. Both are trees Git can represent. Only an entry that exists
     # as something else entirely - a device or socket - is refused.
+    nested = tuple(relative for relative in listed if relative.endswith("/"))
+    if nested:
+        # ``ls-files --others`` reports an untracked nested repository as a
+        # directory entry. Adding it would record a gitlink this module does
+        # not model, so the source is refused instead.
+        raise TopologyError(f"source contains a nested repository: {nested[:5]}")
     kept = set(entries)
     unusable = tuple(
         relative
@@ -981,7 +989,12 @@ def observe(
             raise TopologyError(
                 f"unrecognized worktree status {worktree_status}: {path}"
             )
-    if _git(root, "rev-parse", "HEAD") != head:
+    if (
+        _git(root, "rev-parse", "HEAD") != head
+        or _git(root, "rev-parse", "--abbrev-ref", "HEAD") != branch
+    ):
+        # Both the object name and the symbolic identity must still hold: a
+        # sibling branch at the same commit is a different repository state.
         raise TopologyError(f"head moved while observing {root}")
     return TopologyObservation(
         branch=branch,
