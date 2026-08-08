@@ -1805,11 +1805,48 @@ def test_observation_accepts_stable_shallow_and_complete_states(
 
 
 def test_observation_rejects_a_revealed_parent_line(tmp_path: Path) -> None:
-    fixture = topology.build_topology(
-        topology.TOPOLOGY_SHALLOW_PULL_REQUEST, tmp_path / "shallow"
+    # Deepening can only reveal a parent when the origin actually holds one, so
+    # this fixture carries its own history. The ambient repository is a
+    # depth-one checkout under integration, and anchoring to it would leave
+    # nothing to reveal and silently stop exercising the window.
+    origin = tmp_path / "origin"
+    origin.mkdir()
+    environment = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "Pietto",
+        "GIT_AUTHOR_EMAIL": "pietto@pietto.invalid",
+        "GIT_COMMITTER_NAME": "Pietto",
+        "GIT_COMMITTER_EMAIL": "pietto@pietto.invalid",
+    }
+
+    def _run(root: Path, *args: str) -> None:
+        subprocess.run(
+            ["git", *args],
+            cwd=root,
+            check=True,
+            capture_output=True,
+            env=environment,
+        )
+
+    _run(origin, "init", "--quiet", "--initial-branch", "main", ".")
+    for index in range(3):
+        (origin / f"record{index}.txt").write_text(f"{index}\n", encoding="utf-8")
+        _run(origin, "add", "-A")
+        _run(origin, "commit", "--quiet", "-m", f"Record {index}")
+    shallow = tmp_path / "shallow"
+    # A local path clone ignores --depth, so the origin is addressed as a URL.
+    subprocess.run(
+        ["git", "clone", "--quiet", "--depth", "1", origin.as_uri(), str(shallow)],
+        check=True,
+        capture_output=True,
+        env=environment,
     )
-    assert fixture.observation.head_parents == ()
+
     original = topology._git
+    assert original(shallow, "rev-parse", "--is-shallow-repository") == "true"
+    assert (
+        original(shallow, "rev-list", "--parents", "-n", "1", "HEAD").split()[1:] == []
+    )
     seen: list[int] = []
 
     def _deepening(root: Path, *args: str) -> str:
@@ -1826,15 +1863,18 @@ def test_observation_rejects_a_revealed_parent_line(tmp_path: Path) -> None:
     try:
         with pytest.raises(topology.TopologyError):
             topology.observe(
-                fixture.root,
-                event_name=topology.EVENT_PULL_REQUEST,
-                event_head_ref=topology.TOPIC_BRANCH,
-                event_base_ref=topology.MAIN_BRANCH,
+                shallow,
+                event_name=topology.EVENT_LOCAL,
+                event_head_ref="",
+                event_base_ref="",
                 base_ref="",
             )
     finally:
         topology._git = original
-    assert original(fixture.root, "rev-parse", "--is-shallow-repository") == "true"
+    assert original(shallow, "rev-parse", "--is-shallow-repository") == "true"
+    assert (
+        original(shallow, "rev-list", "--parents", "-n", "1", "HEAD").split()[1:] != []
+    )
     assert len(seen) == 2
 
 
@@ -2632,7 +2672,9 @@ def test_clean_topic_predicate_rejects_a_replaced_tree(tmp_path: Path) -> None:
     shapes = active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_CHILD_SHAPES
     trees = active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_PUBLISHED_TREES
     assert len(shapes) == len({base for base, _ in shapes})
-    assert len(shapes) == len({child for _, child in shapes})
+    # A repair publishes successive children under one subject, so the shape,
+    # not the subject alone, is what must stay unique.
+    assert len(shapes) == len(set(shapes))
     assert len(trees) == len(set(trees))
     assert all(len(tree) == 40 for tree in trees)
     assert active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_TREE == trees[0]
@@ -2650,13 +2692,15 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR42_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR42_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_GENERATION2_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base
         assert re.fullmatch(r"[0-9a-f]{40}", tree), tree
-        assert subject.startswith(("Add Pietto workflow", "Fix Pietto workflow"))
+        assert subject.startswith(
+            ("Add Pietto workflow", "Fix Pietto workflow", "Repair Pietto workflow")
+        )
 
 
 def test_clean_topic_rejects_a_published_tree_grafted_onto_another_shape(

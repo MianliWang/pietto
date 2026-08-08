@@ -120,6 +120,9 @@ PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_BRANCH = (
 PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_SUBJECT = (
     "Repair Pietto workflow hardening post-merge findings"
 )
+PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_GENERATION2_BASE = (
+    "15e46551c4fcc55b6143f663daa1d84fe847eaeb"
+)
 PHASE54_POST_SLICE12_INTERLUDE_BASE = "bd6bdcf17361b11d3067beec534432d37ffe6f05"
 PHASE54_POST_SLICE12_INTERLUDE_BRANCH = "phase54/post-slice12-workflow-hardening"
 PHASE54_POST_SLICE12_INTERLUDE_SUBJECT = "Add Pietto workflow convergence tooling"
@@ -349,6 +352,11 @@ PHASE54_POST_SLICE12_INTERLUDE_CHILD_IDENTITIES: tuple[tuple[str, str, str], ...
         "Fix Pietto workflow convergence filemode default and worktree records",
         "d743c927d5d4c1356d4e00ef5badd4af0c3fbcb3",
     ),
+    (
+        "f280bd7c21ffbf8354356f1e1b7391beb52cd911",
+        "Repair Pietto workflow hardening post-merge findings",
+        "269e67d516a3702b7afc849b80cd58ead458a771",
+    ),
 )
 # A commit cannot name its own tree inside that tree, so exactly one shape - the
 # newest child - is unregistered and must prove its tree through the canonical
@@ -356,7 +364,7 @@ PHASE54_POST_SLICE12_INTERLUDE_CHILD_IDENTITIES: tuple[tuple[str, str, str], ...
 # interlude's final child was published, so its reviewed tree is now knowable
 # and the self-certifying shape moves to the post-merge repair child.
 PHASE54_POST_SLICE12_INTERLUDE_UNREGISTERED_CHILD_SHAPE: tuple[str, str] = (
-    PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_BASE,
+    PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_GENERATION2_BASE,
     PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_SUBJECT,
 )
 PHASE54_POST_SLICE12_INTERLUDE_PUBLISHED_TREES: tuple[str, ...] = tuple(
@@ -2529,6 +2537,16 @@ PHASE54_POST_SLICE12_INTERLUDE_ALLOWLIST_PATHS = frozenset(
     PHASE54_POST_SLICE12_INTERLUDE_ADDED_PATHS
     | PHASE54_POST_SLICE12_INTERLUDE_MODIFIED_PATHS
 )
+PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_GENERATION2_MODIFIED_PATHS = frozenset(
+    {
+        "tests/_phase54_active_gate2_manifest.py",
+        "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
+        "tests/test_phase53_multiple_window_outputs_final_order_alias_downstream_schema_lineage_contract.py",
+        "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+        "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
+        "tests/test_phase54_post_slice12_workflow_hardening.py",
+    }
+)
 PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_ADDED_PATHS: frozenset[str] = frozenset()
 PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_MODIFIED_PATHS = frozenset(
     {
@@ -3584,8 +3602,19 @@ def _matches_phase54_active_gate2_manifest(
         == PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_MODIFIED_PATHS
         and state.deleted_paths == frozenset()
     )
+    post_slice12_post_merge_repair1_generation2 = (
+        state.branch_oid == PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_GENERATION2_BASE
+        and state.branch_head == PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_BRANCH
+        and state.branch_upstream
+        == f"origin/{PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_BRANCH}"
+        and state.added_paths == PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_ADDED_PATHS
+        and state.modified_paths
+        == PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_GENERATION2_MODIFIED_PATHS
+        and state.deleted_paths == frozenset()
+    )
     return common and (
-        post_slice12_post_merge_repair1
+        post_slice12_post_merge_repair1_generation2
+        or post_slice12_post_merge_repair1
         or post_slice12_interlude
         or post_slice12_interlude_repair1
         or post_slice12_interlude_repair2
@@ -4575,10 +4604,15 @@ def _phase54_post_slice12_interlude_publication_identity_matches(
     """
 
     squash = (
-        parents == (PHASE54_POST_SLICE12_INTERLUDE_BASE,)
-        and subject == PHASE54_POST_SLICE12_INTERLUDE_SUBJECT
-        and _phase54_post_slice12_interlude_message_declares_tree(message, tree)
-    )
+        (
+            parents == (PHASE54_POST_SLICE12_INTERLUDE_BASE,)
+            and subject == PHASE54_POST_SLICE12_INTERLUDE_SUBJECT
+        )
+        or (
+            parents == (PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_BASE,)
+            and subject == PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_SUBJECT
+        )
+    ) and _phase54_post_slice12_interlude_message_declares_tree(message, tree)
     for (
         child_base,
         child_subject,
@@ -5400,6 +5434,24 @@ def phase54_post_slice12_interlude_repair42_is_active() -> bool:
     )
 
 
+def phase54_post_slice12_post_merge_repair1_generation2_is_active() -> bool:
+    """Recognize only the exact second post-merge repair generation overlay."""
+
+    try:
+        state = _read_phase54_gate2_repository_state()
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+    return (
+        _matches_phase54_active_gate2_manifest(state)
+        and state.branch_oid == PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_GENERATION2_BASE
+        and state.branch_head == PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_BRANCH
+        and state.added_paths == PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_ADDED_PATHS
+        and state.modified_paths
+        == PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_GENERATION2_MODIFIED_PATHS
+        and state.deleted_paths == frozenset()
+    )
+
+
 def phase54_post_slice12_post_merge_repair1_is_active() -> bool:
     """Recognize only the exact post-merge mechanical repair dirty overlay.
 
@@ -5427,7 +5479,8 @@ def phase54_post_slice12_interlude_repair_is_active() -> bool:
     """Recognize any interlude repair-generation overlay on the topic branch."""
 
     return (
-        phase54_post_slice12_interlude_repair1_is_active()
+        phase54_post_slice12_post_merge_repair1_generation2_is_active()
+        or phase54_post_slice12_interlude_repair1_is_active()
         or phase54_post_slice12_interlude_repair2_is_active()
         or phase54_post_slice12_interlude_repair3_is_active()
         or phase54_post_slice12_interlude_repair4_is_active()
@@ -5480,9 +5533,9 @@ def _phase54_post_slice12_post_merge_repair_is_the_open_generation() -> bool:
     validating, so nothing here reads the repository.
     """
 
-    return PHASE54_POST_SLICE12_INTERLUDE_UNREGISTERED_CHILD_SHAPE == (
-        PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_BASE,
-        PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_SUBJECT,
+    return (
+        PHASE54_POST_SLICE12_INTERLUDE_UNREGISTERED_CHILD_SHAPE[1]
+        == PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_SUBJECT
     )
 
 
@@ -5509,6 +5562,8 @@ def phase54_post_slice12_interlude_expected_topic_base() -> str:
 def phase54_post_slice12_interlude_expected_head() -> str:
     """Return the exact head the active interlude overlay must show."""
 
+    if phase54_post_slice12_post_merge_repair1_generation2_is_active():
+        return PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_GENERATION2_BASE
     if phase54_post_slice12_post_merge_repair1_is_active():
         return PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_BASE
     if phase54_post_slice12_interlude_repair42_is_active():
@@ -5602,7 +5657,8 @@ def phase54_post_slice12_interlude_dirty_is_active() -> bool:
     """Recognize any interlude dirty overlay: initial candidate or repair child."""
 
     return (
-        phase54_post_slice12_post_merge_repair1_is_active()
+        phase54_post_slice12_post_merge_repair1_generation2_is_active()
+        or phase54_post_slice12_post_merge_repair1_is_active()
         or phase54_post_slice12_interlude_is_active()
         or phase54_post_slice12_interlude_repair1_is_active()
         or phase54_post_slice12_interlude_repair2_is_active()
@@ -5652,6 +5708,8 @@ def phase54_post_slice12_interlude_dirty_is_active() -> bool:
 def phase54_post_slice12_interlude_expected_modified_paths() -> frozenset[str]:
     """Return the exact modified set the active interlude overlay must show."""
 
+    if phase54_post_slice12_post_merge_repair1_generation2_is_active():
+        return PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_GENERATION2_MODIFIED_PATHS
     if phase54_post_slice12_post_merge_repair1_is_active():
         return PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_MODIFIED_PATHS
     if phase54_post_slice12_interlude_repair42_is_active():
@@ -5744,6 +5802,8 @@ def phase54_post_slice12_interlude_expected_modified_paths() -> frozenset[str]:
 def phase54_post_slice12_interlude_expected_added_paths() -> frozenset[str]:
     """Return the exact untracked set the active interlude overlay must show."""
 
+    if phase54_post_slice12_post_merge_repair1_generation2_is_active():
+        return PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_ADDED_PATHS
     if phase54_post_slice12_post_merge_repair1_is_active():
         return PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_ADDED_PATHS
     if phase54_post_slice12_interlude_repair_is_active():
