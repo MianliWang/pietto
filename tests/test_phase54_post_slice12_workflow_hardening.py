@@ -1708,6 +1708,35 @@ def test_source_projection_refuses_a_nested_repository(tmp_path: Path) -> None:
         )
 
 
+def test_observation_rejects_a_moving_working_state(tmp_path: Path) -> None:
+    fixture = topology.build_topology(topology.TOPOLOGY_DIRTY_GATE2, tmp_path / "dirty")
+    assert topology.verify(fixture.observation, fixture.expectation) == ()
+    original = topology._git_raw
+    calls: list[int] = []
+
+    def _moving(root: Path, *args: str) -> str:
+        result = original(root, *args)
+        if args[:1] == ("status",):
+            calls.append(len(calls))
+            if len(calls) == 2:
+                (root / "late.md").write_text("late\n", encoding="utf-8")
+                return original(root, *args)
+        return result
+
+    topology._git_raw = _moving
+    try:
+        with pytest.raises(topology.TopologyError):
+            topology.observe(
+                fixture.root,
+                event_name=topology.EVENT_LOCAL,
+                event_head_ref="",
+                event_base_ref="",
+                base_ref=f"refs/remotes/origin/{topology.MAIN_BRANCH}",
+            )
+    finally:
+        topology._git_raw = original
+
+
 def test_observation_rejects_a_sibling_branch_switch(tmp_path: Path) -> None:
     fixture = topology.build_topology(topology.TOPOLOGY_CLEAN_TOPIC, tmp_path / "clean")
     assert fixture.observation.branch == topology.TOPIC_BRANCH
@@ -2258,8 +2287,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR38_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR38_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR39_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR39_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base

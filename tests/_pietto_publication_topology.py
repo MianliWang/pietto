@@ -961,7 +961,8 @@ def observe(
     staged: list[str] = []
     # NUL separated records keep the exact path: the line oriented form quotes
     # any path containing a newline, a tab, or a non-ASCII byte.
-    status = _git_raw(root, "status", "--porcelain=v2", "-z", "--untracked-files=all")
+    status_arguments = ("status", "--porcelain=v2", "-z", "--untracked-files=all")
+    status = _git_raw(root, *status_arguments)
     for line in (record for record in status.split("\0") if record):
         if line.startswith(("# ", "! ")):
             continue
@@ -992,10 +993,12 @@ def observe(
     if (
         _git(root, "rev-parse", "HEAD") != head
         or _git(root, "rev-parse", "--abbrev-ref", "HEAD") != branch
+        or _git_raw(root, *status_arguments) != status
     ):
-        # Both the object name and the symbolic identity must still hold: a
-        # sibling branch at the same commit is a different repository state.
-        raise TopologyError(f"head moved while observing {root}")
+        # The object name, the symbolic identity, and the working state must all
+        # still hold: any of them changing means these facts never described one
+        # repository state.
+        raise TopologyError(f"repository moved while observing {root}")
     return TopologyObservation(
         branch=branch,
         head=head,
