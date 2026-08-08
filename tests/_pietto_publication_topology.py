@@ -14,7 +14,9 @@ declared field matches exactly.
 
 from __future__ import annotations
 
+import io
 import subprocess
+import tarfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -55,6 +57,11 @@ MAIN_BRANCH = "main"
 BASE_SUBJECT = "Base commit"
 TOPIC_SUBJECT = "Add Pietto workflow convergence tooling"
 REPAIR_SUBJECT = "Fix Pietto workflow convergence tooling"
+
+_SYNTHETIC_CANDIDATE: Mapping[str, str] = {
+    "AUTHORITY.md": "# authority\n\nbase\ncandidate\n",
+    "added.md": "# added\n",
+}
 
 _FIXED_IDENTITY: Mapping[str, str] = {
     "GIT_AUTHOR_NAME": "Pietto Topology Fixture",
@@ -150,20 +157,74 @@ def _write(root: Path, relative: str, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def _seed_from_source(root: Path, source: Path) -> None:
-    """Copy one source repository's tracked and untracked working tree into root."""
-
-    listing = subprocess.run(
-        ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+def _source_output(source: Path, *args: str) -> str:
+    result = subprocess.run(
+        ["git", *args],
         cwd=source,
         text=True,
         capture_output=True,
     )
-    if listing.returncode != 0:
-        raise TopologyError(f"cannot list {source}: {listing.stderr.strip()}")
-    entries = [line for line in listing.stdout.splitlines() if line]
+    if result.returncode != 0:
+        raise TopologyError(f"cannot read {source}: {result.stderr.strip()}")
+    return result.stdout
+
+
+def _source_working_paths(source: Path) -> tuple[str, ...]:
+    listing = _source_output(
+        source, "ls-files", "--cached", "--others", "--exclude-standard"
+    )
+    entries = tuple(line for line in listing.splitlines() if line)
     if not entries:
         raise TopologyError(f"source repository has no content: {source}")
+    return entries
+
+
+def source_dirty_paths(source: Path) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Return one source repository's (added, modified) uncommitted paths."""
+
+    modified = tuple(
+        sorted(
+            line
+            for line in _source_output(source, "diff", "--name-only").split("\n")
+            if line
+        )
+    )
+    added = tuple(
+        sorted(
+            line
+            for line in _source_output(
+                source, "ls-files", "--others", "--exclude-standard"
+            ).split("\n")
+            if line
+        )
+    )
+    return added, modified
+
+
+def _seed_committed_tree(root: Path, source: Path) -> None:
+    """Materialize one source repository's committed HEAD tree, byte for byte."""
+
+    archive = subprocess.run(
+        ["git", "archive", "--format=tar", "HEAD"],
+        cwd=source,
+        capture_output=True,
+    )
+    if archive.returncode != 0:
+        raise TopologyError(
+            f"cannot archive {source}: {archive.stderr.decode('utf-8', 'replace').strip()}"
+        )
+    if not archive.stdout:
+        raise TopologyError(f"source repository has no content: {source}")
+    root.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(fileobj=io.BytesIO(archive.stdout)) as bundle:
+        bundle.extractall(root, filter="data")
+
+
+def _seed_working_tree(root: Path, source: Path) -> None:
+    """Make root's content exactly one source repository's working tree."""
+
+    entries = _source_working_paths(source)
+    wanted = set(entries)
     for relative in entries:
         origin = source / relative
         if not origin.is_file():
@@ -171,6 +232,28 @@ def _seed_from_source(root: Path, source: Path) -> None:
         destination = root / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(origin.read_bytes())
+    for existing in sorted(root.rglob("*")):
+        if not existing.is_file() or ".git" in existing.relative_to(root).parts:
+            continue
+        if str(existing.relative_to(root)) not in wanted:
+            existing.unlink()
+
+
+def _apply_candidate(
+    root: Path, source: Path | None, synthetic: Mapping[str, str]
+) -> None:
+    """Write one candidate state: synthetic edits, or the real working tree.
+
+    A source-backed projection must carry the exact publication candidate tree.
+    Adding synthetic files on top of real content would move every repository
+    inventory a real reader asserts, so the two modes never mix.
+    """
+
+    if source is None:
+        for relative, text in synthetic.items():
+            _write(root, relative, text)
+        return
+    _seed_working_tree(root, source)
 
 
 def _init_base(root: Path, source: Path | None = None) -> str:
@@ -180,9 +263,9 @@ def _init_base(root: Path, source: Path | None = None) -> str:
         _write(root, "AUTHORITY.md", "# authority\n\nbase\n")
         _write(root, "reader.txt", "count=1\n")
     else:
-        # Projections built from the real tree let the actual reader set run
-        # inside each checkout; a synthetic repository proves nothing about them.
-        _seed_from_source(root, source)
+        # The base of a source-backed projection is that repository's committed
+        # HEAD tree; every candidate below is its working tree.
+        _seed_committed_tree(root, source)
     _git(root, "add", "-A")
     _git(root, "commit", "--quiet", "-m", BASE_SUBJECT)
     return _git(root, "rev-parse", "HEAD")
@@ -245,9 +328,14 @@ def run_in_projection(
     )
 
 
-def _commit(root: Path, subject: str) -> str:
+def _commit(root: Path, subject: str, *, allow_empty: bool = False) -> str:
     _git(root, "add", "-A")
-    _git(root, "commit", "--quiet", "-m", subject)
+    arguments = ["commit", "--quiet", "-m", subject]
+    if allow_empty:
+        # A source-backed candidate may carry the same tree as its base. The
+        # projection still needs the commit, because its shape is the subject.
+        arguments.insert(1, "--allow-empty")
+    _git(root, *arguments)
     return _git(root, "rev-parse", "HEAD")
 
 
@@ -360,8 +448,10 @@ def build_topology(
 ) -> TopologyFixture:
     """Build one temporary projection under ``root`` and observe it.
 
-    Supplying ``source`` seeds the projection from that repository's working
-    tree, so the real reader set can run inside the checkout.
+    Supplying ``source`` builds the base from that repository's committed HEAD
+    tree and every candidate from its working tree, so the projected tree is
+    exactly the publication candidate tree and the real reader set can run
+    inside the checkout without any synthetic file moving an inventory.
     """
 
     if kind not in TOPOLOGY_KINDS:
@@ -374,8 +464,12 @@ def build_topology(
     refs: dict[str, str] = {"base": base}
 
     if kind == TOPOLOGY_DIRTY_GATE2:
-        _write(root, "AUTHORITY.md", "# authority\n\nbase\ncandidate\n")
-        _write(root, "added.md", "# added\n")
+        _apply_candidate(root, source, _SYNTHETIC_CANDIDATE)
+        dirty_added, dirty_modified = (
+            (("added.md",), ("AUTHORITY.md",))
+            if source is None
+            else source_dirty_paths(source)
+        )
         observation = observe(
             root,
             event_name=EVENT_LOCAL,
@@ -394,8 +488,8 @@ def build_topology(
             event_name=EVENT_LOCAL,
             event_head_ref="",
             event_base_ref="",
-            added_paths=("added.md",),
-            modified_paths=("AUTHORITY.md",),
+            added_paths=dirty_added,
+            modified_paths=dirty_modified,
         )
         return TopologyFixture(
             kind=kind,
@@ -406,9 +500,8 @@ def build_topology(
         )
 
     _git(root, "checkout", "--quiet", "-b", TOPIC_BRANCH)
-    _write(root, "AUTHORITY.md", "# authority\n\nbase\ncandidate\n")
-    _write(root, "added.md", "# added\n")
-    topic = _commit(root, TOPIC_SUBJECT)
+    _apply_candidate(root, source, _SYNTHETIC_CANDIDATE)
+    topic = _commit(root, TOPIC_SUBJECT, allow_empty=source is not None)
     _set_upstream(root, TOPIC_BRANCH, topic)
     refs["topic"] = topic
     topic_tree = _git(root, "rev-parse", "HEAD^{tree}")
@@ -442,8 +535,8 @@ def build_topology(
         )
 
     if kind == TOPOLOGY_REPAIR_CHILD:
-        _write(root, "reader.txt", "count=2\n")
-        repair = _commit(root, REPAIR_SUBJECT)
+        _apply_candidate(root, source, {"reader.txt": "count=2\n"})
+        repair = _commit(root, REPAIR_SUBJECT, allow_empty=source is not None)
         _set_upstream(root, TOPIC_BRANCH, repair)
         refs["repair"] = repair
         observation = observe(

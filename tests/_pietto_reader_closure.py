@@ -75,6 +75,12 @@ class ReplacementRule:
             raise ClosureError("replacement rule requires a non-empty old literal")
         if self.old == self.new:
             raise ClosureError(f"replacement rule is a no-op: {self.old!r}")
+        if self.old in self.new:
+            # The result would still match the rule, so no application of it can
+            # ever reach zero delta and the plan is unachievable by construction.
+            raise ClosureError(
+                f"replacement rule {self.old!r} survives in its own result {self.new!r}"
+            )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
