@@ -1218,6 +1218,36 @@ def test_source_projection_applies_the_source_clean_rules(tmp_path: Path) -> Non
         assert topology.verify(fixture.observation, fixture.expectation) == (), kind
 
 
+def test_candidate_entries_keep_an_undecodable_link_target(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=source)
+    target = os.fsdecode(b"target-\xff")
+    (source / target).write_text("target\n", encoding="utf-8")
+    (source / "reader.py").write_text("reader\n", encoding="utf-8")
+    _commit_source(source, "first")
+    (source / "link").symlink_to(target)
+
+    entries = topology.candidate_entries(source)
+    assert entries["link"][0] == "120000"
+    staged = (
+        subprocess.run(
+            ["git", "hash-object", "--stdin"],
+            input=os.fsencode(target),
+            cwd=source,
+            check=True,
+            capture_output=True,
+        )
+        .stdout.decode("ascii")
+        .strip()
+    )
+    assert entries["link"][1] == staged
+    fixture = topology.build_topology(
+        topology.TOPOLOGY_CLEAN_TOPIC, tmp_path / "clean", source=source
+    )
+    assert os.readlink(fixture.root / "link") == target
+
+
 def test_source_projection_keeps_an_undecodable_path(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
@@ -1235,6 +1265,33 @@ def test_source_projection_keeps_an_undecodable_path(tmp_path: Path) -> None:
     )
     assert (fixture.root / awkward).read_text("utf-8") == "# awkward\n"
     assert topology.verify(fixture.observation, fixture.expectation) == ()
+
+
+def test_projection_ignores_inherited_repository_location(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    victim = tmp_path / "victim"
+    victim.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=victim)
+    (victim / "kept.py").write_text("kept\n", encoding="utf-8")
+    subprocess.run(["git", "add", "-A"], cwd=victim, check=True)
+    subprocess.run(
+        ["git", "-c", "user.name=T", "-c", "user.email=t@x", "commit", "-q", "-m", "b"],
+        cwd=victim,
+        check=True,
+    )
+    victim_head = _source_revision(victim, "HEAD")
+    monkeypatch.setenv("GIT_DIR", str(victim / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(victim))
+    monkeypatch.setenv("GIT_INDEX_FILE", str(victim / ".git" / "index"))
+
+    assert "GIT_DIR" in topology.local_git_variables()
+    fixture = topology.build_topology(topology.TOPOLOGY_CLEAN_TOPIC, tmp_path / "clean")
+    assert topology.verify(fixture.observation, fixture.expectation) == ()
+    assert _source_revision(victim, "HEAD") == victim_head
+    assert sorted(entry.name for entry in victim.iterdir()) == [".git", "kept.py"]
+    reported = topology.run_in_projection(fixture, ["git", "rev-parse", "HEAD"])
+    assert reported.stdout.strip() == fixture.observation.head
 
 
 def test_source_projection_refuses_a_gitlink_source(tmp_path: Path) -> None:
@@ -1769,8 +1826,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR28_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR28_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR29_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR29_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base

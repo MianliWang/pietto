@@ -169,10 +169,44 @@ def _git_raw(root: Path, *args: str) -> str:
     return _decoded(result.stdout)
 
 
-def _inherited_environment() -> dict[str, str]:
-    import os
+_FALLBACK_LOCAL_GIT_VARIABLES: tuple[str, ...] = (
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CEILING_DIRECTORIES",
+    "GIT_COMMON_DIR",
+    "GIT_DIR",
+    "GIT_GRAFT_FILE",
+    "GIT_INDEX_FILE",
+    "GIT_NAMESPACE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_WORK_TREE",
+)
 
-    return dict(os.environ)
+
+def local_git_variables() -> tuple[str, ...]:
+    """Return the environment variables that relocate a Git repository."""
+
+    result = subprocess.run(
+        ["git", "rev-parse", "--local-env-vars"],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        return _FALLBACK_LOCAL_GIT_VARIABLES
+    reported = tuple(name for name in _decoded(result.stdout).split() if name)
+    return reported or _FALLBACK_LOCAL_GIT_VARIABLES
+
+
+def _inherited_environment() -> dict[str, str]:
+    """Return the caller environment without any repository relocation.
+
+    ``GIT_DIR`` and its relatives override the working directory, so inheriting
+    them would make a fixture command operate on the caller's repository
+    instead of the projection.
+    """
+
+    environment = dict(os.environ)
+    for name in local_git_variables():
+        environment.pop(name, None)
+    return environment
 
 
 def _write(root: Path, relative: str, text: str) -> None:
@@ -384,7 +418,8 @@ def _entry_of(path: Path) -> tuple[str, str]:
     """Return one path's exact Git entry: its mode and its blob object name."""
 
     if path.is_symlink():
-        return "120000", _blob_oid(os.readlink(path).encode("utf-8"))
+        # A link target is bytes on disk; encode it the way the filesystem does.
+        return "120000", _blob_oid(os.fsencode(os.readlink(path)))
     data = path.read_bytes()
     executable = bool(path.stat().st_mode & 0o111)
     return ("100755" if executable else "100644"), _blob_oid(data)
@@ -748,8 +783,10 @@ def observe(
 
     branch = _git(root, "rev-parse", "--abbrev-ref", "HEAD")
     head = _git(root, "rev-parse", "HEAD")
-    head_tree = _git(root, "rev-parse", "HEAD^{tree}")
-    parents = tuple(_git(root, "rev-list", "--parents", "-n", "1", "HEAD").split()[1:])
+    # Read every derived fact from the resolved object name, not from the moving
+    # reference, and confirm the reference again at the end of the window.
+    head_tree = _git(root, "rev-parse", f"{head}^{{tree}}")
+    parents = tuple(_git(root, "rev-list", "--parents", "-n", "1", head).split()[1:])
     shallow = _git(root, "rev-parse", "--is-shallow-repository") == "true"
     merge_base = ""
     if base_ref and not shallow:
@@ -791,6 +828,8 @@ def observe(
             raise TopologyError(
                 f"unrecognized worktree status {worktree_status}: {path}"
             )
+    if _git(root, "rev-parse", "HEAD") != head:
+        raise TopologyError(f"head moved while observing {root}")
     return TopologyObservation(
         branch=branch,
         head=head,
