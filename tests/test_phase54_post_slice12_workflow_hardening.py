@@ -1455,6 +1455,102 @@ def test_journal_refuses_an_unusable_repository_probe(
     assert not (repository / "journal.json").exists()
 
 
+def test_dirty_projection_follows_the_source_filemode_rule(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=source)
+    subprocess.run(["git", "config", "core.filemode", "false"], cwd=source, check=True)
+    script = source / "run.sh"
+    script.write_text("#!/bin/sh\n", encoding="utf-8")
+    _commit_source(source, "first")
+    script.write_text("#!/bin/sh\necho hi\n", encoding="utf-8")
+    script.chmod(0o755)
+
+    fixture = topology.build_topology(
+        topology.TOPOLOGY_DIRTY_GATE2, tmp_path / "dirty", source=source
+    )
+    assert fixture.expectation.modified_paths == ("run.sh",)
+    assert topology.verify(fixture.observation, fixture.expectation) == ()
+
+
+def test_merge_projections_use_a_real_merge_tree(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=source)
+    (source / "shared.py").write_text("shared\n", encoding="utf-8")
+    _commit_source(source, "root")
+    subprocess.run(["git", "checkout", "-q", "-b", "topic"], cwd=source, check=True)
+    (source / "topic.py").write_text("topic\n", encoding="utf-8")
+    _commit_source(source, "topic child")
+    subprocess.run(["git", "checkout", "-q", "main"], cwd=source, check=True)
+    (source / "mainline.py").write_text("mainline\n", encoding="utf-8")
+    _commit_source(source, "main advanced")
+    subprocess.run(["git", "checkout", "-q", "topic"], cwd=source, check=True)
+    (source / "topic.py").write_text("topic two\n", encoding="utf-8")
+
+    for kind in (
+        topology.TOPOLOGY_PULL_REQUEST_MERGE,
+        topology.TOPOLOGY_SHALLOW_PULL_REQUEST,
+    ):
+        fixture = topology.build_topology(kind, tmp_path / kind, source=source)
+        listed = topology.run_in_projection(fixture, ["git", "ls-tree", "-r", "HEAD"])
+        paths = sorted(line.split("\t")[1] for line in listed.stdout.splitlines())
+        # A diverged main keeps its own file in the projected merge.
+        assert paths == ["mainline.py", "shared.py", "topic.py"], kind
+        assert topology.verify(fixture.observation, fixture.expectation) == (), kind
+
+
+def test_source_projection_refuses_intent_to_add(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=source)
+    (source / "reader.py").write_text("reader\n", encoding="utf-8")
+    _commit_source(source, "first")
+    (source / "new.py").write_text("new\n", encoding="utf-8")
+    subprocess.run(["git", "add", "-N", "new.py"], cwd=source, check=True)
+    assert (
+        subprocess.run(
+            ["git", "diff", "--cached", "--name-only"],
+            cwd=source,
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout
+        == ""
+    )
+    with pytest.raises(topology.TopologyError):
+        topology.source_dirty_paths(source)
+    with pytest.raises(topology.TopologyError):
+        topology.build_topology(
+            topology.TOPOLOGY_DIRTY_GATE2, tmp_path / "dirty", source=source
+        )
+
+
+def test_source_projection_ignores_a_symbolic_ancestor_deletion(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    subprocess.run(["git", "init", "--quiet", "--initial-branch", "main"], cwd=source)
+    (source / "a").mkdir()
+    (source / "a" / "b").write_text("tracked\n", encoding="utf-8")
+    (source / "other").mkdir()
+    (source / "other" / "b").write_text("other\n", encoding="utf-8")
+    (source / "reader.py").write_text("reader\n", encoding="utf-8")
+    _commit_source(source, "first")
+    shutil.rmtree(source / "a")
+    (source / "a").symlink_to("other", target_is_directory=True)
+
+    entries = topology.candidate_entries(source)
+    # The tracked a/b is deleted; the untracked symlink a is the new entry.
+    assert "a/b" not in entries
+    assert entries["a"][0] == "120000"
+    fixture = topology.build_topology(
+        topology.TOPOLOGY_DIRTY_GATE2, tmp_path / "dirty", source=source
+    )
+    assert topology.verify(fixture.observation, fixture.expectation) == ()
+
+
 def test_source_projection_refuses_a_gitlink_source(tmp_path: Path) -> None:
     inner = tmp_path / "inner"
     inner.mkdir()
@@ -1987,8 +2083,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR32_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR32_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR33_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR33_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base

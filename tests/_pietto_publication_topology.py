@@ -240,6 +240,29 @@ def _source_output(source: Path, *args: str) -> str:
     return _decoded(result.stdout)
 
 
+def _merge_tree(root: Path, base: str, topic: str) -> str:
+    """Return the tree a real merge of base and topic produces.
+
+    ``commit-tree`` records whatever tree it is handed, so a diverged main would
+    otherwise lose its own changes in the projected merge.
+    """
+
+    result = subprocess.run(
+        ["git", "merge-tree", "--write-tree", base, topic],
+        cwd=root,
+        capture_output=True,
+        env=_inherited_environment(),
+    )
+    if result.returncode != 0:
+        raise TopologyError(
+            f"cannot merge {base} and {topic}: {_decoded(result.stderr).strip()}"
+        )
+    reported = _decoded(result.stdout).splitlines()
+    if not reported or len(reported[0].strip()) != 40:
+        raise TopologyError(f"unparseable merge tree for {base} and {topic}")
+    return reported[0].strip()
+
+
 def _reserve_sibling(root: Path, suffix: str) -> Path:
     """Return an unused sibling directory path, or fail closed."""
 
@@ -351,8 +374,19 @@ def _reject_staged_source(source: Path) -> None:
     reporting such a source as clean would project the wrong candidate.
     """
 
-    if _source_lines(source, "diff", "--cached", "--name-only"):
-        raise TopologyError(f"source repository has a non-empty index: {source}")
+    for record in _source_lines(
+        source, "status", "--porcelain=v2", "--untracked-files=all"
+    ):
+        if not record.startswith(("1 ", "2 ", "u ")):
+            continue
+        fields = record.split(" ")
+        if len(fields) < 9:
+            raise TopologyError(f"unparseable source status record: {record}")
+        # An intent-to-add entry reports a clean index status and a zero index
+        # mode. It is invisible to a cached diff but is still a non-empty index,
+        # which the gate contract forbids.
+        if fields[1][0] != "." or fields[4] == "000000":
+            raise TopologyError(f"source repository has a non-empty index: {source}")
 
 
 def _source_working_paths(source: Path) -> tuple[str, ...]:
@@ -370,27 +404,47 @@ def _source_working_paths(source: Path) -> tuple[str, ...]:
     )
     # A sparse checkout leaves skip-worktree entries unmaterialized. They are
     # still part of the candidate tree, so only a real deletion removes a path.
-    deleted = set(_source_lines(source, "ls-files", "--deleted"))
+    _, _, deleted_paths = source_dirty_paths(source)
+    deleted = set(deleted_paths)
     tracked = set(_source_lines(source, "ls-files", "--cached"))
+
+    def _blocked(relative: str) -> bool:
+        # A symbolic or non-directory ancestor removes the entry from the tree,
+        # so it must never make a deleted path look present.
+        for ancestor in reversed((source / relative).parents):
+            if ancestor == source:
+                continue
+            if ancestor.is_symlink() or (ancestor.exists() and not ancestor.is_dir()):
+                return True
+        return False
+
+    def _present(relative: str) -> bool:
+        if _blocked(relative):
+            return False
+        path = source / relative
+        return path.is_symlink() or path.is_file()
+
     entries = tuple(
         relative
         for relative in listed
-        if (source / relative).is_symlink()
-        or (source / relative).is_file()
+        if _present(relative)
         or (
             # Absent, tracked, and not deleted: a skip-worktree entry.
             relative in tracked
             and relative not in deleted
+            and not _blocked(relative)
             and not (source / relative).exists()
         )
     )
     # A tracked path may be deleted, or replaced by a directory that now holds
     # new entries. Both are trees Git can represent. Only an entry that exists
     # as something else entirely - a device or socket - is refused.
+    kept = set(entries)
     unusable = tuple(
         relative
         for relative in listed
-        if relative not in set(entries)
+        if relative not in kept
+        and not _blocked(relative)
         and (source / relative).exists()
         and not (source / relative).is_dir()
     )
@@ -404,17 +458,35 @@ def _source_working_paths(source: Path) -> tuple[str, ...]:
 def source_dirty_paths(
     source: Path,
 ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
-    """Return one source repository's (added, modified, deleted) uncommitted paths."""
+    """Return one source repository's (added, modified, deleted) uncommitted paths.
+
+    Git's own status is the authority. ``ls-files --deleted`` uses a bare stat
+    and therefore misses a path whose directory was replaced by a symbolic link,
+    which Git itself reports as deleted.
+    """
 
     _reject_staged_source(source)
-    deleted = tuple(sorted(_source_lines(source, "ls-files", "--deleted")))
-    modified = tuple(
-        sorted(set(_source_lines(source, "diff", "--name-only")) - set(deleted))
-    )
-    added = tuple(
-        sorted(_source_lines(source, "ls-files", "--others", "--exclude-standard"))
-    )
-    return added, modified, deleted
+    added: list[str] = []
+    modified: list[str] = []
+    deleted: list[str] = []
+    for record in _source_lines(
+        source, "status", "--porcelain=v2", "--untracked-files=all"
+    ):
+        if record.startswith("? "):
+            added.append(record.removeprefix("? "))
+            continue
+        if not record.startswith("1 "):
+            continue
+        fields = record.split(" ", 8)
+        if len(fields) != 9:
+            raise TopologyError(f"unparseable source status record: {record}")
+        worktree_status = fields[1][1]
+        path = fields[8]
+        if worktree_status == "D":
+            deleted.append(path)
+        elif worktree_status in ("M", "T"):
+            modified.append(path)
+    return tuple(sorted(added)), tuple(sorted(modified)), tuple(sorted(deleted))
 
 
 def _source_lines(source: Path, *args: str) -> tuple[str, ...]:
@@ -507,6 +579,14 @@ def _directory_entries(root: Path) -> dict[str, tuple[str, str]]:
     would when the candidate is committed.
     """
 
+    filemode = _git(root, "config", "--get", "core.filemode") != "false"
+    index_modes: dict[str, str] = {}
+    listing = _git_raw(root, "ls-files", "--stage", "-z")
+    for record in (entry for entry in listing.split("\0") if entry):
+        metadata, separator, relative = record.partition("\t")
+        fields = metadata.split()
+        if separator and len(fields) == 3:
+            index_modes[relative] = fields[0]
     observed: dict[str, tuple[str, str]] = {}
     for path in sorted(root.rglob("*")):
         relative = path.relative_to(root)
@@ -520,8 +600,12 @@ def _directory_entries(root: Path) -> dict[str, tuple[str, str]]:
         oid = _git(root, "hash-object", "--path", str(relative), "--", str(path))
         if len(oid) != 40:
             raise TopologyError(f"cannot hash {relative} in {root}")
-        executable = bool(path.stat().st_mode & 0o111)
-        observed[str(relative)] = ("100755" if executable else "100644", oid)
+        recorded = index_modes.get(str(relative))
+        if recorded is not None and not filemode:
+            mode = recorded
+        else:
+            mode = "100755" if path.stat().st_mode & 0o111 else "100644"
+        observed[str(relative)] = (mode, oid)
     return observed
 
 
@@ -1114,10 +1198,11 @@ def build_topology(
 
     if kind == TOPOLOGY_PULL_REQUEST_MERGE:
         _git(root, "checkout", "--quiet", MAIN_BRANCH)
+        merged_tree = _merge_tree(root, base, topic)
         merge = _git(
             root,
             "commit-tree",
-            topic_tree,
+            merged_tree,
             "-p",
             base,
             "-p",
@@ -1139,7 +1224,7 @@ def build_topology(
             kind=kind,
             branch="HEAD",
             head=merge,
-            head_tree=topic_tree,
+            head_tree=merged_tree,
             head_parents=(base, topic),
             merge_base=base,
             shallow=False,
@@ -1160,10 +1245,11 @@ def build_topology(
         # Integration checks out the synthetic merge commit at depth one and
         # detached, not the named topic branch. Modelling the branch instead
         # would describe the pull-request head rather than the checkout.
+        merged_tree = _merge_tree(root, base, topic)
         merge = _git(
             root,
             "commit-tree",
-            topic_tree,
+            merged_tree,
             "-p",
             base,
             "-p",
@@ -1198,7 +1284,7 @@ def build_topology(
             kind=kind,
             branch="HEAD",
             head=merge,
-            head_tree=topic_tree,
+            head_tree=merged_tree,
             head_parents=(),
             merge_base="",
             shallow=True,
