@@ -2356,8 +2356,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR40_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR40_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR41_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR41_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base
