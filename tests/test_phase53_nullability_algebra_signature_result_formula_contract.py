@@ -1809,7 +1809,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name.startswith("test_")
     )
-    assert len(functions) == 5305
+    assert len(functions) == 5306
     self_functions = tuple(
         node.name
         for node in ast.parse(SELF_PATH.read_text()).body

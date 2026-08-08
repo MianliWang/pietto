@@ -933,6 +933,24 @@ def test_discovery_universe_uses_one_identity_per_reader(tmp_path: Path) -> None
     assert graph.nodes == ("== 461", "reader.py")
 
 
+def test_discovery_targets_use_one_identity_per_path(tmp_path: Path) -> None:
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "target.md").write_text("# target\n", encoding="utf-8")
+    (tmp_path / "reader.py").write_text('SPEC = "docs/target.md"\n', encoding="utf-8")
+    edges = closure.discover_edges(
+        repo_root=tmp_path,
+        universe=("reader.py",),
+        targets=("./docs/target.md", "docs/target.md"),
+    )
+    assert len(edges) == 1
+    assert edges[0].target == "docs/target.md"
+    assert closure.readers_of(edges, ("docs/target.md",)) == ("reader.py",)
+    with pytest.raises(closure.ClosureError):
+        closure.discover_edges(
+            repo_root=tmp_path, universe=("reader.py",), targets=("docs/missing.md",)
+        )
+
+
 def test_source_projection_propagates_a_deleted_path(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
@@ -1317,8 +1335,8 @@ def test_each_published_child_shape_is_bound_to_its_reviewed_tree() -> None:
     assert newest not in tuple((base, subject) for base, subject, _ in identities)
     assert newest[0] not in trees
     assert newest == (
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR16_BASE,
-        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR16_SUBJECT,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR17_BASE,
+        active_gate2_manifest.PHASE54_POST_SLICE12_INTERLUDE_REPAIR17_SUBJECT,
     )
     for base, subject, tree in identities:
         assert re.fullmatch(r"[0-9a-f]{40}", base), base

@@ -157,10 +157,17 @@ def discover_edges(
     ordered_universe = tuple(
         dict.fromkeys(normalized_path(repo_root, reader) for reader in universe)
     )
+    # A target is a repository path, so it is matched by its unique identity as
+    # well. An alias would miss the readers that spell it canonically.
+    ordered_targets = tuple(
+        dict.fromkeys(normalized_path(repo_root, target) for target in targets)
+    )
+    ordered_literals = tuple(dict.fromkeys(count_literals))
+    ordered_roots = tuple(dict.fromkeys(inventory_roots))
     edges: list[ReaderEdge] = []
     for reader in ordered_universe:
         source = read_source(repo_root, reader)
-        for target in targets:
+        for target in ordered_targets:
             if target == reader:
                 continue
             occurrences = source.count(target)
@@ -173,7 +180,7 @@ def discover_edges(
                         occurrences=occurrences,
                     )
                 )
-        for literal in count_literals:
+        for literal in ordered_literals:
             occurrences = source.count(literal)
             if occurrences:
                 edges.append(
@@ -184,7 +191,7 @@ def discover_edges(
                         occurrences=occurrences,
                     )
                 )
-        for root in inventory_roots:
+        for root in ordered_roots:
             occurrences = source.count(root)
             if occurrences:
                 edges.append(
