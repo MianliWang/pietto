@@ -327,6 +327,7 @@ class _PureStateKind(StrEnum):
     STRICTLY_LESS = "strictly_less"
     LOWERCASE_HEX = "lowercase_hex"
     MULTI_REQUIRES_TRUE = "multi_requires_true"
+    NON_EMPTY_IF_PRESENT = "non_empty_if_present"
     TERMINAL_COMBINATION = "terminal_combination"
 
 
@@ -342,7 +343,8 @@ class _PureStateRule:
     A key listed in ``presence_keys`` contributes ``present`` or ``absent``
     instead of its value, which lets one combination table express a
     correlation between an enumeration and whether an optional group is
-    supplied.
+    supplied. An admitted cell of ``*`` matches any value, for the rows where
+    the authority itself leaves that key unconstrained.
     """
 
     rule: _PureStateKind
@@ -1283,6 +1285,26 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             ),
             _PureStateRule(
                 rule=_PureStateKind.COMBINATION,
+                keys=("canonical_kind", "canonical_name"),
+                admitted=(
+                    ("builtin", "Any"),
+                    ("builtin", "Bool"),
+                    ("builtin", "Bytes"),
+                    ("builtin", "Date"),
+                    ("builtin", "Decimal"),
+                    ("builtin", "Float"),
+                    ("builtin", "Int"),
+                    ("builtin", "Json"),
+                    ("builtin", "Text"),
+                    ("builtin", "Timestamp"),
+                    ("builtin", "UUID"),
+                    ("unknown", "<unknown>"),
+                    ("enum", "*"),
+                    ("shape", "*"),
+                ),
+            ),
+            _PureStateRule(
+                rule=_PureStateKind.COMBINATION,
                 keys=("direct_kind", "alias_chain"),
                 admitted=(
                     ("type", "positive"),
@@ -1310,6 +1332,13 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _key("declared_name", _TEXT),
         ),
         parent_ordinal_keys=("module", "resolution"),
+        state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.COMBINATION,
+                keys=("namespace", "declaration_kind"),
+                admitted=(("type", "type"),),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="source_shape_resolution",
@@ -1397,6 +1426,11 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _key("output_name", _TEXT, optional=True),
         ),
         parent_ordinal_keys=("module", "facts"),
+        state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.NON_EMPTY_IF_PRESENT, keys=("output_name",)
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="semantic_clause_dependency",
@@ -1705,7 +1739,13 @@ def _validate_state_rules(
                 else _state_token(_value_of(record, key))
                 for key in rule.keys
             )
-            if observed not in rule.admitted:
+            if not any(
+                all(
+                    cell == "*" or cell == seen
+                    for cell, seen in zip(row, observed, strict=True)
+                )
+                for row in rule.admitted
+            ):
                 return _reject(ProjectPureStatus.INCONSISTENT_RECORD_STATE, position)
             continue
         if rule.rule is _PureStateKind.PRESENCE_GROUP:
@@ -1725,6 +1765,11 @@ def _validate_state_rules(
             continue
         if rule.rule is _PureStateKind.POSITIVE:
             if _integer_of(record, rule.keys[0]) < 1:
+                return _reject(ProjectPureStatus.INCONSISTENT_RECORD_STATE, position)
+            continue
+        if rule.rule is _PureStateKind.NON_EMPTY_IF_PRESENT:
+            supplied = _value_of(record, rule.keys[0])
+            if supplied.tag is not ProjectPureTag.ABSENT and not supplied.text:
                 return _reject(ProjectPureStatus.INCONSISTENT_RECORD_STATE, position)
             continue
         if rule.rule is _PureStateKind.MULTI_REQUIRES_TRUE:

@@ -299,7 +299,9 @@ what produced two rounds of isomorphic findings.
 | `row_lineage` | a non-concrete lineage carries no field | `ProjectModuleRelationLineage` |
 | `row_lineage_field` | every retained field keeps at least one complete path | `ProjectModuleRowFieldLineage` |
 | `dependency` | each target group is atomic, and the kind decides which single group is present | `ProjectModuleDependencyFact` |
-| `type_resolution` | the canonical-target pair is atomic; an enumeration or shape canonical kind requires that target and a builtin or unknown one forbids it; a canonical kind never terminates at an alias; only a direct alias carries an alias chain | `ProjectResolvedModuleTypeReference` |
+| `type_resolution` | the canonical-target pair is atomic; an enumeration or shape canonical kind requires that target and a builtin or unknown one forbids it; the canonical kind decides the canonical name, which is a registered builtin name or the fixed unknown name; a canonical kind never terminates at an alias; only a direct alias carries an alias chain | `ProjectResolvedModuleTypeReference` |
+| `type_resolution_alias` | every alias identity is a type alias in the type namespace | `ProjectResolvedModuleTypeReference` |
+| `semantic_select` | a supplied output name is non-empty | `ProjectModuleSelectFact` |
 | `issue` | the status belongs to its declared family | `ProjectInspectionIssue` |
 
 ### What the portable layer does and does not re-validate

@@ -2264,6 +2264,55 @@ def _rejected_vectors() -> tuple[DifferentialVector, ...]:
             8,
         ),
         _rejected(
+            "canonical_kind_name_mismatch",
+            DifferentialPurpose.CANONICAL_KIND_NAME_MISMATCH,
+            _document(
+                _header(1),
+                _OWNER,
+                *valid_module,
+                _type_resolution(0, 0, canonical_name="NotABuiltin"),
+            ),
+            ProjectPureStatus.INCONSISTENT_RECORD_STATE,
+            7,
+        ),
+        _rejected(
+            "alias_identity_not_a_type_alias",
+            DifferentialPurpose.ALIAS_IDENTITY_NOT_A_TYPE_ALIAS,
+            _document(
+                _header(1),
+                _OWNER,
+                *valid_module,
+                _type_resolution(
+                    0, 0, canonical_name="Int", direct_kind="type", alias_chain=1
+                ),
+                _record(
+                    "type_resolution_alias",
+                    ("module", pure_integer(0)),
+                    ("resolution", pure_integer(0)),
+                    ("alias", pure_integer(0)),
+                    ("module_path", pure_text("a.pietto")),
+                    ("namespace", pure_enumeration("relation")),
+                    ("declaration_kind", pure_enumeration("query")),
+                    ("declared_name", pure_text("Years")),
+                ),
+            ),
+            ProjectPureStatus.INCONSISTENT_RECORD_STATE,
+            8,
+        ),
+        _rejected(
+            "empty_select_output_name",
+            DifferentialPurpose.EMPTY_SELECT_OUTPUT_NAME,
+            _document(
+                _header(1),
+                _OWNER,
+                *valid_module,
+                _semantic_facts(0, 0, selects=1),
+                _select(0, 0, 0, selected_output_ordinal=0, output_name=""),
+            ),
+            ProjectPureStatus.INCONSISTENT_RECORD_STATE,
+            8,
+        ),
+        _rejected(
             "exclusive_target_groups",
             DifferentialPurpose.EXCLUSIVE_TARGET_GROUPS,
             _document(

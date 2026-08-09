@@ -302,10 +302,10 @@ CAPABILITY_WINDOWS_SHA256 = (
     "c0512933fc284bbc1dec98dab96411ee179d64e7bee005aa798b6fd7dba2024e"
 )
 PATH_DIGESTS = {
-    "compiler": "a5cb22d079f2038b54069b58671986f721baca1cd3b21f2583adebfcb7a089b3",
+    "compiler": "e439a761954b6fbb38f4e50416987d4f984c8196196a794398c09f78db99340a",
     "semantic": "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70",
     "phase15": "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d",
-    "project": "ddb4e73a58ffd0281d16de3db9f42a69075f6e007c385b075308a2494aa046e5",
+    "project": "cded4455641ddbfef6473a7ba49c11f0ab29477c00d6b41c7f62eaf9c8b86e62",
 }
 PROTECTED_SHA256 = {
     ".github/workflows/ci.yml": "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94",

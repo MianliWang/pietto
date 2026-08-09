@@ -124,6 +124,9 @@ class DifferentialPurpose(StrEnum):
     INELIGIBLE_NAMESPACE_KIND_PAIR = "ineligible_namespace_kind_pair"
     MULTI_MEMBER_ACYCLIC_COMPONENT = "multi_member_acyclic_component"
     UNTERMINATED_ORIGIN_HOP_CHAIN = "unterminated_origin_hop_chain"
+    CANONICAL_KIND_NAME_MISMATCH = "canonical_kind_name_mismatch"
+    ALIAS_IDENTITY_NOT_A_TYPE_ALIAS = "alias_identity_not_a_type_alias"
+    EMPTY_SELECT_OUTPUT_NAME = "empty_select_output_name"
     POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
     OCCURRENCE_INDEX_OUTSIDE_BUCKET = "occurrence_index_outside_bucket"
 
