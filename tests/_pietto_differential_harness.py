@@ -107,6 +107,12 @@ class DifferentialPurpose(StrEnum):
     MODULE_COUNT_MISMATCH = "module_count_mismatch"
     IMPOSSIBLE_STATE_COMBINATION = "impossible_state_combination"
     STALE_FORMAT_MARKER = "stale_format_marker"
+    INCONSISTENT_READINESS_STATE = "inconsistent_readiness_state"
+    INTEGER_OUT_OF_RANGE = "integer_out_of_range"
+    PARTIAL_PRESENCE_GROUP = "partial_presence_group"
+    EXCLUSIVE_TARGET_GROUPS = "exclusive_target_groups"
+    POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
+    OCCURRENCE_INDEX_OUTSIDE_BUCKET = "occurrence_index_outside_bucket"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

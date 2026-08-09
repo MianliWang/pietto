@@ -369,9 +369,9 @@ PROTECTED_HASHES = {
         "26cc0ae4a68518223d6bf600ad3c4b0b226618aa7ef31b2ae1c25924d2655169"
     ),
 }
-COMPILER_DIGEST = "045aebf1975b00d2cf0988599d32ba86557696ed179458904a85d2ec1e62812e"
+COMPILER_DIGEST = "e04a83e95e4c5ffc6b5a2db12442fa99ce33371bed37a2e5ca1c9819bd573d36"
 PROJECT_PRIVATE_DIGEST = (
-    "abfb4b3f0cca5b61bbe4a4ecc313e111b4d4a865712da9e0feecc8d7ed4a2f9f"
+    "b49765d0e40fad240820042b3de885603998ca104c078b2ca6dac128cf59f79b"
 )
 
 PROJECT_JSON_V2_KEYS = (
@@ -1477,6 +1477,8 @@ def test_static_git_helper_and_exact_slice12_dirty_set_are_locked() -> None:
                 "bc46faff1c9aa71f583ed7d2964b651cc659bc90",
                 "0bad854253e22347e2aff93e2eabcbe2fda55aed",
                 "040ab19c56519c39c56541979c850484f9cc47f0",
+                "93f0f591e28a01f32d1698fcd4b8c57d41c6d714",
+                "93f0f591e28a01f32d1698fcd4b8c57d41c6d714",
                 "93f0f591e28a01f32d1698fcd4b8c57d41c6d714",
                 "93f0f591e28a01f32d1698fcd4b8c57d41c6d714",
                 "93f0f591e28a01f32d1698fcd4b8c57d41c6d714",

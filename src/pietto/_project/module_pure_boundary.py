@@ -33,6 +33,12 @@ __all__: tuple[str, ...] = ()
 
 PURE_DOCUMENT_FORMAT_MARKER = "pietto.module-inspection.v1"
 
+# Every integer in the canonical projection is a count, an ordinal, a source
+# position, or an opened-byte count. The domain is bounded explicitly because
+# rendering an unbounded integer depends on a process-level digit limit, which
+# would make the boundary neither total nor process independent.
+PURE_MAX_INTEGER = 2**63 - 1
+
 _PURE_ABSENT_TOKEN = "n:"
 
 _PURE_ESCAPES: Mapping[str, str] = MappingProxyType(
@@ -94,6 +100,8 @@ class ProjectPureStatus(StrEnum):
     MISSING_REQUIRED_RECORD = "missing_required_record"
     CHILD_COUNT_MISMATCH = "child_count_mismatch"
     TRAILING_RECORD_AFTER_DOCUMENT = "trailing_record_after_document"
+    INTEGER_OUT_OF_RANGE = "integer_out_of_range"
+    INCONSISTENT_RECORD_STATE = "inconsistent_record_state"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -307,6 +315,33 @@ class _PureKeySpec:
     vocabulary: tuple[str, ...] | None = None
 
 
+class _PureStateKind(StrEnum):
+    """The declared shapes of a cross-field state rule."""
+
+    COMBINATION = "combination"
+    PRESENCE_GROUP = "presence_group"
+    EXCLUSIVE_GROUPS = "exclusive_groups"
+    POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
+    POSITIVE = "positive"
+    STRICTLY_LESS = "strictly_less"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _PureStateRule:
+    """One declared cross-field rule an upstream carrier already validates.
+
+    A rule is data, not code, so an independent implementation reads the same
+    declaration. Every rule mirrors an invariant the Slice 13 or Slice 14
+    carrier enforces atomically; none of them narrows the accepted language
+    beyond what the projection can already produce.
+    """
+
+    rule: _PureStateKind
+    keys: tuple[str, ...] = ()
+    admitted: tuple[tuple[str, ...], ...] = ()
+    groups: tuple[tuple[str, ...], ...] = ()
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class _PureKindSpec:
     """One declared record kind, its scope, its keys, and its child counts."""
@@ -320,6 +355,7 @@ class _PureKindSpec:
     counts: tuple[tuple[str, str], ...] = ()
     parent_ordinal_keys: tuple[str, ...] = ()
     is_scope: bool = False
+    state_rules: tuple[_PureStateRule, ...] = ()
 
 
 _VOCABULARY_OWNER_KIND: tuple[str, ...] = ("local_project_root", "local_module")
@@ -608,6 +644,16 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         counts=(("cycles", "readiness_cycle"),),
         parent_ordinal_keys=("module",),
         is_scope=True,
+        state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.COMBINATION,
+                keys=("status", "reason", "cycles"),
+                admitted=(
+                    ("ready", "trusted_local_source_resolved", "zero"),
+                    ("blocked", "module_cycle_blocked", "positive"),
+                ),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="readiness_cycle",
@@ -623,6 +669,7 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         counts=(("members", "readiness_cycle_member"),),
         parent_ordinal_keys=("module",),
         is_scope=True,
+        state_rules=(_PureStateRule(rule=_PureStateKind.POSITIVE, keys=("members",)),),
     ),
     _PureKindSpec(
         kind="readiness_cycle_member",
@@ -658,6 +705,9 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         ),
         parent_ordinal_keys=("module",),
         is_scope=True,
+        state_rules=(
+            _PureStateRule(rule=_PureStateKind.POSITIVE, keys=("component_members",)),
+        ),
     ),
     _PureKindSpec(
         kind="graph_component_member",
@@ -735,6 +785,17 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         counts=(("issues", "import_issue"),),
         parent_ordinal_keys=("module",),
         is_scope=True,
+        state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.PRESENCE_GROUP,
+                keys=(
+                    "resolved_module_path",
+                    "resolved_namespace",
+                    "resolved_declaration_kind",
+                    "resolved_declared_name",
+                ),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="import_issue",
@@ -790,6 +851,19 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         counts=(("issues", "export_issue"),),
         parent_ordinal_keys=("module",),
         is_scope=True,
+        state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.PRESENCE_GROUP,
+                keys=(
+                    "exposed_name",
+                    "entry_origin",
+                    "target_module_path",
+                    "target_namespace",
+                    "target_declaration_kind",
+                    "target_declared_name",
+                ),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="export_issue",
@@ -840,6 +914,21 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         counts=(("row_fields", "declaration_row_field"),),
         parent_ordinal_keys=("module",),
         is_scope=True,
+        state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.PRESENCE_GROUP,
+                keys=("relation_status", "relation_reason"),
+            ),
+            _PureStateRule(
+                rule=_PureStateKind.POSITIVE_REQUIRES_PRESENT,
+                keys=("row_fields", "relation_status"),
+            ),
+            _PureStateRule(rule=_PureStateKind.POSITIVE, keys=("occurrence_count",)),
+            _PureStateRule(
+                rule=_PureStateKind.STRICTLY_LESS,
+                keys=("occurrence_index", "occurrence_count"),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="declaration_row_field",
@@ -932,6 +1021,32 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _key("target_row_field_name", _TEXT, optional=True),
         ),
         parent_ordinal_keys=("module",),
+        state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.PRESENCE_GROUP,
+                keys=(
+                    "target_declaration_module_path",
+                    "target_declaration_position",
+                    "target_declaration_declared_name",
+                ),
+            ),
+            _PureStateRule(
+                rule=_PureStateKind.PRESENCE_GROUP,
+                keys=(
+                    "target_row_field_owner_declaration_position",
+                    "target_row_field_kind",
+                    "target_row_field_position",
+                    "target_row_field_name",
+                ),
+            ),
+            _PureStateRule(
+                rule=_PureStateKind.EXCLUSIVE_GROUPS,
+                groups=(
+                    ("target_declaration_module_path",),
+                    ("target_row_field_owner_declaration_position",),
+                ),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="row_lineage",
@@ -1031,6 +1146,15 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         counts=(("alias_chain", "type_resolution_alias"),),
         parent_ordinal_keys=("module",),
         is_scope=True,
+        state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.PRESENCE_GROUP,
+                keys=(
+                    "canonical_target_module_path",
+                    "canonical_target_declared_name",
+                ),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="type_resolution_alias",
@@ -1325,6 +1449,10 @@ def _validate_value(
             return _reject(
                 ProjectPureStatus.NEGATIVE_INTEGER, record_position, field_position
             )
+        if value.integer > PURE_MAX_INTEGER:
+            return _reject(
+                ProjectPureStatus.INTEGER_OUT_OF_RANGE, record_position, field_position
+            )
         return None
     if value.boolean is None:
         return _reject(
@@ -1334,6 +1462,87 @@ def _validate_value(
         return _reject(
             ProjectPureStatus.EXTRA_VALUE_PAYLOAD, record_position, field_position
         )
+    return None
+
+
+def _value_of(record: ProjectPureRecord, key: str) -> ProjectPureValue:
+    """Read one already validated value from one record by its declared key."""
+
+    for supplied in record.fields:
+        if supplied.key == key:
+            return supplied.value
+    raise ValueError("A validated record always carries its declared key.")
+
+
+def _state_token(value: ProjectPureValue) -> str:
+    """Classify one validated value for a declared cross-field state rule.
+
+    An integer collapses to ``zero`` or ``positive`` because every declared
+    combination distinguishes only emptiness, never a specific magnitude.
+    """
+
+    if value.tag is ProjectPureTag.ABSENT:
+        return "absent"
+    if value.tag is ProjectPureTag.INTEGER:
+        return "zero" if value.integer == 0 else "positive"
+    if value.tag is ProjectPureTag.BOOLEAN:
+        return "true" if value.boolean else "false"
+    return value.text or ""
+
+
+def _validate_state_rules(
+    record: ProjectPureRecord,
+    specification: _PureKindSpec,
+    position: int,
+) -> ProjectPureOutcome | None:
+    """Validate every declared cross-field state rule of one record.
+
+    Each rule mirrors an invariant an upstream carrier already enforces
+    atomically, so no admitted projection can violate one. Validating the
+    enumeration values of a record independently would accept an impossible
+    combination that the authority forbids.
+    """
+
+    for rule in specification.state_rules:
+        if rule.rule is _PureStateKind.COMBINATION:
+            observed = tuple(_state_token(_value_of(record, key)) for key in rule.keys)
+            if observed not in rule.admitted:
+                return _reject(ProjectPureStatus.INCONSISTENT_RECORD_STATE, position)
+            continue
+        if rule.rule is _PureStateKind.PRESENCE_GROUP:
+            present = {
+                _value_of(record, key).tag is not ProjectPureTag.ABSENT
+                for key in rule.keys
+            }
+            if len(present) != 1:
+                return _reject(ProjectPureStatus.INCONSISTENT_RECORD_STATE, position)
+            continue
+        if rule.rule is _PureStateKind.EXCLUSIVE_GROUPS:
+            occupied = sum(
+                1
+                for group in rule.groups
+                if all(
+                    _value_of(record, key).tag is not ProjectPureTag.ABSENT
+                    for key in group
+                )
+            )
+            if occupied > 1:
+                return _reject(ProjectPureStatus.INCONSISTENT_RECORD_STATE, position)
+            continue
+        if rule.rule is _PureStateKind.POSITIVE_REQUIRES_PRESENT:
+            counted, required = rule.keys
+            if _integer_of(record, counted) and (
+                _value_of(record, required).tag is ProjectPureTag.ABSENT
+            ):
+                return _reject(ProjectPureStatus.INCONSISTENT_RECORD_STATE, position)
+            continue
+        if rule.rule is _PureStateKind.POSITIVE:
+            if _integer_of(record, rule.keys[0]) < 1:
+                return _reject(ProjectPureStatus.INCONSISTENT_RECORD_STATE, position)
+            continue
+        smaller, larger = rule.keys
+        if _integer_of(record, smaller) >= _integer_of(record, larger):
+            return _reject(ProjectPureStatus.INCONSISTENT_RECORD_STATE, position)
     return None
 
 
@@ -1462,6 +1671,9 @@ def _validate_structure(
             # An unknown kind has no declared field contract to check first.
             return _reject(ProjectPureStatus.UNKNOWN_RECORD_KIND, position)
         rejection = _validate_fields(record, specification, position)
+        if rejection is not None:
+            return rejection
+        rejection = _validate_state_rules(record, specification, position)
         if rejection is not None:
             return rejection
         if position > 1:

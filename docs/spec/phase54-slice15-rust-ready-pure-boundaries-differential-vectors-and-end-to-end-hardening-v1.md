@@ -125,12 +125,20 @@ UNKNOWN_FORMAT_MARKER          FIELD_ARITY_MISMATCH
 FIELD_KEY_MISMATCH             VALUE_TAG_MISMATCH
 ABSENT_VALUE_NOT_ALLOWED       MISSING_VALUE_PAYLOAD
 EXTRA_VALUE_PAYLOAD            NEGATIVE_INTEGER
-UNKNOWN_ENUMERATION            ORPHAN_RECORD
+INTEGER_OUT_OF_RANGE           UNKNOWN_ENUMERATION
+INCONSISTENT_RECORD_STATE      ORPHAN_RECORD
 SCOPE_ORDINAL_MISMATCH         SECTION_ORDER_VIOLATION
 CHILD_ORDER_VIOLATION          ORDINAL_SEQUENCE_VIOLATION
 DUPLICATE_SINGLETON_RECORD     MISSING_REQUIRED_RECORD
 CHILD_COUNT_MISMATCH           TRAILING_RECORD_AFTER_DOCUMENT
 ```
+
+The integer domain is bounded explicitly at `PURE_MAX_INTEGER`, two to the
+sixty-third minus one. Every integer in the canonical projection is a count, an
+ordinal, a source position, or an opened-byte count, and an unbounded domain
+would make the boundary neither total nor process independent, because
+rendering an arbitrarily large integer depends on a process-level digit limit.
+A value above the bound is `INTEGER_OUT_OF_RANGE`.
 
 `TRAILING_RECORD_AFTER_DOCUMENT` fires at the first body record when the header
 declares zero modules and any further record follows. `MISSING_HEADER_RECORD`
@@ -265,13 +273,26 @@ text checks stay type-only so an empty or unresolvable retained text is still
 accepted; and every enumeration reaching the boundary is produced by a live
 enumeration, which the vocabulary-equality test proves.
 
-Cross-field semantic atomicity — the relation status and reason pair, the
-export facade entry tuple, dependency target exclusivity, and the occurrence
-index inside its bucket — deliberately stays in the Slice 14 Python projection
-layer, which owns the roots. Duplicating it in the portable layer would create
-a second authority for the same fact. At the portable layer an impossible state
-combination is a declared state that contradicts its accompanying records, and
-it is rejected as `CHILD_COUNT_MISMATCH` or `MISSING_REQUIRED_RECORD`.
+Cross-field state is not left to independent per-field checks. Validating the
+enumeration values of a record one at a time accepts combinations the authority
+forbids, so each such invariant is declared as portable data and enforced as
+`INCONSISTENT_RECORD_STATE`. Every declared rule mirrors an invariant an
+upstream carrier already enforces atomically, so none of them narrows the
+accepted language beyond what the projection can produce:
+
+| Record | Declared rule | Upstream authority |
+| --- | --- | --- |
+| `readiness` | the `status`, `reason`, and cycle-count triple is one of exactly two combinations | `ProjectLayeredLoaderReadinessFact` |
+| `readiness_cycle` | the member count is positive | `ProjectInspectionModuleCycle` |
+| `graph` | the component-member count is positive | `ProjectInspectionGraph` |
+| `import` | the four resolved-target keys are present together or absent together | `ProjectInspectionImport` |
+| `export` | the six facade-entry keys are present together or absent together | `ProjectInspectionExport` |
+| `declaration` | the relation status and reason are one atomic pair; a positive row-field count requires the relation state; the occurrence count is positive; the occurrence index is inside its bucket | `ProjectInspectionDeclaration` |
+| `dependency` | each target group is atomic and at most one group is present | `ProjectInspectionDependency` |
+| `type_resolution` | the canonical-target pair is atomic | `ProjectInspectionTypeResolution` |
+
+A declared state that contradicts its accompanying records rather than its own
+fields remains `CHILD_COUNT_MISMATCH` or `MISSING_REQUIRED_RECORD`.
 
 ## Differential-vector Schema And Ownership
 

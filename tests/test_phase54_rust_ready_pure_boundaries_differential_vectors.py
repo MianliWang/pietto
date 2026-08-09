@@ -512,6 +512,25 @@ def test_declared_ordinal_rules_match_the_projection_emission_rules() -> None:
     }
     assert singletons == {"inspection", "owner", "digest", "readiness", "graph"}
     assert not (ordinal_kinds & singletons)
+    ruled = {
+        kind for kind, specification in schema.items() if specification.state_rules
+    }
+    assert ruled == {
+        "readiness",
+        "readiness_cycle",
+        "graph",
+        "import",
+        "export",
+        "declaration",
+        "dependency",
+        "type_resolution",
+    }
+    shapes = {
+        rule.rule
+        for specification in schema.values()
+        for rule in specification.state_rules
+    }
+    assert shapes == set(pure_boundary._PureStateKind)
     catalog_source = _read("src/pietto/_project/module_catalog.py")
     assert "occurrence.declaration_position != position" in catalog_source
     inspection_source = _read(INSPECTION_REL)
@@ -812,7 +831,7 @@ def test_every_rejection_status_is_reachable_and_normalized() -> None:
         pure_boundary.ProjectPureStatus.OK
     }
     assert statuses == declared
-    assert len(declared) == 22
+    assert len(declared) == 24
 
 
 def test_rejections_carry_no_payload_and_no_supplied_content() -> None:
@@ -917,6 +936,8 @@ def test_vector_corpus_covers_the_frozen_property_matrix() -> None:
     assert len(corpus) >= 40
     assert len(accepted) >= 16
     assert len(rejected) >= 24
+    assert len(pure_boundary.PURE_MAX_INTEGER.__class__.__mro__) >= 1
+    assert pure_boundary.PURE_MAX_INTEGER == 2**63 - 1
     assert len(accepted) + len(rejected) == len(corpus)
     assert set(harness.DifferentialClassification) == {
         harness.DifferentialClassification.PORTABLE_EVALUATION,

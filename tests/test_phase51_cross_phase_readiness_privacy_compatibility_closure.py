@@ -943,7 +943,7 @@ def test_cross_phase_transition_and_live_identifier_inventory_is_exact() -> None
 def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> None:
     compiler_digest = _compiler_digest()
     assert compiler_digest == (
-        "045aebf1975b00d2cf0988599d32ba86557696ed179458904a85d2ec1e62812e"
+        "e04a83e95e4c5ffc6b5a2db12442fa99ce33371bed37a2e5ca1c9819bd573d36"
     )
     for relative_path in BOUNDARY_PATHS:
         boundary_values = re.findall(
@@ -968,7 +968,7 @@ def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> N
     project_digest = _digest(project_paths)
     assert len(project_paths) == 33
     assert project_digest == (
-        "abfb4b3f0cca5b61bbe4a4ecc313e111b4d4a865712da9e0feecc8d7ed4a2f9f"
+        "b49765d0e40fad240820042b3de885603998ca104c078b2ca6dac128cf59f79b"
     )
     phase33 = _read(REPO_ROOT / "tests/test_phase33_completion_audit.py")
     assert (
@@ -1237,6 +1237,8 @@ def test_slice11_contract_plan_allowlist_and_protected_boundaries_are_locked() -
                 "bc46faff1c9aa71f583ed7d2964b651cc659bc90",
                 "0bad854253e22347e2aff93e2eabcbe2fda55aed",
                 "040ab19c56519c39c56541979c850484f9cc47f0",
+                "93f0f591e28a01f32d1698fcd4b8c57d41c6d714",
+                "93f0f591e28a01f32d1698fcd4b8c57d41c6d714",
                 "93f0f591e28a01f32d1698fcd4b8c57d41c6d714",
                 "93f0f591e28a01f32d1698fcd4b8c57d41c6d714",
                 "93f0f591e28a01f32d1698fcd4b8c57d41c6d714",
