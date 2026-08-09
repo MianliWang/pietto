@@ -293,9 +293,9 @@ what produced two rounds of isomorphic findings.
 | `graph` | the component-member count is positive, and any multi-member component proves a cycle | `ProjectInspectionGraph`, `ProjectModuleStronglyConnectedComponent` |
 | `import` | the namespace and declaration kind form an eligible pair; a supplied resolved target keeps the same namespace and declaration kind; and the four resolved-target keys are present together or absent together | `ProjectImportedBindingIdentity`, `ProjectResolvedImportedBinding`, `ProjectInspectionImport` |
 | `export` | the namespace and declaration kind form an eligible pair; a supplied entry keeps the same namespace and declaration kind, exposes the local name, and, for a local declaration origin, targets that same declared name; and the six facade-entry keys are present together or absent together | `ProjectModuleExportEntry`, `ProjectInspectionExport` |
-| `declaration` | the owner kind is the module and its namespace is the reserved empty local namespace; the relation status and reason are one atomic pair; a retained relation state maps its exact availability; a positive row-field count requires the relation state; the occurrence count is positive; the occurrence index is inside its bucket | `ProjectInspectionDeclaration`, `ProjectLayeredDeclarationAsset`, `ProjectLayeredOwnerIdentity` |
+| `declaration` | the owner kind is the module and its namespace is the reserved empty local namespace; the relation status and reason are one atomic pair; the namespace decides the availability domain, a non-relation declaration publishes no relation product, and a retained relation state maps its exact availability; an ambiguous availability requires a repeated identity and every other availability a unique one; a positive row-field count requires the relation state; the occurrence index is inside its bucket | `ProjectInspectionDeclaration`, `ProjectLayeredDeclarationAsset`, `ProjectLayeredOwnerIdentity` |
 | `origin` | a local origin is one self path with no hop and targets its own local name; an imported origin always carries its access chain | `ProjectModuleOriginPath` |
-| `origin_hop` | the chain re-exports at every interior hop and terminates at a local declaration | `ProjectModuleOriginPath` |
+| `origin_hop` | each hop is one direct route, so its import target and facade module agree and its exported and exposed names agree; the chain re-exports at every interior hop and terminates at a local declaration | `ProjectModuleAccessHop`, `ProjectModuleOriginPath` |
 | `row_lineage` | a non-concrete lineage carries no field | `ProjectModuleRelationLineage` |
 | `row_lineage_field` | every retained field keeps at least one complete path | `ProjectModuleRowFieldLineage` |
 | `dependency` | each target group is atomic, and the kind decides which single group is present | `ProjectModuleDependencyFact` |
@@ -341,6 +341,33 @@ one declared table expresses a correlation between an enumeration and whether
 an optional group is supplied. That single mechanism replaced a separate
 exclusivity rule, because "exactly one target, chosen by the kind" is stronger
 than "not both" and is what the authority actually enforces.
+
+A combination classifies an integer as `zero`, `one`, or `many`. Repetition is
+a distinct token from mere presence because an upstream carrier can treat a
+repeated identity differently from a unique one, which is exactly what the
+declaration availability algebra needs.
+
+A rule may carry a selector, so a guard that one origin variant imposes and the
+others do not is declared once against the variant it belongs to instead of
+being weakened to the intersection of every variant.
+
+### Enumeration domains are per key, not per enumeration
+
+A cross-field rule is not the only way an independently checked field admits an
+impossible value. Where a record kind's own carrier admits only part of an
+enumeration, the key declares that exact subset in the enumeration's member
+order, and a value outside it is `UNKNOWN_ENUMERATION` rather than a state
+rule. Two keys are narrowed this way: `semantic_clause_dependency.role` admits
+only the three clause roles `ProjectModuleClauseDependencyFact` accepts, and
+`semantic_window_output.status` excludes the absent and ambiguous states
+`ProjectModuleWindowOutputFact` forbids, because a syntactic window output
+always exists.
+
+This class was missed by the first mechanical enumeration because that pass
+looked for guards relating two fields and a per-key domain guard relates a
+field to a literal set. Both shapes are now enumerated, and the focused test
+asserts each narrowed domain is a strict, order-preserving subset of its live
+enumeration and names the carrier guard that justifies it.
 
 A declared state that contradicts its accompanying records rather than its own
 fields remains `CHILD_COUNT_MISMATCH` or `MISSING_REQUIRED_RECORD`.

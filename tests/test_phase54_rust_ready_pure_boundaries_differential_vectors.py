@@ -441,16 +441,42 @@ def test_declared_enumeration_vocabularies_equal_the_live_enumerations() -> None
         "projection_kind": attribution_module.ProjectModuleProjectionKind,
         "type_reference_role": resolution_module.ProjectModuleTypeReferenceRole,
         "resolved_type_kind": inspection_module.ProjectResolvedTypeKind,
-        "fact_occurrence_role": preservation_module.ProjectModuleFactOccurrenceRole,
         "candidate_bucket_status": (
             preservation_module.ProjectModuleCandidateBucketStatus
         ),
         "inspection_issue_family": inspection_module.ProjectInspectionIssueFamily,
     }
-    assert set(live) == set(pure_boundary.PURE_ENUMERATION_VOCABULARIES)
+    # A record kind whose own carrier admits only part of an enumeration
+    # declares that exact subset, in the enumeration's own member order.
+    narrowed: dict[str, tuple[type[StrEnum], tuple[str, ...]]] = {
+        "clause_dependency_role": (
+            preservation_module.ProjectModuleFactOccurrenceRole,
+            ("group_key", "satisfying", "grouped_order"),
+        ),
+        "window_output_status": (
+            preservation_module.ProjectModuleCandidateBucketStatus,
+            ("concrete", "unknown", "deferred", "blocked"),
+        ),
+    }
+    assert not set(live) & set(narrowed)
+    assert set(live) | set(narrowed) == set(pure_boundary.PURE_ENUMERATION_VOCABULARIES)
     for name, enumeration in live.items():
         declared = pure_boundary.PURE_ENUMERATION_VOCABULARIES[name]
         assert declared == tuple(member.value for member in enumeration)
+    preservation_source = _read(
+        "src/pietto/_project/module_semantic_fact_preservation.py"
+    )
+    for name, (enumeration, subset) in narrowed.items():
+        declared = pure_boundary.PURE_ENUMERATION_VOCABULARIES[name]
+        members = tuple(member.value for member in enumeration)
+        assert declared == subset
+        assert set(declared) < set(members)
+        assert declared == tuple(value for value in members if value in set(declared))
+    assert "Clause dependency has an invalid role." in preservation_source
+    assert (
+        "A syntactic window output cannot be absent or ambiguous."
+        in preservation_source
+    )
     assert pure_boundary.PURE_DOCUMENT_FORMAT_MARKER == (
         inspection_module.ProjectInspectionFormat.MODULE_INSPECTION_V1.value
     )

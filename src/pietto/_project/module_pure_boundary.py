@@ -514,17 +514,10 @@ _VOCABULARY_RESOLVED_TYPE_KIND: tuple[str, ...] = (
     "unknown",
 )
 
-_VOCABULARY_FACT_OCCURRENCE_ROLE: tuple[str, ...] = (
-    "relation_input",
-    "let_value",
-    "select_value",
+_VOCABULARY_CLAUSE_DEPENDENCY_ROLE: tuple[str, ...] = (
     "group_key",
     "satisfying",
     "grouped_order",
-    "window_partition",
-    "window_order",
-    "window_argument",
-    "window_default",
 )
 
 _VOCABULARY_CANDIDATE_BUCKET_STATUS: tuple[str, ...] = (
@@ -534,6 +527,13 @@ _VOCABULARY_CANDIDATE_BUCKET_STATUS: tuple[str, ...] = (
     "blocked",
     "absent",
     "ambiguous",
+)
+
+_VOCABULARY_WINDOW_OUTPUT_STATUS: tuple[str, ...] = (
+    "concrete",
+    "unknown",
+    "deferred",
+    "blocked",
 )
 
 _VOCABULARY_INSPECTION_ISSUE_FAMILY: tuple[str, ...] = (
@@ -565,8 +565,9 @@ PURE_ENUMERATION_VOCABULARIES: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "projection_kind": _VOCABULARY_PROJECTION_KIND,
         "type_reference_role": _VOCABULARY_TYPE_REFERENCE_ROLE,
         "resolved_type_kind": _VOCABULARY_RESOLVED_TYPE_KIND,
-        "fact_occurrence_role": _VOCABULARY_FACT_OCCURRENCE_ROLE,
+        "clause_dependency_role": _VOCABULARY_CLAUSE_DEPENDENCY_ROLE,
         "candidate_bucket_status": _VOCABULARY_CANDIDATE_BUCKET_STATUS,
+        "window_output_status": _VOCABULARY_WINDOW_OUTPUT_STATUS,
         "inspection_issue_family": _VOCABULARY_INSPECTION_ISSUE_FAMILY,
     }
 )
@@ -683,7 +684,8 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 keys=("status", "reason", "cycles"),
                 admitted=(
                     ("ready", "trusted_local_source_resolved", "zero"),
-                    ("blocked", "module_cycle_blocked", "positive"),
+                    ("blocked", "module_cycle_blocked", "one"),
+                    ("blocked", "module_cycle_blocked", "many"),
                 ),
             ),
         ),
@@ -1016,21 +1018,35 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             ),
             _PureStateRule(
                 rule=_PureStateKind.COMBINATION,
-                keys=("availability", "relation_status"),
+                keys=("namespace", "availability", "relation_status"),
                 admitted=(
-                    ("concrete", "concrete"),
-                    ("unknown", "unknown"),
-                    ("deferred", "deferred"),
-                    ("blocked", "blocked"),
-                    ("concrete", "absent"),
-                    ("unknown", "absent"),
-                    ("deferred", "absent"),
-                    ("blocked", "absent"),
-                    ("absent", "absent"),
-                    ("ambiguous", "absent"),
+                    ("relation", "concrete", "concrete"),
+                    ("relation", "unknown", "unknown"),
+                    ("relation", "deferred", "deferred"),
+                    ("relation", "blocked", "blocked"),
+                    ("relation", "blocked", "absent"),
+                    ("relation", "ambiguous", "absent"),
+                    ("type", "absent", "absent"),
+                    ("type", "blocked", "absent"),
+                    ("type", "ambiguous", "absent"),
+                    ("callable", "absent", "absent"),
+                    ("callable", "blocked", "absent"),
+                    ("callable", "ambiguous", "absent"),
                 ),
             ),
-            _PureStateRule(rule=_PureStateKind.POSITIVE, keys=("occurrence_count",)),
+            _PureStateRule(
+                rule=_PureStateKind.COMBINATION,
+                keys=("availability", "occurrence_count"),
+                admitted=(
+                    ("ambiguous", "many"),
+                    ("blocked", "one"),
+                    ("blocked", "many"),
+                    ("concrete", "one"),
+                    ("unknown", "one"),
+                    ("deferred", "one"),
+                    ("absent", "one"),
+                ),
+            ),
             _PureStateRule(
                 rule=_PureStateKind.STRICTLY_LESS,
                 keys=("occurrence_index", "occurrence_count"),
@@ -1085,7 +1101,8 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 keys=("binding", "hops"),
                 admitted=(
                     ("local_declaration", "zero"),
-                    ("imported_binding", "positive"),
+                    ("imported_binding", "one"),
+                    ("imported_binding", "many"),
                 ),
             ),
         ),
@@ -1112,6 +1129,14 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         ),
         parent_ordinal_keys=("module", "origin"),
         state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.EQUAL_IF_PRESENT,
+                keys=("import_target_module_path", "facade_module_path"),
+            ),
+            _PureStateRule(
+                rule=_PureStateKind.EQUAL_IF_PRESENT,
+                keys=("import_exported_name", "facade_exposed_name"),
+            ),
             _PureStateRule(
                 rule=_PureStateKind.TERMINAL_COMBINATION,
                 keys=("facade_origin",),
@@ -1211,7 +1236,8 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 keys=("status", "fields"),
                 admitted=(
                     ("concrete", "zero"),
-                    ("concrete", "positive"),
+                    ("concrete", "one"),
+                    ("concrete", "many"),
                     ("unknown", "zero"),
                     ("deferred", "zero"),
                     ("blocked", "zero"),
@@ -1347,7 +1373,8 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 rule=_PureStateKind.COMBINATION,
                 keys=("direct_kind", "alias_chain"),
                 admitted=(
-                    ("type", "positive"),
+                    ("type", "one"),
+                    ("type", "many"),
                     ("builtin", "zero"),
                     ("enum", "zero"),
                     ("shape", "zero"),
@@ -1482,7 +1509,7 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _key("module", _INTEGER),
             _key("facts", _INTEGER),
             _key("dependency", _INTEGER),
-            _key("role", _ENUMERATION, vocabulary="fact_occurrence_role"),
+            _key("role", _ENUMERATION, vocabulary="clause_dependency_role"),
             _key("source_ordinal", _INTEGER),
             _key("status", _ENUMERATION, vocabulary="candidate_bucket_status"),
         ),
@@ -1500,7 +1527,7 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _key("output", _INTEGER),
             _key("selected_output_ordinal", _INTEGER),
             _key("output_name", _TEXT, optional=True),
-            _key("status", _ENUMERATION, vocabulary="candidate_bucket_status"),
+            _key("status", _ENUMERATION, vocabulary="window_output_status"),
         ),
         parent_ordinal_keys=("module", "facts"),
     ),
@@ -1716,14 +1743,18 @@ def _value_of(record: ProjectPureRecord, key: str) -> ProjectPureValue:
 def _state_token(value: ProjectPureValue) -> str:
     """Classify one validated value for a declared cross-field state rule.
 
-    An integer collapses to ``zero`` or ``positive`` because every declared
-    combination distinguishes only emptiness, never a specific magnitude.
+    An integer collapses to ``zero``, ``one``, or ``many`` because a declared
+    combination distinguishes emptiness and repetition, never a specific
+    magnitude. Repetition is a distinct token because an upstream carrier can
+    treat a repeated identity differently from a unique one.
     """
 
     if value.tag is ProjectPureTag.ABSENT:
         return "absent"
     if value.tag is ProjectPureTag.INTEGER:
-        return "zero" if value.integer == 0 else "positive"
+        if value.integer == 0:
+            return "zero"
+        return "one" if value.integer == 1 else "many"
     if value.tag is ProjectPureTag.BOOLEAN:
         return "true" if value.boolean else "false"
     return value.text or ""
