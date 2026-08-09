@@ -232,7 +232,7 @@ FINAL_MODEL_SHA256 = "da4853f95c41b85482381a442a217354f0b47abe76f09c90c8587004dd
 FINAL_SPEC_SHA256 = "e3cddc36974cc2d21bd3e0aec8d03c4f56bc4a68091780d9965207f07ea960e7"
 FINAL_PLAN_SHA256 = "3077c2fec0d7e2c4de717973c6403d5a450b8c01fe5846e427363ffcb41a78f5"
 FINAL_COMPILER_DIGEST = (
-    "fd4b8fcd41dc66be686880805bb6afaa4ab32efa5ae95159f88ada704ae69a9c"
+    "92b3f0445e738265e6ccd342fc42bcc6cff4e92464fc68504517a592c59bfa61"
 )
 FINAL_SEMANTIC_DIGEST = (
     "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
@@ -241,7 +241,7 @@ FINAL_PHASE15_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 FINAL_PROJECT_DIGEST = (
-    "3c619932e4fd1a4f2b3f12f4801d10c30030e8a6691d7cb63dd86a315b822439"
+    "cffe3086127aed442491f0e9c05c5eb18048462bc4e97ba03a91f7a929b87ab2"
 )
 
 BASE_HEAD = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
@@ -2017,7 +2017,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         len(markdown_paths),
         len(test_paths),
         top_level_functions,
-    ) == (939, 575, 268, 464, 5437)
+    ) == (939, 575, 268, 464, 5439)
     assert len(TEST_FUNCTIONS) == len(TEST_ITEM_COUNTS) == 36
     assert sum(TEST_ITEM_COUNTS) == 156
     assert 10599 + 185 == 10784

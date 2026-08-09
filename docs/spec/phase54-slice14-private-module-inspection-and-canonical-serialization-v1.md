@@ -95,10 +95,12 @@ value-equal payload can be produced from any equal-valued projection.
 Every reusable bucket and index is built once in one pass over the roots:
 component by member path, outgoing edges and import evidence by origin, export
 entries and export issues by exact request object, resolved bindings and binding
-issues by exact request object, Slice 13 declaration assets by module path,
+issues by exact request object, the occurrence position inside each shared
+identity bucket, Slice 13 declaration assets by module path,
 Slice 11 origins, dependencies, and row lineages by owning module path, and
 graph, type/source, and relation issues by owning module path. No section
-performs a repeated full-catalog or full-project scan.
+performs a repeated full-catalog or full-project scan, and no declaration
+re-scans its shared identity bucket.
 
 The two derived lookup indexes — inspected module by module path and inspected
 declaration by nominal identity — are computed from the canonical projection at
@@ -170,9 +172,14 @@ this contract and never derived from data.
 
 Token tags are exactly `s:` text, `i:` integer, `b:` boolean, `e:` enumeration,
 and `n:` absence. Text and enumeration payloads escape `\` as `\\`, tab as
-`\t`, line feed as `\n`, carriage return as `\r`, and every other code point
+`\t`, line feed as `\n`, carriage return as `\r`, every other code point
 below U+0020 plus U+007F as `\x` followed by exactly two lowercase hexadecimal
-digits; every other code point is emitted literally as UTF-8. Integer payloads
+digits, and every code point from U+D800 through U+DFFF as `\u` followed by
+exactly four lowercase hexadecimal digits; every other code point is emitted
+literally as UTF-8. The surrogate rule keeps the payload total over every
+retained text: a POSIX path byte that the filesystem encoding cannot decode
+reaches this projection as a lone surrogate, and UTF-8 refuses to encode one.
+Integer payloads
 are canonical non-negative decimal with no sign and no leading zero except the
 single digit `0`; a negative integer is rejected. Boolean payloads are exactly
 `true` or `false`. Enumeration payloads are the exact declared enumeration

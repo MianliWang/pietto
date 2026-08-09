@@ -137,7 +137,7 @@ FACTS_SHA256 = "bd68bad4e13a2b945962458fc47359a408d27b1563ba25f5713a8f8099671d21
 LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26"
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 PROJECT_PRIVATE_DIGEST = (
-    "3c619932e4fd1a4f2b3f12f4801d10c30030e8a6691d7cb63dd86a315b822439"
+    "cffe3086127aed442491f0e9c05c5eb18048462bc4e97ba03a91f7a929b87ab2"
 )
 TIER2_MANIFEST_BYTES = 18319
 TIER2_MANIFEST_FILES = 108
@@ -1839,7 +1839,7 @@ def test_static_test_inventory_tier1_and_tier2_manifest_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (464, 5437)
+    assert (len(test_files), top_level_functions) == (464, 5439)
     assert len(DIRECT_TIER1_NODES) == len(set(DIRECT_TIER1_NODES)) == 44
     for node_id in DIRECT_TIER1_NODES:
         path, function = node_id.split("::", maxsplit=1)

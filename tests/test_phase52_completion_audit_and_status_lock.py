@@ -258,10 +258,10 @@ MODULE_SHA256 = {
     WINDOW_REL: "c0512933fc284bbc1dec98dab96411ee179d64e7bee005aa798b6fd7dba2024e",
 }
 PATH_DIGESTS = {
-    "compiler": "fd4b8fcd41dc66be686880805bb6afaa4ab32efa5ae95159f88ada704ae69a9c",
+    "compiler": "92b3f0445e738265e6ccd342fc42bcc6cff4e92464fc68504517a592c59bfa61",
     "semantic": "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70",
     "phase15": "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d",
-    "project": "3c619932e4fd1a4f2b3f12f4801d10c30030e8a6691d7cb63dd86a315b822439",
+    "project": "cffe3086127aed442491f0e9c05c5eb18048462bc4e97ba03a91f7a929b87ab2",
 }
 PROTECTED_SHA256 = {
     ".github/workflows/ci.yml": "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94",
@@ -1400,7 +1400,7 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
         )
         for path in test_files
     )
-    assert (len(test_files), top_functions) == (464, 5437)
+    assert (len(test_files), top_functions) == (464, 5439)
     assert (
         381 + 834 + 627 + 424 + 279 + 168 + 156 + 12 + 145 + 190 + 70 + 70 + 97 + 35
         == 3488

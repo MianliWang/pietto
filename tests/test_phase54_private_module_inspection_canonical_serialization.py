@@ -72,6 +72,8 @@ EXPECTED_TEST_NAMES = (
     "test_canonical_bytes_change_with_identity_order_multiplicity_or_state",
     "test_canonical_bytes_change_with_a_replaced_digest_or_readiness_fact",
     "test_canonical_bytes_escape_control_characters_and_stay_utf8_exact",
+    "test_canonical_bytes_escape_surrogate_paths_and_always_encode_as_utf8",
+    "test_repeated_identity_occurrence_positions_are_indexed_once_per_bucket",
     "test_inspection_exposes_no_host_path_inode_address_or_runtime_state",
     "test_forged_canonical_payload_and_grafted_inspection_are_rejected",
     "test_eleventh_sidecar_all_or_none_boundary_is_exact_and_fail_closed",
@@ -1429,6 +1431,72 @@ def test_canonical_bytes_escape_control_characters_and_stay_utf8_exact(
     assert payload.decode("utf-8").encode("utf-8") == payload
 
 
+def test_canonical_bytes_escape_surrogate_paths_and_always_encode_as_utf8(
+    tmp_path: Path,
+) -> None:
+    # A POSIX path byte the filesystem encoding cannot decode reaches this
+    # projection as a lone surrogate, and UTF-8 refuses to encode one.
+    escape = inspection_module._escape
+    assert escape("a\udcffb") == "a\\udcffb"
+    assert escape("a\ud800b") == "a\\ud800b"
+    assert escape("a\udfffb") == "a\\udfffb"
+    assert inspection_module._text("bad\udcff.pietto") == "s:bad\\udcff.pietto"
+    assert inspection_module._text("bad\udcff.pietto").encode("utf-8")
+
+    root = tmp_path / "project"
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "pietto.toml").write_text(
+        'schema_version = 2\n\n[sources]\ninclude = ["**/*.pietto"]\n',
+        encoding="utf-8",
+    )
+    undecodable = os.fsencode(str(root)) + b"/bad\xff.pietto"
+    with open(undecodable, "wb") as handle:
+        handle.write(_SHAPE_PREFIX.encode("utf-8"))
+    parse_result = project_check.check_project_parse_only(root)
+    assert parse_result.ok
+    semantic = build_empty_project_semantic_result(parse_result)
+    payload = _inspection(semantic).canonical_bytes
+    decoded = payload.decode("utf-8")
+    assert decoded.encode("utf-8") == payload
+    assert "path=s:bad\\udcff.pietto" in decoded
+    assert "\udcff" not in decoded
+
+
+def test_repeated_identity_occurrence_positions_are_indexed_once_per_bucket(
+    tmp_path: Path,
+) -> None:
+    duplicates = 12
+    body = "".join(
+        "table t:\n    from rows\n    select:\n        id\n" for _ in range(duplicates)
+    )
+    semantic = _semantic_project(
+        tmp_path,
+        {"main.pietto": _SHAPE_PREFIX + body},
+    )
+    assets = _layered(semantic).declaration_assets
+    positions = inspection_module._derive_occurrence_positions(assets)
+
+    # One shared bucket object per identity is walked once, so the mapping holds
+    # exactly one entry per occurrence rather than one scan per declaration.
+    assert len(positions) == len(assets)
+    assert all(id(asset.occurrence) in positions for asset in assets)
+    bucket = assets[-1].identity_occurrences
+    assert len(bucket) == duplicates
+    assert all(
+        positions[id(occurrence)] == index for index, occurrence in enumerate(bucket)
+    )
+
+    projected = tuple(
+        declaration
+        for declaration in _record(semantic, "main.pietto").declarations
+        if declaration.identity.declared_name == "t"
+    )
+    assert tuple(item.occurrence_index for item in projected) == tuple(
+        range(duplicates)
+    )
+    assert all(item.occurrence_count == duplicates for item in projected)
+
+
 def test_inspection_exposes_no_host_path_inode_address_or_runtime_state(
     tmp_path: Path,
 ) -> None:
@@ -1647,5 +1715,5 @@ def test_schema_v2_public_api_cli_json_ir_sql_dependencies_and_goldens_unchanged
         if isinstance(node, ast.FunctionDef) and node.name.startswith("test_")
     ]
     assert tuple(node.name for node in test_nodes) == EXPECTED_TEST_NAMES
-    assert len(EXPECTED_TEST_NAMES) == 41
+    assert len(EXPECTED_TEST_NAMES) == 43
     assert all(not node.decorator_list for node in test_nodes)

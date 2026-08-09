@@ -549,7 +549,7 @@ PHASE54_SLICE7_BASE_HEAD = "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16"
 PHASE54_SLICE8_BASE_HEAD = "027b33cafcfd58916a89e299487dad38d24ade6c"
 PHASE54_SLICE9_BASE_HEAD = "0ceb9a476e6592714cdc76845949ba0ae5123eb5"
 FINAL_COMPILER_DIGEST = (
-    "fd4b8fcd41dc66be686880805bb6afaa4ab32efa5ae95159f88ada704ae69a9c"
+    "92b3f0445e738265e6ccd342fc42bcc6cff4e92464fc68504517a592c59bfa61"
 )
 FINAL_SEMANTIC_DIGEST = (
     "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
@@ -1997,7 +1997,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         len(markdown_paths),
         len(test_paths),
         top_level_functions,
-    ) == (939, 575, 268, 464, 5437)
+    ) == (939, 575, 268, 464, 5439)
     self_tree = ast.parse(SELF_PATH.read_text())
     self_names = tuple(
         node.name

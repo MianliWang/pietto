@@ -104,6 +104,10 @@ _INSPECTION_DELETE_CHARACTER = "\x7f"
 
 _INSPECTION_FIRST_PRINTABLE = " "
 
+_INSPECTION_SURROGATE_START = "\ud800"
+
+_INSPECTION_SURROGATE_END = "\udfff"
+
 
 class ProjectInspectionFormat(StrEnum):
     """The exact private canonical inspection format this Slice produces."""
@@ -1471,6 +1475,9 @@ def _derive_inspection(
         declaration_assets_by_path.setdefault(
             declaration_asset.identity.module_path, []
         ).append(declaration_asset)
+    occurrence_positions = _derive_occurrence_positions(
+        package_identity.declaration_assets
+    )
 
     origins_by_path: dict[str, list[ProjectModuleOriginPath]] = {}
     for origin_path in attribution.origins:
@@ -1544,7 +1551,8 @@ def _derive_inspection(
                 imports=_derive_imports(bindings.environments[position]),
                 exports=_derive_exports(exports.surfaces[position]),
                 declarations=_derive_declarations(
-                    declaration_assets_by_path.get(path, ())
+                    declaration_assets_by_path.get(path, ()),
+                    occurrence_positions,
                 ),
                 origins=_derive_origins(origins_by_path.get(path, ())),
                 dependencies=_derive_dependencies(dependencies_by_path.get(path, ())),
@@ -1658,19 +1666,43 @@ def _derive_exports(
     return tuple(projected)
 
 
+def _derive_occurrence_positions(
+    declaration_assets: Sequence[ProjectLayeredDeclarationAsset],
+) -> Mapping[int, int]:
+    """Index every occurrence inside its own shared identity bucket once.
+
+    Every occurrence of one nominal identity retains the exact same bucket
+    object, so each distinct bucket is walked exactly once. Re-scanning the
+    bucket per declaration would cost one comparison for every pair of
+    same-identity declarations, which a legitimate ambiguous project can make
+    arbitrarily large.
+    """
+
+    positions: dict[int, int] = {}
+    indexed_buckets: dict[int, None] = {}
+    for declaration_asset in declaration_assets:
+        bucket = declaration_asset.identity_occurrences
+        bucket_key = id(bucket)
+        if bucket_key in indexed_buckets:
+            continue
+        indexed_buckets[bucket_key] = None
+        for position, occurrence in enumerate(bucket):
+            positions[id(occurrence)] = position
+    return MappingProxyType(positions)
+
+
 def _derive_declarations(
     declaration_assets: Sequence[ProjectLayeredDeclarationAsset],
+    occurrence_positions: Mapping[int, int],
 ) -> tuple[ProjectInspectionDeclaration, ...]:
     """Project one module's declarations, availability, and row fields."""
 
     projected: list[ProjectInspectionDeclaration] = []
     for declaration_asset in declaration_assets:
         occurrences = declaration_asset.identity_occurrences
-        occurrence_index = -1
-        for index, occurrence in enumerate(occurrences):
-            if occurrence is declaration_asset.occurrence:
-                occurrence_index = index
-                break
+        occurrence_index = occurrence_positions.get(
+            id(declaration_asset.occurrence), -1
+        )
         if occurrence_index < 0:
             raise ValueError("Inspected declaration must appear in its own bucket.")
         state = declaration_asset.relation_state
@@ -2645,6 +2677,12 @@ def _escape(value: str) -> str:
             or character == _INSPECTION_DELETE_CHARACTER
         ):
             escaped.append(f"\\x{ord(character):02x}")
+        elif _INSPECTION_SURROGATE_START <= character <= _INSPECTION_SURROGATE_END:
+            # A POSIX path byte that the filesystem encoding cannot decode
+            # reaches this projection as a lone surrogate, and UTF-8 refuses to
+            # encode one. Escaping it keeps the payload total over every
+            # retained text and keeps one unambiguous byte representation.
+            escaped.append(f"\\u{ord(character):04x}")
         else:
             escaped.append(character)
     return "".join(escaped)

@@ -184,13 +184,13 @@ MODIFIED_TEST_SHA256 = {
 WORKFLOW_SHA256 = "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94"
 PYPROJECT_SHA256 = "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01"
 LOCK_SHA256 = "a7d9125995e98a8a74d3664ceae7801cc1f4cce74ec323933da67838be199cea"
-COMPILER_DIGEST = "fd4b8fcd41dc66be686880805bb6afaa4ab32efa5ae95159f88ada704ae69a9c"
+COMPILER_DIGEST = "92b3f0445e738265e6ccd342fc42bcc6cff4e92464fc68504517a592c59bfa61"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "3c619932e4fd1a4f2b3f12f4801d10c30030e8a6691d7cb63dd86a315b822439"
+    "cffe3086127aed442491f0e9c05c5eb18048462bc4e97ba03a91f7a929b87ab2"
 )
 
 SPEC_H2 = (
@@ -2359,7 +2359,7 @@ def test_test_inventory_tier1_selectors_and_compatibility_counts_are_exact() -> 
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (464, 5437)
+    assert (len(test_files), top_level_functions) == (464, 5439)
     assert tuple(
         _pytest_shape(REPO_ROOT / path)[1]
         for path in (

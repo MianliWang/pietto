@@ -312,7 +312,7 @@ SEMANTIC_IDENTITY_CASES = (
     ("Org.Analytics.Rank", "Unknown function: Org.Analytics.Rank"),
 )
 
-COMPILER_DIGEST = "fd4b8fcd41dc66be686880805bb6afaa4ab32efa5ae95159f88ada704ae69a9c"
+COMPILER_DIGEST = "92b3f0445e738265e6ccd342fc42bcc6cff4e92464fc68504517a592c59bfa61"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
@@ -1077,7 +1077,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 5437
+    assert top_level_tests == 5439
     assert (
         3488
         == 381 + 834 + 627 + 424 + 279 + 168 + 156 + 12 + 145 + 190 + 70 + 70 + 97 + 35
