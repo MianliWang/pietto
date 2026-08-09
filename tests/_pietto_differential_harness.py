@@ -147,6 +147,8 @@ class DifferentialPurpose(StrEnum):
     FOREIGN_DECLARATION_OWNER = "foreign_declaration_owner"
     FOREIGN_LOCAL_EXPORT_TARGET = "foreign_local_export_target"
     FOREIGN_LOCAL_ORIGIN_TARGET = "foreign_local_origin_target"
+    RESOLVED_IMPORT_WITH_BLOCKING_ISSUE = "resolved_import_with_blocking_issue"
+    RESOLVED_EXPORT_WITH_BLOCKING_ISSUE = "resolved_export_with_blocking_issue"
     POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
     OCCURRENCE_INDEX_OUTSIDE_BUCKET = "occurrence_index_outside_bucket"
 

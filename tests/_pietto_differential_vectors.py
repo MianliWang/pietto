@@ -2420,6 +2420,45 @@ def _rejected_vectors() -> tuple[DifferentialVector, ...]:
             8,
         ),
         _rejected(
+            "resolved_import_with_blocking_issue",
+            DifferentialPurpose.RESOLVED_IMPORT_WITH_BLOCKING_ISSUE,
+            _document(
+                _header(1),
+                _OWNER,
+                *valid_module,
+                _import(
+                    0,
+                    0,
+                    local_name="Row",
+                    exported_name="Row",
+                    target_module_path="b.pietto",
+                    issues=1,
+                ),
+                _import_issue(0, 0, 0, "unresolved_target_module"),
+            ),
+            ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
+            8,
+        ),
+        _rejected(
+            "resolved_export_with_blocking_issue",
+            DifferentialPurpose.RESOLVED_EXPORT_WITH_BLOCKING_ISSUE,
+            _document(
+                _header(1),
+                _OWNER,
+                *valid_module,
+                _export(
+                    0,
+                    0,
+                    local_name="Row",
+                    module_path="a.pietto",
+                    issues=1,
+                ),
+                _export_issue(0, 0, 0, "unresolved_export_binding"),
+            ),
+            ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
+            8,
+        ),
+        _rejected(
             "foreign_declaration_owner",
             DifferentialPurpose.FOREIGN_DECLARATION_OWNER,
             _document(

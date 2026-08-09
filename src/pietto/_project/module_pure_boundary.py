@@ -366,6 +366,7 @@ class _PureScopeKind(StrEnum):
     """The declared shapes of a relation between one record and its scope."""
 
     ANCESTOR_EQUAL = "ancestor_equal"
+    ANCESTOR_COMBINATION = "ancestor_combination"
     PREVIOUS_SIBLING_EQUAL = "previous_sibling_equal"
     DISTINCT_SIBLINGS = "distinct_siblings"
     SCOPE_CONTAINS_ANCESTOR = "scope_contains_ancestor"
@@ -385,12 +386,18 @@ class _PureScopeRule:
     kind, which is how a chain states its two endpoints. ``pairs`` names
     ``(this key, other key)`` couples; ``distinct`` names the keys whose tuple
     must not repeat among siblings; ``child`` and ``child_key`` name the child
-    records a scope rule collects.
+    records a scope rule collects. A combination reads each couple as one
+    ``(this value, ancestor value)`` cell of ``admitted``, where an ancestor key
+    listed in ``presence`` contributes ``present`` or ``absent`` instead of its
+    value, so a child value can be restricted by the state of the record that
+    owns it.
     """
 
     rule: _PureScopeKind
     scope: str = ""
     pairs: tuple[tuple[str, str], ...] = ()
+    admitted: tuple[tuple[str, ...], ...] = ()
+    presence: tuple[str, ...] = ()
     distinct: tuple[str, ...] = ()
     child: str = ""
     child_key: str = ""
@@ -940,6 +947,16 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         parent_ordinal_keys=("module", "request"),
         scope_rules=(
             _PureScopeRule(
+                rule=_PureScopeKind.ANCESTOR_COMBINATION,
+                scope="import",
+                pairs=(("status", "resolved_module_path"),),
+                presence=("resolved_module_path",),
+                admitted=(
+                    ("duplicate_source_request", "present"),
+                    ("*", "absent"),
+                ),
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.DISTINCT_SIBLINGS,
                 distinct=("status",),
             ),
@@ -1061,6 +1078,16 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         ),
         parent_ordinal_keys=("module", "request"),
         scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.ANCESTOR_COMBINATION,
+                scope="export",
+                pairs=(("status", "entry_origin"),),
+                presence=("entry_origin",),
+                admitted=(
+                    ("duplicate_source_request", "present"),
+                    ("*", "absent"),
+                ),
+            ),
             _PureScopeRule(
                 rule=_PureScopeKind.DISTINCT_SIBLINGS,
                 distinct=("status",),
@@ -2077,6 +2104,28 @@ def _validate_scope_rules(
                     return _reject(
                         ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position
                     )
+            continue
+        if rule.rule is _PureScopeKind.ANCESTOR_COMBINATION:
+            ancestor = _ancestor_frame(stack, rule.scope)
+            if ancestor is None or ancestor.record is None:
+                return _reject(ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position)
+            observed: list[str] = []
+            for key, ancestor_key in rule.pairs:
+                observed.append(_state_token(_value_of(record, key)))
+                supplied = _value_of(ancestor.record, ancestor_key)
+                observed.append(
+                    _presence_token(supplied)
+                    if ancestor_key in rule.presence
+                    else _state_token(supplied)
+                )
+            if not any(
+                all(
+                    cell == "*" or cell == seen
+                    for cell, seen in zip(row, observed, strict=True)
+                )
+                for row in rule.admitted
+            ):
+                return _reject(ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position)
             continue
         if rule.rule is _PureScopeKind.PREVIOUS_SIBLING_EQUAL:
             previous = parent_frame.previous_child.get(specification.kind)

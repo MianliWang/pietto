@@ -592,7 +592,10 @@ def test_declared_ordinal_rules_match_the_projection_emission_rules() -> None:
     for specification in schema.values():
         for rule in specification.scope_rules:
             assert rule.at in ("any", "first", "last")
-            if rule.rule is pure_boundary._PureScopeKind.ANCESTOR_EQUAL:
+            if rule.rule in (
+                pure_boundary._PureScopeKind.ANCESTOR_EQUAL,
+                pure_boundary._PureScopeKind.ANCESTOR_COMBINATION,
+            ):
                 assert rule.scope in schema and schema[rule.scope].is_scope
             if rule.rule is pure_boundary._PureScopeKind.SCOPE_CONTAINS_ANCESTOR:
                 assert schema[rule.child].parent == specification.kind
