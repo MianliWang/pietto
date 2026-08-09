@@ -826,7 +826,7 @@ FINAL_SHA256: dict[str, str] = {
     "tests/test_phase52_expression_stage_clause_capability_facts.py": "d7f65adf62e76ac2e5bc86d254ab276e35481eba506e58b3ccf82e212be1e24f",
     "tests/test_phase52_fail_closed_capability_lookup.py": "a53736051bc92f68ae5f85f65600d291ee47c7e196a1ec33ea9745fd4b5b013e",
     "tests/test_phase52_logical_type_literal_parameter_nullability_inventory.py": "ea8741d1094cccebd8dd174b7d200f5c92f5c52bf8a9bb23c01ebc51ead68569",
-    "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py": "6e5e2ee00b45bca315e75dbad22b6be101613dbf7584b9ca506fbc957fe205ba",
+    "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py": "dfc52c2c576df339d4c4dc062473d3f178ce24bdc5efce8b9ffa8f7c13e5db90",
     "tests/test_phase52_private_capability_fact_foundation.py": "915c25e88c9f1c4c9ebc9a62cb078b0d9f656d891150de72923eaa40cf1a5b5b",
     "tests/test_phase52_scalar_function_operator_signature_facts.py": "9ddec50b7295faba45a31f831a1c5221800b4f69b8281a0f92a3528cc80e3ebd",
     "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py": "f7efd451b41e06e8f24f738b1d2c101008886e83511fb3d2f90947dfb0b7de72",
