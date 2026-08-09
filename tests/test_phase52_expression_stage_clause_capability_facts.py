@@ -13,8 +13,8 @@ from _phase54_active_gate2_manifest import (
     phase54_post_slice12_interlude_dirty_is_active,
     phase54_post_slice12_interlude_expected_added_paths,
     phase54_post_slice12_interlude_expected_modified_paths,
-    phase54_post_slice12_interlude_clean_topic_is_active,
-    phase54_post_slice12_interlude_expected_branch,
+    phase54_publication_clean_topic_is_active,
+    phase54_publication_topic_branch,
     PHASE54_ACTIVE_GATE2_ADDED_PATHS,
     PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
@@ -137,7 +137,7 @@ LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf2
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 SIGNATURE_SHA256 = "810f347080e0bb7dc674821aa6387c5f7618ac216832194ef19820326eef71d2"
 PROJECT_PRIVATE_DIGEST = (
-    "9269d0946eaa232a4471633214d6fc55cd69b55d684edba3213532242224183b"
+    "704694b7e04a8b0ad6f36d1948ef2bc276cebdda0b4faaab1a38304d34c3e09d"
 )
 TIER2_MANIFEST_BYTES = 18319
 TIER2_MANIFEST_FILES = 108
@@ -970,8 +970,8 @@ def _assert_clean_checkout_refs(
             assert origin_main == head
         return
 
-    if branch == phase54_post_slice12_interlude_expected_branch():
-        assert phase54_post_slice12_interlude_clean_topic_is_active()
+    if branch == phase54_publication_topic_branch():
+        assert phase54_publication_clean_topic_is_active()
         return
 
     assert branch == ""
@@ -1294,11 +1294,11 @@ def test_compiler_semantic_subset_project_and_raw_hash_readers_are_exact() -> No
     )
     project_paths = _project_private_paths()
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        105,
+        106,
         36,
         33,
     )
-    assert len(project_paths) == 30
+    assert len(project_paths) == 31
     assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
 
     tracked = tuple(_git_output(["ls-files"]).splitlines())
@@ -1686,7 +1686,7 @@ def test_static_test_inventory_and_tier1_selection_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (462, 5361)
+    assert (len(test_files), top_level_functions) == (463, 5396)
 
     compatible, per_file_items = _prior_compatible_nodes()
     assert (len(compatible), per_file_items) == (96, (24, 33, 63, 63))

@@ -9,9 +9,9 @@ from pathlib import Path
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
-    phase54_post_slice12_interlude_clean_topic_is_active,
-    phase54_post_slice12_interlude_expected_branch,
-    phase54_post_slice12_interlude_expected_topic_base,
+    phase54_publication_clean_topic_is_active,
+    phase54_publication_topic_branch,
+    phase54_publication_topic_base,
     PHASE54_ACTIVE_GATE2_BASE,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
     PHASE54_SLICE12_PRODUCT_REPAIR3_MODIFIED_PATHS,
@@ -1165,17 +1165,13 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
         assert head == main == origin_main == BASE_HEAD_SHA
     else:
         assert tracked == untracked == set()
-        if branch == phase54_post_slice12_interlude_expected_branch():
+        if branch == phase54_publication_topic_branch():
             # The clean topic projection keeps its own topology assertions and
             # then continues into the shared inventory below: returning early
             # would leave the refreshed counts unverified in exactly the
             # projection the publication lifecycle checks out.
-            assert phase54_post_slice12_interlude_clean_topic_is_active()
-            assert (
-                main
-                == origin_main
-                == phase54_post_slice12_interlude_expected_topic_base()
-            )
+            assert phase54_publication_clean_topic_is_active()
+            assert main == origin_main == phase54_publication_topic_base()
         else:
             assert branch in ("", "main")
             if branch == "main":
@@ -1186,15 +1182,15 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
                 assert origin_main == head
 
     readable_paths = set(_git_output(["ls-files"]).splitlines()) | untracked
-    assert len(readable_paths) == 933
-    assert sum(path.endswith(".py") for path in readable_paths) == 571
-    assert sum(path.endswith(".md") for path in readable_paths) == 266
+    assert len(readable_paths) == 936
+    assert sum(path.endswith(".py") for path in readable_paths) == 573
+    assert sum(path.endswith(".md") for path in readable_paths) == 267
     test_modules = {
         path
         for path in readable_paths
         if path.startswith("tests/test_") and path.endswith(".py")
     }
-    assert len(test_modules) == 462
+    assert len(test_modules) == 463
     top_level_tests = 0
     for relative in sorted(test_modules):
         tree = ast.parse(_read(relative), filename=relative)
@@ -1203,7 +1199,7 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 5361
+    assert top_level_tests == 5396
     assert len(GENERATED_PATHS) == 8
     goldens = {
         path

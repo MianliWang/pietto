@@ -58,18 +58,19 @@ and the [Phase 54 plan](docs/plan/phase-54-local-import-module-export-foundation
 | Project schema v2 | Explicit modules, trusted loading, private catalogs/facades/bindings, module graph/diagnostics, resolution, attribution, provenance, and minimal direct lineage facts |
 | Runtime | Compiler only; no database connection or SQL execution |
 
-Phase 54 is **ACTIVE**. Slices 1 through 11 are **COMPLETED**. Slice 12 is the
-Gate 2 candidate for lossless private preservation of the existing generic,
-nullability, aggregate, grouped, window, result-role, and capability facts.
-It starts from the exact published Slice 11 base
-`bc46faff1c9aa71f583ed7d2964b651cc659bc90`. Slice 10 remains the sole
-semantic authority root; Slice 11 attribution is neither consumed nor joined.
-The historical `Slice 11 Gate 2 candidate` checkpoint remains superseded by
-the published Slice 11 completion evidence; its private boundary remains
-module attribution, dependency, origin, provenance, and lineage.
-Reviewed-tree publication is still required; Slices 13 through 16 are
+Phase 54 is **ACTIVE**. Slices 1 through 12 are **COMPLETED**. Slice 13 is the
+Gate 2 candidate for private package-neutral identity layering, owner and
+asset-compatible carriers, source digest identity, and loader readiness.
+It starts from the exact published base
+`0bad854253e22347e2aff93e2eabcbe2fda55aed`. Slice 13 is the first authorized
+join of the Slice 11 attribution product and the Slice 12 preservation product;
+neither input is authority for the other and the join is admitted only by a
+shared exact-authority-root predicate. The historical `Slice 12 Gate 2
+candidate` checkpoint remains superseded by the published Slice 12 completion
+evidence; its private boundary remains lossless semantic-fact preservation.
+Reviewed-tree publication is still required; Slices 14 through 16 are
 **UNSTARTED**, and the next lifecycle state after Gate 2 is
-`PHASE54_SLICE12_GATE3`.
+`PHASE54_SLICE13_GATE3`.
 
 Slice 3 provides stable project-relative module identity, an immutable
 selected-input index, pinned-root path checks, and trusted source loading.
@@ -98,8 +99,11 @@ qualification. Slice 11 adds private occurrence-safe declaration, import,
 facade, and reference attribution; exact dependency and origin paths; complete
 type/source/relation provenance; and minimal direct or renamed row lineage.
 Slice 12 preserves existing advanced semantic facts in a separate private
-sidecar without changing any public compiler or output contract. Inspection
-and serialization remain later work within Phase 54.
+sidecar without changing any public compiler or output contract. Slice 13
+layers package-neutral owner and asset identities, one source digest identity,
+and fail-closed loader-readiness facts over the exact Slice 3, Slice 11, and
+Slice 12 roots, without a package manager, registry, manifest, solver, or
+loader. Inspection and serialization remain later work within Phase 54.
 Schema v2 therefore remains a foundation rather than a completed module
 system. The runnable Quick Start remains schema v1.
 
@@ -265,6 +269,7 @@ facts and forward-compatible foundations.
 | Cross-module relation and row-fact resolution | Private | Slice 10 direct relation resolution and minimal row facts |
 | Module attribution, dependency, origin, provenance, and lineage | Private | Slice 11 occurrence-safe exact paths and minimal concrete direct/renamed lineage |
 | Module semantic-fact preservation | Private | Slice 12 lossless generic, nullability, aggregate, grouped, window, result-role, and capability facts |
+| Package-neutral identity layering | Private | Slice 13 owner/asset identities, source digest identity, and fail-closed loader readiness |
 
 Existing project facts include deterministic source ordering, flat namespace
 resolution for schema v1, row-schema propagation, relation dependency graphs,
@@ -354,6 +359,8 @@ is specified in the
 [Slice 11 attribution contract](docs/spec/phase54-slice11-module-attribution-dependency-origin-provenance-and-lineage-v1.md).
 The private semantic-fact preservation boundary is specified in the
 [Slice 12 preservation contract](docs/spec/phase54-slice12-semantic-fact-preservation-v1.md).
+The exact Slice 13 boundary is the
+[Slice 13 package-neutral identity contract](docs/spec/phase54-slice13-package-neutral-identity-layering-owner-asset-carriers-source-digest-and-loader-readiness-v1.md).
 
 ## Compiler Architecture
 
@@ -393,7 +400,7 @@ percentages. The complete route is maintained in the
 
 | Route | Product milestone | Status or boundary |
 | --- | --- | --- |
-| Phase 54 | Local module, import, export, binding, graph, and hardening foundation | Active; Slice 12 Gate 2 candidate |
+| Phase 54 | Local module, import, export, binding, graph, and hardening foundation | Active; Slice 13 Gate 2 candidate |
 | Phases 55–59 | Package assets, capability profiles, extension catalog, public inspection, and local package graph | Planned |
 | Phase 60 | Advanced windows and ecosystem/release-readiness checkpoint | Planned; no tag or publication |
 | Phases 61–63 | Project IR, relationships, JOIN semantics, multi-relation SQL, and `QUALIFY` | Planned |

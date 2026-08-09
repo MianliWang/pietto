@@ -191,7 +191,8 @@ def test_slice10_contract_and_status_docs_freeze_exact_boundary() -> None:
     assert "Schema v1 continues to use the byte-exact legacy-flat resolver" in spec
     assert "There is no cross-namespace fallback" in spec
     assert (
-        "Slice 12 is the\nGate 2 candidate for lossless private preservation" in readme
+        "Slice 12 preserves existing advanced semantic facts in a separate private"
+        in readme
     )
     assert (
         "private type/source and relation resolution with minimal row facts" in readme
@@ -209,19 +210,22 @@ def test_slice10_contract_and_status_docs_freeze_exact_boundary() -> None:
     )
     assert "while relation resolution\nand row facts remain" not in readme
     assert "It does not yet produce cross-module\nrelation/row facts" not in readme
-    assert "Active; Slice 12 Gate 2 candidate" in readme
-    assert "## Status And Slice 12 Lifecycle" in plan
-    assert "## Current Phase 54 Slice 12 Semantic Fact Preservation Status" in current
-    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER == "PHASE54_SLICE12_GATE2"
+    assert "Active; Slice 13 Gate 2 candidate" in readme
+    assert "## Status And Slice 13 Lifecycle" in plan
+    assert (
+        "## Current Phase 54 Slice 13 Package-neutral Identity Layering Status"
+        in current
+    )
+    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER == "PHASE54_SLICE13_GATE2"
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE == (
-        "bc46faff1c9aa71f583ed7d2964b651cc659bc90"
+        "0bad854253e22347e2aff93e2eabcbe2fda55aed"
     )
     assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_ADDED_PATHS) == 3
     assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS) == 69
     assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_ALLOWLIST_PATHS) == 72
     assert len(active_gate2_manifest.ADDED_PATHS) == 3
-    assert len(active_gate2_manifest.MODIFIED_PATHS) == 179
-    assert len(active_gate2_manifest.ALLOWLIST_PATHS) == 182
+    assert len(active_gate2_manifest.MODIFIED_PATHS) == 65
+    assert len(active_gate2_manifest.ALLOWLIST_PATHS) == 68
     frozen_gate2 = active_gate2_manifest.Phase54Gate2RepositoryState(
         marker=active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER,
         branch_oid=active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE,

@@ -12,14 +12,14 @@ from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
     phase54_post_slice12_interlude_expected_head,
-    phase54_post_slice12_interlude_expected_topic_base,
+    phase54_publication_topic_base,
     phase54_post_slice12_interlude_repair_is_active,
     phase54_post_slice12_interlude_dirty_is_active,
     phase54_post_slice12_interlude_expected_added_paths,
     phase54_post_slice12_interlude_expected_allowlist_paths,
     phase54_post_slice12_interlude_expected_modified_paths,
-    phase54_post_slice12_interlude_clean_topic_is_active,
-    phase54_post_slice12_interlude_expected_branch,
+    phase54_publication_clean_topic_is_active,
+    phase54_publication_topic_branch,
     PHASE54_ACTIVE_GATE2_ADDED_PATHS,
     PHASE54_ACTIVE_GATE2_BASE,
     PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
@@ -176,21 +176,21 @@ MODULE_SHA256 = {
 }
 SPEC_SHA256 = "7010cd8a39ed389de588d8cd734b136cc87456c3ef5eb324638467d1188fc935"
 MODIFIED_TEST_SHA256 = {
-    SLICE4_TEST_REL: "e7c0f1a63bfdef20cbc7558dcadb0b01c8312c03c9bd0f49381828493675ea58",
-    SLICE5_TEST_REL: "f0e50cd8110ddf2892bfd572dfef2f162e4fb5ea9b2d6da7e10c13f160eaddf3",
-    SLICE6_TEST_REL: "5e370a60cbe16a1e39307dfe6b676c0424431d54993ae489ee45617162e9c92c",
-    SLICE7_TEST_REL: "5fe4675aee375c622fafced2c0f37368a3c53c0791ff01292a9f80dab7fa4f9b",
+    SLICE4_TEST_REL: "4644785b0fe1cdf36fb9d2730c7fc7ccf86eed4ddfd750658654187fffdd2d99",
+    SLICE5_TEST_REL: "08bb9d3d407c379953e2db3c62c9a32afaf369244eb4e760dcdef7c137c02c1f",
+    SLICE6_TEST_REL: "1a4c784b77e1c1592dc6f9b43f269543af95068a2d61dad630823a4eeb69e641",
+    SLICE7_TEST_REL: "857ef069b18c4a5ed812d1533cfa06611b4c58ef6e1a49676ca8877a1f36544e",
 }
 WORKFLOW_SHA256 = "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94"
 PYPROJECT_SHA256 = "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01"
 LOCK_SHA256 = "a7d9125995e98a8a74d3664ceae7801cc1f4cce74ec323933da67838be199cea"
-COMPILER_DIGEST = "f9eca1bf5cadfcc1583ba465f33bf761114e6d9d2785de15a2d73b5a19a6ff62"
+COMPILER_DIGEST = "0afd97f37ada21b9f05b8b251f3bf8d1c7e971382f7c0225634f29c2e4452499"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "9269d0946eaa232a4471633214d6fc55cd69b55d684edba3213532242224183b"
+    "704694b7e04a8b0ad6f36d1948ef2bc276cebdda0b4faaab1a38304d34c3e09d"
 )
 
 SPEC_H2 = (
@@ -457,8 +457,8 @@ def _assert_checkout_ref_shape(
             )
         return False
 
-    if branch == phase54_post_slice12_interlude_expected_branch():
-        assert phase54_post_slice12_interlude_clean_topic_is_active()
+    if branch == phase54_publication_topic_branch():
+        assert phase54_publication_clean_topic_is_active()
         return False
 
     assert branch == ""
@@ -756,13 +756,11 @@ def _assert_allowed_dirty_state(
         return
 
     if phase54_post_slice12_interlude_repair_is_active():
-        assert branch == phase54_post_slice12_interlude_expected_branch()
+        assert branch == phase54_publication_topic_branch()
         assert tracked == set(phase54_post_slice12_interlude_expected_modified_paths())
         assert untracked == set(phase54_post_slice12_interlude_expected_added_paths())
         assert head == phase54_post_slice12_interlude_expected_head()
-        assert (
-            main == origin_main == phase54_post_slice12_interlude_expected_topic_base()
-        )
+        assert main == origin_main == phase54_publication_topic_base()
         return
 
     assert branch == "main"
@@ -2172,7 +2170,7 @@ def test_static_reader_counts_boundary_hash_and_nested_sha_topology_are_exact() 
     assert (
         sum(path.endswith(".py") for path in readable),
         sum(path.endswith(".md") for path in readable),
-    ) == (571, 266)
+    ) == (573, 267)
     compiler_paths = _compiler_paths()
     semantic_paths = tuple((REPO_ROOT / "src/pietto/semantic").glob("*.py"))
     phase15_paths = tuple(
@@ -2182,11 +2180,11 @@ def test_static_reader_counts_boundary_hash_and_nested_sha_topology_are_exact() 
     )
     project_paths = _project_private_paths()
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        105,
+        106,
         36,
         33,
     )
-    assert len(project_paths) == 30
+    assert len(project_paths) == 31
     assert _digest(compiler_paths) == COMPILER_DIGEST
     assert _digest(semantic_paths) == SEMANTIC_DIGEST
     assert _digest(phase15_paths) == PHASE15_SUBSET_DIGEST
@@ -2361,7 +2359,7 @@ def test_test_inventory_tier1_selectors_and_compatibility_counts_are_exact() -> 
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (462, 5361)
+    assert (len(test_files), top_level_functions) == (463, 5396)
     assert tuple(
         _pytest_shape(REPO_ROOT / path)[1]
         for path in (
@@ -2417,7 +2415,7 @@ def test_test_inventory_tier1_selectors_and_compatibility_counts_are_exact() -> 
         TIER1_OPERAND_SHA256,
     )
     assert sum((12, 25, 34, 64, 64, 69, 69, 69, 11)) + len(filtered_direct) == 459
-    assert 462 - len(tier1_deselections) == 459
+    assert 463 - len(tier1_deselections) == 460
     assert 6156 + 11 == 6167
 
 

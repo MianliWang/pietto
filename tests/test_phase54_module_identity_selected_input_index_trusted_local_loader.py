@@ -908,7 +908,7 @@ def test_single_file_public_privacy_scope_and_flat_evidence_contract_remain_exac
     assert not any(
         f"PIE-S270{number}" in non_graph_production for number in range(1, 8)
     )
-    assert "## Status And Slice 12 Lifecycle" in plan
+    assert "## Status And Slice 13 Lifecycle" in plan
     assert "## Slice 3 Exact Production Boundary And Gate Contract" in plan
     assert "## Slice 4 Exact Production Boundary And Gate Contract" in plan
     assert source.count("\ndef test_") == 26

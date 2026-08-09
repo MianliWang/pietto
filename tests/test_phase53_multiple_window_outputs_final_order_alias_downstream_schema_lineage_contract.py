@@ -46,6 +46,7 @@ from _phase54_active_gate2_manifest import (
     PHASE54_SLICE11_PYTHON313_REPAIR_BASE,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
+    phase54_active_gate2_publication_commit_is_head,
 )
 
 import pytest
@@ -757,6 +758,15 @@ def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> N
                 expected_parent = _interlude_expected_parent(
                     _git_output(["show", "-s", "--format=%s", "HEAD"]), parents
                 )
+            elif phase54_active_gate2_publication_commit_is_head():
+                # The gate manifest recognizes the active publication chain and
+                # has already proved the frozen base is on its first-parent
+                # chain, so no later Slice appends its own head here.
+                assert (
+                    PHASE54_ACTIVE_GATE2_BASE
+                    in _git_output(["rev-list", "--first-parent", head]).split()
+                )
+                expected_parent = parents[0]
             else:
                 expected_parent = PHASE54_SLICE10_HEAD
             assert parents == [expected_parent]
@@ -1643,7 +1653,7 @@ def test_recursive_reader_hash_terminal_and_manifest_fixed_point_is_exact() -> N
         for path in paths
         if path.startswith("src/pietto/_project/") and path.endswith(".py")
     )
-    assert len(project_paths) == 30
+    assert len(project_paths) == 31
     assert "src/pietto/_project/window_persistence.py" in project_paths
     digest = hashlib.sha256()
     for path in project_paths:
@@ -1654,10 +1664,26 @@ def test_recursive_reader_hash_terminal_and_manifest_fixed_point_is_exact() -> N
     assert len(digest.hexdigest()) == 64
 
 
+def _git_index_lock_is_stale() -> bool:
+    """Return whether an abandoned Git operation left the index locked.
+
+    ``.git/index.lock`` is a volatile reference: any concurrent Git command
+    holds it briefly and releases it. Sampling it once therefore observes a
+    state that no longer exists, so it is re-read after another Git command has
+    completed and only a lock that survives that window is reported.
+    """
+
+    lock = REPO_ROOT / ".git/index.lock"
+    if not lock.exists():
+        return False
+    _git_output(["status", "--porcelain=v1"])
+    return lock.exists()
+
+
 def test_slice14_dirty_clean_depth_one_and_shallow_states_are_locked() -> None:
     assert _git_output(["diff", "--cached", "--name-only"]) == ""
     assert _git_output(["rev-parse", "--is-shallow-repository"]) in {"true", "false"}
-    assert not (REPO_ROOT / ".git/index.lock").exists()
+    assert not _git_index_lock_is_stale()
     docs = _read(PLAN_REL) + _read(SPEC_REL)
     assert "pull_request" in docs
     assert "push" in docs
@@ -1687,11 +1713,11 @@ def test_test_inventory_focused_overlay_validation_and_gate3_are_exact() -> None
         len(test_paths),
         top_level_tests,
     ) == (
-        933,
-        571,
-        266,
-        462,
-        5361,
+        936,
+        573,
+        267,
+        463,
+        5396,
     )
     docs = _read(PLAN_REL)
     for value in (

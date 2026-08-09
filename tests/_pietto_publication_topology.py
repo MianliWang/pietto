@@ -26,6 +26,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import _phase54_active_gate2_manifest
+
 TOPOLOGY_DIRTY_GATE2 = "dirty_gate2_candidate"
 TOPOLOGY_CLEAN_TOPIC = "clean_topic_candidate"
 TOPOLOGY_REPAIR_CHILD = "non_amend_repair_child"
@@ -58,7 +60,10 @@ CI_EVENT_VARIABLES: tuple[str, ...] = (
     "GITHUB_SHA",
 )
 
-TOPIC_BRANCH = "phase54/post-slice12-workflow-hardening"
+# The topic branch that carries a publication moves with every Gate. Reading it
+# from the active Gate 2 manifest keeps one authority for the name instead of
+# freezing a stale branch into the fixtures every later Slice must work around.
+TOPIC_BRANCH = _phase54_active_gate2_manifest.phase54_publication_topic_branch()
 MAIN_BRANCH = "main"
 BASE_SUBJECT = "Base commit"
 TOPIC_SUBJECT = "Add Pietto workflow convergence tooling"

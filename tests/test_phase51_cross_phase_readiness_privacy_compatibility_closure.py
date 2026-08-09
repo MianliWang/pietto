@@ -943,7 +943,7 @@ def test_cross_phase_transition_and_live_identifier_inventory_is_exact() -> None
 def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> None:
     compiler_digest = _compiler_digest()
     assert compiler_digest == (
-        "f9eca1bf5cadfcc1583ba465f33bf761114e6d9d2785de15a2d73b5a19a6ff62"
+        "0afd97f37ada21b9f05b8b251f3bf8d1c7e971382f7c0225634f29c2e4452499"
     )
     for relative_path in BOUNDARY_PATHS:
         boundary_values = re.findall(
@@ -966,14 +966,14 @@ def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> N
         )
     )
     project_digest = _digest(project_paths)
-    assert len(project_paths) == 30
+    assert len(project_paths) == 31
     assert project_digest == (
-        "9269d0946eaa232a4471633214d6fc55cd69b55d684edba3213532242224183b"
+        "704694b7e04a8b0ad6f36d1948ef2bc276cebdda0b4faaab1a38304d34c3e09d"
     )
     phase33 = _read(REPO_ROOT / "tests/test_phase33_completion_audit.py")
     assert (
         f'"project_private": (\n        "src/pietto/_project",\n'
-        f'        30,\n        "{project_digest}",\n    ),'
+        f'        31,\n        "{project_digest}",\n    ),'
     ) in phase33
 
     for relative_path in (
@@ -981,7 +981,7 @@ def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> N
         "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
     ):
         source = _read(REPO_ROOT / relative_path)
-        assert "assert len(project_paths) == 30" in source
+        assert "assert len(project_paths) == 31" in source
     stale_count_assertion = "assert len(project_paths) == " + "15"
     assert all(
         stale_count_assertion not in _read(path)
@@ -1235,6 +1235,7 @@ def test_slice11_contract_plan_allowlist_and_protected_boundaries_are_locked() -
             assert active_head in {
                 "b81843acadb294630db361c09949868d004b1bca",
                 "bc46faff1c9aa71f583ed7d2964b651cc659bc90",
+                "0bad854253e22347e2aff93e2eabcbe2fda55aed",
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,

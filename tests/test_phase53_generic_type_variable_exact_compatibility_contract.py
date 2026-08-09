@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
-    phase54_post_slice12_interlude_expected_topic_base,
-    phase54_post_slice12_interlude_clean_topic_is_active,
+    phase54_publication_topic_base,
+    phase54_publication_clean_topic_is_active,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
@@ -549,7 +549,7 @@ PHASE54_SLICE7_BASE_HEAD = "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16"
 PHASE54_SLICE8_BASE_HEAD = "027b33cafcfd58916a89e299487dad38d24ade6c"
 PHASE54_SLICE9_BASE_HEAD = "0ceb9a476e6592714cdc76845949ba0ae5123eb5"
 FINAL_COMPILER_DIGEST = (
-    "f9eca1bf5cadfcc1583ba465f33bf761114e6d9d2785de15a2d73b5a19a6ff62"
+    "0afd97f37ada21b9f05b8b251f3bf8d1c7e971382f7c0225634f29c2e4452499"
 )
 FINAL_SEMANTIC_DIGEST = (
     "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
@@ -1897,7 +1897,7 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        105,
+        106,
         36,
         33,
     )
@@ -1959,12 +1959,9 @@ def test_slice4_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             )
             if result.returncode == 0:
                 assert _git("rev-parse", reference) == expected_base
-    elif phase54_post_slice12_interlude_clean_topic_is_active():
+    elif phase54_publication_clean_topic_is_active():
         for reference in ("refs/heads/main", "refs/remotes/origin/main"):
-            assert (
-                _git("rev-parse", reference)
-                == phase54_post_slice12_interlude_expected_topic_base()
-            )
+            assert _git("rev-parse", reference) == phase54_publication_topic_base()
     else:
         head = _git("rev-parse", "HEAD")
         for reference in ("refs/heads/main", "refs/remotes/origin/main"):
@@ -2000,7 +1997,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         len(markdown_paths),
         len(test_paths),
         top_level_functions,
-    ) == (933, 571, 266, 462, 5361)
+    ) == (936, 573, 267, 463, 5396)
     self_tree = ast.parse(SELF_PATH.read_text())
     self_names = tuple(
         node.name

@@ -1,26 +1,29 @@
 # Phase 54 — Local Import / Module / Export Foundation
 
-## Status And Slice 12 Lifecycle
+## Status And Slice 13 Lifecycle
 
 Phase 53 and Slices 1-16 are `COMPLETED`. Phase 54 is `ACTIVE`, and Slices
-1 through 11 are `COMPLETED` after exact Gate 3 publication. The trusted Slice
-12 base is `bc46faff1c9aa71f583ed7d2964b651cc659bc90`. Slice 12 is the exact
-Slice 12 Gate 2 candidate for semantic-fact preservation. It is not complete
-before the full Gate 2, reviewed-tree publication, and Gate 3. Slices 13-16
+1 through 12 plus the unnumbered post-Slice-12 workflow hardening interlude are
+`COMPLETED` after exact Gate 3 publication. The trusted Slice 13 base is
+`0bad854253e22347e2aff93e2eabcbe2fda55aed`. Slice 13 is the exact Slice 13
+Gate 2 candidate for package-neutral identity layering. It is not complete
+before the full Gate 2, reviewed-tree publication, and Gate 3. Slices 14-16
 remain `UNSTARTED`.
 
-Slice 12 adds only one private schema-v2 semantic-fact preservation sidecar.
-Slice 10 is the sole semantic authority root. The sidecar retains complete
-generic-signature, nullability, aggregate, grouped, window, result-role, and
-capability facts without choosing a first winner or collapsing nominal
-identity, occurrence order, multiplicity, or availability state. Slice 11 is
-not an input and no attribution-to-semantic join is authorized. Schema v2
-keeps `model=None`; schema v1, IR, SQL, diagnostics, workflows, package
-version, fixtures, goldens, and every public output remain unchanged. All
-formatter validation is check-only. On successful completion of Gate 2, the
-state becomes `PHASE54_SLICE12_GATE2_COMPLETED_AWAITING_PUBLICATION`; the next
-authorized state is `PHASE54_SLICE12_GATE3`, and Slice 13 does not begin in
-Slice 12.
+Slice 13 adds only one private schema-v2 package-neutral identity layering
+sidecar and is the first authorized join of the Slice 11 attribution product
+and the Slice 12 preservation product. Its six exact roots are the Slice 3
+selected-input index and trusted-source snapshots, the logical module tuple,
+the Slice 5 catalogs, and both completed sidecars; a shared exact-authority-root
+predicate rejects every value-equal, misaligned, partial, or coordinated foreign
+root set. It layers package-neutral owner and asset identities, one source
+digest identity reached through the exact trusted snapshot, and fail-closed
+loader-readiness facts with no loader implemented. Schema v2 keeps
+`model=None`; schema v1, IR, SQL, diagnostics, workflows, package version,
+fixtures, goldens, and every public output remain unchanged. All formatter
+validation is check-only. On successful completion of Gate 2, the state becomes
+`PHASE54_SLICE13_GATE2_COMPLETED_AWAITING_PUBLICATION`; the next authorized
+state is `PHASE54_SLICE13_GATE3`, and Slice 14 does not begin in Slice 13.
 
 ## Trusted Phase 53 Baseline And Controlling Evidence
 
@@ -498,7 +501,7 @@ behavior. Prerequisite: Slice 10. Slice 12 is next.
 
 ## Slice 12 — Generic-signature, Nullability, Aggregate, Grouped, Window, Result-role, And Capability-fact Preservation
 
-Gate 2 implements the private lossless preservation sidecar specified by
+Completed after exact Gate 3 publication. It implements the private lossless preservation sidecar specified by
 `docs/spec/phase54-slice12-semantic-fact-preservation-v1.md`. It retains
 complete generic-signature, nullability, aggregate, grouped, window,
 result-role, and capability facts from the exact Slice 10 roots, including
@@ -506,12 +509,24 @@ every identity-distinct and repeated occurrence plus concrete, unknown,
 deferred, blocked, absent, and ambiguous states. It adds no public
 serialization, diagnostic, IR, SQL, grammar, dependency, version, workflow,
 fixture, or golden behavior. Slice 11 is not an input. Prerequisite: Slice 10.
-Completion still requires Gate 3; Slice 13 is next.
+Slice 13 is next.
 
 ## Slice 13 — Package-neutral Identity Layering, Owner / Asset-compatible Carriers, Source Digest, And Loader Readiness
 
-Separately gate package-neutral private seams without package product fields.
-Prerequisites: Slices 3, 11, and 12.
+Gate 2 implements the private package-neutral identity layering sidecar
+specified by
+`docs/spec/phase54-slice13-package-neutral-identity-layering-owner-asset-carriers-source-digest-and-loader-readiness-v1.md`.
+It is the first authorized join of the Slice 11 attribution product and the
+Slice 12 preservation product, admitted only by a shared exact-authority-root
+predicate over six identical roots. It layers new private package-neutral owner
+and asset identities in the reserved empty local namespace, one source digest
+identity reached through the exact Slice 3 trusted snapshot, and atomic
+fail-closed loader-readiness facts with no loader implemented. It extends the
+all-or-none module sidecar invariant to a tenth sidecar and adds no package
+identity, manifest key, asset schema field, registry, solver, public
+serialization, diagnostic, IR, SQL, grammar, dependency, version, workflow,
+fixture, or golden behavior. Prerequisites: Slices 3, 11, and 12. Completion
+still requires Gate 3; Slice 14 is next.
 
 ## Slice 14 — Private Module Inspection And Canonical Serialization
 

@@ -253,10 +253,10 @@ def test_graph_carrier_enums_fields_privacy_and_manifest_are_exact() -> None:
     assert not diagnostic_set_authority.compare
     assert diagnostic_set_authority.hash is False
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER == (
-        "PHASE54_SLICE12_GATE2"
+        "PHASE54_SLICE13_GATE2"
     )
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE == (
-        "bc46faff1c9aa71f583ed7d2964b651cc659bc90"
+        "0bad854253e22347e2aff93e2eabcbe2fda55aed"
     )
 
 
@@ -1114,7 +1114,7 @@ def test_schema_v1_privacy_status_reader_fixed_point_and_slice9_boundary(
     assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_ADDED_PATHS) == 3
     assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS) == 69
     assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 3
-    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 179
+    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 65
     assert SOURCE_REL not in active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
     assert SPEC_REL not in active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
     assert TEST_REL in active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
@@ -1122,7 +1122,7 @@ def test_schema_v1_privacy_status_reader_fixed_point_and_slice9_boundary(
         "docs/spec/phase54-slice12-semantic-fact-preservation-v1.md",
         "src/pietto/_project/module_semantic_fact_preservation.py",
         "tests/test_phase54_semantic_fact_preservation.py",
-    } == set(active_gate2_manifest.PHASE54_ACTIVE_GATE2_ADDED_PATHS)
+    } == set(active_gate2_manifest.PHASE54_SLICE12_HISTORICAL_ADDED_PATHS)
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
     assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE == (
         "17a5b01e555930537334d4d0bcf3480e332b7e91"

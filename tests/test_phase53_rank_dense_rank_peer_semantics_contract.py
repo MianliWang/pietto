@@ -8,8 +8,8 @@ from pathlib import Path
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
-    phase54_post_slice12_interlude_expected_topic_base,
-    phase54_post_slice12_interlude_clean_topic_is_active,
+    phase54_publication_topic_base,
+    phase54_publication_clean_topic_is_active,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
@@ -654,12 +654,12 @@ DIRTY_OVERLAY = (
     "--deselect=tests/test_phase52_scalar_function_operator_signature_facts.py::test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact",
 )
 
-COMPILER_DIGEST = "f9eca1bf5cadfcc1583ba465f33bf761114e6d9d2785de15a2d73b5a19a6ff62"
+COMPILER_DIGEST = "0afd97f37ada21b9f05b8b251f3bf8d1c7e971382f7c0225634f29c2e4452499"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
-PROJECT_DIGEST = "9269d0946eaa232a4471633214d6fc55cd69b55d684edba3213532242224183b"
+PROJECT_DIGEST = "704694b7e04a8b0ad6f36d1948ef2bc276cebdda0b4faaab1a38304d34c3e09d"
 FOCUSED_SHA256 = "764c5879e93871b253e875ce1e8145ce3a998d48a94b578f8af9d31f9562e5ee"
 OVERLAY_SHA256 = "197b591aec962f43b9b9393da99a76ff21c3a36189cc02c7a75dc5a7b85d6b26"
 FORMATTER_SHA256 = "5920e1a21f135b2537e8295b13c8bc6fa2962423812ffc3cbe1e52663e924daf"
@@ -2321,7 +2321,7 @@ def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
         len(semantic_paths),
         len(phase15_paths),
         len(project_paths),
-    ) == (105, 36, 33, 30)
+    ) == (106, 36, 33, 31)
     assert _digest(compiler_paths) == COMPILER_DIGEST
     assert _digest(semantic_paths) == SEMANTIC_DIGEST
     assert _digest(phase15_paths) == PHASE15_SUBSET_DIGEST
@@ -2369,10 +2369,8 @@ def test_slice8_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             "0ceb9a476e6592714cdc76845949ba0ae5123eb5",
             "b81843acadb294630db361c09949868d004b1bca",
         )
-    elif phase54_post_slice12_interlude_clean_topic_is_active():
-        assert (
-            main == origin_main == phase54_post_slice12_interlude_expected_topic_base()
-        )
+    elif phase54_publication_clean_topic_is_active():
+        assert main == origin_main == phase54_publication_topic_base()
     else:
         assert main in (None, head)
         assert origin_main in (None, head)
@@ -2382,15 +2380,15 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
     None
 ):
     repository_paths = _repository_paths()
-    assert len(repository_paths) == 933
-    assert sum(path.endswith(".py") for path in repository_paths) == 571
-    assert sum(path.endswith(".md") for path in repository_paths) == 266
+    assert len(repository_paths) == 936
+    assert sum(path.endswith(".py") for path in repository_paths) == 573
+    assert sum(path.endswith(".md") for path in repository_paths) == 267
     test_modules = tuple(
         path
         for path in repository_paths
         if path.startswith("tests/test_") and path.endswith(".py")
     )
-    assert len(test_modules) == 462
+    assert len(test_modules) == 463
     top_level_tests = 0
     for relative in test_modules:
         tree = ast.parse(_read(relative), filename=relative)
@@ -2399,7 +2397,7 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 5361
+    assert top_level_tests == 5396
     focused_payload = ("\n".join(FOCUSED_OPERANDS) + "\n").encode()
     overlay_payload = ("\n".join(DIRTY_OVERLAY) + "\n").encode()
     formatter_payload = ("\n".join(FORMATTER_PATHS) + "\n").encode()
