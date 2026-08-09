@@ -12,8 +12,12 @@ import sys
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
-PHASE54_ACTIVE_GATE2_MARKER = "PHASE54_SLICE12_GATE2"
-PHASE54_ACTIVE_GATE2_BASE = "bc46faff1c9aa71f583ed7d2964b651cc659bc90"
+PHASE54_ACTIVE_GATE2_MARKER = "PHASE54_SLICE13_GATE2"
+PHASE54_ACTIVE_GATE2_BASE = "0bad854253e22347e2aff93e2eabcbe2fda55aed"
+PHASE54_ACTIVE_GATE2_BRANCH = "phase54/slice13-package-neutral-identity-layering"
+PHASE54_ACTIVE_GATE2_SUBJECT = "Add Phase 54 package-neutral identity layering"
+PHASE54_ACTIVE_GATE2_REPAIR_SUBJECT_PREFIX = "Fix Phase 54 Slice 13 "
+PHASE54_ACTIVE_GATE2_REVIEWED_TREE_TRAILER = "Pietto-Reviewed-Tree"
 PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE = "6104002486d21b7b25dbec74d037c0fc7cc5099a"
 PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BRANCH = (
     "phase54/slice10-cross-module-relation-row-facts"
@@ -701,9 +705,9 @@ PHASE54_POST_SLICE12_INTERLUDE_REPAIR42_SUBJECT = (
     PHASE54_POST_SLICE12_INTERLUDE_UNREGISTERED_CHILD_SHAPE[1]
 )
 ADDED_PATHS = {
-    "docs/spec/phase54-slice12-semantic-fact-preservation-v1.md",
-    "src/pietto/_project/module_semantic_fact_preservation.py",
-    "tests/test_phase54_semantic_fact_preservation.py",
+    "docs/spec/phase54-slice13-package-neutral-identity-layering-owner-asset-carriers-source-digest-and-loader-readiness-v1.md",
+    "src/pietto/_project/module_package_neutral_identity.py",
+    "tests/test_phase54_package_neutral_identity_layering.py",
 }
 PHASE54_POST_REVIEW_PRODUCT_REPAIR1_TO_8_SEED_PATHS = {
     "src/pietto/_project/module_relation_resolution.py",
@@ -711,19 +715,7 @@ PHASE54_POST_REVIEW_PRODUCT_REPAIR1_TO_8_SEED_PATHS = {
     "tests/test_phase54_cross_module_table_query_relation_resolution_row_facts_legacy_compatibility.py",
 }
 MECHANICAL_READER_PATHS = {
-    "tests/test_maintenance_phase2_agent_workflow_and_roadmap.py",
-    "tests/test_maintenance_phase2_code_audit_security_review.py",
-    "tests/test_maintenance_phase2_completion_audit.py",
-    "tests/test_maintenance_phase2_external_skills_evaluation.py",
-    "tests/test_maintenance_phase3_ci_parallelization.py",
-    "tests/test_maintenance_phase3_completion_audit.py",
-    "tests/test_maintenance_phase3_developer_workflow.py",
-    "tests/test_maintenance_phase3_non_pytest_validation_optimization.py",
-    "tests/test_maintenance_phase3_parallel_safety.py",
-    "tests/test_maintenance_phase3_validation_acceleration_scope_lock.py",
-    "tests/test_maintenance_phase4_benchmark_evidence_decision.py",
-    "tests/test_maintenance_phase4_completion_audit.py",
-    "tests/test_maintenance_phase4_worker_strategy_benchmark_protocol.py",
+    "tests/_pietto_publication_topology.py",
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
     "tests/test_phase11_generated_guard.py",
@@ -732,122 +724,20 @@ MECHANICAL_READER_PATHS = {
     "tests/test_phase11_validation_entrypoint.py",
     "tests/test_phase12_completion_audit.py",
     "tests/test_phase12_composition_cli_json_goldens.py",
-    "tests/test_phase16_completion_audit.py",
-    "tests/test_phase16_current_syntax_surface_audit.py",
-    "tests/test_phase16_language_direction_audit.py",
-    "tests/test_phase16_safety_deferral_sql_portability.py",
     "tests/test_phase21_group_by_hardening_audit.py",
     "tests/test_phase24_aggregate_expression_arguments_readiness.py",
     "tests/test_phase24_cli_json_output_hardening.py",
     "tests/test_phase24_completion_audit.py",
-    "tests/test_phase25_completion_audit.py",
     "tests/test_phase26_completion_audit.py",
     "tests/test_phase27_completion_audit.py",
     "tests/test_phase28_completion_audit.py",
     "tests/test_phase29_completion_audit.py",
     "tests/test_phase30_completion_audit.py",
     "tests/test_phase33_completion_audit.py",
-    "tests/test_phase35_completion_audit.py",
-    "tests/test_phase35_internal_helper_simplification_candidate_decision.py",
-    "tests/test_phase35_safe_simplification_candidate_decision.py",
-    "tests/test_phase35_validation_delivery_workflow_polish.py",
-    "tests/test_phase36_completion_audit.py",
-    "tests/test_phase36_public_surface_stability_hardening.py",
-    "tests/test_phase36_status_housekeeping.py",
-    "tests/test_phase37_aggregate_filter_distinct_modifier_deferral.py",
-    "tests/test_phase37_candidate_decision.py",
-    "tests/test_phase37_completion_audit.py",
-    "tests/test_phase37_count_distinct_expression_widening_boundary.py",
-    "tests/test_phase37_count_expression_mvp_decision.py",
-    "tests/test_phase37_current_aggregate_matrix.py",
-    "tests/test_phase37_decimal_aggregate_expression_boundary.py",
-    "tests/test_phase37_grouped_aggregate_interaction_hardening.py",
-    "tests/test_phase37_min_max_expression_boundary.py",
-    "tests/test_phase37_nested_aggregate_composition_hardening.py",
-    "tests/test_phase38_binding_filter_post_aggregate_roadmap.py",
-    "tests/test_phase38_boundary_types_capability_contract.py",
-    "tests/test_phase38_candidate_decision.py",
-    "tests/test_phase38_completion_audit.py",
-    "tests/test_phase38_count_family_semantics_contract.py",
-    "tests/test_phase38_distinct_collation_ordering_readiness.py",
-    "tests/test_phase38_type_capability_matrix_contract.py",
-    "tests/test_phase39_candidate_decision.py",
-    "tests/test_phase39_completion_audit.py",
-    "tests/test_phase39_count_expression_mvp_contract.py",
-    "tests/test_phase40_completion_audit.py",
-    "tests/test_phase40_let_binding_model_candidate.py",
-    "tests/test_phase40_let_binding_syntax_scope_contract.py",
-    "tests/test_phase41_decimal_precision_scale_candidate.py",
-    "tests/test_phase41_decimal_precision_scale_completion_audit.py",
-    "tests/test_phase43_completion_audit.py",
-    "tests/test_phase44_completion_audit.py",
-    "tests/test_phase44_project_config_schema_contract.py",
-    "tests/test_phase45_project_semantic_scope_lock.py",
-    "tests/test_phase46_completion_audit.py",
-    "tests/test_phase46_project_compatibility_hardening.py",
-    "tests/test_phase46_project_json_v2_relation_cycle_diagnostics.py",
-    "tests/test_phase46_project_relation_cycle_detection.py",
-    "tests/test_phase46_project_relation_cycle_diagnostics.py",
-    "tests/test_phase46_project_relation_dependency_edge_collection.py",
-    "tests/test_phase46_project_relation_dependency_graph_scaffold.py",
-    "tests/test_phase46_project_semantic_continuation_scope_lock.py",
-    "tests/test_phase47_completion_audit.py",
-    "tests/test_phase47_direct_bare_field_row_schema.py",
-    "tests/test_phase47_direct_field_rename_row_schema.py",
-    "tests/test_phase47_direct_row_schema_scope_lock.py",
-    "tests/test_phase47_downstream_readiness_hardening.py",
-    "tests/test_phase47_private_row_schema_scaffold.py",
-    "tests/test_phase47_project_json_privacy_hardening.py",
-    "tests/test_phase47_qualified_field_row_schema.py",
-    "tests/test_phase47_source_row_schema_propagation.py",
-    "tests/test_phase47_unknown_direct_field_diagnostics.py",
-    "tests/test_phase48_completion_audit_status_lock.py",
-    "tests/test_phase48_deterministic_propagation_order_contract.py",
-    "tests/test_phase48_downstream_diagnostics_ordering_hardening.py",
-    "tests/test_phase48_project_json_private_fact_privacy_readiness.py",
-    "tests/test_phase48_propagated_field_provenance_lineage_hardening.py",
-    "tests/test_phase48_query_to_query_multi_hop_propagation.py",
-    "tests/test_phase48_query_to_query_row_schema_scope_lock.py",
-    "tests/test_phase48_schema_availability_state_carrier.py",
-    "tests/test_phase48_table_upstream_row_schema_propagation.py",
-    "tests/test_phase48_upstream_non_concrete_schema_propagation.py",
-    "tests/test_phase49_compatibility_privacy_hash_lock_readiness.py",
-    "tests/test_phase49_completion_audit_status_lock.py",
-    "tests/test_phase49_computed_alias_origin_provenance_privacy.py",
-    "tests/test_phase49_computed_alias_project_row_schema_mvp.py",
-    "tests/test_phase49_computed_let_multi_hop_row_lineage.py",
-    "tests/test_phase49_let_visibility_order_shadowing_hardening.py",
-    "tests/test_phase49_minimal_private_lineage_carrier_source_direct_rename.py",
-    "tests/test_phase49_private_row_level_dependency_graph_scaffold.py",
-    "tests/test_phase49_project_let_scope_value_facts.py",
-    "tests/test_phase49_project_row_expression_schema_helper_contract.py",
-    "tests/test_phase49_project_row_expression_type_nullability_adapter.py",
-    "tests/test_phase49_row_level_computed_let_schema_scope_lock.py",
-    "tests/test_phase49_selected_let_derived_output_schema.py",
-    "tests/test_phase49_unknown_deferred_diagnostic_ordering_hardening.py",
-    "tests/test_phase50_aggregate_grouped_project_output_schema_readiness.py",
-    "tests/test_phase50_completion_audit_and_status_lock.py",
-    "tests/test_phase50_explain_public_metadata_package_integration_boundary.py",
-    "tests/test_phase50_import_module_export_readiness.py",
-    "tests/test_phase50_multi_dialect_capability_ecosystem_readiness.py",
-    "tests/test_phase50_post_v02_deferred_readiness_inventory.py",
-    "tests/test_phase50_postgresql_extension_capability_readiness.py",
-    "tests/test_phase50_semantic_package_extension_capability_scope_lock.py",
-    "tests/test_phase50_semantic_package_model_readiness.py",
-    "tests/test_phase50_type_system_gap_capability_readiness.py",
-    "tests/test_phase50_window_function_readiness.py",
     "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
     "tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py",
-    "tests/test_phase51_aggregate_grouped_output_schema_foundation_scope_lock.py",
-    "tests/test_phase51_aggregate_grouped_state_duplicate_hardening.py",
-    "tests/test_phase51_aggregate_only_project_row_schema.py",
-    "tests/test_phase51_clause_dependency_fail_closed.py",
     "tests/test_phase51_completion_audit_and_status_lock.py",
     "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
-    "tests/test_phase51_group_key_project_row_schema.py",
-    "tests/test_phase51_grouped_aggregate_project_row_schema.py",
-    "tests/test_phase51_private_result_role_output_identity.py",
-    "tests/test_phase51_selected_let_accepted_expression_aggregate.py",
     "tests/test_phase52_aggregate_signature_algebra_facts.py",
     "tests/test_phase52_completion_audit_and_status_lock.py",
     "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
@@ -881,9 +771,10 @@ MECHANICAL_READER_PATHS = {
     "tests/test_phase54_module_attribution_dependency_origin_provenance_lineage.py",
     "tests/test_phase54_module_graph_cycles_diagnostics_deterministic_ordering.py",
     "tests/test_phase54_module_identity_selected_input_index_trusted_local_loader.py",
-    "tests/test_phase54_module_qualified_nominal_declaration_catalogs.py",
     "tests/test_phase54_named_import_alias_binding_environments_collision_rules.py",
+    "tests/test_phase54_post_slice12_workflow_hardening.py",
     "tests/test_phase54_schema_v2_explicit_module_carrier.py",
+    "tests/test_phase54_semantic_fact_preservation.py",
 }
 PHASE54_POST_REVIEW_PRODUCT_REPAIR2_TO_8_READER_PATHS = {
     "tests/test_phase11_ci_workflow.py",
@@ -999,12 +890,207 @@ NON_READER_MODIFIED_PATHS = {
     "docs/plan/phase-54-local-import-module-export-foundation.md",
     "docs/spec/pietto-v0.9.md",
     "src/pietto/_project/model.py",
-    "src/pietto/_project/row_expression_type_facts.py",
     "tests/_phase54_active_gate2_manifest.py",
 }
 VALIDATION_READER_PATHS = set(MECHANICAL_READER_PATHS)
 MODIFIED_PATHS = NON_READER_MODIFIED_PATHS | MECHANICAL_READER_PATHS
 ALLOWLIST_PATHS = ADDED_PATHS | MODIFIED_PATHS
+# Frozen Slice 12 record. A historical benchmark must read this immutable
+# projection, never the active Gate 2 sets, which move with every later Slice.
+PHASE54_SLICE12_HISTORICAL_ADDED_PATHS = frozenset(
+    {
+        "docs/spec/phase54-slice12-semantic-fact-preservation-v1.md",
+        "src/pietto/_project/module_semantic_fact_preservation.py",
+        "tests/test_phase54_semantic_fact_preservation.py",
+    }
+)
+PHASE54_SLICE12_HISTORICAL_NON_READER_PATHS = frozenset(
+    {
+        "README.md",
+        "docs/plan/phase-54-local-import-module-export-foundation.md",
+        "docs/spec/pietto-v0.9.md",
+        "src/pietto/_project/model.py",
+        "src/pietto/_project/row_expression_type_facts.py",
+        "tests/_phase54_active_gate2_manifest.py",
+    }
+)
+PHASE54_SLICE12_HISTORICAL_READER_PATHS = frozenset(
+    {
+        "tests/test_maintenance_phase2_agent_workflow_and_roadmap.py",
+        "tests/test_maintenance_phase2_code_audit_security_review.py",
+        "tests/test_maintenance_phase2_completion_audit.py",
+        "tests/test_maintenance_phase2_external_skills_evaluation.py",
+        "tests/test_maintenance_phase3_ci_parallelization.py",
+        "tests/test_maintenance_phase3_completion_audit.py",
+        "tests/test_maintenance_phase3_developer_workflow.py",
+        "tests/test_maintenance_phase3_non_pytest_validation_optimization.py",
+        "tests/test_maintenance_phase3_parallel_safety.py",
+        "tests/test_maintenance_phase3_validation_acceleration_scope_lock.py",
+        "tests/test_maintenance_phase4_benchmark_evidence_decision.py",
+        "tests/test_maintenance_phase4_completion_audit.py",
+        "tests/test_maintenance_phase4_worker_strategy_benchmark_protocol.py",
+        "tests/test_phase11_ci_workflow.py",
+        "tests/test_phase11_completion_audit.py",
+        "tests/test_phase11_generated_guard.py",
+        "tests/test_phase11_golden_policy.py",
+        "tests/test_phase11_packaging_smoke.py",
+        "tests/test_phase11_validation_entrypoint.py",
+        "tests/test_phase12_completion_audit.py",
+        "tests/test_phase12_composition_cli_json_goldens.py",
+        "tests/test_phase16_completion_audit.py",
+        "tests/test_phase16_current_syntax_surface_audit.py",
+        "tests/test_phase16_language_direction_audit.py",
+        "tests/test_phase16_safety_deferral_sql_portability.py",
+        "tests/test_phase21_group_by_hardening_audit.py",
+        "tests/test_phase24_aggregate_expression_arguments_readiness.py",
+        "tests/test_phase24_cli_json_output_hardening.py",
+        "tests/test_phase24_completion_audit.py",
+        "tests/test_phase25_completion_audit.py",
+        "tests/test_phase26_completion_audit.py",
+        "tests/test_phase27_completion_audit.py",
+        "tests/test_phase28_completion_audit.py",
+        "tests/test_phase29_completion_audit.py",
+        "tests/test_phase30_completion_audit.py",
+        "tests/test_phase33_completion_audit.py",
+        "tests/test_phase35_completion_audit.py",
+        "tests/test_phase35_internal_helper_simplification_candidate_decision.py",
+        "tests/test_phase35_safe_simplification_candidate_decision.py",
+        "tests/test_phase35_validation_delivery_workflow_polish.py",
+        "tests/test_phase36_completion_audit.py",
+        "tests/test_phase36_public_surface_stability_hardening.py",
+        "tests/test_phase36_status_housekeeping.py",
+        "tests/test_phase37_aggregate_filter_distinct_modifier_deferral.py",
+        "tests/test_phase37_candidate_decision.py",
+        "tests/test_phase37_completion_audit.py",
+        "tests/test_phase37_count_distinct_expression_widening_boundary.py",
+        "tests/test_phase37_count_expression_mvp_decision.py",
+        "tests/test_phase37_current_aggregate_matrix.py",
+        "tests/test_phase37_decimal_aggregate_expression_boundary.py",
+        "tests/test_phase37_grouped_aggregate_interaction_hardening.py",
+        "tests/test_phase37_min_max_expression_boundary.py",
+        "tests/test_phase37_nested_aggregate_composition_hardening.py",
+        "tests/test_phase38_binding_filter_post_aggregate_roadmap.py",
+        "tests/test_phase38_boundary_types_capability_contract.py",
+        "tests/test_phase38_candidate_decision.py",
+        "tests/test_phase38_completion_audit.py",
+        "tests/test_phase38_count_family_semantics_contract.py",
+        "tests/test_phase38_distinct_collation_ordering_readiness.py",
+        "tests/test_phase38_type_capability_matrix_contract.py",
+        "tests/test_phase39_candidate_decision.py",
+        "tests/test_phase39_completion_audit.py",
+        "tests/test_phase39_count_expression_mvp_contract.py",
+        "tests/test_phase40_completion_audit.py",
+        "tests/test_phase40_let_binding_model_candidate.py",
+        "tests/test_phase40_let_binding_syntax_scope_contract.py",
+        "tests/test_phase41_decimal_precision_scale_candidate.py",
+        "tests/test_phase41_decimal_precision_scale_completion_audit.py",
+        "tests/test_phase43_completion_audit.py",
+        "tests/test_phase44_completion_audit.py",
+        "tests/test_phase44_project_config_schema_contract.py",
+        "tests/test_phase45_project_semantic_scope_lock.py",
+        "tests/test_phase46_completion_audit.py",
+        "tests/test_phase46_project_compatibility_hardening.py",
+        "tests/test_phase46_project_json_v2_relation_cycle_diagnostics.py",
+        "tests/test_phase46_project_relation_cycle_detection.py",
+        "tests/test_phase46_project_relation_cycle_diagnostics.py",
+        "tests/test_phase46_project_relation_dependency_edge_collection.py",
+        "tests/test_phase46_project_relation_dependency_graph_scaffold.py",
+        "tests/test_phase46_project_semantic_continuation_scope_lock.py",
+        "tests/test_phase47_completion_audit.py",
+        "tests/test_phase47_direct_bare_field_row_schema.py",
+        "tests/test_phase47_direct_field_rename_row_schema.py",
+        "tests/test_phase47_direct_row_schema_scope_lock.py",
+        "tests/test_phase47_downstream_readiness_hardening.py",
+        "tests/test_phase47_private_row_schema_scaffold.py",
+        "tests/test_phase47_project_json_privacy_hardening.py",
+        "tests/test_phase47_qualified_field_row_schema.py",
+        "tests/test_phase47_source_row_schema_propagation.py",
+        "tests/test_phase47_unknown_direct_field_diagnostics.py",
+        "tests/test_phase48_completion_audit_status_lock.py",
+        "tests/test_phase48_deterministic_propagation_order_contract.py",
+        "tests/test_phase48_downstream_diagnostics_ordering_hardening.py",
+        "tests/test_phase48_project_json_private_fact_privacy_readiness.py",
+        "tests/test_phase48_propagated_field_provenance_lineage_hardening.py",
+        "tests/test_phase48_query_to_query_multi_hop_propagation.py",
+        "tests/test_phase48_query_to_query_row_schema_scope_lock.py",
+        "tests/test_phase48_schema_availability_state_carrier.py",
+        "tests/test_phase48_table_upstream_row_schema_propagation.py",
+        "tests/test_phase48_upstream_non_concrete_schema_propagation.py",
+        "tests/test_phase49_compatibility_privacy_hash_lock_readiness.py",
+        "tests/test_phase49_completion_audit_status_lock.py",
+        "tests/test_phase49_computed_alias_origin_provenance_privacy.py",
+        "tests/test_phase49_computed_alias_project_row_schema_mvp.py",
+        "tests/test_phase49_computed_let_multi_hop_row_lineage.py",
+        "tests/test_phase49_let_visibility_order_shadowing_hardening.py",
+        "tests/test_phase49_minimal_private_lineage_carrier_source_direct_rename.py",
+        "tests/test_phase49_private_row_level_dependency_graph_scaffold.py",
+        "tests/test_phase49_project_let_scope_value_facts.py",
+        "tests/test_phase49_project_row_expression_schema_helper_contract.py",
+        "tests/test_phase49_project_row_expression_type_nullability_adapter.py",
+        "tests/test_phase49_row_level_computed_let_schema_scope_lock.py",
+        "tests/test_phase49_selected_let_derived_output_schema.py",
+        "tests/test_phase49_unknown_deferred_diagnostic_ordering_hardening.py",
+        "tests/test_phase50_aggregate_grouped_project_output_schema_readiness.py",
+        "tests/test_phase50_completion_audit_and_status_lock.py",
+        "tests/test_phase50_explain_public_metadata_package_integration_boundary.py",
+        "tests/test_phase50_import_module_export_readiness.py",
+        "tests/test_phase50_multi_dialect_capability_ecosystem_readiness.py",
+        "tests/test_phase50_post_v02_deferred_readiness_inventory.py",
+        "tests/test_phase50_postgresql_extension_capability_readiness.py",
+        "tests/test_phase50_semantic_package_extension_capability_scope_lock.py",
+        "tests/test_phase50_semantic_package_model_readiness.py",
+        "tests/test_phase50_type_system_gap_capability_readiness.py",
+        "tests/test_phase50_window_function_readiness.py",
+        "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
+        "tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py",
+        "tests/test_phase51_aggregate_grouped_output_schema_foundation_scope_lock.py",
+        "tests/test_phase51_aggregate_grouped_state_duplicate_hardening.py",
+        "tests/test_phase51_aggregate_only_project_row_schema.py",
+        "tests/test_phase51_clause_dependency_fail_closed.py",
+        "tests/test_phase51_completion_audit_and_status_lock.py",
+        "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
+        "tests/test_phase51_group_key_project_row_schema.py",
+        "tests/test_phase51_grouped_aggregate_project_row_schema.py",
+        "tests/test_phase51_private_result_role_output_identity.py",
+        "tests/test_phase51_selected_let_accepted_expression_aggregate.py",
+        "tests/test_phase52_aggregate_signature_algebra_facts.py",
+        "tests/test_phase52_completion_audit_and_status_lock.py",
+        "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
+        "tests/test_phase52_expression_stage_clause_capability_facts.py",
+        "tests/test_phase52_fail_closed_capability_lookup.py",
+        "tests/test_phase52_logical_type_literal_parameter_nullability_inventory.py",
+        "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
+        "tests/test_phase52_private_capability_fact_foundation.py",
+        "tests/test_phase52_scalar_function_operator_signature_facts.py",
+        "tests/test_phase53_completion_audit_and_status_lock.py",
+        "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
+        "tests/test_phase53_grouped_result_ranking_aggregate_result_inputs_bounded_let_visibility_contract.py",
+        "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
+        "tests/test_phase53_multiple_window_outputs_final_order_alias_downstream_schema_lineage_contract.py",
+        "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
+        "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+        "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
+        "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
+        "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
+        "tests/test_phase53_row_number_direct_field_mvp_contract.py",
+        "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
+        "tests/test_phase53_window_ir_dual_backend_lowering_window_function_facts_contract.py",
+        "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
+        "tests/test_phase53_window_spec_function_identity_ast_contract.py",
+        "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
+        "tests/test_phase54_cross_module_table_query_relation_resolution_row_facts_legacy_compatibility.py",
+        "tests/test_phase54_cross_module_type_alias_enum_shape_source_resolution.py",
+        "tests/test_phase54_import_export_contextual_grammar_ast.py",
+        "tests/test_phase54_local_export_visibility_module_facades.py",
+        "tests/test_phase54_local_import_module_export_foundation_scope_lock.py",
+        "tests/test_phase54_module_attribution_dependency_origin_provenance_lineage.py",
+        "tests/test_phase54_module_graph_cycles_diagnostics_deterministic_ordering.py",
+        "tests/test_phase54_module_identity_selected_input_index_trusted_local_loader.py",
+        "tests/test_phase54_module_qualified_nominal_declaration_catalogs.py",
+        "tests/test_phase54_named_import_alias_binding_environments_collision_rules.py",
+        "tests/test_phase54_schema_v2_explicit_module_carrier.py",
+    }
+)
 PHASE54_ACTIVE_GATE2_ADDED_PATHS = frozenset(ADDED_PATHS)
 PHASE54_ACTIVE_GATE2_MODIFIED_PATHS = frozenset(MODIFIED_PATHS)
 PHASE54_ACTIVE_GATE2_DELETED_PATHS = frozenset()
@@ -5695,6 +5781,170 @@ def phase54_post_slice12_interlude_expected_topic_base() -> str:
     if _phase54_post_slice12_post_merge_repair_is_the_open_generation():
         return PHASE54_POST_SLICE12_POST_MERGE_REPAIR1_BASE
     return PHASE54_POST_SLICE12_INTERLUDE_BASE
+
+
+def _matches_phase54_active_gate2_clean_topic(
+    state: Phase54Gate2RepositoryState,
+) -> bool:
+    """Recognize only a clean topic child of the frozen active Gate 2 base.
+
+    The active Gate 2 publishes a topic child that does not exist yet when this
+    manifest is frozen, so no ``(parent, subject, tree)`` triple can be
+    registered for it. A genuinely open shape therefore certifies itself: the
+    child must sit directly on the frozen base, carry one of the frozen
+    publication subjects, and end its message with the canonical reviewed-tree
+    trailer naming its own exact tree.
+    """
+
+    if type(state) is not Phase54Gate2RepositoryState:
+        return False
+    branch = PHASE54_ACTIVE_GATE2_BRANCH
+    clean_topic = (
+        state.marker == PHASE54_ACTIVE_GATE2_MARKER
+        and state.branch_head == branch
+        and state.branch_upstream in ("", f"origin/{branch}")
+        and state.added_paths == frozenset()
+        and state.modified_paths == frozenset()
+        and state.deleted_paths == frozenset()
+        and state.staged_paths == frozenset()
+        and state.other_paths == frozenset()
+        and state.worktree_count == 1
+        and not state.shallow
+        and not state.active_git_operation
+    )
+    if not clean_topic:
+        return False
+    try:
+        if not _phase54_symbolic_branch_still_authorizes(state):
+            return False
+        head = _git_output(["rev-parse", "HEAD"])
+        parents = tuple(
+            _git_output(["rev-list", "--parents", "-n", "1", head]).split()[1:]
+        )
+        subject = _git_output(["show", "-s", "--format=%s", head])
+        tree = _git_output(["rev-parse", f"{head}^{{tree}}"])
+        message = _git_commit_message(head)
+        main = _git_output(["rev-parse", "--verify", "refs/heads/main"])
+        origin_main = _git_output(["rev-parse", "--verify", "refs/remotes/origin/main"])
+        if (
+            _git_output(["rev-parse", "HEAD"]) != head
+            or _git_output(["rev-parse", "--verify", "refs/heads/main"]) != main
+            or _git_output(["rev-parse", "--verify", "refs/remotes/origin/main"])
+            != origin_main
+            or not _phase54_symbolic_branch_still_authorizes(state)
+        ):
+            # The head, either base authority, or the symbolic branch that
+            # authorized this state moved inside the window.
+            return False
+    except subprocess.SubprocessError:
+        return False
+    if main != origin_main or main != PHASE54_ACTIVE_GATE2_BASE:
+        return False
+    accepted_subject = subject == PHASE54_ACTIVE_GATE2_SUBJECT or (
+        subject.startswith(PHASE54_ACTIVE_GATE2_REPAIR_SUBJECT_PREFIX)
+        and len(subject) > len(PHASE54_ACTIVE_GATE2_REPAIR_SUBJECT_PREFIX)
+    )
+    if len(parents) != 1 or not accepted_subject:
+        return False
+    if parents[0] != PHASE54_ACTIVE_GATE2_BASE:
+        # A non-amend repair child sits on the previous published head of this
+        # branch, so the frozen base must remain on its first-parent chain.
+        try:
+            chain = _git_output(["rev-list", "--first-parent", head]).split()
+        except subprocess.SubprocessError:
+            return False
+        if PHASE54_ACTIVE_GATE2_BASE not in chain:
+            return False
+    if re.fullmatch(r"[0-9a-f]{40}", tree) is None:
+        return False
+    lines = message.splitlines()
+    expected = f"{PHASE54_ACTIVE_GATE2_REVIEWED_TREE_TRAILER}: {tree}"
+    return len(lines) >= 3 and lines[-2] == "" and lines[-1] == expected
+
+
+def phase54_active_gate2_clean_topic_is_active() -> bool:
+    """Recognize only the clean topic child of the active Gate 2 base."""
+
+    try:
+        state = _read_phase54_gate2_repository_state()
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+    return _matches_phase54_active_gate2_clean_topic(state)
+
+
+def phase54_active_gate2_publication_commit_is_head() -> bool:
+    """Recognize any single-parent projection of the active publication candidate.
+
+    The lifecycle produces a clean topic child, a squashed ``main`` commit, and a
+    depth-one push of that squash. All three carry an accepted publication
+    subject and end their message with the canonical reviewed-tree trailer for
+    their own exact tree; a depth-one checkout additionally has no parent at all.
+    Recognizing them here keeps one authority for the publication chain instead
+    of appending one frozen head per Slice to every reader that observes it.
+    """
+
+    try:
+        head = _git_output(["rev-parse", "HEAD"])
+        parents = tuple(
+            _git_output(["rev-list", "--parents", "-n", "1", head]).split()[1:]
+        )
+        subject = _git_output(["show", "-s", "--format=%s", head])
+        tree = _git_output(["rev-parse", f"{head}^{{tree}}"])
+        message = _git_commit_message(head)
+        shallow = _git_output(["rev-parse", "--is-shallow-repository"]) == "true"
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+    if len(parents) > 1:
+        return False
+    accepted_subject = subject == PHASE54_ACTIVE_GATE2_SUBJECT or (
+        subject.startswith(PHASE54_ACTIVE_GATE2_REPAIR_SUBJECT_PREFIX)
+        and len(subject) > len(PHASE54_ACTIVE_GATE2_REPAIR_SUBJECT_PREFIX)
+    )
+    if not accepted_subject or re.fullmatch(r"[0-9a-f]{40}", tree) is None:
+        return False
+    lines = message.splitlines()
+    expected = f"{PHASE54_ACTIVE_GATE2_REVIEWED_TREE_TRAILER}: {tree}"
+    if not (len(lines) >= 3 and lines[-2] == "" and lines[-1] == expected):
+        return False
+    if not parents:
+        # A depth-one checkout truncates history, so the trailer is the only
+        # available proof and the shallow boundary must confirm the truncation.
+        return shallow
+    if parents[0] == PHASE54_ACTIVE_GATE2_BASE:
+        return True
+    try:
+        chain = _git_output(["rev-list", "--first-parent", head]).split()
+    except subprocess.SubprocessError:
+        return False
+    return PHASE54_ACTIVE_GATE2_BASE in chain
+
+
+def phase54_publication_topic_branch() -> str:
+    """Return the topic branch the currently active Gate 2 publishes from."""
+
+    return PHASE54_ACTIVE_GATE2_BRANCH
+
+
+def phase54_publication_clean_topic_is_active() -> bool:
+    """Recognize a clean topic child of whichever Gate 2 is currently active.
+
+    Topology readers accept exactly the projections publication produces. The
+    branch name that carries them moves with every Gate, so the recognition
+    lives here once instead of being re-registered in every reader.
+    """
+
+    return (
+        phase54_active_gate2_clean_topic_is_active()
+        or phase54_post_slice12_interlude_clean_topic_is_active()
+    )
+
+
+def phase54_publication_topic_base() -> str:
+    """Return the published base the currently active topic branch is cut from."""
+
+    if phase54_post_slice12_interlude_clean_topic_is_active():
+        return phase54_post_slice12_interlude_expected_topic_base()
+    return PHASE54_ACTIVE_GATE2_BASE
 
 
 def phase54_post_slice12_interlude_expected_head() -> str:

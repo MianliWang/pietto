@@ -120,13 +120,13 @@ MODIFIED_READER_PATHS = (
 )
 ADDED_PATHS = {CONTEXT_REL, CONTEXT_SPEC_REL, CONTEXT_TEST_REL}
 ALLOWLIST_PATHS = {*MODIFIED_READER_PATHS, *ADDED_PATHS}
-COMPILER_DIGEST = "f9eca1bf5cadfcc1583ba465f33bf761114e6d9d2785de15a2d73b5a19a6ff62"
+COMPILER_DIGEST = "6f6878d43e5372d798759ff3d1c07f7bd4e7a9dba770e8512841eff7ff50cc66"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "9269d0946eaa232a4471633214d6fc55cd69b55d684edba3213532242224183b"
+    "27d3cdee5e6817307529025d81e717ebacedef421d8d14be8dd4a0898881b5eb"
 )
 
 COMPILER_READERS = (
@@ -597,7 +597,7 @@ def test_compiler_semantic_and_phase15_boundary_digests_are_refreshed() -> None:
         for path in semantic_paths
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
-    assert len(compiler_paths) == 105
+    assert len(compiler_paths) == 106
     assert len(semantic_paths) == 36
     assert len(phase15_paths) == 33
     assert _digest(compiler_paths) == COMPILER_DIGEST
@@ -654,7 +654,7 @@ def test_raw_sha_reader_topology_is_closed_without_layer2_readers() -> None:
 
 def test_project_package_version_and_tag_boundaries_are_unchanged() -> None:
     project_paths = _project_private_paths()
-    assert len(project_paths) == 30
+    assert len(project_paths) == 31
     assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
     with PYPROJECT_PATH.open("rb") as stream:
         project = tomllib.load(stream)

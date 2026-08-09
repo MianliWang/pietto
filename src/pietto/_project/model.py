@@ -47,6 +47,9 @@ if TYPE_CHECKING:
         ProjectModuleDiagnosticSet,
         ProjectModuleGraph,
     )
+    from pietto._project.module_package_neutral_identity import (
+        ProjectModulePackageNeutralIdentityFactSet,
+    )
     from pietto._project.module_relation_resolution import (
         ProjectModuleRelationResolutionSet,
     )
@@ -812,9 +815,12 @@ class ProjectSemanticResult:
     module_relation_resolutions: ProjectModuleRelationResolutionSet | None = None
     module_semantic_facts: ProjectModuleSemanticFactSet | None = None
     module_attribution_facts: ProjectModuleAttributionFactSet | None = None
+    module_package_identity_facts: ProjectModulePackageNeutralIdentityFactSet | None = (
+        None
+    )
 
     def __post_init__(self) -> None:
-        """Keep the Slice 11 and Slice 12 sidecars on exact independent roots."""
+        """Keep every module sidecar on its exact independent authority roots."""
 
         if type(self.compilation_mode) is not ProjectCompilationMode:
             raise TypeError("Project semantics require an exact compilation mode.")
@@ -828,6 +834,7 @@ class ProjectSemanticResult:
             self.module_relation_resolutions,
             self.module_semantic_facts,
             self.module_attribution_facts,
+            self.module_package_identity_facts,
         )
         if self.compilation_mode is ProjectCompilationMode.LEGACY_FLAT:
             if any(sidecar is not None for sidecar in module_sidecars):
@@ -974,6 +981,30 @@ class ProjectSemanticResult:
                 "Project module semantic facts require exact ordered Slice 10 facts."
             )
 
+        package_identity_facts = self.module_package_identity_facts
+        assert package_identity_facts is not None
+        from pietto._project.module_package_neutral_identity import (
+            ProjectModulePackageNeutralIdentityFactSet,
+        )
+
+        if (
+            type(package_identity_facts)
+            is not ProjectModulePackageNeutralIdentityFactSet
+        ):
+            raise TypeError(
+                "Project module package identity requires an exact layered fact set."
+            )
+        layered_authority = package_identity_facts.authority
+        if (
+            layered_authority.attribution is not facts
+            or layered_authority.semantic is not semantic_facts
+        ):
+            # The layered authority itself anchors the selected-input index,
+            # trusted snapshots, modules, and catalogs to those two sidecars,
+            # which this result has already bound to its own exact roots.
+            raise ValueError(
+                "Project module package identity requires both exact sidecar roots."
+            )
         expected_diagnostics = (
             *module_diagnostic_facts.diagnostics,
             *module_type_source_resolutions.diagnostics,
@@ -1042,6 +1073,9 @@ def build_empty_project_semantic_result(
         from pietto._project.module_resolution import (
             _build_project_type_source_resolution_set,
         )
+        from pietto._project.module_package_neutral_identity import (
+            _build_project_module_package_neutral_identity_fact_set,
+        )
         from pietto._project.module_semantic_fact_preservation import (
             _build_project_module_semantic_fact_set,
         )
@@ -1102,6 +1136,16 @@ def build_empty_project_semantic_result(
             module_type_source_resolutions,
             module_relation_resolutions,
         )
+        module_package_identity_facts = (
+            _build_project_module_package_neutral_identity_fact_set(
+                parse_result.selected_input_index,
+                parse_result.trusted_source_snapshots,
+                parse_result.modules,
+                module_catalogs,
+                module_attribution_facts,
+                module_semantic_facts,
+            )
+        )
 
         return ProjectSemanticResult(
             root=parse_result.root,
@@ -1121,6 +1165,7 @@ def build_empty_project_semantic_result(
             module_relation_resolutions=module_relation_resolutions,
             module_semantic_facts=module_semantic_facts,
             module_attribution_facts=module_attribution_facts,
+            module_package_identity_facts=module_package_identity_facts,
             diagnostics=(
                 *module_diagnostic_facts.diagnostics,
                 *module_type_source_resolutions.diagnostics,

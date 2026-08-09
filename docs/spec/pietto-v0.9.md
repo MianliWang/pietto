@@ -9,14 +9,15 @@ Current pipeline: parse -> analyze -> build IR -> emit selected PostgreSQL or My
 
 ---
 
-## Current Phase 54 Slice 12 Semantic Fact Preservation Status
+## Current Phase 54 Slice 13 Package-neutral Identity Layering Status
 
-Phase 54 is active and Slices 1 through 11 are complete after exact Gate 3
-publication. Slice 12 is the Gate 2 candidate for lossless private preservation
-of existing semantic facts from exact base
-`bc46faff1c9aa71f583ed7d2964b651cc659bc90`. Slice 10 is the sole semantic
-authority root. Slice 11 attribution is not consumed, and reviewed-tree
-publication remains pending. Slice 4 supplies contextual
+Phase 54 is active and Slices 1 through 12 are complete after exact Gate 3
+publication. Slice 13 is the Gate 2 candidate for private package-neutral
+identity layering, owner and asset-compatible carriers, source digest identity,
+and loader readiness from exact base
+`0bad854253e22347e2aff93e2eabcbe2fda55aed`. It is the first authorized join of
+the Slice 11 attribution product and the Slice 12 preservation product, and
+reviewed-tree publication remains pending. Slice 4 supplies contextual
 top-level `import`, `export`, and `as` syntax plus immutable source-located module AST. Slice 5
 adds private four-component nominal declaration identity and one immutable,
 source-ordered local declaration catalog per successfully parsed schema-v2

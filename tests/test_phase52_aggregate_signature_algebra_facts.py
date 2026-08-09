@@ -13,8 +13,8 @@ from _phase54_active_gate2_manifest import (
     phase54_post_slice12_interlude_dirty_is_active,
     phase54_post_slice12_interlude_expected_added_paths,
     phase54_post_slice12_interlude_expected_modified_paths,
-    phase54_post_slice12_interlude_clean_topic_is_active,
-    phase54_post_slice12_interlude_expected_branch,
+    phase54_publication_clean_topic_is_active,
+    phase54_publication_topic_branch,
     PHASE54_ACTIVE_GATE2_ADDED_PATHS,
     PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
@@ -116,13 +116,13 @@ LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf2
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 SIGNATURE_SHA256 = "810f347080e0bb7dc674821aa6387c5f7618ac216832194ef19820326eef71d2"
 CONTEXT_SHA256 = "132371eccca00ca9f8722a34f1ea0f540933515e560639ee12e53aee6594c60c"
-COMPILER_DIGEST = "f9eca1bf5cadfcc1583ba465f33bf761114e6d9d2785de15a2d73b5a19a6ff62"
+COMPILER_DIGEST = "6f6878d43e5372d798759ff3d1c07f7bd4e7a9dba770e8512841eff7ff50cc66"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "9269d0946eaa232a4471633214d6fc55cd69b55d684edba3213532242224183b"
+    "27d3cdee5e6817307529025d81e717ebacedef421d8d14be8dd4a0898881b5eb"
 )
 
 SPEC_H2 = (
@@ -634,8 +634,8 @@ def _assert_clean_checkout_refs(
             assert origin_main == head
         return
 
-    if branch == phase54_post_slice12_interlude_expected_branch():
-        assert phase54_post_slice12_interlude_clean_topic_is_active()
+    if branch == phase54_publication_topic_branch():
+        assert phase54_publication_clean_topic_is_active()
         return
 
     assert branch == ""
@@ -1939,11 +1939,11 @@ def test_compiler_semantic_subset_project_and_raw_hash_readers_are_exact() -> No
     )
     project_paths = _project_private_paths()
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        105,
+        106,
         36,
         33,
     )
-    assert len(project_paths) == 30
+    assert len(project_paths) == 31
     assert _digest(compiler_paths) == COMPILER_DIGEST
     assert _digest(semantic_paths) == SEMANTIC_DIGEST
     assert _digest(phase15_paths) == PHASE15_SUBSET_DIGEST
@@ -2359,7 +2359,7 @@ def test_static_test_inventory_and_tier1_selection_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (462, 5361)
+    assert (len(test_files), top_level_functions) == (463, 5396)
 
     compatible, per_file_items = _prior_compatible_nodes()
     assert (len(compatible), per_file_items) == (69, (24, 33, 63))

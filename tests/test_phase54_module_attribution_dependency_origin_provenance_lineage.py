@@ -242,25 +242,28 @@ def test_slice11_contract_status_and_active_manifest_freeze_exact_boundary() -> 
     assert "It is not factory-origin attestation" in spec
     assert "No token, seal, digest, source reopening, or" in spec
     assert "reparse is introduced." in spec
-    assert "Slice 11 Gate 2 candidate" in readme
-    assert "module attribution, dependency, origin, provenance, and lineage" in readme
-    assert "## Status And Slice 12 Lifecycle" in plan
-    assert "## Current Phase 54 Slice 12 Semantic Fact Preservation Status" in current
+    assert "Slice 11 adds private occurrence-safe declaration, import," in readme
+    assert "Module attribution, dependency, origin, provenance, and lineage" in readme
+    assert "## Status And Slice 13 Lifecycle" in plan
+    assert (
+        "## Current Phase 54 Slice 13 Package-neutral Identity Layering Status"
+        in current
+    )
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER == (
-        "PHASE54_SLICE12_GATE2"
+        "PHASE54_SLICE13_GATE2"
     )
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE == (
-        "bc46faff1c9aa71f583ed7d2964b651cc659bc90"
+        "0bad854253e22347e2aff93e2eabcbe2fda55aed"
     )
-    assert active_gate2_manifest.ADDED_PATHS == {
+    assert active_gate2_manifest.PHASE54_SLICE12_HISTORICAL_ADDED_PATHS == {
         "docs/spec/phase54-slice12-semantic-fact-preservation-v1.md",
         "src/pietto/_project/module_semantic_fact_preservation.py",
         "tests/test_phase54_semantic_fact_preservation.py",
     }
     assert TEST_REL in active_gate2_manifest.MECHANICAL_READER_PATHS
-    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 173
-    assert len(active_gate2_manifest.MODIFIED_PATHS) == 179
-    assert len(active_gate2_manifest.ALLOWLIST_PATHS) == 182
+    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 60
+    assert len(active_gate2_manifest.MODIFIED_PATHS) == 65
+    assert len(active_gate2_manifest.ALLOWLIST_PATHS) == 68
     assert active_gate2_manifest.PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE == (
         "691db405a7e787adec5d7bd0498330b070bf6b75"
     )

@@ -11,8 +11,8 @@ from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
     phase54_post_slice12_interlude_expected_allowlist_paths,
-    phase54_post_slice12_interlude_clean_topic_is_active,
-    phase54_post_slice12_interlude_expected_branch,
+    phase54_publication_clean_topic_is_active,
+    phase54_publication_topic_branch,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
@@ -73,13 +73,13 @@ SLICE8_GATE2_BASE_HEAD_SHA = "11a0c48941c3c1c650be8d0ec8ddf5201f9525f2"
 
 FACTS_SHA256 = "bd68bad4e13a2b945962458fc47359a408d27b1563ba25f5713a8f8099671d21"
 LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26"
-COMPILER_DIGEST = "f9eca1bf5cadfcc1583ba465f33bf761114e6d9d2785de15a2d73b5a19a6ff62"
+COMPILER_DIGEST = "6f6878d43e5372d798759ff3d1c07f7bd4e7a9dba770e8512841eff7ff50cc66"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "9269d0946eaa232a4471633214d6fc55cd69b55d684edba3213532242224183b"
+    "27d3cdee5e6817307529025d81e717ebacedef421d8d14be8dd4a0898881b5eb"
 )
 TIER2_MANIFEST_BYTES = 18319
 TIER2_MANIFEST_SHA256 = (
@@ -342,8 +342,8 @@ def _assert_clean_checkout_refs(
             assert origin_main == head
         return
 
-    if branch == phase54_post_slice12_interlude_expected_branch():
-        assert phase54_post_slice12_interlude_clean_topic_is_active()
+    if branch == phase54_publication_topic_branch():
+        assert phase54_publication_clean_topic_is_active()
         return
 
     assert branch == ""
@@ -1116,7 +1116,7 @@ def test_digest_and_nested_raw_sha_reader_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        105,
+        106,
         36,
         33,
     )
@@ -1162,7 +1162,7 @@ def test_digest_and_nested_raw_sha_reader_closure_is_exact() -> None:
 
 def test_project_package_version_and_tag_boundaries_are_unchanged() -> None:
     project_paths = _project_private_paths()
-    assert len(project_paths) == 30
+    assert len(project_paths) == 31
     assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
     with PYPROJECT_PATH.open("rb") as stream:
         project = tomllib.load(stream)

@@ -1588,6 +1588,7 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
             assert active_head in {
                 "b81843acadb294630db361c09949868d004b1bca",
                 "bc46faff1c9aa71f583ed7d2964b651cc659bc90",
+                "0bad854253e22347e2aff93e2eabcbe2fda55aed",
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,
@@ -1671,17 +1672,17 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
                 assert changed_lines[1] == f'+BOUNDARY_HASH = "{compiler_digest}"'
     project_paths = _project_private_paths()
     project_digest = _digest(project_paths)
-    assert len(project_paths) == 30
+    assert len(project_paths) == 31
     assert REPO_ROOT / "src/pietto/_project/window_persistence.py" in project_paths
     assert project_digest == (
-        "9269d0946eaa232a4471633214d6fc55cd69b55d684edba3213532242224183b"
+        "27d3cdee5e6817307529025d81e717ebacedef421d8d14be8dd4a0898881b5eb"
     )
     phase33 = (REPO_ROOT / "tests/test_phase33_completion_audit.py").read_text(
         encoding="utf-8"
     )
     assert (
         f'"project_private": (\n        "src/pietto/_project",\n'
-        f'        30,\n        "{project_digest}",\n    ),'
+        f'        31,\n        "{project_digest}",\n    ),'
     ) in phase33
     phase33_changed_lines = _git_changed_lines("tests/test_phase33_completion_audit.py")
     if phase33_changed_lines:
@@ -1786,23 +1787,19 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
                 f'+        "{_digest((REPO_ROOT / "AGENTS.md",))}",',
             ]
         elif _phase54_active_gate2_is_active():
-            assert len(phase33_changed_lines) == 10
-            assert phase33_changed_lines[:2] == [
-                "-    phase54_active_gate2_manifest_is_active as _phase54_slice11_gate2_is_active,",
-                "+    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,",
-            ]
-            assert phase33_changed_lines[2] == "-        29,"
-            assert re.fullmatch(r'-        "[0-9a-f]{64}",', phase33_changed_lines[3])
-            assert phase33_changed_lines[4:6] == [
-                "+        30,",
+            assert len(phase33_changed_lines) == 8
+            assert phase33_changed_lines[0] == "-        30,"
+            assert re.fullmatch(r'-        "[0-9a-f]{64}",', phase33_changed_lines[1])
+            assert phase33_changed_lines[2:4] == [
+                "+        31,",
                 f'+        "{project_digest}",',
             ]
-            assert re.fullmatch(r'-        "[0-9a-f]{64}",', phase33_changed_lines[6])
-            assert phase33_changed_lines[7] == (
+            assert re.fullmatch(r'-        "[0-9a-f]{64}",', phase33_changed_lines[4])
+            assert phase33_changed_lines[5] == (
                 f'+        "{_digest((REPO_ROOT / "README.md",))}",'
             )
-            assert re.fullmatch(r'-        "[0-9a-f]{64}",', phase33_changed_lines[8])
-            assert phase33_changed_lines[9] == (
+            assert re.fullmatch(r'-        "[0-9a-f]{64}",', phase33_changed_lines[6])
+            assert phase33_changed_lines[7] == (
                 f'+        "{_digest((REPO_ROOT / "docs/spec/pietto-v0.9.md",))}",'
             )
         elif is_phase54_slice9:

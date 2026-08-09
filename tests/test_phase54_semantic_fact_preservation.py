@@ -419,22 +419,26 @@ def test_slice12_contract_status_active_manifest_and_allowlist_are_exact(
     assert "Slice 10 is the sole semantic authority root" in spec
     assert "Every identity-distinct occurrence remains distinct" in spec
     assert "Slice 13 is the first authorized join" in spec
-    assert "Slice 12 Gate 2 candidate" in plan
+    assert "Slice 12 — Generic-signature" in plan
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER == (
-        "PHASE54_SLICE12_GATE2"
+        "PHASE54_SLICE13_GATE2"
     )
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE == (
-        "bc46faff1c9aa71f583ed7d2964b651cc659bc90"
+        "0bad854253e22347e2aff93e2eabcbe2fda55aed"
     )
-    assert active_gate2_manifest.ADDED_PATHS == {SPEC_REL, SOURCE_REL, TEST_REL}
-    assert len(active_gate2_manifest.NON_READER_MODIFIED_PATHS) == 6
-    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 173
-    assert len(active_gate2_manifest.MODIFIED_PATHS) == 179
-    assert len(active_gate2_manifest.ALLOWLIST_PATHS) == 182
-    assert (
-        sum(path.endswith(".py") for path in active_gate2_manifest.ALLOWLIST_PATHS)
-        == 178
+    historical_added = active_gate2_manifest.PHASE54_SLICE12_HISTORICAL_ADDED_PATHS
+    historical_non_reader = (
+        active_gate2_manifest.PHASE54_SLICE12_HISTORICAL_NON_READER_PATHS
     )
+    historical_readers = active_gate2_manifest.PHASE54_SLICE12_HISTORICAL_READER_PATHS
+    historical_modified = historical_non_reader | historical_readers
+    historical_allowlist = historical_added | historical_modified
+    assert historical_added == {SPEC_REL, SOURCE_REL, TEST_REL}
+    assert len(historical_non_reader) == 6
+    assert len(historical_readers) == 173
+    assert len(historical_modified) == 179
+    assert len(historical_allowlist) == 182
+    assert sum(path.endswith(".py") for path in historical_allowlist) == 178
     assert "173-reader" in spec
     assert "exact 178 Python paths" in spec
     assert "exact `A3_M179_D0`" in spec
@@ -442,8 +446,7 @@ def test_slice12_contract_status_active_manifest_and_allowlist_are_exact(
     assert "exact 69 Python paths" not in spec
     assert "`A3_M70_D0`" not in spec
     assert (
-        len(active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS)
-        == 158
+        len(active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS) == 52
     )
     assert active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR11_SEED_PATHS == (
         active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR10_SEED_PATHS | {SPEC_REL}
@@ -452,8 +455,7 @@ def test_slice12_contract_status_active_manifest_and_allowlist_are_exact(
         active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR10_READER_PATHS
     )
     assert (
-        len(active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS)
-        == 159
+        len(active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS) == 53
     )
     assert active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR12_SEED_PATHS == (
         active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR11_SEED_PATHS
@@ -462,8 +464,7 @@ def test_slice12_contract_status_active_manifest_and_allowlist_are_exact(
         active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR11_READER_PATHS
     )
     assert (
-        len(active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR12_MODIFIED_PATHS)
-        == 159
+        len(active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR12_MODIFIED_PATHS) == 53
     )
     assert active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR13_SEED_PATHS == (
         active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR12_SEED_PATHS
@@ -472,8 +473,7 @@ def test_slice12_contract_status_active_manifest_and_allowlist_are_exact(
         active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR12_READER_PATHS
     )
     assert (
-        len(active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR13_MODIFIED_PATHS)
-        == 159
+        len(active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR13_MODIFIED_PATHS) == 53
     )
     assert active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR14_SEED_PATHS == (
         active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR13_SEED_PATHS
@@ -482,8 +482,7 @@ def test_slice12_contract_status_active_manifest_and_allowlist_are_exact(
         active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR13_READER_PATHS
     )
     assert (
-        len(active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR14_MODIFIED_PATHS)
-        == 159
+        len(active_gate2_manifest.PHASE54_SLICE12_PRODUCT_REPAIR14_MODIFIED_PATHS) == 53
     )
     assert active_gate2_manifest.PHASE54_SLICE12_MECHANICAL_REPAIR3_SEED_PATHS == {
         "tests/_phase54_active_gate2_manifest.py",
@@ -536,9 +535,9 @@ def test_slice12_contract_status_active_manifest_and_allowlist_are_exact(
         active_gate2_manifest.phase54_slice12_mechanical_repair4_clean_topic_is_active(),
         active_gate2_manifest.phase54_post_slice12_interlude_dirty_is_active(),
     )
-    assert sum(publication_states) == int(
-        active_gate2_manifest.phase54_active_gate2_manifest_is_active()
-    )
+    # Slice 12 is published: none of its own Gate 2 projections may be active,
+    # whatever later Slice the live active gate now describes.
+    assert sum(publication_states) == 0
     child = "1" * 40
     other_child = "2" * 40
     tree = "3" * 40

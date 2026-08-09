@@ -10,9 +10,9 @@ from pathlib import Path
 from typing import Any, cast
 
 from _phase54_active_gate2_manifest import (
-    phase54_post_slice12_interlude_clean_topic_is_active,
-    phase54_post_slice12_interlude_expected_branch,
-    phase54_post_slice12_interlude_expected_topic_base,
+    phase54_publication_clean_topic_is_active,
+    phase54_publication_topic_branch,
+    phase54_publication_topic_base,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
 
@@ -312,7 +312,7 @@ SEMANTIC_IDENTITY_CASES = (
     ("Org.Analytics.Rank", "Unknown function: Org.Analytics.Rank"),
 )
 
-COMPILER_DIGEST = "f9eca1bf5cadfcc1583ba465f33bf761114e6d9d2785de15a2d73b5a19a6ff62"
+COMPILER_DIGEST = "6f6878d43e5372d798759ff3d1c07f7bd4e7a9dba770e8512841eff7ff50cc66"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
@@ -991,7 +991,7 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        105,
+        106,
         36,
         33,
     )
@@ -1043,13 +1043,9 @@ def test_slice3_dirty_clean_and_depth_one_repository_states_are_locked() -> None
         assert branch == "main"
         assert head == main == origin_main == BASE_HEAD_SHA
     else:
-        if branch == phase54_post_slice12_interlude_expected_branch():
-            assert phase54_post_slice12_interlude_clean_topic_is_active()
-            assert (
-                main
-                == origin_main
-                == phase54_post_slice12_interlude_expected_topic_base()
-            )
+        if branch == phase54_publication_topic_branch():
+            assert phase54_publication_clean_topic_is_active()
+            assert main == origin_main == phase54_publication_topic_base()
             return
         assert branch in ("", "main")
         if main is not None:
@@ -1064,15 +1060,15 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
     readable = {path for path in (*tracked, *untracked) if (REPO_ROOT / path).is_file()}
-    assert len(readable) == 933
-    assert sum(path.endswith(".py") for path in readable) == 571
-    assert sum(path.endswith(".md") for path in readable) == 266
+    assert len(readable) == 936
+    assert sum(path.endswith(".py") for path in readable) == 573
+    assert sum(path.endswith(".md") for path in readable) == 267
     test_modules = {
         path
         for path in readable
         if path.startswith("tests/test_") and path.endswith(".py")
     }
-    assert len(test_modules) == 462
+    assert len(test_modules) == 463
     top_level_tests = 0
     for relative in sorted(test_modules):
         tree = ast.parse(_read(relative), filename=relative)
@@ -1081,7 +1077,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 5361
+    assert top_level_tests == 5396
     assert (
         3488
         == 381 + 834 + 627 + 424 + 279 + 168 + 156 + 12 + 145 + 190 + 70 + 70 + 97 + 35

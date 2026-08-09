@@ -15,8 +15,11 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_SLICE12_INTERLUDE_CHILD_SHAPES,
     phase54_post_slice12_interlude_head_is_recognized_publication,
     phase54_post_slice12_interlude_dirty_is_active,
-    phase54_post_slice12_interlude_expected_branch,
-    phase54_post_slice12_interlude_expected_topic_base,
+    PHASE54_ACTIVE_GATE2_BASE,
+    phase54_publication_topic_branch,
+    phase54_publication_topic_base,
+    phase54_publication_clean_topic_is_active,
+    phase54_active_gate2_publication_commit_is_head,
     PHASE54_SLICE12_PRODUCT_REPAIR3_BASE,
     PHASE54_SLICE12_PRODUCT_REPAIR3_SUBJECT,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
@@ -970,13 +973,10 @@ def _is_clean_projection() -> bool:
     if phase54_post_slice12_interlude_dirty_is_active():
         assert shallow == "false"
         assert _git_output(["branch", "--show-current"]) == "main"
-        assert (
-            _git_optional_ref("refs/heads/main")
-            == phase54_post_slice12_interlude_expected_topic_base()
-        )
+        assert _git_optional_ref("refs/heads/main") == phase54_publication_topic_base()
         assert (
             _git_optional_ref("refs/remotes/origin/main")
-            == phase54_post_slice12_interlude_expected_topic_base()
+            == phase54_publication_topic_base()
         )
         assert staged == ""
         return False
@@ -992,7 +992,7 @@ def _is_clean_projection() -> bool:
             assert shallow == "false"
             assert (
                 _git_output(["branch", "--show-current"])
-                == phase54_post_slice12_interlude_expected_branch()
+                == phase54_publication_topic_branch()
             )
             assert staged == ""
             return False
@@ -1005,14 +1005,13 @@ def _is_clean_projection() -> bool:
             return True
         assert shallow == "false"
         branch = _git_output(["branch", "--show-current"])
-        if branch == phase54_post_slice12_interlude_expected_branch():
+        if branch == phase54_publication_topic_branch():
             assert (
-                _git_optional_ref("refs/heads/main")
-                == phase54_post_slice12_interlude_expected_topic_base()
+                _git_optional_ref("refs/heads/main") == phase54_publication_topic_base()
             )
             assert (
                 _git_optional_ref("refs/remotes/origin/main")
-                == phase54_post_slice12_interlude_expected_topic_base()
+                == phase54_publication_topic_base()
             )
             return True
         _assert_main_refs(head)
@@ -1155,16 +1154,26 @@ def _is_clean_projection() -> bool:
             assert parents == (PHASE54_SLICE11_HEAD, candidate_sha)
             _assert_clean_state(status=status, staged=staged)
             return True
+        if base_sha == PHASE54_ACTIVE_GATE2_BASE or candidate_ref == (
+            phase54_publication_topic_branch()
+        ):
+            # The active Gate 2 pull-request merge is recognized from the gate
+            # manifest's frozen base and branch, so no later Slice appends its
+            # own base and branch pair here.
+            assert base_sha == PHASE54_ACTIVE_GATE2_BASE
+            assert base_ref == "main"
+            assert candidate_ref == phase54_publication_topic_branch()
+            assert head != candidate_sha
+            assert parents == (base_sha, candidate_sha)
+            _assert_clean_state(status=status, staged=staged)
+            return True
         interlude_bases = tuple(
             child_base for child_base, _ in PHASE54_POST_SLICE12_INTERLUDE_CHILD_SHAPES
         )
-        if (
-            base_sha in interlude_bases
-            or candidate_ref == phase54_post_slice12_interlude_expected_branch()
-        ):
+        if base_sha in interlude_bases:
             assert base_sha in interlude_bases
             assert base_ref == "main"
-            assert candidate_ref == phase54_post_slice12_interlude_expected_branch()
+            assert candidate_ref == phase54_publication_topic_branch()
             assert head != candidate_sha
             assert parents == (base_sha, candidate_sha)
             _assert_clean_state(status=status, staged=staged)
@@ -1188,6 +1197,60 @@ def _is_clean_projection() -> bool:
             _assert_maintenance_candidate_shape(parents=parents, subject=subject)
         else:
             assert parents == (base_sha, candidate_sha)
+        return True
+
+    if phase54_active_gate2_publication_commit_is_head():
+        # The squashed main commit and its depth-one push carry the same
+        # publication identity as the topic child; the manifest recognizes all
+        # three, so no later Slice appends its own head here.
+        _assert_clean_state(status=status, staged=staged)
+        branch = _git_output(["branch", "--show-current"])
+        if branch == phase54_publication_topic_branch():
+            assert shallow == "false"
+            assert (
+                _git_optional_ref("refs/heads/main") == phase54_publication_topic_base()
+            )
+            assert _git_optional_ref("refs/remotes/origin/main") in (
+                None,
+                phase54_publication_topic_base(),
+            )
+            return True
+        if os.environ.get("GITHUB_EVENT_NAME") == "push":
+            assert shallow == "true"
+            assert os.environ.get("GITHUB_REF") == "refs/heads/main"
+            assert os.environ.get("GITHUB_SHA") == head
+            assert _git_optional_ref("refs/remotes/origin/main") in (None, head)
+            return True
+        assert branch in ("", "main")
+        assert _git_optional_ref("refs/heads/main") in (None, head)
+        assert _git_optional_ref("refs/remotes/origin/main") in (None, head)
+        return True
+
+    if phase54_publication_clean_topic_is_active():
+        # The active Gate 2 publication chain is recognized once, by the gate
+        # manifest, instead of appending one frozen head per later Slice. The
+        # manifest has already proved the frozen base is on the first-parent
+        # chain, the subject is an accepted publication subject, and the final
+        # message line names this exact tree.
+        assert shallow == "false"
+        assert (
+            _git_output(["branch", "--show-current"])
+            == phase54_publication_topic_branch()
+        )
+        assert _git_optional_ref("refs/heads/main") == phase54_publication_topic_base()
+        assert _git_optional_ref("refs/remotes/origin/main") in (
+            None,
+            phase54_publication_topic_base(),
+        )
+        _assert_clean_state(status=status, staged=staged)
+        return True
+
+    if pull_request_identity is not None and pull_request_identity[0] == (
+        phase54_publication_topic_base()
+    ):
+        assert shallow == "true"
+        assert pull_request_refs == ("main", phase54_publication_topic_branch())
+        _assert_clean_state(status=status, staged=staged)
         return True
 
     _assert_maintenance_candidate_shape(parents=parents, subject=subject)
