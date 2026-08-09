@@ -1,29 +1,30 @@
 # Phase 54 — Local Import / Module / Export Foundation
 
-## Status And Slice 13 Lifecycle
+## Status And Slice 14 Lifecycle
 
 Phase 53 and Slices 1-16 are `COMPLETED`. Phase 54 is `ACTIVE`, and Slices
-1 through 12 plus the unnumbered post-Slice-12 workflow hardening interlude are
-`COMPLETED` after exact Gate 3 publication. The trusted Slice 13 base is
-`0bad854253e22347e2aff93e2eabcbe2fda55aed`. Slice 13 is the exact Slice 13
-Gate 2 candidate for package-neutral identity layering. It is not complete
-before the full Gate 2, reviewed-tree publication, and Gate 3. Slices 14-16
-remain `UNSTARTED`.
+1 through 13 plus the unnumbered post-Slice-12 workflow hardening interlude are
+`COMPLETED` after exact Gate 3 publication. The trusted Slice 14 base is
+`040ab19c56519c39c56541979c850484f9cc47f0`. Slice 14 is the exact Slice 14
+Gate 2 candidate for private module inspection and canonical serialization. It
+is not complete before the full Gate 2, reviewed-tree publication, and Gate 3.
+Slices 15-16 remain `UNSTARTED`.
 
-Slice 13 adds only one private schema-v2 package-neutral identity layering
-sidecar and is the first authorized join of the Slice 11 attribution product
-and the Slice 12 preservation product. Its six exact roots are the Slice 3
-selected-input index and trusted-source snapshots, the logical module tuple,
-the Slice 5 catalogs, and both completed sidecars; a shared exact-authority-root
-predicate rejects every value-equal, misaligned, partial, or coordinated foreign
-root set. It layers package-neutral owner and asset identities, one source
-digest identity reached through the exact trusted snapshot, and fail-closed
-loader-readiness facts with no loader implemented. Schema v2 keeps
-`model=None`; schema v1, IR, SQL, diagnostics, workflows, package version,
-fixtures, goldens, and every public output remain unchanged. All formatter
-validation is check-only. On successful completion of Gate 2, the state becomes
-`PHASE54_SLICE13_GATE2_COMPLETED_AWAITING_PUBLICATION`; the next authorized
-state is `PHASE54_SLICE13_GATE3`, and Slice 14 does not begin in Slice 13.
+Slice 14 adds only one private schema-v2 inspection sidecar and its canonical
+private serialization. Its ten exact roots are the logical module tuple, the
+Slice 5 catalogs, the Slice 6 export surfaces, the Slice 7 binding
+environments, the Slice 8 graph, the Slice 9 type/source resolutions, the
+Slice 10 relation resolutions, and the completed Slice 11, Slice 12, and Slice
+13 sidecars; a shared exact-authority-root predicate rejects every value-equal,
+misaligned, partial, reordered, or coordinated mixed-root set. It derives one
+canonical inspection projection and one deterministic private byte payload from
+that projection, exposing no public inspection artifact, no deserializer, no
+cache, and no package or loader behavior. Schema v2 keeps `model=None`; schema
+v1, IR, SQL, diagnostics, workflows, package version, fixtures, goldens, and
+every public output remain unchanged. All formatter validation is check-only.
+On successful completion of Gate 2, the state becomes
+`PHASE54_SLICE14_GATE2_COMPLETED_AWAITING_PUBLICATION`; the next authorized
+state is `PHASE54_SLICE14_GATE3`, and Slice 15 does not begin in Slice 14.
 
 ## Trusted Phase 53 Baseline And Controlling Evidence
 
@@ -513,8 +514,8 @@ Slice 13 is next.
 
 ## Slice 13 — Package-neutral Identity Layering, Owner / Asset-compatible Carriers, Source Digest, And Loader Readiness
 
-Gate 2 implements the private package-neutral identity layering sidecar
-specified by
+Completed after exact Gate 3 publication. It implements the private
+package-neutral identity layering sidecar specified by
 `docs/spec/phase54-slice13-package-neutral-identity-layering-owner-asset-carriers-source-digest-and-loader-readiness-v1.md`.
 It is the first authorized join of the Slice 11 attribution product and the
 Slice 12 preservation product, admitted only by a shared exact-authority-root
@@ -525,13 +526,23 @@ fail-closed loader-readiness facts with no loader implemented. It extends the
 all-or-none module sidecar invariant to a tenth sidecar and adds no package
 identity, manifest key, asset schema field, registry, solver, public
 serialization, diagnostic, IR, SQL, grammar, dependency, version, workflow,
-fixture, or golden behavior. Prerequisites: Slices 3, 11, and 12. Completion
-still requires Gate 3; Slice 14 is next.
+fixture, or golden behavior. Prerequisites: Slices 3, 11, and 12. Slice 14 is
+next.
 
 ## Slice 14 — Private Module Inspection And Canonical Serialization
 
-Separately gate deterministic private inspection facts and serialization.
-Prerequisite: Slice 13.
+Gate 2 implements the private deterministic inspection sidecar and its canonical
+private serialization specified by
+`docs/spec/phase54-slice14-private-module-inspection-and-canonical-serialization-v1.md`.
+It admits only one complete, mutually aligned exact root set over the ten
+settled schema-v2 products, derives one canonical inspection projection and one
+deterministic private byte payload from that projection, and preserves exact
+module, declaration, and occurrence identity, authority order, multiplicity,
+collisions, ambiguity, cycles, digests, loader readiness, and every availability
+state. It exposes no public inspection artifact, deserializer, cache, manifest,
+package identity, or loader behavior, and it extends the all-or-none module
+sidecar invariant to an eleventh sidecar. Prerequisite: Slice 13. Completion
+still requires Gate 3; Slice 15 is next.
 
 ## Slice 15 — Rust-ready Pure Boundaries, Differential Vectors, And End-to-end Hardening
 

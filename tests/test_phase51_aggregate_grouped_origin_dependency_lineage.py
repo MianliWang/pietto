@@ -1067,13 +1067,13 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
         assert match.group(1) == compiler_digest
     project_paths = _project_private_paths()
     project_digest = _digest(project_paths)
-    assert len(project_paths) == 31
+    assert len(project_paths) == 32
     phase33 = (REPO_ROOT / "tests/test_phase33_completion_audit.py").read_text(
         encoding="utf-8"
     )
     assert (
         f'"project_private": (\n        "src/pietto/_project",\n'
-        f'        31,\n        "{project_digest}",\n    ),'
+        f'        32,\n        "{project_digest}",\n    ),'
     ) in phase33
 
     protected = (

@@ -421,10 +421,10 @@ def test_slice12_contract_status_active_manifest_and_allowlist_are_exact(
     assert "Slice 13 is the first authorized join" in spec
     assert "Slice 12 — Generic-signature" in plan
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER == (
-        "PHASE54_SLICE13_GATE2"
+        "PHASE54_SLICE14_GATE2"
     )
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE == (
-        "0bad854253e22347e2aff93e2eabcbe2fda55aed"
+        "040ab19c56519c39c56541979c850484f9cc47f0"
     )
     historical_added = active_gate2_manifest.PHASE54_SLICE12_HISTORICAL_ADDED_PATHS
     historical_non_reader = (

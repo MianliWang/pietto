@@ -285,12 +285,12 @@ MODIFIED_PATHS = {
 }
 ALLOWLIST_PATHS = ADDED_PATHS | MODIFIED_PATHS
 
-COMPILER_DIGEST = "0afd97f37ada21b9f05b8b251f3bf8d1c7e971382f7c0225634f29c2e4452499"
+COMPILER_DIGEST = "fd4b8fcd41dc66be686880805bb6afaa4ab32efa5ae95159f88ada704ae69a9c"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
-PROJECT_DIGEST = "704694b7e04a8b0ad6f36d1948ef2bc276cebdda0b4faaab1a38304d34c3e09d"
+PROJECT_DIGEST = "3c619932e4fd1a4f2b3f12f4801d10c30030e8a6691d7cb63dd86a315b822439"
 FOCUSED_SHA256 = "764c5879e93871b253e875ce1e8145ce3a998d48a94b578f8af9d31f9562e5ee"
 OVERLAY_SHA256 = "197b591aec962f43b9b9393da99a76ff21c3a36189cc02c7a75dc5a7b85d6b26"
 FORMATTER_SHA256 = "5920e1a21f135b2537e8295b13c8bc6fa2962423812ffc3cbe1e52663e924daf"
@@ -1352,7 +1352,7 @@ def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
         len(semantic_paths),
         len(phase15_paths),
         len(project_paths),
-    ) == (106, 36, 33, 31)
+    ) == (107, 36, 33, 32)
     assert _digest(tuple(compiler_paths)) == COMPILER_DIGEST
     assert _digest(semantic_paths) == SEMANTIC_DIGEST
     assert _digest(phase15_paths) == PHASE15_SUBSET_DIGEST
@@ -1405,15 +1405,15 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
     readable = {path for path in (*tracked, *untracked) if (REPO_ROOT / path).is_file()}
-    assert len(readable) == 936
-    assert sum(path.endswith(".py") for path in readable) == 573
-    assert sum(path.endswith(".md") for path in readable) == 267
+    assert len(readable) == 939
+    assert sum(path.endswith(".py") for path in readable) == 575
+    assert sum(path.endswith(".md") for path in readable) == 268
     test_modules = {
         path
         for path in readable
         if path.startswith("tests/test_") and path.endswith(".py")
     }
-    assert len(test_modules) == 463
+    assert len(test_modules) == 464
     top_level_tests = 0
     for relative in sorted(test_modules):
         tree = ast.parse(_read(relative), filename=relative)
@@ -1422,7 +1422,7 @@ def test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact()
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 5396
+    assert top_level_tests == 5437
     assert 9580 == 9199 + 381
     assert 9580 - 185 == 9395
     assert (117, 70, 11, 106, 3488, 13171) == (117, 70, 11, 106, 3488, 13171)

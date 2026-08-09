@@ -238,7 +238,7 @@ MODIFIED_PATHS = (
 
 BASE_HEAD = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
 FINAL_COMPILER_DIGEST = (
-    "0afd97f37ada21b9f05b8b251f3bf8d1c7e971382f7c0225634f29c2e4452499"
+    "fd4b8fcd41dc66be686880805bb6afaa4ab32efa5ae95159f88ada704ae69a9c"
 )
 FINAL_SEMANTIC_DIGEST = (
     "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
@@ -1638,7 +1638,7 @@ def test_concrete_semantic_project_and_aggregate_nullability_authority_is_locked
         "src/pietto/semantic/expressions.py": "37b198f72b0c71c90a82d746671be8528a9ea5c2d4818ff7ef4ba55e30e9c595",
         "src/pietto/semantic/aggregates.py": "f5d5be237960e50f62f539d76e09be425980c9f8e657846333b5ef1aaa948333",
         "src/pietto/semantic/catalog.py": "f566f39395e3bdc933e60d15e740749255dd3749cf3907684240e4b43dfc9e40",
-        "src/pietto/_project/model.py": "381341d9eb17368625d9ce42aee7b72d6d1525dbb878c00db64ce4beae09f4d7",
+        "src/pietto/_project/model.py": "da4853f95c41b85482381a442a217354f0b47abe76f09c90c8587004dd59bf21",
         "src/pietto/_project/row_expression_schema.py": "fc968a628592640012d59521627c91ee0a0017bc640fab27e8cbd756e4aa1e7d",
         "src/pietto/_project/row_expression_type_facts.py": "2c04a335fe594a599df7bced676fd8767688eaa91045c90473a494bafc7d9278",
         "src/pietto/_project/aggregate_grouped_schema.py": "406fa28ec27a574576508a075305c28f07a495cf91f300d529c62b84a0aa519b",
@@ -1709,7 +1709,7 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        106,
+        107,
         36,
         33,
     )
@@ -1797,11 +1797,11 @@ def test_slice5_dirty_clean_and_depth_one_repository_states_are_locked() -> None
 
 def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
     repository_paths = _all_repository_paths()
-    assert len(repository_paths) == 936
-    assert sum(path.endswith(".py") for path in repository_paths) == 573
-    assert sum(path.endswith(".md") for path in repository_paths) == 267
+    assert len(repository_paths) == 939
+    assert sum(path.endswith(".py") for path in repository_paths) == 575
+    assert sum(path.endswith(".md") for path in repository_paths) == 268
     test_paths = tuple(sorted((REPO_ROOT / "tests").glob("test_*.py")))
-    assert len(test_paths) == 463
+    assert len(test_paths) == 464
     functions = tuple(
         node.name
         for path in test_paths
@@ -1809,7 +1809,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name.startswith("test_")
     )
-    assert len(functions) == 5396
+    assert len(functions) == 5437
     self_functions = tuple(
         node.name
         for node in ast.parse(SELF_PATH.read_text()).body

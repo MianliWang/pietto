@@ -47,6 +47,7 @@ if TYPE_CHECKING:
         ProjectModuleDiagnosticSet,
         ProjectModuleGraph,
     )
+    from pietto._project.module_inspection import ProjectModuleInspectionFactSet
     from pietto._project.module_package_neutral_identity import (
         ProjectModulePackageNeutralIdentityFactSet,
     )
@@ -818,6 +819,7 @@ class ProjectSemanticResult:
     module_package_identity_facts: ProjectModulePackageNeutralIdentityFactSet | None = (
         None
     )
+    module_inspection_facts: ProjectModuleInspectionFactSet | None = None
 
     def __post_init__(self) -> None:
         """Keep every module sidecar on its exact independent authority roots."""
@@ -835,6 +837,7 @@ class ProjectSemanticResult:
             self.module_semantic_facts,
             self.module_attribution_facts,
             self.module_package_identity_facts,
+            self.module_inspection_facts,
         )
         if self.compilation_mode is ProjectCompilationMode.LEGACY_FLAT:
             if any(sidecar is not None for sidecar in module_sidecars):
@@ -1005,6 +1008,41 @@ class ProjectSemanticResult:
             raise ValueError(
                 "Project module package identity requires both exact sidecar roots."
             )
+
+        inspection_facts = self.module_inspection_facts
+        assert inspection_facts is not None
+        from pietto._project.module_inspection import ProjectModuleInspectionFactSet
+
+        if type(inspection_facts) is not ProjectModuleInspectionFactSet:
+            raise TypeError(
+                "Project module inspection requires an exact inspection fact set."
+            )
+        inspection_authority = inspection_facts.authority
+        if any(
+            fact_root is not result_root
+            for fact_root, result_root in (
+                (inspection_authority.modules, self.modules),
+                (inspection_authority.catalogs, self.module_catalogs),
+                (inspection_authority.exports, self.module_exports),
+                (inspection_authority.bindings, self.module_bindings),
+                (inspection_authority.graph, self.module_graph),
+                (
+                    inspection_authority.type_source_resolutions,
+                    self.module_type_source_resolutions,
+                ),
+                (
+                    inspection_authority.relation_resolutions,
+                    self.module_relation_resolutions,
+                ),
+                (inspection_authority.attribution, facts),
+                (inspection_authority.semantic, semantic_facts),
+                (inspection_authority.package_identity, package_identity_facts),
+            )
+        ):
+            raise ValueError(
+                "Project module inspection requires the exact ten sidecar roots."
+            )
+
         expected_diagnostics = (
             *module_diagnostic_facts.diagnostics,
             *module_type_source_resolutions.diagnostics,
@@ -1072,6 +1110,9 @@ def build_empty_project_semantic_result(
         )
         from pietto._project.module_resolution import (
             _build_project_type_source_resolution_set,
+        )
+        from pietto._project.module_inspection import (
+            _build_project_module_inspection_fact_set,
         )
         from pietto._project.module_package_neutral_identity import (
             _build_project_module_package_neutral_identity_fact_set,
@@ -1146,6 +1187,18 @@ def build_empty_project_semantic_result(
                 module_semantic_facts,
             )
         )
+        module_inspection_facts = _build_project_module_inspection_fact_set(
+            parse_result.modules,
+            module_catalogs,
+            module_exports,
+            module_bindings,
+            module_graph,
+            module_type_source_resolutions,
+            module_relation_resolutions,
+            module_attribution_facts,
+            module_semantic_facts,
+            module_package_identity_facts,
+        )
 
         return ProjectSemanticResult(
             root=parse_result.root,
@@ -1166,6 +1219,7 @@ def build_empty_project_semantic_result(
             module_semantic_facts=module_semantic_facts,
             module_attribution_facts=module_attribution_facts,
             module_package_identity_facts=module_package_identity_facts,
+            module_inspection_facts=module_inspection_facts,
             diagnostics=(
                 *module_diagnostic_facts.diagnostics,
                 *module_type_source_resolutions.diagnostics,

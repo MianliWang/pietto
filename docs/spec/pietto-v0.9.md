@@ -9,15 +9,15 @@ Current pipeline: parse -> analyze -> build IR -> emit selected PostgreSQL or My
 
 ---
 
-## Current Phase 54 Slice 13 Package-neutral Identity Layering Status
+## Current Phase 54 Slice 14 Private Module Inspection Status
 
-Phase 54 is active and Slices 1 through 12 are complete after exact Gate 3
-publication. Slice 13 is the Gate 2 candidate for private package-neutral
-identity layering, owner and asset-compatible carriers, source digest identity,
-and loader readiness from exact base
-`0bad854253e22347e2aff93e2eabcbe2fda55aed`. It is the first authorized join of
-the Slice 11 attribution product and the Slice 12 preservation product, and
-reviewed-tree publication remains pending. Slice 4 supplies contextual
+Phase 54 is active and Slices 1 through 13 are complete after exact Gate 3
+publication. Slice 14 is the Gate 2 candidate for private module inspection and
+canonical serialization from exact base
+`040ab19c56519c39c56541979c850484f9cc47f0`. It admits only one complete,
+mutually aligned exact root set over the ten settled schema-v2 products,
+derives one canonical inspection projection plus one deterministic private byte
+payload, and reviewed-tree publication remains pending. Slice 4 supplies contextual
 top-level `import`, `export`, and `as` syntax plus immutable source-located module AST. Slice 5
 adds private four-component nominal declaration identity and one immutable,
 source-ordered local declaration catalog per successfully parsed schema-v2
@@ -61,9 +61,13 @@ relation resolution and minimal row facts. Slice 11 owns occurrence-safe
 attribution, dependency, origin, supported provenance, and minimal concrete
 direct/renamed lineage. Slice 12 retains full generic, nullability, aggregate,
 grouped, window, result-role, and capability facts without collapsing nominal
-identity, occurrence order, multiplicity, or availability state. It remains a
-private sidecar and changes no Semantic IR, PostgreSQL/MySQL SQL, CLI JSON v1,
-Project JSON v2, Semantic Metadata Artifact v1, or public Python export.
+identity, occurrence order, multiplicity, or availability state. Slice 13 layers
+package-neutral owner and asset identities, one source digest identity, and
+fail-closed loader-readiness facts. Slice 14 derives one canonical private
+inspection projection over those settled facts and serializes it to
+deterministic private bytes. They remain private sidecars and change no Semantic
+IR, PostgreSQL/MySQL SQL, CLI JSON v1, Project JSON v2, Semantic Metadata
+Artifact v1, or public Python export.
 
 ---
 
