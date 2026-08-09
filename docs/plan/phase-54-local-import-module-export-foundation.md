@@ -1,14 +1,21 @@
 # Phase 54 — Local Import / Module / Export Foundation
 
-## Status And Slice 14 Lifecycle
+## Status And Slice 15 Lifecycle
 
 Phase 53 and Slices 1-16 are `COMPLETED`. Phase 54 is `ACTIVE`, and Slices
-1 through 13 plus the unnumbered post-Slice-12 workflow hardening interlude are
-`COMPLETED` after exact Gate 3 publication. The trusted Slice 14 base is
-`040ab19c56519c39c56541979c850484f9cc47f0`. Slice 14 is the exact Slice 14
-Gate 2 candidate for private module inspection and canonical serialization. It
-is not complete before the full Gate 2, reviewed-tree publication, and Gate 3.
-Slices 15-16 remain `UNSTARTED`.
+1 through 14 plus the unnumbered post-Slice-12 workflow hardening interlude are
+`COMPLETED` after exact Gate 3 publication. The trusted Slice 15 base is
+`93f0f591e28a01f32d1698fcd4b8c57d41c6d714`. Slice 15 is the exact Slice 15
+Gate 2 candidate for Rust-ready pure boundaries, differential vectors, and
+end-to-end hardening. It is not complete before the full Gate 2, reviewed-tree
+publication, and Gate 3. On successful completion of Gate 2 the state becomes
+`PHASE54_SLICE15_GATE2_COMPLETED_AWAITING_PUBLICATION`; the next authorized
+state is `PHASE54_SLICE15_GATE3`, and Slice 16 does not begin in Slice 15.
+Slice 16 remains `UNSTARTED`.
+
+The paragraph below is the historical Slice 14 Gate 2 checkpoint, retained
+unchanged. Where it describes Slice 14 as the open candidate and Slices 15-16
+as `UNSTARTED`, this section supersedes it.
 
 Slice 14 adds only one private schema-v2 inspection sidecar and its canonical
 private serialization. Its ten exact roots are the logical module tuple, the
@@ -389,6 +396,22 @@ remains empty throughout fully offline Gate 2. Gate 3 alone owns branch, one
 stage, one commit, one push, ready PR, natural exact-head CI, exact-tree squash,
 one fetch, ff-only reconciliation, cleanup, and final immutable evidence.
 
+## Slice 14 Publication Outcome And Slice 15 Gate 2 Candidate
+
+The Slice 14 lifecycle paragraph above is the historical Gate 2 checkpoint and
+is retained unchanged. It is superseded by this published outcome.
+
+Slice 14 completed its full publication lifecycle. The reviewed tree is
+`0a0fae0e6fe10feb85b179a850f4ffa5a9ef6759`, the squash commit is
+`93f0f591e28a01f32d1698fcd4b8c57d41c6d714` with the single parent
+`040ab19c56519c39c56541979c850484f9cc47f0`, and its allowlist was `A3_M63_D0`
+over 66 paths with 58 executing readers, 43 focused tests, 1 semantic
+generation, 2 causal-root families, and 0 unresolved review threads. Phase 54
+is `ACTIVE`, Slices 1 through 14 are `COMPLETED`, and Slices 15 through 16
+remain `UNSTARTED` until their own Gate 3 publication.
+
+The trusted Slice 15 base is `93f0f591e28a01f32d1698fcd4b8c57d41c6d714`.
+
 ## Slice 2 — Schema-v2 Explicit-module Activation And Immutable Project / Module Carrier
 
 Accept exact integer schema versions 1 and 2 only. Version 1 keeps the legacy
@@ -546,9 +569,36 @@ still requires Gate 3; Slice 15 is next.
 
 ## Slice 15 — Rust-ready Pure Boundaries, Differential Vectors, And End-to-end Hardening
 
-Separately gate pure DTO/procedure boundaries, frozen differential vectors,
-Python reference behavior, and full compatibility hardening. Prerequisites:
-Slices 8 through 14.
+Gate 2 implements the portable pure boundary specified by
+`docs/spec/phase54-slice15-rust-ready-pure-boundaries-differential-vectors-and-end-to-end-hardening-v1.md`.
+
+It adds one private portable value boundary over the published Slice 14
+canonical serialization, one closed normalized rejection algebra, one frozen
+private differential-vector corpus, one deterministic Python reference harness,
+and end-to-end hardening of the private schema-v2 path. Three layers stay
+separate: Slice 14 Python authority-root admission by object identity, the
+Python-side canonical projection, and the portable pure value boundary where
+meaning is carried only by explicit data.
+
+The production serializer uses that boundary rather than merely comparing
+against it, so exactly one canonical serializer exists and canonical bytes stay
+byte-exact. No module sidecar is added and the all-or-none invariant stays at
+eleven. Schema v1 remains byte-exact, schema v2 keeps `model=None`, and no
+public export, command-line, JSON, package, intermediate representation, SQL,
+dependency, workflow, version, fixture, or golden surface changes.
+
+Rust-ready pure boundaries and differential vectors here add no production
+Rust, no Cargo metadata, no crate layout, no PyO3 or foreign function
+interface, no WebAssembly or C application binary interface, no subprocess
+protocol, no native build, and no public artifact format. Those remain retained
+later work, principally Phase 68 for the first Rust kernel and Phase 58 for any
+public inspection artifact.
+
+The sealed Gate 2 scope is `A5_M64_D0` over 69 paths with 59 executing
+mechanical readers, check-only formatting over 65 literal Python paths, and an
+empty Git index throughout a fully offline Gate 2. Prerequisites: Slices 8
+through 14. Completion still requires Gate 3; Slice 16 is next, and Slice 16
+does not begin in Slice 15.
 
 ## Slice 16 — Completion Audit, Status Lock, And Phase 55 Handoff
 

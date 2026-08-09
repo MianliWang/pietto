@@ -9,15 +9,16 @@ Current pipeline: parse -> analyze -> build IR -> emit selected PostgreSQL or My
 
 ---
 
-## Current Phase 54 Slice 14 Private Module Inspection Status
+## Current Phase 54 Slice 15 Rust-ready Pure Boundary Status
 
-Phase 54 is active and Slices 1 through 13 are complete after exact Gate 3
-publication. Slice 14 is the Gate 2 candidate for private module inspection and
-canonical serialization from exact base
-`040ab19c56519c39c56541979c850484f9cc47f0`. It admits only one complete,
-mutually aligned exact root set over the ten settled schema-v2 products,
-derives one canonical inspection projection plus one deterministic private byte
-payload, and reviewed-tree publication remains pending. Slice 4 supplies contextual
+Phase 54 is active and Slices 1 through 14 are complete after exact Gate 3
+publication. Slice 15 is the Gate 2 candidate for Rust-ready pure boundaries,
+differential vectors, and end-to-end hardening from exact base
+`93f0f591e28a01f32d1698fcd4b8c57d41c6d714`. It defines one portable,
+deterministic, total pure boundary over the published Slice 14 canonical
+serialization with one closed normalized rejection algebra, one frozen private
+differential-vector corpus, and one deterministic Python reference harness, and
+reviewed-tree publication remains pending. Slice 4 supplies contextual
 top-level `import`, `export`, and `as` syntax plus immutable source-located module AST. Slice 5
 adds private four-component nominal declaration identity and one immutable,
 source-ordered local declaration catalog per successfully parsed schema-v2
@@ -65,7 +66,11 @@ identity, occurrence order, multiplicity, or availability state. Slice 13 layers
 package-neutral owner and asset identities, one source digest identity, and
 fail-closed loader-readiness facts. Slice 14 derives one canonical private
 inspection projection over those settled facts and serializes it to
-deterministic private bytes. They remain private sidecars and change no Semantic
+deterministic private bytes. Slice 15 adds one portable pure boundary over that
+serialization, a closed normalized rejection algebra, a frozen private
+differential-vector corpus, and a deterministic Python reference harness; it
+adds no production Rust, no foreign function interface, no native build, and no
+public artifact format. They remain private sidecars and change no Semantic
 IR, PostgreSQL/MySQL SQL, CLI JSON v1, Project JSON v2, Semantic Metadata
 Artifact v1, or public Python export.
 

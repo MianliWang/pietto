@@ -238,7 +238,7 @@ MODIFIED_PATHS = (
 
 BASE_HEAD = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
 FINAL_COMPILER_DIGEST = (
-    "92b3f0445e738265e6ccd342fc42bcc6cff4e92464fc68504517a592c59bfa61"
+    "045aebf1975b00d2cf0988599d32ba86557696ed179458904a85d2ec1e62812e"
 )
 FINAL_SEMANTIC_DIGEST = (
     "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
@@ -1709,7 +1709,7 @@ def test_reader_hash_inventory_and_nested_hash_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        107,
+        108,
         36,
         33,
     )
@@ -1797,11 +1797,11 @@ def test_slice5_dirty_clean_and_depth_one_repository_states_are_locked() -> None
 
 def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
     repository_paths = _all_repository_paths()
-    assert len(repository_paths) == 939
-    assert sum(path.endswith(".py") for path in repository_paths) == 575
-    assert sum(path.endswith(".md") for path in repository_paths) == 268
+    assert len(repository_paths) == 944
+    assert sum(path.endswith(".py") for path in repository_paths) == 579
+    assert sum(path.endswith(".md") for path in repository_paths) == 269
     test_paths = tuple(sorted((REPO_ROOT / "tests").glob("test_*.py")))
-    assert len(test_paths) == 464
+    assert len(test_paths) == 465
     functions = tuple(
         node.name
         for path in test_paths
@@ -1809,7 +1809,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name.startswith("test_")
     )
-    assert len(functions) == 5439
+    assert len(functions) == 5489
     self_functions = tuple(
         node.name
         for node in ast.parse(SELF_PATH.read_text()).body

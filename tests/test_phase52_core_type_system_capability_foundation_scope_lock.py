@@ -178,9 +178,9 @@ PRE_RECONCILIATION_2_SHA256 = (
 PRE_RECONCILIATION_3_SHA256 = (
     "cb2c51246f1e312858641750d1a416125f99058fb0182949e9afe35ae49e97cf"
 )
-COMPILER_DIGEST = "92b3f0445e738265e6ccd342fc42bcc6cff4e92464fc68504517a592c59bfa61"
+COMPILER_DIGEST = "045aebf1975b00d2cf0988599d32ba86557696ed179458904a85d2ec1e62812e"
 PROJECT_PRIVATE_DIGEST = (
-    "cffe3086127aed442491f0e9c05c5eb18048462bc4e97ba03a91f7a929b87ab2"
+    "abfb4b3f0cca5b61bbe4a4ecc313e111b4d4a865712da9e0feecc8d7ed4a2f9f"
 )
 
 
@@ -558,7 +558,7 @@ def test_slice1_no_behavior_public_privacy_and_release_boundaries_are_locked() -
         compiler_digest.update(path.read_bytes())
         compiler_digest.update(b"\0")
     assert (len(compiler_paths), compiler_digest.hexdigest()) == (
-        107,
+        108,
         COMPILER_DIGEST,
     )
     for relative_path in BOUNDARY_PATHS:
@@ -585,12 +585,12 @@ def test_slice1_no_behavior_public_privacy_and_release_boundaries_are_locked() -
         project_digest.update(path.read_bytes())
         project_digest.update(b"\0")
     assert (len(project_paths), project_digest.hexdigest()) == (
-        32,
+        33,
         PROJECT_PRIVATE_DIGEST,
     )
     assert (
         '"project_private": (\n        "src/pietto/_project",\n'
-        f'        32,\n        "{PROJECT_PRIVATE_DIGEST}",\n    ),'
+        f'        33,\n        "{PROJECT_PRIVATE_DIGEST}",\n    ),'
     ) in _read(REPO_ROOT / "tests/test_phase33_completion_audit.py")
 
     project = tomllib.loads(_read(PYPROJECT_PATH))["project"]

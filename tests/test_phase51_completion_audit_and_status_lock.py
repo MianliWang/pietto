@@ -369,9 +369,9 @@ PROTECTED_HASHES = {
         "26cc0ae4a68518223d6bf600ad3c4b0b226618aa7ef31b2ae1c25924d2655169"
     ),
 }
-COMPILER_DIGEST = "92b3f0445e738265e6ccd342fc42bcc6cff4e92464fc68504517a592c59bfa61"
+COMPILER_DIGEST = "045aebf1975b00d2cf0988599d32ba86557696ed179458904a85d2ec1e62812e"
 PROJECT_PRIVATE_DIGEST = (
-    "cffe3086127aed442491f0e9c05c5eb18048462bc4e97ba03a91f7a929b87ab2"
+    "abfb4b3f0cca5b61bbe4a4ecc313e111b4d4a865712da9e0feecc8d7ed4a2f9f"
 )
 
 PROJECT_JSON_V2_KEYS = (
@@ -1052,7 +1052,7 @@ def test_live_compiler_project_private_protected_version_and_tag_locks_are_dirty
     None
 ):
     compiler_count, compiler_digest = _compiler_digest()
-    assert (compiler_count, compiler_digest) == (107, COMPILER_DIGEST)
+    assert (compiler_count, compiler_digest) == (108, COMPILER_DIGEST)
     for relative_path in BOUNDARY_PATHS:
         boundary_values = re.findall(
             r'^BOUNDARY_HASH = "([0-9a-f]{64})"$',
@@ -1062,12 +1062,12 @@ def test_live_compiler_project_private_protected_version_and_tag_locks_are_dirty
         assert boundary_values == [COMPILER_DIGEST]
 
     project_paths = _project_private_paths()
-    assert len(project_paths) == 32
+    assert len(project_paths) == 33
     assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
     phase33 = _read(REPO_ROOT / "tests/test_phase33_completion_audit.py")
     assert (
         f'"project_private": (\n        "src/pietto/_project",\n'
-        f'        32,\n        "{PROJECT_PRIVATE_DIGEST}",\n    ),'
+        f'        33,\n        "{PROJECT_PRIVATE_DIGEST}",\n    ),'
     ) in phase33
 
     for relative_path, expected_hash in PROTECTED_HASHES.items():
@@ -1477,6 +1477,10 @@ def test_static_git_helper_and_exact_slice12_dirty_set_are_locked() -> None:
                 "bc46faff1c9aa71f583ed7d2964b651cc659bc90",
                 "0bad854253e22347e2aff93e2eabcbe2fda55aed",
                 "040ab19c56519c39c56541979c850484f9cc47f0",
+                "93f0f591e28a01f32d1698fcd4b8c57d41c6d714",
+                "93f0f591e28a01f32d1698fcd4b8c57d41c6d714",
+                "93f0f591e28a01f32d1698fcd4b8c57d41c6d714",
+                "93f0f591e28a01f32d1698fcd4b8c57d41c6d714",
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,

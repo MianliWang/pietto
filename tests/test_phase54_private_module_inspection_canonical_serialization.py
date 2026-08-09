@@ -20,6 +20,7 @@ import pietto
 import pietto._project.check as project_check
 import pietto._project.module_inspection as inspection_module
 import pietto._project.module_package_neutral_identity as layering
+import pietto._project.module_pure_boundary as pure_boundary
 from pietto._project.json_v2 import project_check_result_to_json_dict
 from pietto._project.model import (
     ProjectRelationRowSchemaStatus,
@@ -326,40 +327,26 @@ def test_slice14_contract_status_active_manifest_and_allowlist_are_exact() -> No
     assert "Slices 15-16" in plan
     assert "Slice 14" in readme
 
-    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER == (
-        "PHASE54_SLICE14_GATE2"
-    )
-    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE == (
-        "040ab19c56519c39c56541979c850484f9cc47f0"
-    )
-    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_BRANCH == (
-        "phase54/slice14-private-module-inspection"
-    )
-    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_SUBJECT == (
-        "Add Phase 54 private module inspection"
-    )
-    assert active_gate2_manifest.ADDED_PATHS == {SPEC_REL, SOURCE_REL, TEST_REL}
-    assert active_gate2_manifest.NON_READER_MODIFIED_PATHS == {
+    # Slice 14 is published, so its benchmark reads the frozen historical
+    # projection. The active Gate 2 sets belong to the currently open Slice and
+    # move with every later Slice.
+    added = active_gate2_manifest.PHASE54_SLICE14_HISTORICAL_ADDED_PATHS
+    non_reader = active_gate2_manifest.PHASE54_SLICE14_HISTORICAL_NON_READER_PATHS
+    readers = active_gate2_manifest.PHASE54_SLICE14_HISTORICAL_READER_PATHS
+    assert added == {SPEC_REL, SOURCE_REL, TEST_REL}
+    assert non_reader == {
         "README.md",
         "docs/plan/phase-54-local-import-module-export-foundation.md",
         "docs/spec/pietto-v0.9.md",
         "src/pietto/_project/model.py",
         "tests/_phase54_active_gate2_manifest.py",
     }
-    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 58
-    assert len(active_gate2_manifest.MODIFIED_PATHS) == 63
-    assert len(active_gate2_manifest.ALLOWLIST_PATHS) == 66
-    assert (
-        sum(path.endswith(".py") for path in active_gate2_manifest.ALLOWLIST_PATHS)
-        == 62
-    )
-    assert not (
-        active_gate2_manifest.NON_READER_MODIFIED_PATHS
-        & active_gate2_manifest.MECHANICAL_READER_PATHS
-    )
-    assert not (
-        active_gate2_manifest.ADDED_PATHS & active_gate2_manifest.MODIFIED_PATHS
-    )
+    assert len(readers) == 58
+    assert len(non_reader | readers) == 63
+    assert len(added | non_reader | readers) == 66
+    assert sum(path.endswith(".py") for path in added | non_reader | readers) == 62
+    assert not (non_reader & readers)
+    assert not (added & (non_reader | readers))
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
     assert "58-reader" in spec
     assert "exact 62 Python paths" in spec
@@ -1401,7 +1388,11 @@ def test_canonical_bytes_change_with_a_replaced_digest_or_readiness_fact(
 def test_canonical_bytes_escape_control_characters_and_stay_utf8_exact(
     tmp_path: Path,
 ) -> None:
-    escape = inspection_module._escape
+    # The escaping and token algebra moved into the portable pure boundary in
+    # Slice 15. The production projection still owns the exact same admission
+    # checks, and the rendered token bytes are unchanged.
+    escape = pure_boundary.escape_pure_text
+    token = pure_boundary.encode_pure_value
     assert escape("plain") == "plain"
     assert escape("a\\b") == "a\\\\b"
     assert escape("a\tb") == "a\\tb"
@@ -1411,13 +1402,13 @@ def test_canonical_bytes_escape_control_characters_and_stay_utf8_exact(
     assert escape("a\x1fb") == "a\\x1fb"
     assert escape("a\x7fb") == "a\\x7fb"
     assert escape("é模") == "é模"
-    assert inspection_module._text("n:") == "s:n:"
-    assert inspection_module._integer(0) == "i:0"
-    assert inspection_module._integer(12) == "i:12"
-    assert inspection_module._boolean(True) == "b:true"
-    assert inspection_module._optional_text(None) == "n:"
-    assert inspection_module._optional_integer(None) == "n:"
-    assert inspection_module._optional_enumeration(None) == "n:"
+    assert token(inspection_module._text("n:")) == "s:n:"
+    assert token(inspection_module._integer(0)) == "i:0"
+    assert token(inspection_module._integer(12)) == "i:12"
+    assert token(inspection_module._boolean(True)) == "b:true"
+    assert token(inspection_module._optional_text(None)) == "n:"
+    assert token(inspection_module._optional_integer(None)) == "n:"
+    assert token(inspection_module._optional_enumeration(None)) == "n:"
     with pytest.raises(ValueError, match="non-negative integer"):
         inspection_module._integer(-1)
     with pytest.raises(ValueError, match="non-negative integer"):
@@ -1436,12 +1427,13 @@ def test_canonical_bytes_escape_surrogate_paths_and_always_encode_as_utf8(
 ) -> None:
     # A POSIX path byte the filesystem encoding cannot decode reaches this
     # projection as a lone surrogate, and UTF-8 refuses to encode one.
-    escape = inspection_module._escape
+    escape = pure_boundary.escape_pure_text
+    token = pure_boundary.encode_pure_value
     assert escape("a\udcffb") == "a\\udcffb"
     assert escape("a\ud800b") == "a\\ud800b"
     assert escape("a\udfffb") == "a\\udfffb"
-    assert inspection_module._text("bad\udcff.pietto") == "s:bad\\udcff.pietto"
-    assert inspection_module._text("bad\udcff.pietto").encode("utf-8")
+    assert token(inspection_module._text("bad\udcff.pietto")) == "s:bad\\udcff.pietto"
+    assert token(inspection_module._text("bad\udcff.pietto")).encode("utf-8")
 
     root = tmp_path / "project"
     root.mkdir(parents=True, exist_ok=True)

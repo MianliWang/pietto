@@ -65,6 +65,19 @@ from pietto._project.module_package_neutral_identity import (
     ProjectLayeredSourceDigestIdentity,
     ProjectModulePackageNeutralIdentityFactSet,
 )
+from pietto._project.module_pure_boundary import (
+    PURE_ABSENT,
+    ProjectPureDocument,
+    ProjectPureField,
+    ProjectPureRecord,
+    ProjectPureStatus,
+    ProjectPureValue,
+    evaluate_pure_document,
+    pure_boolean,
+    pure_enumeration,
+    pure_integer,
+    pure_text,
+)
 from pietto._project.module_relation_resolution import (
     ProjectModuleRelationResolutionIssueStatus,
     ProjectModuleRelationResolutionSet,
@@ -88,25 +101,6 @@ __all__: tuple[str, ...] = ()
 
 _Key = TypeVar("_Key")
 _Value = TypeVar("_Value")
-
-_INSPECTION_ABSENT_TOKEN = "n:"
-
-_INSPECTION_ESCAPES: Mapping[str, str] = MappingProxyType(
-    {
-        "\\": "\\\\",
-        "\t": "\\t",
-        "\n": "\\n",
-        "\r": "\\r",
-    }
-)
-
-_INSPECTION_DELETE_CHARACTER = "\x7f"
-
-_INSPECTION_FIRST_PRINTABLE = " "
-
-_INSPECTION_SURROGATE_START = "\ud800"
-
-_INSPECTION_SURROGATE_END = "\udfff"
 
 
 class ProjectInspectionFormat(StrEnum):
@@ -1972,18 +1966,25 @@ def _derive_semantic_facts(
     )
 
 
-def _serialize_inspection(inspection: ProjectModuleInspection) -> bytes:
-    """Serialize the canonical projection into one exact private byte string."""
+def _project_pure_document(
+    inspection: ProjectModuleInspection,
+) -> ProjectPureDocument:
+    """Project the canonical inspection into one portable document value.
 
-    lines: list[str] = []
+    This is the last Python-side step. Every enumeration is reduced to its
+    declared text and every identity to its retained project-relative value, so
+    no Python object identity crosses into the portable boundary.
+    """
+
+    emitted: list[ProjectPureRecord] = []
     _record(
-        lines,
+        emitted,
         "inspection",
         ("format", _enumeration(inspection.format)),
         ("modules", _integer(len(inspection.modules))),
     )
     _record(
-        lines,
+        emitted,
         "owner",
         ("kind", _enumeration(inspection.owner.kind)),
         ("namespace", _text(inspection.owner.namespace)),
@@ -1992,33 +1993,53 @@ def _serialize_inspection(inspection: ProjectModuleInspection) -> bytes:
     for record in inspection.modules:
         module = _integer(record.position)
         _record(
-            lines, "module", ("module", module), ("path", _text(record.module.path))
+            emitted, "module", ("module", module), ("path", _text(record.module.path))
         )
-        _serialize_digest(lines, module, record)
-        _serialize_readiness(lines, module, record)
-        _serialize_graph(lines, module, record)
-        _serialize_imports(lines, module, record)
-        _serialize_exports(lines, module, record)
-        _serialize_declarations(lines, module, record)
-        _serialize_origins(lines, module, record)
-        _serialize_dependencies(lines, module, record)
-        _serialize_row_lineage(lines, module, record)
-        _serialize_type_resolutions(lines, module, record)
-        _serialize_relation_resolutions(lines, module, record)
-        _serialize_semantic_facts(lines, module, record)
-        _serialize_issues(lines, module, record)
-    return ("\n".join(lines) + "\n").encode("utf-8")
+        _serialize_digest(emitted, module, record)
+        _serialize_readiness(emitted, module, record)
+        _serialize_graph(emitted, module, record)
+        _serialize_imports(emitted, module, record)
+        _serialize_exports(emitted, module, record)
+        _serialize_declarations(emitted, module, record)
+        _serialize_origins(emitted, module, record)
+        _serialize_dependencies(emitted, module, record)
+        _serialize_row_lineage(emitted, module, record)
+        _serialize_type_resolutions(emitted, module, record)
+        _serialize_relation_resolutions(emitted, module, record)
+        _serialize_semantic_facts(emitted, module, record)
+        _serialize_issues(emitted, module, record)
+    return ProjectPureDocument(records=tuple(emitted))
+
+
+def _serialize_inspection(inspection: ProjectModuleInspection) -> bytes:
+    """Serialize the canonical projection into one exact private byte string.
+
+    The production path evaluates the same portable pure boundary the
+    differential vectors evaluate, so there is exactly one canonical serializer
+    and no testing-only model can drift away from production behavior.
+    """
+
+    outcome = evaluate_pure_document(_project_pure_document(inspection))
+    if outcome.status is not ProjectPureStatus.OK or outcome.canonical_bytes is None:
+        # Keep the normalized status and its structural coordinates, which carry
+        # no supplied content, so a fail-closed build stays diagnosable.
+        raise ValueError(
+            "Canonical inspection payload must evaluate exactly: "
+            f"{outcome.status.value} at record {outcome.record_position} "
+            f"field {outcome.field_position}."
+        )
+    return outcome.canonical_bytes
 
 
 def _serialize_digest(
-    lines: list[str],
-    module: str,
+    emitted: list[ProjectPureRecord],
+    module: ProjectPureValue,
     record: ProjectModuleInspectionRecord,
 ) -> None:
     """Emit one module's exact source digest identity."""
 
     _record(
-        lines,
+        emitted,
         "digest",
         ("module", module),
         ("algorithm", _enumeration(record.digest.algorithm)),
@@ -2028,15 +2049,15 @@ def _serialize_digest(
 
 
 def _serialize_readiness(
-    lines: list[str],
-    module: str,
+    emitted: list[ProjectPureRecord],
+    module: ProjectPureValue,
     record: ProjectModuleInspectionRecord,
 ) -> None:
     """Emit one module's loader readiness and its complete cycle evidence."""
 
     readiness = record.readiness
     _record(
-        lines,
+        emitted,
         "readiness",
         ("module", module),
         ("status", _enumeration(readiness.status)),
@@ -2046,7 +2067,7 @@ def _serialize_readiness(
     for cycle_ordinal, cycle in enumerate(readiness.cycles):
         cycle_token = _integer(cycle_ordinal)
         _record(
-            lines,
+            emitted,
             "readiness_cycle",
             ("module", module),
             ("cycle", cycle_token),
@@ -2054,7 +2075,7 @@ def _serialize_readiness(
         )
         for member_ordinal, member in enumerate(cycle.members):
             _record(
-                lines,
+                emitted,
                 "readiness_cycle_member",
                 ("module", module),
                 ("cycle", cycle_token),
@@ -2064,15 +2085,15 @@ def _serialize_readiness(
 
 
 def _serialize_graph(
-    lines: list[str],
-    module: str,
+    emitted: list[ProjectPureRecord],
+    module: ProjectPureValue,
     record: ProjectModuleInspectionRecord,
 ) -> None:
     """Emit one module's graph component, dependencies, and import evidence."""
 
     module_graph = record.graph
     _record(
-        lines,
+        emitted,
         "graph",
         ("module", module),
         ("component_is_cyclic", _boolean(module_graph.component_is_cyclic)),
@@ -2082,7 +2103,7 @@ def _serialize_graph(
     )
     for ordinal, member in enumerate(module_graph.component_members):
         _record(
-            lines,
+            emitted,
             "graph_component_member",
             ("module", module),
             ("member", _integer(ordinal)),
@@ -2090,7 +2111,7 @@ def _serialize_graph(
         )
     for ordinal, target in enumerate(module_graph.dependency_targets):
         _record(
-            lines,
+            emitted,
             "graph_dependency_target",
             ("module", module),
             ("target", _integer(ordinal)),
@@ -2098,7 +2119,7 @@ def _serialize_graph(
         )
     for ordinal, evidence in enumerate(module_graph.import_evidence):
         _record(
-            lines,
+            emitted,
             "graph_import_evidence",
             ("module", module),
             ("evidence", _integer(ordinal)),
@@ -2112,8 +2133,8 @@ def _serialize_graph(
 
 
 def _serialize_imports(
-    lines: list[str],
-    module: str,
+    emitted: list[ProjectPureRecord],
+    module: ProjectPureValue,
     record: ProjectModuleInspectionRecord,
 ) -> None:
     """Emit one module's import requests, aliases, targets, and issue buckets."""
@@ -2122,7 +2143,7 @@ def _serialize_imports(
         request = _integer(ordinal)
         target = projected.resolved_target
         _record(
-            lines,
+            emitted,
             "import",
             ("module", module),
             ("request", request),
@@ -2158,7 +2179,7 @@ def _serialize_imports(
         )
         for issue_ordinal, status in enumerate(projected.issue_statuses):
             _record(
-                lines,
+                emitted,
                 "import_issue",
                 ("module", module),
                 ("request", request),
@@ -2168,8 +2189,8 @@ def _serialize_imports(
 
 
 def _serialize_exports(
-    lines: list[str],
-    module: str,
+    emitted: list[ProjectPureRecord],
+    module: ProjectPureValue,
     record: ProjectModuleInspectionRecord,
 ) -> None:
     """Emit one module's export requests, facade entries, and issue buckets."""
@@ -2178,7 +2199,7 @@ def _serialize_exports(
         request = _integer(ordinal)
         target = projected.target_identity
         _record(
-            lines,
+            emitted,
             "export",
             ("module", module),
             ("request", request),
@@ -2214,7 +2235,7 @@ def _serialize_exports(
         )
         for issue_ordinal, status in enumerate(projected.issue_statuses):
             _record(
-                lines,
+                emitted,
                 "export_issue",
                 ("module", module),
                 ("request", request),
@@ -2224,8 +2245,8 @@ def _serialize_exports(
 
 
 def _serialize_declarations(
-    lines: list[str],
-    module: str,
+    emitted: list[ProjectPureRecord],
+    module: ProjectPureValue,
     record: ProjectModuleInspectionRecord,
 ) -> None:
     """Emit one module's declarations, availability, and concrete row fields."""
@@ -2233,7 +2254,7 @@ def _serialize_declarations(
     for projected in record.declarations:
         declaration = _integer(projected.declaration_position)
         _record(
-            lines,
+            emitted,
             "declaration",
             ("module", module),
             ("declaration", declaration),
@@ -2252,7 +2273,7 @@ def _serialize_declarations(
         )
         for ordinal, row_field in enumerate(projected.row_fields):
             _record(
-                lines,
+                emitted,
                 "declaration_row_field",
                 ("module", module),
                 ("declaration", declaration),
@@ -2264,8 +2285,8 @@ def _serialize_declarations(
 
 
 def _serialize_origins(
-    lines: list[str],
-    module: str,
+    emitted: list[ProjectPureRecord],
+    module: ProjectPureValue,
     record: ProjectModuleInspectionRecord,
 ) -> None:
     """Emit one module's local and imported origin paths with exact hops."""
@@ -2273,7 +2294,7 @@ def _serialize_origins(
     for ordinal, projected in enumerate(record.origins):
         origin = _integer(ordinal)
         _record(
-            lines,
+            emitted,
             "origin",
             ("module", module),
             ("origin", origin),
@@ -2291,7 +2312,7 @@ def _serialize_origins(
         )
         for hop_ordinal, hop in enumerate(projected.hops):
             _record(
-                lines,
+                emitted,
                 "origin_hop",
                 ("module", module),
                 ("origin", origin),
@@ -2315,8 +2336,8 @@ def _serialize_origins(
 
 
 def _serialize_dependencies(
-    lines: list[str],
-    module: str,
+    emitted: list[ProjectPureRecord],
+    module: ProjectPureValue,
     record: ProjectModuleInspectionRecord,
 ) -> None:
     """Emit one module's reference-to-target dependency facts."""
@@ -2325,7 +2346,7 @@ def _serialize_dependencies(
         declaration_target = projected.target_declaration
         row_field_target = projected.target_row_field
         _record(
-            lines,
+            emitted,
             "dependency",
             ("module", module),
             ("dependency", _integer(ordinal)),
@@ -2395,8 +2416,8 @@ def _serialize_dependencies(
 
 
 def _serialize_row_lineage(
-    lines: list[str],
-    module: str,
+    emitted: list[ProjectPureRecord],
+    module: ProjectPureValue,
     record: ProjectModuleInspectionRecord,
 ) -> None:
     """Emit one module's complete relation row lineage."""
@@ -2404,7 +2425,7 @@ def _serialize_row_lineage(
     for lineage_ordinal, projected in enumerate(record.row_lineage):
         lineage = _integer(lineage_ordinal)
         _record(
-            lines,
+            emitted,
             "row_lineage",
             ("module", module),
             ("lineage", lineage),
@@ -2419,7 +2440,7 @@ def _serialize_row_lineage(
         for field_ordinal, field_lineage in enumerate(projected.fields):
             field_token = _integer(field_ordinal)
             _record(
-                lines,
+                emitted,
                 "row_lineage_field",
                 ("module", module),
                 ("lineage", lineage),
@@ -2432,7 +2453,7 @@ def _serialize_row_lineage(
             for path_ordinal, lineage_path in enumerate(field_lineage.paths):
                 path_token = _integer(path_ordinal)
                 _record(
-                    lines,
+                    emitted,
                     "row_lineage_path",
                     ("module", module),
                     ("lineage", lineage),
@@ -2452,7 +2473,7 @@ def _serialize_row_lineage(
                 )
                 for hop_ordinal, hop in enumerate(lineage_path.hops):
                     _record(
-                        lines,
+                        emitted,
                         "row_lineage_hop",
                         ("module", module),
                         ("lineage", lineage),
@@ -2466,8 +2487,8 @@ def _serialize_row_lineage(
 
 
 def _serialize_type_resolutions(
-    lines: list[str],
-    module: str,
+    emitted: list[ProjectPureRecord],
+    module: ProjectPureValue,
     record: ProjectModuleInspectionRecord,
 ) -> None:
     """Emit one module's resolved type and source shape references."""
@@ -2476,7 +2497,7 @@ def _serialize_type_resolutions(
         resolution = _integer(ordinal)
         target = projected.canonical_target
         _record(
-            lines,
+            emitted,
             "type_resolution",
             ("module", module),
             ("resolution", resolution),
@@ -2501,7 +2522,7 @@ def _serialize_type_resolutions(
         )
         for alias_ordinal, alias in enumerate(projected.alias_chain):
             _record(
-                lines,
+                emitted,
                 "type_resolution_alias",
                 ("module", module),
                 ("resolution", resolution),
@@ -2513,7 +2534,7 @@ def _serialize_type_resolutions(
             )
     for ordinal, source_resolution in enumerate(record.source_shape_resolutions):
         _record(
-            lines,
+            emitted,
             "source_shape_resolution",
             ("module", module),
             ("resolution", _integer(ordinal)),
@@ -2533,15 +2554,15 @@ def _serialize_type_resolutions(
 
 
 def _serialize_relation_resolutions(
-    lines: list[str],
-    module: str,
+    emitted: list[ProjectPureRecord],
+    module: ProjectPureValue,
     record: ProjectModuleInspectionRecord,
 ) -> None:
     """Emit one module's resolved relation references."""
 
     for ordinal, projected in enumerate(record.relation_resolutions):
         _record(
-            lines,
+            emitted,
             "relation_resolution",
             ("module", module),
             ("resolution", _integer(ordinal)),
@@ -2562,8 +2583,8 @@ def _serialize_relation_resolutions(
 
 
 def _serialize_semantic_facts(
-    lines: list[str],
-    module: str,
+    emitted: list[ProjectPureRecord],
+    module: ProjectPureValue,
     record: ProjectModuleInspectionRecord,
 ) -> None:
     """Emit one module's preserved semantic facts."""
@@ -2571,7 +2592,7 @@ def _serialize_semantic_facts(
     for ordinal, projected in enumerate(record.semantic_facts):
         facts = _integer(ordinal)
         _record(
-            lines,
+            emitted,
             "semantic_facts",
             ("module", module),
             ("facts", facts),
@@ -2591,7 +2612,7 @@ def _serialize_semantic_facts(
         )
         for binding_ordinal, let_binding in enumerate(projected.let_bindings):
             _record(
-                lines,
+                emitted,
                 "semantic_let_binding",
                 ("module", module),
                 ("facts", facts),
@@ -2601,7 +2622,7 @@ def _serialize_semantic_facts(
             )
         for select_ordinal, select in enumerate(projected.selects):
             _record(
-                lines,
+                emitted,
                 "semantic_select",
                 ("module", module),
                 ("facts", facts),
@@ -2614,7 +2635,7 @@ def _serialize_semantic_facts(
             )
         for clause_ordinal, clause in enumerate(projected.clause_dependencies):
             _record(
-                lines,
+                emitted,
                 "semantic_clause_dependency",
                 ("module", module),
                 ("facts", facts),
@@ -2625,7 +2646,7 @@ def _serialize_semantic_facts(
             )
         for output_ordinal, window_output in enumerate(projected.window_outputs):
             _record(
-                lines,
+                emitted,
                 "semantic_window_output",
                 ("module", module),
                 ("facts", facts),
@@ -2640,15 +2661,15 @@ def _serialize_semantic_facts(
 
 
 def _serialize_issues(
-    lines: list[str],
-    module: str,
+    emitted: list[ProjectPureRecord],
+    module: ProjectPureValue,
     record: ProjectModuleInspectionRecord,
 ) -> None:
     """Emit one module's complete structural issue bucket without a winner."""
 
     for ordinal, projected in enumerate(record.issues):
         _record(
-            lines,
+            emitted,
             "issue",
             ("module", module),
             ("issue", _integer(ordinal)),
@@ -2658,84 +2679,71 @@ def _serialize_issues(
         )
 
 
-def _record(lines: list[str], kind: str, *pairs: tuple[str, str]) -> None:
-    """Append one canonical record line in its exact declared key order."""
+def _record(
+    emitted: list[ProjectPureRecord],
+    kind: str,
+    *pairs: tuple[str, ProjectPureValue],
+) -> None:
+    """Append one portable record in its exact declared key order."""
 
-    lines.append(kind + "".join(f"\t{key}={token}" for key, token in pairs))
-
-
-def _escape(value: str) -> str:
-    """Escape one text payload into the canonical single-line representation."""
-
-    escaped: list[str] = []
-    for character in value:
-        replacement = _INSPECTION_ESCAPES.get(character)
-        if replacement is not None:
-            escaped.append(replacement)
-        elif (
-            character < _INSPECTION_FIRST_PRINTABLE
-            or character == _INSPECTION_DELETE_CHARACTER
-        ):
-            escaped.append(f"\\x{ord(character):02x}")
-        elif _INSPECTION_SURROGATE_START <= character <= _INSPECTION_SURROGATE_END:
-            # A POSIX path byte that the filesystem encoding cannot decode
-            # reaches this projection as a lone surrogate, and UTF-8 refuses to
-            # encode one. Escaping it keeps the payload total over every
-            # retained text and keeps one unambiguous byte representation.
-            escaped.append(f"\\u{ord(character):04x}")
-        else:
-            escaped.append(character)
-    return "".join(escaped)
+    emitted.append(
+        ProjectPureRecord(
+            kind=kind,
+            fields=tuple(
+                ProjectPureField(key=key, value=value) for key, value in pairs
+            ),
+        )
+    )
 
 
-def _text(value: str) -> str:
-    """Encode one exact text payload."""
+def _text(value: str) -> ProjectPureValue:
+    """Project one exact text payload into a portable value."""
 
     if type(value) is not str:
         raise TypeError("Canonical text payload must be text.")
-    return f"s:{_escape(value)}"
+    return pure_text(value)
 
 
-def _integer(value: int) -> str:
-    """Encode one exact non-negative canonical decimal payload."""
+def _integer(value: int) -> ProjectPureValue:
+    """Project one exact non-negative integer payload into a portable value."""
 
     if type(value) is not int or value < 0:
         raise ValueError("Canonical integer payload must be a non-negative integer.")
-    return f"i:{value}"
+    return pure_integer(value)
 
 
-def _boolean(value: bool) -> str:
-    """Encode one exact boolean payload."""
+def _boolean(value: bool) -> ProjectPureValue:
+    """Project one exact boolean payload into a portable value."""
 
     if type(value) is not bool:
         raise TypeError("Canonical boolean payload must be a boolean.")
-    return "b:true" if value else "b:false"
+    return pure_boolean(value)
 
 
-def _enumeration(value: StrEnum) -> str:
-    """Encode one exact enumeration payload by its declared value."""
+def _enumeration(value: StrEnum) -> ProjectPureValue:
+    """Project one exact enumeration payload by its declared value."""
 
     if not isinstance(value, StrEnum):
         raise TypeError("Canonical enumeration payload must be an enumeration.")
-    return f"e:{_escape(value.value)}"
+    return pure_enumeration(value.value)
 
 
-def _optional_text(value: str | None) -> str:
-    """Encode one optional text payload, using the exact absence token."""
+def _optional_text(value: str | None) -> ProjectPureValue:
+    """Project one optional text payload, using the exact absence value."""
 
-    return _INSPECTION_ABSENT_TOKEN if value is None else _text(value)
-
-
-def _optional_integer(value: int | None) -> str:
-    """Encode one optional integer payload, using the exact absence token."""
-
-    return _INSPECTION_ABSENT_TOKEN if value is None else _integer(value)
+    return PURE_ABSENT if value is None else _text(value)
 
 
-def _optional_enumeration(value: StrEnum | None) -> str:
-    """Encode one optional enumeration payload, using the exact absence token."""
+def _optional_integer(value: int | None) -> ProjectPureValue:
+    """Project one optional integer payload, using the exact absence value."""
 
-    return _INSPECTION_ABSENT_TOKEN if value is None else _enumeration(value)
+    return PURE_ABSENT if value is None else _integer(value)
+
+
+def _optional_enumeration(value: StrEnum | None) -> ProjectPureValue:
+    """Project one optional enumeration payload, using the exact absence value."""
+
+    return PURE_ABSENT if value is None else _enumeration(value)
 
 
 def _frozen_bucket_mapping(

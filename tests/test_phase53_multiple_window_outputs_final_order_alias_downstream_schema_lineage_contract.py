@@ -658,7 +658,7 @@ def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> N
                     # The frozen Gate 2 base is the previous Slice's own
                     # published squash, so its single parent is that
                     # Slice's published base.
-                    expected_parent = "0bad854253e22347e2aff93e2eabcbe2fda55aed"
+                    expected_parent = "040ab19c56519c39c56541979c850484f9cc47f0"
                 elif head == PHASE54_POST_SLICE12_INTERLUDE_BASE:
                     expected_parent = PHASE54_ACTIVE_GATE2_BASE
                 elif subject == PHASE54_SLICE12_MECHANICAL_REPAIR4_SUBJECT:
@@ -1658,7 +1658,7 @@ def test_recursive_reader_hash_terminal_and_manifest_fixed_point_is_exact() -> N
         for path in paths
         if path.startswith("src/pietto/_project/") and path.endswith(".py")
     )
-    assert len(project_paths) == 32
+    assert len(project_paths) == 33
     assert "src/pietto/_project/window_persistence.py" in project_paths
     digest = hashlib.sha256()
     for path in project_paths:
@@ -1718,11 +1718,11 @@ def test_test_inventory_focused_overlay_validation_and_gate3_are_exact() -> None
         len(test_paths),
         top_level_tests,
     ) == (
-        939,
-        575,
-        268,
-        464,
-        5439,
+        944,
+        579,
+        269,
+        465,
+        5489,
     )
     docs = _read(PLAN_REL)
     for value in (
