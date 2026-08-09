@@ -291,15 +291,15 @@ what produced two rounds of isomorphic findings.
 | `readiness` | the `status`, `reason`, and cycle-count triple is one of exactly two combinations | `ProjectLayeredLoaderReadinessFact` |
 | `readiness_cycle` | the member count is positive | `ProjectInspectionModuleCycle` |
 | `graph` | the component-member count is positive, and any multi-member component proves a cycle | `ProjectInspectionGraph`, `ProjectModuleStronglyConnectedComponent` |
-| `import` | the namespace and declaration kind form an eligible pair, and the four resolved-target keys are present together or absent together | `ProjectImportedBindingIdentity`, `ProjectInspectionImport` |
-| `export` | the namespace and declaration kind form an eligible pair, and the six facade-entry keys are present together or absent together | `ProjectModuleExportRequest`, `ProjectInspectionExport` |
+| `import` | the namespace and declaration kind form an eligible pair; a supplied resolved target keeps the same namespace and declaration kind; and the four resolved-target keys are present together or absent together | `ProjectImportedBindingIdentity`, `ProjectResolvedImportedBinding`, `ProjectInspectionImport` |
+| `export` | the namespace and declaration kind form an eligible pair; a supplied entry keeps the same namespace and declaration kind, exposes the local name, and, for a local declaration origin, targets that same declared name; and the six facade-entry keys are present together or absent together | `ProjectModuleExportEntry`, `ProjectInspectionExport` |
 | `declaration` | the owner kind is the module and its namespace is the reserved empty local namespace; the relation status and reason are one atomic pair; a retained relation state maps its exact availability; a positive row-field count requires the relation state; the occurrence count is positive; the occurrence index is inside its bucket | `ProjectInspectionDeclaration`, `ProjectLayeredDeclarationAsset`, `ProjectLayeredOwnerIdentity` |
-| `origin` | a local origin is one self path with no hop; an imported origin always carries its access chain | `ProjectModuleOriginPath` |
+| `origin` | a local origin is one self path with no hop and targets its own local name; an imported origin always carries its access chain | `ProjectModuleOriginPath` |
 | `origin_hop` | the chain re-exports at every interior hop and terminates at a local declaration | `ProjectModuleOriginPath` |
 | `row_lineage` | a non-concrete lineage carries no field | `ProjectModuleRelationLineage` |
 | `row_lineage_field` | every retained field keeps at least one complete path | `ProjectModuleRowFieldLineage` |
 | `dependency` | each target group is atomic, and the kind decides which single group is present | `ProjectModuleDependencyFact` |
-| `type_resolution` | the canonical-target pair is atomic; an enumeration or shape canonical kind requires that target and a builtin or unknown one forbids it; the canonical kind decides the canonical name, which is a registered builtin name or the fixed unknown name; a canonical kind never terminates at an alias; only a direct alias carries an alias chain | `ProjectResolvedModuleTypeReference` |
+| `type_resolution` | the canonical-target pair is atomic; an enumeration or shape canonical kind requires that target and a builtin or unknown one forbids it; the canonical kind decides the canonical name, which is a registered builtin name or the fixed unknown name; a supplied canonical target declares that same name; a canonical kind never terminates at an alias; only a direct alias carries an alias chain | `ProjectResolvedModuleTypeReference` |
 | `type_resolution_alias` | every alias identity is a type alias in the type namespace | `ProjectResolvedModuleTypeReference` |
 | `semantic_select` | a supplied output name is non-empty | `ProjectModuleSelectFact` |
 | `issue` | the status belongs to its declared family | `ProjectInspectionIssue` |

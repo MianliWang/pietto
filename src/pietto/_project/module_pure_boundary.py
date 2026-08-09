@@ -328,6 +328,7 @@ class _PureStateKind(StrEnum):
     LOWERCASE_HEX = "lowercase_hex"
     MULTI_REQUIRES_TRUE = "multi_requires_true"
     NON_EMPTY_IF_PRESENT = "non_empty_if_present"
+    EQUAL_IF_PRESENT = "equal_if_present"
     TERMINAL_COMBINATION = "terminal_combination"
 
 
@@ -345,6 +346,10 @@ class _PureStateRule:
     correlation between an enumeration and whether an optional group is
     supplied. An admitted cell of ``*`` matches any value, for the rows where
     the authority itself leaves that key unconstrained.
+
+    A rule carrying ``when`` applies only to the records whose named key holds
+    the named value, which expresses an upstream guard that one origin variant
+    imposes and the others do not.
     """
 
     rule: _PureStateKind
@@ -353,6 +358,7 @@ class _PureStateRule:
     presence_keys: tuple[str, ...] = ()
     text_length: int = 0
     terminal: tuple[str, ...] = ()
+    when: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -830,6 +836,14 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 ),
             ),
             _PureStateRule(
+                rule=_PureStateKind.EQUAL_IF_PRESENT,
+                keys=("namespace", "resolved_namespace"),
+            ),
+            _PureStateRule(
+                rule=_PureStateKind.EQUAL_IF_PRESENT,
+                keys=("declaration_kind", "resolved_declaration_kind"),
+            ),
+            _PureStateRule(
                 rule=_PureStateKind.PRESENCE_GROUP,
                 keys=(
                     "resolved_module_path",
@@ -906,6 +920,23 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                     ("relation", "table"),
                     ("relation", "query"),
                 ),
+            ),
+            _PureStateRule(
+                rule=_PureStateKind.EQUAL_IF_PRESENT,
+                keys=("namespace", "target_namespace"),
+            ),
+            _PureStateRule(
+                rule=_PureStateKind.EQUAL_IF_PRESENT,
+                keys=("declaration_kind", "target_declaration_kind"),
+            ),
+            _PureStateRule(
+                rule=_PureStateKind.EQUAL_IF_PRESENT,
+                keys=("local_name", "exposed_name"),
+            ),
+            _PureStateRule(
+                rule=_PureStateKind.EQUAL_IF_PRESENT,
+                keys=("local_name", "target_declared_name"),
+                when=("entry_origin", "local_declaration"),
             ),
             _PureStateRule(
                 rule=_PureStateKind.PRESENCE_GROUP,
@@ -1044,6 +1075,11 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         parent_ordinal_keys=("module",),
         is_scope=True,
         state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.EQUAL_IF_PRESENT,
+                keys=("local_name", "target_declared_name"),
+                when=("binding", "local_declaration"),
+            ),
             _PureStateRule(
                 rule=_PureStateKind.COMBINATION,
                 keys=("binding", "hops"),
@@ -1282,6 +1318,10 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                     ("enum", "present"),
                     ("shape", "present"),
                 ),
+            ),
+            _PureStateRule(
+                rule=_PureStateKind.EQUAL_IF_PRESENT,
+                keys=("canonical_name", "canonical_target_declared_name"),
             ),
             _PureStateRule(
                 rule=_PureStateKind.COMBINATION,
@@ -1765,6 +1805,17 @@ def _validate_state_rules(
             continue
         if rule.rule is _PureStateKind.POSITIVE:
             if _integer_of(record, rule.keys[0]) < 1:
+                return _reject(ProjectPureStatus.INCONSISTENT_RECORD_STATE, position)
+            continue
+        if rule.rule is _PureStateKind.EQUAL_IF_PRESENT:
+            if rule.when:
+                selector, expected = rule.when
+                if _state_token(_value_of(record, selector)) != expected:
+                    continue
+            left, right = (_value_of(record, key) for key in rule.keys)
+            if ProjectPureTag.ABSENT in (left.tag, right.tag):
+                continue
+            if left.text != right.text:
                 return _reject(ProjectPureStatus.INCONSISTENT_RECORD_STATE, position)
             continue
         if rule.rule is _PureStateKind.NON_EMPTY_IF_PRESENT:

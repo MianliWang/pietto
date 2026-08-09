@@ -127,6 +127,8 @@ class DifferentialPurpose(StrEnum):
     CANONICAL_KIND_NAME_MISMATCH = "canonical_kind_name_mismatch"
     ALIAS_IDENTITY_NOT_A_TYPE_ALIAS = "alias_identity_not_a_type_alias"
     EMPTY_SELECT_OUTPUT_NAME = "empty_select_output_name"
+    RESOLVED_IMPORT_KIND_MISMATCH = "resolved_import_kind_mismatch"
+    CANONICAL_TARGET_NAME_MISMATCH = "canonical_target_name_mismatch"
     POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
     OCCURRENCE_INDEX_OUTSIDE_BUCKET = "occurrence_index_outside_bucket"
 
