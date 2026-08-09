@@ -224,16 +224,16 @@ def test_carrier_enums_fields_privacy_and_manifest_are_exact() -> None:
         assert carrier.__dataclass_params__.frozen
         assert "__dict__" not in carrier.__slots__
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER == (
-        "PHASE54_SLICE13_GATE2"
+        "PHASE54_SLICE14_GATE2"
     )
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE == (
-        "0bad854253e22347e2aff93e2eabcbe2fda55aed"
+        "040ab19c56519c39c56541979c850484f9cc47f0"
     )
     assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_ADDED_PATHS) == 3
     assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS) == 69
     assert len(active_gate2_manifest.ADDED_PATHS) == 3
-    assert len(active_gate2_manifest.MODIFIED_PATHS) == 65
-    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 60
+    assert len(active_gate2_manifest.MODIFIED_PATHS) == 63
+    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 58
     assert TEST_REL in active_gate2_manifest.MECHANICAL_READER_PATHS
     assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE == (
         "17a5b01e555930537334d4d0bcf3480e332b7e91"
@@ -1282,10 +1282,10 @@ def test_text_json_status_docs_and_reader_fixed_point_are_exact(
         and node.name.startswith("test_")
     )
     assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 3
-    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 65
+    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 63
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
-    assert len(active_gate2_manifest.VALIDATION_READER_PATHS) == 60
-    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 60
+    assert len(active_gate2_manifest.VALIDATION_READER_PATHS) == 58
+    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 58
     assert (
         "tests/test_phase54_module_graph_cycles_diagnostics_deterministic_ordering.py"
         in active_gate2_manifest.MECHANICAL_READER_PATHS
@@ -1316,9 +1316,6 @@ def test_text_json_status_docs_and_reader_fixed_point_are_exact(
     for code in ("PIE-S2001", "PIE-S2002", "PIE-S2003", "PIE-S2303"):
         assert code in registry
     assert "Slice 12 preserves existing advanced semantic facts" in readme
-    assert "PHASE54_SLICE13_GATE3" in readme
-    assert "Status And Slice 13 Lifecycle" in plan
-    assert (
-        "Current Phase 54 Slice 13 Package-neutral Identity Layering Status"
-        in whitepaper
-    )
+    assert "PHASE54_SLICE14_GATE3" in readme
+    assert "Status And Slice 14 Lifecycle" in plan
+    assert "Current Phase 54 Slice 14 Private Module Inspection Status" in whitepaper

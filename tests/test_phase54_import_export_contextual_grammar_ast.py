@@ -916,9 +916,9 @@ def test_reader_allowlist_retained_later_and_publication_topology_contracts_are_
     assert "125\nmechanical reader tests" in spec
     assert "128 literal handwritten Python paths" in spec
     assert "10886 passed" in spec
-    assert "## Status And Slice 13 Lifecycle" in plan
-    assert "PHASE54_SLICE13_GATE2_COMPLETED_AWAITING_PUBLICATION" in plan
-    assert "PHASE54_SLICE13_GATE3" in plan
+    assert "## Status And Slice 14 Lifecycle" in plan
+    assert "PHASE54_SLICE14_GATE2_COMPLETED_AWAITING_PUBLICATION" in plan
+    assert "PHASE54_SLICE14_GATE3" in plan
     assert "Slice 5 owns module-qualified nominal declaration identity" in spec
     assert "PIE-S2701" in spec and "remain absent and un-emitted" in spec
     assert "Add Phase 54 import export grammar and AST" in topology

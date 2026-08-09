@@ -55,22 +55,21 @@ and the [Phase 54 plan](docs/plan/phase-54-local-import-module-export-foundation
 | MySQL | Explicit CLI lowering; private emitter/API surface |
 | Single-file mode | Check, explain, and emit SQL |
 | Project schema v1 | Available legacy-flat project checking |
-| Project schema v2 | Explicit modules, trusted loading, private catalogs/facades/bindings, module graph/diagnostics, resolution, attribution, provenance, and minimal direct lineage facts |
+| Project schema v2 | Explicit modules, trusted loading, private catalogs/facades/bindings, module graph/diagnostics, resolution, attribution, provenance, minimal direct lineage, package-neutral identity, and private inspection facts |
 | Runtime | Compiler only; no database connection or SQL execution |
 
-Phase 54 is **ACTIVE**. Slices 1 through 12 are **COMPLETED**. Slice 13 is the
-Gate 2 candidate for private package-neutral identity layering, owner and
-asset-compatible carriers, source digest identity, and loader readiness.
+Phase 54 is **ACTIVE**. Slices 1 through 13 are **COMPLETED**. Slice 14 is the
+Gate 2 candidate for private module inspection and canonical serialization.
 It starts from the exact published base
-`0bad854253e22347e2aff93e2eabcbe2fda55aed`. Slice 13 is the first authorized
-join of the Slice 11 attribution product and the Slice 12 preservation product;
-neither input is authority for the other and the join is admitted only by a
-shared exact-authority-root predicate. The historical `Slice 12 Gate 2
-candidate` checkpoint remains superseded by the published Slice 12 completion
-evidence; its private boundary remains lossless semantic-fact preservation.
-Reviewed-tree publication is still required; Slices 14 through 16 are
+`040ab19c56519c39c56541979c850484f9cc47f0`. Slice 14 admits only one complete,
+mutually aligned exact root set over the ten settled schema-v2 products, and it
+derives one canonical inspection projection plus one deterministic private byte
+payload from that projection. The historical `Slice 13 Gate 2 candidate`
+checkpoint remains superseded by the published Slice 13 completion evidence;
+its private boundary remains package-neutral identity layering.
+Reviewed-tree publication is still required; Slices 15 through 16 are
 **UNSTARTED**, and the next lifecycle state after Gate 2 is
-`PHASE54_SLICE13_GATE3`.
+`PHASE54_SLICE14_GATE3`.
 
 Slice 3 provides stable project-relative module identity, an immutable
 selected-input index, pinned-root path checks, and trusted source loading.
@@ -103,8 +102,11 @@ sidecar without changing any public compiler or output contract. Slice 13
 layers package-neutral owner and asset identities, one source digest identity,
 and fail-closed loader-readiness facts over the exact Slice 3, Slice 11, and
 Slice 12 roots, without a package manager, registry, manifest, solver, or
-loader. Inspection and serialization remain later work within Phase 54.
-Schema v2 therefore remains a foundation rather than a completed module
+loader. Slice 14 derives one private canonical inspection projection over those
+settled facts and serializes it to deterministic private bytes, without a
+public inspection artifact, deserializer, or cache. Rust-ready pure boundaries,
+differential vectors, and end-to-end hardening remain later work within Phase
+54. Schema v2 therefore remains a foundation rather than a completed module
 system. The runnable Quick Start remains schema v1.
 
 ## Quick Start
@@ -270,6 +272,7 @@ facts and forward-compatible foundations.
 | Module attribution, dependency, origin, provenance, and lineage | Private | Slice 11 occurrence-safe exact paths and minimal concrete direct/renamed lineage |
 | Module semantic-fact preservation | Private | Slice 12 lossless generic, nullability, aggregate, grouped, window, result-role, and capability facts |
 | Package-neutral identity layering | Private | Slice 13 owner/asset identities, source digest identity, and fail-closed loader readiness |
+| Module inspection and canonical serialization | Private | Slice 14 one canonical inspection projection and deterministic private bytes |
 
 Existing project facts include deterministic source ordering, flat namespace
 resolution for schema v1, row-schema propagation, relation dependency graphs,

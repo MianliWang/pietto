@@ -1589,6 +1589,7 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
                 "b81843acadb294630db361c09949868d004b1bca",
                 "bc46faff1c9aa71f583ed7d2964b651cc659bc90",
                 "0bad854253e22347e2aff93e2eabcbe2fda55aed",
+                "040ab19c56519c39c56541979c850484f9cc47f0",
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,
@@ -1672,17 +1673,17 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
                 assert changed_lines[1] == f'+BOUNDARY_HASH = "{compiler_digest}"'
     project_paths = _project_private_paths()
     project_digest = _digest(project_paths)
-    assert len(project_paths) == 31
+    assert len(project_paths) == 32
     assert REPO_ROOT / "src/pietto/_project/window_persistence.py" in project_paths
     assert project_digest == (
-        "704694b7e04a8b0ad6f36d1948ef2bc276cebdda0b4faaab1a38304d34c3e09d"
+        "cffe3086127aed442491f0e9c05c5eb18048462bc4e97ba03a91f7a929b87ab2"
     )
     phase33 = (REPO_ROOT / "tests/test_phase33_completion_audit.py").read_text(
         encoding="utf-8"
     )
     assert (
         f'"project_private": (\n        "src/pietto/_project",\n'
-        f'        31,\n        "{project_digest}",\n    ),'
+        f'        32,\n        "{project_digest}",\n    ),'
     ) in phase33
     phase33_changed_lines = _git_changed_lines("tests/test_phase33_completion_audit.py")
     if phase33_changed_lines:
@@ -1788,10 +1789,10 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
             ]
         elif _phase54_active_gate2_is_active():
             assert len(phase33_changed_lines) == 8
-            assert phase33_changed_lines[0] == "-        30,"
+            assert phase33_changed_lines[0] == "-        31,"
             assert re.fullmatch(r'-        "[0-9a-f]{64}",', phase33_changed_lines[1])
             assert phase33_changed_lines[2:4] == [
-                "+        31,",
+                "+        32,",
                 f'+        "{project_digest}",',
             ]
             assert re.fullmatch(r'-        "[0-9a-f]{64}",', phase33_changed_lines[4])

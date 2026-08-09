@@ -21,6 +21,9 @@ from pietto._project.model import (
 )
 from pietto._project.module_carrier import ProjectModuleIdentity
 from pietto._project.module_catalog import ProjectNominalDeclarationIdentity
+from pietto._project.module_inspection import (
+    _build_project_module_inspection_fact_set,
+)
 from pietto._project.module_relation_resolution import (
     ProjectModuleRelationResolutionIssueStatus,
     _build_project_module_relation_resolution_set,
@@ -199,39 +202,39 @@ def test_slice13_contract_status_active_manifest_and_allowlist_are_exact() -> No
     assert "shared exact-authority-root predicate" in spec
     assert "reserved empty local namespace" in spec
     assert "no loader is implemented" in spec
-    assert "PHASE54_SLICE13_GATE2_COMPLETED_AWAITING_PUBLICATION" in plan
-    assert "Slice 13 is the" in readme
-    assert "Current Phase 54 Slice 13 Package-neutral Identity Layering Status" in (
-        whitepaper
-    )
+    assert "private module inspection or canonical serialization (Slice 14)" in spec
+    assert "PHASE54_SLICE14_GATE2_COMPLETED_AWAITING_PUBLICATION" in plan
+    assert "Slice 13" in readme
+    assert "Current Phase 54 Slice 14 Private Module Inspection Status" in whitepaper
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER == (
-        "PHASE54_SLICE13_GATE2"
+        "PHASE54_SLICE14_GATE2"
     )
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE == (
-        "0bad854253e22347e2aff93e2eabcbe2fda55aed"
+        "040ab19c56519c39c56541979c850484f9cc47f0"
     )
-    assert active_gate2_manifest.ADDED_PATHS == {SPEC_REL, SOURCE_REL, TEST_REL}
-    assert active_gate2_manifest.NON_READER_MODIFIED_PATHS == {
+    # A historical benchmark reads the frozen Slice 13 record, never the active
+    # Gate 2 sets, which move with every later Slice.
+    historical_added = active_gate2_manifest.PHASE54_SLICE13_HISTORICAL_ADDED_PATHS
+    historical_non_reader = (
+        active_gate2_manifest.PHASE54_SLICE13_HISTORICAL_NON_READER_PATHS
+    )
+    historical_readers = active_gate2_manifest.PHASE54_SLICE13_HISTORICAL_READER_PATHS
+    historical_modified = historical_non_reader | historical_readers
+    historical_allowlist = historical_added | historical_modified
+    assert historical_added == {SPEC_REL, SOURCE_REL, TEST_REL}
+    assert historical_non_reader == {
         "README.md",
         "docs/plan/phase-54-local-import-module-export-foundation.md",
         "docs/spec/pietto-v0.9.md",
         "src/pietto/_project/model.py",
         "tests/_phase54_active_gate2_manifest.py",
     }
-    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 60
-    assert len(active_gate2_manifest.MODIFIED_PATHS) == 65
-    assert len(active_gate2_manifest.ALLOWLIST_PATHS) == 68
-    assert (
-        sum(path.endswith(".py") for path in active_gate2_manifest.ALLOWLIST_PATHS)
-        == 64
-    )
-    assert not (
-        active_gate2_manifest.NON_READER_MODIFIED_PATHS
-        & active_gate2_manifest.MECHANICAL_READER_PATHS
-    )
-    assert not (
-        active_gate2_manifest.ADDED_PATHS & active_gate2_manifest.MODIFIED_PATHS
-    )
+    assert len(historical_readers) == 60
+    assert len(historical_modified) == 65
+    assert len(historical_allowlist) == 68
+    assert sum(path.endswith(".py") for path in historical_allowlist) == 64
+    assert not (historical_non_reader & historical_readers)
+    assert not (historical_added & historical_modified)
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
     assert "60-reader" in spec
     assert "exact 64 Python paths" in spec
@@ -566,9 +569,41 @@ def test_shared_authority_root_predicate_rejects_coordinated_mixed_root_products
     assert every_foreign.authority.modules is foreign.modules
     with pytest.raises(ValueError, match="both exact sidecar roots"):
         replace(semantic, module_package_identity_facts=every_foreign)
+    # The eleventh sidecar anchors this one, so substituting the layered product
+    # also requires the inspection product derived from that exact substitute.
+    foreign_catalogs = foreign.module_catalogs
+    foreign_exports = foreign.module_exports
+    foreign_bindings = foreign.module_bindings
+    foreign_graph = foreign.module_graph
+    foreign_type_source = foreign.module_type_source_resolutions
+    foreign_relations = foreign.module_relation_resolutions
+    foreign_attribution = foreign.module_attribution_facts
+    foreign_semantic = foreign.module_semantic_facts
+    assert foreign_catalogs is not None
+    assert foreign_exports is not None
+    assert foreign_bindings is not None
+    assert foreign_graph is not None
+    assert foreign_type_source is not None
+    assert foreign_relations is not None
+    assert foreign_attribution is not None
+    assert foreign_semantic is not None
+    foreign_inspection = _build_project_module_inspection_fact_set(
+        foreign.modules,
+        foreign_catalogs,
+        foreign_exports,
+        foreign_bindings,
+        foreign_graph,
+        foreign_type_source,
+        foreign_relations,
+        foreign_attribution,
+        foreign_semantic,
+        every_foreign,
+    )
     assert (
         replace(
-            foreign, module_package_identity_facts=every_foreign
+            foreign,
+            module_package_identity_facts=every_foreign,
+            module_inspection_facts=foreign_inspection,
         ).module_package_identity_facts
         is every_foreign
     )
@@ -1300,8 +1335,9 @@ def test_tenth_sidecar_all_or_none_boundary_is_exact_and_fail_closed(
         "module_semantic_facts",
         "module_attribution_facts",
         "module_package_identity_facts",
+        "module_inspection_facts",
     )
-    assert len(sidecar_names) == 10
+    assert len(sidecar_names) == 11
     assert all(getattr(semantic, name) is not None for name in sidecar_names)
     for name in sidecar_names:
         with pytest.raises(ValueError, match="require all module sidecars"):

@@ -499,9 +499,9 @@ PROTECTED_SHA256 = {
     "src/pietto/_project/source_selection.py": "fb1c531bcdd81696aa0c26b110433a6775cde878aeb4af3373d0d4aaf1f1443e",
     "src/pietto/_project/check.py": "6f2f2805249cc86a8ff3510a03abc702d2a029186cf16b50cabd11dbaf1da9e1",
     "src/pietto/_project/json_v2.py": "74251e684a22de4dcdc7e1822a6843ca89cbdfa7e136a046676d848b57953bd5",
-    SLICE2_TEST_REL: "2399adeaf45ea704159915c02fc99fdd9cc2c3ad8db55a659b54ece2ea3756e9",
-    SLICE3_TEST_REL: "eb17daf1b992414cbed2e38da3169f98f4341affd6453903778b17402df82dd6",
-    SLICE4_TEST_REL: "11f601c03768c60172b0133ad920e6e4bc7f0dabc898b3659430db9cd2752db9",
+    SLICE2_TEST_REL: "00ada1ca8fa4d49d32f5ff031a638dccafe32f3952a21e45eb15ce75092ae57d",
+    SLICE3_TEST_REL: "2bf4e7b383e2e971a03e75d11e908a66321309b797856c9e3c04920809f80bb6",
+    SLICE4_TEST_REL: "dbe27f7bcd61355f2f7ebdc3a532990a16fac7a1d77fd54381c550daadf46e80",
     ".github/workflows/ci.yml": "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94",
     "pyproject.toml": "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01",
     "uv.lock": "a7d9125995e98a8a74d3664ceae7801cc1f4cce74ec323933da67838be199cea",
@@ -610,7 +610,7 @@ def test_slice1_artifact_titles_heading_order_and_lifecycle_are_exact() -> None:
         assert _headings(relative, 2)
     plan_h2 = _headings(PLAN_REL, 2)
     assert plan_h2[:5] == (
-        "Status And Slice 13 Lifecycle",
+        "Status And Slice 14 Lifecycle",
         "Trusted Phase 53 Baseline And Controlling Evidence",
         "Phase Identity, Minimum Production Boundary, And Activation",
         "Current Production, Readiness, And Retained-later Freeze",
@@ -620,15 +620,15 @@ def test_slice1_artifact_titles_heading_order_and_lifecycle_are_exact() -> None:
         f"Slice {index} — {title}"
         for index, title in enumerate(PHASE54_ROUTE[1:], start=2)
     )
-    lifecycle = _section(PLAN_REL, "Status And Slice 13 Lifecycle")
+    lifecycle = _section(PLAN_REL, "Status And Slice 14 Lifecycle")
     for phrase in (
         "Phase 53 and Slices 1-16 are `COMPLETED`",
         "Phase 54 is `ACTIVE`",
-        "Slices\n1 through 12 plus the unnumbered post-Slice-12 workflow hardening",
-        "Slices 14-16\nremain `UNSTARTED`",
-        "PHASE54_SLICE13_GATE2_COMPLETED_AWAITING_PUBLICATION",
-        "PHASE54_SLICE13_GATE3",
-        "Slice 14 does not begin in Slice 13",
+        "Slices\n1 through 13 plus the unnumbered post-Slice-12 workflow hardening",
+        "Slices 15-16 remain `UNSTARTED`",
+        "PHASE54_SLICE14_GATE2_COMPLETED_AWAITING_PUBLICATION",
+        "PHASE54_SLICE14_GATE3",
+        "Slice 15 does not begin in Slice 14",
     ):
         assert phrase in lifecycle
     tests = _top_level_test_functions(SELF_REL)
@@ -1104,17 +1104,17 @@ def test_flat_catalog_collect_before_resolve_semantic_and_project_fact_surfaces_
     compiler = _compiler_paths()
     semantic = tuple((REPO_ROOT / "src/pietto/semantic").glob("*.py"))
     project = tuple((REPO_ROOT / "src/pietto/_project").glob("*.py"))
-    assert len(compiler) == 106
+    assert len(compiler) == 107
     assert _digest(compiler) == (
-        "0afd97f37ada21b9f05b8b251f3bf8d1c7e971382f7c0225634f29c2e4452499"
+        "92b3f0445e738265e6ccd342fc42bcc6cff4e92464fc68504517a592c59bfa61"
     )
     assert _digest(semantic) == (
         "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
     )
     assert _digest(project) == (
-        "704694b7e04a8b0ad6f36d1948ef2bc276cebdda0b4faaab1a38304d34c3e09d"
+        "cffe3086127aed442491f0e9c05c5eb18048462bc4e97ba03a91f7a929b87ab2"
     )
-    assert len(project) == 31
+    assert len(project) == 32
     model = _read("src/pietto/_project/model.py")
     for namespace in (
         'TYPE = "type"',
@@ -1164,12 +1164,14 @@ def test_private_module_export_surfaces_are_implemented_without_graph_or_public_
     preservation_source = _read(
         "src/pietto/_project/module_semantic_fact_preservation.py"
     )
+    inspection_source = _read("src/pietto/_project/module_inspection.py")
     non_graph_production = (
         production.replace(graph_source, "")
         .replace(resolution_source, "")
         .replace(relation_resolution_source, "")
         .replace(attribution_source, "")
         .replace(preservation_source, "")
+        .replace(inspection_source, "")
     )
     assert all(f"PIE-S270{number}" in graph_source for number in range(1, 8))
     assert not re.search(r"PIE-S270[1-7]", non_graph_production)
@@ -1244,6 +1246,7 @@ def test_private_module_export_surfaces_are_implemented_without_graph_or_public_
     for forbidden in ("ImportBinding", "ResolvedModule"):
         assert forbidden not in non_graph_production
     assert "ProjectResolvedModuleRelationReference" in preservation_source
+    assert "ProjectResolvedModuleRelationReference" in inspection_source
     reservation = _section(
         SCOPE_REL,
         "Collision Cycle Ordering And PIE-S2701 Through PIE-S2707 Reservation",
@@ -1310,16 +1313,16 @@ def test_gate_allowlist_reader_evidence_publication_stop_and_next_state_contract
     assert len(FORMATTER_PATHS) == 163
     assert len(ALLOWLIST_PATHS) == 167
     readable = _readable_paths()
-    assert len(readable) == 936
-    assert sum(path.endswith(".py") for path in readable) == 573
-    assert sum(path.endswith(".md") for path in readable) == 267
+    assert len(readable) == 939
+    assert sum(path.endswith(".py") for path in readable) == 575
+    assert sum(path.endswith(".md") for path in readable) == 268
     test_modules = tuple(
         path
         for path in readable
         if path.startswith("tests/test_") and path.endswith(".py")
     )
-    assert len(test_modules) == 463
-    assert sum(len(_top_level_test_functions(path)) for path in test_modules) == 5396
+    assert len(test_modules) == 464
+    assert sum(len(_top_level_test_functions(path)) for path in test_modules) == 5439
     dirty = set(_git_output(["diff", "--name-only"]).splitlines()) | set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
