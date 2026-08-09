@@ -320,7 +320,6 @@ class _PureStateKind(StrEnum):
 
     COMBINATION = "combination"
     PRESENCE_GROUP = "presence_group"
-    EXCLUSIVE_GROUPS = "exclusive_groups"
     POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
     POSITIVE = "positive"
     STRICTLY_LESS = "strictly_less"
@@ -331,15 +330,20 @@ class _PureStateRule:
     """One declared cross-field rule an upstream carrier already validates.
 
     A rule is data, not code, so an independent implementation reads the same
-    declaration. Every rule mirrors an invariant the Slice 13 or Slice 14
-    carrier enforces atomically; none of them narrows the accepted language
-    beyond what the projection can already produce.
+    declaration. Every rule is derived from one upstream carrier's own
+    validation rather than by inspection, so none of them narrows the accepted
+    language beyond what the projection can already produce.
+
+    A key listed in ``presence_keys`` contributes ``present`` or ``absent``
+    instead of its value, which lets one combination table express a
+    correlation between an enumeration and whether an optional group is
+    supplied.
     """
 
     rule: _PureStateKind
     keys: tuple[str, ...] = ()
     admitted: tuple[tuple[str, ...], ...] = ()
-    groups: tuple[tuple[str, ...], ...] = ()
+    presence_keys: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -601,6 +605,13 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _key("kind", _ENUMERATION, vocabulary="owner_kind"),
             _key("namespace", _TEXT),
             _key("name", _TEXT),
+        ),
+        state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.COMBINATION,
+                keys=("kind", "namespace"),
+                admitted=(("local_project_root", ""),),
+            ),
         ),
     ),
     _PureKindSpec(
@@ -916,6 +927,11 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         is_scope=True,
         state_rules=(
             _PureStateRule(
+                rule=_PureStateKind.COMBINATION,
+                keys=("owner_kind", "owner_namespace"),
+                admitted=(("local_module", ""),),
+            ),
+            _PureStateRule(
                 rule=_PureStateKind.PRESENCE_GROUP,
                 keys=("relation_status", "relation_reason"),
             ),
@@ -1040,10 +1056,21 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 ),
             ),
             _PureStateRule(
-                rule=_PureStateKind.EXCLUSIVE_GROUPS,
-                groups=(
-                    ("target_declaration_module_path",),
-                    ("target_row_field_owner_declaration_position",),
+                rule=_PureStateKind.COMBINATION,
+                keys=(
+                    "kind",
+                    "target_declaration_module_path",
+                    "target_row_field_owner_declaration_position",
+                ),
+                presence_keys=(
+                    "target_declaration_module_path",
+                    "target_row_field_owner_declaration_position",
+                ),
+                admitted=(
+                    ("type_reference", "present", "absent"),
+                    ("source_shape_reference", "present", "absent"),
+                    ("relation_reference", "present", "absent"),
+                    ("row_field_reference", "absent", "present"),
                 ),
             ),
         ),
@@ -1065,6 +1092,19 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         counts=(("fields", "row_lineage_field"),),
         parent_ordinal_keys=("module",),
         is_scope=True,
+        state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.COMBINATION,
+                keys=("status", "fields"),
+                admitted=(
+                    ("concrete", "zero"),
+                    ("concrete", "positive"),
+                    ("unknown", "zero"),
+                    ("deferred", "zero"),
+                    ("blocked", "zero"),
+                ),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="row_lineage_field",
@@ -1152,6 +1192,28 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 keys=(
                     "canonical_target_module_path",
                     "canonical_target_declared_name",
+                ),
+            ),
+            _PureStateRule(
+                rule=_PureStateKind.COMBINATION,
+                keys=("canonical_kind", "canonical_target_module_path"),
+                presence_keys=("canonical_target_module_path",),
+                admitted=(
+                    ("builtin", "absent"),
+                    ("unknown", "absent"),
+                    ("enum", "present"),
+                    ("shape", "present"),
+                ),
+            ),
+            _PureStateRule(
+                rule=_PureStateKind.COMBINATION,
+                keys=("direct_kind", "alias_chain"),
+                admitted=(
+                    ("type", "positive"),
+                    ("builtin", "zero"),
+                    ("enum", "zero"),
+                    ("shape", "zero"),
+                    ("unknown", "zero"),
                 ),
             ),
         ),
@@ -1306,6 +1368,33 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _key("local_name", _TEXT, optional=True),
         ),
         parent_ordinal_keys=("module",),
+        state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.COMBINATION,
+                keys=("family", "status"),
+                admitted=(
+                    ("graph", "unresolved_target_module"),
+                    ("graph", "duplicate_or_conflicting_module_identity"),
+                    ("graph", "module_import_cycle"),
+                    ("graph", "unsupported_explicit_module_reference"),
+                    ("type_source", "ambiguous_local_type_name"),
+                    ("type_source", "ambiguous_local_source_name"),
+                    ("type_source", "unknown_type_reference"),
+                    ("type_source", "type_alias_cycle"),
+                    ("type_source", "unknown_source_shape_reference"),
+                    ("type_source", "incompatible_source_shape_kind"),
+                    ("type_source", "module_graph_cycle_blocked"),
+                    ("type_source", "module_diagnostic_blocked"),
+                    ("relation", "ambiguous_local_relation_name"),
+                    ("relation", "unknown_relation_reference"),
+                    ("relation", "unknown_direct_field"),
+                    ("relation", "local_relation_cycle"),
+                    ("relation", "module_graph_cycle_blocked"),
+                    ("relation", "module_diagnostic_blocked"),
+                    ("relation", "type_source_diagnostic_blocked"),
+                ),
+            ),
+        ),
     ),
 )
 
@@ -1490,6 +1579,12 @@ def _state_token(value: ProjectPureValue) -> str:
     return value.text or ""
 
 
+def _presence_token(value: ProjectPureValue) -> str:
+    """Classify one validated value by presence alone."""
+
+    return "absent" if value.tag is ProjectPureTag.ABSENT else "present"
+
+
 def _validate_state_rules(
     record: ProjectPureRecord,
     specification: _PureKindSpec,
@@ -1505,7 +1600,12 @@ def _validate_state_rules(
 
     for rule in specification.state_rules:
         if rule.rule is _PureStateKind.COMBINATION:
-            observed = tuple(_state_token(_value_of(record, key)) for key in rule.keys)
+            observed = tuple(
+                _presence_token(_value_of(record, key))
+                if key in rule.presence_keys
+                else _state_token(_value_of(record, key))
+                for key in rule.keys
+            )
             if observed not in rule.admitted:
                 return _reject(ProjectPureStatus.INCONSISTENT_RECORD_STATE, position)
             continue
@@ -1515,18 +1615,6 @@ def _validate_state_rules(
                 for key in rule.keys
             }
             if len(present) != 1:
-                return _reject(ProjectPureStatus.INCONSISTENT_RECORD_STATE, position)
-            continue
-        if rule.rule is _PureStateKind.EXCLUSIVE_GROUPS:
-            occupied = sum(
-                1
-                for group in rule.groups
-                if all(
-                    _value_of(record, key).tag is not ProjectPureTag.ABSENT
-                    for key in group
-                )
-            )
-            if occupied > 1:
                 return _reject(ProjectPureStatus.INCONSISTENT_RECORD_STATE, position)
             continue
         if rule.rule is _PureStateKind.POSITIVE_REQUIRES_PRESENT:

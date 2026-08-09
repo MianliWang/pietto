@@ -280,16 +280,29 @@ forbids, so each such invariant is declared as portable data and enforced as
 upstream carrier already enforces atomically, so none of them narrows the
 accepted language beyond what the projection can produce:
 
+The table is derived from each upstream carrier's own validation, one carrier
+at a time, rather than assembled by inspection. Deriving it any other way is
+what produced two rounds of isomorphic findings.
+
 | Record | Declared rule | Upstream authority |
 | --- | --- | --- |
+| `owner` | the kind is the project root and the namespace is the reserved empty local namespace | `ProjectLayeredOwnerIdentity` |
 | `readiness` | the `status`, `reason`, and cycle-count triple is one of exactly two combinations | `ProjectLayeredLoaderReadinessFact` |
 | `readiness_cycle` | the member count is positive | `ProjectInspectionModuleCycle` |
 | `graph` | the component-member count is positive | `ProjectInspectionGraph` |
 | `import` | the four resolved-target keys are present together or absent together | `ProjectInspectionImport` |
 | `export` | the six facade-entry keys are present together or absent together | `ProjectInspectionExport` |
-| `declaration` | the relation status and reason are one atomic pair; a positive row-field count requires the relation state; the occurrence count is positive; the occurrence index is inside its bucket | `ProjectInspectionDeclaration` |
-| `dependency` | each target group is atomic and at most one group is present | `ProjectInspectionDependency` |
-| `type_resolution` | the canonical-target pair is atomic | `ProjectInspectionTypeResolution` |
+| `declaration` | the owner kind is the module and its namespace is the reserved empty local namespace; the relation status and reason are one atomic pair; a positive row-field count requires the relation state; the occurrence count is positive; the occurrence index is inside its bucket | `ProjectInspectionDeclaration`, `ProjectLayeredOwnerIdentity` |
+| `row_lineage` | a non-concrete lineage carries no field | `ProjectModuleRelationLineage` |
+| `dependency` | each target group is atomic, and the kind decides which single group is present | `ProjectModuleDependencyFact` |
+| `type_resolution` | the canonical-target pair is atomic; an enumeration or shape canonical kind requires that target and a builtin or unknown one forbids it; a canonical kind never terminates at an alias; only a direct alias carries an alias chain | `ProjectResolvedModuleTypeReference` |
+| `issue` | the status belongs to its declared family | `ProjectInspectionIssue` |
+
+A key may contribute its presence rather than its value to a combination, so
+one declared table expresses a correlation between an enumeration and whether
+an optional group is supplied. That single mechanism replaced a separate
+exclusivity rule, because "exactly one target, chosen by the kind" is stronger
+than "not both" and is what the authority actually enforces.
 
 A declared state that contradicts its accompanying records rather than its own
 fields remains `CHILD_COUNT_MISMATCH` or `MISSING_REQUIRED_RECORD`.

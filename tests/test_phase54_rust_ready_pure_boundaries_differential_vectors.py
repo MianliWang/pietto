@@ -516,6 +516,7 @@ def test_declared_ordinal_rules_match_the_projection_emission_rules() -> None:
         kind for kind, specification in schema.items() if specification.state_rules
     }
     assert ruled == {
+        "owner",
         "readiness",
         "readiness_cycle",
         "graph",
@@ -523,7 +524,9 @@ def test_declared_ordinal_rules_match_the_projection_emission_rules() -> None:
         "export",
         "declaration",
         "dependency",
+        "row_lineage",
         "type_resolution",
+        "issue",
     }
     shapes = {
         rule.rule

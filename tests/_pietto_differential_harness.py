@@ -111,6 +111,11 @@ class DifferentialPurpose(StrEnum):
     INTEGER_OUT_OF_RANGE = "integer_out_of_range"
     PARTIAL_PRESENCE_GROUP = "partial_presence_group"
     EXCLUSIVE_TARGET_GROUPS = "exclusive_target_groups"
+    DEPENDENCY_WITHOUT_A_TARGET = "dependency_without_a_target"
+    DEPENDENCY_KIND_TARGET_MISMATCH = "dependency_kind_target_mismatch"
+    CANONICAL_KIND_TARGET_MISMATCH = "canonical_kind_target_mismatch"
+    ISSUE_STATUS_OUTSIDE_ITS_FAMILY = "issue_status_outside_its_family"
+    NON_CONCRETE_LINEAGE_WITH_FIELDS = "non_concrete_lineage_with_fields"
     POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
     OCCURRENCE_INDEX_OUTSIDE_BUCKET = "occurrence_index_outside_bucket"
 
