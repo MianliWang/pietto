@@ -1664,10 +1664,26 @@ def test_recursive_reader_hash_terminal_and_manifest_fixed_point_is_exact() -> N
     assert len(digest.hexdigest()) == 64
 
 
+def _git_index_lock_is_stale() -> bool:
+    """Return whether an abandoned Git operation left the index locked.
+
+    ``.git/index.lock`` is a volatile reference: any concurrent Git command
+    holds it briefly and releases it. Sampling it once therefore observes a
+    state that no longer exists, so it is re-read after another Git command has
+    completed and only a lock that survives that window is reported.
+    """
+
+    lock = REPO_ROOT / ".git/index.lock"
+    if not lock.exists():
+        return False
+    _git_output(["status", "--porcelain=v1"])
+    return lock.exists()
+
+
 def test_slice14_dirty_clean_depth_one_and_shallow_states_are_locked() -> None:
     assert _git_output(["diff", "--cached", "--name-only"]) == ""
     assert _git_output(["rev-parse", "--is-shallow-repository"]) in {"true", "false"}
-    assert not (REPO_ROOT / ".git/index.lock").exists()
+    assert not _git_index_lock_is_stale()
     docs = _read(PLAN_REL) + _read(SPEC_REL)
     assert "pull_request" in docs
     assert "push" in docs

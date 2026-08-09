@@ -791,15 +791,15 @@ FINAL_SHA256: dict[str, str] = {
     "tests/test_phase52_scalar_function_operator_signature_facts.py": "08bb9d3d407c379953e2db3c62c9a32afaf369244eb4e760dcdef7c137c02c1f",
     "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py": "3d34b17a62a58d211cae20dcbc90ede737518384cf68c676bef669ad0ece103d",
     "tests/test_phase53_grouped_result_ranking_aggregate_result_inputs_bounded_let_visibility_contract.py": "984a9c20d2e3bc74e2992e845d76903ff221532241007221480b87b5285e2293",
-    "tests/test_phase53_multiple_window_outputs_final_order_alias_downstream_schema_lineage_contract.py": "1fcca80e068e3ca9b2124161b45ae1a0089d7d4c3ff772b997e62595f027ee68",
+    "tests/test_phase53_multiple_window_outputs_final_order_alias_downstream_schema_lineage_contract.py": "2d4857ff516413366e3003ca5537a513fb75ab7532a11d461dd395baa07f5544",
     "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py": "2f0416e51e96bd7348ca4d1c1f37dc09e2f1035847b25ab93e68b28ee018b64b",
-    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py": "5f8152d4bc60104116ea136edbf4946f96a91aece382bacbef6840c63ece4554",
+    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py": "5b5819e29db568c2824c723132bcfd61362a6e06a0487589f53df7f943c3ae42",
     "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py": "54dc4d2e5c350fa0287e06b85061a700f5ad7ed2fb2b13926472633d88a7026a",
     "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py": "3b9792ba906c0c8e15218af76678ae9f7f9487586733682967cfca469a59fd66",
     "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py": "92faddc0aa8ed069afd610b7edd5e76184d4f2abd3351c75884de6c62c82dc67",
     "tests/test_phase53_row_number_direct_field_mvp_contract.py": "3f26eadc6fb70df115007224e73e5bfb4938ddb2f96da6420e81d8181b175056",
     "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py": "b869c69b73e54be3f3823495bb4cdeb69d0e950df45c2233759df52afbb23cd3",
-    "tests/test_phase53_window_local_ordering_direction_determinism_contract.py": "f084ccabf4e22ac3e6775d85c864c370d6a84657e09ecab144eb447f9348483c",
+    "tests/test_phase53_window_local_ordering_direction_determinism_contract.py": "de470fb460358b99749e8f46684341b4229c2f18d81c86f18d53c678cc0ef8fc",
     "tests/test_phase53_window_spec_function_identity_ast_contract.py": "411be224119e382010ad33b7496d675502474afd28e184a2dd92730da14b097b",
     "tests/test_phase53_window_syntax_contextual_grammar_contract.py": "0db4ee7c7765631610b93a057ef1931cba23792b5820c7dba7f463285bee6aad",
     "tests/test_ir_completion_audit.py": "e1467d8191883640e1beca8731b92ccf7c7ce9a25fc74d98664d12195051bf6e",
@@ -2309,6 +2309,22 @@ def test_test_inventory_selector_overlay_formatter_and_clean_ci_arithmetic_is_ex
     assert (10576 + 208, 10784 - 185, 4557 + 208) == (10784, 10599, 4765)
 
 
+def _git_index_lock_is_stale() -> bool:
+    """Return whether an abandoned Git operation left the index locked.
+
+    ``.git/index.lock`` is a volatile reference: any concurrent Git command
+    holds it briefly and releases it. Sampling it once therefore observes a
+    state that no longer exists, so it is re-read after another Git command has
+    completed and only a lock that survives that window is reported.
+    """
+
+    lock = REPO_ROOT / ".git/index.lock"
+    if not lock.exists():
+        return False
+    _git_output(["status", "--porcelain=v1"])
+    return lock.exists()
+
+
 def test_gate2_evidence_and_gate3_deferral_contract_are_exact() -> None:
     docs = _read(SPEC_REL) + _read(PLAN_REL)
     for value in (
@@ -2322,7 +2338,7 @@ def test_gate2_evidence_and_gate3_deferral_contract_are_exact() -> None:
         "Gate 3",
     ):
         assert value in docs
-    assert not (REPO_ROOT / ".git/index.lock").exists()
+    assert not _git_index_lock_is_stale()
 
 
 def test_protected_surfaces_version_tags_and_release_boundaries_are_locked() -> None:
