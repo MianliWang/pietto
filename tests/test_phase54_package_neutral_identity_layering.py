@@ -288,6 +288,7 @@ def test_package_neutral_vocabulary_carriers_fields_and_privacy_are_exact() -> N
             "readiness",
             "selected_input",
             "snapshot",
+            "readiness_authority",
         ),
         layering.ProjectLayeredDeclarationAsset: (
             "owner",
@@ -301,6 +302,8 @@ def test_package_neutral_vocabulary_carriers_fields_and_privacy_are_exact() -> N
             "availability",
             "relation_state",
             "declaration_position",
+            "identity_bucket_authority",
+            "readiness_authority",
         ),
     }
     for carrier, names in expected_fields.items():
@@ -800,11 +803,22 @@ def test_module_cycle_publishes_blocked_readiness_with_exact_issue_roots(
     first = _module_asset(disjoint, "a.pietto")
     other = _module_asset(disjoint, "c.pietto")
     assert first.readiness.blocking_issues != other.readiness.blocking_issues
-    with pytest.raises(ValueError, match="only this module's cycle"):
+    with pytest.raises(ValueError, match="exact derived readiness"):
         replace(first, readiness=other.readiness)
     first_declaration = _declaration(disjoint, "a.pietto", "T")
-    with pytest.raises(ValueError, match="only this module's cycle"):
+    with pytest.raises(ValueError, match="exact derived readiness"):
         replace(first_declaration, readiness=other.readiness)
+
+    # A foreign project with the same module paths and the same cycle shape
+    # produces a value-equal readiness whose evidence belongs to another
+    # authority; object identity, not value, decides.
+    _, foreign_cycle = _semantic_project(tmp_path / "foreigncycle", _cycle_sources())
+    foreign_first = _module_asset(foreign_cycle, "a.pietto")
+    local_first = _module_asset(semantic, "a.pietto")
+    assert foreign_first.readiness == local_first.readiness
+    assert foreign_first.readiness is not local_first.readiness
+    with pytest.raises(ValueError, match="exact derived readiness"):
+        replace(local_first, readiness=foreign_first.readiness)
     assert _module_asset(semantic, "a.pietto").digest.byte_count > 0
 
     _, referencing = _semantic_project(
@@ -1087,8 +1101,18 @@ def test_availability_atomicity_rejects_every_inconsistent_combination(
         replace(type_asset, availability=layering.ProjectLayeredAvailability.UNKNOWN)
     with pytest.raises(ValueError, match="publishes no relation product"):
         replace(type_asset, relation_state=relation_asset.relation_state)
-    with pytest.raises(ValueError, match="own identity bucket"):
+    with pytest.raises(ValueError, match="exact derived bucket"):
         replace(relation_asset, identity_occurrences=(type_asset.occurrence,))
+    with pytest.raises(ValueError, match="exact derived bucket"):
+        replace(
+            relation_asset,
+            identity_occurrences=(
+                *relation_asset.identity_occurrences,
+                type_asset.occurrence,
+            ),
+            availability=layering.ProjectLayeredAvailability.AMBIGUOUS,
+            relation_state=None,
+        )
     with pytest.raises(ValueError, match="retain the exact occurrence"):
         replace(relation_asset, attribution=type_asset.attribution)
     with pytest.raises(ValueError, match="must be the local module"):

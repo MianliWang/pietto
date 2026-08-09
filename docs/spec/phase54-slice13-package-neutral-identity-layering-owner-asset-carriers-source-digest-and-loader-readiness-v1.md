@@ -112,7 +112,15 @@ nor graft a supplied owner, module asset, or declaration asset.
 The complete identity bucket of every nominal identity is part of that
 projection: it is built once in one pass over the catalog roots, and every
 occurrence of one identity retains the exact same bucket object rather than a
-freshly rescanned equal tuple.
+freshly rescanned equal tuple. Each declaration asset retains that derived
+mapping as a private validation-only root and admits only the exact bucket
+object it holds for its own identity, so a supplied tuple carrying a foreign
+value-equal occurrence cannot downgrade a unique declaration to `AMBIGUOUS`.
+
+As in Slice 11, a carrier-level check is not factory-origin attestation: a
+coordinated replacement that substitutes every root and every derived product
+of one carrier at once is closed by the fact set, which requires the exact
+objects the authority derived, not by the carrier alone.
 
 The public fact set requires its `owner`, `module_assets`, and
 `declaration_assets` to be the exact objects that authority derived. The three
@@ -148,10 +156,13 @@ issue of any other status each fail closed. A dependency-ordered module that is
 still a retained cycle member, and an unordered module that is not, both fail
 closed during derivation.
 
-Blocking evidence is owned by the module it names. A module asset and every
-declaration asset of that module admit a retained issue only when its cycle
-component lists that exact module as a member, so a second, disjoint module
-cycle's evidence can never be grafted onto them.
+Blocking evidence is owned by the module it names, and ownership is decided by
+object identity rather than by value. Every module asset and every declaration
+asset retains the authority's derived per-module readiness mapping as a private
+validation-only root and admits only the exact readiness object that mapping
+holds for its own module. A second, disjoint module cycle's evidence is
+rejected, and so is a value-equal readiness produced by another project with
+the same module paths and the same cycle shape.
 
 ## Availability Algebra
 

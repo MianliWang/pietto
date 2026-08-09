@@ -228,6 +228,11 @@ class ProjectLayeredModuleAsset:
         compare=False,
         hash=False,
     )
+    readiness_authority: Mapping[str, ProjectLayeredLoaderReadinessFact] = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
 
     def __post_init__(self) -> None:
         """Reject a module asset that does not reach through its exact roots."""
@@ -263,7 +268,11 @@ class ProjectLayeredModuleAsset:
             or self.digest.byte_count != self.snapshot.byte_count
         ):
             raise ValueError("Layered module digest must reach through its snapshot.")
-        _require_readiness_names_module(self.readiness, self.module.path)
+        _require_authority_readiness(
+            self.readiness_authority,
+            self.readiness,
+            self.module.path,
+        )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -302,6 +311,15 @@ class ProjectLayeredDeclarationAsset:
         hash=False,
     )
     declaration_position: int
+    identity_bucket_authority: Mapping[
+        ProjectNominalDeclarationIdentity,
+        tuple[ProjectDeclarationOccurrence, ...],
+    ] = field(repr=False, compare=False, hash=False)
+    readiness_authority: Mapping[str, ProjectLayeredLoaderReadinessFact] = field(
+        repr=False,
+        compare=False,
+        hash=False,
+    )
 
     def __post_init__(self) -> None:
         """Reject every non-atomic or unrooted layered declaration asset."""
@@ -328,16 +346,22 @@ class ProjectLayeredDeclarationAsset:
             ProjectDeclarationOccurrence,
             "Layered declaration identity occurrences",
         )
+        # The bucket is a canonical root-derived projection, so it is admitted
+        # only as the exact object the authority derived for this identity. A
+        # value-equal tuple carrying a foreign occurrence is rejected here.
+        if type(self.identity_bucket_authority) is not MappingProxyType:
+            raise TypeError(
+                "Layered declaration asset requires an exact identity bucket authority."
+            )
+        if self.identity_occurrences is not self.identity_bucket_authority.get(
+            self.identity
+        ):
+            raise ValueError(
+                "Layered declaration identity bucket must be the exact derived bucket."
+            )
         if not _is_exact_member(self.occurrence, self.identity_occurrences):
             raise ValueError(
                 "Layered declaration asset must appear in its own identity bucket."
-            )
-        if any(
-            occurrence.identity != self.identity
-            for occurrence in self.identity_occurrences
-        ):
-            raise ValueError(
-                "Layered declaration identity bucket must retain one exact identity."
             )
         if type(self.attribution) is not ProjectModuleDeclarationAttribution:
             raise TypeError("Layered declaration asset requires Slice 11 attribution.")
@@ -362,7 +386,11 @@ class ProjectLayeredDeclarationAsset:
             type(self.relation_state) is not ProjectRelationRowSchemaState
         ):
             raise TypeError("Layered declaration relation state must be exact.")
-        _require_readiness_names_module(self.readiness, self.identity.module_path)
+        _require_authority_readiness(
+            self.readiness_authority,
+            self.readiness,
+            self.identity.module_path,
+        )
         self._validate_availability_atomicity()
 
     def _validate_availability_atomicity(self) -> None:
@@ -778,6 +806,15 @@ def _derive_layered_collections(
 
     module_assets: list[ProjectLayeredModuleAsset] = []
     readiness_by_path: dict[str, ProjectLayeredLoaderReadinessFact] = {}
+    pending_module_assets: list[
+        tuple[
+            ProjectLogicalModule,
+            int,
+            ProjectSelectedInputEntry,
+            ProjectTrustedSourceSnapshot,
+            ProjectLayeredLoaderReadinessFact,
+        ]
+    ] = []
     for position, module in enumerate(modules):
         entry = selected_input_index.entries[position]
         snapshot = trusted_source_snapshots[position]
@@ -804,6 +841,20 @@ def _derive_layered_collections(
                 blocking_issues=blocking_issues,
             )
         readiness_by_path[module.path] = readiness
+        pending_module_assets.append(
+            (
+                module,
+                position,
+                entry,
+                snapshot,
+                readiness,
+            )
+        )
+
+    readiness_authority: Mapping[str, ProjectLayeredLoaderReadinessFact] = (
+        MappingProxyType(dict(readiness_by_path))
+    )
+    for module, position, entry, snapshot, readiness in pending_module_assets:
         module_assets.append(
             ProjectLayeredModuleAsset(
                 owner=owner,
@@ -818,6 +869,7 @@ def _derive_layered_collections(
                 readiness=readiness,
                 selected_input=entry,
                 snapshot=snapshot,
+                readiness_authority=readiness_authority,
             )
         )
 
@@ -838,13 +890,15 @@ def _derive_layered_collections(
             identity_occurrence_lists.setdefault(occurrence.identity, []).append(
                 occurrence
             )
-    identity_buckets: dict[
+    identity_buckets: Mapping[
         ProjectNominalDeclarationIdentity,
         tuple[ProjectDeclarationOccurrence, ...],
-    ] = {
-        identity: tuple(occurrences)
-        for identity, occurrences in identity_occurrence_lists.items()
-    }
+    ] = MappingProxyType(
+        {
+            identity: tuple(occurrences)
+            for identity, occurrences in identity_occurrence_lists.items()
+        }
+    )
     declaration_assets: list[ProjectLayeredDeclarationAsset] = []
     for catalog in catalogs.catalogs:
         module_owner = ProjectLayeredOwnerIdentity(
@@ -876,6 +930,8 @@ def _derive_layered_collections(
                     availability=availability,
                     relation_state=relation_state,
                     declaration_position=occurrence.declaration_position,
+                    identity_bucket_authority=identity_buckets,
+                    readiness_authority=readiness_authority,
                 )
             )
 
@@ -913,26 +969,26 @@ def _frozen_bucket_mapping(
     return MappingProxyType({key: tuple(values) for key, values in buckets.items()})
 
 
-def _require_readiness_names_module(
+def _require_authority_readiness(
+    readiness_authority: Mapping[str, ProjectLayeredLoaderReadinessFact],
     readiness: ProjectLayeredLoaderReadinessFact,
     module_path: str,
 ) -> None:
-    """Require every retained blocking issue to name this exact module.
+    """Require the exact readiness fact the authority derived for this module.
 
-    Blocking evidence is admitted only for a module the retained cycle
-    component actually lists as a member, so a second, disjoint module cycle's
-    evidence can never be grafted onto this asset.
+    Loader readiness carries blocking evidence, so it is anchored by object
+    identity rather than by value: a foreign project with the same module path
+    and the same cycle shape produces a value-equal readiness whose issues
+    belong to another authority, and that must not be admitted here.
     """
 
-    for issue in readiness.blocking_issues:
-        cycle = issue.module_cycle
-        if cycle is None or not any(
-            member.identity.path == module_path for member in cycle.component.members
-        ):
-            raise ValueError(
-                "Layered loader readiness must retain only this module's cycle "
-                "evidence."
-            )
+    if type(readiness_authority) is not MappingProxyType:
+        raise TypeError("Layered asset requires an exact readiness authority.")
+    if readiness is not readiness_authority.get(module_path):
+        raise ValueError(
+            "Layered loader readiness must be the exact derived readiness of this "
+            "module."
+        )
 
 
 def _is_exact_member(value: object, values: tuple[object, ...]) -> bool:
