@@ -132,7 +132,8 @@ FIELD_KEY_MISMATCH             VALUE_TAG_MISMATCH
 ABSENT_VALUE_NOT_ALLOWED       MISSING_VALUE_PAYLOAD
 EXTRA_VALUE_PAYLOAD            NEGATIVE_INTEGER
 INTEGER_OUT_OF_RANGE           UNKNOWN_ENUMERATION
-INCONSISTENT_RECORD_STATE      ORPHAN_RECORD
+INCONSISTENT_RECORD_STATE      INCONSISTENT_SCOPE_RELATION
+ORPHAN_RECORD
 SCOPE_ORDINAL_MISMATCH         SECTION_ORDER_VIOLATION
 CHILD_ORDER_VIOLATION          ORDINAL_SEQUENCE_VIOLATION
 DUPLICATE_SINGLETON_RECORD     MISSING_REQUIRED_RECORD
@@ -295,18 +296,18 @@ what produced two rounds of isomorphic findings.
 | `owner` | the kind is the project root, which stays unnamed, in the reserved empty local namespace | `ProjectLayeredOwnerIdentity` |
 | `digest` | the digest is exactly sixty-four lowercase hexadecimal characters | `ProjectLayeredSourceDigestIdentity` |
 | `readiness` | the `status`, `reason`, and cycle-count triple is one of exactly two combinations | `ProjectLayeredLoaderReadinessFact` |
-| `readiness_cycle` | the member count is positive | `ProjectInspectionModuleCycle` |
-| `graph` | the component-member count is positive, and any multi-member component proves a cycle | `ProjectInspectionGraph`, `ProjectModuleStronglyConnectedComponent` |
+| `readiness_cycle` | the member count is positive and the members are distinct | `ProjectInspectionModuleCycle`, `ProjectModuleStronglyConnectedComponent` |
+| `graph` | the component-member count is positive, any multi-member component proves a cycle, the members are distinct, and the component contains the module it describes | `ProjectInspectionGraph`, `ProjectModuleStronglyConnectedComponent`, `_derive_inspection` |
 | `import` | the namespace and declaration kind form an eligible pair; a supplied resolved target keeps the same namespace and declaration kind; the four resolved-target keys are present together or absent together; and the request has exactly one outcome, so an unresolved request carries at least one issue and a resolved one carries at most a duplicate-request issue | `ProjectImportedBindingIdentity`, `ProjectResolvedImportedBinding`, `ProjectModuleBindingEnvironment`, `ProjectInspectionImport` |
 | `export` | the namespace and declaration kind form an eligible pair; a supplied entry keeps the same namespace and declaration kind, exposes the local name, and, for a local declaration origin, targets that same declared name; the six facade-entry keys are present together or absent together; and the request has exactly one outcome, so an unentered request carries at least one issue and an entered one carries at most a duplicate-request issue | `ProjectModuleExportEntry`, `ProjectModuleExportSurface`, `ProjectInspectionExport` |
 | `declaration` | the owner kind is the module and its namespace is the reserved empty local namespace; the relation status and reason are one atomic pair; the namespace decides the availability domain, a non-relation declaration publishes no relation product, and a retained relation state maps its exact availability; an ambiguous availability requires a repeated identity and every other availability a unique one; a positive row-field count requires the relation state; the occurrence index is inside its bucket | `ProjectInspectionDeclaration`, `ProjectLayeredDeclarationAsset`, `ProjectLayeredOwnerIdentity` |
 | `origin` | a local origin is one self path with no hop and targets its own local name; an imported origin always carries its access chain | `ProjectModuleOriginPath` |
-| `origin_hop` | each hop is one direct route, so its import target and facade module agree and its exported and exposed names agree; the chain re-exports at every interior hop and terminates at a local declaration; the terminating facade is the declaration itself, in its module and under its declared name | `ProjectModuleAccessHop`, `ProjectModuleOriginPath`, `ProjectModuleExportEntry` |
+| `origin_hop` | each hop is one direct route, so its import target and facade module agree and its exported and exposed names agree; every hop names the origin's own nominal target; the chain re-exports at every interior hop and terminates at a local declaration; the terminating facade is the declaration itself, in its module and under its declared name | `ProjectModuleAccessHop`, `ProjectModuleOriginPath`, `ProjectModuleExportEntry` |
 | `row_lineage` | a non-concrete lineage carries no field | `ProjectModuleRelationLineage` |
-| `row_lineage_field` | every retained field keeps at least one complete path | `ProjectModuleRowFieldLineage` |
+| `row_lineage_field` | every retained field keeps at least one complete path, and every path starts at that field, stays contiguous hop by hop, and ends at its declared root | `ProjectModuleRowFieldLineage`, `ProjectModuleRowLineagePath` |
 | `dependency` | each target group is atomic, and the kind decides which single group is present | `ProjectModuleDependencyFact` |
 | `type_resolution` | the canonical-target pair is atomic; an enumeration or shape canonical kind requires that target and a builtin or unknown one forbids it; the canonical kind decides the canonical name, which is a registered builtin name or the fixed unknown name; a supplied canonical target declares that same name; a canonical kind never terminates at an alias; only a direct alias carries an alias chain | `ProjectResolvedModuleTypeReference` |
-| `type_resolution_alias` | every alias identity is a type alias in the type namespace | `ProjectResolvedModuleTypeReference` |
+| `type_resolution_alias` | every alias identity is a type alias in the type namespace, and no identity repeats in one chain | `ProjectResolvedModuleTypeReference` |
 | `semantic_select` | a supplied output name is non-empty | `ProjectModuleSelectFact` |
 | `issue` | the status belongs to its declared family | `ProjectInspectionIssue` |
 
@@ -326,14 +327,16 @@ classified once, and the classification is the boundary:
   Python authority-admission layer, which owns the roots, and re-deriving them
   portably would create the second authority for the same fact that the
   convergence governance forbids.
-- **Not declarable, cross-record** — a guard relating values in different
-  records, such as a declaration owner name against its enclosing module path,
-  or an alias chain against the resolutions around it. The record stream carries
-  each record independently, so expressing these would require the portable
-  layer to rebuild the projection it is validating. A count of child records is
-  the exception the scope machinery already carries, so an outcome invariant
-  states the count a request must have and leaves *which* issue statuses those
-  children hold to the Python layer that owns them.
+- **Declared as a scope relation** — a guard relating a record to the scope
+  chain the single walk already maintains. See the section below.
+- **Not declarable** — a guard that needs anything else: a value in an
+  unrelated subtree, or a comparison against a *retained authority object*
+  (`is not self.fact.status`, `!= self.request.local_name`,
+  `is not self.asset.owner`). The second kind is decided by object identity,
+  which must never cross the portable boundary. Those are the Python
+  authority-admission layer, which owns the roots, and re-deriving them
+  portably would create the second authority for the same fact that the
+  convergence governance forbids.
 
 A later independent implementation therefore reproduces the canonical bytes and
 this rejection algebra; it does not reproduce the Slice 5 through Slice 14
@@ -364,6 +367,32 @@ sit in the target declaration's own module, and `ProjectModuleExportEntry`
 requires a local-declaration entry to expose that declaration's own name, so
 the selected rule pair states both against the terminal hop alone and leaves an
 interior re-export hop free to rename.
+
+### Scope relations
+
+A state rule reads one record. Some upstream guards instead relate a record to
+the collection that owns it, and a walk that keeps a scope stack already has
+everything those guards need, so they are declared as data too and enforced as
+`INCONSISTENT_SCOPE_RELATION`. Four shapes are declared, and nothing else about
+the document is consulted:
+
+| Shape | Reads | Declared for |
+| --- | --- | --- |
+| ancestor equal | one value of an open ancestor record | `origin_hop` repeats its origin's nominal target; a zero-hop `row_lineage_path` is its own field; a lineage chain starts at its field and ends at its root |
+| previous sibling equal | the immediately preceding sibling of the same kind | a lineage chain is contiguous, hop by hop |
+| distinct siblings | the sibling key tuples already seen in this scope | an alias chain, a component, a cycle, and a request's issue statuses each forbid a duplicate member |
+| scope contains ancestor | whether some child of this scope carried an ancestor's value | a module's graph neighbourhood contains that module |
+
+A rule may be restricted to the first or the last declared sibling of its kind,
+which is how a chain states its two endpoints without materializing the chain.
+The last sibling is the same positional relationship the terminal enumeration
+rule already used.
+
+The line this does not cross: a scope relation reads the *open scope chain and
+the siblings already walked*, never an unrelated subtree and never a retained
+authority object. `ProjectModuleRowFieldLineage` forbids two identical complete
+paths, for example, and that stays undeclared, because comparing whole paths
+means comparing subtrees rather than one collected key.
 
 ### Enumeration domains are per key, not per enumeration
 

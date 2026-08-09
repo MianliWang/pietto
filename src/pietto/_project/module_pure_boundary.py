@@ -104,6 +104,7 @@ class ProjectPureStatus(StrEnum):
     TRAILING_RECORD_AFTER_DOCUMENT = "trailing_record_after_document"
     INTEGER_OUT_OF_RANGE = "integer_out_of_range"
     INCONSISTENT_RECORD_STATE = "inconsistent_record_state"
+    INCONSISTENT_SCOPE_RELATION = "inconsistent_scope_relation"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -361,6 +362,42 @@ class _PureStateRule:
     when: tuple[str, ...] = ()
 
 
+class _PureScopeKind(StrEnum):
+    """The declared shapes of a relation between one record and its scope."""
+
+    ANCESTOR_EQUAL = "ancestor_equal"
+    PREVIOUS_SIBLING_EQUAL = "previous_sibling_equal"
+    DISTINCT_SIBLINGS = "distinct_siblings"
+    SCOPE_CONTAINS_ANCESTOR = "scope_contains_ancestor"
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class _PureScopeRule:
+    """One declared relation between a record and the scope that encloses it.
+
+    A state rule reads one record. A scope rule reads the enclosing scope chain
+    the walk already maintains: an ancestor record's value, the immediately
+    preceding sibling of the same kind, or the set of siblings collected so
+    far. Nothing else about the document is consulted, so the portable layer
+    never rebuilds the projection it validates.
+
+    ``at`` restricts a rule to the first or the last declared sibling of its
+    kind, which is how a chain states its two endpoints. ``pairs`` names
+    ``(this key, other key)`` couples; ``distinct`` names the keys whose tuple
+    must not repeat among siblings; ``child`` and ``child_key`` name the child
+    records a scope rule collects.
+    """
+
+    rule: _PureScopeKind
+    scope: str = ""
+    pairs: tuple[tuple[str, str], ...] = ()
+    distinct: tuple[str, ...] = ()
+    child: str = ""
+    child_key: str = ""
+    at: str = "any"
+    when: tuple[str, ...] = ()
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class _PureKindSpec:
     """One declared record kind, its scope, its keys, and its child counts."""
@@ -375,6 +412,7 @@ class _PureKindSpec:
     parent_ordinal_keys: tuple[str, ...] = ()
     is_scope: bool = False
     state_rules: tuple[_PureStateRule, ...] = ()
+    scope_rules: tuple[_PureScopeRule, ...] = ()
 
 
 _VOCABULARY_OWNER_KIND: tuple[str, ...] = ("local_project_root", "local_module")
@@ -719,6 +757,12 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _key("path", _TEXT),
         ),
         parent_ordinal_keys=("module", "cycle"),
+        scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.DISTINCT_SIBLINGS,
+                distinct=("path",),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="graph",
@@ -747,6 +791,14 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 keys=("component_members", "component_is_cyclic"),
             ),
         ),
+        scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.SCOPE_CONTAINS_ANCESTOR,
+                scope="module",
+                child="graph_component_member",
+                pairs=(("path", "path"),),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="graph_component_member",
@@ -760,6 +812,12 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _key("path", _TEXT),
         ),
         parent_ordinal_keys=("module",),
+        scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.DISTINCT_SIBLINGS,
+                distinct=("path",),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="graph_dependency_target",
@@ -880,6 +938,12 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _key("status", _ENUMERATION, vocabulary="binding_issue_status"),
         ),
         parent_ordinal_keys=("module", "request"),
+        scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.DISTINCT_SIBLINGS,
+                distinct=("status",),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="export",
@@ -988,6 +1052,12 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _key("status", _ENUMERATION, vocabulary="export_issue_status"),
         ),
         parent_ordinal_keys=("module", "request"),
+        scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.DISTINCT_SIBLINGS,
+                distinct=("status",),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="declaration",
@@ -1175,6 +1245,16 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 terminal=("local_declaration", "explicit_reexport"),
             ),
         ),
+        scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.ANCESTOR_EQUAL,
+                scope="origin",
+                pairs=(
+                    ("target_module_path", "target_module_path"),
+                    ("target_declared_name", "target_declared_name"),
+                ),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="dependency",
@@ -1317,6 +1397,34 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         counts=(("hops", "row_lineage_hop"),),
         parent_ordinal_keys=("module", "lineage", "field"),
         is_scope=True,
+        scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.ANCESTOR_EQUAL,
+                scope="row_lineage_field",
+                pairs=(
+                    ("root_field_name", "name"),
+                    ("root_field_position", "field_position"),
+                ),
+                when=("hops", "zero"),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.ANCESTOR_EQUAL,
+                scope="row_lineage",
+                pairs=(
+                    (
+                        "root_owner_declaration_position",
+                        "owner_declaration_position",
+                    ),
+                ),
+                when=("hops", "zero"),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.ANCESTOR_EQUAL,
+                scope="module",
+                pairs=(("root_module_path", "path"),),
+                when=("hops", "zero"),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="row_lineage_hop",
@@ -1335,6 +1443,24 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _key("upstream_field_name", _TEXT),
         ),
         parent_ordinal_keys=("module", "lineage", "field", "path"),
+        scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.ANCESTOR_EQUAL,
+                scope="row_lineage_field",
+                pairs=(("output_field_name", "name"),),
+                at="first",
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.PREVIOUS_SIBLING_EQUAL,
+                pairs=(("output_field_name", "upstream_field_name"),),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.ANCESTOR_EQUAL,
+                scope="row_lineage_path",
+                pairs=(("upstream_field_name", "root_field_name"),),
+                at="last",
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="type_resolution",
@@ -1436,6 +1562,12 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 rule=_PureStateKind.COMBINATION,
                 keys=("namespace", "declaration_kind"),
                 admitted=(("type", "type"),),
+            ),
+        ),
+        scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.DISTINCT_SIBLINGS,
+                distinct=("module_path", "declared_name"),
             ),
         ),
     ),
@@ -1632,8 +1764,13 @@ class _PureFrame:
         "declared_counts",
         "kind",
         "last_child_order",
+        "membership_required",
+        "membership_seen",
         "ordinal",
+        "previous_child",
+        "record",
         "record_position",
+        "seen_children",
     )
 
     def __init__(
@@ -1643,13 +1780,20 @@ class _PureFrame:
         ordinal: int | None,
         record_position: int,
         declared_counts: tuple[tuple[int, str], ...],
+        record: ProjectPureRecord | None = None,
+        membership_required: tuple[tuple[str, str, ProjectPureValue], ...] = (),
     ) -> None:
         self.kind = kind
         self.ordinal = ordinal
         self.record_position = record_position
         self.declared_counts = declared_counts
+        self.record = record
         self.child_counts: dict[str, int] = {}
         self.last_child_order = -1
+        self.previous_child: dict[str, ProjectPureRecord] = {}
+        self.seen_children: dict[str, set[tuple[str, ...]]] = {}
+        self.membership_required = membership_required
+        self.membership_seen: set[tuple[str, str]] = set()
 
 
 def _reject(
@@ -1820,6 +1964,117 @@ def _sibling_is_terminal(
     return _integer_of(record, specification.ordinal_key) == declared - 1
 
 
+def _membership_required(
+    record: ProjectPureRecord,
+    specification: _PureKindSpec,
+    stack: list[_PureFrame],
+) -> tuple[tuple[str, str, ProjectPureValue], ...]:
+    """Resolve the values a closing scope must have seen among its children."""
+
+    required: list[tuple[str, str, ProjectPureValue]] = []
+    for rule in specification.scope_rules:
+        if rule.rule is not _PureScopeKind.SCOPE_CONTAINS_ANCESTOR:
+            continue
+        ancestor = _ancestor_frame(stack, rule.scope)
+        if ancestor is None or ancestor.record is None:
+            continue
+        key, ancestor_key = rule.pairs[0]
+        required.append((rule.child, key, _value_of(ancestor.record, ancestor_key)))
+    return tuple(required)
+
+
+def _identical_values(left: ProjectPureValue, right: ProjectPureValue) -> bool:
+    """Return whether two validated values carry the same tag and payload."""
+
+    return (
+        left.tag is right.tag
+        and left.text == right.text
+        and left.integer == right.integer
+        and left.boolean is right.boolean
+    )
+
+
+def _ancestor_frame(stack: list[_PureFrame], kind: str) -> _PureFrame | None:
+    """Return the innermost open frame of one declared kind."""
+
+    for frame in reversed(stack):
+        if frame.kind == kind:
+            return frame
+    return None
+
+
+def _scope_rule_applies(
+    rule: _PureScopeRule,
+    record: ProjectPureRecord,
+    specification: _PureKindSpec,
+    parent_frame: _PureFrame,
+) -> bool:
+    """Return whether one declared scope rule governs this exact record."""
+
+    if rule.when:
+        selector, expected = rule.when
+        if _state_token(_value_of(record, selector)) != expected:
+            return False
+    if rule.at == "first":
+        return (
+            specification.ordinal_key is not None
+            and _integer_of(record, specification.ordinal_key) == 0
+        )
+    if rule.at == "last":
+        return _sibling_is_terminal(record, specification, parent_frame)
+    return True
+
+
+def _validate_scope_rules(
+    record: ProjectPureRecord,
+    specification: _PureKindSpec,
+    position: int,
+    stack: list[_PureFrame],
+) -> ProjectPureOutcome | None:
+    """Validate every declared relation between one record and its scope.
+
+    Each rule mirrors an invariant an upstream carrier already enforces over a
+    retained collection: a child that must repeat its owner's identity, a chain
+    whose endpoints and adjacent links must agree, or a collection that forbids
+    a duplicate member.
+    """
+
+    parent_frame = stack[-1]
+    for rule in specification.scope_rules:
+        if not _scope_rule_applies(rule, record, specification, parent_frame):
+            continue
+        if rule.rule is _PureScopeKind.ANCESTOR_EQUAL:
+            ancestor = _ancestor_frame(stack, rule.scope)
+            if ancestor is None or ancestor.record is None:
+                return _reject(ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position)
+            for key, ancestor_key in rule.pairs:
+                if not _identical_values(
+                    _value_of(record, key), _value_of(ancestor.record, ancestor_key)
+                ):
+                    return _reject(
+                        ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position
+                    )
+            continue
+        if rule.rule is _PureScopeKind.PREVIOUS_SIBLING_EQUAL:
+            previous = parent_frame.previous_child.get(specification.kind)
+            if previous is None:
+                continue
+            for key, previous_key in rule.pairs:
+                if not _identical_values(
+                    _value_of(record, key), _value_of(previous, previous_key)
+                ):
+                    return _reject(
+                        ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position
+                    )
+            continue
+        seen = parent_frame.seen_children.setdefault(specification.kind, set())
+        member = tuple(_state_token(_value_of(record, key)) for key in rule.distinct)
+        if member in seen:
+            return _reject(ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position)
+        seen.add(member)
+    return None
+
+
 def _validate_state_rules(
     record: ProjectPureRecord,
     specification: _PureKindSpec,
@@ -1942,8 +2197,13 @@ def _declared_counts(
 
 
 def _close_frame(frame: _PureFrame) -> ProjectPureOutcome | None:
-    """Verify one closing scope's required records and declared child counts."""
+    """Verify one closing scope's required records, counts, and memberships."""
 
+    for child, child_key, _ in frame.membership_required:
+        if (child, child_key) not in frame.membership_seen:
+            return _reject(
+                ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, frame.record_position
+            )
     if frame.kind == "module":
         for required in _PURE_REQUIRED_MODULE_RECORDS:
             if frame.child_counts.get(required, 0) == 0:
@@ -2037,6 +2297,7 @@ def _validate_structure(
             declared_counts=_declared_counts(
                 records[0], PURE_RECORD_SCHEMA["inspection"]
             ),
+            record=records[0],
         )
     ]
     for position in range(1, len(records)):
@@ -2084,10 +2345,20 @@ def _validate_structure(
         )
         if rejection is not None:
             return rejection
+        rejection = _validate_scope_rules(record, specification, position, stack)
+        if rejection is not None:
+            return rejection
 
         parent_frame.child_counts[record.kind] = (
             parent_frame.child_counts.get(record.kind, 0) + 1
         )
+        parent_frame.previous_child[record.kind] = record
+        for frame in stack:
+            for child, child_key, required in frame.membership_required:
+                if child == record.kind and _identical_values(
+                    _value_of(record, child_key), required
+                ):
+                    frame.membership_seen.add((child, child_key))
         if specification.is_scope:
             stack.append(
                 _PureFrame(
@@ -2099,6 +2370,10 @@ def _validate_structure(
                     ),
                     record_position=position,
                     declared_counts=_declared_counts(record, specification),
+                    record=record,
+                    membership_required=_membership_required(
+                        record, specification, stack
+                    ),
                 )
             )
 

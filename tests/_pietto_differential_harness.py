@@ -138,6 +138,12 @@ class DifferentialPurpose(StrEnum):
     EARLIER_SCOPE_SETTLES_FIRST = "earlier_scope_settles_first"
     UNRESOLVED_IMPORT_WITHOUT_ISSUE = "unresolved_import_without_issue"
     UNRESOLVED_EXPORT_WITHOUT_ISSUE = "unresolved_export_without_issue"
+    HOP_TARGET_OUTSIDE_ITS_ORIGIN = "hop_target_outside_its_origin"
+    LINEAGE_CHAIN_WRONG_ENDPOINT = "lineage_chain_wrong_endpoint"
+    LINEAGE_CHAIN_NOT_CONTIGUOUS = "lineage_chain_not_contiguous"
+    DUPLICATE_ALIAS_IDENTITY = "duplicate_alias_identity"
+    COMPONENT_WITHOUT_ITS_MODULE = "component_without_its_module"
+    DUPLICATE_IMPORT_ISSUE_STATUS = "duplicate_import_issue_status"
     POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
     OCCURRENCE_INDEX_OUTSIDE_BUCKET = "occurrence_index_outside_bucket"
 

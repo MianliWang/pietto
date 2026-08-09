@@ -1677,7 +1677,7 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
     assert len(project_paths) == 33
     assert REPO_ROOT / "src/pietto/_project/window_persistence.py" in project_paths
     assert project_digest == (
-        "385ecde6a0aa24bcfdd7c5618cc0ff6b3ee65fc49439205acb0862910a7ec90f"
+        "63cc46441e18a9f617ecc363e2f5f1195bf48e6c01f551bee16f019b3b3d8219"
     )
     phase33 = (REPO_ROOT / "tests/test_phase33_completion_audit.py").read_text(
         encoding="utf-8"

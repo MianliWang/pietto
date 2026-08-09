@@ -566,6 +566,33 @@ def test_declared_ordinal_rules_match_the_projection_emission_rules() -> None:
         for rule in specification.state_rules
     }
     assert shapes == set(pure_boundary._PureStateKind)
+    scoped = {
+        kind for kind, specification in schema.items() if specification.scope_rules
+    }
+    assert scoped == {
+        "readiness_cycle_member",
+        "graph",
+        "graph_component_member",
+        "import_issue",
+        "export_issue",
+        "origin_hop",
+        "row_lineage_path",
+        "row_lineage_hop",
+        "type_resolution_alias",
+    }
+    scope_shapes = {
+        rule.rule
+        for specification in schema.values()
+        for rule in specification.scope_rules
+    }
+    assert scope_shapes == set(pure_boundary._PureScopeKind)
+    for specification in schema.values():
+        for rule in specification.scope_rules:
+            assert rule.at in ("any", "first", "last")
+            if rule.rule is pure_boundary._PureScopeKind.ANCESTOR_EQUAL:
+                assert rule.scope in schema and schema[rule.scope].is_scope
+            if rule.rule is pure_boundary._PureScopeKind.SCOPE_CONTAINS_ANCESTOR:
+                assert schema[rule.child].parent == specification.kind
     catalog_source = _read("src/pietto/_project/module_catalog.py")
     assert "occurrence.declaration_position != position" in catalog_source
     inspection_source = _read(INSPECTION_REL)
@@ -866,7 +893,7 @@ def test_every_rejection_status_is_reachable_and_normalized() -> None:
         pure_boundary.ProjectPureStatus.OK
     }
     assert statuses == declared
-    assert len(declared) == 24
+    assert len(declared) == 25
 
 
 def test_rejections_carry_no_payload_and_no_supplied_content() -> None:
