@@ -116,6 +116,10 @@ class DifferentialPurpose(StrEnum):
     CANONICAL_KIND_TARGET_MISMATCH = "canonical_kind_target_mismatch"
     ISSUE_STATUS_OUTSIDE_ITS_FAMILY = "issue_status_outside_its_family"
     NON_CONCRETE_LINEAGE_WITH_FIELDS = "non_concrete_lineage_with_fields"
+    IMPORTED_ORIGIN_WITHOUT_HOPS = "imported_origin_without_hops"
+    LINEAGE_FIELD_WITHOUT_PATHS = "lineage_field_without_paths"
+    DIGEST_NOT_LOWERCASE_HEX = "digest_not_lowercase_hex"
+    NAMED_PROJECT_ROOT_OWNER = "named_project_root_owner"
     POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
     OCCURRENCE_INDEX_OUTSIDE_BUCKET = "occurrence_index_outside_bucket"
 

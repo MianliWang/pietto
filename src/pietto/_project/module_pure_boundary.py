@@ -58,6 +58,8 @@ _PURE_SURROGATE_START = "\ud800"
 
 _PURE_SURROGATE_END = "\udfff"
 
+_PURE_HEX_ALPHABET = frozenset("0123456789abcdef")
+
 
 class ProjectPureTag(StrEnum):
     """The exact tag vocabulary one portable value may carry."""
@@ -323,6 +325,7 @@ class _PureStateKind(StrEnum):
     POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
     POSITIVE = "positive"
     STRICTLY_LESS = "strictly_less"
+    LOWERCASE_HEX = "lowercase_hex"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -344,6 +347,7 @@ class _PureStateRule:
     keys: tuple[str, ...] = ()
     admitted: tuple[tuple[str, ...], ...] = ()
     presence_keys: tuple[str, ...] = ()
+    text_length: int = 0
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -609,8 +613,8 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         state_rules=(
             _PureStateRule(
                 rule=_PureStateKind.COMBINATION,
-                keys=("kind", "namespace"),
-                admitted=(("local_project_root", ""),),
+                keys=("kind", "namespace", "name"),
+                admitted=(("local_project_root", "", ""),),
             ),
         ),
     ),
@@ -639,6 +643,13 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _key("byte_count", _INTEGER),
         ),
         parent_ordinal_keys=("module",),
+        state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.LOWERCASE_HEX,
+                keys=("digest",),
+                text_length=64,
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="readiness",
@@ -983,6 +994,16 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         counts=(("hops", "origin_hop"),),
         parent_ordinal_keys=("module",),
         is_scope=True,
+        state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.COMBINATION,
+                keys=("binding", "hops"),
+                admitted=(
+                    ("local_declaration", "zero"),
+                    ("imported_binding", "positive"),
+                ),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="origin_hop",
@@ -1124,6 +1145,7 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         counts=(("paths", "row_lineage_path"),),
         parent_ordinal_keys=("module", "lineage"),
         is_scope=True,
+        state_rules=(_PureStateRule(rule=_PureStateKind.POSITIVE, keys=("paths",)),),
     ),
     _PureKindSpec(
         kind="row_lineage_path",
@@ -1628,8 +1650,15 @@ def _validate_state_rules(
             if _integer_of(record, rule.keys[0]) < 1:
                 return _reject(ProjectPureStatus.INCONSISTENT_RECORD_STATE, position)
             continue
-        smaller, larger = rule.keys
-        if _integer_of(record, smaller) >= _integer_of(record, larger):
+        if rule.rule is _PureStateKind.STRICTLY_LESS:
+            smaller, larger = rule.keys
+            if _integer_of(record, smaller) >= _integer_of(record, larger):
+                return _reject(ProjectPureStatus.INCONSISTENT_RECORD_STATE, position)
+            continue
+        text = _value_of(record, rule.keys[0]).text or ""
+        if len(text) != rule.text_length or any(
+            character not in _PURE_HEX_ALPHABET for character in text
+        ):
             return _reject(ProjectPureStatus.INCONSISTENT_RECORD_STATE, position)
     return None
 

@@ -2110,6 +2110,66 @@ def _rejected_vectors() -> tuple[DifferentialVector, ...]:
             7,
         ),
         _rejected(
+            "imported_origin_without_hops",
+            DifferentialPurpose.IMPORTED_ORIGIN_WITHOUT_HOPS,
+            _document(
+                _header(1),
+                _OWNER,
+                *valid_module,
+                _origin(
+                    0,
+                    0,
+                    local_name="Row",
+                    target_module_path="b.pietto",
+                    target_declared_name="Row",
+                    binding="imported_binding",
+                    hops=0,
+                ),
+            ),
+            ProjectPureStatus.INCONSISTENT_RECORD_STATE,
+            7,
+        ),
+        _rejected(
+            "lineage_field_without_paths",
+            DifferentialPurpose.LINEAGE_FIELD_WITHOUT_PATHS,
+            _document(
+                _header(1),
+                _OWNER,
+                *valid_module,
+                _row_lineage(0, 0, fields=1),
+                _lineage_field(0, 0, 0, name="id", paths=0),
+            ),
+            ProjectPureStatus.INCONSISTENT_RECORD_STATE,
+            8,
+        ),
+        _rejected(
+            "digest_not_lowercase_hex",
+            DifferentialPurpose.DIGEST_NOT_LOWERCASE_HEX,
+            _document(
+                _header(1),
+                _OWNER,
+                _module(0, "a.pietto"),
+                _digest(0, digest="Z" * 64),
+            ),
+            ProjectPureStatus.INCONSISTENT_RECORD_STATE,
+            3,
+        ),
+        _rejected(
+            "named_project_root_owner",
+            DifferentialPurpose.NAMED_PROJECT_ROOT_OWNER,
+            _document(
+                _header(0),
+                _record(
+                    "owner",
+                    ("kind", pure_enumeration("local_project_root")),
+                    ("namespace", pure_text("")),
+                    ("name", pure_text("pietto")),
+                ),
+            ),
+            ProjectPureStatus.INCONSISTENT_RECORD_STATE,
+            1,
+        ),
+        _rejected(
             "exclusive_target_groups",
             DifferentialPurpose.EXCLUSIVE_TARGET_GROUPS,
             _document(

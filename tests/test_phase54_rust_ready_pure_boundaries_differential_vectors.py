@@ -517,14 +517,17 @@ def test_declared_ordinal_rules_match_the_projection_emission_rules() -> None:
     }
     assert ruled == {
         "owner",
+        "digest",
         "readiness",
         "readiness_cycle",
         "graph",
         "import",
         "export",
         "declaration",
+        "origin",
         "dependency",
         "row_lineage",
+        "row_lineage_field",
         "type_resolution",
         "issue",
     }

@@ -286,17 +286,26 @@ what produced two rounds of isomorphic findings.
 
 | Record | Declared rule | Upstream authority |
 | --- | --- | --- |
-| `owner` | the kind is the project root and the namespace is the reserved empty local namespace | `ProjectLayeredOwnerIdentity` |
+| `owner` | the kind is the project root, which stays unnamed, in the reserved empty local namespace | `ProjectLayeredOwnerIdentity` |
+| `digest` | the digest is exactly sixty-four lowercase hexadecimal characters | `ProjectLayeredSourceDigestIdentity` |
 | `readiness` | the `status`, `reason`, and cycle-count triple is one of exactly two combinations | `ProjectLayeredLoaderReadinessFact` |
 | `readiness_cycle` | the member count is positive | `ProjectInspectionModuleCycle` |
 | `graph` | the component-member count is positive | `ProjectInspectionGraph` |
 | `import` | the four resolved-target keys are present together or absent together | `ProjectInspectionImport` |
 | `export` | the six facade-entry keys are present together or absent together | `ProjectInspectionExport` |
 | `declaration` | the owner kind is the module and its namespace is the reserved empty local namespace; the relation status and reason are one atomic pair; a positive row-field count requires the relation state; the occurrence count is positive; the occurrence index is inside its bucket | `ProjectInspectionDeclaration`, `ProjectLayeredOwnerIdentity` |
+| `origin` | a local origin is one self path with no hop; an imported origin always carries its access chain | `ProjectModuleOriginPath` |
 | `row_lineage` | a non-concrete lineage carries no field | `ProjectModuleRelationLineage` |
+| `row_lineage_field` | every retained field keeps at least one complete path | `ProjectModuleRowFieldLineage` |
 | `dependency` | each target group is atomic, and the kind decides which single group is present | `ProjectModuleDependencyFact` |
 | `type_resolution` | the canonical-target pair is atomic; an enumeration or shape canonical kind requires that target and a builtin or unknown one forbids it; a canonical kind never terminates at an alias; only a direct alias carries an alias chain | `ProjectResolvedModuleTypeReference` |
 | `issue` | the status belongs to its declared family | `ProjectInspectionIssue` |
+
+Text content is deliberately not re-validated beyond the declared digest shape.
+Slice 14 keeps its retained-text checks type-only because upstream stages
+retain an unresolvable or empty decoded target, exported name, or output name
+and report it through their own issue facts; re-validating that content at the
+portable layer would reject a pre-existing accepted case.
 
 A key may contribute its presence rather than its value to a combination, so
 one declared table expresses a correlation between an enumeration and whether
