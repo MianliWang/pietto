@@ -120,6 +120,10 @@ class DifferentialPurpose(StrEnum):
     LINEAGE_FIELD_WITHOUT_PATHS = "lineage_field_without_paths"
     DIGEST_NOT_LOWERCASE_HEX = "digest_not_lowercase_hex"
     NAMED_PROJECT_ROOT_OWNER = "named_project_root_owner"
+    AVAILABILITY_RELATION_STATE_MISMATCH = "availability_relation_state_mismatch"
+    INELIGIBLE_NAMESPACE_KIND_PAIR = "ineligible_namespace_kind_pair"
+    MULTI_MEMBER_ACYCLIC_COMPONENT = "multi_member_acyclic_component"
+    UNTERMINATED_ORIGIN_HOP_CHAIN = "unterminated_origin_hop_chain"
     POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
     OCCURRENCE_INDEX_OUTSIDE_BUCKET = "occurrence_index_outside_bucket"
 

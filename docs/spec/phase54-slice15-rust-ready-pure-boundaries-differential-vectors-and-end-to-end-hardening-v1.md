@@ -290,16 +290,43 @@ what produced two rounds of isomorphic findings.
 | `digest` | the digest is exactly sixty-four lowercase hexadecimal characters | `ProjectLayeredSourceDigestIdentity` |
 | `readiness` | the `status`, `reason`, and cycle-count triple is one of exactly two combinations | `ProjectLayeredLoaderReadinessFact` |
 | `readiness_cycle` | the member count is positive | `ProjectInspectionModuleCycle` |
-| `graph` | the component-member count is positive | `ProjectInspectionGraph` |
-| `import` | the four resolved-target keys are present together or absent together | `ProjectInspectionImport` |
-| `export` | the six facade-entry keys are present together or absent together | `ProjectInspectionExport` |
-| `declaration` | the owner kind is the module and its namespace is the reserved empty local namespace; the relation status and reason are one atomic pair; a positive row-field count requires the relation state; the occurrence count is positive; the occurrence index is inside its bucket | `ProjectInspectionDeclaration`, `ProjectLayeredOwnerIdentity` |
+| `graph` | the component-member count is positive, and any multi-member component proves a cycle | `ProjectInspectionGraph`, `ProjectModuleStronglyConnectedComponent` |
+| `import` | the namespace and declaration kind form an eligible pair, and the four resolved-target keys are present together or absent together | `ProjectImportedBindingIdentity`, `ProjectInspectionImport` |
+| `export` | the namespace and declaration kind form an eligible pair, and the six facade-entry keys are present together or absent together | `ProjectModuleExportRequest`, `ProjectInspectionExport` |
+| `declaration` | the owner kind is the module and its namespace is the reserved empty local namespace; the relation status and reason are one atomic pair; a retained relation state maps its exact availability; a positive row-field count requires the relation state; the occurrence count is positive; the occurrence index is inside its bucket | `ProjectInspectionDeclaration`, `ProjectLayeredDeclarationAsset`, `ProjectLayeredOwnerIdentity` |
 | `origin` | a local origin is one self path with no hop; an imported origin always carries its access chain | `ProjectModuleOriginPath` |
+| `origin_hop` | the chain re-exports at every interior hop and terminates at a local declaration | `ProjectModuleOriginPath` |
 | `row_lineage` | a non-concrete lineage carries no field | `ProjectModuleRelationLineage` |
 | `row_lineage_field` | every retained field keeps at least one complete path | `ProjectModuleRowFieldLineage` |
 | `dependency` | each target group is atomic, and the kind decides which single group is present | `ProjectModuleDependencyFact` |
 | `type_resolution` | the canonical-target pair is atomic; an enumeration or shape canonical kind requires that target and a builtin or unknown one forbids it; a canonical kind never terminates at an alias; only a direct alias carries an alias chain | `ProjectResolvedModuleTypeReference` |
 | `issue` | the status belongs to its declared family | `ProjectInspectionIssue` |
+
+### What the portable layer does and does not re-validate
+
+The declared set is complete against a mechanical enumeration of every
+``__post_init__`` guard in the ten contributing carrier modules. Each guard was
+classified once, and the classification is the boundary:
+
+- **Declared here** — every guard whose operands are all serialized values of
+  one record, plus the one positional relationship the record stream itself
+  carries, namely whether a child is the last declared sibling of its kind.
+- **Not declarable, by construction** — a guard that compares a serialized
+  value against a *retained authority object* (`is not self.fact.status`,
+  `!= self.request.local_name`, `is not self.asset.owner`). These are decided by
+  object identity, which must never cross the portable boundary. They are the
+  Python authority-admission layer, which owns the roots, and re-deriving them
+  portably would create the second authority for the same fact that the
+  convergence governance forbids.
+- **Not declarable, cross-record** — a guard relating values in different
+  records, such as a declaration owner name against its enclosing module path,
+  or an alias chain against the resolutions around it. The record stream carries
+  each record independently, so expressing these would require the portable
+  layer to rebuild the projection it is validating.
+
+A later independent implementation therefore reproduces the canonical bytes and
+this rejection algebra; it does not reproduce the Slice 5 through Slice 14
+semantic model, which stays where its roots are.
 
 Text content is deliberately not re-validated beyond the declared digest shape.
 Slice 14 keeps its retained-text checks type-only because upstream stages

@@ -326,6 +326,8 @@ class _PureStateKind(StrEnum):
     POSITIVE = "positive"
     STRICTLY_LESS = "strictly_less"
     LOWERCASE_HEX = "lowercase_hex"
+    MULTI_REQUIRES_TRUE = "multi_requires_true"
+    TERMINAL_COMBINATION = "terminal_combination"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -348,6 +350,7 @@ class _PureStateRule:
     admitted: tuple[tuple[str, ...], ...] = ()
     presence_keys: tuple[str, ...] = ()
     text_length: int = 0
+    terminal: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -729,6 +732,10 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         is_scope=True,
         state_rules=(
             _PureStateRule(rule=_PureStateKind.POSITIVE, keys=("component_members",)),
+            _PureStateRule(
+                rule=_PureStateKind.MULTI_REQUIRES_TRUE,
+                keys=("component_members", "component_is_cyclic"),
+            ),
         ),
     ),
     _PureKindSpec(
@@ -809,6 +816,18 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         is_scope=True,
         state_rules=(
             _PureStateRule(
+                rule=_PureStateKind.COMBINATION,
+                keys=("namespace", "declaration_kind"),
+                admitted=(
+                    ("type", "type"),
+                    ("type", "enum"),
+                    ("type", "shape"),
+                    ("relation", "source"),
+                    ("relation", "table"),
+                    ("relation", "query"),
+                ),
+            ),
+            _PureStateRule(
                 rule=_PureStateKind.PRESENCE_GROUP,
                 keys=(
                     "resolved_module_path",
@@ -874,6 +893,18 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         parent_ordinal_keys=("module",),
         is_scope=True,
         state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.COMBINATION,
+                keys=("namespace", "declaration_kind"),
+                admitted=(
+                    ("type", "type"),
+                    ("type", "enum"),
+                    ("type", "shape"),
+                    ("relation", "source"),
+                    ("relation", "table"),
+                    ("relation", "query"),
+                ),
+            ),
             _PureStateRule(
                 rule=_PureStateKind.PRESENCE_GROUP,
                 keys=(
@@ -949,6 +980,22 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _PureStateRule(
                 rule=_PureStateKind.POSITIVE_REQUIRES_PRESENT,
                 keys=("row_fields", "relation_status"),
+            ),
+            _PureStateRule(
+                rule=_PureStateKind.COMBINATION,
+                keys=("availability", "relation_status"),
+                admitted=(
+                    ("concrete", "concrete"),
+                    ("unknown", "unknown"),
+                    ("deferred", "deferred"),
+                    ("blocked", "blocked"),
+                    ("concrete", "absent"),
+                    ("unknown", "absent"),
+                    ("deferred", "absent"),
+                    ("blocked", "absent"),
+                    ("absent", "absent"),
+                    ("ambiguous", "absent"),
+                ),
             ),
             _PureStateRule(rule=_PureStateKind.POSITIVE, keys=("occurrence_count",)),
             _PureStateRule(
@@ -1026,6 +1073,13 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _key("target_declared_name", _TEXT),
         ),
         parent_ordinal_keys=("module", "origin"),
+        state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.TERMINAL_COMBINATION,
+                keys=("facade_origin",),
+                terminal=("local_declaration", "explicit_reexport"),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="dependency",
@@ -1607,10 +1661,33 @@ def _presence_token(value: ProjectPureValue) -> str:
     return "absent" if value.tag is ProjectPureTag.ABSENT else "present"
 
 
+def _sibling_is_terminal(
+    record: ProjectPureRecord,
+    specification: _PureKindSpec,
+    parent_frame: _PureFrame | None,
+) -> bool:
+    """Return whether this record is the last declared sibling of its kind."""
+
+    if parent_frame is None or specification.ordinal_key is None:
+        return False
+    declared = next(
+        (
+            count
+            for count, child_kind in parent_frame.declared_counts
+            if child_kind == specification.kind
+        ),
+        None,
+    )
+    if declared is None:
+        return False
+    return _integer_of(record, specification.ordinal_key) == declared - 1
+
+
 def _validate_state_rules(
     record: ProjectPureRecord,
     specification: _PureKindSpec,
     position: int,
+    parent_frame: _PureFrame | None = None,
 ) -> ProjectPureOutcome | None:
     """Validate every declared cross-field state rule of one record.
 
@@ -1648,6 +1725,24 @@ def _validate_state_rules(
             continue
         if rule.rule is _PureStateKind.POSITIVE:
             if _integer_of(record, rule.keys[0]) < 1:
+                return _reject(ProjectPureStatus.INCONSISTENT_RECORD_STATE, position)
+            continue
+        if rule.rule is _PureStateKind.MULTI_REQUIRES_TRUE:
+            counted, flag = rule.keys
+            if _integer_of(record, counted) > 1 and (
+                _value_of(record, flag).boolean is not True
+            ):
+                return _reject(ProjectPureStatus.INCONSISTENT_RECORD_STATE, position)
+            continue
+        if rule.rule is _PureStateKind.TERMINAL_COMBINATION:
+            observed = _state_token(_value_of(record, rule.keys[0]))
+            terminal, interior = rule.terminal
+            expected = (
+                terminal
+                if _sibling_is_terminal(record, specification, parent_frame)
+                else interior
+            )
+            if observed != expected:
                 return _reject(ProjectPureStatus.INCONSISTENT_RECORD_STATE, position)
             continue
         if rule.rule is _PureStateKind.STRICTLY_LESS:
@@ -1790,9 +1885,6 @@ def _validate_structure(
         rejection = _validate_fields(record, specification, position)
         if rejection is not None:
             return rejection
-        rejection = _validate_state_rules(record, specification, position)
-        if rejection is not None:
-            return rejection
         if position > 1:
             if record.kind in _PURE_HEADER_KINDS:
                 return _reject(ProjectPureStatus.UNEXPECTED_HEADER_RECORD, position)
@@ -1810,6 +1902,9 @@ def _validate_structure(
                 return rejection
 
         parent_frame = stack[-1]
+        rejection = _validate_state_rules(record, specification, position, parent_frame)
+        if rejection is not None:
+            return rejection
         rejection = _validate_scope(record, specification, stack, position)
         if rejection is not None:
             return rejection

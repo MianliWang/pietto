@@ -525,6 +525,7 @@ def test_declared_ordinal_rules_match_the_projection_emission_rules() -> None:
         "export",
         "declaration",
         "origin",
+        "origin_hop",
         "dependency",
         "row_lineage",
         "row_lineage_field",
