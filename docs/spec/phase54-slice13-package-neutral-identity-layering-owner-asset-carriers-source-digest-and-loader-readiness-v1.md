@@ -117,10 +117,18 @@ mapping as a private validation-only root and admits only the exact bucket
 object it holds for its own identity, so a supplied tuple carrying a foreign
 value-equal occurrence cannot downgrade a unique declaration to `AMBIGUOUS`.
 
-As in Slice 11, a carrier-level check is not factory-origin attestation: a
-coordinated replacement that substitutes every root and every derived product
-of one carrier at once is closed by the fact set, which requires the exact
-objects the authority derived, not by the carrier alone.
+Those two derived mappings are themselves products of the authority. The fact
+set therefore anchors the whole set: every module asset and every declaration
+asset must carry the exact projection objects this authority derived, so a
+coordinated graft that forges an asset together with the validation mappings it
+was handed is rejected even though each forged mapping is internally
+consistent.
+
+As in Slice 11, a carrier constructed in isolation is not factory-origin
+attestation. Proving the historical origin of a bare private dataclass would
+require a token, a seal, or a reparse, and that remains explicitly outside this
+Slice; the fact set, which `ProjectSemanticResult` requires, is where the whole
+root and product set is anchored.
 
 The public fact set requires its `owner`, `module_assets`, and
 `declaration_assets` to be the exact objects that authority derived. The three

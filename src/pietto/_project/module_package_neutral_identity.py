@@ -502,6 +502,16 @@ class _ProjectLayeredIdentityAuthority:
         compare=False,
         hash=False,
     )
+    readiness_projection: Mapping[str, ProjectLayeredLoaderReadinessFact] = field(
+        init=False,
+        repr=False,
+        compare=False,
+        hash=False,
+    )
+    identity_bucket_projection: Mapping[
+        ProjectNominalDeclarationIdentity,
+        tuple[ProjectDeclarationOccurrence, ...],
+    ] = field(init=False, repr=False, compare=False, hash=False)
 
     def __post_init__(self) -> None:
         """Validate the shared root set as a whole and derive every product."""
@@ -514,7 +524,13 @@ class _ProjectLayeredIdentityAuthority:
             self.attribution,
             self.semantic,
         )
-        owner, module_assets, declaration_assets = _derive_layered_collections(
+        (
+            owner,
+            module_assets,
+            declaration_assets,
+            readiness_projection,
+            identity_bucket_projection,
+        ) = _derive_layered_collections(
             self.selected_input_index,
             self.trusted_source_snapshots,
             self.modules,
@@ -525,6 +541,10 @@ class _ProjectLayeredIdentityAuthority:
         object.__setattr__(self, "owner", owner)
         object.__setattr__(self, "module_assets", module_assets)
         object.__setattr__(self, "declaration_assets", declaration_assets)
+        object.__setattr__(self, "readiness_projection", readiness_projection)
+        object.__setattr__(
+            self, "identity_bucket_projection", identity_bucket_projection
+        )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -568,6 +588,22 @@ class ProjectModulePackageNeutralIdentityFactSet:
         if self.declaration_assets is not self.authority.declaration_assets:
             raise ValueError(
                 "Layered fact set must retain the exact derived declaration assets."
+            )
+        # A coordinated graft can forge an asset together with the validation
+        # mappings it was handed, so the whole set is anchored here: every asset
+        # must carry the exact projections this authority derived.
+        readiness_projection = self.authority.readiness_projection
+        identity_bucket_projection = self.authority.identity_bucket_projection
+        if any(
+            asset.readiness_authority is not readiness_projection
+            for asset in self.module_assets
+        ) or any(
+            asset.readiness_authority is not readiness_projection
+            or asset.identity_bucket_authority is not identity_bucket_projection
+            for asset in self.declaration_assets
+        ):
+            raise ValueError(
+                "Layered assets must retain the exact derived validation projections."
             )
 
         module_assets_by_path: dict[str, list[ProjectLayeredModuleAsset]] = {}
@@ -779,6 +815,11 @@ def _derive_layered_collections(
     ProjectLayeredOwnerIdentity,
     tuple[ProjectLayeredModuleAsset, ...],
     tuple[ProjectLayeredDeclarationAsset, ...],
+    Mapping[str, ProjectLayeredLoaderReadinessFact],
+    Mapping[
+        ProjectNominalDeclarationIdentity,
+        tuple[ProjectDeclarationOccurrence, ...],
+    ],
 ]:
     """Derive the one canonical layered projection from the exact roots."""
 
@@ -935,7 +976,13 @@ def _derive_layered_collections(
                 )
             )
 
-    return owner, tuple(module_assets), tuple(declaration_assets)
+    return (
+        owner,
+        tuple(module_assets),
+        tuple(declaration_assets),
+        readiness_authority,
+        identity_buckets,
+    )
 
 
 def _layered_declaration_availability(

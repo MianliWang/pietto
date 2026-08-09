@@ -1257,6 +1257,30 @@ def test_layered_fact_set_rejects_dropped_injected_reordered_or_foreign_products
     with pytest.raises(TypeError, match="exact private authority"):
         replace(facts, authority=None)
 
+    # A coordinated graft forges an asset together with the validation mappings
+    # it was handed; the fact set anchors the whole set to this authority.
+    from types import MappingProxyType
+
+    forged_readiness = MappingProxyType(dict(facts.authority.readiness_projection))
+    forged_module = replace(module_assets[0], readiness_authority=forged_readiness)
+    assert forged_module.readiness_authority is not (
+        facts.authority.readiness_projection
+    )
+    with pytest.raises(ValueError, match="exact derived module assets"):
+        replace(facts, module_assets=(forged_module, *module_assets[1:]))
+    forged_buckets = MappingProxyType(dict(facts.authority.identity_bucket_projection))
+    forged_declaration = replace(
+        declaration_assets[0], identity_bucket_authority=forged_buckets
+    )
+    assert forged_declaration.identity_bucket_authority is not (
+        facts.authority.identity_bucket_projection
+    )
+    with pytest.raises(ValueError, match="exact derived declaration assets"):
+        replace(
+            facts,
+            declaration_assets=(forged_declaration, *declaration_assets[1:]),
+        )
+
 
 def test_tenth_sidecar_all_or_none_boundary_is_exact_and_fail_closed(
     tmp_path: Path,
