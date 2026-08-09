@@ -763,8 +763,48 @@ def test_module_cycle_publishes_blocked_readiness_with_exact_issue_roots(
             any(retained is issue for issue in cycle_issues)
             for retained in readiness.blocking_issues
         )
+        assert all(
+            retained.module_cycle is not None
+            and any(
+                member.identity.path == path
+                for member in retained.module_cycle.component.members
+            )
+            for retained in readiness.blocking_issues
+        )
     healthy = _module_asset(semantic, "c.pietto").readiness
     assert healthy.status is layering.ProjectLayeredLoaderReadiness.READY
+
+    # A second, disjoint module cycle's evidence is foreign to the first cycle's
+    # modules and must not be grafted onto them.
+    _, disjoint = _semantic_project(
+        tmp_path / "disjoint",
+        {
+            "a.pietto": (
+                'import "b.pietto":\n    shape S\nexport:\n    shape T\n'
+                "shape T:\n    id: Int\n"
+            ),
+            "b.pietto": (
+                'import "a.pietto":\n    shape T\nexport:\n    shape S\n'
+                "shape S:\n    id: Int\n"
+            ),
+            "c.pietto": (
+                'import "d.pietto":\n    shape V\nexport:\n    shape U\n'
+                "shape U:\n    id: Int\n"
+            ),
+            "d.pietto": (
+                'import "c.pietto":\n    shape U\nexport:\n    shape V\n'
+                "shape V:\n    id: Int\n"
+            ),
+        },
+    )
+    first = _module_asset(disjoint, "a.pietto")
+    other = _module_asset(disjoint, "c.pietto")
+    assert first.readiness.blocking_issues != other.readiness.blocking_issues
+    with pytest.raises(ValueError, match="only this module's cycle"):
+        replace(first, readiness=other.readiness)
+    first_declaration = _declaration(disjoint, "a.pietto", "T")
+    with pytest.raises(ValueError, match="only this module's cycle"):
+        replace(first_declaration, readiness=other.readiness)
     assert _module_asset(semantic, "a.pietto").digest.byte_count > 0
 
     _, referencing = _semantic_project(
@@ -999,6 +1039,9 @@ def test_repeated_nominal_identity_is_ambiguous_and_publishes_no_winner(
         assert len(asset.semantic_facts) == 1
     assert bucket[0].occurrence is not bucket[1].occurrence
     assert bucket[0].identity == bucket[1].identity
+    # One canonical bucket is derived once and shared by every occurrence of the
+    # identity rather than re-derived per declaration.
+    assert bucket[0].identity_occurrences is bucket[1].identity_occurrences
 
 
 def test_loader_blocked_module_publishes_no_semantic_or_relation_product(

@@ -109,6 +109,11 @@ Those three products are `init=False`, so `dataclasses.replace` on the authority
 accepts roots only and coherently rebuilds every product; it can neither accept
 nor graft a supplied owner, module asset, or declaration asset.
 
+The complete identity bucket of every nominal identity is part of that
+projection: it is built once in one pass over the catalog roots, and every
+occurrence of one identity retains the exact same bucket object rather than a
+freshly rescanned equal tuple.
+
 The public fact set requires its `owner`, `module_assets`, and
 `declaration_assets` to be the exact objects that authority derived. The three
 lookup indexes are computed from those tuples at construction, copy complete
@@ -142,6 +147,11 @@ blocking evidence, `BLOCKED` without it, a mismatched reason, and a blocking
 issue of any other status each fail closed. A dependency-ordered module that is
 still a retained cycle member, and an unordered module that is not, both fail
 closed during derivation.
+
+Blocking evidence is owned by the module it names. A module asset and every
+declaration asset of that module admit a retained issue only when its cycle
+component lists that exact module as a member, so a second, disjoint module
+cycle's evidence can never be grafted onto them.
 
 ## Availability Algebra
 

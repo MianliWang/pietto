@@ -263,6 +263,7 @@ class ProjectLayeredModuleAsset:
             or self.digest.byte_count != self.snapshot.byte_count
         ):
             raise ValueError("Layered module digest must reach through its snapshot.")
+        _require_readiness_names_module(self.readiness, self.module.path)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -361,6 +362,7 @@ class ProjectLayeredDeclarationAsset:
             type(self.relation_state) is not ProjectRelationRowSchemaState
         ):
             raise TypeError("Layered declaration relation state must be exact.")
+        _require_readiness_names_module(self.readiness, self.identity.module_path)
         self._validate_availability_atomicity()
 
     def _validate_availability_atomicity(self) -> None:
@@ -823,6 +825,26 @@ def _derive_layered_collections(
         id(declaration.occurrence): declaration
         for declaration in attribution.declarations
     }
+    # The complete identity bucket is a canonical root-derived projection, so it
+    # is built once in one pass over the catalog roots. Re-deriving it per
+    # declaration would rescan every catalog and allocate a fresh equal tuple for
+    # each occurrence of one identity.
+    identity_occurrence_lists: dict[
+        ProjectNominalDeclarationIdentity,
+        list[ProjectDeclarationOccurrence],
+    ] = {}
+    for catalog in catalogs.catalogs:
+        for occurrence in catalog.occurrences:
+            identity_occurrence_lists.setdefault(occurrence.identity, []).append(
+                occurrence
+            )
+    identity_buckets: dict[
+        ProjectNominalDeclarationIdentity,
+        tuple[ProjectDeclarationOccurrence, ...],
+    ] = {
+        identity: tuple(occurrences)
+        for identity, occurrences in identity_occurrence_lists.items()
+    }
     declaration_assets: list[ProjectLayeredDeclarationAsset] = []
     for catalog in catalogs.catalogs:
         module_owner = ProjectLayeredOwnerIdentity(
@@ -833,7 +855,7 @@ def _derive_layered_collections(
         readiness = readiness_by_path[catalog.module_path]
         for occurrence in catalog.occurrences:
             declaration = attribution_by_occurrence[id(occurrence)]
-            identity_occurrences = catalogs.find_identity(occurrence.identity)
+            identity_occurrences = identity_buckets[occurrence.identity]
             semantic_facts = semantic.find_owner(occurrence)
             availability, relation_state = _layered_declaration_availability(
                 readiness=readiness,
@@ -889,6 +911,28 @@ def _frozen_bucket_mapping(
     """Copy complete buckets into an immutable tuple-valued mapping."""
 
     return MappingProxyType({key: tuple(values) for key, values in buckets.items()})
+
+
+def _require_readiness_names_module(
+    readiness: ProjectLayeredLoaderReadinessFact,
+    module_path: str,
+) -> None:
+    """Require every retained blocking issue to name this exact module.
+
+    Blocking evidence is admitted only for a module the retained cycle
+    component actually lists as a member, so a second, disjoint module cycle's
+    evidence can never be grafted onto this asset.
+    """
+
+    for issue in readiness.blocking_issues:
+        cycle = issue.module_cycle
+        if cycle is None or not any(
+            member.identity.path == module_path for member in cycle.component.members
+        ):
+            raise ValueError(
+                "Layered loader readiness must retain only this module's cycle "
+                "evidence."
+            )
 
 
 def _is_exact_member(value: object, values: tuple[object, ...]) -> bool:
