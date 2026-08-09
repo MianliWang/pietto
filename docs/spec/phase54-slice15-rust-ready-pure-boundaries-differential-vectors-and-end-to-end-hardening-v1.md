@@ -106,10 +106,16 @@ independent implementation must return the same triple:
 
 1. violations are reported strictly in document order, and no rule about a
    later record may pre-empt a violation in an earlier one;
-2. inside one record the declared field contract is checked before every
+2. every scope a record ends is therefore settled against its declared child
+   counts before anything about that record is reported, so a malformed
+   successor never hides an earlier scope that already came up short;
+3. inside one record the declared field contract is checked before every
    structural rule, with the single unavoidable exception of an unknown record
    kind, which has no declared field contract to check;
-3. a reported coordinate is always a position that exists in the supplied
+4. a record that ends no scope — one of an unknown kind, one that declares no
+   parent scope, or one whose declared parent scope is not open — is reported
+   where it stands, because there is no earlier frame it could have closed;
+5. a reported coordinate is always a position that exists in the supplied
    stream, so the absence of a required record carries no coordinate at all.
 
 ## Frozen Normalized Rejection Algebra
@@ -291,8 +297,8 @@ what produced two rounds of isomorphic findings.
 | `readiness` | the `status`, `reason`, and cycle-count triple is one of exactly two combinations | `ProjectLayeredLoaderReadinessFact` |
 | `readiness_cycle` | the member count is positive | `ProjectInspectionModuleCycle` |
 | `graph` | the component-member count is positive, and any multi-member component proves a cycle | `ProjectInspectionGraph`, `ProjectModuleStronglyConnectedComponent` |
-| `import` | the namespace and declaration kind form an eligible pair; a supplied resolved target keeps the same namespace and declaration kind; and the four resolved-target keys are present together or absent together | `ProjectImportedBindingIdentity`, `ProjectResolvedImportedBinding`, `ProjectInspectionImport` |
-| `export` | the namespace and declaration kind form an eligible pair; a supplied entry keeps the same namespace and declaration kind, exposes the local name, and, for a local declaration origin, targets that same declared name; and the six facade-entry keys are present together or absent together | `ProjectModuleExportEntry`, `ProjectInspectionExport` |
+| `import` | the namespace and declaration kind form an eligible pair; a supplied resolved target keeps the same namespace and declaration kind; the four resolved-target keys are present together or absent together; and the request has exactly one outcome, so an unresolved request carries at least one issue and a resolved one carries at most a duplicate-request issue | `ProjectImportedBindingIdentity`, `ProjectResolvedImportedBinding`, `ProjectModuleBindingEnvironment`, `ProjectInspectionImport` |
+| `export` | the namespace and declaration kind form an eligible pair; a supplied entry keeps the same namespace and declaration kind, exposes the local name, and, for a local declaration origin, targets that same declared name; the six facade-entry keys are present together or absent together; and the request has exactly one outcome, so an unentered request carries at least one issue and an entered one carries at most a duplicate-request issue | `ProjectModuleExportEntry`, `ProjectModuleExportSurface`, `ProjectInspectionExport` |
 | `declaration` | the owner kind is the module and its namespace is the reserved empty local namespace; the relation status and reason are one atomic pair; the namespace decides the availability domain, a non-relation declaration publishes no relation product, and a retained relation state maps its exact availability; an ambiguous availability requires a repeated identity and every other availability a unique one; a positive row-field count requires the relation state; the occurrence index is inside its bucket | `ProjectInspectionDeclaration`, `ProjectLayeredDeclarationAsset`, `ProjectLayeredOwnerIdentity` |
 | `origin` | a local origin is one self path with no hop and targets its own local name; an imported origin always carries its access chain | `ProjectModuleOriginPath` |
 | `origin_hop` | each hop is one direct route, so its import target and facade module agree and its exported and exposed names agree; the chain re-exports at every interior hop and terminates at a local declaration; the terminating facade is the declaration itself, in its module and under its declared name | `ProjectModuleAccessHop`, `ProjectModuleOriginPath`, `ProjectModuleExportEntry` |
@@ -324,7 +330,10 @@ classified once, and the classification is the boundary:
   records, such as a declaration owner name against its enclosing module path,
   or an alias chain against the resolutions around it. The record stream carries
   each record independently, so expressing these would require the portable
-  layer to rebuild the projection it is validating.
+  layer to rebuild the projection it is validating. A count of child records is
+  the exception the scope machinery already carries, so an outcome invariant
+  states the count a request must have and leaves *which* issue statuses those
+  children hold to the Python layer that owns them.
 
 A later independent implementation therefore reproduces the canonical bytes and
 this rejection algebra; it does not reproduce the Slice 5 through Slice 14

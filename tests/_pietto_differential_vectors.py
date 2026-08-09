@@ -2409,6 +2409,66 @@ def _rejected_vectors() -> tuple[DifferentialVector, ...]:
             8,
         ),
         _rejected(
+            "earlier_scope_settles_first",
+            DifferentialPurpose.EARLIER_SCOPE_SETTLES_FIRST,
+            _document(
+                _header(1),
+                _OWNER,
+                _module(0, "a.pietto"),
+                _digest(0),
+                _readiness(
+                    0, status="blocked", reason="module_cycle_blocked", cycles=1
+                ),
+                _record(
+                    "graph",
+                    ("module", pure_integer(0)),
+                    ("component_is_cyclic", pure_integer(0)),
+                    ("component_members", pure_integer(1)),
+                    ("dependency_targets", pure_integer(0)),
+                    ("import_evidence", pure_integer(0)),
+                ),
+            ),
+            ProjectPureStatus.CHILD_COUNT_MISMATCH,
+            4,
+        ),
+        _rejected(
+            "unresolved_import_without_issue",
+            DifferentialPurpose.UNRESOLVED_IMPORT_WITHOUT_ISSUE,
+            _document(
+                _header(1),
+                _OWNER,
+                *valid_module,
+                _import(
+                    0,
+                    0,
+                    local_name="Row",
+                    exported_name="Row",
+                    target_module_path="b.pietto",
+                    resolved=False,
+                ),
+            ),
+            ProjectPureStatus.INCONSISTENT_RECORD_STATE,
+            7,
+        ),
+        _rejected(
+            "unresolved_export_without_issue",
+            DifferentialPurpose.UNRESOLVED_EXPORT_WITHOUT_ISSUE,
+            _document(
+                _header(1),
+                _OWNER,
+                *valid_module,
+                _export(
+                    0,
+                    0,
+                    local_name="Row",
+                    module_path="a.pietto",
+                    entry_origin=None,
+                ),
+            ),
+            ProjectPureStatus.INCONSISTENT_RECORD_STATE,
+            7,
+        ),
+        _rejected(
             "terminal_hop_target_disagrees",
             DifferentialPurpose.TERMINAL_HOP_TARGET_DISAGREES,
             _document(

@@ -854,6 +854,17 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                     "resolved_declared_name",
                 ),
             ),
+            _PureStateRule(
+                rule=_PureStateKind.COMBINATION,
+                keys=("resolved_module_path", "issues"),
+                presence_keys=("resolved_module_path",),
+                admitted=(
+                    ("present", "zero"),
+                    ("present", "one"),
+                    ("absent", "one"),
+                    ("absent", "many"),
+                ),
+            ),
         ),
     ),
     _PureKindSpec(
@@ -949,6 +960,17 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                     "target_namespace",
                     "target_declaration_kind",
                     "target_declared_name",
+                ),
+            ),
+            _PureStateRule(
+                rule=_PureStateKind.COMBINATION,
+                keys=("entry_origin", "issues"),
+                presence_keys=("entry_origin",),
+                admitted=(
+                    ("present", "zero"),
+                    ("present", "one"),
+                    ("absent", "one"),
+                    ("absent", "many"),
                 ),
             ),
         ),
@@ -1943,10 +1965,14 @@ def evaluate_pure_document(document: ProjectPureDocument) -> ProjectPureOutcome:
     outcome and never raises.
 
     Violations are reported strictly in document order. No rule about a later
-    record may pre-empt a violation in an earlier one, and inside one record the
-    declared field contract is checked before every structural rule, so an
-    independent implementation that walks the stream once reports the exact same
-    status and coordinates. A coordinate is always a position that exists in the
+    record may pre-empt a violation in an earlier one, so every scope a record
+    ends is settled against its declared child counts before anything about that
+    record is reported. Inside one record the declared field contract is checked
+    before every structural rule, so an independent implementation that walks
+    the stream once reports the exact same status and coordinates. A record of
+    an unknown kind, a record that declares no parent scope, and a record whose
+    declared parent scope is not open all end no scope, so each is reported
+    where it stands. A coordinate is always a position that exists in the
     supplied stream; the absence of a required record carries no coordinate.
     """
 
@@ -2019,9 +2045,25 @@ def _validate_structure(
         if specification is None:
             # An unknown kind has no declared field contract to check first.
             return _reject(ProjectPureStatus.UNKNOWN_RECORD_KIND, position)
+        parent = specification.parent
+        settles = parent is not None and any(frame.kind == parent for frame in stack)
+        if settles:
+            # Every frame this record ends is settled before anything about the
+            # record itself is reported, so a successor never pre-empts an
+            # earlier scope that already failed its declared child count.
+            while stack[-1].kind != parent:
+                rejection = _close_frame(stack.pop())
+                if rejection is not None:
+                    return rejection
         rejection = _validate_fields(record, specification, position)
         if rejection is not None:
             return rejection
+        if not settles:
+            # A record that declares no parent scope, or whose declared parent
+            # is not open, ends no frame, so it is reported where it stands.
+            if record.kind in _PURE_HEADER_KINDS:
+                return _reject(ProjectPureStatus.UNEXPECTED_HEADER_RECORD, position)
+            return _reject(ProjectPureStatus.ORPHAN_RECORD, position)
         if position > 1:
             if record.kind in _PURE_HEADER_KINDS:
                 return _reject(ProjectPureStatus.UNEXPECTED_HEADER_RECORD, position)
@@ -2029,14 +2071,6 @@ def _validate_structure(
                 return _reject(
                     ProjectPureStatus.TRAILING_RECORD_AFTER_DOCUMENT, position
                 )
-
-        parent = specification.parent
-        if not any(frame.kind == parent for frame in stack):
-            return _reject(ProjectPureStatus.ORPHAN_RECORD, position)
-        while stack[-1].kind != parent:
-            rejection = _close_frame(stack.pop())
-            if rejection is not None:
-                return rejection
 
         parent_frame = stack[-1]
         rejection = _validate_state_rules(record, specification, position, parent_frame)

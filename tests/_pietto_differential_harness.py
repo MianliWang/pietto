@@ -135,6 +135,9 @@ class DifferentialPurpose(StrEnum):
     CLAUSE_ROLE_OUTSIDE_SUBSET = "clause_role_outside_subset"
     WINDOW_OUTPUT_STATUS_OUTSIDE_SUBSET = "window_output_status_outside_subset"
     TERMINAL_HOP_TARGET_DISAGREES = "terminal_hop_target_disagrees"
+    EARLIER_SCOPE_SETTLES_FIRST = "earlier_scope_settles_first"
+    UNRESOLVED_IMPORT_WITHOUT_ISSUE = "unresolved_import_without_issue"
+    UNRESOLVED_EXPORT_WITHOUT_ISSUE = "unresolved_export_without_issue"
     POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
     OCCURRENCE_INDEX_OUTSIDE_BUCKET = "occurrence_index_outside_bucket"
 
