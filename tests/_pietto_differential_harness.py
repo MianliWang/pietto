@@ -134,6 +134,7 @@ class DifferentialPurpose(StrEnum):
     HOP_ENDPOINTS_DISAGREE = "hop_endpoints_disagree"
     CLAUSE_ROLE_OUTSIDE_SUBSET = "clause_role_outside_subset"
     WINDOW_OUTPUT_STATUS_OUTSIDE_SUBSET = "window_output_status_outside_subset"
+    TERMINAL_HOP_TARGET_DISAGREES = "terminal_hop_target_disagrees"
     POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
     OCCURRENCE_INDEX_OUTSIDE_BUCKET = "occurrence_index_outside_bucket"
 

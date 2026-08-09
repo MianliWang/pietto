@@ -1138,6 +1138,16 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 keys=("import_exported_name", "facade_exposed_name"),
             ),
             _PureStateRule(
+                rule=_PureStateKind.EQUAL_IF_PRESENT,
+                keys=("facade_module_path", "target_module_path"),
+                when=("facade_origin", "local_declaration"),
+            ),
+            _PureStateRule(
+                rule=_PureStateKind.EQUAL_IF_PRESENT,
+                keys=("facade_exposed_name", "target_declared_name"),
+                when=("facade_origin", "local_declaration"),
+            ),
+            _PureStateRule(
                 rule=_PureStateKind.TERMINAL_COMBINATION,
                 keys=("facade_origin",),
                 terminal=("local_declaration", "explicit_reexport"),

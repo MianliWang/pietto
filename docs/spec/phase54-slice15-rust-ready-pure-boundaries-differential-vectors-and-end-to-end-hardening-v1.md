@@ -295,7 +295,7 @@ what produced two rounds of isomorphic findings.
 | `export` | the namespace and declaration kind form an eligible pair; a supplied entry keeps the same namespace and declaration kind, exposes the local name, and, for a local declaration origin, targets that same declared name; and the six facade-entry keys are present together or absent together | `ProjectModuleExportEntry`, `ProjectInspectionExport` |
 | `declaration` | the owner kind is the module and its namespace is the reserved empty local namespace; the relation status and reason are one atomic pair; the namespace decides the availability domain, a non-relation declaration publishes no relation product, and a retained relation state maps its exact availability; an ambiguous availability requires a repeated identity and every other availability a unique one; a positive row-field count requires the relation state; the occurrence index is inside its bucket | `ProjectInspectionDeclaration`, `ProjectLayeredDeclarationAsset`, `ProjectLayeredOwnerIdentity` |
 | `origin` | a local origin is one self path with no hop and targets its own local name; an imported origin always carries its access chain | `ProjectModuleOriginPath` |
-| `origin_hop` | each hop is one direct route, so its import target and facade module agree and its exported and exposed names agree; the chain re-exports at every interior hop and terminates at a local declaration | `ProjectModuleAccessHop`, `ProjectModuleOriginPath` |
+| `origin_hop` | each hop is one direct route, so its import target and facade module agree and its exported and exposed names agree; the chain re-exports at every interior hop and terminates at a local declaration; the terminating facade is the declaration itself, in its module and under its declared name | `ProjectModuleAccessHop`, `ProjectModuleOriginPath`, `ProjectModuleExportEntry` |
 | `row_lineage` | a non-concrete lineage carries no field | `ProjectModuleRelationLineage` |
 | `row_lineage_field` | every retained field keeps at least one complete path | `ProjectModuleRowFieldLineage` |
 | `dependency` | each target group is atomic, and the kind decides which single group is present | `ProjectModuleDependencyFact` |
@@ -349,7 +349,12 @@ declaration availability algebra needs.
 
 A rule may carry a selector, so a guard that one origin variant imposes and the
 others do not is declared once against the variant it belongs to instead of
-being weakened to the intersection of every variant.
+being weakened to the intersection of every variant. The terminating hop of an
+access chain uses this: `ProjectModuleOriginPath` requires that hop's facade to
+sit in the target declaration's own module, and `ProjectModuleExportEntry`
+requires a local-declaration entry to expose that declaration's own name, so
+the selected rule pair states both against the terminal hop alone and leaves an
+interior re-export hop free to rename.
 
 ### Enumeration domains are per key, not per enumeration
 
