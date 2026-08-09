@@ -618,7 +618,9 @@ def test_layered_authority_derives_products_and_rejects_grafted_derived_tuples(
     for item in fields(authority):
         if item.name in derived:
             assert item.init is False
-    with pytest.raises(ValueError, match="init=False"):
+    # The refusal is the contract; its exception class differs across the
+    # supported interpreter matrix, so only the behavior is asserted here.
+    with pytest.raises((TypeError, ValueError), match="init=False"):
         replace(authority, module_assets=())  # pyright: ignore[reportCallIssue]
     rebuilt = replace(authority)
     assert rebuilt.module_assets == authority.module_assets
