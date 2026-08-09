@@ -2420,6 +2420,54 @@ def _rejected_vectors() -> tuple[DifferentialVector, ...]:
             8,
         ),
         _rejected(
+            "foreign_declaration_owner",
+            DifferentialPurpose.FOREIGN_DECLARATION_OWNER,
+            _document(
+                _header(1),
+                _OWNER,
+                *valid_module,
+                _declaration(0, 0, owner_name="foreign.pietto", declared_name="Row"),
+            ),
+            ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
+            7,
+        ),
+        _rejected(
+            "foreign_local_export_target",
+            DifferentialPurpose.FOREIGN_LOCAL_EXPORT_TARGET,
+            _document(
+                _header(1),
+                _OWNER,
+                *valid_module,
+                _export(
+                    0,
+                    0,
+                    local_name="Row",
+                    module_path="foreign.pietto",
+                    entry_origin="local_declaration",
+                ),
+            ),
+            ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
+            7,
+        ),
+        _rejected(
+            "foreign_local_origin_target",
+            DifferentialPurpose.FOREIGN_LOCAL_ORIGIN_TARGET,
+            _document(
+                _header(1),
+                _OWNER,
+                *valid_module,
+                _origin(
+                    0,
+                    0,
+                    local_name="Row",
+                    target_module_path="foreign.pietto",
+                    target_declared_name="Row",
+                ),
+            ),
+            ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
+            7,
+        ),
+        _rejected(
             "hop_target_outside_its_origin",
             DifferentialPurpose.HOP_TARGET_OUTSIDE_ITS_ORIGIN,
             _document(

@@ -299,9 +299,9 @@ what produced two rounds of isomorphic findings.
 | `readiness_cycle` | the member count is positive and the members are distinct | `ProjectInspectionModuleCycle`, `ProjectModuleStronglyConnectedComponent` |
 | `graph` | the component-member count is positive, any multi-member component proves a cycle, the members are distinct, and the component contains the module it describes | `ProjectInspectionGraph`, `ProjectModuleStronglyConnectedComponent`, `_derive_inspection` |
 | `import` | the namespace and declaration kind form an eligible pair; a supplied resolved target keeps the same namespace and declaration kind; the four resolved-target keys are present together or absent together; and the request has exactly one outcome, so an unresolved request carries at least one issue and a resolved one carries at most a duplicate-request issue | `ProjectImportedBindingIdentity`, `ProjectResolvedImportedBinding`, `ProjectModuleBindingEnvironment`, `ProjectInspectionImport` |
-| `export` | the namespace and declaration kind form an eligible pair; a supplied entry keeps the same namespace and declaration kind, exposes the local name, and, for a local declaration origin, targets that same declared name; the six facade-entry keys are present together or absent together; and the request has exactly one outcome, so an unentered request carries at least one issue and an entered one carries at most a duplicate-request issue | `ProjectModuleExportEntry`, `ProjectModuleExportSurface`, `ProjectInspectionExport` |
-| `declaration` | the owner kind is the module and its namespace is the reserved empty local namespace; the relation status and reason are one atomic pair; the namespace decides the availability domain, a non-relation declaration publishes no relation product, and a retained relation state maps its exact availability; an ambiguous availability requires a repeated identity and every other availability a unique one; a positive row-field count requires the relation state; the occurrence index is inside its bucket | `ProjectInspectionDeclaration`, `ProjectLayeredDeclarationAsset`, `ProjectLayeredOwnerIdentity` |
-| `origin` | a local origin is one self path with no hop and targets its own local name; an imported origin always carries its access chain | `ProjectModuleOriginPath` |
+| `export` | the namespace and declaration kind form an eligible pair; a supplied entry keeps the same namespace and declaration kind, exposes the local name, and, for a local declaration origin, targets that same declared name in the enclosing module; the six facade-entry keys are present together or absent together; and the request has exactly one outcome, so an unentered request carries at least one issue and an entered one carries at most a duplicate-request issue | `ProjectModuleExportEntry`, `ProjectModuleExportSurface`, `ProjectInspectionExport` |
+| `declaration` | the owner kind is the module, its namespace is the reserved empty local namespace, and its name is the enclosing module path; the relation status and reason are one atomic pair; the namespace decides the availability domain, a non-relation declaration publishes no relation product, and a retained relation state maps its exact availability; an ambiguous availability requires a repeated identity and every other availability a unique one; a positive row-field count requires the relation state; the occurrence index is inside its bucket | `ProjectInspectionDeclaration`, `ProjectLayeredDeclarationAsset`, `ProjectLayeredOwnerIdentity` |
+| `origin` | a local origin is one self path with no hop that targets its own local name in its own module; an imported origin always carries its access chain | `ProjectModuleOriginPath` |
 | `origin_hop` | each hop is one direct route, so its import target and facade module agree and its exported and exposed names agree; every hop names the origin's own nominal target; the chain re-exports at every interior hop and terminates at a local declaration; the terminating facade is the declaration itself, in its module and under its declared name | `ProjectModuleAccessHop`, `ProjectModuleOriginPath`, `ProjectModuleExportEntry` |
 | `row_lineage` | a non-concrete lineage carries no field | `ProjectModuleRelationLineage` |
 | `row_lineage_field` | every retained field keeps at least one complete path, and every path starts at that field, stays contiguous hop by hop, and ends at its declared root | `ProjectModuleRowFieldLineage`, `ProjectModuleRowLineagePath` |
@@ -378,7 +378,7 @@ the document is consulted:
 
 | Shape | Reads | Declared for |
 | --- | --- | --- |
-| ancestor equal | one value of an open ancestor record | `origin_hop` repeats its origin's nominal target; a zero-hop `row_lineage_path` is its own field; a lineage chain starts at its field and ends at its root |
+| ancestor equal | one value of an open ancestor record | a declaration is owned by its module, a local facade entry and a local origin target that same module, `origin_hop` repeats its origin's nominal target, a zero-hop `row_lineage_path` is its own field, and a lineage chain starts at its field and ends at its root |
 | previous sibling equal | the immediately preceding sibling of the same kind | a lineage chain is contiguous, hop by hop |
 | distinct siblings | the sibling key tuples already seen in this scope | an alias chain, a component, a cycle, and a request's issue statuses each forbid a duplicate member |
 | scope contains ancestor | whether some child of this scope carried an ancestor's value | a module's graph neighbourhood contains that module |
@@ -392,7 +392,14 @@ The line this does not cross: a scope relation reads the *open scope chain and
 the siblings already walked*, never an unrelated subtree and never a retained
 authority object. `ProjectModuleRowFieldLineage` forbids two identical complete
 paths, for example, and that stays undeclared, because comparing whole paths
-means comparing subtrees rather than one collected key.
+means comparing subtrees rather than one collected key. An owner declaration
+position is likewise not matched against the declaration records of its module:
+no carrier states that relationship, and a rule with no upstream authority is
+exactly what this table refuses to contain. A `readiness_cycle` does not claim
+to contain the module it blocks either — the graph neighbourhood does, because
+`_derive_inspection` keys it by that module's own path, while a blocking cycle
+issue is owned by the first member of its component rather than by every
+member.
 
 ### Enumeration domains are per key, not per enumeration
 

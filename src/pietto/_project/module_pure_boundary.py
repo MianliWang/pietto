@@ -1038,6 +1038,14 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 ),
             ),
         ),
+        scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.ANCESTOR_EQUAL,
+                scope="module",
+                pairs=(("target_module_path", "path"),),
+                when=("entry_origin", "local_declaration"),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="export_issue",
@@ -1144,6 +1152,13 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 keys=("occurrence_index", "occurrence_count"),
             ),
         ),
+        scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.ANCESTOR_EQUAL,
+                scope="module",
+                pairs=(("owner_name", "path"),),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="declaration_row_field",
@@ -1196,6 +1211,14 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                     ("imported_binding", "one"),
                     ("imported_binding", "many"),
                 ),
+            ),
+        ),
+        scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.ANCESTOR_EQUAL,
+                scope="module",
+                pairs=(("target_module_path", "path"),),
+                when=("binding", "local_declaration"),
             ),
         ),
     ),

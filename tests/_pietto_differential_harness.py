@@ -144,6 +144,9 @@ class DifferentialPurpose(StrEnum):
     DUPLICATE_ALIAS_IDENTITY = "duplicate_alias_identity"
     COMPONENT_WITHOUT_ITS_MODULE = "component_without_its_module"
     DUPLICATE_IMPORT_ISSUE_STATUS = "duplicate_import_issue_status"
+    FOREIGN_DECLARATION_OWNER = "foreign_declaration_owner"
+    FOREIGN_LOCAL_EXPORT_TARGET = "foreign_local_export_target"
+    FOREIGN_LOCAL_ORIGIN_TARGET = "foreign_local_origin_target"
     POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
     OCCURRENCE_INDEX_OUTSIDE_BUCKET = "occurrence_index_outside_bucket"
 
