@@ -2739,6 +2739,47 @@ def _rejected_vectors() -> tuple[DifferentialVector, ...]:
             2,
         ),
         _rejected(
+            "relation_reason_outside_its_status",
+            DifferentialPurpose.RELATION_REASON_OUTSIDE_ITS_STATUS,
+            _document(
+                _header(1),
+                _OWNER,
+                *valid_module,
+                _row_lineage(0, 0, reason="cycle_blocked"),
+            ),
+            ProjectPureStatus.INCONSISTENT_RECORD_STATE,
+            7,
+        ),
+        _rejected(
+            "lineage_field_position_off_ledger",
+            DifferentialPurpose.LINEAGE_FIELD_POSITION_OFF_LEDGER,
+            _document(
+                _header(1),
+                _OWNER,
+                *valid_module,
+                _row_lineage(0, 0, fields=1),
+                _lineage_field(
+                    0,
+                    0,
+                    0,
+                    name="id",
+                    kind="source_field",
+                    field_position=99,
+                    paths=1,
+                ),
+                _lineage_path(
+                    0,
+                    0,
+                    0,
+                    0,
+                    root_module_path="a.pietto",
+                    root_field_name="id",
+                ),
+            ),
+            ProjectPureStatus.INCONSISTENT_RECORD_STATE,
+            8,
+        ),
+        _rejected(
             "local_origin_outside_declarations",
             DifferentialPurpose.LOCAL_ORIGIN_OUTSIDE_DECLARATIONS,
             _document(
@@ -3726,7 +3767,7 @@ def _rejected_vectors() -> tuple[DifferentialVector, ...]:
                     root_field_name="total",
                 ),
             ),
-            ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
+            ProjectPureStatus.INCONSISTENT_RECORD_STATE,
             10,
         ),
         _rejected(

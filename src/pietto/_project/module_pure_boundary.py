@@ -58,6 +58,33 @@ _PURE_SURROGATE_START = "\ud800"
 
 _PURE_SURROGATE_END = "\udfff"
 
+# Every relation status and reason pair a construction site can publish,
+# enumerated across the resolution, aggregate, and window state builders.
+# The reserved table-upstream reason has no construction site and therefore
+# no admitted row.
+_RELATION_STATE_PAIRS: tuple[tuple[str, str], ...] = (
+    ("concrete", "direct_source_concrete"),
+    ("concrete", "relation_upstream_concrete"),
+    ("unknown", "unknown_schema"),
+    ("unknown", "duplicate_output_name"),
+    ("unknown", "duplicate_group_key"),
+    ("unknown", "unavailable_aggregate_or_grouped_fact"),
+    ("unknown", "invalid_aggregate_or_grouped_output"),
+    ("unknown", "unavailable_window_result_fact"),
+    ("unknown", "invalid_window_output"),
+    ("unknown", "upstream_unknown"),
+    ("deferred", "aggregate_grouped_deferred"),
+    ("deferred", "window_result_deferred"),
+    ("deferred", "deferred_phase48_behavior"),
+    ("deferred", "upstream_deferred"),
+    ("blocked", "conflicting_aggregate_or_grouped_facts"),
+    ("blocked", "conflicting_window_result_facts"),
+    ("blocked", "unresolved_relation_blocked"),
+    ("blocked", "cycle_blocked"),
+    ("blocked", "upstream_blocked"),
+)
+
+
 _PURE_HEX_ALPHABET = frozenset("0123456789abcdef")
 
 
@@ -1355,6 +1382,11 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         is_scope=True,
         state_rules=(
             _PureStateRule(
+                rule=_PureStateKind.COMBINATION,
+                keys=("relation_status", "relation_reason"),
+                admitted=(*_RELATION_STATE_PAIRS, ("absent", "absent")),
+            ),
+            _PureStateRule(
                 rule=_PureStateKind.NON_EMPTY_IF_PRESENT,
                 keys=("declared_name",),
             ),
@@ -1814,6 +1846,11 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         state_rules=(
             _PureStateRule(
                 rule=_PureStateKind.COMBINATION,
+                keys=("status", "reason"),
+                admitted=_RELATION_STATE_PAIRS,
+            ),
+            _PureStateRule(
+                rule=_PureStateKind.COMBINATION,
                 keys=("status", "fields"),
                 admitted=(
                     ("concrete", "zero"),
@@ -1852,6 +1889,10 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         is_scope=True,
         state_rules=(
             _PureStateRule(
+                rule=_PureStateKind.EQUAL_IF_PRESENT,
+                keys=("field", "field_position"),
+            ),
+            _PureStateRule(
                 rule=_PureStateKind.NON_EMPTY_IF_PRESENT,
                 keys=("name",),
             ),
@@ -1861,10 +1902,6 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _PureScopeRule(
                 rule=_PureScopeKind.DISTINCT_SIBLINGS,
                 distinct=("name",),
-            ),
-            _PureScopeRule(
-                rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
-                pairs=(("field_position", "field_position"),),
             ),
         ),
     ),
@@ -2220,6 +2257,13 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         ),
         parent_ordinal_keys=("module",),
         is_scope=True,
+        state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.COMBINATION,
+                keys=("status", "reason"),
+                admitted=_RELATION_STATE_PAIRS,
+            ),
+        ),
         scope_rules=(
             _PureScopeRule(
                 rule=_PureScopeKind.COLLECTED_IMPLIES,

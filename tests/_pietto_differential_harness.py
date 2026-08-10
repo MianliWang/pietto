@@ -208,6 +208,8 @@ class DifferentialPurpose(StrEnum):
     ORIGIN_OUTSIDE_ITS_IMPORT = "origin_outside_its_import"
     ORIGIN_IDENTITY_OUTSIDE_ITS_IMPORT = "origin_identity_outside_its_import"
     LOCAL_ORIGIN_OUTSIDE_DECLARATIONS = "local_origin_outside_declarations"
+    RELATION_REASON_OUTSIDE_ITS_STATUS = "relation_reason_outside_its_status"
+    LINEAGE_FIELD_POSITION_OFF_LEDGER = "lineage_field_position_off_ledger"
     UNORDERED_DEPENDENCY_LEDGER = "unordered_dependency_ledger"
     POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
     OCCURRENCE_INDEX_OUTSIDE_BUCKET = "occurrence_index_outside_bucket"

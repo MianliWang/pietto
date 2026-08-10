@@ -571,6 +571,7 @@ def test_declared_ordinal_rules_match_the_projection_emission_rules() -> None:
         "row_lineage_field",
         "row_lineage_hop",
         "row_lineage_path",
+        "semantic_facts",
         "semantic_let_binding",
         "semantic_select",
         "semantic_window_output",
