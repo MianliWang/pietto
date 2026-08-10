@@ -377,6 +377,8 @@ class _PureScopeKind(StrEnum):
     GROUPED_ASCENDS_BY_COLLECTED = "grouped_ascends_by_collected"
     COLLECTED_SETS_EQUAL = "collected_sets_equal"
     COLLECTED_SUBSET = "collected_subset"
+    COLLECTED_IMPLIES = "collected_implies"
+    GROUP_FIRST_INCREASING = "group_first_increasing"
     SCOPE_REQUIRES_CHILD = "scope_requires_child"
     SIBLING_BUCKETS_COMPLETE = "sibling_buckets_complete"
     DISTINCT_SIBLINGS = "distinct_siblings"
@@ -1591,6 +1593,18 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         ),
         scope_rules=(
             _PureScopeRule(
+                rule=_PureScopeKind.GROUP_FIRST_INCREASING,
+                scope="module",
+                pairs=(
+                    (
+                        "import_module_statement_position",
+                        "import_module_statement_position",
+                    ),
+                    ("import_item_position", "import_item_position"),
+                ),
+                at="first",
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.ANCESTOR_EQUAL,
                 scope="origin",
                 pairs=(
@@ -2155,6 +2169,17 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         is_scope=True,
         scope_rules=(
             _PureScopeRule(
+                rule=_PureScopeKind.COLLECTED_IMPLIES,
+                subset=(
+                    ("semantic_clause_dependency", ("status",)),
+                    ("semantic_window_output", ("status",)),
+                ),
+                excluded=("e:ambiguous",),
+                order=("e:blocked",),
+                pairs=(("status", "status"), ("reason", "reason")),
+                admitted=(("blocked", "conflicting_aggregate_or_grouped_facts"),),
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
                 pairs=(("owner_declaration_position", "owner_declaration_position"),),
             ),
@@ -2386,6 +2411,7 @@ class _PureFrame:
         "last_child_order",
         "buckets",
         "collected",
+        "group_first",
         "identity",
         "grouped_tuples",
         "parent_frame",
@@ -2427,6 +2453,7 @@ class _PureFrame:
         self.subtree: list[tuple[str, ...]] = []
         self.identity = identity
         self.parent_frame = parent_frame
+        self.group_first: dict[str, tuple[int, ...]] = {}
         self.grouped_tuples: dict[
             tuple[str, tuple[str, ...]], list[tuple[str, ...]]
         ] = {}
@@ -2718,7 +2745,8 @@ def _subset_keys(kind: str) -> tuple[tuple[str, tuple[str, ...]], ...]:
     return tuple(
         entry
         for rule in specification.scope_rules
-        if rule.rule is _PureScopeKind.COLLECTED_SUBSET
+        if rule.rule
+        in (_PureScopeKind.COLLECTED_SUBSET, _PureScopeKind.COLLECTED_IMPLIES)
         for entry in rule.subset
     )
 
@@ -2788,6 +2816,33 @@ def _close_grouped_sequences(frame: _PureFrame) -> ProjectPureOutcome | None:
             contained, container = rule.subset
             if not set(frame.grouped_tuples.get(contained, [])) <= set(
                 frame.grouped_tuples.get(container, [])
+            ):
+                return _reject(
+                    ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
+                    frame.record_position,
+                )
+            continue
+        if rule.rule is _PureScopeKind.COLLECTED_IMPLIES:
+            trigger, target = rule.subset
+            if not any(
+                item[0] in rule.excluded
+                for item in frame.grouped_tuples.get(trigger, [])
+            ):
+                continue
+            if frame.record is not None and not any(
+                all(
+                    cell == "*" or cell == _state_token(_value_of(frame.record, key))
+                    for cell, (key, _) in zip(row, rule.pairs, strict=True)
+                )
+                for row in rule.admitted
+            ):
+                return _reject(
+                    ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
+                    frame.record_position,
+                )
+            if any(
+                item[0] not in rule.order
+                for item in frame.grouped_tuples.get(target, [])
             ):
                 return _reject(
                     ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
@@ -2989,6 +3044,16 @@ def _validate_scope_rules(
                 for row in rule.admitted
             ):
                 return _reject(ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position)
+            continue
+        if rule.rule is _PureScopeKind.GROUP_FIRST_INCREASING:
+            ancestor = _ancestor_frame(stack, rule.scope)
+            if ancestor is None:
+                return _reject(ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position)
+            seen = tuple(_integer_of(record, key) for key, _ in rule.pairs)
+            before = ancestor.group_first.get(specification.kind)
+            if before is not None and seen <= before:
+                return _reject(ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position)
+            ancestor.group_first[specification.kind] = seen
             continue
         if rule.rule is _PureScopeKind.PREVIOUS_SIBLING_EQUAL:
             previous = parent_frame.previous_child.get(specification.kind)

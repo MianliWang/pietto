@@ -200,6 +200,10 @@ class DifferentialPurpose(StrEnum):
     UNORDERED_CYCLE_MEMBERS = "unordered_cycle_members"
     IMPORTED_ORIGIN_BEFORE_LOCAL = "imported_origin_before_local"
     UNORDERED_LOCAL_ORIGINS = "unordered_local_origins"
+    CLAUSE_AMBIGUITY_WITHOUT_BLOCKED_WINDOWS = (
+        "clause_ambiguity_without_blocked_windows"
+    )
+    UNORDERED_IMPORTED_ORIGINS = "unordered_imported_origins"
     UNORDERED_DEPENDENCY_LEDGER = "unordered_dependency_ledger"
     POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
     OCCURRENCE_INDEX_OUTSIDE_BUCKET = "occurrence_index_outside_bucket"
