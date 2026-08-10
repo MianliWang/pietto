@@ -2540,6 +2540,19 @@ def _rejected_vectors() -> tuple[DifferentialVector, ...]:
             8,
         ),
         _rejected(
+            "repeated_type_reference_site",
+            DifferentialPurpose.REPEATED_TYPE_REFERENCE_SITE,
+            _document(
+                _header(1),
+                _OWNER,
+                *valid_module,
+                _type_resolution(0, 0, canonical_name="Text"),
+                _type_resolution(0, 1, canonical_name="Int"),
+            ),
+            ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
+            8,
+        ),
+        _rejected(
             "unnamed_name_bearing_issue",
             DifferentialPurpose.UNNAMED_NAME_BEARING_ISSUE,
             _document(

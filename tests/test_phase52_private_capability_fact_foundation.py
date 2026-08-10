@@ -923,7 +923,7 @@ def test_project_boundary_package_version_and_release_state_are_unchanged() -> N
     project_paths = _project_private_paths()
     assert len(project_paths) == 33
     assert _digest(project_paths) == (
-        "4c04eaa53bd11d911518a5fe8a27334b115c4bc453bc9499aa256f877176ddec"
+        "757d53edd36f1038eb4f8db7b8c5b9c91f713af612185ffe8932162e8d1732a6"
     )
     with PYPROJECT_PATH.open("rb") as stream:
         project = tomllib.load(stream)

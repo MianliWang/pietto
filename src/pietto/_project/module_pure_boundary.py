@@ -1947,6 +1947,15 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 ),
             ),
         ),
+        scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
+                pairs=(
+                    ("owner_declaration_position", "owner_declaration_position"),
+                    ("member_position", "member_position"),
+                ),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="type_resolution_alias",
@@ -2010,6 +2019,12 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 keys=("target_module_path",),
             ),
         ),
+        scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
+                pairs=(("owner_declaration_position", "owner_declaration_position"),),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="relation_resolution",
@@ -2034,6 +2049,12 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _PureStateRule(
                 rule=_PureStateKind.MODULE_PATH,
                 keys=("target_module_path",),
+            ),
+        ),
+        scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
+                pairs=(("owner_declaration_position", "owner_declaration_position"),),
             ),
         ),
     ),

@@ -604,6 +604,7 @@ def test_declared_ordinal_rules_match_the_projection_emission_rules() -> None:
         "origin",
         "origin_hop",
         "readiness_cycle_member",
+        "relation_resolution",
         "row_lineage",
         "row_lineage_field",
         "row_lineage_hop",
@@ -611,6 +612,8 @@ def test_declared_ordinal_rules_match_the_projection_emission_rules() -> None:
         "semantic_clause_dependency",
         "semantic_facts",
         "semantic_window_output",
+        "source_shape_resolution",
+        "type_resolution",
         "type_resolution_alias",
     }
     scope_shapes = {
