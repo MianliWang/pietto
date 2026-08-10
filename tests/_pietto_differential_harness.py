@@ -153,6 +153,13 @@ class DifferentialPurpose(StrEnum):
     DEPENDENCY_ROLE_KIND_MISMATCH = "dependency_role_kind_mismatch"
     REPEATED_LINEAGE_FIELD_POSITION = "repeated_lineage_field_position"
     UNORDERED_IMPORT_POSITIONS = "unordered_import_positions"
+    DUPLICATE_MODULE_PATH = "duplicate_module_path"
+    EVIDENCE_OUTSIDE_DEPENDENCY_TARGETS = "evidence_outside_dependency_targets"
+    UNRESOLVED_IMPORT_WITHOUT_BLOCKING_ISSUE = (
+        "unresolved_import_without_blocking_issue"
+    )
+    UNENTERED_EXPORT_WITHOUT_BLOCKING_ISSUE = "unentered_export_without_blocking_issue"
+    INCOMPLETE_OCCURRENCE_BUCKET = "incomplete_occurrence_bucket"
     POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
     OCCURRENCE_INDEX_OUTSIDE_BUCKET = "occurrence_index_outside_bucket"
 

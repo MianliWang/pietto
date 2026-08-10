@@ -370,6 +370,9 @@ class _PureScopeKind(StrEnum):
     PREVIOUS_SIBLING_EQUAL = "previous_sibling_equal"
     PREVIOUS_SIBLING_INCREASING = "previous_sibling_increasing"
     GROUPED_SEQUENCES_EQUAL = "grouped_sequences_equal"
+    COLLECTED_SETS_EQUAL = "collected_sets_equal"
+    SCOPE_REQUIRES_CHILD = "scope_requires_child"
+    SIBLING_BUCKETS_COMPLETE = "sibling_buckets_complete"
     DISTINCT_SIBLINGS = "distinct_siblings"
     SCOPE_CONTAINS_ANCESTOR = "scope_contains_ancestor"
 
@@ -401,6 +404,7 @@ class _PureScopeRule:
     admitted: tuple[tuple[str, ...], ...] = ()
     presence: tuple[str, ...] = ()
     distinct: tuple[str, ...] = ()
+    excluded: tuple[str, ...] = ()
     child: str = ""
     child_key: str = ""
     at: str = "any"
@@ -690,6 +694,10 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         is_scope=True,
         scope_rules=(
             _PureScopeRule(
+                rule=_PureScopeKind.DISTINCT_SIBLINGS,
+                distinct=("path",),
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.GROUPED_SEQUENCES_EQUAL,
                 pairs=(
                     ("readiness_cycle_member", "path"),
@@ -811,6 +819,13 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         ),
         scope_rules=(
             _PureScopeRule(
+                rule=_PureScopeKind.COLLECTED_SETS_EQUAL,
+                pairs=(
+                    ("graph_import_evidence", "path"),
+                    ("graph_dependency_target", "path"),
+                ),
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.SCOPE_CONTAINS_ANCESTOR,
                 scope="module",
                 child="graph_component_member",
@@ -849,6 +864,12 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _key("path", _TEXT),
         ),
         parent_ordinal_keys=("module",),
+        scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.DISTINCT_SIBLINGS,
+                distinct=("path",),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="graph_import_evidence",
@@ -864,6 +885,12 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _key("item_position", _INTEGER),
         ),
         parent_ordinal_keys=("module",),
+        scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.DISTINCT_SIBLINGS,
+                distinct=("path", "module_statement_position", "item_position"),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="import",
@@ -943,6 +970,14 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             ),
         ),
         scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.SCOPE_REQUIRES_CHILD,
+                child="import_issue",
+                child_key="status",
+                excluded=("duplicate_source_request",),
+                presence=("resolved_module_path",),
+                when=("resolved_module_path", "absent"),
+            ),
             _PureScopeRule(
                 rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
                 pairs=(
@@ -1077,6 +1112,14 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         ),
         scope_rules=(
             _PureScopeRule(
+                rule=_PureScopeKind.SCOPE_REQUIRES_CHILD,
+                child="export_issue",
+                child_key="status",
+                excluded=("duplicate_source_request",),
+                presence=("entry_origin",),
+                when=("entry_origin", "absent"),
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
                 pairs=(
                     ("module_statement_position", "module_statement_position"),
@@ -1207,6 +1250,11 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             ),
         ),
         scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.SIBLING_BUCKETS_COMPLETE,
+                distinct=("namespace", "declaration_kind", "declared_name"),
+                pairs=(("occurrence_index", "occurrence_count"),),
+            ),
             _PureScopeRule(
                 rule=_PureScopeKind.ANCESTOR_EQUAL,
                 scope="module",
@@ -1849,6 +1897,7 @@ class _PureFrame:
         "declared_counts",
         "kind",
         "last_child_order",
+        "buckets",
         "collected",
         "membership_required",
         "membership_seen",
@@ -1881,6 +1930,7 @@ class _PureFrame:
         self.membership_required = membership_required
         self.membership_seen: set[tuple[str, str]] = set()
         self.collected: dict[tuple[str, str], list[tuple[int, str]]] = {}
+        self.buckets: dict[str, dict[tuple[str, ...], list[tuple[int, int]]]] = {}
 
 
 def _reject(
@@ -2023,6 +2073,23 @@ def _state_token(value: ProjectPureValue) -> str:
     return value.text or ""
 
 
+def _exact_token(value: ProjectPureValue) -> str:
+    """Render one validated value losslessly for a sibling identity tuple.
+
+    A state token collapses an integer to its magnitude class, which is right
+    for a declared combination and wrong for an identity: two distinct
+    positions must stay distinct. The tag prefix keeps the domains apart.
+    """
+
+    if value.tag is ProjectPureTag.ABSENT:
+        return "n:"
+    if value.tag is ProjectPureTag.INTEGER:
+        return f"i:{value.integer}"
+    if value.tag is ProjectPureTag.BOOLEAN:
+        return f"b:{'true' if value.boolean else 'false'}"
+    return f"{'e' if value.tag is ProjectPureTag.ENUMERATION else 's'}:{value.text}"
+
+
 def _presence_token(value: ProjectPureValue) -> str:
     """Classify one validated value by presence alone."""
 
@@ -2057,12 +2124,16 @@ def _collected_keys(kind: str) -> tuple[tuple[str, str], ...]:
     specification = PURE_RECORD_SCHEMA.get(kind)
     if specification is None:
         return ()
-    return tuple(
-        pair
-        for rule in specification.scope_rules
-        if rule.rule is _PureScopeKind.GROUPED_SEQUENCES_EQUAL
-        for pair in rule.pairs
-    )
+    collected: list[tuple[str, str]] = []
+    for rule in specification.scope_rules:
+        if rule.rule in (
+            _PureScopeKind.GROUPED_SEQUENCES_EQUAL,
+            _PureScopeKind.COLLECTED_SETS_EQUAL,
+        ):
+            collected.extend(rule.pairs)
+        elif rule.rule is _PureScopeKind.SCOPE_REQUIRES_CHILD:
+            collected.append((rule.child, rule.child_key))
+    return tuple(collected)
 
 
 def _grouped(collected: list[tuple[int, str]]) -> tuple[tuple[str, ...], ...]:
@@ -2083,15 +2154,59 @@ def _close_grouped_sequences(frame: _PureFrame) -> ProjectPureOutcome | None:
     if specification is None:
         return None
     for rule in specification.scope_rules:
-        if rule.rule is not _PureScopeKind.GROUPED_SEQUENCES_EQUAL:
-            continue
-        grouped, expected = (
-            _grouped(frame.collected.get(pair, [])) for pair in rule.pairs
-        )
-        if len(expected) != 1 or any(group != expected[0] for group in grouped):
-            return _reject(
-                ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, frame.record_position
+        if rule.rule is _PureScopeKind.GROUPED_SEQUENCES_EQUAL:
+            grouped, expected = (
+                _grouped(frame.collected.get(pair, [])) for pair in rule.pairs
             )
+            if len(expected) != 1 or any(group != expected[0] for group in grouped):
+                return _reject(
+                    ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
+                    frame.record_position,
+                )
+            continue
+        if rule.rule is _PureScopeKind.COLLECTED_SETS_EQUAL:
+            left, right = (
+                {value for _, value in frame.collected.get(pair, [])}
+                for pair in rule.pairs
+            )
+            if left != right:
+                return _reject(
+                    ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
+                    frame.record_position,
+                )
+            continue
+        if rule.rule is _PureScopeKind.SCOPE_REQUIRES_CHILD:
+            if rule.when and frame.record is not None:
+                selector, expected_token = rule.when
+                supplied = _value_of(frame.record, selector)
+                observed = (
+                    _presence_token(supplied)
+                    if selector in rule.presence
+                    else _state_token(supplied)
+                )
+                if observed != expected_token:
+                    continue
+            values = frame.collected.get((rule.child, rule.child_key), [])
+            if not any(value not in rule.excluded for _, value in values):
+                return _reject(
+                    ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
+                    frame.record_position,
+                )
+            continue
+    for child_kind, buckets in frame.buckets.items():
+        for members in buckets.values():
+            counts = {count for _, count in members}
+            indexes = sorted(index for index, _ in members)
+            if (
+                len(counts) != 1
+                or counts.pop() != len(members)
+                or indexes != list(range(len(members)))
+            ):
+                return _reject(
+                    ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
+                    frame.record_position,
+                )
+        del child_kind
     return None
 
 
@@ -2229,10 +2344,11 @@ def _validate_scope_rules(
             if seen <= before:
                 return _reject(ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position)
             continue
-        if rule.rule is _PureScopeKind.GROUPED_SEQUENCES_EQUAL:
+        if rule.rule is not _PureScopeKind.DISTINCT_SIBLINGS:
+            # Every remaining shape is settled when the owning scope closes.
             continue
         seen = parent_frame.seen_children.setdefault(specification.kind, set())
-        member = tuple(_state_token(_value_of(record, key)) for key in rule.distinct)
+        member = tuple(_exact_token(_value_of(record, key)) for key in rule.distinct)
         if member in seen:
             return _reject(ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position)
         seen.add(member)
@@ -2532,6 +2648,14 @@ def _validate_structure(
             parent_frame.child_counts.get(record.kind, 0) + 1
         )
         parent_frame.previous_child[record.kind] = record
+        for rule in specification.scope_rules:
+            if rule.rule is not _PureScopeKind.SIBLING_BUCKETS_COMPLETE:
+                continue
+            bucket = tuple(_text_of(record, key) for key in rule.distinct)
+            index_key, count_key = rule.pairs[0]
+            parent_frame.buckets.setdefault(record.kind, {}).setdefault(
+                bucket, []
+            ).append((_integer_of(record, index_key), _integer_of(record, count_key)))
         for frame in stack:
             for collected_kind, collected_key in _collected_keys(frame.kind):
                 if collected_kind != record.kind:

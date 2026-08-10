@@ -578,6 +578,8 @@ def test_declared_ordinal_rules_match_the_projection_emission_rules() -> None:
         "origin",
         "graph",
         "graph_component_member",
+        "graph_dependency_target",
+        "graph_import_evidence",
         "import_issue",
         "export_issue",
         "origin_hop",
