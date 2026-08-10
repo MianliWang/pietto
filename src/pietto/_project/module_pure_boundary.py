@@ -1534,6 +1534,18 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         ),
         scope_rules=(
             _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="declaration",
+                pairs=(
+                    ("target_declaration_position", "declaration"),
+                    ("target_declared_name", "declared_name"),
+                    ("namespace", "namespace"),
+                    ("declaration_kind", "declaration_kind"),
+                ),
+                when=("binding", "local_declaration"),
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
                 pairs=(("target_declaration_position", "target_declaration_position"),),
                 when=("binding", "local_declaration"),
@@ -3101,21 +3113,28 @@ def _validate_scope_rules(
             continue
         if rule.rule is _PureScopeKind.LEDGER_MATCH:
             ledger_frame = _ancestor_frame(stack, rule.scope)
-            owner_frame = _ancestor_frame(stack, rule.ancestor_scope)
-            if (
-                ledger_frame is None
-                or owner_frame is None
-                or owner_frame.record is None
-            ):
+            if ledger_frame is None:
                 return _reject(ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position)
+            owner_record: ProjectPureRecord | None = None
+            if rule.ancestor_scope:
+                owner_frame = _ancestor_frame(stack, rule.ancestor_scope)
+                if owner_frame is None or owner_frame.record is None:
+                    return _reject(
+                        ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position
+                    )
+                owner_record = owner_frame.record
             ledger = set(
                 ledger_frame.grouped_tuples.get((rule.child, _ledger_keys(rule)), [])
             )
             ledger_observed = (
                 *(_exact_token(_value_of(record, key)) for key, _ in rule.pairs),
                 *(
-                    _exact_token(_value_of(owner_frame.record, key))
-                    for key, _ in rule.ancestor_pairs
+                    ()
+                    if owner_record is None
+                    else tuple(
+                        _exact_token(_value_of(owner_record, key))
+                        for key, _ in rule.ancestor_pairs
+                    )
                 ),
             )
             if ledger_observed not in ledger:

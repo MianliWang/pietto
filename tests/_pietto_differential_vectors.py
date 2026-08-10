@@ -2739,6 +2739,26 @@ def _rejected_vectors() -> tuple[DifferentialVector, ...]:
             2,
         ),
         _rejected(
+            "local_origin_outside_declarations",
+            DifferentialPurpose.LOCAL_ORIGIN_OUTSIDE_DECLARATIONS,
+            _document(
+                _header(1),
+                _OWNER,
+                *valid_module,
+                _declaration(0, 0, owner_name="a.pietto", declared_name="Row"),
+                _origin(
+                    0,
+                    0,
+                    local_name="Row",
+                    target_module_path="a.pietto",
+                    target_declared_name="Row",
+                    target_declaration_position=99,
+                ),
+            ),
+            ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
+            8,
+        ),
+        _rejected(
             "origin_identity_outside_its_import",
             DifferentialPurpose.ORIGIN_IDENTITY_OUTSIDE_ITS_IMPORT,
             _document(
@@ -2863,6 +2883,8 @@ def _rejected_vectors() -> tuple[DifferentialVector, ...]:
                 _header(1),
                 _OWNER,
                 *valid_module,
+                _declaration(0, 0, owner_name="a.pietto", declared_name="First"),
+                _declaration(0, 1, owner_name="a.pietto", declared_name="Second"),
                 _origin(
                     0,
                     0,
@@ -2881,7 +2903,7 @@ def _rejected_vectors() -> tuple[DifferentialVector, ...]:
                 ),
             ),
             ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
-            8,
+            10,
         ),
         _rejected(
             "imported_origin_before_local",
