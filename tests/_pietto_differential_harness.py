@@ -187,6 +187,8 @@ class DifferentialPurpose(StrEnum):
     REPEATED_SEMANTIC_FACTS_OWNER = "repeated_semantic_facts_owner"
     ALIAS_BASE_OUTSIDE_MEMBER_ZERO = "alias_base_outside_member_zero"
     WINDOW_OUTPUT_OUTSIDE_SELECT_LEDGER = "window_output_outside_select_ledger"
+    FIXED_ROLE_OUTSIDE_MEMBER_ZERO = "fixed_role_outside_member_zero"
+    DIRECT_CANONICAL_KIND_MISMATCH = "direct_canonical_kind_mismatch"
     POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
     OCCURRENCE_INDEX_OUTSIDE_BUCKET = "occurrence_index_outside_bucket"
 
