@@ -185,6 +185,8 @@ class DifferentialPurpose(StrEnum):
     UNORDERED_ISSUE_FAMILIES = "unordered_issue_families"
     NAMED_GRAPH_ISSUE = "named_graph_issue"
     REPEATED_SEMANTIC_FACTS_OWNER = "repeated_semantic_facts_owner"
+    ALIAS_BASE_OUTSIDE_MEMBER_ZERO = "alias_base_outside_member_zero"
+    WINDOW_OUTPUT_OUTSIDE_SELECT_LEDGER = "window_output_outside_select_ledger"
     POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
     OCCURRENCE_INDEX_OUTSIDE_BUCKET = "occurrence_index_outside_bucket"
 

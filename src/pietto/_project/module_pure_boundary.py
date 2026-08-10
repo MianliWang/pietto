@@ -374,6 +374,7 @@ class _PureScopeKind(StrEnum):
     PREVIOUS_SIBLING_NON_DECREASING = "previous_sibling_non_decreasing"
     GROUPED_SEQUENCES_EQUAL = "grouped_sequences_equal"
     COLLECTED_SETS_EQUAL = "collected_sets_equal"
+    COLLECTED_SUBSET = "collected_subset"
     SCOPE_REQUIRES_CHILD = "scope_requires_child"
     SIBLING_BUCKETS_COMPLETE = "sibling_buckets_complete"
     DISTINCT_SIBLINGS = "distinct_siblings"
@@ -411,6 +412,7 @@ class _PureScopeRule:
     distinct: tuple[str, ...] = ()
     excluded: tuple[str, ...] = ()
     order: tuple[str, ...] = ()
+    subset: tuple[tuple[str, tuple[str, ...]], ...] = ()
     child: str = ""
     child_key: str = ""
     at: str = "any"
@@ -1853,6 +1855,11 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         is_scope=True,
         state_rules=(
             _PureStateRule(
+                rule=_PureStateKind.COMBINATION,
+                keys=("role", "member_position"),
+                admitted=(("type_alias_base", "zero"), ("shape_field_type", "*")),
+            ),
+            _PureStateRule(
                 rule=_PureStateKind.NON_EMPTY_IF_PRESENT,
                 keys=("canonical_name", "canonical_target_declared_name"),
             ),
@@ -2034,6 +2041,16 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _PureScopeRule(
                 rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
                 pairs=(("owner_declaration_position", "owner_declaration_position"),),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.COLLECTED_SUBSET,
+                subset=(
+                    (
+                        "semantic_window_output",
+                        ("selected_output_ordinal", "output_name"),
+                    ),
+                    ("semantic_select", ("selected_output_ordinal", "output_name")),
+                ),
             ),
         ),
     ),
@@ -2243,6 +2260,7 @@ class _PureFrame:
         "buckets",
         "collected",
         "identity",
+        "grouped_tuples",
         "parent_frame",
         "subtree",
         "membership_required",
@@ -2282,6 +2300,9 @@ class _PureFrame:
         self.subtree: list[tuple[str, ...]] = []
         self.identity = identity
         self.parent_frame = parent_frame
+        self.grouped_tuples: dict[
+            tuple[str, tuple[str, ...]], list[tuple[str, ...]]
+        ] = {}
 
 
 def _reject(
@@ -2534,6 +2555,20 @@ def _collected_keys(kind: str) -> tuple[tuple[str, str], ...]:
     return tuple(collected)
 
 
+def _subset_keys(kind: str) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """Return the child kind and key tuples one scope kind must collect."""
+
+    specification = PURE_RECORD_SCHEMA.get(kind)
+    if specification is None:
+        return ()
+    return tuple(
+        entry
+        for rule in specification.scope_rules
+        if rule.rule is _PureScopeKind.COLLECTED_SUBSET
+        for entry in rule.subset
+    )
+
+
 def _grouped(collected: list[tuple[int, str]]) -> tuple[tuple[str, ...], ...]:
     """Group one collected child sequence by the scope that owned each item."""
 
@@ -2568,6 +2603,16 @@ def _close_grouped_sequences(frame: _PureFrame) -> ProjectPureOutcome | None:
                 for pair in rule.pairs
             )
             if left != right:
+                return _reject(
+                    ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
+                    frame.record_position,
+                )
+            continue
+        if rule.rule is _PureScopeKind.COLLECTED_SUBSET:
+            contained, container = rule.subset
+            if not set(frame.grouped_tuples.get(contained, [])) <= set(
+                frame.grouped_tuples.get(container, [])
+            ):
                 return _reject(
                     ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
                     frame.record_position,
@@ -3129,6 +3174,12 @@ def _validate_structure(
                 bucket, []
             ).append((index, count))
         for frame in stack:
+            for entry in _subset_keys(frame.kind):
+                if entry[0] != record.kind:
+                    continue
+                frame.grouped_tuples.setdefault(entry, []).append(
+                    tuple(_exact_token(_value_of(record, key)) for key in entry[1])
+                )
             for collected_kind, collected_key in _collected_keys(frame.kind):
                 if collected_kind != record.kind:
                     continue
