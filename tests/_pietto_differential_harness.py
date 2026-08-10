@@ -173,6 +173,9 @@ class DifferentialPurpose(StrEnum):
     SPARSE_CLAUSE_SOURCE_LEDGER = "sparse_clause_source_ledger"
     UNORDERED_CLAUSE_ROLES = "unordered_clause_roles"
     UNORDERED_WINDOW_OUTPUTS = "unordered_window_outputs"
+    NON_CONCRETE_WINDOW_UNDER_CONCRETE = "non_concrete_window_under_concrete"
+    DUPLICATE_LINEAGE_PATH = "duplicate_lineage_path"
+    DUPLICATE_DEPENDENCY_FACT = "duplicate_dependency_fact"
     POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
     OCCURRENCE_INDEX_OUTSIDE_BUCKET = "occurrence_index_outside_bucket"
 

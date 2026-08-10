@@ -302,17 +302,17 @@ what produced two rounds of isomorphic findings.
 | `import` | the namespace and declaration kind form an eligible pair; a supplied resolved target keeps the same namespace and declaration kind; the four resolved-target keys are present together or absent together; and the request has exactly one outcome, so an unresolved request carries at least one issue and a resolved one carries at most the duplicate request issue, which is also the only status its issues may hold, while an unresolved one keeps at least one issue that is not that duplicate | `ProjectImportedBindingIdentity`, `ProjectResolvedImportedBinding`, `ProjectModuleBindingEnvironment`, `ProjectInspectionImport` |
 | `export` | the namespace and declaration kind form an eligible pair; a supplied entry keeps the same namespace and declaration kind, exposes the local name, and, for a local declaration origin, targets that same declared name in the enclosing module; the six facade-entry keys are present together or absent together; and the request has exactly one outcome, so an unentered request carries at least one issue and an entered one carries at most the duplicate request issue, which is also the only status its issues may hold, while an unentered one keeps at least one issue that is not that duplicate | `ProjectModuleExportEntry`, `ProjectModuleExportSurface`, `ProjectInspectionExport` |
 | `declaration` | the owner kind is the module, its namespace is the reserved empty local namespace, and its name is the enclosing module path; the namespace and declaration kind are one of the eight pairs a definition can produce; the relation status and reason are one atomic pair; the namespace decides the availability domain, a non-relation declaration publishes no relation product, and a retained relation state maps its exact availability; an ambiguous availability requires a repeated identity and every other availability a unique one, and a repeated identity publishes its whole bucket, once per index; a positive row-field count requires the relation state; the occurrence index is inside its bucket | `ProjectInspectionDeclaration`, `ProjectLayeredDeclarationAsset`, `ProjectLayeredOwnerIdentity` |
-| `origin` | the namespace and declaration kind are one of the eight pairs a definition can produce; a local origin is one self path with no hop that targets its own local name in its own module; an imported origin always carries its access chain | `ProjectModuleOriginPath` |
+| `origin` | one origin path, including its whole access chain, appears once; the namespace and declaration kind are one of the eight pairs a definition can produce; a local origin is one self path with no hop that targets its own local name in its own module; an imported origin always carries its access chain | `ProjectModuleOriginPath` |
 | `origin_hop` | each hop is one direct route, so its import target and facade module agree and its exported and exposed names agree; every hop names the origin's own nominal target; the chain re-exports at every interior hop and terminates at a local declaration; the terminating facade is the declaration itself, in its module and under its declared name | `ProjectModuleAccessHop`, `ProjectModuleOriginPath`, `ProjectModuleExportEntry` |
 | `row_lineage` | a non-concrete lineage carries no field, and one relation owner publishes at most one lineage | `ProjectModuleRelationLineage`, `ProjectModuleAttributionFactSet` |
-| `row_lineage_field` | every retained field keeps at least one complete path, field positions ascend without repeating, and every path starts at that field, stays contiguous hop by hop, and ends at its declared root | `ProjectModuleRowFieldLineage`, `ProjectModuleRelationLineage`, `ProjectModuleRowLineagePath` |
-| `dependency` | each target group is atomic, and the reference role decides both the kind and which single target group is present | `ProjectModuleDependencyFact`, `_dependency_kind` |
+| `row_lineage_field` | every retained field keeps at least one complete path, no two paths are identical, field positions ascend without repeating, and every path starts at that field, stays contiguous hop by hop, and ends at its declared root | `ProjectModuleRowFieldLineage`, `ProjectModuleRelationLineage`, `ProjectModuleRowLineagePath` |
+| `dependency` | each target group is atomic, the reference role decides both the kind and which single target group is present, and one reference-to-target fact appears once | `ProjectModuleDependencyFact`, `_dependency_kind` |
 | `type_resolution` | the canonical-target pair is atomic; an enumeration or shape canonical kind requires that target and a builtin or unknown one forbids it; the canonical kind decides the canonical name, which is a registered builtin name or the fixed unknown name; a supplied canonical target declares that same name; a canonical kind never terminates at an alias; only a direct alias carries an alias chain | `ProjectResolvedModuleTypeReference` |
 | `type_resolution_alias` | every alias identity is a type alias in the type namespace, and no identity repeats in one chain | `ProjectResolvedModuleTypeReference` |
 | `semantic_let_binding` | the retained source ordinal is the record's own position | `ProjectModuleRelationSemanticFacts` |
 | `semantic_clause_dependency` | roles appear in their declared order, and each role's source ledger is dense from zero | `ProjectModuleRelationSemanticFacts` |
 | `semantic_select` | a supplied output name is non-empty, and the retained source ordinal is the record's own position | `ProjectModuleSelectFact`, `ProjectModuleRelationSemanticFacts` |
-| `semantic_window_output` | a supplied output name is non-empty, and selected output ordinals ascend without repeating | `ProjectInspectionWindowOutput`, `ProjectModuleRelationSemanticFacts` |
+| `semantic_window_output` | a supplied output name is non-empty, a concrete relation publishes only concrete outputs, and selected output ordinals ascend without repeating | `ProjectInspectionWindowOutput`, `ProjectModuleRelationSemanticFacts` |
 | `issue` | the status belongs to its declared family | `ProjectInspectionIssue` |
 
 ### What the portable layer does and does not re-validate
@@ -391,7 +391,7 @@ the document is consulted:
 
 | Shape | Reads | Declared for |
 | --- | --- | --- |
-| ancestor combination | one value of this record against one value of an open ancestor record | a resolved request's only admitted issue is the duplicate request, for both an import and a facade entry |
+| ancestor combination | one value of this record against one value of an open ancestor record | a resolved request's only admitted issue is the duplicate request, for both an import and a facade entry, and a concrete relation publishes only concrete window outputs |
 | ancestor equal | one value of an open ancestor record | a declaration is owned by its module, a local facade entry and a local origin target that same module, `origin_hop` repeats its origin's nominal target, a zero-hop `row_lineage_path` is its own field, and a lineage chain starts at its field and ends at its root |
 | previous sibling equal | the immediately preceding sibling of the same kind | a lineage chain is contiguous, hop by hop |
 | previous sibling increasing | the immediately preceding sibling of the same kind | lineage field positions, window output ordinals, and import evidence ascend without repeating, and import and export requests keep source order |
@@ -400,7 +400,8 @@ the document is consulted:
 | collected sets equal | two child collections this scope has already collected, compared as sets | every import evidence edge names a declared dependency target, and every target has evidence |
 | scope requires child | the child values this scope has already collected | an unresolved request keeps at least one issue that is not the non-blocking duplicate |
 | sibling buckets complete | the siblings of one kind, grouped by a declared key tuple | a repeated nominal identity publishes its whole occurrence bucket, once per index, and each clause role publishes a dense source ledger |
-| distinct siblings | the sibling key tuples already seen in this scope | an alias chain, a component, a cycle, and a request's issue statuses each forbid a duplicate member |
+| distinct siblings | the sibling key tuples already seen in this scope | an alias chain, a component, a cycle, a request's issue statuses, and a module's dependency facts each forbid a duplicate member |
+| distinct subtrees | the closing scope's own identity together with every record it contained | an origin path and a lineage path are identified by their whole subtree, so the same fact cannot appear twice under a different ordinal |
 | scope contains ancestor | whether some child of this scope carried an ancestor's value | a module's graph neighbourhood contains that module, and a single-member cyclic component carries its self edge |
 | scope excludes ancestor | whether some child of this scope carried an ancestor's value | a single-member acyclic component carries no self edge |
 
@@ -418,8 +419,9 @@ required records and declared counts, so a structurally incomplete module
 reports its missing record first.
 
 `ProjectModuleRowFieldLineage` forbids two identical complete paths, and that
-stays undeclared, because comparing whole paths means comparing subtrees rather
-than one collected key. An owner declaration position is likewise not matched
+is declared now: the walk already visits every record of a scope once, so a
+closing scope can carry its own subtree as its identity, with the portable
+ordinals that only position it removed. An owner declaration position is likewise not matched
 against the declaration records of its module: no carrier states that
 relationship, and a rule with no upstream authority is exactly what this table
 refuses to contain.

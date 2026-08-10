@@ -587,6 +587,7 @@ def test_declared_ordinal_rules_match_the_projection_emission_rules() -> None:
     }
     assert scoped == {
         "declaration",
+        "dependency",
         "export",
         "export_issue",
         "graph",

@@ -376,6 +376,7 @@ class _PureScopeKind(StrEnum):
     SCOPE_REQUIRES_CHILD = "scope_requires_child"
     SIBLING_BUCKETS_COMPLETE = "sibling_buckets_complete"
     DISTINCT_SIBLINGS = "distinct_siblings"
+    DISTINCT_SUBTREES = "distinct_subtrees"
     SCOPE_CONTAINS_ANCESTOR = "scope_contains_ancestor"
     SCOPE_EXCLUDES_ANCESTOR = "scope_excludes_ancestor"
 
@@ -1424,6 +1425,9 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         ),
         scope_rules=(
             _PureScopeRule(
+                rule=_PureScopeKind.DISTINCT_SUBTREES,
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.ANCESTOR_EQUAL,
                 scope="module",
                 pairs=(("target_module_path", "path"),),
@@ -1523,6 +1527,24 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _key("target_row_field_name", _TEXT, optional=True),
         ),
         parent_ordinal_keys=("module",),
+        scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.DISTINCT_SIBLINGS,
+                distinct=(
+                    "kind",
+                    "reference_owner_declaration_position",
+                    "reference_role",
+                    "reference_member_position",
+                    "target_declaration_module_path",
+                    "target_declaration_position",
+                    "target_declaration_declared_name",
+                    "target_row_field_owner_declaration_position",
+                    "target_row_field_kind",
+                    "target_row_field_position",
+                    "target_row_field_name",
+                ),
+            ),
+        ),
         state_rules=(
             _PureStateRule(
                 rule=_PureStateKind.MODULE_PATH,
@@ -1658,6 +1680,9 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             ),
         ),
         scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.DISTINCT_SUBTREES,
+            ),
             _PureScopeRule(
                 rule=_PureScopeKind.ANCESTOR_EQUAL,
                 scope="row_lineage_field",
@@ -1997,6 +2022,17 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         parent_ordinal_keys=("module", "facts"),
         scope_rules=(
             _PureScopeRule(
+                rule=_PureScopeKind.ANCESTOR_COMBINATION,
+                scope="semantic_facts",
+                pairs=(("status", "status"),),
+                admitted=(
+                    ("concrete", "concrete"),
+                    ("*", "unknown"),
+                    ("*", "deferred"),
+                    ("*", "blocked"),
+                ),
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
                 pairs=(("selected_output_ordinal", "selected_output_ordinal"),),
             ),
@@ -2061,6 +2097,18 @@ PURE_RECORD_KINDS: tuple[str, ...] = tuple(
 )
 
 _PURE_HEADER_KINDS: tuple[str, ...] = ("inspection", "owner")
+# A scope whose whole subtree is the identity of one upstream fact, so two
+# subtrees that differ only in their portable ordinals are one fact twice. The
+# set is derived from the declared rules, never written down twice.
+_PURE_SUBTREE_KINDS: frozenset[str] = frozenset(
+    kind
+    for kind, specification in PURE_RECORD_SCHEMA.items()
+    if any(
+        rule.rule is _PureScopeKind.DISTINCT_SUBTREES
+        for rule in specification.scope_rules
+    )
+)
+
 
 _PURE_REQUIRED_MODULE_RECORDS: tuple[str, ...] = ("digest", "readiness", "graph")
 
@@ -2079,6 +2127,9 @@ class _PureFrame:
         "last_child_order",
         "buckets",
         "collected",
+        "identity",
+        "parent_frame",
+        "subtree",
         "membership_required",
         "membership_seen",
         "ordinal",
@@ -2097,6 +2148,8 @@ class _PureFrame:
         declared_counts: tuple[tuple[int, str], ...],
         record: ProjectPureRecord | None = None,
         membership_required: tuple[tuple[str, str, ProjectPureValue, bool], ...] = (),
+        identity: tuple[str, ...] = (),
+        parent_frame: _PureFrame | None = None,
     ) -> None:
         self.kind = kind
         self.ordinal = ordinal
@@ -2111,6 +2164,9 @@ class _PureFrame:
         self.membership_seen: set[tuple[str, str]] = set()
         self.collected: dict[tuple[str, str], list[tuple[int, str]]] = {}
         self.buckets: dict[str, dict[tuple[str, ...], list[tuple[int, int]]]] = {}
+        self.subtree: list[tuple[str, ...]] = []
+        self.identity = identity
+        self.parent_frame = parent_frame
 
 
 def _reject(
@@ -2316,6 +2372,26 @@ def _sibling_is_terminal(
     return _integer_of(record, specification.ordinal_key) == declared - 1
 
 
+def _identity_tokens(
+    record: ProjectPureRecord,
+    specification: _PureKindSpec,
+) -> tuple[str, ...]:
+    """Render one record's identity, dropping the keys that only position it.
+
+    A portable ordinal and the enclosing scope ordinals are positions, not
+    identity, so two records that differ only there are the same fact twice.
+    """
+
+    positional = set(specification.parent_ordinal_keys)
+    if specification.ordinal_key is not None:
+        positional.add(specification.ordinal_key)
+    return tuple(
+        _exact_token(_value_of(record, declared.key))
+        for declared in specification.keys
+        if declared.key not in positional
+    )
+
+
 def _declared_vocabulary(specification: _PureKindSpec, key: str) -> tuple[str, ...]:
     """Return the declared enumeration order of one key of one record kind."""
 
@@ -2400,6 +2476,14 @@ def _close_grouped_sequences(frame: _PureFrame) -> ProjectPureOutcome | None:
                     frame.record_position,
                 )
             continue
+    if frame.kind in _PURE_SUBTREE_KINDS and frame.parent_frame is not None:
+        seen = frame.parent_frame.seen_children.setdefault(frame.kind, set())
+        member = (*frame.identity, *(token for item in frame.subtree for token in item))
+        if member in seen:
+            return _reject(
+                ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, frame.record_position
+            )
+        seen.add(member)
     for child_kind, buckets in frame.buckets.items():
         for members in buckets.values():
             counts = {count for _, count in members}
@@ -2898,6 +2982,10 @@ def _validate_structure(
             parent_frame.child_counts.get(record.kind, 0) + 1
         )
         parent_frame.previous_child[record.kind] = record
+        identity = _identity_tokens(record, specification)
+        for frame in stack:
+            if frame.kind in _PURE_SUBTREE_KINDS:
+                frame.subtree.append((record.kind, *identity))
         for rule in specification.scope_rules:
             if rule.rule is not _PureScopeKind.SIBLING_BUCKETS_COMPLETE:
                 continue
@@ -2936,6 +3024,8 @@ def _validate_structure(
                     membership_required=_membership_required(
                         record, specification, stack
                     ),
+                    identity=identity,
+                    parent_frame=parent_frame,
                 )
             )
 
