@@ -1626,7 +1626,11 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                     ),
                     ("import_item_position", "item_position"),
                 ),
-                ancestor_pairs=(("local_name", "local_name"),),
+                ancestor_pairs=(
+                    ("local_name", "local_name"),
+                    ("namespace", "namespace"),
+                    ("declaration_kind", "declaration_kind"),
+                ),
                 at="first",
             ),
             _PureScopeRule(

@@ -206,6 +206,7 @@ class DifferentialPurpose(StrEnum):
     UNORDERED_IMPORTED_ORIGINS = "unordered_imported_origins"
     EVIDENCE_OUTSIDE_IMPORT_LEDGER = "evidence_outside_import_ledger"
     ORIGIN_OUTSIDE_ITS_IMPORT = "origin_outside_its_import"
+    ORIGIN_IDENTITY_OUTSIDE_ITS_IMPORT = "origin_identity_outside_its_import"
     UNORDERED_DEPENDENCY_LEDGER = "unordered_dependency_ledger"
     POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
     OCCURRENCE_INDEX_OUTSIDE_BUCKET = "occurrence_index_outside_bucket"

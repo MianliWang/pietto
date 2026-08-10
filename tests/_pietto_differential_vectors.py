@@ -2739,6 +2739,36 @@ def _rejected_vectors() -> tuple[DifferentialVector, ...]:
             2,
         ),
         _rejected(
+            "origin_identity_outside_its_import",
+            DifferentialPurpose.ORIGIN_IDENTITY_OUTSIDE_ITS_IMPORT,
+            _document(
+                _header(1),
+                _OWNER,
+                *valid_module,
+                _import(
+                    0,
+                    0,
+                    local_name="Row",
+                    exported_name="Row",
+                    target_module_path="b.pietto",
+                ),
+                _origin(
+                    0,
+                    0,
+                    local_name="Row",
+                    target_module_path="b.pietto",
+                    target_declared_name="Row",
+                    binding="imported_binding",
+                    namespace="relation",
+                    declaration_kind="query",
+                    hops=1,
+                ),
+                _origin_hop(0, 0, 0, module_path="b.pietto", exported_name="Row"),
+            ),
+            ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
+            9,
+        ),
+        _rejected(
             "origin_outside_its_import",
             DifferentialPurpose.ORIGIN_OUTSIDE_ITS_IMPORT,
             _document(
