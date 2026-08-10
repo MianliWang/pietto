@@ -457,6 +457,10 @@ def test_declared_enumeration_vocabularies_equal_the_live_enumerations() -> None
             preservation_module.ProjectModuleCandidateBucketStatus,
             ("concrete", "unknown", "deferred", "blocked"),
         ),
+        "lineage_field_kind": (
+            attribution_module.ProjectModuleRowFieldKind,
+            ("source_field", "relation_output"),
+        ),
     }
     assert not set(live) & set(narrowed)
     assert set(live) | set(narrowed) == set(pure_boundary.PURE_ENUMERATION_VOCABULARIES)
@@ -472,6 +476,8 @@ def test_declared_enumeration_vocabularies_equal_the_live_enumerations() -> None
         assert declared == subset
         assert set(declared) < set(members)
         assert declared == tuple(value for value in members if value in set(declared))
+    attribution_source = _read("src/pietto/_project/module_attribution.py")
+    assert "Relation lineage fields must belong to its owner." in attribution_source
     assert "Clause dependency has an invalid role." in preservation_source
     assert (
         "A syntactic window output cannot be absent or ambiguous."
@@ -542,23 +548,31 @@ def test_declared_ordinal_rules_match_the_projection_emission_rules() -> None:
         kind for kind, specification in schema.items() if specification.state_rules
     }
     assert ruled == {
-        "owner",
-        "digest",
-        "readiness",
-        "readiness_cycle",
-        "graph",
-        "import",
-        "export",
         "declaration",
+        "dependency",
+        "digest",
+        "export",
+        "graph",
+        "graph_component_member",
+        "graph_dependency_target",
+        "graph_import_evidence",
+        "import",
+        "issue",
+        "module",
         "origin",
         "origin_hop",
-        "dependency",
+        "owner",
+        "readiness",
+        "readiness_cycle",
+        "readiness_cycle_member",
+        "relation_resolution",
         "row_lineage",
         "row_lineage_field",
+        "row_lineage_path",
+        "semantic_select",
+        "source_shape_resolution",
         "type_resolution",
         "type_resolution_alias",
-        "semantic_select",
-        "issue",
     }
     shapes = {
         rule.rule
@@ -570,22 +584,23 @@ def test_declared_ordinal_rules_match_the_projection_emission_rules() -> None:
         kind for kind, specification in schema.items() if specification.scope_rules
     }
     assert scoped == {
-        "module",
-        "import",
-        "readiness_cycle_member",
         "declaration",
         "export",
-        "origin",
+        "export_issue",
         "graph",
         "graph_component_member",
         "graph_dependency_target",
         "graph_import_evidence",
+        "import",
         "import_issue",
-        "export_issue",
+        "module",
+        "origin",
         "origin_hop",
+        "readiness_cycle_member",
+        "row_lineage",
         "row_lineage_field",
-        "row_lineage_path",
         "row_lineage_hop",
+        "row_lineage_path",
         "type_resolution_alias",
     }
     scope_shapes = {

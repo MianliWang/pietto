@@ -327,6 +327,7 @@ class _PureStateKind(StrEnum):
     POSITIVE = "positive"
     STRICTLY_LESS = "strictly_less"
     LOWERCASE_HEX = "lowercase_hex"
+    MODULE_PATH = "module_path"
     MULTI_REQUIRES_TRUE = "multi_requires_true"
     NON_EMPTY_IF_PRESENT = "non_empty_if_present"
     EQUAL_IF_PRESENT = "equal_if_present"
@@ -544,6 +545,11 @@ _VOCABULARY_REFERENCE_ROLE: tuple[str, ...] = (
     "row_field",
 )
 
+_VOCABULARY_LINEAGE_FIELD_KIND: tuple[str, ...] = (
+    "source_field",
+    "relation_output",
+)
+
 _VOCABULARY_ROW_FIELD_KIND: tuple[str, ...] = (
     "shape_field",
     "source_field",
@@ -613,6 +619,7 @@ PURE_ENUMERATION_VOCABULARIES: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "dependency_kind": _VOCABULARY_DEPENDENCY_KIND,
         "reference_role": _VOCABULARY_REFERENCE_ROLE,
         "row_field_kind": _VOCABULARY_ROW_FIELD_KIND,
+        "lineage_field_kind": _VOCABULARY_LINEAGE_FIELD_KIND,
         "projection_kind": _VOCABULARY_PROJECTION_KIND,
         "type_reference_role": _VOCABULARY_TYPE_REFERENCE_ROLE,
         "resolved_type_kind": _VOCABULARY_RESOLVED_TYPE_KIND,
@@ -692,6 +699,12 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _key("path", _TEXT),
         ),
         is_scope=True,
+        state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.MODULE_PATH,
+                keys=("path",),
+            ),
+        ),
         scope_rules=(
             _PureScopeRule(
                 rule=_PureScopeKind.DISTINCT_SIBLINGS,
@@ -783,6 +796,12 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _key("path", _TEXT),
         ),
         parent_ordinal_keys=("module", "cycle"),
+        state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.MODULE_PATH,
+                keys=("path",),
+            ),
+        ),
         scope_rules=(
             _PureScopeRule(
                 rule=_PureScopeKind.DISTINCT_SIBLINGS,
@@ -845,6 +864,12 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _key("path", _TEXT),
         ),
         parent_ordinal_keys=("module",),
+        state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.MODULE_PATH,
+                keys=("path",),
+            ),
+        ),
         scope_rules=(
             _PureScopeRule(
                 rule=_PureScopeKind.DISTINCT_SIBLINGS,
@@ -864,6 +889,12 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _key("path", _TEXT),
         ),
         parent_ordinal_keys=("module",),
+        state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.MODULE_PATH,
+                keys=("path",),
+            ),
+        ),
         scope_rules=(
             _PureScopeRule(
                 rule=_PureScopeKind.DISTINCT_SIBLINGS,
@@ -885,6 +916,12 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _key("item_position", _INTEGER),
         ),
         parent_ordinal_keys=("module",),
+        state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.MODULE_PATH,
+                keys=("path",),
+            ),
+        ),
         scope_rules=(
             _PureScopeRule(
                 rule=_PureScopeKind.DISTINCT_SIBLINGS,
@@ -928,6 +965,10 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         parent_ordinal_keys=("module",),
         is_scope=True,
         state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.MODULE_PATH,
+                keys=("resolved_module_path",),
+            ),
             _PureStateRule(
                 rule=_PureStateKind.COMBINATION,
                 keys=("namespace", "declaration_kind"),
@@ -1058,6 +1099,10 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         parent_ordinal_keys=("module",),
         is_scope=True,
         state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.MODULE_PATH,
+                keys=("target_module_path",),
+            ),
             _PureStateRule(
                 rule=_PureStateKind.COMBINATION,
                 keys=("namespace", "declaration_kind"),
@@ -1202,6 +1247,24 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         state_rules=(
             _PureStateRule(
                 rule=_PureStateKind.COMBINATION,
+                keys=("namespace", "declaration_kind"),
+                admitted=(
+                    ("type", "type"),
+                    ("type", "enum"),
+                    ("type", "shape"),
+                    ("relation", "source"),
+                    ("relation", "table"),
+                    ("relation", "query"),
+                    ("callable", "constraint"),
+                    ("callable", "derive"),
+                ),
+            ),
+            _PureStateRule(
+                rule=_PureStateKind.MODULE_PATH,
+                keys=("owner_name",),
+            ),
+            _PureStateRule(
+                rule=_PureStateKind.COMBINATION,
                 keys=("owner_kind", "owner_namespace"),
                 admitted=(("local_module", ""),),
             ),
@@ -1301,6 +1364,24 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         is_scope=True,
         state_rules=(
             _PureStateRule(
+                rule=_PureStateKind.COMBINATION,
+                keys=("namespace", "declaration_kind"),
+                admitted=(
+                    ("type", "type"),
+                    ("type", "enum"),
+                    ("type", "shape"),
+                    ("relation", "source"),
+                    ("relation", "table"),
+                    ("relation", "query"),
+                    ("callable", "constraint"),
+                    ("callable", "derive"),
+                ),
+            ),
+            _PureStateRule(
+                rule=_PureStateKind.MODULE_PATH,
+                keys=("target_module_path",),
+            ),
+            _PureStateRule(
                 rule=_PureStateKind.EQUAL_IF_PRESENT,
                 keys=("local_name", "target_declared_name"),
                 when=("binding", "local_declaration"),
@@ -1346,6 +1427,10 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         ),
         parent_ordinal_keys=("module", "origin"),
         state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.MODULE_PATH,
+                keys=("facade_module_path", "target_module_path"),
+            ),
             _PureStateRule(
                 rule=_PureStateKind.EQUAL_IF_PRESENT,
                 keys=("import_target_module_path", "facade_module_path"),
@@ -1413,6 +1498,10 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         ),
         parent_ordinal_keys=("module",),
         state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.MODULE_PATH,
+                keys=("target_declaration_module_path",),
+            ),
             _PureStateRule(
                 rule=_PureStateKind.PRESENCE_GROUP,
                 keys=(
@@ -1483,6 +1572,12 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 ),
             ),
         ),
+        scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.DISTINCT_SIBLINGS,
+                distinct=("owner_declaration_position",),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="row_lineage_field",
@@ -1494,7 +1589,7 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _key("module", _INTEGER),
             _key("lineage", _INTEGER),
             _key("field", _INTEGER),
-            _key("kind", _ENUMERATION, vocabulary="row_field_kind"),
+            _key("kind", _ENUMERATION, vocabulary="lineage_field_kind"),
             _key("field_position", _INTEGER),
             _key("name", _TEXT),
             _key("paths", _INTEGER),
@@ -1530,6 +1625,12 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         counts=(("hops", "row_lineage_hop"),),
         parent_ordinal_keys=("module", "lineage", "field"),
         is_scope=True,
+        state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.MODULE_PATH,
+                keys=("root_module_path",),
+            ),
+        ),
         scope_rules=(
             _PureScopeRule(
                 rule=_PureScopeKind.ANCESTOR_EQUAL,
@@ -1619,6 +1720,10 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         is_scope=True,
         state_rules=(
             _PureStateRule(
+                rule=_PureStateKind.MODULE_PATH,
+                keys=("canonical_target_module_path",),
+            ),
+            _PureStateRule(
                 rule=_PureStateKind.PRESENCE_GROUP,
                 keys=(
                     "canonical_target_module_path",
@@ -1692,6 +1797,10 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         parent_ordinal_keys=("module", "resolution"),
         state_rules=(
             _PureStateRule(
+                rule=_PureStateKind.MODULE_PATH,
+                keys=("module_path",),
+            ),
+            _PureStateRule(
                 rule=_PureStateKind.COMBINATION,
                 keys=("namespace", "declaration_kind"),
                 admitted=(("type", "type"),),
@@ -1718,6 +1827,12 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _key("target_declared_name", _TEXT),
         ),
         parent_ordinal_keys=("module",),
+        state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.MODULE_PATH,
+                keys=("target_module_path",),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="relation_resolution",
@@ -1734,6 +1849,12 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _key("target_declared_name", _TEXT),
         ),
         parent_ordinal_keys=("module",),
+        state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.MODULE_PATH,
+                keys=("target_module_path",),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="semantic_facts",
@@ -2071,6 +2192,24 @@ def _state_token(value: ProjectPureValue) -> str:
     if value.tag is ProjectPureTag.BOOLEAN:
         return "true" if value.boolean else "false"
     return value.text or ""
+
+
+def _is_pure_module_path(value: str) -> bool:
+    """Return whether one text is a normalized project-relative module path.
+
+    This mirrors ``ProjectModuleIdentity`` without consulting the host: the
+    upstream predicate asks ``pathlib`` whether the path is absolute, and on
+    every supported platform that is exactly a leading separator or a drive
+    letter, both of which are decided here from the characters alone.
+    """
+
+    if not value.endswith(".pietto"):
+        return False
+    if "\x00" in value or "\\" in value or value.startswith("/"):
+        return False
+    if len(value) >= 2 and value[0].isalpha() and value[1] == ":":
+        return False
+    return all(part not in {"", ".", ".."} for part in value.split("/"))
 
 
 def _exact_token(value: ProjectPureValue) -> str:
@@ -2443,6 +2582,18 @@ def _validate_state_rules(
             smaller, larger = rule.keys
             if _integer_of(record, smaller) >= _integer_of(record, larger):
                 return _reject(ProjectPureStatus.INCONSISTENT_RECORD_STATE, position)
+            continue
+        if rule.rule is _PureStateKind.MODULE_PATH:
+            for key in rule.keys:
+                supplied = _value_of(record, key)
+                if supplied.tag is ProjectPureTag.ABSENT:
+                    continue
+                if not _is_pure_module_path(supplied.text or ""):
+                    return _reject(
+                        ProjectPureStatus.INCONSISTENT_RECORD_STATE, position
+                    )
+            continue
+        if rule.rule is not _PureStateKind.LOWERCASE_HEX:
             continue
         text = _value_of(record, rule.keys[0]).text or ""
         if len(text) != rule.text_length or any(

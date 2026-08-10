@@ -896,7 +896,7 @@ def _issue(
 
 _SURROGATE_PATH = "bad\udcff.pietto"
 
-_CONTROL_PATH = "a\\b\tc\nd\re\x00f\x1fg\x7fh.pietto"
+_CONTROL_TEXT = "a\\b\tc\nd\re\x00f\x1fg\x7fh"
 
 _NON_ASCII_PATH = "模块é.pietto"
 
@@ -962,7 +962,7 @@ _EXPECTED_CANONICAL_BYTES_LITERAL: dict[str, bytes] = {
     "preserved_semantic_facts": b"inspection\tformat=e:pietto.module-inspection.v1\tmodules=i:1\nowner\tkind=e:local_project_root\tnamespace=s:\tname=s:\nmodule\tmodule=i:0\tpath=s:a.pietto\ndigest\tmodule=i:0\talgorithm=e:sha256_opened_bytes\tdigest=s:1111111111111111111111111111111111111111111111111111111111111111\tbyte_count=i:12\nreadiness\tmodule=i:0\tstatus=e:ready\treason=e:trusted_local_source_resolved\tcycles=i:0\ngraph\tmodule=i:0\tcomponent_is_cyclic=b:false\tcomponent_members=i:1\tdependency_targets=i:0\timport_evidence=i:0\ngraph_component_member\tmodule=i:0\tmember=i:0\tpath=s:a.pietto\nsemantic_facts\tmodule=i:0\tfacts=i:0\towner_declaration_position=i:0\tstatus=e:concrete\treason=e:direct_source_concrete\tlet_bindings=i:1\tselects=i:2\tclause_dependencies=i:2\twindow_outputs=i:2\nsemantic_let_binding\tmodule=i:0\tfacts=i:0\tbinding=i:0\tbinding_ordinal=i:0\thas_value_type=b:true\nsemantic_select\tmodule=i:0\tfacts=i:0\tselect=i:0\tselected_output_ordinal=i:0\toutput_name=s:id\nsemantic_select\tmodule=i:0\tfacts=i:0\tselect=i:1\tselected_output_ordinal=i:1\toutput_name=n:\nsemantic_clause_dependency\tmodule=i:0\tfacts=i:0\tdependency=i:0\trole=e:group_key\tsource_ordinal=i:0\tstatus=e:concrete\nsemantic_clause_dependency\tmodule=i:0\tfacts=i:0\tdependency=i:1\trole=e:grouped_order\tsource_ordinal=i:1\tstatus=e:ambiguous\nsemantic_window_output\tmodule=i:0\tfacts=i:0\toutput=i:0\tselected_output_ordinal=i:1\toutput_name=s:rank\tstatus=e:deferred\nsemantic_window_output\tmodule=i:0\tfacts=i:0\toutput=i:1\tselected_output_ordinal=i:2\toutput_name=n:\tstatus=e:unknown\n",
     "nullability_and_result_role": b"inspection\tformat=e:pietto.module-inspection.v1\tmodules=i:1\nowner\tkind=e:local_project_root\tnamespace=s:\tname=s:\nmodule\tmodule=i:0\tpath=s:a.pietto\ndigest\tmodule=i:0\talgorithm=e:sha256_opened_bytes\tdigest=s:1111111111111111111111111111111111111111111111111111111111111111\tbyte_count=i:12\nreadiness\tmodule=i:0\tstatus=e:ready\treason=e:trusted_local_source_resolved\tcycles=i:0\ngraph\tmodule=i:0\tcomponent_is_cyclic=b:false\tcomponent_members=i:1\tdependency_targets=i:0\timport_evidence=i:0\ngraph_component_member\tmodule=i:0\tmember=i:0\tpath=s:a.pietto\ndeclaration\tmodule=i:0\tdeclaration=i:0\towner_kind=e:local_module\towner_namespace=s:\towner_name=s:a.pietto\tnamespace=e:relation\tdeclaration_kind=e:query\tdeclared_name=s:result\tavailability=e:concrete\toccurrence_count=i:1\toccurrence_index=i:0\trelation_status=e:concrete\trelation_reason=e:direct_source_concrete\trow_fields=i:4\ndeclaration_row_field\tmodule=i:0\tdeclaration=i:0\tfield=i:0\tname=s:id\tnullability=e:non_null\tresult_role=e:ordinary_row_value\ndeclaration_row_field\tmodule=i:0\tdeclaration=i:0\tfield=i:1\tname=s:category\tnullability=e:nullable\tresult_role=e:group_key\ndeclaration_row_field\tmodule=i:0\tdeclaration=i:0\tfield=i:2\tname=s:total\tnullability=e:unknown\tresult_role=e:aggregate_result\ndeclaration_row_field\tmodule=i:0\tdeclaration=i:0\tfield=i:3\tname=s:rank\tnullability=e:non_null\tresult_role=e:window_result\n",
     "surrogate_text": b"inspection\tformat=e:pietto.module-inspection.v1\tmodules=i:1\nowner\tkind=e:local_project_root\tnamespace=s:\tname=s:\nmodule\tmodule=i:0\tpath=s:bad\\udcff.pietto\ndigest\tmodule=i:0\talgorithm=e:sha256_opened_bytes\tdigest=s:1111111111111111111111111111111111111111111111111111111111111111\tbyte_count=i:12\nreadiness\tmodule=i:0\tstatus=e:ready\treason=e:trusted_local_source_resolved\tcycles=i:0\ngraph\tmodule=i:0\tcomponent_is_cyclic=b:false\tcomponent_members=i:1\tdependency_targets=i:0\timport_evidence=i:0\ngraph_component_member\tmodule=i:0\tmember=i:0\tpath=s:bad\\udcff.pietto\n",
-    "control_character_text": b"inspection\tformat=e:pietto.module-inspection.v1\tmodules=i:1\nowner\tkind=e:local_project_root\tnamespace=s:\tname=s:\nmodule\tmodule=i:0\tpath=s:a\\\\b\\tc\\nd\\re\\x00f\\x1fg\\x7fh.pietto\ndigest\tmodule=i:0\talgorithm=e:sha256_opened_bytes\tdigest=s:1111111111111111111111111111111111111111111111111111111111111111\tbyte_count=i:12\nreadiness\tmodule=i:0\tstatus=e:ready\treason=e:trusted_local_source_resolved\tcycles=i:0\ngraph\tmodule=i:0\tcomponent_is_cyclic=b:false\tcomponent_members=i:1\tdependency_targets=i:0\timport_evidence=i:0\ngraph_component_member\tmodule=i:0\tmember=i:0\tpath=s:a\\\\b\\tc\\nd\\re\\x00f\\x1fg\\x7fh.pietto\n",
+    "control_character_text": b"inspection\tformat=e:pietto.module-inspection.v1\tmodules=i:1\nowner\tkind=e:local_project_root\tnamespace=s:\tname=s:\nmodule\tmodule=i:0\tpath=s:a.pietto\ndigest\tmodule=i:0\talgorithm=e:sha256_opened_bytes\tdigest=s:1111111111111111111111111111111111111111111111111111111111111111\tbyte_count=i:12\nreadiness\tmodule=i:0\tstatus=e:ready\treason=e:trusted_local_source_resolved\tcycles=i:0\ngraph\tmodule=i:0\tcomponent_is_cyclic=b:false\tcomponent_members=i:1\tdependency_targets=i:0\timport_evidence=i:0\ngraph_component_member\tmodule=i:0\tmember=i:0\tpath=s:a.pietto\ndeclaration\tmodule=i:0\tdeclaration=i:0\towner_kind=e:local_module\towner_namespace=s:\towner_name=s:a.pietto\tnamespace=e:type\tdeclaration_kind=e:shape\tdeclared_name=s:a\\\\b\\tc\\nd\\re\\x00f\\x1fg\\x7fh\tavailability=e:absent\toccurrence_count=i:1\toccurrence_index=i:0\trelation_status=n:\trelation_reason=n:\trow_fields=i:0\n",
     "non_ascii_text": b"inspection\tformat=e:pietto.module-inspection.v1\tmodules=i:1\nowner\tkind=e:local_project_root\tnamespace=s:\tname=s:\nmodule\tmodule=i:0\tpath=s:\xe6\xa8\xa1\xe5\x9d\x97\xc3\xa9.pietto\ndigest\tmodule=i:0\talgorithm=e:sha256_opened_bytes\tdigest=s:1111111111111111111111111111111111111111111111111111111111111111\tbyte_count=i:12\nreadiness\tmodule=i:0\tstatus=e:ready\treason=e:trusted_local_source_resolved\tcycles=i:0\ngraph\tmodule=i:0\tcomponent_is_cyclic=b:false\tcomponent_members=i:1\tdependency_targets=i:0\timport_evidence=i:0\ngraph_component_member\tmodule=i:0\tmember=i:0\tpath=s:\xe6\xa8\xa1\xe5\x9d\x97\xc3\xa9.pietto\n",
     "absent_versus_empty_text": b"inspection\tformat=e:pietto.module-inspection.v1\tmodules=i:1\nowner\tkind=e:local_project_root\tnamespace=s:\tname=s:\nmodule\tmodule=i:0\tpath=s:a.pietto\ndigest\tmodule=i:0\talgorithm=e:sha256_opened_bytes\tdigest=s:1111111111111111111111111111111111111111111111111111111111111111\tbyte_count=i:12\nreadiness\tmodule=i:0\tstatus=e:ready\treason=e:trusted_local_source_resolved\tcycles=i:0\ngraph\tmodule=i:0\tcomponent_is_cyclic=b:false\tcomponent_members=i:1\tdependency_targets=i:0\timport_evidence=i:0\ngraph_component_member\tmodule=i:0\tmember=i:0\tpath=s:a.pietto\nexport\tmodule=i:0\trequest=i:0\tlocal_name=s:Row\tnamespace=e:type\tdeclaration_kind=e:shape\tmodule_statement_position=i:0\titem_position=i:0\texposed_name=s:Row\tentry_origin=e:local_declaration\ttarget_module_path=s:a.pietto\ttarget_namespace=e:type\ttarget_declaration_kind=e:shape\ttarget_declared_name=s:Row\tissues=i:0\nexport\tmodule=i:0\trequest=i:1\tlocal_name=s:Missing\tnamespace=e:type\tdeclaration_kind=e:shape\tmodule_statement_position=i:0\titem_position=i:1\texposed_name=n:\tentry_origin=n:\ttarget_module_path=n:\ttarget_namespace=n:\ttarget_declaration_kind=n:\ttarget_declared_name=n:\tissues=i:1\nexport_issue\tmodule=i:0\trequest=i:1\tissue=i:0\tstatus=e:unresolved_export_binding\nissue\tmodule=i:0\tissue=i:0\tfamily=e:graph\tstatus=s:module_import_cycle\tlocal_name=n:\nissue\tmodule=i:0\tissue=i:1\tfamily=e:relation\tstatus=s:unknown_relation_reference\tlocal_name=s:\n",
     "boundary_cardinalities": b"inspection\tformat=e:pietto.module-inspection.v1\tmodules=i:1\nowner\tkind=e:local_project_root\tnamespace=s:\tname=s:\nmodule\tmodule=i:0\tpath=s:a.pietto\ndigest\tmodule=i:0\talgorithm=e:sha256_opened_bytes\tdigest=s:1111111111111111111111111111111111111111111111111111111111111111\tbyte_count=i:12\nreadiness\tmodule=i:0\tstatus=e:blocked\treason=e:module_cycle_blocked\tcycles=i:3\nreadiness_cycle\tmodule=i:0\tcycle=i:0\tmembers=i:3\nreadiness_cycle_member\tmodule=i:0\tcycle=i:0\tmember=i:0\tpath=s:a.pietto\nreadiness_cycle_member\tmodule=i:0\tcycle=i:0\tmember=i:1\tpath=s:b.pietto\nreadiness_cycle_member\tmodule=i:0\tcycle=i:0\tmember=i:2\tpath=s:c.pietto\nreadiness_cycle\tmodule=i:0\tcycle=i:1\tmembers=i:3\nreadiness_cycle_member\tmodule=i:0\tcycle=i:1\tmember=i:0\tpath=s:a.pietto\nreadiness_cycle_member\tmodule=i:0\tcycle=i:1\tmember=i:1\tpath=s:b.pietto\nreadiness_cycle_member\tmodule=i:0\tcycle=i:1\tmember=i:2\tpath=s:c.pietto\nreadiness_cycle\tmodule=i:0\tcycle=i:2\tmembers=i:3\nreadiness_cycle_member\tmodule=i:0\tcycle=i:2\tmember=i:0\tpath=s:a.pietto\nreadiness_cycle_member\tmodule=i:0\tcycle=i:2\tmember=i:1\tpath=s:b.pietto\nreadiness_cycle_member\tmodule=i:0\tcycle=i:2\tmember=i:2\tpath=s:c.pietto\ngraph\tmodule=i:0\tcomponent_is_cyclic=b:true\tcomponent_members=i:3\tdependency_targets=i:0\timport_evidence=i:0\ngraph_component_member\tmodule=i:0\tmember=i:0\tpath=s:a.pietto\ngraph_component_member\tmodule=i:0\tmember=i:1\tpath=s:b.pietto\ngraph_component_member\tmodule=i:0\tmember=i:2\tpath=s:c.pietto\n",
@@ -1408,7 +1408,12 @@ def _accepted_document_map() -> dict[
         ),
         "control_character_text": (
             DifferentialPurpose.CONTROL_CHARACTER_TEXT,
-            _document(_header(1), _OWNER, *_module_block(0, _CONTROL_PATH)),
+            _document(
+                _header(1),
+                _OWNER,
+                *_module_block(0, "a.pietto"),
+                _declaration(0, 0, owner_name="a.pietto", declared_name=_CONTROL_TEXT),
+            ),
         ),
         "non_ascii_text": (
             DifferentialPurpose.NON_ASCII_TEXT,
@@ -2421,6 +2426,67 @@ def _rejected_vectors() -> tuple[DifferentialVector, ...]:
             ),
             ProjectPureStatus.INCONSISTENT_RECORD_STATE,
             8,
+        ),
+        _rejected(
+            "module_path_outside_its_domain",
+            DifferentialPurpose.MODULE_PATH_OUTSIDE_ITS_DOMAIN,
+            _document(_header(1), _OWNER, *_module_block(0, "../a.pietto")),
+            ProjectPureStatus.INCONSISTENT_RECORD_STATE,
+            2,
+        ),
+        _rejected(
+            "declaration_namespace_kind_pair",
+            DifferentialPurpose.DECLARATION_NAMESPACE_KIND_PAIR,
+            _document(
+                _header(1),
+                _OWNER,
+                *valid_module,
+                _declaration(
+                    0,
+                    0,
+                    owner_name="a.pietto",
+                    declared_name="Row",
+                    namespace="relation",
+                    declaration_kind="type",
+                ),
+            ),
+            ProjectPureStatus.INCONSISTENT_RECORD_STATE,
+            7,
+        ),
+        _rejected(
+            "repeated_lineage_owner",
+            DifferentialPurpose.REPEATED_LINEAGE_OWNER,
+            _document(
+                _header(1),
+                _OWNER,
+                *valid_module,
+                _row_lineage(0, 0, owner_position=0),
+                _row_lineage(0, 1, owner_position=0),
+            ),
+            ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
+            8,
+        ),
+        _rejected(
+            "shape_field_in_relation_lineage",
+            DifferentialPurpose.SHAPE_FIELD_IN_RELATION_LINEAGE,
+            _document(
+                _header(1),
+                _OWNER,
+                *valid_module,
+                _row_lineage(0, 0, fields=1),
+                _lineage_field(0, 0, 0, name="id", kind="shape_field", paths=1),
+                _lineage_path(
+                    0,
+                    0,
+                    0,
+                    0,
+                    root_module_path="a.pietto",
+                    root_field_name="id",
+                ),
+            ),
+            ProjectPureStatus.UNKNOWN_ENUMERATION,
+            8,
+            3,
         ),
         _rejected(
             "duplicate_module_path",

@@ -160,6 +160,10 @@ class DifferentialPurpose(StrEnum):
     )
     UNENTERED_EXPORT_WITHOUT_BLOCKING_ISSUE = "unentered_export_without_blocking_issue"
     INCOMPLETE_OCCURRENCE_BUCKET = "incomplete_occurrence_bucket"
+    MODULE_PATH_OUTSIDE_ITS_DOMAIN = "module_path_outside_its_domain"
+    DECLARATION_NAMESPACE_KIND_PAIR = "declaration_namespace_kind_pair"
+    REPEATED_LINEAGE_OWNER = "repeated_lineage_owner"
+    SHAPE_FIELD_IN_RELATION_LINEAGE = "shape_field_in_relation_lineage"
     POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
     OCCURRENCE_INDEX_OUTSIDE_BUCKET = "occurrence_index_outside_bucket"
 

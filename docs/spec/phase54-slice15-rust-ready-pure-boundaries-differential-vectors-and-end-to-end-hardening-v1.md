@@ -294,17 +294,17 @@ what produced two rounds of isomorphic findings.
 | Record | Declared rule | Upstream authority |
 | --- | --- | --- |
 | `owner` | the kind is the project root, which stays unnamed, in the reserved empty local namespace | `ProjectLayeredOwnerIdentity` |
-| `module` | every selected module path appears once | `ProjectLogicalModule`, `ProjectSelectedInputIndex` |
+| `module` | every selected module path appears once, and every module identity path in the document is a normalized project-relative `.pietto` path | `ProjectLogicalModule`, `ProjectModuleIdentity` |
 | `digest` | the digest is exactly sixty-four lowercase hexadecimal characters | `ProjectLayeredSourceDigestIdentity` |
 | `readiness` | the `status`, `reason`, and cycle-count triple is one of exactly two combinations | `ProjectLayeredLoaderReadinessFact` |
 | `readiness_cycle` | the member count is positive, the members are distinct, and they are exactly the members of the module's graph component | `ProjectInspectionModuleCycle`, `ProjectModuleStronglyConnectedComponent`, `_module_cycle_issues` |
 | `graph` | the component-member count is positive, any multi-member component proves a cycle, the members are distinct, the component contains the module it describes, the dependency targets are distinct, and the import evidence names exactly those targets | `ProjectInspectionGraph`, `ProjectModuleStronglyConnectedComponent`, `_derive_inspection` |
 | `import` | the namespace and declaration kind form an eligible pair; a supplied resolved target keeps the same namespace and declaration kind; the four resolved-target keys are present together or absent together; and the request has exactly one outcome, so an unresolved request carries at least one issue and a resolved one carries at most the duplicate request issue, which is also the only status its issues may hold, while an unresolved one keeps at least one issue that is not that duplicate | `ProjectImportedBindingIdentity`, `ProjectResolvedImportedBinding`, `ProjectModuleBindingEnvironment`, `ProjectInspectionImport` |
 | `export` | the namespace and declaration kind form an eligible pair; a supplied entry keeps the same namespace and declaration kind, exposes the local name, and, for a local declaration origin, targets that same declared name in the enclosing module; the six facade-entry keys are present together or absent together; and the request has exactly one outcome, so an unentered request carries at least one issue and an entered one carries at most the duplicate request issue, which is also the only status its issues may hold, while an unentered one keeps at least one issue that is not that duplicate | `ProjectModuleExportEntry`, `ProjectModuleExportSurface`, `ProjectInspectionExport` |
-| `declaration` | the owner kind is the module, its namespace is the reserved empty local namespace, and its name is the enclosing module path; the relation status and reason are one atomic pair; the namespace decides the availability domain, a non-relation declaration publishes no relation product, and a retained relation state maps its exact availability; an ambiguous availability requires a repeated identity and every other availability a unique one, and a repeated identity publishes its whole bucket, once per index; a positive row-field count requires the relation state; the occurrence index is inside its bucket | `ProjectInspectionDeclaration`, `ProjectLayeredDeclarationAsset`, `ProjectLayeredOwnerIdentity` |
-| `origin` | a local origin is one self path with no hop that targets its own local name in its own module; an imported origin always carries its access chain | `ProjectModuleOriginPath` |
+| `declaration` | the owner kind is the module, its namespace is the reserved empty local namespace, and its name is the enclosing module path; the namespace and declaration kind are one of the eight pairs a definition can produce; the relation status and reason are one atomic pair; the namespace decides the availability domain, a non-relation declaration publishes no relation product, and a retained relation state maps its exact availability; an ambiguous availability requires a repeated identity and every other availability a unique one, and a repeated identity publishes its whole bucket, once per index; a positive row-field count requires the relation state; the occurrence index is inside its bucket | `ProjectInspectionDeclaration`, `ProjectLayeredDeclarationAsset`, `ProjectLayeredOwnerIdentity` |
+| `origin` | the namespace and declaration kind are one of the eight pairs a definition can produce; a local origin is one self path with no hop that targets its own local name in its own module; an imported origin always carries its access chain | `ProjectModuleOriginPath` |
 | `origin_hop` | each hop is one direct route, so its import target and facade module agree and its exported and exposed names agree; every hop names the origin's own nominal target; the chain re-exports at every interior hop and terminates at a local declaration; the terminating facade is the declaration itself, in its module and under its declared name | `ProjectModuleAccessHop`, `ProjectModuleOriginPath`, `ProjectModuleExportEntry` |
-| `row_lineage` | a non-concrete lineage carries no field | `ProjectModuleRelationLineage` |
+| `row_lineage` | a non-concrete lineage carries no field, and one relation owner publishes at most one lineage | `ProjectModuleRelationLineage`, `ProjectModuleAttributionFactSet` |
 | `row_lineage_field` | every retained field keeps at least one complete path, field positions ascend without repeating, and every path starts at that field, stays contiguous hop by hop, and ends at its declared root | `ProjectModuleRowFieldLineage`, `ProjectModuleRelationLineage`, `ProjectModuleRowLineagePath` |
 | `dependency` | each target group is atomic, and the reference role decides both the kind and which single target group is present | `ProjectModuleDependencyFact`, `_dependency_kind` |
 | `type_resolution` | the canonical-target pair is atomic; an enumeration or shape canonical kind requires that target and a builtin or unknown one forbids it; the canonical kind decides the canonical name, which is a registered builtin name or the fixed unknown name; a supplied canonical target declares that same name; a canonical kind never terminates at an alias; only a direct alias carries an alias chain | `ProjectResolvedModuleTypeReference` |
@@ -343,7 +343,14 @@ A later independent implementation therefore reproduces the canonical bytes and
 this rejection algebra; it does not reproduce the Slice 5 through Slice 14
 semantic model, which stays where its roots are.
 
-Text content is deliberately not re-validated beyond the declared digest shape.
+Text content is deliberately not re-validated beyond the declared digest shape
+and the module identity path domain. A module identity path is safe to declare
+because every one of them is constructed through `ProjectModuleIdentity`; the
+predicate is restated here from the characters alone, because the upstream form
+asks `pathlib` whether a path is absolute and the portable layer must not
+consult the host. The requested target of an *unresolved* import is excluded on
+purpose: that string is user text the loader failed to resolve, and it reaches
+the projection unvalidated.
 Slice 14 keeps its retained-text checks type-only because upstream stages
 retain an unresolvable or empty decoded target, exported name, or output name
 and report it through their own issue facts; re-validating that content at the
@@ -416,11 +423,13 @@ A cross-field rule is not the only way an independently checked field admits an
 impossible value. Where a record kind's own carrier admits only part of an
 enumeration, the key declares that exact subset in the enumeration's member
 order, and a value outside it is `UNKNOWN_ENUMERATION` rather than a state
-rule. Two keys are narrowed this way: `semantic_clause_dependency.role` admits
-only the three clause roles `ProjectModuleClauseDependencyFact` accepts, and
+rule. Three keys are narrowed this way: `semantic_clause_dependency.role` admits
+only the three clause roles `ProjectModuleClauseDependencyFact` accepts,
 `semantic_window_output.status` excludes the absent and ambiguous states
 `ProjectModuleWindowOutputFact` forbids, because a syntactic window output
-always exists.
+always exists, and `row_lineage_field.kind` excludes `shape_field`, because a
+relation lineage field is owned by a relation and only a shape declaration owns
+a shape field.
 
 This class was missed by the first mechanical enumeration because that pass
 looked for guards relating two fields and a per-key domain guard relates a
