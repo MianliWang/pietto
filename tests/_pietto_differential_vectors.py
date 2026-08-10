@@ -2432,6 +2432,43 @@ def _rejected_vectors() -> tuple[DifferentialVector, ...]:
             8,
         ),
         _rejected(
+            "unordered_issue_families",
+            DifferentialPurpose.UNORDERED_ISSUE_FAMILIES,
+            _document(
+                _header(1),
+                _OWNER,
+                *valid_module,
+                _issue(
+                    0,
+                    0,
+                    family="relation",
+                    status="unknown_relation_reference",
+                    local_name="rows",
+                ),
+                _issue(0, 1, family="graph", status="module_import_cycle"),
+            ),
+            ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
+            8,
+        ),
+        _rejected(
+            "named_graph_issue",
+            DifferentialPurpose.NAMED_GRAPH_ISSUE,
+            _document(
+                _header(1),
+                _OWNER,
+                *valid_module,
+                _issue(
+                    0,
+                    0,
+                    family="graph",
+                    status="module_import_cycle",
+                    local_name="rows",
+                ),
+            ),
+            ProjectPureStatus.INCONSISTENT_RECORD_STATE,
+            7,
+        ),
+        _rejected(
             "unordered_import_issue_statuses",
             DifferentialPurpose.UNORDERED_IMPORT_ISSUE_STATUSES,
             _document(

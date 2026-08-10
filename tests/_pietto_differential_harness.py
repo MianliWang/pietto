@@ -182,6 +182,8 @@ class DifferentialPurpose(StrEnum):
     EMPTY_LATER_DECLARED_NAME = "empty_later_declared_name"
     UNORDERED_IMPORT_ISSUE_STATUSES = "unordered_import_issue_statuses"
     UNORDERED_EXPORT_ISSUE_STATUSES = "unordered_export_issue_statuses"
+    UNORDERED_ISSUE_FAMILIES = "unordered_issue_families"
+    NAMED_GRAPH_ISSUE = "named_graph_issue"
     POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
     OCCURRENCE_INDEX_OUTSIDE_BUCKET = "occurrence_index_outside_bucket"
 
