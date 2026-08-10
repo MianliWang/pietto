@@ -370,12 +370,14 @@ class _PureScopeKind(StrEnum):
     ANCESTOR_COMBINATION = "ancestor_combination"
     PREVIOUS_SIBLING_EQUAL = "previous_sibling_equal"
     PREVIOUS_SIBLING_INCREASING = "previous_sibling_increasing"
+    PREVIOUS_SIBLING_NON_DECREASING = "previous_sibling_non_decreasing"
     GROUPED_SEQUENCES_EQUAL = "grouped_sequences_equal"
     COLLECTED_SETS_EQUAL = "collected_sets_equal"
     SCOPE_REQUIRES_CHILD = "scope_requires_child"
     SIBLING_BUCKETS_COMPLETE = "sibling_buckets_complete"
     DISTINCT_SIBLINGS = "distinct_siblings"
     SCOPE_CONTAINS_ANCESTOR = "scope_contains_ancestor"
+    SCOPE_EXCLUDES_ANCESTOR = "scope_excludes_ancestor"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -846,6 +848,16 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 when_all=(
                     ("component_members", "one"),
                     ("component_is_cyclic", "true"),
+                ),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.SCOPE_EXCLUDES_ANCESTOR,
+                scope="module",
+                child="graph_dependency_target",
+                pairs=(("path", "path"),),
+                when_all=(
+                    ("component_members", "one"),
+                    ("component_is_cyclic", "false"),
                 ),
             ),
             _PureScopeRule(
@@ -1933,6 +1945,10 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         parent_ordinal_keys=("module", "facts"),
         state_rules=(
             _PureStateRule(
+                rule=_PureStateKind.EQUAL_IF_PRESENT,
+                keys=("select", "selected_output_ordinal"),
+            ),
+            _PureStateRule(
                 rule=_PureStateKind.NON_EMPTY_IF_PRESENT, keys=("output_name",)
             ),
         ),
@@ -1952,6 +1968,17 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _key("status", _ENUMERATION, vocabulary="candidate_bucket_status"),
         ),
         parent_ordinal_keys=("module", "facts"),
+        scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.PREVIOUS_SIBLING_NON_DECREASING,
+                pairs=(("role", "role"),),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.SIBLING_BUCKETS_COMPLETE,
+                distinct=("role",),
+                pairs=(("source_ordinal", ""),),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="semantic_window_output",
@@ -1968,6 +1995,12 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _key("status", _ENUMERATION, vocabulary="window_output_status"),
         ),
         parent_ordinal_keys=("module", "facts"),
+        scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
+                pairs=(("selected_output_ordinal", "selected_output_ordinal"),),
+            ),
+        ),
         state_rules=(
             _PureStateRule(
                 rule=_PureStateKind.NON_EMPTY_IF_PRESENT,
@@ -2063,7 +2096,7 @@ class _PureFrame:
         record_position: int,
         declared_counts: tuple[tuple[int, str], ...],
         record: ProjectPureRecord | None = None,
-        membership_required: tuple[tuple[str, str, ProjectPureValue], ...] = (),
+        membership_required: tuple[tuple[str, str, ProjectPureValue, bool], ...] = (),
     ) -> None:
         self.kind = kind
         self.ordinal = ordinal
@@ -2283,6 +2316,15 @@ def _sibling_is_terminal(
     return _integer_of(record, specification.ordinal_key) == declared - 1
 
 
+def _declared_vocabulary(specification: _PureKindSpec, key: str) -> tuple[str, ...]:
+    """Return the declared enumeration order of one key of one record kind."""
+
+    for declared in specification.keys:
+        if declared.key == key and declared.vocabulary is not None:
+            return declared.vocabulary
+    raise ValueError("A declared order rule requires an enumeration key.")
+
+
 def _collected_keys(kind: str) -> tuple[tuple[str, str], ...]:
     """Return the child kind and key pairs one scope kind must collect."""
 
@@ -2362,9 +2404,10 @@ def _close_grouped_sequences(frame: _PureFrame) -> ProjectPureOutcome | None:
         for members in buckets.values():
             counts = {count for _, count in members}
             indexes = sorted(index for index, _ in members)
+            declared = counts.pop() if len(counts) == 1 else None
             if (
-                len(counts) != 1
-                or counts.pop() != len(members)
+                declared is None
+                or (declared != len(members) and declared != -1)
                 or indexes != list(range(len(members)))
             ):
                 return _reject(
@@ -2379,12 +2422,15 @@ def _membership_required(
     record: ProjectPureRecord,
     specification: _PureKindSpec,
     stack: list[_PureFrame],
-) -> tuple[tuple[str, str, ProjectPureValue], ...]:
-    """Resolve the values a closing scope must have seen among its children."""
+) -> tuple[tuple[str, str, ProjectPureValue, bool], ...]:
+    """Resolve the values a closing scope must and must not see in its children."""
 
-    required: list[tuple[str, str, ProjectPureValue]] = []
+    required: list[tuple[str, str, ProjectPureValue, bool]] = []
     for rule in specification.scope_rules:
-        if rule.rule is not _PureScopeKind.SCOPE_CONTAINS_ANCESTOR:
+        if rule.rule not in (
+            _PureScopeKind.SCOPE_CONTAINS_ANCESTOR,
+            _PureScopeKind.SCOPE_EXCLUDES_ANCESTOR,
+        ):
             continue
         if any(
             _state_token(_value_of(record, key)) != expected
@@ -2397,7 +2443,14 @@ def _membership_required(
         if ancestor is None or ancestor.record is None:
             continue
         key, ancestor_key = rule.pairs[0]
-        required.append((rule.child, key, _value_of(ancestor.record, ancestor_key)))
+        required.append(
+            (
+                rule.child,
+                key,
+                _value_of(ancestor.record, ancestor_key),
+                rule.rule is _PureScopeKind.SCOPE_CONTAINS_ANCESTOR,
+            )
+        )
     return tuple(required)
 
 
@@ -2515,6 +2568,19 @@ def _validate_scope_rules(
             before = tuple(_integer_of(previous, key) for _, key in rule.pairs)
             if seen <= before:
                 return _reject(ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position)
+            continue
+        if rule.rule is _PureScopeKind.PREVIOUS_SIBLING_NON_DECREASING:
+            previous = parent_frame.previous_child.get(specification.kind)
+            if previous is None:
+                continue
+            for key, previous_key in rule.pairs:
+                vocabulary = _declared_vocabulary(specification, key)
+                if vocabulary.index(_text_of(record, key)) < vocabulary.index(
+                    _text_of(previous, previous_key)
+                ):
+                    return _reject(
+                        ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position
+                    )
             continue
         if rule.rule is not _PureScopeKind.DISTINCT_SIBLINGS:
             # Every remaining shape is settled when the owning scope closes.
@@ -2675,8 +2741,8 @@ def _declared_counts(
 def _close_frame(frame: _PureFrame) -> ProjectPureOutcome | None:
     """Verify one closing scope's required records, counts, and memberships."""
 
-    for child, child_key, _ in frame.membership_required:
-        if (child, child_key) not in frame.membership_seen:
+    for child, child_key, _, expected in frame.membership_required:
+        if ((child, child_key) in frame.membership_seen) is not expected:
             return _reject(
                 ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, frame.record_position
             )
@@ -2837,9 +2903,11 @@ def _validate_structure(
                 continue
             bucket = tuple(_text_of(record, key) for key in rule.distinct)
             index_key, count_key = rule.pairs[0]
+            index = _integer_of(record, index_key)
+            count = -1 if not count_key else _integer_of(record, count_key)
             parent_frame.buckets.setdefault(record.kind, {}).setdefault(
                 bucket, []
-            ).append((_integer_of(record, index_key), _integer_of(record, count_key)))
+            ).append((index, count))
         for frame in stack:
             for collected_kind, collected_key in _collected_keys(frame.kind):
                 if collected_kind != record.kind:
@@ -2848,7 +2916,7 @@ def _validate_structure(
                     (parent_frame.record_position, _text_of(record, collected_key))
                 )
         for frame in stack:
-            for child, child_key, required in frame.membership_required:
+            for child, child_key, required, _expected in frame.membership_required:
                 if child == record.kind and _identical_values(
                     _value_of(record, child_key), required
                 ):
