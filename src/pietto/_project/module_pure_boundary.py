@@ -2260,6 +2260,17 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         scope_rules=(
             _PureScopeRule(
                 rule=_PureScopeKind.PREVIOUS_SIBLING_NON_DECREASING,
+                pairs=(("status", "status"),),
+                when=("family", "graph"),
+                order=(
+                    "unresolved_target_module",
+                    "duplicate_or_conflicting_module_identity",
+                    "module_import_cycle",
+                    "unsupported_explicit_module_reference",
+                ),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.PREVIOUS_SIBLING_NON_DECREASING,
                 pairs=(("family", "family"),),
             ),
         ),
@@ -2863,6 +2874,12 @@ def _validate_scope_rules(
             previous = parent_frame.previous_child.get(specification.kind)
             if previous is None:
                 continue
+            if rule.when:
+                selector, expected_token = rule.when
+                if _state_token(_value_of(previous, selector)) != expected_token:
+                    # The preceding sibling belongs to another declared group,
+                    # so this record opens that group rather than continuing one.
+                    continue
             for key, previous_key in rule.pairs:
                 vocabulary = rule.order or _declared_vocabulary(specification, key)
                 if vocabulary.index(_text_of(record, key)) < vocabulary.index(

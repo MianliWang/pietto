@@ -2540,6 +2540,19 @@ def _rejected_vectors() -> tuple[DifferentialVector, ...]:
             8,
         ),
         _rejected(
+            "unordered_graph_issue_statuses",
+            DifferentialPurpose.UNORDERED_GRAPH_ISSUE_STATUSES,
+            _document(
+                _header(1),
+                _OWNER,
+                *valid_module,
+                _issue(0, 0, family="graph", status="module_import_cycle"),
+                _issue(0, 1, family="graph", status="unresolved_target_module"),
+            ),
+            ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
+            8,
+        ),
+        _rejected(
             "repeated_type_reference_site",
             DifferentialPurpose.REPEATED_TYPE_REFERENCE_SITE,
             _document(
