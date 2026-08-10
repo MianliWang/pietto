@@ -164,6 +164,10 @@ class DifferentialPurpose(StrEnum):
     DECLARATION_NAMESPACE_KIND_PAIR = "declaration_namespace_kind_pair"
     REPEATED_LINEAGE_OWNER = "repeated_lineage_owner"
     SHAPE_FIELD_IN_RELATION_LINEAGE = "shape_field_in_relation_lineage"
+    SELF_CYCLE_WITHOUT_SELF_EDGE = "self_cycle_without_self_edge"
+    UNORDERED_IMPORT_EVIDENCE = "unordered_import_evidence"
+    EMPTY_WINDOW_OUTPUT_NAME = "empty_window_output_name"
+    REWRITTEN_LET_BINDING_ORDINAL = "rewritten_let_binding_ordinal"
     POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
     OCCURRENCE_INDEX_OUTSIDE_BUCKET = "occurrence_index_outside_bucket"
 

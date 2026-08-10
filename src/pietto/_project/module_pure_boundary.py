@@ -410,6 +410,7 @@ class _PureScopeRule:
     child_key: str = ""
     at: str = "any"
     when: tuple[str, ...] = ()
+    when_all: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -838,6 +839,16 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         ),
         scope_rules=(
             _PureScopeRule(
+                rule=_PureScopeKind.SCOPE_CONTAINS_ANCESTOR,
+                scope="module",
+                child="graph_dependency_target",
+                pairs=(("path", "path"),),
+                when_all=(
+                    ("component_members", "one"),
+                    ("component_is_cyclic", "true"),
+                ),
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.COLLECTED_SETS_EQUAL,
                 pairs=(
                     ("graph_import_evidence", "path"),
@@ -924,8 +935,11 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         ),
         scope_rules=(
             _PureScopeRule(
-                rule=_PureScopeKind.DISTINCT_SIBLINGS,
-                distinct=("path", "module_statement_position", "item_position"),
+                rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
+                pairs=(
+                    ("module_statement_position", "module_statement_position"),
+                    ("item_position", "item_position"),
+                ),
             ),
         ),
     ),
@@ -1896,6 +1910,12 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _key("has_value_type", _BOOLEAN),
         ),
         parent_ordinal_keys=("module", "facts"),
+        state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.EQUAL_IF_PRESENT,
+                keys=("binding", "binding_ordinal"),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="semantic_select",
@@ -1948,6 +1968,12 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _key("status", _ENUMERATION, vocabulary="window_output_status"),
         ),
         parent_ordinal_keys=("module", "facts"),
+        state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.NON_EMPTY_IF_PRESENT,
+                keys=("output_name",),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="issue",
@@ -2360,6 +2386,13 @@ def _membership_required(
     for rule in specification.scope_rules:
         if rule.rule is not _PureScopeKind.SCOPE_CONTAINS_ANCESTOR:
             continue
+        if any(
+            _state_token(_value_of(record, key)) != expected
+            for key, expected in rule.when_all
+        ):
+            # The scope state this rule is conditioned on does not hold, so the
+            # scope requires nothing of its children.
+            continue
         ancestor = _ancestor_frame(stack, rule.scope)
         if ancestor is None or ancestor.record is None:
             continue
@@ -2552,7 +2585,7 @@ def _validate_state_rules(
             left, right = (_value_of(record, key) for key in rule.keys)
             if ProjectPureTag.ABSENT in (left.tag, right.tag):
                 continue
-            if left.text != right.text:
+            if not _identical_values(left, right):
                 return _reject(ProjectPureStatus.INCONSISTENT_RECORD_STATE, position)
             continue
         if rule.rule is _PureStateKind.NON_EMPTY_IF_PRESENT:

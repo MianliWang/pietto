@@ -298,7 +298,7 @@ what produced two rounds of isomorphic findings.
 | `digest` | the digest is exactly sixty-four lowercase hexadecimal characters | `ProjectLayeredSourceDigestIdentity` |
 | `readiness` | the `status`, `reason`, and cycle-count triple is one of exactly two combinations | `ProjectLayeredLoaderReadinessFact` |
 | `readiness_cycle` | the member count is positive, the members are distinct, and they are exactly the members of the module's graph component | `ProjectInspectionModuleCycle`, `ProjectModuleStronglyConnectedComponent`, `_module_cycle_issues` |
-| `graph` | the component-member count is positive, any multi-member component proves a cycle, the members are distinct, the component contains the module it describes, the dependency targets are distinct, and the import evidence names exactly those targets | `ProjectInspectionGraph`, `ProjectModuleStronglyConnectedComponent`, `_derive_inspection` |
+| `graph` | the component-member count is positive, any multi-member component proves a cycle, the members are distinct, the component contains the module it describes, the dependency targets are distinct, a single-member cyclic component proves its self edge among them, and the import evidence names exactly those targets in source order | `ProjectInspectionGraph`, `ProjectModuleStronglyConnectedComponent`, `_derive_inspection` |
 | `import` | the namespace and declaration kind form an eligible pair; a supplied resolved target keeps the same namespace and declaration kind; the four resolved-target keys are present together or absent together; and the request has exactly one outcome, so an unresolved request carries at least one issue and a resolved one carries at most the duplicate request issue, which is also the only status its issues may hold, while an unresolved one keeps at least one issue that is not that duplicate | `ProjectImportedBindingIdentity`, `ProjectResolvedImportedBinding`, `ProjectModuleBindingEnvironment`, `ProjectInspectionImport` |
 | `export` | the namespace and declaration kind form an eligible pair; a supplied entry keeps the same namespace and declaration kind, exposes the local name, and, for a local declaration origin, targets that same declared name in the enclosing module; the six facade-entry keys are present together or absent together; and the request has exactly one outcome, so an unentered request carries at least one issue and an entered one carries at most the duplicate request issue, which is also the only status its issues may hold, while an unentered one keeps at least one issue that is not that duplicate | `ProjectModuleExportEntry`, `ProjectModuleExportSurface`, `ProjectInspectionExport` |
 | `declaration` | the owner kind is the module, its namespace is the reserved empty local namespace, and its name is the enclosing module path; the namespace and declaration kind are one of the eight pairs a definition can produce; the relation status and reason are one atomic pair; the namespace decides the availability domain, a non-relation declaration publishes no relation product, and a retained relation state maps its exact availability; an ambiguous availability requires a repeated identity and every other availability a unique one, and a repeated identity publishes its whole bucket, once per index; a positive row-field count requires the relation state; the occurrence index is inside its bucket | `ProjectInspectionDeclaration`, `ProjectLayeredDeclarationAsset`, `ProjectLayeredOwnerIdentity` |
@@ -309,7 +309,9 @@ what produced two rounds of isomorphic findings.
 | `dependency` | each target group is atomic, and the reference role decides both the kind and which single target group is present | `ProjectModuleDependencyFact`, `_dependency_kind` |
 | `type_resolution` | the canonical-target pair is atomic; an enumeration or shape canonical kind requires that target and a builtin or unknown one forbids it; the canonical kind decides the canonical name, which is a registered builtin name or the fixed unknown name; a supplied canonical target declares that same name; a canonical kind never terminates at an alias; only a direct alias carries an alias chain | `ProjectResolvedModuleTypeReference` |
 | `type_resolution_alias` | every alias identity is a type alias in the type namespace, and no identity repeats in one chain | `ProjectResolvedModuleTypeReference` |
+| `semantic_let_binding` | the retained source ordinal is the record's own position | `ProjectModuleRelationSemanticFacts` |
 | `semantic_select` | a supplied output name is non-empty | `ProjectModuleSelectFact` |
+| `semantic_window_output` | a supplied output name is non-empty | `ProjectInspectionWindowOutput` |
 | `issue` | the status belongs to its declared family | `ProjectInspectionIssue` |
 
 ### What the portable layer does and does not re-validate
@@ -369,7 +371,9 @@ declaration availability algebra needs.
 
 A rule may carry a selector, so a guard that one origin variant imposes and the
 others do not is declared once against the variant it belongs to instead of
-being weakened to the intersection of every variant. The terminating hop of an
+being weakened to the intersection of every variant. A scope rule may be
+selected the same way, on the state of the scope record itself, which is how a
+single-member component requires its self edge only when it claims a cycle. The terminating hop of an
 access chain uses this: `ProjectModuleOriginPath` requires that hop's facade to
 sit in the target declaration's own module, and `ProjectModuleExportEntry`
 requires a local-declaration entry to expose that declaration's own name, so
