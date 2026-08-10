@@ -1512,6 +1512,11 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         ),
         scope_rules=(
             _PureScopeRule(
+                rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
+                pairs=(("target_declaration_position", "target_declaration_position"),),
+                when=("binding", "local_declaration"),
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.PREVIOUS_SIBLING_NON_DECREASING,
                 pairs=(("binding", "binding"),),
             ),
@@ -3001,6 +3006,10 @@ def _validate_scope_rules(
             previous = parent_frame.previous_child.get(specification.kind)
             if previous is None:
                 continue
+            if rule.when:
+                selector, expected_token = rule.when
+                if _state_token(_value_of(previous, selector)) != expected_token:
+                    continue
             seen = tuple(
                 _ordered_key(record, specification, key, rule) for key, _ in rule.pairs
             )

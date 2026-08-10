@@ -199,6 +199,7 @@ class DifferentialPurpose(StrEnum):
     FOREIGN_COMPONENT_MEMBER = "foreign_component_member"
     UNORDERED_CYCLE_MEMBERS = "unordered_cycle_members"
     IMPORTED_ORIGIN_BEFORE_LOCAL = "imported_origin_before_local"
+    UNORDERED_LOCAL_ORIGINS = "unordered_local_origins"
     UNORDERED_DEPENDENCY_LEDGER = "unordered_dependency_ledger"
     POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
     OCCURRENCE_INDEX_OUTSIDE_BUCKET = "occurrence_index_outside_bucket"

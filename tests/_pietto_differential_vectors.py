@@ -2639,6 +2639,33 @@ def _rejected_vectors() -> tuple[DifferentialVector, ...]:
             0,
         ),
         _rejected(
+            "unordered_local_origins",
+            DifferentialPurpose.UNORDERED_LOCAL_ORIGINS,
+            _document(
+                _header(1),
+                _OWNER,
+                *valid_module,
+                _origin(
+                    0,
+                    0,
+                    local_name="Second",
+                    target_module_path="a.pietto",
+                    target_declared_name="Second",
+                    target_declaration_position=1,
+                ),
+                _origin(
+                    0,
+                    1,
+                    local_name="First",
+                    target_module_path="a.pietto",
+                    target_declared_name="First",
+                    target_declaration_position=0,
+                ),
+            ),
+            ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
+            8,
+        ),
+        _rejected(
             "imported_origin_before_local",
             DifferentialPurpose.IMPORTED_ORIGIN_BEFORE_LOCAL,
             _document(
