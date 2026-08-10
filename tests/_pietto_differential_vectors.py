@@ -2432,6 +2432,19 @@ def _rejected_vectors() -> tuple[DifferentialVector, ...]:
             8,
         ),
         _rejected(
+            "repeated_semantic_facts_owner",
+            DifferentialPurpose.REPEATED_SEMANTIC_FACTS_OWNER,
+            _document(
+                _header(1),
+                _OWNER,
+                *valid_module,
+                _semantic_facts(0, 0),
+                _semantic_facts(0, 1),
+            ),
+            ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
+            8,
+        ),
+        _rejected(
             "unordered_issue_families",
             DifferentialPurpose.UNORDERED_ISSUE_FAMILIES,
             _document(

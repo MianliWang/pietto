@@ -1679,8 +1679,8 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         ),
         scope_rules=(
             _PureScopeRule(
-                rule=_PureScopeKind.DISTINCT_SIBLINGS,
-                distinct=("owner_declaration_position",),
+                rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
+                pairs=(("owner_declaration_position", "owner_declaration_position"),),
             ),
         ),
     ),
@@ -2030,6 +2030,12 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         ),
         parent_ordinal_keys=("module",),
         is_scope=True,
+        scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
+                pairs=(("owner_declaration_position", "owner_declaration_position"),),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="semantic_let_binding",

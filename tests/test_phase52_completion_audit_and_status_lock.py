@@ -258,10 +258,10 @@ MODULE_SHA256 = {
     WINDOW_REL: "c0512933fc284bbc1dec98dab96411ee179d64e7bee005aa798b6fd7dba2024e",
 }
 PATH_DIGESTS = {
-    "compiler": "1f7f8c4c1ac05f5fce6607778e97f0d56089b7a17e0ca6e9292c8f84ffb7232d",
+    "compiler": "80c1843d2b70703dae6d328bd1a672ef823bec55b320bfff0617eebc4648c4f8",
     "semantic": "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70",
     "phase15": "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d",
-    "project": "486eb34568a12f35952b6822bf032622e69daebd875c689105b3d0c59a4bf8a7",
+    "project": "dc05675e3da611a99a2840fbc2e447c6e2e89b55adcdb447335c3bdbf08a31aa",
 }
 PROTECTED_SHA256 = {
     ".github/workflows/ci.yml": "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94",
