@@ -599,6 +599,7 @@ def test_declared_ordinal_rules_match_the_projection_emission_rules() -> None:
         "graph_import_evidence",
         "import",
         "import_issue",
+        "inspection",
         "issue",
         "module",
         "origin",

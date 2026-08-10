@@ -195,6 +195,9 @@ class DifferentialPurpose(StrEnum):
     BLOCKED_DECLARATION_IN_READY_MODULE = "blocked_declaration_in_ready_module"
     CYCLIC_COMPONENT_IN_READY_MODULE = "cyclic_component_in_ready_module"
     ZERO_HOP_LINEAGE_OUTSIDE_SOURCE = "zero_hop_lineage_outside_source"
+    UNORDERED_DEPENDENCY_TARGETS = "unordered_dependency_targets"
+    IMPORTED_ORIGIN_BEFORE_LOCAL = "imported_origin_before_local"
+    UNORDERED_DEPENDENCY_LEDGER = "unordered_dependency_ledger"
     POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
     OCCURRENCE_INDEX_OUTSIDE_BUCKET = "occurrence_index_outside_bucket"
 

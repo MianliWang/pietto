@@ -374,6 +374,7 @@ class _PureScopeKind(StrEnum):
     PREVIOUS_SIBLING_INCREASING = "previous_sibling_increasing"
     PREVIOUS_SIBLING_NON_DECREASING = "previous_sibling_non_decreasing"
     GROUPED_SEQUENCES_EQUAL = "grouped_sequences_equal"
+    GROUPED_ASCENDS_BY_COLLECTED = "grouped_ascends_by_collected"
     COLLECTED_SETS_EQUAL = "collected_sets_equal"
     COLLECTED_SUBSET = "collected_subset"
     SCOPE_REQUIRES_CHILD = "scope_requires_child"
@@ -677,6 +678,15 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         ),
         counts=(("modules", "module"),),
         is_scope=True,
+        scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.GROUPED_ASCENDS_BY_COLLECTED,
+                pairs=(
+                    ("graph_dependency_target", "path"),
+                    ("module", "path"),
+                ),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="owner",
@@ -1488,6 +1498,10 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         ),
         scope_rules=(
             _PureScopeRule(
+                rule=_PureScopeKind.PREVIOUS_SIBLING_NON_DECREASING,
+                pairs=(("binding", "binding"),),
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.DISTINCT_SUBTREES,
             ),
             _PureScopeRule(
@@ -1599,6 +1613,17 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         ),
         parent_ordinal_keys=("module",),
         scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
+                pairs=(
+                    (
+                        "reference_owner_declaration_position",
+                        "reference_owner_declaration_position",
+                    ),
+                    ("reference_role", "reference_role"),
+                    ("reference_member_position", "reference_member_position"),
+                ),
+            ),
             _PureScopeRule(
                 rule=_PureScopeKind.DISTINCT_SIBLINGS,
                 distinct=(
@@ -2611,6 +2636,26 @@ def _identity_tokens(
     )
 
 
+def _ordered_key(
+    record: ProjectPureRecord,
+    specification: _PureKindSpec,
+    key: str,
+    rule: _PureScopeRule,
+) -> int:
+    """Rank one key of one record for a declared sibling order.
+
+    An integer ranks by its value and an enumeration by its position in the
+    declared order, so one lexicographic comparison states an order over a
+    mixed key.
+    """
+
+    supplied = _value_of(record, key)
+    if supplied.tag is ProjectPureTag.INTEGER:
+        return _integer_of(record, key)
+    vocabulary = rule.order or _declared_vocabulary(specification, key)
+    return vocabulary.index(supplied.text or "")
+
+
 def _declared_vocabulary(specification: _PureKindSpec, key: str) -> tuple[str, ...]:
     """Return the declared enumeration order of one key of one record kind."""
 
@@ -2630,6 +2675,7 @@ def _collected_keys(kind: str) -> tuple[tuple[str, str], ...]:
     for rule in specification.scope_rules:
         if rule.rule in (
             _PureScopeKind.GROUPED_SEQUENCES_EQUAL,
+            _PureScopeKind.GROUPED_ASCENDS_BY_COLLECTED,
             _PureScopeKind.COLLECTED_SETS_EQUAL,
         ):
             collected.extend(rule.pairs)
@@ -2685,6 +2731,21 @@ def _close_grouped_sequences(frame: _PureFrame) -> ProjectPureOutcome | None:
                     ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
                     frame.record_position,
                 )
+            continue
+        if rule.rule is _PureScopeKind.GROUPED_ASCENDS_BY_COLLECTED:
+            ordered = [value for _, value in frame.collected.get(rule.pairs[1], [])]
+            for group in _grouped(frame.collected.get(rule.pairs[0], [])):
+                if any(value not in ordered for value in group):
+                    return _reject(
+                        ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
+                        frame.record_position,
+                    )
+                ranked = [ordered.index(value) for value in group]
+                if ranked != sorted(set(ranked)):
+                    return _reject(
+                        ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
+                        frame.record_position,
+                    )
             continue
         if rule.rule is _PureScopeKind.COLLECTED_SETS_EQUAL:
             left, right = (
@@ -2919,8 +2980,13 @@ def _validate_scope_rules(
             previous = parent_frame.previous_child.get(specification.kind)
             if previous is None:
                 continue
-            seen = tuple(_integer_of(record, key) for key, _ in rule.pairs)
-            before = tuple(_integer_of(previous, key) for _, key in rule.pairs)
+            seen = tuple(
+                _ordered_key(record, specification, key, rule) for key, _ in rule.pairs
+            )
+            before = tuple(
+                _ordered_key(previous, specification, key, rule)
+                for _, key in rule.pairs
+            )
             if seen <= before:
                 return _reject(ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position)
             continue
