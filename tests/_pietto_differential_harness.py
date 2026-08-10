@@ -149,6 +149,10 @@ class DifferentialPurpose(StrEnum):
     FOREIGN_LOCAL_ORIGIN_TARGET = "foreign_local_origin_target"
     RESOLVED_IMPORT_WITH_BLOCKING_ISSUE = "resolved_import_with_blocking_issue"
     RESOLVED_EXPORT_WITH_BLOCKING_ISSUE = "resolved_export_with_blocking_issue"
+    CYCLE_DISAGREES_WITH_COMPONENT = "cycle_disagrees_with_component"
+    DEPENDENCY_ROLE_KIND_MISMATCH = "dependency_role_kind_mismatch"
+    REPEATED_LINEAGE_FIELD_POSITION = "repeated_lineage_field_position"
+    UNORDERED_IMPORT_POSITIONS = "unordered_import_positions"
     POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
     OCCURRENCE_INDEX_OUTSIDE_BUCKET = "occurrence_index_outside_bucket"
 

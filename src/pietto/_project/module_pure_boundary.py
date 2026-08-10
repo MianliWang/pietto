@@ -368,6 +368,8 @@ class _PureScopeKind(StrEnum):
     ANCESTOR_EQUAL = "ancestor_equal"
     ANCESTOR_COMBINATION = "ancestor_combination"
     PREVIOUS_SIBLING_EQUAL = "previous_sibling_equal"
+    PREVIOUS_SIBLING_INCREASING = "previous_sibling_increasing"
+    GROUPED_SEQUENCES_EQUAL = "grouped_sequences_equal"
     DISTINCT_SIBLINGS = "distinct_siblings"
     SCOPE_CONTAINS_ANCESTOR = "scope_contains_ancestor"
 
@@ -686,6 +688,15 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _key("path", _TEXT),
         ),
         is_scope=True,
+        scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.GROUPED_SEQUENCES_EQUAL,
+                pairs=(
+                    ("readiness_cycle_member", "path"),
+                    ("graph_component_member", "path"),
+                ),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="digest",
@@ -931,6 +942,15 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 ),
             ),
         ),
+        scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
+                pairs=(
+                    ("module_statement_position", "module_statement_position"),
+                    ("item_position", "item_position"),
+                ),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="import_issue",
@@ -1056,6 +1076,13 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             ),
         ),
         scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
+                pairs=(
+                    ("module_statement_position", "module_statement_position"),
+                    ("item_position", "item_position"),
+                ),
+            ),
             _PureScopeRule(
                 rule=_PureScopeKind.ANCESTOR_EQUAL,
                 scope="module",
@@ -1359,6 +1386,7 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 rule=_PureStateKind.COMBINATION,
                 keys=(
                     "kind",
+                    "reference_role",
                     "target_declaration_module_path",
                     "target_row_field_owner_declaration_position",
                 ),
@@ -1367,10 +1395,11 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                     "target_row_field_owner_declaration_position",
                 ),
                 admitted=(
-                    ("type_reference", "present", "absent"),
-                    ("source_shape_reference", "present", "absent"),
-                    ("relation_reference", "present", "absent"),
-                    ("row_field_reference", "absent", "present"),
+                    ("type_reference", "type_alias_base", "present", "absent"),
+                    ("type_reference", "shape_field_type", "present", "absent"),
+                    ("source_shape_reference", "source_shape", "present", "absent"),
+                    ("relation_reference", "relation_from", "present", "absent"),
+                    ("row_field_reference", "row_field", "absent", "present"),
                 ),
             ),
         ),
@@ -1426,6 +1455,12 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         parent_ordinal_keys=("module", "lineage"),
         is_scope=True,
         state_rules=(_PureStateRule(rule=_PureStateKind.POSITIVE, keys=("paths",)),),
+        scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
+                pairs=(("field_position", "field_position"),),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="row_lineage_path",
@@ -1814,6 +1849,7 @@ class _PureFrame:
         "declared_counts",
         "kind",
         "last_child_order",
+        "collected",
         "membership_required",
         "membership_seen",
         "ordinal",
@@ -1844,6 +1880,7 @@ class _PureFrame:
         self.seen_children: dict[str, set[tuple[str, ...]]] = {}
         self.membership_required = membership_required
         self.membership_seen: set[tuple[str, str]] = set()
+        self.collected: dict[tuple[str, str], list[tuple[int, str]]] = {}
 
 
 def _reject(
@@ -2014,6 +2051,50 @@ def _sibling_is_terminal(
     return _integer_of(record, specification.ordinal_key) == declared - 1
 
 
+def _collected_keys(kind: str) -> tuple[tuple[str, str], ...]:
+    """Return the child kind and key pairs one scope kind must collect."""
+
+    specification = PURE_RECORD_SCHEMA.get(kind)
+    if specification is None:
+        return ()
+    return tuple(
+        pair
+        for rule in specification.scope_rules
+        if rule.rule is _PureScopeKind.GROUPED_SEQUENCES_EQUAL
+        for pair in rule.pairs
+    )
+
+
+def _grouped(collected: list[tuple[int, str]]) -> tuple[tuple[str, ...], ...]:
+    """Group one collected child sequence by the scope that owned each item."""
+
+    groups: list[tuple[int, list[str]]] = []
+    for owner, value in collected:
+        if not groups or groups[-1][0] != owner:
+            groups.append((owner, []))
+        groups[-1][1].append(value)
+    return tuple(tuple(values) for _, values in groups)
+
+
+def _close_grouped_sequences(frame: _PureFrame) -> ProjectPureOutcome | None:
+    """Compare the grouped child sequences one closing scope collected."""
+
+    specification = PURE_RECORD_SCHEMA.get(frame.kind)
+    if specification is None:
+        return None
+    for rule in specification.scope_rules:
+        if rule.rule is not _PureScopeKind.GROUPED_SEQUENCES_EQUAL:
+            continue
+        grouped, expected = (
+            _grouped(frame.collected.get(pair, [])) for pair in rule.pairs
+        )
+        if len(expected) != 1 or any(group != expected[0] for group in grouped):
+            return _reject(
+                ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, frame.record_position
+            )
+    return None
+
+
 def _membership_required(
     record: ProjectPureRecord,
     specification: _PureKindSpec,
@@ -2139,6 +2220,17 @@ def _validate_scope_rules(
                         ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position
                     )
             continue
+        if rule.rule is _PureScopeKind.PREVIOUS_SIBLING_INCREASING:
+            previous = parent_frame.previous_child.get(specification.kind)
+            if previous is None:
+                continue
+            seen = tuple(_integer_of(record, key) for key, _ in rule.pairs)
+            before = tuple(_integer_of(previous, key) for _, key in rule.pairs)
+            if seen <= before:
+                return _reject(ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position)
+            continue
+        if rule.rule is _PureScopeKind.GROUPED_SEQUENCES_EQUAL:
+            continue
         seen = parent_frame.seen_children.setdefault(specification.kind, set())
         member = tuple(_state_token(_value_of(record, key)) for key in rule.distinct)
         if member in seen:
@@ -2244,6 +2336,18 @@ def _validate_state_rules(
     return None
 
 
+def _text_of(record: ProjectPureRecord, key: str) -> str:
+    """Read one already validated text payload from one record."""
+
+    for supplied in record.fields:
+        if supplied.key == key:
+            payload = supplied.value.text
+            if payload is None:
+                raise ValueError("A validated text payload cannot be absent.")
+            return payload
+    raise ValueError("A validated record always carries its declared key.")
+
+
 def _integer_of(record: ProjectPureRecord, key: str) -> int:
     """Read one already validated integer payload from one record."""
 
@@ -2287,7 +2391,10 @@ def _close_frame(frame: _PureFrame) -> ProjectPureOutcome | None:
             return _reject(
                 ProjectPureStatus.CHILD_COUNT_MISMATCH, frame.record_position
             )
-    return None
+    # A scope that is structurally incomplete reports that first, so a declared
+    # relation between two of its child collections is only compared once both
+    # collections are known to be present and complete.
+    return _close_grouped_sequences(frame)
 
 
 def evaluate_pure_document(document: ProjectPureDocument) -> ProjectPureOutcome:
@@ -2425,6 +2532,13 @@ def _validate_structure(
             parent_frame.child_counts.get(record.kind, 0) + 1
         )
         parent_frame.previous_child[record.kind] = record
+        for frame in stack:
+            for collected_kind, collected_key in _collected_keys(frame.kind):
+                if collected_kind != record.kind:
+                    continue
+                frame.collected.setdefault((collected_kind, collected_key), []).append(
+                    (parent_frame.record_position, _text_of(record, collected_key))
+                )
         for frame in stack:
             for child, child_key, required in frame.membership_required:
                 if child == record.kind and _identical_values(

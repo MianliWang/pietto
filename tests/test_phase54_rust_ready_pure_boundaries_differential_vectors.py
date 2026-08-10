@@ -570,6 +570,8 @@ def test_declared_ordinal_rules_match_the_projection_emission_rules() -> None:
         kind for kind, specification in schema.items() if specification.scope_rules
     }
     assert scoped == {
+        "module",
+        "import",
         "readiness_cycle_member",
         "declaration",
         "export",
@@ -579,6 +581,7 @@ def test_declared_ordinal_rules_match_the_projection_emission_rules() -> None:
         "import_issue",
         "export_issue",
         "origin_hop",
+        "row_lineage_field",
         "row_lineage_path",
         "row_lineage_hop",
         "type_resolution_alias",
