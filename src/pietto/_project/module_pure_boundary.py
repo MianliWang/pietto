@@ -410,6 +410,7 @@ class _PureScopeRule:
     presence: tuple[str, ...] = ()
     distinct: tuple[str, ...] = ()
     excluded: tuple[str, ...] = ()
+    order: tuple[str, ...] = ()
     child: str = ""
     child_key: str = ""
     at: str = "any"
@@ -1075,6 +1076,10 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         parent_ordinal_keys=("module", "request"),
         scope_rules=(
             _PureScopeRule(
+                rule=_PureScopeKind.PREVIOUS_SIBLING_NON_DECREASING,
+                pairs=(("status", "status"),),
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.ANCESTOR_COMBINATION,
                 scope="import",
                 pairs=(("status", "resolved_module_path"),),
@@ -1229,6 +1234,17 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         ),
         parent_ordinal_keys=("module", "request"),
         scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.PREVIOUS_SIBLING_NON_DECREASING,
+                pairs=(("status", "status"),),
+                order=(
+                    "duplicate_source_request",
+                    "ambiguous_local_declaration",
+                    "ineligible_or_inconsistent_candidate",
+                    "ambiguous_candidate_set",
+                    "unresolved_export_binding",
+                ),
+            ),
             _PureScopeRule(
                 rule=_PureScopeKind.ANCESTOR_COMBINATION,
                 scope="export",
@@ -2744,7 +2760,7 @@ def _validate_scope_rules(
             if previous is None:
                 continue
             for key, previous_key in rule.pairs:
-                vocabulary = _declared_vocabulary(specification, key)
+                vocabulary = rule.order or _declared_vocabulary(specification, key)
                 if vocabulary.index(_text_of(record, key)) < vocabulary.index(
                     _text_of(previous, previous_key)
                 ):

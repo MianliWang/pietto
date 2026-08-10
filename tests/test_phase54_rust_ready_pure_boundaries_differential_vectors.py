@@ -627,6 +627,14 @@ def test_declared_ordinal_rules_match_the_projection_emission_rules() -> None:
                 assert rule.scope in schema and schema[rule.scope].is_scope
             if rule.rule is pure_boundary._PureScopeKind.SCOPE_CONTAINS_ANCESTOR:
                 assert schema[rule.child].parent == specification.kind
+    exports_source = _read("src/pietto/_project/module_exports.py")
+    ordered = next(
+        rule.order for rule in schema["export_issue"].scope_rules if rule.order
+    )
+    for rank, status in enumerate(ordered):
+        member = status.upper()
+        assert f"ProjectModuleExportIssueStatus.{member}: {rank}," in exports_source
+    assert len(ordered) == len(exports_module.ProjectModuleExportIssueStatus)
     catalog_source = _read("src/pietto/_project/module_catalog.py")
     assert "occurrence.declaration_position != position" in catalog_source
     inspection_source = _read(INSPECTION_REL)

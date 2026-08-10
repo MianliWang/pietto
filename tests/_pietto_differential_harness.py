@@ -180,6 +180,8 @@ class DifferentialPurpose(StrEnum):
     DUPLICATE_ROW_FIELD_NAME = "duplicate_row_field_name"
     PROJECTION_KIND_NAME_MISMATCH = "projection_kind_name_mismatch"
     EMPTY_LATER_DECLARED_NAME = "empty_later_declared_name"
+    UNORDERED_IMPORT_ISSUE_STATUSES = "unordered_import_issue_statuses"
+    UNORDERED_EXPORT_ISSUE_STATUSES = "unordered_export_issue_statuses"
     POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
     OCCURRENCE_INDEX_OUTSIDE_BUCKET = "occurrence_index_outside_bucket"
 
