@@ -378,6 +378,7 @@ class _PureScopeKind(StrEnum):
     COLLECTED_SETS_EQUAL = "collected_sets_equal"
     COLLECTED_SUBSET = "collected_subset"
     COLLECTED_IMPLIES = "collected_implies"
+    LEDGER_MATCH = "ledger_match"
     GROUP_FIRST_INCREASING = "group_first_increasing"
     SCOPE_REQUIRES_CHILD = "scope_requires_child"
     SIBLING_BUCKETS_COMPLETE = "sibling_buckets_complete"
@@ -417,6 +418,8 @@ class _PureScopeRule:
     excluded: tuple[str, ...] = ()
     order: tuple[str, ...] = ()
     subset: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    ancestor_scope: str = ""
+    ancestor_pairs: tuple[tuple[str, str], ...] = ()
     child: str = ""
     child_key: str = ""
     at: str = "any"
@@ -741,6 +744,23 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             ),
         ),
         scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.COLLECTED_SUBSET,
+                subset=(
+                    (
+                        "graph_import_evidence",
+                        ("path", "module_statement_position", "item_position"),
+                    ),
+                    (
+                        "import",
+                        (
+                            "target_module_path",
+                            "module_statement_position",
+                            "item_position",
+                        ),
+                    ),
+                ),
+            ),
             _PureScopeRule(
                 rule=_PureScopeKind.DISTINCT_SIBLINGS,
                 distinct=("path",),
@@ -1592,6 +1612,23 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             ),
         ),
         scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="import",
+                ancestor_scope="origin",
+                pairs=(
+                    ("import_target_module_path", "target_module_path"),
+                    ("import_exported_name", "exported_name"),
+                    (
+                        "import_module_statement_position",
+                        "module_statement_position",
+                    ),
+                    ("import_item_position", "item_position"),
+                ),
+                ancestor_pairs=(("local_name", "local_name"),),
+                at="first",
+            ),
             _PureScopeRule(
                 rule=_PureScopeKind.GROUP_FIRST_INCREASING,
                 scope="module",
@@ -2736,6 +2773,14 @@ def _collected_keys(kind: str) -> tuple[tuple[str, str], ...]:
     return tuple(collected)
 
 
+def _ledger_keys(rule: _PureScopeRule) -> tuple[str, ...]:
+    """Return the ledger keys one match rule compares against, in rule order."""
+
+    return tuple(ledger_key for _, ledger_key in rule.pairs) + tuple(
+        ledger_key for _, ledger_key in rule.ancestor_pairs
+    )
+
+
 def _subset_keys(kind: str) -> tuple[tuple[str, tuple[str, ...]], ...]:
     """Return the child kind and key tuples one scope kind must collect."""
 
@@ -2748,6 +2793,11 @@ def _subset_keys(kind: str) -> tuple[tuple[str, tuple[str, ...]], ...]:
         if rule.rule
         in (_PureScopeKind.COLLECTED_SUBSET, _PureScopeKind.COLLECTED_IMPLIES)
         for entry in rule.subset
+    ) + tuple(
+        (rule.child, _ledger_keys(rule))
+        for other in PURE_RECORD_SCHEMA.values()
+        for rule in other.scope_rules
+        if rule.rule is _PureScopeKind.LEDGER_MATCH and rule.scope == kind
     )
 
 
@@ -3043,6 +3093,28 @@ def _validate_scope_rules(
                 )
                 for row in rule.admitted
             ):
+                return _reject(ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position)
+            continue
+        if rule.rule is _PureScopeKind.LEDGER_MATCH:
+            ledger_frame = _ancestor_frame(stack, rule.scope)
+            owner_frame = _ancestor_frame(stack, rule.ancestor_scope)
+            if (
+                ledger_frame is None
+                or owner_frame is None
+                or owner_frame.record is None
+            ):
+                return _reject(ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position)
+            ledger = set(
+                ledger_frame.grouped_tuples.get((rule.child, _ledger_keys(rule)), [])
+            )
+            ledger_observed = (
+                *(_exact_token(_value_of(record, key)) for key, _ in rule.pairs),
+                *(
+                    _exact_token(_value_of(owner_frame.record, key))
+                    for key, _ in rule.ancestor_pairs
+                ),
+            )
+            if ledger_observed not in ledger:
                 return _reject(ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position)
             continue
         if rule.rule is _PureScopeKind.GROUP_FIRST_INCREASING:
