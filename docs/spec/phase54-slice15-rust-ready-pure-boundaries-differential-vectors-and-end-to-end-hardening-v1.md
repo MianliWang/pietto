@@ -304,8 +304,10 @@ what produced two rounds of isomorphic findings.
 | `declaration` | the owner kind is the module, its namespace is the reserved empty local namespace, and its name is the enclosing module path; the namespace and declaration kind are one of the eight pairs a definition can produce; the relation status and reason are one atomic pair; the namespace decides the availability domain, a non-relation declaration publishes no relation product, and a retained relation state maps its exact availability; an ambiguous availability requires a repeated identity and every other availability a unique one, and a repeated identity publishes its whole bucket, once per index; a positive row-field count requires the relation state; the occurrence index is inside its bucket | `ProjectInspectionDeclaration`, `ProjectLayeredDeclarationAsset`, `ProjectLayeredOwnerIdentity` |
 | `origin` | one origin path, including its whole access chain, appears once; the namespace and declaration kind are one of the eight pairs a definition can produce; a local origin is one self path with no hop that targets its own local name in its own module; an imported origin always carries its access chain | `ProjectModuleOriginPath` |
 | `origin_hop` | each hop is one direct route, so its import target and facade module agree and its exported and exposed names agree; every hop names the origin's own nominal target; the chain re-exports at every interior hop and terminates at a local declaration; the terminating facade is the declaration itself, in its module and under its declared name | `ProjectModuleAccessHop`, `ProjectModuleOriginPath`, `ProjectModuleExportEntry` |
+| `row_lineage_hop` | the projection kind is decided by the two names: direct keeps the name, renamed changes it | `ProjectModuleRowLineageHop` |
 | `row_lineage` | a non-concrete lineage carries no field, and one relation owner publishes at most one lineage | `ProjectModuleRelationLineage`, `ProjectModuleAttributionFactSet` |
-| `row_lineage_field` | every retained field keeps at least one complete path, no two paths are identical, field positions ascend without repeating, and every path starts at that field, stays contiguous hop by hop, and ends at its declared root | `ProjectModuleRowFieldLineage`, `ProjectModuleRelationLineage`, `ProjectModuleRowLineagePath` |
+| `declaration_row_field` | field names do not repeat in one row schema | `ProjectRowSchema` |
+| `row_lineage_field` | every retained field keeps at least one complete path, no two paths are identical, field names do not repeat, field positions ascend without repeating, and every path starts at that field, stays contiguous hop by hop, and ends at its declared root | `ProjectModuleRowFieldLineage`, `ProjectModuleRelationLineage`, `ProjectModuleRowLineagePath` |
 | `dependency` | each target group is atomic, the reference role decides both the kind and which single target group is present, and one reference-to-target fact appears once | `ProjectModuleDependencyFact`, `_dependency_kind` |
 | `type_resolution` | the canonical-target pair is atomic; an enumeration or shape canonical kind requires that target and a builtin or unknown one forbids it; the canonical kind decides the canonical name, which is a registered builtin name or the fixed unknown name; a supplied canonical target declares that same name; a canonical kind never terminates at an alias; only a direct alias carries an alias chain | `ProjectResolvedModuleTypeReference` |
 | `type_resolution_alias` | every alias identity is a type alias in the type namespace, and no identity repeats in one chain | `ProjectResolvedModuleTypeReference` |
@@ -346,8 +348,10 @@ A later independent implementation therefore reproduces the canonical bytes and
 this rejection algebra; it does not reproduce the Slice 5 through Slice 14
 semantic model, which stays where its roots are.
 
-Text content is deliberately not re-validated beyond the declared digest shape
-and the module identity path domain. A module identity path is safe to declare
+Every required name is non-empty, because every one of them reaches the
+projection through `_require_text`, and the two optional output names keep the
+same rule when supplied. Beyond that and the declared digest shape, text
+content is deliberately not re-validated. A module identity path is safe to declare
 because every one of them is constructed through `ProjectModuleIdentity`; the
 predicate is restated here from the characters alone, because the upstream form
 asks `pathlib` whether a path is absolute and the portable layer must not

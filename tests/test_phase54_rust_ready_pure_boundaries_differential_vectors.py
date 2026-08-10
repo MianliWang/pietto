@@ -549,6 +549,7 @@ def test_declared_ordinal_rules_match_the_projection_emission_rules() -> None:
     }
     assert ruled == {
         "declaration",
+        "declaration_row_field",
         "dependency",
         "digest",
         "export",
@@ -568,6 +569,7 @@ def test_declared_ordinal_rules_match_the_projection_emission_rules() -> None:
         "relation_resolution",
         "row_lineage",
         "row_lineage_field",
+        "row_lineage_hop",
         "row_lineage_path",
         "semantic_let_binding",
         "semantic_select",
@@ -587,6 +589,7 @@ def test_declared_ordinal_rules_match_the_projection_emission_rules() -> None:
     }
     assert scoped == {
         "declaration",
+        "declaration_row_field",
         "dependency",
         "export",
         "export_issue",

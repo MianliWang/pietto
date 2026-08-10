@@ -330,6 +330,7 @@ class _PureStateKind(StrEnum):
     MODULE_PATH = "module_path"
     MULTI_REQUIRES_TRUE = "multi_requires_true"
     NON_EMPTY_IF_PRESENT = "non_empty_if_present"
+    EQUALITY_COMBINATION = "equality_combination"
     EQUAL_IF_PRESENT = "equal_if_present"
     TERMINAL_COMBINATION = "terminal_combination"
 
@@ -993,6 +994,10 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         is_scope=True,
         state_rules=(
             _PureStateRule(
+                rule=_PureStateKind.NON_EMPTY_IF_PRESENT,
+                keys=("local_name", "exported_name", "resolved_declared_name"),
+            ),
+            _PureStateRule(
                 rule=_PureStateKind.MODULE_PATH,
                 keys=("resolved_module_path",),
             ),
@@ -1126,6 +1131,10 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         parent_ordinal_keys=("module",),
         is_scope=True,
         state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.NON_EMPTY_IF_PRESENT,
+                keys=("local_name", "exposed_name", "target_declared_name"),
+            ),
             _PureStateRule(
                 rule=_PureStateKind.MODULE_PATH,
                 keys=("target_module_path",),
@@ -1273,6 +1282,10 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         is_scope=True,
         state_rules=(
             _PureStateRule(
+                rule=_PureStateKind.NON_EMPTY_IF_PRESENT,
+                keys=("declared_name",),
+            ),
+            _PureStateRule(
                 rule=_PureStateKind.COMBINATION,
                 keys=("namespace", "declaration_kind"),
                 admitted=(
@@ -1367,6 +1380,18 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _key("result_role", _ENUMERATION, vocabulary="row_result_role"),
         ),
         parent_ordinal_keys=("module", "declaration"),
+        state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.NON_EMPTY_IF_PRESENT,
+                keys=("name",),
+            ),
+        ),
+        scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.DISTINCT_SIBLINGS,
+                distinct=("name",),
+            ),
+        ),
     ),
     _PureKindSpec(
         kind="origin",
@@ -1390,6 +1415,10 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         parent_ordinal_keys=("module",),
         is_scope=True,
         state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.NON_EMPTY_IF_PRESENT,
+                keys=("local_name", "target_declared_name"),
+            ),
             _PureStateRule(
                 rule=_PureStateKind.COMBINATION,
                 keys=("namespace", "declaration_kind"),
@@ -1457,6 +1486,14 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         ),
         parent_ordinal_keys=("module", "origin"),
         state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.NON_EMPTY_IF_PRESENT,
+                keys=(
+                    "import_exported_name",
+                    "facade_exposed_name",
+                    "target_declared_name",
+                ),
+            ),
             _PureStateRule(
                 rule=_PureStateKind.MODULE_PATH,
                 keys=("facade_module_path", "target_module_path"),
@@ -1546,6 +1583,10 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             ),
         ),
         state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.NON_EMPTY_IF_PRESENT,
+                keys=("target_declaration_declared_name", "target_row_field_name"),
+            ),
             _PureStateRule(
                 rule=_PureStateKind.MODULE_PATH,
                 keys=("target_declaration_module_path",),
@@ -1645,8 +1686,18 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         counts=(("paths", "row_lineage_path"),),
         parent_ordinal_keys=("module", "lineage"),
         is_scope=True,
-        state_rules=(_PureStateRule(rule=_PureStateKind.POSITIVE, keys=("paths",)),),
+        state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.NON_EMPTY_IF_PRESENT,
+                keys=("name",),
+            ),
+            _PureStateRule(rule=_PureStateKind.POSITIVE, keys=("paths",)),
+        ),
         scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.DISTINCT_SIBLINGS,
+                distinct=("name",),
+            ),
             _PureScopeRule(
                 rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
                 pairs=(("field_position", "field_position"),),
@@ -1674,6 +1725,10 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         parent_ordinal_keys=("module", "lineage", "field"),
         is_scope=True,
         state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.NON_EMPTY_IF_PRESENT,
+                keys=("root_field_name",),
+            ),
             _PureStateRule(
                 rule=_PureStateKind.MODULE_PATH,
                 keys=("root_module_path",),
@@ -1728,6 +1783,17 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _key("upstream_field_name", _TEXT),
         ),
         parent_ordinal_keys=("module", "lineage", "field", "path"),
+        state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.EQUALITY_COMBINATION,
+                keys=("projection_kind", "output_field_name", "upstream_field_name"),
+                admitted=(("direct", "equal"), ("renamed", "distinct")),
+            ),
+            _PureStateRule(
+                rule=_PureStateKind.NON_EMPTY_IF_PRESENT,
+                keys=("output_field_name", "upstream_field_name"),
+            ),
+        ),
         scope_rules=(
             _PureScopeRule(
                 rule=_PureScopeKind.ANCESTOR_EQUAL,
@@ -1770,6 +1836,10 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         parent_ordinal_keys=("module",),
         is_scope=True,
         state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.NON_EMPTY_IF_PRESENT,
+                keys=("canonical_name", "canonical_target_declared_name"),
+            ),
             _PureStateRule(
                 rule=_PureStateKind.MODULE_PATH,
                 keys=("canonical_target_module_path",),
@@ -1848,6 +1918,10 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         parent_ordinal_keys=("module", "resolution"),
         state_rules=(
             _PureStateRule(
+                rule=_PureStateKind.NON_EMPTY_IF_PRESENT,
+                keys=("declared_name",),
+            ),
+            _PureStateRule(
                 rule=_PureStateKind.MODULE_PATH,
                 keys=("module_path",),
             ),
@@ -1880,6 +1954,10 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         parent_ordinal_keys=("module",),
         state_rules=(
             _PureStateRule(
+                rule=_PureStateKind.NON_EMPTY_IF_PRESENT,
+                keys=("target_declared_name",),
+            ),
+            _PureStateRule(
                 rule=_PureStateKind.MODULE_PATH,
                 keys=("target_module_path",),
             ),
@@ -1901,6 +1979,10 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         ),
         parent_ordinal_keys=("module",),
         state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.NON_EMPTY_IF_PRESENT,
+                keys=("local_name", "target_declared_name"),
+            ),
             _PureStateRule(
                 rule=_PureStateKind.MODULE_PATH,
                 keys=("target_module_path",),
@@ -2059,6 +2141,10 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         ),
         parent_ordinal_keys=("module",),
         state_rules=(
+            _PureStateRule(
+                rule=_PureStateKind.NON_EMPTY_IF_PRESENT,
+                keys=("status", "local_name"),
+            ),
             _PureStateRule(
                 rule=_PureStateKind.COMBINATION,
                 keys=("family", "status"),
@@ -2764,6 +2850,17 @@ def _validate_state_rules(
         if rule.rule is _PureStateKind.STRICTLY_LESS:
             smaller, larger = rule.keys
             if _integer_of(record, smaller) >= _integer_of(record, larger):
+                return _reject(ProjectPureStatus.INCONSISTENT_RECORD_STATE, position)
+            continue
+        if rule.rule is _PureStateKind.EQUALITY_COMBINATION:
+            selector, left_key, right_key = rule.keys
+            left = _value_of(record, left_key)
+            right = _value_of(record, right_key)
+            observed = (
+                _state_token(_value_of(record, selector)),
+                "equal" if _identical_values(left, right) else "distinct",
+            )
+            if observed not in rule.admitted:
                 return _reject(ProjectPureStatus.INCONSISTENT_RECORD_STATE, position)
             continue
         if rule.rule is _PureStateKind.MODULE_PATH:
