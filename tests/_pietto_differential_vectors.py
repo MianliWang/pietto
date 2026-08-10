@@ -2540,6 +2540,18 @@ def _rejected_vectors() -> tuple[DifferentialVector, ...]:
             8,
         ),
         _rejected(
+            "unnamed_name_bearing_issue",
+            DifferentialPurpose.UNNAMED_NAME_BEARING_ISSUE,
+            _document(
+                _header(1),
+                _OWNER,
+                *valid_module,
+                _issue(0, 0, family="type_source", status="unknown_type_reference"),
+            ),
+            ProjectPureStatus.INCONSISTENT_RECORD_STATE,
+            7,
+        ),
+        _rejected(
             "named_graph_issue",
             DifferentialPurpose.NAMED_GRAPH_ISSUE,
             _document(

@@ -316,7 +316,7 @@ what produced two rounds of isomorphic findings.
 | `semantic_clause_dependency` | roles appear in their declared order, and each role's source ledger is dense from zero | `ProjectModuleRelationSemanticFacts` |
 | `semantic_select` | a supplied output name is non-empty, and the retained source ordinal is the record's own position | `ProjectModuleSelectFact`, `ProjectModuleRelationSemanticFacts` |
 | `semantic_window_output` | a supplied output name is non-empty, a concrete relation publishes only concrete outputs, and selected output ordinals ascend without repeating | `ProjectInspectionWindowOutput`, `ProjectModuleRelationSemanticFacts` |
-| `issue` | the status belongs to its declared family, a graph issue carries no local name, and the families appear in the order the projection concatenates them | `ProjectInspectionIssue`, `_derive_inspection` |
+| `issue` | the status decides both its family and whether a local name is carried, and the families appear in the order the projection concatenates them | `ProjectInspectionIssue`, `_derive_inspection`, `ProjectTypeSourceResolutionIssue`, `ProjectModuleRelationResolutionIssue` |
 
 ### What the portable layer does and does not re-validate
 
