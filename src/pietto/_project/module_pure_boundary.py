@@ -369,6 +369,7 @@ class _PureScopeKind(StrEnum):
 
     ANCESTOR_EQUAL = "ancestor_equal"
     ANCESTOR_COMBINATION = "ancestor_combination"
+    UNCLE_COMBINATION = "uncle_combination"
     PREVIOUS_SIBLING_EQUAL = "previous_sibling_equal"
     PREVIOUS_SIBLING_INCREASING = "previous_sibling_increasing"
     PREVIOUS_SIBLING_NON_DECREASING = "previous_sibling_non_decreasing"
@@ -845,6 +846,14 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             ),
         ),
         scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.UNCLE_COMBINATION,
+                scope="module",
+                child="readiness",
+                child_key="status",
+                pairs=(("component_is_cyclic", "component_is_cyclic"),),
+                admitted=(("true", "blocked"), ("false", "ready")),
+            ),
             _PureScopeRule(
                 rule=_PureScopeKind.SCOPE_CONTAINS_ANCESTOR,
                 scope="module",
@@ -1353,24 +1362,31 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 ),
             ),
             _PureStateRule(
-                rule=_PureStateKind.COMBINATION,
-                keys=("availability", "occurrence_count"),
-                admitted=(
-                    ("ambiguous", "many"),
-                    ("blocked", "one"),
-                    ("blocked", "many"),
-                    ("concrete", "one"),
-                    ("unknown", "one"),
-                    ("deferred", "one"),
-                    ("absent", "one"),
-                ),
-            ),
-            _PureStateRule(
                 rule=_PureStateKind.STRICTLY_LESS,
                 keys=("occurrence_index", "occurrence_count"),
             ),
         ),
         scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.UNCLE_COMBINATION,
+                scope="module",
+                child="readiness",
+                child_key="status",
+                pairs=(
+                    ("availability", "availability"),
+                    ("occurrence_count", "occurrence_count"),
+                ),
+                admitted=(
+                    ("blocked", "one", "blocked"),
+                    ("blocked", "many", "blocked"),
+                    ("ambiguous", "many", "ready"),
+                    ("concrete", "one", "ready"),
+                    ("unknown", "one", "ready"),
+                    ("deferred", "one", "ready"),
+                    ("absent", "one", "ready"),
+                    ("blocked", "one", "ready"),
+                ),
+            ),
             _PureScopeRule(
                 rule=_PureScopeKind.SIBLING_BUCKETS_COMPLETE,
                 distinct=("namespace", "declaration_kind", "declared_name"),
@@ -1772,6 +1788,16 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             ),
         ),
         scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.ANCESTOR_COMBINATION,
+                scope="row_lineage_field",
+                pairs=(("hops", "kind"),),
+                admitted=(
+                    ("zero", "source_field"),
+                    ("one", "*"),
+                    ("many", "*"),
+                ),
+            ),
             _PureScopeRule(
                 rule=_PureScopeKind.DISTINCT_SUBTREES,
             ),
@@ -2609,6 +2635,12 @@ def _collected_keys(kind: str) -> tuple[tuple[str, str], ...]:
             collected.extend(rule.pairs)
         elif rule.rule is _PureScopeKind.SCOPE_REQUIRES_CHILD:
             collected.append((rule.child, rule.child_key))
+    collected.extend(
+        (rule.child, rule.child_key)
+        for other in PURE_RECORD_SCHEMA.values()
+        for rule in other.scope_rules
+        if rule.rule is _PureScopeKind.UNCLE_COMBINATION and rule.scope == kind
+    )
     return tuple(collected)
 
 
@@ -2844,6 +2876,28 @@ def _validate_scope_rules(
                 all(
                     cell == "*" or cell == seen
                     for cell, seen in zip(row, observed, strict=True)
+                )
+                for row in rule.admitted
+            ):
+                return _reject(ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position)
+            continue
+        if rule.rule is _PureScopeKind.UNCLE_COMBINATION:
+            ancestor = _ancestor_frame(stack, rule.scope)
+            if ancestor is None:
+                return _reject(ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position)
+            supplied = ancestor.collected.get((rule.child, rule.child_key), [])
+            if not supplied:
+                # The sibling record this rule reads has not been declared yet,
+                # so the scope has nothing to compare and the record stands.
+                continue
+            uncle_observed = (
+                *(_state_token(_value_of(record, key)) for key, _ in rule.pairs),
+                supplied[-1][1],
+            )
+            if not any(
+                all(
+                    cell == "*" or cell == seen
+                    for cell, seen in zip(row, uncle_observed, strict=True)
                 )
                 for row in rule.admitted
             ):

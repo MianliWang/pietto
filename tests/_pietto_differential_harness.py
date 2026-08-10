@@ -192,6 +192,9 @@ class DifferentialPurpose(StrEnum):
     UNNAMED_NAME_BEARING_ISSUE = "unnamed_name_bearing_issue"
     REPEATED_TYPE_REFERENCE_SITE = "repeated_type_reference_site"
     UNORDERED_GRAPH_ISSUE_STATUSES = "unordered_graph_issue_statuses"
+    BLOCKED_DECLARATION_IN_READY_MODULE = "blocked_declaration_in_ready_module"
+    CYCLIC_COMPONENT_IN_READY_MODULE = "cyclic_component_in_ready_module"
+    ZERO_HOP_LINEAGE_OUTSIDE_SOURCE = "zero_hop_lineage_outside_source"
     POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
     OCCURRENCE_INDEX_OUTSIDE_BUCKET = "occurrence_index_outside_bucket"
 
