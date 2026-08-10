@@ -682,6 +682,20 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _PureScopeRule(
                 rule=_PureScopeKind.GROUPED_ASCENDS_BY_COLLECTED,
                 pairs=(
+                    ("graph_component_member", "path"),
+                    ("module", "path"),
+                ),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.GROUPED_ASCENDS_BY_COLLECTED,
+                pairs=(
+                    ("readiness_cycle_member", "path"),
+                    ("module", "path"),
+                ),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.GROUPED_ASCENDS_BY_COLLECTED,
+                pairs=(
                     ("graph_dependency_target", "path"),
                     ("module", "path"),
                 ),
@@ -2733,14 +2747,21 @@ def _close_grouped_sequences(frame: _PureFrame) -> ProjectPureOutcome | None:
                 )
             continue
         if rule.rule is _PureScopeKind.GROUPED_ASCENDS_BY_COLLECTED:
-            ordered = [value for _, value in frame.collected.get(rule.pairs[1], [])]
+            # The ledger is indexed once, so each ranked child costs one lookup
+            # and the whole settlement stays linear in the records collected.
+            rank = {
+                value: position
+                for position, (_, value) in enumerate(
+                    frame.collected.get(rule.pairs[1], [])
+                )
+            }
             for group in _grouped(frame.collected.get(rule.pairs[0], [])):
-                if any(value not in ordered for value in group):
+                if any(value not in rank for value in group):
                     return _reject(
                         ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
                         frame.record_position,
                     )
-                ranked = [ordered.index(value) for value in group]
+                ranked = [rank[value] for value in group]
                 if ranked != sorted(set(ranked)):
                     return _reject(
                         ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
