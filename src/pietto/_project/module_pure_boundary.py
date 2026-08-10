@@ -2810,7 +2810,8 @@ def _validate_state_rules(
                 return _reject(ProjectPureStatus.INCONSISTENT_RECORD_STATE, position)
             continue
         if rule.rule is _PureStateKind.POSITIVE:
-            if _integer_of(record, rule.keys[0]) < 1:
+            (counted,) = rule.keys
+            if _integer_of(record, counted) < 1:
                 return _reject(ProjectPureStatus.INCONSISTENT_RECORD_STATE, position)
             continue
         if rule.rule is _PureStateKind.EQUAL_IF_PRESENT:
@@ -2825,9 +2826,12 @@ def _validate_state_rules(
                 return _reject(ProjectPureStatus.INCONSISTENT_RECORD_STATE, position)
             continue
         if rule.rule is _PureStateKind.NON_EMPTY_IF_PRESENT:
-            supplied = _value_of(record, rule.keys[0])
-            if supplied.tag is not ProjectPureTag.ABSENT and not supplied.text:
-                return _reject(ProjectPureStatus.INCONSISTENT_RECORD_STATE, position)
+            for key in rule.keys:
+                supplied = _value_of(record, key)
+                if supplied.tag is not ProjectPureTag.ABSENT and not supplied.text:
+                    return _reject(
+                        ProjectPureStatus.INCONSISTENT_RECORD_STATE, position
+                    )
             continue
         if rule.rule is _PureStateKind.MULTI_REQUIRES_TRUE:
             counted, flag = rule.keys
@@ -2837,7 +2841,8 @@ def _validate_state_rules(
                 return _reject(ProjectPureStatus.INCONSISTENT_RECORD_STATE, position)
             continue
         if rule.rule is _PureStateKind.TERMINAL_COMBINATION:
-            observed = _state_token(_value_of(record, rule.keys[0]))
+            (terminal_key,) = rule.keys
+            observed = _state_token(_value_of(record, terminal_key))
             terminal, interior = rule.terminal
             expected = (
                 terminal
@@ -2875,7 +2880,8 @@ def _validate_state_rules(
             continue
         if rule.rule is not _PureStateKind.LOWERCASE_HEX:
             continue
-        text = _value_of(record, rule.keys[0]).text or ""
+        (digest_key,) = rule.keys
+        text = _value_of(record, digest_key).text or ""
         if len(text) != rule.text_length or any(
             character not in _PURE_HEX_ALPHABET for character in text
         ):

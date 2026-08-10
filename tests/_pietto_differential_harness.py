@@ -179,6 +179,7 @@ class DifferentialPurpose(StrEnum):
     EMPTY_REQUIRED_SYMBOL_NAME = "empty_required_symbol_name"
     DUPLICATE_ROW_FIELD_NAME = "duplicate_row_field_name"
     PROJECTION_KIND_NAME_MISMATCH = "projection_kind_name_mismatch"
+    EMPTY_LATER_DECLARED_NAME = "empty_later_declared_name"
     POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
     OCCURRENCE_INDEX_OUTSIDE_BUCKET = "occurrence_index_outside_bucket"
 
