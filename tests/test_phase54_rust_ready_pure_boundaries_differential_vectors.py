@@ -1031,6 +1031,25 @@ def test_invalid_documents_never_raise_from_the_portable_boundary() -> None:
         outcome = pure_boundary.evaluate_pure_document(document)
         assert type(outcome) is pure_boundary.ProjectPureOutcome
         assert type(outcome.status) is pure_boundary.ProjectPureStatus
+    # A value a rule looks up in a collected ledger is the shape most likely to
+    # escape as an exception rather than a rejection, so every text field of
+    # every accepted document is replaced by one that appears nowhere.
+    foreign = "foreign.pietto"
+    swept = 0
+    for _purpose, document in vectors._accepted_document_map().values():
+        for position, record in enumerate(document.records):
+            for index, field in enumerate(record.fields):
+                if field.value.tag is not pure_boundary.ProjectPureTag.TEXT:
+                    continue
+                fields = list(record.fields)
+                fields[index] = replace(field, value=pure_boundary.pure_text(foreign))
+                records = list(document.records)
+                records[position] = replace(record, fields=tuple(fields))
+                mutated = replace(document, records=tuple(records))
+                outcome = pure_boundary.evaluate_pure_document(mutated)
+                assert type(outcome.status) is pure_boundary.ProjectPureStatus
+                swept += 1
+    assert swept == 439
 
 
 def test_vector_corpus_covers_the_frozen_property_matrix() -> None:

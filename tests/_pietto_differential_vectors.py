@@ -2964,6 +2964,38 @@ def _rejected_vectors() -> tuple[DifferentialVector, ...]:
             7,
         ),
         _rejected(
+            "foreign_member_in_agreed_component",
+            DifferentialPurpose.FOREIGN_MEMBER_IN_AGREED_COMPONENT,
+            _document(
+                _header(2),
+                _OWNER,
+                *(
+                    record
+                    for index, path in enumerate(("a.pietto", "b.pietto"))
+                    for record in (
+                        _module(index, path),
+                        _digest(index),
+                        _readiness(
+                            index,
+                            status="blocked",
+                            reason="module_cycle_blocked",
+                            cycles=1,
+                        ),
+                        _cycle(index, 0, 3),
+                        _cycle_member(index, 0, 0, "a.pietto"),
+                        _cycle_member(index, 0, 1, "b.pietto"),
+                        _cycle_member(index, 0, 2, "c.pietto"),
+                        _graph(index, cyclic=True, members=3),
+                        _component_member(index, 0, "a.pietto"),
+                        _component_member(index, 1, "b.pietto"),
+                        _component_member(index, 2, "c.pietto"),
+                    )
+                ),
+            ),
+            ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
+            0,
+        ),
+        _rejected(
             "split_component_views",
             DifferentialPurpose.SPLIT_COMPONENT_VIEWS,
             _document(

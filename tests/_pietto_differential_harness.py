@@ -218,6 +218,7 @@ class DifferentialPurpose(StrEnum):
     LINEAGE_OWNER_OUTSIDE_DECLARATIONS = "lineage_owner_outside_declarations"
     SOURCE_OWNER_WITH_DERIVED_FACTS = "source_owner_with_derived_facts"
     SPLIT_COMPONENT_VIEWS = "split_component_views"
+    FOREIGN_MEMBER_IN_AGREED_COMPONENT = "foreign_member_in_agreed_component"
     SEMANTIC_FACTS_IN_BLOCKED_MODULE = "semantic_facts_in_blocked_module"
     UNORDERED_DEPENDENCY_LEDGER = "unordered_dependency_ledger"
     POSITIVE_REQUIRES_PRESENT = "positive_requires_present"

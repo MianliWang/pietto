@@ -3084,9 +3084,12 @@ def _close_grouped_sequences(frame: _PureFrame) -> ProjectPureOutcome | None:
                 )
             rank = {value: position for position, value in enumerate(ordered)}
             for group in groups:
-                # Every member of one collection publishes that same collection,
-                # which is what a partition into groups means.
-                if any(groups[rank[value]] != group for value in group):
+                # A member outside the ledger is refused before it is indexed,
+                # so a foreign value is one normalized rejection and never a
+                # lookup failure.
+                if any(value not in rank for value in group) or any(
+                    groups[rank[value]] != group for value in group
+                ):
                     return _reject(
                         ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
                         frame.record_position,
