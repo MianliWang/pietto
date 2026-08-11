@@ -90,6 +90,10 @@ _RELATION_STATE_PAIRS: tuple[tuple[str, str], ...] = (
     ("blocked", "upstream_blocked"),
 )
 
+_DERIVED_STATE_PAIRS: tuple[tuple[str, str], ...] = tuple(
+    pair for pair in _RELATION_STATE_PAIRS if pair not in _SOURCE_STATE_PAIRS
+)
+
 
 _PURE_HEX_ALPHABET = frozenset("0123456789abcdef")
 
@@ -463,6 +467,7 @@ class _PureScopeRule:
     when: tuple[str, ...] = ()
     when_all: tuple[tuple[str, str], ...] = ()
     when_ancestor: tuple[tuple[str, str], ...] = ()
+    absent_alternative: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -2152,6 +2157,17 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 pairs=(("owner_declaration_position", "declaration"),),
                 fixed=(("declaration_kind", ("e:source", "e:table", "e:query")),),
             ),
+            *(
+                _PureScopeRule(
+                    rule=_PureScopeKind.LEDGER_MATCH,
+                    scope="module",
+                    child="declaration",
+                    pairs=(("owner_declaration_position", "declaration"),),
+                    fixed=(("declaration_kind", ("e:table", "e:query")),),
+                    when_all=(("status", status), ("reason", reason)),
+                )
+                for status, reason in _DERIVED_STATE_PAIRS
+            ),
             _PureScopeRule(
                 rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
                 pairs=(("owner_declaration_position", "owner_declaration_position"),),
@@ -2475,16 +2491,18 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             ),
             *(
                 _PureScopeRule(
-                    rule=_PureScopeKind.LEDGER_MATCH,
-                    scope="module",
+                    rule=_PureScopeKind.DEFERRED_LEDGER_MATCH,
+                    scope="inspection",
                     child="declaration",
-                    pairs=(("canonical_target_declared_name", "declared_name"),),
+                    pairs=(
+                        ("canonical_target_module_path", "owner_name"),
+                        ("canonical_target_declared_name", "declared_name"),
+                    ),
                     fixed=(
                         ("declaration_kind", (f"e:{canonical}",)),
                         ("occurrence_count", ("i:1",)),
                     ),
                     when=("canonical_kind", canonical),
-                    when_ancestor=(("canonical_target_module_path", "path"),),
                 )
                 for canonical in ("enum", "shape")
             ),
@@ -2711,6 +2729,17 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 rule=_PureScopeKind.LEDGER_MATCH,
                 scope="module",
                 child="declaration",
+                pairs=(
+                    ("owner_declaration_position", "declaration"),
+                    ("status", "relation_status"),
+                    ("reason", "relation_reason"),
+                ),
+                absent_alternative=("relation_status", "relation_reason"),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="declaration",
                 pairs=(("owner_declaration_position", "declaration"),),
                 fixed=(("declaration_kind", ("e:table", "e:query")),),
                 when=("let_bindings", "one", "many"),
@@ -2745,6 +2774,17 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 child="declaration",
                 pairs=(("owner_declaration_position", "declaration"),),
                 fixed=(("declaration_kind", ("e:source", "e:table", "e:query")),),
+            ),
+            *(
+                _PureScopeRule(
+                    rule=_PureScopeKind.LEDGER_MATCH,
+                    scope="module",
+                    child="declaration",
+                    pairs=(("owner_declaration_position", "declaration"),),
+                    fixed=(("declaration_kind", ("e:table", "e:query")),),
+                    when_all=(("status", status), ("reason", reason)),
+                )
+                for status, reason in _DERIVED_STATE_PAIRS
             ),
             _PureScopeRule(
                 rule=_PureScopeKind.COLLECTED_IMPLIES,
@@ -3392,6 +3432,18 @@ def _ledger_candidates(
     """
 
     prefix = tuple(_exact_token(_value_of(record, key)) for key, _ in rule.pairs)
+    prefixes = (prefix,)
+    if rule.absent_alternative:
+        # A ledger row may withhold these keys, which is not the same as
+        # carrying a different value: a carrier that publishes no state at all
+        # answers for nothing this record claims.
+        prefixes = (
+            prefix,
+            tuple(
+                "n:" if ledger_key in rule.absent_alternative else token
+                for token, (_, ledger_key) in zip(prefix, rule.pairs, strict=True)
+            ),
+        )
     suffix = (
         ()
         if owner_record is None
@@ -3399,7 +3451,11 @@ def _ledger_candidates(
             _exact_token(_value_of(owner_record, key)) for key, _ in rule.ancestor_pairs
         )
     )
-    return tuple((*prefix, *middle, *suffix) for middle in _fixed_alternatives(rule))
+    return tuple(
+        (*chosen, *middle, *suffix)
+        for chosen in prefixes
+        for middle in _fixed_alternatives(rule)
+    )
 
 
 def _ledger_keys(rule: _PureScopeRule) -> tuple[str, ...]:
@@ -3821,20 +3877,9 @@ def _validate_scope_rules(
                 cached = (len(collected), frozenset(collected))
                 ledger_frame.ledger_sets[ledger_key] = cached
             ledger = cached[1]
-            prefix = tuple(
-                _exact_token(_value_of(record, key)) for key, _ in rule.pairs
-            )
-            suffix = (
-                ()
-                if owner_record is None
-                else tuple(
-                    _exact_token(_value_of(owner_record, key))
-                    for key, _ in rule.ancestor_pairs
-                )
-            )
             if not any(
-                (*prefix, *middle, *suffix) in ledger
-                for middle in _fixed_alternatives(rule)
+                candidate in ledger
+                for candidate in _ledger_candidates(record, rule, owner_record)
             ):
                 return _reject(ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position)
             continue

@@ -235,6 +235,11 @@ class DifferentialPurpose(StrEnum):
     REPEATED_ORIGIN_HOP = "repeated_origin_hop"
     RESOLVED_IMPORT_OUTSIDE_GRAPH_EVIDENCE = "resolved_import_outside_graph_evidence"
     ORIGIN_TARGET_OUTSIDE_ITS_DECLARATION = "origin_target_outside_its_declaration"
+    FOREIGN_CANONICAL_TARGET_WITHOUT_A_DECLARATION = (
+        "foreign_canonical_target_without_a_declaration"
+    )
+    FACTS_STATE_OUTSIDE_ITS_DECLARATION = "facts_state_outside_its_declaration"
+    SOURCE_LINEAGE_WITH_A_DERIVED_STATE = "source_lineage_with_a_derived_state"
     LOCAL_EXPORT_OUTSIDE_DECLARATIONS = "local_export_outside_declarations"
     LOCAL_EXPORT_OF_AMBIGUOUS_DECLARATION = "local_export_of_ambiguous_declaration"
     LOCAL_EXPORT_WITH_COMPETING_CANDIDATE = "local_export_with_competing_candidate"
