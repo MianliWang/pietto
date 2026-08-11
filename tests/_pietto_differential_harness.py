@@ -215,6 +215,12 @@ class DifferentialPurpose(StrEnum):
     BLOCKED_AVAILABILITY_WITHOUT_STATE = "blocked_availability_without_state"
     RESOLUTION_OWNER_OUTSIDE_DECLARATIONS = "resolution_owner_outside_declarations"
     DEPENDENCY_OWNER_OUTSIDE_DECLARATIONS = "dependency_owner_outside_declarations"
+    LINEAGE_FIELD_KIND_OUTSIDE_OWNER = "lineage_field_kind_outside_owner"
+    SOURCE_SHAPE_RESOLUTION_TO_RELATION_ORIGIN = (
+        "source_shape_resolution_to_relation_origin"
+    )
+    RELATION_RESOLUTION_TO_TYPE_ORIGIN = "relation_resolution_to_type_origin"
+    REPEATED_ORIGIN_HOP = "repeated_origin_hop"
     RESOLVED_IMPORT_OUTSIDE_GRAPH_EVIDENCE = "resolved_import_outside_graph_evidence"
     LOCAL_EXPORT_OUTSIDE_DECLARATIONS = "local_export_outside_declarations"
     REEXPORT_OUTSIDE_RESOLVED_IMPORTS = "reexport_outside_resolved_imports"

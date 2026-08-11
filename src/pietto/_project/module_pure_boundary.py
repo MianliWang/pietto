@@ -1755,6 +1755,18 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                     ("target_declared_name", "target_declared_name"),
                 ),
             ),
+            _PureScopeRule(
+                rule=_PureScopeKind.DISTINCT_SIBLINGS,
+                distinct=(
+                    "import_target_module_path",
+                    "import_exported_name",
+                    "import_module_statement_position",
+                    "import_item_position",
+                    "facade_module_path",
+                    "facade_exposed_name",
+                    "facade_origin",
+                ),
+            ),
         ),
     ),
     _PureKindSpec(
@@ -2038,6 +2050,24 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _PureStateRule(rule=_PureStateKind.POSITIVE, keys=("paths",)),
         ),
         scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="declaration",
+                ancestor_scope="row_lineage",
+                ancestor_pairs=(("owner_declaration_position", "declaration"),),
+                fixed=(("declaration_kind", ("e:source",)),),
+                when=("kind", "source_field"),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="declaration",
+                ancestor_scope="row_lineage",
+                ancestor_pairs=(("owner_declaration_position", "declaration"),),
+                fixed=(("declaration_kind", ("e:table", "e:query")),),
+                when=("kind", "relation_output"),
+            ),
             _PureScopeRule(
                 rule=_PureScopeKind.DISTINCT_SIBLINGS,
                 distinct=("name",),
@@ -2364,6 +2394,7 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                     ("target_module_path", "target_module_path"),
                     ("target_declared_name", "target_declared_name"),
                 ),
+                fixed=(("declaration_kind", ("e:shape",)),),
             ),
             _PureScopeRule(
                 rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
@@ -2413,6 +2444,7 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                     ("target_module_path", "target_module_path"),
                     ("target_declared_name", "target_declared_name"),
                 ),
+                fixed=(("declaration_kind", ("e:source", "e:table", "e:query")),),
             ),
             _PureScopeRule(
                 rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
