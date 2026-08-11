@@ -222,6 +222,8 @@ class DifferentialPurpose(StrEnum):
         "resolved_target_outside_selected_modules"
     )
     LINEAGE_ROOT_OUTSIDE_SELECTED_MODULES = "lineage_root_outside_selected_modules"
+    LOCAL_LINEAGE_ROOT_OUTSIDE_ROW_SCHEMA = "local_lineage_root_outside_row_schema"
+    LOCAL_ALIAS_OUTSIDE_DECLARATIONS = "local_alias_outside_declarations"
     NAMELESS_CYCLE_ISSUE_WITHOUT_A_CYCLE = "nameless_cycle_issue_without_a_cycle"
     SOURCE_SHAPE_RESOLUTION_TO_RELATION_ORIGIN = (
         "source_shape_resolution_to_relation_origin"

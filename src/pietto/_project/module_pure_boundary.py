@@ -454,6 +454,7 @@ class _PureScopeRule:
     at: str = "any"
     when: tuple[str, ...] = ()
     when_all: tuple[tuple[str, str], ...] = ()
+    when_ancestor: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -2163,6 +2164,17 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 pairs=(("root_module_path", "path"),),
             ),
             _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="declaration_row_field",
+                pairs=(
+                    ("root_owner_declaration_position", "declaration"),
+                    ("root_field_position", "field"),
+                    ("root_field_name", "name"),
+                ),
+                when_ancestor=(("root_module_path", "path"),),
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.DISTINCT_SUBTREES,
             ),
             _PureScopeRule(
@@ -2408,6 +2420,17 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 scope="inspection",
                 child="module",
                 pairs=(("module_path", "path"),),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="declaration",
+                pairs=(
+                    ("namespace", "namespace"),
+                    ("declaration_kind", "declaration_kind"),
+                    ("declared_name", "declared_name"),
+                ),
+                when_ancestor=(("module_path", "path"),),
             ),
             _PureScopeRule(
                 rule=_PureScopeKind.DISTINCT_SIBLINGS,
@@ -3498,9 +3521,23 @@ def _scope_rule_applies(
     record: ProjectPureRecord,
     specification: _PureKindSpec,
     parent_frame: _PureFrame,
+    stack: list[_PureFrame],
 ) -> bool:
     """Return whether one declared scope rule governs this exact record."""
 
+    if rule.when_ancestor:
+        ancestor = _ancestor_frame(stack, rule.scope)
+        if ancestor is None or ancestor.record is None:
+            return False
+        # A reference that names another module is a reference this document
+        # cannot witness, so the rule governs the local case alone.
+        if any(
+            not _identical_values(
+                _value_of(record, key), _value_of(ancestor.record, ancestor_key)
+            )
+            for key, ancestor_key in rule.when_ancestor
+        ):
+            return False
     if rule.when:
         selector, *admitted_when = rule.when
         if _selector_token(record, selector, rule) not in admitted_when:
@@ -3536,7 +3573,7 @@ def _validate_scope_rules(
 
     parent_frame = stack[-1]
     for rule in specification.scope_rules:
-        if not _scope_rule_applies(rule, record, specification, parent_frame):
+        if not _scope_rule_applies(rule, record, specification, parent_frame, stack):
             continue
         if rule.rule is _PureScopeKind.ANCESTOR_EQUAL:
             ancestor = _ancestor_frame(stack, rule.scope)
