@@ -414,6 +414,7 @@ class _PureScopeKind(StrEnum):
     LEDGER_MATCH = "ledger_match"
     DEFERRED_LEDGER_MATCH = "deferred_ledger_match"
     DEFERRED_LEDGER_EXCLUDES = "deferred_ledger_excludes"
+    DEFERRED_UNLESS_LEDGER = "deferred_unless_ledger"
     GROUP_FIRST_INCREASING = "group_first_increasing"
     SCOPE_REQUIRES_CHILD = "scope_requires_child"
     SIBLING_BUCKETS_COMPLETE = "sibling_buckets_complete"
@@ -1162,7 +1163,7 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 when=("resolved_module_path", "present"),
             ),
             _PureScopeRule(
-                rule=_PureScopeKind.LEDGER_MATCH,
+                rule=_PureScopeKind.DEFERRED_UNLESS_LEDGER,
                 scope="module",
                 child="graph_import_evidence",
                 pairs=(
@@ -1170,8 +1171,8 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                     ("module_statement_position", "module_statement_position"),
                     ("item_position", "item_position"),
                 ),
-                presence=("resolved_module_path",),
-                when=("resolved_module_path", "present"),
+                ancestor_scope="inspection",
+                subset=(("module", ("path",)),),
             ),
             _PureScopeRule(
                 rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
@@ -1742,8 +1743,14 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _PureScopeRule(
                 rule=_PureScopeKind.DEFERRED_LEDGER_MATCH,
                 scope="inspection",
-                child="module",
-                pairs=(("target_module_path", "path"),),
+                child="declaration",
+                pairs=(
+                    ("target_module_path", "owner_name"),
+                    ("target_declaration_position", "declaration"),
+                    ("target_declared_name", "declared_name"),
+                    ("namespace", "namespace"),
+                    ("declaration_kind", "declaration_kind"),
+                ),
             ),
             _PureScopeRule(
                 rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
@@ -3432,6 +3439,7 @@ def _subset_keys(kind: str) -> tuple[tuple[str, tuple[str, ...]], ...]:
                     _PureScopeKind.LEDGER_MATCH,
                     _PureScopeKind.DEFERRED_LEDGER_MATCH,
                     _PureScopeKind.DEFERRED_LEDGER_EXCLUDES,
+                    _PureScopeKind.DEFERRED_UNLESS_LEDGER,
                 )
                 and rule.scope == kind
             )
@@ -3829,6 +3837,27 @@ def _validate_scope_rules(
                 for middle in _fixed_alternatives(rule)
             ):
                 return _reject(ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position)
+            continue
+        if rule.rule is _PureScopeKind.DEFERRED_UNLESS_LEDGER:
+            ledger_frame = _ancestor_frame(stack, rule.scope)
+            outer_frame = _ancestor_frame(stack, rule.ancestor_scope)
+            if ledger_frame is None or outer_frame is None:
+                return _reject(ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position)
+            near = frozenset(
+                ledger_frame.grouped_tuples.get((rule.child, _ledger_keys(rule)), [])
+            )
+            if any(candidate in near for candidate in _ledger_candidates(record, rule)):
+                continue
+            # The near ledger carries nothing for this record, so the record must
+            # answer for the far one instead, once that scope has published it.
+            far_child, far_keys = rule.subset[0]
+            outer_frame.deferred.append(
+                (
+                    (far_child, far_keys),
+                    ((_exact_token(_value_of(record, rule.pairs[0][0])),),),
+                    True,
+                )
+            )
             continue
         if rule.rule in (
             _PureScopeKind.DEFERRED_LEDGER_MATCH,

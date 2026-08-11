@@ -234,6 +234,7 @@ class DifferentialPurpose(StrEnum):
     RELATION_RESOLUTION_TO_TYPE_ORIGIN = "relation_resolution_to_type_origin"
     REPEATED_ORIGIN_HOP = "repeated_origin_hop"
     RESOLVED_IMPORT_OUTSIDE_GRAPH_EVIDENCE = "resolved_import_outside_graph_evidence"
+    ORIGIN_TARGET_OUTSIDE_ITS_DECLARATION = "origin_target_outside_its_declaration"
     LOCAL_EXPORT_OUTSIDE_DECLARATIONS = "local_export_outside_declarations"
     LOCAL_EXPORT_OF_AMBIGUOUS_DECLARATION = "local_export_of_ambiguous_declaration"
     LOCAL_EXPORT_WITH_COMPETING_CANDIDATE = "local_export_with_competing_candidate"
