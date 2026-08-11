@@ -238,6 +238,11 @@ class DifferentialPurpose(StrEnum):
     LOCAL_EXPORT_OF_AMBIGUOUS_DECLARATION = "local_export_of_ambiguous_declaration"
     LOCAL_EXPORT_WITH_COMPETING_CANDIDATE = "local_export_with_competing_candidate"
     IMPORT_ISSUE_OUTSIDE_ITS_EVIDENCE = "import_issue_outside_its_evidence"
+    COLLISION_WITHOUT_A_LOCAL_DECLARATION = "collision_without_a_local_declaration"
+    SOURCE_WITH_A_DERIVED_RELATION_STATE = "source_with_a_derived_relation_state"
+    CANONICAL_TARGET_OF_AMBIGUOUS_DECLARATION = (
+        "canonical_target_of_ambiguous_declaration"
+    )
     UNRESOLVED_TARGET_OF_A_SELECTED_MODULE = "unresolved_target_of_a_selected_module"
     AMBIGUOUS_EXPORT_WITHOUT_AMBIGUITY = "ambiguous_export_without_ambiguity"
     UNRESOLVED_EXPORT_WITH_A_CANDIDATE = "unresolved_export_with_a_candidate"

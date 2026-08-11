@@ -3704,6 +3704,81 @@ def _rejected_vectors() -> tuple[DifferentialVector, ...]:
             9,
         ),
         _rejected(
+            "source_with_a_derived_relation_state",
+            DifferentialPurpose.SOURCE_WITH_A_DERIVED_RELATION_STATE,
+            _document(
+                _header(1),
+                _OWNER,
+                *valid_module,
+                _declaration(
+                    0,
+                    0,
+                    owner_name="a.pietto",
+                    declared_name="rows",
+                    namespace="relation",
+                    declaration_kind="source",
+                    availability="concrete",
+                    relation_status="concrete",
+                    relation_reason="relation_upstream_concrete",
+                ),
+            ),
+            ProjectPureStatus.INCONSISTENT_RECORD_STATE,
+            7,
+        ),
+        _rejected(
+            "canonical_target_of_ambiguous_declaration",
+            DifferentialPurpose.CANONICAL_TARGET_OF_AMBIGUOUS_DECLARATION,
+            _document(
+                _header(1),
+                _OWNER,
+                *valid_module,
+                *(
+                    _declaration(
+                        0,
+                        ordinal,
+                        owner_name="a.pietto",
+                        declared_name="Row",
+                        availability="ambiguous",
+                        occurrence_count=2,
+                        occurrence_index=ordinal,
+                    )
+                    for ordinal in (0, 1)
+                ),
+                _type_resolution(
+                    0,
+                    0,
+                    canonical_name="Row",
+                    direct_kind="shape",
+                    canonical_kind="shape",
+                    canonical_target=("a.pietto", "Row"),
+                ),
+            ),
+            ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
+            9,
+        ),
+        _rejected(
+            "collision_without_a_local_declaration",
+            DifferentialPurpose.COLLISION_WITHOUT_A_LOCAL_DECLARATION,
+            _document(
+                _header(2),
+                _OWNER,
+                *_module_block(0, "a.pietto"),
+                _import(
+                    0,
+                    0,
+                    local_name="Row",
+                    exported_name="Row",
+                    target_module_path="b.pietto",
+                    resolved=False,
+                    issues=1,
+                ),
+                _import_issue(0, 0, 0, "local_declaration_collision"),
+                *_module_block(1, "b.pietto"),
+            ),
+            ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
+            2,
+        ),
+        _rejected(
             "import_issue_outside_its_evidence",
             DifferentialPurpose.IMPORT_ISSUE_OUTSIDE_ITS_EVIDENCE,
             _document(

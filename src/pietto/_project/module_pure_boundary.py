@@ -62,6 +62,12 @@ _PURE_SURROGATE_END = "\udfff"
 # enumerated across the resolution, aggregate, and window state builders.
 # The reserved table-upstream reason has no construction site and therefore
 # no admitted row.
+_SOURCE_STATE_PAIRS: tuple[tuple[str, str], ...] = (
+    ("concrete", "direct_source_concrete"),
+    ("unknown", "unknown_schema"),
+    ("blocked", "unresolved_relation_blocked"),
+)
+
 _RELATION_STATE_PAIRS: tuple[tuple[str, str], ...] = (
     ("concrete", "direct_source_concrete"),
     ("concrete", "relation_upstream_concrete"),
@@ -1198,6 +1204,14 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 ancestor_pairs=(("target_module_path", "path"),),
                 when=("status", "unresolved_target_module"),
             ),
+            _PureScopeRule(
+                rule=_PureScopeKind.DEFERRED_LEDGER_MATCH,
+                scope="module",
+                child="declaration",
+                ancestor_scope="import",
+                ancestor_pairs=(("local_name", "declared_name"),),
+                when=("status", "local_declaration_collision"),
+            ),
             *(
                 _PureScopeRule(
                     rule=_PureScopeKind.DEFERRED_LEDGER_MATCH,
@@ -1508,8 +1522,19 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         state_rules=(
             _PureStateRule(
                 rule=_PureStateKind.COMBINATION,
-                keys=("relation_status", "relation_reason"),
-                admitted=(*_RELATION_STATE_PAIRS, ("absent", "absent")),
+                keys=("declaration_kind", "relation_status", "relation_reason"),
+                admitted=(
+                    *(
+                        (kind, status, reason)
+                        for kind in ("table", "query")
+                        for status, reason in _RELATION_STATE_PAIRS
+                    ),
+                    *(
+                        ("source", status, reason)
+                        for status, reason in _SOURCE_STATE_PAIRS
+                    ),
+                    ("*", "absent", "absent"),
+                ),
             ),
             _PureStateRule(
                 rule=_PureStateKind.NON_EMPTY_IF_PRESENT,
@@ -2447,7 +2472,10 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                     scope="module",
                     child="declaration",
                     pairs=(("canonical_target_declared_name", "declared_name"),),
-                    fixed=(("declaration_kind", (f"e:{canonical}",)),),
+                    fixed=(
+                        ("declaration_kind", (f"e:{canonical}",)),
+                        ("occurrence_count", ("i:1",)),
+                    ),
                     when=("canonical_kind", canonical),
                     when_ancestor=(("canonical_target_module_path", "path"),),
                 )
@@ -3332,6 +3360,17 @@ def _collected_keys(kind: str) -> tuple[tuple[str, str], ...]:
     return tuple(dict.fromkeys(collected))
 
 
+def _fixed_alternatives(rule: _PureScopeRule) -> tuple[tuple[str, ...], ...]:
+    """Return one token tuple per combination a rule's declared keys admit."""
+
+    alternatives: tuple[tuple[str, ...], ...] = ((),)
+    for _, admitted in rule.fixed:
+        alternatives = tuple(
+            (*chosen, token) for chosen in alternatives for token in admitted
+        )
+    return alternatives
+
+
 def _ledger_candidates(
     record: ProjectPureRecord,
     rule: _PureScopeRule,
@@ -3353,10 +3392,7 @@ def _ledger_candidates(
             _exact_token(_value_of(owner_record, key)) for key, _ in rule.ancestor_pairs
         )
     )
-    alternatives = (
-        ((),) if not rule.fixed else tuple((token,) for token in rule.fixed[0][1])
-    )
-    return tuple((*prefix, *middle, *suffix) for middle in alternatives)
+    return tuple((*prefix, *middle, *suffix) for middle in _fixed_alternatives(rule))
 
 
 def _ledger_keys(rule: _PureScopeRule) -> tuple[str, ...]:
@@ -3788,13 +3824,9 @@ def _validate_scope_rules(
                     for key, _ in rule.ancestor_pairs
                 )
             )
-            alternatives = (
-                ((),)
-                if not rule.fixed
-                else tuple((token,) for token in rule.fixed[0][1])
-            )
             if not any(
-                (*prefix, *middle, *suffix) in ledger for middle in alternatives
+                (*prefix, *middle, *suffix) in ledger
+                for middle in _fixed_alternatives(rule)
             ):
                 return _reject(ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position)
             continue
