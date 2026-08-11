@@ -350,7 +350,6 @@ class _PureStateKind(StrEnum):
 
     COMBINATION = "combination"
     PRESENCE_GROUP = "presence_group"
-    POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
     POSITIVE = "positive"
     STRICTLY_LESS = "strictly_less"
     LOWERCASE_HEX = "lowercase_hex"
@@ -447,6 +446,7 @@ class _PureScopeRule:
     subset: tuple[tuple[str, tuple[str, ...]], ...] = ()
     ancestor_scope: str = ""
     ancestor_pairs: tuple[tuple[str, str], ...] = ()
+    fixed: tuple[tuple[str, tuple[str, ...]], ...] = ()
     child: str = ""
     child_key: str = ""
     at: str = "any"
@@ -1418,8 +1418,19 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 keys=("relation_status", "relation_reason"),
             ),
             _PureStateRule(
-                rule=_PureStateKind.POSITIVE_REQUIRES_PRESENT,
-                keys=("row_fields", "relation_status"),
+                rule=_PureStateKind.COMBINATION,
+                keys=("relation_status", "row_fields"),
+                admitted=(
+                    ("concrete", "zero"),
+                    ("concrete", "one"),
+                    ("concrete", "many"),
+                    ("unknown", "zero"),
+                    ("unknown", "one"),
+                    ("unknown", "many"),
+                    ("deferred", "zero"),
+                    ("blocked", "zero"),
+                    ("absent", "zero"),
+                ),
             ),
             _PureStateRule(
                 rule=_PureStateKind.COMBINATION,
@@ -1453,16 +1464,17 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 pairs=(
                     ("availability", "availability"),
                     ("occurrence_count", "occurrence_count"),
+                    ("relation_status", "relation_status"),
                 ),
                 admitted=(
-                    ("blocked", "one", "blocked"),
-                    ("blocked", "many", "blocked"),
-                    ("ambiguous", "many", "ready"),
-                    ("concrete", "one", "ready"),
-                    ("unknown", "one", "ready"),
-                    ("deferred", "one", "ready"),
-                    ("absent", "one", "ready"),
-                    ("blocked", "one", "ready"),
+                    ("blocked", "one", "absent", "blocked"),
+                    ("blocked", "many", "absent", "blocked"),
+                    ("ambiguous", "many", "absent", "ready"),
+                    ("concrete", "one", "concrete", "ready"),
+                    ("unknown", "one", "unknown", "ready"),
+                    ("deferred", "one", "deferred", "ready"),
+                    ("blocked", "one", "blocked", "ready"),
+                    ("absent", "one", "absent", "ready"),
                 ),
             ),
             _PureScopeRule(
@@ -1674,6 +1686,8 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                     ("local_name", "local_name"),
                     ("namespace", "namespace"),
                     ("declaration_kind", "declaration_kind"),
+                    ("target_module_path", "resolved_module_path"),
+                    ("target_declared_name", "resolved_declared_name"),
                 ),
                 at="first",
             ),
@@ -2123,6 +2137,22 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         ),
         scope_rules=(
             _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="declaration",
+                pairs=(("owner_declaration_position", "declaration"),),
+                fixed=(("declaration_kind", ("e:type",)),),
+                when=("role", "type_alias_base"),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="declaration",
+                pairs=(("owner_declaration_position", "declaration"),),
+                fixed=(("declaration_kind", ("e:shape",)),),
+                when=("role", "shape_field_type"),
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
                 pairs=(
                     ("owner_declaration_position", "owner_declaration_position"),
@@ -2195,6 +2225,13 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         ),
         scope_rules=(
             _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="declaration",
+                pairs=(("owner_declaration_position", "declaration"),),
+                fixed=(("declaration_kind", ("e:source",)),),
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
                 pairs=(("owner_declaration_position", "owner_declaration_position"),),
             ),
@@ -2226,6 +2263,13 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             ),
         ),
         scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="declaration",
+                pairs=(("owner_declaration_position", "declaration"),),
+                fixed=(("declaration_kind", ("e:table", "e:query")),),
+            ),
             _PureScopeRule(
                 rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
                 pairs=(("owner_declaration_position", "owner_declaration_position"),),
@@ -2511,6 +2555,7 @@ class _PureFrame:
         "group_first",
         "identity",
         "grouped_tuples",
+        "ledger_sets",
         "parent_frame",
         "subtree",
         "membership_required",
@@ -2553,6 +2598,9 @@ class _PureFrame:
         self.group_first: dict[str, tuple[int, ...]] = {}
         self.grouped_tuples: dict[
             tuple[str, tuple[str, ...]], list[tuple[str, ...]]
+        ] = {}
+        self.ledger_sets: dict[
+            tuple[str, tuple[str, ...]], tuple[int, frozenset[tuple[str, ...]]]
         ] = {}
 
 
@@ -2836,8 +2884,10 @@ def _collected_keys(kind: str) -> tuple[tuple[str, str], ...]:
 def _ledger_keys(rule: _PureScopeRule) -> tuple[str, ...]:
     """Return the ledger keys one match rule compares against, in rule order."""
 
-    return tuple(ledger_key for _, ledger_key in rule.pairs) + tuple(
-        ledger_key for _, ledger_key in rule.ancestor_pairs
+    return (
+        tuple(ledger_key for _, ledger_key in rule.pairs)
+        + tuple(ledger_key for ledger_key, _ in rule.fixed)
+        + tuple(ledger_key for _, ledger_key in rule.ancestor_pairs)
     )
 
 
@@ -3167,21 +3217,34 @@ def _validate_scope_rules(
                         ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position
                     )
                 owner_record = owner_frame.record
-            ledger = set(
-                ledger_frame.grouped_tuples.get((rule.child, _ledger_keys(rule)), [])
+            ledger_key = (rule.child, _ledger_keys(rule))
+            collected = ledger_frame.grouped_tuples.get(ledger_key, [])
+            cached = ledger_frame.ledger_sets.get(ledger_key)
+            if cached is None or cached[0] != len(collected):
+                # Derived once per completed collection, so every match after
+                # the first is one lookup and the pass stays linear.
+                cached = (len(collected), frozenset(collected))
+                ledger_frame.ledger_sets[ledger_key] = cached
+            ledger = cached[1]
+            prefix = tuple(
+                _exact_token(_value_of(record, key)) for key, _ in rule.pairs
             )
-            ledger_observed = (
-                *(_exact_token(_value_of(record, key)) for key, _ in rule.pairs),
-                *(
-                    ()
-                    if owner_record is None
-                    else tuple(
-                        _exact_token(_value_of(owner_record, key))
-                        for key, _ in rule.ancestor_pairs
-                    )
-                ),
+            suffix = (
+                ()
+                if owner_record is None
+                else tuple(
+                    _exact_token(_value_of(owner_record, key))
+                    for key, _ in rule.ancestor_pairs
+                )
             )
-            if ledger_observed not in ledger:
+            alternatives = (
+                ((),)
+                if not rule.fixed
+                else tuple((token,) for token in rule.fixed[0][1])
+            )
+            if not any(
+                (*prefix, *middle, *suffix) in ledger for middle in alternatives
+            ):
                 return _reject(ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position)
             continue
         if rule.rule is _PureScopeKind.GROUP_FIRST_INCREASING:
@@ -3291,13 +3354,6 @@ def _validate_state_rules(
                 for key in rule.keys
             }
             if len(present) != 1:
-                return _reject(ProjectPureStatus.INCONSISTENT_RECORD_STATE, position)
-            continue
-        if rule.rule is _PureStateKind.POSITIVE_REQUIRES_PRESENT:
-            counted, required = rule.keys
-            if _integer_of(record, counted) and (
-                _value_of(record, required).tag is ProjectPureTag.ABSENT
-            ):
                 return _reject(ProjectPureStatus.INCONSISTENT_RECORD_STATE, position)
             continue
         if rule.rule is _PureStateKind.POSITIVE:
