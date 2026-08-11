@@ -1794,6 +1794,40 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 when=("reference_role", "row_field"),
             ),
             _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="origin",
+                pairs=(
+                    ("target_declaration_module_path", "target_module_path"),
+                    (
+                        "target_declaration_position",
+                        "target_declaration_position",
+                    ),
+                    (
+                        "target_declaration_declared_name",
+                        "target_declared_name",
+                    ),
+                ),
+                when=(
+                    "kind",
+                    "type_reference",
+                    "source_shape_reference",
+                    "relation_reference",
+                ),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="origin",
+                pairs=(
+                    (
+                        "target_row_field_owner_declaration_position",
+                        "target_declaration_position",
+                    ),
+                ),
+                when=("kind", "row_field_reference"),
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
                 pairs=(
                     (
@@ -2011,8 +2045,8 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 pairs=(("hops", "kind"),),
                 admitted=(
                     ("zero", "source_field"),
-                    ("one", "*"),
-                    ("many", "*"),
+                    ("one", "relation_output"),
+                    ("many", "relation_output"),
                 ),
             ),
             _PureScopeRule(
