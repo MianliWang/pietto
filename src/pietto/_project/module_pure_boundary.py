@@ -401,6 +401,7 @@ class _PureScopeKind(StrEnum):
     PREVIOUS_SIBLING_NON_DECREASING = "previous_sibling_non_decreasing"
     GROUPED_SEQUENCES_EQUAL = "grouped_sequences_equal"
     GROUPED_ASCENDS_BY_COLLECTED = "grouped_ascends_by_collected"
+    GROUPED_GROUPS_AGREE = "grouped_groups_agree"
     COLLECTED_SETS_EQUAL = "collected_sets_equal"
     COLLECTED_SUBSET = "collected_subset"
     COLLECTED_IMPLIES = "collected_implies"
@@ -711,6 +712,13 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         counts=(("modules", "module"),),
         is_scope=True,
         scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.GROUPED_GROUPS_AGREE,
+                pairs=(
+                    ("graph_component_member", "path"),
+                    ("module", "path"),
+                ),
+            ),
             _PureScopeRule(
                 rule=_PureScopeKind.GROUPED_ASCENDS_BY_COLLECTED,
                 pairs=(
@@ -2357,6 +2365,14 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         ),
         scope_rules=(
             _PureScopeRule(
+                rule=_PureScopeKind.UNCLE_COMBINATION,
+                scope="module",
+                child="readiness",
+                child_key="status",
+                pairs=(("status", "status"),),
+                admitted=(("*", "ready"),),
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.LEDGER_MATCH,
                 scope="module",
                 child="declaration",
@@ -2953,6 +2969,7 @@ def _collected_keys(kind: str) -> tuple[tuple[str, str], ...]:
         if rule.rule in (
             _PureScopeKind.GROUPED_SEQUENCES_EQUAL,
             _PureScopeKind.GROUPED_ASCENDS_BY_COLLECTED,
+            _PureScopeKind.GROUPED_GROUPS_AGREE,
             _PureScopeKind.COLLECTED_SETS_EQUAL,
         ):
             collected.extend(rule.pairs)
@@ -2964,7 +2981,9 @@ def _collected_keys(kind: str) -> tuple[tuple[str, str], ...]:
         for rule in other.scope_rules
         if rule.rule is _PureScopeKind.UNCLE_COMBINATION and rule.scope == kind
     )
-    return tuple(collected)
+    # One collection per child key, however many rules read it, so a collected
+    # sequence is the record stream itself and never a multiple of it.
+    return tuple(dict.fromkeys(collected))
 
 
 def _ledger_keys(rule: _PureScopeRule) -> tuple[str, ...]:
@@ -2984,16 +3003,24 @@ def _subset_keys(kind: str) -> tuple[tuple[str, tuple[str, ...]], ...]:
     if specification is None:
         return ()
     return tuple(
-        entry
-        for rule in specification.scope_rules
-        if rule.rule
-        in (_PureScopeKind.COLLECTED_SUBSET, _PureScopeKind.COLLECTED_IMPLIES)
-        for entry in rule.subset
-    ) + tuple(
-        (rule.child, _ledger_keys(rule))
-        for other in PURE_RECORD_SCHEMA.values()
-        for rule in other.scope_rules
-        if rule.rule is _PureScopeKind.LEDGER_MATCH and rule.scope == kind
+        dict.fromkeys(
+            tuple(
+                entry
+                for rule in specification.scope_rules
+                if rule.rule
+                in (
+                    _PureScopeKind.COLLECTED_SUBSET,
+                    _PureScopeKind.COLLECTED_IMPLIES,
+                )
+                for entry in rule.subset
+            )
+            + tuple(
+                (rule.child, _ledger_keys(rule))
+                for other in PURE_RECORD_SCHEMA.values()
+                for rule in other.scope_rules
+                if rule.rule is _PureScopeKind.LEDGER_MATCH and rule.scope == kind
+            )
+        )
     )
 
 
@@ -3042,6 +3069,24 @@ def _close_grouped_sequences(frame: _PureFrame) -> ProjectPureOutcome | None:
                     )
                 ranked = [rank[value] for value in group]
                 if ranked != sorted(set(ranked)):
+                    return _reject(
+                        ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
+                        frame.record_position,
+                    )
+            continue
+        if rule.rule is _PureScopeKind.GROUPED_GROUPS_AGREE:
+            groups = _grouped(frame.collected.get(rule.pairs[0], []))
+            ordered = [value for _, value in frame.collected.get(rule.pairs[1], [])]
+            if len(groups) != len(ordered):
+                return _reject(
+                    ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
+                    frame.record_position,
+                )
+            rank = {value: position for position, value in enumerate(ordered)}
+            for group in groups:
+                # Every member of one collection publishes that same collection,
+                # which is what a partition into groups means.
+                if any(groups[rank[value]] != group for value in group):
                     return _reject(
                         ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
                         frame.record_position,
