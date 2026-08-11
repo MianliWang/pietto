@@ -101,7 +101,7 @@ MYSQL_GOLDENS = {
     ),
 }
 ALL_GOLDENS_HASH = "0e26a0b367a2ae849e5ec1e9a239be42765bea2c352242db5da930ab56b43004"
-BOUNDARY_HASH = "d03bfd492e4821e26466bf1ce086daa58da2a1c40567388d4be4eeddb356ea3c"
+BOUNDARY_HASH = "0164060db6401c22c675df0bd0d770cd361db5dfc44b76cdd5677b78e5e7ba4d"
 
 
 def _load_module(name: str, path: Path) -> ModuleType:

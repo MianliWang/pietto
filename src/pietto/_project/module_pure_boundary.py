@@ -1174,6 +1174,20 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 when=("resolved_module_path", "present"),
             ),
             _PureScopeRule(
+                rule=_PureScopeKind.DEFERRED_LEDGER_MATCH,
+                scope="inspection",
+                child="export",
+                pairs=(
+                    ("exported_name", "exposed_name"),
+                    ("resolved_module_path", "target_module_path"),
+                    ("resolved_declared_name", "target_declared_name"),
+                    ("resolved_namespace", "target_namespace"),
+                    ("resolved_declaration_kind", "target_declaration_kind"),
+                ),
+                presence=("resolved_module_path",),
+                when=("resolved_module_path", "present"),
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.DEFERRED_UNLESS_LEDGER,
                 scope="module",
                 child="graph_import_evidence",

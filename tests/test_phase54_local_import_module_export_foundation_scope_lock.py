@@ -1106,13 +1106,13 @@ def test_flat_catalog_collect_before_resolve_semantic_and_project_fact_surfaces_
     project = tuple((REPO_ROOT / "src/pietto/_project").glob("*.py"))
     assert len(compiler) == 108
     assert _digest(compiler) == (
-        "d03bfd492e4821e26466bf1ce086daa58da2a1c40567388d4be4eeddb356ea3c"
+        "0164060db6401c22c675df0bd0d770cd361db5dfc44b76cdd5677b78e5e7ba4d"
     )
     assert _digest(semantic) == (
         "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
     )
     assert _digest(project) == (
-        "fd54725a58ed8d4f5bce7dd4aeaf5d8db9e87a8d44a98c12284d45c822dc6dc2"
+        "737f4e3068e86beda2f900b5dd1f9f52e68f2d94fab5580e34f9346e72cef1c8"
     )
     assert len(project) == 33
     model = _read("src/pietto/_project/model.py")
