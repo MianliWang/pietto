@@ -1191,6 +1191,30 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         parent_ordinal_keys=("module", "request"),
         scope_rules=(
             _PureScopeRule(
+                rule=_PureScopeKind.DEFERRED_LEDGER_EXCLUDES,
+                scope="inspection",
+                child="module",
+                ancestor_scope="import",
+                ancestor_pairs=(("target_module_path", "path"),),
+                when=("status", "unresolved_target_module"),
+            ),
+            *(
+                _PureScopeRule(
+                    rule=_PureScopeKind.DEFERRED_LEDGER_MATCH,
+                    scope="inspection",
+                    child="module",
+                    ancestor_scope="import",
+                    ancestor_pairs=(("target_module_path", "path"),),
+                    when=("status", status),
+                )
+                for status in (
+                    "unknown_exported_name",
+                    "private_or_unexported_declaration",
+                    "inconsistent_target_facade",
+                    "ambiguous_target_facade",
+                )
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.PREVIOUS_SIBLING_NON_DECREASING,
                 pairs=(("status", "status"),),
             ),
@@ -1349,11 +1373,7 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 rule=_PureScopeKind.DEFERRED_LEDGER_EXCLUDES,
                 scope="module",
                 child="origin",
-                pairs=(
-                    ("local_name", "local_name"),
-                    ("namespace", "namespace"),
-                    ("declaration_kind", "declaration_kind"),
-                ),
+                pairs=(("local_name", "local_name"),),
                 fixed=(("binding", ("e:imported_binding",)),),
                 when=("entry_origin", "local_declaration"),
             ),
@@ -1385,6 +1405,44 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         ),
         parent_ordinal_keys=("module", "request"),
         scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.DEFERRED_LEDGER_MATCH,
+                scope="module",
+                child="declaration",
+                ancestor_scope="export",
+                fixed=(("availability", ("e:ambiguous",)),),
+                ancestor_pairs=(
+                    ("namespace", "namespace"),
+                    ("declaration_kind", "declaration_kind"),
+                    ("local_name", "declared_name"),
+                ),
+                when=("status", "ambiguous_local_declaration"),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.DEFERRED_LEDGER_EXCLUDES,
+                scope="module",
+                child="declaration",
+                ancestor_scope="export",
+                ancestor_pairs=(
+                    ("namespace", "namespace"),
+                    ("declaration_kind", "declaration_kind"),
+                    ("local_name", "declared_name"),
+                ),
+                when=("status", "unresolved_export_binding"),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.DEFERRED_LEDGER_EXCLUDES,
+                scope="module",
+                child="origin",
+                ancestor_scope="export",
+                fixed=(("binding", ("e:imported_binding",)),),
+                ancestor_pairs=(
+                    ("local_name", "local_name"),
+                    ("namespace", "namespace"),
+                    ("declaration_kind", "declaration_kind"),
+                ),
+                when=("status", "unresolved_export_binding"),
+            ),
             _PureScopeRule(
                 rule=_PureScopeKind.PREVIOUS_SIBLING_NON_DECREASING,
                 pairs=(("status", "status"),),
@@ -3277,17 +3335,28 @@ def _collected_keys(kind: str) -> tuple[tuple[str, str], ...]:
 def _ledger_candidates(
     record: ProjectPureRecord,
     rule: _PureScopeRule,
+    owner_record: ProjectPureRecord | None = None,
 ) -> tuple[tuple[str, ...], ...]:
     """Return the ledger tuples one record admits under a declared match.
 
     A rule with a declared alternative admits one tuple per admitted value of
-    that key, which is how a match states the kinds an authority accepts.
+    that key, which is how a match states the kinds an authority accepts. An
+    owner record contributes the values a child reads from the scope it opens,
+    which is how an issue answers for the request that owns it.
     """
 
     prefix = tuple(_exact_token(_value_of(record, key)) for key, _ in rule.pairs)
-    if not rule.fixed:
-        return (prefix,)
-    return tuple((*prefix, token) for token in rule.fixed[0][1])
+    suffix = (
+        ()
+        if owner_record is None
+        else tuple(
+            _exact_token(_value_of(owner_record, key)) for key, _ in rule.ancestor_pairs
+        )
+    )
+    alternatives = (
+        ((),) if not rule.fixed else tuple((token,) for token in rule.fixed[0][1])
+    )
+    return tuple((*prefix, *middle, *suffix) for middle in alternatives)
 
 
 def _ledger_keys(rule: _PureScopeRule) -> tuple[str, ...]:
@@ -3736,10 +3805,18 @@ def _validate_scope_rules(
             ledger_frame = _ancestor_frame(stack, rule.scope)
             if ledger_frame is None:
                 return _reject(ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position)
+            deferred_owner: ProjectPureRecord | None = None
+            if rule.ancestor_scope:
+                owner_frame = _ancestor_frame(stack, rule.ancestor_scope)
+                if owner_frame is None or owner_frame.record is None:
+                    return _reject(
+                        ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position
+                    )
+                deferred_owner = owner_frame.record
             ledger_frame.deferred.append(
                 (
                     (rule.child, _ledger_keys(rule)),
-                    _ledger_candidates(record, rule),
+                    _ledger_candidates(record, rule, deferred_owner),
                     rule.rule is _PureScopeKind.DEFERRED_LEDGER_EXCLUDES,
                 )
             )

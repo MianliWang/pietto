@@ -1049,7 +1049,7 @@ def test_invalid_documents_never_raise_from_the_portable_boundary() -> None:
                 outcome = pure_boundary.evaluate_pure_document(mutated)
                 assert type(outcome.status) is pure_boundary.ProjectPureStatus
                 swept += 1
-    assert swept == 531
+    assert swept == 537
 
 
 def test_vector_corpus_covers_the_frozen_property_matrix() -> None:
