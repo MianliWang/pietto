@@ -1674,6 +1674,14 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 pairs=(("occurrence_index", "occurrence_count"),),
             ),
             _PureScopeRule(
+                rule=_PureScopeKind.DEFERRED_LEDGER_MATCH,
+                scope="module",
+                child="semantic_facts",
+                pairs=(("declaration", "owner_declaration_position"),),
+                presence=("relation_status",),
+                when=("relation_status", "present"),
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.ANCESTOR_EQUAL,
                 scope="module",
                 pairs=(("owner_name", "path"),),
@@ -2023,6 +2031,18 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 fixed=(("declaration_kind", ("e:table", "e:query")),),
                 when=("reference_role", "row_field"),
             ),
+            _PureScopeRule(
+                rule=_PureScopeKind.DEFERRED_LEDGER_MATCH,
+                scope="inspection",
+                child="declaration",
+                pairs=(
+                    ("target_declaration_module_path", "owner_name"),
+                    ("target_declaration_declared_name", "declared_name"),
+                ),
+                fixed=(("occurrence_count", ("i:1",)),),
+                presence=("target_declaration_module_path",),
+                when=("target_declaration_module_path", "present"),
+            ),
             *(
                 _PureScopeRule(
                     rule=_PureScopeKind.LEDGER_MATCH,
@@ -2069,6 +2089,47 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                     ("reference_member_position", "field"),
                 ),
                 when=("reference_role", "row_field"),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.DEFERRED_LEDGER_MATCH,
+                scope="module",
+                child="source_shape_resolution",
+                pairs=(
+                    (
+                        "reference_owner_declaration_position",
+                        "owner_declaration_position",
+                    ),
+                ),
+                when=("reference_role", "source_shape"),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.DEFERRED_LEDGER_MATCH,
+                scope="module",
+                child="relation_resolution",
+                pairs=(
+                    (
+                        "reference_owner_declaration_position",
+                        "owner_declaration_position",
+                    ),
+                ),
+                when=("reference_role", "relation_from"),
+            ),
+            *(
+                _PureScopeRule(
+                    rule=_PureScopeKind.DEFERRED_LEDGER_MATCH,
+                    scope="module",
+                    child="type_resolution",
+                    pairs=(
+                        (
+                            "reference_owner_declaration_position",
+                            "owner_declaration_position",
+                        ),
+                        ("reference_member_position", "member_position"),
+                    ),
+                    fixed=(("role", (f"e:{role}",)),),
+                    when=("reference_role", role),
+                )
+                for role in ("type_alias_base", "shape_field_type")
             ),
             _PureScopeRule(
                 rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
@@ -2625,19 +2686,14 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _PureScopeRule(
                 rule=_PureScopeKind.DEFERRED_LEDGER_MATCH,
                 scope="inspection",
-                child="module",
-                pairs=(("module_path", "path"),),
-            ),
-            _PureScopeRule(
-                rule=_PureScopeKind.LEDGER_MATCH,
-                scope="module",
                 child="declaration",
                 pairs=(
+                    ("module_path", "owner_name"),
+                    ("declared_name", "declared_name"),
                     ("namespace", "namespace"),
                     ("declaration_kind", "declaration_kind"),
-                    ("declared_name", "declared_name"),
                 ),
-                when_ancestor=(("module_path", "path"),),
+                fixed=(("occurrence_count", ("i:1",)),),
             ),
             _PureScopeRule(
                 rule=_PureScopeKind.DISTINCT_SIBLINGS,
@@ -2688,6 +2744,34 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 fixed=(("declaration_kind", ("e:shape",)),),
             ),
             _PureScopeRule(
+                rule=_PureScopeKind.DEFERRED_LEDGER_MATCH,
+                scope="inspection",
+                child="declaration",
+                pairs=(
+                    ("target_module_path", "owner_name"),
+                    ("target_declared_name", "declared_name"),
+                ),
+                fixed=(
+                    ("declaration_kind", ("e:shape",)),
+                    ("occurrence_count", ("i:1",)),
+                ),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="dependency",
+                pairs=(
+                    (
+                        "owner_declaration_position",
+                        "reference_owner_declaration_position",
+                    ),
+                ),
+                fixed=(
+                    ("reference_role", ("e:source_shape",)),
+                    ("reference_member_position", ("i:0",)),
+                ),
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
                 pairs=(("owner_declaration_position", "owner_declaration_position"),),
             ),
@@ -2736,6 +2820,34 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                     ("target_declared_name", "target_declared_name"),
                 ),
                 fixed=(("declaration_kind", ("e:source", "e:table", "e:query")),),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.DEFERRED_LEDGER_MATCH,
+                scope="inspection",
+                child="declaration",
+                pairs=(
+                    ("target_module_path", "owner_name"),
+                    ("target_declared_name", "declared_name"),
+                ),
+                fixed=(
+                    ("declaration_kind", ("e:source", "e:table", "e:query")),
+                    ("occurrence_count", ("i:1",)),
+                ),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="dependency",
+                pairs=(
+                    (
+                        "owner_declaration_position",
+                        "reference_owner_declaration_position",
+                    ),
+                ),
+                fixed=(
+                    ("reference_role", ("e:relation_from",)),
+                    ("reference_member_position", ("i:0",)),
+                ),
             ),
             _PureScopeRule(
                 rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
@@ -3710,7 +3822,10 @@ def _close_grouped_sequences(frame: _PureFrame) -> ProjectPureOutcome | None:
     for child_kind, buckets in frame.buckets.items():
         for members in buckets.values():
             counts = {count for _, count in members}
-            indexes = sorted(index for index, _ in members)
+            # The indexes are read in the order the scope published them, so a
+            # bucket that carries every index in the wrong order is refused: an
+            # authority that enumerates a collection emits it ascending.
+            indexes = [index for index, _ in members]
             declared = counts.pop() if len(counts) == 1 else None
             if (
                 declared is None
