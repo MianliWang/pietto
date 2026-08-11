@@ -236,8 +236,10 @@ class DifferentialPurpose(StrEnum):
     RESOLVED_IMPORT_OUTSIDE_GRAPH_EVIDENCE = "resolved_import_outside_graph_evidence"
     ORIGIN_TARGET_OUTSIDE_ITS_DECLARATION = "origin_target_outside_its_declaration"
     RESOLVED_TARGET_WITHOUT_A_DECLARATION = "resolved_target_without_a_declaration"
+    RESOLVED_TARGET_OF_AN_AMBIGUOUS_BUCKET = "resolved_target_of_an_ambiguous_bucket"
     FACADE_TARGET_WITHOUT_A_DECLARATION = "facade_target_without_a_declaration"
     SPARSE_SHAPE_FIELD_RESOLUTIONS = "sparse_shape_field_resolutions"
+    DERIVED_RESULT_ROLE_IN_A_SOURCE = "derived_result_role_in_a_source"
     FOREIGN_CANONICAL_TARGET_WITHOUT_A_DECLARATION = (
         "foreign_canonical_target_without_a_declaration"
     )

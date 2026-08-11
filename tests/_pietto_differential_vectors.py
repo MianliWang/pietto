@@ -3707,6 +3707,42 @@ def _rejected_vectors() -> tuple[DifferentialVector, ...]:
             12,
         ),
         _rejected(
+            "resolved_target_of_an_ambiguous_bucket",
+            DifferentialPurpose.RESOLVED_TARGET_OF_AN_AMBIGUOUS_BUCKET,
+            _document(
+                _header(2),
+                _OWNER,
+                *_importing_module_block(
+                    0,
+                    "a.pietto",
+                    targets=("b.pietto",),
+                    evidence=(("b.pietto", 0, 0),),
+                ),
+                _import(
+                    0,
+                    0,
+                    local_name="Row",
+                    exported_name="Row",
+                    target_module_path="b.pietto",
+                ),
+                *_module_block(1, "b.pietto"),
+                *(
+                    _declaration(
+                        1,
+                        ordinal,
+                        owner_name="b.pietto",
+                        declared_name="Row",
+                        availability="ambiguous",
+                        occurrence_count=2,
+                        occurrence_index=ordinal,
+                    )
+                    for ordinal in (0, 1)
+                ),
+            ),
+            ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
+            0,
+        ),
+        _rejected(
             "resolved_target_without_a_declaration",
             DifferentialPurpose.RESOLVED_TARGET_WITHOUT_A_DECLARATION,
             _document(
@@ -3770,6 +3806,30 @@ def _rejected_vectors() -> tuple[DifferentialVector, ...]:
             ),
             ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
             0,
+        ),
+        _rejected(
+            "derived_result_role_in_a_source",
+            DifferentialPurpose.DERIVED_RESULT_ROLE_IN_A_SOURCE,
+            _document(
+                _header(1),
+                _OWNER,
+                *valid_module,
+                _declaration(
+                    0,
+                    0,
+                    owner_name="a.pietto",
+                    declared_name="rows",
+                    namespace="relation",
+                    declaration_kind="source",
+                    availability="concrete",
+                    relation_status="concrete",
+                    relation_reason="direct_source_concrete",
+                    row_fields=1,
+                ),
+                _row_field(0, 0, 0, name="total", result_role="aggregate_result"),
+            ),
+            ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
+            8,
         ),
         _rejected(
             "sparse_shape_field_resolutions",

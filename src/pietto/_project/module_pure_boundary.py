@@ -1169,6 +1169,7 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                     ("resolved_namespace", "namespace"),
                     ("resolved_declaration_kind", "declaration_kind"),
                 ),
+                fixed=(("occurrence_count", ("i:1",)),),
                 presence=("resolved_module_path",),
                 when=("resolved_module_path", "present"),
             ),
@@ -1404,6 +1405,7 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                     ("target_namespace", "namespace"),
                     ("target_declaration_kind", "declaration_kind"),
                 ),
+                fixed=(("occurrence_count", ("i:1",)),),
                 presence=("entry_origin",),
                 when=("entry_origin", "present"),
             ),
@@ -1685,6 +1687,23 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             ),
         ),
         scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.ANCESTOR_COMBINATION,
+                scope="declaration",
+                pairs=(("result_role", "declaration_kind"),),
+                admitted=(
+                    ("ordinary_row_value", "*"),
+                    *(
+                        (role, kind)
+                        for role in (
+                            "group_key",
+                            "aggregate_result",
+                            "window_result",
+                        )
+                        for kind in ("table", "query")
+                    ),
+                ),
+            ),
             _PureScopeRule(
                 rule=_PureScopeKind.DISTINCT_SIBLINGS,
                 distinct=("name",),
