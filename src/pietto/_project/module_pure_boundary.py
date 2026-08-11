@@ -94,6 +94,19 @@ _DERIVED_STATE_PAIRS: tuple[tuple[str, str], ...] = tuple(
     pair for pair in _RELATION_STATE_PAIRS if pair not in _SOURCE_STATE_PAIRS
 )
 
+_ROW_FACT_STATE_PAIRS: tuple[tuple[str, str], ...] = (
+    ("concrete", "direct_source_concrete"),
+    ("concrete", "relation_upstream_concrete"),
+    ("unknown", "unknown_schema"),
+    ("unknown", "duplicate_output_name"),
+    ("unknown", "upstream_unknown"),
+    ("deferred", "deferred_phase48_behavior"),
+    ("deferred", "upstream_deferred"),
+    ("blocked", "unresolved_relation_blocked"),
+    ("blocked", "cycle_blocked"),
+    ("blocked", "upstream_blocked"),
+)
+
 
 _PURE_HEX_ALPHABET = frozenset("0123456789abcdef")
 
@@ -1432,6 +1445,12 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 when=("entry_origin", "local_declaration"),
             ),
             _PureScopeRule(
+                rule=_PureScopeKind.DEFERRED_LEDGER_EXCLUDES,
+                scope="module",
+                child="import",
+                pairs=(("module_statement_position", "module_statement_position"),),
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.LEDGER_MATCH,
                 scope="module",
                 child="import",
@@ -1616,8 +1635,6 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                     ("concrete", "one"),
                     ("concrete", "many"),
                     ("unknown", "zero"),
-                    ("unknown", "one"),
-                    ("unknown", "many"),
                     ("deferred", "zero"),
                     ("blocked", "zero"),
                     ("absent", "zero"),
@@ -1984,7 +2001,7 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 "target_row_field_kind",
                 _ENUMERATION,
                 optional=True,
-                vocabulary="row_field_kind",
+                vocabulary="lineage_field_kind",
             ),
             _key("target_row_field_position", _INTEGER, optional=True),
             _key("target_row_field_name", _TEXT, optional=True),
@@ -2247,7 +2264,7 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _PureStateRule(
                 rule=_PureStateKind.COMBINATION,
                 keys=("status", "reason"),
-                admitted=_RELATION_STATE_PAIRS,
+                admitted=_ROW_FACT_STATE_PAIRS,
             ),
             _PureStateRule(
                 rule=_PureStateKind.COMBINATION,
@@ -3079,7 +3096,7 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 admitted=(
                     ("concrete", "concrete"),
                     ("*", "unknown"),
-                    ("*", "deferred"),
+                    ("deferred", "deferred"),
                     ("*", "blocked"),
                 ),
             ),
