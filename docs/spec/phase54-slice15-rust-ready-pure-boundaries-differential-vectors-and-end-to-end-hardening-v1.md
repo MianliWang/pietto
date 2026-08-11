@@ -318,7 +318,7 @@ what produced two rounds of isomorphic findings.
 | `semantic_clause_dependency` | roles appear in their declared order, and each role's source ledger is dense from zero | `ProjectModuleRelationSemanticFacts` |
 | `semantic_select` | a supplied output name is non-empty, and the retained source ordinal is the record's own position | `ProjectModuleSelectFact`, `ProjectModuleRelationSemanticFacts` |
 | `semantic_window_output` | a supplied output name is non-empty, a concrete relation publishes only concrete outputs, and selected output ordinals ascend without repeating | `ProjectInspectionWindowOutput`, `ProjectModuleRelationSemanticFacts` |
-| `issue` | the status decides both its family and whether a local name is carried, the families appear in the order the projection concatenates them, and the graph issues within a module follow their own status rank | `ProjectInspectionIssue`, `_derive_inspection`, `ProjectTypeSourceResolutionIssue`, `ProjectModuleRelationResolutionIssue` |
+| `issue` | the status decides both its family and whether a local name is carried, the families appear in the order the projection concatenates them, the graph issues within a module follow their own status rank, and a module import cycle issue is raised by the first member of a cyclic component, which is the only module the graph raises it for | `ProjectInspectionIssue`, `_derive_inspection`, `ProjectTypeSourceResolutionIssue`, `ProjectModuleRelationResolutionIssue` |
 
 ### What the portable layer does and does not re-validate
 
@@ -398,7 +398,7 @@ the document is consulted:
 
 | Shape | Reads | Declared for |
 | --- | --- | --- |
-| uncle combination | values of this record against one value a sibling collection of an open ancestor already published | a declaration's availability and multiplicity answer to its module's readiness, and a cyclic component is exactly a loader-blocked module |
+| uncle combination | values of this record against one value a sibling collection of an open ancestor already published | a declaration's availability and multiplicity answer to its module's readiness, a cyclic component is exactly a loader-blocked module, a blocked module publishes no fact set, and a cycle issue answers to its module's component |
 | ancestor combination | one value of this record against one value of an open ancestor record | a resolved request's only admitted issue is the duplicate request, for both an import and a facade entry, and a concrete relation publishes only concrete window outputs |
 | ancestor equal | one value of an open ancestor record | a declaration is owned by its module, a local facade entry and a local origin target that same module, `origin_hop` repeats its origin's nominal target, a zero-hop `row_lineage_path` is its own field, and a lineage chain starts at its field and ends at its root |
 | previous sibling equal | the immediately preceding sibling of the same kind | a lineage chain is contiguous, hop by hop |

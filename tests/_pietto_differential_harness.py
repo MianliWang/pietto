@@ -219,6 +219,8 @@ class DifferentialPurpose(StrEnum):
     SOURCE_OWNER_WITH_DERIVED_FACTS = "source_owner_with_derived_facts"
     SPLIT_COMPONENT_VIEWS = "split_component_views"
     FOREIGN_MEMBER_IN_AGREED_COMPONENT = "foreign_member_in_agreed_component"
+    CYCLE_ISSUE_WITHOUT_A_CYCLE = "cycle_issue_without_a_cycle"
+    CYCLE_ISSUE_OUTSIDE_FIRST_MEMBER = "cycle_issue_outside_first_member"
     SEMANTIC_FACTS_IN_BLOCKED_MODULE = "semantic_facts_in_blocked_module"
     UNORDERED_DEPENDENCY_LEDGER = "unordered_dependency_ledger"
     POSITIVE_REQUIRES_PRESENT = "positive_requires_present"

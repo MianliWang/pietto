@@ -2597,6 +2597,32 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         ),
         scope_rules=(
             _PureScopeRule(
+                rule=_PureScopeKind.UNCLE_COMBINATION,
+                scope="module",
+                child="graph",
+                child_key="component_is_cyclic",
+                pairs=(("status", "status"),),
+                admitted=(
+                    ("module_import_cycle", "true"),
+                    ("unresolved_target_module", "true"),
+                    ("unresolved_target_module", "false"),
+                    ("duplicate_or_conflicting_module_identity", "true"),
+                    ("duplicate_or_conflicting_module_identity", "false"),
+                    ("unsupported_explicit_module_reference", "true"),
+                    ("unsupported_explicit_module_reference", "false"),
+                ),
+                when=("family", "graph"),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="graph_component_member",
+                ancestor_scope="module",
+                fixed=(("member", ("i:0",)),),
+                ancestor_pairs=(("path", "path"),),
+                when_all=(("family", "graph"), ("status", "module_import_cycle")),
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.PREVIOUS_SIBLING_NON_DECREASING,
                 pairs=(("status", "status"),),
                 when=("family", "graph"),
@@ -3255,6 +3281,11 @@ def _scope_rule_applies(
         selector, *admitted_when = rule.when
         if _state_token(_value_of(record, selector)) not in admitted_when:
             return False
+    if any(
+        _state_token(_value_of(record, key)) != expected
+        for key, expected in rule.when_all
+    ):
+        return False
     if rule.at == "first":
         return (
             specification.ordinal_key is not None
@@ -3791,7 +3822,10 @@ def _validate_structure(
                 if collected_kind != record.kind:
                     continue
                 frame.collected.setdefault((collected_kind, collected_key), []).append(
-                    (parent_frame.record_position, _text_of(record, collected_key))
+                    (
+                        parent_frame.record_position,
+                        _state_token(_value_of(record, collected_key)),
+                    )
                 )
         for frame in stack:
             for child, child_key, required, _expected in frame.membership_required:
