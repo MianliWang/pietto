@@ -1918,6 +1918,13 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         ),
         scope_rules=(
             _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="declaration",
+                pairs=(("owner_declaration_position", "declaration"),),
+                fixed=(("declaration_kind", ("e:source", "e:table", "e:query")),),
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
                 pairs=(("owner_declaration_position", "owner_declaration_position"),),
             ),
@@ -2349,6 +2356,13 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             ),
         ),
         scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="declaration",
+                pairs=(("owner_declaration_position", "declaration"),),
+                fixed=(("declaration_kind", ("e:source", "e:table", "e:query")),),
+            ),
             _PureScopeRule(
                 rule=_PureScopeKind.COLLECTED_IMPLIES,
                 subset=(

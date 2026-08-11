@@ -215,6 +215,7 @@ class DifferentialPurpose(StrEnum):
     BLOCKED_AVAILABILITY_WITHOUT_STATE = "blocked_availability_without_state"
     RESOLUTION_OWNER_OUTSIDE_DECLARATIONS = "resolution_owner_outside_declarations"
     DEPENDENCY_OWNER_OUTSIDE_DECLARATIONS = "dependency_owner_outside_declarations"
+    LINEAGE_OWNER_OUTSIDE_DECLARATIONS = "lineage_owner_outside_declarations"
     UNORDERED_DEPENDENCY_LEDGER = "unordered_dependency_ledger"
     POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
     OCCURRENCE_INDEX_OUTSIDE_BUCKET = "occurrence_index_outside_bucket"
