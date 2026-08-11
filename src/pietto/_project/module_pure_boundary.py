@@ -2361,6 +2361,38 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 scope="module",
                 child="declaration",
                 pairs=(("owner_declaration_position", "declaration"),),
+                fixed=(("declaration_kind", ("e:table", "e:query")),),
+                when=("let_bindings", "one", "many"),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="declaration",
+                pairs=(("owner_declaration_position", "declaration"),),
+                fixed=(("declaration_kind", ("e:table", "e:query")),),
+                when=("selects", "one", "many"),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="declaration",
+                pairs=(("owner_declaration_position", "declaration"),),
+                fixed=(("declaration_kind", ("e:table", "e:query")),),
+                when=("clause_dependencies", "one", "many"),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="declaration",
+                pairs=(("owner_declaration_position", "declaration"),),
+                fixed=(("declaration_kind", ("e:table", "e:query")),),
+                when=("window_outputs", "one", "many"),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="declaration",
+                pairs=(("owner_declaration_position", "declaration"),),
                 fixed=(("declaration_kind", ("e:source", "e:table", "e:query")),),
             ),
             _PureScopeRule(
@@ -3065,14 +3097,14 @@ def _close_grouped_sequences(frame: _PureFrame) -> ProjectPureOutcome | None:
             continue
         if rule.rule is _PureScopeKind.SCOPE_REQUIRES_CHILD:
             if rule.when and frame.record is not None:
-                selector, expected_token = rule.when
+                selector, *admitted_when = rule.when
                 supplied = _value_of(frame.record, selector)
                 observed = (
                     _presence_token(supplied)
                     if selector in rule.presence
                     else _state_token(supplied)
                 )
-                if observed != expected_token:
+                if observed not in admitted_when:
                     continue
             values = frame.collected.get((rule.child, rule.child_key), [])
             if not any(value not in rule.excluded for _, value in values):
@@ -3172,8 +3204,8 @@ def _scope_rule_applies(
     """Return whether one declared scope rule governs this exact record."""
 
     if rule.when:
-        selector, expected = rule.when
-        if _state_token(_value_of(record, selector)) != expected:
+        selector, *admitted_when = rule.when
+        if _state_token(_value_of(record, selector)) not in admitted_when:
             return False
     if rule.at == "first":
         return (
@@ -3328,8 +3360,8 @@ def _validate_scope_rules(
             if previous is None:
                 continue
             if rule.when:
-                selector, expected_token = rule.when
-                if _state_token(_value_of(previous, selector)) != expected_token:
+                selector, *admitted_when = rule.when
+                if _state_token(_value_of(previous, selector)) not in admitted_when:
                     continue
             seen = tuple(
                 _ordered_key(record, specification, key, rule) for key, _ in rule.pairs
@@ -3346,8 +3378,8 @@ def _validate_scope_rules(
             if previous is None:
                 continue
             if rule.when:
-                selector, expected_token = rule.when
-                if _state_token(_value_of(previous, selector)) != expected_token:
+                selector, *admitted_when = rule.when
+                if _state_token(_value_of(previous, selector)) not in admitted_when:
                     # The preceding sibling belongs to another declared group,
                     # so this record opens that group rather than continuing one.
                     continue
@@ -3417,8 +3449,8 @@ def _validate_state_rules(
             continue
         if rule.rule is _PureStateKind.EQUAL_IF_PRESENT:
             if rule.when:
-                selector, expected = rule.when
-                if _state_token(_value_of(record, selector)) != expected:
+                selector, *admitted_when = rule.when
+                if _state_token(_value_of(record, selector)) not in admitted_when:
                     continue
             left, right = (_value_of(record, key) for key in rule.keys)
             if ProjectPureTag.ABSENT in (left.tag, right.tag):

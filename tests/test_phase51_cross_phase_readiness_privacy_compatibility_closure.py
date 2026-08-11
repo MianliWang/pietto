@@ -943,7 +943,7 @@ def test_cross_phase_transition_and_live_identifier_inventory_is_exact() -> None
 def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> None:
     compiler_digest = _compiler_digest()
     assert compiler_digest == (
-        "34ed0ea23aa6d713137d746ab914ea75a43dc6d0c8322ce420f56192ab2daed0"
+        "8ab5d47e0a104db191406cb607e5598c6e534429cc882b3857fdc6bc5ab1c5b6"
     )
     for relative_path in BOUNDARY_PATHS:
         boundary_values = re.findall(
@@ -968,7 +968,7 @@ def test_live_compiler_project_private_and_protected_locks_are_dirty_safe() -> N
     project_digest = _digest(project_paths)
     assert len(project_paths) == 33
     assert project_digest == (
-        "651088a1586f523b0c63b94c774d223cbd89431eb8344d4c944f23dc3f9ac770"
+        "d93c45fee1c1136d9ab63bdba71e4b43dd161e05d4650cb28df59941709966b6"
     )
     phase33 = _read(REPO_ROOT / "tests/test_phase33_completion_audit.py")
     assert (

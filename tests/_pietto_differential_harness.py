@@ -216,6 +216,7 @@ class DifferentialPurpose(StrEnum):
     RESOLUTION_OWNER_OUTSIDE_DECLARATIONS = "resolution_owner_outside_declarations"
     DEPENDENCY_OWNER_OUTSIDE_DECLARATIONS = "dependency_owner_outside_declarations"
     LINEAGE_OWNER_OUTSIDE_DECLARATIONS = "lineage_owner_outside_declarations"
+    SOURCE_OWNER_WITH_DERIVED_FACTS = "source_owner_with_derived_facts"
     UNORDERED_DEPENDENCY_LEDGER = "unordered_dependency_ledger"
     POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
     OCCURRENCE_INDEX_OUTSIDE_BUCKET = "occurrence_index_outside_bucket"
