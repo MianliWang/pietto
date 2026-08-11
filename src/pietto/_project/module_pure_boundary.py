@@ -1436,6 +1436,7 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 scope="module",
                 child="import",
                 pairs=(
+                    ("local_name", "local_name"),
                     ("target_module_path", "resolved_module_path"),
                     ("target_namespace", "resolved_namespace"),
                     ("target_declaration_kind", "resolved_declaration_kind"),

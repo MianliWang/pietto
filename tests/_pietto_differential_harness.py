@@ -238,6 +238,7 @@ class DifferentialPurpose(StrEnum):
     RESOLVED_TARGET_WITHOUT_A_DECLARATION = "resolved_target_without_a_declaration"
     RESOLVED_TARGET_OF_AN_AMBIGUOUS_BUCKET = "resolved_target_of_an_ambiguous_bucket"
     RESOLVED_IMPORT_WITHOUT_A_FACADE = "resolved_import_without_a_facade"
+    REEXPORT_OF_ANOTHER_ALIAS = "reexport_of_another_alias"
     FACADE_TARGET_WITHOUT_A_DECLARATION = "facade_target_without_a_declaration"
     SPARSE_SHAPE_FIELD_RESOLUTIONS = "sparse_shape_field_resolutions"
     DERIVED_RESULT_ROLE_IN_A_SOURCE = "derived_result_role_in_a_source"

@@ -4327,6 +4327,39 @@ def _rejected_vectors() -> tuple[DifferentialVector, ...]:
             2,
         ),
         _rejected(
+            "reexport_of_another_alias",
+            DifferentialPurpose.REEXPORT_OF_ANOTHER_ALIAS,
+            _document(
+                _header(2),
+                _OWNER,
+                *_importing_module_block(
+                    0,
+                    "a.pietto",
+                    targets=("b.pietto",),
+                    evidence=(("b.pietto", 0, 0),),
+                ),
+                _import(
+                    0,
+                    0,
+                    local_name="First",
+                    exported_name="Row",
+                    target_module_path="b.pietto",
+                ),
+                _export(
+                    0,
+                    0,
+                    local_name="Second",
+                    module_path="b.pietto",
+                    entry_origin="explicit_reexport",
+                ),
+                *_module_block(1, "b.pietto"),
+                _export(1, 0, local_name="Row", module_path="b.pietto"),
+                _declaration(1, 0, owner_name="b.pietto", declared_name="Row"),
+            ),
+            ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
+            10,
+        ),
+        _rejected(
             "reexport_outside_resolved_imports",
             DifferentialPurpose.REEXPORT_OUTSIDE_RESOLVED_IMPORTS,
             _document(
