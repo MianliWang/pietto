@@ -1746,6 +1746,46 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         parent_ordinal_keys=("module",),
         scope_rules=(
             _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="declaration",
+                pairs=(("reference_owner_declaration_position", "declaration"),),
+                fixed=(("declaration_kind", ("e:type",)),),
+                when=("reference_role", "type_alias_base"),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="declaration",
+                pairs=(("reference_owner_declaration_position", "declaration"),),
+                fixed=(("declaration_kind", ("e:shape",)),),
+                when=("reference_role", "shape_field_type"),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="declaration",
+                pairs=(("reference_owner_declaration_position", "declaration"),),
+                fixed=(("declaration_kind", ("e:source",)),),
+                when=("reference_role", "source_shape"),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="declaration",
+                pairs=(("reference_owner_declaration_position", "declaration"),),
+                fixed=(("declaration_kind", ("e:table", "e:query")),),
+                when=("reference_role", "relation_from"),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="declaration",
+                pairs=(("reference_owner_declaration_position", "declaration"),),
+                fixed=(("declaration_kind", ("e:table", "e:query")),),
+                when=("reference_role", "row_field"),
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
                 pairs=(
                     (
