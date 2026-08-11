@@ -236,7 +236,7 @@ class DifferentialPurpose(StrEnum):
     RESOLVED_IMPORT_OUTSIDE_GRAPH_EVIDENCE = "resolved_import_outside_graph_evidence"
     LOCAL_EXPORT_OUTSIDE_DECLARATIONS = "local_export_outside_declarations"
     LOCAL_EXPORT_OF_AMBIGUOUS_DECLARATION = "local_export_of_ambiguous_declaration"
-    LOCAL_EXPORT_WITH_COMPETING_IMPORT = "local_export_with_competing_import"
+    LOCAL_EXPORT_WITH_COMPETING_CANDIDATE = "local_export_with_competing_candidate"
     DEPENDENCY_TARGET_OUTSIDE_ITS_DOMAIN = "dependency_target_outside_its_domain"
     LOCAL_LINEAGE_ROOT_OUTSIDE_A_SOURCE = "local_lineage_root_outside_a_source"
     REEXPORT_OUTSIDE_RESOLVED_IMPORTS = "reexport_outside_resolved_imports"

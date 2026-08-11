@@ -407,7 +407,7 @@ class _PureScopeKind(StrEnum):
     COLLECTED_IMPLIES = "collected_implies"
     LEDGER_MATCH = "ledger_match"
     DEFERRED_LEDGER_MATCH = "deferred_ledger_match"
-    LEDGER_EXCLUDES = "ledger_excludes"
+    DEFERRED_LEDGER_EXCLUDES = "deferred_ledger_excludes"
     GROUP_FIRST_INCREASING = "group_first_increasing"
     SCOPE_REQUIRES_CHILD = "scope_requires_child"
     SIBLING_BUCKETS_COMPLETE = "sibling_buckets_complete"
@@ -1346,14 +1346,15 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 when=("entry_origin", "local_declaration"),
             ),
             _PureScopeRule(
-                rule=_PureScopeKind.LEDGER_EXCLUDES,
+                rule=_PureScopeKind.DEFERRED_LEDGER_EXCLUDES,
                 scope="module",
-                child="import",
+                child="origin",
                 pairs=(
                     ("local_name", "local_name"),
                     ("namespace", "namespace"),
                     ("declaration_kind", "declaration_kind"),
                 ),
+                fixed=(("binding", ("e:imported_binding",)),),
                 when=("entry_origin", "local_declaration"),
             ),
             _PureScopeRule(
@@ -2989,7 +2990,7 @@ class _PureFrame:
             tuple[str, tuple[str, ...]], tuple[int, frozenset[tuple[str, ...]]]
         ] = {}
         self.deferred: list[
-            tuple[tuple[str, tuple[str, ...]], tuple[tuple[str, ...], ...]]
+            tuple[tuple[str, tuple[str, ...]], tuple[tuple[str, ...], ...], bool]
         ] = []
 
 
@@ -3325,7 +3326,7 @@ def _subset_keys(kind: str) -> tuple[tuple[str, tuple[str, ...]], ...]:
                 in (
                     _PureScopeKind.LEDGER_MATCH,
                     _PureScopeKind.DEFERRED_LEDGER_MATCH,
-                    _PureScopeKind.LEDGER_EXCLUDES,
+                    _PureScopeKind.DEFERRED_LEDGER_EXCLUDES,
                 )
                 and rule.scope == kind
             )
@@ -3728,7 +3729,10 @@ def _validate_scope_rules(
             ):
                 return _reject(ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position)
             continue
-        if rule.rule is _PureScopeKind.DEFERRED_LEDGER_MATCH:
+        if rule.rule in (
+            _PureScopeKind.DEFERRED_LEDGER_MATCH,
+            _PureScopeKind.DEFERRED_LEDGER_EXCLUDES,
+        ):
             ledger_frame = _ancestor_frame(stack, rule.scope)
             if ledger_frame is None:
                 return _reject(ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position)
@@ -3736,20 +3740,9 @@ def _validate_scope_rules(
                 (
                     (rule.child, _ledger_keys(rule)),
                     _ledger_candidates(record, rule),
+                    rule.rule is _PureScopeKind.DEFERRED_LEDGER_EXCLUDES,
                 )
             )
-            continue
-        if rule.rule is _PureScopeKind.LEDGER_EXCLUDES:
-            ledger_frame = _ancestor_frame(stack, rule.scope)
-            if ledger_frame is None:
-                return _reject(ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position)
-            ledger = frozenset(
-                ledger_frame.grouped_tuples.get((rule.child, _ledger_keys(rule)), [])
-            )
-            if any(
-                candidate in ledger for candidate in _ledger_candidates(record, rule)
-            ):
-                return _reject(ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position)
             continue
         if rule.rule is _PureScopeKind.GROUP_FIRST_INCREASING:
             ancestor = _ancestor_frame(stack, rule.scope)
@@ -3995,9 +3988,9 @@ def _close_frame(frame: _PureFrame) -> ProjectPureOutcome | None:
             return _reject(
                 ProjectPureStatus.CHILD_COUNT_MISMATCH, frame.record_position
             )
-    for ledger_key, candidates in frame.deferred:
+    for ledger_key, candidates, excluded in frame.deferred:
         ledger = frozenset(frame.grouped_tuples.get(ledger_key, []))
-        if not any(candidate in ledger for candidate in candidates):
+        if any(candidate in ledger for candidate in candidates) is excluded:
             return _reject(
                 ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, frame.record_position
             )

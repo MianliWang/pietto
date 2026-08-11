@@ -3717,8 +3717,8 @@ def _rejected_vectors() -> tuple[DifferentialVector, ...]:
             2,
         ),
         _rejected(
-            "local_export_with_competing_import",
-            DifferentialPurpose.LOCAL_EXPORT_WITH_COMPETING_IMPORT,
+            "local_export_with_competing_candidate",
+            DifferentialPurpose.LOCAL_EXPORT_WITH_COMPETING_CANDIDATE,
             _document(
                 _header(2),
                 _OWNER,
@@ -3737,10 +3737,20 @@ def _rejected_vectors() -> tuple[DifferentialVector, ...]:
                 ),
                 _export(0, 0, local_name="Row", module_path="a.pietto"),
                 _declaration(0, 0, owner_name="a.pietto", declared_name="Row"),
+                _origin(
+                    0,
+                    0,
+                    local_name="Row",
+                    target_module_path="b.pietto",
+                    target_declared_name="Row",
+                    binding="imported_binding",
+                    hops=1,
+                ),
+                _origin_hop(0, 0, 0, module_path="b.pietto", exported_name="Row"),
                 *_module_block(1, "b.pietto"),
             ),
             ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
-            10,
+            2,
         ),
         _rejected(
             "dependency_target_outside_its_domain",
