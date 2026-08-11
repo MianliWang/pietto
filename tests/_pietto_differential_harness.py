@@ -216,6 +216,13 @@ class DifferentialPurpose(StrEnum):
     RESOLUTION_OWNER_OUTSIDE_DECLARATIONS = "resolution_owner_outside_declarations"
     DEPENDENCY_OWNER_OUTSIDE_DECLARATIONS = "dependency_owner_outside_declarations"
     LINEAGE_FIELD_KIND_OUTSIDE_OWNER = "lineage_field_kind_outside_owner"
+    LINEAGE_FIELD_OUTSIDE_ROW_SCHEMA = "lineage_field_outside_row_schema"
+    ROW_FIELD_MEMBER_OUTSIDE_ROW_SCHEMA = "row_field_member_outside_row_schema"
+    RESOLVED_TARGET_OUTSIDE_SELECTED_MODULES = (
+        "resolved_target_outside_selected_modules"
+    )
+    LINEAGE_ROOT_OUTSIDE_SELECTED_MODULES = "lineage_root_outside_selected_modules"
+    NAMELESS_CYCLE_ISSUE_WITHOUT_A_CYCLE = "nameless_cycle_issue_without_a_cycle"
     SOURCE_SHAPE_RESOLUTION_TO_RELATION_ORIGIN = (
         "source_shape_resolution_to_relation_origin"
     )

@@ -318,7 +318,7 @@ what produced two rounds of isomorphic findings.
 | `semantic_clause_dependency` | roles appear in their declared order, and each role's source ledger is dense from zero | `ProjectModuleRelationSemanticFacts` |
 | `semantic_select` | a supplied output name is non-empty, and the retained source ordinal is the record's own position | `ProjectModuleSelectFact`, `ProjectModuleRelationSemanticFacts` |
 | `semantic_window_output` | a supplied output name is non-empty, a concrete relation publishes only concrete outputs, and selected output ordinals ascend without repeating | `ProjectInspectionWindowOutput`, `ProjectModuleRelationSemanticFacts` |
-| `issue` | the status decides both its family and whether a local name is carried, the families appear in the order the projection concatenates them, the graph issues within a module follow their own status rank, and a module import cycle issue is raised by the first member of a cyclic component, which is the only module the graph raises it for | `ProjectInspectionIssue`, `_derive_inspection`, `ProjectTypeSourceResolutionIssue`, `ProjectModuleRelationResolutionIssue` |
+| `issue` | the status decides both its family and whether a local name is carried, the families appear in the order the projection concatenates them, the graph issues within a module follow their own status rank, a module import cycle issue is raised by the first member of a cyclic component, which is the only module the graph raises it for, and a nameless graph-cycle-blocked type-source or relation issue is raised for a member of a cyclic component, since that is the only route the resolver builds one without a local name | `ProjectInspectionIssue`, `_derive_inspection`, `ProjectTypeSourceResolutionIssue`, `ProjectModuleRelationResolutionIssue`, `_cycle_member_issues` |
 
 ### What the portable layer does and does not re-validate
 
@@ -441,6 +441,17 @@ reports its missing record first.
 is declared now: the walk already visits every record of a scope once, so a
 closing scope can carry its own subtree as its identity, with the portable
 ordinals that only position it removed.
+
+A row lineage's field count is not its owner declaration's row field count, and
+the rich fixture refutes the equality directly: the query publishes a deferred
+lineage with no fields while its declaration keeps the three-field row schema
+its relation state earned. The counts describe two products of two slices, and
+only one of them is empty. A readiness cycle is likewise not unique within its
+module. The resolver raises one blocking issue per member of a cycle and the
+readiness section collects a cycle from each, so a two-member cycle publishes
+that same cycle twice, with dense ordinals and identical members, which the
+cycle fixture does; a distinctness rule over those subtrees would reject the
+authority's own bytes.
 
 Neither a row lineage state nor a semantic fact state is its owner
 declaration's relation state, and no rule says either is. A query publishes a

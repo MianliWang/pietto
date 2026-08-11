@@ -1146,6 +1146,14 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 when=("resolved_module_path", "absent"),
             ),
             _PureScopeRule(
+                rule=_PureScopeKind.DEFERRED_LEDGER_MATCH,
+                scope="inspection",
+                child="module",
+                pairs=(("resolved_module_path", "path"),),
+                presence=("resolved_module_path",),
+                when=("resolved_module_path", "present"),
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.LEDGER_MATCH,
                 scope="module",
                 child="graph_import_evidence",
@@ -1634,6 +1642,12 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 when=("binding", "local_declaration"),
             ),
             _PureScopeRule(
+                rule=_PureScopeKind.DEFERRED_LEDGER_MATCH,
+                scope="inspection",
+                child="module",
+                pairs=(("target_module_path", "path"),),
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
                 pairs=(("target_declaration_position", "target_declaration_position"),),
                 when=("binding", "local_declaration"),
@@ -1756,6 +1770,12 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 ),
             ),
             _PureScopeRule(
+                rule=_PureScopeKind.DEFERRED_LEDGER_MATCH,
+                scope="inspection",
+                child="module",
+                pairs=(("import_target_module_path", "path"),),
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.DISTINCT_SIBLINGS,
                 distinct=(
                     "import_target_module_path",
@@ -1874,6 +1894,16 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                     ),
                 ),
                 when=("kind", "row_field_reference"),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="declaration_row_field",
+                pairs=(
+                    ("reference_owner_declaration_position", "declaration"),
+                    ("reference_member_position", "field"),
+                ),
+                when=("reference_role", "row_field"),
             ),
             _PureScopeRule(
                 rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
@@ -2069,6 +2099,17 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 when=("kind", "relation_output"),
             ),
             _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="declaration_row_field",
+                ancestor_scope="row_lineage",
+                pairs=(
+                    ("field_position", "field"),
+                    ("name", "name"),
+                ),
+                ancestor_pairs=(("owner_declaration_position", "declaration"),),
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.DISTINCT_SIBLINGS,
                 distinct=("name",),
             ),
@@ -2114,6 +2155,12 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                     ("one", "relation_output"),
                     ("many", "relation_output"),
                 ),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.DEFERRED_LEDGER_MATCH,
+                scope="inspection",
+                child="module",
+                pairs=(("root_module_path", "path"),),
             ),
             _PureScopeRule(
                 rule=_PureScopeKind.DISTINCT_SUBTREES,
@@ -2292,6 +2339,14 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         ),
         scope_rules=(
             _PureScopeRule(
+                rule=_PureScopeKind.DEFERRED_LEDGER_MATCH,
+                scope="inspection",
+                child="module",
+                pairs=(("canonical_target_module_path", "path"),),
+                presence=("canonical_target_module_path",),
+                when=("canonical_target_module_path", "present"),
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.LEDGER_MATCH,
                 scope="module",
                 child="declaration",
@@ -2348,6 +2403,12 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             ),
         ),
         scope_rules=(
+            _PureScopeRule(
+                rule=_PureScopeKind.DEFERRED_LEDGER_MATCH,
+                scope="inspection",
+                child="module",
+                pairs=(("module_path", "path"),),
+            ),
             _PureScopeRule(
                 rule=_PureScopeKind.DISTINCT_SIBLINGS,
                 distinct=("module_path", "declared_name"),
@@ -2742,6 +2803,22 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 fixed=(("member", ("i:0",)),),
                 ancestor_pairs=(("path", "path"),),
                 when_all=(("family", "graph"), ("status", "module_import_cycle")),
+            ),
+            *(
+                _PureScopeRule(
+                    rule=_PureScopeKind.UNCLE_COMBINATION,
+                    scope="module",
+                    child="graph",
+                    child_key="component_is_cyclic",
+                    pairs=(("status", "status"),),
+                    admitted=(("module_graph_cycle_blocked", "true"),),
+                    when_all=(
+                        ("family", family),
+                        ("status", "module_graph_cycle_blocked"),
+                        ("local_name", "absent"),
+                    ),
+                )
+                for family in ("type_source", "relation")
             ),
             _PureScopeRule(
                 rule=_PureScopeKind.PREVIOUS_SIBLING_NON_DECREASING,
