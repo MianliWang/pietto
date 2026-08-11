@@ -1162,8 +1162,13 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
             _PureScopeRule(
                 rule=_PureScopeKind.DEFERRED_LEDGER_MATCH,
                 scope="inspection",
-                child="module",
-                pairs=(("resolved_module_path", "path"),),
+                child="declaration",
+                pairs=(
+                    ("resolved_module_path", "owner_name"),
+                    ("resolved_declared_name", "declared_name"),
+                    ("resolved_namespace", "namespace"),
+                    ("resolved_declaration_kind", "declaration_kind"),
+                ),
                 presence=("resolved_module_path",),
                 when=("resolved_module_path", "present"),
             ),
@@ -1388,6 +1393,19 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 ),
                 fixed=(("occurrence_count", ("i:1",)),),
                 when=("entry_origin", "local_declaration"),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.DEFERRED_LEDGER_MATCH,
+                scope="inspection",
+                child="declaration",
+                pairs=(
+                    ("target_module_path", "owner_name"),
+                    ("target_declared_name", "declared_name"),
+                    ("target_namespace", "namespace"),
+                    ("target_declaration_kind", "declaration_kind"),
+                ),
+                presence=("entry_origin",),
+                when=("entry_origin", "present"),
             ),
             _PureScopeRule(
                 rule=_PureScopeKind.DEFERRED_LEDGER_EXCLUDES,
@@ -2298,12 +2316,14 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 when_ancestor=(("root_module_path", "path"),),
             ),
             _PureScopeRule(
-                rule=_PureScopeKind.LEDGER_MATCH,
-                scope="module",
+                rule=_PureScopeKind.DEFERRED_LEDGER_MATCH,
+                scope="inspection",
                 child="declaration",
-                pairs=(("root_owner_declaration_position", "declaration"),),
+                pairs=(
+                    ("root_module_path", "owner_name"),
+                    ("root_owner_declaration_position", "declaration"),
+                ),
                 fixed=(("declaration_kind", ("e:source",)),),
-                when_ancestor=(("root_module_path", "path"),),
             ),
             _PureScopeRule(
                 rule=_PureScopeKind.DISTINCT_SUBTREES,
@@ -2528,6 +2548,11 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                     ("owner_declaration_position", "owner_declaration_position"),
                     ("member_position", "member_position"),
                 ),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.SIBLING_BUCKETS_COMPLETE,
+                distinct=("owner_declaration_position", "role"),
+                pairs=(("member_position", ""),),
             ),
         ),
     ),
@@ -4325,7 +4350,9 @@ def _validate_structure(
         for rule in specification.scope_rules:
             if rule.rule is not _PureScopeKind.SIBLING_BUCKETS_COMPLETE:
                 continue
-            bucket = tuple(_text_of(record, key) for key in rule.distinct)
+            bucket = tuple(
+                _exact_token(_value_of(record, key)) for key in rule.distinct
+            )
             index_key, count_key = rule.pairs[0]
             index = _integer_of(record, index_key)
             count = -1 if not count_key else _integer_of(record, count_key)

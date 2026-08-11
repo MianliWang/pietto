@@ -235,6 +235,9 @@ class DifferentialPurpose(StrEnum):
     REPEATED_ORIGIN_HOP = "repeated_origin_hop"
     RESOLVED_IMPORT_OUTSIDE_GRAPH_EVIDENCE = "resolved_import_outside_graph_evidence"
     ORIGIN_TARGET_OUTSIDE_ITS_DECLARATION = "origin_target_outside_its_declaration"
+    RESOLVED_TARGET_WITHOUT_A_DECLARATION = "resolved_target_without_a_declaration"
+    FACADE_TARGET_WITHOUT_A_DECLARATION = "facade_target_without_a_declaration"
+    SPARSE_SHAPE_FIELD_RESOLUTIONS = "sparse_shape_field_resolutions"
     FOREIGN_CANONICAL_TARGET_WITHOUT_A_DECLARATION = (
         "foreign_canonical_target_without_a_declaration"
     )
