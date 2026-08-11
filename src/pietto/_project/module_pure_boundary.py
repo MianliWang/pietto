@@ -407,6 +407,7 @@ class _PureScopeKind(StrEnum):
     COLLECTED_IMPLIES = "collected_implies"
     LEDGER_MATCH = "ledger_match"
     DEFERRED_LEDGER_MATCH = "deferred_ledger_match"
+    LEDGER_EXCLUDES = "ledger_excludes"
     GROUP_FIRST_INCREASING = "group_first_increasing"
     SCOPE_REQUIRES_CHILD = "scope_requires_child"
     SIBLING_BUCKETS_COMPLETE = "sibling_buckets_complete"
@@ -1341,6 +1342,18 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                     ("target_declaration_kind", "declaration_kind"),
                     ("target_declared_name", "declared_name"),
                 ),
+                fixed=(("occurrence_count", ("i:1",)),),
+                when=("entry_origin", "local_declaration"),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_EXCLUDES,
+                scope="module",
+                child="import",
+                pairs=(
+                    ("local_name", "local_name"),
+                    ("namespace", "namespace"),
+                    ("declaration_kind", "declaration_kind"),
+                ),
                 when=("entry_origin", "local_declaration"),
             ),
             _PureScopeRule(
@@ -1862,27 +1875,30 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 fixed=(("declaration_kind", ("e:table", "e:query")),),
                 when=("reference_role", "row_field"),
             ),
-            _PureScopeRule(
-                rule=_PureScopeKind.LEDGER_MATCH,
-                scope="module",
-                child="origin",
-                pairs=(
-                    ("target_declaration_module_path", "target_module_path"),
-                    (
-                        "target_declaration_position",
-                        "target_declaration_position",
+            *(
+                _PureScopeRule(
+                    rule=_PureScopeKind.LEDGER_MATCH,
+                    scope="module",
+                    child="origin",
+                    pairs=(
+                        ("target_declaration_module_path", "target_module_path"),
+                        (
+                            "target_declaration_position",
+                            "target_declaration_position",
+                        ),
+                        (
+                            "target_declaration_declared_name",
+                            "target_declared_name",
+                        ),
                     ),
-                    (
-                        "target_declaration_declared_name",
-                        "target_declared_name",
-                    ),
-                ),
-                when=(
-                    "kind",
-                    "type_reference",
-                    "source_shape_reference",
-                    "relation_reference",
-                ),
+                    fixed=(domain,),
+                    when=("kind", kind),
+                )
+                for kind, domain in (
+                    ("type_reference", ("namespace", ("e:type",))),
+                    ("source_shape_reference", ("declaration_kind", ("e:shape",))),
+                    ("relation_reference", ("namespace", ("e:relation",))),
+                )
             ),
             _PureScopeRule(
                 rule=_PureScopeKind.LEDGER_MATCH,
@@ -2175,6 +2191,14 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 when_ancestor=(("root_module_path", "path"),),
             ),
             _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="declaration",
+                pairs=(("root_owner_declaration_position", "declaration"),),
+                fixed=(("declaration_kind", ("e:source",)),),
+                when_ancestor=(("root_module_path", "path"),),
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.DISTINCT_SUBTREES,
             ),
             _PureScopeRule(
@@ -2357,6 +2381,18 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 pairs=(("canonical_target_module_path", "path"),),
                 presence=("canonical_target_module_path",),
                 when=("canonical_target_module_path", "present"),
+            ),
+            *(
+                _PureScopeRule(
+                    rule=_PureScopeKind.LEDGER_MATCH,
+                    scope="module",
+                    child="declaration",
+                    pairs=(("canonical_target_declared_name", "declared_name"),),
+                    fixed=(("declaration_kind", (f"e:{canonical}",)),),
+                    when=("canonical_kind", canonical),
+                    when_ancestor=(("canonical_target_module_path", "path"),),
+                )
+                for canonical in ("enum", "shape")
             ),
             _PureScopeRule(
                 rule=_PureScopeKind.LEDGER_MATCH,
@@ -2952,7 +2988,9 @@ class _PureFrame:
         self.ledger_sets: dict[
             tuple[str, tuple[str, ...]], tuple[int, frozenset[tuple[str, ...]]]
         ] = {}
-        self.deferred: list[tuple[tuple[str, tuple[str, ...]], tuple[str, ...]]] = []
+        self.deferred: list[
+            tuple[tuple[str, tuple[str, ...]], tuple[tuple[str, ...], ...]]
+        ] = []
 
 
 def _reject(
@@ -3235,6 +3273,22 @@ def _collected_keys(kind: str) -> tuple[tuple[str, str], ...]:
     return tuple(dict.fromkeys(collected))
 
 
+def _ledger_candidates(
+    record: ProjectPureRecord,
+    rule: _PureScopeRule,
+) -> tuple[tuple[str, ...], ...]:
+    """Return the ledger tuples one record admits under a declared match.
+
+    A rule with a declared alternative admits one tuple per admitted value of
+    that key, which is how a match states the kinds an authority accepts.
+    """
+
+    prefix = tuple(_exact_token(_value_of(record, key)) for key, _ in rule.pairs)
+    if not rule.fixed:
+        return (prefix,)
+    return tuple((*prefix, token) for token in rule.fixed[0][1])
+
+
 def _ledger_keys(rule: _PureScopeRule) -> tuple[str, ...]:
     """Return the ledger keys one match rule compares against, in rule order."""
 
@@ -3271,6 +3325,7 @@ def _subset_keys(kind: str) -> tuple[tuple[str, tuple[str, ...]], ...]:
                 in (
                     _PureScopeKind.LEDGER_MATCH,
                     _PureScopeKind.DEFERRED_LEDGER_MATCH,
+                    _PureScopeKind.LEDGER_EXCLUDES,
                 )
                 and rule.scope == kind
             )
@@ -3680,11 +3735,21 @@ def _validate_scope_rules(
             ledger_frame.deferred.append(
                 (
                     (rule.child, _ledger_keys(rule)),
-                    tuple(
-                        _exact_token(_value_of(record, key)) for key, _ in rule.pairs
-                    ),
+                    _ledger_candidates(record, rule),
                 )
             )
+            continue
+        if rule.rule is _PureScopeKind.LEDGER_EXCLUDES:
+            ledger_frame = _ancestor_frame(stack, rule.scope)
+            if ledger_frame is None:
+                return _reject(ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position)
+            ledger = frozenset(
+                ledger_frame.grouped_tuples.get((rule.child, _ledger_keys(rule)), [])
+            )
+            if any(
+                candidate in ledger for candidate in _ledger_candidates(record, rule)
+            ):
+                return _reject(ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position)
             continue
         if rule.rule is _PureScopeKind.GROUP_FIRST_INCREASING:
             ancestor = _ancestor_frame(stack, rule.scope)
@@ -3930,8 +3995,9 @@ def _close_frame(frame: _PureFrame) -> ProjectPureOutcome | None:
             return _reject(
                 ProjectPureStatus.CHILD_COUNT_MISMATCH, frame.record_position
             )
-    for ledger_key, supplied in frame.deferred:
-        if supplied not in set(frame.grouped_tuples.get(ledger_key, [])):
+    for ledger_key, candidates in frame.deferred:
+        ledger = frozenset(frame.grouped_tuples.get(ledger_key, []))
+        if not any(candidate in ledger for candidate in candidates):
             return _reject(
                 ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, frame.record_position
             )

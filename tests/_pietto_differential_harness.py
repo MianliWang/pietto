@@ -224,6 +224,9 @@ class DifferentialPurpose(StrEnum):
     LINEAGE_ROOT_OUTSIDE_SELECTED_MODULES = "lineage_root_outside_selected_modules"
     LOCAL_LINEAGE_ROOT_OUTSIDE_ROW_SCHEMA = "local_lineage_root_outside_row_schema"
     LOCAL_ALIAS_OUTSIDE_DECLARATIONS = "local_alias_outside_declarations"
+    LOCAL_CANONICAL_TARGET_OUTSIDE_DECLARATIONS = (
+        "local_canonical_target_outside_declarations"
+    )
     NAMELESS_CYCLE_ISSUE_WITHOUT_A_CYCLE = "nameless_cycle_issue_without_a_cycle"
     SOURCE_SHAPE_RESOLUTION_TO_RELATION_ORIGIN = (
         "source_shape_resolution_to_relation_origin"
@@ -232,6 +235,10 @@ class DifferentialPurpose(StrEnum):
     REPEATED_ORIGIN_HOP = "repeated_origin_hop"
     RESOLVED_IMPORT_OUTSIDE_GRAPH_EVIDENCE = "resolved_import_outside_graph_evidence"
     LOCAL_EXPORT_OUTSIDE_DECLARATIONS = "local_export_outside_declarations"
+    LOCAL_EXPORT_OF_AMBIGUOUS_DECLARATION = "local_export_of_ambiguous_declaration"
+    LOCAL_EXPORT_WITH_COMPETING_IMPORT = "local_export_with_competing_import"
+    DEPENDENCY_TARGET_OUTSIDE_ITS_DOMAIN = "dependency_target_outside_its_domain"
+    LOCAL_LINEAGE_ROOT_OUTSIDE_A_SOURCE = "local_lineage_root_outside_a_source"
     REEXPORT_OUTSIDE_RESOLVED_IMPORTS = "reexport_outside_resolved_imports"
     SOURCE_SHAPE_RESOLUTION_OUTSIDE_ORIGINS = "source_shape_resolution_outside_origins"
     RELATION_RESOLUTION_OUTSIDE_ORIGINS = "relation_resolution_outside_origins"
