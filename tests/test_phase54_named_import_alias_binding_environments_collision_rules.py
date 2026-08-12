@@ -1120,12 +1120,12 @@ def test_slice7_contract_test_inventory_and_active_gate_manifest_are_exact() -> 
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name.startswith("test_")
     )
-    assert PHASE54_ACTIVE_GATE2_MARKER == "PHASE54_SLICE15_GATE2"
-    assert PHASE54_ACTIVE_GATE2_BASE == "93f0f591e28a01f32d1698fcd4b8c57d41c6d714"
+    assert PHASE54_ACTIVE_GATE2_MARKER == "PHASE54_SLICE16_GATE2"
+    assert PHASE54_ACTIVE_GATE2_BASE == "1f69c0316086a2236cee03a96cca95218fbd50fc"
     assert len(PHASE54_SLICE10_ORIGINAL_ADDED_PATHS) == 3
     assert len(PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS) == 69
-    assert len(PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 5
-    assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 64
+    assert len(PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 2
+    assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 51
     assert PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
     assert _matches_phase54_active_gate2_manifest(_active_state())
     assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE == (

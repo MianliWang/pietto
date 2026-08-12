@@ -1477,6 +1477,7 @@ def test_static_git_helper_and_exact_slice12_dirty_set_are_locked() -> None:
                 "bc46faff1c9aa71f583ed7d2964b651cc659bc90",
                 "0bad854253e22347e2aff93e2eabcbe2fda55aed",
                 "040ab19c56519c39c56541979c850484f9cc47f0",
+                "1f69c0316086a2236cee03a96cca95218fbd50fc",
                 "93f0f591e28a01f32d1698fcd4b8c57d41c6d714",
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,

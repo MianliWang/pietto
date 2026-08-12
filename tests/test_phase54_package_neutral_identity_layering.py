@@ -205,12 +205,12 @@ def test_slice13_contract_status_active_manifest_and_allowlist_are_exact() -> No
     assert "private module inspection or canonical serialization (Slice 14)" in spec
     assert "PHASE54_SLICE14_GATE2_COMPLETED_AWAITING_PUBLICATION" in plan
     assert "Slice 13" in readme
-    assert "Current Phase 54 Slice 15 Rust-ready Pure Boundary Status" in whitepaper
+    assert "Current Phase 54 Completion Status" in whitepaper
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER == (
-        "PHASE54_SLICE15_GATE2"
+        "PHASE54_SLICE16_GATE2"
     )
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE == (
-        "93f0f591e28a01f32d1698fcd4b8c57d41c6d714"
+        "1f69c0316086a2236cee03a96cca95218fbd50fc"
     )
     # A historical benchmark reads the frozen Slice 13 record, never the active
     # Gate 2 sets, which move with every later Slice.

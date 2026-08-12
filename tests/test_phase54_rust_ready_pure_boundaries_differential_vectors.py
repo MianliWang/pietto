@@ -290,23 +290,25 @@ def test_slice15_contract_status_active_manifest_and_allowlist_are_exact() -> No
     ):
         assert phrase in spec
 
-    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER == "PHASE54_SLICE15_GATE2"
-    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE == (
-        "93f0f591e28a01f32d1698fcd4b8c57d41c6d714"
-    )
-    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_BRANCH == (
-        "phase54/slice15-rust-ready-pure-boundaries"
-    )
-    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_SUBJECT == (
-        "Add Phase 54 Rust-ready pure boundaries"
-    )
-    added = active_gate2_manifest.ADDED_PATHS
+    # Slice 15 is published, so its benchmark reads the frozen historical
+    # projection. The active Gate 2 sets belong to the currently open Slice and
+    # move with every later Slice.
+    added = active_gate2_manifest.PHASE54_SLICE15_HISTORICAL_ADDED_PATHS
+    non_reader = active_gate2_manifest.PHASE54_SLICE15_HISTORICAL_NON_READER_PATHS
+    readers = active_gate2_manifest.PHASE54_SLICE15_HISTORICAL_READER_PATHS
     assert added == {SPEC_REL, SOURCE_REL, HARNESS_REL, VECTORS_REL, TEST_REL}
-    assert INSPECTION_REL in active_gate2_manifest.NON_READER_MODIFIED_PATHS
-    assert not (
-        active_gate2_manifest.ADDED_PATHS
-        & active_gate2_manifest.MECHANICAL_READER_PATHS
-    )
+    assert non_reader == {
+        "README.md",
+        "docs/plan/phase-54-local-import-module-export-foundation.md",
+        "docs/spec/pietto-v0.9.md",
+        INSPECTION_REL,
+        "tests/_phase54_active_gate2_manifest.py",
+    }
+    assert len(readers) == 59
+    assert len(non_reader | readers) == 64
+    assert len(added | non_reader | readers) == 69
+    assert not (non_reader & readers)
+    assert not (added & (non_reader | readers))
 
 
 def test_slice15_plan_readme_and_specification_status_lines_are_exact() -> None:

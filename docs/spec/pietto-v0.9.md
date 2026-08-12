@@ -9,16 +9,18 @@ Current pipeline: parse -> analyze -> build IR -> emit selected PostgreSQL or My
 
 ---
 
-## Current Phase 54 Slice 15 Rust-ready Pure Boundary Status
+## Current Phase 54 Completion Status
 
-Phase 54 is active and Slices 1 through 14 are complete after exact Gate 3
-publication. Slice 15 is the Gate 2 candidate for Rust-ready pure boundaries,
-differential vectors, and end-to-end hardening from exact base
-`93f0f591e28a01f32d1698fcd4b8c57d41c6d714`. It defines one portable,
-deterministic, total pure boundary over the published Slice 14 canonical
-serialization with one closed normalized rejection algebra, one frozen private
-differential-vector corpus, and one deterministic Python reference harness, and
-reviewed-tree publication remains pending. Slice 4 supplies contextual
+Phase 54 is complete and Slices 1 through 16 are complete after exact Gate 3
+publication, as is the unnumbered post-Slice-12 workflow hardening interlude.
+Slice 15 published one portable, deterministic, total pure boundary over the
+Slice 14 canonical serialization with one closed normalized rejection algebra,
+one frozen private differential-vector corpus, and one deterministic Python
+reference harness. Slice 16 published the Phase 54 completion audit, status
+lock, and Phase 55 handoff in
+`docs/spec/phase54-slice16-completion-audit-status-lock-and-phase55-handoff-v1.md`
+and added no product behavior. Phases 55 through 70 remain unstarted. Slice 4
+supplies contextual
 top-level `import`, `export`, and `as` syntax plus immutable source-located module AST. Slice 5
 adds private four-component nominal declaration identity and one immutable,
 source-ordered local declaration catalog per successfully parsed schema-v2

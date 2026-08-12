@@ -499,9 +499,9 @@ PROTECTED_SHA256 = {
     "src/pietto/_project/source_selection.py": "fb1c531bcdd81696aa0c26b110433a6775cde878aeb4af3373d0d4aaf1f1443e",
     "src/pietto/_project/check.py": "6f2f2805249cc86a8ff3510a03abc702d2a029186cf16b50cabd11dbaf1da9e1",
     "src/pietto/_project/json_v2.py": "74251e684a22de4dcdc7e1822a6843ca89cbdfa7e136a046676d848b57953bd5",
-    SLICE2_TEST_REL: "5cc502ca1abd9b3edc3aecd7c292988e99e8059a6d7b70bfe26d522fb2742cc1",
-    SLICE3_TEST_REL: "66aabae45c0d902f47a0c099d03f4aeb4e1702aea19c90c14444a9fbf2d4103e",
-    SLICE4_TEST_REL: "6083d07b639853d4dc0d53d0e0ad3a4d117b6588cfcf359ce423016e95f7200f",
+    SLICE2_TEST_REL: "c1c4eaecf384144e029d9d66874baddffc4eb4790370b96a23be574c36039477",
+    SLICE3_TEST_REL: "b373f7a3db766450267dcb016cecd75668112140f43c61aaf3e9c24c6e8fd3b0",
+    SLICE4_TEST_REL: "aa5439d5920e392415988a43bbd2952599dc50b84e563c993f82db3a089fa335",
     ".github/workflows/ci.yml": "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94",
     "pyproject.toml": "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01",
     "uv.lock": "a7d9125995e98a8a74d3664ceae7801cc1f4cce74ec323933da67838be199cea",
@@ -610,7 +610,7 @@ def test_slice1_artifact_titles_heading_order_and_lifecycle_are_exact() -> None:
         assert _headings(relative, 2)
     plan_h2 = _headings(PLAN_REL, 2)
     assert plan_h2[:5] == (
-        "Status And Slice 15 Lifecycle",
+        "Status And Slice 16 Lifecycle",
         "Trusted Phase 53 Baseline And Controlling Evidence",
         "Phase Identity, Minimum Production Boundary, And Activation",
         "Current Production, Readiness, And Retained-later Freeze",
@@ -620,12 +620,15 @@ def test_slice1_artifact_titles_heading_order_and_lifecycle_are_exact() -> None:
         f"Slice {index} — {title}"
         for index, title in enumerate(PHASE54_ROUTE[1:], start=2)
     )
-    lifecycle = _section(PLAN_REL, "Status And Slice 15 Lifecycle")
+    lifecycle = _section(PLAN_REL, "Status And Slice 16 Lifecycle")
     for phrase in (
         "Phase 53 and Slices 1-16 are `COMPLETED`",
-        "Phase 54 is `ACTIVE`",
-        "Slices\n1 through 14 plus the unnumbered post-Slice-12 workflow hardening",
-        "Slice 16 remains `UNSTARTED`",
+        "Phase 54 is `COMPLETED`",
+        "Slices\n1 through 16 plus the unnumbered post-Slice-12 workflow hardening",
+        "Phases 55 through 70 remain `UNSTARTED`",
+        "`PHASE55_GATE0_GATE1`",
+        "Slice 16 starts no Phase 55 implementation",
+        # The Slice 15 and Slice 14 Gate 2 checkpoints are retained verbatim.
         "PHASE54_SLICE15_GATE2_COMPLETED_AWAITING_PUBLICATION",
         "PHASE54_SLICE15_GATE3",
         "Slice 16 does not begin in Slice 15",
@@ -1313,16 +1316,16 @@ def test_gate_allowlist_reader_evidence_publication_stop_and_next_state_contract
     assert len(FORMATTER_PATHS) == 163
     assert len(ALLOWLIST_PATHS) == 167
     readable = _readable_paths()
-    assert len(readable) == 944
-    assert sum(path.endswith(".py") for path in readable) == 579
-    assert sum(path.endswith(".md") for path in readable) == 269
+    assert len(readable) == 946
+    assert sum(path.endswith(".py") for path in readable) == 580
+    assert sum(path.endswith(".md") for path in readable) == 270
     test_modules = tuple(
         path
         for path in readable
         if path.startswith("tests/test_") and path.endswith(".py")
     )
-    assert len(test_modules) == 465
-    assert sum(len(_top_level_test_functions(path)) for path in test_modules) == 5489
+    assert len(test_modules) == 466
+    assert sum(len(_top_level_test_functions(path)) for path in test_modules) == 5506
     dirty = set(_git_output(["diff", "--name-only"]).splitlines()) | set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )
