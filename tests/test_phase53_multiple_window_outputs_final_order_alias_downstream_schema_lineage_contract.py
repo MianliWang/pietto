@@ -658,7 +658,7 @@ def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> N
                     # The frozen Gate 2 base is the previous Slice's own
                     # published squash, so its single parent is that
                     # Slice's published base.
-                    expected_parent = "040ab19c56519c39c56541979c850484f9cc47f0"
+                    expected_parent = "93f0f591e28a01f32d1698fcd4b8c57d41c6d714"
                 elif head == PHASE54_POST_SLICE12_INTERLUDE_BASE:
                     expected_parent = PHASE54_ACTIVE_GATE2_BASE
                 elif subject == PHASE54_SLICE12_MECHANICAL_REPAIR4_SUBJECT:
@@ -1718,11 +1718,11 @@ def test_test_inventory_focused_overlay_validation_and_gate3_are_exact() -> None
         len(test_paths),
         top_level_tests,
     ) == (
-        944,
-        579,
-        269,
-        465,
-        5489,
+        946,
+        580,
+        270,
+        466,
+        5506,
     )
     docs = _read(PLAN_REL)
     for value in (

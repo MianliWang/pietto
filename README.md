@@ -58,19 +58,17 @@ and the [Phase 54 plan](docs/plan/phase-54-local-import-module-export-foundation
 | Project schema v2 | Explicit modules, trusted loading, private catalogs/facades/bindings, module graph/diagnostics, resolution, attribution, provenance, minimal direct lineage, package-neutral identity, and private inspection facts |
 | Runtime | Compiler only; no database connection or SQL execution |
 
-Phase 54 is **ACTIVE**. Slices 1 through 14 are **COMPLETED**. Slice 15 is the
-Gate 2 candidate for Rust-ready pure boundaries, differential vectors, and
-end-to-end hardening. It starts from the exact published base
-`93f0f591e28a01f32d1698fcd4b8c57d41c6d714`. Slice 15 defines one portable,
-deterministic, total pure boundary over the published Slice 14 canonical
-serialization, one private differential-vector corpus, and one Python reference
-harness; it adds no production Rust, no foreign function interface, and no
-public artifact format. The historical `Slice 14 Gate 2 candidate` checkpoint
-remains superseded by the published Slice 14 completion evidence; its private
-boundary remains module inspection and canonical serialization.
-Reviewed-tree publication is still required; Slice 16 is
-**UNSTARTED**, and the next lifecycle state after Gate 2 is
-`PHASE54_SLICE15_GATE3`.
+Phase 54 is **COMPLETED**. Slices 1 through 16 are **COMPLETED** after exact
+reviewed-tree publication, as is the unnumbered post-Slice-12 workflow
+hardening interlude. Slice 15 published one portable, deterministic, total pure
+boundary over the Slice 14 canonical serialization, one private
+differential-vector corpus, and one Python reference harness; it added no
+production Rust, no foreign function interface, and no public artifact format.
+Slice 16 published the Phase 54 completion audit, status lock, and Phase 55
+handoff recorded in
+[the completion audit](docs/spec/phase54-slice16-completion-audit-status-lock-and-phase55-handoff-v1.md).
+Phases 55 through 70 remain **UNSTARTED**, and the next lifecycle state is
+`PHASE55_GATE0_GATE1`.
 
 Slice 3 provides stable project-relative module identity, an immutable
 selected-input index, pinned-root path checks, and trusted source loading.
@@ -109,10 +107,10 @@ public inspection artifact, deserializer, or cache. Slice 15 turns that
 serialization into one portable pure boundary with a normalized rejection
 algebra, backs it with a frozen private differential-vector corpus and a
 deterministic Python reference harness, and hardens the whole private schema-v2
-path end to end. The Phase 54 completion audit, status lock, and Phase 55
-handoff remain later work within Phase 54. Schema v2 therefore remains a
-foundation rather than a completed module system. The runnable Quick Start
-remains schema v1.
+path end to end. Slice 16 closes the phase with its completion audit, status
+lock, and Phase 55 handoff, and adds no product behavior. Schema v2 therefore
+remains a foundation rather than a completed module system. The runnable Quick
+Start remains schema v1.
 
 ## Quick Start
 
@@ -409,7 +407,7 @@ percentages. The complete route is maintained in the
 
 | Route | Product milestone | Status or boundary |
 | --- | --- | --- |
-| Phase 54 | Local module, import, export, binding, graph, and hardening foundation | Active; Slice 13 Gate 2 candidate |
+| Phase 54 | Local module, import, export, binding, graph, and hardening foundation | Completed through Slice 16 |
 | Phases 55–59 | Package assets, capability profiles, extension catalog, public inspection, and local package graph | Planned |
 | Phase 60 | Advanced windows and ecosystem/release-readiness checkpoint | Planned; no tag or publication |
 | Phases 61–63 | Project IR, relationships, JOIN semantics, multi-relation SQL, and `QUALIFY` | Planned |

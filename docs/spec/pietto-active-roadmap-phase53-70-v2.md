@@ -41,6 +41,47 @@ The paragraphs above are the original Slice 1 Gate 2 status text and are
 retained as historical checkpoints. Where they describe Phase 54 as
 `UNSTARTED`, this section supersedes them.
 
+## Phase 54 Completion And Phase 55 Entry State
+
+The section above is the historical Slice 12 checkpoint and is retained
+unchanged. Where it describes Slices 13 through 16 as `UNSTARTED` and names
+`PHASE54_SLICE13_GATE0_GATE1` as the next state, this section supersedes it.
+
+Phase 54 is `COMPLETED`. Slices 1 through 16 and the unnumbered post-Slice-12
+workflow hardening interlude are all `COMPLETED` after exact Gate 3
+publication. The published Slice 16 completion authority is
+`docs/spec/phase54-slice16-completion-audit-status-lock-and-phase55-handoff-v1.md`,
+and the Phase 54 plan carries the matching append-only status and
+publication-outcome record. Phases 55 through 70 remain `UNSTARTED`, and the
+sole next authorization is `PHASE55_GATE0_GATE1`.
+
+The exact ordered Phase 54 publication commits, from the Phase 53 completion
+commit `af92f30c22e5d3df5219554a0663855a5b9f51a6` to the Slice 15 head, are
+`53d8767fc3bdbe5e3f631178652222bbe51f6a33`,
+`d8a5e9ab3de70ce30575513c73560c86430eca63`,
+`2752985c3f6343519b7d7d6fe400d16251e64d85`,
+`15bae172ee151e370fe59d3bf909d735aee6aa90`,
+`0f3c955c5a5fbd8046ef611ad1bef0b636c8be01`,
+`c44a4271d9592cb393d2232f127a59d8466cc60a`,
+`49e95afcc5ed8c3394e6b19a4ea17679bae1bb16`,
+`027b33cafcfd58916a89e299487dad38d24ade6c`,
+`0ceb9a476e6592714cdc76845949ba0ae5123eb5`,
+`fadb1924af057cfc901a1658e117810d699e2358`,
+`b81843acadb294630db361c09949868d004b1bca`,
+`bc46faff1c9aa71f583ed7d2964b651cc659bc90`,
+`bd6bdcf17361b11d3067beec534432d37ffe6f05`,
+`f280bd7c21ffbf8354356f1e1b7391beb52cd911`,
+`0bad854253e22347e2aff93e2eabcbe2fda55aed`,
+`040ab19c56519c39c56541979c850484f9cc47f0`,
+`93f0f591e28a01f32d1698fcd4b8c57d41c6d714`, and
+`1f69c0316086a2236cee03a96cca95218fbd50fc`, followed by the Slice 16
+publication commit. Every one is a single-parent squash merge of a reviewed
+pull request.
+
+Phase 54 completion changes no owner in the Phase 55-70 route below, adds no
+implementation authority to any later phase, and creates no tag, Release,
+publication, signing, or attestation.
+
 ## Predecessor And Append-only Lineage
 
 The authority lineage is ordered and immutable:

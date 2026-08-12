@@ -1,6 +1,21 @@
 # Phase 54 — Local Import / Module / Export Foundation
 
-## Status And Slice 15 Lifecycle
+## Status And Slice 16 Lifecycle
+
+Phase 53 and Slices 1-16 are `COMPLETED`. Phase 54 is `COMPLETED`, and Slices
+1 through 16 plus the unnumbered post-Slice-12 workflow hardening interlude are
+`COMPLETED` after exact Gate 3 publication. Slice 16 is the completion audit,
+status lock, and Phase 55 handoff normatively specified by
+`docs/spec/phase54-slice16-completion-audit-status-lock-and-phase55-handoff-v1.md`.
+Throughout its own Gate 2 Slice 16 is `IMPLEMENTED_UNPUBLISHED`; the Phase 54
+and Slice 16 lifecycle tokens become `COMPLETED` only through the separately
+authorized Gate 3 publication, and there is no post-CI status-flip commit.
+Phases 55 through 70 remain `UNSTARTED`, the sole next authorization is
+`PHASE55_GATE0_GATE1`, and Slice 16 starts no Phase 55 implementation.
+
+The paragraph below is the historical Slice 15 Gate 2 checkpoint, retained
+unchanged. Where it describes Slice 15 as the open candidate and Slice 16 as
+`UNSTARTED`, this section supersedes it.
 
 Phase 53 and Slices 1-16 are `COMPLETED`. Phase 54 is `ACTIVE`, and Slices
 1 through 14 plus the unnumbered post-Slice-12 workflow hardening interlude are
@@ -412,6 +427,31 @@ remain `UNSTARTED` until their own Gate 3 publication.
 
 The trusted Slice 15 base is `93f0f591e28a01f32d1698fcd4b8c57d41c6d714`.
 
+## Slice 15 Publication Outcome And Phase 54 Completion
+
+The Slice 15 lifecycle paragraph above is the historical Gate 2 checkpoint and
+is retained unchanged. It is superseded by this published outcome.
+
+Slice 15 completed its full publication lifecycle. The reviewed tree is
+`205a087963a52d046cd79ede443c81191e9206af`, the squash commit is
+`1f69c0316086a2236cee03a96cca95218fbd50fc` with the single parent
+`93f0f591e28a01f32d1698fcd4b8c57d41c6d714`, and its allowlist was `A5_M64_D0`
+over 69 paths with 59 executing readers, 50 focused tests, 233 differential
+vectors, and 0 unresolved review threads. It published through PR 56, natural
+exact-head pull-request run 31610196904, and natural exact-head `main` push run
+31615008772.
+
+The trusted Slice 16 base is `1f69c0316086a2236cee03a96cca95218fbd50fc`.
+
+The first-parent chain from the Phase 53 completion commit
+`af92f30c22e5d3df5219554a0663855a5b9f51a6` to the Slice 15 head contains
+exactly 18 single-parent squash-merge commits: fifteen Slice publications, the
+post-Slice-3 README refresh, the post-Slice-12 workflow hardening interlude,
+and that interlude's post-merge repair. No Phase 54 commit is a merge commit, a
+direct push, or a Dependabot merge. The complete slice-by-slice completion
+matrix, its Gate evidence identities, and the Phase 55 handoff are normative in
+`docs/spec/phase54-slice16-completion-audit-status-lock-and-phase55-handoff-v1.md`.
+
 ## Slice 2 — Schema-v2 Explicit-module Activation And Immutable Project / Module Carrier
 
 Accept exact integer schema versions 1 and 2 only. Version 1 keeps the legacy
@@ -604,3 +644,22 @@ does not begin in Slice 15.
 
 Separately gate final completion evidence, lifecycle/status lock, retained-owner
 audit, and Phase 55 handoff. Prerequisites: Slices 1 through 15.
+
+Slice 16 is static completion-audit and status-lock work. It adds one
+completion specification, one focused static test module, this append-only plan
+status and publication-outcome update, one active-roadmap reconciliation, and
+the two public status-surface corrections in `README.md` and
+`docs/spec/pietto-v0.9.md`, together with the mechanical reader closure those
+changes require. It adds no compiler, semantic, parser, grammar, generated,
+project, metadata, IR, SQL, CLI, runtime, database, capability, package, or
+workflow behavior, changes no production source byte under `src/pietto/`, and
+deletes no file. `AGENTS.md`, `pyproject.toml`, `uv.lock`, `.python-version`,
+`Makefile`, `grammar/Pietto.g4`, both Pyright configurations, and
+`.github/workflows/ci.yml` remain byte-identical.
+
+The normative contract is
+`docs/spec/phase54-slice16-completion-audit-status-lock-and-phase55-handoff-v1.md`.
+Together with this section it is the exact lifecycle owner for the Phase 54
+completion transition. Phase 54 and Slice 16 become `COMPLETED` only after the
+Gate 3 publication described there, and Phase 55 implementation is not part of
+Slice 16.

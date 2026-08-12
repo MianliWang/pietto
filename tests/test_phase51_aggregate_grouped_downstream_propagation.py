@@ -1590,6 +1590,7 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
                 "bc46faff1c9aa71f583ed7d2964b651cc659bc90",
                 "0bad854253e22347e2aff93e2eabcbe2fda55aed",
                 "040ab19c56519c39c56541979c850484f9cc47f0",
+                "1f69c0316086a2236cee03a96cca95218fbd50fc",
                 "93f0f591e28a01f32d1698fcd4b8c57d41c6d714",
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
@@ -1789,20 +1790,20 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
                 f'+        "{_digest((REPO_ROOT / "AGENTS.md",))}",',
             ]
         elif _phase54_active_gate2_is_active():
-            assert len(phase33_changed_lines) == 8
-            assert phase33_changed_lines[0] == "-        32,"
-            assert re.fullmatch(r'-        "[0-9a-f]{64}",', phase33_changed_lines[1])
-            assert phase33_changed_lines[2:4] == [
-                "+        33,",
-                f'+        "{project_digest}",',
-            ]
-            assert re.fullmatch(r'-        "[0-9a-f]{64}",', phase33_changed_lines[4])
-            assert phase33_changed_lines[5] == (
+            # Slice 16 is documentation and status work only: it adds no
+            # private project module, so the project inventory count and its
+            # digest are unchanged and only the two status-surface digests move.
+            assert len(phase33_changed_lines) == 4
+            assert re.fullmatch(r'-        "[0-9a-f]{64}",', phase33_changed_lines[0])
+            assert phase33_changed_lines[1] == (
                 f'+        "{_digest((REPO_ROOT / "README.md",))}",'
             )
-            assert re.fullmatch(r'-        "[0-9a-f]{64}",', phase33_changed_lines[6])
-            assert phase33_changed_lines[7] == (
+            assert re.fullmatch(r'-        "[0-9a-f]{64}",', phase33_changed_lines[2])
+            assert phase33_changed_lines[3] == (
                 f'+        "{_digest((REPO_ROOT / "docs/spec/pietto-v0.9.md",))}",'
+            )
+            assert project_digest == _digest(
+                tuple(sorted((REPO_ROOT / "src/pietto/_project").glob("*.py")))
             )
         elif is_phase54_slice9:
             assert len(phase33_changed_lines) == 8

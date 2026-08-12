@@ -1396,8 +1396,8 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
     assert all(not node.decorator_list for node in tests)
     assert len(PHASE54_SLICE10_ORIGINAL_ADDED_PATHS) == 3
     assert len(PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS) == 69
-    assert len(PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 5
-    assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 64
+    assert len(PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 2
+    assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 51
     assert PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
     assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE == (
         "17a5b01e555930537334d4d0bcf3480e332b7e91"

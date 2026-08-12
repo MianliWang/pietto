@@ -244,13 +244,13 @@ def test_slice11_contract_status_and_active_manifest_freeze_exact_boundary() -> 
     assert "reparse is introduced." in spec
     assert "Slice 11 adds private occurrence-safe declaration, import," in readme
     assert "Module attribution, dependency, origin, provenance, and lineage" in readme
-    assert "## Status And Slice 15 Lifecycle" in plan
-    assert "## Current Phase 54 Slice 15 Rust-ready Pure Boundary Status" in current
+    assert "## Status And Slice 16 Lifecycle" in plan
+    assert "## Current Phase 54 Completion Status" in current
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER == (
-        "PHASE54_SLICE15_GATE2"
+        "PHASE54_SLICE16_GATE2"
     )
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE == (
-        "93f0f591e28a01f32d1698fcd4b8c57d41c6d714"
+        "1f69c0316086a2236cee03a96cca95218fbd50fc"
     )
     assert active_gate2_manifest.PHASE54_SLICE12_HISTORICAL_ADDED_PATHS == {
         "docs/spec/phase54-slice12-semantic-fact-preservation-v1.md",
@@ -258,9 +258,9 @@ def test_slice11_contract_status_and_active_manifest_freeze_exact_boundary() -> 
         "tests/test_phase54_semantic_fact_preservation.py",
     }
     assert TEST_REL in active_gate2_manifest.MECHANICAL_READER_PATHS
-    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 59
-    assert len(active_gate2_manifest.MODIFIED_PATHS) == 64
-    assert len(active_gate2_manifest.ALLOWLIST_PATHS) == 69
+    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 46
+    assert len(active_gate2_manifest.MODIFIED_PATHS) == 51
+    assert len(active_gate2_manifest.ALLOWLIST_PATHS) == 53
     assert active_gate2_manifest.PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE == (
         "691db405a7e787adec5d7bd0498330b070bf6b75"
     )
