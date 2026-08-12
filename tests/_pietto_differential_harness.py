@@ -290,6 +290,9 @@ class DifferentialPurpose(StrEnum):
     SELECTLESS_FACTS_OUTSIDE_A_SOURCE = "selectless_facts_outside_a_source"
     ROW_LINEAGE_IN_A_BLOCKED_MODULE = "row_lineage_in_a_blocked_module"
     GRAPH_ISSUE_WITHOUT_ITS_IMPORT_ISSUE = "graph_issue_without_its_import_issue"
+    ROW_FIELD_TARGET_OUTSIDE_ITS_OWNER_SCHEMA = (
+        "row_field_target_outside_its_owner_schema"
+    )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

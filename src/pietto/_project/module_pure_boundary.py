@@ -25,7 +25,7 @@ identity can differ between supported interpreters.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from types import MappingProxyType
 
@@ -445,6 +445,7 @@ class _PureScopeKind(StrEnum):
     COLLECTED_SUBSET = "collected_subset"
     COLLECTED_IMPLIES = "collected_implies"
     LEDGER_MATCH = "ledger_match"
+    LEDGER_MATCH_UNLESS_LEDGER = "ledger_match_unless_ledger"
     DEFERRED_LEDGER_MATCH = "deferred_ledger_match"
     DEFERRED_LEDGER_EXCLUDES = "deferred_ledger_excludes"
     DEFERRED_UNLESS_LEDGER = "deferred_unless_ledger"
@@ -476,6 +477,12 @@ class _PureScopeRule:
     listed in ``presence`` contributes ``present`` or ``absent`` instead of its
     value, so a child value can be restricted by the state of the record that
     owns it.
+
+    ``unless_child``, ``unless_pairs``, and ``unless_fixed`` name a second
+    collection of the same enclosing scope that excuses the record from its
+    match. That is how a reference which may point into another module is bound
+    in the case this document can witness and skipped in the case it cannot: the
+    excusing collection is the evidence that the target is not local.
     """
 
     rule: _PureScopeKind
@@ -497,6 +504,9 @@ class _PureScopeRule:
     when_all: tuple[tuple[str, str], ...] = ()
     when_ancestor: tuple[tuple[str, str], ...] = ()
     absent_alternative: tuple[str, ...] = ()
+    unless_child: str = ""
+    unless_pairs: tuple[tuple[str, str], ...] = ()
+    unless_fixed: tuple[tuple[str, tuple[str, ...]], ...] = ()
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -2183,6 +2193,31 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 when=("kind", "row_field_reference"),
             ),
             _PureScopeRule(
+                # The upstream field itself is bound as far as this document can
+                # witness it. Where no imported binding reaches that declaration
+                # position, the owner is a relation of this module and the module
+                # publishes the exact field the hop consumed; where one does, the
+                # field belongs to another module's declarations and no record
+                # joins the two.
+                rule=_PureScopeKind.LEDGER_MATCH_UNLESS_LEDGER,
+                scope="module",
+                child="declaration_row_field",
+                pairs=(
+                    ("target_row_field_owner_declaration_position", "declaration"),
+                    ("target_row_field_position", "field"),
+                    ("target_row_field_name", "name"),
+                ),
+                unless_child="origin",
+                unless_pairs=(
+                    (
+                        "target_row_field_owner_declaration_position",
+                        "target_declaration_position",
+                    ),
+                ),
+                unless_fixed=(("binding", ("e:imported_binding",)),),
+                when=("kind", "row_field_reference"),
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.LEDGER_MATCH,
                 scope="module",
                 child="declaration_row_field",
@@ -3824,10 +3859,29 @@ def _subset_keys(kind: str) -> tuple[tuple[str, tuple[str, ...]], ...]:
                 if rule.rule
                 in (
                     _PureScopeKind.LEDGER_MATCH,
+                    _PureScopeKind.LEDGER_MATCH_UNLESS_LEDGER,
                     _PureScopeKind.DEFERRED_LEDGER_MATCH,
                     _PureScopeKind.DEFERRED_LEDGER_EXCLUDES,
                     _PureScopeKind.DEFERRED_UNLESS_LEDGER,
                 )
+                and rule.scope == kind
+            )
+            + tuple(
+                # An excusing collection is collected exactly like a matched one.
+                (
+                    rule.unless_child,
+                    _ledger_keys(
+                        replace(
+                            rule,
+                            pairs=rule.unless_pairs,
+                            fixed=rule.unless_fixed,
+                            ancestor_pairs=(),
+                        )
+                    ),
+                )
+                for other in PURE_RECORD_SCHEMA.values()
+                for rule in other.scope_rules
+                if rule.rule is _PureScopeKind.LEDGER_MATCH_UNLESS_LEDGER
                 and rule.scope == kind
             )
         )
@@ -4190,10 +4244,31 @@ def _validate_scope_rules(
             ):
                 return _reject(ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position)
             continue
-        if rule.rule is _PureScopeKind.LEDGER_MATCH:
+        if rule.rule in (
+            _PureScopeKind.LEDGER_MATCH,
+            _PureScopeKind.LEDGER_MATCH_UNLESS_LEDGER,
+        ):
             ledger_frame = _ancestor_frame(stack, rule.scope)
             if ledger_frame is None:
                 return _reject(ProjectPureStatus.INCONSISTENT_SCOPE_RELATION, position)
+            if rule.rule is _PureScopeKind.LEDGER_MATCH_UNLESS_LEDGER:
+                excuse = replace(
+                    rule,
+                    child=rule.unless_child,
+                    pairs=rule.unless_pairs,
+                    fixed=rule.unless_fixed,
+                    ancestor_pairs=(),
+                    absent_alternative=(),
+                )
+                excuse_key = (excuse.child, _ledger_keys(excuse))
+                excused = frozenset(ledger_frame.grouped_tuples.get(excuse_key, []))
+                if any(
+                    candidate in excused
+                    for candidate in _ledger_candidates(record, excuse)
+                ):
+                    # The excusing collection witnesses a target outside this
+                    # module, whose own records this document cannot join.
+                    continue
             owner_record: ProjectPureRecord | None = None
             if rule.ancestor_scope:
                 owner_frame = _ancestor_frame(stack, rule.ancestor_scope)

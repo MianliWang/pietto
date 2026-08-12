@@ -314,7 +314,7 @@ what produced two rounds of isomorphic findings.
 | `declaration_row_field` (result role) | a derived result role names a table or query owner, since a source's row schema is its shape and carries no group key, aggregate, or window result | `ProjectRowField`, `_source_row_state` |
 | `declaration_row_field` | field names do not repeat in one row schema | `ProjectRowSchema` |
 | `row_lineage_field` | every retained field keeps at least one complete path, no two paths are identical, field names do not repeat, the field position is the record's own ordinal, since both lineage builders enumerate the complete field collection, and every path starts at that field, stays contiguous hop by hop, and ends at its declared root; the field kind answers to its owner declaration, a source publishing source fields and a table or query publishing relation outputs, and the field is one row field of that declaration, by position and name | `ProjectModuleRowFieldLineage`, `ProjectModuleRelationLineage`, `ProjectModuleRowLineagePath`, `ProjectModuleRowFieldIdentity` |
-| `dependency` | the reference owner is a declaration of this module of the kind the role requires; each target group is atomic, the reference role decides the kind, the member position where the site admits only one, and which single target group is present, one reference-to-target fact appears once, and the facts follow their reference source ledger by owner, role, and member; a nominal target is one exact entry of this module's origin catalog, of the domain the dependency kind requires — the type namespace for a type reference, a shape for a source shape, the relation namespace for a relation reference — a row-field target names an upstream lineage field, so its kind is a source field or a relation output and never a shape field; a row-field target's owner is the target of one of those entries, and a row-field reference's member position is one row field of its own owner declaration; a nominal target is the one unambiguous declaration of its identity in the inspection; and every nominal reference answers to the resolution that produced it, by owner, role, and member | `ProjectModuleDependencyFact`, `_dependency_kind` |
+| `dependency` | the reference owner is a declaration of this module of the kind the role requires; each target group is atomic, the reference role decides the kind, the member position where the site admits only one, and which single target group is present, one reference-to-target fact appears once, and the facts follow their reference source ledger by owner, role, and member; a nominal target is one exact entry of this module's origin catalog, of the domain the dependency kind requires — the type namespace for a type reference, a shape for a source shape, the relation namespace for a relation reference — a row-field target names an upstream lineage field, so its kind is a source field or a relation output and never a shape field; a row-field target's owner is the target of one of those entries, and the field itself is one row field that owner declares in this module, by position and name, unless an imported binding reaches that declaration position, in which case the owner is upstream and its schema is another module's; a row-field reference's member position is one row field of its own owner declaration; a nominal target is the one unambiguous declaration of its identity in the inspection; and every nominal reference answers to the resolution that produced it, by owner, role, and member | `ProjectModuleDependencyFact`, `_dependency_kind` |
 | `type_resolution` | the owner is a declaration of this module whose kind the role decides, a type alias for an alias base and a shape for a shape field; owner and member positions ascend and each owner's positions are dense from zero, because a shape publishes a reference for every field it declares; an alias base reference is member zero; a non-alias direct kind is its own canonical kind, and only a direct alias carries a chain; the canonical-target pair is atomic; an enumeration or shape canonical kind requires that target and a builtin or unknown one forbids it; the canonical kind decides the canonical name, which is a registered builtin name or the fixed unknown name; a supplied canonical target declares that same name; a canonical kind never terminates at an alias; a canonical target is the single declaration of that name in whichever module of the inspection holds it, of the canonical kind itself, since an ambiguous bucket resolves to unknown rather than to one of its occurrences; and a reference whose direct kind is a declared type, enumeration, or shape names the dependency its own role built, by owner and member position, because the provenance that publishes the resolution publishes that fact with it | `ProjectResolvedModuleTypeReference`, `ProjectModuleDependencyFact` |
 | `type_resolution_alias` | every alias identity is a type alias in the type namespace, no identity repeats in one chain, and every alias is the one unambiguous type declaration of its identity in the inspection | `ProjectResolvedModuleTypeReference` |
 | `semantic_let_binding` | the retained source ordinal is the record's own position | `ProjectModuleRelationSemanticFacts` |
@@ -413,6 +413,7 @@ the document is consulted:
 | collected sets equal | two child collections this scope has already collected, compared as sets | every import evidence edge names a declared dependency target, and every target has evidence; and a module's row lineages and its semantic fact sets answer for the same declarations, by owner alone, because the two sections read one relation collection while each keeps its own state |
 | collected subset | two child collections this scope has already collected, one contained in the other | every window output names a select the same fact set published |
 | ledger match | one record, alone or with its scope, against a collection the enclosing scope published, with the ledger indexed once per completed collection and a declared alternative where the authority admits more than one kind | the first hop of an imported origin is that origin's own import request with its resolved target, a local origin names a declaration of its own module, every resolution's or dependency reference's owner is a declaration of the kind its role requires, every dependency target and every source-shape or relation resolution target is an origin this module already published, a resolved import request is one of its module's graph evidence edges, a re-exported facade entry is the resolved target of one of the module's import requests, a concrete row lineage carries its declaration's exact row-field count, a selectless fact set names a source, a type reference to a declared type, enumeration, or shape names the dependency its own role built, and a graph issue naming an unresolved target module names an import issue of that module with that status |
+| ledger match unless ledger | one record against a collection the enclosing scope published, excused where a second collection of that same scope carries the record | a row-field dependency names the exact upstream field its own module publishes, unless an imported binding reaches that declaration position, in which case the field belongs to another module's declarations and nothing joins the two |
 | deferred unless ledger | one record against a collection the enclosing scope already published, and, where that collection carries nothing for it, against a collection an outer scope publishes later | an import request that carries no graph evidence names a module this inspection did not select, since the authority raises an edge for every request whose target was selected, resolved or not |
 | deferred ledger excludes | one record against a collection the enclosing scope publishes after it, refusing the tuples that collection contains | a local facade entry is the module's only candidate, so no imported binding of that name survives in its origin catalog, whatever namespace it binds; an unresolved facade request has no candidate of its own symbol at all; and an export request never shares a module statement position with an import request, because one statement is one or the other |
 | deferred ledger match | one record against a collection the enclosing scope publishes after it, settled when that scope closes | a local facade entry names the module's single declaration of that name, which the module publishes in a later section; every declaration owes the products its own state implies and the module publishes them later — a local origin catalog entry always, a row lineage and a semantic fact set for a relation that retained a state or an ambiguous relation identity, an alias-base resolution for a type alias whose availability is absent or ambiguous — and a resolved import owes its imported catalog entry the same way; and every module path a resolved reference names — an import's resolved module, an origin's target, a route's import target, a lineage root, a canonical type target, an alias on a canonical chain — is a module this inspection selected, which the inspection settles when it closes, since a module may name one the stream has not reached |
@@ -569,16 +570,25 @@ module's ordinal and not its path, so nothing keyed on a field can be joined the
 same way, and the two cases below stay where they are.
 
 A dependency's row-field target is bound only as far as the projection can
-witness it. Its owner is one entry of the module's origin catalog, and that is
-declared; the field inside that owner is not, because the record carries the
-owner's declaration position and no owning module path, and the owner is
-frequently a relation of another module, whose row fields belong to that
-module's declarations rather than this one's. Two of the fixture projections
-prove it: a facade import and an imported table each name a row field of an
-upstream module, so a match against this module's row-field records would
-reject a document the authority produced. A cross-module ledger would not
-rescue the rule either, since a module may reference a module the stream has
-not reached yet.
+witness it, and that boundary is now stated exactly rather than left whole. Its
+owner is one entry of the module's origin catalog. The field inside that owner
+is matched against the row schema this module publishes — by owner position,
+field position, and field name together — except where an imported binding
+reaches that same declaration position, which is the evidence that the owner is
+a relation of another module whose row fields belong to that module's
+declarations rather than this one's. Two of the fixture projections need that
+exception: a facade import and an imported table each name a row field of an
+upstream module, so an unconditional match would reject a document the authority
+produced. A cross-module ledger would not rescue the excused case either, since
+the record carries the owner's declaration position and no owning module path,
+and a module may reference a module the stream has not reached yet. Twenty-five
+of the two hundred sixty-five row-field dependencies the fixture projections
+publish are excused this way; the other two hundred forty are bound to the exact
+field, so a target retargeted to a field its owner does not declare is refused.
+The position alone is not separable from the name: an owner reached through both
+a local declaration and an imported binding at the same ordinal is a real
+projection, which is why the exception is keyed on the imported binding rather
+than on the absence of a local one.
 
 ### Enumeration domains are per key, not per enumeration
 
@@ -676,8 +686,9 @@ publish — a declaration without its local origin, a resolved import without it
 imported origin, a relation without its row lineage, a concrete lineage short of
 its declared schema, a type alias without its base resolution, a resolved type
 reference without its dependency, a selectless fact set outside a source, a row
-lineage in a loader-blocked module, and a graph issue with no import issue
-behind it.
+lineage in a loader-blocked module, a graph issue with no import issue
+behind it, and a row-field dependency target outside the row schema its own
+owner declares.
 
 Every dimension is exercised at least once, and combinations are used only
 where the interaction is the property under test. Final vector counts are facts
