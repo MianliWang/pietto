@@ -1049,7 +1049,7 @@ def test_invalid_documents_never_raise_from_the_portable_boundary() -> None:
                 outcome = pure_boundary.evaluate_pure_document(mutated)
                 assert type(outcome.status) is pure_boundary.ProjectPureStatus
                 swept += 1
-    assert swept == 591
+    assert swept == 821
 
 
 def test_vector_corpus_covers_the_frozen_property_matrix() -> None:
@@ -1488,6 +1488,19 @@ def test_repeated_identity_buckets_remain_bounded_and_linear() -> None:
                 availability="ambiguous",
                 occurrence_count=size,
                 occurrence_index=position,
+            )
+            for position in range(size)
+        )
+        # Every declaration answers to its own local origin, so the bucket grows
+        # on both sides of that correspondence rather than on one.
+        records.extend(
+            vectors._origin(
+                0,
+                position,
+                local_name="Row",
+                target_module_path="a.pietto",
+                target_declared_name="Row",
+                target_declaration_position=position,
             )
             for position in range(size)
         )

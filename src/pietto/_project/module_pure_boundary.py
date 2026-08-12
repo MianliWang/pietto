@@ -107,6 +107,22 @@ _ROW_FACT_STATE_PAIRS: tuple[tuple[str, str], ...] = (
     ("blocked", "upstream_blocked"),
 )
 
+_DERIVED_ROW_FACT_PAIRS: tuple[tuple[str, str], ...] = tuple(
+    pair for pair in _ROW_FACT_STATE_PAIRS if pair not in _SOURCE_STATE_PAIRS
+)
+
+# The direct and canonical kinds of a type reference that reached a declared
+# symbol. A builtin or unknown direct kind names no declaration, and a chain
+# that ends unknown was abandoned before its provenance was built, so neither
+# publishes the dependency the resolved cases always do.
+_RESOLVED_REFERENCE_PAIRS: tuple[tuple[str, str], ...] = (
+    ("type", "builtin"),
+    ("type", "enum"),
+    ("type", "shape"),
+    ("enum", "enum"),
+    ("shape", "shape"),
+)
+
 
 _PURE_HEX_ALPHABET = frozenset("0123456789abcdef")
 
@@ -808,6 +824,13 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         ),
         scope_rules=(
             _PureScopeRule(
+                rule=_PureScopeKind.COLLECTED_SETS_EQUAL,
+                pairs=(
+                    ("row_lineage", "owner_declaration_position"),
+                    ("semantic_facts", "owner_declaration_position"),
+                ),
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.COLLECTED_SUBSET,
                 subset=(
                     (
@@ -1197,6 +1220,21 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                     ("resolved_namespace", "target_namespace"),
                     ("resolved_declaration_kind", "target_declaration_kind"),
                 ),
+                presence=("resolved_module_path",),
+                when=("resolved_module_path", "present"),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.DEFERRED_LEDGER_MATCH,
+                scope="module",
+                child="origin",
+                pairs=(
+                    ("local_name", "local_name"),
+                    ("namespace", "namespace"),
+                    ("declaration_kind", "declaration_kind"),
+                    ("resolved_module_path", "target_module_path"),
+                    ("resolved_declared_name", "target_declared_name"),
+                ),
+                fixed=(("binding", ("e:imported_binding",)),),
                 presence=("resolved_module_path",),
                 when=("resolved_module_path", "present"),
             ),
@@ -1690,6 +1728,20 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 distinct=("namespace", "declaration_kind", "declared_name"),
                 pairs=(("occurrence_index", "occurrence_count"),),
             ),
+            *(
+                _PureScopeRule(
+                    rule=_PureScopeKind.DEFERRED_LEDGER_MATCH,
+                    scope="module",
+                    child="type_resolution",
+                    pairs=(("declaration", "owner_declaration_position"),),
+                    fixed=(("role", ("e:type_alias_base",)),),
+                    when_all=(
+                        ("declaration_kind", "type"),
+                        ("availability", availability),
+                    ),
+                )
+                for availability in ("absent", "ambiguous")
+            ),
             _PureScopeRule(
                 rule=_PureScopeKind.DEFERRED_LEDGER_MATCH,
                 scope="module",
@@ -1697,6 +1749,39 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 pairs=(("declaration", "owner_declaration_position"),),
                 presence=("relation_status",),
                 when=("relation_status", "present"),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.DEFERRED_LEDGER_MATCH,
+                scope="module",
+                child="row_lineage",
+                pairs=(("declaration", "owner_declaration_position"),),
+                presence=("relation_status",),
+                when=("relation_status", "present"),
+            ),
+            *(
+                _PureScopeRule(
+                    rule=_PureScopeKind.DEFERRED_LEDGER_MATCH,
+                    scope="module",
+                    child=child,
+                    pairs=(("declaration", "owner_declaration_position"),),
+                    when_all=(
+                        ("namespace", "relation"),
+                        ("availability", "ambiguous"),
+                    ),
+                )
+                for child in ("row_lineage", "semantic_facts")
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.DEFERRED_LEDGER_MATCH,
+                scope="module",
+                child="origin",
+                pairs=(
+                    ("declaration", "target_declaration_position"),
+                    ("declared_name", "target_declared_name"),
+                    ("namespace", "namespace"),
+                    ("declaration_kind", "declaration_kind"),
+                ),
+                fixed=(("binding", ("e:local_declaration",)),),
             ),
             _PureScopeRule(
                 rule=_PureScopeKind.ANCESTOR_EQUAL,
@@ -2281,11 +2366,29 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
         ),
         scope_rules=(
             _PureScopeRule(
+                rule=_PureScopeKind.UNCLE_COMBINATION,
+                scope="module",
+                child="readiness",
+                child_key="status",
+                pairs=(("status", "status"),),
+                admitted=(("*", "ready"),),
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.LEDGER_MATCH,
                 scope="module",
                 child="declaration",
                 pairs=(("owner_declaration_position", "declaration"),),
                 fixed=(("declaration_kind", ("e:source", "e:table", "e:query")),),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="declaration",
+                pairs=(
+                    ("owner_declaration_position", "declaration"),
+                    ("fields", "row_fields"),
+                ),
+                when=("status", "concrete"),
             ),
             *(
                 _PureScopeRule(
@@ -2296,7 +2399,7 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                     fixed=(("declaration_kind", ("e:table", "e:query")),),
                     when_all=(("status", status), ("reason", reason)),
                 )
-                for status, reason in _DERIVED_STATE_PAIRS
+                for status, reason in _DERIVED_ROW_FACT_PAIRS
             ),
             _PureScopeRule(
                 rule=_PureScopeKind.PREVIOUS_SIBLING_INCREASING,
@@ -2666,6 +2769,28 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 distinct=("owner_declaration_position", "role"),
                 pairs=(("member_position", ""),),
             ),
+            *(
+                _PureScopeRule(
+                    rule=_PureScopeKind.LEDGER_MATCH,
+                    scope="module",
+                    child="dependency",
+                    pairs=(
+                        (
+                            "owner_declaration_position",
+                            "reference_owner_declaration_position",
+                        ),
+                        ("member_position", "reference_member_position"),
+                    ),
+                    fixed=(("reference_role", (f"e:{role}",)),),
+                    when_all=(
+                        ("role", role),
+                        ("direct_kind", direct_kind),
+                        ("canonical_kind", canonical_kind),
+                    ),
+                )
+                for role in ("type_alias_base", "shape_field_type")
+                for direct_kind, canonical_kind in _RESOLVED_REFERENCE_PAIRS
+            ),
         ),
     ),
     _PureKindSpec(
@@ -2945,6 +3070,14 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 scope="module",
                 child="declaration",
                 pairs=(("owner_declaration_position", "declaration"),),
+                fixed=(("declaration_kind", ("e:source",)),),
+                when=("selects", "zero"),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="declaration",
+                pairs=(("owner_declaration_position", "declaration"),),
                 fixed=(("declaration_kind", ("e:table", "e:query")),),
                 when=("clause_dependencies", "one", "many"),
             ),
@@ -3184,6 +3317,16 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 fixed=(("member", ("i:0",)),),
                 ancestor_pairs=(("path", "path"),),
                 when_all=(("family", "graph"), ("status", "module_import_cycle")),
+            ),
+            _PureScopeRule(
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="import_issue",
+                fixed=(("status", ("e:unresolved_target_module",)),),
+                when_all=(
+                    ("family", "graph"),
+                    ("status", "unresolved_target_module"),
+                ),
             ),
             *(
                 _PureScopeRule(

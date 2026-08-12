@@ -281,6 +281,15 @@ class DifferentialPurpose(StrEnum):
     UNORDERED_DEPENDENCY_LEDGER = "unordered_dependency_ledger"
     POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
     OCCURRENCE_INDEX_OUTSIDE_BUCKET = "occurrence_index_outside_bucket"
+    DECLARATION_WITHOUT_ITS_LOCAL_ORIGIN = "declaration_without_its_local_origin"
+    RESOLVED_IMPORT_WITHOUT_ITS_ORIGIN = "resolved_import_without_its_origin"
+    RELATION_WITHOUT_ITS_ROW_LINEAGE = "relation_without_its_row_lineage"
+    CONCRETE_LINEAGE_SHORT_OF_ITS_SCHEMA = "concrete_lineage_short_of_its_schema"
+    TYPE_ALIAS_WITHOUT_ITS_BASE_RESOLUTION = "type_alias_without_its_base_resolution"
+    TYPE_REFERENCE_WITHOUT_ITS_DEPENDENCY = "type_reference_without_its_dependency"
+    SELECTLESS_FACTS_OUTSIDE_A_SOURCE = "selectless_facts_outside_a_source"
+    ROW_LINEAGE_IN_A_BLOCKED_MODULE = "row_lineage_in_a_blocked_module"
+    GRAPH_ISSUE_WITHOUT_ITS_IMPORT_ISSUE = "graph_issue_without_its_import_issue"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
