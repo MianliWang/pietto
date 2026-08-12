@@ -2651,6 +2651,24 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 pairs=(("upstream_field_name", "root_field_name"),),
                 at="last",
             ),
+            _PureScopeRule(
+                # Every retained hop rebuilds one row-field dependency, so the
+                # module publishes the fact for this hop's own reference site:
+                # the lineage's owner declaration and this field's position,
+                # which the field record's own ordinal already is.
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="dependency",
+                pairs=(("field", "reference_member_position"),),
+                ancestor_scope="row_lineage",
+                ancestor_pairs=(
+                    (
+                        "owner_declaration_position",
+                        "reference_owner_declaration_position",
+                    ),
+                ),
+                fixed=(("kind", ("e:row_field_reference",)),),
+            ),
         ),
     ),
     _PureKindSpec(

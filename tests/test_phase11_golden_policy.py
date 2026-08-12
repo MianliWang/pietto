@@ -21,7 +21,7 @@ AUDIT_PATH = REPO_ROOT / "scripts" / "check_goldens.py"
 POLICY_PATH = REPO_ROOT / "docs" / "spec" / "golden-fixture-policy-v1.md"
 GOLDEN_ROOT = REPO_ROOT / "tests" / "fixtures" / "golden"
 GOLDEN_HASH = "0e26a0b367a2ae849e5ec1e9a239be42765bea2c352242db5da930ab56b43004"
-BOUNDARY_HASH = "9a43ee4bc86eecaafc3ad44baedfdf48685e2b9a66f4089daedca8e1b7a16bc6"
+BOUNDARY_HASH = "c46566b5760b92cb46ce7cdcbb96ef4955423e9f43828b378d11948916c7d994"
 VALIDATION_GATES = (
     ("lockfile", ("uv", "lock", "--check")),
     ("format", ("uv", "run", "ruff", "format", "--check", ".")),
