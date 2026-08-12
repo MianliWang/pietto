@@ -1794,6 +1794,19 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                 fixed=(("binding", ("e:local_declaration",)),),
             ),
             _PureScopeRule(
+                # A repeated type name never resolves silently: the symbol
+                # collector diagnoses it, and the module publishes that issue
+                # under the same name. Which type-source status it carries is not
+                # fixed here, because a module-level diagnostic can block the
+                # symbol before the ambiguity itself is reported.
+                rule=_PureScopeKind.DEFERRED_LEDGER_MATCH,
+                scope="module",
+                child="issue",
+                pairs=(("declared_name", "local_name"),),
+                fixed=(("family", ("e:type_source",)),),
+                when_all=(("namespace", "type"), ("availability", "ambiguous")),
+            ),
+            _PureScopeRule(
                 rule=_PureScopeKind.ANCESTOR_EQUAL,
                 scope="module",
                 pairs=(("owner_name", "path"),),

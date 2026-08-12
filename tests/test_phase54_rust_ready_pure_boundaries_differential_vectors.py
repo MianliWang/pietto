@@ -1049,7 +1049,7 @@ def test_invalid_documents_never_raise_from_the_portable_boundary() -> None:
                 outcome = pure_boundary.evaluate_pure_document(mutated)
                 assert type(outcome.status) is pure_boundary.ProjectPureStatus
                 swept += 1
-    assert swept == 848
+    assert swept == 856
 
 
 def test_vector_corpus_covers_the_frozen_property_matrix() -> None:
@@ -1503,6 +1503,17 @@ def test_repeated_identity_buckets_remain_bounded_and_linear() -> None:
                 target_declaration_position=position,
             )
             for position in range(size)
+        )
+        # A repeated type name is diagnosed once, whatever the bucket size, so
+        # the issue section does not grow with it.
+        records.append(
+            vectors._issue(
+                0,
+                0,
+                family="type_source",
+                status="ambiguous_local_type_name",
+                local_name="Row",
+            )
         )
         return pure_boundary.ProjectPureDocument(records=tuple(records))
 
