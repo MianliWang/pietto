@@ -51,7 +51,7 @@ HISTORICAL_GOLDENS = (
 HISTORICAL_GOLDENS_HASH = (
     "11d4343245dc18fd574999cbef5bff7c316d90975b3856ed729e8d2c1d579cf0"
 )
-BOUNDARY_HASH = "f7f7a7fdc79df4e6ee167859988ca66fab4006677455ca9d24aa2672645be062"
+BOUNDARY_HASH = "9a43ee4bc86eecaafc3ad44baedfdf48685e2b9a66f4089daedca8e1b7a16bc6"
 
 
 def _load_module(name: str, path: Path) -> ModuleType:

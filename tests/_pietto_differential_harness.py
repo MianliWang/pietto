@@ -293,6 +293,9 @@ class DifferentialPurpose(StrEnum):
     ROW_FIELD_TARGET_OUTSIDE_ITS_OWNER_SCHEMA = (
         "row_field_target_outside_its_owner_schema"
     )
+    TYPE_SOURCE_ISSUE_WITHOUT_ITS_RESOLUTION = (
+        "type_source_issue_without_its_resolution"
+    )
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

@@ -321,7 +321,7 @@ what produced two rounds of isomorphic findings.
 | `semantic_clause_dependency` | roles appear in their declared order, and each role's source ledger is dense from zero | `ProjectModuleRelationSemanticFacts` |
 | `semantic_select` | a supplied output name is non-empty, and the retained source ordinal is the record's own position | `ProjectModuleSelectFact`, `ProjectModuleRelationSemanticFacts` |
 | `semantic_window_output` | a supplied output name is non-empty, a concrete relation publishes only concrete outputs, and selected output ordinals ascend without repeating | `ProjectInspectionWindowOutput`, `ProjectModuleRelationSemanticFacts` |
-| `issue` | the status decides both its family and whether a local name is carried, the families appear in the order the projection concatenates them, the graph issues within a module follow their own status rank, a module import cycle issue is raised by the first member of a cyclic component, which is the only module the graph raises it for, a nameless graph-cycle-blocked type-source or relation issue is raised for a member of a cyclic component, since that is the only route the resolver builds one without a local name, and a graph issue that names an unresolved target module answers to an import issue of that same module carrying that same status, because the graph raises it from the binding environment's own diagnosis | `ProjectInspectionIssue`, `_derive_inspection`, `ProjectTypeSourceResolutionIssue`, `ProjectModuleRelationResolutionIssue`, `_cycle_member_issues` |
+| `issue` | the status decides both its family and whether a local name is carried, the families appear in the order the projection concatenates them, the graph issues within a module follow their own status rank, a module import cycle issue is raised by the first member of a cyclic component, which is the only module the graph raises it for, a nameless graph-cycle-blocked type-source or relation issue is raised for a member of a cyclic component, since that is the only route the resolver builds one without a local name, and a graph issue that names an unresolved target module answers to an import issue of that same module carrying that same status, because the graph raises it from the binding environment's own diagnosis, and a type-source issue that names an unknown type reference answers to a type resolution of that module whose canonical kind is unknown, since the resolver raises that status only for a reference it resolved and failed to terminate | `ProjectInspectionIssue`, `_derive_inspection`, `ProjectTypeSourceResolutionIssue`, `ProjectModuleRelationResolutionIssue`, `_cycle_member_issues` |
 
 ### What the portable layer does and does not re-validate
 
@@ -496,6 +496,19 @@ readiness section collects a cycle from each, so a two-member cycle publishes
 that same cycle twice, with dense ordinals and identical members, which the
 cycle fixture does; a distinctness rule over those subtrees would reject the
 authority's own bytes.
+
+The reason is not separable from the status either. Where a lineage and its
+declaration agree on the status family they may still disagree on the reason,
+and three fixture projections publish exactly that: a query whose lineage reads
+`unknown, duplicate_output_name` beside a declaration that retained
+`unknown, unknown_schema`, another whose declaration retained
+`unknown, invalid_aggregate_or_grouped_output`, and one whose lineage reads
+`deferred, deferred_phase48_behavior` beside a declaration that retained
+`deferred, aggregate_grouped_deferred`. The Slice 11 attribution reason names the
+step that stopped the lineage; the Slice 12 relation reason names the step that
+stopped the relation, and the two steps are different objects even when the
+families coincide. A rule comparing the reasons, guarded by an equal status or
+not, would reject the authority's own bytes.
 
 Neither a row lineage state nor a semantic fact state is its owner
 declaration's relation state, and no rule says either is. A query publishes a
@@ -687,8 +700,8 @@ imported origin, a relation without its row lineage, a concrete lineage short of
 its declared schema, a type alias without its base resolution, a resolved type
 reference without its dependency, a selectless fact set outside a source, a row
 lineage in a loader-blocked module, a graph issue with no import issue
-behind it, and a row-field dependency target outside the row schema its own
-owner declares.
+behind it, a row-field dependency target outside the row schema its own
+owner declares, and a type-source issue with no failed resolution behind it.
 
 Every dimension is exercised at least once, and combinations are used only
 where the interaction is the property under test. Final vector counts are facts

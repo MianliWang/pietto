@@ -8576,6 +8576,24 @@ def _rejected_vectors() -> tuple[DifferentialVector, ...]:
             14,
         ),
         _rejected(
+            "type_source_issue_without_its_resolution",
+            DifferentialPurpose.TYPE_SOURCE_ISSUE_WITHOUT_ITS_RESOLUTION,
+            _document(
+                _header(1),
+                _OWNER,
+                *valid_module,
+                _issue(
+                    0,
+                    0,
+                    family="type_source",
+                    status="unknown_type_reference",
+                    local_name="Missing",
+                ),
+            ),
+            ProjectPureStatus.INCONSISTENT_SCOPE_RELATION,
+            7,
+        ),
+        _rejected(
             "graph_issue_without_its_import_issue",
             DifferentialPurpose.GRAPH_ISSUE_WITHOUT_ITS_IMPORT_ISSUE,
             _document(

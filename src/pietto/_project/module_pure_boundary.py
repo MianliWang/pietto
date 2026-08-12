@@ -3363,6 +3363,21 @@ _PURE_KIND_DECLARATIONS: tuple[_PureKindSpec, ...] = (
                     ("status", "unresolved_target_module"),
                 ),
             ),
+            _PureScopeRule(
+                # The resolver raises this status only for a reference it really
+                # resolved and failed to terminate, so the module publishes at
+                # least one resolution that ended unknown. The unresolved
+                # spelling itself is not in the stream: a resolution carries its
+                # canonical name, never the symbol the site wrote.
+                rule=_PureScopeKind.LEDGER_MATCH,
+                scope="module",
+                child="type_resolution",
+                fixed=(("canonical_kind", ("e:unknown",)),),
+                when_all=(
+                    ("family", "type_source"),
+                    ("status", "unknown_type_reference"),
+                ),
+            ),
             *(
                 _PureScopeRule(
                     rule=_PureScopeKind.UNCLE_COMBINATION,
