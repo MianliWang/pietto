@@ -58,18 +58,19 @@ and the [Phase 54 plan](docs/plan/phase-54-local-import-module-export-foundation
 | Project schema v2 | Explicit modules, trusted loading, private catalogs/facades/bindings, module graph/diagnostics, resolution, attribution, provenance, minimal direct lineage, package-neutral identity, and private inspection facts |
 | Runtime | Compiler only; no database connection or SQL execution |
 
-Phase 54 is **ACTIVE**. Slices 1 through 13 are **COMPLETED**. Slice 14 is the
-Gate 2 candidate for private module inspection and canonical serialization.
-It starts from the exact published base
-`040ab19c56519c39c56541979c850484f9cc47f0`. Slice 14 admits only one complete,
-mutually aligned exact root set over the ten settled schema-v2 products, and it
-derives one canonical inspection projection plus one deterministic private byte
-payload from that projection. The historical `Slice 13 Gate 2 candidate`
-checkpoint remains superseded by the published Slice 13 completion evidence;
-its private boundary remains package-neutral identity layering.
-Reviewed-tree publication is still required; Slices 15 through 16 are
+Phase 54 is **ACTIVE**. Slices 1 through 14 are **COMPLETED**. Slice 15 is the
+Gate 2 candidate for Rust-ready pure boundaries, differential vectors, and
+end-to-end hardening. It starts from the exact published base
+`93f0f591e28a01f32d1698fcd4b8c57d41c6d714`. Slice 15 defines one portable,
+deterministic, total pure boundary over the published Slice 14 canonical
+serialization, one private differential-vector corpus, and one Python reference
+harness; it adds no production Rust, no foreign function interface, and no
+public artifact format. The historical `Slice 14 Gate 2 candidate` checkpoint
+remains superseded by the published Slice 14 completion evidence; its private
+boundary remains module inspection and canonical serialization.
+Reviewed-tree publication is still required; Slice 16 is
 **UNSTARTED**, and the next lifecycle state after Gate 2 is
-`PHASE54_SLICE14_GATE3`.
+`PHASE54_SLICE15_GATE3`.
 
 Slice 3 provides stable project-relative module identity, an immutable
 selected-input index, pinned-root path checks, and trusted source loading.
@@ -104,10 +105,14 @@ and fail-closed loader-readiness facts over the exact Slice 3, Slice 11, and
 Slice 12 roots, without a package manager, registry, manifest, solver, or
 loader. Slice 14 derives one private canonical inspection projection over those
 settled facts and serializes it to deterministic private bytes, without a
-public inspection artifact, deserializer, or cache. Rust-ready pure boundaries,
-differential vectors, and end-to-end hardening remain later work within Phase
-54. Schema v2 therefore remains a foundation rather than a completed module
-system. The runnable Quick Start remains schema v1.
+public inspection artifact, deserializer, or cache. Slice 15 turns that
+serialization into one portable pure boundary with a normalized rejection
+algebra, backs it with a frozen private differential-vector corpus and a
+deterministic Python reference harness, and hardens the whole private schema-v2
+path end to end. The Phase 54 completion audit, status lock, and Phase 55
+handoff remain later work within Phase 54. Schema v2 therefore remains a
+foundation rather than a completed module system. The runnable Quick Start
+remains schema v1.
 
 ## Quick Start
 
@@ -273,6 +278,7 @@ facts and forward-compatible foundations.
 | Module semantic-fact preservation | Private | Slice 12 lossless generic, nullability, aggregate, grouped, window, result-role, and capability facts |
 | Package-neutral identity layering | Private | Slice 13 owner/asset identities, source digest identity, and fail-closed loader readiness |
 | Module inspection and canonical serialization | Private | Slice 14 one canonical inspection projection and deterministic private bytes |
+| Rust-ready pure boundary and differential vectors | Private | Slice 15 one portable total boundary, normalized rejections, and a frozen internal vector corpus |
 
 Existing project facts include deterministic source ordering, flat namespace
 resolution for schema v1, row-schema propagation, relation dependency graphs,

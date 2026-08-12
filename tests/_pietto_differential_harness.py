@@ -1,0 +1,553 @@
+"""Deterministic private differential harness for the Rust-ready pure boundary.
+
+The harness loads the frozen private vector corpus, validates its schema, runs
+the portable pure boundary, and compares the exact canonical bytes or the exact
+normalized rejection with its structural coordinates.
+
+It is a test asset, not a product. It performs no network access, no version
+control access, and no repository-file mutation, and it never regenerates an
+expected value during normal validation. Expected-value changes go through
+``propose_expected_updates``, which returns a proposed report and writes
+nothing.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import StrEnum
+
+from pietto._project.module_pure_boundary import (
+    ProjectPureDocument,
+    ProjectPureOutcome,
+    ProjectPureStatus,
+    evaluate_pure_document,
+)
+
+DIFFERENTIAL_VECTOR_FORMAT = "pietto.differential-vectors.v1"
+
+
+class DifferentialVectorError(Exception):
+    """Raised when the vector corpus itself is malformed or ambiguous."""
+
+
+class DifferentialClassification(StrEnum):
+    """Which portable behaviour one vector exercises.
+
+    Python authority-root admission is deliberately absent. It is decided by
+    object identity, which must never be encoded as cross-language data, so the
+    end-to-end suite exercises that layer instead of a portable vector. A
+    declared member no vector could ever carry would make the schema and the
+    contract disagree.
+    """
+
+    PORTABLE_EVALUATION = "portable_evaluation"
+    PORTABLE_REJECTION = "portable_rejection"
+
+
+class DifferentialPurpose(StrEnum):
+    """The frozen property dimension one vector exercises."""
+
+    EMPTY_PROJECT = "empty_project"
+    SINGLE_MODULE = "single_module"
+    SEVERAL_MODULES = "several_modules"
+    DECLARATION_ORDER_AND_MULTIPLICITY = "declaration_order_and_multiplicity"
+    SAME_SPELLING_DISTINCT_MODULES = "same_spelling_distinct_modules"
+    SAME_SPELLING_DISTINCT_NAMESPACES = "same_spelling_distinct_namespaces"
+    ALIAS_DISTINCT_FROM_TARGET = "alias_distinct_from_target"
+    TWO_ALIASES_ONE_TARGET = "two_aliases_one_target"
+    EXPLICIT_REEXPORT = "explicit_reexport"
+    AVAILABILITY_STATES = "availability_states"
+    MODULE_CYCLE_AND_BLOCKED_READINESS = "module_cycle_and_blocked_readiness"
+    DUPLICATE_NOMINAL_IDENTITY_BUCKET = "duplicate_nominal_identity_bucket"
+    EQUAL_DIGEST_DISTINCT_MODULES = "equal_digest_distinct_modules"
+    DIRECT_AND_RENAMED_LINEAGE = "direct_and_renamed_lineage"
+    PRESERVED_SEMANTIC_FACTS = "preserved_semantic_facts"
+    NULLABILITY_AND_RESULT_ROLE = "nullability_and_result_role"
+    SURROGATE_TEXT = "surrogate_text"
+    CONTROL_CHARACTER_TEXT = "control_character_text"
+    NON_ASCII_TEXT = "non_ascii_text"
+    ABSENT_VERSUS_EMPTY_TEXT = "absent_versus_empty_text"
+    BOUNDARY_CARDINALITIES = "boundary_cardinalities"
+    LARGE_REPEATED_BUCKET = "large_repeated_bucket"
+    ISSUE_FAMILIES = "issue_families"
+    TYPE_ALIAS_CHAIN = "type_alias_chain"
+    ISSUE_BUCKETS = "issue_buckets"
+    DEPENDENCY_TARGET_VARIANTS = "dependency_target_variants"
+    BOOLEAN_VALUES = "boolean_values"
+    UNRESOLVED_IMPORT = "unresolved_import"
+    RESOLUTION_SECTIONS = "resolution_sections"
+    EMPTY_DOCUMENT = "empty_document"
+    MISSING_HEADER = "missing_header"
+    ABSENT_HEADER_RECORD = "absent_header_record"
+    UNEXPECTED_HEADER = "unexpected_header"
+    TRAILING_RECORD = "trailing_record"
+    WRONG_FORMAT_MARKER = "wrong_format_marker"
+    UNKNOWN_RECORD_KIND = "unknown_record_kind"
+    UNKNOWN_KEY = "unknown_key"
+    MISSING_KEY = "missing_key"
+    EXTRA_KEY = "extra_key"
+    WRONG_KEY_ORDER = "wrong_key_order"
+    WRONG_VALUE_TAG = "wrong_value_tag"
+    ABSENT_NOT_ALLOWED = "absent_not_allowed"
+    MISSING_PAYLOAD = "missing_payload"
+    EXTRA_PAYLOAD = "extra_payload"
+    NEGATIVE_INTEGER = "negative_integer"
+    UNKNOWN_ENUMERATION = "unknown_enumeration"
+    ORPHAN_RECORD = "orphan_record"
+    WRONG_PARENT_ORDINAL = "wrong_parent_ordinal"
+    REORDERED_SECTIONS = "reordered_sections"
+    REORDERED_SIBLING_KINDS = "reordered_sibling_kinds"
+    DUPLICATED_RECORD = "duplicated_record"
+    MISSING_RECORD = "missing_record"
+    NON_DENSE_ORDINAL = "non_dense_ordinal"
+    NON_DENSE_DECLARATION_ORDINAL = "non_dense_declaration_ordinal"
+    CHILD_COUNT_TOO_LARGE = "child_count_too_large"
+    MISSING_REQUIRED_SINGLETON = "missing_required_singleton"
+    DUPLICATE_SINGLETON = "duplicate_singleton"
+    MODULE_COUNT_MISMATCH = "module_count_mismatch"
+    IMPOSSIBLE_STATE_COMBINATION = "impossible_state_combination"
+    STALE_FORMAT_MARKER = "stale_format_marker"
+    INCONSISTENT_READINESS_STATE = "inconsistent_readiness_state"
+    INTEGER_OUT_OF_RANGE = "integer_out_of_range"
+    PARTIAL_PRESENCE_GROUP = "partial_presence_group"
+    EXCLUSIVE_TARGET_GROUPS = "exclusive_target_groups"
+    DEPENDENCY_WITHOUT_A_TARGET = "dependency_without_a_target"
+    DEPENDENCY_KIND_TARGET_MISMATCH = "dependency_kind_target_mismatch"
+    CANONICAL_KIND_TARGET_MISMATCH = "canonical_kind_target_mismatch"
+    ISSUE_STATUS_OUTSIDE_ITS_FAMILY = "issue_status_outside_its_family"
+    NON_CONCRETE_LINEAGE_WITH_FIELDS = "non_concrete_lineage_with_fields"
+    IMPORTED_ORIGIN_WITHOUT_HOPS = "imported_origin_without_hops"
+    LINEAGE_FIELD_WITHOUT_PATHS = "lineage_field_without_paths"
+    DIGEST_NOT_LOWERCASE_HEX = "digest_not_lowercase_hex"
+    NAMED_PROJECT_ROOT_OWNER = "named_project_root_owner"
+    AVAILABILITY_RELATION_STATE_MISMATCH = "availability_relation_state_mismatch"
+    INELIGIBLE_NAMESPACE_KIND_PAIR = "ineligible_namespace_kind_pair"
+    MULTI_MEMBER_ACYCLIC_COMPONENT = "multi_member_acyclic_component"
+    UNTERMINATED_ORIGIN_HOP_CHAIN = "unterminated_origin_hop_chain"
+    CANONICAL_KIND_NAME_MISMATCH = "canonical_kind_name_mismatch"
+    ALIAS_IDENTITY_NOT_A_TYPE_ALIAS = "alias_identity_not_a_type_alias"
+    EMPTY_SELECT_OUTPUT_NAME = "empty_select_output_name"
+    RESOLVED_IMPORT_KIND_MISMATCH = "resolved_import_kind_mismatch"
+    CANONICAL_TARGET_NAME_MISMATCH = "canonical_target_name_mismatch"
+    NON_RELATION_RELATION_AVAILABILITY = "non_relation_relation_availability"
+    AMBIGUOUS_WITHOUT_REPETITION = "ambiguous_without_repetition"
+    HOP_ENDPOINTS_DISAGREE = "hop_endpoints_disagree"
+    CLAUSE_ROLE_OUTSIDE_SUBSET = "clause_role_outside_subset"
+    WINDOW_OUTPUT_STATUS_OUTSIDE_SUBSET = "window_output_status_outside_subset"
+    TERMINAL_HOP_TARGET_DISAGREES = "terminal_hop_target_disagrees"
+    EARLIER_SCOPE_SETTLES_FIRST = "earlier_scope_settles_first"
+    UNRESOLVED_IMPORT_WITHOUT_ISSUE = "unresolved_import_without_issue"
+    UNRESOLVED_EXPORT_WITHOUT_ISSUE = "unresolved_export_without_issue"
+    HOP_TARGET_OUTSIDE_ITS_ORIGIN = "hop_target_outside_its_origin"
+    LINEAGE_CHAIN_WRONG_ENDPOINT = "lineage_chain_wrong_endpoint"
+    LINEAGE_CHAIN_NOT_CONTIGUOUS = "lineage_chain_not_contiguous"
+    DUPLICATE_ALIAS_IDENTITY = "duplicate_alias_identity"
+    COMPONENT_WITHOUT_ITS_MODULE = "component_without_its_module"
+    DUPLICATE_IMPORT_ISSUE_STATUS = "duplicate_import_issue_status"
+    FOREIGN_DECLARATION_OWNER = "foreign_declaration_owner"
+    FOREIGN_LOCAL_EXPORT_TARGET = "foreign_local_export_target"
+    FOREIGN_LOCAL_ORIGIN_TARGET = "foreign_local_origin_target"
+    RESOLVED_IMPORT_WITH_BLOCKING_ISSUE = "resolved_import_with_blocking_issue"
+    RESOLVED_EXPORT_WITH_BLOCKING_ISSUE = "resolved_export_with_blocking_issue"
+    CYCLE_DISAGREES_WITH_COMPONENT = "cycle_disagrees_with_component"
+    DEPENDENCY_ROLE_KIND_MISMATCH = "dependency_role_kind_mismatch"
+    REPEATED_LINEAGE_FIELD_POSITION = "repeated_lineage_field_position"
+    UNORDERED_IMPORT_POSITIONS = "unordered_import_positions"
+    DUPLICATE_MODULE_PATH = "duplicate_module_path"
+    EVIDENCE_OUTSIDE_DEPENDENCY_TARGETS = "evidence_outside_dependency_targets"
+    UNRESOLVED_IMPORT_WITHOUT_BLOCKING_ISSUE = (
+        "unresolved_import_without_blocking_issue"
+    )
+    UNENTERED_EXPORT_WITHOUT_BLOCKING_ISSUE = "unentered_export_without_blocking_issue"
+    INCOMPLETE_OCCURRENCE_BUCKET = "incomplete_occurrence_bucket"
+    MODULE_PATH_OUTSIDE_ITS_DOMAIN = "module_path_outside_its_domain"
+    DECLARATION_NAMESPACE_KIND_PAIR = "declaration_namespace_kind_pair"
+    REPEATED_LINEAGE_OWNER = "repeated_lineage_owner"
+    SHAPE_FIELD_IN_RELATION_LINEAGE = "shape_field_in_relation_lineage"
+    SELF_CYCLE_WITHOUT_SELF_EDGE = "self_cycle_without_self_edge"
+    UNORDERED_IMPORT_EVIDENCE = "unordered_import_evidence"
+    EMPTY_WINDOW_OUTPUT_NAME = "empty_window_output_name"
+    REWRITTEN_LET_BINDING_ORDINAL = "rewritten_let_binding_ordinal"
+    ACYCLIC_COMPONENT_WITH_SELF_EDGE = "acyclic_component_with_self_edge"
+    REWRITTEN_SELECT_ORDINAL = "rewritten_select_ordinal"
+    SPARSE_CLAUSE_SOURCE_LEDGER = "sparse_clause_source_ledger"
+    UNORDERED_CLAUSE_ROLES = "unordered_clause_roles"
+    UNORDERED_WINDOW_OUTPUTS = "unordered_window_outputs"
+    NON_CONCRETE_WINDOW_UNDER_CONCRETE = "non_concrete_window_under_concrete"
+    DUPLICATE_LINEAGE_PATH = "duplicate_lineage_path"
+    DUPLICATE_DEPENDENCY_FACT = "duplicate_dependency_fact"
+    EMPTY_REQUIRED_SYMBOL_NAME = "empty_required_symbol_name"
+    DUPLICATE_ROW_FIELD_NAME = "duplicate_row_field_name"
+    PROJECTION_KIND_NAME_MISMATCH = "projection_kind_name_mismatch"
+    EMPTY_LATER_DECLARED_NAME = "empty_later_declared_name"
+    UNORDERED_IMPORT_ISSUE_STATUSES = "unordered_import_issue_statuses"
+    UNORDERED_EXPORT_ISSUE_STATUSES = "unordered_export_issue_statuses"
+    UNORDERED_ISSUE_FAMILIES = "unordered_issue_families"
+    NAMED_GRAPH_ISSUE = "named_graph_issue"
+    REPEATED_SEMANTIC_FACTS_OWNER = "repeated_semantic_facts_owner"
+    ALIAS_BASE_OUTSIDE_MEMBER_ZERO = "alias_base_outside_member_zero"
+    WINDOW_OUTPUT_OUTSIDE_SELECT_LEDGER = "window_output_outside_select_ledger"
+    FIXED_ROLE_OUTSIDE_MEMBER_ZERO = "fixed_role_outside_member_zero"
+    DIRECT_CANONICAL_KIND_MISMATCH = "direct_canonical_kind_mismatch"
+    UNNAMED_NAME_BEARING_ISSUE = "unnamed_name_bearing_issue"
+    REPEATED_TYPE_REFERENCE_SITE = "repeated_type_reference_site"
+    UNORDERED_GRAPH_ISSUE_STATUSES = "unordered_graph_issue_statuses"
+    BLOCKED_DECLARATION_IN_READY_MODULE = "blocked_declaration_in_ready_module"
+    CYCLIC_COMPONENT_IN_READY_MODULE = "cyclic_component_in_ready_module"
+    ZERO_HOP_LINEAGE_OUTSIDE_SOURCE = "zero_hop_lineage_outside_source"
+    UNORDERED_DEPENDENCY_TARGETS = "unordered_dependency_targets"
+    FOREIGN_COMPONENT_MEMBER = "foreign_component_member"
+    UNORDERED_CYCLE_MEMBERS = "unordered_cycle_members"
+    IMPORTED_ORIGIN_BEFORE_LOCAL = "imported_origin_before_local"
+    UNORDERED_LOCAL_ORIGINS = "unordered_local_origins"
+    CLAUSE_AMBIGUITY_WITHOUT_BLOCKED_WINDOWS = (
+        "clause_ambiguity_without_blocked_windows"
+    )
+    UNORDERED_IMPORTED_ORIGINS = "unordered_imported_origins"
+    EVIDENCE_OUTSIDE_IMPORT_LEDGER = "evidence_outside_import_ledger"
+    ORIGIN_OUTSIDE_ITS_IMPORT = "origin_outside_its_import"
+    ORIGIN_IDENTITY_OUTSIDE_ITS_IMPORT = "origin_identity_outside_its_import"
+    LOCAL_ORIGIN_OUTSIDE_DECLARATIONS = "local_origin_outside_declarations"
+    RELATION_REASON_OUTSIDE_ITS_STATUS = "relation_reason_outside_its_status"
+    LINEAGE_FIELD_POSITION_OFF_LEDGER = "lineage_field_position_off_ledger"
+    ROW_FIELDS_WITHOUT_SCHEMA_STATE = "row_fields_without_schema_state"
+    ORIGIN_TARGET_OUTSIDE_RESOLVED_IMPORT = "origin_target_outside_resolved_import"
+    BLOCKED_AVAILABILITY_WITHOUT_STATE = "blocked_availability_without_state"
+    RESOLUTION_OWNER_OUTSIDE_DECLARATIONS = "resolution_owner_outside_declarations"
+    DEPENDENCY_OWNER_OUTSIDE_DECLARATIONS = "dependency_owner_outside_declarations"
+    LINEAGE_FIELD_KIND_OUTSIDE_OWNER = "lineage_field_kind_outside_owner"
+    LINEAGE_FIELD_OUTSIDE_ROW_SCHEMA = "lineage_field_outside_row_schema"
+    ROW_FIELD_MEMBER_OUTSIDE_ROW_SCHEMA = "row_field_member_outside_row_schema"
+    RESOLVED_TARGET_OUTSIDE_SELECTED_MODULES = (
+        "resolved_target_outside_selected_modules"
+    )
+    LINEAGE_ROOT_OUTSIDE_SELECTED_MODULES = "lineage_root_outside_selected_modules"
+    LOCAL_LINEAGE_ROOT_OUTSIDE_ROW_SCHEMA = "local_lineage_root_outside_row_schema"
+    LOCAL_ALIAS_OUTSIDE_DECLARATIONS = "local_alias_outside_declarations"
+    LOCAL_CANONICAL_TARGET_OUTSIDE_DECLARATIONS = (
+        "local_canonical_target_outside_declarations"
+    )
+    NAMELESS_CYCLE_ISSUE_WITHOUT_A_CYCLE = "nameless_cycle_issue_without_a_cycle"
+    SOURCE_SHAPE_RESOLUTION_TO_RELATION_ORIGIN = (
+        "source_shape_resolution_to_relation_origin"
+    )
+    RELATION_RESOLUTION_TO_TYPE_ORIGIN = "relation_resolution_to_type_origin"
+    REPEATED_ORIGIN_HOP = "repeated_origin_hop"
+    RESOLVED_IMPORT_OUTSIDE_GRAPH_EVIDENCE = "resolved_import_outside_graph_evidence"
+    ORIGIN_TARGET_OUTSIDE_ITS_DECLARATION = "origin_target_outside_its_declaration"
+    RESOLVED_TARGET_WITHOUT_A_DECLARATION = "resolved_target_without_a_declaration"
+    RESOLVED_TARGET_OF_AN_AMBIGUOUS_BUCKET = "resolved_target_of_an_ambiguous_bucket"
+    RESOLVED_IMPORT_WITHOUT_A_FACADE = "resolved_import_without_a_facade"
+    REEXPORT_OF_ANOTHER_ALIAS = "reexport_of_another_alias"
+    RELATION_WITHOUT_ITS_SEMANTIC_FACTS = "relation_without_its_semantic_facts"
+    RESOLUTION_WITHOUT_ITS_DEPENDENCY = "resolution_without_its_dependency"
+    DEPENDENCY_WITHOUT_ITS_RESOLUTION = "dependency_without_its_resolution"
+    PERMUTED_OCCURRENCE_BUCKET = "permuted_occurrence_bucket"
+    FACADE_TARGET_WITHOUT_A_DECLARATION = "facade_target_without_a_declaration"
+    SPARSE_SHAPE_FIELD_RESOLUTIONS = "sparse_shape_field_resolutions"
+    DERIVED_RESULT_ROLE_IN_A_SOURCE = "derived_result_role_in_a_source"
+    FOREIGN_CANONICAL_TARGET_WITHOUT_A_DECLARATION = (
+        "foreign_canonical_target_without_a_declaration"
+    )
+    FACTS_STATE_OUTSIDE_ITS_DECLARATION = "facts_state_outside_its_declaration"
+    SOURCE_LINEAGE_WITH_A_DERIVED_STATE = "source_lineage_with_a_derived_state"
+    LOCAL_EXPORT_OUTSIDE_DECLARATIONS = "local_export_outside_declarations"
+    LOCAL_EXPORT_OF_AMBIGUOUS_DECLARATION = "local_export_of_ambiguous_declaration"
+    LOCAL_EXPORT_WITH_COMPETING_CANDIDATE = "local_export_with_competing_candidate"
+    IMPORT_ISSUE_OUTSIDE_ITS_EVIDENCE = "import_issue_outside_its_evidence"
+    COLLISION_WITHOUT_A_LOCAL_DECLARATION = "collision_without_a_local_declaration"
+    SOURCE_WITH_A_DERIVED_RELATION_STATE = "source_with_a_derived_relation_state"
+    CANONICAL_TARGET_OF_AMBIGUOUS_DECLARATION = (
+        "canonical_target_of_ambiguous_declaration"
+    )
+    UNRESOLVED_TARGET_OF_A_SELECTED_MODULE = "unresolved_target_of_a_selected_module"
+    AMBIGUOUS_EXPORT_WITHOUT_AMBIGUITY = "ambiguous_export_without_ambiguity"
+    UNRESOLVED_EXPORT_WITH_A_CANDIDATE = "unresolved_export_with_a_candidate"
+    DEPENDENCY_TARGET_OUTSIDE_ITS_DOMAIN = "dependency_target_outside_its_domain"
+    LOCAL_LINEAGE_ROOT_OUTSIDE_A_SOURCE = "local_lineage_root_outside_a_source"
+    REEXPORT_OUTSIDE_RESOLVED_IMPORTS = "reexport_outside_resolved_imports"
+    SOURCE_SHAPE_RESOLUTION_OUTSIDE_ORIGINS = "source_shape_resolution_outside_origins"
+    RELATION_RESOLUTION_OUTSIDE_ORIGINS = "relation_resolution_outside_origins"
+    DEPENDENCY_TARGET_OUTSIDE_ORIGINS = "dependency_target_outside_origins"
+    ROW_FIELD_TARGET_OUTSIDE_ORIGINS = "row_field_target_outside_origins"
+    LINEAGE_OWNER_OUTSIDE_DECLARATIONS = "lineage_owner_outside_declarations"
+    HOPPED_LINEAGE_FROM_SOURCE_FIELD = "hopped_lineage_from_source_field"
+    SOURCE_OWNER_WITH_DERIVED_FACTS = "source_owner_with_derived_facts"
+    SPLIT_COMPONENT_VIEWS = "split_component_views"
+    FOREIGN_MEMBER_IN_AGREED_COMPONENT = "foreign_member_in_agreed_component"
+    CYCLE_ISSUE_WITHOUT_A_CYCLE = "cycle_issue_without_a_cycle"
+    CYCLE_ISSUE_OUTSIDE_FIRST_MEMBER = "cycle_issue_outside_first_member"
+    SEMANTIC_FACTS_IN_BLOCKED_MODULE = "semantic_facts_in_blocked_module"
+    UNORDERED_DEPENDENCY_LEDGER = "unordered_dependency_ledger"
+    POSITIVE_REQUIRES_PRESENT = "positive_requires_present"
+    OCCURRENCE_INDEX_OUTSIDE_BUCKET = "occurrence_index_outside_bucket"
+    DECLARATION_WITHOUT_ITS_LOCAL_ORIGIN = "declaration_without_its_local_origin"
+    RESOLVED_IMPORT_WITHOUT_ITS_ORIGIN = "resolved_import_without_its_origin"
+    RELATION_WITHOUT_ITS_ROW_LINEAGE = "relation_without_its_row_lineage"
+    CONCRETE_LINEAGE_SHORT_OF_ITS_SCHEMA = "concrete_lineage_short_of_its_schema"
+    TYPE_ALIAS_WITHOUT_ITS_BASE_RESOLUTION = "type_alias_without_its_base_resolution"
+    TYPE_REFERENCE_WITHOUT_ITS_DEPENDENCY = "type_reference_without_its_dependency"
+    SELECTLESS_FACTS_OUTSIDE_A_SOURCE = "selectless_facts_outside_a_source"
+    ROW_LINEAGE_IN_A_BLOCKED_MODULE = "row_lineage_in_a_blocked_module"
+    GRAPH_ISSUE_WITHOUT_ITS_IMPORT_ISSUE = "graph_issue_without_its_import_issue"
+    ROW_FIELD_TARGET_OUTSIDE_ITS_OWNER_SCHEMA = (
+        "row_field_target_outside_its_owner_schema"
+    )
+    TYPE_SOURCE_ISSUE_WITHOUT_ITS_RESOLUTION = (
+        "type_source_issue_without_its_resolution"
+    )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DifferentialVector:
+    """One frozen private differential vector.
+
+    A vector carries a complete portable input plus its stored expected result.
+    It contains no absolute path, temporary directory, memory address, object
+    identifier, host metadata, timestamp, or version-control state.
+    """
+
+    vector_format: str
+    vector_id: str
+    purpose: DifferentialPurpose
+    classification: DifferentialClassification
+    document: ProjectPureDocument
+    expected_status: ProjectPureStatus
+    expected_bytes: bytes | None = None
+    expected_record_position: int | None = None
+    expected_field_position: int | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DifferentialResult:
+    """The comparison outcome of one vector."""
+
+    vector_id: str
+    matched: bool
+    expected_status: ProjectPureStatus
+    observed_status: ProjectPureStatus
+    detail: str = ""
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DifferentialReport:
+    """The complete deterministic result of one corpus run."""
+
+    total: int
+    matched: int
+    results: tuple[DifferentialResult, ...]
+
+    @property
+    def failed(self) -> tuple[DifferentialResult, ...]:
+        """Return every vector whose observed result differed."""
+
+        return tuple(result for result in self.results if not result.matched)
+
+    def summary(self) -> str:
+        """Return one concise machine-readable summary line."""
+
+        return (
+            f"vector_format={DIFFERENTIAL_VECTOR_FORMAT} "
+            f"vectors={self.total} matched={self.matched} "
+            f"failed={len(self.failed)}"
+        )
+
+
+_VECTOR_IDENTIFIER_CHARACTERS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789_")
+
+# A rejection names the record it failed on, except where the violation is the
+# absence of a record and there is no position in the stream to name.
+_COORDINATE_FREE_STATUSES = frozenset(
+    {
+        ProjectPureStatus.EMPTY_DOCUMENT,
+        ProjectPureStatus.MISSING_HEADER_RECORD,
+    }
+)
+
+
+def validate_vector(vector: DifferentialVector) -> tuple[str, ...]:
+    """Return every schema violation of one vector, empty when it is exact."""
+
+    violations: list[str] = []
+    if type(vector) is not DifferentialVector:
+        return ("vector is not an exact differential vector",)
+    if vector.vector_format != DIFFERENTIAL_VECTOR_FORMAT:
+        violations.append("vector format marker is not the frozen marker")
+    if type(vector.vector_id) is not str:
+        violations.append("vector identifier is not text")
+    elif not vector.vector_id:
+        violations.append("vector identifier is empty")
+    elif set(vector.vector_id) - _VECTOR_IDENTIFIER_CHARACTERS:
+        violations.append("vector identifier is not lowercase ascii")
+    if type(vector.purpose) is not DifferentialPurpose:
+        violations.append("vector purpose is not an exact purpose")
+    if type(vector.classification) is not DifferentialClassification:
+        violations.append("vector classification is not an exact classification")
+    if type(vector.document) is not ProjectPureDocument:
+        violations.append("vector document is not an exact portable document")
+    if type(vector.expected_status) is not ProjectPureStatus:
+        violations.append("vector expected status is not an exact status")
+        return tuple(violations)
+    accepted = vector.expected_status is ProjectPureStatus.OK
+    if accepted:
+        if vector.classification is not DifferentialClassification.PORTABLE_EVALUATION:
+            violations.append("an accepted vector must be a portable evaluation")
+        if vector.expected_bytes is None:
+            violations.append("an accepted vector must store its expected payload")
+        elif type(vector.expected_bytes) is not bytes:
+            violations.append("an accepted vector payload must be bytes")
+        elif not vector.expected_bytes.endswith(b"\n"):
+            violations.append("an accepted vector payload must end with one newline")
+        if vector.expected_record_position is not None:
+            violations.append("an accepted vector carries no record coordinate")
+        if vector.expected_field_position is not None:
+            violations.append("an accepted vector carries no field coordinate")
+        return tuple(violations)
+    if vector.classification is not DifferentialClassification.PORTABLE_REJECTION:
+        violations.append("a rejected vector must be a portable rejection")
+    if vector.expected_bytes is not None:
+        violations.append("a rejected vector stores no payload")
+    if vector.expected_field_position is not None and (
+        vector.expected_record_position is None
+    ):
+        violations.append("a field coordinate requires its record coordinate")
+    if (
+        vector.expected_record_position is None
+        and vector.expected_status not in _COORDINATE_FREE_STATUSES
+    ):
+        violations.append("this rejection status requires a record coordinate")
+    for coordinate in (
+        vector.expected_record_position,
+        vector.expected_field_position,
+    ):
+        if coordinate is not None and (type(coordinate) is not int or coordinate < 0):
+            violations.append("a coordinate must be a non-negative integer")
+    return tuple(violations)
+
+
+def validate_corpus(vectors: tuple[DifferentialVector, ...]) -> None:
+    """Fail closed on a malformed vector or a duplicate vector identifier."""
+
+    if type(vectors) is not tuple:
+        raise DifferentialVectorError("the vector corpus must be a tuple")
+    if not vectors:
+        raise DifferentialVectorError("the vector corpus must not be empty")
+    seen: dict[str, int] = {}
+    for position, vector in enumerate(vectors):
+        violations = validate_vector(vector)
+        if violations:
+            raise DifferentialVectorError(
+                f"vector at position {position} is malformed: {'; '.join(violations)}"
+            )
+        if vector.vector_id in seen:
+            raise DifferentialVectorError(
+                f"duplicate vector identifier at position {position}"
+            )
+        seen[vector.vector_id] = position
+
+
+def _compare(
+    vector: DifferentialVector,
+    outcome: ProjectPureOutcome,
+) -> DifferentialResult:
+    """Compare one observed outcome with one vector's stored expectation."""
+
+    if outcome.status is not vector.expected_status:
+        return DifferentialResult(
+            vector_id=vector.vector_id,
+            matched=False,
+            expected_status=vector.expected_status,
+            observed_status=outcome.status,
+            detail="status",
+        )
+    if vector.expected_status is ProjectPureStatus.OK:
+        if outcome.canonical_bytes != vector.expected_bytes:
+            return DifferentialResult(
+                vector_id=vector.vector_id,
+                matched=False,
+                expected_status=vector.expected_status,
+                observed_status=outcome.status,
+                detail="canonical_bytes",
+            )
+        return DifferentialResult(
+            vector_id=vector.vector_id,
+            matched=True,
+            expected_status=vector.expected_status,
+            observed_status=outcome.status,
+        )
+    if outcome.record_position != vector.expected_record_position:
+        return DifferentialResult(
+            vector_id=vector.vector_id,
+            matched=False,
+            expected_status=vector.expected_status,
+            observed_status=outcome.status,
+            detail="record_position",
+        )
+    if outcome.field_position != vector.expected_field_position:
+        return DifferentialResult(
+            vector_id=vector.vector_id,
+            matched=False,
+            expected_status=vector.expected_status,
+            observed_status=outcome.status,
+            detail="field_position",
+        )
+    return DifferentialResult(
+        vector_id=vector.vector_id,
+        matched=True,
+        expected_status=vector.expected_status,
+        observed_status=outcome.status,
+    )
+
+
+def run_corpus(vectors: tuple[DifferentialVector, ...]) -> DifferentialReport:
+    """Validate the corpus, run every vector, and report deterministic results.
+
+    Nothing here writes a file or regenerates an expectation. A stored expected
+    value that disagrees with the boundary is reported as a failure.
+    """
+
+    validate_corpus(vectors)
+    results = tuple(
+        _compare(vector, evaluate_pure_document(vector.document)) for vector in vectors
+    )
+    return DifferentialReport(
+        total=len(results),
+        matched=sum(1 for result in results if result.matched),
+        results=results,
+    )
+
+
+def propose_expected_updates(
+    vectors: tuple[DifferentialVector, ...],
+) -> tuple[str, ...]:
+    """Return a reviewed proposal for every disagreeing accepted expectation.
+
+    This is the only authoring path. It returns proposed literal lines for a
+    human to review and apply by hand; it writes nothing and mutates nothing, so
+    an expected value can never be silently regenerated.
+    """
+
+    validate_corpus(vectors)
+    proposals: list[str] = []
+    for vector in vectors:
+        outcome = evaluate_pure_document(vector.document)
+        if outcome.status is not ProjectPureStatus.OK:
+            disagrees = (
+                outcome.status is not vector.expected_status
+                or outcome.record_position != vector.expected_record_position
+                or outcome.field_position != vector.expected_field_position
+            )
+            if disagrees:
+                proposals.append(
+                    f'    "{vector.vector_id}": rejected with '
+                    f"{outcome.status.value} at record "
+                    f"{outcome.record_position} field {outcome.field_position},"
+                )
+            continue
+        if outcome.canonical_bytes == vector.expected_bytes:
+            continue
+        payload = outcome.canonical_bytes
+        if payload is None:  # pragma: no cover - an accepted outcome always has one
+            continue
+        proposals.append(f'    "{vector.vector_id}": {payload!r},')
+    return tuple(proposals)

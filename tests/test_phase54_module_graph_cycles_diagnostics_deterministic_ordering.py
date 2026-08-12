@@ -253,10 +253,10 @@ def test_graph_carrier_enums_fields_privacy_and_manifest_are_exact() -> None:
     assert not diagnostic_set_authority.compare
     assert diagnostic_set_authority.hash is False
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER == (
-        "PHASE54_SLICE14_GATE2"
+        "PHASE54_SLICE15_GATE2"
     )
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE == (
-        "040ab19c56519c39c56541979c850484f9cc47f0"
+        "93f0f591e28a01f32d1698fcd4b8c57d41c6d714"
     )
 
 
@@ -1113,8 +1113,8 @@ def test_schema_v1_privacy_status_reader_fixed_point_and_slice9_boundary(
     )
     assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_ADDED_PATHS) == 3
     assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS) == 69
-    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 3
-    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 63
+    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 5
+    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 64
     assert SOURCE_REL not in active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
     assert SPEC_REL not in active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
     assert TEST_REL in active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS

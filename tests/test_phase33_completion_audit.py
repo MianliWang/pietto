@@ -112,8 +112,8 @@ ROADMAP_STATUS = (
 LOCKED_PHASE33_SURFACES = {
     "project_private": (
         "src/pietto/_project",
-        32,
-        "cffe3086127aed442491f0e9c05c5eb18048462bc4e97ba03a91f7a929b87ab2",
+        33,
+        "f9e56fe9cb8ea6523ac2d760c765e1341866bd63af22114d3105e364f03ad122",
     ),
     "cli": (
         "src/pietto/cli.py",
@@ -133,7 +133,7 @@ LOCKED_PHASE33_SURFACES = {
     "readme": (
         "README.md",
         1,
-        "5b29b8c2636db7d9504188284e5388c6415a29089f5470eb7d8772381544bb27",
+        "e596420f109516076de0af8b1a54652ec985e4e48213f6641bd73e50360ef0ab",
     ),
     "agents": (
         "AGENTS.md",
@@ -143,7 +143,7 @@ LOCKED_PHASE33_SURFACES = {
     "pietto_v09": (
         "docs/spec/pietto-v0.9.md",
         1,
-        "9651fbd32a5b1ffa6ef4ca5d149443da3380519350a8633ddcefcccec8824f34",
+        "1f72dbb5ea404ee3520fd3cce7ab405b1b222784ef9b4ec581e4d1e42697ecfc",
     ),
 }
 

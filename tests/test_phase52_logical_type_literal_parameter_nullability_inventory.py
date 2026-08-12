@@ -73,13 +73,13 @@ SLICE8_GATE2_BASE_HEAD_SHA = "11a0c48941c3c1c650be8d0ec8ddf5201f9525f2"
 
 FACTS_SHA256 = "bd68bad4e13a2b945962458fc47359a408d27b1563ba25f5713a8f8099671d21"
 LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26"
-COMPILER_DIGEST = "92b3f0445e738265e6ccd342fc42bcc6cff4e92464fc68504517a592c59bfa61"
+COMPILER_DIGEST = "3a19e2f52e26ea47b4f34a29a5b062c2329a22f2df916de9e078c61b2209ec42"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "cffe3086127aed442491f0e9c05c5eb18048462bc4e97ba03a91f7a929b87ab2"
+    "f9e56fe9cb8ea6523ac2d760c765e1341866bd63af22114d3105e364f03ad122"
 )
 TIER2_MANIFEST_BYTES = 18319
 TIER2_MANIFEST_SHA256 = (
@@ -1116,7 +1116,7 @@ def test_digest_and_nested_raw_sha_reader_closure_is_exact() -> None:
         if path.name not in {"analyzer.py", "model.py", "relationship_metadata.py"}
     )
     assert (len(compiler_paths), len(semantic_paths), len(phase15_paths)) == (
-        107,
+        108,
         36,
         33,
     )
@@ -1162,7 +1162,7 @@ def test_digest_and_nested_raw_sha_reader_closure_is_exact() -> None:
 
 def test_project_package_version_and_tag_boundaries_are_unchanged() -> None:
     project_paths = _project_private_paths()
-    assert len(project_paths) == 32
+    assert len(project_paths) == 33
     assert _digest(project_paths) == PROJECT_PRIVATE_DIGEST
     with PYPROJECT_PATH.open("rb") as stream:
         project = tomllib.load(stream)
@@ -1214,6 +1214,7 @@ def test_gate2_dirty_untracked_and_index_states_are_exact() -> None:
         assert head in (
             "4ff3c131fba54d83b56f3c50e14f7c2337c1eb52",
             "d8a5e9ab3de70ce30575513c73560c86430eca63",
+            "93f0f591e28a01f32d1698fcd4b8c57d41c6d714",
             "15bae172ee151e370fe59d3bf909d735aee6aa90",
             "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01",
             "c44a4271d9592cb393d2232f127a59d8466cc60a",

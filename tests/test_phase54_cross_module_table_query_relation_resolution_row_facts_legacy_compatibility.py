@@ -211,18 +211,18 @@ def test_slice10_contract_and_status_docs_freeze_exact_boundary() -> None:
     assert "while relation resolution\nand row facts remain" not in readme
     assert "It does not yet produce cross-module\nrelation/row facts" not in readme
     assert "Active; Slice 13 Gate 2 candidate" in readme
-    assert "## Status And Slice 14 Lifecycle" in plan
-    assert "## Current Phase 54 Slice 14 Private Module Inspection Status" in current
-    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER == "PHASE54_SLICE14_GATE2"
+    assert "## Status And Slice 15 Lifecycle" in plan
+    assert "## Current Phase 54 Slice 15 Rust-ready Pure Boundary Status" in current
+    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER == "PHASE54_SLICE15_GATE2"
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE == (
-        "040ab19c56519c39c56541979c850484f9cc47f0"
+        "93f0f591e28a01f32d1698fcd4b8c57d41c6d714"
     )
     assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_ADDED_PATHS) == 3
     assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS) == 69
     assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_ALLOWLIST_PATHS) == 72
-    assert len(active_gate2_manifest.ADDED_PATHS) == 3
-    assert len(active_gate2_manifest.MODIFIED_PATHS) == 63
-    assert len(active_gate2_manifest.ALLOWLIST_PATHS) == 66
+    assert len(active_gate2_manifest.ADDED_PATHS) == 5
+    assert len(active_gate2_manifest.MODIFIED_PATHS) == 64
+    assert len(active_gate2_manifest.ALLOWLIST_PATHS) == 69
     frozen_gate2 = active_gate2_manifest.Phase54Gate2RepositoryState(
         marker=active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER,
         branch_oid=active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE,
