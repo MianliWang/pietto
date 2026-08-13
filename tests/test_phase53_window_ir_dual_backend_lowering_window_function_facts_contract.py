@@ -1756,7 +1756,7 @@ def test_generated_golden_fixture_package_dependency_and_version_boundaries_are_
     assert project["project"]["version"] == "0.1.0"
     assert project["project"]["dependencies"] == ["antlr4-python3-runtime>=4.13.2"]
     assert project["build-system"] == {
-        "requires": ["uv_build>=0.11.32,<0.12.0"],
+        "requires": ["uv_build>=0.12.3,<0.13.0"],
         "build-backend": "uv_build",
     }
 

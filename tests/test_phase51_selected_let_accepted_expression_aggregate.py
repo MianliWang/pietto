@@ -793,8 +793,8 @@ def test_plan_contract_versions_protected_boundaries_and_exact_dirty_set() -> No
     for slice_number in range(7, 11):
         assert f"Slice {slice_number}" in spec
 
-    assert '"ruff>=0.16.0"' in pyproject
-    assert 'name = "ruff"\nversion = "0.16.0"' in lock
+    assert '"ruff>=0.16.2"' in pyproject
+    assert 'name = "ruff"\nversion = "0.16.2"' in lock
 
     protected_paths = (
         "docs/spec/pietto-roadmap-phase45-60-v1.md",

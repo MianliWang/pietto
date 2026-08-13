@@ -502,9 +502,9 @@ PROTECTED_SHA256 = {
     SLICE2_TEST_REL: "c1c4eaecf384144e029d9d66874baddffc4eb4790370b96a23be574c36039477",
     SLICE3_TEST_REL: "b373f7a3db766450267dcb016cecd75668112140f43c61aaf3e9c24c6e8fd3b0",
     SLICE4_TEST_REL: "aa5439d5920e392415988a43bbd2952599dc50b84e563c993f82db3a089fa335",
-    ".github/workflows/ci.yml": "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94",
-    "pyproject.toml": "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01",
-    "uv.lock": "a7d9125995e98a8a74d3664ceae7801cc1f4cce74ec323933da67838be199cea",
+    ".github/workflows/ci.yml": "56339c3e565471c3a95a0f79a05eaf9596d734a173d1936d5df167526508ddac",
+    "pyproject.toml": "851e706f2cbafb24c48068cdd6fd8a6ada1f93317618000be71db3681c40a1a8",
+    "uv.lock": "12795f072df20fb688b37e484dd4561cd33e34bf601be3cb0fa1f9075eee38a2",
 }
 
 

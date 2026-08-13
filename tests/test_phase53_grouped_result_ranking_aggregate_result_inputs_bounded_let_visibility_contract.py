@@ -104,6 +104,8 @@ MAINTENANCE_SUBJECT = "Consolidate major Dependabot updates"
 MAINTENANCE_CANDIDATE_HEAD = "7ad017fd96e4ebaf7290d3042d0538dcf925b267"
 MAINTENANCE_REPAIR_SUBJECT = "Repair Dependabot CI topology guard"
 MAINTENANCE_BRANCH_PREFIX = "maintenance/dependabot-"
+DEPENDABOT_BATCH_SUBJECT = "Consolidate Dependabot maintenance updates"
+DEPENDABOT_BATCH_BASE = "2f0ea671d1325029d10ccb6694eef648e1d6c6ed"
 SLICE15_PUBLISHED_HEAD = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
 SLICE16_SUBJECT = "Complete Phase 53 status and compatibility audit"
 PHASE53_COMPLETION_HEAD = "af92f30c22e5d3df5219554a0663855a5b9f51a6"
@@ -422,6 +424,11 @@ def _assert_maintenance_candidate_shape(
     parents: tuple[str, ...],
     subject: str,
 ) -> None:
+    if parents == (DEPENDABOT_BATCH_BASE,):
+        # Consolidated Dependabot maintenance is published as one commit on top
+        # of the reconciled main it was branched from.
+        assert subject == DEPENDABOT_BATCH_SUBJECT
+        return
     if parents == (CI_REPAIR_HEAD,):
         assert subject == MAINTENANCE_SUBJECT
         return
@@ -1180,6 +1187,7 @@ def _is_clean_projection() -> bool:
             return True
         assert base_sha in (
             CI_REPAIR_HEAD,
+            DEPENDABOT_BATCH_BASE,
             SLICE15_PUBLISHED_HEAD,
             PHASE53_COMPLETION_HEAD,
             PHASE54_SLICE1_HEAD,
@@ -1266,8 +1274,14 @@ def _is_clean_projection() -> bool:
     else:
         assert shallow == "false"
         assert branch.startswith(MAINTENANCE_BRANCH_PREFIX)
-        assert _git_optional_ref("refs/heads/main") == CI_REPAIR_HEAD
-        assert _git_optional_ref("refs/remotes/origin/main") == CI_REPAIR_HEAD
+        assert _git_optional_ref("refs/heads/main") in (
+            CI_REPAIR_HEAD,
+            DEPENDABOT_BATCH_BASE,
+        )
+        assert _git_optional_ref("refs/remotes/origin/main") in (
+            CI_REPAIR_HEAD,
+            DEPENDABOT_BATCH_BASE,
+        )
     return True
 
 
@@ -1576,7 +1590,7 @@ def test_reconciled_main_maintenance_handoff_and_build_backend_are_locked() -> N
             base_available=False,
         )
     pyproject = _read("pyproject.toml")
-    assert 'requires = ["uv_build>=0.11.32,<0.12.0"]' in pyproject
+    assert 'requires = ["uv_build>=0.12.3,<0.13.0"]' in pyproject
 
 
 def test_slice13_contract_scope_and_group_to_window_ownership_are_exact() -> None:

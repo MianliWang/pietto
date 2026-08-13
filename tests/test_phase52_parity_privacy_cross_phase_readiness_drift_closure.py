@@ -181,9 +181,9 @@ MODIFIED_TEST_SHA256 = {
     SLICE6_TEST_REL: "0a9baf793dddd51a58e934968a89b89a4132af7d6bcbfe1c97e6bb4d4087ba14",
     SLICE7_TEST_REL: "ee03c628a2270207605b58da86cc4bf07a7bfbc93f943b1f0c140c555d7886b3",
 }
-WORKFLOW_SHA256 = "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94"
-PYPROJECT_SHA256 = "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01"
-LOCK_SHA256 = "a7d9125995e98a8a74d3664ceae7801cc1f4cce74ec323933da67838be199cea"
+WORKFLOW_SHA256 = "56339c3e565471c3a95a0f79a05eaf9596d734a173d1936d5df167526508ddac"
+PYPROJECT_SHA256 = "851e706f2cbafb24c48068cdd6fd8a6ada1f93317618000be71db3681c40a1a8"
+LOCK_SHA256 = "12795f072df20fb688b37e484dd4561cd33e34bf601be3cb0fa1f9075eee38a2"
 COMPILER_DIGEST = "3a19e2f52e26ea47b4f34a29a5b062c2329a22f2df916de9e078c61b2209ec42"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
@@ -1836,15 +1836,15 @@ def test_no_authority_behavior_and_repository_sentinels_are_exact() -> None:
     assert set(MODULE_RELS).isdisjoint(dirty)
     workflow = _read(REPO_ROOT / ".github/workflows/ci.yml")
     assert (
-        "actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0"
+        "actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0"
         in workflow
     )
     project = _read(REPO_ROOT / "pyproject.toml")
     lock = _read(REPO_ROOT / "uv.lock")
     assert 'version = "0.1.0"' in project
-    assert 'requires = ["uv_build>=0.11.32,<0.12.0"]' in project
-    assert "ruff>=0.16.0" in project
-    assert 'name = "ruff"\nversion = "0.16.0"' in lock
+    assert 'requires = ["uv_build>=0.12.3,<0.13.0"]' in project
+    assert "ruff>=0.16.2" in project
+    assert 'name = "ruff"\nversion = "0.16.2"' in lock
 
 
 @pytest.mark.parametrize(
@@ -2153,7 +2153,7 @@ def test_pr19_pr20_workflow_dependency_package_tag_and_ref_locks_are_exact() -> 
     assert _sha256(REPO_ROOT / "uv.lock") == LOCK_SHA256
     workflow = _read(REPO_ROOT / ".github/workflows/ci.yml")
     assert (
-        "actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0"
+        "actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0"
         in workflow
     )
     assert _git_output(["tag", "--list"]) == ""
@@ -2161,9 +2161,9 @@ def test_pr19_pr20_workflow_dependency_package_tag_and_ref_locks_are_exact() -> 
     with (REPO_ROOT / "pyproject.toml").open("rb") as stream:
         project = tomllib.load(stream)
     assert project["project"]["version"] == "0.1.0"
-    assert project["build-system"]["requires"] == ["uv_build>=0.11.32,<0.12.0"]
-    assert "ruff>=0.16.0" in _read(REPO_ROOT / "pyproject.toml")
-    assert 'name = "ruff"\nversion = "0.16.0"' in _read(REPO_ROOT / "uv.lock")
+    assert project["build-system"]["requires"] == ["uv_build>=0.12.3,<0.13.0"]
+    assert "ruff>=0.16.2" in _read(REPO_ROOT / "pyproject.toml")
+    assert 'name = "ruff"\nversion = "0.16.2"' in _read(REPO_ROOT / "uv.lock")
 
 
 def test_static_reader_counts_boundary_hash_and_nested_sha_topology_are_exact() -> None:

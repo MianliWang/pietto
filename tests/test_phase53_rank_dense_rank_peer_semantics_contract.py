@@ -2265,9 +2265,9 @@ def test_grammar_generated_ast_parser_ir_sql_and_public_bytes_are_locked() -> No
         "src/pietto/__init__.py": "669ac67bb23a0c8179995e0e415d76c46210c12311e29cd89d2612b45b0a194d",
         "src/pietto/cli.py": "e9d90d40293db543c4b6c0da829e8b6a122fd2f8b29fcafdc23d4d54b1c42e09",
         "src/pietto/cli_json.py": "ccee00529ee36b123f70d418105609dbb4906f2ccc1c1f5653527b1168fb6d91",
-        "pyproject.toml": "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01",
-        "uv.lock": "a7d9125995e98a8a74d3664ceae7801cc1f4cce74ec323933da67838be199cea",
-        ".github/workflows/ci.yml": "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94",
+        "pyproject.toml": "851e706f2cbafb24c48068cdd6fd8a6ada1f93317618000be71db3681c40a1a8",
+        "uv.lock": "12795f072df20fb688b37e484dd4561cd33e34bf601be3cb0fa1f9075eee38a2",
+        ".github/workflows/ci.yml": "56339c3e565471c3a95a0f79a05eaf9596d734a173d1936d5df167526508ddac",
     }
     assert {path: _sha256(path) for path in expected} == expected
     generated = tuple(

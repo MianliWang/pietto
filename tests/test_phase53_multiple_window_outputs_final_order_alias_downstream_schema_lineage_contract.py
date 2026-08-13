@@ -110,6 +110,8 @@ PHASE54_SLICE9_HEAD = "fadb1924af057cfc901a1658e117810d699e2358"
 PHASE54_SLICE10_HEAD = "b81843acadb294630db361c09949868d004b1bca"
 PHASE54_SLICE9_PARENT_HEAD = PHASE54_SLICE8_HEAD
 POST_REVIEW_REPAIR_PARENT_HEAD = "ed37b4938b0ff5efa0842d353ac0610c51afa6cc"
+DEPENDABOT_BATCH_SUBJECT = "Consolidate Dependabot maintenance updates"
+DEPENDABOT_BATCH_BASE = "2f0ea671d1325029d10ccb6694eef648e1d6c6ed"
 WHEELHOUSE_MANIFEST_SHA256 = (
     "e745cf66b6e8ea2096d5e49bf88ef32f828fe9178561b8ed5456125afeb8a294"
 )
@@ -772,11 +774,18 @@ def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> N
                     in _git_output(["rev-list", "--first-parent", head]).split()
                 )
                 expected_parent = parents[0]
+            elif _git_output(["show", "-s", "--format=%s", "HEAD"]) == (
+                DEPENDABOT_BATCH_SUBJECT
+            ):
+                # Consolidated Dependabot maintenance supersedes its source pull
+                # requests in one commit whose parent is the reconciled main it
+                # was branched from.
+                expected_parent = DEPENDABOT_BATCH_BASE
             else:
                 expected_parent = PHASE54_SLICE10_HEAD
             assert parents == [expected_parent]
-    assert 'requires = ["uv_build>=0.11.32,<0.12.0"]' in pyproject
-    assert '"ruff>=0.16.0"' in pyproject
+    assert 'requires = ["uv_build>=0.12.3,<0.13.0"]' in pyproject
+    assert '"ruff>=0.16.2"' in pyproject
     assert len(WHEELHOUSE_MANIFEST_SHA256) == 64
 
 

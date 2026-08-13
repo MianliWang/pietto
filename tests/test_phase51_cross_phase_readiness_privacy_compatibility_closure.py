@@ -160,15 +160,15 @@ BOUNDARY_PATHS = (
 )
 PROTECTED_HASHES = {
     ".github/workflows/ci.yml": (
-        "4db1c9a49b0af230bae3f088bf84524e210e0afcd6a87250322e5036a69e8d94"
+        "56339c3e565471c3a95a0f79a05eaf9596d734a173d1936d5df167526508ddac"
     ),
     ".python-version": (
         "7b55f8e67b5623c4bef3fa691288da9437d79d3aba156de48d481db32ac7d16d"
     ),
     "pyproject.toml": (
-        "36aa8e1d19a8409e56e0163a465b9608a88c1bffe644165ba49db49bf5ec3d01"
+        "851e706f2cbafb24c48068cdd6fd8a6ada1f93317618000be71db3681c40a1a8"
     ),
-    "uv.lock": "a7d9125995e98a8a74d3664ceae7801cc1f4cce74ec323933da67838be199cea",
+    "uv.lock": "12795f072df20fb688b37e484dd4561cd33e34bf601be3cb0fa1f9075eee38a2",
     "docs/spec/pietto-roadmap-phase45-60-v1.md": (
         "26cc0ae4a68518223d6bf600ad3c4b0b226618aa7ef31b2ae1c25924d2655169"
     ),
