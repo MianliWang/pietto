@@ -1254,8 +1254,8 @@ def test_slice7_documentation_exact_allowlist_and_protected_boundaries() -> None
 
     for value in NEW_REASONS.values():
         assert value in spec
-    assert '"ruff>=0.16.0"' in pyproject
-    assert 'name = "ruff"\nversion = "0.16.0"' in lock
+    assert '"ruff>=0.16.2"' in pyproject
+    assert 'name = "ruff"\nversion = "0.16.2"' in lock
 
     status = subprocess.run(
         ["git", "status", "--porcelain=v1", "--untracked-files=all"],
