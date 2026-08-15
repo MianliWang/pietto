@@ -9,6 +9,7 @@ from typing import Any
 from _phase54_active_gate2_manifest import (  # noqa: F401
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
+import _phase54_active_gate2_manifest as active_gate2_manifest
 
 import pytest
 
@@ -294,6 +295,17 @@ def test_slice4_contract_artifacts_ast_surface_and_test_inventory_are_exact() ->
         and node.name.startswith("test_")
     )
     assert names == EXPECTED_TEST_NAMES
+    assert active_gate2_manifest.PHASE55_ACTIVE_GATE2_MARKER == "PHASE55_SLICE1_GATE2"
+    assert active_gate2_manifest.PHASE55_ACTIVE_GATE2_BASE == (
+        "364296e69f7e289395661518031dafeb66a216cc"
+    )
+    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_ADDED_PATHS) == 3
+    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_MODIFIED_PATHS) == 52
+    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_ALLOWLIST_PATHS) == 55
+    assert (
+        "tests/test_phase54_import_export_contextual_grammar_ast.py"
+        in active_gate2_manifest.PHASE55_ACTIVE_GATE2_READER_PATHS
+    )
 
 
 def test_minimal_import_block_preserves_decoded_target_item_and_exact_spans() -> None:

@@ -1127,6 +1127,10 @@ def test_slice7_contract_test_inventory_and_active_gate_manifest_are_exact() -> 
     assert len(PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 2
     assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 51
     assert PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
+    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_ADDED_PATHS) == 3
+    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_MODIFIED_PATHS) == 52
+    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_ALLOWLIST_PATHS) == 55
+    assert TEST_REL in active_gate2_manifest.PHASE55_ACTIVE_GATE2_READER_PATHS
     assert _matches_phase54_active_gate2_manifest(_active_state())
     assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE == (
         "17a5b01e555930537334d4d0bcf3480e332b7e91"

@@ -20,7 +20,19 @@ from _phase54_active_gate2_manifest import (
     PHASE54_ACTIVE_GATE2_BASE,
     PHASE54_ACTIVE_GATE2_BRANCH,
     PHASE54_ACTIVE_GATE2_MARKER,
+    PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
     PHASE54_ACTIVE_GATE2_SUBJECT,
+    PHASE54_SLICE16_HISTORICAL_NON_READER_PATHS,
+    PHASE54_SLICE16_HISTORICAL_READER_PATHS,
+    PHASE55_ACTIVE_GATE2_ADDED_PATHS,
+    PHASE55_ACTIVE_GATE2_BASE,
+    PHASE55_ACTIVE_GATE2_BRANCH,
+    PHASE55_ACTIVE_GATE2_DELETED_PATHS,
+    PHASE55_ACTIVE_GATE2_MARKER,
+    PHASE55_ACTIVE_GATE2_MODIFIED_PATHS,
+    PHASE55_ACTIVE_GATE2_NON_READER_MODIFIED_PATHS,
+    PHASE55_ACTIVE_GATE2_READER_PATHS,
+    PHASE55_ACTIVE_GATE2_SUBJECT,
 )
 
 import pietto
@@ -40,6 +52,13 @@ PLAN_REL = "docs/plan/phase-54-local-import-module-export-foundation.md"
 ROADMAP_REL = "docs/spec/pietto-active-roadmap-phase53-70-v2.md"
 README_REL = "README.md"
 LANGUAGE_SPEC_REL = "docs/spec/pietto-v0.9.md"
+PHASE55_PLAN_REL = "docs/plan/phase-55-semantic-package-asset-schema-and-deterministic-local-loading.md"
+PHASE55_SPEC_REL = (
+    "docs/spec/phase55-slice1-scope-authority-expansion-readiness-and-route-lock-v1.md"
+)
+PHASE55_TEST_REL = (
+    "tests/test_phase55_slice1_scope_authority_expansion_readiness_and_route_lock.py"
+)
 GOVERNANCE_REL = (
     "docs/spec/pietto-phase-start-expansion-pull-forward-readiness-governance-v1.md"
 )
@@ -353,7 +372,9 @@ def test_status_lock_is_consistent_across_every_live_authority_surface() -> None
     assert "Phase 54 is **COMPLETED**" in flat_readme
     assert "Slices 1 through 16 are **COMPLETED**" in flat_readme
     assert "PHASE55_GATE0_GATE1" in flat_readme
-    assert "Gate 2 candidate" not in flat_readme
+    assert "**IMPLEMENTED_UNPUBLISHED**" in flat_readme
+    assert "Phase 55 remains **UNSTARTED**" in flat_readme
+    assert "PHASE55_SLICE1_GATE3" in flat_readme
     assert "Phase 54 is **ACTIVE**" not in flat_readme
 
     flat_language = _flat(
@@ -361,7 +382,26 @@ def test_status_lock_is_consistent_across_every_live_authority_surface() -> None
     )
     assert "Phase 54 is complete and Slices 1 through 16 are complete" in flat_language
     assert "Phases 55 through 70 remain unstarted" in flat_language
-    assert "Gate 2 candidate" not in flat_language
+    phase55_language = _flat(
+        _section(LANGUAGE_SPEC_REL, "Current Phase 55 Slice 1 Gate 2 Candidate Status")
+    )
+    assert "`IMPLEMENTED_UNPUBLISHED`" in phase55_language
+    assert "Phase 55 remains `UNSTARTED`" in phase55_language
+    assert "PHASE55_SLICE1_GATE3" in phase55_language
+    assert "implements no schema-v3 parsing" in phase55_language
+
+    phase55_roadmap = _flat(
+        _section(ROADMAP_REL, "Phase 55 Slice 1 Gate 2 Candidate And Pending Gate 3")
+    )
+    assert "Phase 54 remains `COMPLETED`" in phase55_roadmap
+    assert "Phase 55 remains `UNSTARTED`" in phase55_roadmap
+    assert "`IMPLEMENTED_UNPUBLISHED`" in phase55_roadmap
+    assert "PHASE55_SLICE1_GATE3" in phase55_roadmap
+
+    phase55_plan = _flat(_section(PHASE55_PLAN_REL, "Status And Slice 1 Lifecycle"))
+    assert "Phase 55 remains `UNSTARTED`" in phase55_plan
+    assert "`IMPLEMENTED_UNPUBLISHED`" in phase55_plan
+    assert "`PHASE55_SLICE1_GATE3`" in phase55_plan
 
     flat_spec_status = _flat(_section(SPEC_REL, "Status And Completion Authority"))
     assert "IMPLEMENTED_UNPUBLISHED" in flat_spec_status
@@ -546,34 +586,62 @@ def test_slice16_changes_no_protected_repository_fingerprint() -> None:
     assert "check-only over exact literal paths" in invariants
 
 
-def test_active_gate2_manifest_targets_slice16_exactly() -> None:
+def test_active_gate_manifest_preserves_slice16_and_targets_phase55_slice1() -> None:
     assert PHASE54_ACTIVE_GATE2_MARKER == "PHASE54_SLICE16_GATE2"
     assert PHASE54_ACTIVE_GATE2_BASE == SLICE15_COMMIT
     assert PHASE54_ACTIVE_GATE2_BRANCH == "phase54/slice16-completion-audit-status-lock"
     assert (
         PHASE54_ACTIVE_GATE2_SUBJECT == "Complete Phase 54 status and Phase 55 handoff"
     )
-    assert ADDED_PATHS == {SPEC_REL, SELF_REL}
+    assert PHASE54_ACTIVE_GATE2_MODIFIED_PATHS == frozenset(
+        PHASE54_SLICE16_HISTORICAL_NON_READER_PATHS
+        | PHASE54_SLICE16_HISTORICAL_READER_PATHS
+    )
+    assert len(PHASE54_SLICE16_HISTORICAL_READER_PATHS) == 46
+    assert PHASE55_TEST_REL not in PHASE54_SLICE16_HISTORICAL_READER_PATHS
+    assert PHASE55_ACTIVE_GATE2_MARKER == "PHASE55_SLICE1_GATE2"
+    assert PHASE55_ACTIVE_GATE2_BASE == "364296e69f7e289395661518031dafeb66a216cc"
+    assert (
+        PHASE55_ACTIVE_GATE2_BRANCH
+        == "phase55/slice1-scope-authority-expansion-readiness-route-lock"
+    )
+    assert PHASE55_ACTIVE_GATE2_SUBJECT == "Add Phase 55 scope authority and route lock"
+    assert ADDED_PATHS == {PHASE55_PLAN_REL, PHASE55_SPEC_REL, PHASE55_TEST_REL}
     assert NON_READER_MODIFIED_PATHS == {
         README_REL,
-        PLAN_REL,
         ROADMAP_REL,
         LANGUAGE_SPEC_REL,
         "tests/_phase54_active_gate2_manifest.py",
+        SELF_REL,
     }
+    assert PHASE55_ACTIVE_GATE2_ADDED_PATHS == frozenset(ADDED_PATHS)
+    assert PHASE55_ACTIVE_GATE2_NON_READER_MODIFIED_PATHS == frozenset(
+        NON_READER_MODIFIED_PATHS
+    )
+    assert PHASE55_ACTIVE_GATE2_READER_PATHS == frozenset(MECHANICAL_READER_PATHS)
+    assert PHASE55_ACTIVE_GATE2_MODIFIED_PATHS == frozenset(
+        NON_READER_MODIFIED_PATHS | MECHANICAL_READER_PATHS
+    )
+    assert PHASE55_ACTIVE_GATE2_DELETED_PATHS == frozenset()
+    assert (len(ADDED_PATHS), len(PHASE55_ACTIVE_GATE2_MODIFIED_PATHS), 0) == (
+        3,
+        52,
+        0,
+    )
+    assert (
+        "tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py"
+        in PHASE55_ACTIVE_GATE2_READER_PATHS
+    )
     assert not (ADDED_PATHS & MECHANICAL_READER_PATHS)
     assert not (NON_READER_MODIFIED_PATHS & MECHANICAL_READER_PATHS)
     assert all(path.startswith("tests/") for path in MECHANICAL_READER_PATHS)
-    gate2 = _flat(_section(SPEC_REL, "Gate 2 Pre-completion State"))
-    assert PHASE54_ACTIVE_GATE2_BRANCH in gate2
-    assert PHASE54_ACTIVE_GATE2_BASE in gate2
-    assert "the repository stays on `main`" in gate2
-    assert "is created only at Gate 3" in gate2
-    assert "empty real index" in gate2
-    gate3 = _flat(_section(SPEC_REL, "Gate 3 Completion Condition"))
-    assert PHASE54_ACTIVE_GATE2_SUBJECT in gate3
-    assert "squash parent exactly" in gate3
-    assert "fast-forward-only" in gate3
+    gate2 = _flat(_section(PHASE55_SPEC_REL, "Three-round Risk-adaptive Workflow"))
+    assert PHASE55_ACTIVE_GATE2_BRANCH in gate2
+    assert "Gate 2 is dirty `main`" in gate2
+    assert "no branch, staging, commit, push, PR, or CI" in gate2
+    gate3 = _flat(_section(PHASE55_SPEC_REL, "Evidence And Gate 3 Contract"))
+    assert "squash parent equal to the frozen baseline" in gate3
+    assert "fast-forward-only reconciliation" in gate3
 
 
 def test_workflow_hardening_and_evidence_governance_remain_closed() -> None:

@@ -231,9 +231,18 @@ def test_carrier_enums_fields_privacy_and_manifest_are_exact() -> None:
     )
     assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_ADDED_PATHS) == 3
     assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS) == 69
-    assert len(active_gate2_manifest.ADDED_PATHS) == 2
-    assert len(active_gate2_manifest.MODIFIED_PATHS) == 51
-    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 46
+    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 2
+    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 51
+    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_ADDED_PATHS) == 3
+    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_MODIFIED_PATHS) == 52
+    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_ALLOWLIST_PATHS) == 55
+    assert active_gate2_manifest.ADDED_PATHS == set(
+        active_gate2_manifest.PHASE55_ACTIVE_GATE2_ADDED_PATHS
+    )
+    assert active_gate2_manifest.MODIFIED_PATHS == set(
+        active_gate2_manifest.PHASE55_ACTIVE_GATE2_MODIFIED_PATHS
+    )
+    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 47
     assert TEST_REL in active_gate2_manifest.MECHANICAL_READER_PATHS
     assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE == (
         "17a5b01e555930537334d4d0bcf3480e332b7e91"
@@ -1284,8 +1293,8 @@ def test_text_json_status_docs_and_reader_fixed_point_are_exact(
     assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 2
     assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 51
     assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
-    assert len(active_gate2_manifest.VALIDATION_READER_PATHS) == 46
-    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 46
+    assert len(active_gate2_manifest.VALIDATION_READER_PATHS) == 47
+    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 47
     assert (
         "tests/test_phase54_module_graph_cycles_diagnostics_deterministic_ordering.py"
         in active_gate2_manifest.MECHANICAL_READER_PATHS

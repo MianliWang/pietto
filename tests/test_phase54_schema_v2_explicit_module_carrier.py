@@ -9,6 +9,7 @@ import re
 from _phase54_active_gate2_manifest import (  # noqa: F401
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
+import _phase54_active_gate2_manifest as active_gate2_manifest
 
 import pytest
 
@@ -594,6 +595,17 @@ def test_slice2_contract_allowlist_and_retained_later_boundaries_are_exact() -> 
 
     assert len(test_nodes) == 16
     assert all(not node.decorator_list for node in test_nodes)
+    assert active_gate2_manifest.PHASE55_ACTIVE_GATE2_MARKER == "PHASE55_SLICE1_GATE2"
+    assert active_gate2_manifest.PHASE55_ACTIVE_GATE2_BASE == (
+        "364296e69f7e289395661518031dafeb66a216cc"
+    )
+    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_ADDED_PATHS) == 3
+    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_MODIFIED_PATHS) == 52
+    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_ALLOWLIST_PATHS) == 55
+    assert (
+        SELF_PATH.relative_to(REPO_ROOT).as_posix()
+        in active_gate2_manifest.PHASE55_ACTIVE_GATE2_READER_PATHS
+    )
     assert "## Status And Slice 16 Lifecycle" in plan
     assert "## Slice 3 Exact Production Boundary And Gate Contract" in plan
     assert "## Slice 4 Exact Production Boundary And Gate Contract" in plan

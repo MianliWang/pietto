@@ -15,7 +15,6 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_SLICE12_INTERLUDE_CHILD_SHAPES,
     phase54_post_slice12_interlude_head_is_recognized_publication,
     phase54_post_slice12_interlude_dirty_is_active,
-    PHASE54_ACTIVE_GATE2_BASE,
     phase54_publication_topic_branch,
     phase54_publication_topic_base,
     phase54_publication_clean_topic_is_active,
@@ -1161,15 +1160,15 @@ def _is_clean_projection() -> bool:
             assert parents == (PHASE54_SLICE11_HEAD, candidate_sha)
             _assert_clean_state(status=status, staged=staged)
             return True
-        if base_sha == PHASE54_ACTIVE_GATE2_BASE or candidate_ref == (
-            phase54_publication_topic_branch()
-        ):
+        active_base = phase54_publication_topic_base()
+        active_branch = phase54_publication_topic_branch()
+        if base_sha == active_base or candidate_ref == active_branch:
             # The active Gate 2 pull-request merge is recognized from the gate
             # manifest's frozen base and branch, so no later Slice appends its
             # own base and branch pair here.
-            assert base_sha == PHASE54_ACTIVE_GATE2_BASE
+            assert base_sha == active_base
             assert base_ref == "main"
-            assert candidate_ref == phase54_publication_topic_branch()
+            assert candidate_ref == active_branch
             assert head != candidate_sha
             assert parents == (base_sha, candidate_sha)
             _assert_clean_state(status=status, staged=staged)

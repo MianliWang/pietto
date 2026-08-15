@@ -1238,6 +1238,7 @@ def test_slice11_contract_plan_allowlist_and_protected_boundaries_are_locked() -
                 "0bad854253e22347e2aff93e2eabcbe2fda55aed",
                 "040ab19c56519c39c56541979c850484f9cc47f0",
                 "1f69c0316086a2236cee03a96cca95218fbd50fc",
+                "364296e69f7e289395661518031dafeb66a216cc",
                 "93f0f591e28a01f32d1698fcd4b8c57d41c6d714",
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,

@@ -1399,6 +1399,10 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
     assert len(PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 2
     assert len(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 51
     assert PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
+    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_ADDED_PATHS) == 3
+    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_MODIFIED_PATHS) == 52
+    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_ALLOWLIST_PATHS) == 55
+    assert TEST_REL in active_gate2_manifest.PHASE55_ACTIVE_GATE2_READER_PATHS
     assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE == (
         "17a5b01e555930537334d4d0bcf3480e332b7e91"
     )
@@ -1467,6 +1471,9 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
     active_allowlist = (
         PHASE54_ACTIVE_GATE2_ADDED_PATHS | PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
     )
+    phase55_active_allowlist = set(
+        active_gate2_manifest.PHASE55_ACTIVE_GATE2_ALLOWLIST_PATHS
+    )
     repair_allowlist = set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS)
     slice12_repair_allowlist = set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS)
     slice12_product_repair3_allowlist = set(
@@ -1499,6 +1506,7 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
     assert dirty in (
         set(),
         active_allowlist,
+        phase55_active_allowlist,
         repair_allowlist,
         slice12_repair_allowlist,
         slice12_product_repair3_allowlist,
@@ -1557,6 +1565,8 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
         assert slice12_product_repair10_active
     elif dirty == repair_allowlist:
         assert repair_gate2_active
+    elif dirty == phase55_active_allowlist:
+        assert gate2_active
     elif dirty:
         assert gate2_active
         assert dirty == active_allowlist

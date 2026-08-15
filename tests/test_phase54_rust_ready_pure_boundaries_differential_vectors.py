@@ -297,6 +297,10 @@ def test_slice15_contract_status_active_manifest_and_allowlist_are_exact() -> No
     non_reader = active_gate2_manifest.PHASE54_SLICE15_HISTORICAL_NON_READER_PATHS
     readers = active_gate2_manifest.PHASE54_SLICE15_HISTORICAL_READER_PATHS
     assert added == {SPEC_REL, SOURCE_REL, HARNESS_REL, VECTORS_REL, TEST_REL}
+    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_ADDED_PATHS) == 3
+    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_MODIFIED_PATHS) == 52
+    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_ALLOWLIST_PATHS) == 55
+    assert TEST_REL in active_gate2_manifest.PHASE55_ACTIVE_GATE2_READER_PATHS
     assert non_reader == {
         "README.md",
         "docs/plan/phase-54-local-import-module-export-foundation.md",

@@ -1797,11 +1797,11 @@ def test_slice5_dirty_clean_and_depth_one_repository_states_are_locked() -> None
 
 def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
     repository_paths = _all_repository_paths()
-    assert len(repository_paths) == 946
-    assert sum(path.endswith(".py") for path in repository_paths) == 580
-    assert sum(path.endswith(".md") for path in repository_paths) == 270
+    assert len(repository_paths) == 949
+    assert sum(path.endswith(".py") for path in repository_paths) == 581
+    assert sum(path.endswith(".md") for path in repository_paths) == 272
     test_paths = tuple(sorted((REPO_ROOT / "tests").glob("test_*.py")))
-    assert len(test_paths) == 466
+    assert len(test_paths) == 467
     functions = tuple(
         node.name
         for path in test_paths
@@ -1809,7 +1809,7 @@ def test_test_inventory_focused_selector_and_dirty_overlay_are_exact() -> None:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name.startswith("test_")
     )
-    assert len(functions) == 5506
+    assert len(functions) == 5521
     self_functions = tuple(
         node.name
         for node in ast.parse(SELF_PATH.read_text()).body

@@ -499,9 +499,9 @@ PROTECTED_SHA256 = {
     "src/pietto/_project/source_selection.py": "fb1c531bcdd81696aa0c26b110433a6775cde878aeb4af3373d0d4aaf1f1443e",
     "src/pietto/_project/check.py": "6f2f2805249cc86a8ff3510a03abc702d2a029186cf16b50cabd11dbaf1da9e1",
     "src/pietto/_project/json_v2.py": "74251e684a22de4dcdc7e1822a6843ca89cbdfa7e136a046676d848b57953bd5",
-    SLICE2_TEST_REL: "c1c4eaecf384144e029d9d66874baddffc4eb4790370b96a23be574c36039477",
-    SLICE3_TEST_REL: "b373f7a3db766450267dcb016cecd75668112140f43c61aaf3e9c24c6e8fd3b0",
-    SLICE4_TEST_REL: "aa5439d5920e392415988a43bbd2952599dc50b84e563c993f82db3a089fa335",
+    SLICE2_TEST_REL: "22aa59d8b26247489e4f4b5c05ed850bc8b8732ca2cbc43a19f11ba0f27259a8",
+    SLICE3_TEST_REL: "0feae8107ae82954c4ad610bc410e785b902aa92e6250bd1754b8a3d0e7e4765",
+    SLICE4_TEST_REL: "750d7680ec3ea14d40784e5b4d6c0607a0bb904204cef31b018325c1e046f8bd",
     ".github/workflows/ci.yml": "56339c3e565471c3a95a0f79a05eaf9596d734a173d1936d5df167526508ddac",
     "pyproject.toml": "851e706f2cbafb24c48068cdd6fd8a6ada1f93317618000be71db3681c40a1a8",
     "uv.lock": "12795f072df20fb688b37e484dd4561cd33e34bf601be3cb0fa1f9075eee38a2",
@@ -1316,16 +1316,16 @@ def test_gate_allowlist_reader_evidence_publication_stop_and_next_state_contract
     assert len(FORMATTER_PATHS) == 163
     assert len(ALLOWLIST_PATHS) == 167
     readable = _readable_paths()
-    assert len(readable) == 946
-    assert sum(path.endswith(".py") for path in readable) == 580
-    assert sum(path.endswith(".md") for path in readable) == 270
+    assert len(readable) == 949
+    assert sum(path.endswith(".py") for path in readable) == 581
+    assert sum(path.endswith(".md") for path in readable) == 272
     test_modules = tuple(
         path
         for path in readable
         if path.startswith("tests/test_") and path.endswith(".py")
     )
-    assert len(test_modules) == 466
-    assert sum(len(_top_level_test_functions(path)) for path in test_modules) == 5506
+    assert len(test_modules) == 467
+    assert sum(len(_top_level_test_functions(path)) for path in test_modules) == 5521
     dirty = set(_git_output(["diff", "--name-only"]).splitlines()) | set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )

@@ -15,6 +15,9 @@ from _phase54_active_gate2_manifest import (
     phase54_post_slice12_interlude_expected_modified_paths,
     phase54_publication_clean_topic_is_active,
     phase54_publication_topic_branch,
+    PHASE55_ACTIVE_GATE2_ADDED_PATHS,
+    PHASE55_ACTIVE_GATE2_BASE,
+    PHASE55_ACTIVE_GATE2_MODIFIED_PATHS,
     PHASE54_ACTIVE_GATE2_ADDED_PATHS,
     PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
@@ -1559,6 +1562,9 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
         assert untracked_paths == set(
             phase54_post_slice12_interlude_expected_added_paths()
         )
+    elif repair_gate2_active and head == PHASE55_ACTIVE_GATE2_BASE:
+        assert tracked_paths == set(PHASE55_ACTIVE_GATE2_MODIFIED_PATHS)
+        assert untracked_paths == set(PHASE55_ACTIVE_GATE2_ADDED_PATHS)
     elif repair_gate2_active:
         assert tracked_paths == set(PHASE54_ACTIVE_GATE2_MODIFIED_PATHS)
         assert untracked_paths == set(PHASE54_ACTIVE_GATE2_ADDED_PATHS)
@@ -1687,7 +1693,7 @@ def test_static_test_inventory_and_tier1_selection_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (466, 5506)
+    assert (len(test_files), top_level_functions) == (467, 5521)
 
     compatible, per_file_items = _prior_compatible_nodes()
     assert (len(compatible), per_file_items) == (96, (24, 33, 63, 63))
