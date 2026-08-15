@@ -6,6 +6,7 @@ import ast
 import re
 import tomllib
 from collections import Counter
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -831,6 +832,7 @@ def test_active_gate_allowlist_and_static_non_behavior_guards_are_exact() -> Non
             "364296e69f7e289395661518031dafeb66a216cc",
             "e835a14ac0dda2448c50307bb7ca3814931d2fbf",
             "512220ae2c176e3f2793b174907d4125fc27b2f4",
+            "8ea4ead07d29b7ff08bc798bbee15fc002fba4d0",
         }
     )
     assert (
@@ -953,6 +955,9 @@ def test_active_gate_allowlist_and_static_non_behavior_guards_are_exact() -> Non
             )
             assert active_gate._matches_phase55_active_gate2_clean_topic(repair_state)
             assert active_gate.phase54_active_gate2_publication_commit_is_head()
+        assert not active_gate._matches_phase55_active_gate2_clean_topic(
+            replace(repair_state, branch_oid="f" * 40)
+        )
         repair_parent = "d" * 40
         repair_git_outputs[("rev-list", "--parents", "-n", "1", repair_head)] = (
             f"{repair_head} {repair_parent}"

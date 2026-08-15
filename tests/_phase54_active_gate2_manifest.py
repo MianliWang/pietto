@@ -24,6 +24,7 @@ PHASE55_ACTIVE_GATE3_AUTHORIZED_DIRECT_PARENTS = frozenset(
         PHASE55_ACTIVE_GATE2_BASE,
         "e835a14ac0dda2448c50307bb7ca3814931d2fbf",
         "512220ae2c176e3f2793b174907d4125fc27b2f4",
+        "8ea4ead07d29b7ff08bc798bbee15fc002fba4d0",
     }
 )
 
@@ -6173,7 +6174,8 @@ def _matches_phase55_active_gate2_clean_topic(
         main = _git_output(["rev-parse", "--verify", "refs/heads/main"])
         origin_main = _git_output(["rev-parse", "--verify", "refs/remotes/origin/main"])
         stable = (
-            _git_output(["rev-parse", "HEAD"]) == head
+            state.branch_oid == head
+            and _git_output(["rev-parse", "HEAD"]) == head
             and _git_output(["rev-parse", "--verify", "refs/heads/main"]) == main
             and _git_output(["rev-parse", "--verify", "refs/remotes/origin/main"])
             == origin_main
