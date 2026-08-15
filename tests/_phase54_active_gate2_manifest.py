@@ -19,6 +19,13 @@ PHASE55_ACTIVE_GATE2_BRANCH = (
 )
 PHASE55_ACTIVE_GATE2_SUBJECT = "Add Phase 55 scope authority and route lock"
 PHASE55_ACTIVE_GATE2_REVIEWED_TREE_TRAILER = "Pietto-Reviewed-Tree"
+PHASE55_ACTIVE_GATE3_AUTHORIZED_DIRECT_PARENTS = frozenset(
+    {
+        PHASE55_ACTIVE_GATE2_BASE,
+        "e835a14ac0dda2448c50307bb7ca3814931d2fbf",
+        "512220ae2c176e3f2793b174907d4125fc27b2f4",
+    }
+)
 
 # Frozen Phase 54 active-Gate metadata remains publication history. The
 # Phase 55 record below is additive and does not rewrite these identities.
@@ -6174,15 +6181,11 @@ def _matches_phase55_active_gate2_clean_topic(
         )
     except subprocess.SubprocessError:
         return False
-    if len(parents) != 1:
+    if (
+        len(parents) != 1
+        or parents[0] not in PHASE55_ACTIVE_GATE3_AUTHORIZED_DIRECT_PARENTS
+    ):
         return False
-    if parents[0] != PHASE55_ACTIVE_GATE2_BASE:
-        try:
-            chain = _git_output(["rev-list", "--first-parent", head]).split()
-        except subprocess.SubprocessError:
-            return False
-        if PHASE55_ACTIVE_GATE2_BASE not in chain:
-            return False
     expected = f"{PHASE55_ACTIVE_GATE2_REVIEWED_TREE_TRAILER}: {tree}"
     lines = message.splitlines()
     return (
@@ -6335,16 +6338,15 @@ def phase54_active_gate2_publication_commit_is_head() -> bool:
         # A depth-one checkout truncates history, so the trailer is the only
         # available proof and the shallow boundary must confirm the truncation.
         return shallow
-    active_base = (
-        PHASE55_ACTIVE_GATE2_BASE if phase55_subject else PHASE54_ACTIVE_GATE2_BASE
-    )
-    if parents[0] == active_base:
+    if phase55_subject:
+        return parents[0] in PHASE55_ACTIVE_GATE3_AUTHORIZED_DIRECT_PARENTS
+    if parents[0] == PHASE54_ACTIVE_GATE2_BASE:
         return True
     try:
         chain = _git_output(["rev-list", "--first-parent", head]).split()
     except subprocess.SubprocessError:
         return False
-    return active_base in chain
+    return PHASE54_ACTIVE_GATE2_BASE in chain
 
 
 def phase54_publication_topic_branch() -> str:

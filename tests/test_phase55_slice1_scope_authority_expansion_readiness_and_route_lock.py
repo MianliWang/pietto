@@ -826,6 +826,13 @@ def test_active_gate_allowlist_and_static_non_behavior_guards_are_exact() -> Non
         active_gate.PHASE55_ACTIVE_GATE2_SUBJECT
         == "Add Phase 55 scope authority and route lock"
     )
+    assert active_gate.PHASE55_ACTIVE_GATE3_AUTHORIZED_DIRECT_PARENTS == frozenset(
+        {
+            "364296e69f7e289395661518031dafeb66a216cc",
+            "e835a14ac0dda2448c50307bb7ca3814931d2fbf",
+            "512220ae2c176e3f2793b174907d4125fc27b2f4",
+        }
+    )
     assert (
         active_gate.phase54_publication_topic_branch()
         == active_gate.PHASE55_ACTIVE_GATE2_BRANCH
@@ -885,7 +892,7 @@ def test_active_gate_allowlist_and_static_non_behavior_guards_are_exact() -> Non
         assert not active_gate.phase54_active_gate2_publication_commit_is_head()
 
     repair_head = "c" * 40
-    repair_parent = "d" * 40
+    repair_parent = active_gate.PHASE55_ACTIVE_GATE2_BASE
     repair_tree = "e" * 40
     repair_state = active_gate.Phase54Gate2RepositoryState(
         marker=active_gate.PHASE55_ACTIVE_GATE2_MARKER,
@@ -919,6 +926,7 @@ def test_active_gate_allowlist_and_static_non_behavior_guards_are_exact() -> Non
         ("rev-parse", "--verify", "refs/remotes/origin/main"): (
             active_gate.PHASE55_ACTIVE_GATE2_BASE
         ),
+        ("rev-parse", "--is-shallow-repository"): "false",
         ("rev-list", "--first-parent", repair_head): (
             f"{repair_head} {repair_parent} {active_gate.PHASE55_ACTIVE_GATE2_BASE}"
         ),
@@ -939,11 +947,26 @@ def test_active_gate_allowlist_and_static_non_behavior_guards_are_exact() -> Non
             ),
         ),
     ):
-        assert active_gate._matches_phase55_active_gate2_clean_topic(repair_state)
+        for repair_parent in active_gate.PHASE55_ACTIVE_GATE3_AUTHORIZED_DIRECT_PARENTS:
+            repair_git_outputs[("rev-list", "--parents", "-n", "1", repair_head)] = (
+                f"{repair_head} {repair_parent}"
+            )
+            assert active_gate._matches_phase55_active_gate2_clean_topic(repair_state)
+            assert active_gate.phase54_active_gate2_publication_commit_is_head()
+        repair_parent = "d" * 40
+        repair_git_outputs[("rev-list", "--parents", "-n", "1", repair_head)] = (
+            f"{repair_head} {repair_parent}"
+        )
         repair_git_outputs[("rev-list", "--first-parent", repair_head)] = (
-            f"{repair_head} {repair_parent} {'f' * 40}"
+            f"{repair_head} {repair_parent} {active_gate.PHASE55_ACTIVE_GATE2_BASE}"
         )
         assert not active_gate._matches_phase55_active_gate2_clean_topic(repair_state)
+        assert not active_gate.phase54_active_gate2_publication_commit_is_head()
+        repair_git_outputs[("rev-list", "--parents", "-n", "1", repair_head)] = (
+            f"{repair_head} {active_gate.PHASE55_ACTIVE_GATE2_BASE} {'f' * 40}"
+        )
+        assert not active_gate._matches_phase55_active_gate2_clean_topic(repair_state)
+        assert not active_gate.phase54_active_gate2_publication_commit_is_head()
 
     with (REPO_ROOT / "pyproject.toml").open("rb") as stream:
         project = tomllib.load(stream)["project"]
