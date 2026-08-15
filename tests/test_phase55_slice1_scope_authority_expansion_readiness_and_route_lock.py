@@ -884,6 +884,67 @@ def test_active_gate_allowlist_and_static_non_behavior_guards_are_exact() -> Non
         )
         assert not active_gate.phase54_active_gate2_publication_commit_is_head()
 
+    repair_head = "c" * 40
+    repair_parent = "d" * 40
+    repair_tree = "e" * 40
+    repair_state = active_gate.Phase54Gate2RepositoryState(
+        marker=active_gate.PHASE55_ACTIVE_GATE2_MARKER,
+        branch_oid=repair_head,
+        branch_head=active_gate.PHASE55_ACTIVE_GATE2_BRANCH,
+        branch_upstream=f"origin/{active_gate.PHASE55_ACTIVE_GATE2_BRANCH}",
+        ahead=0,
+        behind=0,
+        added_paths=frozenset(),
+        modified_paths=frozenset(),
+        deleted_paths=frozenset(),
+        staged_paths=frozenset(),
+        other_paths=frozenset(),
+        worktree_count=1,
+        shallow=False,
+        active_git_operation=False,
+    )
+    repair_git_outputs = {
+        ("rev-parse", "--abbrev-ref", "HEAD"): active_gate.PHASE55_ACTIVE_GATE2_BRANCH,
+        ("rev-parse", "HEAD"): repair_head,
+        ("rev-list", "--parents", "-n", "1", repair_head): (
+            f"{repair_head} {repair_parent}"
+        ),
+        ("show", "-s", "--format=%s", repair_head): (
+            active_gate.PHASE55_ACTIVE_GATE2_SUBJECT
+        ),
+        ("rev-parse", f"{repair_head}^{{tree}}"): repair_tree,
+        ("rev-parse", "--verify", "refs/heads/main"): (
+            active_gate.PHASE55_ACTIVE_GATE2_BASE
+        ),
+        ("rev-parse", "--verify", "refs/remotes/origin/main"): (
+            active_gate.PHASE55_ACTIVE_GATE2_BASE
+        ),
+        ("rev-list", "--first-parent", repair_head): (
+            f"{repair_head} {repair_parent} {active_gate.PHASE55_ACTIVE_GATE2_BASE}"
+        ),
+    }
+
+    def repair_output(arguments: list[str]) -> str:
+        return repair_git_outputs[tuple(arguments)]
+
+    with (
+        patch.object(active_gate, "_git_output", side_effect=repair_output),
+        patch.object(
+            active_gate,
+            "_git_commit_message",
+            return_value=(
+                f"{active_gate.PHASE55_ACTIVE_GATE2_SUBJECT}\n\n"
+                f"{active_gate.PHASE55_ACTIVE_GATE2_REVIEWED_TREE_TRAILER}: "
+                f"{repair_tree}\n"
+            ),
+        ),
+    ):
+        assert active_gate._matches_phase55_active_gate2_clean_topic(repair_state)
+        repair_git_outputs[("rev-list", "--first-parent", repair_head)] = (
+            f"{repair_head} {repair_parent} {'f' * 40}"
+        )
+        assert not active_gate._matches_phase55_active_gate2_clean_topic(repair_state)
+
     with (REPO_ROOT / "pyproject.toml").open("rb") as stream:
         project = tomllib.load(stream)["project"]
     assert project["version"] == "0.1.0"

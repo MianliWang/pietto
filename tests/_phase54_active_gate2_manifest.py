@@ -6174,13 +6174,20 @@ def _matches_phase55_active_gate2_clean_topic(
         )
     except subprocess.SubprocessError:
         return False
+    if len(parents) != 1:
+        return False
+    if parents[0] != PHASE55_ACTIVE_GATE2_BASE:
+        try:
+            chain = _git_output(["rev-list", "--first-parent", head]).split()
+        except subprocess.SubprocessError:
+            return False
+        if PHASE55_ACTIVE_GATE2_BASE not in chain:
+            return False
     expected = f"{PHASE55_ACTIVE_GATE2_REVIEWED_TREE_TRAILER}: {tree}"
     lines = message.splitlines()
     return (
         stable
         and main == origin_main == PHASE55_ACTIVE_GATE2_BASE
-        and len(parents) == 1
-        and parents[0] == PHASE55_ACTIVE_GATE2_BASE
         and subject == PHASE55_ACTIVE_GATE2_SUBJECT
         and re.fullmatch(r"[0-9a-f]{40}", tree) is not None
         and len(lines) >= 3
