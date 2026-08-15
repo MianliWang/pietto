@@ -25,6 +25,7 @@ PHASE55_ACTIVE_GATE3_AUTHORIZED_DIRECT_PARENTS = frozenset(
         "e835a14ac0dda2448c50307bb7ca3814931d2fbf",
         "512220ae2c176e3f2793b174907d4125fc27b2f4",
         "8ea4ead07d29b7ff08bc798bbee15fc002fba4d0",
+        "cc1a8cc25ee987d0c18d87175d4494c2a6e3173c",
     }
 )
 
@@ -6173,15 +6174,18 @@ def _matches_phase55_active_gate2_clean_topic(
         message = _git_commit_message(head)
         main = _git_output(["rev-parse", "--verify", "refs/heads/main"])
         origin_main = _git_output(["rev-parse", "--verify", "refs/remotes/origin/main"])
+        state_after = _read_phase54_gate2_repository_state()
         stable = (
-            state.branch_oid == head
+            state_after == state
+            and state.branch_oid == head
+            and state_after.branch_oid == head
             and _git_output(["rev-parse", "HEAD"]) == head
             and _git_output(["rev-parse", "--verify", "refs/heads/main"]) == main
             and _git_output(["rev-parse", "--verify", "refs/remotes/origin/main"])
             == origin_main
             and _phase54_symbolic_branch_still_authorizes(state)
         )
-    except subprocess.SubprocessError:
+    except (OSError, subprocess.SubprocessError, ValueError):
         return False
     if (
         len(parents) != 1

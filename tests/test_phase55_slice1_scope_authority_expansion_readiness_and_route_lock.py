@@ -833,6 +833,7 @@ def test_active_gate_allowlist_and_static_non_behavior_guards_are_exact() -> Non
             "e835a14ac0dda2448c50307bb7ca3814931d2fbf",
             "512220ae2c176e3f2793b174907d4125fc27b2f4",
             "8ea4ead07d29b7ff08bc798bbee15fc002fba4d0",
+            "cc1a8cc25ee987d0c18d87175d4494c2a6e3173c",
         }
     )
     assert (
@@ -948,6 +949,11 @@ def test_active_gate_allowlist_and_static_non_behavior_guards_are_exact() -> Non
                 f"{repair_tree}\n"
             ),
         ),
+        patch.object(
+            active_gate,
+            "_read_phase54_gate2_repository_state",
+            return_value=repair_state,
+        ) as repository_state_mock,
     ):
         for repair_parent in active_gate.PHASE55_ACTIVE_GATE3_AUTHORIZED_DIRECT_PARENTS:
             repair_git_outputs[("rev-list", "--parents", "-n", "1", repair_head)] = (
@@ -955,6 +961,12 @@ def test_active_gate_allowlist_and_static_non_behavior_guards_are_exact() -> Non
             )
             assert active_gate._matches_phase55_active_gate2_clean_topic(repair_state)
             assert active_gate.phase54_active_gate2_publication_commit_is_head()
+        repository_state_mock.return_value = replace(
+            repair_state,
+            modified_paths=frozenset({"late.txt"}),
+        )
+        assert not active_gate._matches_phase55_active_gate2_clean_topic(repair_state)
+        repository_state_mock.return_value = repair_state
         assert not active_gate._matches_phase55_active_gate2_clean_topic(
             replace(repair_state, branch_oid="f" * 40)
         )
