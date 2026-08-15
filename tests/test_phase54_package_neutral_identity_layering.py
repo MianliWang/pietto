@@ -239,6 +239,14 @@ def test_slice13_contract_status_active_manifest_and_allowlist_are_exact() -> No
     assert "60-reader" in spec
     assert "exact 64 Python paths" in spec
     assert "exact `A3_M65_D0`" in spec
+    assert active_gate2_manifest.PHASE55_ACTIVE_GATE2_MARKER == "PHASE55_SLICE1_GATE2"
+    assert active_gate2_manifest.PHASE55_ACTIVE_GATE2_BASE == (
+        "364296e69f7e289395661518031dafeb66a216cc"
+    )
+    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_ADDED_PATHS) == 3
+    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_MODIFIED_PATHS) == 52
+    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_ALLOWLIST_PATHS) == 55
+    assert TEST_REL in active_gate2_manifest.PHASE55_ACTIVE_GATE2_READER_PATHS
 
 
 def test_package_neutral_vocabulary_carriers_fields_and_privacy_are_exact() -> None:

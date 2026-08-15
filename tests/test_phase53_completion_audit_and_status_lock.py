@@ -697,6 +697,7 @@ def _assert_allowed_dirty_state(
         assert head == main == origin_main
         assert head in {
             "1f69c0316086a2236cee03a96cca95218fbd50fc",
+            "364296e69f7e289395661518031dafeb66a216cc",
             "d8a5e9ab3de70ce30575513c73560c86430eca63",
             "93f0f591e28a01f32d1698fcd4b8c57d41c6d714",
             "15bae172ee151e370fe59d3bf909d735aee6aa90",
@@ -1204,12 +1205,12 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
         len(readable),
         sum(path.endswith(".py") for path in readable),
         sum(path.endswith(".md") for path in readable),
-    ) == (946, 580, 270)
+    ) == (949, 581, 272)
     test_files = tuple((REPO_ROOT / "tests").glob("test_*.py"))
     top_functions = sum(
         len(_top_level_test_functions(f"tests/{path.name}")) for path in test_files
     )
-    assert (len(test_files), top_functions) == (466, 5506)
+    assert (len(test_files), top_functions) == (467, 5521)
     for digest, expected in (
         (PATH_DIGESTS["compiler"], 28),
         (PATH_DIGESTS["semantic"], 42),

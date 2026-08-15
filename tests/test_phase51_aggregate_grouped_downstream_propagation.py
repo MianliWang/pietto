@@ -35,6 +35,8 @@ from _phase54_active_gate2_manifest import (
     PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS,
     PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
+    PHASE55_ACTIVE_GATE2_ADDED_PATHS,
+    PHASE55_ACTIVE_GATE2_ALLOWLIST_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
     phase54_slice11_pr_ci_repair_is_active,
     phase54_slice12_pr_ci_repair_is_active,
@@ -1491,6 +1493,7 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
         set(PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS),
         set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS),
         set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS),
+        set(PHASE55_ACTIVE_GATE2_ALLOWLIST_PATHS),
     )
     untracked = _git_paths(["ls-files", "--others", "--exclude-standard"])
     assert untracked in (
@@ -1499,6 +1502,7 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
         slice14_added,
         phase54_added,
         set(phase54_post_slice12_interlude_expected_added_paths()),
+        set(PHASE55_ACTIVE_GATE2_ADDED_PATHS),
     )
     phase54_path_counts = (
         len(phase54_modified),
@@ -1591,6 +1595,7 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
                 "0bad854253e22347e2aff93e2eabcbe2fda55aed",
                 "040ab19c56519c39c56541979c850484f9cc47f0",
                 "1f69c0316086a2236cee03a96cca95218fbd50fc",
+                "364296e69f7e289395661518031dafeb66a216cc",
                 "93f0f591e28a01f32d1698fcd4b8c57d41c6d714",
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,

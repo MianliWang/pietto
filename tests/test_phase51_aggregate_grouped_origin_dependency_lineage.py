@@ -16,6 +16,7 @@ from _phase54_active_gate2_manifest import (
     phase54_post_slice12_interlude_expected_allowlist_paths,
     phase54_post_slice12_interlude_expected_added_paths,
     PHASE54_ACTIVE_GATE2_BASE,
+    PHASE55_ACTIVE_GATE2_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,
@@ -1041,6 +1042,7 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
         if _phase54_active_gate2_is_active():
             active_head = _git_output(["rev-parse", "HEAD"]).strip()
             assert active_head in {
+                PHASE55_ACTIVE_GATE2_BASE,
                 PHASE54_ACTIVE_GATE2_BASE,
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
                 PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,

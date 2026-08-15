@@ -11,6 +11,7 @@ from types import MappingProxyType
 from _phase54_active_gate2_manifest import (  # noqa: F401
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
 )
+import _phase54_active_gate2_manifest as active_gate2_manifest
 
 import pytest
 
@@ -912,6 +913,17 @@ def test_single_file_public_privacy_scope_and_flat_evidence_contract_remain_exac
     assert "## Slice 3 Exact Production Boundary And Gate Contract" in plan
     assert "## Slice 4 Exact Production Boundary And Gate Contract" in plan
     assert source.count("\ndef test_") == 26
+    assert active_gate2_manifest.PHASE55_ACTIVE_GATE2_MARKER == "PHASE55_SLICE1_GATE2"
+    assert active_gate2_manifest.PHASE55_ACTIVE_GATE2_BASE == (
+        "364296e69f7e289395661518031dafeb66a216cc"
+    )
+    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_ADDED_PATHS) == 3
+    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_MODIFIED_PATHS) == 52
+    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_ALLOWLIST_PATHS) == 55
+    assert (
+        SELF_PATH.relative_to(REPO_ROOT).as_posix()
+        in active_gate2_manifest.PHASE55_ACTIVE_GATE2_READER_PATHS
+    )
     single = parser_api.parse_source("shape One:\n    id: Int\n", path="one.pietto")
     assert single.ast is not None
     assert single.diagnostics == ()

@@ -22,6 +22,9 @@ from _phase54_active_gate2_manifest import (
     PHASE54_ACTIVE_GATE2_ADDED_PATHS,
     PHASE54_ACTIVE_GATE2_BASE,
     PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
+    PHASE55_ACTIVE_GATE2_ADDED_PATHS,
+    PHASE55_ACTIVE_GATE2_BASE,
+    PHASE55_ACTIVE_GATE2_MODIFIED_PATHS,
     PHASE54_SLICE11_PR_CI_REPAIR_BASE,
     PHASE54_SLICE11_PR_CI_REPAIR_BRANCH,
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
@@ -621,6 +624,15 @@ def _assert_allowed_dirty_state(
         assert branch == PHASE54_SLICE12_PRODUCT_REPAIR3_BRANCH
         assert head == PHASE54_SLICE12_PRODUCT_REPAIR3_BASE
         assert main == origin_main == "bc46faff1c9aa71f583ed7d2964b651cc659bc90"
+        return
+    if (
+        _phase54_active_gate2_is_active()
+        and head == PHASE55_ACTIVE_GATE2_BASE
+        and tracked == set(PHASE55_ACTIVE_GATE2_MODIFIED_PATHS)
+        and untracked == set(PHASE55_ACTIVE_GATE2_ADDED_PATHS)
+    ):
+        assert branch == "main"
+        assert head == main == origin_main == PHASE55_ACTIVE_GATE2_BASE
         return
     if (
         _phase54_active_gate2_is_active()
@@ -1321,7 +1333,7 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
     assert (
         sum(path.endswith(".py") for path in readable),
         sum(path.endswith(".md") for path in readable),
-    ) == (580, 270)
+    ) == (581, 272)
     for digest, expected in (
         (PATH_DIGESTS["compiler"], 28),
         (PATH_DIGESTS["semantic"], 42),
@@ -1400,7 +1412,7 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
         )
         for path in test_files
     )
-    assert (len(test_files), top_functions) == (466, 5506)
+    assert (len(test_files), top_functions) == (467, 5521)
     assert (
         381 + 834 + 627 + 424 + 279 + 168 + 156 + 12 + 145 + 190 + 70 + 70 + 97 + 35
         == 3488

@@ -15,6 +15,7 @@ from _phase54_active_gate2_manifest import (
     PHASE54_POST_SLICE12_INTERLUDE_BASE,
     PHASE54_POST_SLICE12_INTERLUDE_SUBJECT,
     PHASE54_ACTIVE_GATE2_BASE,
+    PHASE55_ACTIVE_GATE2_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
     PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,
@@ -656,6 +657,8 @@ def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> N
                 interlude_parent = _interlude_expected_parent(subject, parents)
                 if interlude_parent is not None:
                     expected_parent = interlude_parent
+                elif head == PHASE55_ACTIVE_GATE2_BASE:
+                    expected_parent = "2f0ea671d1325029d10ccb6694eef648e1d6c6ed"
                 elif head == PHASE54_ACTIVE_GATE2_BASE:
                     # The frozen Gate 2 base is the previous Slice's own
                     # published squash, so its single parent is that
@@ -1727,11 +1730,11 @@ def test_test_inventory_focused_overlay_validation_and_gate3_are_exact() -> None
         len(test_paths),
         top_level_tests,
     ) == (
-        946,
-        580,
-        270,
-        466,
-        5506,
+        949,
+        581,
+        272,
+        467,
+        5521,
     )
     docs = _read(PLAN_REL)
     for value in (

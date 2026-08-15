@@ -1,4 +1,4 @@
-"""Exact test-only authority for the currently active Phase 54 Gate 2."""
+"""Exact test-only authority for the moving Pietto active Gate 2."""
 
 from __future__ import annotations
 
@@ -12,6 +12,16 @@ import sys
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
+PHASE55_ACTIVE_GATE2_MARKER = "PHASE55_SLICE1_GATE2"
+PHASE55_ACTIVE_GATE2_BASE = "364296e69f7e289395661518031dafeb66a216cc"
+PHASE55_ACTIVE_GATE2_BRANCH = (
+    "phase55/slice1-scope-authority-expansion-readiness-route-lock"
+)
+PHASE55_ACTIVE_GATE2_SUBJECT = "Add Phase 55 scope authority and route lock"
+PHASE55_ACTIVE_GATE2_REVIEWED_TREE_TRAILER = "Pietto-Reviewed-Tree"
+
+# Frozen Phase 54 active-Gate metadata remains publication history. The
+# Phase 55 record below is additive and does not rewrite these identities.
 PHASE54_ACTIVE_GATE2_MARKER = "PHASE54_SLICE16_GATE2"
 PHASE54_ACTIVE_GATE2_BASE = "1f69c0316086a2236cee03a96cca95218fbd50fc"
 PHASE54_ACTIVE_GATE2_BRANCH = "phase54/slice16-completion-audit-status-lock"
@@ -715,9 +725,16 @@ PHASE54_SLICE15_HISTORICAL_ADDED_PATHS = frozenset(
         "tests/test_phase54_rust_ready_pure_boundaries_differential_vectors.py",
     }
 )
+PHASE54_SLICE16_HISTORICAL_ADDED_PATHS = frozenset(
+    {
+        "docs/spec/phase54-slice16-completion-audit-status-lock-and-phase55-handoff-v1.md",
+        "tests/test_phase54_completion_audit_status_lock_and_phase55_handoff.py",
+    }
+)
 ADDED_PATHS = {
-    "docs/spec/phase54-slice16-completion-audit-status-lock-and-phase55-handoff-v1.md",
-    "tests/test_phase54_completion_audit_status_lock_and_phase55_handoff.py",
+    "docs/plan/phase-55-semantic-package-asset-schema-and-deterministic-local-loading.md",
+    "docs/spec/phase55-slice1-scope-authority-expansion-readiness-and-route-lock-v1.md",
+    "tests/test_phase55_slice1_scope_authority_expansion_readiness_and_route_lock.py",
 }
 PHASE54_POST_REVIEW_PRODUCT_REPAIR1_TO_8_SEED_PATHS = {
     "src/pietto/_project/module_relation_resolution.py",
@@ -808,6 +825,7 @@ MECHANICAL_READER_PATHS = {
     "tests/test_phase30_completion_audit.py",
     "tests/test_phase33_completion_audit.py",
     "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
+    "tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py",
     "tests/test_phase51_completion_audit_and_status_lock.py",
     "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
     "tests/test_phase52_aggregate_signature_algebra_facts.py",
@@ -844,6 +862,58 @@ MECHANICAL_READER_PATHS = {
     "tests/test_phase54_schema_v2_explicit_module_carrier.py",
     "tests/test_phase54_semantic_fact_preservation.py",
 }
+# Frozen Slice 16 record.  Later active-Gate reader changes must not rewrite the
+# reader identity of the already-published Phase 54 completion candidate.
+PHASE54_SLICE16_HISTORICAL_READER_PATHS = frozenset(
+    {
+        "tests/test_phase21_group_by_hardening_audit.py",
+        "tests/test_phase24_aggregate_expression_arguments_readiness.py",
+        "tests/test_phase24_cli_json_output_hardening.py",
+        "tests/test_phase24_completion_audit.py",
+        "tests/test_phase26_completion_audit.py",
+        "tests/test_phase27_completion_audit.py",
+        "tests/test_phase28_completion_audit.py",
+        "tests/test_phase29_completion_audit.py",
+        "tests/test_phase30_completion_audit.py",
+        "tests/test_phase33_completion_audit.py",
+        "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
+        "tests/test_phase51_completion_audit_and_status_lock.py",
+        "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
+        "tests/test_phase52_aggregate_signature_algebra_facts.py",
+        "tests/test_phase52_completion_audit_and_status_lock.py",
+        "tests/test_phase52_expression_stage_clause_capability_facts.py",
+        "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
+        "tests/test_phase52_scalar_function_operator_signature_facts.py",
+        "tests/test_phase53_completion_audit_and_status_lock.py",
+        "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
+        "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
+        "tests/test_phase53_multiple_window_outputs_final_order_alias_downstream_schema_lineage_contract.py",
+        "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
+        "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+        "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
+        "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
+        "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
+        "tests/test_phase53_row_number_direct_field_mvp_contract.py",
+        "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
+        "tests/test_phase53_window_ir_dual_backend_lowering_window_function_facts_contract.py",
+        "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
+        "tests/test_phase53_window_spec_function_identity_ast_contract.py",
+        "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
+        "tests/test_phase54_cross_module_table_query_relation_resolution_row_facts_legacy_compatibility.py",
+        "tests/test_phase54_cross_module_type_alias_enum_shape_source_resolution.py",
+        "tests/test_phase54_import_export_contextual_grammar_ast.py",
+        "tests/test_phase54_local_export_visibility_module_facades.py",
+        "tests/test_phase54_local_import_module_export_foundation_scope_lock.py",
+        "tests/test_phase54_module_attribution_dependency_origin_provenance_lineage.py",
+        "tests/test_phase54_module_graph_cycles_diagnostics_deterministic_ordering.py",
+        "tests/test_phase54_module_identity_selected_input_index_trusted_local_loader.py",
+        "tests/test_phase54_named_import_alias_binding_environments_collision_rules.py",
+        "tests/test_phase54_package_neutral_identity_layering.py",
+        "tests/test_phase54_rust_ready_pure_boundaries_differential_vectors.py",
+        "tests/test_phase54_schema_v2_explicit_module_carrier.py",
+        "tests/test_phase54_semantic_fact_preservation.py",
+    }
+)
 PHASE54_POST_REVIEW_PRODUCT_REPAIR2_TO_8_READER_PATHS = {
     "tests/test_phase11_ci_workflow.py",
     "tests/test_phase11_completion_audit.py",
@@ -953,12 +1023,21 @@ PHASE54_SLICE10_PRIOR_MECHANICAL_READER_PATHS = frozenset(
         "tests/test_phase54_schema_v2_explicit_module_carrier.py",
     }
 )
+PHASE54_SLICE16_HISTORICAL_NON_READER_PATHS = frozenset(
+    {
+        "README.md",
+        "docs/plan/phase-54-local-import-module-export-foundation.md",
+        "docs/spec/pietto-active-roadmap-phase53-70-v2.md",
+        "docs/spec/pietto-v0.9.md",
+        "tests/_phase54_active_gate2_manifest.py",
+    }
+)
 NON_READER_MODIFIED_PATHS = {
     "README.md",
-    "docs/plan/phase-54-local-import-module-export-foundation.md",
     "docs/spec/pietto-active-roadmap-phase53-70-v2.md",
     "docs/spec/pietto-v0.9.md",
     "tests/_phase54_active_gate2_manifest.py",
+    "tests/test_phase54_completion_audit_status_lock_and_phase55_handoff.py",
 }
 VALIDATION_READER_PATHS = set(MECHANICAL_READER_PATHS)
 MODIFIED_PATHS = NON_READER_MODIFIED_PATHS | MECHANICAL_READER_PATHS
@@ -1322,9 +1401,19 @@ PHASE54_SLICE14_HISTORICAL_READER_PATHS = frozenset(
     }
 )
 
-PHASE54_ACTIVE_GATE2_ADDED_PATHS = frozenset(ADDED_PATHS)
-PHASE54_ACTIVE_GATE2_MODIFIED_PATHS = frozenset(MODIFIED_PATHS)
+PHASE54_ACTIVE_GATE2_ADDED_PATHS = PHASE54_SLICE16_HISTORICAL_ADDED_PATHS
+PHASE54_ACTIVE_GATE2_MODIFIED_PATHS = frozenset(
+    PHASE54_SLICE16_HISTORICAL_NON_READER_PATHS
+    | PHASE54_SLICE16_HISTORICAL_READER_PATHS
+)
 PHASE54_ACTIVE_GATE2_DELETED_PATHS = frozenset()
+
+PHASE55_ACTIVE_GATE2_ADDED_PATHS = frozenset(ADDED_PATHS)
+PHASE55_ACTIVE_GATE2_NON_READER_MODIFIED_PATHS = frozenset(NON_READER_MODIFIED_PATHS)
+PHASE55_ACTIVE_GATE2_READER_PATHS = frozenset(MECHANICAL_READER_PATHS)
+PHASE55_ACTIVE_GATE2_MODIFIED_PATHS = frozenset(MODIFIED_PATHS)
+PHASE55_ACTIVE_GATE2_ALLOWLIST_PATHS = frozenset(ALLOWLIST_PATHS)
+PHASE55_ACTIVE_GATE2_DELETED_PATHS = frozenset()
 PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS = frozenset(
     {
         "tests/_phase54_active_gate2_manifest.py",
@@ -3405,7 +3494,7 @@ def _read_phase54_gate2_repository_state() -> Phase54Gate2RepositoryState:
         # window, so these facts never described one repository state.
         raise ValueError("repository state moved while reading the gate state")
     return Phase54Gate2RepositoryState(
-        marker=PHASE54_ACTIVE_GATE2_MARKER,
+        marker=PHASE55_ACTIVE_GATE2_MARKER,
         branch_oid=branch_oid,
         branch_head=branch_head,
         branch_upstream=branch_upstream,
@@ -3419,6 +3508,30 @@ def _read_phase54_gate2_repository_state() -> Phase54Gate2RepositoryState:
         worktree_count=worktree_count,
         shallow=shallow,
         active_git_operation=active_git_operation,
+    )
+
+
+def _matches_phase55_active_gate2_manifest(
+    state: Phase54Gate2RepositoryState,
+) -> bool:
+    """Return whether supplied facts are the exact Phase 55 Slice 1 Gate 2."""
+
+    return (
+        type(state) is Phase54Gate2RepositoryState
+        and state.marker == PHASE55_ACTIVE_GATE2_MARKER
+        and state.branch_oid == PHASE55_ACTIVE_GATE2_BASE
+        and state.branch_head == "main"
+        and state.branch_upstream == "origin/main"
+        and state.ahead == 0
+        and state.behind == 0
+        and state.added_paths == PHASE55_ACTIVE_GATE2_ADDED_PATHS
+        and state.modified_paths == PHASE55_ACTIVE_GATE2_MODIFIED_PATHS
+        and state.deleted_paths == PHASE55_ACTIVE_GATE2_DELETED_PATHS
+        and state.staged_paths == frozenset()
+        and state.other_paths == frozenset()
+        and state.worktree_count == 1
+        and not state.shallow
+        and not state.active_git_operation
     )
 
 
@@ -4622,7 +4735,8 @@ def phase54_active_gate2_manifest_is_active() -> bool:
     except (OSError, subprocess.SubprocessError, ValueError):
         return False
     return (
-        _matches_phase54_active_gate2_manifest(state)
+        _matches_phase55_active_gate2_manifest(state)
+        or _matches_phase54_active_gate2_manifest(state)
         or _matches_phase54_slice12_mechanical_repair4_clean_topic(state)
         or _matches_phase54_slice12_mechanical_repair3_clean_topic(state)
         or _matches_phase54_slice12_product_repair14_clean_topic(state)
@@ -6017,6 +6131,64 @@ def phase54_post_slice12_interlude_expected_topic_base() -> str:
     return PHASE54_POST_SLICE12_INTERLUDE_BASE
 
 
+def _matches_phase55_active_gate2_clean_topic(
+    state: Phase54Gate2RepositoryState,
+) -> bool:
+    """Recognize the clean Phase 55 Slice 1 publication child exactly."""
+
+    if type(state) is not Phase54Gate2RepositoryState:
+        return False
+    branch = PHASE55_ACTIVE_GATE2_BRANCH
+    if not (
+        state.marker == PHASE55_ACTIVE_GATE2_MARKER
+        and state.branch_head == branch
+        and state.branch_upstream in ("", f"origin/{branch}")
+        and state.added_paths == frozenset()
+        and state.modified_paths == frozenset()
+        and state.deleted_paths == frozenset()
+        and state.staged_paths == frozenset()
+        and state.other_paths == frozenset()
+        and state.worktree_count == 1
+        and not state.shallow
+        and not state.active_git_operation
+    ):
+        return False
+    try:
+        if not _phase54_symbolic_branch_still_authorizes(state):
+            return False
+        head = _git_output(["rev-parse", "HEAD"])
+        parents = tuple(
+            _git_output(["rev-list", "--parents", "-n", "1", head]).split()[1:]
+        )
+        subject = _git_output(["show", "-s", "--format=%s", head])
+        tree = _git_output(["rev-parse", f"{head}^{{tree}}"])
+        message = _git_commit_message(head)
+        main = _git_output(["rev-parse", "--verify", "refs/heads/main"])
+        origin_main = _git_output(["rev-parse", "--verify", "refs/remotes/origin/main"])
+        stable = (
+            _git_output(["rev-parse", "HEAD"]) == head
+            and _git_output(["rev-parse", "--verify", "refs/heads/main"]) == main
+            and _git_output(["rev-parse", "--verify", "refs/remotes/origin/main"])
+            == origin_main
+            and _phase54_symbolic_branch_still_authorizes(state)
+        )
+    except subprocess.SubprocessError:
+        return False
+    expected = f"{PHASE55_ACTIVE_GATE2_REVIEWED_TREE_TRAILER}: {tree}"
+    lines = message.splitlines()
+    return (
+        stable
+        and main == origin_main == PHASE55_ACTIVE_GATE2_BASE
+        and len(parents) == 1
+        and parents[0] == PHASE55_ACTIVE_GATE2_BASE
+        and subject == PHASE55_ACTIVE_GATE2_SUBJECT
+        and re.fullmatch(r"[0-9a-f]{40}", tree) is not None
+        and len(lines) >= 3
+        and lines[-2] == ""
+        and lines[-1] == expected
+    )
+
+
 def _matches_phase54_active_gate2_clean_topic(
     state: Phase54Gate2RepositoryState,
 ) -> bool:
@@ -6103,7 +6275,9 @@ def phase54_active_gate2_clean_topic_is_active() -> bool:
         state = _read_phase54_gate2_repository_state()
     except (OSError, subprocess.SubprocessError, ValueError):
         return False
-    return _matches_phase54_active_gate2_clean_topic(state)
+    return _matches_phase55_active_gate2_clean_topic(
+        state
+    ) or _matches_phase54_active_gate2_clean_topic(state)
 
 
 def phase54_active_gate2_publication_commit_is_head() -> bool:
@@ -6130,33 +6304,46 @@ def phase54_active_gate2_publication_commit_is_head() -> bool:
         return False
     if len(parents) > 1:
         return False
-    accepted_subject = subject == PHASE54_ACTIVE_GATE2_SUBJECT or (
-        subject.startswith(PHASE54_ACTIVE_GATE2_REPAIR_SUBJECT_PREFIX)
-        and len(subject) > len(PHASE54_ACTIVE_GATE2_REPAIR_SUBJECT_PREFIX)
+    accepted_subject = (
+        subject == PHASE55_ACTIVE_GATE2_SUBJECT
+        or subject == PHASE54_ACTIVE_GATE2_SUBJECT
+        or (
+            subject.startswith(PHASE54_ACTIVE_GATE2_REPAIR_SUBJECT_PREFIX)
+            and len(subject) > len(PHASE54_ACTIVE_GATE2_REPAIR_SUBJECT_PREFIX)
+        )
     )
     if not accepted_subject or re.fullmatch(r"[0-9a-f]{40}", tree) is None:
         return False
+    phase55_subject = subject == PHASE55_ACTIVE_GATE2_SUBJECT
+    active_trailer = (
+        PHASE55_ACTIVE_GATE2_REVIEWED_TREE_TRAILER
+        if phase55_subject
+        else PHASE54_ACTIVE_GATE2_REVIEWED_TREE_TRAILER
+    )
     lines = message.splitlines()
-    expected = f"{PHASE54_ACTIVE_GATE2_REVIEWED_TREE_TRAILER}: {tree}"
+    expected = f"{active_trailer}: {tree}"
     if not (len(lines) >= 3 and lines[-2] == "" and lines[-1] == expected):
         return False
     if not parents:
         # A depth-one checkout truncates history, so the trailer is the only
         # available proof and the shallow boundary must confirm the truncation.
         return shallow
-    if parents[0] == PHASE54_ACTIVE_GATE2_BASE:
+    active_base = (
+        PHASE55_ACTIVE_GATE2_BASE if phase55_subject else PHASE54_ACTIVE_GATE2_BASE
+    )
+    if parents[0] == active_base:
         return True
     try:
         chain = _git_output(["rev-list", "--first-parent", head]).split()
     except subprocess.SubprocessError:
         return False
-    return PHASE54_ACTIVE_GATE2_BASE in chain
+    return active_base in chain
 
 
 def phase54_publication_topic_branch() -> str:
     """Return the topic branch the currently active Gate 2 publishes from."""
 
-    return PHASE54_ACTIVE_GATE2_BRANCH
+    return PHASE55_ACTIVE_GATE2_BRANCH
 
 
 def phase54_publication_clean_topic_is_active() -> bool:
@@ -6178,7 +6365,7 @@ def phase54_publication_topic_base() -> str:
 
     if phase54_post_slice12_interlude_clean_topic_is_active():
         return phase54_post_slice12_interlude_expected_topic_base()
-    return PHASE54_ACTIVE_GATE2_BASE
+    return PHASE55_ACTIVE_GATE2_BASE
 
 
 def phase54_post_slice12_interlude_expected_head() -> str:

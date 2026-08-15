@@ -1182,15 +1182,15 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
                 assert origin_main == head
 
     readable_paths = set(_git_output(["ls-files"]).splitlines()) | untracked
-    assert len(readable_paths) == 946
-    assert sum(path.endswith(".py") for path in readable_paths) == 580
-    assert sum(path.endswith(".md") for path in readable_paths) == 270
+    assert len(readable_paths) == 949
+    assert sum(path.endswith(".py") for path in readable_paths) == 581
+    assert sum(path.endswith(".md") for path in readable_paths) == 272
     test_modules = {
         path
         for path in readable_paths
         if path.startswith("tests/test_") and path.endswith(".py")
     }
-    assert len(test_modules) == 466
+    assert len(test_modules) == 467
     top_level_tests = 0
     for relative in sorted(test_modules):
         tree = ast.parse(_read(relative), filename=relative)
@@ -1199,7 +1199,7 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 5506
+    assert top_level_tests == 5521
     assert len(GENERATED_PATHS) == 8
     goldens = {
         path
