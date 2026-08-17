@@ -1752,19 +1752,17 @@ def test_observation_rejects_shallow_state_drift(tmp_path: Path) -> None:
     original = topology._git
     readings: list[str] = []
 
-    def _unshallowing(root: Path, *args: str) -> str:
+    def _drifting(root: Path, *args: str) -> str:
         result = original(root, *args)
         if args == ("rev-parse", "--is-shallow-repository"):
-            readings.append(result)
-            if len(readings) == 1:
-                # A real concurrent unshallow: it moves no reference, no
-                # branch, no working state, and no base authority.
-                original(root, "fetch", "--quiet", "--unshallow", "origin")
+            visible = "true" if not readings else "false"
+            readings.append(visible)
+            return visible
         return result
 
     head_before = original(fixture.root, "rev-parse", "HEAD")
     branch_before = original(fixture.root, "rev-parse", "--abbrev-ref", "HEAD")
-    topology._git = _unshallowing
+    topology._git = _drifting
     try:
         with pytest.raises(topology.TopologyError):
             topology.observe(
@@ -1788,14 +1786,32 @@ def test_observation_accepts_stable_shallow_and_complete_states(
     shallow = topology.build_topology(
         topology.TOPOLOGY_SHALLOW_PULL_REQUEST, tmp_path / "shallow"
     )
-    again = topology.observe(
-        shallow.root,
-        event_name=topology.EVENT_PULL_REQUEST,
-        event_head_ref=topology.TOPIC_BRANCH,
-        event_base_ref=topology.MAIN_BRANCH,
-        base_ref="",
+    original = topology._git
+    commands: list[tuple[str, ...]] = []
+
+    def _recording(root: Path, *args: str) -> str:
+        commands.append(args)
+        return original(root, *args)
+
+    topology._git = _recording
+    try:
+        again = topology.observe(
+            shallow.root,
+            event_name=topology.EVENT_PULL_REQUEST,
+            event_head_ref=topology.TOPIC_BRANCH,
+            event_base_ref=topology.MAIN_BRANCH,
+            base_ref="",
+        )
+    finally:
+        topology._git = original
+    assert not any(
+        args[:1] in (("rev-list",), ("merge-base",), ("fetch",)) for args in commands
     )
     assert again.shallow is True
+    assert again.head_parents == shallow.expectation.head_parents
+    assert again.head_subject == shallow.expectation.head_subject
+    assert again.head_message == shallow.expectation.head_message
+    assert again.head_trailer == shallow.expectation.head_trailer
     assert topology.verify(again, shallow.expectation) == ()
     complete = topology.build_topology(
         topology.TOPOLOGY_CLEAN_TOPIC, tmp_path / "clean"
@@ -1804,7 +1820,9 @@ def test_observation_accepts_stable_shallow_and_complete_states(
     assert topology.verify(complete.observation, complete.expectation) == ()
 
 
-def test_observation_rejects_a_revealed_parent_line(tmp_path: Path) -> None:
+def test_observation_matches_full_and_depth_one_without_ancestor_fetch(
+    tmp_path: Path,
+) -> None:
     # Deepening can only reveal a parent when the origin actually holds one, so
     # this fixture carries its own history. The ambient repository is a
     # depth-one checkout under integration, and anchoring to it would leave
@@ -1842,80 +1860,65 @@ def test_observation_rejects_a_revealed_parent_line(tmp_path: Path) -> None:
         env=environment,
     )
 
-    original = topology._git
-    assert original(shallow, "rev-parse", "--is-shallow-repository") == "true"
-    assert (
-        original(shallow, "rev-list", "--parents", "-n", "1", "HEAD").split()[1:] == []
+    full = topology.observe(
+        origin,
+        event_name=topology.EVENT_LOCAL,
+        event_head_ref="",
+        event_base_ref="",
+        base_ref="",
     )
-    seen: list[int] = []
-
-    def _deepening(root: Path, *args: str) -> str:
-        result = original(root, *args)
-        if args[:2] == ("rev-list", "--parents"):
-            seen.append(len(seen))
-            if len(seen) == 1:
-                # Deepening reveals the boundary commit's parents while the
-                # shallow flag itself stays true.
-                original(root, "fetch", "--quiet", "--deepen", "1", "origin")
-        return result
-
-    topology._git = _deepening
-    try:
-        with pytest.raises(topology.TopologyError):
-            topology.observe(
-                shallow,
-                event_name=topology.EVENT_LOCAL,
-                event_head_ref="",
-                event_base_ref="",
-                base_ref="",
-            )
-    finally:
-        topology._git = original
-    assert original(shallow, "rev-parse", "--is-shallow-repository") == "true"
+    assert topology._git(shallow, "rev-parse", "--is-shallow-repository") == "true"
+    declared = topology._commit_object_snapshot(shallow, "HEAD").parents
+    assert len(declared) == 1
     assert (
-        original(shallow, "rev-list", "--parents", "-n", "1", "HEAD").split()[1:] != []
+        not subprocess.run(
+            ["git", "cat-file", "-e", f"{declared[0]}^{{commit}}"],
+            cwd=shallow,
+            capture_output=True,
+            check=False,
+        ).returncode
+        == 0
     )
-    assert len(seen) == 2
+    observation = topology.observe(
+        shallow,
+        event_name=topology.EVENT_LOCAL,
+        event_head_ref="",
+        event_base_ref="",
+        base_ref="",
+    )
+    assert observation.head_parents == full.head_parents == declared
+    assert observation.head_tree == full.head_tree
+    assert observation.head_subject == full.head_subject
+    assert observation.head_message == full.head_message
+    assert observation.head_trailer == full.head_trailer
 
 
-def test_observation_revalidates_an_unresolvable_base_reference(
+def test_observation_does_not_probe_an_unavailable_base_reference(
     tmp_path: Path,
 ) -> None:
     fixture = topology.build_topology(topology.TOPOLOGY_CLEAN_TOPIC, tmp_path / "clean")
     missing = "refs/heads/absent-base"
-    # An unresolvable base reference is recorded as unresolvable, and the
-    # window must reject it appearing.
-    observation = topology.observe(
-        fixture.root,
-        event_name=topology.EVENT_LOCAL,
-        event_head_ref="",
-        event_base_ref="",
-        base_ref=missing,
-    )
-    assert observation.merge_base == ""
     original = topology._git
-    seen: list[int] = []
+    seen: list[tuple[str, ...]] = []
 
-    def _appearing(root: Path, *args: str) -> str:
-        if args[:2] == ("rev-parse", missing):
-            seen.append(len(seen))
-            if len(seen) == 2:
-                original(root, "update-ref", missing, fixture.refs["base"])
+    def _recording(root: Path, *args: str) -> str:
+        if missing in args or args[:1] in (("rev-list",), ("merge-base",), ("fetch",)):
+            seen.append(args)
         return original(root, *args)
 
-    topology._git = _appearing
+    topology._git = _recording
     try:
-        with pytest.raises(topology.TopologyError):
-            topology.observe(
-                fixture.root,
-                event_name=topology.EVENT_LOCAL,
-                event_head_ref="",
-                event_base_ref="",
-                base_ref=missing,
-            )
+        observation = topology.observe(
+            fixture.root,
+            event_name=topology.EVENT_LOCAL,
+            event_head_ref="",
+            event_base_ref="",
+            base_ref=missing,
+        )
     finally:
         topology._git = original
-    assert len(seen) >= 2
+    assert observation.merge_base == ""
+    assert seen == []
 
 
 def test_observation_rejects_a_sibling_branch_switch(tmp_path: Path) -> None:
@@ -1973,36 +1976,24 @@ def test_source_projection_refuses_an_unreproducible_content_authority(
         topology.candidate_entries(local)
 
 
-def test_observation_rejects_a_moving_base_reference(tmp_path: Path) -> None:
+def test_observation_is_independent_of_ancestor_base_ref_movement(
+    tmp_path: Path,
+) -> None:
     fixture = topology.build_topology(topology.TOPOLOGY_CLEAN_TOPIC, tmp_path / "clean")
-    original = topology._git
-    seen: list[int] = []
-
-    def _moving(root: Path, *args: str) -> str:
-        result = original(root, *args)
-        if args[:1] == ("merge-base",):
-            seen.append(len(seen))
-            original(
-                root,
-                "update-ref",
-                f"refs/heads/{topology.MAIN_BRANCH}",
-                fixture.refs["topic"],
-            )
-        return result
-
-    topology._git = _moving
-    try:
-        with pytest.raises(topology.TopologyError):
-            topology.observe(
-                fixture.root,
-                event_name=topology.EVENT_LOCAL,
-                event_head_ref="",
-                event_base_ref="",
-                base_ref=f"refs/heads/{topology.MAIN_BRANCH}",
-            )
-    finally:
-        topology._git = original
-    assert seen
+    topology._git(
+        fixture.root,
+        "update-ref",
+        f"refs/heads/{topology.MAIN_BRANCH}",
+        fixture.refs["topic"],
+    )
+    observation = topology.observe(
+        fixture.root,
+        event_name=topology.EVENT_LOCAL,
+        event_head_ref="",
+        event_base_ref="",
+        base_ref=f"refs/heads/{topology.MAIN_BRANCH}",
+    )
+    assert topology.verify(observation, fixture.expectation) == ()
 
 
 def _reset_local_git_variable_caches() -> None:
@@ -2243,6 +2234,12 @@ def test_stale_shallow_file_cannot_falsify_shallow_identity(
     assert falsified == "false"
     topology.reset_local_git_variables()
     assert topology._git(checkout, "rev-parse", "--is-shallow-repository") == "true"
+    with pytest.raises(topology.TopologyError, match="complete history"):
+        topology.build_topology(
+            topology.TOPOLOGY_CLEAN_TOPIC,
+            tmp_path / "rejected-shallow-source",
+            source=checkout,
+        )
 
 
 def test_source_projection_refuses_a_gitlink_source(tmp_path: Path) -> None:
@@ -2667,12 +2664,17 @@ def test_pull_request_merge_projection_has_two_ordered_parents(tmp_path: Path) -
     assert fixture.observation.branch == "HEAD"
 
 
-def test_shallow_projection_has_no_parents_and_no_merge_base(tmp_path: Path) -> None:
+def test_shallow_projection_reports_declared_parents_and_no_merge_base(
+    tmp_path: Path,
+) -> None:
     fixture = topology.build_topology(
         topology.TOPOLOGY_SHALLOW_PULL_REQUEST, tmp_path / "shallow"
     )
     assert fixture.observation.shallow is True
-    assert fixture.observation.head_parents == ()
+    assert fixture.observation.head_parents == (
+        fixture.refs["base"],
+        fixture.refs["topic"],
+    )
     assert fixture.observation.merge_base == ""
 
 
@@ -2748,7 +2750,7 @@ def test_main_push_projection_models_the_integration_depth_one_checkout(
         topology.TOPOLOGY_MAIN_PUSH, tmp_path / "mainpush"
     )
     assert fixture.observation.shallow is True
-    assert fixture.observation.head_parents == ()
+    assert fixture.observation.head_parents == (fixture.refs["base"],)
     assert fixture.observation.merge_base == ""
     assert fixture.observation.branch == topology.MAIN_BRANCH
     assert fixture.observation.event_name == topology.EVENT_PUSH
@@ -2759,6 +2761,10 @@ def test_main_push_projection_models_the_integration_depth_one_checkout(
     )
     assert local.observation.shallow is False
     assert local.observation.head_parents == (local.refs["base"],)
+    assert fixture.observation.head_parents == local.observation.head_parents
+    assert fixture.observation.head_subject == local.observation.head_subject
+    assert fixture.observation.head_message == local.observation.head_message
+    assert fixture.observation.head_trailer == local.observation.head_trailer
 
 
 def test_clean_topic_predicate_rejects_a_replaced_tree(tmp_path: Path) -> None:
@@ -2935,10 +2941,13 @@ def test_wrong_parent_reference_tree_shallow_and_event_are_rejected(
         "wrong_dirty_set",
         "wrong_event",
         "wrong_head",
+        "wrong_message",
         "wrong_parent",
         "wrong_ref",
         "wrong_shallow",
         "wrong_staged_set",
+        "wrong_subject",
+        "wrong_trailer",
         "wrong_tree",
     )
     for name, corrupted in variants:

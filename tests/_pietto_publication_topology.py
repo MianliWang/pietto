@@ -83,6 +83,7 @@ MAIN_BRANCH = "main"
 BASE_SUBJECT = "Base commit"
 TOPIC_SUBJECT = "Add Pietto workflow convergence tooling"
 REPAIR_SUBJECT = "Fix Pietto workflow convergence tooling"
+DIVERGENCE_UNAVAILABLE = -1
 
 _SYNTHETIC_CANDIDATE: Mapping[str, str] = {
     "AUTHORITY.md": "# authority\n\nbase\ncandidate\n",
@@ -103,6 +104,18 @@ class TopologyError(Exception):
     """Raised when a fixture cannot be built or an argument is unusable."""
 
 
+@dataclass(frozen=True, slots=True)
+class _CommitObjectSnapshot:
+    """Immutable facts carried by one current commit object."""
+
+    raw: str
+    tree: str
+    parents: tuple[str, ...]
+    subject: str
+    message: str
+    trailer: str
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class TopologyExpectation:
     """The exact repository state a topology-sensitive reader may accept."""
@@ -112,6 +125,9 @@ class TopologyExpectation:
     head: str
     head_tree: str
     head_parents: tuple[str, ...]
+    head_subject: str
+    head_message: str
+    head_trailer: str
     merge_base: str
     shallow: bool
     event_name: str
@@ -139,6 +155,9 @@ class TopologyObservation:
     head: str
     head_tree: str
     head_parents: tuple[str, ...]
+    head_subject: str
+    head_message: str
+    head_trailer: str
     merge_base: str
     shallow: bool
     event_name: str
@@ -195,6 +214,50 @@ def _git_raw(root: Path, *args: str) -> str:
             f"git {' '.join(args)} failed: {_decoded(result.stderr).strip()}"
         )
     return _decoded(result.stdout)
+
+
+def _parse_commit_object(raw: str, revision: str) -> _CommitObjectSnapshot:
+    """Parse current-commit facts without resolving any ancestor object."""
+
+    header, separator, message = raw.partition("\n\n")
+    if not separator:
+        raise TopologyError(f"commit object has no message separator: {revision}")
+    header_lines = header.splitlines()
+    trees = tuple(
+        line.removeprefix("tree ") for line in header_lines if line.startswith("tree ")
+    )
+    parents = tuple(
+        line.removeprefix("parent ")
+        for line in header_lines
+        if line.startswith("parent ")
+    )
+    message_lines = message.splitlines()
+    if (
+        len(trees) != 1
+        or not _is_lowercase_object_id(trees[0])
+        or any(not _is_lowercase_object_id(parent) for parent in parents)
+        or not message_lines
+    ):
+        raise TopologyError(f"invalid commit object identity: {revision}")
+    trailer = (
+        message_lines[-1]
+        if len(message_lines) >= 3
+        and message_lines[-2] == ""
+        and ": " in message_lines[-1]
+        else ""
+    )
+    return _CommitObjectSnapshot(
+        raw=raw,
+        tree=trees[0],
+        parents=parents,
+        subject=message_lines[0],
+        message=message,
+        trailer=trailer,
+    )
+
+
+def _commit_object_snapshot(root: Path, revision: str) -> _CommitObjectSnapshot:
+    return _parse_commit_object(_git_raw(root, "cat-file", "-p", revision), revision)
 
 
 _FALLBACK_LOCAL_GIT_VARIABLES: tuple[str, ...] = (
@@ -370,6 +433,7 @@ def source_base_revision(source: Path) -> str:
     topic child would model a release topology that never exists.
     """
 
+    _require_complete_source(source)
     for candidate in ("refs/heads/main", "refs/remotes/origin/main", "HEAD~1"):
         result = subprocess.run(
             ["git", "-C", str(source), "rev-parse", "--verify", "--quiet", candidate],
@@ -383,13 +447,20 @@ def source_base_revision(source: Path) -> str:
     return "HEAD"
 
 
+def _require_complete_source(source: Path) -> None:
+    """Refuse a shallow client before it can be reused as a Git server."""
+
+    shallow = _source_output(source, "rev-parse", "--is-shallow-repository").strip()
+    if shallow != "false":
+        raise TopologyError(f"topology source must have complete history: {source}")
+
+
 def source_commit_parents(source: Path, revision: str) -> tuple[str, ...]:
     """Return one source commit's declared parents, oldest first."""
 
-    listing = _source_lines(source, "rev-list", "--parents", "-n", "1", revision)
-    if not listing:
-        raise TopologyError(f"cannot read parents of {revision} in {source}")
-    return tuple(listing[0].split()[1:])
+    return _parse_commit_object(
+        _source_output(source, "cat-file", "-p", revision), revision
+    ).parents
 
 
 def source_is_dirty(source: Path) -> bool:
@@ -945,6 +1016,7 @@ def _init_base(root: Path, source: Path | None = None, revision: str = "HEAD") -
         # Import the real baseline commit instead of re-committing its files:
         # readers assert the exact base object name, and a synthetic identity
         # would make every merge and push projection unrecognizable.
+        _require_complete_source(source)
         _reject_foreign_object_format(source)
         _reject_unreproducible_source(source)
         _reject_staged_source(source)
@@ -1180,53 +1252,28 @@ def observe(
 
     branch = _git(root, "rev-parse", "--abbrev-ref", "HEAD")
     head = _git(root, "rev-parse", "HEAD")
-    # Read every derived fact from the resolved object name, not from the moving
-    # reference, and confirm the reference again at the end of the window.
-    head_tree = _git(root, "rev-parse", f"{head}^{{tree}}")
+    # The current commit object carries its tree, ordered direct-parent OIDs,
+    # subject, message, and trailer even when depth one omits every ancestor
+    # object. Capture those immutable bytes once and re-read them at the end of
+    # the window; never traverse history to infer a current-commit fact.
+    commit = _commit_object_snapshot(root, head)
+    head_tree = commit.tree
     shallow_reading = _git(root, "rev-parse", "--is-shallow-repository")
     shallow = shallow_reading == "true"
-    # The parent line is graph truncation dependent, not content addressed: a
-    # concurrent deepen reveals a boundary commit's parents while the shallow
-    # flag itself stays true, so the raw line is kept for revalidation.
-    parent_reading = _git(root, "rev-list", "--parents", "-n", "1", head)
-    parents = tuple(parent_reading.split()[1:])
+    parents = commit.parents
     merge_base = ""
-    base_identity = ""
-    base_probed = bool(base_ref) and not shallow
-    if base_probed:
-        try:
-            base_identity = _git(root, "rev-parse", base_ref)
-            merge_base = _git(root, "merge-base", head, base_ref)
-        except TopologyError:
-            base_identity = ""
-            merge_base = ""
+    _ = base_ref
     upstream = ""
     origin_main = ""
     ahead = 0
     behind = 0
-    ahead_behind_reading = ""
     if include_sync:
         origin_main = _optional_reference(root, f"refs/remotes/origin/{MAIN_BRANCH}")
-        try:
-            upstream = _optional_upstream(root)
-            if not upstream:
-                raise TopologyError("branch has no upstream")
-            ahead_behind_reading = _git(
-                root,
-                "rev-list",
-                "--left-right",
-                "--count",
-                f"HEAD...refs/remotes/{upstream}",
-            )
-            counts = ahead_behind_reading.split()
-            if len(counts) != 2:
-                raise TopologyError(
-                    f"unparseable upstream divergence: {ahead_behind_reading!r}"
-                )
-            ahead, behind = (int(count) for count in counts)
-        except TopologyError:
-            upstream = ""
-            ahead_behind_reading = ""
+        upstream = _optional_upstream(root)
+        if shallow and origin_main not in ("", head):
+            raise TopologyError("shallow current-head sync refs disagree")
+        if origin_main and origin_main != head:
+            ahead = behind = DIVERGENCE_UNAVAILABLE
     added: list[str] = []
     modified: list[str] = []
     deleted: list[str] = []
@@ -1266,39 +1313,28 @@ def observe(
         _git(root, "rev-parse", "HEAD") != head
         or _git(root, "rev-parse", "--abbrev-ref", "HEAD") != branch
         or _git_raw(root, *status_arguments) != status
-        or (base_probed and _optional_reference(root, base_ref) != base_identity)
         or _git(root, "rev-parse", "--is-shallow-repository") != shallow_reading
-        or _git(root, "rev-list", "--parents", "-n", "1", head) != parent_reading
+        or _commit_object_snapshot(root, head).raw != commit.raw
         or (
             include_sync
             and _optional_reference(root, f"refs/remotes/origin/{MAIN_BRANCH}")
             != origin_main
         )
         or (include_sync and _optional_upstream(root) != upstream)
-        or (
-            include_sync
-            and upstream
-            and _git(
-                root,
-                "rev-list",
-                "--left-right",
-                "--count",
-                f"HEAD...refs/remotes/{upstream}",
-            )
-            != ahead_behind_reading
-        )
     ):
         # Every fact this observation reports must still hold: the object name,
         # the symbolic identity, the working state, the base authority in both
-        # directions, the shallow boundary, and the parent line. A concurrent
-        # unshallow or deepen leaves all the others equal while the shallow and
-        # parent facts go stale, so they are re-read here too.
+        # directions, the shallow boundary, and the immutable current-commit
+        # bytes. Ancestor availability may change without changing those bytes.
         raise TopologyError(f"repository moved while observing {root}")
     return TopologyObservation(
         branch=branch,
         head=head,
         head_tree=head_tree,
         head_parents=parents,
+        head_subject=commit.subject,
+        head_message=commit.message,
+        head_trailer=commit.trailer,
         merge_base=merge_base,
         shallow=shallow,
         event_name=event_name,
@@ -1326,6 +1362,9 @@ def verify(
         ("head", observation.head, expectation.head),
         ("head_tree", observation.head_tree, expectation.head_tree),
         ("head_parents", observation.head_parents, expectation.head_parents),
+        ("head_subject", observation.head_subject, expectation.head_subject),
+        ("head_message", observation.head_message, expectation.head_message),
+        ("head_trailer", observation.head_trailer, expectation.head_trailer),
         ("merge_base", observation.merge_base, expectation.merge_base),
         ("shallow", observation.shallow, expectation.shallow),
         ("event_name", observation.event_name, expectation.event_name),
@@ -1409,7 +1448,10 @@ def build_topology(
             head_parents=(
                 () if source is None else source_commit_parents(source, base)
             ),
-            merge_base=base,
+            head_subject=observation.head_subject,
+            head_message=observation.head_message,
+            head_trailer=observation.head_trailer,
+            merge_base="",
             shallow=False,
             event_name=EVENT_LOCAL,
             event_head_ref="",
@@ -1489,7 +1531,10 @@ def build_topology(
             # A real topic branch may already carry several non-amend children,
             # so the declared parent is the checked-out generation's own parent.
             head_parents=topic_parents,
-            merge_base=base,
+            head_subject=observation.head_subject,
+            head_message=observation.head_message,
+            head_trailer=observation.head_trailer,
+            merge_base="",
             shallow=False,
             event_name=EVENT_LOCAL,
             event_head_ref="",
@@ -1533,7 +1578,10 @@ def build_topology(
             head=repair,
             head_tree=_git(root, "rev-parse", "HEAD^{tree}"),
             head_parents=(topic,),
-            merge_base=base,
+            head_subject=observation.head_subject,
+            head_message=observation.head_message,
+            head_trailer=observation.head_trailer,
+            merge_base="",
             shallow=False,
             event_name=EVENT_LOCAL,
             event_head_ref="",
@@ -1577,7 +1625,10 @@ def build_topology(
             head=merge,
             head_tree=merged_tree,
             head_parents=(base, topic),
-            merge_base=base,
+            head_subject=observation.head_subject,
+            head_message=observation.head_message,
+            head_trailer=observation.head_trailer,
+            merge_base="",
             shallow=False,
             event_name=EVENT_PULL_REQUEST,
             event_head_ref=TOPIC_BRANCH,
@@ -1636,7 +1687,10 @@ def build_topology(
             branch="HEAD",
             head=merge,
             head_tree=merged_tree,
-            head_parents=(),
+            head_parents=(base, topic),
+            head_subject=observation.head_subject,
+            head_message=observation.head_message,
+            head_trailer=observation.head_trailer,
             merge_base="",
             shallow=True,
             event_name=EVENT_PULL_REQUEST,
@@ -1692,7 +1746,10 @@ def build_topology(
             branch=MAIN_BRANCH,
             head=squash,
             head_tree=squash_tree,
-            head_parents=(),
+            head_parents=(base,),
+            head_subject=observation.head_subject,
+            head_message=observation.head_message,
+            head_trailer=observation.head_trailer,
             merge_base="",
             shallow=True,
             event_name=EVENT_PUSH,
@@ -1720,7 +1777,10 @@ def build_topology(
         head=squash,
         head_tree=squash_tree,
         head_parents=(base,),
-        merge_base=squash,
+        head_subject=observation.head_subject,
+        head_message=observation.head_message,
+        head_trailer=observation.head_trailer,
+        merge_base="",
         shallow=False,
         event_name=EVENT_LOCAL,
         event_head_ref="",
@@ -1815,7 +1875,10 @@ def build_slice2_direct_main_topology(
             head_parents=(
                 () if source is None else source_commit_parents(source, baseline)
             ),
-            merge_base=baseline,
+            head_subject=observation.head_subject,
+            head_message=observation.head_message,
+            head_trailer=observation.head_trailer,
+            merge_base="",
             shallow=False,
             event_name=EVENT_LOCAL,
             event_head_ref="",
@@ -1876,14 +1939,18 @@ def build_slice2_direct_main_topology(
             head=direct,
             head_tree=direct_tree,
             head_parents=(baseline,),
-            merge_base=baseline,
+            head_subject=observation.head_subject,
+            head_message=observation.head_message,
+            head_trailer=observation.head_trailer,
+            merge_base="",
             shallow=False,
             event_name=EVENT_LOCAL,
             event_head_ref="",
             event_base_ref="",
             upstream=f"origin/{MAIN_BRANCH}",
             origin_main=baseline,
-            ahead=1,
+            ahead=DIVERGENCE_UNAVAILABLE,
+            behind=DIVERGENCE_UNAVAILABLE,
         )
         return TopologyFixture(
             kind=kind,
@@ -1922,7 +1989,10 @@ def build_slice2_direct_main_topology(
             branch=MAIN_BRANCH,
             head=direct,
             head_tree=direct_tree,
-            head_parents=(),
+            head_parents=(baseline,),
+            head_subject=observation.head_subject,
+            head_message=observation.head_message,
+            head_trailer=observation.head_trailer,
             merge_base="",
             shallow=True,
             event_name=EVENT_PUSH,
@@ -1953,7 +2023,10 @@ def build_slice2_direct_main_topology(
         head=direct,
         head_tree=direct_tree,
         head_parents=(baseline,),
-        merge_base=direct,
+        head_subject=observation.head_subject,
+        head_message=observation.head_message,
+        head_trailer=observation.head_trailer,
+        merge_base="",
         shallow=False,
         event_name=EVENT_LOCAL,
         event_head_ref="",
@@ -2060,6 +2133,9 @@ def rejected_variants(
         ),
         ("wrong_ref", _replace(expectation, branch="wrong/branch")),
         ("wrong_tree", _replace(expectation, head_tree="1" * 40)),
+        ("wrong_subject", _replace(expectation, head_subject="wrong subject")),
+        ("wrong_message", _replace(expectation, head_message="wrong message\n")),
+        ("wrong_trailer", _replace(expectation, head_trailer="Wrong: trailer")),
         ("wrong_shallow", _replace(expectation, shallow=not expectation.shallow)),
         (
             "wrong_event",
@@ -2094,6 +2170,9 @@ def _replace(
         "head": expectation.head,
         "head_tree": expectation.head_tree,
         "head_parents": expectation.head_parents,
+        "head_subject": expectation.head_subject,
+        "head_message": expectation.head_message,
+        "head_trailer": expectation.head_trailer,
         "merge_base": expectation.merge_base,
         "shallow": expectation.shallow,
         "event_name": expectation.event_name,

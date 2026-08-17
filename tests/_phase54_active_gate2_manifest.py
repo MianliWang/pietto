@@ -5226,22 +5226,48 @@ def _phase54_post_slice12_interlude_publication_identity_matches(
     return False
 
 
-def _git_commit_parents(revision: str) -> tuple[str, ...]:
-    """Read one commit's declared parents from the commit object itself.
+def _git_commit_object_snapshot(
+    revision: str,
+) -> tuple[str, tuple[str, ...], str, str, str]:
+    """Read one commit's identity and message from the commit object itself.
 
     A depth-one checkout truncates traversal, so ``rev-list`` reports no parent
     there even though the object still declares one. Publication identity must
     be the same fact under every projection.
     """
 
-    header, separator, _ = _git_output(["cat-file", "-p", revision]).partition("\n\n")
+    raw = _git_decoded(_git_bytes(["cat-file", "-p", revision]))
+    header, separator, message = raw.partition("\n\n")
     if not separator:
         raise ValueError(f"commit object has no message separator: {revision}")
-    return tuple(
+    tree_lines = tuple(
+        line.removeprefix("tree ")
+        for line in header.splitlines()
+        if line.startswith("tree ")
+    )
+    parents = tuple(
         line.removeprefix("parent ")
         for line in header.splitlines()
         if line.startswith("parent ")
     )
+    lines = message.splitlines()
+    if (
+        len(tree_lines) != 1
+        or re.fullmatch(r"[0-9a-f]{40}", tree_lines[0]) is None
+        or any(re.fullmatch(r"[0-9a-f]{40}", parent) is None for parent in parents)
+        or not lines
+    ):
+        raise ValueError(f"invalid commit object identity: {revision}")
+    trailer = (
+        lines[-1] if len(lines) >= 3 and lines[-2] == "" and ": " in lines[-1] else ""
+    )
+    return tree_lines[0], parents, lines[0], message, trailer
+
+
+def _git_commit_parents(revision: str) -> tuple[str, ...]:
+    """Read one commit's ordered declared parents without traversing history."""
+
+    return _git_commit_object_snapshot(revision)[1]
 
 
 def phase54_post_slice12_interlude_head_is_recognized_publication() -> bool:
@@ -5251,10 +5277,7 @@ def phase54_post_slice12_interlude_head_is_recognized_publication() -> bool:
         # Resolve one object name and read every fact from it, then confirm the
         # reference has not moved before the recognition is reported.
         head = _git_output(["rev-parse", "HEAD"])
-        parents = _git_commit_parents(head)
-        subject = _git_output(["show", "-s", "--format=%s", head])
-        tree = _git_output(["rev-parse", f"{head}^{{tree}}"])
-        message = _git_commit_message(head)
+        tree, parents, subject, message, _ = _git_commit_object_snapshot(head)
         if _git_output(["rev-parse", "HEAD"]) != head:
             return False
     except (OSError, ValueError, subprocess.SubprocessError):
@@ -6327,23 +6350,20 @@ def phase54_active_gate2_publication_commit_is_head() -> bool:
     The lifecycle produces a clean topic child, a squashed ``main`` commit, and a
     depth-one push of that squash. All three carry an accepted publication
     subject and end their message with the canonical reviewed-tree trailer for
-    their own exact tree; a depth-one checkout additionally has no parent at all.
-    Recognizing them here keeps one authority for the publication chain instead
-    of appending one frozen head per Slice to every reader that observes it.
+    their own exact tree. Direct-parent OIDs come from the current commit object,
+    so shallow history never changes the observed shape.
     """
+
+    if phase55_slice2_publication_commit_is_head():
+        return True
 
     try:
         head = _git_output(["rev-parse", "HEAD"])
-        parents = tuple(
-            _git_output(["rev-list", "--parents", "-n", "1", head]).split()[1:]
-        )
-        subject = _git_output(["show", "-s", "--format=%s", head])
-        tree = _git_output(["rev-parse", f"{head}^{{tree}}"])
-        message = _git_commit_message(head)
+        tree, parents, subject, message, _ = _git_commit_object_snapshot(head)
         shallow = _git_output(["rev-parse", "--is-shallow-repository"]) == "true"
     except (OSError, subprocess.SubprocessError, ValueError):
         return False
-    if len(parents) > 1:
+    if len(parents) != 1:
         return False
     accepted_subject = (
         subject == PHASE55_SLICE1_HISTORICAL_GATE2_SUBJECT
@@ -6365,13 +6385,13 @@ def phase54_active_gate2_publication_commit_is_head() -> bool:
     expected = f"{active_trailer}: {tree}"
     if not (len(lines) >= 3 and lines[-2] == "" and lines[-1] == expected):
         return False
-    if not parents:
-        # A depth-one checkout truncates history, so the trailer is the only
-        # available proof and the shallow boundary must confirm the truncation.
-        return shallow
     if phase55_subject:
         return parents[0] in PHASE55_SLICE1_HISTORICAL_GATE3_AUTHORIZED_DIRECT_PARENTS
     if parents[0] == PHASE54_ACTIVE_GATE2_BASE:
+        return True
+    if shallow:
+        # The direct parent OID remains observable, while its ancestor chain is
+        # deliberately unavailable. External Gate evidence remains authority.
         return True
     try:
         chain = _git_output(["rev-list", "--first-parent", head]).split()
@@ -6713,6 +6733,9 @@ PHASE55_SLICE2_BASELINE_TREE = "9bc952f6eedca6a953c9edd94e0172b02451f74c"
 PHASE55_SLICE2_DIRECT_MAIN_BRANCH = "main"
 PHASE55_SLICE2_DIRECT_MAIN_SUBJECT = "Add Phase 55 explicit package activation carrier"
 PHASE55_SLICE2_REVIEWED_TREE_TRAILER = "Pietto-Reviewed-Tree"
+PHASE55_SLICE2_FAILED_PUBLISHED_HEAD = "f918f720e10bde4d23b23fa45c7f18e47b2081d4"
+PHASE55_SLICE2_PUBLISHED_TREE = "60c68ab7653fcd11538fabf21aba552dcbd3baa9"
+PHASE55_SLICE2_RECOVERY_SUBJECT = "Repair Phase 55 Slice 2 main CI mechanical closure"
 
 PHASE55_SLICE2_GATE1_PROJECTED_ADDED_PATHS = frozenset(
     {
@@ -6970,4 +6993,100 @@ def phase55_slice2_direct_main_commit_matches_external_sealed_tree(
         and _phase55_slice2_direct_main_trailer_matches_external_tree(
             message, sealed_tree
         )
+    )
+
+
+def phase55_slice2_recovery_shape_matches_failed_publication(
+    parents: tuple[str, ...],
+    subject: str,
+    tree: str,
+    message: str,
+) -> bool:
+    """Recognize the one bounded repair shape without granting authority.
+
+    The external recovery evidence authorizes one exact tree.  This predicate
+    only keeps topology readers from mistaking that child for older maintenance
+    history.
+    """
+
+    if not (
+        type(parents) is tuple
+        and type(subject) is str
+        and type(tree) is str
+        and re.fullmatch(r"[0-9a-f]{40}", tree) is not None
+    ):
+        return False
+    return (
+        parents == (PHASE55_SLICE2_FAILED_PUBLISHED_HEAD,)
+        and subject == PHASE55_SLICE2_RECOVERY_SUBJECT
+        and _phase55_slice2_direct_main_trailer_matches_external_tree(message, tree)
+    )
+
+
+def phase55_slice2_recovery_commit_matches_external_sealed_tree(
+    parents: tuple[str, ...],
+    subject: str,
+    tree: str,
+    message: str,
+    *,
+    sealed_tree: str,
+) -> bool:
+    """Validate a recovery commit only against an externally supplied tree."""
+
+    return (
+        re.fullmatch(r"[0-9a-f]{40}", sealed_tree) is not None
+        and tree == sealed_tree
+        and phase55_slice2_recovery_shape_matches_failed_publication(
+            parents,
+            subject,
+            tree,
+            message,
+        )
+    )
+
+
+def phase55_slice2_publication_commit_is_head() -> bool:
+    """Recognize only the exact already-published Slice 2 direct-main child.
+
+    ``_git_commit_parents`` reads the parent declaration from the checked-out
+    commit object, so depth-one validation never dereferences an unavailable
+    parent object.  Authorization remains external evidence, not this reader.
+    """
+
+    try:
+        head = _git_output(["rev-parse", "HEAD"])
+        tree, parents, subject, message, _ = _git_commit_object_snapshot(head)
+        if _git_output(["rev-parse", "HEAD"]) != head:
+            return False
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+    return (
+        head == PHASE55_SLICE2_FAILED_PUBLISHED_HEAD
+        and tree == PHASE55_SLICE2_PUBLISHED_TREE
+        and phase55_slice2_direct_main_commit_matches_external_sealed_tree(
+            parents,
+            subject,
+            tree,
+            message,
+            sealed_baseline=PHASE55_SLICE2_BASELINE,
+            sealed_tree=PHASE55_SLICE2_PUBLISHED_TREE,
+        )
+    )
+
+
+def phase55_slice2_recovery_shape_is_head() -> bool:
+    """Observe the bounded recovery shape; never authorize its tree."""
+
+    try:
+        head = _git_output(["rev-parse", "HEAD"])
+        tree, parents, subject, message, _ = _git_commit_object_snapshot(head)
+        if _git_output(["rev-parse", "HEAD"]) != head:
+            return False
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return False
+    return phase55_slice2_recovery_shape_matches_failed_publication(
+        parents,
+        subject,
+        tree,
+        message,
     )

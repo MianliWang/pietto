@@ -923,6 +923,7 @@ def test_active_gate_allowlist_and_static_non_behavior_guards_are_exact() -> Non
     def output(arguments: list[str]) -> str:
         return git_outputs[tuple(arguments)]
 
+    message = f"{active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_SUBJECT}\n\nP55: {tree}\n"
     with (
         patch.object(
             active_gate,
@@ -933,16 +934,26 @@ def test_active_gate_allowlist_and_static_non_behavior_guards_are_exact() -> Non
         patch.object(active_gate, "_git_output", side_effect=output),
         patch.object(
             active_gate,
-            "_git_commit_message",
+            "_git_commit_object_snapshot",
             return_value=(
-                f"{active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_SUBJECT}\n\n"
-                f"P55: {tree}\n"
+                tree,
+                (active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_BASE,),
+                active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_SUBJECT,
+                message,
+                f"P55: {tree}",
             ),
-        ) as commit_message_mock,
+        ) as snapshot_mock,
     ):
         assert active_gate.phase54_active_gate2_publication_commit_is_head()
-        commit_message_mock.return_value = (
+        message = (
             f"{active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_SUBJECT}\n\nP54: {tree}\n"
+        )
+        snapshot_mock.return_value = (
+            tree,
+            (active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_BASE,),
+            active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_SUBJECT,
+            message,
+            f"P54: {tree}",
         )
         assert not active_gate.phase54_active_gate2_publication_commit_is_head()
 
@@ -994,17 +1005,30 @@ def test_active_gate_allowlist_and_static_non_behavior_guards_are_exact() -> Non
     def repair_output(arguments: list[str]) -> str:
         return repair_git_outputs[tuple(arguments)]
 
+    repair_message = (
+        f"{active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_SUBJECT}\n\n"
+        f"{active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_REVIEWED_TREE_TRAILER}: "
+        f"{repair_tree}\n"
+    )
     with (
         patch.object(active_gate, "_git_output", side_effect=repair_output),
         patch.object(
             active_gate,
             "_git_commit_message",
-            return_value=(
-                f"{active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_SUBJECT}\n\n"
-                f"{active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_REVIEWED_TREE_TRAILER}: "
-                f"{repair_tree}\n"
-            ),
+            return_value=repair_message,
         ),
+        patch.object(
+            active_gate,
+            "_git_commit_object_snapshot",
+            return_value=(
+                repair_tree,
+                (repair_parent,),
+                active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_SUBJECT,
+                repair_message,
+                f"{active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_REVIEWED_TREE_TRAILER}: "
+                f"{repair_tree}",
+            ),
+        ) as snapshot_mock,
         patch.object(
             active_gate,
             "_read_phase54_gate2_repository_state",
@@ -1016,6 +1040,14 @@ def test_active_gate_allowlist_and_static_non_behavior_guards_are_exact() -> Non
         ) in active_gate.PHASE55_SLICE1_HISTORICAL_GATE3_AUTHORIZED_DIRECT_PARENTS:
             repair_git_outputs[("rev-list", "--parents", "-n", "1", repair_head)] = (
                 f"{repair_head} {repair_parent}"
+            )
+            snapshot_mock.return_value = (
+                repair_tree,
+                (repair_parent,),
+                active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_SUBJECT,
+                repair_message,
+                f"{active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_REVIEWED_TREE_TRAILER}: "
+                f"{repair_tree}",
             )
             assert active_gate._matches_phase55_active_gate2_clean_topic(repair_state)
             assert active_gate.phase54_active_gate2_publication_commit_is_head()
@@ -1035,10 +1067,26 @@ def test_active_gate_allowlist_and_static_non_behavior_guards_are_exact() -> Non
         repair_git_outputs[("rev-list", "--first-parent", repair_head)] = (
             f"{repair_head} {repair_parent} {active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_BASE}"
         )
+        snapshot_mock.return_value = (
+            repair_tree,
+            (repair_parent,),
+            active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_SUBJECT,
+            repair_message,
+            f"{active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_REVIEWED_TREE_TRAILER}: "
+            f"{repair_tree}",
+        )
         assert not active_gate._matches_phase55_active_gate2_clean_topic(repair_state)
         assert not active_gate.phase54_active_gate2_publication_commit_is_head()
         repair_git_outputs[("rev-list", "--parents", "-n", "1", repair_head)] = (
             f"{repair_head} {active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_BASE} {'f' * 40}"
+        )
+        snapshot_mock.return_value = (
+            repair_tree,
+            (active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_BASE, "f" * 40),
+            active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_SUBJECT,
+            repair_message,
+            f"{active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_REVIEWED_TREE_TRAILER}: "
+            f"{repair_tree}",
         )
         assert not active_gate._matches_phase55_active_gate2_clean_topic(repair_state)
         assert not active_gate.phase54_active_gate2_publication_commit_is_head()

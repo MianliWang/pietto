@@ -1191,9 +1191,9 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
                 assert origin_main == head
 
     readable_paths = set(_git_output(["ls-files"]).splitlines()) | untracked
-    assert len(readable_paths) == 949
-    assert sum(path.endswith(".py") for path in readable_paths) == 581
-    assert sum(path.endswith(".md") for path in readable_paths) == 272
+    assert len(readable_paths) == 951
+    assert sum(path.endswith(".py") for path in readable_paths) == 582
+    assert sum(path.endswith(".md") for path in readable_paths) == 273
     test_modules = {
         path
         for path in readable_paths

@@ -49,6 +49,8 @@ from _phase54_active_gate2_manifest import (
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
     phase54_active_gate2_publication_commit_is_head,
+    phase55_slice2_recovery_shape_is_head,
+    _git_commit_parents,
 )
 
 import pytest
@@ -648,10 +650,14 @@ def _interlude_expected_parent(subject: str, parents: list[str]) -> str | None:
 def test_maintenance_main_handoff_build_backend_and_wheelhouse_are_locked() -> None:
     pyproject = _read("pyproject.toml")
     head = _git_output(["rev-parse", "HEAD"])
-    if head != BASE_HEAD:
-        parents = _git_output(["rev-list", "--parents", "-n", "1", "HEAD"]).split()[1:]
+    recognized_publication = (
+        phase55_slice2_recovery_shape_is_head()
+        or phase54_active_gate2_publication_commit_is_head()
+    )
+    if head != BASE_HEAD and not recognized_publication:
+        parents = list(_git_commit_parents("HEAD"))
         if _git_output(["rev-parse", "--is-shallow-repository"]) == "true":
-            assert parents == []
+            assert parents
         else:
             if _phase54_active_gate2_is_active():
                 subject = _git_output(["show", "-s", "--format=%s", "HEAD"])

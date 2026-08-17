@@ -20,7 +20,11 @@ import pietto._project.source_selection as source_selection
 import pietto.cli as cli
 import _pietto_publication_topology as publication_topology
 from _phase54_active_gate2_manifest import (
+    PHASE55_SLICE2_FAILED_PUBLISHED_HEAD,
+    PHASE55_SLICE2_RECOVERY_SUBJECT,
     phase55_slice2_direct_main_commit_matches_external_sealed_tree,
+    phase55_slice2_recovery_commit_matches_external_sealed_tree,
+    phase55_slice2_recovery_shape_matches_failed_publication,
 )
 from _pietto_publication_topology import (
     TopologyError,
@@ -79,7 +83,7 @@ _MODULE_SIDECAR_FIELDS = (
 _P08_MESSAGE = "Schema-v3 package activation does not use project source selection."
 _EXTERNAL_BASELINE = "5de57b2c078742253aa64d3a5ad627cd602290cd"
 _EXTERNAL_BASELINE_TREE = "9bc952f6eedca6a953c9edd94e0172b02451f74c"
-_EXTERNAL_SEALED_TREE = "91d6aeeddd4af10cdb6a1b9b46bdab5cad60a250"
+_EXTERNAL_SEALED_TREE = "60c68ab7653fcd11538fabf21aba552dcbd3baa9"
 _EXTERNAL_DIRECT_MAIN_KINDS = (
     "slice2_direct_main_dirty_candidate",
     "slice2_direct_main_clean_pre_push",
@@ -822,12 +826,24 @@ def test_v1_v2_package_name_neutrality_is_exact_for_manifest_shapes(
 def test_direct_main_external_snapshot_proof_and_negative_authorities(
     tmp_path: Path,
 ) -> None:
-    source = _baseline_dirty_source(tmp_path / "source", _EXTERNAL_BASELINE)
-    baseline = _git(source, "rev-parse", "HEAD")
-    assert (
-        baseline == _EXTERNAL_BASELINE == _git(source, "rev-parse", "refs/heads/main")
+    external_message = (
+        f"{_EXTERNAL_DIRECT_MAIN_SUBJECT}\n\n"
+        f"{_EXTERNAL_REVIEWED_TREE_TRAILER}: {_EXTERNAL_SEALED_TREE}\n"
     )
-    assert _git(source, "rev-parse", "HEAD^{tree}") == _EXTERNAL_BASELINE_TREE
+    assert phase55_slice2_direct_main_commit_matches_external_sealed_tree(
+        (_EXTERNAL_BASELINE,),
+        _EXTERNAL_DIRECT_MAIN_SUBJECT,
+        _EXTERNAL_SEALED_TREE,
+        external_message,
+        sealed_baseline=_EXTERNAL_BASELINE,
+        sealed_tree=_EXTERNAL_SEALED_TREE,
+    )
+
+    source = _synthetic_complete_dirty_source(tmp_path / "source")
+    baseline = _git(source, "rev-parse", "HEAD")
+    baseline_tree = _git(source, "rev-parse", "HEAD^{tree}")
+    assert baseline == _git(source, "rev-parse", "refs/heads/main")
+    assert len(baseline) == len(baseline_tree) == 40
     assert _git(source, "branch", "--show-current") == "main"
     assert _git(source, "diff", "--cached", "--name-only") == ""
     assert _git(source, "status", "--porcelain") == "?? SLICE2-CANDIDATE.txt"
@@ -835,8 +851,7 @@ def test_direct_main_external_snapshot_proof_and_negative_authorities(
     assert candidate.is_file() and not candidate.is_symlink()
     _assert_no_git_operation(source)
     sealed_tree = _independent_dirty_tree(source, tmp_path / "external.index")
-    assert sealed_tree == _EXTERNAL_SEALED_TREE
-    assert sealed_tree != _EXTERNAL_BASELINE_TREE
+    assert len(sealed_tree) == 40 and sealed_tree != baseline_tree
 
     original_output = publication_topology._source_output
     real_builder = publication_topology.build_slice2_direct_main_topology
@@ -927,8 +942,8 @@ def test_direct_main_external_snapshot_proof_and_negative_authorities(
         )
         fixtures = publication_topology.build_slice2_direct_main_all(
             tmp_path / "topology",
-            sealed_baseline=_EXTERNAL_BASELINE,
-            sealed_tree=_EXTERNAL_SEALED_TREE,
+            sealed_baseline=baseline,
+            sealed_tree=sealed_tree,
             source=source,
         )
     assert baseline_reads == 1 and advanced
@@ -945,27 +960,58 @@ def test_direct_main_external_snapshot_proof_and_negative_authorities(
         dirty_observation.head
         == pre_push.head_parents[0]
         == reconciled.head_parents[0]
-        == _EXTERNAL_BASELINE
+        == baseline
     )
     assert (
         _independent_dirty_tree(fixtures[0].root, tmp_path / "dirty-final.index")
-        == _EXTERNAL_SEALED_TREE
+        == sealed_tree
     )
     assert (
-        pre_push.head_tree
-        == shallow.head_tree
-        == reconciled.head_tree
-        == _EXTERNAL_SEALED_TREE
+        pre_push.head_tree == shallow.head_tree == reconciled.head_tree == sealed_tree
     )
     for fixture in fixtures[1:]:
-        assert fixture.observation.head_tree == _EXTERNAL_SEALED_TREE
-        assert _git(fixture.root, "rev-parse", "HEAD^{tree}") == _EXTERNAL_SEALED_TREE
-    assert pre_push.origin_main == _EXTERNAL_BASELINE and pre_push.ahead == 1
+        assert fixture.observation.head_tree == sealed_tree
+        assert _git(fixture.root, "rev-parse", "HEAD^{tree}") == sealed_tree
+    assert pre_push.origin_main == baseline
+    assert (
+        pre_push.ahead == pre_push.behind == publication_topology.DIVERGENCE_UNAVAILABLE
+    )
     assert (
         shallow.shallow
         and shallow.event_name == "push"
         and shallow.head == pre_push.head
     )
+    assert (
+        pre_push.head_parents
+        == shallow.head_parents
+        == reconciled.head_parents
+        == (baseline,)
+    )
+    assert (
+        pre_push.head_subject
+        == shallow.head_subject
+        == reconciled.head_subject
+        == _EXTERNAL_DIRECT_MAIN_SUBJECT
+    )
+    assert pre_push.head_message == shallow.head_message == reconciled.head_message
+    assert pre_push.head_trailer == shallow.head_trailer == reconciled.head_trailer
+    assert (
+        subprocess.run(
+            ["git", "cat-file", "-e", f"{baseline}^{{commit}}"],
+            cwd=shallow_fixture.root,
+            capture_output=True,
+            check=False,
+        ).returncode
+        != 0
+    )
+    with pytest.raises(TopologyError, match="complete history"):
+        publication_topology.build_slice2_direct_main_topology(
+            publication_topology.TOPOLOGY_SLICE2_DIRECT_MAIN_PRE_PUSH,
+            tmp_path / "shallow-source-rejected",
+            sealed_tree=sealed_tree,
+            source=shallow_fixture.root,
+            _sealed_baseline=shallow.head,
+        )
     assert (
         reconciled.branch == "main"
         and reconciled.head == reconciled.origin_main == pre_push.head
@@ -981,15 +1027,15 @@ def test_direct_main_external_snapshot_proof_and_negative_authorities(
         pre_push.head,
     )
     expected_message = (
-        "Add Phase 55 explicit package activation carrier\n\n"
-        "Pietto-Reviewed-Tree: 91d6aeeddd4af10cdb6a1b9b46bdab5cad60a250\n"
+        f"{_EXTERNAL_DIRECT_MAIN_SUBJECT}\n\n"
+        f"{_EXTERNAL_REVIEWED_TREE_TRAILER}: {sealed_tree}\n"
     )
     for raw in (raw_pre_push, raw_shallow, raw_reconciled):
         headers, separator, message = raw.partition("\n\n")
         assert separator == "\n\n"
         lines = headers.splitlines()
-        assert lines.count(f"tree {_EXTERNAL_SEALED_TREE}") == 1
-        assert lines.count(f"parent {_EXTERNAL_BASELINE}") == 1
+        assert lines.count(f"tree {sealed_tree}") == 1
+        assert lines.count(f"parent {baseline}") == 1
         tree = next(
             line.removeprefix("tree ") for line in lines if line.startswith("tree ")
         )
@@ -997,36 +1043,26 @@ def test_direct_main_external_snapshot_proof_and_negative_authorities(
             line.removeprefix("parent ") for line in lines if line.startswith("parent ")
         )
         subject = message.split("\n", maxsplit=1)[0]
-        assert parents == (_EXTERNAL_BASELINE,)
+        assert parents == (baseline,)
         assert subject == _EXTERNAL_DIRECT_MAIN_SUBJECT
-        assert tree == _EXTERNAL_SEALED_TREE
+        assert tree == sealed_tree
         assert message == expected_message
-        assert phase55_slice2_direct_main_commit_matches_external_sealed_tree(
-            parents,
-            subject,
-            tree,
-            message,
-            sealed_baseline=_EXTERNAL_BASELINE,
-            sealed_tree=_EXTERNAL_SEALED_TREE,
-        )
     for index, (bad_baseline, bad_tree) in enumerate(
         (
-            ("A" * 40, _EXTERNAL_SEALED_TREE),
-            ("a" * 39, _EXTERNAL_SEALED_TREE),
-            ("z" * 40, _EXTERNAL_SEALED_TREE),
-            (_EXTERNAL_BASELINE, "A" * 40),
-            (_EXTERNAL_BASELINE, "a" * 39),
-            (_EXTERNAL_BASELINE, "z" * 40),
-            ("a" * 40, _EXTERNAL_SEALED_TREE),
-            (_EXTERNAL_BASELINE, "b" * 40),
+            ("A" * 40, sealed_tree),
+            ("a" * 39, sealed_tree),
+            ("z" * 40, sealed_tree),
+            (baseline, "A" * 40),
+            (baseline, "a" * 39),
+            (baseline, "z" * 40),
+            ("a" * 40, sealed_tree),
+            (baseline, "b" * 40),
         )
     ):
-        fresh = _baseline_dirty_source(
-            tmp_path / f"negative-{index}", _EXTERNAL_BASELINE
-        )
+        fresh = _synthetic_complete_dirty_source(tmp_path / f"negative-{index}")
         assert (
             _independent_dirty_tree(fresh, tmp_path / f"negative-{index}.index")
-            == _EXTERNAL_SEALED_TREE
+            == sealed_tree
         )
         with pytest.raises(TopologyError):
             build_slice2_direct_main_all(
@@ -1040,20 +1076,20 @@ def test_direct_main_external_snapshot_proof_and_negative_authorities(
             (_EXTERNAL_BASELINE, "a" * 40),
             _EXTERNAL_DIRECT_MAIN_SUBJECT,
             _EXTERNAL_SEALED_TREE,
-            expected_message,
+            external_message,
         ),
-        ((_EXTERNAL_BASELINE,), "wrong", _EXTERNAL_SEALED_TREE, expected_message),
+        ((_EXTERNAL_BASELINE,), "wrong", _EXTERNAL_SEALED_TREE, external_message),
         (
             (_EXTERNAL_BASELINE,),
             _EXTERNAL_DIRECT_MAIN_SUBJECT,
             "a" * 40,
-            expected_message,
+            external_message,
         ),
         (
             (_EXTERNAL_BASELINE,),
             _EXTERNAL_DIRECT_MAIN_SUBJECT,
             _EXTERNAL_SEALED_TREE,
-            expected_message + "extra\n",
+            external_message + "extra\n",
         ),
     ):
         assert not phase55_slice2_direct_main_commit_matches_external_sealed_tree(
@@ -1063,6 +1099,60 @@ def test_direct_main_external_snapshot_proof_and_negative_authorities(
             text,
             sealed_baseline=_EXTERNAL_BASELINE,
             sealed_tree=_EXTERNAL_SEALED_TREE,
+        )
+
+    recovery_tree = "c" * 40
+    recovery_message = (
+        f"{PHASE55_SLICE2_RECOVERY_SUBJECT}\n\n"
+        f"{_EXTERNAL_REVIEWED_TREE_TRAILER}: {recovery_tree}\n"
+    )
+    assert phase55_slice2_recovery_shape_matches_failed_publication(
+        (PHASE55_SLICE2_FAILED_PUBLISHED_HEAD,),
+        PHASE55_SLICE2_RECOVERY_SUBJECT,
+        recovery_tree,
+        recovery_message,
+    )
+    assert phase55_slice2_recovery_commit_matches_external_sealed_tree(
+        (PHASE55_SLICE2_FAILED_PUBLISHED_HEAD,),
+        PHASE55_SLICE2_RECOVERY_SUBJECT,
+        recovery_tree,
+        recovery_message,
+        sealed_tree=recovery_tree,
+    )
+    assert not phase55_slice2_recovery_commit_matches_external_sealed_tree(
+        (PHASE55_SLICE2_FAILED_PUBLISHED_HEAD,),
+        PHASE55_SLICE2_RECOVERY_SUBJECT,
+        recovery_tree,
+        recovery_message,
+        sealed_tree="d" * 40,
+    )
+    for parents, subject, tree, text in (
+        ((), PHASE55_SLICE2_RECOVERY_SUBJECT, recovery_tree, recovery_message),
+        (("d" * 40,), PHASE55_SLICE2_RECOVERY_SUBJECT, recovery_tree, recovery_message),
+        (
+            (PHASE55_SLICE2_FAILED_PUBLISHED_HEAD,),
+            "wrong",
+            recovery_tree,
+            recovery_message,
+        ),
+        (
+            (PHASE55_SLICE2_FAILED_PUBLISHED_HEAD,),
+            PHASE55_SLICE2_RECOVERY_SUBJECT,
+            "D" * 40,
+            recovery_message,
+        ),
+        (
+            (PHASE55_SLICE2_FAILED_PUBLISHED_HEAD,),
+            PHASE55_SLICE2_RECOVERY_SUBJECT,
+            recovery_tree,
+            recovery_message + "extra\n",
+        ),
+    ):
+        assert not phase55_slice2_recovery_shape_matches_failed_publication(
+            parents,
+            subject,
+            tree,
+            text,
         )
 
 
@@ -1314,27 +1404,22 @@ def _write_decoys(root: Path, package_path: str) -> None:
             (nested / name).write_text("decoy", encoding="utf-8")
 
 
-def _baseline_dirty_source(root: Path, baseline: str) -> Path:
-    repository = Path(__file__).parents[1]
-    result = subprocess.run(
-        [
-            "git",
-            "clone",
-            "--no-local",
-            "--no-checkout",
-            "--quiet",
-            str(repository),
-            str(root),
-        ],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    assert result.returncode == 0, result.stderr
-    _git(root, "checkout", "--quiet", "-B", "main", baseline)
-    _git(root, "remote", "remove", "origin")
+def _synthetic_complete_dirty_source(root: Path) -> Path:
+    root.mkdir()
+    _git(root, "init", "--quiet", "--initial-branch", "main")
     _git(root, "config", "user.name", "Pietto Test")
     _git(root, "config", "user.email", "topology@pietto.invalid")
+    (root / "BASELINE.txt").write_text("synthetic base\n", encoding="utf-8")
+    _git(root, "add", "BASELINE.txt")
+    _git(
+        root,
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "--quiet",
+        "-m",
+        "Synthetic complete baseline",
+    )
     (root / "SLICE2-CANDIDATE.txt").write_text("candidate\n", encoding="utf-8")
     return root
 

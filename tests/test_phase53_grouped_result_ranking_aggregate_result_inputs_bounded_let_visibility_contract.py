@@ -19,6 +19,7 @@ from _phase54_active_gate2_manifest import (
     phase54_publication_topic_base,
     phase54_publication_clean_topic_is_active,
     phase54_active_gate2_publication_commit_is_head,
+    phase55_slice2_recovery_shape_is_head,
     PHASE54_SLICE12_PRODUCT_REPAIR3_BASE,
     PHASE54_SLICE12_PRODUCT_REPAIR3_SUBJECT,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
@@ -1206,7 +1207,10 @@ def _is_clean_projection() -> bool:
             assert parents == (base_sha, candidate_sha)
         return True
 
-    if phase54_active_gate2_publication_commit_is_head():
+    if (
+        phase55_slice2_recovery_shape_is_head()
+        or phase54_active_gate2_publication_commit_is_head()
+    ):
         # The squashed main commit and its depth-one push carry the same
         # publication identity as the topic child; the manifest recognizes all
         # three, so no later Slice appends its own head here.
@@ -2020,15 +2024,20 @@ def test_reader_hash_inventory_and_nested_closure_is_exact() -> None:
 
 def test_slice13_dirty_clean_depth_one_and_manifest_states_are_locked() -> None:
     _is_clean_projection()
+    head = _git_output(["rev-parse", "HEAD"])
+    branch = _git_output(["branch", "--show-current"])
     origin_main = _git_optional_ref("refs/remotes/origin/main")
     if origin_main is not None:
-        assert _git_output(["rev-list", "--count", f"HEAD..{origin_main}"]) == "0"
+        if branch == "main":
+            assert origin_main == head
+        else:
+            assert phase54_publication_clean_topic_is_active()
     else:
         assert _git_output(["rev-parse", "--is-shallow-repository"]) == "true"
         assert _github_pull_request_identity() is not None or (
             os.environ.get("GITHUB_EVENT_NAME") == "push"
             and os.environ.get("GITHUB_REF") == "refs/heads/main"
-            and os.environ.get("GITHUB_SHA") == _git_output(["rev-parse", "HEAD"])
+            and os.environ.get("GITHUB_SHA") == head
         )
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
 
