@@ -35,9 +35,13 @@ from _phase54_active_gate2_manifest import (
     PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS,
     PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
-    PHASE55_ACTIVE_GATE2_ADDED_PATHS,
-    PHASE55_ACTIVE_GATE2_ALLOWLIST_PATHS,
+    PHASE55_SLICE2_BASELINE,
+    PHASE55_SLICE2_DIRECT_MAIN_BRANCH,
+    PHASE55_SLICE2_GATE2_ADDED_PATHS,
+    PHASE55_SLICE2_GATE2_DELETED_PATHS,
+    PHASE55_SLICE2_GATE2_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
+    phase55_slice2_direct_main_staging_matches,
     phase54_slice11_pr_ci_repair_is_active,
     phase54_slice12_pr_ci_repair_is_active,
     phase54_slice12_mechanical_repair3_is_active,
@@ -1477,6 +1481,13 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
     slice14_modified = _phase53_gate2_paths("MODIFIED_PATHS")
     slice14_added = _phase53_gate2_paths("ADDED_PATHS")
     phase54_modified, phase54_added = _phase54_gate2_paths()
+    slice2_modified = set(PHASE55_SLICE2_GATE2_MODIFIED_PATHS)
+    slice2_added = set(PHASE55_SLICE2_GATE2_ADDED_PATHS)
+    assert phase55_slice2_direct_main_staging_matches(
+        frozenset(slice2_added),
+        frozenset(slice2_modified),
+        PHASE55_SLICE2_GATE2_DELETED_PATHS,
+    )
     assert dirty in (
         set(),
         EXPECTED_GATE2_PATHS,
@@ -1493,7 +1504,7 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
         set(PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS),
         set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS),
         set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS),
-        set(PHASE55_ACTIVE_GATE2_ALLOWLIST_PATHS),
+        slice2_modified | slice2_added,
     )
     untracked = _git_paths(["ls-files", "--others", "--exclude-standard"])
     assert untracked in (
@@ -1502,7 +1513,7 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
         slice14_added,
         phase54_added,
         set(phase54_post_slice12_interlude_expected_added_paths()),
-        set(PHASE55_ACTIVE_GATE2_ADDED_PATHS),
+        slice2_added,
     )
     phase54_path_counts = (
         len(phase54_modified),
@@ -1568,6 +1579,21 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
                 for ref in ("HEAD", "main", "origin/main")
             )
             == (CI_REPAIR_BASE_HEAD_SHA,) * 3
+        )
+    elif dirty == slice2_modified | slice2_added:
+        assert untracked == slice2_added
+        assert set(_git_output(["diff", "--name-only"]).splitlines()) == (
+            slice2_modified
+        )
+        assert _git_output(["branch", "--show-current"]).strip() == (
+            PHASE55_SLICE2_DIRECT_MAIN_BRANCH
+        )
+        assert (
+            tuple(
+                _git_output(["rev-parse", ref]).strip()
+                for ref in ("HEAD", "main", "origin/main")
+            )
+            == (PHASE55_SLICE2_BASELINE,) * 3
         )
     elif dirty == phase54_modified | phase54_added:
         assert untracked == phase54_added
@@ -1683,7 +1709,7 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
     assert len(project_paths) == 33
     assert REPO_ROOT / "src/pietto/_project/window_persistence.py" in project_paths
     assert project_digest == (
-        "f9e56fe9cb8ea6523ac2d760c765e1341866bd63af22114d3105e364f03ad122"
+        "0f5a417592f7f0df276a34137b14a1a0f39526e4266279ed7af76b3dbfa49de9"
     )
     phase33 = (REPO_ROOT / "tests/test_phase33_completion_audit.py").read_text(
         encoding="utf-8"
@@ -1793,6 +1819,15 @@ def test_slice10_documentation_allowlist_hashes_and_protected_boundaries() -> No
             assert phase33_changed_lines == [
                 '-        "0bacc32f16a9bf5e89f53bcb9d5310ba440539cf100251b86e39fba18c59b0bb",',
                 f'+        "{_digest((REPO_ROOT / "AGENTS.md",))}",',
+            ]
+        elif dirty == slice2_modified | slice2_added:
+            assert phase33_changed_lines == [
+                '-        "f9e56fe9cb8ea6523ac2d760c765e1341866bd63af22114d3105e364f03ad122",',
+                f'+        "{project_digest}",',
+                '-        "0566a1a845af6301c16551c9c9ac455bf4a19b7ae630fd79fd27974696136272",',
+                f'+        "{_digest((REPO_ROOT / "README.md",))}",',
+                '-        "ebc774397dc050bd542106b4bffb28f15423153d668798b024236cff1faf0103",',
+                f'+        "{_digest((REPO_ROOT / "docs/spec/pietto-v0.9.md",))}",',
             ]
         elif _phase54_active_gate2_is_active():
             # Slice 16 is documentation and status work only: it adds no

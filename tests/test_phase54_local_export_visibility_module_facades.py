@@ -61,6 +61,8 @@ from _phase54_active_gate2_manifest import (
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BRANCH,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
+    PHASE55_SLICE2_GATE1_PROJECTED_ALLOWLIST_A2_M75_D0,
+    PHASE55_SLICE2_GATE2_ALLOWLIST_A2_M76_D0,
     Phase54Gate2RepositoryState,
     _matches_phase54_active_gate2_manifest,
     phase54_active_gate2_manifest_is_active,
@@ -1474,6 +1476,18 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
     phase55_active_allowlist = set(
         active_gate2_manifest.PHASE55_ACTIVE_GATE2_ALLOWLIST_PATHS
     )
+    phase55_slice2_projected_allowlist = set(
+        PHASE55_SLICE2_GATE1_PROJECTED_ALLOWLIST_A2_M75_D0
+    )
+    phase55_slice2_allowlist = set(PHASE55_SLICE2_GATE2_ALLOWLIST_A2_M76_D0)
+    assert len(phase55_slice2_projected_allowlist) == 77
+    assert "tests/test_phase50_import_module_export_readiness.py" not in (
+        phase55_slice2_projected_allowlist
+    )
+    assert len(phase55_slice2_allowlist) == 78
+    assert "tests/test_phase50_import_module_export_readiness.py" in (
+        phase55_slice2_allowlist
+    )
     repair_allowlist = set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS)
     slice12_repair_allowlist = set(PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS)
     slice12_product_repair3_allowlist = set(
@@ -1507,6 +1521,7 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
         set(),
         active_allowlist,
         phase55_active_allowlist,
+        phase55_slice2_allowlist,
         repair_allowlist,
         slice12_repair_allowlist,
         slice12_product_repair3_allowlist,
@@ -1566,6 +1581,8 @@ def test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_ar
     elif dirty == repair_allowlist:
         assert repair_gate2_active
     elif dirty == phase55_active_allowlist:
+        assert gate2_active
+    elif dirty == phase55_slice2_allowlist:
         assert gate2_active
     elif dirty:
         assert gate2_active

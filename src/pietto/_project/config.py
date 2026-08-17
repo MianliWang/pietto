@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 import os
 from pathlib import Path
+import re
 import stat
 import tomllib
 
@@ -27,16 +28,25 @@ from pietto._project.model import (
     ProjectDiscoveryError,
     ProjectDiscoveryErrorKind,
     ProjectRoot,
+    ProjectRootPackageActivation,
     ProjectSourceConfig,
+    _is_valid_project_root_package_path,
 )
 
 _PROJECT_ROOT_PATH = "."
 _COMPILATION_MODE_BY_SCHEMA_VERSION = {
     1: ProjectCompilationMode.LEGACY_FLAT,
     2: ProjectCompilationMode.EXPLICIT_MODULES,
+    3: ProjectCompilationMode.PACKAGE_ROOT,
 }
-_TOP_LEVEL_KEYS = frozenset({"schema_version", "sources"})
+_TOP_LEVEL_KEYS = frozenset({"schema_version", "sources", "package"})
 _SOURCE_KEYS = frozenset({"include", "exclude"})
+_PACKAGE_KEYS = ("path", "namespace", "name", "version", "sha256")
+_PACKAGE_DECLARATION_PROBE_KEY = "__pietto_schema_v3_package_declaration_probe__"
+_PACKAGE_TABLE_HEADER = re.compile(
+    r"(?m)^(?P<indent>[ \t]*)\[[ \t]*package[ \t]*\][ \t]*(?:#[^\r\n]*)?"
+    r"(?P<newline>\r?\n|$)"
+)
 _EXTGLOB_MARKERS = ("@(", "+(", "?(", "*(", "!(")
 
 
@@ -113,7 +123,13 @@ def load_project_config(root: str | Path) -> ProjectConfigLoadResult:
             pinned_root,
         )
 
-    return _validate_config(root_model, config_model, parsed, pinned_root)
+    return _validate_config(
+        root_model,
+        config_model,
+        parsed,
+        config_text,
+        pinned_root,
+    )
 
 
 class _ConfigTrustError(OSError):
@@ -227,6 +243,7 @@ def _validate_config(
     root: ProjectRoot,
     config_path: ProjectConfigPath,
     document: Mapping[str, object],
+    config_text: str,
     pinned_root: ProjectPinnedRoot,
 ) -> ProjectConfigLoadResult:
     unknown_keys = sorted(set(document) - _TOP_LEVEL_KEYS)
@@ -243,7 +260,7 @@ def _validate_config(
         return _schema_error(
             root,
             config_path,
-            "Project configuration schema_version must be integer 1 or 2.",
+            "Project configuration schema_version must be integer 1, 2, or 3.",
             pinned_root,
         )
     assert isinstance(schema_version, int)
@@ -251,7 +268,36 @@ def _validate_config(
         return _schema_error(
             root,
             config_path,
-            "Project configuration schema_version must be 1 or 2.",
+            "Project configuration schema_version must be 1, 2, or 3.",
+            pinned_root,
+        )
+
+    allowed_keys = (
+        frozenset({"schema_version", "package"})
+        if schema_version == 3
+        else frozenset({"schema_version", "sources"})
+    )
+    version_unknown_keys = sorted(set(document) - allowed_keys)
+    if version_unknown_keys:
+        return _schema_error(
+            root,
+            config_path,
+            f"Project configuration contains unsupported top-level key: {version_unknown_keys[0]}.",
+            pinned_root,
+        )
+
+    if schema_version == 3:
+        if not _has_exact_root_package_table(config_text, document):
+            return _schema_error(
+                root,
+                config_path,
+                "Project configuration schema-v3 package activation requires an exact [package] root table.",
+                pinned_root,
+            )
+        return _validate_root_package_config(
+            root,
+            config_path,
+            document.get("package"),
             pinned_root,
         )
 
@@ -341,6 +387,102 @@ def _validate_config(
                 exclude_patterns=tuple(exclude),
             ),
             compilation_mode=_COMPILATION_MODE_BY_SCHEMA_VERSION[schema_version],
+        ),
+        errors=(),
+        pinned_root=pinned_root,
+    )
+
+
+def _has_exact_root_package_table(
+    config_text: str,
+    document: Mapping[str, object],
+) -> bool:
+    """Prove that TOML's ``package`` mapping came from a root table header."""
+
+    for match in _PACKAGE_TABLE_HEADER.finditer(config_text):
+        probe_text = (
+            config_text[: match.start()]
+            + match.group("indent")
+            + f"[{_PACKAGE_DECLARATION_PROBE_KEY}]"
+            + match.group("newline")
+            + config_text[match.end() :]
+        )
+        try:
+            probed = tomllib.loads(probe_text)
+        except tomllib.TOMLDecodeError:
+            continue
+        probe_value = probed.pop(_PACKAGE_DECLARATION_PROBE_KEY, None)
+        if probe_value is None or "package" in probed:
+            continue
+        probed["package"] = probe_value
+        if probed == document:
+            return True
+    return False
+
+
+def _validate_root_package_config(
+    root: ProjectRoot,
+    config_path: ProjectConfigPath,
+    package: object,
+    pinned_root: ProjectPinnedRoot,
+) -> ProjectConfigLoadResult:
+    if not isinstance(package, Mapping):
+        return _schema_error(
+            root,
+            config_path,
+            "Project configuration requires a [package] table.",
+            pinned_root,
+        )
+
+    unknown_keys = sorted(set(package) - set(_PACKAGE_KEYS))
+    if unknown_keys:
+        return _schema_error(
+            root,
+            config_path,
+            f"Project [package] contains unsupported key: {unknown_keys[0]}.",
+            pinned_root,
+        )
+    for key in _PACKAGE_KEYS:
+        value = package.get(key)
+        if type(value) is not str or not value:
+            return _schema_error(
+                root,
+                config_path,
+                f"Project [package].{key} must be a non-empty string.",
+                pinned_root,
+            )
+
+    path = package["path"]
+    assert type(path) is str
+    if not _is_valid_project_root_package_path(path):
+        return ProjectConfigLoadResult(
+            root=root,
+            config_path=config_path,
+            config=None,
+            errors=(
+                ProjectDiscoveryError(
+                    ProjectDiscoveryErrorKind.PROJECT_PATH,
+                    'Project [package].path must be "." or a normalized project-relative directory.',
+                    path,
+                ),
+            ),
+            pinned_root=pinned_root,
+        )
+
+    return ProjectConfigLoadResult(
+        root=root,
+        config_path=config_path,
+        config=ProjectConfig(
+            schema_version=3,
+            sources=None,
+            compilation_mode=ProjectCompilationMode.PACKAGE_ROOT,
+            root_package=ProjectRootPackageActivation(
+                path=path,
+                namespace=package["namespace"],  # type: ignore[arg-type]
+                name=package["name"],  # type: ignore[arg-type]
+                version=package["version"],  # type: ignore[arg-type]
+                sha256=package["sha256"],  # type: ignore[arg-type]
+            ),
         ),
         errors=(),
         pinned_root=pinned_root,

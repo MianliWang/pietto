@@ -504,3 +504,22 @@ application that submits generated SQL.
 
 This repository does not currently include a license file. Licensing is not
 implied by the package version or roadmap.
+
+## Phase 55 Slice 2 Current Gate Status
+
+The preceding Phase 54 and Phase 55 Slice 1 paragraphs are retained as
+historical checkpoints. This current-state entry supersedes their Phase 55
+status only. Phase 54 is **COMPLETED**, Phase 55 is **ACTIVE**, Slice 1 is
+**COMPLETED**, and Slice 2, **Explicit Package Activation, Compatibility, And
+Immutable Package Carrier**, is **IMPLEMENTED_UNPUBLISHED** in Gate 2. The
+sole next token is `PHASE55_SLICE2_GATE3`.
+
+Slice 2 adds the private schema-v3 activation boundary: exactly one
+`[package]` table with five authored root fields creates a private immutable
+root-package carrier. Schema v1 remains legacy-flat and package-absent schema
+v2 remains the existing explicit-module behavior. Package mode deliberately
+does not select project sources, read a manifest, construct modules, or enter
+the module semantic pipeline. Manifest normalization, package identity,
+SemVer, digest, assets, dependencies, loading, inspection, public output, and
+release behavior remain later work. Package and installed CLI version remain
+`0.1.0`.

@@ -18,6 +18,10 @@ from _phase54_active_gate2_manifest import (
     PHASE55_ACTIVE_GATE2_ADDED_PATHS,
     PHASE55_ACTIVE_GATE2_BASE,
     PHASE55_ACTIVE_GATE2_MODIFIED_PATHS,
+    PHASE55_SLICE2_BASELINE,
+    PHASE55_SLICE2_DIRECT_MAIN_BRANCH,
+    PHASE55_SLICE2_GATE2_ADDED_PATHS,
+    PHASE55_SLICE2_GATE2_MODIFIED_PATHS,
     PHASE54_ACTIVE_GATE2_ADDED_PATHS,
     PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
@@ -140,7 +144,7 @@ FACTS_SHA256 = "bd68bad4e13a2b945962458fc47359a408d27b1563ba25f5713a8f8099671d21
 LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26"
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 PROJECT_PRIVATE_DIGEST = (
-    "f9e56fe9cb8ea6523ac2d760c765e1341866bd63af22114d3105e364f03ad122"
+    "0f5a417592f7f0df276a34137b14a1a0f39526e4266279ed7af76b3dbfa49de9"
 )
 TIER2_MANIFEST_BYTES = 18319
 TIER2_MANIFEST_FILES = 108
@@ -1739,6 +1743,11 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
     elif phase54_post_slice12_interlude_dirty_is_active():
         assert tracked == set(phase54_post_slice12_interlude_expected_modified_paths())
         assert untracked == set(phase54_post_slice12_interlude_expected_added_paths())
+    elif repair_gate2_active and head == PHASE55_SLICE2_BASELINE:
+        assert branch == PHASE55_SLICE2_DIRECT_MAIN_BRANCH
+        assert main == origin_main == PHASE55_SLICE2_BASELINE
+        assert tracked == set(PHASE55_SLICE2_GATE2_MODIFIED_PATHS)
+        assert untracked == set(PHASE55_SLICE2_GATE2_ADDED_PATHS)
     elif repair_gate2_active and head == PHASE55_ACTIVE_GATE2_BASE:
         assert tracked == set(PHASE55_ACTIVE_GATE2_MODIFIED_PATHS)
         assert untracked == set(PHASE55_ACTIVE_GATE2_ADDED_PATHS)
@@ -1846,7 +1855,7 @@ def test_static_test_inventory_tier1_and_tier2_manifest_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (467, 5521)
+    assert (len(test_files), top_level_functions) == (468, 5538)
     assert len(DIRECT_TIER1_NODES) == len(set(DIRECT_TIER1_NODES)) == 44
     for node_id in DIRECT_TIER1_NODES:
         path, function = node_id.split("::", maxsplit=1)

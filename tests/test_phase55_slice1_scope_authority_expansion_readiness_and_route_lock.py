@@ -24,6 +24,7 @@ SPEC_REL = (
 ROADMAP_REL = "docs/spec/pietto-active-roadmap-phase53-70-v2.md"
 README_REL = "README.md"
 LANGUAGE_REL = "docs/spec/pietto-v0.9.md"
+SLICE2_SPEC_REL = "docs/spec/phase55-slice2-explicit-package-activation-compatibility-and-immutable-package-carrier-v1.md"
 
 PHASE_TITLE = "Semantic Package Asset Schema And Deterministic Local Loading"
 SLICE_TITLE = (
@@ -380,6 +381,40 @@ def test_slice1_titles_headings_and_unpublished_lifecycle_are_exact() -> None:
     assert (
         "Where it names `PHASE55_GATE0_GATE1` as the sole next authorization, this section supersedes it"
         in roadmap
+    )
+
+
+def test_slice2_current_state_supersedes_only_the_historical_slice1_status() -> None:
+    """The sealed Slice 1 authority stays historical; forward state is explicit."""
+
+    current = _flat(_section(ROADMAP_REL, "Phase 55 Slice 2 Current Gate 2 Authority"))
+    plan = _flat(
+        _section(
+            PLAN_REL,
+            "Slice 2 Gate 2 Candidate And Pending Direct-main Publication",
+        )
+    )
+    specification = _flat(_read(SLICE2_SPEC_REL))
+
+    for required in (
+        "Phase 54 is `COMPLETED`",
+        "Phase 55 is `ACTIVE`",
+        "Slice 1 is `COMPLETED`",
+        "Slice 2 is `IMPLEMENTED_UNPUBLISHED`",
+        "Slices 3 through 12 are `UNSTARTED`",
+        "PHASE55_SLICE2_GATE3",
+    ):
+        assert required in current, required
+    for required in (
+        "historical PR #62 review-closure requirement passed",
+        "external immutable Gate 2 evidence is the reviewed-tree authority root",
+        "Pietto-Reviewed-Tree` is a redundant descriptive consistency trailer",
+        "natural attempt 1 CI",
+    ):
+        assert required in plan, required
+    assert (
+        "does not assert that the late PR #62 review-thread closure passed"
+        in specification
     )
 
 
@@ -814,51 +849,56 @@ def test_route_screen_and_selected_twelve_slice_route_are_exact() -> None:
 
 
 def test_active_gate_allowlist_and_static_non_behavior_guards_are_exact() -> None:
-    assert active_gate.PHASE55_ACTIVE_GATE2_MARKER == "PHASE55_SLICE1_GATE2"
+    assert active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_MARKER == "PHASE55_SLICE1_GATE2"
     assert (
-        active_gate.PHASE55_ACTIVE_GATE2_BASE
+        active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_BASE
         == "364296e69f7e289395661518031dafeb66a216cc"
     )
     assert (
-        active_gate.PHASE55_ACTIVE_GATE2_BRANCH
+        active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_BRANCH
         == "phase55/slice1-scope-authority-expansion-readiness-route-lock"
     )
     assert (
-        active_gate.PHASE55_ACTIVE_GATE2_SUBJECT
+        active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_SUBJECT
         == "Add Phase 55 scope authority and route lock"
     )
-    assert active_gate.PHASE55_ACTIVE_GATE3_AUTHORIZED_DIRECT_PARENTS == frozenset(
-        {
-            "364296e69f7e289395661518031dafeb66a216cc",
-            "e835a14ac0dda2448c50307bb7ca3814931d2fbf",
-            "512220ae2c176e3f2793b174907d4125fc27b2f4",
-            "8ea4ead07d29b7ff08bc798bbee15fc002fba4d0",
-            "cc1a8cc25ee987d0c18d87175d4494c2a6e3173c",
-        }
+    assert (
+        active_gate.PHASE55_SLICE1_HISTORICAL_GATE3_AUTHORIZED_DIRECT_PARENTS
+        == frozenset(
+            {
+                "364296e69f7e289395661518031dafeb66a216cc",
+                "e835a14ac0dda2448c50307bb7ca3814931d2fbf",
+                "512220ae2c176e3f2793b174907d4125fc27b2f4",
+                "8ea4ead07d29b7ff08bc798bbee15fc002fba4d0",
+                "cc1a8cc25ee987d0c18d87175d4494c2a6e3173c",
+            }
+        )
     )
     assert (
         active_gate.phase54_publication_topic_branch()
-        == active_gate.PHASE55_ACTIVE_GATE2_BRANCH
+        == active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_BRANCH
     )
-    assert set(active_gate.PHASE55_ACTIVE_GATE2_ADDED_PATHS) == ADDED_PATHS
+    assert set(active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_ADDED_PATHS) == ADDED_PATHS
     assert (
-        set(active_gate.PHASE55_ACTIVE_GATE2_NON_READER_MODIFIED_PATHS)
+        set(active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_NON_READER_MODIFIED_PATHS)
         == NON_READER_MODIFIED_PATHS
     )
-    assert len(active_gate.PHASE55_ACTIVE_GATE2_READER_PATHS) == 47
-    assert len(active_gate.PHASE55_ACTIVE_GATE2_MODIFIED_PATHS) == 52
-    assert len(active_gate.PHASE55_ACTIVE_GATE2_ALLOWLIST_PATHS) == 55
+    assert len(active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_READER_PATHS) == 47
+    assert len(active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_MODIFIED_PATHS) == 52
+    assert len(active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_ALLOWLIST_PATHS) == 55
     assert (
         "tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py"
-        in active_gate.PHASE55_ACTIVE_GATE2_READER_PATHS
+        in active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_READER_PATHS
     )
-    assert active_gate.PHASE55_ACTIVE_GATE2_DELETED_PATHS == frozenset()
-    assert not ADDED_PATHS & set(active_gate.PHASE55_ACTIVE_GATE2_MODIFIED_PATHS)
+    assert active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_DELETED_PATHS == frozenset()
+    assert not ADDED_PATHS & set(
+        active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_MODIFIED_PATHS
+    )
     assert all(
         path.startswith("tests/")
-        for path in active_gate.PHASE55_ACTIVE_GATE2_READER_PATHS
+        for path in active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_READER_PATHS
     )
-    for path in active_gate.PHASE55_ACTIVE_GATE2_ALLOWLIST_PATHS:
+    for path in active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_ALLOWLIST_PATHS:
         assert not path.startswith(
             ("src/", "grammar/", "tests/fixtures/", ".github/", "scripts/")
         )
@@ -868,9 +908,14 @@ def test_active_gate_allowlist_and_static_non_behavior_guards_are_exact() -> Non
     git_outputs = {
         ("rev-parse", "HEAD"): head,
         ("rev-list", "--parents", "-n", "1", head): (
-            f"{head} {active_gate.PHASE55_ACTIVE_GATE2_BASE}"
+            f"{head} {active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_BASE}"
         ),
-        ("show", "-s", "--format=%s", head): active_gate.PHASE55_ACTIVE_GATE2_SUBJECT,
+        (
+            "show",
+            "-s",
+            "--format=%s",
+            head,
+        ): active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_SUBJECT,
         ("rev-parse", f"{head}^{{tree}}"): tree,
         ("rev-parse", "--is-shallow-repository"): "false",
     }
@@ -879,29 +924,36 @@ def test_active_gate_allowlist_and_static_non_behavior_guards_are_exact() -> Non
         return git_outputs[tuple(arguments)]
 
     with (
-        patch.object(active_gate, "PHASE55_ACTIVE_GATE2_REVIEWED_TREE_TRAILER", "P55"),
+        patch.object(
+            active_gate,
+            "PHASE55_SLICE1_HISTORICAL_GATE2_REVIEWED_TREE_TRAILER",
+            "P55",
+        ),
         patch.object(active_gate, "PHASE54_ACTIVE_GATE2_REVIEWED_TREE_TRAILER", "P54"),
         patch.object(active_gate, "_git_output", side_effect=output),
         patch.object(
             active_gate,
             "_git_commit_message",
-            return_value=f"{active_gate.PHASE55_ACTIVE_GATE2_SUBJECT}\n\nP55: {tree}\n",
+            return_value=(
+                f"{active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_SUBJECT}\n\n"
+                f"P55: {tree}\n"
+            ),
         ) as commit_message_mock,
     ):
         assert active_gate.phase54_active_gate2_publication_commit_is_head()
         commit_message_mock.return_value = (
-            f"{active_gate.PHASE55_ACTIVE_GATE2_SUBJECT}\n\nP54: {tree}\n"
+            f"{active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_SUBJECT}\n\nP54: {tree}\n"
         )
         assert not active_gate.phase54_active_gate2_publication_commit_is_head()
 
     repair_head = "c" * 40
-    repair_parent = active_gate.PHASE55_ACTIVE_GATE2_BASE
+    repair_parent = active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_BASE
     repair_tree = "e" * 40
     repair_state = active_gate.Phase54Gate2RepositoryState(
-        marker=active_gate.PHASE55_ACTIVE_GATE2_MARKER,
+        marker=active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_MARKER,
         branch_oid=repair_head,
-        branch_head=active_gate.PHASE55_ACTIVE_GATE2_BRANCH,
-        branch_upstream=f"origin/{active_gate.PHASE55_ACTIVE_GATE2_BRANCH}",
+        branch_head=active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_BRANCH,
+        branch_upstream=f"origin/{active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_BRANCH}",
         ahead=0,
         behind=0,
         added_paths=frozenset(),
@@ -914,24 +966,28 @@ def test_active_gate_allowlist_and_static_non_behavior_guards_are_exact() -> Non
         active_git_operation=False,
     )
     repair_git_outputs = {
-        ("rev-parse", "--abbrev-ref", "HEAD"): active_gate.PHASE55_ACTIVE_GATE2_BRANCH,
+        (
+            "rev-parse",
+            "--abbrev-ref",
+            "HEAD",
+        ): active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_BRANCH,
         ("rev-parse", "HEAD"): repair_head,
         ("rev-list", "--parents", "-n", "1", repair_head): (
             f"{repair_head} {repair_parent}"
         ),
         ("show", "-s", "--format=%s", repair_head): (
-            active_gate.PHASE55_ACTIVE_GATE2_SUBJECT
+            active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_SUBJECT
         ),
         ("rev-parse", f"{repair_head}^{{tree}}"): repair_tree,
         ("rev-parse", "--verify", "refs/heads/main"): (
-            active_gate.PHASE55_ACTIVE_GATE2_BASE
+            active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_BASE
         ),
         ("rev-parse", "--verify", "refs/remotes/origin/main"): (
-            active_gate.PHASE55_ACTIVE_GATE2_BASE
+            active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_BASE
         ),
         ("rev-parse", "--is-shallow-repository"): "false",
         ("rev-list", "--first-parent", repair_head): (
-            f"{repair_head} {repair_parent} {active_gate.PHASE55_ACTIVE_GATE2_BASE}"
+            f"{repair_head} {repair_parent} {active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_BASE}"
         ),
     }
 
@@ -944,8 +1000,8 @@ def test_active_gate_allowlist_and_static_non_behavior_guards_are_exact() -> Non
             active_gate,
             "_git_commit_message",
             return_value=(
-                f"{active_gate.PHASE55_ACTIVE_GATE2_SUBJECT}\n\n"
-                f"{active_gate.PHASE55_ACTIVE_GATE2_REVIEWED_TREE_TRAILER}: "
+                f"{active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_SUBJECT}\n\n"
+                f"{active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_REVIEWED_TREE_TRAILER}: "
                 f"{repair_tree}\n"
             ),
         ),
@@ -955,7 +1011,9 @@ def test_active_gate_allowlist_and_static_non_behavior_guards_are_exact() -> Non
             return_value=repair_state,
         ) as repository_state_mock,
     ):
-        for repair_parent in active_gate.PHASE55_ACTIVE_GATE3_AUTHORIZED_DIRECT_PARENTS:
+        for (
+            repair_parent
+        ) in active_gate.PHASE55_SLICE1_HISTORICAL_GATE3_AUTHORIZED_DIRECT_PARENTS:
             repair_git_outputs[("rev-list", "--parents", "-n", "1", repair_head)] = (
                 f"{repair_head} {repair_parent}"
             )
@@ -975,12 +1033,12 @@ def test_active_gate_allowlist_and_static_non_behavior_guards_are_exact() -> Non
             f"{repair_head} {repair_parent}"
         )
         repair_git_outputs[("rev-list", "--first-parent", repair_head)] = (
-            f"{repair_head} {repair_parent} {active_gate.PHASE55_ACTIVE_GATE2_BASE}"
+            f"{repair_head} {repair_parent} {active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_BASE}"
         )
         assert not active_gate._matches_phase55_active_gate2_clean_topic(repair_state)
         assert not active_gate.phase54_active_gate2_publication_commit_is_head()
         repair_git_outputs[("rev-list", "--parents", "-n", "1", repair_head)] = (
-            f"{repair_head} {active_gate.PHASE55_ACTIVE_GATE2_BASE} {'f' * 40}"
+            f"{repair_head} {active_gate.PHASE55_SLICE1_HISTORICAL_GATE2_BASE} {'f' * 40}"
         )
         assert not active_gate._matches_phase55_active_gate2_clean_topic(repair_state)
         assert not active_gate.phase54_active_gate2_publication_commit_is_head()
@@ -1004,7 +1062,7 @@ def test_active_gate_allowlist_and_static_non_behavior_guards_are_exact() -> Non
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name.startswith("test_")
     )
-    assert len(tests) == len({node.name for node in tests}) == 15
+    assert len(tests) == len({node.name for node in tests}) == 16
     assert all(not node.decorator_list for node in tests)
 
     evidence = _flat(_section(SPEC_REL, "Evidence And Gate 3 Contract"))

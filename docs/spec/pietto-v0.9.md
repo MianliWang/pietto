@@ -2809,3 +2809,21 @@ The v0.9 design builds on the earlier Pietto roadmap and tech stack notes:
 - Rust reference: https://doc.rust-lang.org/reference/
 - Go documentation: https://go.dev/doc/
 - C++ reference: https://en.cppreference.com/w/
+
+---
+
+## 18. Phase 55 Slice 2 Package-activation Status
+
+The historical Phase 54/Phase 55 status text above is superseded for the
+current Slice 2 candidate. Phase 54 is `COMPLETED`; Phase 55 is `ACTIVE`;
+Slice 1 is `COMPLETED`; Slice 2 is `IMPLEMENTED_UNPUBLISHED`; Slices 3 through
+12 are `UNSTARTED`; and the next token is `PHASE55_SLICE2_GATE3`.
+
+`pietto.toml` schema version 3 now reserves an explicit private package-root
+activation form, specified in
+`phase55-slice2-explicit-package-activation-compatibility-and-immutable-package-carrier-v1.md`.
+It is a project-input boundary only: it does not add a Pietto source-language
+production, generated parser behavior, semantic package manifest, identity,
+digest, asset, dependency, loader, inspection, public JSON/CLI/API surface, or
+SQL behavior. Schema versions 1 and 2 retain their existing language and
+project semantics.

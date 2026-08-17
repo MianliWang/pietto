@@ -18,6 +18,7 @@ class ProjectCompilationMode(StrEnum):
 
     LEGACY_FLAT = "legacy_flat"
     EXPLICIT_MODULES = "explicit_modules"
+    PACKAGE_ROOT = "package_root"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -57,6 +58,8 @@ class ProjectLogicalModule:
 
         if type(self.compilation_mode) is not ProjectCompilationMode:
             raise TypeError("Project logical module requires a compilation mode.")
+        if self.compilation_mode is ProjectCompilationMode.PACKAGE_ROOT:
+            raise ValueError("Project logical modules forbid package-root mode.")
         if type(self.path) is not str or not _is_normalized_project_relative_path(
             self.path
         ):
@@ -96,6 +99,11 @@ def _build_project_logical_modules(
     parsed_inputs: tuple[ProjectParsedInput, ...] = (),
 ) -> tuple[ProjectLogicalModule, ...]:
     """Build one ordered private logical module per existing project input."""
+
+    if type(compilation_mode) is not ProjectCompilationMode:
+        raise TypeError("Project logical modules require a compilation mode.")
+    if compilation_mode is ProjectCompilationMode.PACKAGE_ROOT:
+        raise ValueError("Project logical modules forbid package-root mode.")
 
     input_paths = tuple(project_input.path for project_input in inputs)
     if len(set(input_paths)) != len(input_paths):

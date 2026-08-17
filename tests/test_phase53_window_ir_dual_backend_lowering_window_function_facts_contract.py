@@ -31,6 +31,7 @@ from _phase54_active_gate2_manifest import (  # noqa: F401
     phase54_slice12_product_repair11_is_active,
     phase54_slice11_python313_repair_is_active,
     phase54_slice11_substantive_recovery_is_active,
+    phase55_slice2_gate2_expected_allowlist_paths,
 )
 
 import pytest
@@ -1741,7 +1742,7 @@ def test_generated_golden_fixture_package_dependency_and_version_boundaries_are_
         sum(path.endswith(".md") for path in paths),
         sum(path.startswith("tests/test_") and path.endswith(".py") for path in paths),
         _top_level_test_function_count(paths),
-    ) == (949, 581, 272, 467, 5521)
+    ) == (951, 582, 273, 468, 5538)
     generated = tuple(
         path for path in paths if path.startswith("src/pietto/generated/")
     )
@@ -1804,6 +1805,7 @@ def test_reader_hash_dag_allowlist_and_fixed_point_are_exact() -> None:
         set(PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS),
         set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS),
         set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS),
+        set(phase55_slice2_gate2_expected_allowlist_paths()),
     )
     if dirty == set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS):
         assert phase54_slice11_python313_repair_is_active()
@@ -1823,6 +1825,8 @@ def test_reader_hash_dag_allowlist_and_fixed_point_are_exact() -> None:
         assert phase54_slice12_product_repair11_is_active()
     elif dirty == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS):
         assert phase54_slice11_pr_ci_repair_is_active()
+    elif dirty == set(phase55_slice2_gate2_expected_allowlist_paths()):
+        assert _phase54_active_gate2_is_active()
     assert _git_output(["diff", "--cached", "--name-only"]) == ""
 
 
@@ -1915,6 +1919,7 @@ def test_dirty_clean_depth_one_shallow_and_negative_topology_boundaries_are_exac
             set(PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS),
             set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS),
             set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS),
+            set(phase55_slice2_gate2_expected_allowlist_paths()),
         )
         if dirty == set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS):
             assert phase54_slice11_python313_repair_is_active()
@@ -1934,6 +1939,8 @@ def test_dirty_clean_depth_one_shallow_and_negative_topology_boundaries_are_exac
             assert phase54_slice12_product_repair11_is_active()
         elif dirty == set(PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS):
             assert phase54_slice11_pr_ci_repair_is_active()
+        elif dirty == set(phase55_slice2_gate2_expected_allowlist_paths()):
+            assert _phase54_active_gate2_is_active()
         assert _git_output(["diff", "--cached", "--name-only"]) == ""
 
 

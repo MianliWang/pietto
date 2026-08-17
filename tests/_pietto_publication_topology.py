@@ -36,6 +36,21 @@ TOPOLOGY_SHALLOW_PULL_REQUEST = "shallow_pull_request_checkout"
 TOPOLOGY_SQUASH_MAIN = "squash_main"
 TOPOLOGY_MAIN_PUSH = "natural_main_push"
 
+# Slice 2 publishes directly from ``main``.  Keep this sequence separate from
+# the historical PR/squash fixtures: combining them would accidentally let a
+# later direct-main reader accept a lifecycle that Slice 2 never produces.
+TOPOLOGY_SLICE2_DIRECT_MAIN_DIRTY_CANDIDATE = "slice2_direct_main_dirty_candidate"
+TOPOLOGY_SLICE2_DIRECT_MAIN_PRE_PUSH = "slice2_direct_main_clean_pre_push"
+TOPOLOGY_SLICE2_DIRECT_MAIN_SHALLOW_PUSH = "slice2_direct_main_shallow_push"
+TOPOLOGY_SLICE2_DIRECT_MAIN_RECONCILED = "slice2_direct_main_reconciled"
+
+SLICE2_DIRECT_MAIN_TOPOLOGY_KINDS: tuple[str, ...] = (
+    TOPOLOGY_SLICE2_DIRECT_MAIN_DIRTY_CANDIDATE,
+    TOPOLOGY_SLICE2_DIRECT_MAIN_PRE_PUSH,
+    TOPOLOGY_SLICE2_DIRECT_MAIN_SHALLOW_PUSH,
+    TOPOLOGY_SLICE2_DIRECT_MAIN_RECONCILED,
+)
+
 TOPOLOGY_KINDS: tuple[str, ...] = (
     TOPOLOGY_CLEAN_TOPIC,
     TOPOLOGY_DIRTY_GATE2,
@@ -106,9 +121,13 @@ class TopologyExpectation:
     modified_paths: tuple[str, ...] = ()
     deleted_paths: tuple[str, ...] = ()
     staged_paths: tuple[str, ...] = ()
+    upstream: str = ""
+    origin_main: str = ""
+    ahead: int = 0
+    behind: int = 0
 
     def __post_init__(self) -> None:
-        if self.kind not in TOPOLOGY_KINDS:
+        if self.kind not in TOPOLOGY_KINDS + SLICE2_DIRECT_MAIN_TOPOLOGY_KINDS:
             raise TopologyError(f"unknown topology kind: {self.kind}")
 
 
@@ -129,6 +148,10 @@ class TopologyObservation:
     modified_paths: tuple[str, ...]
     deleted_paths: tuple[str, ...]
     staged_paths: tuple[str, ...]
+    upstream: str = ""
+    origin_main: str = ""
+    ahead: int = 0
+    behind: int = 0
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -469,6 +492,22 @@ def _reject_staged_source(source: Path) -> None:
         # which the gate contract forbids.
         if fields[1][0] != "." or fields[4] == "000000":
             raise TopologyError(f"source repository has a non-empty index: {source}")
+
+
+def _reject_active_git_operation(source: Path) -> None:
+    """Refuse a source whose candidate is not a stable repository state."""
+
+    git_dir = Path(_source_output(source, "rev-parse", "--absolute-git-dir").strip())
+    markers = (
+        "MERGE_HEAD",
+        "CHERRY_PICK_HEAD",
+        "REVERT_HEAD",
+        "REBASE_HEAD",
+        "rebase-merge",
+        "rebase-apply",
+    )
+    if any((git_dir / marker).exists() for marker in markers):
+        raise TopologyError(f"source repository has an active Git operation: {source}")
 
 
 def _source_working_paths(source: Path) -> tuple[str, ...]:
@@ -921,7 +960,14 @@ def _init_base(root: Path, source: Path | None = None, revision: str = "HEAD") -
             "+refs/heads/*:refs/remotes/origin/*",
             "+HEAD:refs/remotes/origin/source-head",
         )
-        base = _source_output(source, "rev-parse", revision).strip()
+        # An aggregate that already holds an exact object ID must not resolve
+        # the moving source reference again.  Symbolic historical callers keep
+        # their existing lookup behavior.
+        base = (
+            revision
+            if _is_lowercase_object_id(revision)
+            else _source_output(source, "rev-parse", revision).strip()
+        )
         if not base:
             raise TopologyError(f"cannot resolve {revision} in {source}")
         _git(root, "checkout", "--quiet", "-B", MAIN_BRANCH, base)
@@ -996,15 +1042,83 @@ def run_in_projection(
     )
 
 
-def _commit(root: Path, subject: str, *, allow_empty: bool = False) -> str:
+def _commit(
+    root: Path,
+    subject: str,
+    *,
+    allow_empty: bool = False,
+    trailer: str = "",
+) -> str:
     _git(root, "add", "-A")
     arguments = ["commit", "--quiet", "-m", subject]
+    if trailer:
+        arguments.extend(("-m", trailer))
     if allow_empty:
         # A source-backed candidate may carry the same tree as its base. The
         # projection still needs the commit, because its shape is the subject.
         arguments.insert(1, "--allow-empty")
     _git(root, *arguments)
     return _git(root, "rev-parse", "HEAD")
+
+
+def _is_lowercase_object_id(value: object) -> bool:
+    return (
+        type(value) is str
+        and len(value) == 40
+        and all(character in "0123456789abcdef" for character in value)
+    )
+
+
+def _require_sealed_tree(sealed_tree: str) -> None:
+    if not _is_lowercase_object_id(sealed_tree):
+        raise TopologyError(f"invalid externally sealed tree: {sealed_tree!r}")
+
+
+def _require_sealed_baseline(sealed_baseline: str) -> None:
+    if not _is_lowercase_object_id(sealed_baseline):
+        raise TopologyError(f"invalid externally sealed baseline: {sealed_baseline!r}")
+
+
+def _working_tree_candidate_tree(root: Path) -> str:
+    """Hash the candidate through a temporary index, leaving the real one intact."""
+
+    git_dir = Path(_git(root, "rev-parse", "--git-dir"))
+    if not git_dir.is_absolute():
+        git_dir = root / git_dir
+    temporary_index = git_dir / "pietto-slice2-candidate.index"
+    temporary_lock = temporary_index.with_name(f"{temporary_index.name}.lock")
+    if temporary_index.exists() or temporary_lock.exists():
+        raise TopologyError(f"temporary candidate index is occupied: {temporary_index}")
+    real_index_before = _git_raw(root, "diff", "--cached", "--name-only", "-z")
+    environment = {
+        **_inherited_environment(),
+        **_FIXED_IDENTITY,
+        "GIT_INDEX_FILE": str(temporary_index),
+    }
+
+    def _temporary_git(*args: str) -> str:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=root,
+            text=True,
+            capture_output=True,
+            env=environment,
+        )
+        if result.returncode != 0:
+            raise TopologyError(f"git {' '.join(args)} failed: {result.stderr.strip()}")
+        return result.stdout.strip()
+
+    try:
+        _temporary_git("read-tree", "HEAD")
+        _temporary_git("add", "-A")
+        candidate_tree = _temporary_git("write-tree")
+    finally:
+        temporary_index.unlink(missing_ok=True)
+        temporary_lock.unlink(missing_ok=True)
+    if _git_raw(root, "diff", "--cached", "--name-only", "-z") != real_index_before:
+        raise TopologyError("candidate tree hashing changed the real index")
+    _require_sealed_tree(candidate_tree)
+    return candidate_tree
 
 
 def _set_upstream(root: Path, branch: str, oid: str) -> None:
@@ -1027,6 +1141,32 @@ def _optional_reference(root: Path, reference: str) -> str:
         return ""
 
 
+def _optional_upstream(root: Path) -> str:
+    """Return the symbolic upstream name, or the empty string when absent."""
+
+    try:
+        return _git(
+            root,
+            "rev-parse",
+            "--abbrev-ref",
+            "--symbolic-full-name",
+            "@{upstream}",
+        )
+    except TopologyError:
+        # Synthetic fixtures deliberately use only a local remote-tracking ref;
+        # Git refuses ``@{upstream}`` until that remote also has fetch metadata.
+        # The branch config plus that exact ref is the same tracking fact.
+        try:
+            remote = _git(root, "config", "--get", "branch.main.remote")
+            merge = _git(root, "config", "--get", "branch.main.merge")
+        except TopologyError:
+            return ""
+        if not remote or not merge.startswith("refs/heads/"):
+            return ""
+        upstream = f"{remote}/{merge.removeprefix('refs/heads/')}"
+        return upstream if _optional_reference(root, f"refs/remotes/{upstream}") else ""
+
+
 def observe(
     root: Path,
     *,
@@ -1034,6 +1174,7 @@ def observe(
     event_head_ref: str,
     event_base_ref: str,
     base_ref: str,
+    include_sync: bool = False,
 ) -> TopologyObservation:
     """Observe one repository's publication topology without changing it."""
 
@@ -1059,6 +1200,33 @@ def observe(
         except TopologyError:
             base_identity = ""
             merge_base = ""
+    upstream = ""
+    origin_main = ""
+    ahead = 0
+    behind = 0
+    ahead_behind_reading = ""
+    if include_sync:
+        origin_main = _optional_reference(root, f"refs/remotes/origin/{MAIN_BRANCH}")
+        try:
+            upstream = _optional_upstream(root)
+            if not upstream:
+                raise TopologyError("branch has no upstream")
+            ahead_behind_reading = _git(
+                root,
+                "rev-list",
+                "--left-right",
+                "--count",
+                f"HEAD...refs/remotes/{upstream}",
+            )
+            counts = ahead_behind_reading.split()
+            if len(counts) != 2:
+                raise TopologyError(
+                    f"unparseable upstream divergence: {ahead_behind_reading!r}"
+                )
+            ahead, behind = (int(count) for count in counts)
+        except TopologyError:
+            upstream = ""
+            ahead_behind_reading = ""
     added: list[str] = []
     modified: list[str] = []
     deleted: list[str] = []
@@ -1101,6 +1269,24 @@ def observe(
         or (base_probed and _optional_reference(root, base_ref) != base_identity)
         or _git(root, "rev-parse", "--is-shallow-repository") != shallow_reading
         or _git(root, "rev-list", "--parents", "-n", "1", head) != parent_reading
+        or (
+            include_sync
+            and _optional_reference(root, f"refs/remotes/origin/{MAIN_BRANCH}")
+            != origin_main
+        )
+        or (include_sync and _optional_upstream(root) != upstream)
+        or (
+            include_sync
+            and upstream
+            and _git(
+                root,
+                "rev-list",
+                "--left-right",
+                "--count",
+                f"HEAD...refs/remotes/{upstream}",
+            )
+            != ahead_behind_reading
+        )
     ):
         # Every fact this observation reports must still hold: the object name,
         # the symbolic identity, the working state, the base authority in both
@@ -1122,6 +1308,10 @@ def observe(
         modified_paths=tuple(sorted(modified)),
         deleted_paths=tuple(sorted(deleted)),
         staged_paths=tuple(sorted(staged)),
+        upstream=upstream,
+        origin_main=origin_main,
+        ahead=ahead,
+        behind=behind,
     )
 
 
@@ -1145,6 +1335,10 @@ def verify(
         ("modified_paths", observation.modified_paths, expectation.modified_paths),
         ("deleted_paths", observation.deleted_paths, expectation.deleted_paths),
         ("staged_paths", observation.staged_paths, expectation.staged_paths),
+        ("upstream", observation.upstream, expectation.upstream),
+        ("origin_main", observation.origin_main, expectation.origin_main),
+        ("ahead", observation.ahead, expectation.ahead),
+        ("behind", observation.behind, expectation.behind),
     )
     for name, observed, expected in checks:
         if observed != expected:
@@ -1554,6 +1748,305 @@ def build_all(
     return tuple(fixtures)
 
 
+def build_slice2_direct_main_topology(
+    kind: str,
+    root: Path,
+    *,
+    sealed_tree: str,
+    source: Path | None = None,
+    _sealed_baseline: str | None = None,
+) -> TopologyFixture:
+    """Build one exact Slice 2 direct-main publication projection.
+
+    These fixtures intentionally create a single-parent commit on ``main``.
+    They do not synthesize a topic branch, pull-request merge, or squash
+    commit, because none is an authorized Slice 2 publication shape.
+    """
+
+    if kind not in SLICE2_DIRECT_MAIN_TOPOLOGY_KINDS:
+        raise TopologyError(f"unknown Slice 2 direct-main topology kind: {kind}")
+    _require_sealed_tree(sealed_tree)
+    if root.is_symlink():
+        raise TopologyError(f"topology root must not be a symbolic link: {root}")
+    if root.exists() and any(root.iterdir()):
+        raise TopologyError(f"topology root must be empty: {root}")
+
+    if _sealed_baseline is not None:
+        _require_sealed_baseline(_sealed_baseline)
+    base_revision = (
+        _sealed_baseline
+        if _sealed_baseline is not None
+        else (source_base_revision(source) if source is not None else "HEAD")
+    )
+    baseline = _init_base(root, source, base_revision)
+    _set_upstream(root, MAIN_BRANCH, baseline)
+    refs: dict[str, str] = {"baseline": baseline}
+
+    if kind == TOPOLOGY_SLICE2_DIRECT_MAIN_DIRTY_CANDIDATE:
+        if source is not None and not source_is_dirty(source):
+            raise TopologyError(f"source has no uncommitted candidate: {source}")
+        _apply_candidate(root, source, _SYNTHETIC_CANDIDATE)
+        if source is not None:
+            _verify_candidate(root, source, committed=False)
+        candidate_tree = _working_tree_candidate_tree(root)
+        if candidate_tree != sealed_tree:
+            raise TopologyError(
+                f"dirty candidate tree {candidate_tree} is not sealed tree {sealed_tree}"
+            )
+        refs["sealed_tree"] = sealed_tree
+        dirty_added, dirty_modified, dirty_deleted = (
+            (("added.md",), ("AUTHORITY.md",), ())
+            if source is None
+            else source_dirty_paths(source)
+        )
+        observation = observe(
+            root,
+            event_name=EVENT_LOCAL,
+            event_head_ref="",
+            event_base_ref="",
+            base_ref=f"refs/remotes/origin/{MAIN_BRANCH}",
+            include_sync=True,
+        )
+        expectation = TopologyExpectation(
+            kind=kind,
+            branch=MAIN_BRANCH,
+            head=baseline,
+            head_tree=_git(root, "rev-parse", "HEAD^{tree}"),
+            head_parents=(
+                () if source is None else source_commit_parents(source, baseline)
+            ),
+            merge_base=baseline,
+            shallow=False,
+            event_name=EVENT_LOCAL,
+            event_head_ref="",
+            event_base_ref="",
+            added_paths=dirty_added,
+            modified_paths=dirty_modified,
+            deleted_paths=dirty_deleted,
+            upstream=f"origin/{MAIN_BRANCH}",
+            origin_main=baseline,
+        )
+        return TopologyFixture(
+            kind=kind,
+            root=root,
+            expectation=expectation,
+            observation=observation,
+            refs=refs,
+        )
+
+    if source is not None and not source_is_dirty(source):
+        raise TopologyError(f"source has no uncommitted candidate: {source}")
+    _apply_candidate(root, source, _SYNTHETIC_CANDIDATE)
+    candidate_tree = _working_tree_candidate_tree(root)
+    if candidate_tree != sealed_tree:
+        raise TopologyError(
+            f"candidate tree {candidate_tree} is not sealed tree {sealed_tree}"
+        )
+    direct = _commit(
+        root,
+        _phase54_active_gate2_manifest.PHASE55_SLICE2_DIRECT_MAIN_SUBJECT,
+        allow_empty=source is not None,
+        trailer=(
+            f"{_phase54_active_gate2_manifest.PHASE55_SLICE2_REVIEWED_TREE_TRAILER}: "
+            f"{sealed_tree}"
+        ),
+    )
+    if source is not None:
+        _verify_candidate(root, source, committed=True)
+    refs["direct_main"] = direct
+    refs["sealed_tree"] = sealed_tree
+    direct_tree = _git(root, "rev-parse", f"{direct}^{{tree}}")
+    if direct_tree != sealed_tree:
+        raise TopologyError(
+            f"direct-main commit tree {direct_tree} is not sealed tree {sealed_tree}"
+        )
+
+    if kind == TOPOLOGY_SLICE2_DIRECT_MAIN_PRE_PUSH:
+        observation = observe(
+            root,
+            event_name=EVENT_LOCAL,
+            event_head_ref="",
+            event_base_ref="",
+            base_ref=f"refs/remotes/origin/{MAIN_BRANCH}",
+            include_sync=True,
+        )
+        expectation = TopologyExpectation(
+            kind=kind,
+            branch=MAIN_BRANCH,
+            head=direct,
+            head_tree=direct_tree,
+            head_parents=(baseline,),
+            merge_base=baseline,
+            shallow=False,
+            event_name=EVENT_LOCAL,
+            event_head_ref="",
+            event_base_ref="",
+            upstream=f"origin/{MAIN_BRANCH}",
+            origin_main=baseline,
+            ahead=1,
+        )
+        return TopologyFixture(
+            kind=kind,
+            root=root,
+            expectation=expectation,
+            observation=observation,
+            refs=refs,
+        )
+
+    _set_upstream(root, MAIN_BRANCH, direct)
+    if kind == TOPOLOGY_SLICE2_DIRECT_MAIN_SHALLOW_PUSH:
+        checkout = _reserve_sibling(root, "slice2-mainpush")
+        _git(root, "init", "--quiet", str(checkout))
+        _git(checkout, "remote", "add", "origin", str(root))
+        _git(
+            checkout,
+            "fetch",
+            "--quiet",
+            "--depth",
+            "1",
+            "origin",
+            f"+refs/heads/{MAIN_BRANCH}:refs/remotes/origin/{MAIN_BRANCH}",
+        )
+        _git(checkout, "checkout", "--quiet", "-B", MAIN_BRANCH, direct)
+        _set_upstream(checkout, MAIN_BRANCH, direct)
+        observation = observe(
+            checkout,
+            event_name=EVENT_PUSH,
+            event_head_ref=MAIN_BRANCH,
+            event_base_ref="",
+            base_ref="",
+            include_sync=True,
+        )
+        expectation = TopologyExpectation(
+            kind=kind,
+            branch=MAIN_BRANCH,
+            head=direct,
+            head_tree=direct_tree,
+            head_parents=(),
+            merge_base="",
+            shallow=True,
+            event_name=EVENT_PUSH,
+            event_head_ref=MAIN_BRANCH,
+            event_base_ref="",
+            upstream=f"origin/{MAIN_BRANCH}",
+            origin_main=direct,
+        )
+        return TopologyFixture(
+            kind=kind,
+            root=checkout,
+            expectation=expectation,
+            observation=observation,
+            refs=refs,
+        )
+
+    observation = observe(
+        root,
+        event_name=EVENT_LOCAL,
+        event_head_ref="",
+        event_base_ref="",
+        base_ref=f"refs/remotes/origin/{MAIN_BRANCH}",
+        include_sync=True,
+    )
+    expectation = TopologyExpectation(
+        kind=kind,
+        branch=MAIN_BRANCH,
+        head=direct,
+        head_tree=direct_tree,
+        head_parents=(baseline,),
+        merge_base=direct,
+        shallow=False,
+        event_name=EVENT_LOCAL,
+        event_head_ref="",
+        event_base_ref="",
+        upstream=f"origin/{MAIN_BRANCH}",
+        origin_main=direct,
+    )
+    return TopologyFixture(
+        kind=kind,
+        root=root,
+        expectation=expectation,
+        observation=observation,
+        refs=refs,
+    )
+
+
+def build_slice2_direct_main_all(
+    root: Path,
+    *,
+    sealed_baseline: str,
+    sealed_tree: str,
+    source: Path,
+) -> tuple[TopologyFixture, ...]:
+    """Build one sealed direct-main lifecycle from one captured candidate."""
+
+    _require_sealed_baseline(sealed_baseline)
+    _require_sealed_tree(sealed_tree)
+    _reject_staged_source(source)
+    _reject_active_git_operation(source)
+    if not source_is_dirty(source):
+        raise TopologyError(f"source has no uncommitted candidate: {source}")
+
+    # This is the only live-main resolution.  The precise ID, not a symbolic
+    # reference or a self-authored trailer, is the authority for every later
+    # projection in this aggregate.
+    source_baseline = _source_output(source, "rev-parse", "refs/heads/main").strip()
+    _require_sealed_baseline(source_baseline)
+    if source_baseline != sealed_baseline:
+        raise TopologyError(
+            f"source main {source_baseline} is not sealed baseline {sealed_baseline}"
+        )
+
+    dirty = build_slice2_direct_main_topology(
+        TOPOLOGY_SLICE2_DIRECT_MAIN_DIRTY_CANDIDATE,
+        root / TOPOLOGY_SLICE2_DIRECT_MAIN_DIRTY_CANDIDATE,
+        sealed_tree=sealed_tree,
+        source=source,
+        _sealed_baseline=sealed_baseline,
+    )
+    # The dirty projection is the one candidate snapshot.  Its real index is
+    # empty, its operation state is inactive, and its reconstructed tree was
+    # checked against the external sealed tree above before any later state is
+    # derived from it.
+    snapshot = dirty.root
+    _reject_staged_source(snapshot)
+    _reject_active_git_operation(snapshot)
+    if not source_is_dirty(snapshot):
+        raise TopologyError(f"snapshot has no uncommitted candidate: {snapshot}")
+
+    projections: list[TopologyFixture] = [dirty]
+    for kind in SLICE2_DIRECT_MAIN_TOPOLOGY_KINDS[1:]:
+        projections.append(
+            build_slice2_direct_main_topology(
+                kind,
+                root / kind,
+                sealed_tree=sealed_tree,
+                source=snapshot,
+                _sealed_baseline=sealed_baseline,
+            )
+        )
+
+    direct = projections[1].refs["direct_main"]
+    if any(fixture.refs["baseline"] != sealed_baseline for fixture in projections):
+        raise TopologyError("Slice 2 direct-main projections disagree on the baseline")
+    if dirty.refs["sealed_tree"] != sealed_tree or any(
+        fixture.expectation.head_tree != sealed_tree for fixture in projections[1:]
+    ):
+        raise TopologyError(
+            "Slice 2 direct-main projections disagree on the sealed tree"
+        )
+    if any(fixture.refs.get("direct_main") != direct for fixture in projections[1:]):
+        raise TopologyError(
+            "Slice 2 direct-main projections disagree on the direct head"
+        )
+    return tuple(projections)
+
+
+def slice2_direct_main_sequence_is_complete(kinds: Sequence[str]) -> bool:
+    """Return whether ``kinds`` covers the exact Slice 2 direct-main lifecycle."""
+
+    return tuple(kinds) == SLICE2_DIRECT_MAIN_TOPOLOGY_KINDS
+
+
 def rejected_variants(
     expectation: TopologyExpectation,
 ) -> tuple[tuple[str, TopologyExpectation], ...]:
@@ -1610,6 +2103,10 @@ def _replace(
         "modified_paths": expectation.modified_paths,
         "deleted_paths": expectation.deleted_paths,
         "staged_paths": expectation.staged_paths,
+        "upstream": expectation.upstream,
+        "origin_main": expectation.origin_main,
+        "ahead": expectation.ahead,
+        "behind": expectation.behind,
     }
     fields.update(changes)
     return TopologyExpectation(**fields)  # pyright: ignore[reportArgumentType]

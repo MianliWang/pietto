@@ -26,6 +26,7 @@ from _phase54_active_gate2_manifest import (
     phase54_slice12_product_repair3_is_active,
     phase54_slice12_product_repair10_is_active,
     phase54_slice12_product_repair11_is_active,
+    phase55_slice2_gate2_expected_allowlist_paths,
 )
 
 import pytest
@@ -1042,6 +1043,11 @@ def test_no_ast_semantic_ir_sql_or_public_surface_widening_is_locked() -> None:
     phase54_changed_source = {
         path for path in phase54_modified if path.startswith("src/pietto/")
     }
+    phase55_changed_source = {
+        path
+        for path in phase55_slice2_gate2_expected_allowlist_paths()
+        if path.startswith("src/pietto/")
+    }
     recovery_changed_source = {
         path
         for path in PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS
@@ -1066,6 +1072,7 @@ def test_no_ast_semantic_ir_sql_or_public_surface_widening_is_locked() -> None:
         set(),
         allowed_source,
         phase54_changed_source,
+        phase55_changed_source,
         recovery_changed_source,
         product_repair3_changed_source,
         product_repair10_changed_source,
@@ -1073,6 +1080,8 @@ def test_no_ast_semantic_ir_sql_or_public_surface_widening_is_locked() -> None:
     )
     if changed_source == recovery_changed_source:
         assert phase54_slice11_substantive_recovery_is_active()
+    elif changed_source == phase55_changed_source:
+        assert _phase54_active_gate2_is_active()
     elif changed_source == product_repair3_changed_source:
         assert phase54_slice12_product_repair3_is_active()
     elif (
@@ -1190,7 +1199,7 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
         for path in readable_paths
         if path.startswith("tests/test_") and path.endswith(".py")
     }
-    assert len(test_modules) == 467
+    assert len(test_modules) == 468
     top_level_tests = 0
     for relative in sorted(test_modules):
         tree = ast.parse(_read(relative), filename=relative)
@@ -1199,7 +1208,7 @@ def test_slice2_dirty_clean_and_depth_one_repository_states_are_locked() -> None
             and node.name.startswith("test_")
             for node in tree.body
         )
-    assert top_level_tests == 5521
+    assert top_level_tests == 5538
     assert len(GENERATED_PATHS) == 8
     goldens = {
         path

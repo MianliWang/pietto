@@ -66,8 +66,29 @@ def test_schema_versions_map_to_exact_project_compilation_modes(
         assert result.config is not None
         assert result.config.schema_version == schema_version
         assert result.config.compilation_mode is compilation_mode
+        assert result.config.sources is not None
         assert result.config.sources.include_patterns == ("**/*.pietto",)
         assert result.config.sources.exclude_patterns == ()
+        assert result.config.root_package is None
+
+
+def test_package_mode_cannot_construct_logical_modules(
+    tmp_path: Path,
+) -> None:
+    project_input = ProjectInput(path="row.pietto", status="selected")
+    with pytest.raises((TypeError, ValueError)):
+        ProjectLogicalModule(
+            compilation_mode=ProjectCompilationMode.PACKAGE_ROOT,
+            path="row.pietto",
+            position=0,
+            project_input=project_input,
+        )
+    with pytest.raises((TypeError, ValueError)):
+        module_carrier._build_project_logical_modules(
+            ProjectCompilationMode.PACKAGE_ROOT,
+            (project_input,),
+        )
+    del tmp_path
 
 
 def test_schema_version_validation_and_unknown_keys_remain_fail_closed(
@@ -88,10 +109,10 @@ def test_schema_version_validation_and_unknown_keys_remain_fail_closed(
         assert not result.ok
         assert result.config is None
         assert _single_config_schema_message(result) == (
-            "Project configuration schema_version must be integer 1 or 2."
+            "Project configuration schema_version must be integer 1, 2, or 3."
         )
 
-    for schema_version in (-1, 0, 3):
+    for schema_version in (-1, 0, 4):
         root = _root_with_config(
             tmp_path / f"value-{schema_version}",
             f'schema_version = {schema_version}\n\n[sources]\ninclude = ["*.pietto"]\n',
@@ -100,7 +121,7 @@ def test_schema_version_validation_and_unknown_keys_remain_fail_closed(
         assert not result.ok
         assert result.config is None
         assert _single_config_schema_message(result) == (
-            "Project configuration schema_version must be 1 or 2."
+            "Project configuration schema_version must be 1, 2, or 3."
         )
 
     unknown_cases = (
@@ -593,7 +614,7 @@ def test_slice2_contract_allowlist_and_retained_later_boundaries_are_exact() -> 
         and node.name.startswith("test_")
     )
 
-    assert len(test_nodes) == 16
+    assert len(test_nodes) == 17
     assert all(not node.decorator_list for node in test_nodes)
     assert active_gate2_manifest.PHASE55_ACTIVE_GATE2_MARKER == "PHASE55_SLICE1_GATE2"
     assert active_gate2_manifest.PHASE55_ACTIVE_GATE2_BASE == (

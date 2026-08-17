@@ -155,12 +155,89 @@ class ProjectSourceConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class ProjectRootPackageActivation:
+    """Private authored root-package activation for schema-v3 projects."""
+
+    path: str
+    namespace: str
+    name: str
+    version: str
+    sha256: str
+
+    def __post_init__(self) -> None:
+        """Keep the carrier structural; later slices own field semantics."""
+
+        if not _is_valid_project_root_package_path(self.path):
+            raise ValueError(
+                "Project root package path must be a normalized project-relative directory."
+            )
+        if any(
+            type(value) is not str or not value
+            for value in (self.namespace, self.name, self.version, self.sha256)
+        ):
+            raise ValueError("Project root package fields must be non-empty strings.")
+
+
+def _is_valid_project_root_package_path(value: object) -> bool:
+    """Return whether one authored schema-v3 package path is structural-only valid."""
+
+    if type(value) is not str or not value or "\x00" in value or "\\" in value:
+        return False
+    if value == ".":
+        return True
+    if value.startswith("/") or value.startswith("//") or value.endswith("/"):
+        return False
+    if len(value) >= 2 and value[0].isalpha() and value[1] == ":":
+        return False
+    return all(part not in {"", ".", ".."} for part in value.split("/"))
+
+
+@dataclass(frozen=True, slots=True)
 class ProjectConfig:
     """Private parsed project configuration."""
 
     schema_version: int
-    sources: ProjectSourceConfig
+    sources: ProjectSourceConfig | None
     compilation_mode: ProjectCompilationMode = ProjectCompilationMode.LEGACY_FLAT
+    root_package: ProjectRootPackageActivation | None = None
+
+    def __post_init__(self) -> None:
+        """Enforce the exact schema-version/configuration tagged union."""
+
+        if type(self.schema_version) is not int:
+            raise TypeError("Project configuration requires an exact schema version.")
+        if type(self.compilation_mode) is not ProjectCompilationMode:
+            raise TypeError("Project configuration requires an exact compilation mode.")
+        if self.schema_version == 1:
+            expected_mode = ProjectCompilationMode.LEGACY_FLAT
+        elif self.schema_version == 2:
+            expected_mode = ProjectCompilationMode.EXPLICIT_MODULES
+        elif self.schema_version == 3:
+            expected_mode = ProjectCompilationMode.PACKAGE_ROOT
+        else:
+            raise ValueError(
+                "Project configuration requires schema version 1, 2, or 3."
+            )
+        if self.compilation_mode is not expected_mode:
+            raise ValueError(
+                "Project configuration schema and compilation mode mismatch."
+            )
+        if self.schema_version == 3:
+            if (
+                self.sources is not None
+                or type(self.root_package) is not ProjectRootPackageActivation
+            ):
+                raise ValueError(
+                    "Schema-v3 project configuration requires only a root package activation."
+                )
+            return
+        if (
+            type(self.sources) is not ProjectSourceConfig
+            or self.root_package is not None
+        ):
+            raise ValueError(
+                "Schema-v1/v2 project configuration requires only source selection."
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -839,6 +916,18 @@ class ProjectSemanticResult:
             self.module_package_identity_facts,
             self.module_inspection_facts,
         )
+        if self.compilation_mode is ProjectCompilationMode.PACKAGE_ROOT:
+            if (
+                self.model is not None
+                or self.modules
+                or self.selected_input_index is not None
+                or self.trusted_source_snapshots
+                or any(sidecar is not None for sidecar in module_sidecars)
+            ):
+                raise ValueError(
+                    "Package-root project semantics forbid source and module facts."
+                )
+            return
         if self.compilation_mode is ProjectCompilationMode.LEGACY_FLAT:
             if any(sidecar is not None for sidecar in module_sidecars):
                 raise ValueError(
@@ -1074,6 +1163,40 @@ def build_empty_project_semantic_result(
 ) -> ProjectSemanticResult:
     """Build the private project semantic scaffold from parse-only input."""
 
+    if type(parse_result) is not ProjectParseCheckResult:
+        raise TypeError("Project semantics require an exact parse result carrier.")
+    if type(parse_result.compilation_mode) is not ProjectCompilationMode:
+        raise TypeError("Project semantics require an exact compilation mode.")
+    if parse_result.compilation_mode not in (
+        ProjectCompilationMode.PACKAGE_ROOT,
+        ProjectCompilationMode.EXPLICIT_MODULES,
+        ProjectCompilationMode.LEGACY_FLAT,
+    ):
+        raise ValueError("Project semantics require a supported compilation mode.")
+
+    if parse_result.compilation_mode is ProjectCompilationMode.PACKAGE_ROOT:
+        if (
+            parse_result.inputs
+            or parse_result.parsed_inputs
+            or parse_result.modules
+            or parse_result.selected_input_index is not None
+            or parse_result.trusted_source_snapshots
+        ):
+            raise ValueError(
+                "Package-root project semantics forbid source and module facts."
+            )
+        return ProjectSemanticResult(
+            root=parse_result.root,
+            config_path=parse_result.config_path,
+            model=None,
+            diagnostics=(),
+            compilation_mode=parse_result.compilation_mode,
+            modules=(),
+            pinned_root=parse_result.pinned_root,
+            selected_input_index=None,
+            trusted_source_snapshots=(),
+        )
+
     if (
         not parse_result.ok
         or parse_result.root is None
@@ -1090,7 +1213,7 @@ def build_empty_project_semantic_result(
             trusted_source_snapshots=parse_result.trusted_source_snapshots,
         )
 
-    if parse_result.compilation_mode is not ProjectCompilationMode.LEGACY_FLAT:
+    if parse_result.compilation_mode is ProjectCompilationMode.EXPLICIT_MODULES:
         from pietto._project.module_bindings import (
             _build_project_module_binding_environment_set,
         )

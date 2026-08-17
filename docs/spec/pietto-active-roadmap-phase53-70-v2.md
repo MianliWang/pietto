@@ -292,6 +292,32 @@ and it requires Python reference behavior or a frozen corpus, deterministic
 parity, fallback policy, benchmarks, build/package/security authority, and no
 silent divergence.
 
+## Phase 55 Slice 2 Current Gate 2 Authority
+
+The Phase 55 Slice 1 candidate/protected-publication text above is historical
+workflow context. Under the temporary single-developer authority it does not
+establish that the late PR #62 review thread was closed. This section is the
+current forward-state supersession: Phase 54 is `COMPLETED`, Phase 55 is
+`ACTIVE`, Slice 1 is `COMPLETED`, Slice 2 is `IMPLEMENTED_UNPUBLISHED`, Slices
+3 through 12 are `UNSTARTED`, and
+`next=PHASE55_SLICE2_GATE3`.
+
+Slice 2 owns exactly schema-v3 explicit root-package activation and its private
+immutable carrier. It preserves schema-v1 legacy-flat behavior and
+package-absent schema-v2 explicit-module behavior byte-for-byte. It does not
+claim a manifest, package identity/version/digest, asset, dependency, loader,
+inspection, Project IR, SQL, JSON, CLI, public export, dependency, workflow,
+version, release, signing, or attestation product. The normative boundary is
+`docs/spec/phase55-slice2-explicit-package-activation-compatibility-and-immutable-package-carrier-v1.md`.
+
+The frozen baseline is `5de57b2c078742253aa64d3a5ad627cd602290cd` with tree
+`9bc952f6eedca6a953c9edd94e0172b02451f74c`. Direct-main Gate 3 requires an
+external immutable Gate 2 evidence authority for the sealed reviewed tree;
+the direct commit must have that baseline as parent and exactly that sealed
+tree. The commit trailer is descriptive only. Natural main CI is attempt 1 per
+exact pushed head; a failed run remains preserved, and only an in-scope
+mechanical non-amend child repair may start another natural exact-head attempt.
+
 ## Public Compatibility And Non-goals
 
 Phase 54 Slice 1 changes no grammar, accepted source, generated artifact, AST,

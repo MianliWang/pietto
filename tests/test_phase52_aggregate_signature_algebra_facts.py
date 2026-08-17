@@ -20,6 +20,10 @@ from _phase54_active_gate2_manifest import (
     PHASE55_ACTIVE_GATE2_ADDED_PATHS,
     PHASE55_ACTIVE_GATE2_BASE,
     PHASE55_ACTIVE_GATE2_MODIFIED_PATHS,
+    PHASE55_SLICE2_BASELINE,
+    PHASE55_SLICE2_DIRECT_MAIN_BRANCH,
+    PHASE55_SLICE2_GATE2_ADDED_PATHS,
+    PHASE55_SLICE2_GATE2_MODIFIED_PATHS,
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE12_MECHANICAL_REPAIR3_BASE,
@@ -119,13 +123,13 @@ LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf2
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 SIGNATURE_SHA256 = "810f347080e0bb7dc674821aa6387c5f7618ac216832194ef19820326eef71d2"
 CONTEXT_SHA256 = "132371eccca00ca9f8722a34f1ea0f540933515e560639ee12e53aee6594c60c"
-COMPILER_DIGEST = "3a19e2f52e26ea47b4f34a29a5b062c2329a22f2df916de9e078c61b2209ec42"
+COMPILER_DIGEST = "8c93baee223f2afa4c62b820becb92aae34b8af2713cf4419da211cb5e88a4d9"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "f9e56fe9cb8ea6523ac2d760c765e1341866bd63af22114d3105e364f03ad122"
+    "0f5a417592f7f0df276a34137b14a1a0f39526e4266279ed7af76b3dbfa49de9"
 )
 
 SPEC_H2 = (
@@ -2230,6 +2234,11 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
         assert untracked_paths == set(
             phase54_post_slice12_interlude_expected_added_paths()
         )
+    elif repair_gate2_active and head == PHASE55_SLICE2_BASELINE:
+        assert branch == PHASE55_SLICE2_DIRECT_MAIN_BRANCH
+        assert main == origin_main == PHASE55_SLICE2_BASELINE
+        assert tracked_paths == set(PHASE55_SLICE2_GATE2_MODIFIED_PATHS)
+        assert untracked_paths == set(PHASE55_SLICE2_GATE2_ADDED_PATHS)
     elif repair_gate2_active and head == PHASE55_ACTIVE_GATE2_BASE:
         assert tracked_paths == set(PHASE55_ACTIVE_GATE2_MODIFIED_PATHS)
         assert untracked_paths == set(PHASE55_ACTIVE_GATE2_ADDED_PATHS)
@@ -2366,7 +2375,7 @@ def test_static_test_inventory_and_tier1_selection_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (467, 5521)
+    assert (len(test_files), top_level_functions) == (468, 5538)
 
     compatible, per_file_items = _prior_compatible_nodes()
     assert (len(compatible), per_file_items) == (69, (24, 33, 63))

@@ -67,6 +67,12 @@ def select_project_sources(
         )
     try:
         _verify_pinned_root(pinned_root)
+        if config_result.config.compilation_mode is ProjectCompilationMode.PACKAGE_ROOT:
+            return _project_level_error(
+                config_result,
+                ProjectDiscoveryErrorKind.CONFIG_SCHEMA,
+                "Schema-v3 package activation does not use project source selection.",
+            )
         inputs, entries, errors = _select_from_config(
             pinned_root,
             config_result.config,
@@ -118,6 +124,10 @@ def _select_from_config(
     tuple[ProjectSelectedInputEntry, ...],
     tuple[ProjectDiscoveryError, ...],
 ]:
+    if config.compilation_mode is ProjectCompilationMode.PACKAGE_ROOT:
+        raise ValueError("Project source selection forbids package-root mode.")
+    if config.sources is None:
+        raise ValueError("Project source selection requires source configuration.")
     discovered, traversal_errors = _discover_candidate_paths(pinned_root)
     selected_paths = {
         relative_path: path

@@ -15,6 +15,10 @@ PLAN_PATH = (
     / "docs/plan/phase-44-project-source-selection-parse-only-project-check-mvp.md"
 )
 SPEC_PATH = REPO_ROOT / "docs/spec/phase44-project-config-schema-contract-v1.md"
+PHASE55_SLICE2_SPEC_PATH = (
+    REPO_ROOT
+    / "docs/spec/phase55-slice2-explicit-package-activation-compatibility-and-immutable-package-carrier-v1.md"
+)
 PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
 ALLOWED_GATE2_PATHS = {
@@ -136,6 +140,29 @@ def test_active_schema_version_and_sources_contract_are_minimal() -> None:
         "missing `sources.include` means",
     ):
         assert forbidden not in combined, forbidden
+
+
+def test_phase55_slice2_extends_without_rewriting_the_phase44_schema_contract() -> None:
+    """Schema-v3 is a later exclusive mode; Phase 44's v1 contract stays literal."""
+
+    assert PHASE55_SLICE2_SPEC_PATH.is_file()
+    phase44 = _phase44_slice2_text()
+    phase55 = _normalized(PHASE55_SLICE2_SPEC_PATH)
+
+    for required in (
+        "`schema_version = 1` is required",
+        "`[sources]` is required",
+        "there is no implicit include default",
+    ):
+        assert required in phase44, required
+    for required in (
+        "Schema v1 yields `LEGACY_FLAT`",
+        "schema v2 yields `EXPLICIT_MODULES`",
+        "`schema_version = 3` plus exactly one `[package]` root table",
+        "Schema v1 and v2 allow exactly `schema_version` and `[sources]`",
+        "Schema v3 allows exactly `schema_version` and `[package]`",
+    ):
+        assert required in phase55, required
 
 
 def test_pattern_path_and_wildcard_rules_are_unambiguous() -> None:

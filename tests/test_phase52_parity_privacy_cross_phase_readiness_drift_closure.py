@@ -23,6 +23,10 @@ from _phase54_active_gate2_manifest import (
     PHASE55_ACTIVE_GATE2_ADDED_PATHS,
     PHASE55_ACTIVE_GATE2_BASE,
     PHASE55_ACTIVE_GATE2_MODIFIED_PATHS,
+    PHASE55_SLICE2_BASELINE,
+    PHASE55_SLICE2_DIRECT_MAIN_BRANCH,
+    PHASE55_SLICE2_GATE2_ADDED_PATHS,
+    PHASE55_SLICE2_GATE2_MODIFIED_PATHS,
     PHASE54_ACTIVE_GATE2_ADDED_PATHS,
     PHASE54_ACTIVE_GATE2_BASE,
     PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
@@ -179,21 +183,21 @@ MODULE_SHA256 = {
 }
 SPEC_SHA256 = "7010cd8a39ed389de588d8cd734b136cc87456c3ef5eb324638467d1188fc935"
 MODIFIED_TEST_SHA256 = {
-    SLICE4_TEST_REL: "8adf625dcc0e989b3329d59ed6767bfd2d1983e3ea8745bab06ceba2d0744b52",
-    SLICE5_TEST_REL: "5de38f161aa252df0192b6fc4b98e86630bc7562a21df68d58b88667f0771857",
-    SLICE6_TEST_REL: "539c80bc35c5812f92954bf5fa5ee1f3f2159c38c1ac7e40b1ac2b95169f99ad",
-    SLICE7_TEST_REL: "e6754e2af7aa4c48fb34ba52c2a7f384173f6c2a7c95b842da3421de99c42d8e",
+    SLICE4_TEST_REL: "8cac60495bdef391180ec07172f7d2d0ad732c9b6084aabd182acd81760f730e",
+    SLICE5_TEST_REL: "9a02361bf0248309760065107ae8934292577d12236356fceea149f555292ee5",
+    SLICE6_TEST_REL: "8b420753dbdfe16583c901b8f8fe2037a8776b1c0aa778877cdd4d2c3e091da1",
+    SLICE7_TEST_REL: "7832419596a1af7f77a8320793197463b92448f9ab19aea09d3069875f9d0e94",
 }
 WORKFLOW_SHA256 = "56339c3e565471c3a95a0f79a05eaf9596d734a173d1936d5df167526508ddac"
 PYPROJECT_SHA256 = "851e706f2cbafb24c48068cdd6fd8a6ada1f93317618000be71db3681c40a1a8"
 LOCK_SHA256 = "12795f072df20fb688b37e484dd4561cd33e34bf601be3cb0fa1f9075eee38a2"
-COMPILER_DIGEST = "3a19e2f52e26ea47b4f34a29a5b062c2329a22f2df916de9e078c61b2209ec42"
+COMPILER_DIGEST = "8c93baee223f2afa4c62b820becb92aae34b8af2713cf4419da211cb5e88a4d9"
 SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
 PHASE15_SUBSET_DIGEST = (
     "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
 )
 PROJECT_PRIVATE_DIGEST = (
-    "f9e56fe9cb8ea6523ac2d760c765e1341866bd63af22114d3105e364f03ad122"
+    "0f5a417592f7f0df276a34137b14a1a0f39526e4266279ed7af76b3dbfa49de9"
 )
 
 SPEC_H2 = (
@@ -734,6 +738,15 @@ def _assert_allowed_dirty_state(
         assert branch == PHASE54_SLICE12_PRODUCT_REPAIR3_BRANCH
         assert head == PHASE54_SLICE12_PRODUCT_REPAIR3_BASE
         assert main == origin_main == "bc46faff1c9aa71f583ed7d2964b651cc659bc90"
+        return
+    if (
+        _phase54_active_gate2_is_active()
+        and head == PHASE55_SLICE2_BASELINE
+        and tracked == set(PHASE55_SLICE2_GATE2_MODIFIED_PATHS)
+        and untracked == set(PHASE55_SLICE2_GATE2_ADDED_PATHS)
+    ):
+        assert branch == PHASE55_SLICE2_DIRECT_MAIN_BRANCH
+        assert head == main == origin_main == PHASE55_SLICE2_BASELINE
         return
     if (
         _phase54_active_gate2_is_active()
@@ -2183,7 +2196,7 @@ def test_static_reader_counts_boundary_hash_and_nested_sha_topology_are_exact() 
     assert (
         sum(path.endswith(".py") for path in readable),
         sum(path.endswith(".md") for path in readable),
-    ) == (581, 272)
+    ) == (582, 273)
     compiler_paths = _compiler_paths()
     semantic_paths = tuple((REPO_ROOT / "src/pietto/semantic").glob("*.py"))
     phase15_paths = tuple(
@@ -2372,7 +2385,7 @@ def test_test_inventory_tier1_selectors_and_compatibility_counts_are_exact() -> 
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (467, 5521)
+    assert (len(test_files), top_level_functions) == (468, 5538)
     assert tuple(
         _pytest_shape(REPO_ROOT / path)[1]
         for path in (
@@ -2429,7 +2442,7 @@ def test_test_inventory_tier1_selectors_and_compatibility_counts_are_exact() -> 
     )
     assert sum((12, 25, 34, 64, 64, 69, 69, 69, 11)) + len(filtered_direct) == 459
     assert 465 - len(tier1_deselections) == 462
-    assert 6156 + 11 == 6167
+    assert 6202 + 11 == 6213
 
 
 def test_tier2_manifest_identity_presence_uniqueness_and_clean_only_classification_are_exact() -> (
@@ -2478,7 +2491,7 @@ def test_tier2_manifest_identity_presence_uniqueness_and_clean_only_classificati
         ]
         assert len(matches) == 1
         assert _parametrize_values(matches[0]) == 1
-    assert 6167 - len(manifest) == 6027
+    assert 6213 - len(manifest) == 6073
 
 
 def test_slice8_gate2_gate3_lifecycle_release_and_next_gate_are_exact() -> None:

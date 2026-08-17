@@ -12,15 +12,6 @@ from pathlib import Path
 from _phase54_active_gate2_manifest import (
     phase54_post_slice12_interlude_expected_allowlist_paths,
     phase54_post_slice12_interlude_expected_added_paths,
-    PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
-    PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
-    PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,
-    PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE,
-    PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BASE,
-    PHASE54_POST_REVIEW_PRODUCT_REPAIR6_BASE,
-    PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE,
-    PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
-    PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS,
@@ -30,7 +21,12 @@ from _phase54_active_gate2_manifest import (
     PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS,
     PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
+    PHASE55_SLICE2_BASELINE,
+    PHASE55_SLICE2_DIRECT_MAIN_BRANCH,
+    PHASE55_SLICE2_GATE2_ADDED_PATHS,
+    PHASE55_SLICE2_GATE2_DELETED_PATHS,
+    PHASE55_SLICE2_GATE2_MODIFIED_PATHS,
+    phase55_slice2_direct_main_staging_matches,
     phase54_slice11_pr_ci_repair_is_active,
     phase54_slice12_pr_ci_repair_is_active,
     phase54_slice12_mechanical_repair3_is_active,
@@ -369,9 +365,9 @@ PROTECTED_HASHES = {
         "26cc0ae4a68518223d6bf600ad3c4b0b226618aa7ef31b2ae1c25924d2655169"
     ),
 }
-COMPILER_DIGEST = "3a19e2f52e26ea47b4f34a29a5b062c2329a22f2df916de9e078c61b2209ec42"
+COMPILER_DIGEST = "8c93baee223f2afa4c62b820becb92aae34b8af2713cf4419da211cb5e88a4d9"
 PROJECT_PRIVATE_DIGEST = (
-    "f9e56fe9cb8ea6523ac2d760c765e1341866bd63af22114d3105e364f03ad122"
+    "0f5a417592f7f0df276a34137b14a1a0f39526e4266279ed7af76b3dbfa49de9"
 )
 
 PROJECT_JSON_V2_KEYS = (
@@ -1354,6 +1350,9 @@ def test_static_git_helper_and_exact_slice12_dirty_set_are_locked() -> None:
         ("diff", "--cached", "--name-status"),
         ("diff", "--check"),
         ("rev-parse", "HEAD"),
+        ("rev-parse", "main"),
+        ("rev-parse", "origin/main"),
+        ("branch", "--show-current"),
     }
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -1370,30 +1369,13 @@ def test_static_git_helper_and_exact_slice12_dirty_set_are_locked() -> None:
             values.append(element.value)
         assert tuple(values) in approved_git_calls
 
-    slice2_tree = ast.parse(_read(REPO_ROOT / SLICE2_STATE_REL))
-    slice2_sets = {
-        node.targets[0].id: set(ast.literal_eval(node.value))
-        for node in slice2_tree.body
-        if isinstance(node, ast.Assign)
-        and len(node.targets) == 1
-        and isinstance(node.targets[0], ast.Name)
-        and node.targets[0].id
-        in {
-            "ADDED_PATHS",
-            "NON_READER_MODIFIED_PATHS",
-            "MECHANICAL_READER_PATHS",
-        }
-    }
-    assert set(slice2_sets) == {
-        "ADDED_PATHS",
-        "NON_READER_MODIFIED_PATHS",
-        "MECHANICAL_READER_PATHS",
-    }
-    slice2_modified = (
-        slice2_sets["NON_READER_MODIFIED_PATHS"]
-        | slice2_sets["MECHANICAL_READER_PATHS"]
+    slice2_modified = set(PHASE55_SLICE2_GATE2_MODIFIED_PATHS)
+    slice2_added = set(PHASE55_SLICE2_GATE2_ADDED_PATHS)
+    assert phase55_slice2_direct_main_staging_matches(
+        frozenset(slice2_added),
+        frozenset(slice2_modified),
+        PHASE55_SLICE2_GATE2_DELETED_PATHS,
     )
-    slice2_added = slice2_sets["ADDED_PATHS"]
     dirty_paths = _dirty_paths()
     assert dirty_paths in (
         set(),
@@ -1452,46 +1434,12 @@ def test_static_git_helper_and_exact_slice12_dirty_set_are_locked() -> None:
         assert set(_git_output(["diff", "--name-only"]).splitlines()) == (
             slice2_modified
         )
-        path_counts = (
-            len(slice2_modified),
-            len(slice2_added),
-            len(slice2_modified | slice2_added),
+        assert _git_output(["branch", "--show-current"]) == (
+            PHASE55_SLICE2_DIRECT_MAIN_BRANCH
         )
-        expected_head = SLICE2_BASE_HEAD_SHA
-        if path_counts == SLICE4_PATH_COUNTS:
-            expected_head = SLICE4_BASE_HEAD_SHA
-        elif path_counts == SLICE5_PATH_COUNTS:
-            expected_head = SLICE5_BASE_HEAD_SHA
-        elif path_counts == SLICE6_PATH_COUNTS:
-            expected_head = SLICE6_BASE_HEAD_SHA
-        elif path_counts == SLICE7_PATH_COUNTS:
-            expected_head = SLICE7_BASE_HEAD_SHA
-        elif path_counts == SLICE8_PATH_COUNTS:
-            expected_head = SLICE8_BASE_HEAD_SHA
-        elif path_counts == SLICE9_PATH_COUNTS:
-            expected_head = SLICE9_BASE_HEAD_SHA
-        if _phase54_active_gate2_is_active():
-            active_head = _git_output(["rev-parse", "HEAD"])
-            assert active_head in {
-                "b81843acadb294630db361c09949868d004b1bca",
-                "bc46faff1c9aa71f583ed7d2964b651cc659bc90",
-                "0bad854253e22347e2aff93e2eabcbe2fda55aed",
-                "040ab19c56519c39c56541979c850484f9cc47f0",
-                "1f69c0316086a2236cee03a96cca95218fbd50fc",
-                "364296e69f7e289395661518031dafeb66a216cc",
-                "93f0f591e28a01f32d1698fcd4b8c57d41c6d714",
-                PHASE54_POST_REVIEW_PRODUCT_REPAIR1_BASE,
-                PHASE54_POST_REVIEW_PRODUCT_REPAIR2_BASE,
-                PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,
-                PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE,
-                PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BASE,
-                PHASE54_POST_REVIEW_PRODUCT_REPAIR6_BASE,
-                PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE,
-                PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
-                PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
-            }
-            expected_head = active_head
-        assert _git_output(["rev-parse", "HEAD"]) == expected_head
+        assert _git_output(["rev-parse", "HEAD"]) == PHASE55_SLICE2_BASELINE
+        assert _git_output(["rev-parse", "main"]) == PHASE55_SLICE2_BASELINE
+        assert _git_output(["rev-parse", "origin/main"]) == PHASE55_SLICE2_BASELINE
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
     assert _git_output(["diff", "--check"]) == ""
 

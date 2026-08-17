@@ -913,16 +913,57 @@ def test_single_file_public_privacy_scope_and_flat_evidence_contract_remain_exac
     assert "## Slice 3 Exact Production Boundary And Gate Contract" in plan
     assert "## Slice 4 Exact Production Boundary And Gate Contract" in plan
     assert source.count("\ndef test_") == 26
-    assert active_gate2_manifest.PHASE55_ACTIVE_GATE2_MARKER == "PHASE55_SLICE1_GATE2"
-    assert active_gate2_manifest.PHASE55_ACTIVE_GATE2_BASE == (
+    assert (
+        active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_MARKER
+        == "PHASE55_SLICE1_GATE2"
+    )
+    assert active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_BASE == (
         "364296e69f7e289395661518031dafeb66a216cc"
     )
-    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_ADDED_PATHS) == 3
-    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_MODIFIED_PATHS) == 52
-    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_ALLOWLIST_PATHS) == 55
+    assert len(active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_ADDED_PATHS) == 3
+    assert (
+        len(active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_MODIFIED_PATHS) == 52
+    )
+    assert (
+        len(active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_ALLOWLIST_PATHS) == 55
+    )
     assert (
         SELF_PATH.relative_to(REPO_ROOT).as_posix()
-        in active_gate2_manifest.PHASE55_ACTIVE_GATE2_READER_PATHS
+        in active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_READER_PATHS
+    )
+    assert active_gate2_manifest.PHASE55_SLICE2_GATE2_MARKER == "PHASE55_SLICE2_GATE2"
+    assert (
+        active_gate2_manifest.PHASE55_SLICE2_BASELINE
+        == "5de57b2c078742253aa64d3a5ad627cd602290cd"
+    )
+    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_ADDED_PATHS) == 2
+    assert (
+        len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_MODIFIED_PATHS) == 75
+    )
+    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_DELETED_PATHS) == 0
+    assert (
+        len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_ALLOWLIST_A2_M75_D0)
+        == 77
+    )
+    assert (
+        SELF_PATH.relative_to(REPO_ROOT).as_posix()
+        in active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_MODIFIED_PATHS
+    )
+    assert (
+        SELF_PATH.relative_to(REPO_ROOT).as_posix()
+        in active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_ALLOWLIST_A2_M75_D0
+    )
+    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_ADDED_PATHS) == 2
+    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_MODIFIED_PATHS) == 76
+    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_DELETED_PATHS) == 0
+    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_ALLOWLIST_A2_M76_D0) == 78
+    assert (
+        SELF_PATH.relative_to(REPO_ROOT).as_posix()
+        in active_gate2_manifest.PHASE55_SLICE2_GATE2_MODIFIED_PATHS
+    )
+    assert (
+        SELF_PATH.relative_to(REPO_ROOT).as_posix()
+        in active_gate2_manifest.PHASE55_SLICE2_GATE2_ALLOWLIST_A2_M76_D0
     )
     single = parser_api.parse_source("shape One:\n    id: Int\n", path="one.pietto")
     assert single.ast is not None

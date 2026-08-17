@@ -113,7 +113,7 @@ LOCKED_PHASE33_SURFACES = {
     "project_private": (
         "src/pietto/_project",
         33,
-        "f9e56fe9cb8ea6523ac2d760c765e1341866bd63af22114d3105e364f03ad122",
+        "0f5a417592f7f0df276a34137b14a1a0f39526e4266279ed7af76b3dbfa49de9",
     ),
     "cli": (
         "src/pietto/cli.py",
@@ -133,7 +133,7 @@ LOCKED_PHASE33_SURFACES = {
     "readme": (
         "README.md",
         1,
-        "0566a1a845af6301c16551c9c9ac455bf4a19b7ae630fd79fd27974696136272",
+        "6dfa5cd150501c6e703c110dde13d71ff4635c4f367dae7160f66594cb683202",
     ),
     "agents": (
         "AGENTS.md",
@@ -143,7 +143,7 @@ LOCKED_PHASE33_SURFACES = {
     "pietto_v09": (
         "docs/spec/pietto-v0.9.md",
         1,
-        "ebc774397dc050bd542106b4bffb28f15423153d668798b024236cff1faf0103",
+        "3ceb49cca85545924b2c57eae59cc38f35a2d75bf23f3ca86d53eed006343926",
     ),
 }
 

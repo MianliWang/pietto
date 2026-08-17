@@ -375,7 +375,10 @@ def test_python_distribution_project_module_and_package_boundaries_are_locked() 
         "project config key, filesystem loader, or resolver is selected",
     ):
         assert required in integration, required
-    assert "package" not in _read(PROJECT_CONFIG_PATH).lower()
+    config_text = _read(PROJECT_CONFIG_PATH)
+    assert "ProjectRootPackageActivation" in config_text
+    assert "3: ProjectCompilationMode.PACKAGE_ROOT" in config_text
+    assert 'frozenset({"schema_version", "package"})' in config_text
 
 
 def test_route_b_identity_and_version_distinctions_are_locked() -> None:

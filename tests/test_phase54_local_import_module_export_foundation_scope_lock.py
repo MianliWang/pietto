@@ -92,6 +92,7 @@ SLICE6_SPEC_TITLE = (
 
 SLICE2_EXPECTED_TEST_NAMES = (
     "test_schema_versions_map_to_exact_project_compilation_modes",
+    "test_package_mode_cannot_construct_logical_modules",
     "test_schema_version_validation_and_unknown_keys_remain_fail_closed",
     "test_schema_versions_select_identical_normalized_ordered_inputs",
     "test_logical_module_carrier_is_frozen_slots_hashable_and_enforces_invariants",
@@ -491,17 +492,17 @@ PROTECTED_SHA256 = {
     "src/pietto/ast_builder.py": "918dc9f6d7705376b604e69fb80c45cf4c3673c8909a58537770d114d96252cb",
     "src/pietto/parser_api.py": "aa744c3ee334c8729917ae2aed2ee906874f927d47e99542d5accb8a98aa456b",
     "src/pietto/__init__.py": "669ac67bb23a0c8179995e0e415d76c46210c12311e29cd89d2612b45b0a194d",
-    "src/pietto/_project/module_carrier.py": "fa235758cc39ddc6efea004d03bd28ccae4833463c14b9f7664cf013f7b66fd5",
+    "src/pietto/_project/module_carrier.py": "de243fea80fdfd53afa44b297bc63e431cd6869ba8dee0e19166515d44d37fad",
     "src/pietto/_project/path_trust.py": "99923ff2ac195c6400935bb6eb9b7f8212815085a777fa4fd910ad66160dce8a",
     "src/pietto/_project/selected_input_index.py": "9eef9b472e22eb1de0ca920c4264c72e5661d835d938966c872eba0fdd290772",
     "src/pietto/_project/trusted_source.py": "21e6962bfb066be6af2539db1229e4fcc97c651d3e29f818794c46039317d8dc",
-    "src/pietto/_project/config.py": "da060cc15428ccc4b29ed992a814d7c5f41cca42dcd200655d2909a9d31a3d1e",
-    "src/pietto/_project/source_selection.py": "fb1c531bcdd81696aa0c26b110433a6775cde878aeb4af3373d0d4aaf1f1443e",
+    "src/pietto/_project/config.py": "53cfc53c75f54de68802a64a524cfb6b320377f46a09bee74309a4cb3c88fbc6",
+    "src/pietto/_project/source_selection.py": "fb7d42b7604220571300bb83d4bd646ec12f9dcac05d8ff8e069535505a39384",
     "src/pietto/_project/check.py": "6f2f2805249cc86a8ff3510a03abc702d2a029186cf16b50cabd11dbaf1da9e1",
     "src/pietto/_project/json_v2.py": "74251e684a22de4dcdc7e1822a6843ca89cbdfa7e136a046676d848b57953bd5",
-    SLICE2_TEST_REL: "22aa59d8b26247489e4f4b5c05ed850bc8b8732ca2cbc43a19f11ba0f27259a8",
-    SLICE3_TEST_REL: "0feae8107ae82954c4ad610bc410e785b902aa92e6250bd1754b8a3d0e7e4765",
-    SLICE4_TEST_REL: "750d7680ec3ea14d40784e5b4d6c0607a0bb904204cef31b018325c1e046f8bd",
+    SLICE2_TEST_REL: "0e2b2b004f2e05afc9df78143419a1cb62cadb65b56c013be3c0222cc9e4d66d",
+    SLICE3_TEST_REL: "20bdf2ebe2b4f58009dc3272d07cfd0c7e0cf8316bce8a5c06bda50057ca59cc",
+    SLICE4_TEST_REL: "f96c66241f7028b4a99885935a25a893eb874a0ae32bd9f345aa652c47ac543e",
     ".github/workflows/ci.yml": "56339c3e565471c3a95a0f79a05eaf9596d734a173d1936d5df167526508ddac",
     "pyproject.toml": "851e706f2cbafb24c48068cdd6fd8a6ada1f93317618000be71db3681c40a1a8",
     "uv.lock": "12795f072df20fb688b37e484dd4561cd33e34bf601be3cb0fa1f9075eee38a2",
@@ -654,7 +655,7 @@ def test_slice1_artifact_titles_heading_order_and_lifecycle_are_exact() -> None:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name.startswith("test_")
     )
-    assert len(slice2_nodes) == 16
+    assert len(slice2_nodes) == 17
     assert all(not node.decorator_list for node in slice2_nodes)
     slice3_tests = _top_level_test_functions(SLICE3_TEST_REL)
     assert slice3_tests == SLICE3_EXPECTED_TEST_NAMES
@@ -713,7 +714,7 @@ def test_authority_hierarchy_grounding_and_historical_predecessors_are_exact() -
         "8c3656805db451946d60e341b8ac0ca9181997378d07576133c9c4aeef3e3f77"
     )
     assert _sha256("tests/test_phase50_import_module_export_readiness.py") == (
-        "22e55fad318240515fa6df8f56d65a2c21e6c862781ec8ca41b72cac11813c1b"
+        "69a35efe10479e22969449f6d4fc1cc1e44c089566f818711a8811f3acbea89c"
     )
     scope = _read(SCOPE_REL)
     roadmap = _read(ROADMAP_V2_REL)
@@ -1032,14 +1033,21 @@ def test_legacy_config_discovery_selection_loader_and_project_json_are_byte_lock
     assert "_COMPILATION_MODE_BY_SCHEMA_VERSION" in config
     assert "1: ProjectCompilationMode.LEGACY_FLAT" in config
     assert "2: ProjectCompilationMode.EXPLICIT_MODULES" in config
-    assert '_TOP_LEVEL_KEYS = frozenset({"schema_version", "sources"})' in config
+    assert "3: ProjectCompilationMode.PACKAGE_ROOT" in config
+    assert (
+        '_TOP_LEVEL_KEYS = frozenset({"schema_version", "sources", "package"})'
+        in config
+    )
+    assert 'frozenset({"schema_version", "package"})' in config
     assert 'LEGACY_FLAT = "legacy_flat"' in carrier
     assert 'EXPLICIT_MODULES = "explicit_modules"' in carrier
+    assert 'PACKAGE_ROOT = "package_root"' in carrier
     assert "class ProjectModuleIdentity" in carrier
     assert "class ProjectLogicalModule" in carrier
     assert "_build_project_logical_modules" in selection
     assert "resolved_path.relative_to(pinned_root.canonical_path)" in selection
     assert "ProjectSelectedInputIndex" in selection
+    assert "ProjectCompilationMode.PACKAGE_ROOT" in selection
     assert "ProjectParsedInput" in check and "script=parse_result.ast" in check
     assert "_load_trusted_source" in check
     assert "class ProjectPinnedRoot" in path_trust
@@ -1049,10 +1057,12 @@ def test_legacy_config_discovery_selection_loader_and_project_json_are_byte_lock
     assert "class ProjectTrustedSourceSnapshot" in trusted
     assert "hashlib.sha256(source_bytes).hexdigest()" in trusted
     assert "class ProjectInput" in model and "class ProjectParsedInput" in model
+    assert "class ProjectRootPackageActivation" in model
     assert "compilation_mode: ProjectCompilationMode" in model
     assert "modules: tuple[ProjectLogicalModule, ...]" in model
+    assert "root_package: ProjectRootPackageActivation | None = None" in model
     assert (
-        "parse_result.compilation_mode is not ProjectCompilationMode.LEGACY_FLAT"
+        "parse_result.compilation_mode is ProjectCompilationMode.EXPLICIT_MODULES"
         in model
     )
     assert "trusted_source_snapshots" in model
@@ -1109,13 +1119,13 @@ def test_flat_catalog_collect_before_resolve_semantic_and_project_fact_surfaces_
     project = tuple((REPO_ROOT / "src/pietto/_project").glob("*.py"))
     assert len(compiler) == 108
     assert _digest(compiler) == (
-        "3a19e2f52e26ea47b4f34a29a5b062c2329a22f2df916de9e078c61b2209ec42"
+        "8c93baee223f2afa4c62b820becb92aae34b8af2713cf4419da211cb5e88a4d9"
     )
     assert _digest(semantic) == (
         "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
     )
     assert _digest(project) == (
-        "f9e56fe9cb8ea6523ac2d760c765e1341866bd63af22114d3105e364f03ad122"
+        "0f5a417592f7f0df276a34137b14a1a0f39526e4266279ed7af76b3dbfa49de9"
     )
     assert len(project) == 33
     model = _read("src/pietto/_project/model.py")
@@ -1316,16 +1326,16 @@ def test_gate_allowlist_reader_evidence_publication_stop_and_next_state_contract
     assert len(FORMATTER_PATHS) == 163
     assert len(ALLOWLIST_PATHS) == 167
     readable = _readable_paths()
-    assert len(readable) == 949
-    assert sum(path.endswith(".py") for path in readable) == 581
-    assert sum(path.endswith(".md") for path in readable) == 272
+    assert len(readable) == 951
+    assert sum(path.endswith(".py") for path in readable) == 582
+    assert sum(path.endswith(".md") for path in readable) == 273
     test_modules = tuple(
         path
         for path in readable
         if path.startswith("tests/test_") and path.endswith(".py")
     )
-    assert len(test_modules) == 467
-    assert sum(len(_top_level_test_functions(path)) for path in test_modules) == 5521
+    assert len(test_modules) == 468
+    assert sum(len(_top_level_test_functions(path)) for path in test_modules) == 5538
     dirty = set(_git_output(["diff", "--name-only"]).splitlines()) | set(
         _git_output(["ls-files", "--others", "--exclude-standard"]).splitlines()
     )

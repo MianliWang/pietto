@@ -33,11 +33,39 @@ def test_valid_project_config_is_loaded_without_source_selection(
     assert result.config is not None
     assert result.config.schema_version == 1
     assert result.config.compilation_mode is ProjectCompilationMode.LEGACY_FLAT
+    assert result.config.sources is not None
     assert result.config.sources.include_patterns == (
         "models/**/*.pietto",
         "*.pietto",
     )
     assert result.config.sources.exclude_patterns == ("models/tmp/*.pietto",)
+    assert result.config.root_package is None
+
+
+@pytest.mark.parametrize(
+    ("schema_version", "compilation_mode"),
+    (
+        (1, ProjectCompilationMode.LEGACY_FLAT),
+        (2, ProjectCompilationMode.EXPLICIT_MODULES),
+    ),
+)
+def test_schema_v1_v2_keep_exact_sources_arm_after_package_activation(
+    tmp_path: Path,
+    schema_version: int,
+    compilation_mode: ProjectCompilationMode,
+) -> None:
+    root = _project_root(
+        tmp_path,
+        f"""\n        schema_version = {schema_version}\n\n        [sources]\n        include = ["models/**/*.pietto"]\n        """,
+    )
+
+    result = load_project_config(root)
+
+    assert result.ok
+    assert result.config is not None
+    assert result.config.compilation_mode is compilation_mode
+    assert result.config.sources is not None
+    assert result.config.root_package is None
 
 
 def test_missing_exclude_is_normalized_to_empty_tuple(tmp_path: Path) -> None:
@@ -55,6 +83,7 @@ def test_missing_exclude_is_normalized_to_empty_tuple(tmp_path: Path) -> None:
 
     assert result.ok
     assert result.config is not None
+    assert result.config.sources is not None
     assert result.config.sources.exclude_patterns == ()
 
 
@@ -73,6 +102,7 @@ def test_loader_does_not_expand_globs_or_read_sources(tmp_path: Path) -> None:
 
     assert result.ok
     assert result.config is not None
+    assert result.config.sources is not None
     assert result.config.sources.include_patterns == ("missing/**/*.pietto",)
 
 
@@ -292,6 +322,7 @@ def test_valid_pattern_subset_is_accepted(tmp_path: Path, pattern: str) -> None:
 
     assert result.ok
     assert result.config is not None
+    assert result.config.sources is not None
     assert result.config.sources.include_patterns == (pattern,)
 
 

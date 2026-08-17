@@ -274,3 +274,42 @@ non-converging reader closure, compatibility or product behavior change,
 dependency/workflow/version/public/release need, tree mismatch, or unsafe
 immutable-evidence creation. Mechanical reader/hash/formatting corrections
 inside the frozen authority continue without a routine pause.
+
+## Slice 2 Gate 2 Candidate And Pending Direct-main Publication
+
+All Slice 1 Gate 3 prose above is retained as a historical workflow record.
+The temporary single-developer direct-main authority supersedes it for forward
+Phase 55 work without asserting that the historical PR #62 review-closure
+requirement passed. The verified Slice 2 baseline is commit
+`5de57b2c078742253aa64d3a5ad627cd602290cd`, tree
+`9bc952f6eedca6a953c9edd94e0172b02451f74c`, with natural `push` CI attempt 1
+run `31874242101` successful. Phase 54 is `COMPLETED`, Phase 55 is `ACTIVE`,
+Slice 1 is `COMPLETED`, and Slice 2 is `IMPLEMENTED_UNPUBLISHED` during Gate
+2; Slices 3 through 12 remain `UNSTARTED`. The sole next token is
+`PHASE55_SLICE2_GATE3`.
+
+Slice 2 owns only explicit schema-v3 package activation, its exact structural
+validation, and the private immutable root-package carrier described by
+`docs/spec/phase55-slice2-explicit-package-activation-compatibility-and-immutable-package-carrier-v1.md`.
+The four root fields after `path` retain authored decoded strings; slug,
+SemVer, SHA-256, manifest normalization, identity, digest, assets,
+dependencies, loading, inspection, and all public behavior remain later-slice
+owners.
+
+Gate 2 remains a dirty, unstaged `main` candidate. Its review discipline is
+complete candidate, read-only complete-surface review, frozen finding set,
+causal-root batch repair, and full review of the new exact tree. A recurring
+causal family after its intended repair is architecture non-convergence, not a
+reason for another leaf guard. Reader/hash/digest closure follows semantic
+freeze and must end with zero additions and zero delta.
+
+The external immutable Gate 2 evidence is the reviewed-tree authority root.
+Gate 3 may create one non-amend direct-main commit only when its parent equals
+the frozen Slice 2 baseline, its tree equals that external sealed tree, and its
+staged paths equal the sealed allowlist. `Pietto-Reviewed-Tree` is a redundant
+descriptive consistency trailer, never self-authorizing evidence. Normal push
+then waits for the natural attempt 1 CI of that exact head. A failed attempt is
+preserved; only an in-scope mechanical repair may make a new non-amend child
+commit and receive its own natural attempt 1. Baseline, scope, or architecture
+drift returns to Gate 0/Gate 1; no rebase, amend, force-push, manual rerun,
+tag, Release, publication, signing, or attestation is authorized.

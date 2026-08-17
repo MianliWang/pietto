@@ -9,6 +9,7 @@ from typing import cast
 from _phase54_active_gate2_manifest import (  # noqa: F401
     phase54_post_slice12_interlude_expected_allowlist_paths,
     phase54_post_slice12_interlude_dirty_is_active,
+    phase55_slice2_gate2_expected_allowlist_paths,
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE12_PR_CI_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE12_MECHANICAL_REPAIR3_MODIFIED_PATHS,
@@ -762,6 +763,7 @@ def test_protected_surfaces_version_tag_staging_and_dirty_set_are_locked() -> No
     assert _git_output(["tag", "--points-at", "HEAD"]) == ""
     assert _git_output(["diff", "--cached", "--name-status"]) == ""
     dirty = _dirty_paths()
+    effective = set(phase55_slice2_gate2_expected_allowlist_paths())
     phase54_slice9_gate2 = _phase54_slice9_gate2_paths()
     if dirty not in (
         phase54_slice9_gate2,
@@ -773,6 +775,7 @@ def test_protected_surfaces_version_tag_staging_and_dirty_set_are_locked() -> No
         set(PHASE54_SLICE12_PRODUCT_REPAIR10_MODIFIED_PATHS),
         set(PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS),
         set(phase54_post_slice12_interlude_expected_allowlist_paths()),
+        effective,
     ):
         for relative_path in PROTECTED_PATHS:
             assert _git_output(["diff", "--", relative_path]) == "", relative_path
@@ -795,6 +798,7 @@ def test_protected_surfaces_version_tag_staging_and_dirty_set_are_locked() -> No
         set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS),
         set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS),
         set(phase54_post_slice12_interlude_expected_allowlist_paths()),
+        effective,
     )
     if dirty == set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS):
         assert phase54_slice11_python313_repair_is_active()
@@ -816,6 +820,8 @@ def test_protected_surfaces_version_tag_staging_and_dirty_set_are_locked() -> No
         assert phase54_slice11_pr_ci_repair_is_active()
     elif dirty == set(phase54_post_slice12_interlude_expected_allowlist_paths()):
         assert phase54_post_slice12_interlude_dirty_is_active()
+    elif dirty == effective:
+        assert dirty == effective and _phase54_active_gate2_is_active()
 
 
 def test_plan_slice6_scope_and_exact_allowlist_are_locked() -> None:

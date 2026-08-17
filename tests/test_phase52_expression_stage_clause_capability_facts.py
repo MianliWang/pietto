@@ -18,6 +18,10 @@ from _phase54_active_gate2_manifest import (
     PHASE55_ACTIVE_GATE2_ADDED_PATHS,
     PHASE55_ACTIVE_GATE2_BASE,
     PHASE55_ACTIVE_GATE2_MODIFIED_PATHS,
+    PHASE55_SLICE2_BASELINE,
+    PHASE55_SLICE2_DIRECT_MAIN_BRANCH,
+    PHASE55_SLICE2_GATE2_ADDED_PATHS,
+    PHASE55_SLICE2_GATE2_MODIFIED_PATHS,
     PHASE54_ACTIVE_GATE2_ADDED_PATHS,
     PHASE54_ACTIVE_GATE2_MODIFIED_PATHS,
     PHASE54_SLICE11_PR_CI_REPAIR_MODIFIED_PATHS,
@@ -140,7 +144,7 @@ LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf2
 INVENTORY_SHA256 = "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26"
 SIGNATURE_SHA256 = "810f347080e0bb7dc674821aa6387c5f7618ac216832194ef19820326eef71d2"
 PROJECT_PRIVATE_DIGEST = (
-    "f9e56fe9cb8ea6523ac2d760c765e1341866bd63af22114d3105e364f03ad122"
+    "0f5a417592f7f0df276a34137b14a1a0f39526e4266279ed7af76b3dbfa49de9"
 )
 TIER2_MANIFEST_BYTES = 18319
 TIER2_MANIFEST_FILES = 108
@@ -1562,6 +1566,11 @@ def test_package_version_tags_gate2_dirty_state_and_allowlist_are_exact() -> Non
         assert untracked_paths == set(
             phase54_post_slice12_interlude_expected_added_paths()
         )
+    elif repair_gate2_active and head == PHASE55_SLICE2_BASELINE:
+        assert branch == PHASE55_SLICE2_DIRECT_MAIN_BRANCH
+        assert main == origin_main == PHASE55_SLICE2_BASELINE
+        assert tracked_paths == set(PHASE55_SLICE2_GATE2_MODIFIED_PATHS)
+        assert untracked_paths == set(PHASE55_SLICE2_GATE2_ADDED_PATHS)
     elif repair_gate2_active and head == PHASE55_ACTIVE_GATE2_BASE:
         assert tracked_paths == set(PHASE55_ACTIVE_GATE2_MODIFIED_PATHS)
         assert untracked_paths == set(PHASE55_ACTIVE_GATE2_ADDED_PATHS)
@@ -1693,7 +1702,7 @@ def test_static_test_inventory_and_tier1_selection_are_exact() -> None:
         )
         for path in test_files
     )
-    assert (len(test_files), top_level_functions) == (467, 5521)
+    assert (len(test_files), top_level_functions) == (468, 5538)
 
     compatible, per_file_items = _prior_compatible_nodes()
     assert (len(compatible), per_file_items) == (96, (24, 33, 63, 63))
@@ -1723,7 +1732,7 @@ def test_static_test_inventory_and_tier1_selection_are_exact() -> None:
         TIER1_OPERAND_SHA256,
     )
     assert 69 + sum(per_file_items) + 44 == 296
-    assert 5949 + 69 == 6018
+    assert 5995 + 69 == 6064
 
 
 def test_tier2_manifest_identity_and_classification_are_exact() -> None:
@@ -1765,7 +1774,7 @@ def test_tier2_manifest_identity_and_classification_are_exact() -> None:
                 decorator.func, ast.Attribute
             ):
                 assert decorator.func.attr != "parametrize"
-    assert 6018 - len(TIER2_MANIFEST) == 5876
+    assert 6064 - len(TIER2_MANIFEST) == 5922
 
 
 def test_slice6_lifecycle_validation_publication_and_release_boundaries_are_exact() -> (

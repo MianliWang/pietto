@@ -8,6 +8,7 @@ import pytest
 from pietto._project.config import load_project_config
 from pietto._project.model import ProjectDiscoveryErrorKind, ProjectInput
 from pietto._project.source_selection import select_project_sources
+import pietto._project.source_selection as source_selection
 
 
 def test_selects_included_sources_then_applies_excludes_deterministically(
@@ -46,6 +47,46 @@ def test_forwards_config_load_errors_without_selecting_sources(tmp_path: Path) -
     ]
     assert result.root is not None
     assert result.config_path is not None
+
+
+def test_schema_v3_package_config_returns_before_candidate_discovery(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "pietto.toml").write_text(
+        """
+        schema_version = 3
+
+        [package]
+        path = "."
+        namespace = "example"
+        name = "demo"
+        version = "release"
+        sha256 = "pin"
+        """,
+        encoding="utf-8",
+    )
+    config_result = load_project_config(root)
+
+    def unexpected_discovery(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        raise AssertionError("package mode must not discover project source paths")
+
+    monkeypatch.setattr(
+        source_selection, "_discover_candidate_paths", unexpected_discovery
+    )
+    result = select_project_sources(root, config_result)
+
+    assert result.inputs == result.modules == ()
+    assert result.selected_input_index is None
+    assert [(error.kind, error.message) for error in result.errors] == [
+        (
+            ProjectDiscoveryErrorKind.CONFIG_SCHEMA,
+            "Schema-v3 package activation does not use project source selection.",
+        )
+    ]
 
 
 def test_empty_final_source_set_is_project_glob_error(tmp_path: Path) -> None:

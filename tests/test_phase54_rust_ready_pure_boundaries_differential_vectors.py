@@ -297,10 +297,43 @@ def test_slice15_contract_status_active_manifest_and_allowlist_are_exact() -> No
     non_reader = active_gate2_manifest.PHASE54_SLICE15_HISTORICAL_NON_READER_PATHS
     readers = active_gate2_manifest.PHASE54_SLICE15_HISTORICAL_READER_PATHS
     assert added == {SPEC_REL, SOURCE_REL, HARNESS_REL, VECTORS_REL, TEST_REL}
-    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_ADDED_PATHS) == 3
-    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_MODIFIED_PATHS) == 52
-    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_ALLOWLIST_PATHS) == 55
-    assert TEST_REL in active_gate2_manifest.PHASE55_ACTIVE_GATE2_READER_PATHS
+    assert len(active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_ADDED_PATHS) == 3
+    assert (
+        len(active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_MODIFIED_PATHS) == 52
+    )
+    assert (
+        len(active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_ALLOWLIST_PATHS) == 55
+    )
+    assert (
+        TEST_REL in active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_READER_PATHS
+    )
+    assert active_gate2_manifest.PHASE55_SLICE2_GATE2_MARKER == "PHASE55_SLICE2_GATE2"
+    assert (
+        active_gate2_manifest.PHASE55_SLICE2_BASELINE
+        == "5de57b2c078742253aa64d3a5ad627cd602290cd"
+    )
+    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_ADDED_PATHS) == 2
+    assert (
+        len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_MODIFIED_PATHS) == 75
+    )
+    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_DELETED_PATHS) == 0
+    assert (
+        len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_ALLOWLIST_A2_M75_D0)
+        == 77
+    )
+    assert (
+        TEST_REL in active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_MODIFIED_PATHS
+    )
+    assert (
+        TEST_REL
+        in active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_ALLOWLIST_A2_M75_D0
+    )
+    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_ADDED_PATHS) == 2
+    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_MODIFIED_PATHS) == 76
+    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_DELETED_PATHS) == 0
+    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_ALLOWLIST_A2_M76_D0) == 78
+    assert TEST_REL in active_gate2_manifest.PHASE55_SLICE2_GATE2_MODIFIED_PATHS
+    assert TEST_REL in active_gate2_manifest.PHASE55_SLICE2_GATE2_ALLOWLIST_A2_M76_D0
     assert non_reader == {
         "README.md",
         "docs/plan/phase-54-local-import-module-export-foundation.md",

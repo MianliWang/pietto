@@ -76,6 +76,9 @@ from _phase54_active_gate2_manifest import (
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BRANCH,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
+    PHASE55_SLICE2_BASELINE,
+    PHASE55_SLICE2_GATE2_ADDED_PATHS,
+    PHASE55_SLICE2_GATE2_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
     phase54_slice11_pr_ci_repair_is_active,
     phase54_slice12_pr_ci_repair_is_active,
@@ -96,6 +99,7 @@ from _phase54_active_gate2_manifest import (
     phase54_slice12_product_repair14_is_active,
     phase54_slice11_python313_repair_is_active,
     phase54_slice11_substantive_recovery_is_active,
+    phase55_slice2_gate2_expected_allowlist_paths,
 )
 
 import pietto.ir as ir_package
@@ -302,10 +306,10 @@ CAPABILITY_WINDOWS_SHA256 = (
     "c0512933fc284bbc1dec98dab96411ee179d64e7bee005aa798b6fd7dba2024e"
 )
 PATH_DIGESTS = {
-    "compiler": "3a19e2f52e26ea47b4f34a29a5b062c2329a22f2df916de9e078c61b2209ec42",
+    "compiler": "8c93baee223f2afa4c62b820becb92aae34b8af2713cf4419da211cb5e88a4d9",
     "semantic": "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70",
     "phase15": "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d",
-    "project": "f9e56fe9cb8ea6523ac2d760c765e1341866bd63af22114d3105e364f03ad122",
+    "project": "0f5a417592f7f0df276a34137b14a1a0f39526e4266279ed7af76b3dbfa49de9",
 }
 PROTECTED_SHA256 = {
     ".github/workflows/ci.yml": "56339c3e565471c3a95a0f79a05eaf9596d734a173d1936d5df167526508ddac",
@@ -526,6 +530,16 @@ def _assert_allowed_dirty_state(
     main: str | None,
     origin_main: str | None,
 ) -> None:
+    if tracked == set(PHASE55_SLICE2_GATE2_MODIFIED_PATHS) and untracked == set(
+        PHASE55_SLICE2_GATE2_ADDED_PATHS
+    ):
+        assert tracked | untracked == set(
+            phase55_slice2_gate2_expected_allowlist_paths()
+        )
+        assert branch == "main"
+        assert head == main == origin_main == PHASE55_SLICE2_BASELINE
+        assert _phase54_active_gate2_is_active()
+        return
     if phase54_slice11_python313_repair_is_active():
         assert tracked == set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS)
         assert untracked == set()
@@ -1205,12 +1219,12 @@ def test_static_reader_hash_topology_test_inventory_and_validation_manifests_are
         len(readable),
         sum(path.endswith(".py") for path in readable),
         sum(path.endswith(".md") for path in readable),
-    ) == (949, 581, 272)
+    ) == (951, 582, 273)
     test_files = tuple((REPO_ROOT / "tests").glob("test_*.py"))
     top_functions = sum(
         len(_top_level_test_functions(f"tests/{path.name}")) for path in test_files
     )
-    assert (len(test_files), top_functions) == (467, 5521)
+    assert (len(test_files), top_functions) == (468, 5538)
     for digest, expected in (
         (PATH_DIGESTS["compiler"], 28),
         (PATH_DIGESTS["semantic"], 42),
@@ -1394,6 +1408,11 @@ def test_static_git_helper_and_exact_slice16_dirty_set_are_locked() -> None:
                 phase54_post_slice12_interlude_expected_modified_paths()
             )
             expected_added = set(phase54_post_slice12_interlude_expected_added_paths())
+        elif tracked == set(PHASE55_SLICE2_GATE2_MODIFIED_PATHS) and untracked == set(
+            PHASE55_SLICE2_GATE2_ADDED_PATHS
+        ):
+            expected_modified = set(PHASE55_SLICE2_GATE2_MODIFIED_PATHS)
+            expected_added = set(PHASE55_SLICE2_GATE2_ADDED_PATHS)
         elif _phase54_active_gate2_is_active() or _git_output(
             ["rev-parse", "HEAD"]
         ) in {

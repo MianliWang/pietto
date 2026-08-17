@@ -3503,7 +3503,7 @@ def _read_phase54_gate2_repository_state() -> Phase54Gate2RepositoryState:
         # window, so these facts never described one repository state.
         raise ValueError("repository state moved while reading the gate state")
     return Phase54Gate2RepositoryState(
-        marker=PHASE55_ACTIVE_GATE2_MARKER,
+        marker=PHASE55_SLICE2_GATE2_MARKER,
         branch_oid=branch_oid,
         branch_head=branch_head,
         branch_upstream=branch_upstream,
@@ -3523,7 +3523,7 @@ def _read_phase54_gate2_repository_state() -> Phase54Gate2RepositoryState:
 def _matches_phase55_active_gate2_manifest(
     state: Phase54Gate2RepositoryState,
 ) -> bool:
-    """Return whether supplied facts are the exact Phase 55 Slice 1 Gate 2."""
+    """Return whether supplied facts are the historical Phase 55 Slice 1 Gate 2."""
 
     return (
         type(state) is Phase54Gate2RepositoryState
@@ -3536,6 +3536,30 @@ def _matches_phase55_active_gate2_manifest(
         and state.added_paths == PHASE55_ACTIVE_GATE2_ADDED_PATHS
         and state.modified_paths == PHASE55_ACTIVE_GATE2_MODIFIED_PATHS
         and state.deleted_paths == PHASE55_ACTIVE_GATE2_DELETED_PATHS
+        and state.staged_paths == frozenset()
+        and state.other_paths == frozenset()
+        and state.worktree_count == 1
+        and not state.shallow
+        and not state.active_git_operation
+    )
+
+
+def _matches_phase55_slice2_gate2_manifest(
+    state: Phase54Gate2RepositoryState,
+) -> bool:
+    """Return whether supplied facts are the exact Slice 2 dirty-main candidate."""
+
+    return (
+        type(state) is Phase54Gate2RepositoryState
+        and state.marker == PHASE55_SLICE2_GATE2_MARKER
+        and state.branch_oid == PHASE55_SLICE2_BASELINE
+        and state.branch_head == PHASE55_SLICE2_DIRECT_MAIN_BRANCH
+        and state.branch_upstream == f"origin/{PHASE55_SLICE2_DIRECT_MAIN_BRANCH}"
+        and state.ahead == 0
+        and state.behind == 0
+        and state.added_paths == PHASE55_SLICE2_GATE2_ADDED_PATHS
+        and state.modified_paths == PHASE55_SLICE2_GATE2_MODIFIED_PATHS
+        and state.deleted_paths == PHASE55_SLICE2_GATE2_DELETED_PATHS
         and state.staged_paths == frozenset()
         and state.other_paths == frozenset()
         and state.worktree_count == 1
@@ -4744,7 +4768,8 @@ def phase54_active_gate2_manifest_is_active() -> bool:
     except (OSError, subprocess.SubprocessError, ValueError):
         return False
     return (
-        _matches_phase55_active_gate2_manifest(state)
+        _matches_phase55_slice2_gate2_manifest(state)
+        or _matches_phase55_active_gate2_manifest(state)
         or _matches_phase54_active_gate2_manifest(state)
         or _matches_phase54_slice12_mechanical_repair4_clean_topic(state)
         or _matches_phase54_slice12_mechanical_repair3_clean_topic(state)
@@ -6143,13 +6168,13 @@ def phase54_post_slice12_interlude_expected_topic_base() -> str:
 def _matches_phase55_active_gate2_clean_topic(
     state: Phase54Gate2RepositoryState,
 ) -> bool:
-    """Recognize the clean Phase 55 Slice 1 publication child exactly."""
+    """Recognize the historical Phase 55 Slice 1 topic child exactly."""
 
     if type(state) is not Phase54Gate2RepositoryState:
         return False
-    branch = PHASE55_ACTIVE_GATE2_BRANCH
+    branch = PHASE55_SLICE1_HISTORICAL_GATE2_BRANCH
     if not (
-        state.marker == PHASE55_ACTIVE_GATE2_MARKER
+        state.marker == PHASE55_SLICE1_HISTORICAL_GATE2_MARKER
         and state.branch_head == branch
         and state.branch_upstream in ("", f"origin/{branch}")
         and state.added_paths == frozenset()
@@ -6189,15 +6214,15 @@ def _matches_phase55_active_gate2_clean_topic(
         return False
     if (
         len(parents) != 1
-        or parents[0] not in PHASE55_ACTIVE_GATE3_AUTHORIZED_DIRECT_PARENTS
+        or parents[0] not in PHASE55_SLICE1_HISTORICAL_GATE3_AUTHORIZED_DIRECT_PARENTS
     ):
         return False
-    expected = f"{PHASE55_ACTIVE_GATE2_REVIEWED_TREE_TRAILER}: {tree}"
+    expected = f"{PHASE55_SLICE1_HISTORICAL_GATE2_REVIEWED_TREE_TRAILER}: {tree}"
     lines = message.splitlines()
     return (
         stable
-        and main == origin_main == PHASE55_ACTIVE_GATE2_BASE
-        and subject == PHASE55_ACTIVE_GATE2_SUBJECT
+        and main == origin_main == PHASE55_SLICE1_HISTORICAL_GATE2_BASE
+        and subject == PHASE55_SLICE1_HISTORICAL_GATE2_SUBJECT
         and re.fullmatch(r"[0-9a-f]{40}", tree) is not None
         and len(lines) >= 3
         and lines[-2] == ""
@@ -6321,7 +6346,7 @@ def phase54_active_gate2_publication_commit_is_head() -> bool:
     if len(parents) > 1:
         return False
     accepted_subject = (
-        subject == PHASE55_ACTIVE_GATE2_SUBJECT
+        subject == PHASE55_SLICE1_HISTORICAL_GATE2_SUBJECT
         or subject == PHASE54_ACTIVE_GATE2_SUBJECT
         or (
             subject.startswith(PHASE54_ACTIVE_GATE2_REPAIR_SUBJECT_PREFIX)
@@ -6330,9 +6355,9 @@ def phase54_active_gate2_publication_commit_is_head() -> bool:
     )
     if not accepted_subject or re.fullmatch(r"[0-9a-f]{40}", tree) is None:
         return False
-    phase55_subject = subject == PHASE55_ACTIVE_GATE2_SUBJECT
+    phase55_subject = subject == PHASE55_SLICE1_HISTORICAL_GATE2_SUBJECT
     active_trailer = (
-        PHASE55_ACTIVE_GATE2_REVIEWED_TREE_TRAILER
+        PHASE55_SLICE1_HISTORICAL_GATE2_REVIEWED_TREE_TRAILER
         if phase55_subject
         else PHASE54_ACTIVE_GATE2_REVIEWED_TREE_TRAILER
     )
@@ -6345,7 +6370,7 @@ def phase54_active_gate2_publication_commit_is_head() -> bool:
         # available proof and the shallow boundary must confirm the truncation.
         return shallow
     if phase55_subject:
-        return parents[0] in PHASE55_ACTIVE_GATE3_AUTHORIZED_DIRECT_PARENTS
+        return parents[0] in PHASE55_SLICE1_HISTORICAL_GATE3_AUTHORIZED_DIRECT_PARENTS
     if parents[0] == PHASE54_ACTIVE_GATE2_BASE:
         return True
     try:
@@ -6356,9 +6381,9 @@ def phase54_active_gate2_publication_commit_is_head() -> bool:
 
 
 def phase54_publication_topic_branch() -> str:
-    """Return the topic branch the currently active Gate 2 publishes from."""
+    """Return the historical topic branch used by the retained PR fixtures."""
 
-    return PHASE55_ACTIVE_GATE2_BRANCH
+    return PHASE55_SLICE1_HISTORICAL_GATE2_BRANCH
 
 
 def phase54_publication_clean_topic_is_active() -> bool:
@@ -6380,7 +6405,7 @@ def phase54_publication_topic_base() -> str:
 
     if phase54_post_slice12_interlude_clean_topic_is_active():
         return phase54_post_slice12_interlude_expected_topic_base()
-    return PHASE55_ACTIVE_GATE2_BASE
+    return PHASE55_SLICE1_HISTORICAL_GATE2_BASE
 
 
 def phase54_post_slice12_interlude_expected_head() -> str:
@@ -6657,4 +6682,292 @@ def phase54_post_slice12_interlude_publication_is_active() -> bool:
     return (
         phase54_post_slice12_interlude_dirty_is_active()
         or phase54_post_slice12_interlude_clean_topic_is_active()
+    )
+
+
+# Phase 55 Slice 1 used the historical topic/PR lifecycle above.  Keep those
+# names and recognizers for the readers that audit that record, but make the
+# active Slice 2 direct-main authority explicit and separate.
+PHASE55_SLICE1_HISTORICAL_GATE2_MARKER = PHASE55_ACTIVE_GATE2_MARKER
+PHASE55_SLICE1_HISTORICAL_GATE2_BASE = PHASE55_ACTIVE_GATE2_BASE
+PHASE55_SLICE1_HISTORICAL_GATE2_BRANCH = PHASE55_ACTIVE_GATE2_BRANCH
+PHASE55_SLICE1_HISTORICAL_GATE2_SUBJECT = PHASE55_ACTIVE_GATE2_SUBJECT
+PHASE55_SLICE1_HISTORICAL_GATE2_REVIEWED_TREE_TRAILER = (
+    PHASE55_ACTIVE_GATE2_REVIEWED_TREE_TRAILER
+)
+PHASE55_SLICE1_HISTORICAL_GATE3_AUTHORIZED_DIRECT_PARENTS = (
+    PHASE55_ACTIVE_GATE3_AUTHORIZED_DIRECT_PARENTS
+)
+PHASE55_SLICE1_HISTORICAL_GATE2_ADDED_PATHS = PHASE55_ACTIVE_GATE2_ADDED_PATHS
+PHASE55_SLICE1_HISTORICAL_GATE2_NON_READER_MODIFIED_PATHS = (
+    PHASE55_ACTIVE_GATE2_NON_READER_MODIFIED_PATHS
+)
+PHASE55_SLICE1_HISTORICAL_GATE2_READER_PATHS = PHASE55_ACTIVE_GATE2_READER_PATHS
+PHASE55_SLICE1_HISTORICAL_GATE2_MODIFIED_PATHS = PHASE55_ACTIVE_GATE2_MODIFIED_PATHS
+PHASE55_SLICE1_HISTORICAL_GATE2_ALLOWLIST_PATHS = PHASE55_ACTIVE_GATE2_ALLOWLIST_PATHS
+PHASE55_SLICE1_HISTORICAL_GATE2_DELETED_PATHS = PHASE55_ACTIVE_GATE2_DELETED_PATHS
+
+PHASE55_SLICE2_GATE2_MARKER = "PHASE55_SLICE2_GATE2"
+PHASE55_SLICE2_BASELINE = "5de57b2c078742253aa64d3a5ad627cd602290cd"
+PHASE55_SLICE2_BASELINE_TREE = "9bc952f6eedca6a953c9edd94e0172b02451f74c"
+PHASE55_SLICE2_DIRECT_MAIN_BRANCH = "main"
+PHASE55_SLICE2_DIRECT_MAIN_SUBJECT = "Add Phase 55 explicit package activation carrier"
+PHASE55_SLICE2_REVIEWED_TREE_TRAILER = "Pietto-Reviewed-Tree"
+
+PHASE55_SLICE2_GATE1_PROJECTED_ADDED_PATHS = frozenset(
+    {
+        "docs/spec/phase55-slice2-explicit-package-activation-compatibility-and-immutable-package-carrier-v1.md",
+        "tests/test_phase55_slice2_explicit_package_activation_compatibility_and_immutable_package_carrier.py",
+    }
+)
+PHASE55_SLICE2_GATE1_PROJECTED_MODIFIED_PATHS = frozenset(
+    {
+        "README.md",
+        "docs/plan/phase-55-semantic-package-asset-schema-and-deterministic-local-loading.md",
+        "docs/spec/pietto-active-roadmap-phase53-70-v2.md",
+        "docs/spec/pietto-v0.9.md",
+        "src/pietto/_project/config.py",
+        "src/pietto/_project/model.py",
+        "src/pietto/_project/module_carrier.py",
+        "src/pietto/_project/source_selection.py",
+        "tests/_phase54_active_gate2_manifest.py",
+        "tests/_pietto_publication_topology.py",
+        "tests/test_phase11_ci_workflow.py",
+        "tests/test_phase11_completion_audit.py",
+        "tests/test_phase11_generated_guard.py",
+        "tests/test_phase11_golden_policy.py",
+        "tests/test_phase11_packaging_smoke.py",
+        "tests/test_phase11_validation_entrypoint.py",
+        "tests/test_phase12_completion_audit.py",
+        "tests/test_phase12_composition_cli_json_goldens.py",
+        "tests/test_phase21_group_by_hardening_audit.py",
+        "tests/test_phase24_aggregate_expression_arguments_readiness.py",
+        "tests/test_phase24_cli_json_output_hardening.py",
+        "tests/test_phase24_completion_audit.py",
+        "tests/test_phase26_completion_audit.py",
+        "tests/test_phase27_completion_audit.py",
+        "tests/test_phase28_completion_audit.py",
+        "tests/test_phase29_completion_audit.py",
+        "tests/test_phase30_completion_audit.py",
+        "tests/test_phase33_completion_audit.py",
+        "tests/test_phase44_project_config_loader.py",
+        "tests/test_phase44_project_config_schema_contract.py",
+        "tests/test_phase44_project_source_selection.py",
+        "tests/test_phase50_semantic_package_model_readiness.py",
+        "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
+        "tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py",
+        "tests/test_phase51_completion_audit_and_status_lock.py",
+        "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
+        "tests/test_phase52_aggregate_signature_algebra_facts.py",
+        "tests/test_phase52_completion_audit_and_status_lock.py",
+        "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
+        "tests/test_phase52_expression_stage_clause_capability_facts.py",
+        "tests/test_phase52_fail_closed_capability_lookup.py",
+        "tests/test_phase52_logical_type_literal_parameter_nullability_inventory.py",
+        "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
+        "tests/test_phase52_private_capability_fact_foundation.py",
+        "tests/test_phase52_scalar_function_operator_signature_facts.py",
+        "tests/test_phase53_completion_audit_and_status_lock.py",
+        "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
+        "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
+        "tests/test_phase53_multiple_window_outputs_final_order_alias_downstream_schema_lineage_contract.py",
+        "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
+        "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+        "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
+        "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
+        "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
+        "tests/test_phase53_row_number_direct_field_mvp_contract.py",
+        "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
+        "tests/test_phase53_window_ir_dual_backend_lowering_window_function_facts_contract.py",
+        "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
+        "tests/test_phase53_window_spec_function_identity_ast_contract.py",
+        "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
+        "tests/test_phase54_completion_audit_status_lock_and_phase55_handoff.py",
+        "tests/test_phase54_cross_module_table_query_relation_resolution_row_facts_legacy_compatibility.py",
+        "tests/test_phase54_cross_module_type_alias_enum_shape_source_resolution.py",
+        "tests/test_phase54_import_export_contextual_grammar_ast.py",
+        "tests/test_phase54_local_export_visibility_module_facades.py",
+        "tests/test_phase54_local_import_module_export_foundation_scope_lock.py",
+        "tests/test_phase54_module_attribution_dependency_origin_provenance_lineage.py",
+        "tests/test_phase54_module_graph_cycles_diagnostics_deterministic_ordering.py",
+        "tests/test_phase54_module_identity_selected_input_index_trusted_local_loader.py",
+        "tests/test_phase54_named_import_alias_binding_environments_collision_rules.py",
+        "tests/test_phase54_package_neutral_identity_layering.py",
+        "tests/test_phase54_rust_ready_pure_boundaries_differential_vectors.py",
+        "tests/test_phase54_schema_v2_explicit_module_carrier.py",
+        "tests/test_phase54_semantic_fact_preservation.py",
+        "tests/test_phase55_slice1_scope_authority_expansion_readiness_and_route_lock.py",
+    }
+)
+PHASE55_SLICE2_GATE1_PROJECTED_DELETED_PATHS = frozenset[str]()
+PHASE55_SLICE2_GATE1_PROJECTED_ALLOWLIST_A2_M75_D0 = frozenset(
+    PHASE55_SLICE2_GATE1_PROJECTED_ADDED_PATHS
+    | PHASE55_SLICE2_GATE1_PROJECTED_MODIFIED_PATHS
+)
+
+PHASE55_SLICE2_GATE2_ADDED_PATHS = frozenset(
+    {
+        "docs/spec/phase55-slice2-explicit-package-activation-compatibility-and-immutable-package-carrier-v1.md",
+        "tests/test_phase55_slice2_explicit_package_activation_compatibility_and_immutable_package_carrier.py",
+    }
+)
+PHASE55_SLICE2_GATE2_MODIFIED_PATHS = frozenset(
+    {
+        "README.md",
+        "docs/plan/phase-55-semantic-package-asset-schema-and-deterministic-local-loading.md",
+        "docs/spec/pietto-active-roadmap-phase53-70-v2.md",
+        "docs/spec/pietto-v0.9.md",
+        "src/pietto/_project/config.py",
+        "src/pietto/_project/model.py",
+        "src/pietto/_project/module_carrier.py",
+        "src/pietto/_project/source_selection.py",
+        "tests/_phase54_active_gate2_manifest.py",
+        "tests/_pietto_publication_topology.py",
+        "tests/test_phase11_ci_workflow.py",
+        "tests/test_phase11_completion_audit.py",
+        "tests/test_phase11_generated_guard.py",
+        "tests/test_phase11_golden_policy.py",
+        "tests/test_phase11_packaging_smoke.py",
+        "tests/test_phase11_validation_entrypoint.py",
+        "tests/test_phase12_completion_audit.py",
+        "tests/test_phase12_composition_cli_json_goldens.py",
+        "tests/test_phase21_group_by_hardening_audit.py",
+        "tests/test_phase24_aggregate_expression_arguments_readiness.py",
+        "tests/test_phase24_cli_json_output_hardening.py",
+        "tests/test_phase24_completion_audit.py",
+        "tests/test_phase26_completion_audit.py",
+        "tests/test_phase27_completion_audit.py",
+        "tests/test_phase28_completion_audit.py",
+        "tests/test_phase29_completion_audit.py",
+        "tests/test_phase30_completion_audit.py",
+        "tests/test_phase33_completion_audit.py",
+        "tests/test_phase44_project_config_loader.py",
+        "tests/test_phase44_project_config_schema_contract.py",
+        "tests/test_phase44_project_source_selection.py",
+        "tests/test_phase50_import_module_export_readiness.py",
+        "tests/test_phase50_semantic_package_model_readiness.py",
+        "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
+        "tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py",
+        "tests/test_phase51_completion_audit_and_status_lock.py",
+        "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
+        "tests/test_phase52_aggregate_signature_algebra_facts.py",
+        "tests/test_phase52_completion_audit_and_status_lock.py",
+        "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
+        "tests/test_phase52_expression_stage_clause_capability_facts.py",
+        "tests/test_phase52_fail_closed_capability_lookup.py",
+        "tests/test_phase52_logical_type_literal_parameter_nullability_inventory.py",
+        "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
+        "tests/test_phase52_private_capability_fact_foundation.py",
+        "tests/test_phase52_scalar_function_operator_signature_facts.py",
+        "tests/test_phase53_completion_audit_and_status_lock.py",
+        "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
+        "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
+        "tests/test_phase53_multiple_window_outputs_final_order_alias_downstream_schema_lineage_contract.py",
+        "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
+        "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
+        "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
+        "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
+        "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
+        "tests/test_phase53_row_number_direct_field_mvp_contract.py",
+        "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
+        "tests/test_phase53_window_ir_dual_backend_lowering_window_function_facts_contract.py",
+        "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
+        "tests/test_phase53_window_spec_function_identity_ast_contract.py",
+        "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
+        "tests/test_phase54_completion_audit_status_lock_and_phase55_handoff.py",
+        "tests/test_phase54_cross_module_table_query_relation_resolution_row_facts_legacy_compatibility.py",
+        "tests/test_phase54_cross_module_type_alias_enum_shape_source_resolution.py",
+        "tests/test_phase54_import_export_contextual_grammar_ast.py",
+        "tests/test_phase54_local_export_visibility_module_facades.py",
+        "tests/test_phase54_local_import_module_export_foundation_scope_lock.py",
+        "tests/test_phase54_module_attribution_dependency_origin_provenance_lineage.py",
+        "tests/test_phase54_module_graph_cycles_diagnostics_deterministic_ordering.py",
+        "tests/test_phase54_module_identity_selected_input_index_trusted_local_loader.py",
+        "tests/test_phase54_named_import_alias_binding_environments_collision_rules.py",
+        "tests/test_phase54_package_neutral_identity_layering.py",
+        "tests/test_phase54_rust_ready_pure_boundaries_differential_vectors.py",
+        "tests/test_phase54_schema_v2_explicit_module_carrier.py",
+        "tests/test_phase54_semantic_fact_preservation.py",
+        "tests/test_phase55_slice1_scope_authority_expansion_readiness_and_route_lock.py",
+    }
+)
+PHASE55_SLICE2_GATE2_DELETED_PATHS = frozenset[str]()
+PHASE55_SLICE2_GATE2_ALLOWLIST_A2_M76_D0 = frozenset(
+    PHASE55_SLICE2_GATE2_ADDED_PATHS | PHASE55_SLICE2_GATE2_MODIFIED_PATHS
+)
+
+
+def phase55_slice2_gate2_expected_allowlist_paths() -> frozenset[str]:
+    """Return the effective A2/M76/D0 Gate 2 path authority."""
+
+    return PHASE55_SLICE2_GATE2_ALLOWLIST_A2_M76_D0
+
+
+def phase55_slice2_direct_main_staging_matches(
+    added_paths: frozenset[str],
+    modified_paths: frozenset[str],
+    deleted_paths: frozenset[str],
+) -> bool:
+    """Accept only the externally frozen Gate 2 staging partition."""
+
+    return (
+        type(added_paths) is frozenset
+        and type(modified_paths) is frozenset
+        and type(deleted_paths) is frozenset
+        and added_paths == PHASE55_SLICE2_GATE2_ADDED_PATHS
+        and modified_paths == PHASE55_SLICE2_GATE2_MODIFIED_PATHS
+        and deleted_paths == PHASE55_SLICE2_GATE2_DELETED_PATHS
+    )
+
+
+def _phase55_slice2_direct_main_trailer_matches_external_tree(
+    message: str,
+    sealed_tree: str,
+) -> bool:
+    """Check a descriptive trailer against supplied evidence, never the commit."""
+
+    if type(message) is not str:
+        return False
+    lines = message.splitlines()
+    return (
+        len(lines) >= 3
+        and lines[-2] == ""
+        and lines[-1] == (f"{PHASE55_SLICE2_REVIEWED_TREE_TRAILER}: {sealed_tree}")
+    )
+
+
+def phase55_slice2_direct_main_commit_matches_external_sealed_tree(
+    parents: tuple[str, ...],
+    subject: str,
+    tree: str,
+    message: str,
+    *,
+    sealed_baseline: str,
+    sealed_tree: str,
+) -> bool:
+    """Validate a direct-main commit against externally supplied Gate 2 evidence.
+
+    The parent/tree equalities are the authorization decision.  The trailer is
+    checked only after those equalities and is formed from ``sealed_tree`` from
+    external evidence, never from the observed ``tree`` argument.
+    """
+
+    if not (
+        type(parents) is tuple
+        and type(subject) is str
+        and type(tree) is str
+        and type(sealed_baseline) is str
+        and type(sealed_tree) is str
+        and re.fullmatch(r"[0-9a-f]{40}", sealed_baseline) is not None
+        and re.fullmatch(r"[0-9a-f]{40}", sealed_tree) is not None
+    ):
+        return False
+    return (
+        sealed_baseline == PHASE55_SLICE2_BASELINE
+        and parents == (sealed_baseline,)
+        and subject == PHASE55_SLICE2_DIRECT_MAIN_SUBJECT
+        and tree == sealed_tree
+        and _phase55_slice2_direct_main_trailer_matches_external_tree(
+            message, sealed_tree
+        )
     )

@@ -35,7 +35,13 @@ from _phase54_active_gate2_manifest import (
     PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS,
     PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS,
     PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS,
+    PHASE55_SLICE2_BASELINE,
+    PHASE55_SLICE2_DIRECT_MAIN_BRANCH,
+    PHASE55_SLICE2_GATE2_ADDED_PATHS,
+    PHASE55_SLICE2_GATE2_DELETED_PATHS,
+    PHASE55_SLICE2_GATE2_MODIFIED_PATHS,
     phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
+    phase55_slice2_direct_main_staging_matches,
     phase54_slice11_pr_ci_repair_is_active,
     phase54_slice12_pr_ci_repair_is_active,
     phase54_slice12_mechanical_repair3_is_active,
@@ -955,6 +961,13 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
     slice14_modified = _phase53_gate2_paths("MODIFIED_PATHS")
     slice14_added = _phase53_gate2_paths("ADDED_PATHS")
     phase54_modified, phase54_added = _phase54_gate2_paths()
+    slice2_modified = set(PHASE55_SLICE2_GATE2_MODIFIED_PATHS)
+    slice2_added = set(PHASE55_SLICE2_GATE2_ADDED_PATHS)
+    assert phase55_slice2_direct_main_staging_matches(
+        frozenset(slice2_added),
+        frozenset(slice2_modified),
+        PHASE55_SLICE2_GATE2_DELETED_PATHS,
+    )
     assert dirty in (
         set(),
         EXPECTED_GATE2_PATHS,
@@ -971,6 +984,7 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
         set(PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS),
         set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS),
         set(PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS),
+        slice2_modified | slice2_added,
     )
     untracked = _git_paths(["ls-files", "--others", "--exclude-standard"])
     assert untracked in (
@@ -979,6 +993,7 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
         slice14_added,
         phase54_added,
         set(phase54_post_slice12_interlude_expected_added_paths()),
+        slice2_added,
     )
     if dirty == set(PHASE54_SLICE11_PYTHON313_REPAIR_MODIFIED_PATHS):
         assert phase54_slice11_python313_repair_is_active()
@@ -1015,6 +1030,21 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
                 for ref in ("HEAD", "main", "origin/main")
             )
             == (CI_REPAIR_BASE_HEAD_SHA,) * 3
+        )
+    elif dirty == slice2_modified | slice2_added:
+        assert untracked == slice2_added
+        assert set(_git_output(["diff", "--name-only"]).splitlines()) == (
+            slice2_modified
+        )
+        assert _git_output(["branch", "--show-current"]).strip() == (
+            PHASE55_SLICE2_DIRECT_MAIN_BRANCH
+        )
+        assert (
+            tuple(
+                _git_output(["rev-parse", ref]).strip()
+                for ref in ("HEAD", "main", "origin/main")
+            )
+            == (PHASE55_SLICE2_BASELINE,) * 3
         )
     elif dirty == phase54_modified | phase54_added:
         assert untracked == phase54_added
@@ -1122,6 +1152,8 @@ def test_slice9_documentation_allowlist_hash_and_protected_boundaries() -> None:
             for path in protected
             if path not in PHASE54_SLICE12_PRODUCT_REPAIR11_MODIFIED_PATHS
         )
+    elif dirty == slice2_modified | slice2_added:
+        protected = tuple(path for path in protected if path not in slice2_modified)
     elif dirty == phase54_modified | phase54_added:
         protected = tuple(path for path in protected if path not in phase54_modified)
     assert _git_output(["diff", "--", *protected]) == ""

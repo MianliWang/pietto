@@ -233,15 +233,46 @@ def test_carrier_enums_fields_privacy_and_manifest_are_exact() -> None:
     assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS) == 69
     assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 2
     assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 51
-    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_ADDED_PATHS) == 3
-    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_MODIFIED_PATHS) == 52
-    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_ALLOWLIST_PATHS) == 55
+    assert len(active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_ADDED_PATHS) == 3
+    assert (
+        len(active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_MODIFIED_PATHS) == 52
+    )
+    assert (
+        len(active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_ALLOWLIST_PATHS) == 55
+    )
     assert active_gate2_manifest.ADDED_PATHS == set(
-        active_gate2_manifest.PHASE55_ACTIVE_GATE2_ADDED_PATHS
+        active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_ADDED_PATHS
     )
     assert active_gate2_manifest.MODIFIED_PATHS == set(
-        active_gate2_manifest.PHASE55_ACTIVE_GATE2_MODIFIED_PATHS
+        active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_MODIFIED_PATHS
     )
+    assert active_gate2_manifest.PHASE55_SLICE2_GATE2_MARKER == "PHASE55_SLICE2_GATE2"
+    assert (
+        active_gate2_manifest.PHASE55_SLICE2_BASELINE
+        == "5de57b2c078742253aa64d3a5ad627cd602290cd"
+    )
+    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_ADDED_PATHS) == 2
+    assert (
+        len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_MODIFIED_PATHS) == 75
+    )
+    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_DELETED_PATHS) == 0
+    assert (
+        len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_ALLOWLIST_A2_M75_D0)
+        == 77
+    )
+    assert (
+        TEST_REL in active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_MODIFIED_PATHS
+    )
+    assert (
+        TEST_REL
+        in active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_ALLOWLIST_A2_M75_D0
+    )
+    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_ADDED_PATHS) == 2
+    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_MODIFIED_PATHS) == 76
+    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_DELETED_PATHS) == 0
+    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_ALLOWLIST_A2_M76_D0) == 78
+    assert TEST_REL in active_gate2_manifest.PHASE55_SLICE2_GATE2_MODIFIED_PATHS
+    assert TEST_REL in active_gate2_manifest.PHASE55_SLICE2_GATE2_ALLOWLIST_A2_M76_D0
     assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 47
     assert TEST_REL in active_gate2_manifest.MECHANICAL_READER_PATHS
     assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE == (

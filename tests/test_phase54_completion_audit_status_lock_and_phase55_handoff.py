@@ -24,15 +24,32 @@ from _phase54_active_gate2_manifest import (
     PHASE54_ACTIVE_GATE2_SUBJECT,
     PHASE54_SLICE16_HISTORICAL_NON_READER_PATHS,
     PHASE54_SLICE16_HISTORICAL_READER_PATHS,
-    PHASE55_ACTIVE_GATE2_ADDED_PATHS,
-    PHASE55_ACTIVE_GATE2_BASE,
-    PHASE55_ACTIVE_GATE2_BRANCH,
-    PHASE55_ACTIVE_GATE2_DELETED_PATHS,
-    PHASE55_ACTIVE_GATE2_MARKER,
-    PHASE55_ACTIVE_GATE2_MODIFIED_PATHS,
-    PHASE55_ACTIVE_GATE2_NON_READER_MODIFIED_PATHS,
-    PHASE55_ACTIVE_GATE2_READER_PATHS,
-    PHASE55_ACTIVE_GATE2_SUBJECT,
+    PHASE55_SLICE1_HISTORICAL_GATE2_ADDED_PATHS,
+    PHASE55_SLICE1_HISTORICAL_GATE2_BASE,
+    PHASE55_SLICE1_HISTORICAL_GATE2_BRANCH,
+    PHASE55_SLICE1_HISTORICAL_GATE2_DELETED_PATHS,
+    PHASE55_SLICE1_HISTORICAL_GATE2_MARKER,
+    PHASE55_SLICE1_HISTORICAL_GATE2_MODIFIED_PATHS,
+    PHASE55_SLICE1_HISTORICAL_GATE2_NON_READER_MODIFIED_PATHS,
+    PHASE55_SLICE1_HISTORICAL_GATE2_READER_PATHS,
+    PHASE55_SLICE1_HISTORICAL_GATE2_SUBJECT,
+    PHASE55_SLICE2_BASELINE,
+    PHASE55_SLICE2_BASELINE_TREE,
+    PHASE55_SLICE2_DIRECT_MAIN_BRANCH,
+    PHASE55_SLICE2_DIRECT_MAIN_SUBJECT,
+    PHASE55_SLICE2_GATE1_PROJECTED_ADDED_PATHS,
+    PHASE55_SLICE2_GATE1_PROJECTED_ALLOWLIST_A2_M75_D0,
+    PHASE55_SLICE2_GATE1_PROJECTED_DELETED_PATHS,
+    PHASE55_SLICE2_GATE1_PROJECTED_MODIFIED_PATHS,
+    PHASE55_SLICE2_GATE2_ADDED_PATHS,
+    PHASE55_SLICE2_GATE2_ALLOWLIST_A2_M76_D0,
+    PHASE55_SLICE2_GATE2_DELETED_PATHS,
+    PHASE55_SLICE2_GATE2_MARKER,
+    PHASE55_SLICE2_GATE2_MODIFIED_PATHS,
+    PHASE55_SLICE2_REVIEWED_TREE_TRAILER,
+    phase55_slice2_direct_main_commit_matches_external_sealed_tree,
+    phase55_slice2_direct_main_staging_matches,
+    phase55_slice2_gate2_expected_allowlist_paths,
 )
 
 import pietto
@@ -59,6 +76,7 @@ PHASE55_SPEC_REL = (
 PHASE55_TEST_REL = (
     "tests/test_phase55_slice1_scope_authority_expansion_readiness_and_route_lock.py"
 )
+PHASE55_SLICE2_SPEC_REL = "docs/spec/phase55-slice2-explicit-package-activation-compatibility-and-immutable-package-carrier-v1.md"
 GOVERNANCE_REL = (
     "docs/spec/pietto-phase-start-expansion-pull-forward-readiness-governance-v1.md"
 )
@@ -350,6 +368,8 @@ def test_publication_ledger_records_the_exact_first_parent_chain() -> None:
 
 
 def test_status_lock_is_consistent_across_every_live_authority_surface() -> None:
+    """Keep the sealed Slice 1 checkpoint and bind current Slice 2 status."""
+
     plan_status = _section(PLAN_REL, "Status And Slice 16 Lifecycle")
     flat_plan = _flat(plan_status)
     assert "Phase 54 is `COMPLETED`" in flat_plan
@@ -368,6 +388,8 @@ def test_status_lock_is_consistent_across_every_live_authority_surface() -> None
     assert "PHASE55_GATE0_GATE1" in flat_roadmap
     assert "this section supersedes it" in flat_roadmap
 
+    # The frozen Phase 54/Slice 1 text is historical; it must not be rewritten
+    # to pretend that its original PR workflow closed.
     flat_readme = _flat(_read(README_REL))
     assert "Phase 54 is **COMPLETED**" in flat_readme
     assert "Slices 1 through 16 are **COMPLETED**" in flat_readme
@@ -408,6 +430,55 @@ def test_status_lock_is_consistent_across_every_live_authority_surface() -> None
     assert "only through the separately authorized Gate 3 publication" in (
         flat_spec_status
     )
+
+    current_plan = _flat(
+        _section(
+            PHASE55_PLAN_REL,
+            "Slice 2 Gate 2 Candidate And Pending Direct-main Publication",
+        )
+    )
+    current_roadmap = _flat(
+        _section(ROADMAP_REL, "Phase 55 Slice 2 Current Gate 2 Authority")
+    )
+    current_readme = _flat(_section(README_REL, "Phase 55 Slice 2 Current Gate Status"))
+    current_language = _flat(
+        _section(LANGUAGE_SPEC_REL, "18. Phase 55 Slice 2 Package-activation Status")
+    )
+    current_spec = _flat(_read(PHASE55_SLICE2_SPEC_REL))
+
+    for text in (
+        current_plan,
+        current_roadmap,
+        current_readme,
+        current_language,
+        current_spec,
+    ):
+        assert "Phase 54" in text
+        assert "Phase 55" in text
+        assert "Slice 1" in text
+        assert "Slice 2" in text
+        assert "IMPLEMENTED_UNPUBLISHED" in text
+        assert "PHASE55_SLICE2_GATE3" in text
+
+    for required in (
+        "Phase 54 is `COMPLETED`",
+        "Phase 55 is `ACTIVE`",
+        "Slice 1 is `COMPLETED`",
+        "Slice 2 is `IMPLEMENTED_UNPUBLISHED`",
+        "Slices 3 through 12 remain `UNSTARTED`",
+        "PR #62 review-closure requirement passed",
+        "external immutable Gate 2 evidence is the reviewed-tree authority root",
+        "Pietto-Reviewed-Tree` is a redundant descriptive consistency trailer",
+        "natural attempt 1 CI",
+    ):
+        assert required in current_plan, required
+    assert (
+        "does not assert that the late PR #62 review-thread closure passed"
+        in current_spec
+    )
+    assert "current-state entry supersedes their Phase 55 status only" in current_readme
+    assert "external immutable Gate 2 evidence authority" in current_roadmap
+    assert "does not add a Pietto source-language production" in current_language
 
 
 def test_historical_checkpoints_are_retained_and_explicitly_superseded() -> None:
@@ -599,13 +670,19 @@ def test_active_gate_manifest_preserves_slice16_and_targets_phase55_slice1() -> 
     )
     assert len(PHASE54_SLICE16_HISTORICAL_READER_PATHS) == 46
     assert PHASE55_TEST_REL not in PHASE54_SLICE16_HISTORICAL_READER_PATHS
-    assert PHASE55_ACTIVE_GATE2_MARKER == "PHASE55_SLICE1_GATE2"
-    assert PHASE55_ACTIVE_GATE2_BASE == "364296e69f7e289395661518031dafeb66a216cc"
+    assert PHASE55_SLICE1_HISTORICAL_GATE2_MARKER == "PHASE55_SLICE1_GATE2"
     assert (
-        PHASE55_ACTIVE_GATE2_BRANCH
+        PHASE55_SLICE1_HISTORICAL_GATE2_BASE
+        == "364296e69f7e289395661518031dafeb66a216cc"
+    )
+    assert (
+        PHASE55_SLICE1_HISTORICAL_GATE2_BRANCH
         == "phase55/slice1-scope-authority-expansion-readiness-route-lock"
     )
-    assert PHASE55_ACTIVE_GATE2_SUBJECT == "Add Phase 55 scope authority and route lock"
+    assert (
+        PHASE55_SLICE1_HISTORICAL_GATE2_SUBJECT
+        == "Add Phase 55 scope authority and route lock"
+    )
     assert ADDED_PATHS == {PHASE55_PLAN_REL, PHASE55_SPEC_REL, PHASE55_TEST_REL}
     assert NON_READER_MODIFIED_PATHS == {
         README_REL,
@@ -614,34 +691,143 @@ def test_active_gate_manifest_preserves_slice16_and_targets_phase55_slice1() -> 
         "tests/_phase54_active_gate2_manifest.py",
         SELF_REL,
     }
-    assert PHASE55_ACTIVE_GATE2_ADDED_PATHS == frozenset(ADDED_PATHS)
-    assert PHASE55_ACTIVE_GATE2_NON_READER_MODIFIED_PATHS == frozenset(
+    assert PHASE55_SLICE1_HISTORICAL_GATE2_ADDED_PATHS == frozenset(ADDED_PATHS)
+    assert PHASE55_SLICE1_HISTORICAL_GATE2_NON_READER_MODIFIED_PATHS == frozenset(
         NON_READER_MODIFIED_PATHS
     )
-    assert PHASE55_ACTIVE_GATE2_READER_PATHS == frozenset(MECHANICAL_READER_PATHS)
-    assert PHASE55_ACTIVE_GATE2_MODIFIED_PATHS == frozenset(
+    assert PHASE55_SLICE1_HISTORICAL_GATE2_READER_PATHS == frozenset(
+        MECHANICAL_READER_PATHS
+    )
+    assert PHASE55_SLICE1_HISTORICAL_GATE2_MODIFIED_PATHS == frozenset(
         NON_READER_MODIFIED_PATHS | MECHANICAL_READER_PATHS
     )
-    assert PHASE55_ACTIVE_GATE2_DELETED_PATHS == frozenset()
-    assert (len(ADDED_PATHS), len(PHASE55_ACTIVE_GATE2_MODIFIED_PATHS), 0) == (
+    assert PHASE55_SLICE1_HISTORICAL_GATE2_DELETED_PATHS == frozenset()
+    assert (
+        len(ADDED_PATHS),
+        len(PHASE55_SLICE1_HISTORICAL_GATE2_MODIFIED_PATHS),
+        0,
+    ) == (
         3,
         52,
         0,
     )
     assert (
         "tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py"
-        in PHASE55_ACTIVE_GATE2_READER_PATHS
+        in PHASE55_SLICE1_HISTORICAL_GATE2_READER_PATHS
     )
     assert not (ADDED_PATHS & MECHANICAL_READER_PATHS)
     assert not (NON_READER_MODIFIED_PATHS & MECHANICAL_READER_PATHS)
     assert all(path.startswith("tests/") for path in MECHANICAL_READER_PATHS)
     gate2 = _flat(_section(PHASE55_SPEC_REL, "Three-round Risk-adaptive Workflow"))
-    assert PHASE55_ACTIVE_GATE2_BRANCH in gate2
+    assert PHASE55_SLICE1_HISTORICAL_GATE2_BRANCH in gate2
     assert "Gate 2 is dirty `main`" in gate2
     assert "no branch, staging, commit, push, PR, or CI" in gate2
     gate3 = _flat(_section(PHASE55_SPEC_REL, "Evidence And Gate 3 Contract"))
     assert "squash parent equal to the frozen baseline" in gate3
     assert "fast-forward-only reconciliation" in gate3
+
+
+def test_slice2_direct_main_authority_requires_external_sealed_tree() -> None:
+    """A matching trailer is descriptive; supplied Gate 2 facts authorize the tree."""
+
+    assert PHASE55_SLICE2_GATE2_MARKER == "PHASE55_SLICE2_GATE2"
+    assert PHASE55_SLICE2_BASELINE == "5de57b2c078742253aa64d3a5ad627cd602290cd"
+    assert PHASE55_SLICE2_BASELINE_TREE == "9bc952f6eedca6a953c9edd94e0172b02451f74c"
+    assert PHASE55_SLICE2_DIRECT_MAIN_BRANCH == "main"
+    assert PHASE55_SLICE2_DIRECT_MAIN_SUBJECT == (
+        "Add Phase 55 explicit package activation carrier"
+    )
+    assert PHASE55_SLICE2_REVIEWED_TREE_TRAILER == "Pietto-Reviewed-Tree"
+    assert type(PHASE55_SLICE2_GATE1_PROJECTED_ADDED_PATHS) is frozenset
+    assert type(PHASE55_SLICE2_GATE1_PROJECTED_MODIFIED_PATHS) is frozenset
+    assert type(PHASE55_SLICE2_GATE1_PROJECTED_DELETED_PATHS) is frozenset
+    assert type(PHASE55_SLICE2_GATE1_PROJECTED_ALLOWLIST_A2_M75_D0) is frozenset
+    assert PHASE55_SLICE2_GATE1_PROJECTED_DELETED_PATHS == frozenset()
+    assert len(PHASE55_SLICE2_GATE1_PROJECTED_ADDED_PATHS) == 2
+    assert len(PHASE55_SLICE2_GATE1_PROJECTED_MODIFIED_PATHS) == 75
+    assert len(PHASE55_SLICE2_GATE1_PROJECTED_ALLOWLIST_A2_M75_D0) == 77
+    assert (
+        "tests/test_phase50_import_module_export_readiness.py"
+        not in PHASE55_SLICE2_GATE1_PROJECTED_MODIFIED_PATHS
+    )
+    assert type(PHASE55_SLICE2_GATE2_ADDED_PATHS) is frozenset
+    assert type(PHASE55_SLICE2_GATE2_MODIFIED_PATHS) is frozenset
+    assert type(PHASE55_SLICE2_GATE2_DELETED_PATHS) is frozenset
+    assert type(PHASE55_SLICE2_GATE2_ALLOWLIST_A2_M76_D0) is frozenset
+    assert PHASE55_SLICE2_GATE2_DELETED_PATHS == frozenset()
+    assert len(PHASE55_SLICE2_GATE2_ADDED_PATHS) == 2
+    assert len(PHASE55_SLICE2_GATE2_MODIFIED_PATHS) == 76
+    assert len(PHASE55_SLICE2_GATE2_ALLOWLIST_A2_M76_D0) == 78
+    assert (
+        "tests/test_phase50_import_module_export_readiness.py"
+        in PHASE55_SLICE2_GATE2_MODIFIED_PATHS
+    )
+    assert (
+        PHASE55_SLICE2_GATE2_ALLOWLIST_A2_M76_D0
+        == phase55_slice2_gate2_expected_allowlist_paths()
+    )
+    assert phase55_slice2_direct_main_staging_matches(
+        PHASE55_SLICE2_GATE2_ADDED_PATHS,
+        PHASE55_SLICE2_GATE2_MODIFIED_PATHS,
+        PHASE55_SLICE2_GATE2_DELETED_PATHS,
+    )
+    assert not phase55_slice2_direct_main_staging_matches(
+        PHASE55_SLICE2_GATE2_ADDED_PATHS,
+        PHASE55_SLICE2_GATE2_MODIFIED_PATHS | frozenset({"foreign.py"}),
+        PHASE55_SLICE2_GATE2_DELETED_PATHS,
+    )
+    assert not phase55_slice2_direct_main_staging_matches(
+        PHASE55_SLICE2_GATE2_ADDED_PATHS,
+        PHASE55_SLICE2_GATE1_PROJECTED_MODIFIED_PATHS,
+        PHASE55_SLICE2_GATE2_DELETED_PATHS,
+    )
+    moved_path = (
+        "docs/spec/phase55-slice2-explicit-package-activation-compatibility-"
+        "and-immutable-package-carrier-v1.md"
+    )
+    assert not phase55_slice2_direct_main_staging_matches(
+        PHASE55_SLICE2_GATE2_ADDED_PATHS - frozenset({moved_path}),
+        PHASE55_SLICE2_GATE2_MODIFIED_PATHS,
+        frozenset({moved_path}),
+    )
+
+    sealed_tree = "a" * 40
+    message = (
+        f"{PHASE55_SLICE2_DIRECT_MAIN_SUBJECT}\n\n"
+        f"{PHASE55_SLICE2_REVIEWED_TREE_TRAILER}: {sealed_tree}\n"
+    )
+    assert phase55_slice2_direct_main_commit_matches_external_sealed_tree(
+        (PHASE55_SLICE2_BASELINE,),
+        PHASE55_SLICE2_DIRECT_MAIN_SUBJECT,
+        sealed_tree,
+        message,
+        sealed_baseline=PHASE55_SLICE2_BASELINE,
+        sealed_tree=sealed_tree,
+    )
+    assert not phase55_slice2_direct_main_commit_matches_external_sealed_tree(
+        (PHASE55_SLICE2_BASELINE,),
+        PHASE55_SLICE2_DIRECT_MAIN_SUBJECT,
+        "b" * 40,
+        message,
+        sealed_baseline=PHASE55_SLICE2_BASELINE,
+        sealed_tree=sealed_tree,
+    )
+    assert not phase55_slice2_direct_main_commit_matches_external_sealed_tree(
+        (PHASE55_SLICE2_BASELINE,),
+        PHASE55_SLICE2_DIRECT_MAIN_SUBJECT,
+        sealed_tree,
+        message.replace(sealed_tree, "b" * 40),
+        sealed_baseline=PHASE55_SLICE2_BASELINE,
+        sealed_tree=sealed_tree,
+    )
+    assert not phase55_slice2_direct_main_commit_matches_external_sealed_tree(
+        (PHASE55_SLICE2_BASELINE,),
+        PHASE55_SLICE2_DIRECT_MAIN_SUBJECT,
+        sealed_tree,
+        message,
+        sealed_baseline="b" * 40,
+        sealed_tree=sealed_tree,
+    )
 
 
 def test_workflow_hardening_and_evidence_governance_remain_closed() -> None:
@@ -731,8 +917,8 @@ def test_this_module_is_static_undecorated_and_declares_no_phase55_behavior() ->
     )
     assert tuple(node.name for node in nodes) == _top_level_test_functions(SELF_REL)
     assert all(not node.decorator_list for node in nodes)
-    assert len(nodes) == 17
-    assert len({node.name for node in nodes}) == 17
+    assert len(nodes) == 18
+    assert len({node.name for node in nodes}) == 18
     # The audit reads the repository; it never spawns a process or mutates it.
     assert _imported_root_modules(REPO_ROOT / SELF_REL) == {
         "__future__",
