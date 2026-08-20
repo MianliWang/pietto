@@ -32,7 +32,7 @@ helpers:
 Evidence anchors include `docs/spec/any-bytes-json-support-posture-v1.md`,
 `docs/spec/enum-support-resolution-v1.md`,
 `docs/spec/uuid-support-completion-v1.md`,
-`docs/spec/phase38-type-capability-matrix-contract-v1.md`,
+`docs/spec/phase38-boundary-types-capability-contract-v1.md`,
 `src/pietto/semantic/catalog.py`, `src/pietto/semantic/aggregates.py`,
 `tests/test_phase36_any_bytes_json_support_posture.py`,
 `tests/test_phase36_enum_support_resolution.py`, and

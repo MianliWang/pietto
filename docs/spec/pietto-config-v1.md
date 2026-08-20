@@ -2,17 +2,10 @@
 
 ## Status
 
-This document defines the planned contract for a future `pietto.toml` project
-configuration file.
-
-**The contract is not implemented.** Pietto does not currently read
-`pietto.toml`, discover project roots, expand source globs, or compile multiple
-files. The current CLI and JSON schema version 1 remain single-file
-interfaces.
-
-Phase 8 specifies project behavior before implementation. A later phase must
-review the completed root/path, multi-file, CLI/JSON, and project-resource
-designs before adding any configuration code.
+This document defines the version 1 `pietto.toml` contract for explicit
+project checking. Project configuration never changes single-file command
+meaning; single-file CLI JSON remains version 1 while project check uses the
+separate version 2 envelope.
 
 ## Purpose
 
@@ -34,10 +27,9 @@ The planned filename is exactly:
 pietto.toml
 ```
 
-A future implementation should accept it only at an explicitly selected
-project root. The planned explicit-root and no-upward-search behavior is
-documented in `docs/spec/project-path-semantics-v1.md`. The accepted future
-project invocation uses explicit `--project ROOT` as documented in
+A project uses it only at an explicitly selected root. The explicit-root and
+no-upward-search behavior is summarized in `docs/project-package.md`. Project
+invocation uses explicit `--project ROOT` as documented in
 `docs/spec/project-cli-json-v2.md`.
 
 This document does not create a real `pietto.toml` file or authorize discovery
@@ -194,7 +186,7 @@ The path contract is:
 
 The planned wildcard subset, exclusion precedence, hidden-file behavior,
 cross-platform sorting, symlink handling, and duplicate-identity rules are
-documented in `docs/spec/project-path-semantics-v1.md`. No glob library or
+summarized in `docs/project-package.md`. No glob library or
 expansion behavior is implemented by this contract.
 
 ## Future Precedence
@@ -233,8 +225,8 @@ containment, not user preferences. Allowing projects to raise them could
 weaken deterministic failure behavior.
 
 The accepted project-level file-count, aggregate-byte, token, graph-work,
-diagnostic, artifact, and output-size direction is documented in
-`docs/spec/project-resource-model-v1.md`. Any future configurable limits
+diagnostic, artifact, and output-size direction is summarized in
+`docs/project-package.md`. Any future configurable limits
 require:
 
 - fixed non-configurable hard ceilings;
@@ -321,14 +313,14 @@ Before any configuration implementation is approved, Pietto must complete:
 
 - root and path semantics, including project boundaries and file identity;
 - exact include/exclude glob semantics and deterministic ordering;
-- multi-file ownership and failure semantics as documented in
-  `docs/spec/project-multifile-semantics-v1.md`;
+- multi-file ownership and failure semantics summarized in
+  `docs/project-package.md`;
 - future CLI invocation and configuration precedence as documented in
   `docs/spec/project-cli-json-v2.md`;
 - the machine-readable config-error and project-result design documented in
   `docs/spec/project-cli-json-v2.md`;
-- the project resource model and hard ceilings documented in
-  `docs/spec/project-resource-model-v1.md`;
+- the project resource model and hard ceilings summarized in
+  `docs/project-package.md`;
 - a focused configuration threat-model review.
 
 A future implementation plan must include tests for:

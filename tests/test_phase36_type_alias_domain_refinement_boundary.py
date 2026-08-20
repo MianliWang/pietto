@@ -4,7 +4,6 @@ from dataclasses import fields
 from pathlib import Path
 
 from _static_audit_helpers import (
-    normalized_text as _normalized,
     read_text as _read,
 )
 
@@ -22,7 +21,6 @@ from pietto.semantic import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PLAN_PATH = REPO_ROOT / "docs/plan/phase-36-post-v02-core-type-system-expansion.md"
 SPEC_PATH = REPO_ROOT / "docs/spec/type-alias-domain-refinement-boundary-v1.md"
 
 CATALOG_PATH = REPO_ROOT / "src/pietto/semantic/catalog.py"
@@ -34,36 +32,12 @@ METADATA_TEXT_PATH = REPO_ROOT / "src/pietto/_metadata/text.py"
 CLI_JSON_PATH = REPO_ROOT / "src/pietto/cli_json.py"
 
 
-def _phase36_slice8_docs() -> str:
-    return f"{_normalized(PLAN_PATH)} {_normalized(SPEC_PATH)}"
-
-
-def test_slice8_selects_tests_only_option_b() -> None:
-    combined = _phase36_slice8_docs()
-
-    for required in (
-        "Phase 36 Slice 8 selects Option B: tests-only hardening",
-        "Type Alias / Domain Refinement Boundary",
-        "without changing compiler behavior",
-        "Existing type aliases are current behavior",
-        "Domain refinement remains deferred",
-        "Type aliases preserve current declared and canonical facts",
-        "Existing type `ensure` syntax, where present at parse/AST level, remains parse/AST-only",
-        "Currency/Money remain deferred and are not implemented as aliases or domains",
-        "Slice 8 keeps the broader 12-slice Phase 36 plan intact",
-    ):
-        assert required in combined, required
-
-
 def test_type_alias_kind_and_ir_kind_remain_the_alias_mechanism() -> None:
     semantic_model = _read(SEMANTIC_MODEL_PATH)
     ir_model = _read(IR_MODEL_PATH)
-    combined = _phase36_slice8_docs()
 
     assert 'TYPE_ALIAS = "type_alias"' in semantic_model
     assert 'TYPE_ALIAS = "type_alias"' in ir_model
-    assert "`TypeKind.TYPE_ALIAS` as the semantic alias kind" in combined
-    assert "`TypeKindIR.TYPE_ALIAS` as the IR alias kind" in combined
 
 
 def test_alias_declaration_chain_and_nullability_preserve_current_facts() -> None:
@@ -164,23 +138,7 @@ def test_type_ensure_remains_parse_ast_only_not_domain_validation() -> None:
 
 
 def test_domain_refinement_and_currency_money_remain_deferred() -> None:
-    combined = _phase36_slice8_docs()
     catalog = _read(CATALOG_PATH)
-
-    for required in (
-        "Domain refinement remains deferred",
-        "Type aliases are not new scalar primitives",
-        "domain constraint enforcement",
-        "validation rule evaluation",
-        "unit or dimensional analysis",
-        "Currency/Money type behavior",
-        "semantic/domain annotation behavior",
-        "casts and coercions",
-        "native DB domains and native DB metadata",
-        "schema introspection and db pull",
-        "runtime/database execution",
-    ):
-        assert required in combined, required
 
     assert '"Currency"' not in catalog
     assert '"Money"' not in catalog
@@ -216,16 +174,6 @@ def test_no_new_scalar_primitive_or_native_domain_carrier_was_added() -> None:
         _read(IR_MODEL_PATH),
         _read(METADATA_MODEL_PATH),
     )
-    combined = _phase36_slice8_docs()
-
-    for required in (
-        "Type aliases preserve current declared and canonical facts",
-        "They do not create a new scalar primitive",
-        "They are not domain refinement",
-        "runtime validation",
-        "storage, DDL, or native database type support",
-    ):
-        assert required in combined, required
 
     for source in sources:
         lowered = source.lower()

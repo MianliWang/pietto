@@ -1,53 +1,10 @@
 from __future__ import annotations
 
-from fnmatch import fnmatchcase
-from pathlib import Path
-
 import pytest
 
-from _static_audit_helpers import (
-    normalized_text as _normalized,
-    read_text as _read,
-)
 from pietto.errors import Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-
-PHASE37_PLAN_PATH = (
-    REPO_ROOT / "docs/plan/phase-37-post-v02-aggregate-surface-expansion.md"
-)
-FREEZE_SPEC_PATH = REPO_ROOT / "docs/spec/v02-aggregate-surface-freeze-v1.md"
-DEFERRED_REGISTER_PATH = REPO_ROOT / "docs/spec/v02-deferred-feature-register-v1.md"
-PHASE36_PLAN_PATH = (
-    REPO_ROOT / "docs/plan/phase-36-post-v02-core-type-system-expansion.md"
-)
-COUNT_EXPRESSION_SPEC_PATH = (
-    REPO_ROOT / "docs/spec/phase37-count-expression-mvp-decision-v1.md"
-)
-COUNT_DISTINCT_SPEC_PATH = (
-    REPO_ROOT / "docs/spec/phase37-count-distinct-expression-widening-boundary-v1.md"
-)
-MIN_MAX_SPEC_PATH = REPO_ROOT / "docs/spec/phase37-min-max-expression-boundary-v1.md"
-AGGREGATES_SOURCE_PATH = REPO_ROOT / "src/pietto/semantic/aggregates.py"
-RELATION_SCHEMAS_SOURCE_PATH = REPO_ROOT / "src/pietto/semantic/relation_schemas.py"
-GROUP_BY_SOURCE_PATH = REPO_ROOT / "src/pietto/semantic/group_by.py"
-PHASE25_SATISFYING_TEST_PATH = REPO_ROOT / "tests/test_phase25_satisfying_semantics.py"
-PHASE27_GROUPED_ORDER_TEST_PATH = (
-    REPO_ROOT / "tests/test_phase27_grouped_order_semantics.py"
-)
-PHASE31_MATRIX_TEST_PATH = (
-    REPO_ROOT / "tests/test_phase31_aggregate_result_matrix_hardening.py"
-)
-PHASE31_DIAGNOSTIC_TEST_PATH = (
-    REPO_ROOT / "tests/test_phase31_diagnostic_cli_json_stability.py"
-)
-
-IN_PROGRESS_PHASE37_STATIC_AUDIT_PATTERNS = (
-    "docs/spec/phase37-*.md",
-    "tests/test_phase37_*.py",
-)
 
 SOURCE_PREFIX = (
     "shape Order:\n"
@@ -58,26 +15,6 @@ SOURCE_PREFIX = (
     "    region: Text not null\n"
     'source orders: Order is postgres.table("orders")\n'
 )
-
-
-def _phase37_plan() -> str:
-    return _normalized(PHASE37_PLAN_PATH)
-
-
-def _combined_boundary_evidence() -> str:
-    return " ".join(
-        _normalized(path)
-        for path in (
-            PHASE37_PLAN_PATH,
-            FREEZE_SPEC_PATH,
-            DEFERRED_REGISTER_PATH,
-            PHASE36_PLAN_PATH,
-            COUNT_EXPRESSION_SPEC_PATH,
-            COUNT_DISTINCT_SPEC_PATH,
-            MIN_MAX_SPEC_PATH,
-            PHASE31_MATRIX_TEST_PATH,
-        )
-    )
 
 
 def _errors(source: str) -> list[str]:
@@ -98,13 +35,6 @@ def _aggregate_projection(projection: str) -> str:
         "    from orders\n"
         "    select:\n"
         f"        {projection}\n"
-    )
-
-
-def _is_in_progress_phase37_static_audit_path(path: str) -> bool:
-    return any(
-        fnmatchcase(path, pattern)
-        for pattern in IN_PROGRESS_PHASE37_STATIC_AUDIT_PATTERNS
     )
 
 
@@ -204,113 +134,3 @@ def test_phase37_expression_widening_candidates_remain_deferred(
     projection: str,
 ) -> None:
     assert _errors(_aggregate_projection(projection)) == ["PIE-S2315"]
-
-
-def test_slice6_hardening_authorizes_no_behavior_or_surface_expansion() -> None:
-    plan = _phase37_plan()
-    boundary_evidence = _combined_boundary_evidence()
-    implementation_evidence = " ".join(
-        _read(path)
-        for path in (
-            AGGREGATES_SOURCE_PATH,
-            RELATION_SCHEMAS_SOURCE_PATH,
-            GROUP_BY_SOURCE_PATH,
-            PHASE25_SATISFYING_TEST_PATH,
-            PHASE27_GROUPED_ORDER_TEST_PATH,
-        )
-    )
-    combined = f"{plan} {boundary_evidence} {implementation_evidence}"
-
-    for required in (
-        "| 6 | Nested Aggregate And Composition Hardening |",
-        "nested aggregates",
-        "aggregate projection composition",
-        "Current Phase 25 `satisfying:` behavior is frozen",
-        "Current Phase 27 grouped selected-output `order by` behavior is frozen",
-        "nested_aggregate_diagnostic",
-        "deferred_composition_diagnostic",
-        "PIE-S2311",
-        "PIE-S2310",
-        "PIE-S2313",
-        "PIE-S2308",
-        "PIE-S2321",
-        "does not implement `count(expression)`",
-        "does not implement broad `count_distinct(expression)`",
-        "does not implement `min(expression)` or `max(expression)`",
-    ):
-        assert required in combined, required
-
-    for prohibited in (
-        "Slice 6 implements nested aggregates",
-        "Slice 6 implements aggregate projection composition",
-        "Slice 6 widens aggregate expression surfaces",
-        "Slice 6 adds new accepted syntax",
-        "Slice 6 changes diagnostic behavior",
-    ):
-        assert prohibited not in combined, prohibited
-
-
-def test_deferred_and_prohibited_phase37_surfaces_remain_locked() -> None:
-    boundary_evidence = _combined_boundary_evidence()
-
-    for required in (
-        "`count(expression)`",
-        "broad `count_distinct(expression)`",
-        "`min(expression)` / `max(expression)`",
-        "aggregate filters",
-        "window functions",
-        "generic `DISTINCT` syntax",
-        "generic aggregate modifiers",
-        "aggregate over projection aliases",
-        "relationship/fanout-safe aggregates",
-        "No new aggregate functions, modifiers, filters, window functions",
-        "`count(distinct field)`",
-        "runtime/database execution",
-        "public MySQL API expansion",
-    ):
-        assert required in boundary_evidence, required
-
-
-def test_public_output_schema_and_release_surfaces_remain_unchanged() -> None:
-    boundary_evidence = _combined_boundary_evidence()
-    diagnostic_evidence = _read(PHASE31_DIAGNOSTIC_TEST_PATH)
-    combined = f"{boundary_evidence} {diagnostic_evidence}"
-
-    for required in (
-        "no source/compiler behavior change",
-        "grammar",
-        "generated ANTLR files",
-        "IR behavior",
-        "SQL lowering",
-        "CLI behavior",
-        "JSON v1",
-        "CLI JSON v1 unchanged",
-        "Project JSON v2 unchanged",
-        "Semantic Metadata Artifact v1 unchanged",
-        "diagnostic envelope unchanged",
-        "SQL golden bytes unchanged",
-        "fixtures/goldens unchanged",
-        "no package/workflow/release metadata change",
-        "no tag/release/publish/upload/signing/attestation",
-        "package version remains `0.1.0`",
-    ):
-        assert required in combined, required
-
-    assert 'version = "0.1.0"' in _read(REPO_ROOT / "pyproject.toml")
-
-
-def test_phase36_type_boundaries_still_constrain_aggregate_hardening() -> None:
-    boundary_evidence = _combined_boundary_evidence()
-
-    for required in (
-        "Decimal precision-scale carrier deferred with exact prerequisites",
-        "UUID remains `limited_frozen` with no behavior expansion",
-        "Enum remains metadata/readiness except `count(Enum field)` fails closed with `PIE-S2314`",
-        "DateTime / Time / Interval remain deferred",
-        "Any / Bytes / Json behavior surfaces remain unchanged and deferred",
-        "type alias behavior is preserved",
-        "domain refinement remains deferred",
-        "Currency/Money remain deferred",
-        "native DB metadata remains deferred",
-    ):
-        assert required in boundary_evidence, required

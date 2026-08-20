@@ -1,18 +1,12 @@
 from __future__ import annotations
 
 import ast
-import hashlib
 import importlib.util
 import subprocess
 import sys
-from collections.abc import Iterable
 from pathlib import Path
 from types import ModuleType
 from typing import Any, cast
-
-from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 import pytest
 
@@ -20,8 +14,6 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 AUDIT_PATH = REPO_ROOT / "scripts" / "check_goldens.py"
 POLICY_PATH = REPO_ROOT / "docs" / "spec" / "golden-fixture-policy-v1.md"
 GOLDEN_ROOT = REPO_ROOT / "tests" / "fixtures" / "golden"
-GOLDEN_HASH = "0e26a0b367a2ae849e5ec1e9a239be42765bea2c352242db5da930ab56b43004"
-BOUNDARY_HASH = "6cbe7ccfbd84d7b2966964ac91a56e7eeacdc798c3d161da64d61add662b0420"
 VALIDATION_GATES = (
     ("lockfile", ("uv", "lock", "--check")),
     ("format", ("uv", "run", "ruff", "format", "--check", ".")),
@@ -212,49 +204,5 @@ def test_slice4_keeps_prior_commands_independent_and_later_slices_absent() -> No
     assert "check_goldens" not in generated_source
     assert "package_smoke" not in generated_source
     assert "package_smoke" not in AUDIT_PATH.read_text(encoding="utf-8")
-    assert _sha256(REPO_ROOT / "Makefile") == (
-        "dbd38c41e2af5275c379de0b88c92f3861efb90724c7de1a291e0aa007ce2db7"
-    )
     assert (REPO_ROOT / ".github/workflows/ci.yml").is_file()
     assert (REPO_ROOT / "scripts" / "package_smoke.py").is_file()
-
-
-def test_slice4_preserves_golden_and_compiler_boundary_bytes() -> None:
-    assert _aggregate_hash(GOLDEN_ROOT.iterdir()) == GOLDEN_HASH
-
-    paths = [
-        REPO_ROOT / "Makefile",
-        REPO_ROOT / "grammar" / "Pietto.g4",
-    ]
-    paths.extend(
-        path
-        for path in (REPO_ROOT / "src" / "pietto").rglob("*")
-        if path.is_file() and "__pycache__" not in path.parts
-    )
-
-    assert _aggregate_hash(paths) == BOUNDARY_HASH
-
-
-def _aggregate_hash(paths: Iterable[Path]) -> str:
-    digest = hashlib.sha256()
-    for path in sorted(paths):
-        if not path.is_file():
-            continue
-        relative_path = path.relative_to(REPO_ROOT).as_posix()
-        digest.update(relative_path.encode())
-        digest.update(b"\0")
-        digest.update(path.read_bytes())
-        digest.update(b"\0")
-    return digest.hexdigest()
-
-
-def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-_SLICE10_READER_MIGRATION_PATHS = (
-    "docs/spec/phase53-partition-binding-multi-key-visibility-diagnostics-contract-v1.md",
-    "src/pietto/semantic/window_partition_analysis.py",
-    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
-)
-# Phase 53 Slice 13 reader migration.

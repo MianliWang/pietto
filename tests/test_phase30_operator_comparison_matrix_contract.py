@@ -5,11 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PLAN_PATH = REPO_ROOT / "docs/plan/phase-30-core-type-system-stabilization-i.md"
 SPEC_PATH = REPO_ROOT / "docs/spec/operator-comparison-matrix-contract-v1.md"
-CORE_CONTRACT_PATH = (
-    REPO_ROOT / "docs/spec/core-type-system-stabilization-contract-v1.md"
-)
 REGISTRY_CONTRACT_PATH = REPO_ROOT / "docs/spec/canonical-scalar-type-registry-v1.md"
 NULLABILITY_CONTRACT_PATH = (
     REPO_ROOT / "docs/spec/nullability-propagation-contract-v1.md"
@@ -89,74 +85,6 @@ def _read(path: Path) -> str:
 
 def _normalized(path: Path) -> str:
     return " ".join(_read(path).split())
-
-
-def test_slice7_artifacts_baseline_and_status_are_locked() -> None:
-    assert SPEC_PATH.is_file()
-
-    plan = _normalized(PLAN_PATH)
-    spec = _normalized(SPEC_PATH)
-    core_contract = _normalized(CORE_CONTRACT_PATH)
-    registry_contract = _normalized(REGISTRY_CONTRACT_PATH)
-    nullability_contract = _normalized(NULLABILITY_CONTRACT_PATH)
-    bool_contract = _normalized(BOOL_CONTRACT_PATH)
-    date_contract = _normalized(DATE_CONTRACT_PATH)
-    decimal_contract = _normalized(DECIMAL_CONTRACT_PATH)
-
-    for required in (
-        "Phase 30 Slice 7 is complete as operator and comparison matrix "
-        "contract, static audit, and status work only",
-        "HEAD: `da9394c1e9e0383e574a5c773d1414e7969ca7c0`",
-        "commit: `Document Decimal precision and scale contract`",
-        "CI run: `27889088949 success`",
-        "v0.2 is not complete yet",
-        "Phase 31 and Phase 32 remain required before v0.2 stable completion",
-    ):
-        assert required in plan
-        assert required in spec
-
-    assert "operator-comparison-matrix-contract-v1.md" in plan
-    assert "operator-comparison-matrix-contract-v1.md" in core_contract
-    assert "Slice 7 Operator And Comparison Matrix" in registry_contract
-    assert "Slice 7 Operator And Comparison Matrix" in nullability_contract
-    assert "Slice 7 Operator And Comparison Matrix" in bool_contract
-    assert "Slice 7 Operator And Comparison Matrix" in date_contract
-    assert "Slice 7 Operator And Comparison Matrix" in decimal_contract
-    assert "Slice 8 Completion Audit And Status Lock is complete" in spec
-    assert "Phase 30 is complete as docs/spec/static-audit/status work only" in spec
-    assert "v0.2 is not complete" in spec
-
-
-def test_slice7_candidate_decision_is_docs_static_audit_status_only() -> None:
-    spec = _normalized(SPEC_PATH)
-
-    for required in (
-        "| Candidate | Fit | Risk | Decision |",
-        "Slice 7 docs/spec/static-audit/status only",
-        "Chosen",
-        "Tests-only hardening",
-        "Rejected for Slice 7",
-        "current behavior tests already cover the relevant operator, "
-        "comparison, Decimal, Bool, and unknown-propagation surfaces",
-        "Minimal implementation artifact",
-        "Rejected; no consumer requires a registry object, compatibility "
-        "helper, matrix API, or diagnostic helper before the contract is accepted",
-        "Broad behavior implementation",
-        "The selected Slice 7 direction is contract-first",
-        "does not add operator compatibility validation",
-        "diagnostic behavior",
-        "SQL lowering changes",
-    ):
-        assert required in spec
-
-    for forbidden in (
-        "Slice 7 implements operator validation",
-        "Slice 7 changes comparison validation",
-        "Slice 7 changes diagnostics",
-        "Slice 7 changes SQL lowering",
-        "Slice 7 adds casts",
-    ):
-        assert forbidden not in spec
 
 
 def test_operator_status_vocabulary_and_nullability_boundary_are_locked() -> None:
@@ -618,84 +546,6 @@ def test_diagnostics_and_unknown_propagation_are_current_behavior_only() -> None
             "not in [diagnostic.code for diagnostic in",
         ):
             assert required in test_source
-
-
-def test_handoff_non_goals_and_status_docs_are_locked() -> None:
-    plan = _normalized(PLAN_PATH)
-    spec = _normalized(SPEC_PATH)
-    core_contract = _normalized(CORE_CONTRACT_PATH)
-    plan_and_specs = f"{plan} {spec} {core_contract}"
-
-    for required in (
-        "Slice 8 Completion Audit And Status Lock is complete as completion "
-        "audit and status lock work only",
-        "verifies the complete Phase 30 contract set",
-        "Phase 31 Core Type System Stabilization II And Dialect Matrix "
-        "Hardening is the next mainline",
-        "may separately harden numeric/Decimal boundaries",
-        "UUID/Enum readiness",
-        "Date/Timestamp SQL compatibility",
-        "diagnostic boundaries",
-        "CLI/JSON hardening",
-        "Phase 31 and Phase 32 remain required before v0.2 stable completion",
-    ):
-        assert required in plan_and_specs
-
-    for required in PHASE30_HARD_NON_GOALS:
-        assert required in plan_and_specs
-
-    for relative_path in ("AGENTS.md", "docs/spec/pietto-v0.9.md"):
-        status_doc = _normalized(REPO_ROOT / relative_path)
-        for required in (
-            "Phase 30 Core Type System Stabilization I",
-            "Slice 7 is complete as operator and comparison matrix contract, "
-            "static audit, and status work only",
-            "current comparison behavior is generic known-child typing",
-            "not a final pair-specific semantic compatibility guarantee",
-            "no Text concatenation",
-            "no Decimal multiplication/division expansion",
-            "no mixed Decimal promotion expansion",
-            "no Date/Timestamp-specific comparison matrix",
-            "no UUID comparison, cast, literal, storage, DDL, wider SQL, or "
-            "public API behavior",
-            "Enum remains a non-builtin semantic type kind",
-            "Bytes and Json remain deferred/unsupported behavior built-ins",
-            "Slice 8 is complete as completion audit and status lock work only",
-            "Phase 30 is complete",
-            "Phase 31 v0.2 Hardening And Stable Completion is complete",
-            "Pietto v0.2 single-file stable complete",
-            "Phase 31 Slice 8 complete",
-            "Phase 32 has started",
-            "Phase 32 Slice 1 Candidate Decision, Roadmap Alignment, And v0.2 "
-            "Handoff Audit is complete as docs/spec/static-audit/status-only work",
-            "Phase 32 as a whole is not complete",
-            "Phase 32: Semantic Explain And Metadata Output MVP",
-        ):
-            assert required in status_doc
-        assert "Phase 32 remains post-v0.2 and has not started" not in status_doc
-
-        for forbidden in (
-            "v0.2 is complete",
-            "Phase 30 implementation",
-            "Phase 31 implementation is complete",
-            "Text concatenation is implemented",
-            "comparison compatibility matrix is implemented",
-            "DateTime primitive is allowed",
-            "Currency primitive is allowed",
-            "Money primitive is allowed",
-            "UUID implementation is allowed",
-            "Enum implementation is allowed",
-            "public `emit_mysql_sql`",
-            "Phase 30 implements relationship/JOIN",
-            "Phase 30 implements project mode",
-            "Phase 30 changes JSON v1",
-            "Phase 30 implements JSON v2",
-            "Phase 30 expands aggregate",
-            "Phase 30 changes predicate behavior",
-            "Phase 30 changes diagnostics",
-            "Phase 30 changes SQL lowering",
-        ):
-            assert forbidden not in status_doc
 
 
 def _function_body(source: str, marker: str) -> str:

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-# Phase 54 Slice 4 mechanical reader-closure identity refresh.
-
 import inspect
 import tomllib
 from pathlib import Path
@@ -15,24 +13,6 @@ import pietto.sql.mysql_render as render_module
 from pietto.sql.mysql import emit_mysql_sql
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PHASE10_PLAN = "docs/plan/phase-10-mysql-sql-generation-mvp.md"
-
-
-def test_slice6_status_and_cross_references_are_complete() -> None:
-    plan = _read(PHASE10_PLAN)
-    status_documents = (
-        _read("AGENTS.md"),
-        _read("docs/spec/pietto-v0.9.md"),
-    )
-
-    assert "**Slice 6: MySQL Expression And Relation Rendering MVP is complete.**" in (
-        plan
-    )
-    assert "6. **MySQL Expression And Relation Rendering MVP**: complete." in plan
-    for document in status_documents:
-        normalized = " ".join(document.split())
-        assert "Phase 10 MySQL SQL Generation MVP is complete" in normalized
-        assert "private handwritten MySQL" in normalized
 
 
 def test_mysql_renderer_modules_are_private_and_closed() -> None:

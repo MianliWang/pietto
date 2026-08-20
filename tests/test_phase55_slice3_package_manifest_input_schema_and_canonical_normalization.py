@@ -10,7 +10,6 @@ import pytest
 import pietto
 import pietto._project as project_package
 import pietto._project.package_manifest as package_manifest
-from _pietto_reader_closure import discover_edges
 from pietto._project.model import (
     ProjectDiscoveryError,
     ProjectDiscoveryErrorKind,
@@ -26,22 +25,6 @@ from pietto._project.package_manifest import (
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SLICE3_SPEC = (
-    REPO_ROOT
-    / "docs/spec/phase55-slice3-package-manifest-input-schema-and-canonical-normalization-v1.md"
-)
-STATUS_HEADINGS = {
-    REPO_ROOT / "README.md": "## Phase 55 Slice 3 Current Gate Status",
-    REPO_ROOT
-    / "docs/plan/phase-55-semantic-package-asset-schema-and-deterministic-local-loading.md": "## Slice 3 Gate 2 Candidate And Pending Direct-main Publication",
-    REPO_ROOT
-    / "docs/spec/pietto-active-roadmap-phase53-70-v2.md": "## Phase 55 Slice 3 Current Gate 2 Authority",
-    REPO_ROOT
-    / "docs/spec/pietto-v0.9.md": "## 19. Phase 55 Slice 3 Package-manifest Status",
-}
-BASELINE = "019f7355c1556d918f180209736fec2b75a9e964"
-BASELINE_TREE = "ba285171d8d9b4a1cf34556990fff0b7b6181a69"
-MAIN_CI = "32078392127"
 
 
 def test_normalizes_exact_v1_root_aots_and_logical_manifest_path() -> None:
@@ -1000,60 +983,6 @@ def test_slice3_is_private_and_has_no_filesystem_or_public_integration() -> None
         other_source = path.read_text(encoding="utf-8")
         assert "pietto._project.package_manifest" not in other_source
         assert "_normalize_package_manifest" not in other_source
-
-
-def test_reader_helper_keeps_binary_targets_out_of_text_sources(tmp_path: Path) -> None:
-    reader = tmp_path / "reader.txt"
-    binary = tmp_path / "artifact.bin"
-    reader.write_text("artifact.bin\n", encoding="utf-8")
-    binary.write_bytes(b"\x80\x81")
-
-    first = discover_edges(
-        repo_root=tmp_path,
-        universe=("reader.txt",),
-        targets=("reader.txt", "artifact.bin"),
-    )
-    second = discover_edges(
-        repo_root=tmp_path,
-        universe=("reader.txt",),
-        targets=("reader.txt", "artifact.bin"),
-    )
-
-    assert first == second
-    assert tuple((edge.reader, edge.target, edge.occurrences) for edge in first) == (
-        ("reader.txt", "artifact.bin", 1),
-    )
-
-
-def test_spec_and_status_owners_lock_the_slice3_candidate_boundary() -> None:
-    spec = SLICE3_SPEC.read_text(encoding="utf-8")
-    for required in (
-        "Package Manifest Input Schema And Canonical Normalization",
-        "TRACKED_TARGET_UNIVERSE",
-        "TEXT_READER_SOURCE_UNIVERSE",
-        "reader_additions=0",
-        "digest_delta=0",
-        "binary_inventory_unexplained_delta=0",
-        "No new `PIE-*` range",
-        "next=PHASE55_SLICE3_GATE3",
-    ):
-        assert required in spec
-
-    for path, heading in STATUS_HEADINGS.items():
-        text = path.read_text(encoding="utf-8")
-        current = text[text.index(heading) :]
-        for required in (
-            BASELINE,
-            BASELINE_TREE,
-            MAIN_CI,
-            "IMPLEMENTED_UNPUBLISHED",
-            "PHASE55_SLICE3_GATE3",
-            "0.1.0"
-            if path == REPO_ROOT / "README.md"
-            else "canonical manifest normalization",
-        ):
-            assert required in current
-        assert "Slice 4" not in current or "UNSTARTED" in current
 
 
 def _activation(path: str = ".") -> ProjectRootPackageActivation:

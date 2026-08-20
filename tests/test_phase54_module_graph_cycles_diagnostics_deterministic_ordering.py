@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
 import inspect
 import json
@@ -8,13 +7,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import cast
 
-from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
-
 import pytest
 
-import _phase54_active_gate2_manifest as active_gate2_manifest
 import pietto._project.check as project_check
 import pietto._project.module_graph as module_graph
 import pietto.cli as cli
@@ -31,46 +25,9 @@ from pietto.errors import Severity
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SPEC_REL = (
-    "docs/spec/phase54-slice8-module-graph-cycles-diagnostics-and-"
-    "deterministic-ordering-v1.md"
-)
 SOURCE_REL = "src/pietto/_project/module_graph.py"
 TEST_REL = (
     "tests/test_phase54_module_graph_cycles_diagnostics_deterministic_ordering.py"
-)
-
-EXPECTED_TEST_NAMES = (
-    "test_graph_carrier_enums_fields_privacy_and_manifest_are_exact",
-    "test_vertex_identity_immutability_and_hash_are_logical",
-    "test_evidence_and_canonical_edge_invariants_reject_rewrites",
-    "test_graph_lookups_adjacency_and_collections_are_immutable",
-    "test_modules_without_imports_form_selected_singleton_components",
-    "test_selected_modules_define_vertex_and_component_order",
-    "test_exact_selected_targets_create_source_evidence_edges",
-    "test_unresolved_targets_create_no_edges_and_group_statement_evidence",
-    "test_repeated_requests_retain_evidence_but_share_one_canonical_edge",
-    "test_adjacency_uses_target_order_not_import_text_order",
-    "test_direct_self_import_is_one_component_cycle",
-    "test_two_module_cycle_has_one_canonical_witness",
-    "test_longer_cycle_uses_lowest_selected_member_as_witness_start",
-    "test_multiple_independent_cycles_are_selected_ordered",
-    "test_dag_diamond_is_not_a_cycle",
-    "test_repeated_cycle_requests_do_not_duplicate_cycles_or_witness_edges",
-    "test_complex_scc_chooses_shortest_then_selected_order_witness",
-    "test_graph_value_equality_hash_and_evidence_sensitivity_are_exact",
-    "test_graph_builder_uses_only_retained_inputs_and_performs_no_io",
-    "test_pie_s2701_mapping_message_span_and_statement_deduplication",
-    "test_pie_s2702_conflicting_identity_adapter_boundary_is_fail_closed",
-    "test_pie_s2703_cycle_message_primary_and_private_related_spans",
-    "test_pie_s2704_export_issue_mappings_and_duplicate_precedence",
-    "test_pie_s2705_unknown_private_import_mappings_are_exact",
-    "test_pie_s2706_collision_mapping_is_one_per_local_name_bucket",
-    "test_pie_s2707_facade_and_unsupported_adapter_mappings_are_exact",
-    "test_unresolved_target_and_import_export_cascades_are_suppressed",
-    "test_target_export_root_suppresses_downstream_facade_diagnostic",
-    "test_diagnostic_order_text_cli_and_project_json_v2_are_exact",
-    "test_schema_v1_privacy_status_reader_fixed_point_and_slice9_boundary",
 )
 
 
@@ -252,12 +209,6 @@ def test_graph_carrier_enums_fields_privacy_and_manifest_are_exact() -> None:
     assert not diagnostic_set_authority.repr
     assert not diagnostic_set_authority.compare
     assert diagnostic_set_authority.hash is False
-    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER == (
-        "PHASE54_SLICE16_GATE2"
-    )
-    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE == (
-        "1f69c0316086a2236cee03a96cca95218fbd50fc"
-    )
 
 
 def test_vertex_identity_immutability_and_hash_are_logical(tmp_path: Path) -> None:
@@ -1061,7 +1012,7 @@ def test_diagnostic_order_text_cli_and_project_json_v2_are_exact(
     assert "module_graph" not in json.dumps(document)
 
 
-def test_schema_v1_privacy_status_reader_fixed_point_and_slice9_boundary(
+def test_schema_v1_graph_privacy_boundary(
     tmp_path: Path,
 ) -> None:
     parse_result, semantic = _semantic_project(
@@ -1084,134 +1035,4 @@ def test_schema_v1_privacy_status_reader_fixed_point_and_slice9_boundary(
                 encoding="utf-8"
             ),
         )
-    )
-    spec = (REPO_ROOT / SPEC_REL).read_text(encoding="utf-8")
-    source = (REPO_ROOT / SOURCE_REL).read_text(encoding="utf-8")
-    registry = (REPO_ROOT / "docs/spec/diagnostics.md").read_text(encoding="utf-8")
-    assert all(
-        f"PIE-S270{position}" in source and f"PIE-S270{position}" in registry
-        for position in range(1, 8)
-    )
-    assert (
-        "Slice 9 retains cross-module type alias, enum, shape, and source resolution"
-        in spec
-    )
-    tree = ast.parse((REPO_ROOT / TEST_REL).read_text(encoding="utf-8"))
-    tests = tuple(
-        node.name
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name.startswith("test_")
-    )
-    assert tests == EXPECTED_TEST_NAMES
-    assert len(tests) == 30
-    assert all(
-        not node.decorator_list
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name.startswith("test_")
-    )
-    assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_ADDED_PATHS) == 3
-    assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS) == 69
-    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 2
-    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 51
-    assert len(active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_ADDED_PATHS) == 3
-    assert (
-        len(active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_MODIFIED_PATHS) == 52
-    )
-    assert (
-        len(active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_ALLOWLIST_PATHS) == 55
-    )
-    assert (
-        TEST_REL in active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_READER_PATHS
-    )
-    assert active_gate2_manifest.PHASE55_SLICE2_GATE2_MARKER == "PHASE55_SLICE2_GATE2"
-    assert (
-        active_gate2_manifest.PHASE55_SLICE2_BASELINE
-        == "5de57b2c078742253aa64d3a5ad627cd602290cd"
-    )
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_ADDED_PATHS) == 2
-    assert (
-        len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_MODIFIED_PATHS) == 75
-    )
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_DELETED_PATHS) == 0
-    assert (
-        len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_ALLOWLIST_A2_M75_D0)
-        == 77
-    )
-    assert (
-        TEST_REL in active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_MODIFIED_PATHS
-    )
-    assert (
-        TEST_REL
-        in active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_ALLOWLIST_A2_M75_D0
-    )
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_ADDED_PATHS) == 2
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_MODIFIED_PATHS) == 76
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_DELETED_PATHS) == 0
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_ALLOWLIST_A2_M76_D0) == 78
-    assert TEST_REL in active_gate2_manifest.PHASE55_SLICE2_GATE2_MODIFIED_PATHS
-    assert TEST_REL in active_gate2_manifest.PHASE55_SLICE2_GATE2_ALLOWLIST_A2_M76_D0
-    assert SOURCE_REL not in active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
-    assert SPEC_REL not in active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
-    assert TEST_REL in active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS
-    assert {
-        "docs/spec/phase54-slice12-semantic-fact-preservation-v1.md",
-        "src/pietto/_project/module_semantic_fact_preservation.py",
-        "tests/test_phase54_semantic_fact_preservation.py",
-    } == set(active_gate2_manifest.PHASE54_SLICE12_HISTORICAL_ADDED_PATHS)
-    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
-    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE == (
-        "17a5b01e555930537334d4d0bcf3480e332b7e91"
-    )
-    assert (
-        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_MODIFIED_PATHS)
-        == 43
-    )
-    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE == (
-        "3f057874a1bec524da38b58c243267f4590c167b"
-    )
-    assert (
-        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR4_MODIFIED_PATHS)
-        == 43
-    )
-    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BASE == (
-        "fcdd02b5604c2b84d861b593a1887eaeb4620c91"
-    )
-    assert (
-        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR5_MODIFIED_PATHS)
-        == 43
-    )
-    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR6_BASE == (
-        "c73e5ea0628d821ada5a8cbb93102bae69768600"
-    )
-    assert (
-        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR6_MODIFIED_PATHS)
-        == 43
-    )
-    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE == (
-        "a5df3ed264c443d902831fe532d265ac1e452158"
-    )
-    assert (
-        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR7_MODIFIED_PATHS)
-        == 43
-    )
-    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE == (
-        "7b96b416d963e67624a461ec906ab2fe14630380"
-    )
-    assert (
-        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR8_MODIFIED_PATHS)
-        == 43
-    )
-    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE == (
-        "38353a00bdaf6b1edb9a0eb53ada1a3249b6ae79"
-    )
-    assert (
-        active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR9_MODIFIED_PATHS
-        == active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR9_SEED_PATHS
-        | active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR9_READER_PATHS
-    )
-    assert (
-        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR9_MODIFIED_PATHS)
-        == 66
     )

@@ -28,13 +28,6 @@ from pietto.sql import SqlResult, emit_postgres_sql
 from pietto.sql.mysql import emit_mysql_sql
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PLAN_PATH = REPO_ROOT / "docs/plan/phase-31-v02-hardening-and-stable-completion.md"
-SPEC_PATH = REPO_ROOT / "docs/spec/v02-hardening-and-stable-completion-v1.md"
-PHASE36_PLAN_PATH = (
-    REPO_ROOT / "docs/plan/phase-36-post-v02-core-type-system-expansion.md"
-)
-PHASE36_ENUM_SPEC_PATH = REPO_ROOT / "docs/spec/enum-support-resolution-v1.md"
-
 CATALOG_PATH = REPO_ROOT / "src/pietto/semantic/catalog.py"
 SEMANTIC_MODEL_PATH = REPO_ROOT / "src/pietto/semantic/model.py"
 IR_MODEL_PATH = REPO_ROOT / "src/pietto/ir/model.py"
@@ -54,51 +47,6 @@ READINESS_HEADER = (
     "    optional_status: Status nullable\n"
     "    amount: Int not null\n"
 )
-
-
-def test_phase31_slice5_plan_and_spec_lock_readiness_only_scope() -> None:
-    plan = _normalized(PLAN_PATH)
-    spec = _normalized(SPEC_PATH)
-    phase36 = f"{_normalized(PHASE36_PLAN_PATH)} {_normalized(PHASE36_ENUM_SPEC_PATH)}"
-    combined = f"{plan} {spec}"
-
-    for required in (
-        "Phase 31 Slice 5 is complete as UUID / Enum readiness decision, "
-        "tests, static audit, and status work only",
-        "Slice 8 is complete",
-        "Phase 31 Slice 6 is complete as Diagnostic / CLI / JSON stability "
-        "hardening, tests, static audit, status, and docs work only",
-        "UUID remains limited/frozen readiness",
-        "Enum remains metadata readiness only",
-        "UUID/Enum comparisons remain current generic known-child comparison "
-        "behavior producing `Bool UNKNOWN`",
-        "not a UUID- or Enum-specific comparison compatibility matrix",
-        "Pietto v0.2 single-file stable complete",
-        "Phase 31 Slice 8 complete",
-    ):
-        assert required in combined
-
-    for non_goal in (
-        "UUID or Enum behavior implementation",
-        "UUID literal implementation",
-        "Enum literal implementation",
-        "UUID or Enum cast implementation",
-        "UUID or Enum storage, DDL, or native database metadata",
-        "broader UUID SQL behavior",
-        "broad Enum SQL support",
-        "behavior fix",
-        "v0.2 completion declaration in Slice 5",
-        "Phase 32 implementation",
-        "Phase 32 implementation",
-    ):
-        assert non_goal in combined
-
-    for required in (
-        "Phase 36 Slice 5 selects Option C: narrow semantic fail-closed behavior change",
-        "`count(Enum field)` now fails in semantic aggregate validation with existing diagnostic `PIE-S2314`",
-        "instead of being accepted by semantic/IR and then reaching PostgreSQL/private MySQL SQL backend fail-closed output with `PIE-B1000`",
-    ):
-        assert required in phase36
 
 
 def test_uuid_builtin_field_projection_and_nullability_readiness_is_locked() -> None:
@@ -290,13 +238,6 @@ def test_uuid_deferred_literals_casts_and_comparison_posture_is_locked() -> None
             ValueTypeKind.UNKNOWN
         )
 
-    combined = f"{_normalized(PLAN_PATH)} {_normalized(SPEC_PATH)}"
-    assert (
-        "UUID/Enum comparisons remain current generic known-child comparison "
-        "behavior producing `Bool UNKNOWN`" in combined
-    )
-    assert "not a UUID- or Enum-specific comparison compatibility matrix" in combined
-
 
 def test_enum_metadata_and_field_projection_readiness_is_locked() -> None:
     script = _parse(
@@ -400,17 +341,6 @@ def test_enum_count_field_now_fails_closed_at_semantic_validation() -> None:
         projection = _relation_ir(ir_result.ir).projections[0]
         assert not isinstance(projection.expression, AggregateCallIR)
 
-    combined = f"{_normalized(PHASE36_PLAN_PATH)} {_normalized(PHASE36_ENUM_SPEC_PATH)}"
-    for required in (
-        "Direct `count(Enum field)` must fail closed in semantic aggregate validation using existing diagnostic `PIE-S2314`",
-        "`count_distinct(Enum field)` remains rejected with `PIE-S2314`",
-        "`min(Enum field)` remains rejected with `PIE-S2314`",
-        "`max(Enum field)` remains rejected with `PIE-S2314`",
-        "`sum(Enum field)` remains rejected with `PIE-S2314`",
-        "`avg(Enum field)` remains rejected with `PIE-S2314`",
-    ):
-        assert required in combined
-
     for projection in (
         "value = count_distinct(status)",
         "value = min(status)",
@@ -502,7 +432,6 @@ def test_static_audit_no_uuid_enum_runtime_metadata_or_output_surface_was_added(
     mysql = _read(MYSQL_EXPRESSIONS_PATH)
     sql_api = _read(SQL_API_PATH)
     cli_json = _read(CLI_JSON_PATH)
-    combined_docs = f"{_normalized(PLAN_PATH)} {_normalized(SPEC_PATH)}"
 
     assert '"UUID"' in catalog
     assert '"Enum"' not in catalog
@@ -556,18 +485,6 @@ def test_static_audit_no_uuid_enum_runtime_metadata_or_output_surface_was_added(
     assert "emit_mysql_sql" not in sql_api
     assert '"types"' not in cli_json
     assert '"type_output"' not in cli_json
-    for required in (
-        "UUID remains limited/frozen readiness",
-        "Enum remains metadata readiness only",
-        "no UUID literal implementation",
-        "no Enum literal implementation",
-        "no UUID or Enum cast implementation",
-        "no UUID or Enum storage, DDL, or native database metadata",
-        "JSON v1 schema expansion",
-        "JSON v2",
-        "public MySQL API expansion",
-    ):
-        assert required in combined_docs
 
 
 def _source(connector: str, projections: str) -> str:
@@ -651,7 +568,3 @@ def _assert_semantic_type(
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
-
-
-def _normalized(path: Path) -> str:
-    return " ".join(_read(path).split())

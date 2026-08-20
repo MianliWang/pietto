@@ -1,22 +1,10 @@
 from __future__ import annotations
 
-import ast
 from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
 from importlib.metadata import version
 import json
 from pathlib import Path
 from typing import Any, cast
-
-from _phase54_active_gate2_manifest import (  # noqa: F401
-    PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE,
-    PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE,
-    PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BASE,
-    PHASE54_POST_REVIEW_PRODUCT_REPAIR6_BASE,
-    PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE,
-    PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE,
-    PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE,
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 import pytest
 
@@ -59,46 +47,10 @@ from pietto.parser_api import parse_source
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SPEC_REL = (
-    "docs/spec/phase54-slice5-module-qualified-nominal-declaration-identity-"
-    "and-per-module-catalogs-v1.md"
-)
 MODEL_REL = "src/pietto/_project/model.py"
 CATALOG_REL = "src/pietto/_project/module_catalog.py"
 TEST_REL = "tests/test_phase54_module_qualified_nominal_declaration_catalogs.py"
 
-EXPECTED_TEST_NAMES = (
-    "test_nominal_declaration_identity_is_exact_frozen_slotted_four_component_value",
-    "test_nominal_declaration_identity_preserves_exact_module_path_case_suffix_and_unicode",
-    "test_each_nominal_identity_component_independently_controls_equality_and_hash",
-    "test_occurrence_span_ast_object_positions_and_trust_payload_do_not_change_nominal_identity",
-    "test_nominal_identity_and_occurrence_constructors_reject_wrong_exact_types_and_mismatches",
-    "test_all_eight_definition_classes_map_to_exact_namespace_kind_and_declared_name",
-    "test_relationships_imports_and_exports_are_excluded_from_local_declaration_occurrences",
-    "test_occurrences_retain_exact_module_and_declaration_positions_and_definition_values",
-    "test_module_catalog_is_frozen_slotted_tuple_backed_and_retains_exact_owner",
-    "test_module_catalog_rejects_wrong_mode_unparsed_owner_and_incomplete_or_misordered_occurrences",
-    "test_project_catalog_set_builds_one_catalog_per_module_in_exact_selected_input_order",
-    "test_project_catalog_set_rejects_duplicate_module_paths_and_noncontiguous_or_missing_modules",
-    "test_empty_catalog_set_and_lookup_results_are_exact_immutable_empty_tuples",
-    "test_project_module_path_lookup_returns_exact_zero_or_one_element_tuple",
-    "test_exact_nominal_identity_lookup_returns_all_source_ordered_occurrences",
-    "test_exact_namespace_declared_name_lookup_returns_zero_one_or_multiple_occurrences",
-    "test_catalog_construction_never_reopens_sources_or_consults_import_targets_or_registries",
-    "test_same_declaration_spelling_in_different_modules_has_distinct_nominal_identities",
-    "test_same_spelling_in_different_namespaces_has_distinct_identity_and_lookup_buckets",
-    "test_same_namespace_and_name_across_different_kinds_preserves_one_ambiguous_bucket",
-    "test_repeated_exact_nominal_identity_preserves_every_occurrence_in_source_order",
-    "test_declaration_order_changes_only_occurrence_order_and_never_creates_precedence_or_winner",
-    "test_schema_v2_catalog_collisions_emit_one_pie_s2001_and_no_pie_s2701_through_pie_s2707",
-    "test_schema_v2_success_retains_catalogs_privately_without_changing_model_diagnostics_ok_or_defaults",
-    "test_schema_v2_parse_or_read_failure_builds_no_complete_or_partial_catalog_set",
-    "test_current_zero_selected_input_project_remains_project_glob_failure_without_catalogs",
-    "test_schema_v2_text_and_json_cli_remain_fail_closed_with_exact_envelope_and_no_catalog_fields",
-    "test_schema_v1_legacy_flat_catalog_duplicate_diagnostics_and_cli_json_remain_exact",
-    "test_import_export_blocks_do_not_add_remove_rename_reorder_or_link_local_declarations",
-    "test_private_public_dependency_version_and_retained_later_surfaces_remain_exact",
-)
 
 EIGHT_KIND_SOURCE = (
     "type Email = Text not null\n"
@@ -908,10 +860,7 @@ def test_import_export_blocks_do_not_add_remove_rename_reorder_or_link_local_dec
     assert not hasattr(enriched, "exports")
 
 
-def test_private_public_dependency_version_and_retained_later_surfaces_remain_exact() -> (
-    None
-):
-    assert (REPO_ROOT / SPEC_REL).is_file()
+def test_private_catalog_surface_and_package_version_remain_exact() -> None:
     assert module_catalog.__all__ == ()
     assert tuple(
         field.name for field in fields(module_catalog.ProjectNominalDeclarationIdentity)
@@ -945,59 +894,5 @@ def test_private_public_dependency_version_and_retained_later_surfaces_remain_ex
         "ProjectModuleCatalogSet",
     ):
         assert not hasattr(pietto, name)
-
-    test_tree = ast.parse((REPO_ROOT / TEST_REL).read_text(encoding="utf-8"))
-    assert (
-        tuple(
-            node.name
-            for node in test_tree.body
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-            and node.name.startswith("test_")
-        )
-        == EXPECTED_TEST_NAMES
-    )
-    spec = (REPO_ROOT / SPEC_REL).read_text(encoding="utf-8")
-    model_source = (REPO_ROOT / MODEL_REL).read_text(encoding="utf-8")
-    catalog_source = (REPO_ROOT / CATALOG_REL).read_text(encoding="utf-8")
-    public_surfaces = "\n".join(
-        (REPO_ROOT / relative).read_text(encoding="utf-8")
-        for relative in (
-            "src/pietto/__init__.py",
-            "src/pietto/_project/json_v2.py",
-            "src/pietto/cli.py",
-            "src/pietto/ir/__init__.py",
-            "src/pietto/sql/__init__.py",
-        )
-    )
-    assert "module_catalogs: ProjectModuleCatalogSet | None = None" in model_source
-    assert "from pietto._project.module_catalog import" in model_source
-    assert "__all__: tuple[str, ...] = ()" in catalog_source
-    assert "script.definitions" in catalog_source
-    assert "module_statements" not in catalog_source
-    assert "relationships" not in catalog_source
-    assert "ProjectModuleCatalog" not in public_surfaces
-    assert "PIE-S2701" not in catalog_source
-    assert "winner" not in catalog_source
-    assert "Slice 6" in spec and "export eligibility" in spec
-    assert "Slice 7" in spec and "binding environments" in spec
-    assert "Slice 8" in spec and "PIE-S2701" in spec
-    assert PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE == (
-        "17a5b01e555930537334d4d0bcf3480e332b7e91"
-    )
-    assert PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE == (
-        "3f057874a1bec524da38b58c243267f4590c167b"
-    )
-    assert PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BASE == (
-        "fcdd02b5604c2b84d861b593a1887eaeb4620c91"
-    )
-    assert PHASE54_POST_REVIEW_PRODUCT_REPAIR6_BASE == (
-        "c73e5ea0628d821ada5a8cbb93102bae69768600"
-    )
-    assert PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE == (
-        "a5df3ed264c443d902831fe532d265ac1e452158"
-    )
-    assert PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE == (
-        "7b96b416d963e67624a461ec906ab2fe14630380"
-    )
     assert not hasattr(pietto, "__version__")
     assert version("pietto") == "0.1.0"

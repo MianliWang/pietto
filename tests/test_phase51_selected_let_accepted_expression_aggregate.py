@@ -52,47 +52,6 @@ from pietto.errors import SourceLocation
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HELPER_PATH = REPO_ROOT / "src/pietto/_project/aggregate_grouped_schema.py"
 MODEL_PATH = REPO_ROOT / "src/pietto/_project/model.py"
-PLAN_PATH = (
-    REPO_ROOT / "docs/plan/phase-51-aggregate-grouped-output-schema-foundation.md"
-)
-SPEC_PATH = (
-    REPO_ROOT
-    / "docs/spec/phase51-aggregate-expression-row-let-candidate-integration-v1.md"
-)
-PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-LOCK_PATH = REPO_ROOT / "uv.lock"
-
-EXPECTED_GATE2_PATHS = {
-    "docs/plan/phase-51-aggregate-grouped-output-schema-foundation.md",
-    "docs/spec/phase51-aggregate-expression-row-let-candidate-integration-v1.md",
-    "src/pietto/_project/aggregate_grouped_schema.py",
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_generated_guard.py",
-    "tests/test_phase11_golden_policy.py",
-    "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_phase12_completion_audit.py",
-    "tests/test_phase12_composition_cli_json_goldens.py",
-    "tests/test_phase33_completion_audit.py",
-    "tests/test_phase51_aggregate_only_project_row_schema.py",
-    "tests/test_phase51_grouped_aggregate_project_row_schema.py",
-    "tests/test_phase51_selected_let_accepted_expression_aggregate.py",
-}
-
-PHASE52_SLICE1_GATE2_PATHS = {
-    "docs/plan/phase-52-core-type-system-capability-foundation.md",
-    "docs/spec/phase52-core-type-system-capability-foundation-scope-lock-v1.md",
-    "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
-    "docs/spec/pietto-active-roadmap-phase51-60-v1.md",
-    "tests/test_phase51_aggregate_grouped_output_schema_foundation_scope_lock.py",
-    "tests/test_phase51_aggregate_only_project_row_schema.py",
-    "tests/test_phase51_grouped_aggregate_project_row_schema.py",
-    "tests/test_phase51_selected_let_accepted_expression_aggregate.py",
-    "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
-    "tests/test_phase51_completion_audit_and_status_lock.py",
-}
-
 AggregateRow = tuple[SelectItem, ProjectRowField, ProjectAggregateResultFact]
 
 

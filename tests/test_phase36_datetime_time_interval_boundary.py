@@ -20,7 +20,6 @@ from pietto.semantic import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PLAN_PATH = REPO_ROOT / "docs/plan/phase-36-post-v02-core-type-system-expansion.md"
 SPEC_PATH = REPO_ROOT / "docs/spec/datetime-time-interval-boundary-v1.md"
 
 CATALOG_PATH = REPO_ROOT / "src/pietto/semantic/catalog.py"
@@ -35,41 +34,11 @@ CLI_JSON_PATH = REPO_ROOT / "src/pietto/cli_json.py"
 TEMPORAL_CANDIDATES = ("DateTime", "Time", "Interval")
 
 
-def _phase36_slice6_docs() -> str:
-    return f"{_normalized(PLAN_PATH)} {_normalized(SPEC_PATH)}"
-
-
-def test_slice6_selects_tests_only_option_b() -> None:
-    combined = _phase36_slice6_docs()
-
-    for required in (
-        "Phase 36 Slice 6 selects Option B: tests-only hardening",
-        "DateTime / Time / Interval Boundary",
-        "without changing compiler behavior",
-        "`Date` and `Timestamp` remain the existing current supported builtins",
-        "`DateTime`, `Time`, and `Interval` remain unsupported/deferred",
-        "`DateTime` is not an alias of `Timestamp`",
-        "`Time` and `Interval` are not builtins",
-        "semantic type resolution with existing diagnostic `PIE-S2002`",
-        "Slice 6 keeps the broader 12-slice Phase 36 plan intact",
-    ):
-        assert required in combined, required
-
-
 def test_datetime_time_interval_are_not_builtin_type_names() -> None:
     catalog = _read(CATALOG_PATH)
-    combined = _phase36_slice6_docs()
 
     assert '"Date"' in catalog
     assert '"Timestamp"' in catalog
-    for type_name in TEMPORAL_CANDIDATES:
-        assert f'"{type_name}"' not in catalog
-        assert f"`{type_name}`" in combined
-
-    assert "`Date` and `Timestamp` are current builtins" in combined
-    assert "`DateTime`, `Time`, and `Interval` are not in `BUILTIN_TYPE_NAMES`" in (
-        combined
-    )
 
 
 def test_datetime_is_not_silently_treated_as_timestamp() -> None:
@@ -226,21 +195,6 @@ def test_metadata_and_json_sources_have_no_temporal_schema_expansion() -> None:
             "native_database_temporal",
         ):
             assert forbidden not in lowered, forbidden
-
-
-def test_date_timestamp_existing_behavior_is_not_redefined() -> None:
-    combined = _phase36_slice6_docs()
-
-    for required in (
-        "`Date` and `Timestamp` are current builtins",
-        "direct `count(Date field)` and `count(Timestamp field)`",
-        "direct `count_distinct(Date field)` and `count_distinct(Timestamp field)`",
-        "direct `min(Date field)`, `max(Date field)`, `min(Timestamp field)`, and",
-        "`max(Timestamp field)`",
-        "generic known-child comparison behavior",
-        "Slice 6 does not redefine or expand Date/Timestamp behavior",
-    ):
-        assert required in combined, required
 
 
 def test_future_prerequisites_and_non_authorization_are_documented() -> None:

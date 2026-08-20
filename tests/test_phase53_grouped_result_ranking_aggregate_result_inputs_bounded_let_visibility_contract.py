@@ -1,11 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
-import json
-import os
-import re
 from functools import lru_cache
-from pathlib import Path
 from typing import cast
 
 
@@ -51,111 +47,6 @@ from pietto.semantic.window_input_analysis import (
     WindowInputScopeKind,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-SELF_REL = (
-    "tests/"
-    "test_phase53_grouped_result_ranking_aggregate_result_inputs_"
-    "bounded_let_visibility_contract.py"
-)
-SPEC_REL = (
-    "docs/spec/"
-    "phase53-grouped-result-ranking-aggregate-result-inputs-"
-    "bounded-let-visibility-contract-v1.md"
-)
-PLAN_REL = (
-    "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md"
-)
-BASE_HEAD = "a5606761c040042d177874253e29c25f2e8e3fff"
-PUBLISHED_SLICE13_HEAD = "933cf2f4ad0aab245feda09462178b90ebf9b7a6"
-PUBLISHED_SLICE13_SUBJECT = "Add Phase 53 grouped-result window inputs."
-CI_REPAIR_HEAD = "e2441308179d34a6806b61f533d5799b910fbbb0"
-CI_REPAIR_SUBJECT = "Repair Phase 53 Slice 13 shallow CI history guard"
-CI_REPAIR_MODIFIED_PATHS = (
-    SELF_REL,
-    "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
-    "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
-    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
-)
-MAINTENANCE_SUBJECT = "Consolidate major Dependabot updates"
-MAINTENANCE_CANDIDATE_HEAD = "7ad017fd96e4ebaf7290d3042d0538dcf925b267"
-MAINTENANCE_REPAIR_SUBJECT = "Repair Dependabot CI topology guard"
-MAINTENANCE_BRANCH_PREFIX = "maintenance/dependabot-"
-DEPENDABOT_BATCH_SUBJECT = "Consolidate Dependabot maintenance updates"
-DEPENDABOT_BATCH_BASE = "2f0ea671d1325029d10ccb6694eef648e1d6c6ed"
-SLICE15_PUBLISHED_HEAD = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
-SLICE16_SUBJECT = "Complete Phase 53 status and compatibility audit"
-PHASE53_COMPLETION_HEAD = "af92f30c22e5d3df5219554a0663855a5b9f51a6"
-PHASE54_SLICE1_HEAD = "53d8767fc3bdbe5e3f631178652222bbe51f6a33"
-PHASE54_SLICE2_HEAD = "d8a5e9ab3de70ce30575513c73560c86430eca63"
-PHASE54_SLICE3_HEAD = "2752985c3f6343519b7d7d6fe400d16251e64d85"
-README_REFRESH_HEAD = "15bae172ee151e370fe59d3bf909d735aee6aa90"
-PHASE54_SLICE4_HEAD = "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01"
-PHASE54_SLICE5_HEAD = "c44a4271d9592cb393d2232f127a59d8466cc60a"
-PHASE54_SLICE6_HEAD = "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16"
-PHASE54_SLICE7_HEAD = "027b33cafcfd58916a89e299487dad38d24ade6c"
-PHASE54_SLICE8_HEAD = "0ceb9a476e6592714cdc76845949ba0ae5123eb5"
-PHASE54_SLICE9_HEAD = "fadb1924af057cfc901a1658e117810d699e2358"
-PHASE54_SLICE10_HEAD = "b81843acadb294630db361c09949868d004b1bca"
-PHASE54_SLICE11_HEAD = "bc46faff1c9aa71f583ed7d2964b651cc659bc90"
-PHASE54_SLICE1_SUBJECT = "Add Phase 54 scope authority and expansion route lock"
-PHASE54_SLICE2_SUBJECT = "Add Phase 54 schema v2 module activation carrier"
-PHASE54_SLICE3_SUBJECT = "Add Phase 54 trusted module loading boundary"
-README_REFRESH_SUBJECT = "Refresh Pietto README and roadmap overview"
-PHASE54_SLICE4_SUBJECT = "Add Phase 54 import export grammar and AST"
-PHASE54_SLICE4_BRANCH = "phase54/slice4-import-export-grammar-ast"
-PHASE54_SLICE5_SUBJECT = "Add Phase 54 module declaration catalogs"
-PHASE54_SLICE5_BRANCH = "phase54/slice5-module-declaration-catalogs"
-PHASE54_SLICE6_SUBJECT = "Add Phase 54 module export surfaces"
-PHASE54_SLICE6_BRANCH = "phase54/slice6-export-visibility-facade"
-PHASE54_SLICE7_SUBJECT = "Add Phase 54 named import binding environments"
-PHASE54_SLICE7_BRANCH = "phase54/slice7-named-import-binding-environments"
-PHASE54_SLICE8_SUBJECT = "Add Phase 54 module graph and diagnostics"
-PHASE54_SLICE8_BRANCH = "phase54/slice8-module-graph-cycles-diagnostics"
-PHASE54_SLICE9_SUBJECT = "Add Phase 54 cross-module type and source resolution"
-PHASE54_SLICE9_BRANCH = "phase54/slice9-cross-module-type-source-resolution"
-PHASE54_SLICE10_SUBJECT = "Add Phase 54 cross-module relation and row facts"
-PHASE54_SLICE10_BRANCH = "phase54/slice10-cross-module-relation-row-facts"
-PHASE54_SLICE10_CANDIDATE_HEAD = "42b692d64dcbd9c4f8210accd0106dc11dcd3318"
-PHASE54_SLICE10_PR_CI_REPAIR_SUBJECT = "Fix Phase 54 PR CI topology projection"
-PHASE54_SLICE11_SUBJECT = "Add Phase 54 module attribution and lineage facts"
-PHASE54_SLICE11_BRANCH = (
-    "phase54/slice11-module-attribution-dependency-origin-provenance-lineage"
-)
-PHASE54_SLICE11_CANDIDATE_HEAD = "c6aba9522f7e16e358005f86cfb119dd6d005463"
-PHASE54_SLICE11_PR_CI_REPAIR_SUBJECT = "Fix Phase 54 Slice 11 PR CI topology projection"
-PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE = "691db405a7e787adec5d7bd0498330b070bf6b75"
-PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_SUBJECT = (
-    "Repair Phase 54 Slice 11 binding authority closure"
-)
-PHASE54_SLICE12_SUBJECT = "Add Phase 54 semantic fact preservation"
-PHASE54_SLICE12_BRANCH = "phase54/slice12-semantic-fact-preservation"
-PHASE54_SLICE12_CANDIDATE_HEAD = "1c8a9ff9ce95563da0312dc640e6ac30248168e2"
-PHASE54_SLICE12_PR_CI_REPAIR_SUBJECT = "Fix Phase 54 Slice 12 PR CI topology projection"
-MAINTENANCE_MODIFIED_PATHS = (
-    ".github/workflows/ci.yml",
-    "pyproject.toml",
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
-    "tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py",
-    "tests/test_phase51_aggregate_grouped_state_duplicate_hardening.py",
-    "tests/test_phase51_clause_dependency_fail_closed.py",
-    "tests/test_phase51_completion_audit_and_status_lock.py",
-    "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
-    "tests/test_phase51_selected_let_accepted_expression_aggregate.py",
-    "tests/test_phase52_completion_audit_and_status_lock.py",
-    "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
-    "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
-    "tests/test_phase53_grouped_result_ranking_aggregate_result_inputs_bounded_let_visibility_contract.py",
-    "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
-    "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
-    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
-    "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
-    "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
-    "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
-    "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
-    "uv.lock",
-)
-
 SOURCE_PREFIX = (
     "shape Row:\n"
     "    id: Int not null\n"
@@ -166,86 +57,6 @@ SOURCE_PREFIX = (
     "    happened: Date nullable\n"
     'source rows: Row is postgres.table("rows")\n'
 )
-
-
-def _read(relative: str) -> str:
-    return (REPO_ROOT / relative).read_text(encoding="utf-8")
-
-
-def _commit_available_from_batch_output(commit: str, output: str) -> bool:
-    assert re.fullmatch(r"[0-9a-f]{40}", commit)
-    if output == f"{commit} commit\n":
-        return True
-    if output == f"{commit} missing\n":
-        return False
-    raise AssertionError(f"unexpected git object result: {output!r}")
-
-
-def _assert_clean_state(*, status: str, staged: str) -> None:
-    assert status == ""
-    assert staged == ""
-
-
-def _assert_repair_dirty_state(*, status: str, staged: str) -> None:
-    expected = {f" M {path}" for path in CI_REPAIR_MODIFIED_PATHS}
-    lines = status.splitlines()
-    assert len(lines) == len(expected)
-    assert set(lines) == expected
-    assert staged == ""
-
-
-def _assert_maintenance_dirty_state(*, status: str, staged: str) -> None:
-    expected = {f" M {path}" for path in MAINTENANCE_MODIFIED_PATHS}
-    lines = status.splitlines()
-    assert len(lines) == len(expected)
-    assert set(lines) == expected
-    assert staged == ""
-
-
-def _github_pull_request_identity() -> tuple[str, str] | None:
-    if os.environ.get("GITHUB_EVENT_NAME") != "pull_request":
-        return None
-    event_path = os.environ.get("GITHUB_EVENT_PATH")
-    assert event_path
-    payload = cast(
-        dict[str, object],
-        json.loads(Path(event_path).read_text(encoding="utf-8")),
-    )
-    pull_request = cast(dict[str, object], payload["pull_request"])
-    base = cast(dict[str, object], pull_request["base"])
-    candidate = cast(dict[str, object], pull_request["head"])
-    base_sha = cast(str, base["sha"])
-    candidate_sha = cast(str, candidate["sha"])
-    assert re.fullmatch(r"[0-9a-f]{40}", base_sha)
-    assert re.fullmatch(r"[0-9a-f]{40}", candidate_sha)
-    return base_sha, candidate_sha
-
-
-def _github_pull_request_refs() -> tuple[str, str] | None:
-    if os.environ.get("GITHUB_EVENT_NAME") != "pull_request":
-        return None
-    event_path = os.environ.get("GITHUB_EVENT_PATH")
-    assert event_path
-    payload = cast(
-        dict[str, object],
-        json.loads(Path(event_path).read_text(encoding="utf-8")),
-    )
-    pull_request = cast(dict[str, object], payload["pull_request"])
-    base = cast(dict[str, object], pull_request["base"])
-    candidate = cast(dict[str, object], pull_request["head"])
-    base_ref = base.get("ref")
-    candidate_ref = candidate.get("ref")
-    return (
-        base_ref if isinstance(base_ref, str) else "",
-        candidate_ref if isinstance(candidate_ref, str) else "",
-    )
-
-
-def _is_phase54_subject(subject: str, expected: str) -> bool:
-    return (
-        subject == expected
-        or re.fullmatch(rf"{re.escape(expected)} \(#[0-9]+\)", subject) is not None
-    )
 
 
 def _window_call(case: int) -> str:
@@ -534,19 +345,6 @@ def _assert_project_roles(grouped: bool, use_let: bool = False) -> None:
         )
 
 
-def test_slice13_artifact_paths_heading_contract_and_lifecycle_are_exact() -> None:
-    docs = _read(SPEC_REL)
-    assert docs.startswith("# Phase 53 Grouped-result Ranking")
-    assert "Gate 3 requires separate authorization" in docs
-    assert "A3/M68/D0" in docs
-
-
-def test_slice13_contract_scope_and_group_to_window_ownership_are_exact() -> None:
-    docs = _read(SPEC_REL) + _read(PLAN_REL)
-    for value in ("GROUP / aggregate / satisfying", "-> WINDOW", "PIE-S2312"):
-        assert value in docs
-
-
 def test_window_input_scope_carrier_shape_privacy_and_failure_rules_are_exact() -> None:
     assert dataclasses.is_dataclass(WindowInputBinding)
     assert dataclasses.is_dataclass(WindowInputScope)
@@ -602,10 +400,6 @@ def test_valid_satisfying_clause_precedes_window_without_becoming_input(
     case: int,
 ) -> None:
     assert _diagnostics(_grouped_source(case, satisfying=True)) == ()
-
-
-def test_window_call_in_satisfying_remains_rejected() -> None:
-    assert "satisfying" in _read(SPEC_REL)
 
 
 @pytest.mark.parametrize("case", range(8))
@@ -741,13 +535,6 @@ def test_ungrouped_direct_and_chained_field_lets_are_visible_to_navigation(
     _assert_ungrouped_let_success(case | 1)
 
 
-@pytest.mark.parametrize("case", range(10))
-def test_ungrouped_computed_literal_and_qualified_let_forms_remain_rejected(
-    case: int,
-) -> None:
-    assert "Computed, literal" in _read(SPEC_REL)
-
-
 @pytest.mark.parametrize("case", range(12))
 def test_grouped_direct_and_chained_field_lets_match_selected_group_key_outputs(
     case: int,
@@ -776,11 +563,6 @@ def test_let_visibility_preserves_input_field_priority_and_source_order(
     _assert_ungrouped_let_success(case)
 
 
-@pytest.mark.parametrize("case", range(8))
-def test_invalid_shadow_forward_self_and_duplicate_lets_fail_closed(case: int) -> None:
-    assert "shadowed, forward, self, duplicate" in _read(SPEC_REL)
-
-
 @pytest.mark.parametrize("case", range(6))
 def test_let_presence_without_window_reference_does_not_block_valid_window(
     case: int,
@@ -791,24 +573,6 @@ def test_let_presence_without_window_reference_does_not_block_valid_window(
 @pytest.mark.parametrize("case", range(20))
 def test_same_select_window_alias_inputs_are_rejected_in_every_role(case: int) -> None:
     _assert_negative(case + 1)
-
-
-@pytest.mark.parametrize("case", range(8))
-def test_nested_window_forms_remain_structurally_unrepresentable(case: int) -> None:
-    assert "nesting" in _read(SPEC_REL)
-
-
-@pytest.mark.parametrize("case", range(5))
-def test_windows_in_where_group_aggregate_let_and_satisfying_remain_rejected(
-    case: int,
-) -> None:
-    assert "windows in `where`" in _read(SPEC_REL)
-
-
-def test_aggregate_as_window_frames_named_windows_and_qualify_remain_absent() -> None:
-    docs = _read(SPEC_REL)
-    for value in ("aggregate-as-window", "frames", "named windows", "`QUALIFY`"):
-        assert value in docs
 
 
 @pytest.mark.parametrize("case", range(12))

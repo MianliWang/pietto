@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 from typing import cast
@@ -34,108 +33,6 @@ from pietto._project.row_lineage import (
 )
 from pietto.ast_nodes import QueryDef, TableDef
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-PLAN_PATH = (
-    REPO_ROOT / "docs/plan/phase-51-aggregate-grouped-output-schema-foundation.md"
-)
-SPEC_PATH = (
-    REPO_ROOT
-    / "docs/spec/phase51-cross-phase-readiness-privacy-compatibility-closure-v1.md"
-)
-ACTIVE_ROADMAP_PATH = REPO_ROOT / "docs/spec/pietto-active-roadmap-phase51-60-v1.md"
-PHASE50_PLAN_PATH = REPO_ROOT / "docs/plan/phase-50-semantic-readiness-consolidation.md"
-PHASE50_SPEC_PATH = (
-    REPO_ROOT / "docs/spec/phase50-completion-audit-and-status-lock-v1.md"
-)
-
-EXPECTED_GATE2_PATHS = {
-    "docs/plan/phase-51-aggregate-grouped-output-schema-foundation.md",
-    "docs/spec/phase51-cross-phase-readiness-privacy-compatibility-closure-v1.md",
-    "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
-    "tests/test_phase47_downstream_readiness_hardening.py",
-    "tests/test_phase48_upstream_non_concrete_schema_propagation.py",
-    "tests/test_phase48_query_to_query_multi_hop_propagation.py",
-    "tests/test_phase49_computed_alias_project_row_schema_mvp.py",
-    "tests/test_phase49_computed_alias_origin_provenance_privacy.py",
-    "tests/test_phase49_computed_let_multi_hop_row_lineage.py",
-    "tests/test_phase49_let_visibility_order_shadowing_hardening.py",
-    "tests/test_phase49_selected_let_derived_output_schema.py",
-    "tests/test_phase49_unknown_deferred_diagnostic_ordering_hardening.py",
-    "tests/test_phase51_private_result_role_output_identity.py",
-    "tests/test_phase51_group_key_project_row_schema.py",
-    "tests/test_phase51_aggregate_only_project_row_schema.py",
-    "tests/test_phase51_grouped_aggregate_project_row_schema.py",
-    "tests/test_phase51_selected_let_accepted_expression_aggregate.py",
-    "tests/test_phase51_aggregate_grouped_state_duplicate_hardening.py",
-    "tests/test_phase51_clause_dependency_fail_closed.py",
-    "tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py",
-}
-EXPECTED_UNTRACKED_PATHS = {
-    "docs/spec/phase51-cross-phase-readiness-privacy-compatibility-closure-v1.md",
-    "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
-}
-PHASE52_GATE2_PATHS = {
-    "docs/plan/phase-52-core-type-system-capability-foundation.md",
-    "docs/spec/phase52-core-type-system-capability-foundation-scope-lock-v1.md",
-    "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
-    "docs/spec/pietto-active-roadmap-phase51-60-v1.md",
-    "tests/test_phase51_aggregate_grouped_output_schema_foundation_scope_lock.py",
-    "tests/test_phase51_aggregate_only_project_row_schema.py",
-    "tests/test_phase51_grouped_aggregate_project_row_schema.py",
-    "tests/test_phase51_selected_let_accepted_expression_aggregate.py",
-    "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
-    "tests/test_phase51_completion_audit_and_status_lock.py",
-}
-PHASE52_UNTRACKED_PATHS = {
-    "docs/plan/phase-52-core-type-system-capability-foundation.md",
-    "docs/spec/phase52-core-type-system-capability-foundation-scope-lock-v1.md",
-    "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
-}
-SLICE2_BASE_HEAD_SHA = "d8a5e9ab3de70ce30575513c73560c86430eca63"
-SLICE4_BASE_HEAD_SHA = "15bae172ee151e370fe59d3bf909d735aee6aa90"
-SLICE4_PATH_COUNTS = (138, 2, 140)
-SLICE5_BASE_HEAD_SHA = "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01"
-SLICE5_PATH_COUNTS = (164, 3, 167)
-SLICE6_BASE_HEAD_SHA = "c44a4271d9592cb393d2232f127a59d8466cc60a"
-SLICE6_PATH_COUNTS = (57, 4, 61)
-SLICE7_BASE_HEAD_SHA = "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16"
-SLICE7_PATH_COUNTS = (59, 3, 62)
-SLICE8_BASE_HEAD_SHA = "027b33cafcfd58916a89e299487dad38d24ade6c"
-SLICE8_PATH_COUNTS = (66, 3, 69)
-SLICE9_BASE_HEAD_SHA = "0ceb9a476e6592714cdc76845949ba0ae5123eb5"
-SLICE9_PATH_COUNTS = (68, 3, 71)
-CI_REPAIR_BASE_HEAD_SHA = "321ec6f80737015648bc1f81b0561fdd34610e92"
-CI_REPAIR_MODIFIED_PATHS = {
-    "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
-    "tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py",
-    "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
-    "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
-}
-BOUNDARY_PATHS = (
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_generated_guard.py",
-    "tests/test_phase11_golden_policy.py",
-    "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_phase12_completion_audit.py",
-    "tests/test_phase12_composition_cli_json_goldens.py",
-)
-PROTECTED_HASHES = {
-    ".github/workflows/ci.yml": (
-        "56339c3e565471c3a95a0f79a05eaf9596d734a173d1936d5df167526508ddac"
-    ),
-    ".python-version": (
-        "7b55f8e67b5623c4bef3fa691288da9437d79d3aba156de48d481db32ac7d16d"
-    ),
-    "pyproject.toml": (
-        "851e706f2cbafb24c48068cdd6fd8a6ada1f93317618000be71db3681c40a1a8"
-    ),
-    "uv.lock": "12795f072df20fb688b37e484dd4561cd33e34bf601be3cb0fa1f9075eee38a2",
-    "docs/spec/pietto-roadmap-phase45-60-v1.md": (
-        "26cc0ae4a68518223d6bf600ad3c4b0b226618aa7ef31b2ae1c25924d2655169"
-    ),
-}
 PROJECT_JSON_V2_KEYS = (
     "schema_version",
     "command",
@@ -147,40 +44,6 @@ PROJECT_JSON_V2_KEYS = (
     "cli_errors",
     "result",
 )
-CONTRACT_H2_HEADINGS = (
-    "## Purpose And Slice Identity",
-    "## Authority And Trusted Slice 10 Handoff",
-    "## Phase 51 Slice 1-10 State",
-    "## Production-state Compatibility Closure",
-    "## Qualification Compatibility Closure",
-    "## Diagnostic-transition Closure",
-    "## Privacy And Serialization Closure",
-    "## Public Python Export Closure",
-    "## Parse-only And Parser-error Bypass",
-    "## Ordering Determinism And Compatibility Closure",
-    "## Static-lock Migration Ledger",
-    "## Compiler Project-private And Protected-surface Closure",
-    "## Phase 52 Readiness Boundary",
-    "## Explicit Deferred-owner Boundary",
-    "## Production Public Diagnostic And Release Non-goals",
-    "## Exact Gate 2 Allowlist",
-    "## Environment Strategy",
-    "## Formatting And Hash Policy",
-    "## Exact Validation Matrix",
-    "## Clean-tree And Natural-CI Matrix",
-    "## Same-task Repair And Evidence Policy",
-    "## Future Gate 3 Condition",
-    "## Slice 12 Handoff Boundary",
-    "## Stop Conditions",
-)
-
-
-def _read(path: Path) -> str:
-    return path.read_text(encoding="utf-8")
-
-
-def _normalized(path: Path) -> str:
-    return " ".join(_read(path).split())
 
 
 def _project(root: Path, relations: str) -> Path:
@@ -227,29 +90,6 @@ def _derived_definition(
 
 def _diagnostic_pairs(result: ProjectSemanticResult) -> list[tuple[str, str]]:
     return [(diagnostic.code, diagnostic.message) for diagnostic in result.diagnostics]
-
-
-def _digest(paths: tuple[Path, ...]) -> str:
-    digest = hashlib.sha256()
-    for path in paths:
-        relative_path = path.relative_to(REPO_ROOT).as_posix()
-        digest.update(relative_path.encode())
-        digest.update(b"\0")
-        digest.update(path.read_bytes())
-        digest.update(b"\0")
-    return digest.hexdigest()
-
-
-def _compiler_digest() -> str:
-    paths = [REPO_ROOT / "Makefile", REPO_ROOT / "grammar/Pietto.g4"]
-    paths.extend(
-        path
-        for path in (REPO_ROOT / "src/pietto").rglob("*")
-        if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc"
-    )
-    return _digest(
-        tuple(sorted(paths, key=lambda path: path.relative_to(REPO_ROOT).as_posix()))
-    )
 
 
 def test_mixed_aggregate_grouped_diagnostic_order_and_non_concrete_suppression_are_exact(
@@ -691,65 +531,3 @@ def test_current_aggregate_grouped_private_facts_remain_unserialized_and_unexpor
     )
     assert [diagnostic["code"] for diagnostic in parser_diagnostics] == ["PIE-P1000"]
     assert tuple(parser_error_document) == PROJECT_JSON_V2_KEYS
-
-
-def test_package_version_remains_current() -> None:
-    assert 'version = "0.1.0"' in _read(REPO_ROOT / "pyproject.toml")
-
-
-def test_phase52_and_deferred_owner_boundaries_are_locked() -> None:
-    roadmap = _normalized(ACTIVE_ROADMAP_PATH)
-    plan = _normalized(PLAN_PATH)
-    contract = _normalized(SPEC_PATH)
-    phase50_handoff = (
-        f"{_normalized(PHASE50_PLAN_PATH)} {_normalized(PHASE50_SPEC_PATH)}"
-    )
-
-    phase_titles = (
-        (52, "Core Type-System Capability Foundation"),
-        (53, "Window Function Syntax And Capability Contract"),
-        (54, "Import / Module / Export Readiness"),
-        (55, "Semantic Package Asset Schema"),
-        (56, "Capability Profile Static Schema And Declared Checking"),
-        (57, "PostgreSQL Extension Signature-Catalog Readiness"),
-        (58, "Project Explain / Portability / Public Metadata Readiness"),
-        (59, "Package Graph And Lineage / Provenance Integration"),
-        (60, "Multi-dialect Capability Ecosystem Completion Checkpoint"),
-    )
-    assert all(
-        f"Phase {phase}: {title}" in phase50_handoff for phase, title in phase_titles
-    )
-    assert all(f"| {phase} | {title} |" in roadmap for phase, title in phase_titles)
-
-    for required in (
-        "Phase 52",
-        "Phase 53",
-        "Phase 54",
-        "Phase 55",
-        "Phase 56",
-        "Phase 57",
-        "Phase 58",
-        "Phase 59",
-        "Phase 60",
-        "POST60_ADVANCED_AGGREGATION_GROUPING",
-        "POST60_RELATIONSHIP_JOIN_GRAIN_FANOUT",
-        "POST60_PROJECT_IR",
-        "POST60_MULTI_RELATION_SQL",
-    ):
-        assert required in roadmap
-        assert required in plan
-        assert required in contract
-    for required in (
-        "exact-current type-system capability carrier and fail-closed lookup",
-        "independently versioned",
-        "CLI JSON v1",
-        "Semantic Metadata Artifact v1",
-        "Project JSON v2",
-        "JOIN",
-        "grain",
-        "fanout",
-        "project IR/SQL",
-        "runtime/database execution",
-    ):
-        assert required in contract
-    assert contract.count("Slice 11 implements no compiler or runtime behavior.") == 1

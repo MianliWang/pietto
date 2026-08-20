@@ -66,17 +66,6 @@ _MODULE_SIDECAR_FIELDS = (
     "module_inspection_facts",
 )
 _P08_MESSAGE = "Schema-v3 package activation does not use project source selection."
-_EXTERNAL_BASELINE = "5de57b2c078742253aa64d3a5ad627cd602290cd"
-_EXTERNAL_BASELINE_TREE = "9bc952f6eedca6a953c9edd94e0172b02451f74c"
-_EXTERNAL_SEALED_TREE = "60c68ab7653fcd11538fabf21aba552dcbd3baa9"
-_EXTERNAL_DIRECT_MAIN_KINDS = (
-    "slice2_direct_main_dirty_candidate",
-    "slice2_direct_main_clean_pre_push",
-    "slice2_direct_main_shallow_push",
-    "slice2_direct_main_reconciled",
-)
-_EXTERNAL_DIRECT_MAIN_SUBJECT = "Add Phase 55 explicit package activation carrier"
-_EXTERNAL_REVIEWED_TREE_TRAILER = "Pietto-Reviewed-Tree"
 
 
 def test_schema_version_and_table_activation_are_closed_and_exact(

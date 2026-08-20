@@ -60,35 +60,6 @@ from pietto.ast_nodes import (
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HELPER_PATH = REPO_ROOT / "src/pietto/_project/aggregate_grouped_clause_facts.py"
 MODEL_PATH = REPO_ROOT / "src/pietto/_project/model.py"
-PLAN_PATH = (
-    REPO_ROOT / "docs/plan/phase-51-aggregate-grouped-output-schema-foundation.md"
-)
-SPEC_PATH = (
-    REPO_ROOT / "docs/spec/phase51-aggregate-grouped-clause-dependency-readiness-v1.md"
-)
-PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-LOCK_PATH = REPO_ROOT / "uv.lock"
-
-EXPECTED_GATE2_PATHS = {
-    "docs/plan/phase-51-aggregate-grouped-output-schema-foundation.md",
-    "docs/spec/phase51-aggregate-grouped-clause-dependency-readiness-v1.md",
-    "src/pietto/_project/aggregate_grouped_clause_facts.py",
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_generated_guard.py",
-    "tests/test_phase11_golden_policy.py",
-    "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_phase12_completion_audit.py",
-    "tests/test_phase12_composition_cli_json_goldens.py",
-    "tests/test_phase33_completion_audit.py",
-    "tests/test_phase51_clause_dependency_fail_closed.py",
-}
-EXPECTED_UNTRACKED_PATHS = {
-    "docs/spec/phase51-aggregate-grouped-clause-dependency-readiness-v1.md",
-    "src/pietto/_project/aggregate_grouped_clause_facts.py",
-    "tests/test_phase51_clause_dependency_fail_closed.py",
-}
 
 
 def test_exact_private_enum_vocabulary_and_carrier_shape() -> None:

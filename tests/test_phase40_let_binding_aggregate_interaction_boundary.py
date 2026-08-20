@@ -16,9 +16,6 @@ from pietto.sql import SqlArtifactKind, emit_postgres_sql
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SPEC_PATH = (
-    REPO_ROOT / "docs/spec/phase40-let-binding-aggregate-interaction-boundary-v1.md"
-)
 IR_SURFACE_PATHS = (
     REPO_ROOT / "src/pietto/ir/model.py",
     REPO_ROOT / "src/pietto/ir/builder.py",
@@ -33,42 +30,6 @@ SOURCE_PREFIX = (
     "    status: Text not null\n"
     'source orders: Order is postgres.table("orders")\n'
 )
-
-
-def test_aggregate_interaction_boundary_contract_doc_is_locked() -> None:
-    assert SPEC_PATH.exists()
-    text = SPEC_PATH.read_text(encoding="utf-8")
-
-    for required in [
-        "Phase 40 Slice 8 is docs/spec and tests/static-audit boundary hardening only.",
-        "row-level `where`",
-        "no-GROUP non-aggregate `select`",
-        "no-GROUP input-scope `order by`",
-        "Aggregate arguments do not see let names in Slice 8.",
-        "`sum(gross)`",
-        "`avg(gross)`",
-        "`count(gross)`",
-        "`count_distinct(gross)`",
-        "deferred boundary, not a permanent language rejection",
-        "explicit semantic aggregate-argument scope design",
-        "IR aggregate-argument inline expansion design",
-        "SQL stability proof",
-        "`group by gross` remains fail-closed/deferred",
-        "`satisfying: gross > 0` remains fail-closed/deferred",
-        "grouped `order by gross` remains fail-closed/deferred",
-        "`limit gross` remains fail-closed/deferred",
-        "`where gross > 0` in a grouped query remains supported",
-        "Projection aliases remain output names only.",
-        "no `LetBindingIR`",
-        "no `RelationLayerIR`",
-        "no hidden CTE insertion",
-        "no hidden subquery insertion",
-        "no public `let_scopes` metadata key",
-    ]:
-        assert required in text
-
-    assert "package version remains `0.1.0`" in text.lower()
-    assert "no release, tag, publish, upload, signing, or attestation" in text
 
 
 @pytest.mark.parametrize(

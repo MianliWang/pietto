@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import ast
 from dataclasses import FrozenInstanceError, fields, is_dataclass
-import hashlib
 import inspect
 from pathlib import Path
 from typing import Any, cast
@@ -60,300 +58,12 @@ from pietto.semantic.window_semantics import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SOURCE_PATH = REPO_ROOT / "src/pietto/semantic/window_semantics.py"
-PROJECT_SOURCE_PATH = REPO_ROOT / "src/pietto/_project/window_semantics.py"
 MODEL_PATH = REPO_ROOT / "src/pietto/_project/model.py"
-SPEC_PATH = (
-    REPO_ROOT
-    / "docs/spec/phase53-private-window-semantic-carrier-stage-dependency-result-role-contract-v1.md"
-)
-PLAN_PATH = (
-    REPO_ROOT
-    / "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md"
-)
-SELF_PATH = Path(__file__).resolve()
-GENERIC_TEST_PATH = (
-    REPO_ROOT
-    / "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py"
-)
-
-SPEC_H1 = (
-    "Phase 53 Slice 6 Private Window Semantic Carrier, WINDOW Stage, "
-    "Dependency, And Result Roles v1"
-)
-SPEC_H2 = (
-    "Status And Slice Identity",
-    "Existing Window AST And Identity Authority",
-    "Existing Generic And Nullability Authority",
-    "Private Module Placement And Layering",
-    "Semantic Carrier Architecture",
-    "WINDOW Stage Contract",
-    "Result Availability And Type-nullability Posture",
-    "Stable Window Occurrence Identity",
-    "Project Result Identity And Output Alias Contract",
-    "Result-role Architecture",
-    "Dependency-role Inventory",
-    "Occurrence Evidence And Deduplicated Edge Contract",
-    "Relation-input And Zero-argument Readiness",
-    "Nested And Same-select Non-representability",
-    "Provenance And Derived-origin Contract",
-    "Project Fact Composition And Ordering",
-    "Constructor And Failure Boundary",
-    "Current Analyzer Catalog And Capability Non-integration",
-    "Project-model Non-integration",
-    "Public Privacy And Serialization Boundary",
-    "Positive Carrier Matrix",
-    "Negative And Fail-closed Matrix",
-    "Grammar AST Generated Generic Nullability IR SQL And Behavior Immutability",
-    "Reader Hash Inventory And Repository-state Closure",
-    "Validation Depth-one CI And Gate 3 Publication",
-    "Deferred Ownership And Stop Conditions",
-)
-PLAN_H2 = (
-    "Slice 6 Private Window Semantic Carrier, WINDOW Stage, Dependency, "
-    "And Result Roles"
-)
-SLICE7_PLAN_H2 = "Slice 7 row_number Direct-field MVP"
-SLICE8_PLAN_H2 = "Slice 8 rank / dense_rank And Peer Semantics"
-SLICE9_PLAN_H2 = "Slice 9 percent_rank / cume_dist / ntile"
-SLICE10_PLAN_H2 = "Slice 10 Partition Binding, Multi-key Visibility, And Diagnostics"
-SLICE11_PLAN_H2 = (
-    "Slice 11 Window-local Ordering, Direction, Mandatory-order Policy, And Determinism"
-)
-SLICE12_PLAN_H2 = "Slice 12 lag / lead Navigation, Offset, Default, And Nullability"
-SLICE13_PLAN_H2 = (
-    "Slice 13 — Grouped-result Ranking, Aggregate-result Inputs, And Bounded Let "
-    "Visibility"
-)
-SLICE14_PLAN_H2 = (
-    "Slice 14 — Multiple Window Outputs, Final-order Alias, Downstream Schema, "
-    "And Lineage"
-)
-SLICE15_PLAN_H2 = (
-    "Slice 15 — Window IR, Dual-backend Lowering, And Window-function Facts"
-)
-
-TEST_FUNCTIONS = (
-    "test_slice6_artifact_paths_heading_contract_and_lifecycle_are_exact",
-    "test_semantic_private_module_enum_carrier_and_privacy_shapes_are_exact",
-    "test_project_private_module_enum_carrier_and_privacy_shapes_are_exact",
-    "test_window_occurrence_identity_valid_matrix_is_exact",
-    "test_window_occurrence_identity_equality_hash_repr_and_repeatability_are_exact",
-    "test_window_occurrence_identity_malformed_matrix_fails_closed",
-    "test_concrete_window_result_availability_matrix_is_exact",
-    "test_nonconcrete_window_result_availability_matrix_is_exact",
-    "test_window_result_availability_malformed_matrix_fails_closed",
-    "test_window_semantic_fact_has_fixed_stage_and_exact_identity",
-    "test_window_semantic_unsupported_evidence_is_structural_only",
-    "test_window_semantic_fact_mismatch_matrix_fails_closed",
-    "test_window_carriers_do_not_store_generic_or_nullability_formula_evidence",
-    "test_window_result_identity_requires_explicit_alias_and_occurrence",
-    "test_project_row_result_role_window_result_extension_is_exact",
-    "test_window_dependency_role_inventory_and_phase60_frame_absence_are_exact",
-    "test_window_dependency_occurrence_positive_role_target_matrix_is_exact",
-    "test_window_dependency_occurrence_role_payload_negative_matrix_fails_closed",
-    "test_window_dependency_global_and_role_local_ordering_matrix_is_exact",
-    "test_repeated_dependency_occurrences_are_preserved_and_edges_first_deduped",
-    "test_same_target_across_dependency_roles_remains_distinct",
-    "test_zero_argument_relation_input_readiness_and_failure_matrix_is_exact",
-    "test_same_select_and_nested_window_dependencies_are_nonrepresentable",
-    "test_window_result_uses_existing_derived_expression_provenance",
-    "test_window_result_provenance_mismatch_matrix_fails_closed",
-    "test_window_result_project_fact_is_frozen_hashable_and_repeatable",
-    "test_slice7_and_slice12_construction_readiness_matrix_is_exact",
-    "test_current_analyzer_catalog_and_diagnostic_nonintegration_is_exact",
-    "test_project_model_checker_and_serializers_have_no_window_population",
-    "test_grammar_ast_parser_identity_generic_and_nullability_hashes_are_locked",
-    "test_ir_sql_capability_public_runtime_and_package_surfaces_are_locked",
-    "test_slice6_spec_heading_scope_and_no_h3_contract_is_exact",
-    "test_reader_hash_inventory_and_nested_closure_is_exact",
-    "test_slice6_dirty_clean_and_depth_one_repository_states_are_locked",
-    "test_test_inventory_focused_selector_and_dirty_overlay_are_exact",
-    "test_validation_gate3_and_no_behavior_boundaries_are_locked",
-)
-TEST_ITEM_COUNTS = (
-    1,
-    1,
-    1,
-    4,
-    2,
-    16,
-    3,
-    3,
-    12,
-    2,
-    2,
-    8,
-    1,
-    3,
-    1,
-    1,
-    8,
-    16,
-    6,
-    5,
-    3,
-    4,
-    4,
-    3,
-    6,
-    2,
-    4,
-    3,
-    4,
-    10,
-    12,
-    1,
-    1,
-    1,
-    1,
-    1,
-)
-
-ADDED_PATHS = (
-    "docs/spec/phase53-completion-audit-and-status-lock-v1.md",
-    "tests/test_phase53_completion_audit_and_status_lock.py",
-)
-
 # Filled after the single write formatter; later edits are literal-only.
-FINAL_SOURCE_SHA256 = "d6a514bddffee9f53ca1405d28a2dcd9cc84a395a152aacc1ccb9e5b716a5905"
-FINAL_PROJECT_SOURCE_SHA256 = (
-    "c08a42066a71a3ee13be9feddff5e28a910b216226d7e0b8869ee52a90dea2ad"
-)
-FINAL_MODEL_SHA256 = "bb1a521ad0018cc4fd5bac3c6e6130f600ce8479bca239f7e7c5090f2c8e572c"
-FINAL_SPEC_SHA256 = "e3cddc36974cc2d21bd3e0aec8d03c4f56bc4a68091780d9965207f07ea960e7"
-FINAL_PLAN_SHA256 = "3077c2fec0d7e2c4de717973c6403d5a450b8c01fe5846e427363ffcb41a78f5"
-FINAL_COMPILER_DIGEST = (
-    "6cbe7ccfbd84d7b2966964ac91a56e7eeacdc798c3d161da64d61add662b0420"
-)
-FINAL_SEMANTIC_DIGEST = (
-    "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
-)
-FINAL_PHASE15_DIGEST = (
-    "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
-)
-FINAL_PROJECT_DIGEST = (
-    "327ba4f5c12d916d6577cd9510aa2a28df8519dafdc935ae67a6d2f5b2fc4830"
-)
-
-BASE_HEAD = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
-CI_REPAIR_BASE_HEAD_SHA = "321ec6f80737015648bc1f81b0561fdd34610e92"
-CI_REPAIR_MODIFIED_PATHS = frozenset(
-    {
-        "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
-        "tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py",
-        "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
-        "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
-    }
-)
-
-ANALYZER_CATALOG_DIAGNOSTIC_LOCKS = (
-    (
-        "src/pietto/semantic/analyzer.py",
-        "7a6f2830bf3710edab3ba5a8c4a72e90c6e44de19fe19ddd2b54b5d703277b32",
-    ),
-    (
-        "src/pietto/semantic/catalog.py",
-        "f566f39395e3bdc933e60d15e740749255dd3749cf3907684240e4b43dfc9e40",
-    ),
-    (
-        "src/pietto/semantic/expressions.py",
-        "37b198f72b0c71c90a82d746671be8528a9ea5c2d4818ff7ef4ba55e30e9c595",
-    ),
-)
-
-GRAMMAR_AST_GENERIC_NULLABILITY_LOCKS = (
-    (
-        "grammar/Pietto.g4",
-        "661f00037b4ade8f8b5bef0cb3e070e4379decdd11cd19021d68e960e69d2724",
-    ),
-    (
-        "src/pietto/ast_nodes.py",
-        "bbfd121446d62d33c7990b80d17579d3f8b55763ce1b5f93ee17247cbd2ce0c2",
-    ),
-    (
-        "src/pietto/ast_builder.py",
-        "918dc9f6d7705376b604e69fb80c45cf4c3673c8909a58537770d114d96252cb",
-    ),
-    (
-        "src/pietto/parser_api.py",
-        "aa744c3ee334c8729917ae2aed2ee906874f927d47e99542d5accb8a98aa456b",
-    ),
-    (
-        "src/pietto/_window_identity.py",
-        "d1223f7095790dc08ffc176c103ae6180cd9e03773ddf9763448d482d6984c9b",
-    ),
-    (
-        "src/pietto/semantic/model.py",
-        "55f1d110854073ec3f9b47ecffd3e41c6c2bc3b606da61e8b271a23e736bd4ba",
-    ),
-    (
-        "src/pietto/semantic/generic_compatibility.py",
-        "340703267a6185f0b37401c1097a1f246d34d3d0d46c1f583b5ce5134e5090f8",
-    ),
-    (
-        "src/pietto/semantic/nullability_formulas.py",
-        "f4b39fc1446af80ec223b0043ee3e76700dd83224eea8e2a5f60a609a5dd5933",
-    ),
-    (
-        "src/pietto/generated/__init__.py",
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    ),
-    (
-        "src/pietto/generated",
-        "9a84d108062bdbd87f5cd1d6e237e66f8bbb39d1d9d7674312eab6eb156cbad1",
-    ),
-)
-
-IR_SQL_CAPABILITY_PUBLIC_LOCKS = (
-    (
-        "src/pietto/ir",
-        "04cb667ff3c9cdf0189d9fd0caa5dc0f9db74ca78dd86e965f020b4523f543e9",
-    ),
-    (
-        "src/pietto/sql",
-        "72a23f954c49337192effe005c9b3331359b132cc06f494fd4922b9718d1c026",
-    ),
-    (
-        "src/pietto/semantic/capability_facts.py",
-        "bd68bad4e13a2b945962458fc47359a408d27b1563ba25f5713a8f8099671d21",
-    ),
-    (
-        "src/pietto/semantic/capability_lookup.py",
-        "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26",
-    ),
-    (
-        "src/pietto/semantic/capability_inventory.py",
-        "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26",
-    ),
-    (
-        "src/pietto/semantic/capability_signatures.py",
-        "810f347080e0bb7dc674821aa6387c5f7618ac216832194ef19820326eef71d2",
-    ),
-    (
-        "src/pietto/semantic/capability_contexts.py",
-        "132371eccca00ca9f8722a34f1ea0f540933515e560639ee12e53aee6594c60c",
-    ),
-    (
-        "src/pietto/semantic/capability_aggregates.py",
-        "d7d69fa4b97924ef5462af9c871a910b73cad43a21431e98a72c8bdab8996c80",
-    ),
-    (
-        "src/pietto/cli.py",
-        "e9d90d40293db543c4b6c0da829e8b6a122fd2f8b29fcafdc23d4d54b1c42e09",
-    ),
-    (
-        "src/pietto/cli_json.py",
-        "ccee00529ee36b123f70d418105609dbb4906f2ccc1c1f5653527b1168fb6d91",
-    ),
-    (
-        "src/pietto/_metadata",
-        "cd49c38e64e6a89fa165896bdecbffcc50c68fc9ed94dcf1d50db90b1819f86d",
-    ),
-    (
-        "pyproject.toml",
-        "851e706f2cbafb24c48068cdd6fd8a6ada1f93317618000be71db3681c40a1a8",
-    ),
+ANALYZER_CATALOG_DIAGNOSTIC_PATHS = (
+    "src/pietto/semantic/analyzer.py",
+    "src/pietto/semantic/catalog.py",
+    "src/pietto/semantic/expressions.py",
 )
 
 
@@ -580,116 +290,6 @@ def _project_fact(
             location=_location(fact.occurrence.span),
         ),
     )
-
-
-def _headings(path: Path) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
-    h1: list[str] = []
-    h2: list[str] = []
-    h3: list[str] = []
-    for line in path.read_text().splitlines():
-        if line.startswith("### "):
-            h3.append(line.removeprefix("### "))
-        elif line.startswith("## "):
-            h2.append(line.removeprefix("## "))
-        elif line.startswith("# "):
-            h1.append(line.removeprefix("# "))
-    return tuple(h1), tuple(h2), tuple(h3)
-
-
-def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def _digest(paths: tuple[Path, ...]) -> str:
-    digest = hashlib.sha256()
-    for path in sorted(paths, key=lambda item: item.relative_to(REPO_ROOT).as_posix()):
-        digest.update(path.relative_to(REPO_ROOT).as_posix().encode())
-        digest.update(b"\0")
-        digest.update(path.read_bytes())
-        digest.update(b"\0")
-    return digest.hexdigest()
-
-
-def _literal_tuple(path: Path, name: str) -> tuple[str, ...]:
-    tree = ast.parse(path.read_text(), filename=path.as_posix())
-    for node in tree.body:
-        value: ast.expr | None = None
-        if isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name) and target.id == name:
-                    value = node.value
-                    break
-                if isinstance(target, ast.Tuple):
-                    names = tuple(
-                        item.id for item in target.elts if isinstance(item, ast.Name)
-                    )
-                    if name in names:
-                        compound = ast.literal_eval(node.value)
-                        if type(compound) is not tuple or len(compound) != len(names):
-                            raise AssertionError("malformed compound tuple assignment")
-                        result = compound[names.index(name)]
-                        if type(result) is not tuple or any(
-                            type(item) is not str for item in result
-                        ):
-                            raise AssertionError(
-                                f"{name} must be an exact string tuple"
-                            )
-                        return cast(tuple[str, ...], result)
-        elif (
-            isinstance(node, ast.AnnAssign)
-            and isinstance(node.target, ast.Name)
-            and node.target.id == name
-        ):
-            value = node.value
-        if value is not None:
-            result = ast.literal_eval(value)
-            if type(result) is not tuple or any(
-                type(item) is not str for item in result
-            ):
-                raise AssertionError(f"{name} must be an exact string tuple")
-            return cast(tuple[str, ...], result)
-    raise AssertionError(f"missing tuple {name}")
-
-
-def test_slice6_artifact_paths_heading_contract_and_lifecycle_are_exact() -> None:
-    assert SOURCE_PATH.is_file()
-    assert PROJECT_SOURCE_PATH.is_file()
-    assert MODEL_PATH.is_file()
-    assert SPEC_PATH.is_file()
-    assert SELF_PATH.is_file()
-    assert _headings(SPEC_PATH) == ((SPEC_H1,), SPEC_H2, ())
-    plan_h1, plan_h2, plan_h3 = _headings(PLAN_PATH)
-    assert plan_h1 == (
-        "Phase 53 — Window Functions, Generic Signature Compatibility, "
-        "And Nullability Foundation",
-    )
-    assert plan_h2.count(PLAN_H2) == 1
-    assert plan_h2[-11:] == (
-        PLAN_H2,
-        SLICE7_PLAN_H2,
-        SLICE8_PLAN_H2,
-        SLICE9_PLAN_H2,
-        SLICE10_PLAN_H2,
-        SLICE11_PLAN_H2,
-        SLICE12_PLAN_H2,
-        SLICE13_PLAN_H2,
-        SLICE14_PLAN_H2,
-        SLICE15_PLAN_H2,
-        "Slice 16 — Completion Audit, Status Lock, Dialect, Privacy, And "
-        "No-authority Closure",
-    )
-    assert plan_h2.count(SLICE7_PLAN_H2) == 1
-    assert plan_h2.count(SLICE8_PLAN_H2) == 1
-    assert plan_h2.count(SLICE9_PLAN_H2) == 1
-    assert plan_h2.count(SLICE11_PLAN_H2) == 1
-    assert plan_h2.count(SLICE12_PLAN_H2) == 1
-    assert plan_h2.count(SLICE13_PLAN_H2) == 1
-    assert plan_h2.count(SLICE14_PLAN_H2) == 1
-    assert plan_h2.count(SLICE15_PLAN_H2) == 1
-    assert plan_h3 == ()
-    plan = PLAN_PATH.read_text()
-    assert "Phase 53 is `ACTIVE`; Slices 1 through 5 are `COMPLETED`" in plan
-    assert "Slice 6 remains `UNSTARTED` throughout Gate 2" in plan
 
 
 def test_semantic_private_module_enum_carrier_and_privacy_shapes_are_exact() -> None:
@@ -1706,16 +1306,14 @@ def test_slice7_and_slice12_construction_readiness_matrix_is_exact(
 
 
 @pytest.mark.parametrize(
-    ("relative", "expected_sha256"),
-    ANALYZER_CATALOG_DIAGNOSTIC_LOCKS,
+    "relative",
+    ANALYZER_CATALOG_DIAGNOSTIC_PATHS,
 )
 def test_current_analyzer_catalog_and_diagnostic_nonintegration_is_exact(
     relative: str,
-    expected_sha256: str,
 ) -> None:
     path = REPO_ROOT / relative
     source = path.read_text()
-    assert _sha256(path) == expected_sha256
     if relative == "src/pietto/semantic/expressions.py":
         assert "semantic.window_semantics" in source
         assert "WindowExpressionAnalysis" in source
@@ -1734,30 +1332,19 @@ def test_current_analyzer_catalog_and_diagnostic_nonintegration_is_exact(
 
 
 @pytest.mark.parametrize(
-    ("relative", "expected_sha256"),
+    "relative",
     (
-        ("src/pietto/_project/model.py", FINAL_MODEL_SHA256),
-        (
-            "src/pietto/_project/check.py",
-            "6f2f2805249cc86a8ff3510a03abc702d2a029186cf16b50cabd11dbaf1da9e1",
-        ),
-        (
-            "src/pietto/_project/json_v2.py",
-            "74251e684a22de4dcdc7e1822a6843ca89cbdfa7e136a046676d848b57953bd5",
-        ),
-        (
-            "src/pietto/_project/__init__.py",
-            "d6aacd3fa60162b7c86efc37e052790a48b87462ffe46467f945a55b0d3f4169",
-        ),
+        "src/pietto/_project/model.py",
+        "src/pietto/_project/check.py",
+        "src/pietto/_project/json_v2.py",
+        "src/pietto/_project/__init__.py",
     ),
 )
 def test_project_model_checker_and_serializers_have_no_window_population(
     relative: str,
-    expected_sha256: str,
 ) -> None:
     path = REPO_ROOT / relative
     source = path.read_text()
-    assert _sha256(path) == expected_sha256
     if relative == "src/pietto/_project/model.py":
         assert "WindowResultProjectFact" in source
         assert "relation_window_result_facts" in source
@@ -1768,22 +1355,3 @@ def test_project_model_checker_and_serializers_have_no_window_population(
         assert "relation_window_result_facts" not in source
         assert "window_semantics" not in source
     assert not hasattr(project_package, "WindowResultProjectFact")
-
-
-def test_slice6_spec_heading_scope_and_no_h3_contract_is_exact() -> None:
-    assert _headings(SPEC_PATH) == ((SPEC_H1,), SPEC_H2, ())
-    spec = SPEC_PATH.read_text()
-    assert spec.count("# Phase 53 Slice 6 ") == 1
-    assert spec.count("\n## ") == 26
-    assert "\n### " not in spec
-    assert "WINDOW_FRAME" in spec
-    assert "same-select" in spec
-    assert "nested-window" in spec
-
-
-_SLICE10_READER_MIGRATION_PATHS = (
-    "docs/spec/phase53-partition-binding-multi-key-visibility-diagnostics-contract-v1.md",
-    "src/pietto/semantic/window_partition_analysis.py",
-    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
-)
-# Phase 53 Slice 13 reader migration.

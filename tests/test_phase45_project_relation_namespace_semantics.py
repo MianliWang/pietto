@@ -7,7 +7,6 @@ from types import MappingProxyType
 import pytest
 
 import pietto.cli as cli
-from _static_audit_helpers import normalized_text as _normalized
 from pietto._project.check import check_project_parse_only
 from pietto._project.json_v2 import project_check_result_to_json_dict
 from pietto._project.model import (
@@ -25,8 +24,6 @@ from pietto.errors import Severity
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MODEL_PATH = REPO_ROOT / "src/pietto/_project/model.py"
-PLAN_PATH = REPO_ROOT / "docs/plan/phase-45-project-wide-semantic-model-mvp.md"
-SPEC_PATH = REPO_ROOT / "docs/spec/phase45-project-wide-semantic-model-scope-lock-v1.md"
 
 
 def test_project_relation_resolution_map_defaults_readonly() -> None:
@@ -310,31 +307,6 @@ def test_project_relation_namespace_stays_out_of_output_paths() -> None:
     assert "emit_postgres_sql" not in source
     assert "emit_mysql_sql" not in source
     assert "check_relation_cycles" not in source
-
-
-def test_slice6_docs_lock_private_relation_namespace_semantics() -> None:
-    docs = " ".join(_normalized(path) for path in (PLAN_PATH, SPEC_PATH))
-
-    for required in (
-        "Slice 6 adds private cross-file relation namespace semantics",
-        "private relation-resolution facts",
-        "`ProjectSemanticModel.relation_resolutions`",
-        "table and query `from` targets are checked",
-        "`ProjectSemanticCatalog.relation_symbols`",
-        "relation targets may be source, table, or query",
-        "`PIE-S2301`",
-        "duplicate catalog diagnostics short-circuit relation resolution",
-        "type/source-shape diagnostics do not short-circuit relation checks",
-        "relation cycle detection is deferred",
-        "`PIE-S2302` is not emitted in Slice 6",
-        "row schema propagation is deferred",
-        "projection/body semantic validation is deferred",
-        "relationship metadata endpoints are out of scope",
-        "no CLI/JSON/text behavior change",
-        "no IR, SQL, project `emit-sql`, or project `explain` path",
-        "no import from `pietto.semantic`",
-    ):
-        assert required in docs, required
 
 
 def _project_semantic_result(

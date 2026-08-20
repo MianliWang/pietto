@@ -7,11 +7,8 @@ from typing import cast
 import pytest
 
 import pietto.cli as cli
-from _static_audit_helpers import normalized_text as _normalized
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PLAN_PATH = REPO_ROOT / "docs/plan/phase-45-project-wide-semantic-model-mvp.md"
-SPEC_PATH = REPO_ROOT / "docs/spec/phase45-project-wide-semantic-model-scope-lock-v1.md"
 
 _VALID_RELATION_SOURCE = (
     "shape User:\n"
@@ -223,27 +220,6 @@ def test_single_file_cli_surfaces_remain_separate(
     assert explain_document["schema_version"] == 1
     assert explain_document["command"] == "explain"
     assert "mode" not in explain_document
-
-
-def test_slice7_docs_lock_text_only_project_semantic_cli_gate() -> None:
-    docs = " ".join(_normalized(path) for path in (PLAN_PATH, SPEC_PATH))
-
-    for required in (
-        "Slice 7 adds a text-only project semantic CLI gate",
-        "`pietto check --project ROOT` text mode runs private project semantic checks after parse success",
-        "Text mode renders project semantic diagnostics",
-        "Text mode returns `1` on project semantic errors",
-        "Text mode does not print success output when semantic errors exist",
-        "Parse/project errors short-circuit semantic checks",
-        "Valid cross-file projects still print the existing success output",
-        "Slice 8 adds Project JSON v2 semantic diagnostics",
-        "JSON mode computes the private project semantic result after parse success",
-        "No Project JSON v2 shape, counter, input-status, or semantic `ok` behavior changes in Slice 7",
-        "no IR, SQL, project `emit-sql`, or project `explain` path",
-        "no import from `pietto.semantic`",
-        "no single-file behavior change",
-    ):
-        assert required in docs, required
 
 
 def _forbid_project_output_pipelines(monkeypatch: pytest.MonkeyPatch) -> None:

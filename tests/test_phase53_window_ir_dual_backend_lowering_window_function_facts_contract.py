@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import dataclasses
 from functools import lru_cache
 from pathlib import Path
@@ -67,17 +66,6 @@ SELF_REL = (
     "tests/"
     "test_phase53_window_ir_dual_backend_lowering_window_function_facts_contract.py"
 )
-SPEC_REL = (
-    "docs/spec/"
-    "phase53-window-ir-dual-backend-lowering-window-function-facts-contract-v1.md"
-)
-PLAN_REL = (
-    "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md"
-)
-CAPABILITY_REL = "src/pietto/semantic/capability_windows.py"
-BASE_HEAD = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
-PUBLICATION_BRANCH = "phase53/slice15-window-ir-dual-backend-lowering"
-PUBLICATION_TITLE = "Add Phase 53 window IR and dual-backend lowering"
 IDENTITIES = (
     "row_number",
     "rank",
@@ -110,148 +98,6 @@ SQL_NAMES = {
     "lead": "LEAD",
 }
 
-ADDED_PATHS = (
-    "docs/spec/phase53-completion-audit-and-status-lock-v1.md",
-    "tests/test_phase53_completion_audit_and_status_lock.py",
-)
-CORE_MODIFIED_PATHS = (PLAN_REL,)
-READER_PATHS = (
-    "tests/test_phase49_minimal_private_lineage_carrier_source_direct_rename.py",
-    "tests/test_phase51_completion_audit_and_status_lock.py",
-    "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
-    "tests/test_phase52_aggregate_signature_algebra_facts.py",
-    "tests/test_phase52_completion_audit_and_status_lock.py",
-    "tests/test_phase52_expression_stage_clause_capability_facts.py",
-    "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
-    "tests/test_phase52_scalar_function_operator_signature_facts.py",
-    "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
-    "tests/test_phase53_grouped_result_ranking_aggregate_result_inputs_bounded_let_visibility_contract.py",
-    "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
-    "tests/test_phase53_multiple_window_outputs_final_order_alias_downstream_schema_lineage_contract.py",
-    "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
-    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
-    "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
-    "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
-    "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
-    "tests/test_phase53_row_number_direct_field_mvp_contract.py",
-    "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
-    "tests/test_phase53_window_ir_dual_backend_lowering_window_function_facts_contract.py",
-    "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
-    "tests/test_phase53_window_spec_function_identity_ast_contract.py",
-    "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
-)
-MODIFIED_PATHS = (*CORE_MODIFIED_PATHS, *READER_PATHS)
-POST_FORMATTER_READER_REPAIR_PATHS = (
-    "tests/test_phase49_minimal_private_lineage_carrier_source_direct_rename.py",
-    "tests/test_phase51_completion_audit_and_status_lock.py",
-    "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
-)
-FORMATTER_PATHS = tuple(
-    path
-    for path in (*ADDED_PATHS, *MODIFIED_PATHS)
-    if path.endswith(".py") and path not in POST_FORMATTER_READER_REPAIR_PATHS
-)
-TOPOLOGICAL_PHASE53_READERS = (
-    "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
-    "tests/test_phase53_grouped_result_ranking_aggregate_result_inputs_bounded_let_visibility_contract.py",
-    "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
-    "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
-    "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
-    "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
-    "tests/test_phase53_row_number_direct_field_mvp_contract.py",
-    "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
-    "tests/test_phase53_window_spec_function_identity_ast_contract.py",
-    "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
-    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
-    "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
-    "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
-)
-
-EXPECTED_TEST_NAMES = (
-    "test_slice15_artifact_paths_heading_contract_and_lifecycle_are_exact",
-    "test_window_ir_carrier_fields_frozen_slots_equality_and_hashing_are_exact",
-    "test_window_ir_identity_constructor_validation_is_exact",
-    "test_window_ir_order_item_constructor_validation_is_exact",
-    "test_window_ir_spec_constructor_validation_is_exact",
-    "test_window_ir_call_constructor_validation_and_arity_are_exact",
-    "test_all_eight_window_identities_lower_with_source_identity_and_result_type",
-    "test_zero_argument_identity_ir_shapes_are_exact",
-    "test_ntile_argument_ir_shape_is_exact",
-    "test_lag_lead_omitted_and_explicit_argument_shapes_are_exact",
-    "test_partition_and_local_order_multiplicity_preserve_source_order_and_duplicates",
-    "test_window_order_omitted_asc_desc_direction_facts_are_exact",
-    "test_multiple_window_outputs_lower_in_select_order",
-    "test_grouped_group_key_and_aggregate_result_operands_lower_underlying_expressions",
-    "test_grouped_window_sql_is_same_level_without_subquery_or_alias_operands",
-    "test_downstream_window_fields_lower_through_ordinary_row_rules",
-    "test_final_order_window_aliases_render_as_aliases",
-    "test_postgres_exact_sql_bytes_for_all_identities",
-    "test_mysql_exact_sql_bytes_for_all_identities",
-    "test_backend_identifier_quoting_and_escaping_differences_are_exact",
-    "test_postgres_malformed_window_ir_becomes_pie_b1000",
-    "test_mysql_malformed_window_ir_becomes_pie_b1000",
-    "test_unrelated_missing_semantic_facts_preserve_pie_i1000",
-    "test_window_capability_fact_inventory_keys_evidence_and_privacy_are_exact",
-    "test_window_capability_lookup_found_absent_unknown_and_conflict_are_exact",
-    "test_window_capability_facts_do_not_authorize_compiler_acceptance",
-    "test_public_ir_sql_semantic_cli_json_and_metadata_surfaces_are_unchanged",
-    "test_frames_named_windows_qualify_extension_and_later_identity_boundaries_are_locked",
-    "test_generated_golden_fixture_package_dependency_and_version_boundaries_are_locked",
-    "test_reader_hash_dag_allowlist_and_fixed_point_are_exact",
-    "test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact",
-    "test_dirty_clean_depth_one_shallow_and_negative_topology_boundaries_are_exact",
-    "test_gate2_evidence_gate3_publication_and_slice16_stop_contract_are_locked",
-)
-EXPECTED_CARDINALITIES = (
-    1,
-    4,
-    8,
-    8,
-    8,
-    16,
-    8,
-    5,
-    3,
-    8,
-    6,
-    6,
-    4,
-    8,
-    4,
-    4,
-    4,
-    8,
-    8,
-    6,
-    8,
-    8,
-    4,
-    24,
-    8,
-    4,
-    1,
-    12,
-    1,
-    1,
-    1,
-    8,
-    1,
-)
-
-SPEC_HEADINGS = (
-    "Status And Ownership",
-    "Stage And Authority Contract",
-    "Identity, Result, And Argument Contract",
-    "Private Window IR Contract",
-    "Lowering And Grouped-result Contract",
-    "PostgreSQL Rendering Contract",
-    "Private-MySQL Rendering Contract",
-    "Descriptive WINDOW_FUNCTION Capability Facts",
-    "Diagnostics, Compatibility, And Public Boundaries",
-    "Unsupported And Future-owned Boundaries",
-    "Lifecycle And Gate Boundary",
-)
-
 SOURCE_PREFIX = (
     "shape Row:\n"
     "    id: Int not null\n"
@@ -282,30 +128,6 @@ UNKNOWN_TYPE = TypeRefIR(
 
 def _read(relative: str) -> str:
     return (REPO_ROOT / relative).read_text(encoding="utf-8")
-
-
-def _module_literal(relative: str, name: str) -> object:
-    tree = ast.parse(_read(relative), filename=relative)
-    for node in tree.body:
-        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
-            continue
-        value = node.value
-        if value is None:
-            continue
-        targets = node.targets if isinstance(node, ast.Assign) else (node.target,)
-        for target in targets:
-            if isinstance(target, ast.Name) and target.id == name:
-                return ast.literal_eval(value)
-            if isinstance(target, (ast.Tuple, ast.List)):
-                names = [
-                    item.id if isinstance(item, ast.Name) else None
-                    for item in target.elts
-                ]
-                if name in names:
-                    combined = ast.literal_eval(value)
-                    assert isinstance(combined, tuple)
-                    return combined[names.index(name)]
-    raise AssertionError(f"missing module literal {relative}:{name}")
 
 
 def _source_connector(dialect: str) -> str:
@@ -606,38 +428,6 @@ def _sql_for(source: str, dialect: str) -> str:
     assert result.diagnostics == ()
     assert len(result.artifacts) == 1
     return result.artifacts[0].sql
-
-
-def _path_manifest(kind: str, paths: tuple[str, ...]) -> bytes:
-    return "".join(
-        f"{kind}{index:02d}\t{path}\n" for index, path in enumerate(paths, start=1)
-    ).encode("utf-8")
-
-
-def test_slice15_artifact_paths_heading_contract_and_lifecycle_are_exact() -> None:
-    spec = _read(SPEC_REL)
-    plan = _read(PLAN_REL)
-    headings = tuple(
-        line.removeprefix("## ") for line in spec.splitlines() if line.startswith("## ")
-    )
-    assert headings == SPEC_HEADINGS
-    assert spec.startswith(
-        "# Phase 53 Window IR, Dual-backend Lowering, And Window-function "
-        "Facts Contract v1\n"
-    )
-    assert all((REPO_ROOT / path).is_file() for path in ADDED_PATHS)
-    assert (
-        plan.count(
-            "## Slice 15 — Window IR, Dual-backend Lowering, And Window-function Facts"
-        )
-        == 1
-    )
-    for document in (spec, plan):
-        normalized = " ".join(document.split())
-        assert "Phase 53 remains `ACTIVE`" in normalized
-        assert "Slices 1 through 15" in normalized
-        assert "Slice 16" in normalized and "UNSTARTED" in normalized
-        assert "SLICE16_GATE0_GATE1" in normalized
 
 
 @pytest.mark.parametrize("_case", range(4))
@@ -1573,23 +1363,6 @@ def test_public_ir_sql_semantic_cli_json_and_metadata_surfaces_are_unchanged() -
 def test_frames_named_windows_qualify_extension_and_later_identity_boundaries_are_locked(
     _case: int,
 ) -> None:
-    spec = _read(SPEC_REL)
-    normalized = " ".join(spec.split())
-    boundary_terms = (
-        "Frames",
-        "`ROWS`",
-        "`RANGE`",
-        "`GROUPS`",
-        "named windows",
-        "window inheritance",
-        "`QUALIFY`",
-        "`first_value`",
-        "`last_value`",
-        "`nth_value`",
-        "extension-specific lowering",
-        "third or additional dialects",
-    )
-    assert boundary_terms[_case] in normalized
     if _case == 0:
         assert tuple(field.name for field in dataclasses.fields(WindowSpecIR)) == (
             "partition_by",
@@ -1604,7 +1377,7 @@ def test_frames_named_windows_qualify_extension_and_later_identity_boundaries_ar
     elif _case == 6:
         assert "QUALIFY" not in _read("grammar/Pietto.g4")
     elif 7 <= _case <= 9:
-        assert boundary_terms[_case].strip("`") not in IDENTITIES
+        assert ("first_value", "last_value", "nth_value")[_case - 7] not in IDENTITIES
     else:
         key = CapabilityKey(
             CapabilityDomain.WINDOW_FUNCTION,
@@ -1618,25 +1391,3 @@ def test_frames_named_windows_qualify_extension_and_later_identity_boundaries_ar
         result = _lookup(key)
         assert isinstance(result, Unknown)
         assert result.reason is CapabilityReasonCode.NOT_EVIDENCED
-
-
-def test_gate2_evidence_gate3_publication_and_slice16_stop_contract_are_locked() -> (
-    None
-):
-    spec = _read(SPEC_REL)
-    plan = _read(PLAN_REL)
-    normalized_spec = " ".join(spec.split())
-    normalized_plan = " ".join(plan.split())
-    assert "Gate 2 final scope is exactly `A3/M73/D0`" in normalized_plan
-    assert "exactly one write-mode Ruff invocation" in spec
-    assert "leaves exactly 76 paths unstaged" in plan
-    assert PUBLICATION_BRANCH in spec and PUBLICATION_BRANCH in plan
-    assert spec.count(PUBLICATION_TITLE) == 1
-    assert plan.count(PUBLICATION_TITLE) == 1
-    assert "unique natural exact-head PR CI" in normalized_spec
-    assert "unique natural exact-head main CI" in normalized_spec
-    assert "No direct-main push, amend, rebase, force-push" in normalized_spec
-    assert "Phase 53 remains `ACTIVE`" in normalized_spec
-    assert "Slice 16 remains `UNSTARTED`" in normalized_spec
-    assert "SLICE16_GATE0_GATE1" in normalized_spec
-    assert BASE_HEAD == "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"

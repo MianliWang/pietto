@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import MutableMapping
 from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
-import inspect
 import json
 from pathlib import Path
 from types import MappingProxyType
@@ -48,13 +47,6 @@ from pietto.errors import SourceLocation
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HELPER_PATH = REPO_ROOT / "src/pietto/_project/aggregate_grouped_schema.py"
 MODEL_PATH = REPO_ROOT / "src/pietto/_project/model.py"
-PLAN_PATH = (
-    REPO_ROOT / "docs/plan/phase-51-aggregate-grouped-output-schema-foundation.md"
-)
-SPEC_PATH = (
-    REPO_ROOT / "docs/spec/phase51-aggregate-only-result-candidate-foundation-v1.md"
-)
-
 EXPECTED_PROJECT_JSON_V2_KEYS = (
     "schema_version",
     "command",
@@ -667,50 +659,6 @@ def test_aggregate_and_grouped_outputs_are_persisted_private_and_unserialized(
         assert not hasattr(pietto, name)
         assert not hasattr(project_package, name)
         assert name not in serialized
-
-
-def test_helper_plan_and_contract_keep_the_bounded_slice4_boundary() -> None:
-    helper_source = inspect.getsource(build_project_aggregate_schema_facts)
-    module_source = HELPER_PATH.read_text(encoding="utf-8")
-    plan = PLAN_PATH.read_text(encoding="utf-8")
-    spec = SPEC_PATH.read_text(encoding="utf-8")
-    plan_lines = plan.splitlines()
-
-    assert "### Slice 4 Gate 2 Bounded Implementation Status" in plan_lines
-    assert "## Slice 4 Gate 2 Bounded Implementation Status" not in plan_lines
-    assert spec.splitlines()[0] == (
-        "# Phase 51 Aggregate-only Result Candidate Foundation v1"
-    )
-    for required in (
-        "candidate-only",
-        "unpersisted",
-        "ProjectAggregateSelectedResult",
-        "ProjectAggregateSchemaFacts",
-        "build_project_aggregate_schema_facts",
-        "build_project_row_expression_value_types",
-        "semantic_aggregate_call_name",
-        "is_supported_semantic_aggregate_arity",
-        "is_direct_field_argument",
-        "is_supported_semantic_aggregate_argument_expression",
-        "semantic_projection_aggregate_result_value_type",
-        "ProjectRowResultRole.AGGREGATE_RESULT",
-        "ProjectRowFieldProvenanceKind.AGGREGATE",
-        "SelectItem",
-        "MappingProxyType",
-        "DEFERRED_PHASE48_BEHAVIOR",
-        "exactly these 14 paths",
-        "ruff check --fix",
-        "/tmp/pietto-phase51-slice4-gate2-evidence-and-diff.txt",
-    ):
-        assert required in spec, required
-    for slice_number in range(5, 11):
-        assert f"Slice {slice_number}" in spec
-
-    assert "ProjectRowSchema(" not in helper_source
-    assert "ProjectSemanticModel" not in module_source
-    assert "SEMANTIC_AGGREGATE_NAMES" not in module_source
-    assert "semantic.analyze" not in module_source
-    assert "analyze(" not in helper_source
 
 
 def _aggregate_inputs(

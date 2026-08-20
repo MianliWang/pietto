@@ -5,14 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PLAN_PATH = REPO_ROOT / "docs/plan/phase-30-core-type-system-stabilization-i.md"
 SPEC_PATH = REPO_ROOT / "docs/spec/nullability-propagation-contract-v1.md"
-CORE_CONTRACT_PATH = (
-    REPO_ROOT / "docs/spec/core-type-system-stabilization-contract-v1.md"
-)
 REGISTRY_CONTRACT_PATH = REPO_ROOT / "docs/spec/canonical-scalar-type-registry-v1.md"
-TYPE_GAP_PATH = REPO_ROOT / "docs/spec/v02-core-type-system-gap-matrix-v1.md"
-
 MODEL_PATH = REPO_ROOT / "src/pietto/semantic/model.py"
 ANALYZER_PATH = REPO_ROOT / "src/pietto/semantic/analyzer.py"
 SOURCES_PATH = REPO_ROOT / "src/pietto/semantic/sources.py"
@@ -68,64 +62,9 @@ def _normalized(path: Path) -> str:
     return " ".join(_read(path).split())
 
 
-def test_slice3_artifacts_baseline_and_status_are_locked() -> None:
-    assert SPEC_PATH.is_file()
-
-    plan = _normalized(PLAN_PATH)
-    spec = _normalized(SPEC_PATH)
-    core_contract = _normalized(CORE_CONTRACT_PATH)
-    registry_contract = _normalized(REGISTRY_CONTRACT_PATH)
-
-    for required in (
-        "Phase 30 Slice 3 is complete as nullability propagation contract, "
-        "static audit, and status work only",
-        "HEAD: `1ab91bb972c928e92e22fc34e945f871454af9bd`",
-        "commit: `Document canonical scalar type registry`",
-        "CI run: `27885698694 success`",
-        "v0.2 is not complete yet",
-        "Phase 31 and Phase 32 remain required before v0.2 stable completion",
-    ):
-        assert required in plan
-        assert required in spec
-
-    assert "nullability-propagation-contract-v1.md" in plan
-    assert "nullability-propagation-contract-v1.md" in core_contract
-    assert "Slice 3 Nullability Propagation Contract" in registry_contract
-
-
-def test_slice3_candidate_decision_is_docs_static_audit_status_only() -> None:
-    spec = _normalized(SPEC_PATH)
-
-    for required in (
-        "| Candidate | Fit | Risk | Decision |",
-        "Slice 3 docs/spec/static-audit/status only",
-        "Chosen",
-        "Tests-only hardening",
-        "Rejected for Slice 3",
-        "Minimal implementation artifact",
-        "Rejected; no current consumer requires a new helper, enum, registry, "
-        "or propagation function",
-        "Broad behavior implementation",
-        "Rejected; it could change semantic, diagnostic, IR, SQL, CLI, JSON, "
-        "aggregate, fixture, golden, and public API behavior",
-        "The selected Slice 3 direction is contract-first",
-        "does not broaden nullability inference",
-    ):
-        assert required in spec
-
-    for forbidden in (
-        "Slice 3 implements nullability inference",
-        "Slice 3 changes predicate validation",
-        "Slice 3 changes SQL lowering",
-        "Slice 3 changes aggregate validation",
-    ):
-        assert forbidden not in spec
-
-
 def test_three_unknown_concepts_are_distinct() -> None:
     spec = _normalized(SPEC_PATH)
     model = _read(MODEL_PATH)
-    type_gap = _normalized(TYPE_GAP_PATH)
 
     for required in (
         "`EffectiveNullability.UNKNOWN` is a nullability fact on a known value type",
@@ -153,11 +92,6 @@ def test_three_unknown_concepts_are_distinct() -> None:
         "kind: ValueTypeKind = ValueTypeKind.KNOWN",
     ):
         assert required in model
-
-    assert (
-        "Current Pietto nullability unknown can be mistaken for SQL "
-        "TRUE/FALSE/UNKNOWN semantics"
-    ) in type_gap
 
 
 def test_typeexpr_source_projection_and_unknown_nullability_rules_are_grounded() -> (
@@ -359,106 +293,3 @@ def test_predicate_boundaries_and_sql_three_valued_logic_handoff_are_locked() ->
         "Expected Bool expression in satisfying clause",
     ):
         assert required in satisfying
-
-
-def test_later_slice_handoff_and_hard_non_goals_are_locked() -> None:
-    plan = _normalized(PLAN_PATH)
-    spec = _normalized(SPEC_PATH)
-    core_contract = _normalized(CORE_CONTRACT_PATH)
-    plan_and_specs = f"{plan} {spec} {core_contract}"
-
-    for required in (
-        "Slice 4 Bool And Predicate Semantics",
-        "Slice 7 Operator And Comparison Matrix",
-        "Pietto nullability facts, unknown value types, and SQL three-valued "
-        "logic `UNKNOWN`",
-        "current result-nullability facts for unary, binary, Bool, comparison, "
-        "and `between` expressions",
-        "Slice 4 is complete as Bool and predicate semantics contract, static "
-        "audit, and status work only",
-        "Slice 5 is complete as Date / Timestamp formalization contract, "
-        "static audit, and status work only",
-        "Slice 6 Decimal Precision / Scale Contract is complete as Decimal "
-        "precision / scale contract, static audit, and status work only",
-        "Slice 7 Operator And Comparison Matrix is complete as operator and "
-        "comparison matrix contract, static audit, and status work only",
-        "Slice 8 Completion Audit And Status Lock is complete as completion "
-        "audit and status lock work only",
-        "Phase 30 is complete as docs/spec/static-audit/status work only",
-        "v0.2 is not complete",
-        "Phase 31 and Phase 32 remain required before v0.2 stable completion",
-    ):
-        assert required in plan_and_specs
-
-    for required in PHASE30_HARD_NON_GOALS:
-        assert required in plan_and_specs
-
-
-def test_status_docs_record_slice3_without_v02_completion_or_behavior_change() -> None:
-    for relative_path in ("AGENTS.md", "docs/spec/pietto-v0.9.md"):
-        status_doc = _normalized(REPO_ROOT / relative_path)
-        for required in (
-            "Phase 30 Core Type System Stabilization I",
-            "Slice 3 is complete as nullability propagation contract, static "
-            "audit, and status work only",
-            "Slice 4 is complete as Bool and predicate semantics contract, "
-            "static audit, and status work only",
-            "Known Bool predicate acceptance remains a compile-time type-level fact",
-            "Slice 5 is complete as Date / Timestamp formalization contract, "
-            "static audit, and status work only",
-            "`Timestamp` is the current canonical v0.2 spelling for date+time values",
-            "current generic comparison behavior only",
-            "no `DateTime` primitive or alias",
-            "Slice 6 is complete as Decimal precision / scale contract, static "
-            "audit, and status work only",
-            "`Decimal` remains logical v0.2 exact numeric",
-            "generic `TypeExpr.arguments`, including currently parsed "
-            "`Decimal(12, 2)`, do not create accepted precision/scale semantics",
-            "no Decimal precision/scale carrier, propagation, validation, SQL "
-            "precision guarantee, native DB metadata, JSON/API exposure, or "
-            "public contract",
-            "no Decimal literal syntax, Decimal multiplication/division "
-            "expansion, mixed Decimal promotion expansion, casts, "
-            "Money/Currency primitive, or semantic annotation syntax",
-            "Slice 7 is complete as operator and comparison matrix contract, "
-            "static audit, and status work only",
-            "current comparison behavior is generic known-child typing",
-            "not a final pair-specific semantic compatibility guarantee",
-            "no Text concatenation",
-            "no Date/Timestamp-specific comparison matrix",
-            "no UUID comparison, cast, literal, storage, DDL, wider SQL, or "
-            "public API behavior",
-            "Bytes and Json remain deferred/unsupported behavior built-ins",
-            "`EffectiveNullability.UNKNOWN`, `ValueTypeKind.UNKNOWN`, and SQL "
-            "three-valued logic `UNKNOWN` remain distinct",
-            "Slice 8 is complete as completion audit and status lock work only",
-            "Phase 30 is complete",
-            "Phase 31 v0.2 Hardening And Stable Completion is complete",
-            "Pietto v0.2 single-file stable complete",
-            "Phase 31 Slice 8 complete",
-            "Phase 32 has started",
-            "Phase 32 Slice 1 Candidate Decision, Roadmap Alignment, And v0.2 "
-            "Handoff Audit is complete as docs/spec/static-audit/status-only work",
-            "Phase 32 as a whole is not complete",
-            "Phase 32: Semantic Explain And Metadata Output MVP",
-        ):
-            assert required in status_doc
-        assert "Phase 32 remains post-v0.2 and has not started" not in status_doc
-
-        for forbidden in (
-            "v0.2 is complete",
-            "Phase 30 implementation",
-            "Phase 31 implementation is complete",
-            "DateTime primitive is allowed",
-            "Currency primitive is allowed",
-            "Money primitive is allowed",
-            "UUID implementation is allowed",
-            "Enum implementation is allowed",
-            "public `emit_mysql_sql`",
-            "Phase 30 implements relationship/JOIN",
-            "Phase 30 implements project mode",
-            "Phase 30 changes JSON v1",
-            "Phase 30 implements JSON v2",
-            "Phase 30 expands aggregate",
-        ):
-            assert forbidden not in status_doc

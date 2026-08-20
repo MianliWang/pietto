@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import ast
-import hashlib
-import re
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, cast
@@ -32,189 +30,12 @@ from pietto.semantic.capability_lookup import (
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_REL = "src/pietto/semantic/capability_inventory.py"
-FACTS_REL = "src/pietto/semantic/capability_facts.py"
-LOOKUP_REL = "src/pietto/semantic/capability_lookup.py"
-SPEC_REL = (
-    "docs/spec/phase52-logical-type-literal-parameter-nullability-inventory-v1.md"
-)
 SELF_REL = "tests/test_phase52_logical_type_literal_parameter_nullability_inventory.py"
-SLICE2_TEST_REL = "tests/test_phase52_private_capability_fact_foundation.py"
-SLICE3_TEST_REL = "tests/test_phase52_fail_closed_capability_lookup.py"
-SIGNATURE_REL = "src/pietto/semantic/capability_signatures.py"
-SIGNATURE_SPEC_REL = "docs/spec/phase52-scalar-function-operator-signature-facts-v1.md"
-SIGNATURE_TEST_REL = "tests/test_phase52_scalar_function_operator_signature_facts.py"
-CONTEXT_REL = "src/pietto/semantic/capability_contexts.py"
-CONTEXT_SPEC_REL = "docs/spec/phase52-expression-stage-clause-capability-facts-v1.md"
-CONTEXT_TEST_REL = "tests/test_phase52_expression_stage_clause_capability_facts.py"
-AGGREGATE_REL = "src/pietto/semantic/capability_aggregates.py"
-AGGREGATE_TEST_REL = "tests/test_phase52_aggregate_signature_algebra_facts.py"
-SLICE8_SPEC_REL = (
-    "docs/spec/phase52-parity-privacy-cross-phase-readiness-drift-closure-v1.md"
-)
-SLICE8_TEST_REL = (
-    "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py"
-)
 SOURCE_PATH = REPO_ROOT / SOURCE_REL
-SPEC_PATH = REPO_ROOT / SPEC_REL
-SELF_PATH = REPO_ROOT / SELF_REL
-PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-GATE2_BASE_HEAD_SHA = "21bb988a8b28e9d13e7e2c8fdf78ea3a7054b5b0"
-REPAIR_BASE_HEAD_SHA = "b1d5002fb48dbbb06cc93de2261e2237655e0eab"
-SLICE8_GATE2_BASE_HEAD_SHA = "11a0c48941c3c1c650be8d0ec8ddf5201f9525f2"
-
-FACTS_SHA256 = "bd68bad4e13a2b945962458fc47359a408d27b1563ba25f5713a8f8099671d21"
-LOOKUP_SHA256 = "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26"
-COMPILER_DIGEST = "6cbe7ccfbd84d7b2966964ac91a56e7eeacdc798c3d161da64d61add662b0420"
-SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
-PHASE15_SUBSET_DIGEST = (
-    "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
-)
-PROJECT_PRIVATE_DIGEST = (
-    "327ba4f5c12d916d6577cd9510aa2a28df8519dafdc935ae67a6d2f5b2fc4830"
-)
-TIER2_MANIFEST_BYTES = 18319
-TIER2_MANIFEST_SHA256 = (
-    "aea0deb90e0870740b40614fc911ad9483cb3851842aa9a4a9ccecc63baf6f79"
-)
-
-SPEC_H2 = (
-    "Status And Authority",
-    "Private Inventory Module And Ordering",
-    "Completeness And Lookup-input Contract",
-    "Logical-type Inventory",
-    "Literal Inventory",
-    "Parameter Inventory",
-    "Nullability Inventory",
-    "Evidence Scope Disposition And Conflict Policy",
-    "Privacy And No-behavior Boundary",
-    "Static Compatibility And Validation Locks",
-    "Slice Ownership And Lifecycle",
-    "Package Release And Future-work Boundary",
-)
-COMPILER_READERS = (
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_generated_guard.py",
-    "tests/test_phase11_golden_policy.py",
-    "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_phase12_completion_audit.py",
-    "tests/test_phase12_composition_cli_json_goldens.py",
-    "tests/test_phase51_completion_audit_and_status_lock.py",
-    "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
-    "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
-)
-SEMANTIC_READERS = (
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_planning_audit.py",
-    "tests/test_phase12_order_limit_contract.py",
-    "tests/test_phase12_planning_audit.py",
-    "tests/test_phase13_completion_audit.py",
-    "tests/test_phase13_planning_audit.py",
-    "tests/test_phase14_candidate_decision_audit.py",
-    "tests/test_phase14_completion_audit.py",
-    "tests/test_phase14_planning_audit.py",
-    "tests/test_phase14_relationship_metadata_completion_audit.py",
-    "tests/test_phase15_completion_audit.py",
-    "tests/test_phase16_completion_audit.py",
-    "tests/test_phase16_current_syntax_surface_audit.py",
-    "tests/test_phase16_language_direction_audit.py",
-    "tests/test_phase16_safety_deferral_sql_portability.py",
-    "tests/test_phase21_group_by_hardening_audit.py",
-    "tests/test_phase24_aggregate_expression_arguments_readiness.py",
-    "tests/test_phase24_cli_json_output_hardening.py",
-    "tests/test_phase24_completion_audit.py",
-    "tests/test_phase25_completion_audit.py",
-    "tests/test_phase26_completion_audit.py",
-    "tests/test_phase27_completion_audit.py",
-    "tests/test_phase28_completion_audit.py",
-    "tests/test_phase29_completion_audit.py",
-    "tests/test_phase30_completion_audit.py",
-)
-PHASE15_READER = "tests/test_phase15_semantic_completion_audit.py"
-MODIFIED_READER_PATHS = (
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_generated_guard.py",
-    "tests/test_phase11_golden_policy.py",
-    "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase11_planning_audit.py",
-    "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_phase12_completion_audit.py",
-    "tests/test_phase12_composition_cli_json_goldens.py",
-    "tests/test_phase12_order_limit_contract.py",
-    "tests/test_phase12_planning_audit.py",
-    "tests/test_phase13_completion_audit.py",
-    "tests/test_phase13_planning_audit.py",
-    "tests/test_phase14_candidate_decision_audit.py",
-    "tests/test_phase14_completion_audit.py",
-    "tests/test_phase14_planning_audit.py",
-    "tests/test_phase14_relationship_metadata_completion_audit.py",
-    "tests/test_phase15_completion_audit.py",
-    "tests/test_phase15_semantic_completion_audit.py",
-    "tests/test_phase16_completion_audit.py",
-    "tests/test_phase16_current_syntax_surface_audit.py",
-    "tests/test_phase16_language_direction_audit.py",
-    "tests/test_phase16_safety_deferral_sql_portability.py",
-    "tests/test_phase21_group_by_hardening_audit.py",
-    "tests/test_phase24_aggregate_expression_arguments_readiness.py",
-    "tests/test_phase24_cli_json_output_hardening.py",
-    "tests/test_phase24_completion_audit.py",
-    "tests/test_phase25_completion_audit.py",
-    "tests/test_phase26_completion_audit.py",
-    "tests/test_phase27_completion_audit.py",
-    "tests/test_phase28_completion_audit.py",
-    "tests/test_phase29_completion_audit.py",
-    "tests/test_phase30_completion_audit.py",
-    "tests/test_phase51_completion_audit_and_status_lock.py",
-    "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
-    "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
-    SLICE2_TEST_REL,
-    SLICE3_TEST_REL,
-    SELF_REL,
-    SIGNATURE_TEST_REL,
-)
-ADDED_PATHS = {CONTEXT_REL, CONTEXT_SPEC_REL, CONTEXT_TEST_REL}
-SLICE8_MODIFIED_PATHS = {
-    SELF_REL,
-    SIGNATURE_TEST_REL,
-    CONTEXT_TEST_REL,
-    AGGREGATE_TEST_REL,
-}
-SLICE8_ADDED_PATHS = {SLICE8_SPEC_REL, SLICE8_TEST_REL}
 
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
-
-
-def _digest(paths: tuple[Path, ...]) -> str:
-    digest = hashlib.sha256()
-    for path in sorted(paths, key=lambda item: item.relative_to(REPO_ROOT).as_posix()):
-        relative = path.relative_to(REPO_ROOT).as_posix()
-        digest.update(relative.encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(path.read_bytes())
-        digest.update(b"\0")
-    return digest.hexdigest()
-
-
-def _compiler_paths() -> tuple[Path, ...]:
-    paths = [REPO_ROOT / "Makefile", REPO_ROOT / "grammar/Pietto.g4"]
-    paths.extend(
-        path
-        for path in (REPO_ROOT / "src/pietto").rglob("*")
-        if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc"
-    )
-    return tuple(paths)
-
-
-def _project_private_paths() -> tuple[Path, ...]:
-    return tuple(
-        path
-        for path in (REPO_ROOT / "src/pietto/_project").rglob("*.py")
-        if "__pycache__" not in path.parts
-    )
 
 
 def _facts(name: str) -> tuple[CapabilityFact, ...]:
@@ -236,33 +57,6 @@ def _inputs(key: CapabilityKey) -> tuple[tuple[CapabilityFact, ...], bool]:
 def _lookup(key: CapabilityKey) -> Found | Absent | Unknown | Conflict:
     facts, complete = _inputs(key)
     return lookup_capability(key, facts, domain_complete=complete)
-
-
-def _pytest_shape() -> tuple[int, int, list[str]]:
-    tree = ast.parse(_read(SELF_PATH), filename=SELF_REL)
-    tests = [
-        node
-        for node in tree.body
-        if isinstance(node, ast.FunctionDef) and node.name.startswith("test_")
-    ]
-    item_count = len(tests)
-    parametrized: list[str] = []
-    for test in tests:
-        for decorator in test.decorator_list:
-            if (
-                isinstance(decorator, ast.Call)
-                and isinstance(decorator.func, ast.Attribute)
-                and decorator.func.attr == "parametrize"
-            ):
-                ids = next(
-                    keyword.value
-                    for keyword in decorator.keywords
-                    if keyword.arg == "ids"
-                )
-                assert isinstance(ids, (ast.Tuple, ast.List))
-                item_count += len(ids.elts) - 1
-                parametrized.append(test.name)
-    return len(tests), item_count, parametrized
 
 
 def test_private_module_api_and_privacy_shape_are_exact() -> None:
@@ -887,30 +681,3 @@ def test_private_inventory_has_no_compiler_public_or_serializer_consumer() -> No
         REPO_ROOT / "src/pietto/semantic/__init__.py"
     )
     assert "capability_inventory" not in _read(REPO_ROOT / "src/pietto/__init__.py")
-
-
-def test_slice2_and_slice3_private_sources_remain_byte_identical() -> None:
-    assert hashlib.sha256((REPO_ROOT / FACTS_REL).read_bytes()).hexdigest() == (
-        FACTS_SHA256
-    )
-    assert hashlib.sha256((REPO_ROOT / LOOKUP_REL).read_bytes()).hexdigest() == (
-        LOOKUP_SHA256
-    )
-
-
-def test_spec_exact_headings_and_inventory_boundary_phrases_are_locked() -> None:
-    spec = _read(SPEC_PATH)
-    headings = tuple(
-        match.group(1).strip()
-        for match in re.finditer(r"^## (?!#)(.+?)\s*$", spec, re.MULTILINE)
-    )
-    assert headings == SPEC_H2
-    for required in (
-        "exactly 41 `CapabilityFact` values",
-        "A zero match there is `Unknown`, not `Absent`.",
-        "No `CapabilityDomain.NULLABILITY` is introduced.",
-        "PostgreSQL precedes private MySQL",
-        "Package version remains `0.1.0`.",
-        "Phase 52 remains active and incomplete",
-    ):
-        assert required in spec

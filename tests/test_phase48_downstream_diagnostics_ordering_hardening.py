@@ -16,37 +16,6 @@ from pietto._project.model import (
 from pietto.ast_nodes import QueryDef, TableDef
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PLAN_PATH = REPO_ROOT / "docs/plan/phase-48-query-to-query-row-schema.md"
-SPEC_PATH = (
-    REPO_ROOT
-    / "docs/spec/phase48-downstream-diagnostics-deterministic-ordering-hardening-v1.md"
-)
-PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-
-
-def test_slice8_contract_document_exists_and_is_linked_from_plan() -> None:
-    assert PLAN_PATH.is_file()
-    assert SPEC_PATH.is_file()
-    docs = " ".join(
-        (
-            PLAN_PATH.read_text(encoding="utf-8")
-            + "\n"
-            + SPEC_PATH.read_text(encoding="utf-8")
-        ).split()
-    )
-
-    for required in (
-        "Phase 48 Slice 8",
-        "Downstream diagnostics and deterministic ordering hardening",
-        "`docs/spec/phase48-downstream-diagnostics-deterministic-ordering-hardening-v1.md`",
-        "docs/spec/tests-only",
-        "existing `PIE-S2102`",
-        "existing `PIE-S2301`",
-        "existing `PIE-S2302`",
-        "Project JSON v2 top-level shape remains unchanged",
-        "No other file is approved in Slice 8 Gate 2",
-    ):
-        assert required in docs, required
 
 
 def test_multiple_invalid_direct_fields_keep_select_item_order(
@@ -474,13 +443,6 @@ def test_project_json_v2_keeps_slice8_private_ordering_facts_private(
         "private ordering",
     ):
         assert private_fact not in serialized
-
-
-def test_package_version_is_locked() -> None:
-    pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
-
-    assert 'version = "0.1.0"' in pyproject
-    assert 'version = "0.2.0"' not in pyproject
 
 
 def _assert_state(

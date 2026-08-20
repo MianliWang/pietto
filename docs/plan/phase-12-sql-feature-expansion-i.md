@@ -138,7 +138,7 @@ Slice 1 may change only:
 - this master plan;
 - `tests/test_phase12_planning_audit.py`;
 - scope-aware current-phase text in `README.md`, `AGENTS.md`, and
-  `docs/spec/pietto-v0.9.md`.
+  `docs/language.md`.
 
 ### Hard Boundaries
 

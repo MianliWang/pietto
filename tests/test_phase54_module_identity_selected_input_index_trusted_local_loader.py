@@ -8,11 +8,6 @@ from pathlib import Path
 import stat
 from types import MappingProxyType
 
-from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
-import _phase54_active_gate2_manifest as active_gate2_manifest
-
 import pytest
 
 import pietto
@@ -46,11 +41,6 @@ from pietto.errors import Diagnostic
 import pietto.parser_api as parser_api
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PLAN_PATH = REPO_ROOT / "docs/plan/phase-54-local-import-module-export-foundation.md"
-SPEC_PATH = (
-    REPO_ROOT
-    / "docs/spec/phase54-slice3-module-identity-selected-input-index-trusted-local-loader-path-symlink-boundary-v1.md"
-)
 SELF_PATH = (
     REPO_ROOT
     / "tests/test_phase54_module_identity_selected_input_index_trusted_local_loader.py"
@@ -869,20 +859,7 @@ def test_schema_v1_and_schema_v2_retain_trust_facts_and_existing_semantics(
     assert results[1][0].compilation_mode is ProjectCompilationMode.EXPLICIT_MODULES
 
 
-def test_single_file_public_privacy_scope_and_flat_evidence_contract_remain_exact() -> (
-    None
-):
-    spec = SPEC_PATH.read_text(encoding="utf-8")
-    plan = PLAN_PATH.read_text(encoding="utf-8")
-    source = SELF_PATH.read_text(encoding="utf-8")
-    expected_paths = (
-        GATE0_GATE1_EVIDENCE,
-        CORRECTION_1_EVIDENCE,
-        CORRECTION_2_EVIDENCE,
-        GATE2_EVIDENCE,
-        GATE3_EVIDENCE,
-    )
-
+def test_single_file_public_privacy_scope_remains_exact() -> None:
     assert ProjectSemanticModel.__dataclass_fields__.keys().isdisjoint(
         {"pinned_root", "selected_input_index", "trusted_source_snapshots"}
     )
@@ -891,80 +868,6 @@ def test_single_file_public_privacy_scope_and_flat_evidence_contract_remain_exac
     assert not hasattr(pietto, "ProjectTrustedSourceSnapshot")
     assert path_trust.__all__ == ()
     assert trusted_source.__all__ == ()
-    for path in expected_paths:
-        assert path in spec
-    assert "/evidence/phase54-slice3/" not in spec
-    graph_path = REPO_ROOT / "src/pietto/_project/module_graph.py"
-    resolution_path = REPO_ROOT / "src/pietto/_project/module_resolution.py"
-    relation_resolution_path = (
-        REPO_ROOT / "src/pietto/_project/module_relation_resolution.py"
-    )
-    graph_source = graph_path.read_text(encoding="utf-8")
-    non_graph_production = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in (REPO_ROOT / "src/pietto").rglob("*.py")
-        if path not in {graph_path, resolution_path, relation_resolution_path}
-    )
-    assert all(f"PIE-S270{number}" in graph_source for number in range(1, 8))
-    assert not any(
-        f"PIE-S270{number}" in non_graph_production for number in range(1, 8)
-    )
-    assert "## Status And Slice 16 Lifecycle" in plan
-    assert "## Slice 3 Exact Production Boundary And Gate Contract" in plan
-    assert "## Slice 4 Exact Production Boundary And Gate Contract" in plan
-    assert source.count("\ndef test_") == 26
-    assert (
-        active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_MARKER
-        == "PHASE55_SLICE1_GATE2"
-    )
-    assert active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_BASE == (
-        "364296e69f7e289395661518031dafeb66a216cc"
-    )
-    assert len(active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_ADDED_PATHS) == 3
-    assert (
-        len(active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_MODIFIED_PATHS) == 52
-    )
-    assert (
-        len(active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_ALLOWLIST_PATHS) == 55
-    )
-    assert (
-        SELF_PATH.relative_to(REPO_ROOT).as_posix()
-        in active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_READER_PATHS
-    )
-    assert active_gate2_manifest.PHASE55_SLICE2_GATE2_MARKER == "PHASE55_SLICE2_GATE2"
-    assert (
-        active_gate2_manifest.PHASE55_SLICE2_BASELINE
-        == "5de57b2c078742253aa64d3a5ad627cd602290cd"
-    )
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_ADDED_PATHS) == 2
-    assert (
-        len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_MODIFIED_PATHS) == 75
-    )
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_DELETED_PATHS) == 0
-    assert (
-        len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_ALLOWLIST_A2_M75_D0)
-        == 77
-    )
-    assert (
-        SELF_PATH.relative_to(REPO_ROOT).as_posix()
-        in active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_MODIFIED_PATHS
-    )
-    assert (
-        SELF_PATH.relative_to(REPO_ROOT).as_posix()
-        in active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_ALLOWLIST_A2_M75_D0
-    )
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_ADDED_PATHS) == 2
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_MODIFIED_PATHS) == 76
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_DELETED_PATHS) == 0
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_ALLOWLIST_A2_M76_D0) == 78
-    assert (
-        SELF_PATH.relative_to(REPO_ROOT).as_posix()
-        in active_gate2_manifest.PHASE55_SLICE2_GATE2_MODIFIED_PATHS
-    )
-    assert (
-        SELF_PATH.relative_to(REPO_ROOT).as_posix()
-        in active_gate2_manifest.PHASE55_SLICE2_GATE2_ALLOWLIST_A2_M76_D0
-    )
     single = parser_api.parse_source("shape One:\n    id: Int\n", path="one.pietto")
     assert single.ast is not None
     assert single.diagnostics == ()

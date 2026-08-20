@@ -46,7 +46,7 @@ and future aggregate expression candidates. That exclusion applies to
 
 Evidence anchors:
 
-- `docs/spec/composition-scope-name-resolution-contract-v1.md`;
+- `docs/language.md`;
 - `docs/spec/diagnostics.md`;
 - `docs/spec/phase37-count-distinct-expression-widening-boundary-v1.md`;
 - `docs/spec/phase37-min-max-expression-boundary-v1.md`;
@@ -106,7 +106,7 @@ Evidence anchors:
 
 - `docs/spec/v02-aggregate-surface-freeze-v1.md`;
 - `docs/spec/phase37-aggregate-filter-distinct-modifier-deferral-v1.md`;
-- `docs/spec/phase38-distinct-collation-ordering-readiness-v1.md`;
+- `docs/language.md`;
 - `tests/test_phase37_nested_aggregate_composition_hardening.py`.
 
 ## Aggregate Filter And `count_if` Roadmap
@@ -142,8 +142,8 @@ filtered aggregate behavior.
 Evidence anchors:
 
 - `docs/spec/phase38-count-family-semantics-contract-v1.md`;
-- `docs/spec/phase38-type-capability-matrix-contract-v1.md`;
-- `docs/plan/phase-38-aggregate-semantics-and-type-capability-consolidation.md`.
+- `docs/spec/phase38-boundary-types-capability-contract-v1.md`;
+- `docs/roadmap.md`.
 
 ## Current Post-Aggregate Expression Posture
 
@@ -224,9 +224,9 @@ multi-input traversal, relation composition, or JOIN behavior.
 
 Evidence anchors:
 
-- `docs/spec/v02-deferred-feature-register-v1.md`;
-- `docs/spec/composition-scope-name-resolution-contract-v1.md`;
-- `docs/plan/phase-38-aggregate-semantics-and-type-capability-consolidation.md`.
+- `docs/roadmap.md`;
+- `docs/language.md`;
+- `docs/roadmap.md`.
 
 ## Diagnostics And Existing Failure Posture
 

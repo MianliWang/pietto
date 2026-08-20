@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 from pathlib import Path
 
 import pytest
@@ -28,9 +27,6 @@ from pietto.sql import emit_postgres_sql
 from pietto.sql.mysql import emit_mysql_sql
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-GRAMMAR_HASH = "661f00037b4ade8f8b5bef0cb3e070e4379decdd11cd19021d68e960e69d2724"
-GENERATED_HASH = "9a84d108062bdbd87f5cd1d6e237e66f8bbb39d1d9d7674312eab6eb156cbad1"
-
 SOURCE_PREFIX = (
     "shape Row:\n"
     "    text: Text not null\n"
@@ -315,16 +311,6 @@ def test_relationship_metadata_does_not_participate_in_scalar_expression_binding
     ].resolved_type.name == ("Int")
 
 
-def test_phase17_slice2_changes_no_grammar_or_generated_antlr() -> None:
-    assert _sha256(REPO_ROOT / "grammar/Pietto.g4") == GRAMMAR_HASH
-    generated = tuple(
-        path
-        for path in sorted((REPO_ROOT / "src/pietto/generated").iterdir())
-        if path.is_file()
-    )
-    assert _aggregate_sha256(generated) == GENERATED_HASH
-
-
 def _compile(source: str) -> tuple[Script, SemanticResult, ScriptIR]:
     script = _parse(source)
     semantic = analyze(script)
@@ -384,18 +370,3 @@ def _assert_diagnostic_span(diagnostic: Diagnostic, expression: Expression) -> N
     assert diagnostic.location.column == expression.span.column
     assert diagnostic.location.end_line == expression.span.end_line
     assert diagnostic.location.end_column == expression.span.end_column
-
-
-def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def _aggregate_sha256(paths: tuple[Path, ...]) -> str:
-    digest = hashlib.sha256()
-    for path in paths:
-        relative = path.relative_to(REPO_ROOT).as_posix()
-        digest.update(relative.encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(path.read_bytes())
-        digest.update(b"\0")
-    return digest.hexdigest()

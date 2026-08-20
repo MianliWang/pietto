@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 from dataclasses import FrozenInstanceError, fields, replace
 import inspect
 import json
@@ -8,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-import _phase54_active_gate2_manifest as active_gate2_manifest
 import pietto._project.check as project_check
 import pietto._project.module_package_neutral_identity as layering
 from pietto._project.json_v2 import project_check_result_to_json_dict
@@ -34,50 +32,9 @@ from pietto._project.module_semantic_fact_preservation import (
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SPEC_REL = (
-    "docs/spec/phase54-slice13-package-neutral-identity-layering-owner-asset-"
-    "carriers-source-digest-and-loader-readiness-v1.md"
-)
 SOURCE_REL = "src/pietto/_project/module_package_neutral_identity.py"
 TEST_REL = "tests/test_phase54_package_neutral_identity_layering.py"
 
-EXPECTED_TEST_NAMES = (
-    "test_slice13_contract_status_active_manifest_and_allowlist_are_exact",
-    "test_package_neutral_vocabulary_carriers_fields_and_privacy_are_exact",
-    "test_owner_identity_rejects_package_namespace_and_named_project_root",
-    "test_module_owner_identity_requires_an_exact_normalized_module_path",
-    "test_source_digest_identity_requires_exact_lowercase_sha256_and_byte_count",
-    "test_schema_v1_has_no_layered_sidecar_and_public_bytes_remain_exact",
-    "test_schema_v2_builds_the_layered_sidecar_from_six_exact_shared_roots",
-    "test_shared_authority_root_predicate_rejects_value_equal_foreign_fact_sets",
-    "test_shared_authority_root_predicate_rejects_coordinated_mixed_root_products",
-    "test_shared_authority_root_predicate_rejects_partial_or_misaligned_roots",
-    "test_layered_authority_derives_products_and_rejects_grafted_derived_tuples",
-    "test_module_asset_digest_reaches_through_its_exact_trusted_snapshot",
-    "test_byte_equal_modules_share_one_digest_identity_and_stay_distinct_assets",
-    "test_digest_and_module_lookups_return_complete_buckets_without_a_winner",
-    "test_ready_loader_readiness_is_atomic_with_its_reason_and_empty_evidence",
-    "test_module_cycle_publishes_blocked_readiness_with_exact_issue_roots",
-    "test_loader_readiness_atomicity_rejects_every_mismatched_combination",
-    "test_declaration_assets_share_the_exact_module_readiness_object",
-    "test_concrete_relation_declaration_retains_its_exact_slice12_state",
-    "test_unknown_relation_declaration_propagates_without_child_inference",
-    "test_deferred_relation_declaration_propagates_without_concretization",
-    "test_blocked_relation_declaration_retains_its_exact_blocked_state",
-    "test_non_relation_declaration_is_absent_rather_than_unknown",
-    "test_repeated_nominal_identity_is_ambiguous_and_publishes_no_winner",
-    "test_loader_blocked_module_publishes_no_semantic_or_relation_product",
-    "test_availability_atomicity_rejects_every_inconsistent_combination",
-    "test_module_and_declaration_cardinalities_zero_one_two_three_are_complete",
-    "test_module_assets_and_declaration_assets_follow_exact_authority_order",
-    "test_same_spelling_declarations_in_two_modules_never_merge",
-    "test_declaration_lookup_returns_complete_buckets_and_rejects_foreign_keys",
-    "test_layered_fact_set_rejects_dropped_injected_reordered_or_foreign_products",
-    "test_tenth_sidecar_all_or_none_boundary_is_exact_and_fail_closed",
-    "test_slice11_and_slice12_products_remain_independent_and_unchanged",
-    "test_layered_builder_is_pure_over_preloaded_inputs_and_performs_no_io",
-    "test_schema_v2_public_api_cli_json_ir_sql_dependencies_and_goldens_unchanged",
-)
 
 _SHAPE_PREFIX = (
     "shape Row:\n"
@@ -189,100 +146,6 @@ def _cycle_sources() -> dict[str, str]:
             "    id: Int\n"
         ),
     }
-
-
-def test_slice13_contract_status_active_manifest_and_allowlist_are_exact() -> None:
-    spec = (REPO_ROOT / SPEC_REL).read_text(encoding="utf-8")
-    plan = (
-        REPO_ROOT / "docs/plan/phase-54-local-import-module-export-foundation.md"
-    ).read_text(encoding="utf-8")
-    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
-    whitepaper = (REPO_ROOT / "docs/spec/pietto-v0.9.md").read_text(encoding="utf-8")
-    assert "Slice 13 is the first authorized join" in spec
-    assert "shared exact-authority-root predicate" in spec
-    assert "reserved empty local namespace" in spec
-    assert "no loader is implemented" in spec
-    assert "private module inspection or canonical serialization (Slice 14)" in spec
-    assert "PHASE54_SLICE14_GATE2_COMPLETED_AWAITING_PUBLICATION" in plan
-    assert "Slice 13" in readme
-    assert "Current Phase 54 Completion Status" in whitepaper
-    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER == (
-        "PHASE54_SLICE16_GATE2"
-    )
-    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE == (
-        "1f69c0316086a2236cee03a96cca95218fbd50fc"
-    )
-    # A historical benchmark reads the frozen Slice 13 record, never the active
-    # Gate 2 sets, which move with every later Slice.
-    historical_added = active_gate2_manifest.PHASE54_SLICE13_HISTORICAL_ADDED_PATHS
-    historical_non_reader = (
-        active_gate2_manifest.PHASE54_SLICE13_HISTORICAL_NON_READER_PATHS
-    )
-    historical_readers = active_gate2_manifest.PHASE54_SLICE13_HISTORICAL_READER_PATHS
-    historical_modified = historical_non_reader | historical_readers
-    historical_allowlist = historical_added | historical_modified
-    assert historical_added == {SPEC_REL, SOURCE_REL, TEST_REL}
-    assert historical_non_reader == {
-        "README.md",
-        "docs/plan/phase-54-local-import-module-export-foundation.md",
-        "docs/spec/pietto-v0.9.md",
-        "src/pietto/_project/model.py",
-        "tests/_phase54_active_gate2_manifest.py",
-    }
-    assert len(historical_readers) == 60
-    assert len(historical_modified) == 65
-    assert len(historical_allowlist) == 68
-    assert sum(path.endswith(".py") for path in historical_allowlist) == 64
-    assert not (historical_non_reader & historical_readers)
-    assert not (historical_added & historical_modified)
-    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
-    assert "60-reader" in spec
-    assert "exact 64 Python paths" in spec
-    assert "exact `A3_M65_D0`" in spec
-    assert (
-        active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_MARKER
-        == "PHASE55_SLICE1_GATE2"
-    )
-    assert active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_BASE == (
-        "364296e69f7e289395661518031dafeb66a216cc"
-    )
-    assert len(active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_ADDED_PATHS) == 3
-    assert (
-        len(active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_MODIFIED_PATHS) == 52
-    )
-    assert (
-        len(active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_ALLOWLIST_PATHS) == 55
-    )
-    assert (
-        TEST_REL in active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_READER_PATHS
-    )
-    assert active_gate2_manifest.PHASE55_SLICE2_GATE2_MARKER == "PHASE55_SLICE2_GATE2"
-    assert (
-        active_gate2_manifest.PHASE55_SLICE2_BASELINE
-        == "5de57b2c078742253aa64d3a5ad627cd602290cd"
-    )
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_ADDED_PATHS) == 2
-    assert (
-        len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_MODIFIED_PATHS) == 75
-    )
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_DELETED_PATHS) == 0
-    assert (
-        len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_ALLOWLIST_A2_M75_D0)
-        == 77
-    )
-    assert (
-        TEST_REL in active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_MODIFIED_PATHS
-    )
-    assert (
-        TEST_REL
-        in active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_ALLOWLIST_A2_M75_D0
-    )
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_ADDED_PATHS) == 2
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_MODIFIED_PATHS) == 76
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_DELETED_PATHS) == 0
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_ALLOWLIST_A2_M76_D0) == 78
-    assert TEST_REL in active_gate2_manifest.PHASE55_SLICE2_GATE2_MODIFIED_PATHS
-    assert TEST_REL in active_gate2_manifest.PHASE55_SLICE2_GATE2_ALLOWLIST_A2_M76_D0
 
 
 def test_package_neutral_vocabulary_carriers_fields_and_privacy_are_exact() -> None:
@@ -1474,19 +1337,3 @@ def test_schema_v2_public_api_cli_json_ir_sql_dependencies_and_goldens_unchanged
         encoding="utf-8"
     )
     assert "module_package_neutral_identity" not in project_init
-    pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    assert 'version = "0.1.0"' in pyproject
-    tree = ast.parse((REPO_ROOT / TEST_REL).read_text(encoding="utf-8"))
-    actual = tuple(
-        node.name
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name.startswith("test_")
-    )
-    assert actual == EXPECTED_TEST_NAMES
-    assert len(EXPECTED_TEST_NAMES) == 35
-    assert all(
-        not node.decorator_list
-        for node in tree.body
-        if isinstance(node, ast.FunctionDef) and node.name.startswith("test_")
-    )

@@ -46,13 +46,6 @@ from pietto.errors import SourceLocation
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HELPER_PATH = REPO_ROOT / "src/pietto/_project/aggregate_grouped_schema.py"
 MODEL_PATH = REPO_ROOT / "src/pietto/_project/model.py"
-PLAN_PATH = (
-    REPO_ROOT / "docs/plan/phase-51-aggregate-grouped-output-schema-foundation.md"
-)
-SPEC_PATH = (
-    REPO_ROOT / "docs/spec/phase51-group-key-project-row-schema-foundation-v1.md"
-)
-
 EXPECTED_PROJECT_JSON_V2_KEYS = (
     "schema_version",
     "command",
@@ -593,33 +586,6 @@ def test_helper_facts_are_not_persisted_exported_or_serialized(tmp_path: Path) -
         assert not hasattr(pietto, name)
         assert not hasattr(project_package, name)
         assert name not in serialized
-
-
-def test_contract_plan_and_helper_only_boundaries_are_locked() -> None:
-    plan = PLAN_PATH.read_text(encoding="utf-8")
-    spec = SPEC_PATH.read_text(encoding="utf-8")
-    helper = HELPER_PATH.read_text(encoding="utf-8")
-    group_key_builder_source = inspect.getsource(build_project_group_key_schema_facts)
-
-    plan_lines = plan.splitlines()
-    assert "### Slice 3 Gate 2 Bounded Implementation Status" in plan_lines
-    assert "## Slice 3 Gate 2 Bounded Implementation Status" not in plan_lines
-    for required in (
-        "helper-only",
-        "unpersisted",
-        "ProjectGroupKeyFact",
-        "ProjectGroupKeySchemaFacts",
-        "build_project_group_key_schema_facts",
-        "ProjectRowResultRole.GROUP_KEY",
-        "DEFERRED_PHASE48_BEHAVIOR",
-        "Phase 51 remains ACTIVE",
-        "Phase 52–60 remain UNSTARTED",
-        "/tmp/pietto-phase51-slice3-gate2-evidence-and-diff.txt",
-    ):
-        assert required in f"{plan}\n{spec}", required
-    assert "ProjectAggregateResultFact(" not in group_key_builder_source
-    assert "build_project_aggregate_schema_facts" not in group_key_builder_source
-    assert "ProjectSemanticModel" not in helper
 
 
 def _group_key_inputs(

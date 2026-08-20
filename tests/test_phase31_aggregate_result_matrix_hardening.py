@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from pathlib import Path
 
 import pytest
 
@@ -31,14 +30,6 @@ from pietto.semantic import (
 from pietto.semantic.aggregates import semantic_aggregate_result_value_type
 from pietto.sql import SqlResult, emit_postgres_sql
 from pietto.sql.mysql import emit_mysql_sql
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-PLAN_PATH = REPO_ROOT / "docs/plan/phase-31-v02-hardening-and-stable-completion.md"
-SPEC_PATH = REPO_ROOT / "docs/spec/v02-hardening-and-stable-completion-v1.md"
-PHASE36_PLAN_PATH = (
-    REPO_ROOT / "docs/plan/phase-36-post-v02-core-type-system-expansion.md"
-)
-PHASE36_ENUM_SPEC_PATH = REPO_ROOT / "docs/spec/enum-support-resolution-v1.md"
 
 MATRIX_SHAPE = (
     "shape Order:\n"
@@ -146,61 +137,6 @@ GROUPED_ROW_SCHEMA = (
     ("total_expr", "Int", EffectiveNullability.NULLABLE),
     ("decimal_average_expr", "Decimal", EffectiveNullability.NULLABLE),
 )
-
-
-def test_phase31_slice2_plan_and_spec_lock_tests_static_audit_scope() -> None:
-    plan = _normalized(PLAN_PATH)
-    spec = _normalized(SPEC_PATH)
-    phase36 = f"{_normalized(PHASE36_PLAN_PATH)} {_normalized(PHASE36_ENUM_SPEC_PATH)}"
-    combined = f"{plan} {spec}"
-
-    for required in (
-        "Phase 31 Slice 2 is complete as aggregate result matrix hardening, "
-        "tests, static audit, and status work only",
-        "Slice 8 is complete",
-        "Phase 29 aggregate freeze remains active",
-        "Phase 30 type-system contracts are carried forward",
-        "min(Decimal) and max(Decimal) are included only as current accepted "
-        "behavior with existing semantic, IR, and SQL test evidence",
-        "Bytes and Json are recorded only as existing count(field) concrete "
-        "builtin non-Any behavior",
-        "does not imply broader Bytes or Json expression, comparison, SQL, or "
-        "type-system support",
-        "count(Enum field) remains a documented risk",
-        "Phase 31 Slice 5 is complete as UUID / Enum readiness decision, "
-        "tests, static audit, and status work only",
-        "Phase 31 Slice 6 is complete as Diagnostic / CLI / JSON stability "
-        "hardening, tests, static audit, status, and docs work only",
-        "UUID remains limited/frozen readiness",
-        "Enum remains metadata readiness only",
-        "semantic/IR acceptance with PostgreSQL/private MySQL fail-closed output",
-        "requires separate explicit approval before any behavior fix",
-        "Accepted locked matrix rows have concrete expected nullability",
-        "Unsupported or invalid forms may preserve unknown schema/value facts "
-        "through existing diagnostics",
-    ):
-        assert required in combined
-
-    for forbidden in (
-        "aggregate expansion",
-        "behavior fix",
-        "v0.2 completion declaration in Slice 2",
-        "Phase 32 implementation",
-        "Slice 3 work",
-        "JSON v2",
-        "public MySQL API expansion",
-        "diagnostic behavior change",
-        "CLI behavior change",
-        "JSON v1 schema expansion",
-    ):
-        assert forbidden in combined
-
-    for required in (
-        "Phase 36 Slice 5 selects Option C: narrow semantic fail-closed behavior change",
-        "`count(Enum field)` now fails in semantic aggregate validation with existing diagnostic `PIE-S2314`",
-        "Enum remains metadata/readiness, not a builtin scalar",
-    ):
-        assert required in phase36
 
 
 def test_semantic_aggregate_result_helper_matrix_is_locked() -> None:
@@ -485,16 +421,6 @@ def test_count_field_boundary_types_are_locked_with_enum_fail_closed() -> None:
         projection = _relation_ir(ir_result.ir).projections[0]
         assert not isinstance(projection.expression, AggregateCallIR)
 
-    combined = f"{_normalized(PHASE36_PLAN_PATH)} {_normalized(PHASE36_ENUM_SPEC_PATH)}"
-    assert (
-        "Direct `count(Enum field)` must fail closed in semantic aggregate validation using existing diagnostic `PIE-S2314`"
-        in combined
-    )
-    assert (
-        "It no longer reaches IR and PostgreSQL/private MySQL SQL backend fail-closed output as `PIE-B1000`"
-        in combined
-    )
-
 
 @pytest.mark.parametrize(
     "projection",
@@ -679,7 +605,3 @@ def _walk_field_names(expression: ExpressionIR) -> Iterable[str]:
         for argument in expression.arguments:
             yield from _walk_field_names(argument)
         return
-
-
-def _normalized(path: Path) -> str:
-    return " ".join(path.read_text(encoding="utf-8").split())

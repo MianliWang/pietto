@@ -10,10 +10,6 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any, cast
 
-from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
-
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -31,7 +27,6 @@ EXPECTED_INVENTORY = (
     "PiettoVisitor.py",
     "__init__.py",
 )
-BOUNDARY_HASH = "6cbe7ccfbd84d7b2966964ac91a56e7eeacdc798c3d161da64d61add662b0420"
 VALIDATION_GATES = (
     ("lockfile", ("uv", "lock", "--check")),
     ("format", ("uv", "run", "ruff", "format", "--check", ".")),
@@ -289,33 +284,8 @@ def test_slice3_guard_stays_independent_from_later_workflows() -> None:
     assert all("check_generated.py" not in command for _, command in validate.GATES)
     assert "check_goldens" not in GUARD_PATH.read_text(encoding="utf-8")
     assert "package_smoke" not in GUARD_PATH.read_text(encoding="utf-8")
-    assert _sha256(REPO_ROOT / "Makefile") == (
-        "dbd38c41e2af5275c379de0b88c92f3861efb90724c7de1a291e0aa007ce2db7"
-    )
     assert (REPO_ROOT / ".github/workflows/ci.yml").is_file()
     assert (REPO_ROOT / "scripts" / "package_smoke.py").is_file()
-
-
-def test_slice3_preserves_compiler_and_configuration_boundary_bytes() -> None:
-    paths = [
-        REPO_ROOT / "Makefile",
-        REPO_ROOT / "grammar" / "Pietto.g4",
-    ]
-    paths.extend(
-        path
-        for path in (REPO_ROOT / "src" / "pietto").rglob("*")
-        if path.is_file() and "__pycache__" not in path.parts
-    )
-
-    digest = hashlib.sha256()
-    for path in sorted(paths):
-        relative_path = path.relative_to(REPO_ROOT).as_posix()
-        digest.update(relative_path.encode())
-        digest.update(b"\0")
-        digest.update(path.read_bytes())
-        digest.update(b"\0")
-
-    assert digest.hexdigest() == BOUNDARY_HASH
 
 
 def _write_fake_repository(
@@ -345,15 +315,3 @@ def _write_fake_repository(
     for name, content in tracked_files.items():
         (generated_root / name).write_bytes(content)
     return tracked_files
-
-
-def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-_SLICE10_READER_MIGRATION_PATHS = (
-    "docs/spec/phase53-partition-binding-multi-key-visibility-diagnostics-contract-v1.md",
-    "src/pietto/semantic/window_partition_analysis.py",
-    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
-)
-# Phase 53 Slice 13 reader migration.

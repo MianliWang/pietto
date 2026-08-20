@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import ast
 from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
-import inspect
 import json
 import os
 from pathlib import Path
@@ -28,47 +26,7 @@ from pietto._project.module_carrier import ProjectCompilationMode
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SPEC_REL = (
-    "docs/spec/phase54-slice7-named-imports-aliases-binding-environments-"
-    "and-collision-rules-v1.md"
-)
 SOURCE_REL = "src/pietto/_project/module_bindings.py"
-TEST_REL = (
-    "tests/test_phase54_named_import_alias_binding_environments_collision_rules.py"
-)
-
-EXPECTED_TEST_NAMES = (
-    "test_binding_carrier_enums_fields_privacy_and_manifest_are_locked",
-    "test_binding_carrier_constructors_reject_wrong_types_and_identity_rewrites",
-    "test_modules_without_imports_build_empty_ordered_environments",
-    "test_exact_six_named_import_kinds_resolve_from_direct_facade",
-    "test_unaliased_import_uses_exported_name_for_local_identity",
-    "test_alias_changes_only_local_binding_name_and_preserves_target_identity",
-    "test_target_resolution_preserves_exact_path_case_and_unicode",
-    "test_unselected_target_fails_closed_without_filesystem_discovery",
-    "test_unknown_exported_name_retains_issue_without_winner",
-    "test_private_or_unexported_declaration_is_not_importable",
-    "test_namespace_or_kind_disagreement_retains_inconsistent_facade_issue",
-    "test_ambiguous_target_facade_retains_all_entries_without_winner",
-    "test_local_declaration_and_import_collision_has_no_winner",
-    "test_repeated_local_binding_name_has_no_first_or_last_winner",
-    "test_distinct_exported_names_aliased_to_same_local_name_collide",
-    "test_exact_duplicate_requests_remain_distinct_with_prior_evidence",
-    "test_import_order_changes_evidence_order_not_collision_meaning",
-    "test_environment_set_preserves_selected_input_and_source_order",
-    "test_environment_values_lookups_and_collections_are_immutable",
-    "test_resolved_binding_keeps_separate_local_and_nominal_identities",
-    "test_direct_explicit_reexport_entry_is_importable_without_identity_rewrite",
-    "test_single_backfill_does_not_recurse_or_build_facade_fixed_point",
-    "test_slice6_candidate_proof_positions_and_alias_span_are_exact",
-    "test_matching_export_request_consumes_real_candidate_for_reexport",
-    "test_schema_v2_semantic_result_retains_private_bindings_and_fail_closed_posture",
-    "test_schema_v2_text_and_json_remain_exact_and_private",
-    "test_schema_v1_semantics_json_and_binding_absence_remain_exact",
-    "test_builder_uses_only_preloaded_inputs_and_performs_no_io",
-    "test_no_public_diagnostics_graph_ir_sql_or_serialized_binding_surface",
-    "test_slice7_contract_test_inventory_and_active_gate_manifest_are_exact",
-)
 
 SIX_KIND_SOURCE = (
     "type Email = Text not null\n"
@@ -1064,25 +1022,3 @@ def test_no_public_diagnostics_graph_ir_sql_or_serialized_binding_surface(
     )
     assert all(f"PIE-S270{number}" not in binding_source for number in range(1, 8))
     assert all(f"PIE-S270{number}" in graph_source for number in range(1, 8))
-
-
-def test_slice7_contract_test_inventory_and_active_gate_manifest_are_exact() -> None:
-    assert (REPO_ROOT / SPEC_REL).is_file()
-    assert (REPO_ROOT / SOURCE_REL).is_file()
-    tree = ast.parse((REPO_ROOT / TEST_REL).read_text(encoding="utf-8"))
-    names = tuple(
-        node.name
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name.startswith("test_")
-    )
-    assert names == EXPECTED_TEST_NAMES
-    assert len(names) == 30
-    assert not any(
-        node.decorator_list
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name.startswith("test_")
-    )
-    assert "ImportStatement.target" not in inspect.getsource(module_exports)
-    assert "_build_project_module_binding_environment_set" not in pietto.__dict__

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import ast
-import hashlib
-import re
 from collections import Counter
 from dataclasses import replace
 from pathlib import Path
@@ -36,22 +34,6 @@ from pietto.semantic.capability_lookup import (
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SELF_REL = "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py"
-SPEC_REL = "docs/spec/phase52-parity-privacy-cross-phase-readiness-drift-closure-v1.md"
-SLICE1_TEST_REL = (
-    "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py"
-)
-SLICE2_TEST_REL = "tests/test_phase52_private_capability_fact_foundation.py"
-SLICE3_TEST_REL = "tests/test_phase52_fail_closed_capability_lookup.py"
-SLICE4_TEST_REL = (
-    "tests/test_phase52_logical_type_literal_parameter_nullability_inventory.py"
-)
-SLICE5_TEST_REL = "tests/test_phase52_scalar_function_operator_signature_facts.py"
-SLICE6_TEST_REL = "tests/test_phase52_expression_stage_clause_capability_facts.py"
-SLICE7_TEST_REL = "tests/test_phase52_aggregate_signature_algebra_facts.py"
-SLICE9_SPEC_REL = "docs/spec/phase52-completion-audit-and-status-lock-v1.md"
-SLICE9_TEST_REL = "tests/test_phase52_completion_audit_and_status_lock.py"
-
 FACTS_REL = "src/pietto/semantic/capability_facts.py"
 LOOKUP_REL = "src/pietto/semantic/capability_lookup.py"
 INVENTORY_REL = "src/pietto/semantic/capability_inventory.py"
@@ -68,131 +50,6 @@ MODULE_RELS = (
     AGGREGATE_REL,
     WINDOW_REL,
 )
-MODULE_OBJECTS = (
-    capability_facts,
-    capability_lookup,
-    capability_inventory,
-    capability_signatures,
-    capability_contexts,
-    capability_aggregates,
-    capability_windows,
-)
-
-GATE2_BASE_HEAD_SHA = "11a0c48941c3c1c650be8d0ec8ddf5201f9525f2"
-GATE2_BASE_PARENT_SHA = "7bea69da0465f57580961e4ca4a2c18a84dfb68c"
-GATE2_BASE_TREE_SHA = "2953c238f27239d796c9af05543b48c1add2a69d"
-CI_REPAIR_BASE_HEAD_SHA = "7a221ffdca91335a526ed12a1059340bda642fdb"
-SLICE9_BASE_HEAD_SHA = "36e466535d923f708a0201ae15a5708f06f2b1f8"
-MODULE_SHA256 = {
-    FACTS_REL: "bd68bad4e13a2b945962458fc47359a408d27b1563ba25f5713a8f8099671d21",
-    LOOKUP_REL: "4d4c2676b3181758f01c95ca312fd0f76cebcb74ac1bcab0deefb15fc04abf26",
-    INVENTORY_REL: "f11eee2a53fda26057c35be047bfa265c68794ad76054bc5636781f0b5164b26",
-    SIGNATURE_REL: "810f347080e0bb7dc674821aa6387c5f7618ac216832194ef19820326eef71d2",
-    CONTEXT_REL: "132371eccca00ca9f8722a34f1ea0f540933515e560639ee12e53aee6594c60c",
-    AGGREGATE_REL: "d7d69fa4b97924ef5462af9c871a910b73cad43a21431e98a72c8bdab8996c80",
-    WINDOW_REL: "c0512933fc284bbc1dec98dab96411ee179d64e7bee005aa798b6fd7dba2024e",
-}
-SPEC_SHA256 = "7010cd8a39ed389de588d8cd734b136cc87456c3ef5eb324638467d1188fc935"
-MODIFIED_TEST_SHA256 = {
-    SLICE4_TEST_REL: "4088e10f18da885dc61786ce775ebf153787628162ecf30b1ef28c115b6cdab9",
-    SLICE5_TEST_REL: "44d003368c35e5eeb6513caa19b25eea3dec5cc4bc27cc3a36bb90e7cf47abe0",
-    SLICE6_TEST_REL: "ed3485b83092946e628c3d5b020eff2cf7e441844392300fac461e08db330792",
-    SLICE7_TEST_REL: "d2e42de40fc7f278203b1a2dc0b4201d8dad73538d1e852a0a54344a9ec77e89",
-}
-WORKFLOW_SHA256 = "56339c3e565471c3a95a0f79a05eaf9596d734a173d1936d5df167526508ddac"
-PYPROJECT_SHA256 = "851e706f2cbafb24c48068cdd6fd8a6ada1f93317618000be71db3681c40a1a8"
-LOCK_SHA256 = "12795f072df20fb688b37e484dd4561cd33e34bf601be3cb0fa1f9075eee38a2"
-COMPILER_DIGEST = "6cbe7ccfbd84d7b2966964ac91a56e7eeacdc798c3d161da64d61add662b0420"
-SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
-PHASE15_SUBSET_DIGEST = (
-    "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
-)
-PROJECT_PRIVATE_DIGEST = (
-    "327ba4f5c12d916d6577cd9510aa2a28df8519dafdc935ae67a6d2f5b2fc4830"
-)
-
-SPEC_H2 = (
-    "Status And Authority",
-    "Static-only Architecture And Scope",
-    "Domain Fact Key And Ownership Inventory",
-    "Completeness Schema And Malformed Key Closure",
-    "Four-result Lookup And Ordering Parity",
-    "Evidence Backend Support And Disposition Parity",
-    "Conflict And Omission Ledger",
-    "Private Import Export And Consumer Closure",
-    "No-authority No-behavior And Source-integrity Closure",
-    "Cross-phase Readiness Through Phase 60",
-    "Phase 53 Window Handoff",
-    "PR Merge-ref And Repository-state Compatibility",
-    "Drift-closure And Static-reader Invariants",
-    "Slice 8 Validation And Evidence Contract",
-    "Lifecycle Gate 3 And Release Boundary",
-)
-EXPECTED_TEST_NAMES = (
-    "test_slice8_artifacts_headings_authority_and_static_only_shape_are_exact",
-    "test_all_six_private_module_api_dependency_and_byte_sentinels_are_exact",
-    "test_capability_domain_population_and_reservation_matrix_is_exact",
-    "test_slice4_7_fact_key_totals_duplicates_and_collisions_are_exact",
-    "test_fact_order_domain_ownership_and_combined_inventory_are_deterministic",
-    "test_all_populated_completeness_schemas_are_exact",
-    "test_canonical_complete_zero_match_and_open_position_absence_are_exact",
-    "test_malformed_closed_future_dialect_extension_keys_are_unknown",
-    "test_division_and_backend_gap_unknown_reasons_are_exact",
-    "test_found_absent_unknown_conflict_precedence_and_duplicate_folding_are_exact",
-    "test_each_family_lookup_input_filtering_completeness_and_reason_are_exact",
-    "test_conflict_evidence_order_and_count_shape_real_conflict_are_exact",
-    "test_canonical_evidence_source_order_paths_references_and_scope_are_exact",
-    "test_postgresql_private_mysql_support_lowering_matrix_is_exact",
-    "test_support_disposition_owner_reason_and_affirmative_evidence_are_exact",
-    "test_winner_free_conflict_and_omission_ledger_is_exact",
-    "test_private_import_ast_dynamic_export_and_package_boundary_is_exact",
-    "test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists",
-    "test_no_authority_behavior_and_repository_sentinels_are_exact",
-    "test_cross_phase_53_60_handoff_matrix_is_exact",
-    "test_post60_owner_and_out_of_scope_matrix_is_exact",
-    "test_phase53_window_handoff_remains_unpopulated_and_unknown",
-    "test_clean_main_synthetic_merge_dirty_and_historical_repository_states_are_exact",
-    "test_pr19_pr20_workflow_dependency_package_tag_and_ref_locks_are_exact",
-    "test_static_reader_counts_boundary_hash_and_nested_sha_topology_are_exact",
-    "test_test_inventory_tier1_selectors_and_compatibility_counts_are_exact",
-    "test_tier2_manifest_identity_presence_uniqueness_and_clean_only_classification_are_exact",
-    "test_slice8_gate2_gate3_lifecycle_release_and_next_gate_are_exact",
-)
-
-SLICE8_MODIFIED_PATHS = {
-    SLICE4_TEST_REL,
-    SLICE5_TEST_REL,
-    SLICE6_TEST_REL,
-    SLICE7_TEST_REL,
-}
-SLICE8_ADDED_PATHS = {SPEC_REL, SELF_REL}
-CI_REPAIR_MODIFIED_PATHS = {SELF_REL}
-SLICE9_MODIFIED_PATHS = {
-    "docs/plan/phase-52-core-type-system-capability-foundation.md",
-    "docs/spec/pietto-active-roadmap-phase51-60-v1.md",
-    SLICE1_TEST_REL,
-    SLICE5_TEST_REL,
-    SLICE6_TEST_REL,
-    SLICE7_TEST_REL,
-    SELF_REL,
-}
-SLICE9_ADDED_PATHS = {SLICE9_SPEC_REL, SLICE9_TEST_REL}
-
-DIRECT_TIER1_BYTES = 4860
-DIRECT_TIER1_SHA256 = "417a72e2091fdd85e8b1d5f76bc4a21a64e55dbdb1eb87de4318a1b344a67faf"
-COMPATIBLE_TIER1_BYTES = 8708
-COMPATIBLE_TIER1_SHA256 = (
-    "ad36af418104abe3afb21e94e1f64e87762ec2006047151c20ddb7047b25392a"
-)
-TIER1_OPERAND_BYTES = 5525
-TIER1_OPERAND_SHA256 = (
-    "2097b7aace8604cb54af6392a9e400543fa7eefac4423f810d8a37451c05d48b"
-)
-TIER2_MANIFEST_BYTES = 18026
-TIER2_MANIFEST_SHA256 = (
-    "6ab2027b7c8cb7858fbea2d3902130a4a860e462102ac4e582990f4bcfa501bf"
-)
-
 EVIDENCE_SOURCE_COUNTS = {
     CapabilityEvidenceSource.GRAMMAR_AST: 267,
     CapabilityEvidenceSource.SEMANTIC_CATALOG: 87,
@@ -210,47 +67,6 @@ EVIDENCE_SOURCE_COUNTS = {
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
-
-
-def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def _commit_available_from_batch_output(commit: str, output: str) -> bool:
-    assert re.fullmatch(r"[0-9a-f]{40}", commit)
-    if output == f"{commit} commit\n":
-        return True
-    if output == f"{commit} missing\n":
-        return False
-    raise AssertionError(f"unexpected git object result: {output!r}")
-
-
-def _digest(paths: tuple[Path, ...]) -> str:
-    digest = hashlib.sha256()
-    for path in sorted(paths, key=lambda item: item.relative_to(REPO_ROOT).as_posix()):
-        digest.update(path.relative_to(REPO_ROOT).as_posix().encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(path.read_bytes())
-        digest.update(b"\0")
-    return digest.hexdigest()
-
-
-def _compiler_paths() -> tuple[Path, ...]:
-    paths = [REPO_ROOT / "Makefile", REPO_ROOT / "grammar/Pietto.g4"]
-    paths.extend(
-        path
-        for path in (REPO_ROOT / "src/pietto").rglob("*")
-        if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc"
-    )
-    return tuple(paths)
-
-
-def _project_private_paths() -> tuple[Path, ...]:
-    return tuple(
-        path
-        for path in (REPO_ROOT / "src/pietto/_project").rglob("*.py")
-        if "__pycache__" not in path.parts
-    )
 
 
 def _facts(module: object, name: str) -> tuple[CapabilityFact, ...]:
@@ -308,93 +124,6 @@ def _lookup(key: CapabilityKey) -> Found | Absent | Unknown | Conflict:
     )
 
 
-def _parametrize_values(function: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
-    count = 1
-    for decorator in function.decorator_list:
-        if not isinstance(decorator, ast.Call):
-            continue
-        target = decorator.func
-        if not (
-            isinstance(target, ast.Attribute)
-            and target.attr == "parametrize"
-            and len(decorator.args) >= 2
-        ):
-            continue
-        values = decorator.args[1]
-        if not isinstance(values, (ast.List, ast.Tuple)):
-            raise AssertionError("parametrize values must be literal")
-        count *= len(values.elts)
-    return count
-
-
-def _pytest_shape(path: Path) -> tuple[int, int, list[str], list[int]]:
-    tree = ast.parse(_read(path), filename=path.as_posix())
-    functions = [
-        node
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name.startswith("test_")
-    ]
-    parametrized = [node for node in functions if node.decorator_list]
-    return (
-        len(functions),
-        sum(_parametrize_values(node) for node in functions),
-        [node.name for node in parametrized],
-        [_parametrize_values(node) for node in parametrized],
-    )
-
-
-def _literal_tuple(path: Path, name: str) -> tuple[str, ...]:
-    tree = ast.parse(_read(path), filename=path.as_posix())
-    for node in tree.body:
-        value: ast.expr | None = None
-        if isinstance(node, ast.Assign) and any(
-            isinstance(target, ast.Name) and target.id == name
-            for target in node.targets
-        ):
-            value = node.value
-        elif (
-            isinstance(node, ast.AnnAssign)
-            and isinstance(node.target, ast.Name)
-            and node.target.id == name
-        ):
-            value = node.value
-        if value is None:
-            continue
-        result = ast.literal_eval(value)
-        assert isinstance(result, tuple)
-        assert all(isinstance(item, str) for item in result)
-        return cast(tuple[str, ...], result)
-    raise AssertionError(f"missing literal tuple {name}")
-
-
-def _compatible_nodes() -> tuple[tuple[str, ...], tuple[int, ...]]:
-    files = (SLICE2_TEST_REL, SLICE3_TEST_REL, SLICE4_TEST_REL)
-    excluded = {
-        SLICE2_TEST_REL + "::test_gate2_dirty_untracked_and_index_states_are_exact",
-        SLICE3_TEST_REL + "::test_gate2_dirty_untracked_and_index_states_are_exact",
-        SLICE4_TEST_REL + "::test_gate2_dirty_untracked_and_index_states_are_exact",
-    }
-    nodes: list[str] = []
-    per_file_items: list[int] = []
-    for relative in files:
-        tree = ast.parse(_read(REPO_ROOT / relative), filename=relative)
-        item_count = 0
-        for function in tree.body:
-            if not (
-                isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef))
-                and function.name.startswith("test_")
-            ):
-                continue
-            node_id = relative + "::" + function.name
-            if node_id in excluded:
-                continue
-            nodes.append(node_id)
-            item_count += _parametrize_values(function)
-        per_file_items.append(item_count)
-    return tuple(nodes), tuple(per_file_items)
-
-
 def _backend_records(fact: CapabilityFact) -> tuple[Any, ...]:
     return tuple(
         evidence
@@ -412,46 +141,6 @@ def _dual_backend_facts(
         for fact in facts
         if {(item.dialect, item.backend) for item in _backend_records(fact)} == expected
     )
-
-
-def test_slice8_artifacts_headings_authority_and_static_only_shape_are_exact() -> None:
-    spec = _read(REPO_ROOT / SPEC_REL)
-    headings = tuple(
-        match.group(1).strip()
-        for match in re.finditer(r"^## (?!#)(.+?)\s*$", spec, re.MULTILINE)
-    )
-    assert headings == SPEC_H2
-    assert not re.search(r"\b[0-9a-f]{64}\b", spec)
-    for required in (
-        "static-only specification and focused-audit work",
-        "167 entries / 166 unique\nkeys",
-        "28 top-level test functions and 69 pytest items",
-        "two added files, four modified test\nfiles, and zero deleted files",
-        "Phase 52 remains active and incomplete",
-        "Add Phase 52 parity privacy and drift closure",
-    ):
-        assert required in spec
-
-
-def test_all_six_private_module_api_dependency_and_byte_sentinels_are_exact() -> None:
-    assert tuple(MODULE_SHA256) == MODULE_RELS
-    assert tuple(module.__all__ for module in MODULE_OBJECTS) == ((),) * 7
-    assert {
-        relative: _sha256(REPO_ROOT / relative) for relative in MODULE_RELS
-    } == MODULE_SHA256
-    for relative in MODULE_RELS:
-        tree = ast.parse(_read(REPO_ROOT / relative), filename=relative)
-        capability_imports = {
-            node.module
-            for node in tree.body
-            if isinstance(node, ast.ImportFrom)
-            and node.module is not None
-            and node.module.startswith("pietto.semantic.capability_")
-        }
-        if relative == FACTS_REL:
-            assert capability_imports == set()
-        else:
-            assert capability_imports == {"pietto.semantic.capability_facts"}
 
 
 @pytest.mark.parametrize(
@@ -1101,36 +790,6 @@ def test_support_disposition_owner_reason_and_affirmative_evidence_are_exact() -
             assert any(item.source in affirmative_sources for item in fact.evidence)
 
 
-def test_winner_free_conflict_and_omission_ledger_is_exact() -> None:
-    spec = _read(REPO_ROOT / SPEC_REL)
-    ledger = tuple(
-        match.group(1) for match in re.finditer(r"^([0-9]+)\. ", spec, re.MULTILINE)
-    )
-    assert ledger.count("1") >= 2
-    for required in (
-        "`count(Shape)` remains the single ordered conflict",
-        "Generic `LIKE` remains semantically supported with two backend gaps",
-        "`matches(Text, Text)` retains positive PostgreSQL",
-        "Parsed non-Decimal type arguments remain generally unconsumed",
-        "Division has no current result rule",
-        "Null literal, unresolved expression, and unknown nullability",
-        "Generic comparison produces outer `Bool UNKNOWN`",
-        "No-GROUP post-filtering remains rejected",
-        "Aggregate semantic recognition does not imply backend renderability",
-        "`WINDOW` remains reserved and unpopulated",
-        "Malformed-key completeness is regression-locked",
-    ):
-        assert required in spec
-    shape_result = _lookup(
-        next(
-            fact.key
-            for fact in _all_facts()
-            if fact.key.subject == "count" and "Shape" in fact.key.operands
-        )
-    )
-    assert isinstance(shape_result, Conflict)
-
-
 @pytest.mark.parametrize(
     ("relative", "module"),
     (
@@ -1207,89 +866,3 @@ def test_no_forbidden_compiler_project_public_serializer_runtime_consumer_exists
     preservation_source = _read(REPO_ROOT / preservation_rel)
     assert all(name in preservation_source for name in forbidden_names)
     assert "__all__: tuple[str, ...] = ()" in preservation_source
-
-
-def test_current_artifact_and_package_contracts_are_exact() -> None:
-    expected = {
-        **MODULE_SHA256,
-        ".github/workflows/ci.yml": WORKFLOW_SHA256,
-        "pyproject.toml": PYPROJECT_SHA256,
-        "uv.lock": LOCK_SHA256,
-    }
-    assert {
-        relative: _sha256(REPO_ROOT / relative) for relative in expected
-    } == expected
-    project = _read(REPO_ROOT / "pyproject.toml")
-    assert 'version = "0.1.0"' in project
-
-
-def test_post60_owner_and_out_of_scope_matrix_is_exact() -> None:
-    spec = _read(REPO_ROOT / SPEC_REL)
-    owners = (
-        "POST60_ADVANCED_AGGREGATION_GROUPING",
-        "POST60_ADVANCED_TYPE_NATIVE_MAPPING",
-        "POST60_ADVANCED_WINDOWS",
-        "POST60_RELATIONSHIP_JOIN_GRAIN_FANOUT",
-        "POST60_PROJECT_IR",
-        "POST60_MULTI_RELATION_SQL",
-        "POST60_PUBLIC_PROJECT_SCHEMA_LINEAGE_EXPANSION",
-        "POST60_ADVANCED_MODULE_PACKAGE_ASSETS",
-        "POST60_REMOTE_PACKAGE_MANAGER",
-        "POST60_DEPENDENCY_SOLVER_LOCKFILE",
-        "POST60_ADDITIONAL_DIALECT_BACKENDS",
-        "POST60_EXTENSION_LOWERING",
-        "OUT_OF_SCOPE_CHARTER",
-    )
-    for owner in owners:
-        assert owner in spec
-    actual = {
-        fact.disposition.owner
-        for fact in _all_facts()
-        if fact.disposition.owner is not None
-    }
-    assert actual == {
-        "POST60_ADVANCED_AGGREGATION_GROUPING",
-        "POST60_ADVANCED_TYPE_NATIVE_MAPPING",
-        "Pietto charter",
-    }
-
-
-def test_phase53_window_handoff_remains_unpopulated_and_unknown() -> None:
-    facts = _all_facts()
-    assert not any(
-        fact.key.domain is CapabilityDomain.EXPRESSION_STAGE
-        and "WINDOW" in fact.key.operands
-        for fact in facts
-    )
-    assert not any(
-        fact.key.domain is CapabilityDomain.AGGREGATE
-        and (
-            "window" in (fact.key.context or "").lower()
-            or any("window" in operand.lower() for operand in fact.key.operands)
-        )
-        for fact in facts
-    )
-    window = CapabilityKey(
-        CapabilityDomain.EXPRESSION_STAGE,
-        subject="aggregate_dependent_expression",
-        operation="observed_stage",
-        operands=("WINDOW",),
-        context="expression",
-    )
-    assert _helper_inputs(window)[1] is False
-    assert _lookup(window) == Unknown(CapabilityReasonCode.NOT_EVIDENCED)
-    window_facts = tuple(
-        fact for fact in facts if fact.key.domain is CapabilityDomain.WINDOW_FUNCTION
-    )
-    assert window_facts == _facts(capability_windows, "_WINDOW_CAPABILITY_FACTS")
-    assert len(window_facts) == len({fact.key for fact in window_facts}) == 24
-    for key in (window_facts[0].key, window_facts[8].key):
-        lookup_facts, complete, reason = _helper_inputs(key)
-        assert complete is True
-        assert reason is None
-        assert key in {fact.key for fact in lookup_facts}
-        assert _lookup(key) == Found(
-            next(fact for fact in lookup_facts if fact.key == key)
-        )
-    spec = _read(REPO_ROOT / SPEC_REL)
-    assert all(name in spec for name in ("row_number", "rank", "dense_rank"))

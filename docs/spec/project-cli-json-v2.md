@@ -2,16 +2,10 @@
 
 ## Status
 
-This document defines the planned CLI and machine-readable result contract for
-a future Pietto project mode.
-
-**The design is not implemented.** Pietto does not currently accept
-`--project`, load `pietto.toml`, discover roots, expand globs, traverse project
-files, compile multiple files, or emit JSON schema version 2.
-
-The implemented CLI and JSON schema version 1 remain single-file interfaces.
-This version 2 design does not change their behavior or compatibility
-contract.
+This document defines the CLI and machine-readable result contract for explicit
+Pietto project checking. `pietto check --project ROOT` loads the selected
+`pietto.toml` without upward discovery and can emit JSON schema version 2.
+Single-file CLI JSON version 1 remains a separate compatibility contract.
 
 ## Goals
 
@@ -579,15 +573,11 @@ cover tests for:
 - manually reviewed JSON v2 golden fixtures after implementation;
 - no SQL execution, database, connector, schema, network, or runtime behavior.
 
-No project CLI or JSON v2 code should be written until the Phase 8 completion
-audit is complete and a separately approved implementation phase addresses the
-resource counters and tests in `docs/spec/project-resource-model-v1.md`.
+Project behavior remains explicit and compiler-only. Current path, resource,
+and trust boundaries are summarized in `docs/project-package.md`.
 
 ## Related Documents
 
 - [CLI JSON schema version 1](cli-json-v1.md)
 - [Pietto project configuration schema version 1](pietto-config-v1.md)
-- [Project root and path semantics version 1](project-path-semantics-v1.md)
-- [Project multi-file semantics version 1](project-multifile-semantics-v1.md)
-- [Project resource model version 1](project-resource-model-v1.md)
-- [Phase 8 Project Model & Configuration Planning](../plan/phase-8-project-model-configuration-planning.md)
+- [Current projects and packages](../project-package.md)

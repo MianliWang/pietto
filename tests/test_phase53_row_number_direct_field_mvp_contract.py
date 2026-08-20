@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import dataclasses
-import hashlib
 from pathlib import Path
 from typing import cast
 
@@ -74,232 +73,10 @@ from pietto.semantic.window_semantics import (
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PLAN_REL = (
-    "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md"
-)
-SPEC_REL = "docs/spec/phase53-row-number-direct-field-mvp-contract-v1.md"
-SEMANTIC_REL = "src/pietto/semantic/window_analysis.py"
-SELF_REL = "tests/test_phase53_row_number_direct_field_mvp_contract.py"
-BASE_HEAD_SHA = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
-
-SPEC_TITLE = "Phase 53 Slice 7 row_number Direct-field MVP Contract v1"
-SLICE7_PLAN_H2 = "Slice 7 row_number Direct-field MVP"
-SPEC_H2 = (
-    "Status And Slice Identity",
-    "Existing Syntax AST And Identity Authority",
-    "Direct-field Candidate And Exact Supported Subset",
-    "Selected-output Composition",
-    "Source And Relation Scope",
-    "Exact row_number Identity And Legality",
-    "Private Semantic Integration",
-    "Generic Signature Result Type And Nullability",
-    "Semantic Result And Unsupported Evidence",
-    "Diagnostic Contract",
-    "Direct-field Binding",
-    "WINDOW Stage And Semantic Fact",
-    "Project Result Identity Dependency And Provenance",
-    "Standalone Project Fact And No Persistence",
-    "Row-schema And Downstream Visibility",
-    "Clause Nesting Same-select And Multiple-window Boundary",
-    "Grouping Aggregate Satisfying And Let Boundary",
-    "IR And SQL Fail-closed Boundary",
-    "Public Privacy And Serialization Boundary",
-    "Positive Behavior Matrix",
-    "Negative And Fail-closed Matrix",
-    "Behavior Parity And Protected Surfaces",
-    "Reader Closure Inventory And Repository States",
-    "Validation Depth-one CI And Gate 3",
-    "Deferred Ownership And Stop Conditions",
-)
-
-EXPECTED_TEST_FUNCTIONS = (
-    "test_slice7_artifact_paths_headings_and_lifecycle_are_exact",
-    "test_existing_window_syntax_ast_identity_and_span_authority_is_locked",
-    "test_direct_field_candidate_output_and_later_slice_ownership_are_exact",
-    "test_exact_row_number_identity_legality_and_case_policy_are_exact",
-    "test_row_number_zero_argument_generic_signature_is_exact",
-    "test_row_number_signature_binding_returns_builtin_int_without_variables",
-    "test_row_number_non_null_formula_evaluates_exactly",
-    "test_window_analysis_supported_result_shape_is_exact",
-    "test_bare_and_immediate_qualified_order_field_success",
-    "test_table_query_direct_source_and_immediate_upstream_success",
-    "test_one_window_coexists_with_current_legal_non_window_outputs",
-    "test_window_occurrence_identity_uses_source_relation_ordinal_and_span",
-    "test_concrete_result_is_int_non_null_window_stage",
-    "test_window_unsupported_evidence_and_diagnostic_mapping_are_exact",
-    "test_wrong_row_number_arity_uses_pie_s2104",
-    "test_unsupported_clause_and_shape_diagnostics_use_pie_s2103",
-    "test_partition_shapes_remain_unsupported",
-    "test_local_order_cardinality_and_direction_remain_unsupported",
-    "test_computed_unknown_and_invalid_qualified_order_fields_fail_closed",
-    "test_original_source_qualifier_does_not_cross_immediate_upstream",
-    "test_group_aggregate_satisfying_and_let_relations_remain_unsupported",
-    "test_window_expression_placements_outside_direct_select_fail_closed",
-    "test_multiple_nested_and_same_select_windows_remain_unsupported",
-    "test_where_final_order_and_limit_can_coexist_without_window_alias_use",
-    "test_project_window_fact_supports_table_query_and_upstream_matrix",
-    "test_project_relation_input_and_order_occurrences_are_exact",
-    "test_project_dependency_edges_preserve_role_and_first_occurrence_order",
-    "test_project_result_identity_and_derived_provenance_are_exact",
-    "test_project_fact_is_transient_not_model_or_schema_state",
-    "test_window_alias_is_not_downstream_or_final_order_visible",
-    "test_ir_lowering_fails_closed_with_pie_i1000",
-    "test_postgres_and_private_mysql_requests_fail_before_sql_lowering",
-    "test_cli_json_metadata_project_json_and_public_exports_remain_private",
-    "test_ordinary_scalar_direct_field_and_final_order_behavior_is_unchanged",
-    "test_aggregate_grouped_let_and_diagnostics_behavior_is_unchanged",
-    "test_non_row_number_window_identities_remain_semantically_unsupported",
-    "test_grammar_generated_ast_parser_ir_sql_and_public_bytes_are_locked",
-    "test_reader_hash_inventory_and_nested_closure_is_exact",
-    "test_slice7_dirty_clean_and_depth_one_repository_states_are_locked",
-    "test_test_inventory_focused_selector_dirty_overlay_and_formatter_are_exact",
-    "test_validation_gate3_and_no_behavior_boundaries_are_locked",
-)
-CARDINALITIES = (
-    1,
-    6,
-    3,
-    12,
-    1,
-    1,
-    1,
-    4,
-    4,
-    4,
-    6,
-    4,
-    1,
-    8,
-    4,
-    10,
-    4,
-    6,
-    8,
-    2,
-    6,
-    6,
-    6,
-    5,
-    4,
-    4,
-    2,
-    4,
-    3,
-    4,
-    2,
-    2,
-    6,
-    6,
-    6,
-    7,
-    1,
-    1,
-    1,
-    1,
-    1,
-)
-
-ADDED_PATHS = {
-    "docs/spec/phase53-grouped-result-ranking-aggregate-result-inputs-bounded-let-visibility-contract-v1.md",
-    "src/pietto/semantic/window_input_analysis.py",
-    "tests/test_phase53_grouped_result_ranking_aggregate_result_inputs_bounded_let_visibility_contract.py",
-}
-MODIFIED_PATHS = {
-    "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md",
-    "src/pietto/semantic/expressions.py",
-    "src/pietto/semantic/group_by.py",
-    "src/pietto/semantic/window_analysis.py",
-    "src/pietto/semantic/window_navigation_analysis.py",
-    "src/pietto/semantic/window_partition_analysis.py",
-    "src/pietto/semantic/window_order_analysis.py",
-    "src/pietto/_project/model.py",
-    "src/pietto/_project/window_semantics.py",
-    "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
-    "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
-    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
-    "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
-    "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
-    "tests/test_phase53_row_number_direct_field_mvp_contract.py",
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_generated_guard.py",
-    "tests/test_phase11_golden_policy.py",
-    "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase11_planning_audit.py",
-    "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_phase12_completion_audit.py",
-    "tests/test_phase12_composition_cli_json_goldens.py",
-    "tests/test_phase12_order_limit_contract.py",
-    "tests/test_phase12_planning_audit.py",
-    "tests/test_phase13_completion_audit.py",
-    "tests/test_phase13_planning_audit.py",
-    "tests/test_phase14_candidate_decision_audit.py",
-    "tests/test_phase14_completion_audit.py",
-    "tests/test_phase14_planning_audit.py",
-    "tests/test_phase14_relationship_metadata_completion_audit.py",
-    "tests/test_phase15_completion_audit.py",
-    "tests/test_phase15_semantic_completion_audit.py",
-    "tests/test_phase16_completion_audit.py",
-    "tests/test_phase16_current_syntax_surface_audit.py",
-    "tests/test_phase16_language_direction_audit.py",
-    "tests/test_phase16_safety_deferral_sql_portability.py",
-    "tests/test_phase21_group_by_hardening_audit.py",
-    "tests/test_phase24_aggregate_expression_arguments_readiness.py",
-    "tests/test_phase24_cli_json_output_hardening.py",
-    "tests/test_phase24_completion_audit.py",
-    "tests/test_phase25_completion_audit.py",
-    "tests/test_phase26_completion_audit.py",
-    "tests/test_phase27_completion_audit.py",
-    "tests/test_phase28_completion_audit.py",
-    "tests/test_phase29_completion_audit.py",
-    "tests/test_phase30_completion_audit.py",
-    "tests/test_phase50_window_function_readiness.py",
-    "tests/test_phase51_completion_audit_and_status_lock.py",
-    "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
-    "tests/test_phase52_aggregate_signature_algebra_facts.py",
-    "tests/test_phase52_completion_audit_and_status_lock.py",
-    "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
-    "tests/test_phase52_expression_stage_clause_capability_facts.py",
-    "tests/test_phase52_fail_closed_capability_lookup.py",
-    "tests/test_phase52_logical_type_literal_parameter_nullability_inventory.py",
-    "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
-    "tests/test_phase52_private_capability_fact_foundation.py",
-    "tests/test_phase52_scalar_function_operator_signature_facts.py",
-    "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
-    "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
-    "tests/test_phase53_window_spec_function_identity_ast_contract.py",
-    "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
-    "tests/test_phase33_completion_audit.py",
-    "tests/test_phase51_private_result_role_output_identity.py",
-    "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
-    "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
-}
-COMPILER_DIGEST = "6cbe7ccfbd84d7b2966964ac91a56e7eeacdc798c3d161da64d61add662b0420"
-SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
-PHASE15_SUBSET_DIGEST = (
-    "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
-)
-PROJECT_DIGEST = "327ba4f5c12d916d6577cd9510aa2a28df8519dafdc935ae67a6d2f5b2fc4830"
-FOCUSED_SHA256 = "764c5879e93871b253e875ce1e8145ce3a998d48a94b578f8af9d31f9562e5ee"
-FORMATTER_SHA256 = "5920e1a21f135b2537e8295b13c8bc6fa2962423812ffc3cbe1e52663e924daf"
 
 
 def _read(relative: str) -> str:
     return (REPO_ROOT / relative).read_text(encoding="utf-8")
-
-
-def _sha256(relative: str) -> str:
-    return hashlib.sha256((REPO_ROOT / relative).read_bytes()).hexdigest()
-
-
-def _digest(paths: tuple[Path, ...]) -> str:
-    digest = hashlib.sha256()
-    for path in sorted(paths, key=lambda item: item.relative_to(REPO_ROOT).as_posix()):
-        digest.update(path.relative_to(REPO_ROOT).as_posix().encode())
-        digest.update(b"\0")
-        digest.update(path.read_bytes())
-        digest.update(b"\0")
-    return digest.hexdigest()
 
 
 def _program(
@@ -510,19 +287,6 @@ def test_existing_window_syntax_ast_identity_and_span_authority_is_locked(
         expression.span.path == "slice7.pietto",
     )
     assert assertions[case]
-
-
-@pytest.mark.parametrize("case", range(3))
-def test_direct_field_candidate_output_and_later_slice_ownership_are_exact(
-    case: int,
-) -> None:
-    docs = _read(SPEC_REL) + _read(PLAN_REL)
-    required = (
-        "Candidate A",
-        "One legal window output may coexist",
-        "Slice 15 retains Window IR",
-    )
-    assert required[case] in docs
 
 
 @pytest.mark.parametrize(
@@ -1111,27 +875,4 @@ def test_non_row_number_window_identities_remain_semantically_unsupported(
         assert all(item.code != "PIE-S2104" for item in semantic.diagnostics)
 
 
-def test_grammar_generated_ast_parser_ir_sql_and_public_bytes_are_locked() -> None:
-    expected = {
-        "grammar/Pietto.g4": "661f00037b4ade8f8b5bef0cb3e070e4379decdd11cd19021d68e960e69d2724",
-        "src/pietto/ast_nodes.py": "bbfd121446d62d33c7990b80d17579d3f8b55763ce1b5f93ee17247cbd2ce0c2",
-        "src/pietto/ast_builder.py": "918dc9f6d7705376b604e69fb80c45cf4c3673c8909a58537770d114d96252cb",
-        "src/pietto/parser_api.py": "aa744c3ee334c8729917ae2aed2ee906874f927d47e99542d5accb8a98aa456b",
-        "src/pietto/_window_identity.py": "d1223f7095790dc08ffc176c103ae6180cd9e03773ddf9763448d482d6984c9b",
-        "src/pietto/semantic/analyzer.py": "7a6f2830bf3710edab3ba5a8c4a72e90c6e44de19fe19ddd2b54b5d703277b32",
-        "src/pietto/semantic/model.py": "55f1d110854073ec3f9b47ecffd3e41c6c2bc3b606da61e8b271a23e736bd4ba",
-        "src/pietto/semantic/catalog.py": "f566f39395e3bdc933e60d15e740749255dd3749cf3907684240e4b43dfc9e40",
-    }
-    assert {path: _sha256(path) for path in expected} == expected
-    assert (
-        sum(path.is_file() for path in (REPO_ROOT / "src/pietto/generated").iterdir())
-        == 8
-    )
-
-
-_SLICE10_READER_MIGRATION_PATHS = (
-    "docs/spec/phase53-partition-binding-multi-key-visibility-diagnostics-contract-v1.md",
-    "src/pietto/semantic/window_partition_analysis.py",
-    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
-)
 # Phase 53 Slice 13 reader migration.

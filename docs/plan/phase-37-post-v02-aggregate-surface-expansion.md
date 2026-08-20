@@ -20,7 +20,7 @@ Its only behavior change was the Slice 5 Enum aggregate fail-closed fix:
 `PIE-S2314`.
 
 Slice 1 starts Phase 37 without changing the compiler. It does not update
-`README.md`, `AGENTS.md`, or `docs/spec/pietto-v0.9.md`; public status
+`README.md`, `AGENTS.md`, or `docs/language.md`; public status
 housekeeping remains future dedicated work.
 
 ## Candidate Decision

@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-import tomllib
 
 import pytest
 
-from _static_audit_helpers import normalized_text as _normalized
 from _static_audit_helpers import read_text as _read
 from pietto._project.model import (
     ProjectRelationRowSchemaReason,
@@ -43,13 +41,7 @@ from pietto.semantic.model import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PLAN_PATH = REPO_ROOT / "docs/plan/phase-49-row-level-computed-let-schema-lineage.md"
-SPEC_PATH = (
-    REPO_ROOT
-    / "docs/spec/phase49-project-row-expression-type-nullability-adapter-v1.md"
-)
 MODULE_PATH = REPO_ROOT / "src/pietto/_project/row_expression_schema.py"
-PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
 
 def test_direct_unqualified_field_projection_preserves_source_field() -> None:
@@ -359,31 +351,6 @@ def test_slice3_module_does_not_call_forbidden_semantic_shortcuts() -> None:
     assert "infer_row_expression" not in module
     assert "from pietto.semantic import analyze" not in module
     assert "import pietto.semantic as semantic_api" not in module
-
-
-def test_slice3_package_version_remains_010() -> None:
-    project = tomllib.loads(_read(PYPROJECT_PATH))["project"]
-    assert project["version"] == "0.1.0"
-
-
-def test_slice3_spec_and_plan_lock_boundaries() -> None:
-    docs = " ".join(_normalized(path) for path in (PLAN_PATH, SPEC_PATH))
-
-    for required in (
-        "Phase 49 Slice 3 is Type/nullability adapter for legal row expressions",
-        "`src/pietto/_project/row_expression_schema.py`",
-        "`docs/spec/phase49-project-row-expression-type-nullability-adapter-v1.md`",
-        "does not call full `semantic_api.analyze`",
-        "Slice 3 production code does not call `infer_row_expression`",
-        "does not integrate computed alias schema output into project row schema construction",
-        "Selected `let`-derived output schema remains Slice 7",
-        "exposes no Project JSON v2 row schema",
-        "changes no parser, grammar, generated files",
-        "Aggregate and grouped output schema remain deferred to Phase 50",
-        "Row-level dependency cycle diagnostics remain readiness-only",
-        "Project JSON v2 privacy is preserved",
-    ):
-        assert required in docs, required
 
 
 def _span(*, line: int = 1, column: int = 1) -> Span:

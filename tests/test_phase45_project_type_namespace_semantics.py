@@ -8,7 +8,6 @@ from types import MappingProxyType
 import pytest
 
 import pietto.cli as cli
-from _static_audit_helpers import normalized_text as _normalized
 from pietto._project.check import check_project_parse_only
 from pietto._project.json_v2 import project_check_result_to_json_dict
 from pietto._project.model import (
@@ -33,8 +32,6 @@ from pietto.errors import Severity
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MODEL_PATH = REPO_ROOT / "src/pietto/_project/model.py"
-PLAN_PATH = REPO_ROOT / "docs/plan/phase-45-project-wide-semantic-model-mvp.md"
-SPEC_PATH = REPO_ROOT / "docs/spec/phase45-project-wide-semantic-model-scope-lock-v1.md"
 
 
 def test_project_type_resolution_facts_are_frozen_private_scaffold() -> None:
@@ -376,34 +373,6 @@ def test_slice5_does_not_import_semantic_or_enter_output_paths() -> None:
     assert "build_ir" not in source
     assert "emit_postgres_sql" not in source
     assert "emit_mysql_sql" not in source
-
-
-def test_slice5_docs_lock_private_type_namespace_semantics() -> None:
-    docs = " ".join(_normalized(path) for path in (PLAN_PATH, SPEC_PATH))
-
-    for required in (
-        "Slice 5 adds private cross-file type namespace semantics",
-        "private type-resolution facts",
-        "`ProjectResolvedTypeKind`",
-        "`ProjectResolvedType`",
-        "`ProjectSemanticModel.type_resolutions`",
-        "`ProjectSemanticModel.source_shape_resolutions`",
-        "builtin type names resolve privately",
-        "`ProjectSemanticCatalog.type_symbols`",
-        "`TypeExpr` sites in top-level definitions are checked",
-        "`SourceDef.shape_name` is checked and must resolve to a shape",
-        "`PIE-S2002`",
-        "`PIE-S2303`",
-        "duplicate catalog diagnostics short-circuit type resolution",
-        "unresolved relation references are not diagnosed in Slice 5",
-        "no relation namespace resolution",
-        "no row schema propagation",
-        "no alias expansion or alias cycle detection",
-        "no CLI/JSON/text behavior change",
-        "no IR, SQL, project `emit-sql`, or project `explain` path",
-        "no import from `pietto.semantic`",
-    ):
-        assert required in docs, required
 
 
 def _project_semantic_result(

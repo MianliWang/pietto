@@ -17,7 +17,6 @@ import tomllib
 
 import pytest
 
-import _phase54_active_gate2_manifest as active_gate2_manifest
 import _pietto_differential_harness as harness
 import _pietto_differential_vectors as vectors
 import pietto
@@ -41,69 +40,12 @@ from pietto._project.model import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SPEC_REL = (
-    "docs/spec/phase54-slice15-rust-ready-pure-boundaries-differential-vectors-"
-    "and-end-to-end-hardening-v1.md"
-)
-PLAN_REL = "docs/plan/phase-54-local-import-module-export-foundation.md"
 SOURCE_REL = "src/pietto/_project/module_pure_boundary.py"
 INSPECTION_REL = "src/pietto/_project/module_inspection.py"
 HARNESS_REL = "tests/_pietto_differential_harness.py"
 VECTORS_REL = "tests/_pietto_differential_vectors.py"
 TEST_REL = "tests/test_phase54_rust_ready_pure_boundaries_differential_vectors.py"
 
-EXPECTED_TEST_NAMES = (
-    "test_slice15_contract_status_active_manifest_and_allowlist_are_exact",
-    "test_slice15_plan_readme_and_specification_status_lines_are_exact",
-    "test_pure_boundary_module_is_private_with_an_empty_export_surface",
-    "test_pure_boundary_source_performs_no_input_output_or_ambient_lookup",
-    "test_declared_record_kinds_are_the_exact_thirty_four_slice14_kinds",
-    "test_declared_key_orders_match_the_real_canonical_payload_exactly",
-    "test_declared_enumeration_vocabularies_equal_the_live_enumerations",
-    "test_declared_scope_chains_and_child_counts_are_internally_consistent",
-    "test_declared_ordinal_rules_match_the_projection_emission_rules",
-    "test_declared_section_order_matches_the_canonical_projection_order",
-    "test_token_encoding_covers_every_declared_tag_exactly",
-    "test_escaping_covers_control_characters_delete_and_backslash",
-    "test_escaping_covers_the_complete_surrogate_range_and_stays_utf8",
-    "test_canonical_payload_always_ends_with_exactly_one_newline",
-    "test_integer_payloads_are_canonical_non_negative_decimal",
-    "test_production_serializer_evaluates_the_portable_pure_boundary",
-    "test_canonical_bytes_of_real_projects_reproduce_through_the_pure_boundary",
-    "test_projected_document_carries_no_python_enumeration_or_object_identity",
-    "test_canonical_bytes_remain_exact_for_every_bootstrap_fixture",
-    "test_forged_payload_and_grafted_projection_remain_rejected",
-    "test_pure_evaluation_has_no_ambient_dependency",
-    "test_pure_evaluation_is_total_and_deterministic_for_admitted_inputs",
-    "test_repeated_processes_and_hash_seeds_produce_identical_corpus_digests",
-    "test_available_supported_interpreters_agree_on_the_corpus_digest",
-    "test_pure_evaluation_ignores_working_directory_and_environment",
-    "test_every_rejection_status_is_reachable_and_normalized",
-    "test_rejections_carry_no_payload_and_no_supplied_content",
-    "test_portable_value_carriers_reject_non_primitive_payloads",
-    "test_portable_outcome_atomicity_is_enforced",
-    "test_invalid_documents_never_raise_from_the_portable_boundary",
-    "test_vector_corpus_covers_the_frozen_property_matrix",
-    "test_vector_corpus_exercises_every_declared_record_kind",
-    "test_vector_purposes_match_the_documents_they_label",
-    "test_vector_identities_are_unique_deterministic_and_lowercase",
-    "test_vector_corpus_is_deterministically_ordered_across_rebuilds",
-    "test_vector_expected_outputs_are_stored_literals",
-    "test_vector_expected_outputs_are_not_silently_regenerated",
-    "test_vectors_contain_no_host_path_address_or_timestamp",
-    "test_harness_fails_closed_on_malformed_vectors",
-    "test_harness_fails_closed_on_duplicate_vector_identities",
-    "test_harness_reports_a_concise_machine_readable_summary",
-    "test_harness_authoring_mode_proposes_without_writing",
-    "test_harness_and_production_are_not_the_same_implementation_path",
-    "test_record_level_corruption_fails_closed_and_content_only_moves_bytes",
-    "test_document_validation_visits_each_record_exactly_once",
-    "test_repeated_identity_buckets_remain_bounded_and_linear",
-    "test_end_to_end_root_integrity_fails_closed_before_the_portable_boundary",
-    "test_all_or_none_sidecar_boundary_and_schema_v1_remain_exact",
-    "test_no_public_api_cli_json_package_ir_sql_rust_or_build_expansion_occurs",
-    "test_retained_rust_and_slice16_boundaries_remain_unimplemented",
-)
 
 _SHAPE_PREFIX = (
     "shape Row:\n"
@@ -276,92 +218,6 @@ def _subprocess_digest(executable: str, seed: str = "0") -> str:
     return completed.stdout
 
 
-def test_slice15_contract_status_active_manifest_and_allowlist_are_exact() -> None:
-    """Lock the Slice 15 contract, the active Gate manifest, and the allowlist."""
-
-    spec = _read(SPEC_REL)
-    for phrase in (
-        "Phase 54 Slice 15",
-        "Rust-ready Pure Boundaries",
-        "Narrowest Sufficient Pure Boundary",
-        "pietto.module-inspection.v1",
-        "pietto.differential-vectors.v1",
-        "no production Rust",
-    ):
-        assert phrase in spec
-
-    # Slice 15 is published, so its benchmark reads the frozen historical
-    # projection. The active Gate 2 sets belong to the currently open Slice and
-    # move with every later Slice.
-    added = active_gate2_manifest.PHASE54_SLICE15_HISTORICAL_ADDED_PATHS
-    non_reader = active_gate2_manifest.PHASE54_SLICE15_HISTORICAL_NON_READER_PATHS
-    readers = active_gate2_manifest.PHASE54_SLICE15_HISTORICAL_READER_PATHS
-    assert added == {SPEC_REL, SOURCE_REL, HARNESS_REL, VECTORS_REL, TEST_REL}
-    assert len(active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_ADDED_PATHS) == 3
-    assert (
-        len(active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_MODIFIED_PATHS) == 52
-    )
-    assert (
-        len(active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_ALLOWLIST_PATHS) == 55
-    )
-    assert (
-        TEST_REL in active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_READER_PATHS
-    )
-    assert active_gate2_manifest.PHASE55_SLICE2_GATE2_MARKER == "PHASE55_SLICE2_GATE2"
-    assert (
-        active_gate2_manifest.PHASE55_SLICE2_BASELINE
-        == "5de57b2c078742253aa64d3a5ad627cd602290cd"
-    )
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_ADDED_PATHS) == 2
-    assert (
-        len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_MODIFIED_PATHS) == 75
-    )
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_DELETED_PATHS) == 0
-    assert (
-        len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_ALLOWLIST_A2_M75_D0)
-        == 77
-    )
-    assert (
-        TEST_REL in active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_MODIFIED_PATHS
-    )
-    assert (
-        TEST_REL
-        in active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_ALLOWLIST_A2_M75_D0
-    )
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_ADDED_PATHS) == 2
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_MODIFIED_PATHS) == 76
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_DELETED_PATHS) == 0
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_ALLOWLIST_A2_M76_D0) == 78
-    assert TEST_REL in active_gate2_manifest.PHASE55_SLICE2_GATE2_MODIFIED_PATHS
-    assert TEST_REL in active_gate2_manifest.PHASE55_SLICE2_GATE2_ALLOWLIST_A2_M76_D0
-    assert non_reader == {
-        "README.md",
-        "docs/plan/phase-54-local-import-module-export-foundation.md",
-        "docs/spec/pietto-v0.9.md",
-        INSPECTION_REL,
-        "tests/_phase54_active_gate2_manifest.py",
-    }
-    assert len(readers) == 59
-    assert len(non_reader | readers) == 64
-    assert len(added | non_reader | readers) == 69
-    assert not (non_reader & readers)
-    assert not (added & (non_reader | readers))
-
-
-def test_slice15_plan_readme_and_specification_status_lines_are_exact() -> None:
-    """Lock the Slice 15 status text in the plan, README, and specification."""
-
-    plan = _read(PLAN_REL)
-    readme = _read("README.md")
-    language_spec = _read("docs/spec/pietto-v0.9.md")
-    for document in (plan, readme, language_spec):
-        assert "Slice 15" in document
-    assert "Rust-ready pure boundaries" in plan
-    assert "differential vectors" in plan
-    assert "Slice 16" in plan
-    assert "0.1.0" in readme
-
-
 def test_pure_boundary_module_is_private_with_an_empty_export_surface() -> None:
     """The portable boundary stays private and exports nothing."""
 
@@ -426,12 +282,6 @@ def test_declared_record_kinds_are_the_exact_thirty_four_slice14_kinds() -> None
     assert kinds[0] == "inspection"
     assert kinds[1] == "owner"
     assert kinds[2] == "module"
-    slice14_contract = _read(
-        "docs/spec/phase54-slice14-private-module-inspection-and-canonical-"
-        "serialization-v1.md"
-    )
-    for kind in kinds:
-        assert f"`{kind}`" in slice14_contract
 
 
 def test_declared_key_orders_match_the_real_canonical_payload_exactly(
@@ -1709,42 +1559,3 @@ def test_no_public_api_cli_json_package_ir_sql_rust_or_build_expansion_occurs(
         if path.is_file()
     )
     assert len(goldens) == 37
-
-    module = ast.parse(_read(TEST_REL))
-    test_nodes = [
-        node
-        for node in module.body
-        if isinstance(node, ast.FunctionDef) and node.name.startswith("test_")
-    ]
-    assert tuple(node.name for node in test_nodes) == EXPECTED_TEST_NAMES
-    assert len(EXPECTED_TEST_NAMES) == 50
-    assert all(not node.decorator_list for node in test_nodes)
-
-
-def test_retained_rust_and_slice16_boundaries_remain_unimplemented() -> None:
-    """No Rust, native build, or Slice 16 completion work appears here."""
-
-    tracked = subprocess.run(
-        ["git", "ls-files"],
-        check=True,
-        text=True,
-        capture_output=True,
-        cwd=str(REPO_ROOT),
-    ).stdout.split("\n")
-    for relative in tracked:
-        assert not relative.endswith(".rs")
-        assert not relative.endswith("Cargo.toml")
-        assert not relative.endswith("Cargo.lock")
-        assert "pyo3" not in relative.lower()
-    for relative in (SOURCE_REL, HARNESS_REL, VECTORS_REL):
-        source = _read(relative)
-        for forbidden in ("pyo3", "cargo", "ctypes", "cffi", "wasm", "extern crate"):
-            assert forbidden not in source.lower()
-    spec = _read(SPEC_REL)
-    for retained in (
-        "Phase 68",
-        "Phase 58",
-        "Slice 16",
-        "retained",
-    ):
-        assert retained in spec

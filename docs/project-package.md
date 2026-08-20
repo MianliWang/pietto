@@ -1,0 +1,108 @@
+# Projects and packages
+
+Pietto has an explicit, compiler-only local project model. Project and package
+features do not add database execution, runtime loading, a package registry,
+or network access.
+
+## Project invocation and configuration
+
+Project commands receive an explicit root:
+
+```bash
+pietto check --project PATH
+```
+
+Pietto does not silently discover a project from the working directory.
+Configuration is declarative and fail closed. The current schema and JSON
+contracts are [configuration v1](spec/pietto-config-v1.md) and
+[project CLI/JSON v2](spec/project-cli-json-v2.md).
+
+A minimal source-selection configuration is:
+
+```toml
+schema_version = 1
+
+[sources]
+include = ["models/*.pietto"]
+```
+
+Selection is deterministic and project-relative. Paths use `/`, are checked
+lexically, and are contained by the pinned root before trusted reads. Resource
+limits bound configuration bytes, selected inputs, source bytes, and parser
+work. Failures remain ordered project diagnostics rather than partial success.
+
+## Schema compatibility
+
+- Schema v1 preserves the legacy-flat project model.
+- Schema v2 activates explicit logical modules and module-local semantic facts.
+- Schema v3 selects the package-root activation branch.
+
+The modes are explicit compatibility boundaries. A newer branch does not
+silently fall back to an older catalog or source-selection path, and private
+facts do not automatically become public CLI/JSON/IR/SQL fields.
+
+## Trusted source identity
+
+The project root, configuration file, and selected sources are opened through
+checked descriptors. Pietto validates path containment, regular-file posture,
+pre/post-read identity, byte limits, and UTF-8 before accepting source text.
+Symlink and replacement races fail closed.
+
+The trusted-source SHA-256 is computed over the exact accepted opened bytes.
+It is product content identity, not governance hashing. Module/package layers
+may derive private identity and lookup facts from it without reopening the
+source or treating equal rendered text as equal authority.
+
+## Modules
+
+Each selected explicit-module input has a stable logical module identity and a
+source-ordered local catalog. Imports, aliases, exports, and re-exports retain
+exact declaration kind, owner, target, occurrence, and source order.
+
+The module graph preserves complete import evidence separately from canonical
+edges. Cycles, missing targets, collisions, blocked resolution, diamonds, and
+multi-hop provenance do not select an arbitrary winner. Cross-module type,
+enum, shape, source, table, and query resolution preserves nominal identity,
+row facts, origin, provenance, lineage, and deterministic diagnostics.
+
+Module catalogs, binding environments, graphs, attribution, package-neutral
+identity, and inspection documents are private compiler facts. Public output
+changes require a separate compatibility decision.
+
+## Package activation and manifest normalization
+
+Schema v3 carries one immutable package-root activation. The current private
+manifest normalizer accepts caller-supplied bytes for the logical
+`pietto-package.toml` input; it performs no filesystem access.
+
+The normalizer:
+
+- requires the exact root array-of-table structure for assets; dependencies
+  are optional and normalize to an empty tuple when absent;
+- enforces UTF-8, TOML, size, key, value, and lexical-path boundaries;
+- preserves occurrence order and multiplicity;
+- reports the complete deterministic error set;
+- rejects foreign or mixed-root construction at the canonical boundary; and
+- retains each nonempty declared dependency `sha256` field without yet
+  verifying it against loaded package content.
+
+This is a private package foundation, not a package manager. Package identity,
+version comparison, digest verification, dependency solving, registry access,
+remote fetch, installation, lock resolution, database behavior, and public
+package APIs remain separately authorized work.
+
+## Inspection and portable boundaries
+
+Private module inspection serializes current compiler facts canonically and
+without host-path or authority leakage. The portable pure boundary and
+differential vectors protect deterministic representation, exact construction,
+and anti-graft behavior. They are retained current invariants even though some
+test owners still have historical Phase names.
+
+## Evidence-path compatibility
+
+Some private capability facts intentionally carry exact retained spec, plan,
+and test paths as evidence identity. Those paths remain tracked until a
+separately authorized product change migrates the facts and their consumers.
+Their historical-looking names do not make them lifecycle status authority;
+[status](status.md) and live Git/CI own lifecycle state.

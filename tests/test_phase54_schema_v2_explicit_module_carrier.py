@@ -1,15 +1,9 @@
 from __future__ import annotations
 
-import ast
 from dataclasses import FrozenInstanceError, fields, is_dataclass
 import json
 from pathlib import Path
 import re
-
-from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
-import _phase54_active_gate2_manifest as active_gate2_manifest
 
 import pytest
 
@@ -39,11 +33,6 @@ from pietto._project.module_carrier import (
 from pietto._project.source_selection import select_project_sources
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PLAN_PATH = REPO_ROOT / "docs/plan/phase-54-local-import-module-export-foundation.md"
-SPEC_PATH = (
-    REPO_ROOT
-    / "docs/spec/phase54-slice2-schema-v2-explicit-module-activation-and-immutable-carrier-v1.md"
-)
 SELF_PATH = REPO_ROOT / "tests/test_phase54_schema_v2_explicit_module_carrier.py"
 
 
@@ -600,61 +589,6 @@ def test_import_export_grammar_ast_and_module_diagnostic_codes_remain_absent() -
         code = f"PIE-S{number}"
         assert code in graph_source
         assert code not in non_graph_production
-
-
-def test_slice2_contract_allowlist_and_retained_later_boundaries_are_exact() -> None:
-    plan = PLAN_PATH.read_text(encoding="utf-8")
-    spec = SPEC_PATH.read_text(encoding="utf-8")
-    source = SELF_PATH.read_text(encoding="utf-8")
-    tree = ast.parse(source, filename=SELF_PATH.as_posix())
-    test_nodes = tuple(
-        node
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name.startswith("test_")
-    )
-
-    assert len(test_nodes) == 17
-    assert all(not node.decorator_list for node in test_nodes)
-    assert active_gate2_manifest.PHASE55_ACTIVE_GATE2_MARKER == "PHASE55_SLICE1_GATE2"
-    assert active_gate2_manifest.PHASE55_ACTIVE_GATE2_BASE == (
-        "364296e69f7e289395661518031dafeb66a216cc"
-    )
-    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_ADDED_PATHS) == 3
-    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_MODIFIED_PATHS) == 52
-    assert len(active_gate2_manifest.PHASE55_ACTIVE_GATE2_ALLOWLIST_PATHS) == 55
-    assert (
-        SELF_PATH.relative_to(REPO_ROOT).as_posix()
-        in active_gate2_manifest.PHASE55_ACTIVE_GATE2_READER_PATHS
-    )
-    assert "## Status And Slice 16 Lifecycle" in plan
-    assert "## Slice 3 Exact Production Boundary And Gate Contract" in plan
-    assert "## Slice 4 Exact Production Boundary And Gate Contract" in plan
-    for phrase in (
-        "Authority is `A3_M54_D0`.",
-        "Mechanical reader modified M48",
-        "exactly 55 literal Python paths",
-        "Projected clean collection is\n10,830",
-        "Slice 3 retains pinned-root loading",
-        "Slice 4 retains contextual import/export grammar",
-        "Slice 8 retains module graph, cycles",
-        "No `PIE-S2701` through `PIE-S2707` code is added or emitted.",
-        "next=PHASE54_SLICE3_GATE0_GATE1",
-        "Do not begin Slice 3.",
-    ):
-        assert phrase in spec
-    for relative in (
-        "docs/spec/phase54-slice2-schema-v2-explicit-module-activation-and-immutable-carrier-v1.md",
-        "src/pietto/_project/module_carrier.py",
-        "tests/test_phase54_schema_v2_explicit_module_carrier.py",
-        "docs/plan/phase-54-local-import-module-export-foundation.md",
-        "src/pietto/_project/config.py",
-        "src/pietto/_project/model.py",
-        "src/pietto/_project/source_selection.py",
-        "src/pietto/_project/check.py",
-        "tests/test_phase44_project_config_loader.py",
-    ):
-        assert relative in spec
 
 
 def _configured_project(

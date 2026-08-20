@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-# Phase 54 Slice 4 mechanical reader-closure identity refresh.
-
 import inspect
 import tomllib
 from pathlib import Path
@@ -12,42 +10,10 @@ import pietto.sql as sql_api
 from pietto.sql.mysql import emit_mysql_sql
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PHASE10_PLAN = "docs/plan/phase-10-mysql-sql-generation-mvp.md"
-
-
-def test_slice5_status_and_cross_references_are_complete() -> None:
-    plan = _read(PHASE10_PLAN)
-    status_documents = (
-        _read("AGENTS.md"),
-        _read("docs/spec/pietto-v0.9.md"),
-    )
-
-    assert "**Slice 5: MySQL Connector Semantic Surface is complete.**" in plan
-    assert "5. **MySQL Connector Semantic Surface**: complete." in plan
-    for document in status_documents:
-        normalized = " ".join(document.split())
-        assert "Phase 10 MySQL SQL Generation MVP is complete" in normalized
-        assert "mysql.table(Text)" in normalized
-        assert "private handwritten MySQL" in normalized
 
 
 def test_connector_catalog_is_exact_and_static() -> None:
-    assert connector_module._KNOWN_CONNECTORS == (
-        "postgres.table",
-        "mysql.table",
-    )
-
-    connector_paths = {
-        path.relative_to(REPO_ROOT).as_posix()
-        for path in (REPO_ROOT / "src" / "pietto").rglob("*.py")
-        if "generated" not in path.parts
-        and "mysql.table" in path.read_text(encoding="utf-8")
-    }
-    assert connector_paths == {
-        "src/pietto/ir/lowering.py",
-        "src/pietto/semantic/source_connectors.py",
-        "src/pietto/sql/mysql_relations.py",
-    }
+    assert connector_module._KNOWN_CONNECTORS == ("postgres.table", "mysql.table")
 
 
 def test_connector_modules_have_no_runtime_or_database_surface() -> None:

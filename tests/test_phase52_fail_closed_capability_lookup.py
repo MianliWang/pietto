@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import ast
-import hashlib
-import re
 from dataclasses import FrozenInstanceError, fields
 from pathlib import Path
 from typing import Any, cast
@@ -34,168 +32,16 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_REL = "src/pietto/semantic/capability_lookup.py"
 FACTS_REL = "src/pietto/semantic/capability_facts.py"
 INVENTORY_REL = "src/pietto/semantic/capability_inventory.py"
-INVENTORY_SPEC_REL = (
-    "docs/spec/phase52-logical-type-literal-parameter-nullability-inventory-v1.md"
-)
-INVENTORY_TEST_REL = (
-    "tests/test_phase52_logical_type_literal_parameter_nullability_inventory.py"
-)
 SIGNATURE_REL = "src/pietto/semantic/capability_signatures.py"
-SIGNATURE_SPEC_REL = "docs/spec/phase52-scalar-function-operator-signature-facts-v1.md"
-SIGNATURE_TEST_REL = "tests/test_phase52_scalar_function_operator_signature_facts.py"
 CONTEXT_REL = "src/pietto/semantic/capability_contexts.py"
 AGGREGATE_REL = "src/pietto/semantic/capability_aggregates.py"
 WINDOW_REL = "src/pietto/semantic/capability_windows.py"
-CONTEXT_SPEC_REL = "docs/spec/phase52-expression-stage-clause-capability-facts-v1.md"
-CONTEXT_TEST_REL = "tests/test_phase52_expression_stage_clause_capability_facts.py"
-SPEC_REL = "docs/spec/phase52-fail-closed-capability-lookup-v1.md"
 SELF_REL = "tests/test_phase52_fail_closed_capability_lookup.py"
-SLICE2_TEST_REL = "tests/test_phase52_private_capability_fact_foundation.py"
 SOURCE_PATH = REPO_ROOT / SOURCE_REL
-SPEC_PATH = REPO_ROOT / SPEC_REL
-SELF_PATH = REPO_ROOT / SELF_REL
-PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-
-SPEC_H2 = (
-    "Status And Authority",
-    "Private Module And Lookup Algebra",
-    "Lookup-domain Completeness And Absence Authority",
-    "Found Result Contract",
-    "Absent Result Contract",
-    "Unknown Result Contract",
-    "Conflict Result Contract",
-    "Pure Exact-key Resolution Contract",
-    "Duplicate Conflict And Determinism Policy",
-    "Reason-code Admissibility",
-    "Privacy And No-behavior Boundary",
-    "Slice Ownership And Validation Locks",
-)
-MODIFIED_READER_PATHS = (
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_generated_guard.py",
-    "tests/test_phase11_golden_policy.py",
-    "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase11_planning_audit.py",
-    "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_phase12_completion_audit.py",
-    "tests/test_phase12_composition_cli_json_goldens.py",
-    "tests/test_phase12_order_limit_contract.py",
-    "tests/test_phase12_planning_audit.py",
-    "tests/test_phase13_completion_audit.py",
-    "tests/test_phase13_planning_audit.py",
-    "tests/test_phase14_candidate_decision_audit.py",
-    "tests/test_phase14_completion_audit.py",
-    "tests/test_phase14_planning_audit.py",
-    "tests/test_phase14_relationship_metadata_completion_audit.py",
-    "tests/test_phase15_completion_audit.py",
-    "tests/test_phase15_semantic_completion_audit.py",
-    "tests/test_phase16_completion_audit.py",
-    "tests/test_phase16_current_syntax_surface_audit.py",
-    "tests/test_phase16_language_direction_audit.py",
-    "tests/test_phase16_safety_deferral_sql_portability.py",
-    "tests/test_phase21_group_by_hardening_audit.py",
-    "tests/test_phase24_aggregate_expression_arguments_readiness.py",
-    "tests/test_phase24_cli_json_output_hardening.py",
-    "tests/test_phase24_completion_audit.py",
-    "tests/test_phase25_completion_audit.py",
-    "tests/test_phase26_completion_audit.py",
-    "tests/test_phase27_completion_audit.py",
-    "tests/test_phase28_completion_audit.py",
-    "tests/test_phase29_completion_audit.py",
-    "tests/test_phase30_completion_audit.py",
-    "tests/test_phase51_completion_audit_and_status_lock.py",
-    "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
-    "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
-    SLICE2_TEST_REL,
-    SELF_REL,
-    INVENTORY_TEST_REL,
-    SIGNATURE_TEST_REL,
-)
-ADDED_PATHS = {CONTEXT_REL, CONTEXT_SPEC_REL, CONTEXT_TEST_REL}
-COMPILER_DIGEST = "6cbe7ccfbd84d7b2966964ac91a56e7eeacdc798c3d161da64d61add662b0420"
-SEMANTIC_DIGEST = "731e17cc85849c7716abeb08abeda03f72e3e21af183a391107adf96ccab6d70"
-PHASE15_SUBSET_DIGEST = (
-    "81db265a7bbd290b9c9227733e92dc502f8e8c8f0ff76b4d631651772876550d"
-)
-PROJECT_PRIVATE_DIGEST = (
-    "327ba4f5c12d916d6577cd9510aa2a28df8519dafdc935ae67a6d2f5b2fc4830"
-)
-
-COMPILER_READERS = (
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_generated_guard.py",
-    "tests/test_phase11_golden_policy.py",
-    "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_phase12_completion_audit.py",
-    "tests/test_phase12_composition_cli_json_goldens.py",
-    "tests/test_phase51_completion_audit_and_status_lock.py",
-    "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
-    "tests/test_phase52_core_type_system_capability_foundation_scope_lock.py",
-)
-SEMANTIC_READERS = (
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_planning_audit.py",
-    "tests/test_phase12_order_limit_contract.py",
-    "tests/test_phase12_planning_audit.py",
-    "tests/test_phase13_completion_audit.py",
-    "tests/test_phase13_planning_audit.py",
-    "tests/test_phase14_candidate_decision_audit.py",
-    "tests/test_phase14_completion_audit.py",
-    "tests/test_phase14_planning_audit.py",
-    "tests/test_phase14_relationship_metadata_completion_audit.py",
-    "tests/test_phase15_completion_audit.py",
-    "tests/test_phase16_completion_audit.py",
-    "tests/test_phase16_current_syntax_surface_audit.py",
-    "tests/test_phase16_language_direction_audit.py",
-    "tests/test_phase16_safety_deferral_sql_portability.py",
-    "tests/test_phase21_group_by_hardening_audit.py",
-    "tests/test_phase24_aggregate_expression_arguments_readiness.py",
-    "tests/test_phase24_cli_json_output_hardening.py",
-    "tests/test_phase24_completion_audit.py",
-    "tests/test_phase25_completion_audit.py",
-    "tests/test_phase26_completion_audit.py",
-    "tests/test_phase27_completion_audit.py",
-    "tests/test_phase28_completion_audit.py",
-    "tests/test_phase29_completion_audit.py",
-    "tests/test_phase30_completion_audit.py",
-)
-PHASE15_READER = "tests/test_phase15_semantic_completion_audit.py"
 
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
-
-
-def _digest(paths: tuple[Path, ...]) -> str:
-    digest = hashlib.sha256()
-    for path in sorted(paths, key=lambda item: item.relative_to(REPO_ROOT).as_posix()):
-        relative = path.relative_to(REPO_ROOT).as_posix()
-        digest.update(relative.encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(path.read_bytes())
-        digest.update(b"\0")
-    return digest.hexdigest()
-
-
-def _compiler_paths() -> tuple[Path, ...]:
-    paths = [REPO_ROOT / "Makefile", REPO_ROOT / "grammar/Pietto.g4"]
-    paths.extend(
-        path
-        for path in (REPO_ROOT / "src/pietto").rglob("*")
-        if path.is_file() and "__pycache__" not in path.parts and path.suffix != ".pyc"
-    )
-    return tuple(paths)
-
-
-def _project_private_paths() -> tuple[Path, ...]:
-    return tuple(
-        path
-        for path in (REPO_ROOT / "src/pietto/_project").rglob("*.py")
-        if "__pycache__" not in path.parts
-    )
 
 
 def _key(
@@ -246,29 +92,6 @@ def _fact(
         else disposition,
         (_evidence(),) if evidence is None else evidence,
     )
-
-
-def _pytest_item_count() -> int:
-    tree = ast.parse(_read(SELF_PATH), filename=SELF_REL)
-    tests = [
-        node
-        for node in tree.body
-        if isinstance(node, ast.FunctionDef) and node.name.startswith("test_")
-    ]
-    count = len(tests)
-    for test in tests:
-        for decorator in test.decorator_list:
-            if (
-                isinstance(decorator, ast.Call)
-                and isinstance(decorator.func, ast.Attribute)
-                and decorator.func.attr == "parametrize"
-            ):
-                ids = next(
-                    value.value for value in decorator.keywords if value.arg == "ids"
-                )
-                assert isinstance(ids, (ast.List, ast.Tuple))
-                count += len(ids.elts) - 1
-    return count
 
 
 def test_lookup_result_carriers_are_exact_frozen_slotted_shapes() -> None:
@@ -482,26 +305,6 @@ def test_lookup_and_inventory_are_only_private_fact_consumers_without_registry()
     assert "__all__: tuple[str, ...] = ()" in preservation_source
 
 
-def test_spec_exact_headings_and_fail_closed_contract_are_locked() -> None:
-    spec = _read(SPEC_PATH)
-    headings = tuple(
-        match.group(1).strip()
-        for match in re.finditer(r"^## (?!#)(.+?)\s*$", spec, re.MULTILINE)
-    )
-    assert headings == SPEC_H2
-    for required in (
-        "validates the complete input before",
-        "no normalization,",
-        "Completely identical duplicate facts are idempotently folded",
-        "Equal support and\ndisposition do not justify merging evidence",
-        "`NO_CATALOG_ENTRY` is absence-only",
-        "`CONFLICTING_EVIDENCE` is conflict-only",
-        "creates no registry,\ncatalog, populated facts, global state",
-        "Phase 52 remains active and incomplete",
-    ):
-        assert required in spec
-
-
 def test_zero_match_uses_only_the_explicit_incomplete_domain_reason() -> None:
     reason = CapabilityReasonCode.UNKNOWN_NULLABILITY
     assert lookup_capability(
@@ -613,9 +416,4 @@ def test_dialect_backend_or_extension_scope_differences_are_conflicts(
     )
 
 
-_TERMINAL_READER_MIGRATION_PATHS = (
-    "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
-    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
-    "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
-)
 # Phase 53 Slice 13 reader migration.

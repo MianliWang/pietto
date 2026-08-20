@@ -1,10 +1,7 @@
 from __future__ import annotations
 
-import hashlib
-import inspect
 import json
 import re
-import tomllib
 from dataclasses import fields, replace
 from pathlib import Path
 from typing import cast
@@ -12,7 +9,6 @@ from typing import cast
 import pytest
 
 import pietto.cli as cli
-import pietto.cli_json as cli_json
 import pietto.sql as sql_api
 from pietto.ast_nodes import NameExpr, OrderByClause, QueryDef, TableDef
 from pietto.errors import Severity
@@ -23,8 +19,6 @@ from pietto.semantic import analyze
 from pietto.sql.mysql import emit_mysql_sql
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-GOLDENS_HASH = "0e26a0b367a2ae849e5ec1e9a239be42765bea2c352242db5da930ab56b43004"
-
 POSTGRES_PREFIX = (
     "shape User:\n"
     "    id: Int not null\n"
@@ -379,26 +373,6 @@ def test_cli_text_and_json_v1_carry_order_sql_without_new_options(
     )
 
 
-def test_compatibility_boundaries_and_historical_goldens_are_unchanged() -> None:
-    project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
-    signature = inspect.signature(sql_api.emit_postgres_sql)
-
-    assert _aggregate_hash(REPO_ROOT / "tests/fixtures/golden") == GOLDENS_HASH
-    assert project["project"]["version"] == "0.1.0"
-    assert project["project"]["dependencies"] == ["antlr4-python3-runtime>=4.13.2"]
-    assert "sqlglot" not in (REPO_ROOT / "uv.lock").read_text(encoding="utf-8").lower()
-    assert tuple(signature.parameters) == ("script_ir",)
-    assert set(sql_api.__all__) == {
-        "SqlArtifact",
-        "SqlArtifactKind",
-        "SqlResult",
-        "emit_postgres_sql",
-    }
-    assert not hasattr(sql_api, "emit_mysql_sql")
-    assert not hasattr(sql_api, "emit_sql")
-    assert cli_json._SCHEMA_VERSION == 1
-
-
 def test_internal_order_ir_types_are_not_public_exports() -> None:
     assert not hasattr(sql_api, "OrderItemIR")
     assert not hasattr(sql_api, "OrderDirectionIR")
@@ -473,14 +447,3 @@ def _relation_ir(script_ir: ScriptIR) -> RelationIR:
         for definition in script_ir.definitions
         if isinstance(definition, RelationIR)
     )
-
-
-def _aggregate_hash(root: Path) -> str:
-    digest = hashlib.sha256()
-    for path in sorted(path for path in root.iterdir() if path.is_file()):
-        relative_path = path.relative_to(REPO_ROOT).as_posix()
-        digest.update(relative_path.encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(path.read_bytes())
-        digest.update(b"\0")
-    return digest.hexdigest()

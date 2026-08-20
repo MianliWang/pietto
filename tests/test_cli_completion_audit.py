@@ -148,23 +148,6 @@ def test_check_remains_isolated_from_ir_and_sql(
     assert " error:" not in captured.err
 
 
-def test_exit_codes_and_cli_boundaries_are_documented() -> None:
-    plan = Path("docs/plan/phase-5-cli-tooling.md").read_text(encoding="utf-8")
-
-    assert "**Phase 5 CLI MVP: Complete.**" in plan
-    assert "returns `0`" in plan
-    assert "return `1`" in plan
-    assert "return `2`" in plan
-    for command in (
-        "pietto --help",
-        "pietto --version",
-        "pietto check file.pietto",
-        "pietto emit-sql file.pietto --dialect postgres",
-        "pietto emit-sql file.pietto --dialect postgres --output out.sql",
-    ):
-        assert command in plan
-
-
 def test_cli_has_no_runtime_execution_or_convenience_compiler_wrappers() -> None:
     source = inspect.getsource(cli)
 

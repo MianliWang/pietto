@@ -39,9 +39,6 @@ from pietto.sql import SqlResult, emit_postgres_sql
 from pietto.sql.mysql import emit_mysql_sql
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PLAN_PATH = REPO_ROOT / "docs/plan/phase-31-v02-hardening-and-stable-completion.md"
-SPEC_PATH = REPO_ROOT / "docs/spec/v02-hardening-and-stable-completion-v1.md"
-
 SEMANTIC_MODEL_PATH = REPO_ROOT / "src/pietto/semantic/model.py"
 SEMANTIC_EXPRESSIONS_PATH = REPO_ROOT / "src/pietto/semantic/expressions.py"
 SEMANTIC_ANALYZER_PATH = REPO_ROOT / "src/pietto/semantic/analyzer.py"
@@ -64,52 +61,6 @@ BOUNDARY_SHAPE = (
     "    order_date: Date nullable\n"
     "    created_at: Timestamp not null\n"
 )
-
-
-def test_phase31_slice3_plan_and_spec_lock_tests_static_audit_scope() -> None:
-    plan = _normalized(PLAN_PATH)
-    spec = _normalized(SPEC_PATH)
-    combined = f"{plan} {spec}"
-
-    for required in (
-        "Phase 31 Slice 3 is complete as numeric promotion and Decimal "
-        "boundary hardening, tests, static audit, and status work only",
-        "Slice 8 is complete",
-        "Phase 31 Slice 5 is complete as UUID / Enum readiness decision, "
-        "tests, static audit, and status work only",
-        "Phase 31 Slice 6 is complete as Diagnostic / CLI / JSON stability "
-        "hardening, tests, static audit, status, and docs work only",
-        "Phase 29 aggregate freeze remains active",
-        "Phase 30 type-system contracts are carried forward",
-        "Int and Float numeric promotion remains current behavior",
-        "Decimal `+` and `-` remain accepted only for Decimal/Decimal operands",
-        "Decimal multiplication remains rejected current behavior",
-        "division `/` remains semantically deferred/unknown",
-        "Decimal literal syntax remains absent",
-        "no Decimal precision/scale carrier",
-        "Generic `TypeExpr.arguments`, including `Decimal(12, 2)`, do not "
-        "create accepted precision/scale semantics",
-        "Phase 28 numeric literal aggregate support remains limited to current "
-        "`sum`/`avg` bounded numeric expression argument behavior with at least "
-        "one field leaf",
-    ):
-        assert required in combined
-
-    for forbidden in (
-        "behavior fix",
-        "aggregate expansion",
-        "v0.2 completion declaration in Slice 3",
-        "Phase 32 implementation",
-        "Slice 4 work",
-        "Decimal multiplication implementation",
-        "Decimal division implementation",
-        "mixed Decimal promotion implementation",
-        "Decimal literal implementation",
-        "casts",
-        "SQL precision/scale behavior",
-        "Money or Currency",
-    ):
-        assert forbidden in combined
 
 
 def test_semantic_numeric_promotion_matrix_is_locked() -> None:
@@ -634,10 +585,6 @@ def _assert_ir_type(
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
-
-
-def _normalized(path: Path) -> str:
-    return " ".join(_read(path).split())
 
 
 def _function_body(source: str, marker: str) -> str:

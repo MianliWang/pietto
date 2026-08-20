@@ -7,11 +7,8 @@ from typing import cast
 import pytest
 
 import pietto.cli as cli
-from _static_audit_helpers import normalized_text as _normalized
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PLAN_PATH = REPO_ROOT / "docs/plan/phase-45-project-wide-semantic-model-mvp.md"
-SPEC_PATH = REPO_ROOT / "docs/spec/phase45-project-wide-semantic-model-scope-lock-v1.md"
 
 _VALID_PROJECT_SOURCE = (
     "shape Row:\n"
@@ -222,28 +219,6 @@ def test_project_text_check_still_reports_semantic_diagnostics_after_slice8(
     assert captured.out == ""
     assert "private_relation_error.pietto:2:5 PIE-S2301 error" in captured.err
     assert "Unknown relation: missing_relation" in captured.err
-
-
-def test_project_json_v2_semantic_diagnostics_docs_are_locked() -> None:
-    docs = " ".join(_normalized(path) for path in (PLAN_PATH, SPEC_PATH))
-
-    for required in (
-        "Slice 8 adds Project JSON v2 semantic diagnostics",
-        "JSON mode computes the private project semantic result after parse success",
-        "Semantic diagnostics are appended to top-level `diagnostics[]`",
-        "Top-level `ok` becomes false on semantic error diagnostics",
-        "`inputs[].status` remains read/parse based",
-        "`result.check` counters remain read/parse based",
-        "`cli_errors[]` remains project/config/source-selection/source-read only",
-        "No new Project JSON v2 fields",
-        "No private semantic facts are serialized",
-        "Parse/project errors short-circuit semantic checks",
-        "Text mode from Slice 7 remains unchanged",
-        "no IR, SQL, project `emit-sql`, or project `explain` path",
-        "no import from `pietto.semantic`",
-        "no single-file JSON behavior change",
-    ):
-        assert required in docs, required
 
 
 def _read_json_document(capsys: pytest.CaptureFixture[str]) -> dict[str, object]:

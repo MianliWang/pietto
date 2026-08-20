@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 from dataclasses import FrozenInstanceError, fields, replace
 import hashlib
 import inspect
@@ -30,54 +29,7 @@ from pietto.ast_nodes import QueryDef, SourceDef, TableDef
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SPEC_REL = (
-    "docs/spec/phase54-slice10-cross-module-table-query-relation-resolution-"
-    "row-facts-and-legacy-compatibility-v1.md"
-)
 SOURCE_REL = "src/pietto/_project/module_relation_resolution.py"
-TEST_REL = (
-    "tests/test_phase54_cross_module_table_query_relation_resolution_row_facts_"
-    "legacy_compatibility.py"
-)
-
-EXPECTED_TEST_NAMES = (
-    "test_slice10_contract_and_status_docs_freeze_exact_boundary",
-    "test_relation_issue_status_and_private_carriers_are_frozen_slotted_keyword_only",
-    "test_local_resolved_relation_symbol_preserves_exact_nominal_identity",
-    "test_imported_relation_alias_preserves_binding_and_nominal_target_identity",
-    "test_resolved_relation_symbol_rejects_mixed_sources_and_wrong_kinds",
-    "test_relation_reference_and_resolution_require_exact_retained_ast_sites",
-    "test_relation_row_fact_reuses_existing_availability_state_invariants",
-    "test_module_relation_environment_keeps_order_and_complete_immutable_lookups",
-    "test_relation_resolution_set_requires_dependency_order_and_exact_diagnostic_projection",
-    "test_builder_is_pure_over_preloaded_inputs_and_performs_no_io",
-    "test_local_sources_tables_and_queries_use_one_collect_before_resolve_namespace",
-    "test_imported_source_alias_resolves_in_relation_namespace",
-    "test_imported_table_alias_resolves_with_distinct_table_kind",
-    "test_imported_query_alias_resolves_with_distinct_query_kind",
-    "test_explicit_reexport_preserves_direct_facade_and_original_table_identity",
-    "test_explicit_reexport_preserves_original_query_identity",
-    "test_dependency_first_order_and_selected_position_tie_break_are_exact",
-    "test_cyclic_direct_facade_blocks_before_acyclic_nominal_target",
-    "test_module_cycle_emits_only_pie_s2703_root_for_relation_resolution",
-    "test_local_import_collision_blocks_complete_relation_bucket_without_winner",
-    "test_import_import_collision_blocks_complete_relation_bucket_without_winner",
-    "test_duplicate_local_relation_cross_kind_emits_one_pie_s2001_without_winner",
-    "test_duplicate_local_sources_reuse_slice9_root_without_duplicate_diagnostic",
-    "test_unknown_local_relation_emits_exact_pie_s2301",
-    "test_wrong_kind_import_root_suppresses_derived_unknown_relation",
-    "test_repeated_consumers_of_one_failed_import_do_not_duplicate_root",
-    "test_independent_local_relation_error_remains_visible_with_module_root",
-    "test_local_self_cycle_emits_exact_pie_s2302_and_blocks_row_fact",
-    "test_local_multi_node_cycle_is_deterministic_and_blocks_every_member",
-    "test_source_row_fact_preserves_field_order_types_definitions_and_minimal_nullability",
-    "test_invalid_or_untyped_source_row_fact_is_unknown_without_cascade",
-    "test_direct_bare_qualified_and_renamed_fields_produce_concrete_row_facts",
-    "test_import_alias_is_only_valid_immediate_qualifier_and_original_name_fails",
-    "test_query_to_query_multi_hop_propagates_concrete_rows_in_local_dependency_order",
-    "test_unknown_deferred_and_blocked_upstream_states_propagate_exact_reasons",
-    "test_duplicate_output_is_unknown_advanced_rows_defer_and_legacy_public_bytes_stay_exact",
-)
 
 
 def _configured_project(
@@ -178,40 +130,6 @@ def _library_source(*, export_relation: str = "table projected") -> str:
         "        name\n"
         f"export:\n    {export_relation}\n"
     )
-
-
-def test_slice10_contract_and_status_docs_freeze_exact_boundary() -> None:
-    spec = (REPO_ROOT / SPEC_REL).read_text(encoding="utf-8")
-    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
-    plan = (
-        REPO_ROOT / "docs/plan/phase-54-local-import-module-export-foundation.md"
-    ).read_text(encoding="utf-8")
-    current = (REPO_ROOT / "docs/spec/pietto-v0.9.md").read_text(encoding="utf-8")
-    assert "Schema v1 continues to use the byte-exact legacy-flat resolver" in spec
-    assert "There is no cross-namespace fallback" in spec
-    assert (
-        "Slice 12 preserves existing advanced semantic facts in a separate private"
-        in readme
-    )
-    assert (
-        "private type/source and relation resolution with minimal row facts" in readme
-    )
-    assert (
-        "private\n"
-        "cross-module type/source and relation resolution sidecars with minimal row\n"
-        "facts, plus private occurrence-safe attribution, dependency, origin,\n"
-        "provenance, and minimal direct/renamed lineage facts exist" in readme
-    )
-    assert (
-        "and private type/source and relation resolution with minimal row facts plus\n"
-        "occurrence-safe attribution, dependency, origin, provenance, and direct or\n"
-        "renamed lineage. It does not yet produce Project IR or project SQL." in readme
-    )
-    assert "while relation resolution\nand row facts remain" not in readme
-    assert "It does not yet produce cross-module\nrelation/row facts" not in readme
-    assert "Completed through Slice 16" in readme
-    assert "## Status And Slice 16 Lifecycle" in plan
-    assert "## Current Phase 54 Completion Status" in current
 
 
 def test_relation_issue_status_and_private_carriers_are_frozen_slotted_keyword_only() -> (
@@ -2447,13 +2365,3 @@ def test_duplicate_output_is_unknown_advanced_rows_defer_and_legacy_public_bytes
     assert "build_project_relation_let_scope_facts" not in relation_source
     assert "adapt_project_row_expression_schema" not in relation_source
     assert "ProjectRowResultRole" not in relation_source
-
-    tree = ast.parse((REPO_ROOT / TEST_REL).read_text(encoding="utf-8"))
-    observed = tuple(
-        node.name
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name.startswith("test_")
-    )
-    assert observed == EXPECTED_TEST_NAMES
-    assert len(observed) == 36

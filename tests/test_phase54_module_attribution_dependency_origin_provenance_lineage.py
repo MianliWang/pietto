@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 from dataclasses import FrozenInstanceError, fields, replace
 import hashlib
 import inspect
@@ -11,7 +10,6 @@ from typing import cast
 
 import pytest
 
-import _phase54_active_gate2_manifest as active_gate2_manifest
 import pietto._project.check as project_check
 import pietto._project.module_attribution as module_attribution
 import pietto._project.module_relation_resolution as relation_resolution
@@ -34,60 +32,9 @@ from pietto.sql import emit_postgres_sql
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SPEC_REL = (
-    "docs/spec/phase54-slice11-module-attribution-dependency-origin-provenance-"
-    "and-lineage-v1.md"
-)
 SOURCE_REL = "src/pietto/_project/module_attribution.py"
 TEST_REL = (
     "tests/test_phase54_module_attribution_dependency_origin_provenance_lineage.py"
-)
-
-EXPECTED_TEST_NAMES = (
-    "test_slice11_contract_status_and_active_manifest_freeze_exact_boundary",
-    "test_private_carrier_enums_fields_and_sidecar_are_exact",
-    "test_declaration_occurrence_identity_excludes_ast_payload_from_semantic_equality",
-    "test_import_and_facade_occurrence_identities_preserve_positions_and_exact_names",
-    "test_reference_occurrence_identity_uses_owner_role_and_position_not_ast_value",
-    "test_row_field_identity_distinguishes_shape_source_and_projection_occurrences",
-    "test_all_eight_declaration_kinds_receive_source_ordered_module_attribution",
-    "test_all_six_import_export_kinds_preserve_local_binding_and_nominal_target",
-    "test_local_declaration_origins_are_self_paths_without_facade_hops",
-    "test_direct_import_origin_retains_local_alias_direct_facade_and_nominal_owner",
-    "test_explicit_reexport_origin_retains_every_exact_import_and_facade_hop",
-    "test_same_nominal_target_through_distinct_aliases_retains_distinct_origin_paths",
-    "test_origin_target_lookup_returns_complete_deterministic_tuple",
-    "test_module_import_dependencies_retain_every_graph_evidence_occurrence",
-    "test_module_dependency_diamond_retains_all_direct_edges_without_best_path",
-    "test_module_cycle_retains_raw_attribution_and_dependencies_without_resolved_provenance",
-    "test_builtin_type_reference_has_attribution_and_builtin_terminal_without_nominal_dependency",
-    "test_local_type_alias_chain_retains_every_reference_and_nominal_hop",
-    "test_cross_module_alias_chain_retains_local_alias_and_canonical_target",
-    "test_reexported_alias_chain_retains_each_facade_hop_and_nominal_occurrence",
-    "test_shape_field_reference_occurrences_preserve_order_and_duplicate_spelling",
-    "test_source_shape_provenance_retains_source_occurrence_shape_occurrence_and_route",
-    "test_relation_from_dependency_retains_immediate_local_symbol_and_target_occurrence",
-    "test_imported_source_table_query_dependencies_preserve_distinct_kinds_and_aliases",
-    "test_reexported_relation_dependency_retains_direct_facade_and_original_target",
-    "test_source_field_origins_preserve_shape_field_position_order_and_field_identity",
-    "test_direct_bare_qualified_and_renamed_lineage_preserves_select_order",
-    "test_imported_relation_alias_lineage_uses_only_consumer_local_qualifier_route",
-    "test_local_multi_hop_lineage_preserves_every_immediate_projection_hop",
-    "test_cross_module_multi_hop_lineage_preserves_binding_and_facade_evidence",
-    "test_explicit_reexport_row_lineage_reaches_original_source_without_identity_rewrite",
-    "test_same_spelling_cross_module_relations_and_fields_never_cross_wire",
-    "test_multiple_outputs_sharing_one_source_root_remain_distinct_paths",
-    "test_same_target_through_distinct_relation_aliases_retains_two_lineage_routes",
-    "test_definition_and_selected_module_permutations_change_only_explicit_order_evidence",
-    "test_unknown_ambiguous_and_blocked_references_have_raw_attribution_but_no_provenance",
-    "test_local_relation_cycle_has_empty_lineage_for_every_blocked_member",
-    "test_unknown_upstream_and_duplicate_output_publish_empty_nonconcrete_lineage",
-    "test_computed_let_grouped_aggregate_and_window_rows_remain_outside_slice11_lineage",
-    "test_fact_set_lookups_are_complete_tuple_backed_immutable_and_no_winner",
-    "test_builder_rejects_incomplete_or_misaligned_retained_inputs",
-    "test_builder_is_pure_over_preloaded_inputs_and_performs_no_io",
-    "test_schema_v1_text_json_ir_sql_and_sidecar_absence_remain_byte_exact",
-    "test_schema_v2_cli_json_public_exports_dependencies_version_and_generated_goldens_remain_unchanged",
 )
 
 
@@ -225,86 +172,6 @@ def _all_kind_library() -> str:
         "    table projected\n"
         "    query reported\n"
     )
-
-
-def test_slice11_contract_status_and_active_manifest_freeze_exact_boundary() -> None:
-    spec = (REPO_ROOT / SPEC_REL).read_text(encoding="utf-8")
-    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
-    plan = (
-        REPO_ROOT / "docs/plan/phase-54-local-import-module-export-foundation.md"
-    ).read_text(encoding="utf-8")
-    current = (REPO_ROOT / "docs/spec/pietto-v0.9.md").read_text(encoding="utf-8")
-    assert "Every selected declaration of the eight retained nominal kinds" in spec
-    assert "Unknown, ambiguous, and blocked references keep raw attribution" in spec
-    assert "exact nominal\ntarget identity, its exact declaration occurrence" in spec
-    assert "unrelated same-spelling field diagnostic such as an `Other`" in spec
-    assert "The parse result is the eleventh private validation root" in spec
-    assert "It is not factory-origin attestation" in spec
-    assert "No token, seal, digest, source reopening, or" in spec
-    assert "reparse is introduced." in spec
-    assert "Slice 11 adds private occurrence-safe declaration, import," in readme
-    assert "Module attribution, dependency, origin, provenance, and lineage" in readme
-    assert "## Status And Slice 16 Lifecycle" in plan
-    assert "## Current Phase 54 Completion Status" in current
-    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER == (
-        "PHASE54_SLICE16_GATE2"
-    )
-    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE == (
-        "1f69c0316086a2236cee03a96cca95218fbd50fc"
-    )
-    assert active_gate2_manifest.PHASE54_SLICE12_HISTORICAL_ADDED_PATHS == {
-        "docs/spec/phase54-slice12-semantic-fact-preservation-v1.md",
-        "src/pietto/_project/module_semantic_fact_preservation.py",
-        "tests/test_phase54_semantic_fact_preservation.py",
-    }
-    assert TEST_REL in active_gate2_manifest.MECHANICAL_READER_PATHS
-    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 47
-    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 51
-    assert len(active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_ADDED_PATHS) == 3
-    assert (
-        len(active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_MODIFIED_PATHS) == 52
-    )
-    assert (
-        len(active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_ALLOWLIST_PATHS) == 55
-    )
-    assert (
-        TEST_REL in active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_READER_PATHS
-    )
-    assert active_gate2_manifest.PHASE55_SLICE2_GATE2_MARKER == "PHASE55_SLICE2_GATE2"
-    assert (
-        active_gate2_manifest.PHASE55_SLICE2_BASELINE
-        == "5de57b2c078742253aa64d3a5ad627cd602290cd"
-    )
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_ADDED_PATHS) == 2
-    assert (
-        len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_MODIFIED_PATHS) == 75
-    )
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_DELETED_PATHS) == 0
-    assert (
-        len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_ALLOWLIST_A2_M75_D0)
-        == 77
-    )
-    assert (
-        TEST_REL in active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_MODIFIED_PATHS
-    )
-    assert (
-        TEST_REL
-        in active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_ALLOWLIST_A2_M75_D0
-    )
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_ADDED_PATHS) == 2
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_MODIFIED_PATHS) == 76
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_DELETED_PATHS) == 0
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_ALLOWLIST_A2_M76_D0) == 78
-    assert TEST_REL in active_gate2_manifest.PHASE55_SLICE2_GATE2_MODIFIED_PATHS
-    assert TEST_REL in active_gate2_manifest.PHASE55_SLICE2_GATE2_ALLOWLIST_A2_M76_D0
-    assert active_gate2_manifest.PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_BASE == (
-        "691db405a7e787adec5d7bd0498330b070bf6b75"
-    )
-    assert (
-        len(active_gate2_manifest.PHASE54_SLICE11_SUBSTANTIVE_RECOVERY_MODIFIED_PATHS)
-        == 64
-    )
-    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_DELETED_PATHS == set()
 
 
 def test_private_carrier_enums_fields_and_sidecar_are_exact() -> None:
@@ -2807,15 +2674,6 @@ def test_schema_v2_cli_json_public_exports_dependencies_version_and_generated_go
     assert len(generated) == 8
     assert len(goldens) == 37
 
-    tree = ast.parse((REPO_ROOT / TEST_REL).read_text(encoding="utf-8"))
-    observed = tuple(
-        node.name
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name.startswith("test_")
-    )
-    assert observed == EXPECTED_TEST_NAMES
-    assert len(observed) == 44
     assert inspect.signature(
         module_attribution._build_project_module_attribution_fact_set
     ).return_annotation in {

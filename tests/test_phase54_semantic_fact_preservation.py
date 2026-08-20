@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import builtins
 from dataclasses import fields, replace
 import inspect
@@ -52,56 +51,7 @@ from pietto.semantic.window_semantics import (
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SPEC_REL = "docs/spec/phase54-slice12-semantic-fact-preservation-v1.md"
 SOURCE_REL = "src/pietto/_project/module_semantic_fact_preservation.py"
-TEST_REL = "tests/test_phase54_semantic_fact_preservation.py"
-
-EXPECTED_TEST_NAMES = (
-    "test_slice12_contract_status_active_manifest_and_allowlist_are_exact",
-    "test_private_preservation_carriers_fields_enums_and_privacy_are_exact",
-    "test_capability_family_inventory_counts_order_and_exact_raw_facts_are_preserved",
-    "test_capability_lookup_preserves_found_absent_unknown_conflict_and_duplicate_folding",
-    "test_window_signature_formula_inventory_preserves_all_eight_identities_exactly",
-    "test_result_role_inventory_is_exact_separate_and_source_ordered",
-    "test_schema_v1_has_no_sidecar_and_text_json_ir_sql_bytes_remain_exact",
-    "test_schema_v2_builds_sidecar_from_exact_slice10_authority_without_slice11_input",
-    "test_builder_rejects_value_equal_or_misaligned_foreign_authority_roots",
-    "test_zero_relation_fact_environment_and_lookup_are_exact",
-    "test_source_relation_fact_retains_exact_slice10_owner_state_and_order",
-    "test_local_computed_output_preserves_expression_type_nullability_origin_and_role",
-    "test_imported_computed_output_preserves_local_lookup_and_nominal_target",
-    "test_aliased_import_keeps_qualifier_separate_from_nominal_target_identity",
-    "test_explicit_reexport_keeps_direct_facade_lookup_and_original_nominal_target",
-    "test_same_spelling_cross_module_relations_and_fields_never_merge",
-    "test_same_target_through_two_local_aliases_retains_two_identity_distinct_facts",
-    "test_relation_and_output_cardinalities_zero_one_two_three_have_no_truncation",
-    "test_module_definition_and_fact_permutations_change_only_explicit_tuple_order",
-    "test_complete_tuple_lookups_retain_middle_tail_and_duplicate_occurrences",
-    "test_unknown_upstream_state_and_reason_propagate_without_child_inference",
-    "test_deferred_upstream_state_and_reason_propagate_without_concretization",
-    "test_blocked_unresolved_reference_retains_issue_root_and_empty_candidates",
-    "test_ambiguous_relation_bucket_retains_every_occurrence_without_winner",
-    "test_local_and_module_cycles_retain_complete_roots_without_guessed_facts",
-    "test_let_binding_ledger_preserves_source_order_duplicates_visibility_and_status",
-    "test_let_derived_output_preserves_type_nullability_origin_dependency_and_role",
-    "test_select_output_collision_preserves_every_candidate_and_never_overwrites",
-    "test_group_keys_preserve_source_order_visibility_fields_and_result_roles",
-    "test_aggregate_results_preserve_function_arguments_type_nullability_origin_and_role",
-    "test_aggregate_dependency_occurrences_preserve_repetition_before_derived_dedup",
-    "test_satisfying_aggregate_candidate_bucket_preserves_all_matches_without_first_winner",
-    "test_grouped_order_let_candidate_bucket_preserves_all_matching_outputs",
-    "test_aggregate_grouped_concrete_unknown_deferred_and_blocked_states_are_atomic",
-    "test_all_eight_window_families_preserve_complete_composite_analysis",
-    "test_navigation_offset_default_generic_and_nullability_formula_evidence_is_exact",
-    "test_window_partition_order_and_direction_bindings_preserve_order_and_duplicates",
-    "test_multiple_window_outputs_preserve_global_ordinals_and_every_output",
-    "test_mixed_window_outcomes_scan_all_candidates_and_publish_no_partial_schema",
-    "test_window_dependency_occurrences_preserve_duplicates_and_edges_first_dedupe_only",
-    "test_ordinary_group_aggregate_and_window_result_roles_remain_distinct_in_one_relation",
-    "test_nominal_generic_same_spelling_types_fail_closed_without_cross_module_merge",
-    "test_sidecar_builder_is_pure_over_preloaded_inputs_and_performs_no_io",
-    "test_schema_v2_public_api_cli_json_metadata_ir_sql_dependencies_version_and_goldens_are_unchanged",
-)
 
 
 def _configured_project(
@@ -405,17 +355,6 @@ def _window_lines(identities: tuple[str, ...]) -> str:
             )
         )
     return "\n".join(lines) + "\n"
-
-
-def test_slice12_contract_status_active_manifest_and_allowlist_are_exact() -> None:
-    spec = (REPO_ROOT / SPEC_REL).read_text(encoding="utf-8")
-    plan = (
-        REPO_ROOT / "docs/plan/phase-54-local-import-module-export-foundation.md"
-    ).read_text(encoding="utf-8")
-    assert "Slice 10 is the sole semantic authority root" in spec
-    assert "Every identity-distinct occurrence remains distinct" in spec
-    assert "Slice 13 is the first authorized join" in spec
-    assert "Slice 12 — Generic-signature" in plan
 
 
 def test_private_preservation_carriers_fields_enums_and_privacy_are_exact() -> None:
@@ -4029,16 +3968,3 @@ def test_schema_v2_public_api_cli_json_metadata_ir_sql_dependencies_version_and_
     assert "module_semantic_fact_preservation" not in project_init
     pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     assert 'version = "0.1.0"' in pyproject
-    tree = ast.parse((REPO_ROOT / TEST_REL).read_text(encoding="utf-8"))
-    actual = tuple(
-        node.name
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name.startswith("test_")
-    )
-    assert actual == EXPECTED_TEST_NAMES
-    assert all(
-        not node.decorator_list
-        for node in tree.body
-        if isinstance(node, ast.FunctionDef) and node.name.startswith("test_")
-    )

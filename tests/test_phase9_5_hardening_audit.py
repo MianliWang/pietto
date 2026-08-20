@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-# Phase 54 Slice 4 mechanical reader-closure identity refresh.
-
 import json
 import re
 from pathlib import Path
@@ -106,8 +104,6 @@ def test_repository_contains_no_former_source_suffix() -> None:
 
 def test_current_user_facing_commands_use_pietto_suffix() -> None:
     readme = _read("README.md")
-    agents = _read("AGENTS.md")
-    language_spec = _read("docs/spec/pietto-v0.9.md")
 
     readme_commands = {
         line.removeprefix("uv run ")
@@ -115,14 +111,8 @@ def test_current_user_facing_commands_use_pietto_suffix() -> None:
         for line in block.splitlines()
     }
 
-    assert "pietto check demo-project/models/active_users.pietto" in readme_commands
-    assert (
-        "pietto emit-sql demo-project/models/active_users.pietto --dialect postgres"
-        in readme_commands
-    )
-    assert "pietto check file.pietto" in agents
-    assert "pietto emit-sql file.pietto --dialect postgres" in agents
-    assert "pietto check app.pietto" in language_spec
+    assert "pietto check active_users.pietto" in readme_commands
+    assert "pietto emit-sql active_users.pietto --dialect postgres" in readme_commands
 
 
 def test_cli_remains_path_based_for_nonstandard_suffix(

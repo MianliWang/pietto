@@ -31,35 +31,6 @@ from pietto._project.model import (
 from pietto.ast_nodes import QueryDef, TableDef
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PLAN_PATH = REPO_ROOT / "docs/plan/phase-48-query-to-query-row-schema.md"
-SPEC_PATH = REPO_ROOT / "docs/spec/phase48-schema-availability-state-carrier-v1.md"
-PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-
-
-def test_slice3_contract_document_exists_and_locks_no_population_scope() -> None:
-    assert PLAN_PATH.is_file()
-    assert SPEC_PATH.is_file()
-    docs = " ".join(
-        (
-            PLAN_PATH.read_text(encoding="utf-8")
-            + "\n"
-            + SPEC_PATH.read_text(encoding="utf-8")
-        ).split()
-    )
-
-    for required in (
-        "Phase 48 Slice 3",
-        "Private schema availability state carrier and propagation readiness",
-        "`ProjectRelationRowSchemaState`",
-        "`ProjectSemanticModel.relation_row_schema_states`",
-        "Slice 3 does not populate actual states from checker/build logic",
-        "state population remains deferred to later propagation slices",
-        "Project JSON v2 top-level shape remains unchanged",
-        "existing `PIE-S2301`",
-        "existing `PIE-S2302`",
-        "No other file is approved in Slice 3 Gate 2",
-    ):
-        assert required in docs, required
 
 
 def test_relation_row_schema_state_vocabulary_is_private_and_readiness_oriented() -> (
@@ -280,13 +251,6 @@ def test_project_json_v2_does_not_expose_schema_availability_private_facts(
         "upstream_blocked",
     ):
         assert private_fact not in serialized
-
-
-def test_package_version_is_locked() -> None:
-    pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
-
-    assert 'version = "0.1.0"' in pyproject
-    assert 'version = "0.2.0"' not in pyproject
 
 
 def _row_field(name: str) -> ProjectRowField:

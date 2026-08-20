@@ -21,9 +21,6 @@ from pietto._project.model import (
 from pietto.ast_nodes import QueryDef, TableDef
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-PHASE47_PLAN_PATH = REPO_ROOT / "docs/plan/phase-47-direct-row-schema-mvp.md"
-PHASE47_SPEC_PATH = REPO_ROOT / "docs/spec/phase47-direct-row-schema-scope-lock-v1.md"
 
 PROJECT_JSON_TOP_LEVEL_KEYS = (
     "schema_version",
@@ -68,24 +65,6 @@ PRIVATE_JSON_FACTS = (
     "target",
     "dependency_source",
 )
-
-
-def test_slice10_route_and_json_privacy_contract_are_locked() -> None:
-    docs = (
-        PHASE47_PLAN_PATH.read_text(encoding="utf-8")
-        + "\n"
-        + PHASE47_SPEC_PATH.read_text(encoding="utf-8")
-    )
-
-    for required in (
-        "10. Project JSON/private-fact privacy and compatibility hardening",
-        "Project JSON v2 shape must remain unchanged",
-        "Future private row schema facts must not be serialized into Project JSON v2",
-        "private semantic facts serialized into JSON",
-        "private semantic fact serialization",
-        "public project semantic API",
-    ):
-        assert required in docs, required
 
 
 def test_project_json_v2_shape_and_key_order_remain_stable_for_direct_row_schema(
@@ -236,13 +215,6 @@ def test_project_json_v2_renderer_remains_single_line_ascii_document(
     assert rendered.isascii()
     assert json.loads(rendered) == document
     _assert_private_json_facts_absent(rendered)
-
-
-def test_package_version_is_locked() -> None:
-    pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
-
-    assert 'version = "0.1.0"' in pyproject
-    assert 'version = "0.2.0"' not in pyproject
 
 
 def _project_json_document(

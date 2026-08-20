@@ -240,7 +240,6 @@ def test_emit_sql_json_succeeds_with_group_by_artifact(
 
 def test_group_by_grammar_and_diagnostics_are_registered() -> None:
     grammar = (REPO_ROOT / "grammar/Pietto.g4").read_text(encoding="utf-8")
-    diagnostics = (REPO_ROOT / "docs/spec/diagnostics.md").read_text(encoding="utf-8")
 
     assert grammar.count("GROUP: 'group';") == 1
     for required in (
@@ -251,38 +250,6 @@ def test_group_by_grammar_and_diagnostics_are_registered() -> None:
         ": dottedName NEWLINE",
     ):
         assert required in grammar
-    for required in (
-        "| `PIE-S2316` | Historical GROUP BY IR/SQL lowering gate, retired after SQL lowering |",
-        "| `PIE-S2317` | Duplicate GROUP BY key |",
-        "| `PIE-S2318` | Non-grouped projection in grouped relation |",
-        "| `PIE-S2319` | Grouped scalar projection is deferred |",
-        "| `PIE-S2320` | Pure grouped output without an aggregate is deferred |",
-        "| `PIE-S2321` | Grouped ORDER BY is deferred |",
-    ):
-        assert required in diagnostics
-
-
-def test_phase21_slice4_status_and_boundaries_are_documented() -> None:
-    plan = (REPO_ROOT / "docs/plan/phase-21-group-by-contract-planning.md").read_text(
-        encoding="utf-8"
-    )
-    normalized = " ".join(plan.split())
-
-    for required in (
-        "Phase 21 Slice 4 is complete as `group by:` parser and AST support with a semantic fail-closed gate",
-        "emits `PIE-S2316` for any relation that contains `group by:`",
-        "It does not implement grouped semantic validation, grouped output schema, Semantic IR `group_keys`, SQL `GROUP BY` lowering",
-        "`group by:` is accepted only after optional `where` and before `select`",
-        "the AST records `GroupByClause`, `GroupByItem`, and `group_by_clause: GroupByClause | None`",
-        "`pietto emit-sql --format json` fails before SQL emission and produces no artifacts",
-        "No IR/SQL/golden/check_goldens behavior changed",
-    ):
-        assert required in normalized
-    for required in (
-        "Phase 21 Slice 7 is complete as PostgreSQL/MySQL SQL GROUP BY lowering and golden coverage",
-        "Valid grouped relations no longer emit the unconditional `PIE-S2316` gate",
-    ):
-        assert required in normalized
 
 
 def _parse_relation(

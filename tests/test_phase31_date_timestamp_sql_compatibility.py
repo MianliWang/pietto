@@ -29,9 +29,6 @@ from pietto.sql import SqlResult, emit_postgres_sql
 from pietto.sql.mysql import emit_mysql_sql
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PLAN_PATH = REPO_ROOT / "docs/plan/phase-31-v02-hardening-and-stable-completion.md"
-SPEC_PATH = REPO_ROOT / "docs/spec/v02-hardening-and-stable-completion-v1.md"
-
 CATALOG_PATH = REPO_ROOT / "src/pietto/semantic/catalog.py"
 SEMANTIC_MODEL_PATH = REPO_ROOT / "src/pietto/semantic/model.py"
 IR_MODEL_PATH = REPO_ROOT / "src/pietto/ir/model.py"
@@ -49,54 +46,6 @@ EVENT_SHAPE = (
     "    optional_created_at: Timestamp nullable\n"
     "    amount: Int not null\n"
 )
-
-
-def test_phase31_slice4_plan_and_spec_lock_tests_static_audit_scope() -> None:
-    plan = _normalized(PLAN_PATH)
-    spec = _normalized(SPEC_PATH)
-    combined = f"{plan} {spec}"
-
-    for required in (
-        "Phase 31 Slice 4 is complete as Date / Timestamp SQL compatibility "
-        "audit, tests, static audit, and status work only",
-        "Slice 8 is complete",
-        "Phase 31 Slice 5 is complete as UUID / Enum readiness decision, "
-        "tests, static audit, and status work only",
-        "Phase 31 Slice 6 is complete as Diagnostic / CLI / JSON stability "
-        "hardening, tests, static audit, status, and docs work only",
-        "Phase 29 aggregate freeze remains active",
-        "Phase 30 Date/Timestamp contracts are carried forward",
-        "Direct-field `min(Date)`, `max(Date)`, `min(Timestamp)`, and "
-        "`max(Timestamp)` remain current accepted behavior",
-        "`count(Date)`, `count(Timestamp)`, `count_distinct(Date)`, and "
-        "`count_distinct(Timestamp)` remain current direct-field accepted "
-        "behavior",
-        "Date/Timestamp comparisons remain current generic known-child "
-        "comparison behavior producing `Bool UNKNOWN`",
-        "not a Date/Timestamp-specific comparison compatibility matrix",
-        "SQL renderers add no casts, temporal functions, timezone terms, "
-        "precision terms, or native database metadata",
-    ):
-        assert required in combined
-
-    for forbidden in (
-        "behavior fix",
-        "new SQL dialect behavior",
-        "aggregate expansion",
-        "v0.2 completion declaration in Slice 4",
-        "Phase 32 implementation",
-        "Slice 5 work",
-        "DateTime primitive or alias",
-        "Time type",
-        "Interval type",
-        "timezone semantics",
-        "Date/Timestamp literal implementation",
-        "temporal arithmetic implementation",
-        "temporal function implementation",
-        "timestamp precision modeling",
-        "native database metadata",
-    ):
-        assert forbidden in combined
 
 
 def test_semantic_date_timestamp_field_and_nullability_matrix_is_locked() -> None:
@@ -362,13 +311,6 @@ def test_date_timestamp_generic_comparison_posture_is_locked() -> None:
     assert isinstance(projections["same_date"].expression, ComparisonIR)
     assert isinstance(projections["before_created"].expression, ComparisonIR)
 
-    combined = f"{_normalized(PLAN_PATH)} {_normalized(SPEC_PATH)}"
-    assert (
-        "current generic known-child comparison behavior producing `Bool UNKNOWN`"
-        in combined
-    )
-    assert "not a Date/Timestamp-specific comparison compatibility matrix" in combined
-
 
 @pytest.mark.parametrize(
     ("projection", "expected_code"),
@@ -431,7 +373,6 @@ def test_static_audit_no_temporal_runtime_or_metadata_surface_was_added() -> Non
     mysql = _read(MYSQL_EXPRESSIONS_PATH)
     sql_api = _read(SQL_API_PATH)
     cli_json = _read(CLI_JSON_PATH)
-    combined_docs = f"{_normalized(PLAN_PATH)} {_normalized(SPEC_PATH)}"
 
     assert '"Date"' in catalog
     assert '"Timestamp"' in catalog
@@ -487,16 +428,6 @@ def test_static_audit_no_temporal_runtime_or_metadata_surface_was_added() -> Non
     assert "emit_mysql_sql" not in sql_api
     assert '"types"' not in cli_json
     assert '"type_output"' not in cli_json
-    for required in (
-        "DateTime, Time, Interval, or timezone semantics",
-        "no Date/Timestamp literal implementation",
-        "no temporal arithmetic implementation",
-        "no temporal function implementation",
-        "no timestamp precision modeling",
-        "no native database metadata",
-        "no public MySQL API expansion",
-    ):
-        assert required in combined_docs
 
 
 def _projected_source(connector: str, projections: str) -> str:
@@ -624,10 +555,6 @@ def _assert_aggregate(
 
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
-
-
-def _normalized(path: Path) -> str:
-    return " ".join(_read(path).split())
 
 
 def _class_body(source: str, marker: str) -> str:

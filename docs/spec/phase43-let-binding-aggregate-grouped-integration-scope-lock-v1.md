@@ -299,7 +299,7 @@ Slice 1 forbids:
   schema/output changes;
 - package metadata, package version, lockfile, script, workflow, CI, release,
   tag, publish, upload, signing, or attestation changes;
-- `README.md`, `AGENTS.md`, or `docs/spec/pietto-v0.9.md` changes;
+- `README.md`, `AGENTS.md`, or `docs/language.md` changes;
 - new diagnostic codes;
 - warning/lint infrastructure;
 - Decimal literal syntax;

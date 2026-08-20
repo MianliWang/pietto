@@ -16,38 +16,6 @@ from pietto._project.model import (
 from pietto.ast_nodes import QueryDef, TableDef
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PLAN_PATH = REPO_ROOT / "docs/plan/phase-48-query-to-query-row-schema.md"
-SPEC_PATH = (
-    REPO_ROOT / "docs/spec/phase48-upstream-non-concrete-schema-propagation-v1.md"
-)
-PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-
-
-def test_slice7_contract_document_exists_and_is_linked_from_plan() -> None:
-    assert PLAN_PATH.is_file()
-    assert SPEC_PATH.is_file()
-    docs = " ".join(
-        (
-            PLAN_PATH.read_text(encoding="utf-8")
-            + "\n"
-            + SPEC_PATH.read_text(encoding="utf-8")
-        ).split()
-    )
-
-    for required in (
-        "Phase 48 Slice 7",
-        "Upstream unknown / absent / deferred / blocked schema propagation",
-        "private schema availability state propagation",
-        "`UNKNOWN`",
-        "`DEFERRED`",
-        "`BLOCKED`",
-        "Project JSON v2 top-level shape remains unchanged",
-        "existing `PIE-S2102`",
-        "existing `PIE-S2301`",
-        "existing `PIE-S2302`",
-        "No other file is approved in Slice 7 Gate 2",
-    ):
-        assert required in docs, required
 
 
 def test_direct_missing_field_gets_unknown_state_with_existing_pie_s2102(
@@ -473,13 +441,6 @@ def test_project_json_v2_does_not_expose_slice7_private_facts(
         "upstream_blocked",
     ):
         assert private_fact not in serialized
-
-
-def test_package_version_is_locked() -> None:
-    pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
-
-    assert 'version = "0.1.0"' in pyproject
-    assert 'version = "0.2.0"' not in pyproject
 
 
 def _assert_state(

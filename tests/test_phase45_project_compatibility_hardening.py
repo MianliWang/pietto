@@ -7,11 +7,8 @@ from typing import cast
 import pytest
 
 import pietto.cli as cli
-from _static_audit_helpers import normalized_text as _normalized
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PLAN_PATH = REPO_ROOT / "docs/plan/phase-45-project-wide-semantic-model-mvp.md"
-SPEC_PATH = REPO_ROOT / "docs/spec/phase45-project-wide-semantic-model-scope-lock-v1.md"
 PACKAGE_SMOKE_PATH = REPO_ROOT / "scripts/package_smoke.py"
 
 PROJECT_JSON_TOP_LEVEL_KEYS = (
@@ -351,33 +348,6 @@ def test_package_smoke_remains_success_read_parse_smoke_only() -> None:
         "Source shape must refer to a shape",
     ):
         assert semantic_error_marker not in source
-
-
-def test_slice9_docs_lock_compatibility_hardening_boundaries() -> None:
-    docs = " ".join(_normalized(path) for path in (PLAN_PATH, SPEC_PATH))
-
-    for required in (
-        "Slice 9 is tests/docs/static-audit only",
-        "locks compatibility after Slices 7 and 8",
-        "does not change production source behavior",
-        "does not change `scripts/package_smoke.py`",
-        "Package smoke remains installed CLI success/read-parse smoke only",
-        "Semantic-error Project JSON compatibility is covered by focused in-process tests",
-        "Project text mode and JSON mode preserve parser/project short-circuit behavior",
-        "Project JSON v2 schema shape remains stable",
-        "`inputs[]` and `result.check` remain read/parse based",
-        "`cli_errors[]` remains project/config/source-selection/source-read only",
-        "Slice 9 adds no semantic input statuses and no semantic file counters",
-        "No new Project JSON v2 fields",
-        "Private project semantic facts remain private and un-serialized",
-        "Single-file `check`, CLI JSON v1, `emit-sql`, and `explain` remain separate and unchanged",
-        "Project `emit-sql` and project `explain` remain unsupported or absent",
-        "no IR, SQL, project `emit-sql`, or project `explain` path",
-        "no parser public API, grammar, generated parser artifact",
-        "package version, workflow, dependency, release, tag, publish, upload, signing, attestation",
-        "external plugin, external script, hook, MCP, or copied-code action",
-    ):
-        assert required in docs, required
 
 
 def _read_json_document(capsys: pytest.CaptureFixture[str]) -> dict[str, object]:

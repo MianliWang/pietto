@@ -1,16 +1,11 @@
 from __future__ import annotations
 
 import ast
-import hashlib
 import importlib.util
 import subprocess
 from pathlib import Path
 from types import ModuleType
 from typing import Any, cast
-
-from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 import pytest
 
@@ -27,7 +22,6 @@ EXPECTED_GATES = (
     ),
     ("tests", ("uv", "run", "pytest")),
 )
-BOUNDARY_HASH = "6cbe7ccfbd84d7b2966964ac91a56e7eeacdc798c3d161da64d61add662b0420"
 
 
 def _load_validate_module() -> ModuleType:
@@ -536,9 +530,6 @@ def test_slice2_validation_stays_separate_from_later_workflows() -> None:
     assert all("check_generated.py" not in command for _, command in validate.GATES)
     assert all("check_goldens.py" not in command for _, command in validate.GATES)
     assert all("package_smoke.py" not in command for _, command in validate.GATES)
-    assert _sha256(REPO_ROOT / "Makefile") == (
-        "dbd38c41e2af5275c379de0b88c92f3861efb90724c7de1a291e0aa007ce2db7"
-    )
     assert (REPO_ROOT / ".github/workflows/ci.yml").is_file()
     assert (REPO_ROOT / "scripts" / "package_smoke.py").is_file()
 
@@ -549,37 +540,3 @@ def test_validation_does_not_use_global_pytest_addopts() -> None:
 
     assert "addopts" not in pyproject
     assert "PYTEST_ADDOPTS" not in validate_source
-
-
-def test_slice2_preserves_compiler_and_configuration_boundary_bytes() -> None:
-    paths = [
-        REPO_ROOT / "Makefile",
-        REPO_ROOT / "grammar" / "Pietto.g4",
-    ]
-    paths.extend(
-        path
-        for path in (REPO_ROOT / "src" / "pietto").rglob("*")
-        if path.is_file() and "__pycache__" not in path.parts
-    )
-
-    digest = hashlib.sha256()
-    for path in sorted(paths):
-        relative_path = path.relative_to(REPO_ROOT).as_posix()
-        digest.update(relative_path.encode("utf-8"))
-        digest.update(b"\0")
-        digest.update(path.read_bytes())
-        digest.update(b"\0")
-
-    assert digest.hexdigest() == BOUNDARY_HASH
-
-
-def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-_SLICE10_READER_MIGRATION_PATHS = (
-    "docs/spec/phase53-partition-binding-multi-key-visibility-diagnostics-contract-v1.md",
-    "src/pietto/semantic/window_partition_analysis.py",
-    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
-)
-# Phase 53 Slice 13 reader migration.

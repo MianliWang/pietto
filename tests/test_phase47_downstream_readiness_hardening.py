@@ -16,28 +16,6 @@ from pietto._project.model import (
 from pietto.ast_nodes import QueryDef, TableDef
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-PHASE47_PLAN_PATH = REPO_ROOT / "docs/plan/phase-47-direct-row-schema-mvp.md"
-PHASE47_SPEC_PATH = REPO_ROOT / "docs/spec/phase47-direct-row-schema-scope-lock-v1.md"
-
-
-def test_slice9_route_and_phase48_50_readiness_contract_are_locked() -> None:
-    docs = (
-        PHASE47_PLAN_PATH.read_text(encoding="utf-8")
-        + "\n"
-        + PHASE47_SPEC_PATH.read_text(encoding="utf-8")
-    )
-
-    for required in (
-        "9. Downstream readiness hardening for Phase 48-50",
-        "10. Project JSON/private-fact privacy and compatibility hardening",
-        "11. Completion audit/status lock",
-        "Phase 47 must not implement query-to-query propagation",
-        "Phase 47 must not implement computed aliases",
-        "must not implement aggregate or grouped",
-        "Project JSON v2 shape must remain unchanged",
-    ):
-        assert required in docs, required
 
 
 def test_phase48_table_to_query_row_schema_propagates_from_direct_table_seed(
@@ -236,13 +214,6 @@ def test_project_json_v2_privacy_remains_unchanged_for_private_row_schema_facts(
         "direct_projection",
     ):
         assert private_fact not in serialized
-
-
-def test_package_version_is_locked() -> None:
-    pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
-
-    assert 'version = "0.1.0"' in pyproject
-    assert 'version = "0.2.0"' not in pyproject
 
 
 def _project_semantic_result(

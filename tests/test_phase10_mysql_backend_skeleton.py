@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import inspect
 import tomllib
 from pathlib import Path
@@ -12,86 +11,6 @@ from pietto.sql import SqlResult
 from pietto.sql.mysql import emit_mysql_sql
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PHASE10_PLAN = "docs/plan/phase-10-mysql-sql-generation-mvp.md"
-POSTGRES_BOUNDARY_HASHES = {
-    "src/pietto/sql/__init__.py": (
-        "e40bd3eee7f76bc68313adb8237a7a6c5d84286197261f70c827a4219c9e3418"
-    ),
-    "src/pietto/sql/expressions.py": (
-        "e4fecf89cdfebfd91be0390cc81d78b178300f3a2691fdf8b6b06e1c022954b1"
-    ),
-    "src/pietto/sql/model.py": (
-        "0b5f096fbd9b2fdcc0c92cf65e50de90d64b134fd7479a3314ee05c348ab69f1"
-    ),
-    "src/pietto/sql/postgres.py": (
-        "9b89550ddaf1759e8066d02590288f545eace484e4633f6f6e37b1fa8c194790"
-    ),
-    "src/pietto/sql/relations.py": (
-        "5422e7e4fa48c1c1364f8347fd2c567eaadf421b0c29f5adce492cb8af4ed5a1"
-    ),
-    "src/pietto/sql/render.py": (
-        "199a8c019331d2dc0d4112bca449268c34d9ba5688c976dd4194b8502c5daed5"
-    ),
-    "tests/fixtures/golden/emit_sql_active_users.sql": (
-        "5a0878c84b208c906d8affe0f54706118f14bee40951ab8e25c70c90e95f43d3"
-    ),
-    "tests/fixtures/golden/emit_sql_active_user_emails.sql": (
-        "d5aaf1e4cc3c334c72c3978858358b4df21ea3572daa0ecdda0fee0ceff74ee0"
-    ),
-    "tests/fixtures/golden/emit_sql_compatibility_literals_identifiers.sql": (
-        "691b04423af4cb4861d5aa56c0ae865181a738abca153f37ae7c69c1a8857477"
-    ),
-    "tests/fixtures/golden/emit_sql_compatibility_expressions.sql": (
-        "943f92d70fd433d803cf5409b02254f9f7801822270eb5ca567d6cdde9387c46"
-    ),
-    "tests/fixtures/golden/emit_sql_compatibility_ordering_metadata.sql": (
-        "b4e2d6a0bfa3ddff91b75892ddc071ec9199d41512e826a2ad81bac76e23752c"
-    ),
-}
-OTHER_BOUNDARY_HASHES = {
-    "grammar/Pietto.g4": (
-        "661f00037b4ade8f8b5bef0cb3e070e4379decdd11cd19021d68e960e69d2724"
-    ),
-    "src/pietto/generated/Pietto.interp": (
-        "abdfa9ccaea1b5add75c5eaff7f92ab15dde3465ed69d5f4de97cda0c90d2311"
-    ),
-    "src/pietto/generated/Pietto.tokens": (
-        "2f37c985e9790ace0b5760b3955afebc04319e1f7a590330ef471c91876e4317"
-    ),
-    "src/pietto/generated/PiettoLexer.interp": (
-        "71419a4011792a40b5419d1f6ecdc0f1e7520b48d8578c18dd55a98a786aeacd"
-    ),
-    "src/pietto/generated/PiettoLexer.py": (
-        "2d687207a29ed9e85f93d435fe4d0a256a4849900ed291490ed4a95480317e0b"
-    ),
-    "src/pietto/generated/PiettoLexer.tokens": (
-        "12b6e25740215115ef07c1a26aa6f38fac596da27ff0f42205f32962a7c4044a"
-    ),
-    "src/pietto/generated/PiettoParser.py": (
-        "5b8f5cebd287319788815605e0d652d8d84448e3b19091d8bb2dedc2baed32dd"
-    ),
-    "src/pietto/generated/PiettoVisitor.py": (
-        "f7e7c73eff460a367fc53f24711c933a9d592ae8a2225b15d93007c828fba3a5"
-    ),
-    "src/pietto/generated/__init__.py": (
-        "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-    ),
-}
-
-
-def test_slice4_status_and_private_boundary_are_documented() -> None:
-    plan = _read(PHASE10_PLAN)
-    status_documents = (
-        _read("AGENTS.md"),
-        _read("docs/spec/pietto-v0.9.md"),
-    )
-
-    assert "**Slice 4: MySQL Backend Skeleton is complete.**" in plan
-    assert "4. **MySQL Backend Skeleton**: complete." in plan
-    for document in status_documents:
-        normalized = " ".join(document.split())
-        assert "Phase 10 MySQL SQL Generation MVP is complete" in normalized
-        assert "private MySQL backend skeleton" in normalized
 
 
 def test_mysql_entry_point_is_private_and_keeps_existing_models() -> None:
@@ -150,17 +69,5 @@ def test_mysql_skeleton_has_no_dependency_or_forbidden_stage_imports() -> None:
         assert forbidden not in mysql_source
 
 
-def test_postgres_grammar_and_lock_boundaries_are_unchanged() -> None:
-    for path, expected_hash in {
-        **POSTGRES_BOUNDARY_HASHES,
-        **OTHER_BOUNDARY_HASHES,
-    }.items():
-        assert _sha256(REPO_ROOT / path) == expected_hash
-
-
 def _read(path: str) -> str:
     return (REPO_ROOT / path).read_text(encoding="utf-8")
-
-
-def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()

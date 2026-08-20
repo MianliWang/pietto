@@ -274,7 +274,7 @@ Gate 2 may modify exactly 15 paths:
 2. `tests/test_phase51_selected_let_accepted_expression_aggregate.py`
 3. `tests/test_phase51_aggregate_only_project_row_schema.py`
 4. `tests/test_phase51_grouped_aggregate_project_row_schema.py`
-5. `docs/plan/phase-51-aggregate-grouped-output-schema-foundation.md`
+5. `docs/roadmap.md`
 6. `docs/spec/phase51-aggregate-expression-row-let-candidate-integration-v1.md`
 7. `tests/test_phase11_ci_workflow.py`
 8. `tests/test_phase11_completion_audit.py`

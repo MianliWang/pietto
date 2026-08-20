@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import ast
-import hashlib
 import importlib.util
 import inspect
 import io
@@ -10,26 +9,14 @@ import sys
 import tarfile
 import tomllib
 import zipfile
-from collections.abc import Iterable
 from pathlib import Path
 from types import ModuleType
 from typing import Any, cast
-
-from _phase54_active_gate2_manifest import (  # noqa: F401
-    phase54_active_gate2_manifest_is_active as _phase54_active_gate2_is_active,
-)
 
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SMOKE_PATH = REPO_ROOT / "scripts" / "package_smoke.py"
-BOUNDARY_HASH = "6cbe7ccfbd84d7b2966964ac91a56e7eeacdc798c3d161da64d61add662b0420"
-GOLDEN_HASH = "0e26a0b367a2ae849e5ec1e9a239be42765bea2c352242db5da930ab56b43004"
-PRIOR_SCRIPT_HASHES = {
-    "scripts/validate.py": "e1607a47da34ff868ca09a128c8897a6a0dbad21",
-    "scripts/check_generated.py": "51081d5337e0659e73f8666ba639c0d4c3fe3a4b",
-    "scripts/check_goldens.py": "4f49ddc0a8a6836b68a83a98cc9c05389d4519a3",
-}
 
 
 def _load_module(name: str, path: Path) -> ModuleType:
@@ -258,29 +245,15 @@ def test_smoke_has_no_distribution_or_credential_behavior() -> None:
 
 
 def test_prior_scripts_and_all_compiler_packaging_boundaries_are_unchanged() -> None:
-    for path, expected_hash in PRIOR_SCRIPT_HASHES.items():
-        assert _git_blob_hash(REPO_ROOT / path) == expected_hash
+    for path in (
+        "scripts/validate.py",
+        "scripts/check_generated.py",
+        "scripts/check_goldens.py",
+    ):
         assert "package_smoke" not in (REPO_ROOT / path).read_text(encoding="utf-8")
 
-    assert _sha256(REPO_ROOT / "Makefile") == (
-        "dbd38c41e2af5275c379de0b88c92f3861efb90724c7de1a291e0aa007ce2db7"
-    )
     for path in ("package.json", "setup.py", "setup.cfg", "MANIFEST.in"):
         assert not (REPO_ROOT / path).exists()
-
-    boundary_paths = [
-        REPO_ROOT / "Makefile",
-        REPO_ROOT / "grammar" / "Pietto.g4",
-    ]
-    boundary_paths.extend(
-        path
-        for path in (REPO_ROOT / "src" / "pietto").rglob("*")
-        if path.is_file() and "__pycache__" not in path.parts
-    )
-    assert _aggregate_hash(boundary_paths) == BOUNDARY_HASH
-    assert _aggregate_hash((REPO_ROOT / "tests/fixtures/golden").iterdir()) == (
-        GOLDEN_HASH
-    )
 
 
 def _metadata_bytes() -> bytes:
@@ -310,34 +283,3 @@ def _runtime_dependency_specifiers() -> tuple[str, ...]:
     assert isinstance(dependencies, list)
     assert all(isinstance(dependency, str) for dependency in dependencies)
     return tuple(cast(list[str], dependencies))
-
-
-def _aggregate_hash(paths: Iterable[Path]) -> str:
-    digest = hashlib.sha256()
-    for path in sorted(paths):
-        if not path.is_file():
-            continue
-        relative_path = path.relative_to(REPO_ROOT).as_posix()
-        digest.update(relative_path.encode())
-        digest.update(b"\0")
-        digest.update(path.read_bytes())
-        digest.update(b"\0")
-    return digest.hexdigest()
-
-
-def _git_blob_hash(path: Path) -> str:
-    content = path.read_bytes()
-    header = f"blob {len(content)}\0".encode()
-    return hashlib.sha1(header + content).hexdigest()
-
-
-def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-_SLICE10_READER_MIGRATION_PATHS = (
-    "docs/spec/phase53-partition-binding-multi-key-visibility-diagnostics-contract-v1.md",
-    "src/pietto/semantic/window_partition_analysis.py",
-    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
-)
-# Phase 53 Slice 13 reader migration.

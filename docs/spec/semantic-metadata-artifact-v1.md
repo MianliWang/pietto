@@ -2,22 +2,11 @@
 
 ## 1. Status
 
-This document is the Phase 32 Slice 2 normative contract for Semantic Metadata
-Artifact v1.
-
-Slice 2 is complete as docs/spec/static-audit/contract-only work. It defines the
-artifact identity, version domain, JSON field names, success and failure
-envelopes, metadata payload categories, ordering rules, path policy,
-compatibility policy, and public/private fact boundary.
-
-Slice 2 does not implement `pietto explain`, CLI behavior, metadata DTOs,
-metadata builders, metadata serializers, text renderers, source behavior,
-grammar changes, generated changes, semantic changes, IR changes, SQL changes,
-diagnostic behavior changes, CLI JSON v1 changes, fixtures, goldens, examples,
-package-smoke changes, public API changes, dependency changes, tooling changes,
-workflow changes, package version changes, or package/release operations.
-
-Phase 32 as a whole is not complete.
+This document is the normative contract for Semantic Metadata Artifact v1.
+`pietto explain <file> [--format text|json]` implements the artifact without
+changing parser, semantic, IR, SQL, CLI JSON v1, package, runtime, or database
+behavior. Text and JSON are derived from the same normalized metadata fact
+boundary.
 
 ## 2. Artifact Identity And Version Domain
 

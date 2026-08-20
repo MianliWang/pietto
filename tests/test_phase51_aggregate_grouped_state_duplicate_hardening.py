@@ -58,15 +58,6 @@ from pietto.semantic.model import (
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HELPER_PATH = REPO_ROOT / "src/pietto/_project/aggregate_grouped_schema.py"
 MODEL_PATH = REPO_ROOT / "src/pietto/_project/model.py"
-PLAN_PATH = (
-    REPO_ROOT / "docs/plan/phase-51-aggregate-grouped-output-schema-foundation.md"
-)
-SPEC_PATH = (
-    REPO_ROOT
-    / "docs/spec/phase51-type-nullability-availability-state-duplicate-handling-v1.md"
-)
-PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-LOCK_PATH = REPO_ROOT / "uv.lock"
 
 NEW_REASONS = {
     "DUPLICATE_GROUP_KEY": "duplicate_group_key",
@@ -107,25 +98,6 @@ OLD_DEPENDENCY_ONLY_REASONS = {
 
 OLD_LINEAGE_ONLY_REASONS = OLD_DEPENDENCY_ONLY_REASONS | {
     "MISSING_DEPENDENCY_GRAPH": "missing_dependency_graph",
-}
-
-EXPECTED_GATE2_PATHS = {
-    "docs/plan/phase-51-aggregate-grouped-output-schema-foundation.md",
-    "docs/spec/phase51-type-nullability-availability-state-duplicate-handling-v1.md",
-    "src/pietto/_project/aggregate_grouped_schema.py",
-    "src/pietto/_project/model.py",
-    "src/pietto/_project/row_dependency_graph.py",
-    "src/pietto/_project/row_lineage.py",
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_generated_guard.py",
-    "tests/test_phase11_golden_policy.py",
-    "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_phase12_completion_audit.py",
-    "tests/test_phase12_composition_cli_json_goldens.py",
-    "tests/test_phase33_completion_audit.py",
-    "tests/test_phase51_aggregate_grouped_state_duplicate_hardening.py",
 }
 
 

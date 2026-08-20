@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 from dataclasses import FrozenInstanceError, fields
 import json
 from pathlib import Path
@@ -9,7 +8,6 @@ from typing import cast
 
 import pytest
 
-import _phase54_active_gate2_manifest as active_gate2_manifest
 import pietto._project.check as project_check
 import pietto._project.module_resolution as module_resolution
 import pietto.cli as cli
@@ -26,48 +24,8 @@ from pietto.errors import Severity
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SPEC_REL = (
-    "docs/spec/phase54-slice9-cross-module-type-alias-enum-shape-and-source-"
-    "resolution-v1.md"
-)
 SOURCE_REL = "src/pietto/_project/module_resolution.py"
 TEST_REL = "tests/test_phase54_cross_module_type_alias_enum_shape_source_resolution.py"
-
-EXPECTED_TEST_NAMES = (
-    "test_carrier_enums_fields_privacy_and_manifest_are_exact",
-    "test_local_imported_and_reexported_nominal_identities_remain_distinct",
-    "test_environment_lookups_are_complete_tuple_backed_and_immutable",
-    "test_dependency_order_uses_selected_position_for_ready_ties",
-    "test_dependency_order_places_targets_before_importers",
-    "test_dependency_order_is_deterministic_for_a_diamond",
-    "test_cycle_members_are_excluded_and_retain_one_block_issue_each",
-    "test_independent_acyclic_local_errors_remain_visible_with_a_cycle",
-    "test_builtin_precedence_and_direct_type_kinds_are_preserved",
-    "test_local_alias_chain_expands_to_builtin",
-    "test_cross_module_alias_chain_expands_by_target_identity",
-    "test_explicit_reexport_alias_chain_keeps_original_target_identity",
-    "test_cyclic_direct_facade_reexports_are_no_winner_for_all_slice9_kinds",
-    "test_direct_facade_cycle_precedes_nominal_owner_cycle_and_owner_fallback_remains",
-    "test_imported_enums_are_nominal_and_not_flattened",
-    "test_imported_shapes_are_nominal_and_field_types_resolve",
-    "test_shape_field_reference_order_and_duplicates_are_preserved",
-    "test_duplicate_local_type_name_is_one_pie_s2001_no_winner",
-    "test_duplicate_local_source_name_is_one_pie_s2001_no_winner",
-    "test_local_alias_cycle_emits_one_exact_pie_s2003",
-    "test_multiple_alias_cycles_follow_dependency_and_source_order",
-    "test_unknown_alias_target_emits_one_pie_s2002_without_cascade",
-    "test_unknown_shape_field_type_emits_exact_pie_s2002",
-    "test_unresolved_import_root_suppresses_derived_type_error",
-    "test_private_import_root_suppresses_derived_type_error",
-    "test_import_collision_is_no_winner_and_suppresses_consumers",
-    "test_all_import_kind_local_candidate_collisions_are_no_winner",
-    "test_export_and_inconsistent_facade_roots_suppress_consumers",
-    "test_local_source_shape_resolves_direct_shape",
-    "test_imported_source_and_shape_keep_both_local_and_target_identity",
-    "test_source_unknown_and_wrong_kind_emit_exact_pie_s2303",
-    "test_schema_v1_deferred_surfaces_and_public_privacy_are_exact",
-    "test_text_json_status_docs_and_reader_fixed_point_are_exact",
-)
 
 
 def _configured_project(
@@ -223,107 +181,6 @@ def test_carrier_enums_fields_privacy_and_manifest_are_exact() -> None:
         assert tuple(item.name for item in fields(carrier)) == expected
         assert carrier.__dataclass_params__.frozen
         assert "__dict__" not in carrier.__slots__
-    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_MARKER == (
-        "PHASE54_SLICE16_GATE2"
-    )
-    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_BASE == (
-        "1f69c0316086a2236cee03a96cca95218fbd50fc"
-    )
-    assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_ADDED_PATHS) == 3
-    assert len(active_gate2_manifest.PHASE54_SLICE10_ORIGINAL_MODIFIED_PATHS) == 69
-    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 2
-    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 51
-    assert len(active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_ADDED_PATHS) == 3
-    assert (
-        len(active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_MODIFIED_PATHS) == 52
-    )
-    assert (
-        len(active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_ALLOWLIST_PATHS) == 55
-    )
-    assert active_gate2_manifest.ADDED_PATHS == set(
-        active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_ADDED_PATHS
-    )
-    assert active_gate2_manifest.MODIFIED_PATHS == set(
-        active_gate2_manifest.PHASE55_SLICE1_HISTORICAL_GATE2_MODIFIED_PATHS
-    )
-    assert active_gate2_manifest.PHASE55_SLICE2_GATE2_MARKER == "PHASE55_SLICE2_GATE2"
-    assert (
-        active_gate2_manifest.PHASE55_SLICE2_BASELINE
-        == "5de57b2c078742253aa64d3a5ad627cd602290cd"
-    )
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_ADDED_PATHS) == 2
-    assert (
-        len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_MODIFIED_PATHS) == 75
-    )
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_DELETED_PATHS) == 0
-    assert (
-        len(active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_ALLOWLIST_A2_M75_D0)
-        == 77
-    )
-    assert (
-        TEST_REL in active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_MODIFIED_PATHS
-    )
-    assert (
-        TEST_REL
-        in active_gate2_manifest.PHASE55_SLICE2_GATE1_PROJECTED_ALLOWLIST_A2_M75_D0
-    )
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_ADDED_PATHS) == 2
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_MODIFIED_PATHS) == 76
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_DELETED_PATHS) == 0
-    assert len(active_gate2_manifest.PHASE55_SLICE2_GATE2_ALLOWLIST_A2_M76_D0) == 78
-    assert TEST_REL in active_gate2_manifest.PHASE55_SLICE2_GATE2_MODIFIED_PATHS
-    assert TEST_REL in active_gate2_manifest.PHASE55_SLICE2_GATE2_ALLOWLIST_A2_M76_D0
-    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 47
-    assert TEST_REL in active_gate2_manifest.MECHANICAL_READER_PATHS
-    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_BASE == (
-        "17a5b01e555930537334d4d0bcf3480e332b7e91"
-    )
-    assert (
-        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR3_MODIFIED_PATHS)
-        == 43
-    )
-    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR4_BASE == (
-        "3f057874a1bec524da38b58c243267f4590c167b"
-    )
-    assert (
-        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR4_MODIFIED_PATHS)
-        == 43
-    )
-    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR5_BASE == (
-        "fcdd02b5604c2b84d861b593a1887eaeb4620c91"
-    )
-    assert (
-        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR5_MODIFIED_PATHS)
-        == 43
-    )
-    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR6_BASE == (
-        "c73e5ea0628d821ada5a8cbb93102bae69768600"
-    )
-    assert (
-        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR6_MODIFIED_PATHS)
-        == 43
-    )
-    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR7_BASE == (
-        "a5df3ed264c443d902831fe532d265ac1e452158"
-    )
-    assert (
-        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR7_MODIFIED_PATHS)
-        == 43
-    )
-    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR8_BASE == (
-        "7b96b416d963e67624a461ec906ab2fe14630380"
-    )
-    assert (
-        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR8_MODIFIED_PATHS)
-        == 43
-    )
-    assert active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR9_BASE == (
-        "38353a00bdaf6b1edb9a0eb53ada1a3249b6ae79"
-    )
-    assert (
-        len(active_gate2_manifest.PHASE54_POST_REVIEW_PRODUCT_REPAIR9_MODIFIED_PATHS)
-        == 66
-    )
 
 
 def test_local_imported_and_reexported_nominal_identities_remain_distinct(
@@ -1262,7 +1119,7 @@ def test_schema_v1_deferred_surfaces_and_public_privacy_are_exact(
     assert "ProjectTypeSourceResolutionSet" not in public_source
 
 
-def test_text_json_status_docs_and_reader_fixed_point_are_exact(
+def test_text_json_cli_remains_exact(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -1305,57 +1162,3 @@ def test_text_json_status_docs_and_reader_fixed_point_are_exact(
         "PIE-S2303",
     ]
     assert "module_type_source_resolutions" not in json.dumps(document)
-
-    tree = ast.parse((REPO_ROOT / TEST_REL).read_text(encoding="utf-8"))
-    tests = tuple(
-        node.name
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name.startswith("test_")
-    )
-    assert tests == EXPECTED_TEST_NAMES
-    assert len(tests) == 33
-    assert all(
-        not node.decorator_list
-        for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name.startswith("test_")
-    )
-    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_ADDED_PATHS) == 2
-    assert len(active_gate2_manifest.PHASE54_ACTIVE_GATE2_MODIFIED_PATHS) == 51
-    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
-    assert len(active_gate2_manifest.VALIDATION_READER_PATHS) == 47
-    assert len(active_gate2_manifest.MECHANICAL_READER_PATHS) == 47
-    assert (
-        "tests/test_phase54_module_graph_cycles_diagnostics_deterministic_ordering.py"
-        in active_gate2_manifest.MECHANICAL_READER_PATHS
-    )
-    assert (
-        "tests/test_phase54_module_qualified_nominal_declaration_catalogs.py"
-        in active_gate2_manifest.PHASE54_SLICE12_HISTORICAL_READER_PATHS
-    )
-    spec = (REPO_ROOT / SPEC_REL).read_text(encoding="utf-8")
-    registry = (REPO_ROOT / "docs/spec/diagnostics.md").read_text(encoding="utf-8")
-    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
-    plan = (
-        REPO_ROOT / "docs/plan/phase-54-local-import-module-export-foundation.md"
-    ).read_text(encoding="utf-8")
-    whitepaper = (REPO_ROOT / "docs/spec/pietto-v0.9.md").read_text(encoding="utf-8")
-    for required in (
-        "dependency-first",
-        "ProjectResolvedNominalSymbol",
-        "PIE-S2001",
-        "PIE-S2002",
-        "PIE-S2003",
-        "PIE-S2303",
-        "Slice 10 retains",
-        "Schema v1",
-        "model=None",
-    ):
-        assert required in spec
-    for code in ("PIE-S2001", "PIE-S2002", "PIE-S2003", "PIE-S2303"):
-        assert code in registry
-    assert "Slice 12 preserves existing advanced semantic facts" in readme
-    assert "PHASE55_GATE0_GATE1" in readme
-    assert "Status And Slice 16 Lifecycle" in plan
-    assert "Current Phase 54 Completion Status" in whitepaper

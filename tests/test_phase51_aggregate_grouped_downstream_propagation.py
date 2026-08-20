@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-# Phase 54 Slice 4 mechanical reader-closure identity refresh.
-
 from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
-import hashlib
 import inspect
 import json
 from pathlib import Path
@@ -69,111 +66,6 @@ from pietto.ast_nodes import QueryDef, SourceDef, TableDef
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HELPER_PATH = REPO_ROOT / "src/pietto/_project/aggregate_grouped_persistence.py"
 MODEL_PATH = REPO_ROOT / "src/pietto/_project/model.py"
-PLAN_PATH = (
-    REPO_ROOT / "docs/plan/phase-51-aggregate-grouped-output-schema-foundation.md"
-)
-SPEC_PATH = REPO_ROOT / "docs/spec/phase51-downstream-propagation-qualification-v1.md"
-
-EXPECTED_GATE2_PATHS = {
-    "src/pietto/_project/model.py",
-    "src/pietto/_project/aggregate_grouped_persistence.py",
-    "src/pietto/_project/aggregate_grouped_schema.py",
-    "src/pietto/_project/aggregate_grouped_clause_facts.py",
-    "src/pietto/_project/aggregate_grouped_dependency_lineage.py",
-    "src/pietto/_project/row_dependency_graph.py",
-    "src/pietto/_project/row_lineage.py",
-    "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
-    "tests/test_phase51_private_result_role_output_identity.py",
-    "tests/test_phase51_group_key_project_row_schema.py",
-    "tests/test_phase51_aggregate_only_project_row_schema.py",
-    "tests/test_phase51_grouped_aggregate_project_row_schema.py",
-    "tests/test_phase51_selected_let_accepted_expression_aggregate.py",
-    "tests/test_phase51_aggregate_grouped_state_duplicate_hardening.py",
-    "tests/test_phase51_clause_dependency_fail_closed.py",
-    "tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py",
-    "tests/test_phase47_downstream_readiness_hardening.py",
-    "tests/test_phase48_upstream_non_concrete_schema_propagation.py",
-    "tests/test_phase48_query_to_query_multi_hop_propagation.py",
-    "tests/test_phase49_computed_alias_project_row_schema_mvp.py",
-    "tests/test_phase49_computed_alias_origin_provenance_privacy.py",
-    "tests/test_phase49_private_row_level_dependency_graph_scaffold.py",
-    "tests/test_phase49_minimal_private_lineage_carrier_source_direct_rename.py",
-    "tests/test_phase49_computed_let_multi_hop_row_lineage.py",
-    "tests/test_phase49_unknown_deferred_diagnostic_ordering_hardening.py",
-    "tests/test_phase49_let_visibility_order_shadowing_hardening.py",
-    "tests/test_phase49_selected_let_derived_output_schema.py",
-    "docs/plan/phase-51-aggregate-grouped-output-schema-foundation.md",
-    "docs/spec/phase51-downstream-propagation-qualification-v1.md",
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_generated_guard.py",
-    "tests/test_phase11_golden_policy.py",
-    "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_phase12_completion_audit.py",
-    "tests/test_phase12_composition_cli_json_goldens.py",
-    "tests/test_phase33_completion_audit.py",
-}
-EXPECTED_UNTRACKED_PATHS = {
-    "src/pietto/_project/aggregate_grouped_persistence.py",
-    "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
-    "docs/spec/phase51-downstream-propagation-qualification-v1.md",
-}
-CI_REPAIR_BASE_HEAD_SHA = "321ec6f80737015648bc1f81b0561fdd34610e92"
-CI_REPAIR_MODIFIED_PATHS = {
-    "tests/test_phase51_aggregate_grouped_downstream_propagation.py",
-    "tests/test_phase51_aggregate_grouped_origin_dependency_lineage.py",
-    "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
-    "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
-}
-PHASE54_BASE_HEAD_SHA = "d8a5e9ab3de70ce30575513c73560c86430eca63"
-PHASE54_SLICE4_BASE_HEAD_SHA = "15bae172ee151e370fe59d3bf909d735aee6aa90"
-PHASE54_SLICE4_PATH_COUNTS = (138, 2, 140)
-PHASE54_SLICE5_BASE_HEAD_SHA = "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01"
-PHASE54_SLICE5_PATH_COUNTS = (164, 3, 167)
-PHASE54_SLICE6_BASE_HEAD_SHA = "c44a4271d9592cb393d2232f127a59d8466cc60a"
-PHASE54_SLICE6_PATH_COUNTS = (57, 4, 61)
-PHASE54_SLICE7_BASE_HEAD_SHA = "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16"
-PHASE54_SLICE7_PATH_COUNTS = (59, 3, 62)
-PHASE54_SLICE8_BASE_HEAD_SHA = "027b33cafcfd58916a89e299487dad38d24ade6c"
-PHASE54_SLICE8_PATH_COUNTS = (66, 3, 69)
-PHASE54_SLICE9_BASE_HEAD_SHA = "0ceb9a476e6592714cdc76845949ba0ae5123eb5"
-PHASE54_SLICE9_PATH_COUNTS = (68, 3, 71)
-PHASE54_SLICE4_BOUNDARY_CHANGED_LINE_COUNTS = {
-    "tests/test_phase11_ci_workflow.py": 2,
-    "tests/test_phase11_completion_audit.py": 8,
-    "tests/test_phase11_generated_guard.py": 2,
-    "tests/test_phase11_golden_policy.py": 2,
-    "tests/test_phase11_packaging_smoke.py": 2,
-    "tests/test_phase11_validation_entrypoint.py": 2,
-    "tests/test_phase12_completion_audit.py": 4,
-    "tests/test_phase12_composition_cli_json_goldens.py": 2,
-}
-BOUNDARY_PATHS = (
-    "tests/test_phase11_ci_workflow.py",
-    "tests/test_phase11_completion_audit.py",
-    "tests/test_phase11_generated_guard.py",
-    "tests/test_phase11_golden_policy.py",
-    "tests/test_phase11_packaging_smoke.py",
-    "tests/test_phase11_validation_entrypoint.py",
-    "tests/test_phase12_completion_audit.py",
-    "tests/test_phase12_composition_cli_json_goldens.py",
-)
-PROTECTED_HASHES = {
-    ".github/workflows/ci.yml": (
-        "56339c3e565471c3a95a0f79a05eaf9596d734a173d1936d5df167526508ddac"
-    ),
-    ".python-version": (
-        "7b55f8e67b5623c4bef3fa691288da9437d79d3aba156de48d481db32ac7d16d"
-    ),
-    "pyproject.toml": (
-        "851e706f2cbafb24c48068cdd6fd8a6ada1f93317618000be71db3681c40a1a8"
-    ),
-    "uv.lock": ("12795f072df20fb688b37e484dd4561cd33e34bf601be3cb0fa1f9075eee38a2"),
-    "docs/spec/pietto-roadmap-phase45-60-v1.md": (
-        "26cc0ae4a68518223d6bf600ad3c4b0b226618aa7ef31b2ae1c25924d2655169"
-    ),
-}
 EXPECTED_PROJECT_JSON_V2_KEYS = (
     "schema_version",
     "command",
@@ -1376,19 +1268,6 @@ def test_persistence_helper_is_private_no_full_analyze_and_unserialized(
         assert value not in serialized_text
 
 
-def test_slice10_documentation_contract_is_current() -> None:
-    plan = PLAN_PATH.read_text(encoding="utf-8")
-    spec = SPEC_PATH.read_text(encoding="utf-8")
-    assert "### Slice 10 Gate 2 Bounded Implementation Status" in plan
-    for phrase in (
-        "ProjectAggregateGroupedPersistenceBundle",
-        "build_project_aggregate_grouped_persistence",
-        "ORDINARY_ROW_VALUE",
-        "AGGREGATE_OR_GROUPED_DEFERRED",
-    ):
-        assert phrase in spec
-
-
 def _candidate_inputs(root: Path, relations: str) -> _CandidateInputs:
     parse_result, semantic_result = _project_semantic_result(_project(root, relations))
     model = _semantic_model(semantic_result)
@@ -1501,45 +1380,3 @@ def _assert_non_concrete_bundle(
     assert lineage.status.value == status.value
     assert lineage.reason.value == reason.value
     assert lineage.facts == ()
-
-
-def _compiler_digest() -> str:
-    paths = [REPO_ROOT / "Makefile", REPO_ROOT / "grammar/Pietto.g4"]
-    paths.extend(
-        path
-        for path in (REPO_ROOT / "src/pietto").rglob("*")
-        if path.is_file() and "__pycache__" not in path.parts
-    )
-    return _digest(
-        tuple(sorted(paths, key=lambda path: path.relative_to(REPO_ROOT).as_posix()))
-    )
-
-
-def _project_private_paths() -> tuple[Path, ...]:
-    return tuple(
-        sorted(
-            (
-                path
-                for path in (REPO_ROOT / "src/pietto/_project").rglob("*")
-                if path.is_file()
-                and "__pycache__" not in path.parts
-                and path.suffix != ".pyc"
-            ),
-            key=lambda path: path.relative_to(REPO_ROOT).as_posix(),
-        )
-    )
-
-
-def _digest(paths: tuple[Path, ...] | list[Path]) -> str:
-    digest = hashlib.sha256()
-    for path in paths:
-        relative_path = path.relative_to(REPO_ROOT).as_posix()
-        digest.update(relative_path.encode())
-        digest.update(b"\0")
-        digest.update(path.read_bytes())
-        digest.update(b"\0")
-    return digest.hexdigest()
-
-
-def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()

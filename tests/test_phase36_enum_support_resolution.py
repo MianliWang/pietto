@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 
 from _static_audit_helpers import (
-    normalized_text as _normalized,
     read_text as _read,
 )
 
@@ -21,7 +20,6 @@ from pietto.semantic import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PLAN_PATH = REPO_ROOT / "docs/plan/phase-36-post-v02-core-type-system-expansion.md"
 SPEC_PATH = REPO_ROOT / "docs/spec/enum-support-resolution-v1.md"
 
 CATALOG_PATH = REPO_ROOT / "src/pietto/semantic/catalog.py"
@@ -47,24 +45,6 @@ ENUM_SOURCE_HEADER = (
     "    optional_status: Status nullable\n"
     "    amount: Int not null\n"
 )
-
-
-def _phase36_slice5_docs() -> str:
-    return f"{_normalized(PLAN_PATH)} {_normalized(SPEC_PATH)}"
-
-
-def test_slice5_selects_narrow_fail_closed_option_c() -> None:
-    combined = _phase36_slice5_docs()
-
-    for required in (
-        "Phase 36 Slice 5 selects Option C: narrow semantic fail-closed behavior change",
-        "`count(Enum field)` now fails in semantic aggregate validation with existing diagnostic `PIE-S2314`",
-        "instead of being accepted by semantic/IR and then reaching PostgreSQL/private MySQL SQL backend fail-closed output with `PIE-B1000`",
-        "Enum remains metadata/readiness, not a builtin scalar",
-        "Slice 5 does not make Enum a fully stable SQL scalar",
-        "Slice 5 keeps the broader 12-slice Phase 36 plan intact",
-    ):
-        assert required in combined, required
 
 
 def test_count_enum_field_fails_semantic_validation_with_pie_s2314() -> None:
@@ -212,18 +192,9 @@ def test_enum_literal_cast_native_runtime_surfaces_remain_absent() -> None:
 
 
 def test_json_metadata_schema_expansion_is_not_authorized() -> None:
-    combined = _phase36_slice5_docs()
     metadata_model = _read(METADATA_MODEL_PATH)
     metadata_serializer = _read(METADATA_SERIALIZER_PATH)
     cli_json = _read(CLI_JSON_PATH)
-
-    for required in (
-        "JSON v1 schema changes",
-        "Project JSON v2 schema changes",
-        "Semantic Metadata Artifact v1 schema or output changes",
-        "package, workflow, or release changes",
-    ):
-        assert required in combined, required
 
     for source in (metadata_model, metadata_serializer, cli_json):
         for forbidden in (

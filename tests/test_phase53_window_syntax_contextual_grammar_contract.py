@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import hashlib
-import re
 import textwrap
 from pathlib import Path
 from typing import Any, cast
@@ -21,40 +19,7 @@ from pietto.ast_nodes import QueryDef, WindowExpr
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PLAN_REL = (
-    "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md"
-)
-SPEC_REL = "docs/spec/phase53-window-syntax-contextual-grammar-contract-v1.md"
 GRAMMAR_REL = "grammar/Pietto.g4"
-AST_BUILDER_REL = "src/pietto/ast_builder.py"
-PARSER_API_REL = "src/pietto/parser_api.py"
-AST_NODES_REL = "src/pietto/ast_nodes.py"
-TEST_REL = "tests/test_phase53_window_syntax_contextual_grammar_contract.py"
-
-SPEC_TITLE = (
-    "Phase 53 Slice 2 Pietto-native Window Syntax And Contextual Grammar Contract v1"
-)
-SLICE2_PLAN_H2 = "Slice 2 Pietto-native Window Syntax And Contextual Grammar Contract"
-SPEC_H2 = (
-    "Status And Slice Identity",
-    "Approved Product Authority",
-    "Exact Canonical Syntax",
-    "Introducer And Case Policy",
-    "Clause Shape And Ordering",
-    "Function Call Alias And Suffix Binding",
-    "Grammar And Semantic Ownership",
-    "AST Fail-closed Bridge",
-    "Global Identifier Compatibility",
-    "Contextual Keyword Compatibility",
-    "Positive Grammar Matrix",
-    "Negative Grammar Matrix",
-    "Diagnostic And Location Contract",
-    "Generated Source Contract",
-    "Reader Hash And Repository State Closure",
-    "Validation CI And Publication Boundary",
-    "Public Behavior And Deferred Scope",
-    "Stop Conditions",
-)
 WINDOW_FUNCTION_NAMES = (
     "row_number",
     "rank",
@@ -69,94 +34,10 @@ FAIL_CLOSED_MESSAGE = (
     "Window syntax is recognized, but WindowSpec AST preservation starts in "
     "Phase 53 Slice 3."
 )
-BASE_HEAD_SHA = "3c1feab5bc70d407e9e4d7ccd0c5d489eec0ee68"
-PHASE54_SLICE2_BASE_HEAD_SHA = "d8a5e9ab3de70ce30575513c73560c86430eca63"
-PHASE54_SLICE4_BASE_HEAD_SHA = "15bae172ee151e370fe59d3bf909d735aee6aa90"
-PHASE54_SLICE5_BASE_HEAD_SHA = "0f3c955c5a5fbd8046ef611ad1bef0b636c8be01"
-PHASE54_SLICE6_BASE_HEAD_SHA = "c44a4271d9592cb393d2232f127a59d8466cc60a"
-PHASE54_SLICE7_BASE_HEAD_SHA = "49e95afcc5ed8c3394e6b19a4ea17679bae1bb16"
-PHASE54_SLICE8_BASE_HEAD_SHA = "027b33cafcfd58916a89e299487dad38d24ade6c"
-PHASE54_SLICE9_BASE_HEAD_SHA = "0ceb9a476e6592714cdc76845949ba0ae5123eb5"
-
-ADDED_PATHS = {
-    "docs/spec/phase53-completion-audit-and-status-lock-v1.md",
-    "tests/test_phase53_completion_audit_and_status_lock.py",
-}
-MODIFIED_PATHS = {
-    "docs/plan/phase-53-window-functions-generic-signature-nullability-foundation.md",
-    "tests/test_phase49_minimal_private_lineage_carrier_source_direct_rename.py",
-    "tests/test_phase51_completion_audit_and_status_lock.py",
-    "tests/test_phase51_cross_phase_readiness_privacy_compatibility_closure.py",
-    "tests/test_phase52_aggregate_signature_algebra_facts.py",
-    "tests/test_phase52_completion_audit_and_status_lock.py",
-    "tests/test_phase52_expression_stage_clause_capability_facts.py",
-    "tests/test_phase52_parity_privacy_cross_phase_readiness_drift_closure.py",
-    "tests/test_phase52_scalar_function_operator_signature_facts.py",
-    "tests/test_phase53_generic_type_variable_exact_compatibility_contract.py",
-    "tests/test_phase53_grouped_result_ranking_aggregate_result_inputs_bounded_let_visibility_contract.py",
-    "tests/test_phase53_lag_lead_navigation_offset_default_nullability_contract.py",
-    "tests/test_phase53_multiple_window_outputs_final_order_alias_downstream_schema_lineage_contract.py",
-    "tests/test_phase53_nullability_algebra_signature_result_formula_contract.py",
-    "tests/test_phase53_partition_binding_multi_key_visibility_diagnostics_contract.py",
-    "tests/test_phase53_percent_rank_cume_dist_ntile_contract.py",
-    "tests/test_phase53_private_window_semantic_carrier_stage_dependency_result_role_contract.py",
-    "tests/test_phase53_rank_dense_rank_peer_semantics_contract.py",
-    "tests/test_phase53_row_number_direct_field_mvp_contract.py",
-    "tests/test_phase53_window_generic_nullability_foundation_scope_lock.py",
-    "tests/test_phase53_window_ir_dual_backend_lowering_window_function_facts_contract.py",
-    "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
-    "tests/test_phase53_window_spec_function_identity_ast_contract.py",
-    "tests/test_phase53_window_syntax_contextual_grammar_contract.py",
-}
-GENERATED_PATHS = (
-    "src/pietto/generated/Pietto.interp",
-    "src/pietto/generated/Pietto.tokens",
-    "src/pietto/generated/PiettoLexer.interp",
-    "src/pietto/generated/PiettoLexer.py",
-    "src/pietto/generated/PiettoLexer.tokens",
-    "src/pietto/generated/PiettoParser.py",
-    "src/pietto/generated/PiettoVisitor.py",
-    "src/pietto/generated/__init__.py",
-)
-GENERATED_MUTATION_PATHS = set(GENERATED_PATHS) - {"src/pietto/generated/__init__.py"}
-
-EXPECTED_TEST_FUNCTIONS = (
-    "test_slice2_artifact_paths_and_heading_contracts_are_exact",
-    "test_candidate_b_global_window_and_contextual_keyword_policy_is_locked",
-    "test_combined_grammar_rules_and_token_order_are_exact",
-    "test_generated_inventory_and_exact_mutation_set_are_locked",
-    "test_raw_parser_accepts_canonical_window_shapes",
-    "test_partition_and_order_items_accept_generic_expression_shapes",
-    "test_raw_parser_rejects_malformed_or_deferred_window_shapes",
-    "test_parse_source_fails_closed_before_slice3_ast_preservation",
-    "test_fail_closed_diagnostic_code_message_and_window_location_are_exact",
-    "test_lowercase_window_is_rejected_in_every_identifier_position",
-    "test_case_variant_window_identifiers_remain_accepted",
-    "test_partition_and_over_remain_usable_contextual_identifiers",
-    "test_approved_function_names_remain_ordinary_identifiers",
-    "test_historical_unsupported_window_samples_remain_negative",
-    "test_no_ast_semantic_ir_sql_or_public_surface_widening_is_locked",
-    "test_slice2_dirty_clean_and_depth_one_repository_states_are_locked",
-)
 
 
 def _read(relative: str) -> str:
     return (REPO_ROOT / relative).read_text(encoding="utf-8")
-
-
-def _sha256(relative: str) -> str:
-    return hashlib.sha256((REPO_ROOT / relative).read_bytes()).hexdigest()
-
-
-def _headings(relative: str, level: int) -> tuple[str, ...]:
-    return tuple(
-        match.group(1).strip()
-        for match in re.finditer(
-            rf"^{'#' * level} (?!#)(.+?)\s*$",
-            _read(relative),
-            flags=re.MULTILINE,
-        )
-    )
 
 
 def _window_query(
@@ -639,9 +520,6 @@ HISTORICAL_NEGATIVE_SOURCES = (
 
 def test_candidate_b_global_window_and_contextual_keyword_policy_is_locked() -> None:
     grammar = _read(GRAMMAR_REL)
-    spec = _read(SPEC_REL)
-    assert "Candidate B is canonical" in spec
-    assert "function(arguments) window:" in spec
     assert "WINDOW: 'window';" in grammar
     assert "PARTITION: 'partition';" in grammar
     identifier_token = grammar.index("IDENTIFIER\n    :")
@@ -865,9 +743,4 @@ def test_historical_unsupported_window_samples_remain_negative(
     assert any(diagnostic.code == "PIE-P1000" for diagnostic in result.diagnostics)
 
 
-_SLICE11_READER_MIGRATION_PATHS = (
-    "docs/spec/phase53-window-local-ordering-direction-determinism-contract-v1.md",
-    "src/pietto/semantic/window_order_analysis.py",
-    "tests/test_phase53_window_local_ordering_direction_determinism_contract.py",
-)
 # Phase 53 Slice 13 reader migration.

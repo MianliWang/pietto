@@ -172,7 +172,7 @@ Gate 2 may change exactly these thirteen paths:
 
 1. `src/pietto/_project/model.py`
 2. `tests/test_phase51_private_result_role_output_identity.py`
-3. `docs/plan/phase-51-aggregate-grouped-output-schema-foundation.md`
+3. `docs/roadmap.md`
 4. `docs/spec/phase51-private-result-role-output-identity-v1.md`
 5. `tests/test_phase11_ci_workflow.py`
 6. `tests/test_phase11_completion_audit.py`

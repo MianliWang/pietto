@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 
 import pietto.cli as cli
-from _static_audit_helpers import normalized_text as _normalized
 from pietto._project.check import check_project_parse_only
 from pietto._project.json_v2 import project_check_result_to_json_dict
 from pietto._project.model import (
@@ -19,8 +18,6 @@ from pietto._project.model import (
 from pietto.ast_nodes import Script
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PLAN_PATH = REPO_ROOT / "docs/plan/phase-45-project-wide-semantic-model-mvp.md"
-SPEC_PATH = REPO_ROOT / "docs/spec/phase45-project-wide-semantic-model-scope-lock-v1.md"
 
 _TOP_LEVEL_KEYS = (
     "schema_version",
@@ -219,21 +216,6 @@ def test_project_emit_sql_and_explain_paths_remain_rejected(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "usage: pietto" in captured.err
-
-
-def test_slice2_docs_lock_private_parsed_input_unit_policy() -> None:
-    docs = " ".join(_normalized(path) for path in (PLAN_PATH, SPEC_PATH))
-
-    for required in (
-        "Slice 2 adds private parsed project semantic input units",
-        "retained parsed ASTs",
-        "project-relative identity",
-        "deterministic selected input ordering",
-        "no semantic analysis yet",
-        "no JSON/text behavior change",
-        "no IR, SQL, project `emit-sql`, or project `explain` path",
-    ):
-        assert required in docs, required
 
 
 def _forbid_project_compiler_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:

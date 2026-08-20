@@ -16,11 +16,6 @@ from pietto._project.model import (
 from pietto.ast_nodes import QueryDef, TableDef
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PLAN_PATH = REPO_ROOT / "docs/plan/phase-48-query-to-query-row-schema.md"
-SPEC_PATH = (
-    REPO_ROOT / "docs/spec/phase48-project-json-private-fact-privacy-readiness-v1.md"
-)
-PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
 PROJECT_JSON_TOP_LEVEL_KEYS = (
     "schema_version",
@@ -65,30 +60,6 @@ PRIVATE_JSON_FACTS = (
     "upstream_deferred",
     "upstream_blocked",
 )
-
-
-def test_slice9_contract_document_exists_and_is_linked_from_plan() -> None:
-    assert PLAN_PATH.is_file()
-    assert SPEC_PATH.is_file()
-    docs = " ".join(
-        (
-            PLAN_PATH.read_text(encoding="utf-8")
-            + "\n"
-            + SPEC_PATH.read_text(encoding="utf-8")
-        ).split()
-    )
-
-    for required in (
-        "Phase 48 Slice 9",
-        "Project JSON/private-fact privacy plus future explain/bridge readiness",
-        "`docs/spec/phase48-project-json-private-fact-privacy-readiness-v1.md`",
-        "docs/spec/tests-only",
-        "Project JSON v2 top-level key order remains unchanged",
-        "Diagnostics remain public only through the existing top-level `diagnostics[]` field",
-        "No public Project JSON v2 row schema output is approved in Phase 48",
-        "No other file is approved in Slice 9 Gate 2",
-    ):
-        assert required in docs, required
 
 
 def test_project_json_v2_top_level_key_order_remains_exact(tmp_path: Path) -> None:
@@ -340,26 +311,6 @@ def test_project_json_v2_cycle_blocked_state_keeps_cycle_facts_private(
         ("PIE-S2302", "Relation cycle detected: first -> second -> first")
     ]
     _assert_private_json_facts_absent(json.dumps(document))
-
-
-def test_slice9_future_explain_and_bridge_readiness_wording_is_locked() -> None:
-    spec = " ".join(SPEC_PATH.read_text(encoding="utf-8").split())
-
-    for required in (
-        "future project explain, project semantic metadata, bridge/export, RAG, or Arrow readiness",
-        "Slice 9 exposes none of those facts",
-        "Existing single-file `pietto explain` is not project explain",
-        "Phase 52 remains the later Project Explain / Project Semantic Metadata Readiness direction",
-        "No public Project JSON v2 row schema output is approved in Phase 48",
-    ):
-        assert required in spec, required
-
-
-def test_package_version_is_locked() -> None:
-    pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
-
-    assert 'version = "0.1.0"' in pyproject
-    assert 'version = "0.2.0"' not in pyproject
 
 
 def _project_json_document(

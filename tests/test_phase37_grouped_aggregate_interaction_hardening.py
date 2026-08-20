@@ -1,66 +1,11 @@
 from __future__ import annotations
 
-from fnmatch import fnmatchcase
-from pathlib import Path
-
 import pytest
 
-from _static_audit_helpers import (
-    normalized_text as _normalized,
-    read_text as _read,
-)
 from pietto.errors import Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-
-PHASE37_PLAN_PATH = (
-    REPO_ROOT / "docs/plan/phase-37-post-v02-aggregate-surface-expansion.md"
-)
-FREEZE_SPEC_PATH = REPO_ROOT / "docs/spec/v02-aggregate-surface-freeze-v1.md"
-DEFERRED_REGISTER_PATH = REPO_ROOT / "docs/spec/v02-deferred-feature-register-v1.md"
-COUNT_EXPRESSION_SPEC_PATH = (
-    REPO_ROOT / "docs/spec/phase37-count-expression-mvp-decision-v1.md"
-)
-COUNT_DISTINCT_SPEC_PATH = (
-    REPO_ROOT / "docs/spec/phase37-count-distinct-expression-widening-boundary-v1.md"
-)
-MIN_MAX_SPEC_PATH = REPO_ROOT / "docs/spec/phase37-min-max-expression-boundary-v1.md"
-FILTER_DISTINCT_SPEC_PATH = (
-    REPO_ROOT / "docs/spec/phase37-aggregate-filter-distinct-modifier-deferral-v1.md"
-)
-DECIMAL_SPEC_PATH = (
-    REPO_ROOT / "docs/spec/phase37-decimal-aggregate-expression-boundary-v1.md"
-)
-CURRENT_MATRIX_TEST_PATH = REPO_ROOT / "tests/test_phase37_current_aggregate_matrix.py"
-NESTED_COMPOSITION_TEST_PATH = (
-    REPO_ROOT / "tests/test_phase37_nested_aggregate_composition_hardening.py"
-)
-FILTER_DISTINCT_TEST_PATH = (
-    REPO_ROOT / "tests/test_phase37_aggregate_filter_distinct_modifier_deferral.py"
-)
-DECIMAL_BOUNDARY_TEST_PATH = (
-    REPO_ROOT / "tests/test_phase37_decimal_aggregate_expression_boundary.py"
-)
-PHASE21_GROUP_BY_TEST_PATH = (
-    REPO_ROOT / "tests/test_phase21_group_by_semantic_validation.py"
-)
-PHASE25_SATISFYING_TEST_PATH = REPO_ROOT / "tests/test_phase25_satisfying_semantics.py"
-PHASE27_GROUPED_ORDER_TEST_PATH = (
-    REPO_ROOT / "tests/test_phase27_grouped_order_semantics.py"
-)
-PHASE31_MATRIX_TEST_PATH = (
-    REPO_ROOT / "tests/test_phase31_aggregate_result_matrix_hardening.py"
-)
-PHASE31_DIAGNOSTIC_TEST_PATH = (
-    REPO_ROOT / "tests/test_phase31_diagnostic_cli_json_stability.py"
-)
-
-IN_PROGRESS_PHASE37_STATIC_AUDIT_PATTERNS = (
-    "docs/spec/phase37-*.md",
-    "tests/test_phase37_*.py",
-)
 SOURCE_PREFIX = (
     "shape Order:\n"
     "    region: Text not null\n"
@@ -76,30 +21,6 @@ SOURCE_PREFIX = (
     "    created_at: Timestamp\n"
     'source orders: Order is postgres.table("orders")\n'
 )
-
-
-def _boundary_evidence() -> str:
-    return " ".join(
-        _normalized(path)
-        for path in (
-            PHASE37_PLAN_PATH,
-            FREEZE_SPEC_PATH,
-            DEFERRED_REGISTER_PATH,
-            COUNT_EXPRESSION_SPEC_PATH,
-            COUNT_DISTINCT_SPEC_PATH,
-            MIN_MAX_SPEC_PATH,
-            FILTER_DISTINCT_SPEC_PATH,
-            DECIMAL_SPEC_PATH,
-            CURRENT_MATRIX_TEST_PATH,
-            NESTED_COMPOSITION_TEST_PATH,
-            FILTER_DISTINCT_TEST_PATH,
-            DECIMAL_BOUNDARY_TEST_PATH,
-            PHASE21_GROUP_BY_TEST_PATH,
-            PHASE25_SATISFYING_TEST_PATH,
-            PHASE27_GROUPED_ORDER_TEST_PATH,
-            PHASE31_MATRIX_TEST_PATH,
-        )
-    )
 
 
 def _parse(source: str):
@@ -158,46 +79,6 @@ def _no_group_relation(*, projections: tuple[str, ...]) -> str:
         "    select:\n"
         f"{select_body}"
     )
-
-
-def _is_in_progress_phase37_static_audit_path(path: str) -> bool:
-    return any(
-        fnmatchcase(path, pattern)
-        for pattern in IN_PROGRESS_PHASE37_STATIC_AUDIT_PATTERNS
-    )
-
-
-def test_slice9_scope_is_tests_only_behavior_hardening() -> None:
-    evidence = _boundary_evidence()
-
-    for required in (
-        "| 9 | Grouped Aggregate Interaction Hardening | tests-only; no behavior change |",
-        "grouped aggregate projections",
-        "`satisfying:`",
-        "grouped result `order by:`",
-        "Current Phase 25 `satisfying:` behavior is frozen",
-        "Current Phase 27 grouped selected-output `order by` behavior is frozen",
-        "`count(expression)`",
-        "broad `count_distinct(expression)`",
-        "`min(expression)` / `max(expression)`",
-        "nested aggregates",
-        "aggregate projection composition",
-        "aggregate over projection aliases",
-        "aggregate filters",
-        "window functions",
-        "generic `DISTINCT` syntax",
-        "relationship/fanout-safe aggregates",
-        "Package version remains `0.1.0`",
-    ):
-        assert required in evidence, required
-
-    for prohibited in (
-        "Slice 9 implements",
-        "Slice 9 widens",
-        "Slice 9 adds new accepted syntax",
-        "Slice 9 changes diagnostic behavior",
-    ):
-        assert prohibited not in evidence, prohibited
 
 
 @pytest.mark.parametrize(
@@ -400,43 +281,3 @@ def test_grouped_sql_like_aggregate_syntax_remains_parser_rejected(
     source = _grouped_relation(projections=("region", projection))
 
     assert "PIE-P1000" in _parser_codes(source)
-
-
-def test_grouped_relationship_and_fanout_safe_aggregate_work_remains_deferred() -> None:
-    evidence = _boundary_evidence()
-
-    for required in (
-        "relationship/fanout-safe aggregates",
-        "relationship/JOIN behavior",
-        "relation composition",
-        "endpoint-qualified lookup",
-        "runtime/database execution",
-        "public MySQL API expansion",
-    ):
-        assert required in evidence, required
-
-
-def test_public_output_schema_and_release_surfaces_remain_unchanged() -> None:
-    evidence = f"{_boundary_evidence()} {_read(PHASE31_DIAGNOSTIC_TEST_PATH)}"
-
-    for required in (
-        "no source/compiler behavior change",
-        "grammar",
-        "generated ANTLR",
-        "IR behavior",
-        "SQL lowering",
-        "CLI behavior",
-        "JSON v1",
-        "CLI JSON v1 unchanged",
-        "Project JSON v2 unchanged",
-        "Semantic Metadata Artifact v1 unchanged",
-        "diagnostic envelope unchanged",
-        "SQL golden bytes unchanged",
-        "fixtures/goldens unchanged",
-        "no package/workflow/release metadata change",
-        "no tag/release/publish/upload/signing/attestation",
-        "package version remains `0.1.0`",
-    ):
-        assert required in evidence, required
-
-    assert 'version = "0.1.0"' in _read(REPO_ROOT / "pyproject.toml")

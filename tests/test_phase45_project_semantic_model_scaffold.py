@@ -9,7 +9,6 @@ import pytest
 
 import pietto.cli as cli
 import pietto.semantic as semantic_api
-from _static_audit_helpers import normalized_text as _normalized
 from pietto._project.check import check_project_parse_only
 from pietto._project.json_v2 import project_check_result_to_json_dict
 from pietto._project.model import (
@@ -28,8 +27,6 @@ from pietto.ast_nodes import DeriveDef, ShapeDef, SourceDef, TableDef, TypeDef, 
 from pietto.errors import Diagnostic, Severity, SourceLocation
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PLAN_PATH = REPO_ROOT / "docs/plan/phase-45-project-wide-semantic-model-mvp.md"
-SPEC_PATH = REPO_ROOT / "docs/spec/phase45-project-wide-semantic-model-scope-lock-v1.md"
 
 
 def test_project_semantic_scaffold_types_are_frozen_slots_dataclasses() -> None:
@@ -467,36 +464,6 @@ def test_project_text_output_remains_parse_only(
     captured = capsys.readouterr()
     assert captured.out == "Project check OK: .\nFiles checked: 1\n"
     assert captured.err == ""
-
-
-def test_slice4_docs_lock_private_catalog_and_duplicate_scope() -> None:
-    docs = " ".join(_normalized(path) for path in (PLAN_PATH, SPEC_PATH))
-
-    for required in (
-        "Slice 3 adds a private project semantic model scaffold",
-        "`ProjectSemanticCatalog`",
-        "`ProjectSemanticModel`",
-        "`ProjectSemanticResult`",
-        "`build_empty_project_semantic_result(...)`",
-        "`ProjectParseCheckResult.parsed_inputs`",
-        "Slice 4 adds private project catalog population and duplicate detection",
-        "`ProjectSymbolNamespace`",
-        "`ProjectSymbolKind`",
-        "`ProjectSymbol`",
-        "type, relation, and callable maps",
-        "deterministic selected-input order and source definition order",
-        "duplicates are detected within the same namespace",
-        "first deterministic symbol is preserved",
-        "`PIE-S2001`",
-        "no `related_locations` in Slice 4",
-        "unresolved references are not diagnosed in Slice 4",
-        "no cross-file type namespace resolution",
-        "no cross-file relation namespace resolution",
-        "no CLI/JSON/text behavior change",
-        "no IR, SQL, project `emit-sql`, or project `explain` path",
-        "no import from `pietto.semantic`",
-    ):
-        assert required in docs, required
 
 
 def _forbid_project_compiler_pipeline(monkeypatch: pytest.MonkeyPatch) -> None:

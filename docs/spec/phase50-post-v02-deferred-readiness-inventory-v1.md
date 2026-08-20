@@ -38,7 +38,7 @@ query.
 
 ## Historical v0.2 Register Boundary
 
-`docs/spec/v02-deferred-feature-register-v1.md` is the historical Phase 29 v0.2
+`docs/roadmap.md` is the historical Phase 29 v0.2
 boundary register. The historical Phase 29 register remains byte-for-byte
 unchanged.
 
@@ -49,7 +49,7 @@ subsets while preserving other deferrals. The historical row, target, and
 allowed-before-v0.2 decision remain historical evidence.
 
 The historical Roadmap Tree in
-`docs/spec/pietto-roadmap-phase45-60-v1.md` remains preserved. Slice 2 adds an
+`docs/roadmap.md` remains preserved. Slice 2 adds an
 append-only active-route reconciliation and does not retroactively rewrite the
 completed Slice 1 tentative route.
 
@@ -134,9 +134,9 @@ private foundation, not current public metadata or SQL behavior.
 | Current single-file aggregate surface | IMPLEMENTED_LIMITED | `tests/test_phase37_completion_audit.py` | Frozen accepted count, count_distinct, sum, avg, min, max, grouped, satisfying, and grouped-order subsets | Existing semantic/IR/SQL matrix | completed | bounded behavior | No project schema claim | COMPLETION_AUDIT |
 | Narrow field-bearing `count(expression)` | IMPLEMENTED_LIMITED | `tests/test_phase39_completion_audit.py` | Supported field-bearing expressions only; literal-only count and count_if remain absent | Current expression typing | completed | bounded behavior | No generic constant count | COMPLETION_AUDIT |
 | Selected row-let aggregate/group interactions | IMPLEMENTED_LIMITED | `tests/test_phase43_completion_audit.py` | Direct approved aggregate, group-key, grouped-order, and satisfying forms only | Phase 40 row lets | completed | bounded behavior | No arbitrary expressions, min/max, or limit-let | COMPLETION_AUDIT |
-| Phase 47-49 direct, propagated, computed, and let project row facts | PRIVATE_FOUNDATION | `docs/spec/phase49-completion-audit-status-lock-v1.md` | Private schemas, states, dependencies, origin, and lineage; aggregate/grouped facts absent | Completed Phase 47-49 carriers | Phase 51 input | private prerequisite | No Project JSON or public API | COMPLETION_AUDIT |
+| Phase 47-49 direct, propagated, computed, and let project row facts | PRIVATE_FOUNDATION | `docs/project-package.md` | Private schemas, states, dependencies, origin, and lineage; aggregate/grouped facts absent | Completed Phase 47-49 carriers | Phase 51 input | private prerequisite | No Project JSON or public API | COMPLETION_AUDIT |
 | Aggregate/grouped project output schema | EXPLICITLY_DEFERRED | `tests/test_phase47_completion_audit.py` | Add bounded private group-key and aggregate output facts | Current canonical expression types | Phase 51 | bounded candidate | No type widening, public JSON, IR, SQL, or CLI | COMPLETION_AUDIT |
-| Aggregate/grouped origin and lineage | EXPLICITLY_DEFERRED | `docs/spec/phase49-completion-audit-status-lock-v1.md` | Add private origin, dependency, and lineage after schema ownership | Aggregate/grouped schema facts | Phase 51 | private candidate | No public lineage/export | COMPLETION_AUDIT |
+| Aggregate/grouped origin and lineage | EXPLICITLY_DEFERRED | `docs/project-package.md` | Add private origin, dependency, and lineage after schema ownership | Aggregate/grouped schema facts | Phase 51 | private candidate | No public lineage/export | COMPLETION_AUDIT |
 | Aggregate/grouped duplicate output plus satisfying/order/limit schema effects | EXPLICITLY_DEFERRED | `tests/test_phase47_completion_audit.py` | Define fail-closed private states and deterministic ownership | Phase 48 state vocabulary | Phase 51 | contract then private candidate | No new diagnostics or aggregate behavior | COMPLETION_AUDIT |
 | `count_if`, aggregate filters, and ordered aggregates | EXPLICITLY_DEFERRED | `docs/spec/phase37-aggregate-filter-distinct-modifier-deferral-v1.md` | Requires separate syntax, typing, IR, dialect, and compatibility contracts | Later aggregate decision | OUTSIDE_51_60 | future replan | No FILTER or WITHIN GROUP inference | CONTRACT |
 | Generic DISTINCT and broad aggregate expression widening | EXPLICITLY_DEFERRED | `tests/test_phase37_completion_audit.py` | Existing direct/lower-trim and bounded expression forms only | Aggregate capability decisions | OUTSIDE_51_60 | future replan | No generic modifier syntax | COMPLETION_AUDIT |
@@ -157,9 +157,9 @@ readiness matrices. Each row names its exact layer.
 | Currency/Money and domain refinement | EXPLICITLY_DEFERRED | `tests/test_phase36_completion_audit.py` | Current aliases do not create refinement semantics | Type and syntax decisions | Phase 52 | readiness | No new primitive or annotation syntax | COMPLETION_AUDIT |
 | Any, Bytes, and Json | IMPLEMENTED_LIMITED | `docs/spec/phase38-boundary-types-capability-contract-v1.md` | Field/projection and bounded shared/count paths; unsupported aggregates fail closed | Pair-specific capability contract | Phase 52 | readiness | No dynamic typing or runtime value model | CONTRACT |
 | Current nullability propagation | IMPLEMENTED_LIMITED | `docs/spec/nullability-propagation-contract-v1.md` | Current semantic and private project facts only | Existing value/project carriers | Phase 52 | capability foundation | No runtime non-null proof | CONTRACT |
-| Expanded pair-specific operator/capability matrix | READINESS_CONTRACT_ONLY | `docs/spec/expanded-scalar-operator-matrix-v1.md` | Documents current, risky, and deferred pairs without adding behavior | Current operator behavior | Phase 52 | readiness contract | No operators, casts, or promotion widening | CONTRACT |
+| Expanded pair-specific operator/capability matrix | READINESS_CONTRACT_ONLY | `docs/spec/operator-comparison-matrix-contract-v1.md` | Documents current, risky, and deferred pairs without adding behavior | Current operator behavior | Phase 52 | readiness contract | No operators, casts, or promotion widening | CONTRACT |
 | Decimal computed/aggregate precision propagation | EXPLICITLY_DEFERRED | `tests/test_phase41_decimal_precision_scale_completion_audit.py` | Direct/private facts do not fuse through computed aggregates | Private Decimal facts | Phase 52 or later | bounded candidate | No implicit public precision | COMPLETION_AUDIT |
-| Native database type mapping | EXPLICITLY_DEFERRED | `docs/spec/v02-deferred-feature-register-v1.md` | No physical binding or native metadata | Stable capability profiles | OUTSIDE_51_60 | future replan | No introspection, DDL, or connector inference | HISTORICAL |
+| Native database type mapping | EXPLICITLY_DEFERRED | `docs/roadmap.md` | No physical binding or native metadata | Stable capability profiles | OUTSIDE_51_60 | future replan | No introspection, DDL, or connector inference | HISTORICAL |
 
 ## Window-Function Inventory
 
@@ -169,11 +169,11 @@ syntax nor a function catalog.
 | Feature / exact layer | Status | Strongest evidence | Boundary and remaining work | Prerequisite | Owner | Owner mode | Explicit exclusions | Strength |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | General window syntax and semantic surface | EXPLICITLY_DEFERRED | `tests/test_phase37_completion_audit.py` | Syntax, AST, typing, IR, SQL, diagnostics, and compatibility absent | Aggregate/type readiness | Phase 53 | readiness contract | No accepted window syntax | COMPLETION_AUDIT |
-| OVER, PARTITION BY, window order, frames, and aggregate-as-window | EXPLICITLY_DEFERRED | `docs/plan/phase-50-semantic-readiness-consolidation.md` | Decision surface only | Phase 51-52 evidence | Phase 53 | readiness contract | No spelling reservation or lowering | CONTRACT |
-| Window result type/nullability and grouped interaction | EXPLICITLY_DEFERRED | `docs/plan/phase-50-semantic-readiness-consolidation.md` | No current matrix | Phase 51-52 facts | Phase 53 | readiness contract | No result-schema behavior | CONTRACT |
-| Window dialect capability and lowering | EXPLICITLY_DEFERRED | `docs/plan/phase-50-semantic-readiness-consolidation.md` | Backend support is not inferred | Phase 56 capability schema | Phase 53 and later | readiness contract | No best-effort SQL | CONTRACT |
+| OVER, PARTITION BY, window order, frames, and aggregate-as-window | EXPLICITLY_DEFERRED | `docs/roadmap.md` | Decision surface only | Phase 51-52 evidence | Phase 53 | readiness contract | No spelling reservation or lowering | CONTRACT |
+| Window result type/nullability and grouped interaction | EXPLICITLY_DEFERRED | `docs/roadmap.md` | No current matrix | Phase 51-52 facts | Phase 53 | readiness contract | No result-schema behavior | CONTRACT |
+| Window dialect capability and lowering | EXPLICITLY_DEFERRED | `docs/roadmap.md` | Backend support is not inferred | Phase 56 capability schema | Phase 53 and later | readiness contract | No best-effort SQL | CONTRACT |
 | Exact catalog: row_number, rank, dense_rank, lag, lead, first_value, last_value | NOT_EVIDENCED | Slice 2 Gate 1 exact-term search | No authoritative exact catalog contract was found | Phase 53 evidence | Phase 53 | decision candidate | No catalog inferred from SQL familiarity | USER_STRATEGY_ONLY |
-| Phase 53 implementation posture | READINESS_CONTRACT_ONLY | `docs/plan/phase-50-semantic-readiness-consolidation.md` | Syntax and capability contract only | Completed Phase 50 readiness | Phase 53 | readiness phase | No parser, AST, semantic, IR, or SQL change implied | CONTRACT |
+| Phase 53 implementation posture | READINESS_CONTRACT_ONLY | `docs/roadmap.md` | Syntax and capability contract only | Completed Phase 50 readiness | Phase 53 | readiness phase | No parser, AST, semantic, IR, or SQL change implied | CONTRACT |
 
 ## Project / Module / Package Inventory
 
@@ -185,12 +185,12 @@ and non-executable.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Multi-file project check, config, source selection, and flat namespaces | IMPLEMENTED_LIMITED | `tests/test_phase45_completion_audit.py` | Bounded project check and cross-file type/relation semantics; no project emit/explain/IR/SQL | Completed Phase 44-45 | completed foundation | bounded behavior | No general project compilation claim | COMPLETION_AUDIT |
 | Deterministic project order and relation cycle diagnostics | IMPLEMENTED_LIMITED | `tests/test_phase46_completion_audit.py` | Deterministic input/symbol order and PIE-S2302 relation cycles; module cycles undefined | Private relation graph | completed foundation | bounded behavior | No module visibility behavior | COMPLETION_AUDIT |
-| Private project catalog, graph, row schemas/states, dependencies, and lineage | PRIVATE_FOUNDATION | `docs/spec/phase49-completion-audit-status-lock-v1.md` | Tested ProjectSemanticModel facts; package attribution/public metadata absent | Completed Phase 45-49 | Phase 51/59 input | private prerequisite | No public JSON, explain, IR, or SQL | COMPLETION_AUDIT |
-| Import, module identity, export/private visibility, and qualified project names | EXPLICITLY_DEFERRED | `docs/spec/phase45-project-wide-semantic-model-scope-lock-v1.md` | Current namespace remains flat | Current project catalog | Phase 54 | readiness | No executable import or loader widening | CONTRACT |
-| Semantic package vocabulary and candidate assets | READINESS_CONTRACT_ONLY | `docs/spec/phase50-semantic-package-extension-capability-scope-lock-v1.md` | Static, declarative, reviewable, non-executable concepts only | Type/module readiness | Phase 55 | readiness contract | No manifest, resolver, or execution | CONTRACT |
-| Semantic package asset schema | EXPLICITLY_DEFERRED | `docs/plan/phase-50-semantic-readiness-consolidation.md` | Candidate families are not schemas | Phase 52 and 54 | Phase 55 | schema contract | No loader or registry | CONTRACT |
-| Package manifest, dependency graph, attribution integration, and versioning semantics | EXPLICITLY_DEFERRED | `docs/plan/phase-50-semantic-readiness-consolidation.md` | No manifest or package graph exists | Phase 55 asset schema | Phase 55/59 | readiness then private integration | No remote resolution or public export | CONTRACT |
-| Registry, remote install, publishing, executable plugins/hooks, and arbitrary package code | OUT_OF_SCOPE | `docs/spec/phase50-semantic-package-extension-capability-scope-lock-v1.md` | Forbidden by current non-executable boundary | New safety authorization | OUTSIDE_51_60 | excluded | No network, install, hook, or code execution | CONTRACT |
+| Private project catalog, graph, row schemas/states, dependencies, and lineage | PRIVATE_FOUNDATION | `docs/project-package.md` | Tested ProjectSemanticModel facts; package attribution/public metadata absent | Completed Phase 45-49 | Phase 51/59 input | private prerequisite | No public JSON, explain, IR, or SQL | COMPLETION_AUDIT |
+| Import, module identity, export/private visibility, and qualified project names | EXPLICITLY_DEFERRED | `docs/project-package.md` | Current namespace remains flat | Current project catalog | Phase 54 | readiness | No executable import or loader widening | CONTRACT |
+| Semantic package vocabulary and candidate assets | READINESS_CONTRACT_ONLY | `docs/project-package.md` | Static, declarative, reviewable, non-executable concepts only | Type/module readiness | Phase 55 | readiness contract | No manifest, resolver, or execution | CONTRACT |
+| Semantic package asset schema | EXPLICITLY_DEFERRED | `docs/roadmap.md` | Candidate families are not schemas | Phase 52 and 54 | Phase 55 | schema contract | No loader or registry | CONTRACT |
+| Package manifest, dependency graph, attribution integration, and versioning semantics | EXPLICITLY_DEFERRED | `docs/roadmap.md` | No manifest or package graph exists | Phase 55 asset schema | Phase 55/59 | readiness then private integration | No remote resolution or public export | CONTRACT |
+| Registry, remote install, publishing, executable plugins/hooks, and arbitrary package code | OUT_OF_SCOPE | `docs/project-package.md` | Forbidden by current non-executable boundary | New safety authorization | OUTSIDE_51_60 | excluded | No network, install, hook, or code execution | CONTRACT |
 
 ## Extension And Dialect Capability Inventory
 
@@ -201,14 +201,14 @@ remain closed and explicit.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Handwritten PostgreSQL backend | IMPLEMENTED_STABLE | `tests/test_phase9_completion_audit.py` | Byte-exact current supported compiler surface | Existing backend contracts | completed | stable backend | No server-extension inference | COMPLETION_AUDIT |
 | Closed private MySQL backend | IMPLEMENTED_LIMITED | `tests/test_phase10_completion_audit.py` | Private fail-closed emitter and bounded CLI selection | Existing closed matrix | completed | bounded backend | No generic public emitter | COMPLETION_AUDIT |
-| SQLite, DuckDB, BigQuery, Snowflake, and Trino concrete backends | EXPLICITLY_DEFERRED | `docs/spec/phase50-semantic-package-extension-capability-scope-lock-v1.md` | Future examples only | Capability schema | OUTSIDE_51_60 | future replan | No accepted CLI dialect value | CONTRACT |
-| Capability-profile and extension-overlay vocabulary | READINESS_CONTRACT_ONLY | `docs/spec/phase50-semantic-package-extension-capability-scope-lock-v1.md` | Static declared concepts only | Type/package readiness | Phase 56 | readiness contract | No server discovery or proof | CONTRACT |
-| Declared capability checking | EXPLICITLY_DEFERRED | `docs/plan/phase-50-semantic-readiness-consolidation.md` | Conceptual pipeline only | Phase 56 static schema | Phase 56 | bounded candidate | No connector-name inference | CONTRACT |
-| PostGIS, pgvector, pg_trgm, and TimescaleDB concrete support | EXPLICITLY_DEFERRED | `docs/spec/phase50-semantic-package-extension-capability-scope-lock-v1.md` | Catalog examples only | Phase 56 schema | Phase 57 | catalog readiness | No discovery, install, CREATE EXTENSION, or SQL behavior | CONTRACT |
+| SQLite, DuckDB, BigQuery, Snowflake, and Trino concrete backends | EXPLICITLY_DEFERRED | `docs/project-package.md` | Future examples only | Capability schema | OUTSIDE_51_60 | future replan | No accepted CLI dialect value | CONTRACT |
+| Capability-profile and extension-overlay vocabulary | READINESS_CONTRACT_ONLY | `docs/project-package.md` | Static declared concepts only | Type/package readiness | Phase 56 | readiness contract | No server discovery or proof | CONTRACT |
+| Declared capability checking | EXPLICITLY_DEFERRED | `docs/roadmap.md` | Conceptual pipeline only | Phase 56 static schema | Phase 56 | bounded candidate | No connector-name inference | CONTRACT |
+| PostGIS, pgvector, pg_trgm, and TimescaleDB concrete support | EXPLICITLY_DEFERRED | `docs/project-package.md` | Catalog examples only | Phase 56 schema | Phase 57 | catalog readiness | No discovery, install, CREATE EXTENSION, or SQL behavior | CONTRACT |
 | Custom extension signature schema | NOT_EVIDENCED | Slice 2 Gate 1 exact-term search | No authoritative exact schema contract was found | Phase 56-57 evidence | Phase 57 | decision candidate | No arbitrary user code or dynamic loading | USER_STRATEGY_ONLY |
-| Portability diagnostics and capability mismatch output | EXPLICITLY_DEFERRED | `docs/plan/phase-50-semantic-readiness-consolidation.md` | Future reporting concepts only | Phase 56-57 contracts | Phase 58 | readiness/privacy contract | No new diagnostic in Phase 50 | CONTRACT |
-| Phase 57 catalog posture | READINESS_CONTRACT_ONLY | `docs/plan/phase-50-semantic-readiness-consolidation.md` | Signature-catalog readiness only | Phase 56 | Phase 57 | readiness phase | No lowering or installation | CONTRACT |
-| Phase 60 ecosystem posture | READINESS_CONTRACT_ONLY | `docs/plan/phase-50-semantic-readiness-consolidation.md` | Completion checkpoint only | Phases 51-59 | Phase 60 | checkpoint | No release or backend implementation | CONTRACT |
+| Portability diagnostics and capability mismatch output | EXPLICITLY_DEFERRED | `docs/roadmap.md` | Future reporting concepts only | Phase 56-57 contracts | Phase 58 | readiness/privacy contract | No new diagnostic in Phase 50 | CONTRACT |
+| Phase 57 catalog posture | READINESS_CONTRACT_ONLY | `docs/roadmap.md` | Signature-catalog readiness only | Phase 56 | Phase 57 | readiness phase | No lowering or installation | CONTRACT |
+| Phase 60 ecosystem posture | READINESS_CONTRACT_ONLY | `docs/roadmap.md` | Completion checkpoint only | Phases 51-59 | Phase 60 | checkpoint | No release or backend implementation | CONTRACT |
 
 ## Explain / Metadata / Lineage Inventory
 
@@ -219,10 +219,10 @@ remain private.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Single-file `pietto explain` and Semantic Metadata Artifact v1 | IMPLEMENTED_STABLE | `tests/test_phase32_completion_audit.py` | Exact current text/JSON contract; project aggregation separate | Completed Phase 32 | completed | stable public command | No project metadata claim | COMPLETION_AUDIT |
 | Project JSON v2 and project-check envelope | IMPLEMENTED_LIMITED | `tests/test_phase33_completion_audit.py` | Inputs, counters, diagnostics, cli_errors, and check result only | Completed Phase 33-46 | completed foundation | bounded public envelope | No private carrier serialization | COMPLETION_AUDIT |
-| Project origin/provenance, dependency graphs, schema states, and multi-hop lineage | PRIVATE_FOUNDATION | `docs/spec/phase49-completion-audit-status-lock-v1.md` | ProjectSemanticModel facts only | Completed Phase 46-49 | Phase 59 input | private prerequisite | No Project JSON or explain output | COMPLETION_AUDIT |
-| Project explain, public project metadata, and public row schema | EXPLICITLY_DEFERRED | `docs/spec/phase49-completion-audit-status-lock-v1.md` | Project explain unsupported and private schemas un-serialized | Phase 51 and 55-57 | Phase 58 | readiness/privacy contract | No immediate serializer or CLI behavior | COMPLETION_AUDIT |
-| Public lineage/export and package attribution output | EXPLICITLY_DEFERRED | `docs/spec/phase49-completion-audit-status-lock-v1.md` | Private lineage is not an export contract | Phase 59 private integration | Phase 58/59 | readiness then future replan | No bridge or public graph | COMPLETION_AUDIT |
-| Portability report and capability mismatch metadata | EXPLICITLY_DEFERRED | `docs/plan/phase-50-semantic-readiness-consolidation.md` | Future reporting concepts only | Phase 56-57 | Phase 58 | readiness/privacy contract | No current output or diagnostic | CONTRACT |
+| Project origin/provenance, dependency graphs, schema states, and multi-hop lineage | PRIVATE_FOUNDATION | `docs/project-package.md` | ProjectSemanticModel facts only | Completed Phase 46-49 | Phase 59 input | private prerequisite | No Project JSON or explain output | COMPLETION_AUDIT |
+| Project explain, public project metadata, and public row schema | EXPLICITLY_DEFERRED | `docs/project-package.md` | Project explain unsupported and private schemas un-serialized | Phase 51 and 55-57 | Phase 58 | readiness/privacy contract | No immediate serializer or CLI behavior | COMPLETION_AUDIT |
+| Public lineage/export and package attribution output | EXPLICITLY_DEFERRED | `docs/project-package.md` | Private lineage is not an export contract | Phase 59 private integration | Phase 58/59 | readiness then future replan | No bridge or public graph | COMPLETION_AUDIT |
+| Portability report and capability mismatch metadata | EXPLICITLY_DEFERRED | `docs/roadmap.md` | Future reporting concepts only | Phase 56-57 | Phase 58 | readiness/privacy contract | No current output or diagnostic | CONTRACT |
 
 ## Relationship / Composition Inventory
 
@@ -234,9 +234,9 @@ remain separate deferred surfaces.
 | Relationship metadata syntax, AST, semantic validation, and immutable storage | IMPLEMENTED_LIMITED | `tests/test_phase15_completion_audit.py` | Separate metadata namespace; no relation lookup, IR, or SQL participation | Completed Phase 14-15 | completed foundation | bounded metadata | No JOIN or endpoint-qualified lookup | COMPLETION_AUDIT |
 | Grain and narrow JOIN contracts | READINESS_CONTRACT_ONLY | `tests/test_phase34_completion_audit.py` | Documentation/static-audit foundation only | Project/relationship evidence | OUTSIDE_51_60 | future replan | No JOIN implementation | COMPLETION_AUDIT |
 | JOIN and relationship-driven query behavior | EXPLICITLY_DEFERRED | `tests/test_phase34_completion_audit.py` | No current query composition | Future relationship replan | OUTSIDE_51_60 | future replan | No automatic join inference | COMPLETION_AUDIT |
-| Grain behavior, fanout diagnostics, and relationship-aware aggregate rewrites | EXPLICITLY_DEFERRED | `docs/spec/phase-34-relationship-grain-narrow-join-boundary-v1.md` | Readiness concepts only | JOIN semantics | OUTSIDE_51_60 | future replan | No BI-style inference | CONTRACT |
-| Nested queries, derived tables, and CTE lowering | EXPLICITLY_DEFERRED | `docs/spec/v02-deferred-feature-register-v1.md` | No hidden relation layer or subquery lowering | Future composition plan | OUTSIDE_51_60 | future replan | No hidden CTE insertion | HISTORICAL |
-| Project IR, project SQL, and project emit-sql | EXPLICITLY_DEFERRED | `docs/spec/phase49-completion-audit-status-lock-v1.md` | Project semantic facts do not feed IR/SQL | Private schema/composition readiness | OUTSIDE_51_60 | future replan | No runtime/database execution | COMPLETION_AUDIT |
+| Grain behavior, fanout diagnostics, and relationship-aware aggregate rewrites | EXPLICITLY_DEFERRED | `docs/language.md` | Readiness concepts only | JOIN semantics | OUTSIDE_51_60 | future replan | No BI-style inference | CONTRACT |
+| Nested queries, derived tables, and CTE lowering | EXPLICITLY_DEFERRED | `docs/roadmap.md` | No hidden relation layer or subquery lowering | Future composition plan | OUTSIDE_51_60 | future replan | No hidden CTE insertion | HISTORICAL |
+| Project IR, project SQL, and project emit-sql | EXPLICITLY_DEFERRED | `docs/project-package.md` | Project semantic facts do not feed IR/SQL | Private schema/composition readiness | OUTSIDE_51_60 | future replan | No runtime/database execution | COMPLETION_AUDIT |
 
 ## Runtime / Database / Integration Inventory
 
@@ -245,13 +245,13 @@ service, package installer, or data materialization system.
 
 | Feature / exact layer | Status | Strongest evidence | Boundary and remaining work | Prerequisite | Owner | Owner mode | Explicit exclusions | Strength |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Database execution, connections, credentials, transactions, and connector runtime | OUT_OF_SCOPE | `docs/spec/v02-deferred-feature-register-v1.md` | Compiler emits SQL but does not execute it | Separate runtime/security/resource authorization | OUTSIDE_51_60 | excluded | No database access or runtime service | HISTORICAL |
-| Schema introspection, db pull, and extension discovery | OUT_OF_SCOPE | `docs/spec/v02-deferred-feature-register-v1.md` | No connection or physical schema binding | Separate connector/auth/threat contract | OUTSIDE_51_60 | excluded | No credentials, discovery, or server guessing | HISTORICAL |
-| Registry access and remote semantic-package installation | OUT_OF_SCOPE | `docs/spec/phase50-semantic-package-extension-capability-scope-lock-v1.md` | Static non-executable package boundary | New safety authorization | OUTSIDE_51_60 | excluded | No network, install, cache, or code execution | CONTRACT |
-| Prisma bridge | EXPLICITLY_DEFERRED | `docs/spec/v02-deferred-feature-register-v1.md` | No dependency, conversion, generation, or CLI bridge | Future integration plan | OUTSIDE_51_60 | future replan | No Prisma dependency | HISTORICAL |
-| Arrow/PyArrow and dataframe materialization/export | EXPLICITLY_DEFERRED | `docs/spec/v02-deferred-feature-register-v1.md` | No data materialization or dependency | Future integration plan | OUTSIDE_51_60 | future replan | No execution or dataframe API | HISTORICAL |
-| RAG, semantic graph, ERD, or AI bridge/export | EXPLICITLY_DEFERRED | `docs/spec/phase49-completion-audit-status-lock-v1.md` | Private lineage is not an external bridge | Future integration plan | OUTSIDE_51_60 | future replan | No network or model integration | COMPLETION_AUDIT |
-| LSP and UI/playground | EXPLICITLY_DEFERRED | `docs/spec/v02-deferred-feature-register-v1.md` | No editor server, watcher, or web UI | Future tooling plan | OUTSIDE_51_60 | future replan | No server or file watching | HISTORICAL |
+| Database execution, connections, credentials, transactions, and connector runtime | OUT_OF_SCOPE | `docs/roadmap.md` | Compiler emits SQL but does not execute it | Separate runtime/security/resource authorization | OUTSIDE_51_60 | excluded | No database access or runtime service | HISTORICAL |
+| Schema introspection, db pull, and extension discovery | OUT_OF_SCOPE | `docs/roadmap.md` | No connection or physical schema binding | Separate connector/auth/threat contract | OUTSIDE_51_60 | excluded | No credentials, discovery, or server guessing | HISTORICAL |
+| Registry access and remote semantic-package installation | OUT_OF_SCOPE | `docs/project-package.md` | Static non-executable package boundary | New safety authorization | OUTSIDE_51_60 | excluded | No network, install, cache, or code execution | CONTRACT |
+| Prisma bridge | EXPLICITLY_DEFERRED | `docs/roadmap.md` | No dependency, conversion, generation, or CLI bridge | Future integration plan | OUTSIDE_51_60 | future replan | No Prisma dependency | HISTORICAL |
+| Arrow/PyArrow and dataframe materialization/export | EXPLICITLY_DEFERRED | `docs/roadmap.md` | No data materialization or dependency | Future integration plan | OUTSIDE_51_60 | future replan | No execution or dataframe API | HISTORICAL |
+| RAG, semantic graph, ERD, or AI bridge/export | EXPLICITLY_DEFERRED | `docs/project-package.md` | Private lineage is not an external bridge | Future integration plan | OUTSIDE_51_60 | future replan | No network or model integration | COMPLETION_AUDIT |
+| LSP and UI/playground | EXPLICITLY_DEFERRED | `docs/roadmap.md` | No editor server, watcher, or web UI | Future tooling plan | OUTSIDE_51_60 | future replan | No server or file watching | HISTORICAL |
 | Concrete dataframe export implementation | NOT_EVIDENCED | Slice 2 Gate 1 exact-term search | No exact implementation contract was found | Future evidence | OUTSIDE_51_60 | decision candidate | No inference from Arrow vocabulary | USER_STRATEGY_ONLY |
 | Concrete remote semantic-package installation implementation | NOT_EVIDENCED | Slice 2 Gate 1 exact-term search | No exact implementation contract was found | Future evidence | OUTSIDE_51_60 | decision candidate | No inference from package vocabulary | USER_STRATEGY_ONLY |
 

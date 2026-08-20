@@ -36,45 +36,8 @@ from pietto.parser_api import parse_source
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SPEC_REL = (
-    "docs/spec/phase54-slice6-local-export-eligibility-visibility-explicit-"
-    "named-reexport-and-facade-semantics-v1.md"
-)
 SOURCE_REL = "src/pietto/_project/module_exports.py"
 TEST_REL = "tests/test_phase54_local_export_visibility_module_facades.py"
-
-EXPECTED_TEST_NAMES = (
-    "test_export_carrier_enums_fields_privacy_and_exact_six_kind_mapping_are_locked",
-    "test_export_carrier_constructors_reject_wrong_types_and_inconsistent_values",
-    "test_no_export_block_builds_one_empty_private_facade_per_module_without_catalog_changes",
-    "test_exact_six_local_declaration_kinds_resolve_and_constraint_derive_remain_private",
-    "test_only_successful_explicit_local_exports_are_visible_without_catalog_mutation",
-    "test_unique_exact_local_match_preserves_nominal_identity_occurrence_and_source_request",
-    "test_missing_local_declaration_fails_closed_with_unresolved_issue",
-    "test_duplicate_exact_local_identity_fails_closed_without_winner",
-    "test_same_spelling_in_another_namespace_or_kind_does_not_match",
-    "test_same_spelling_in_another_module_does_not_satisfy_local_export",
-    "test_module_path_name_case_and_unicode_are_preserved_exactly",
-    "test_multiple_export_blocks_and_items_preserve_statement_item_and_request_order",
-    "test_repeated_exact_requests_remain_distinct_entries_and_duplicate_issue_facts",
-    "test_requests_entries_issues_and_lookup_results_are_immutable_tuples",
-    "test_facade_and_facade_set_are_frozen_slotted_value_equal_hashable_and_ordered",
-    "test_unique_explicit_named_import_candidate_builds_direct_reexport_with_original_target",
-    "test_reexport_exposed_name_is_local_binding_name_and_every_hop_requires_explicit_request",
-    "test_no_imported_candidate_produces_no_reexport",
-    "test_multiple_imported_candidates_fail_closed_without_winner",
-    "test_local_and_imported_candidate_conflict_fails_closed_without_winner",
-    "test_wrong_owner_namespace_kind_or_target_candidate_fails_closed",
-    "test_candidate_seam_never_traverses_facades_import_targets_or_transitive_exports",
-    "test_facade_exact_namespace_kind_name_and_target_identity_queries_return_complete_tuples",
-    "test_local_visibility_query_distinguishes_local_exports_from_reexports_and_private_identities",
-    "test_project_facade_set_preserves_selected_input_order_and_exact_module_lookup",
-    "test_schema_v2_semantic_result_retains_catalogs_and_facades_with_unchanged_failure_posture",
-    "test_schema_v2_parse_and_read_failures_and_manual_constructor_keep_exports_absent",
-    "test_schema_v2_text_and_json_cli_remain_exact_and_serialize_no_export_facts",
-    "test_schema_v1_semantics_cli_json_sql_and_module_export_absence_remain_exact",
-    "test_retained_later_public_privacy_no_diagnostics_and_prohibited_surfaces_are_locked",
-)
 
 ALL_DEFINITIONS = (
     "type Email = Text not null\n"
@@ -244,7 +207,6 @@ def _one_surface(
 def test_export_carrier_enums_fields_privacy_and_exact_six_kind_mapping_are_locked() -> (
     None
 ):
-    assert (REPO_ROOT / SPEC_REL).is_file()
     assert module_exports.__all__ == ()
     assert tuple(module_exports.ProjectModuleExportEntryOrigin) == (
         module_exports.ProjectModuleExportEntryOrigin.LOCAL_DECLARATION,

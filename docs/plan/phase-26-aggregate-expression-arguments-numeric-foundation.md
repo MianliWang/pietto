@@ -151,7 +151,7 @@ Phase 26 Slice 9 is complete as completion audit and status lock work only.
 Phase 26 Aggregate Expression Arguments + Numeric Expression Foundation is
 complete. Slice 9 adds only `tests/test_phase26_completion_audit.py`, this
 status documentation, minimal status sync in `README.md`, `AGENTS.md`, and
-`docs/spec/pietto-v0.9.md`, and narrow hash-lock updates in
+`docs/language.md`, and narrow hash-lock updates in
 `tests/test_phase24_completion_audit.py`.
 
 Slice 9 adds no new production behavior, semantic acceptance, IR model or

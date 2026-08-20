@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import tomllib
 
 from pietto._project.check import check_project_parse_only
 from pietto._project.json_v2 import project_check_result_to_json_dict
@@ -28,11 +27,6 @@ from pietto._project.row_lineage import (
 from pietto.ast_nodes import QueryDef, TableDef
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PLAN_PATH = REPO_ROOT / "docs/plan/phase-49-row-level-computed-let-schema-lineage.md"
-SPEC_PATH = (
-    REPO_ROOT / "docs/spec/phase49-unknown-deferred-diagnostic-ordering-hardening-v1.md"
-)
-PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 
 PRIVATE_JSON_FACTS = (
     "relation_row_schema_states",
@@ -60,32 +54,6 @@ PRIVATE_JSON_FACTS = (
     "provenance",
     "origin",
 )
-
-
-def test_slice12_spec_exists_and_is_linked_from_plan() -> None:
-    assert PLAN_PATH.is_file()
-    assert SPEC_PATH.is_file()
-    docs = " ".join(
-        (
-            PLAN_PATH.read_text(encoding="utf-8")
-            + "\n"
-            + SPEC_PATH.read_text(encoding="utf-8")
-        ).split()
-    )
-
-    for required in (
-        "Phase 49 Slice 12",
-        "Unknown/deferred/diagnostic ordering hardening",
-        "`docs/spec/phase49-unknown-deferred-diagnostic-ordering-hardening-v1.md`",
-        "docs/spec/tests-only hardening",
-        "`relation_row_schema_states`",
-        "`relation_let_scope_facts`",
-        "`relation_row_dependency_graphs`",
-        "`relation_row_lineages`",
-        "Project JSON v2 remains unchanged",
-        "No production source file",
-    ):
-        assert required in docs, required
 
 
 def test_missing_field_unknown_schema_keeps_single_public_diagnostic(
@@ -388,11 +356,6 @@ def test_project_json_v2_keeps_slice12_private_carrier_facts_private(
             "result",
         )
         _assert_private_json_facts_absent(document)
-
-
-def test_package_version_remains_010() -> None:
-    project = tomllib.loads(PYPROJECT_PATH.read_text(encoding="utf-8"))["project"]
-    assert project["version"] == "0.1.0"
 
 
 def _assert_row_schema_state(

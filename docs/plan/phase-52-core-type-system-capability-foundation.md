@@ -154,7 +154,7 @@ Gate 1 is read-only planning. Gate 2 is bounded implementation and evidence, wit
 
 ### Slice 9 Gate 2 Bounded Implementation Status
 
-Slices 1–8 are complete and natural-CI proven. Slice 9 is the current, incomplete completion-audit slice; Phase 52 remains ACTIVE and incomplete, and Phases 53–60 remain UNSTARTED. Gate 2 is the exact static-only `A2/M7/D0` implementation defined by `docs/spec/phase52-completion-audit-and-status-lock-v1.md`. It changes no production source, capability fact, vocabulary, compiler consumer, public API, runtime behavior, or Phase 53 implementation.
+Slices 1–8 are complete and natural-CI proven. Slice 9 is the current, incomplete completion-audit slice; Phase 52 remains ACTIVE and incomplete, and Phases 53–60 remain UNSTARTED. Gate 2 is the exact static-only `A2/M7/D0` implementation defined by `docs/status.md`. It changes no production source, capability fact, vocabulary, compiler consumer, public API, runtime behavior, or Phase 53 implementation.
 
 Slice 9 and Phase 52 complete only after the exact single Slice 9 completion commit is normally pushed to `main` and its unique natural `CI / push / main`, attempt 1, is `completed / success` with an exactly matching `headSha`. After and only after that condition, Phase 52 is `COMPLETED`; Phases 53–60 remain `UNSTARTED`; Phase 53 is the next planned phase but is not automatically ACTIVE. No post-CI repository status-flip commit is planned or required. The repository-standard next handoff is `Phase 53 Slice 1 Gate 0 and Gate 1`.
 

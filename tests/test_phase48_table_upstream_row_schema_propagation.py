@@ -18,37 +18,6 @@ from pietto._project.model import (
 from pietto.ast_nodes import QueryDef, SourceDef, TableDef
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-PLAN_PATH = REPO_ROOT / "docs/plan/phase-48-query-to-query-row-schema.md"
-SPEC_PATH = (
-    REPO_ROOT / "docs/spec/phase48-table-to-table-table-to-query-propagation-v1.md"
-)
-PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
-
-
-def test_slice4_contract_document_exists_and_locks_table_upstream_scope() -> None:
-    assert PLAN_PATH.is_file()
-    assert SPEC_PATH.is_file()
-    docs = " ".join(
-        (
-            PLAN_PATH.read_text(encoding="utf-8")
-            + "\n"
-            + SPEC_PATH.read_text(encoding="utf-8")
-        ).split()
-    )
-
-    for required in (
-        "Phase 48 Slice 4",
-        "Table-to-table / table-to-query propagation",
-        "one-hop table-upstream propagation only",
-        "direct-source concrete table schema seed",
-        "Do not use a schema newly propagated in Slice 4 as an upstream seed",
-        "No query-to-query propagation",
-        "No table-from-query propagation",
-        "No multi-hop propagation",
-        "Project JSON v2 top-level shape remains unchanged",
-        "No other file is approved in Slice 4 Gate 2",
-    ):
-        assert required in docs, required
 
 
 def test_table_from_direct_source_table_propagates_bare_and_qualified_fields(
@@ -432,13 +401,6 @@ def test_project_json_v2_does_not_expose_table_upstream_private_facts(
         "direct_projection",
     ):
         assert private_fact not in serialized
-
-
-def test_package_version_is_locked() -> None:
-    pyproject = PYPROJECT_PATH.read_text(encoding="utf-8")
-
-    assert 'version = "0.1.0"' in pyproject
-    assert 'version = "0.2.0"' not in pyproject
 
 
 def _assert_projection_field(

@@ -31,13 +31,7 @@ from pietto.sql.mysql import emit_mysql_sql
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SPEC_REL = (
-    "docs/spec/phase54-slice4-import-export-contextual-grammar-generated-"
-    "parser-and-immutable-ast-v1.md"
-)
 GRAMMAR_REL = "grammar/Pietto.g4"
-AST_REL = "src/pietto/ast_nodes.py"
-BUILDER_REL = "src/pietto/ast_builder.py"
 GENERATED_RELS = (
     "src/pietto/generated/Pietto.interp",
     "src/pietto/generated/Pietto.tokens",
@@ -216,8 +210,7 @@ def _pipeline(source: str) -> tuple[Script, Any, Any]:
     return script, semantic, ir.ir
 
 
-def test_slice4_contract_artifacts_ast_surface_and_test_inventory_are_exact() -> None:
-    assert (REPO_ROOT / SPEC_REL).is_file()
+def test_module_ast_carrier_surface_is_exact() -> None:
     assert tuple(ModuleDeclarationKind) == KINDS
     assert tuple(field.name for field in fields(ImportItem)) == (
         "span",
@@ -850,17 +843,3 @@ def test_generated_inventory_rules_and_contextual_token_order_are_exact() -> Non
     visitor = _read("src/pietto/generated/PiettoVisitor.py")
     assert "def visitImportStatement" in visitor
     assert "def visitExportStatement" in visitor
-
-
-def test_reader_allowlist_retained_later_and_publication_topology_contracts_are_exact() -> (
-    None
-):
-    spec = _read(SPEC_REL)
-    ast_source = _read(AST_REL)
-    builder_source = _read(BUILDER_REL)
-
-    assert "Slice 5 owns module-qualified nominal declaration identity" in spec
-    assert "PIE-S2701" in spec and "remain absent and un-emitted" in spec
-    assert "module_statements: tuple[ModuleStatement, ...] = ()" in ast_source
-    assert "def visitImportStatement" in builder_source
-    assert "def visitExportStatement" in builder_source

@@ -17,7 +17,7 @@ Trusted Phase 41 handoff:
 
 Slice 1 updates only the approved Phase 42 plan, the Phase 42 scope-lock spec,
 the deferred-feature register, and one focused static-audit test. It does not
-update `README.md`, `AGENTS.md`, `docs/spec/pietto-v0.9.md`, production
+update `README.md`, `AGENTS.md`, `docs/language.md`, production
 source, generated artifacts, fixtures, goldens, examples, scripts, workflows,
 package metadata, lockfiles, release files, or CI configuration.
 
@@ -288,13 +288,13 @@ Phase 42 Slice 1 Gate 2 is limited to:
 
 - `docs/plan/phase-42-aggregate-function-typeclasses-and-decimal-arithmetic-scope-lock.md`;
 - `docs/spec/aggregate-function-typeclasses-and-decimal-arithmetic-scope-lock-v1.md`;
-- `docs/spec/v02-deferred-feature-register-v1.md`;
+- `docs/roadmap.md`;
 - `tests/test_phase42_aggregate_typeclasses_decimal_scope_lock.py`.
 
 No other file is approved. If a production source file, grammar/generated file,
 fixture, golden, example, package file, workflow, script, lockfile, release
 file, public JSON/metadata surface, SQL renderer, IR model, CLI schema,
-`README.md`, `AGENTS.md`, or `docs/spec/pietto-v0.9.md` appears necessary,
+`README.md`, `AGENTS.md`, or `docs/language.md` appears necessary,
 stop and request a Repair Gate 1.
 
 ## Slice 1 Validation Focus

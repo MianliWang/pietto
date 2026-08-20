@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from dataclasses import fields
-from pathlib import Path
 from types import MappingProxyType
 
 import pytest
@@ -30,12 +29,6 @@ from pietto.semantic.model import DecimalPrecisionScale, SemanticModel
 from pietto.sql import SqlResult, emit_postgres_sql
 from pietto.sql.mysql import emit_mysql_sql
 
-SPEC_PATH = Path(
-    "docs/spec/aggregate-function-typeclasses-and-decimal-arithmetic-scope-lock-v1.md"
-)
-SCOPE_LOCK_TEST_PATH = Path(
-    "tests/test_phase42_aggregate_typeclasses_decimal_scope_lock.py"
-)
 
 BASE_SHAPE = (
     "shape Order:\n"
@@ -119,27 +112,6 @@ def test_direct_field_type_expr_facts_are_recoverable_but_computed_outputs_are_n
         assert computed.resolved_type.name == "Decimal"
         assert not hasattr(computed, "precision")
         assert not hasattr(computed, "scale")
-
-
-def test_fusion_formulas_and_overflow_policy_are_future_constraints_only() -> None:
-    spec_text = SPEC_PATH.read_text(encoding="utf-8")
-    scope_lock_test = SCOPE_LOCK_TEST_PATH.read_text(encoding="utf-8")
-
-    for expected in (
-        "scale = max(s1, s2)",
-        "integer_digits = max(p1 - s1, p2 - s2) + 1",
-        "precision = integer_digits + scale",
-        "scale = s1 + s2",
-        "precision = p1 + p2 + 1",
-        "if inferred precision is `> 38`",
-        "degrade to\n  logical `Decimal`",
-        "rather than rounding or truncating",
-        "future strict mode\n  may fail closed",
-    ):
-        assert expected in spec_text
-
-    assert "private expression-level Decimal precision facts" in scope_lock_test
-    assert "computed expression precision facts" in spec_text
 
 
 def test_decimal_int_and_decimal_decimal_expressions_stay_logical_without_precision_fact() -> (

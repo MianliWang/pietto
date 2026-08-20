@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 from dataclasses import fields, replace
 import hashlib
 import inspect
@@ -15,7 +14,6 @@ import tomllib
 
 import pytest
 
-import _phase54_active_gate2_manifest as active_gate2_manifest
 import pietto
 import pietto._project.check as project_check
 import pietto._project.module_inspection as inspection_module
@@ -30,58 +28,9 @@ from pietto._project.model import (
 from pietto._project.module_carrier import ProjectModuleIdentity
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SPEC_REL = (
-    "docs/spec/phase54-slice14-private-module-inspection-and-canonical-"
-    "serialization-v1.md"
-)
 SOURCE_REL = "src/pietto/_project/module_inspection.py"
 TEST_REL = "tests/test_phase54_private_module_inspection_canonical_serialization.py"
 
-EXPECTED_TEST_NAMES = (
-    "test_slice14_contract_status_active_manifest_and_allowlist_are_exact",
-    "test_inspection_vocabulary_carriers_fields_and_privacy_are_exact",
-    "test_schema_v1_has_no_inspection_sidecar_and_public_bytes_remain_exact",
-    "test_schema_v2_builds_the_inspection_sidecar_from_ten_exact_shared_roots",
-    "test_shared_root_predicate_rejects_value_equal_foreign_root_sets",
-    "test_shared_root_predicate_rejects_coordinated_mixed_slice_roots",
-    "test_shared_root_predicate_rejects_partial_misaligned_or_reordered_roots",
-    "test_inspection_authority_derives_products_and_rejects_grafted_projections",
-    "test_inspection_covers_every_selected_module_in_exact_selected_order",
-    "test_inspection_covers_every_declaration_in_catalog_and_source_order",
-    "test_module_digest_is_reached_through_slice13_without_reread_or_rehash",
-    "test_byte_equal_modules_share_one_digest_identity_and_remain_distinct",
-    "test_loader_readiness_is_recorded_as_a_fact_without_loader_behavior",
-    "test_module_cycle_records_blocked_readiness_and_complete_cycle_members",
-    "test_graph_section_records_components_dependency_targets_and_evidence",
-    "test_import_section_keeps_local_aliases_separate_from_nominal_ownership",
-    "test_unresolvable_upstream_text_is_inspected_verbatim_without_revalidation",
-    "test_export_section_records_requests_entries_origins_and_issue_buckets",
-    "test_repeated_nominal_identity_is_ambiguous_with_a_complete_bucket",
-    "test_identity_distinct_occurrences_preserve_multiplicity_and_position",
-    "test_relation_declaration_states_concrete_unknown_deferred_and_blocked",
-    "test_non_relation_declaration_is_absent_rather_than_unknown",
-    "test_origin_section_records_local_and_imported_paths_with_exact_hops",
-    "test_dependency_and_row_lineage_sections_preserve_exact_identities",
-    "test_type_source_and_relation_resolution_sections_are_complete",
-    "test_semantic_fact_section_preserves_ordinals_names_and_states",
-    "test_issue_section_preserves_every_family_status_without_a_winner",
-    "test_inspection_indexes_are_derived_and_return_complete_buckets",
-    "test_canonical_bytes_declare_the_private_format_and_end_with_one_newline",
-    "test_canonical_bytes_encode_every_inspection_record_deterministically",
-    "test_canonical_bytes_are_identical_across_processes_and_hash_seeds",
-    "test_canonical_bytes_are_stable_under_non_authoritative_mapping_order",
-    "test_canonical_bytes_change_with_identity_order_multiplicity_or_state",
-    "test_canonical_bytes_change_with_a_replaced_digest_or_readiness_fact",
-    "test_canonical_bytes_escape_control_characters_and_stay_utf8_exact",
-    "test_canonical_bytes_escape_surrogate_paths_and_always_encode_as_utf8",
-    "test_repeated_identity_occurrence_positions_are_indexed_once_per_bucket",
-    "test_inspection_exposes_no_host_path_inode_address_or_runtime_state",
-    "test_forged_canonical_payload_and_grafted_inspection_are_rejected",
-    "test_eleventh_sidecar_all_or_none_boundary_is_exact_and_fail_closed",
-    "test_inspection_builder_is_pure_over_preloaded_roots_and_performs_no_io",
-    "test_slice13_and_earlier_products_remain_independent_and_unchanged",
-    "test_schema_v2_public_api_cli_json_ir_sql_dependencies_and_goldens_unchanged",
-)
 
 _RECORD_KINDS = (
     "declaration",
@@ -311,46 +260,6 @@ def _family_rank(family: inspection_module.ProjectInspectionIssueFamily) -> int:
         inspection_module.ProjectInspectionIssueFamily.RELATION,
     )
     return order.index(family)
-
-
-def test_slice14_contract_status_active_manifest_and_allowlist_are_exact() -> None:
-    spec = (REPO_ROOT / SPEC_REL).read_text(encoding="utf-8")
-    plan = (
-        REPO_ROOT / "docs/plan/phase-54-local-import-module-export-foundation.md"
-    ).read_text(encoding="utf-8")
-    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
-
-    assert spec.startswith(
-        "# Phase 54 Slice 14 Private Module Inspection And Canonical Serialization v1"
-    )
-    assert "PHASE54_SLICE14_GATE2_COMPLETED_AWAITING_PUBLICATION" in plan
-    assert "Slices 15-16" in plan
-    assert "Slice 14" in readme
-
-    # Slice 14 is published, so its benchmark reads the frozen historical
-    # projection. The active Gate 2 sets belong to the currently open Slice and
-    # move with every later Slice.
-    added = active_gate2_manifest.PHASE54_SLICE14_HISTORICAL_ADDED_PATHS
-    non_reader = active_gate2_manifest.PHASE54_SLICE14_HISTORICAL_NON_READER_PATHS
-    readers = active_gate2_manifest.PHASE54_SLICE14_HISTORICAL_READER_PATHS
-    assert added == {SPEC_REL, SOURCE_REL, TEST_REL}
-    assert non_reader == {
-        "README.md",
-        "docs/plan/phase-54-local-import-module-export-foundation.md",
-        "docs/spec/pietto-v0.9.md",
-        "src/pietto/_project/model.py",
-        "tests/_phase54_active_gate2_manifest.py",
-    }
-    assert len(readers) == 58
-    assert len(non_reader | readers) == 63
-    assert len(added | non_reader | readers) == 66
-    assert sum(path.endswith(".py") for path in added | non_reader | readers) == 62
-    assert not (non_reader & readers)
-    assert not (added & (non_reader | readers))
-    assert active_gate2_manifest.PHASE54_ACTIVE_GATE2_DELETED_PATHS == frozenset()
-    assert "58-reader" in spec
-    assert "exact 62 Python paths" in spec
-    assert "exact `A3_M63_D0`" in spec
 
 
 def test_inspection_vocabulary_carriers_fields_and_privacy_are_exact() -> None:
@@ -1699,13 +1608,3 @@ def test_schema_v2_public_api_cli_json_ir_sql_dependencies_and_goldens_unchanged
         if path.is_file()
     )
     assert len(goldens) == 37
-
-    module = ast.parse((REPO_ROOT / TEST_REL).read_text(encoding="utf-8"))
-    test_nodes = [
-        node
-        for node in module.body
-        if isinstance(node, ast.FunctionDef) and node.name.startswith("test_")
-    ]
-    assert tuple(node.name for node in test_nodes) == EXPECTED_TEST_NAMES
-    assert len(EXPECTED_TEST_NAMES) == 43
-    assert all(not node.decorator_list for node in test_nodes)

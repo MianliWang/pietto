@@ -51,13 +51,6 @@ from pietto.errors import SourceLocation
 REPO_ROOT = Path(__file__).resolve().parents[1]
 HELPER_PATH = REPO_ROOT / "src/pietto/_project/aggregate_grouped_schema.py"
 MODEL_PATH = REPO_ROOT / "src/pietto/_project/model.py"
-PLAN_PATH = (
-    REPO_ROOT / "docs/plan/phase-51-aggregate-grouped-output-schema-foundation.md"
-)
-SPEC_PATH = (
-    REPO_ROOT / "docs/spec/phase51-grouped-key-aggregate-candidate-assembly-v1.md"
-)
-
 EXPECTED_PROJECT_JSON_V2_KEYS = (
     "schema_version",
     "command",
@@ -947,44 +940,6 @@ def test_aggregate_grouped_outputs_are_concrete_private_persisted_and_unserializ
         assert not hasattr(pietto, name)
         assert not hasattr(project_package, name)
         assert name not in serialized
-
-
-def test_plan_contract_and_helper_keep_the_bounded_slice5_boundary() -> None:
-    plan = PLAN_PATH.read_text(encoding="utf-8")
-    spec = SPEC_PATH.read_text(encoding="utf-8")
-    module_source = HELPER_PATH.read_text(encoding="utf-8")
-    grouped_builder_source = inspect.getsource(build_project_grouped_schema_facts)
-    plan_lines = plan.splitlines()
-
-    assert plan_lines.count("### Slice 5 Gate 2 Bounded Implementation Status") == 1
-    assert "## Slice 5 Gate 2 Bounded Implementation Status" not in plan_lines
-    assert spec.splitlines()[0] == (
-        "# Phase 51 Grouped Key-plus-Aggregate Candidate Assembly v1"
-    )
-    for required in (
-        "candidate-only",
-        "unpersisted",
-        "ProjectGroupedSelectedResult",
-        "ProjectGroupedSchemaFacts",
-        "build_project_grouped_schema_facts",
-        "_build_project_aggregate_selected_result",
-        "SelectItem",
-        "MappingProxyType",
-        "grouped=True",
-        "at least one selected aggregate",
-        "exactly 13 paths",
-        "ruff check --fix",
-        "/tmp/pietto-phase51-slice5-gate2-evidence-and-diff.txt",
-    ):
-        assert required in spec, required
-    for slice_number in range(6, 11):
-        assert f"Slice {slice_number}" in spec
-
-    assert "ProjectRowSchema(" not in grouped_builder_source
-    assert "ProjectSemanticModel" not in module_source
-    assert "SEMANTIC_AGGREGATE_NAMES" not in module_source
-    assert "semantic.analyze" not in module_source
-    assert "analyze(" not in grouped_builder_source
 
 
 def _grouped_inputs(
